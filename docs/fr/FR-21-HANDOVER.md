@@ -66,7 +66,7 @@ Revisit any of these you disagree with. None is hard to change.
    sale held as a document (which only R2 writes) is refused by R1 code with 409
    `storno_needs_newer_release`. That is the rollback limitation in the spec's release table.
 3. **Actions per app.**
-   - The invoicing journal has Export, Import, Create and Email.
+   - The invoicing journal has Export, Import, Create, Email and #249's „Издай фактура".
    - The POS journal has View and Storno.
 
    The export is invoicing's endpoint and reads documents only. So until R2 copies the till's
@@ -83,12 +83,16 @@ Revisit any of these you disagree with. None is hard to change.
    §3.4.
 6. **Filters across apps.** Filters ride the URL and survive a reload (tested). They do not
    follow you from one app's journal to the other's; e2e item 5 can be read either way.
-7. **Print from the journal** is not built (§3.4 actions). In invoicing the document page prints.
+7. **FR-22's list pattern is not applied to the journal yet.** FR-22.23 gave the document lists one ⋮
+   row menu (`ui-shared/RowActionsMenu`) and `ListScaffold fit` for 1366 px. FR-22 left the cash
+   register to FR-21 (its §6), so the journal keeps its own row buttons. Adopting both is a small
+   follow-up, and R5 is the natural place.
+8. **Print from the journal** is not built (§3.4 actions). In invoicing the document page prints.
    A POS row has no PDF until R2.
-8. **Receipt state of older till rows.** A POS row rung before the receipt became a recorded step
+9. **Receipt state of older till rows.** A POS row rung before the receipt became a recorded step
    has no `fiscal.state`. The journal reads its receipt number instead (`printed` or `none`), in
    the filter and in the row alike.
-9. **Test names follow §8.1.** `cash-register-immutability.flow.test.ts` also holds FR-21.10's
+10. **Test names follow §8.1.** `cash-register-immutability.flow.test.ts` also holds FR-21.10's
    keyed-lookup cases.
 
 ## 4. Found on the way
@@ -99,6 +103,9 @@ Revisit any of these you disagree with. None is hard to change.
    - R5's D-13 ("the user's open session") builds on whichever of the two is meant. Decide it
      before R5.
    - The e2e fixtures close their sessions because of it.
+   - FR-22's till walks (`e2e/tests/ux-budgets/p4-*`, #250) leave the admin's session open. So
+     `pos-terminal.spec.ts` fails when it runs after them in the same database. The walks, that spec and
+     the terminal's behaviour are all master's. A fresh database, or closing the session, clears it.
 2. **`warehouse_manager` may storno but cannot open either journal.** The role is in
    `STORNO_ROLES` (#145) but holds neither `pos.read` nor `invoicing.read`. This predates FR-21.
 3. **The digest counts credit notes as positive.** This is existing FR-11 behaviour. The storno
@@ -114,16 +121,26 @@ Revisit any of these you disagree with. None is hard to change.
    - `stock-validation.spec.ts:42` (element outside the viewport)
 7. **Playwright 1.64 needs `chromium_headless_shell-1248`.** Install it with
    `bunx playwright install chromium --only-shell`.
-8. **Parallel work on the same files.** On 2026-10-25 the worktree `lgr-wt-cs-invoice` (branch
-   `feat/cash-sale-invoice`) held uncommitted work, which also cites #171:
-   - **What it adds:** an invoice for a cash sale („фактура към касова продажба"), with
-     `Invoice.cashSaleRef`, `taxEventDate` and a `services/biz/sale-counting.ts`.
-   - **What it shares with R1b:** the invoice model and controller, `CashSalesView.vue`, the
-     digest, both ledgers, the documents report, sales history, the invoice summary and
-     doc-delete.
+8. **#249 landed first, so this stack is rebased onto it (2026-10-25).** #249 adds an invoice for
+   a cash sale („фактура към касова продажба", `cashSaleRef`, `taxEventDate`,
+   `services/biz/sale-counting.ts`). It edits the same readers, and it also cites #171. In the
+   rebase:
+   - **Both counting rules are kept, #249's first.**
+     - In totals, an invoice for a cash sale does not count.
+     - Per customer, that invoice counts in place of its cash sale.
+     - FR-21's rule applies on top: `cash-register/counting.ts`, the `cash_storno` sign −1, and
+       leaving out `register.origin: 'pos'` where the union is read.
+   - **The guards sit side by side.**
+     - `/void` refuses a till document before it checks #249's statuses.
+     - The Files rollback skips a till document before it checks for a live invoice.
+   - **#249's cash-sales list additions are in the journal** (R1c):
+     - The `invoiced=yes|no` filter. It covers sales only, and no POS row is ever invoiced.
+     - `invoices` and `invoicingState` on cash-sale document rows, read through #249's
+       `invoicingByCashSale`.
+     - The Invoice column, on by default.
+     - The „Издай фактура" action, in `CashSalesView.vue`'s row slot.
 
-   Whichever lands second rebases onto the other. Two things must survive that merge: the
-   counting rule in `cash-register/counting.ts`, and the `cash_storno` signs.
+     `e2e/tests/cash-sale-invoice.spec.ts` now runs against the journal.
 9. **FR-20 P3-1b (#242) journals every write of a class-R model on a master node.** Invoice is
    class R. R2's copy writes Invoice documents in bulk, and a master's mirror misses any of them
    that bypass the capture. So check that the copy goes through the capture, or that its raw
@@ -136,10 +153,12 @@ Revisit any of these you disagree with. None is hard to change.
 
 ### R1
 - Review and merge #244 → #247 → #248, then deploy (§1).
-- The checks run on 2026-10-25 against the final state of the stack:
-  - `bun run test`: 2971 pass, 20 skip, 0 fail (2991 tests in 276 files)
+- The checks run on 2026-10-26 against the final state of the stack, rebased onto master `96299b36` (after #249 and FR-22 up to #267):
+  - `bun run test`: 3368 pass, 20 skip, 0 fail (3388 tests in 313 files).
   - `bun run build`: green.
-  - The cash-register e2e specs: green, run serially against an isolated database (§7).
+  - E2E, serially against an isolated database (§7): `cash-register`, `cash-sales`, `cash-sale-invoice` (#249's, now against the journal), `pos-terminal`, `pos-transactions` and FR-22's `document-lists`: 29 pass, 1 skipped (`cash-sales` skips its terminal test when the terminal shows no product cards).
+  - FR-22's walks (`--project=ux-budgets`): 17/17. The storno walk now reaches the journal by
+    its new menu entry, „Касови продажби".
 
 ### Before R2: FR-21.14
 The `regal` test sales of March–April 2026 go by §5.2:
@@ -202,14 +221,21 @@ shared dev Mongo on 27018, and its seed wipes nothing that matters:
 ```bash
 docker run -d --name lgr-e2e-mongo -p 27121:27017 mongo:7 mongod --replSet rs0 --bind_ip_all
 docker exec lgr-e2e-mongo mongosh --quiet --eval "rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]})"
-# e2e.env = .env.test with NODE_ENV=development, PORT=4921 and
+# e2e.env = .env.test with NODE_ENV=development, HOST=127.0.0.1, a free PORT (4987 here) and
 #   MONGODB_URI=mongodb://localhost:27121/lgr?replicaSet=rs0&directConnection=true
 bun --env-file=e2e.env run packages/tests/src/helpers/seed.ts
 bun run build
 (cd packages/portal-api && bun --env-file=../../e2e.env src/unified.ts) &
-cd packages/e2e && BASE_URL=http://localhost:4921 bunx playwright test \
+cd packages/e2e && BASE_URL=http://127.0.0.1:4987 bunx playwright test \
   tests/cash-register.spec.ts tests/pos-transactions.spec.ts tests/cash-sales.spec.ts \
-  tests/pos-terminal.spec.ts --project=invoicing-inventory --workers=1
+  tests/cash-sale-invoice.spec.ts tests/pos-terminal.spec.ts --project=invoicing-inventory --workers=1
 ```
 
 With `BASE_URL` set, Playwright starts no server of its own.
+
+Two fallbacks, both used on 2026-10-26:
+- **Docker is down.** Use an in-memory replica set instead: from `packages/tests`, run
+  `bun -e "import { MongoMemoryReplSet } from 'mongodb-memory-server'; const rs = await MongoMemoryReplSet.create({ replSet: { count: 1, name: 'rs0' }, instanceOpts: [{ port: 27131 }] }); console.log(rs.getUri()); setInterval(() => {}, 1 << 30)"` in the background, and put `mongodb://127.0.0.1:27131/lgr?replicaSet=rs0` in the env file.
+- **Playwright's browser build is missing.** A temporary config that spreads `playwright.config.ts` and sets `use.channel: 'chrome'` on every project runs on the installed Chrome. Pass it with `-c`, and delete it afterwards.
+
+⚠ **Check that the port is free first** (`netstat -ano | grep ":4987 "`). On Windows, a server another session binds to `127.0.0.1` on the same port shadows yours for `localhost`. Your tests then run against its server and its database: a route you just added answers 404.

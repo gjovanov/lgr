@@ -1909,6 +1909,9 @@ journal page in both apps) are built; the handover for what remains is
   `/pos/orders` and `/invoicing/cash-sales` (route names unchanged); a till row that is not a
   document yet opens at `invoicing.cash-sales.view`. Its column choices live under ONE grid id
   (`ListScaffold`'s `gridId` prop), and headers may be `defaultHidden` (`useGridColumns`).
+  It also carries #249's invoices for a cash sale: the `invoiced=yes|no` filter (sales only),
+  `invoices` and `invoicingState` on document sale rows (`invoicingByCashSale`), the Invoice column and
+  invoicing's „Издай фактура" action in its row slot.
 - ⚠ **`exchangeRate` is the base-currency value of ONE unit of the document's currency**
   (`totalBase = total × exchangeRate`): a BGN till session in an EUR org maps to 1/1.95583, not
   1.95583 (`cash-register/mapping.ts#exchangeRateFor`).
