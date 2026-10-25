@@ -1304,11 +1304,36 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       // A keyed retry is answered before the original is claimed again or anything is allocated.
       const hash = key ? requestHash(`pos.storno:${sessionId}`, body) : undefined
       const findKeyed = () => key ? POSTransaction.findOne({ orgId, clientKey: key }).lean().exec() : Promise.resolve(null)
+      const answerKeyed = (row: any) => settle(row, hash!, stornoContext, runStornoSteps, (id: string, st: Status) => stornoResponse(id, orgId, st), status)
       const keyed = await findKeyed()
-      if (keyed) return settle(keyed, hash!, stornoContext, runStornoSteps, (id: string, st: Status) => stornoResponse(id, orgId, st), status)
+      if (keyed) return answerKeyed(keyed)
 
       if (session.status === 'closed') return status(400, { message: 'Session is closed' })
-      if (original.status === 'cancelled') return status(400, { message: 'Original transaction is already cancelled' })
+      if (original.status === 'cancelled') {
+        // ⚠ A duplicate sent at the same moment can read the sale AFTER the first request claimed
+        // it and BEFORE that request wrote its storno row, the row that carries the key (the
+        // fiscal context and the number are in between). It answered "already cancelled" for a
+        // storno that went through. So a keyed request waits for the row, as a lost claim does.
+        // One query sees both "the row with my key" and "a live storno of this sale", so a row
+        // written between two reads cannot be taken for somebody else's.
+        if (key) {
+          for (let i = 0; i < 40; i++) {
+            const rows: any[] = await POSTransaction.find({
+              orgId,
+              $or: [
+                { clientKey: key },
+                // A storno whose receipt failed was given back and is `cancelled` itself (#145).
+                { type: 'storno', originalTransactionId: original.id, status: { $ne: 'cancelled' } },
+              ],
+            }).lean().exec()
+            const mine = rows.find(t => t.clientKey === key)
+            if (mine) return answerKeyed(mine)
+            if (rows.length) break   // reversed by another request
+            await new Promise(res => setTimeout(res, 100))
+          }
+        }
+        return status(400, { message: 'Original transaction is already cancelled' })
+      }
       if (original.type === 'storno') return status(400, { message: 'Cannot storno a storno transaction' })
 
       // #145: a storno goes back through the till that took the money — the same warehouse, so
@@ -1331,7 +1356,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         if (key) {
           for (let i = 0; i < 40; i++) {
             const winner = await findKeyed()
-            if (winner) return settle(winner, hash!, stornoContext, runStornoSteps, (id: string, st: Status) => stornoResponse(id, orgId, st), status)
+            if (winner) return answerKeyed(winner)
             await new Promise(res => setTimeout(res, 100))
           }
         }
