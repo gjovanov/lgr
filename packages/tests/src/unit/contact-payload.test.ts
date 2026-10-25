@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'bun:test'
-// PURE module — reached by path like document-payload: `invoicing-ui` is a private app package.
+// PURE module. In ui-shared since FR-22.6, with the contact picker that uses it.
 import {
   buildContactPayload,
   isValidOptionalEmail,
   type ContactFormState,
-} from '../../../invoicing-ui/src/composables/contact-payload'
+} from 'ui-shared/composables/contact-payload'
 
 /**
  * The contact forms used to post their reactive state verbatim. An empty email box failed the

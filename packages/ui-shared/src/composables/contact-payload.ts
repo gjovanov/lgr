@@ -3,7 +3,8 @@
  *
  * PURE — no Vue, no I/O — so it is unit-tested directly
  * (`packages/tests/src/unit/contact-payload.test.ts`). Both contact editors use it: the
- * Contacts page and the "create contact" dialog on the invoice forms.
+ * Contacts page and the "create contact" dialog of the party picker
+ * (`ContactAutocompleteWithCreate`: the invoice forms, the cash sale, the goods receipt).
  *
  * It exists because the forms used to post their reactive state as-is, and three ordinary
  * things a person does each came back as a server error naming a schema path:

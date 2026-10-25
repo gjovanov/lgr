@@ -38,6 +38,7 @@
                 v-model="form.contactId"
                 :contacts="contacts"
                 :label="$t(config.partyLabelKey)"
+                :org-url="orgUrl()"
                 :required="config.partyRequired"
                 :loading="loadingContacts"
                 class="flex-grow-1"
@@ -340,7 +341,7 @@ import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
 import BankInfoRow from '../BankInfoRow.vue'
 import SignatureFooter from '../SignatureFooter.vue'
-import ContactAutocompleteWithCreate from '../ContactAutocompleteWithCreate.vue'
+import ContactAutocompleteWithCreate from 'ui-shared/components/ContactAutocompleteWithCreate.vue'
 import DocumentUpperSection from './DocumentUpperSection.vue'
 import DocumentLineTable from './DocumentLineTable.vue'
 import DocumentTotalsCard from './DocumentTotalsCard.vue'

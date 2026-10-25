@@ -129,7 +129,7 @@ import ContactMovementsDialog from '../components/ContactMovementsDialog.vue'
 import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityFormShell.vue'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
-import { buildContactPayload, isValidOptionalEmail } from '../composables/contact-payload'
+import { buildContactPayload, isValidOptionalEmail } from 'ui-shared/composables/contact-payload'
 
 const { t } = useI18n()
 const route = useRoute()

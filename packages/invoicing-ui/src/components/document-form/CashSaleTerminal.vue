@@ -34,6 +34,7 @@
                 v-model="form.contactId"
                 :contacts="contacts"
                 :label="$t(config.partyLabelKey)"
+                :org-url="orgUrl()"
                 :required="config.partyRequired"
                 :loading="loadingContacts"
                 :disabled="readonly"
@@ -397,7 +398,7 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import BankInfoRow from '../BankInfoRow.vue'
 import SignatureFooter from '../SignatureFooter.vue'
-import ContactAutocompleteWithCreate from '../ContactAutocompleteWithCreate.vue'
+import ContactAutocompleteWithCreate from 'ui-shared/components/ContactAutocompleteWithCreate.vue'
 import CashSaleInvoiceDialog from '../CashSaleInvoiceDialog.vue'
 import { useRouter } from 'vue-router'
 import { useDocumentForm, type UseDocumentFormOptions } from '../../composables/document-form/useDocumentForm'
