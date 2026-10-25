@@ -316,6 +316,38 @@ describe('storno, session open and session close with a key', () => {
     expect(s.transactionCount).toBe(2)
   }, 60_000)
 
+  it('a duplicate that reads the sale after the first claimed it, before its row exists, answers as the first does', async () => {
+    const w = await world()
+    const saleId = await soldOnce(w)
+    const body = { originalTransactionId: saleId, reason: 'customer_return' }
+
+    // The window, held open: the first request has claimed the sale and not yet written its row.
+    await POSTransaction.updateOne({ _id: saleId }, { $set: { status: 'cancelled' } }).exec()
+    const duplicate = post(stornoUrl(w), w.token, body, 'storno-key-0003')
+    await new Promise(res => setTimeout(res, 250))
+    // ...and now the first request itself runs.
+    await POSTransaction.updateOne({ _id: saleId }, { $set: { status: 'completed' } }).exec()
+    const first = await post(stornoUrl(w), w.token, body, 'storno-key-0003')
+    const late = await duplicate
+
+    expect([first.status, late.status]).toEqual([200, 200])
+    expect(late.json.transaction.id).toBe(first.json.transaction.id)
+    expect(stornoReceipts(w.sim)).toHaveLength(1)
+  }, 60_000)
+
+  it('a keyed storno of a sale another request reversed is refused at once, not after the wait', async () => {
+    const w = await world()
+    const saleId = await soldOnce(w)
+    const body = { originalTransactionId: saleId, reason: 'customer_return' }
+    expect((await post(stornoUrl(w), w.token, body, 'storno-key-0004')).status).toBe(200)
+
+    const started = Date.now()
+    const other = await post(stornoUrl(w), w.token, body, 'storno-key-0005')
+    expect(other.status).toBe(400)
+    expect(other.json.message).toContain('already cancelled')
+    expect(Date.now() - started).toBeLessThan(1000)
+  }, 60_000)
+
   it('a storno retried after success returns it, instead of "already cancelled"', async () => {
     const w = await world()
     const saleId = await soldOnce(w)
