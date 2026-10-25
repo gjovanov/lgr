@@ -313,6 +313,39 @@ function synthesizeStatusHistory(invoice: any): any[] {
 
 const PAYMENT_METHODS = ['cash', 'bank_transfer', 'card', 'cash_on_delivery', 'other']
 
+/** Half a cent: money is compared at the cent, never at floating-point precision. */
+const PAYMENT_TOLERANCE = 0.005
+
+const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
+
+/**
+ * FR-22.7: what a document still has to be paid — its total less what has been paid on it, the
+ * figure the record-payment dialog offers.
+ */
+function outstandingOf(doc: { total?: number; amountPaid?: number }): number {
+  return round2((Number(doc.total) || 0) - (Number(doc.amountPaid) || 0))
+}
+
+/** Whether `amount` pays more than the document still owes. */
+function overpays(doc: { total?: number; amountPaid?: number }, amount: number): boolean {
+  return (Number(doc.amountPaid) || 0) + amount > (Number(doc.total) || 0) + PAYMENT_TOLERANCE
+}
+
+/**
+ * The refusal of an overpayment. Nothing posts one on purpose: the dialog offers the outstanding
+ * amount, the cash rule settles exactly the total, and no import records payments through this
+ * route. An amount above what is owed was a typing slip that left the document paid with a
+ * negative amount due.
+ */
+function overpayment(status: Status, doc: { total?: number; amountPaid?: number }, amount: number) {
+  const outstanding = outstandingOf(doc)
+  return status(422, {
+    code: 'overpayment',
+    outstanding,
+    message: `Payment ${round2(amount)} is more than the ${outstanding} still due on this document`,
+  })
+}
+
 /**
  * Filter documents by payment method. A document matches when any of its recorded
  * payments (`payments[].method`) uses one of the requested methods, or — for documents
@@ -1248,6 +1281,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       }
       if (['voided', 'cancelled', 'paid'].includes(invoice.status))
         return status(400, { message: 'Cannot record payment on this invoice' })
+      if (overpays(invoice, body.amount)) return overpayment(status, invoice, body.amount)
 
       /**
        * ⚠ ONE atomic update: append the payment, add it to `amountPaid`, and derive
@@ -1275,6 +1309,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           _id: oid(id), orgId: oid(orgId),
           status: { $nin: ['voided', 'cancelled', 'paid'] },
           ...(key ? { 'payments.clientKey': { $ne: key } } : {}),
+          // The overpayment check again, inside the update: two payments recorded at once each
+          // fit what was owed when they were read, and must not overpay it between them.
+          $expr: { $lte: [{ $add: [{ $ifNull: ['$amountPaid', 0] }, body.amount] }, { $add: ['$total', PAYMENT_TOLERANCE] }] },
         },
         [
           {
@@ -1316,11 +1353,15 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         { returnDocument: 'after' },
       )
       if (!after) {
-        // A concurrent request with this key won, or the invoice became paid/voided meanwhile.
-        const current = await Invoice.findOne({ _id: id, orgId }).lean().exec()
+        // A concurrent request with this key won, the invoice became paid/voided meanwhile, or
+        // another payment took what was left of it.
+        const current: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
         if (key) {
           const replayed = await replayPayment(current)
           if (replayed) return replayed
+        }
+        if (current && !['voided', 'cancelled', 'paid'].includes(current.status) && overpays(current, body.amount)) {
+          return overpayment(status, current, body.amount)
         }
         return status(400, { message: 'Cannot record payment on this invoice' })
       }

@@ -1168,6 +1168,7 @@
     "pendingTransferApproval": "Ausstehende Transfergenehmigung",
     "invoiceVoided": "Rechnung erfolgreich storniert",
     "paymentRecorded": "Zahlung erfolgreich erfasst",
+    "paymentExceedsOutstanding": "Der Betrag übersteigt die noch offenen {amount}",
     "convertedToInvoice": "Erfolgreich in Rechnung umgewandelt",
     "orderExecuted": "Zahlungsauftrag ausgeführt",
     "searchProduct": "Produkte suchen...",

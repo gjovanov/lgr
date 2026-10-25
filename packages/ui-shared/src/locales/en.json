@@ -1047,6 +1047,7 @@
     "pendingTransferApproval": "Pending transfer approval",
     "invoiceVoided": "Invoice voided successfully",
     "paymentRecorded": "Payment recorded successfully",
+    "paymentExceedsOutstanding": "The amount is more than the {amount} still due",
     "convertedToInvoice": "Converted to invoice successfully",
     "orderExecuted": "Payment order executed successfully",
     "searchProduct": "Type to search products...",

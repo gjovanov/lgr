@@ -187,42 +187,7 @@
       @committed="onImported"
     />
 
-    <v-dialog v-model="paymentDialog" max-width="500">
-      <v-card>
-        <v-card-title>{{ $t('invoicing.recordPayment') }}</v-card-title>
-        <v-card-text>
-          <v-form ref="paymentFormRef">
-            <v-text-field
-              v-model.number="paymentForm.amount"
-              :label="$t('common.amount')"
-              type="number"
-              :rules="[rules.required]"
-            />
-            <v-select
-              v-model="paymentForm.method"
-              :label="$t('invoicing.paymentMethod')"
-              :placeholder="$t('invoicing.paymentMethod')"
-              :items="paymentMethods"
-              item-title="text"
-              item-value="value"
-              persistent-placeholder
-              :rules="[rules.required]"
-            />
-            <DateField
-              v-model="paymentForm.date"
-              :label="$t('common.date')"
-              :rules="[rules.required]"
-            />
-            <v-text-field v-model="paymentForm.reference" :label="$t('invoicing.reference')" />
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="paymentDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="loading" @click="recordPayment">{{ $t('common.save') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <RecordPaymentDialog v-model="paymentDialog" :document="paymentDoc" @recorded="refresh" />
 
     <v-dialog v-model="deleteDialog" max-width="400">
       <v-card>
@@ -284,8 +249,8 @@ import FilterBar from 'ui-shared/components/FilterBar.vue'
 import type { StatCardDef } from 'ui-shared/components/StatCard.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
-import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 import { useRowEmail } from '../composables/useRowEmail'
+import RecordPaymentDialog from '../components/RecordPaymentDialog.vue'
 
 interface Invoice {
   _id: string
@@ -299,14 +264,14 @@ interface Invoice {
   exchangeRate?: number
   total: number
   status: string
-  paidAmount?: number
+  amountPaid?: number
+  paymentMethod?: string
 }
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
-const paymentMethods = usePaymentMethods()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
@@ -326,6 +291,7 @@ const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')
 const deleteDialog = ref(false)
 const paymentDialog = ref(false)
+const paymentDoc = ref<Invoice | null>(null)
 const selectedId = ref('')
 const statusFilter = ref<string[]>([])
 // initialized in onMounted from statusOptions to "all selected"
@@ -336,7 +302,6 @@ const tagFilter = ref<string[]>([])
 const SALES_TYPES = ['invoice', 'credit_note', 'debit_note'] as const
 const TYPE_COLORS: Record<string, string> = { invoice: 'primary', credit_note: 'warning', debit_note: 'error' }
 const typeFilter = ref<string[]>([])
-const paymentFormRef = ref()
 
 const transferDialog = ref(false)
 const transferShortfalls = ref<any[]>([])
@@ -498,17 +463,6 @@ const VOIDED_KEY: Record<string, string> = {
   debit_note: 'invoicing.debitNoteVoided',
 }
 
-const paymentForm = ref({
-  amount: 0,
-  method: 'bank_transfer',
-  date: new Date().toISOString().split('T')[0],
-  reference: '',
-})
-
-const rules = {
-  required: (v: string | number) => (v !== '' && v !== null && v !== 0) || t('validation.required'),
-}
-
 const headers = computed(() => [
   { title: t('invoicing.invoiceNumber'), key: 'number', sortable: true },
   { title: t('invoicing.documentType'), key: 'type' },
@@ -605,9 +559,8 @@ async function sendInvoice(item: Invoice) {
   }
 }
 
-// #155: one Idempotency-Key per Issue / Record-payment attempt (ui-shared/composables/idempotency).
+// #155: one Idempotency-Key per Issue attempt (ui-shared/composables/idempotency).
 const issueAttempt = createIdempotentAction()
-const paymentAttempt = createIdempotentAction()
 
 async function confirmTransferAndSend(proposals: any[]) {
   transferConfirming.value = true
@@ -628,31 +581,10 @@ async function confirmTransferAndSend(proposals: any[]) {
   }
 }
 
+/** FR-22.7: the dialog opens on what the row still owes, by the method the row is paid with. */
 function openPaymentDialog(item: Invoice) {
-  selectedId.value = item._id
-  paymentForm.value = {
-    amount: (item.total || 0) - (item.paidAmount || 0),
-    method: 'bank_transfer',
-    date: new Date().toISOString().split('T')[0],
-    reference: '',
-  }
+  paymentDoc.value = item
   paymentDialog.value = true
-}
-
-async function recordPayment() {
-  const { valid } = await paymentFormRef.value.validate()
-  if (!valid) return
-  loading.value = true
-  try {
-    await paymentAttempt.run({ id: selectedId.value, ...paymentForm.value }, headers => httpClient.post(`${appStore.orgUrl()}/invoices/${selectedId.value}/payments`, paymentForm.value, { headers }))
-    showSuccess(t('invoicing.paymentRecorded'))
-    paymentDialog.value = false
-    await refresh()
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
-  } finally {
-    loading.value = false
-  }
 }
 
 async function voidInvoice(item: Invoice) {

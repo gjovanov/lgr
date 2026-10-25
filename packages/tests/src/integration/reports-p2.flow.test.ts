@@ -322,7 +322,8 @@ describe('document registers (sales-documents / purchase-documents / cash-regist
       const org = await createTestOrg()
       const orgId = org._id as Types.ObjectId
       const c = await createTestContact(orgId)
-      // POST /invoices/:id/payments does not refuse an overpayment.
+      // Until FR-22.7, POST /invoices/:id/payments did not refuse an overpayment, so such
+      // documents exist.
       await createTestInvoice(orgId, c._id as Types.ObjectId, {
         invoiceNumber: 'INV-OVER', status: 'paid', issueDate: yesterday, total: 100, amountPaid: 150, amountDue: -50,
         paymentMethod: 'bank_transfer', payments: [{ method: 'cash', amount: 150, date: yesterday }],

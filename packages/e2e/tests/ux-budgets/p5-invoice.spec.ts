@@ -273,4 +273,9 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
 
   const result = walk.finish()
   expect(result.clicks).toBeGreaterThan(0)
+
+  // ── FR-22 slice 1 guards (each failed on the code the budgets were first measured on) ──
+  // B-9 / FR-22.7: the payment dialog opens on what is still due, by the invoice's own method.
+  expect(methodShown).toMatch(/карта/i)
+  expect(amount).toBeCloseTo(issued.total - (issued.amountPaid || 0), 2)
 })

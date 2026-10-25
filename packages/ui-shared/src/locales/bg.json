@@ -1047,6 +1047,7 @@
     "pendingTransferApproval": "Чакащо одобрение за трансфер",
     "invoiceVoided": "Фактурата е анулирана успешно",
     "paymentRecorded": "Плащането е записано успешно",
+    "paymentExceedsOutstanding": "Сумата е повече от оставащите за плащане {amount}",
     "convertedToInvoice": "Успешно преобразувана във фактура",
     "orderExecuted": "Платежното нареждане е изпълнено",
     "searchProduct": "Търсете продукти...",
