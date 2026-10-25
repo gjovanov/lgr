@@ -1191,7 +1191,7 @@ audit-logged:
 - **What expiry never blocks:** reading, exports, the SUPTO export, backups, the fiscal day close,
   a storno or credit note of an existing sale, a payment against an existing document, and a move
   back to the cloud. A customer can always close the day and leave with its data.
-- **The rest is a proposal** (§12 Q4), awaiting the owner's confirmation:
+- **The rest was a proposal** (§12 Q4), **confirmed by the owner on 2026-10-25** and built in plan step P2-3b:
   - **Who:** on-prem is an Enterprise feature (€29 per user per month today, `PLANS` in
     `config/src/index.ts`), priced like the cloud plan: users are counted, desktops and masters are
     not. An Air-gapped master is billed a year ahead.
@@ -2383,7 +2383,7 @@ daily reconciliation against PlusMinus as the go/no-go signal.
        documents have been told from regal-pz's.
 4. **Pricing and licence.** Is on-prem a plan feature? What does an expired licence block: nothing,
    new documents, or everything except reading and the fiscal day close?
-   - **Proposal (2026-10-20), awaiting confirmation:** FR-20.55. In short, on-prem is an
+   - **Answer (2026-10-25): as proposed,** FR-20.55. In short, on-prem is an
      Enterprise feature priced per user like the cloud. Expiry gives 30 days of grace, then stops
      new sessions and new documents at a day boundary, and never blocks closing the day, refunds,
      payments, exports or leaving.
