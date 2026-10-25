@@ -53,10 +53,15 @@ windows-sys = { version = "0.59", features = [
   "Win32_System_SystemInformation",
   "Win32_Storage_FileSystem",
   "Win32_Networking_WinHttp",
+  # FR-20.28 — the master's DNS-SD advert through Windows' own mDNS (`advert.rs`), which already has
+  # the firewall's leave to answer the LAN; a socket of our own would not.
+  "Win32_NetworkManagement_Dns",
 ] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+# FR-20.28 — the DNS-SD advert off Windows: a pure-Rust mDNS responder.
+mdns-sd = "0.13"
 
 [dev-dependencies]
 tempfile = "3"

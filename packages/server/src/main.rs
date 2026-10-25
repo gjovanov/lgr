@@ -4,6 +4,7 @@
 //! answers a local control channel, and registers itself with the OS. Everything a shop's server
 //! does goes through it: the API never runs on its own on a master.
 
+mod advert;
 mod backoff;
 mod child;
 mod certs;
@@ -250,6 +251,15 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                                     ingress::forward(req, ingress::Source::Lan, peer, &up, true).await
                                 }
                             })));
+                            // FR-20.28 — found on the LAN by DNS-SD, and found again after a DHCP
+                            // change: the advert follows the address the pairing code names.
+                            match front::node_id(&paths.data) {
+                                Err(e) => tracing::error!(error = %format!("{e:#}"), "no DNS-SD advert: the node id cannot be read"),
+                                Ok(node) => {
+                                    let machine = front::hostname().unwrap_or_else(|| "lgr-server".into());
+                                    sup.add_ingress(tokio::spawn(advertise(machine, node, identity.fingerprint.clone(), port)));
+                                }
+                            }
                             // A new address (DHCP) means a new certificate, served from the next handshake.
                             let hosts = front.hosts.clone();
                             sup.add_ingress(tokio::spawn(async move {
@@ -279,6 +289,48 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
         })
         .await
     })
+}
+
+/// Keep this master's DNS-SD advert on the LAN (FR-20.28): registered for the address the pairing
+/// code names (`certs::lan_ip`), and moved when DHCP moves it. A failed registration is tried again
+/// a minute later, and is never fatal: an address can always be typed in. Withdrawn when the task
+/// ends, with the ingresses (FR-20.23).
+async fn advertise(machine: String, node: String, fingerprint: String, port: u16) {
+    let mut current: Option<(std::net::Ipv4Addr, advert::Registration)> = None;
+    loop {
+        let ip = certs::lan_ip(&certs::lan_addresses(), certs::default_route_v4());
+        if current.as_ref().map(|(at, _)| *at) != ip {
+            if let Some((_, old)) = current.take() {
+                // Blocking: the OS confirms a withdrawal.
+                let _ = tokio::task::spawn_blocking(move || drop(old)).await;
+            }
+            if let Some(ip) = ip {
+                let a = advert::Advert {
+                    instance: advert::instance_label(&machine),
+                    // ⚠ The machine's own name: Windows answers address queries for no other, so an
+                    // advert pointing at a name of its own never resolves (measured: the resolve
+                    // waited until cancelled). And it answers the machine's name with whichever
+                    // interface the query came in on, so a master with a VPN or an overlay is found at
+                    // an address no till can reach (measured: 100.65.0.5, its WireGuard address, not
+                    // the LAN's 192.168.8.115). Hence `ip` in the TXT record, which desktops prefer.
+                    host: machine.to_ascii_lowercase(),
+                    ip,
+                    port,
+                    node: node.clone(),
+                    fingerprint: fingerprint.clone(),
+                };
+                match tokio::task::spawn_blocking(move || advert::register(&a)).await {
+                    Ok(Ok(registration)) => {
+                        tracing::info!(%ip, port, "advertised on the LAN as {}", advert::SERVICE);
+                        current = Some((ip, registration));
+                    }
+                    Ok(Err(e)) => tracing::warn!(error = %format!("{e:#}"), "the DNS-SD advert failed; desktops can still type the address"),
+                    Err(e) => tracing::warn!(error = %e, "the DNS-SD advert could not run"),
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    }
 }
 
 /// `LAN_INGRESS=on` (and `LAN_PORT`, 4443): the port the LAN ingress opens, or `None` while it is off.
