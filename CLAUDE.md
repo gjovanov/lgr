@@ -1748,5 +1748,10 @@ master** (`portal-api/src/controllers/local-auth.controller.ts`).
   - ⚠ Those calls use plain `fetch` (`pos-ui/src/composables/useTillPin.ts`), never the shared
     HTTP client. They run with no session, or with the last operator's, and the client's 401
     recovery would sign the tab out or send it to the portal.
+- ⚠ **A master's PASSWORD sign-in backs off too.** There the password is the person's local
+  credential, so `/auth/login`'s S-08 throttle uses the PIN's curve once a counter reaches its
+  limit, never the cloud's 15-minute lock. A lock would let anyone at a till lock the admin out
+  for an outage. Password-reset requests still lock: that only stops a mail flood. The cloud is
+  unchanged.
 - Not yet: local passwords delivered from lgrai.app, and refusing person edits on a linked master
   (P2, with the link).

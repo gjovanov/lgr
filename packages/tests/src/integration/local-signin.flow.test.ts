@@ -250,3 +250,23 @@ describe('an Air-gapped master owns its people (AC 64)', () => {
     expect((await call('POST', '/api/auth/login', { body: { username: 'new@pins.test', password: 'first local word' } })).status).toBe(401)
   })
 })
+
+describe("a master's password sign-in backs off, never locks (FR-20.40, trap 32)", () => {
+  it('a counter at its limit waits seconds, not the cloud\'s quarter of an hour, and the right password still works', async () => {
+    const saved = { ...config.loginThrottle }
+    Object.assign(config.loginThrottle, { enabled: true, perAccount: 3 })
+    try {
+      const wrong = { username: 'cashier@pins.test', password: 'not the password' }
+      for (let i = 0; i < 3; i++) expect((await call('POST', '/api/auth/login', { body: wrong })).status).toBe(401)
+      const waiting = await call('POST', '/api/auth/login', { body: { username: 'cashier@pins.test', password: 'the password' } })
+      expect(waiting.status).toBe(429)
+      const retryAfter = Number(waiting.headers.get('retry-after'))
+      expect(retryAfter).toBeGreaterThan(0)
+      expect(retryAfter).toBeLessThanOrEqual(60)
+      await Bun.sleep(retryAfter * 1000 + 200)
+      expect((await call('POST', '/api/auth/login', { body: { username: 'cashier@pins.test', password: 'the password' } })).status).toBe(200)
+    } finally {
+      Object.assign(config.loginThrottle, saved)
+    }
+  }, 30_000)
+})

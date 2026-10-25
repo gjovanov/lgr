@@ -1,5 +1,6 @@
 import { LoginThrottle } from 'db/models'
-import { config } from 'config'
+import { config, nodeRole } from 'config'
+import { BACKOFF } from './identity/local-credentials.service.js'
 
 /**
  * S-08 — the failed-sign-in throttle for `POST /auth/login`.
@@ -72,7 +73,8 @@ export async function loginRetryAfterSeconds(input: ThrottleInput): Promise<numb
 /** Count one failed sign-in against every counter it belongs to. */
 export async function recordLoginFailure(input: ThrottleInput): Promise<void> {
   if (!loginThrottleEnabled()) return
-  await bump(keysFor(input).all)
+  // A master backs off rather than locks (FR-20.40, trap 32).
+  await bump(keysFor(input).all, { backoff: nodeRole() === 'master' })
 }
 
 // ── Password-reset requests (multi-org Phase 4) ──────────────────────────────────────────────
@@ -99,7 +101,8 @@ export async function passwordResetRetryAfterSeconds(email: string, ip?: string)
 /** Count a reset request, whether or not the address has an account (the answer is the same). */
 export async function recordPasswordResetRequest(email: string, ip?: string): Promise<void> {
   if (!loginThrottleEnabled()) return
-  await bump(resetKeys(email, ip))
+  // Locked everywhere: a lock here locks nobody out of signing in, it only stops a mail flood.
+  await bump(resetKeys(email, ip), { backoff: false })
 }
 
 // ── The counters ────────────────────────────────────────────────────────────────────────────
@@ -116,8 +119,8 @@ async function lockedFor(keys: string[]): Promise<number> {
   return Math.max(1, Math.ceil((until - now.getTime()) / 1000))
 }
 
-/** One event against each counter; a counter reaching its `max` locks its key. */
-async function bump(keyed: Keyed[]): Promise<void> {
+/** One event against each counter; a counter reaching its `max` locks its key, or backs it off. */
+async function bump(keyed: Keyed[], opts: { backoff: boolean }): Promise<void> {
   const { windowMs, lockMs } = config.loginThrottle
   const now = new Date()
   const windowCutoff = new Date(now.getTime() - windowMs)
@@ -137,18 +140,37 @@ async function bump(keyed: Keyed[]): Promise<void> {
               updatedAt: now,
             },
           },
-          // Reaching the limit locks the key; a lock already running is left as it is.
-          {
-            $set: {
-              lockedUntil: {
-                $cond: [
-                  { $and: [{ $gte: ['$failures', max] }, { $not: [{ $gt: [{ $ifNull: ['$lockedUntil', null] }, now] }] }] },
-                  lockUntil,
-                  { $ifNull: ['$lockedUntil', null] },
-                ],
+          opts.backoff
+            // FR-20.40, trap 32: on a master the password is the person's LOCAL credential, and a
+            // lock lets anyone at a till lock the shop's admin out for the length of an outage. So
+            // a counter at its limit backs off instead: the PIN's curve, 1 s doubling to 60 s.
+            ? {
+              $set: {
+                lockedUntil: {
+                  $cond: [
+                    { $gte: ['$failures', max] },
+                    {
+                      $add: [now, {
+                        $min: [BACKOFF.maxMs, { $multiply: [BACKOFF.firstMs, { $pow: [2, { $subtract: ['$failures', max] }] }] }],
+                      }],
+                    },
+                    { $ifNull: ['$lockedUntil', null] },
+                  ],
+                },
+              },
+            }
+            // Reaching the limit locks the key; a lock already running is left as it is.
+            : {
+              $set: {
+                lockedUntil: {
+                  $cond: [
+                    { $and: [{ $gte: ['$failures', max] }, { $not: [{ $gt: [{ $ifNull: ['$lockedUntil', null] }, now] }] }] },
+                    lockUntil,
+                    { $ifNull: ['$lockedUntil', null] },
+                  ],
+                },
               },
             },
-          },
         ],
         { upsert: true },
       )
