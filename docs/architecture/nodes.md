@@ -186,7 +186,8 @@ nothing of it exists on a master: every route below is 404 there.
   - it calls global through the machine's proxy rules and the OS trust store (`https.rs`, the API's
     egress path), then proves the registration with a token and `/self`. A CA the OS store lacks (a
     TLS-inspecting middlebox's never deployed to the machine, or a test global's) is named by the
-    service's own `LGR_SERVER_EXTRA_CA`, a PEM file; one that holds no certificate stops the start;
+    service's own `LGR_SERVER_EXTRA_CA`, a PEM file, which the API's own calls to global trust too;
+    one that holds no certificate stops the start;
   - what global answers is kept in `state/registration.json` and shown by `lgr-server status`.
   Run it again with another org's code to add that org.
 - **The field lanes** register with reusable keys, gated by `Org.settings.node.ephemeralKeysEnabled`.

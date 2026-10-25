@@ -160,15 +160,24 @@ impl Rules {
     }
 }
 
-/// The OS's trusted roots as one PEM file, for `NODE_EXTRA_CA_CERTS`. Returns how many.
-pub fn export_os_roots(file: &Path) -> Result<usize> {
+/// The OS's trusted roots as one PEM file, for `NODE_EXTRA_CA_CERTS`, with the CA `extra` names
+/// (`LGR_SERVER_EXTRA_CA`): the API's own calls to global go out through the same middlebox as the
+/// supervisor's, so it trusts the same roots. Returns how many.
+pub fn export_os_roots(file: &Path, extra: Option<&Path>) -> Result<usize> {
     let found = rustls_native_certs::load_native_certs();
     for e in &found.errors {
         tracing::warn!(error = %e, "an OS trust store could not be read in full");
     }
+    if found.certs.is_empty() {
+        bail!("the OS trust store has no roots to give the API");
+    }
+    let mut ders: Vec<Vec<u8>> = found.certs.iter().map(|c| c.as_ref().to_vec()).collect();
+    if let Some(path) = extra {
+        ders.extend(crate::https::extra_ca_certs(path)?.iter().map(|c| c.as_ref().to_vec()));
+    }
     let mut pem = String::new();
-    for cert in &found.certs {
-        let b64 = base64::engine::general_purpose::STANDARD.encode(cert.as_ref());
+    for cert in &ders {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(cert);
         pem.push_str("-----BEGIN CERTIFICATE-----\n");
         for line in b64.as_bytes().chunks(64) {
             pem.push_str(std::str::from_utf8(line).expect("base64 is ASCII"));
@@ -176,13 +185,10 @@ pub fn export_os_roots(file: &Path) -> Result<usize> {
         }
         pem.push_str("-----END CERTIFICATE-----\n");
     }
-    if found.certs.is_empty() {
-        bail!("the OS trust store has no roots to give the API");
-    }
     let tmp = file.with_extension("tmp");
     std::fs::write(&tmp, pem).with_context(|| format!("writing {}", tmp.display()))?;
     std::fs::rename(&tmp, file).with_context(|| format!("writing {}", file.display()))?;
-    Ok(found.certs.len())
+    Ok(ders.len())
 }
 
 /// Read a request or response head: up to and including the blank line, at most 8 KB. Returns the
@@ -412,10 +418,29 @@ mod tests {
     fn the_os_roots_are_exported_as_pem() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("os-roots.pem");
-        let n = export_os_roots(&file).unwrap();
+        let n = export_os_roots(&file, None).unwrap();
         assert!(n > 10, "only {n} roots");
         let text = std::fs::read_to_string(&file).unwrap();
         assert_eq!(text.matches("-----BEGIN CERTIFICATE-----").count(), n);
+    }
+
+    #[test]
+    fn the_extra_ca_joins_the_exported_roots_and_a_missing_one_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = rcgen::CertificateParams::new(vec![]).unwrap();
+        p.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        p.distinguished_name.push(rcgen::DnType::CommonName, "a shop's middlebox");
+        let ca = p.self_signed(&rcgen::KeyPair::generate().unwrap()).unwrap().pem();
+        let extra = dir.path().join("extra.pem");
+        std::fs::write(&extra, &ca).unwrap();
+        let file = dir.path().join("os-roots.pem");
+        let os = export_os_roots(&file, None).unwrap();
+        assert_eq!(export_os_roots(&file, Some(&extra)).unwrap(), os + 1);
+        let text = std::fs::read_to_string(&file).unwrap();
+        let body: String = ca.lines().filter(|l| !l.starts_with("-----")).collect();
+        let exported: String = text.lines().filter(|l| !l.starts_with("-----")).collect();
+        assert!(exported.ends_with(&body), "the middlebox's CA is the last root");
+        assert!(export_os_roots(&file, Some(&dir.path().join("missing.pem"))).is_err());
     }
 
     // ── End to end over real sockets ─────────────────────────────────────────────────────────────

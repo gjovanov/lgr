@@ -265,7 +265,7 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
         // FR-20.53: the machine's trust, for the API's outbound calls. Without it the API keeps
         // Bun's own bundle: a TLS-inspecting middlebox then fails its calls, and nothing else does.
         let roots = paths.data.join("run").join("os-roots.pem");
-        match egress::export_os_roots(&roots) {
+        match egress::export_os_roots(&roots, https::extra_ca_file().as_deref()) {
             Ok(n) => {
                 tracing::info!(roots = n, "exported the OS's trusted roots for the API");
                 front.roots = Some(roots);

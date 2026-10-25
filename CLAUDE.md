@@ -530,7 +530,9 @@ yet" (exit 2) until P1-9 / P1-8.
     reach a loopback port; only the API knows the credential. Without it the answer is 407;
   - `NO_PROXY`: loopback;
   - `NODE_EXTRA_CA_CERTS`: the OS's trusted roots, exported at each start (`run/os-roots.pem`,
-    rustls-native-certs), so a TLS-inspecting middlebox whose root came by GPO is trusted.
+    rustls-native-certs), so a TLS-inspecting middlebox whose root came by GPO is trusted, plus the
+    CA the service's `LGR_SERVER_EXTRA_CA` names: ⚠ the API calls global ITSELF (the feeds, the
+    outbox, a move), so a root only the supervisor trusted left the API's calls failing.
 
   Bun 1.4.4 honours all four, credentials included (measured). Upstream, per CONNECT:
   1. `EGRESS_PROXY` (+ `EGRESS_PROXY_AUTH` for Basic);
