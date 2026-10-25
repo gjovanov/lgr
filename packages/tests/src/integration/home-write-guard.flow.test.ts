@@ -139,6 +139,10 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
     count: 1,
     why: 'the payment record (P0a-4): one atomic pipeline update; calls assertHomeIsHere(orgId) first',
   },
+  'services/src/biz/replication/capture.ts': {
+    count: 12,
+    why: 'the capture\'s own node-local state (repl_journal, repl_orgs, repl_engine, FR-20.61): never org data',
+  },
 }
 
 describe('raw write sites are listed', () => {
@@ -146,7 +150,8 @@ describe('raw write sites are listed', () => {
     const root = join(import.meta.dir, '..', '..', '..')
     const dirs = ['services/src', 'fiscal/src', 'reporting/src']
     for await (const p of new Glob('*-api/src').scan({ cwd: root, onlyFiles: false })) dirs.push(p)
-    const raw = /\.collection(?:\([^)]*\))?\.(?:insert\w*|update\w*|delete\w*|replace\w*|findOneAnd\w*|bulkWrite)\(/g
+    // A type argument (`.collection<any>(…)`) must not hide one.
+    const raw = /\.collection(?:<[^>()]*>)?(?:\([^)]*\))?\.(?:insert\w*|update\w*|delete\w*|replace\w*|findOneAnd\w*|bulkWrite)\(/g
     const found: Record<string, number> = {}
     for (const dir of dirs) {
       if (!existsSync(join(root, dir))) continue
