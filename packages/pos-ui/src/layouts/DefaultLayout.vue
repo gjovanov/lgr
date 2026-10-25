@@ -47,6 +47,7 @@ import { appHomeHref, portalHref } from 'ui-shared/nav/navigate'
 import TopMenuBar from 'ui-shell/components/TopMenuBar'
 import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
 import { useAppStore } from '../store/app.store'
+import { pinOffered } from '../composables/useTillPin'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'
 import type { AppInfo } from 'ui-shell/components/types'
@@ -60,6 +61,8 @@ const pendingChangesStore = usePendingChangesStore()
 const router = useRouter()
 const apps = ref<AppInfo[]>([])
 const pendingChangesOpen = ref(false)
+const pinAtTill = ref(false)
+pinOffered().then(v => { pinAtTill.value = v })
 
 const menuItems = computed<TopMenuItem[]>(() => [
   {
@@ -67,6 +70,8 @@ const menuItems = computed<TopMenuItem[]>(() => [
     icon: 'mdi-point-of-sale',
     children: [
       { label: t('nav.terminal') || 'Terminal', icon: 'mdi-point-of-sale', to: '/terminal' },
+      // FR-20.40: the next operator signs in with a PIN, where the server offers one.
+      ...(pinAtTill.value ? [{ label: t('pos.pin.switchOperator'), icon: 'mdi-account-switch', to: '/pin' }] : []),
     ],
   },
   {

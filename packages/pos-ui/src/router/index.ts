@@ -1,8 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { consumeTokenHandoff, portalHref } from 'ui-shared/nav/navigate'
 import { hasOrgSession, isPersonOnly } from 'ui-shared/session/session'
+import { pinOffered } from '../composables/useTillPin'
 
 const routes = [
+  // FR-20.40: the till's PIN pad, outside the shell: whoever stands at it has no session yet.
+  { path: '/pin', name: 'pos.pin', component: () => import('../views/PosPinView.vue') },
   {
     path: '/',
     component: () => import('../layouts/DefaultLayout.vue'),
@@ -30,14 +33,18 @@ export const router = createRouter({
   routes,
 })
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   // Accept a token from URL params ONLY on a local dev origin (FR-14.24) — on any other
   // origin it is stripped and ignored. A full reload follows either way so Pinia
   // re-initializes from the tab's session.
   if (consumeTokenHandoff(to.query)) return
 
+  if (to.name === 'pos.pin') return next()
+
   // An org session, in THIS tab. A person signed in without one yet picks an org on the portal.
   if (!hasOrgSession()) {
+    // At a till paired with an on-prem server, the operator signs in here, with their PIN.
+    if (await pinOffered()) return next({ name: 'pos.pin', query: { to: to.fullPath } })
     window.location.href = portalHref(isPersonOnly() ? '/orgs' : '/')
     return
   }

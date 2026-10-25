@@ -1225,6 +1225,22 @@
         "card": "Card",
         "other": "Other payments"
       }
+    },
+    "pin": {
+      "title": "Sign in at the till",
+      "operatorCode": "Operator code",
+      "pin": "PIN",
+      "signIn": "Sign in",
+      "clear": "Clear",
+      "back": "Delete the last digit",
+      "invalid": "That operator code and PIN do not match.",
+      "notSet": "This operator has no PIN here yet, or it was reset. Sign in with your password and set one under your account.",
+      "backoff": "Too many wrong PINs. Try again in {seconds} s.",
+      "wait": "Wait {seconds} s",
+      "unavailable": "PIN sign-in is not available on this computer.",
+      "failed": "Could not sign in. Try again.",
+      "withPassword": "Sign in with your password",
+      "switchOperator": "Switch operator"
     }
   },
   "warehouse": {
@@ -2817,7 +2833,24 @@
     "methodOff": "Not set",
     "methodUnconfirmed": "Not confirmed yet",
     "unconfirmedHint": "An unconfirmed sign-in is confirmed the next time you use it.",
-    "failed": "Could not change the password."
+    "failed": "Could not change the password.",
+    "pin": {
+      "title": "Till PIN",
+      "description": "Sign in at this server's tills with your operator code and a PIN, even when the internet is down.",
+      "isSet": "A PIN is set.",
+      "newPin": "New PIN",
+      "confirmPin": "Repeat the PIN",
+      "rule": "6 to 12 digits, not one digit repeated or a run such as 123456.",
+      "mismatch": "The two PINs differ.",
+      "set": "Set PIN",
+      "change": "Change PIN",
+      "remove": "Remove PIN",
+      "saved": "Your PIN is set.",
+      "removed": "Your PIN is removed.",
+      "wrongPassword": "That is not your password.",
+      "passwordRequired": "Sign in with your password to set a PIN.",
+      "failed": "Could not save the PIN."
+    }
   },
   "invite": {
     "loading": "Loading invitation…",

@@ -733,6 +733,22 @@
         "card": "Karte",
         "other": "Sonstige Zahlungen"
       }
+    },
+    "pin": {
+      "title": "An der Kasse anmelden",
+      "operatorCode": "Bedienernummer",
+      "pin": "PIN",
+      "signIn": "Anmelden",
+      "clear": "Löschen",
+      "back": "Letzte Ziffer löschen",
+      "invalid": "Bedienernummer und PIN passen nicht zusammen.",
+      "notSet": "Dieser Bediener hat hier noch keine PIN, oder sie wurde zurückgesetzt. Melden Sie sich mit Ihrem Passwort an und legen Sie in Ihrem Konto eine fest.",
+      "backoff": "Zu viele falsche PINs. Versuchen Sie es in {seconds} s erneut.",
+      "wait": "{seconds} s warten",
+      "unavailable": "Die PIN-Anmeldung ist auf diesem Computer nicht verfügbar.",
+      "failed": "Anmeldung fehlgeschlagen. Bitte erneut versuchen.",
+      "withPassword": "Mit Passwort anmelden",
+      "switchOperator": "Bediener wechseln"
     }
   },
   "settings": {
@@ -2771,7 +2787,24 @@
     "methodOff": "Nicht festgelegt",
     "methodUnconfirmed": "Noch nicht bestätigt",
     "unconfirmedHint": "Eine unbestätigte Anmeldung wird bei ihrer nächsten Verwendung bestätigt.",
-    "failed": "Das Passwort konnte nicht geändert werden."
+    "failed": "Das Passwort konnte nicht geändert werden.",
+    "pin": {
+      "title": "Kassen-PIN",
+      "description": "Melden Sie sich an den Kassen dieses Servers mit Ihrer Bedienernummer und einer PIN an, auch ohne Internet.",
+      "isSet": "Eine PIN ist festgelegt.",
+      "newPin": "Neue PIN",
+      "confirmPin": "PIN wiederholen",
+      "rule": "6 bis 12 Ziffern, keine wiederholte Ziffer und keine Folge wie 123456.",
+      "mismatch": "Die beiden PINs stimmen nicht überein.",
+      "set": "PIN festlegen",
+      "change": "PIN ändern",
+      "remove": "PIN entfernen",
+      "saved": "Ihre PIN ist festgelegt.",
+      "removed": "Ihre PIN ist entfernt.",
+      "wrongPassword": "Das ist nicht Ihr Passwort.",
+      "passwordRequired": "Melden Sie sich mit Ihrem Passwort an, um eine PIN festzulegen.",
+      "failed": "Die PIN konnte nicht gespeichert werden."
+    }
   },
   "invite": {
     "loading": "Einladung wird geladen…",
