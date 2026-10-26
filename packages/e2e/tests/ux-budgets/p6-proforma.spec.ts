@@ -82,7 +82,8 @@ test('P6 proforma: quote, convert to an invoice, issue and print it', async ({ p
   await walk.shot('proforma-list')
 
   // ── 1. New proforma ──
-  await walk.click(page.getByRole('link', { name: /Създай/ }).first(), 'create (list)')
+  // FR-22.50: the list's Create says what it creates.
+  await walk.click(page.getByRole('link', { name: 'Нова проформа фактура' }).first(), 'create („Нова проформа фактура")')
   await page.waitForURL(/\/invoicing\/proforma\/new/)
   await expect(page.getByRole('heading', { name: 'Нова проформа фактура' })).toBeVisible()
 
@@ -106,6 +107,8 @@ test('P6 proforma: quote, convert to an invoice, issue and print it', async ({ p
     if (qty !== 1) await walk.fill(lineQuantity(row), String(qty), `line ${i + 1}: quantity ${qty}`)
   }
   await walk.shot('proforma-filled')
+  // FR-22.26 (uncounted): a proforma quotes the customer's last price too — the line table offers it.
+  const lastPriceOffered = await page.getByTestId('last-price-checkbox').count()
   // The proforma's validity date („Валидна до", +30 days by default) — kept? (uncounted)
   const validOnForm = await page.getByLabel('Валидна до', { exact: true }).inputValue().catch(() => '')
 
@@ -180,6 +183,12 @@ test('P6 proforma: quote, convert to an invoice, issue and print it', async ({ p
   expect(prfFile.suggestedFilename()).toBe(`${proforma.invoiceNumber}.pdf`)
   expect(invFile.suggestedFilename()).toBe(`${issued.invoiceNumber}.pdf`)
   expect(String(converted.dueDate || '').slice(0, 10)).toBe(savedValid)
+  // FR-22.27 → FR-22.22: the proforma states where the deal is made (the warehouse's city), and
+  // the invoice it becomes carries it over.
+  expect(proforma.placeOfTransaction).toBe('Berlin')
+  expect(converted.placeOfTransaction).toBe('Berlin')
+  // FR-22.26: „Последна цена за клиента" on a proforma as on an invoice.
+  expect(lastPriceOffered).toBe(1)
 
   // ── FR-22 slice 1 guards (each failed on the code the budgets were first measured on) ──
   // B-11 / FR-22.9: the validity on the form is the validity stored.

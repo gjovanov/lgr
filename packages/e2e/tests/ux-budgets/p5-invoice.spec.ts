@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { startWalk, uxApi, UxWalk } from '../helpers/ux-budget'
 import { lineQuantity } from '../helpers/document-form'
+import { listGeometry } from '../helpers/list-geometry'
 
 /**
  * P5 — Invoice. The core daily task: a customer at the counter buys three articles and pays by
@@ -111,8 +112,13 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
     return page.url()
   })
 
-  // ── 1. New invoice ──
-  await walk.click(page.getByRole('link', { name: /Създай/ }).first(), 'create (list)')
+  // FR-22.23 (uncounted): the list at 1366 px — no sideways scroll, a row one line tall, its
+  // actions one menu button.
+  const listFit = await walk.offTheClock(() => listGeometry(page))
+  walk.note(`Sales list at 1366 px: ${listFit.hidden} px hidden sideways; tallest row ${listFit.tallest} px (a line is ${listFit.lineHeight} px); ${Math.max(...listFit.actionButtons)} button(s) in a row's actions.`)
+
+  // ── 1. New invoice — the list's Create says what it creates (FR-22.50) ──
+  await walk.click(page.getByRole('link', { name: 'Нова фактура' }).first(), 'create („Нова фактура")')
   await page.waitForURL(/\/invoicing\/invoices\/new/)
   await expect(page.getByRole('heading', { name: 'Нова фактура' })).toBeVisible()
   // The type toggle already says „Фактура"; nothing to choose.
@@ -173,7 +179,21 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
   if (await page.locator('.v-snackbar').getByRole('button', { name: /^close$/i }).count()) english.push('every snackbar\'s „CLOSE" button')
 
   walk.note(`„Издай и печатай" saved the draft (${final.draftNumber}), issued it as ${final.invoiceNumber}, settled it by card (${final.payments?.map((p: any) => `${p.amount} ${p.method}/${p.origin}`).join(', ')}) and printed ${download.suggestedFilename()} — one click, no dialog, still on the invoice.`)
-  walk.note(`The payment method field starts as „${pmDefault || 'празно'}"; card is chosen once (FR-22.26 will remember it per user).`)
+  // FR-22.26 (uncounted): the next invoice this user starts — a new tab — opens on card.
+  const nextPm = await walk.offTheClock(async () => {
+    const next = await page.context().newPage()
+    try {
+      await next.goto('/invoicing/invoices/new')
+      await expect(next.getByRole('heading', { name: 'Нова фактура' })).toBeVisible()
+      const field = next.locator('.v-field').filter({ has: next.getByRole('combobox', { name: 'Метод на плащане' }) }).first()
+      await expect(field.locator('.v-select__selection-text')).toHaveCount(1)
+      return await selectText(field)
+    } finally {
+      await next.close()
+    }
+  })
+  walk.note(`The payment method field starts as „${pmDefault || 'празно'}" for a user who never saved an invoice; card is chosen once, and the next invoice opens on „${nextPm}" (FR-22.26).`)
+  walk.note(`Place of deal: „${final.placeOfTransaction || ''}" — the warehouse's city, filled in by the form (FR-22.27).`)
   if (english.length) walk.note(`English in the bg UI: ${english.join('; ')}.`)
 
   const result = walk.finish()
@@ -187,6 +207,16 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
   expect(final).toMatchObject({ status: 'paid', paymentMethod: 'card', amountDue: 0 })
   expect(final.payments).toEqual([expect.objectContaining({ method: 'card', origin: 'card_on_issue', amount: final.total })])
   expect(final.invoiceNumber).not.toMatch(/^DRF-/)
+
+  // ── FR-22 slice 2b guards (each fails on the code 2a shipped) ──
+  // FR-22.23: the list fits the laptop — nothing hidden sideways, one line per row, one menu per row.
+  expect(listFit.hidden, 'no sideways scroll at 1366 px').toBeLessThanOrEqual(1)
+  expect(listFit.tallest, 'one line per row').toBeLessThan(2 * listFit.lineHeight)
+  expect(new Set(listFit.actionButtons), 'one menu button per row').toEqual(new Set([1]))
+  // FR-22.26: the payment method is remembered for the next invoice.
+  expect(nextPm).toBe('С карта')
+  // FR-22.27 (D-7): the deal was made where the goods left from — the default warehouse's city.
+  expect(final.placeOfTransaction).toBe('Berlin')
 
   // ── FR-22 slice 1 guards that still apply on this route ──
   // B-13 / FR-22.12: no English smart buttons; what has been paid shows in the totals card.

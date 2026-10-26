@@ -151,9 +151,23 @@ test('P5 credit note: one returned article from an issued invoice', async ({ pag
     title: 'Credit note — one returned article from an issued invoice, issued',
     start: '/invoicing/invoices',
   })
-  const sourceRow = page.locator('tbody tr').filter({ hasText: source.invoiceNumber })
+  // By its number link, exactly: a draft number such as DRF-INV-2026-00002 contains INV-2026-00002.
+  const sourceRow = page.locator('tbody tr').filter({ has: page.getByRole('link', { name: source.invoiceNumber, exact: true }) })
   await expect(sourceRow).toBeVisible()
   await walk.shot('sales-list-with-invoice')
+
+  // FR-22.24 (uncounted): the row's ⋮ offers the credit note, Печат and Копирай, and — issued —
+  // no Изтрий (FR-22.23). The walk still goes through the invoice: the same 2 clicks.
+  const rowMenu = await walk.offTheClock(async () => {
+    await sourceRow.getByTestId('row-actions').click()
+    const items = page.getByTestId('row-actions-list').filter({ visible: true })
+    await expect(items).toBeVisible()
+    const texts = (await items.locator('.v-list-item-title').allInnerTexts()).map((x) => x.trim())
+    await page.keyboard.press('Escape')
+    await expect(items).toHaveCount(0)
+    return texts
+  })
+  walk.note(`The issued invoice's row menu: ${rowMenu.join(' · ')}.`)
 
   // ── 1. Open the invoice the goods came back from ──
   await walk.click(sourceRow.getByRole('link', { name: source.invoiceNumber }), `open ${source.invoiceNumber} (its number)`)
@@ -225,6 +239,10 @@ test('P5 credit note: one returned article from an issued invoice', async ({ pag
   expect(page.url()).toContain(`/invoices/${issued._id}/edit`)
   expect(issued.lines).toHaveLength(1)
   expect(cl.quantity).toBe(1)
+
+  // FR-22.23 / .24: the row menu of an issued invoice.
+  expect(rowMenu).toEqual(expect.arrayContaining(['Кредитно известие', 'Дебитно известие', 'Печат', 'Копирай']))
+  expect(rowMenu).not.toContain('Изтрий')
 
   // ── FR-22 slice 1 guards (each failed on the code the budgets were first measured on) ──
   // B-6 / FR-22.4: the copy keeps the invoice's discount and unit, and the note credits the
