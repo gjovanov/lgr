@@ -236,7 +236,34 @@
             </tbody>
           </v-table>
         </template>
-        <DocumentLineTable v-else :doc="doc" />
+        <template v-else>
+          <!-- FR-22.31: a bill made from goods receipts. They booked the goods, so it moves none. -->
+          <v-alert
+            v-if="billReceipts.linkedReceipts.value.length"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+            icon="mdi-truck-check-outline"
+            data-testid="bill-receipts"
+          >
+            {{ $t('invoicing.linkDelivery.banner') }}
+            <template v-for="(r, i) in billReceipts.linkedReceipts.value" :key="r.id">
+              <span v-if="i">, </span>
+              <a :href="billReceipts.receiptHref(r.id)" class="font-weight-medium" data-testid="bill-receipt-link">{{ r.number }}</a>
+            </template>
+            <div class="text-caption mt-1">{{ $t('invoicing.linkDelivery.noStock') }}</div>
+          </v-alert>
+          <!-- FR-22.32: goods already received? Bill that delivery instead of typing its lines. -->
+          <div v-else-if="billReceipts.canLinkDelivery.value" class="d-flex align-center ga-2 mb-1 text-body-2 text-medium-emphasis">
+            <v-icon size="small">mdi-truck-check-outline</v-icon>
+            {{ $t('invoicing.linkDelivery.hint') }}
+            <v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-link-variant" data-testid="link-delivery-btn" @click="billReceipts.openLinkDelivery">
+              {{ $t('invoicing.linkDelivery.action') }}
+            </v-btn>
+          </div>
+          <DocumentLineTable :doc="doc" :receipt-cost-of="billReceipts.enabled ? billReceipts.receiptCostOf : undefined" />
+        </template>
 
         <!-- Notes / terms / tags (left) + Totals (right) -->
         <v-row class="mt-4">
@@ -291,7 +318,17 @@
           <v-btn v-if="isEdit" variant="outlined" prepend-icon="mdi-printer" :loading="exportLoading" @click="showExportDialog = true">
             {{ $t('common.print') }}
           </v-btn>
-          <v-btn color="primary" variant="flat" prepend-icon="mdi-content-save" :loading="loading" @click="onSave">
+          <v-btn
+            v-if="canSaveAndReceive"
+            color="primary"
+            variant="flat"
+            prepend-icon="mdi-package-down"
+            :loading="doc.receiving.value"
+            @click="doc.onSaveAndReceive"
+          >
+            {{ $t('invoicing.saveAndReceive') }}
+          </v-btn>
+          <v-btn color="primary" :variant="canSaveAndReceive ? 'outlined' : 'flat'" prepend-icon="mdi-content-save" :loading="loading" @click="onSave">
             {{ $t('common.save') }}
           </v-btn>
         </div>
@@ -305,6 +342,41 @@
     <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId || ''" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />
     <ProductPickerDialog v-model="productPickerOpen" :org-url="orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
     <ContactPickerDialog v-model="contactPickerOpen" :org-url="orgUrl()" :type="(config.contactFetchParams as any)?.type" @select="onContactPicked" />
+
+    <!-- FR-22.32: the supplier's receipts this bill can pay for. -->
+    <v-dialog v-model="billReceipts.dialogOpen.value" max-width="640">
+      <v-card data-testid="link-delivery-dialog">
+        <v-card-title>{{ $t('invoicing.linkDelivery.action') }}</v-card-title>
+        <v-card-text>
+          <div class="text-body-2 text-medium-emphasis mb-2">{{ $t('invoicing.linkDelivery.dialogHint') }}</div>
+          <v-progress-linear v-if="billReceipts.loading.value" indeterminate />
+          <div v-else-if="!billReceipts.billable.value.length" class="text-body-2">{{ $t('invoicing.linkDelivery.none') }}</div>
+          <v-list v-else density="compact">
+            <v-list-item v-for="r in billReceipts.billable.value" :key="r.id">
+              <template #prepend>
+                <v-checkbox-btn v-model="billReceipts.selected.value" :value="r.id" />
+              </template>
+              <v-list-item-title>{{ r.number }} · {{ String(r.date || '').slice(0, 10) }}</v-list-item-title>
+              <v-list-item-subtitle>{{ $t('invoicing.linkDelivery.receiptLines', { n: r.lineCount }) }} · {{ doc.fmtCurrency(r.total) }}</v-list-item-subtitle>
+            </v-list-item>
+          </v-list>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="billReceipts.dialogOpen.value = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :disabled="!billReceipts.selected.value.length"
+            :loading="billReceipts.linking.value"
+            data-testid="link-delivery-confirm"
+            @click="billReceipts.linkDelivery"
+          >
+            {{ $t('invoicing.linkDelivery.confirm') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Single-document import: OCR one PDF and merge the reviewed fields into THIS form.
          No draft is created — the user still has to save. -->
@@ -346,6 +418,7 @@ import DocumentUpperSection from './DocumentUpperSection.vue'
 import DocumentLineTable from './DocumentLineTable.vue'
 import DocumentTotalsCard from './DocumentTotalsCard.vue'
 import { useDocumentForm, type UseDocumentFormOptions } from '../../composables/document-form/useDocumentForm'
+import { useBillReceipts } from '../../composables/document-form/useBillReceipts'
 import type { DocumentTypeConfig } from '../../composables/document-form/types'
 
 const props = defineProps<{
@@ -355,6 +428,8 @@ const props = defineProps<{
 }>()
 
 const doc = useDocumentForm(props.config, { onBeforeCreate: props.onBeforeCreate })
+// FR-22.31/.32: a supplier bill and the goods receipts it pays for.
+const billReceipts = useBillReceipts(doc)
 
 const contactCreateRef = ref<InstanceType<typeof ContactAutocompleteWithCreate> | null>(null)
 
@@ -517,6 +592,9 @@ const importCurrentForm = computed(() => ({
  * "Reason", so a diff row headed "Notes" would point at a field the user cannot find.
  */
 const importFieldLabels = computed(() => ({ notes: props.config.notesFieldLabelKey }))
+
+/** FR-22.33: the bottom bar offers what the top bar does — „Запази и получи" on a bill not yet received. */
+const canSaveAndReceive = computed(() => !!props.config.saveAndReceive && (!isEdit.value || invoiceStatus.value === 'draft'))
 
 /** Import is offered wherever Save is — mirrors the `formActions` gate exactly. */
 const canImport = computed(() =>

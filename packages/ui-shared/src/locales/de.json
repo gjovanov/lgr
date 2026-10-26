@@ -1297,6 +1297,20 @@
       "linesFromSale": "Dies sind die Positionen und Preise des Barverkaufs. Für eine andere Menge stornieren Sie diese Rechnung und stellen eine neue aus.",
       "forCashSale": "Zum Barverkauf {number}"
     },
+    "saveAndReceive": "Speichern und empfangen",
+    "linkDelivery": {
+      "action": "Mit Lieferung verknüpfen",
+      "hint": "Ware schon eingebucht?",
+      "dialogHint": "Wareneingänge dieses Lieferanten, die noch keine Rechnung bezahlt. Ihre Zeilen werden die Zeilen der Rechnung; die Rechnung bewegt keinen Bestand.",
+      "none": "Von diesem Lieferanten gibt es keinen offenen Wareneingang.",
+      "receiptLines": "{n} Zeilen",
+      "confirm": "Verknüpfen",
+      "linked": "Die Rechnung ist mit der Lieferung verknüpft",
+      "banner": "Rechnung zur Lieferung",
+      "noStock": "Die Ware wurde mit dem Wareneingang eingebucht: diese Rechnung bewegt keinen Bestand.",
+      "receiptCost": "Wareneingang: {price}",
+      "received": "Rechnung empfangen — die Ware kam mit dem Wareneingang"
+    },
     "reservations": {
       "repeatOf": "erneut reserviert",
       "fromOutgoingOrder": "Ausgehende Bestellung",

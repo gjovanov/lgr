@@ -398,8 +398,9 @@ function openPaymentDialog(item: Invoice) {
 
 async function receiveInvoice(item: Invoice) {
   try {
-    await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/receive`)
-    showSuccess(t(RECEIVED_KEY[item.type] || RECEIVED_KEY.invoice))
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/receive`)
+    // A bill made from goods receipts books no stock: its receipts did (FR-22.31).
+    showSuccess(t(data?.invoice?.stockSource?.marker ? 'invoicing.linkDelivery.received' : (RECEIVED_KEY[item.type] || RECEIVED_KEY.invoice)))
     await refresh()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

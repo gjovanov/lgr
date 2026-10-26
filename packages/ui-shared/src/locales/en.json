@@ -1176,6 +1176,20 @@
       "linesFromSale": "These are the cash sale's lines and prices. To invoice a different quantity, void this invoice and issue a new one.",
       "forCashSale": "For cash sale {number}"
     },
+    "saveAndReceive": "Save and receive",
+    "linkDelivery": {
+      "action": "Link to a delivery",
+      "hint": "Goods already received?",
+      "dialogHint": "This supplier's goods receipts that no bill pays for yet. Their lines become the bill's lines, and the bill moves no stock.",
+      "none": "This supplier has no goods receipt left to bill.",
+      "receiptLines": "{n} lines",
+      "confirm": "Link",
+      "linked": "The bill is linked to the delivery",
+      "banner": "Bill for the delivery",
+      "noStock": "The goods were put in stock by the receipt: this bill moves no stock.",
+      "receiptCost": "Receipt: {price}",
+      "received": "Bill received — the stock came in on its receipt"
+    },
     "reservations": {
       "repeatOf": "reserved again",
       "fromOutgoingOrder": "Outgoing order",
