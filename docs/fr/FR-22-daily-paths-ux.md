@@ -475,7 +475,7 @@ Writes go to **acme-corp** only, signed in through the API and undone afterwards
 
 ## 11. Progress
 
-Updated 2026-10-26 (morning). "Merged" means on master; deploys follow the `deploy-prod` skill when the
+Updated 2026-10-26 (evening). "Merged" means on master; deploys follow the `deploy-prod` skill when the
 owner asks.
 
 | Slice | Requirements | State |
@@ -500,6 +500,17 @@ owner asks.
 | 7 | FR-22.60 cash sale → invoice (D-5) | merged: #249 (owned by another session) |
 | 7 | FR-22.56–.59 | FR-21 R5 requirements |
 
-Found along the way and fixed on its own: the fiscal-device address check (#257).
+Found along the way and fixed on its own:
+- the fiscal-device address check (#257);
+- three stale e2e locators: the till search, the invoice line description and the cash-sales
+  Create button (#262). CI runs no e2e, so they had sat red. Only the till one came from FR-22:
+  it broke when #256 started putting the cursor in the search field.
 
-Production (lgr:v20261026-a3972b1f6173, 2026-10-26) carries #249–#257. #258–#261 are merged and not yet deployed.
+Production (lgr:v20261026-9885437554af, 2026-10-26, master 366c6f5f) carries everything above
+that is merged. It was field-tested on the acme-corp demo org:
+- #258: № sort and the overpayment 422;
+- #261: the full #168 chain, undone afterwards — receipt, bill from receipt, second bill 409,
+  received with stock unchanged;
+- #259: „+ Нов" opens a new invoice in one click;
+- #260: the order subtitles;
+- regression checks for #255, #256 and #257.
