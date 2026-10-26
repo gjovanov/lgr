@@ -6,22 +6,18 @@ R1, the read side, is merged and on production since 2026-10-26. It shipped in i
 `v20261026-ee6cc3b78103` (master `ddfd167f`). Prod now runs `v20261026-a9dae7528a8c` (master
 `f89e22eb`), which adds FR-21.14's cleanup script. R1's two migrations ran there, and the field
 checks matched the baseline taken before the release. FR-21.14 ran on the owner's go the same day.
-R2, the write side, is built and in review as a stack (#272 → #273 → #274), and none of it is
-deployed. R2a (#271) is merged but not deployed. This is what is done, what is left, and what
+R2, the write side, is merged into master since 2026-10-26 (#271, then #272 → #273 → #274), and none
+of it is deployed: the next deploy of master ships it. This is what is done, what is left, and what
 turned up on the way that the spec does not say.
 
 ## 0. Start here (2026-10-26)
 
 Atanas takes FR-21 over from here. In order:
 
-1. **R2's CI.**
-   - #272 is green.
-   - #273 and #274 failed one test, `unit/scripts-home-guard`: the new preflight script was not
-     listed as read-only. It is fixed in `6c9bb779` on R2c, and R2d is rebased onto it.
-   - Check that the re-runs pass.
-2. **Merge R2** in order, #272 → #273 → #274. Retarget each next PR to `master` before you delete
-   its base branch (§1). This document (#275) can merge at any time.
-3. **Deploy R2 when the owner gives the go** (§5, R2 steps 4–5):
+1. **R2 is merged into master and not deployed.** #272 (`75ff7c80`), #273 (`0ff55bc9`) and #274
+   (`3e020145`) merged on 2026-10-26, each with CI green. The next deploy of master ships R2,
+   whoever runs it.
+2. **Deploy R2 when the owner gives the go** (§5, R2 steps 4–5):
    - the field check before the deploy (the baseline);
    - the deploy;
    - `bun run migrate` on the build host;
@@ -30,8 +26,8 @@ Atanas takes FR-21 over from here. In order:
 
    After the deploy, watch the first cash-sale import. regal-pz and regal-sf import a till day
    every day, so it is the busiest door R2d moved onto the new service.
-4. **#276**, the void-path bug (§4.13). It is independent of FR-21's releases.
-5. **Decide before R3–R5:**
+3. **#276**, the void-path bug (§4.13). It is independent of FR-21's releases.
+4. **Decide before R3–R5:**
    - **The e2e fiscal device** (§5, R2 step 2). The recommendation is no bypass of the SSRF guard:
      integration tests run printing on the Eltrade simulator, and the device test covers the real
      connection.
@@ -49,10 +45,10 @@ totals, a day's cash, SUPTO sums. The field check's output stays on the build ho
 | **R1b** — every reader counts a till sale once, whichever store holds it | FR-21.7 – FR-21.12 | #247, merged and deployed 2026-10-26 |
 | **R1c** — one journal page in both apps | FR-21.13 (B-6) | #248, merged and deployed 2026-10-26 |
 | Before R2 — the `regal` test sales | FR-21.14 | **Done 2026-10-26** (#269, owner's go): 74 test sales removed, see §5. |
-| R2a — `pendingTransferIds` | FR-21.24 | #271, merged 2026-10-26 (not deployed: prod runs `f89e22eb`) |
-| R2b — the till writes cash-register documents | FR-21.15 – FR-21.20 (the till's door) | #272, in review, CI green |
-| R2c — the copy migration and the restore | FR-21.21 – FR-21.22 | #273 (on #272), in review, CI re-running after the fix in `6c9bb779` |
-| R2d — the back office and the import; `docs/supto`; the field-check script | FR-21.15 (the other doors), FR-21.23 | #274 (on #273), in review, CI re-running |
+| R2a — `pendingTransferIds` | FR-21.24 | #271, merged 2026-10-26, not deployed (prod runs `f89e22eb`) |
+| R2b — the till writes cash-register documents | FR-21.15 – FR-21.20 (the till's door) | #272, merged 2026-10-26, not deployed |
+| R2c — the copy migration and the restore | FR-21.21 – FR-21.22 | #273, merged 2026-10-26, not deployed |
+| R2d — the back office and the import; `docs/supto`; the field-check script | FR-21.15 (the other doors), FR-21.23 | #274, merged 2026-10-26, not deployed |
 | R3 — freeze | FR-21.25 – FR-21.26 | not started |
 | R4 — contract | FR-21.27 – FR-21.28 | not started |
 | R5 — one terminal | FR-21.29 – FR-21.32 | not started |
@@ -286,13 +282,13 @@ called it a test too, so the window became 2026-03-01 … 2026-10-20, which hold
   back. The journal lists regal's 8 cash sales. regal-pz and regal-sf are unchanged.
 
 ### R2 (FR-21.15 – FR-21.24)
-Built, in review (§1). FR-21.19 needed no code: the session JE already reads the session's rows
+Merged on 2026-10-26, and not deployed (§1). FR-21.19 needed no code: the session JE already reads the session's rows
 through the union, and every till document carries its session. Each PR is safe to deploy alone:
 R1's readers already union both stores and know `cash_storno`.
 
 **Before the R2 deploy:**
-1. **CI** green on #272, #273 and #274. One guard test failed and is fixed (§0). Merge the stack in
-   order, retargeting each next PR to `master` before its base branch is deleted (§1).
+1. **CI and the merge** — done 2026-10-26. Each PR went green (one guard test had failed and was
+   fixed in `6c9bb779`), and they merged in order.
 2. **E2E** — passed on the stack, 2026-10-26, against an isolated database (§7). Covered:
    `cash-register`, `cash-sales`, `cash-sale-invoice`, `pos-terminal`, `pos-transactions` and FR-22's
    walks. `cash-register.spec` gained §8.3 item 7: the cash-register report and both exports (the list
