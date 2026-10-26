@@ -146,7 +146,10 @@ test('P7 chain: client order → reserve → external order → send → invoice
   await page.waitForURL(/\/internal-orders\/new/)
   await expect(page.getByRole('heading', { name: 'Нова входяща поръчка' })).toBeVisible()
 
-  await walk.type(page.getByRole('combobox', { name: /Клиент/ }), 'Nordic', 'search the customer')
+  // A new document starts in its first field (FR-22.52): the customer search.
+  const customerField = page.getByRole('combobox', { name: /Клиент/ })
+  await expect(customerField).toBeFocused()
+  await walk.type(customerField, 'Nordic', 'search the customer', { focused: true })
   const clientOption = page.locator('.v-overlay--active .v-list-item').filter({ hasText: CUSTOMER }).first()
   await expect(clientOption).toBeVisible()
   await walk.click(clientOption, 'pick the customer')
@@ -156,18 +159,18 @@ test('P7 chain: client order → reserve → external order → send → invoice
   const rows = page.locator('tbody tr').filter({ has: page.getByPlaceholder('Търсете продукти...') })
   for (let i = 0; i < LINES.length; i++) {
     const { p, qty } = LINES[i]
-    if (i > 0) {
-      await walk.click(page.getByRole('button', { name: 'Добави ред' }), `add line ${i + 1}`)
-      await expect(rows).toHaveCount(i + 1)
-    }
     const row = rows.nth(i)
     await walk.type(row.getByPlaceholder('Търсете продукти...'), p.sku, `line ${i + 1}: search ${p.sku}`)
     const option = page.locator('.pld-overlay .pld-item').filter({ hasText: p.sku }).first()
     await expect(option).toBeVisible()
     await walk.click(option, `line ${i + 1}: pick ${p.sku}`)
     await expect(row.locator('.v-chip').filter({ hasText: p.name })).toBeVisible()
-    // Picking the product puts 1 in the quantity; the user types over it.
-    await walk.fill(row.locator('input[type="number"]').first(), String(qty), `line ${i + 1}: quantity ${qty}`)
+    // FR-22.43: the article opens the next line, and the cursor waits in this line's quantity,
+    // which picking the product set to 1 — the user types over it.
+    await expect(rows).toHaveCount(i + 2)
+    const quantity = row.getByRole('spinbutton', { name: 'Кол.' })
+    await expect(quantity).toBeFocused()
+    await walk.fill(quantity, String(qty), `line ${i + 1}: quantity ${qty}`, { focused: true })
   }
   await settledShot(walk, 'ordi-filled')
 
@@ -187,7 +190,10 @@ test('P7 chain: client order → reserve → external order → send → invoice
 
   // ── 2. Reserve what stock covers ──
   await walk.click(reserveBtn, 'reserve from stock')
-  await expect(snackbar(walk, /Създадени резервации/)).toBeVisible()
+  // FR-22.43: the message names what stock could not cover.
+  const reservedSnack = snackbar(walk, /Създадени резервации/)
+  await expect(reservedSnack).toBeVisible()
+  await expect(reservedSnack).toContainText(`${p28.name} (липсват ${SHORTAGE})`)
   await expect(page.locator('tbody tr').filter({ hasText: p28.name }).getByText(`${free28}/${shortQty}`)).toBeVisible()
   await settledShot(walk, 'reserved')
 
@@ -310,8 +316,9 @@ test('P7 chain: client order → reserve → external order → send → invoice
 
   const result = walk.finish()
   // FR-22.5 took the walk from 30 clicks to 27 and the ORDO number as a link on the ORDI (#252,
-  // part of FR-22.35) to 26. FR-22.23 (one row menu) costs the issue step a click: 27, until the
-  // ORDI links its invoice (FR-22.35) and the walk issues it from the invoice's form instead. The
-  // rest of slice 4 (FR-22.35, .36, .43) takes it to ≤ 22.
-  expect(result.clicks).toBeLessThanOrEqual(27)
+  // part of FR-22.35) to 26. FR-22.23 (one row menu) cost the issue step a click: 27. FR-22.43 takes
+  // 5 off: an article opens the next line (no „Добави ред" twice) and leaves the cursor in its quantity
+  // (three clicks). The customer field a new order starts in (FR-22.52) saves one the walk had not
+  // taken. FR-22's target is ≤ 22.
+  expect(result.clicks).toBeLessThanOrEqual(21)
 })

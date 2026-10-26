@@ -1316,6 +1316,9 @@
         "order_has_invoices": "Изходящата поръчка има фактури: анулирайте или изтрийте ги, преди да я откажете."
       }
     },
+    "shortLine": "{name} (липсват {missing})",
+    "reservedFromStockShort": "Създадени резервации: {count}. Не стига свободна наличност за: {lines}",
+    "nothingFreeFor": "Няма свободна наличност за: {lines}",
     "issueFlow": {
       "issueAndPrint": "Издай и печатай",
       "issue": "Издай",

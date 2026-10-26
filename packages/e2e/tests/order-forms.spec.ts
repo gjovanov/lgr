@@ -2,8 +2,9 @@ import { test, expect, type Page } from '@playwright/test'
 import { loginForApp } from './helpers/login'
 
 /**
- * FR-22 slice 4b — the client-order and supplier-order forms: a form nobody touched is never
- * „unsaved changes", however slowly it loads and whatever its reservations do meanwhile.
+ * FR-22 slice 4b — the client-order and supplier-order forms. A form nobody touched is never
+ * „unsaved changes", however slowly it loads and whatever its reservations do meanwhile; a client
+ * order opens its next line by itself and says which lines stock cannot cover.
  */
 
 const apiBase = process.env.BASE_URL || 'http://localhost:4001'
@@ -115,5 +116,35 @@ test.describe('An untouched order form is not „unsaved changes" (FR-22.13)', (
     await page.getByTestId('form-back').click()
     await page.waitForURL(/\/invoicing\/orders(\?|$)/)
     await expect(leaveDialog(page)).toHaveCount(0)
+  })
+})
+
+test.describe('The client-order form (FR-22.43)', () => {
+  test('an article on the last line opens the next one and leaves the cursor in its quantity', async ({ page }) => {
+    const api = await session()
+    const w = await world(api)
+    await loginForApp(page)
+    await page.goto('/invoicing/internal-orders/new', { waitUntil: 'networkidle' })
+    const rows = page.locator('tbody tr').filter({ has: page.getByPlaceholder('Type to search products...') })
+    await expect(rows).toHaveCount(1)
+    await rows.first().getByPlaceholder('Type to search products...').pressSequentially(w.product.sku, { delay: 20 })
+    await page.locator('.pld-overlay .pld-item').filter({ hasText: w.product.sku }).first().click()
+    await expect(rows).toHaveCount(2)
+    const quantity = rows.first().getByRole('spinbutton', { name: 'Qty' })
+    await expect(quantity).toBeFocused()
+    await expect(quantity).toHaveValue('1')
+  })
+
+  test('„Reserve from stock" names the lines stock cannot cover', async ({ page }) => {
+    const api = await session()
+    const w = await world(api, 2)
+    const ordi = await clientOrder(api, w, 5)
+    await loginForApp(page)
+    await page.goto(`/invoicing/internal-orders/${ordi._id}/edit`, { waitUntil: 'networkidle' })
+    await page.getByRole('button', { name: 'Reserve from stock' }).click()
+    await expect(page.locator('.v-snackbar')).toContainText(`Reservations created: 1. Not enough free stock for: ${w.product.name} (3 short)`)
+    // Nothing free any more: the line is still named, not „nothing to cover".
+    await page.getByRole('button', { name: 'Reserve from stock' }).click()
+    await expect(page.locator('.v-snackbar')).toContainText(`No free stock for: ${w.product.name} (3 short)`)
   })
 })

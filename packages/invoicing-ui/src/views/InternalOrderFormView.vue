@@ -78,7 +78,7 @@
         <!-- Lines -->
         <v-card variant="outlined" rounded="lg" class="mt-2">
           <v-card-text class="pa-2">
-            <div style="overflow-x: auto">
+            <div ref="linesRef" style="overflow-x: auto">
               <v-table density="compact">
                 <thead>
                   <tr>
@@ -92,7 +92,8 @@
                 </thead>
                 <tbody>
                   <template v-for="(line, li) in form.lines" :key="line._id || li">
-                  <tr>
+                  <!-- The blank line waiting for the next article (FR-22.43) is not shown once nothing can be added. -->
+                  <tr v-if="!readonly || line.productId || line.description">
                     <td style="min-width:160px">
                       <div class="d-flex align-center ga-1">
                         <ProductLineDescription
@@ -109,7 +110,7 @@
                       </div>
                     </td>
                     <td>
-                      <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" style="min-width: 100px" :readonly="readonly" />
+                      <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" style="min-width: 100px" :readonly="readonly" :data-line-qty="li" :aria-label="$t('invoicing.qty')" />
                     </td>
                     <td>
                       <v-autocomplete v-model="line.unit" :items="uomOptions" item-title="title" item-value="value" density="compact" hide-details variant="underlined" :readonly="readonly">
@@ -123,7 +124,7 @@
                       <v-text-field v-model.number="line.expectedUnitPrice" type="number" step="0.0001" min="0" density="compact" hide-details variant="underlined" style="min-width: 110px" :readonly="readonly" />
                     </td>
                     <td v-if="isEdit">
-                      <div class="d-flex align-center ga-1 flex-wrap">
+                      <div v-if="line._id" class="d-flex align-center ga-1 flex-wrap">
                         <v-chip size="x-small" variant="tonal" :color="lineCoverageColor(line)">
                           {{ $t('invoicing.reservedQty') }}: {{ figuresOf(line).reserved }}/{{ line.quantity || 0 }}
                         </v-chip>
@@ -486,7 +487,7 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
-const { showSuccess, showError } = useSnackbar()
+const { showSuccess, showError, showSnackbar } = useSnackbar()
 const conversion = useConversionFeedback()
 const { formatCurrency } = useCurrency()
 const { uomOptions } = useProductUnits()
@@ -702,6 +703,25 @@ function onProductSelected(line: LineRow, product: any) {
   line.sku = product.sku
   if (!line.expectedUnitPrice) line.expectedUnitPrice = product.sellingPrice || undefined
   if (!line.quantity) line.quantity = 1
+  // FR-22.43: an article on the last line opens the next one, as on the receipt and the invoices;
+  // the quantity is what the line needs next, so the cursor goes there.
+  const idx = form.lines.indexOf(line)
+  if (idx === form.lines.length - 1 && canAddLines.value) form.lines.push(emptyLine())
+  focusLineQuantity(idx)
+}
+
+/** Lines can still be added and saved: a draft or a confirmed order. */
+const canAddLines = computed(() => !readonly.value && ['draft', 'confirmed'].includes(orderStatus.value))
+
+const linesRef = ref<HTMLElement>()
+/** Deferred past the article search closing (and a picker dialog handing focus back). */
+function focusLineQuantity(idx: number) {
+  setTimeout(() => {
+    const input = linesRef.value?.querySelector<HTMLInputElement>(`[data-line-qty="${idx}"] input`)
+    if (!input || input.readOnly) return
+    input.focus()
+    try { input.select() } catch { /* a number input may refuse select() */ }
+  }, 200)
 }
 
 const totalOrdered = computed(() => form.lines.reduce((s, l) => s + (Number(l.quantity) || 0), 0))
@@ -845,7 +865,15 @@ async function reserveAvailable() {
   reserving.value = true
   try {
     const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/reserve-available`, {})
-    if (data.created?.length) showSuccess(t('invoicing.reservedFromStock', { count: data.created.length }))
+    // FR-22.43: what stock could not cover is named, line by line — „no shortages" was the answer
+    // even when nothing at all was free.
+    const created = data.created?.length || 0
+    const lines = (data.short || []).map((s: any) => t('invoicing.shortLine', {
+      name: form.lines.find((l) => String(l._id) === String(s.lineId))?.description || '—',
+      missing: s.missing,
+    })).join(', ')
+    if (lines) showSnackbar(created ? t('invoicing.reservedFromStockShort', { count: created, lines }) : t('invoicing.nothingFreeFor', { lines }), 'warning', 8000)
+    else if (created) showSuccess(t('invoicing.reservedFromStock', { count: created }))
     else showSuccess(t('invoicing.noShortages'))
     await refreshReservations()
   } catch (e: any) {
@@ -1010,6 +1038,8 @@ async function loadOrder(id?: string) {
       expectedUnitPrice: l.expectedUnitPrice,
       taxRate: l.taxRate,
     }))
+    // FR-22.43: a blank line waits for the next article while lines can still be added.
+    if (canAddLines.value) form.lines.push(emptyLine())
     takeFigures(o.lines)
     takeReservations(data)
     if (form.contactId && contactNames.value[form.contactId] && !clientOptions.value.some((c: any) => c._id === form.contactId)) {

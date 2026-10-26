@@ -1437,6 +1437,9 @@
         "order_has_invoices": "Излезната нарачка има фактури: поништете ги или избришете ги пред да ја откажете."
       }
     },
+    "shortLine": "{name} (недостасуваат {missing})",
+    "reservedFromStockShort": "Креирани резервации: {count}. Нема доволно слободна залиха за: {lines}",
+    "nothingFreeFor": "Нема слободна залиха за: {lines}",
     "issueFlow": {
       "issueAndPrint": "Издади и печати",
       "issue": "Издади",

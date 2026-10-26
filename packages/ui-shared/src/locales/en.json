@@ -1316,6 +1316,9 @@
         "order_has_invoices": "The outgoing order has invoices: void or delete them before cancelling it."
       }
     },
+    "shortLine": "{name} ({missing} short)",
+    "reservedFromStockShort": "Reservations created: {count}. Not enough free stock for: {lines}",
+    "nothingFreeFor": "No free stock for: {lines}",
     "issueFlow": {
       "issueAndPrint": "Issue and print",
       "issue": "Issue",
