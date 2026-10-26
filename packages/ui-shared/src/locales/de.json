@@ -1124,7 +1124,6 @@
     "reserve": "Reservieren",
     "reserveForClient": "Für Kunden reservieren",
     "cancelReservation": "Reservierung stornieren",
-    "cancelReservationConfirm": "Reservierung {number} freigeben? Der gehaltene Bestand wird wieder verkäuflich.",
     "noReservationsYet": "Noch keine Reservierungen.",
     "lateDelivery": "Erwartet nach dem gewünschten Liefertermin",
     "stockShortage": "Reservierte Menge übersteigt den Lagerbestand",
@@ -1356,7 +1355,29 @@
       "unsaved": "ungespeicherte Änderungen",
       "savedWithOrder": "Wird zusammen mit der Bestellung gespeichert.",
       "allocationGone": "Die Zuteilung, auf der sie lag, ist nicht mehr in dieser Bestellung",
-      "noFreeQuantity": "Auf dieser Zuteilung ist nichts mehr frei"
+      "noFreeQuantity": "Auf dieser Zuteilung ist nichts mehr frei",
+      "release": "Reservierung freigeben",
+      "releaseTitle": "Freigabe der Reservierung",
+      "releaseQuantity": "Freizugebende Menge",
+      "releaseFigures": "Reserviert {quantity} · fakturiert {invoiced} · versandt {dispatched}",
+      "releasableHint": "Bis zu {releasable} können freigegeben werden",
+      "releaseCancels": "Die Reservierung wird storniert; die gehaltene Ware kann wieder verkauft werden.",
+      "releaseKeeps": "{remaining} bleiben reserviert.",
+      "releaseKeepsConsumed": "{remaining} bleiben reserviert: Sie sind bereits fakturiert oder versandt.",
+      "released": "{quantity} von {number} freigegeben",
+      "cancelledHere": "Reservierung {number} storniert",
+      "errors": {
+        "insufficient_stock": "Nicht genug freier Bestand: {available} frei.",
+        "allocation_full": "Die ausgehende Bestellung hat nur noch Platz für {free}.",
+        "line_demand_exceeded": "Auf der eingehenden Bestellung sind nur noch {open} offen.",
+        "contact_mismatch": "Diese eingehende Bestellung gehört einem anderen Kunden.",
+        "order_not_reservable": "Die ausgehende Bestellung ist geschlossen: darauf kann nichts mehr reserviert werden.",
+        "incoming_order_not_reservable": "Die eingehende Bestellung nimmt keine Reservierungen mehr an.",
+        "releasable_exceeded": "Nur {releasable} können freigegeben werden.",
+        "nothing_to_release": "Nichts mehr freizugeben: das Reservierte ist fakturiert oder versandt.",
+        "already_cancelled": "Die Reservierung ist bereits storniert.",
+        "below_consumed": "Nicht unter {consumed}: so viel ist fakturiert oder versandt."
+      }
     },
     "issueFlow": {
       "issueAndPrint": "Ausstellen und drucken",

@@ -1003,7 +1003,6 @@
     "reserve": "Reserve",
     "reserveForClient": "Reserve for client",
     "cancelReservation": "Cancel reservation",
-    "cancelReservationConfirm": "Release reservation {number}? Held stock becomes sellable again.",
     "noReservationsYet": "No reservations yet.",
     "lateDelivery": "Expected after the requested delivery date",
     "stockShortage": "Reserved quantity exceeds the stock on hand",
@@ -1235,7 +1234,29 @@
       "unsaved": "unsaved changes",
       "savedWithOrder": "Saved together with the order.",
       "allocationGone": "The allocation it was on is no longer on this order",
-      "noFreeQuantity": "Nothing on that allocation is free to reserve"
+      "noFreeQuantity": "Nothing on that allocation is free to reserve",
+      "release": "Release the reservation",
+      "releaseTitle": "Release reservation",
+      "releaseQuantity": "Quantity to release",
+      "releaseFigures": "Reserved {quantity} · invoiced {invoiced} · dispatched {dispatched}",
+      "releasableHint": "Up to {releasable} can be released",
+      "releaseCancels": "The reservation is cancelled, and the goods it held can be sold again.",
+      "releaseKeeps": "{remaining} stay reserved.",
+      "releaseKeepsConsumed": "{remaining} stay reserved: they are already invoiced or dispatched.",
+      "released": "Released {quantity} of {number}",
+      "cancelledHere": "Reservation {number} cancelled",
+      "errors": {
+        "insufficient_stock": "Not enough free stock: {available} free.",
+        "allocation_full": "The outgoing order has room for only {free} more.",
+        "line_demand_exceeded": "Only {open} still open on the incoming order.",
+        "contact_mismatch": "That incoming order is another client’s.",
+        "order_not_reservable": "That outgoing order is closed: nothing more can be reserved on it.",
+        "incoming_order_not_reservable": "That incoming order no longer takes reservations.",
+        "releasable_exceeded": "Only {releasable} can be released.",
+        "nothing_to_release": "Nothing left to release: what is reserved is invoiced or dispatched.",
+        "already_cancelled": "The reservation is already cancelled.",
+        "below_consumed": "Not below {consumed}: that much is invoiced or dispatched."
+      }
     },
     "issueFlow": {
       "issueAndPrint": "Issue and print",

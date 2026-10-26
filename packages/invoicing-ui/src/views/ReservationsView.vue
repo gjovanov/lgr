@@ -80,13 +80,14 @@
           @click="openEdit(item)"
         />
         <v-btn
+          v-if="(item.releasable || 0) > 0"
           icon="mdi-close"
           size="small"
           variant="text"
           color="error"
-          :title="$t('invoicing.cancelReservation')"
-          :aria-label="$t('invoicing.cancelReservation')"
-          @click="confirmCancel(item)"
+          :title="$t('invoicing.reservations.release')"
+          :aria-label="$t('invoicing.reservations.release')"
+          @click="openRelease(item)"
         />
       </template>
       <!-- #203: a cancelled reservation can be made again directly — once. -->
@@ -103,17 +104,12 @@
       />
     </template>
 
-    <v-dialog v-model="cancelDialog" max-width="420">
-      <v-card>
-        <v-card-title>{{ $t('common.confirm') }}</v-card-title>
-        <v-card-text>{{ $t('invoicing.cancelReservationConfirm', { number: selected?.number }) }}</v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="cancelDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="error" @click="doCancel">{{ $t('invoicing.cancelReservation') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <ReservationReleaseDialog
+      v-model="releaseDialog"
+      :reservation="selected"
+      :subtitle="selected ? `${selected.productName || ''} · ${selected.contactName || ''}` : ''"
+      @released="fetchItems"
+    />
 
     <ReservationQuantityDialog
       v-model="editDialog"
@@ -121,6 +117,7 @@
       :subtitle="selected ? `${selected.productName || ''} · ${selected.contactName || ''}` : ''"
       @saved="fetchItems"
     />
+
   </ListScaffold>
 </template>
 
@@ -138,6 +135,8 @@ import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import ReservationQuantityDialog from '../components/ReservationQuantityDialog.vue'
+import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue'
+import { reservationErrorMessage } from '../composables/reservation-errors'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -146,7 +145,7 @@ const { showSuccess, showError } = useSnackbar()
 const { search, debouncedSearch } = useSearchDebounce()
 const statusFilter = ref<string[]>([])
 const sourceFilter = ref<'stock' | 'order' | null>(null)
-const cancelDialog = ref(false)
+const releaseDialog = ref(false)
 const editDialog = ref(false)
 const repeating = ref('')
 const selected = ref<any>(null)
@@ -204,16 +203,9 @@ function statusColor(s: string) {
   return ({ active: 'primary', fulfilled: 'success', cancelled: 'error' }[s] || 'grey')
 }
 
-function confirmCancel(item: any) { selected.value = item; cancelDialog.value = true }
-async function doCancel() {
-  try {
-    await httpClient.post(`${appStore.orgUrl()}/invoicing/reservations/${selected.value._id}/cancel`, {})
-    showSuccess(t('invoicing.reservations.cancelled', { number: selected.value.number }))
-    cancelDialog.value = false
-    await fetchItems()
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
-  }
+function openRelease(item: any) {
+  selected.value = item
+  releaseDialog.value = true
 }
 
 function openEdit(item: any) {
@@ -230,7 +222,7 @@ async function reserveAgain(item: any) {
       : t('invoicing.reservations.alreadyReservedAgain', { number: data.reservation.reservationNumber }))
     await fetchItems()
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(reservationErrorMessage(e, t))
   } finally {
     repeating.value = ''
   }

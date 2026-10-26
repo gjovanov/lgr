@@ -1124,7 +1124,6 @@
     "reserve": "Резервирај",
     "reserveForClient": "Резервирај за клиент",
     "cancelReservation": "Откажи резервација",
-    "cancelReservationConfirm": "Да се ослободи ли резервација {number}? Задржаната залиха повторно станува продажна.",
     "noReservationsYet": "Сè уште нема резервации.",
     "lateDelivery": "Се очекува по бараниот датум на испорака",
     "stockShortage": "Резервираното количество ја надминува залихата",
@@ -1356,7 +1355,29 @@
       "unsaved": "незачувани промени",
       "savedWithOrder": "Се зачувува заедно со нарачката.",
       "allocationGone": "Распределбата на која беше веќе не е во оваа нарачка",
-      "noFreeQuantity": "Во оваа распределба нема слободна количина"
+      "noFreeQuantity": "Во оваа распределба нема слободна количина",
+      "release": "Ослободи ја резервацијата",
+      "releaseTitle": "Ослободување на резервација",
+      "releaseQuantity": "Количина за ослободување",
+      "releaseFigures": "Резервирани {quantity} · фактурирани {invoiced} · испратени {dispatched}",
+      "releasableHint": "Можат да се ослободат до {releasable}",
+      "releaseCancels": "Резервацијата се откажува и задржаната стока повторно може да се продава.",
+      "releaseKeeps": "Остануваат резервирани {remaining}.",
+      "releaseKeepsConsumed": "Остануваат резервирани {remaining}: тие веќе се фактурирани или испратени.",
+      "released": "Ослободени {quantity} од {number}",
+      "cancelledHere": "Резервацијата {number} е откажана",
+      "errors": {
+        "insufficient_stock": "Нема доволно слободна залиха: слободни се {available}.",
+        "allocation_full": "Излезната нарачка има место само за уште {free}.",
+        "line_demand_exceeded": "На влезната нарачка остануваат отворени само {open}.",
+        "contact_mismatch": "Таа влезна нарачка е на друг клиент.",
+        "order_not_reservable": "Излезната нарачка е затворена: на неа не може да се резервира.",
+        "incoming_order_not_reservable": "Влезната нарачка веќе не прима резервации.",
+        "releasable_exceeded": "Можат да се ослободат само {releasable}.",
+        "nothing_to_release": "Нема што да се ослободи: резервираното е фактурирано или испратено.",
+        "already_cancelled": "Резервацијата е веќе откажана.",
+        "below_consumed": "Не помалку од {consumed}: толку се фактурирани или испратени."
+      }
     },
     "issueFlow": {
       "issueAndPrint": "Издади и печати",

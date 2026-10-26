@@ -3,7 +3,7 @@ import { startWalk, uxApi } from '../helpers/ux-budget'
 
 /**
  * P7 — Repeat a reservation. A stock reservation was cancelled by mistake and has to be made
- * again: cancel it from the Reservations list (the mistake), then put the same hold back the
+ * again: release it from the Reservations list (the mistake), then put the same hold back the
  * shortest way the UI allows — since #252, „Резервирай отново" on the cancelled row itself.
  *
  * Products used: PRD-0029 (this walk's share of the acme-corp seed). Customer: Rhine Industries.
@@ -88,18 +88,21 @@ test('P7 repeat: a reservation cancelled by mistake, made again', async ({ page 
     walk.note('Reservations list: no Create button — a reservation can only be made from an internal order (Резервирай от склад / Покрий недостига) or an external order\'s allocation (Резервирай за клиент).')
   }
 
-  // ── 1. The mistake: cancel it ──
-  await walk.click(row.getByRole('button', { name: 'Откажи резервацията' }), 'cancel the reservation (row icon)')
+  // ── 1. The mistake: release it ──
+  await walk.click(row.getByRole('button', { name: 'Освободи резервацията' }), 'release the reservation (row icon)')
   const confirmDialog = page.locator('.v-overlay--active .v-card').filter({ hasText: original.reservationNumber })
   await expect(confirmDialog).toBeVisible()
   walk.dialog('confirm the release')
-  await settledShot(walk, 'cancel-confirm')
+  // FR-22.37: two buttons that cannot be confused, and the quantity starts at all of it.
+  await expect(confirmDialog.getByRole('spinbutton', { name: 'Количество за освобождаване' })).toHaveValue(String(QTY))
+  await settledShot(walk, 'release-confirm')
   const dialogButtons = (await confirmDialog.getByRole('button').allTextContents()).map((t) => t.trim())
-  walk.note(`Release dialog buttons: ${dialogButtons.map((b) => `„${b}"`).join(' / ')} — "dismiss" and "do it" both read as cancel; nothing says the release is final.`)
-  await walk.click(confirmDialog.getByRole('button', { name: 'Откажи резервацията' }), 'confirm: release it')
+  expect(dialogButtons).toEqual(['Не', 'Освободи резервацията'])
+  walk.note(`Release dialog buttons: ${dialogButtons.map((b) => `„${b}"`).join(' / ')}; it starts on all ${QTY}, says how many can go and that the reservation is then cancelled (a smaller number releases part of it).`)
+  await walk.click(confirmDialog.getByRole('button', { name: 'Освободи резервацията' }), 'confirm: release it')
   await expect(snackbar(walk, `Резервация ${original.reservationNumber} е отказана`)).toBeVisible()
   await expect(row).toContainText('Отказана')
-  await expect(row.getByRole('button', { name: 'Откажи резервацията' })).toHaveCount(0)
+  await expect(row.getByRole('button', { name: 'Освободи резервацията' })).toHaveCount(0)
   await settledShot(walk, 'cancelled')
   const cancelled = (await api.get(`/invoicing/reservations/${res._id}`)).reservation
   expect(cancelled.status).toBe('cancelled')
@@ -133,6 +136,6 @@ test('P7 repeat: a reservation cancelled by mistake, made again', async ({ page 
   walk.note(`The hold is back as a NEW document: ${fresh.number} (same ${QTY} × ${SKU}, same warehouse, same client, same internal-order line), marked „резервирана отново"; ${original.reservationNumber} stays in the list as „Отказана". The same row icon serves a reservation made on an external order's allocation, and both order forms offer it too; a second click answers with the same copy (a unique index on \`repeatOf\`).`)
 
   const result = walk.finish()
-  // FR-22.37 asks ≤ 4 for every reservation; the row icon (#252) makes it 3: cancel, confirm, again.
+  // FR-22.37 asks ≤ 4 for every reservation; the row icon (#252) makes it 3: release, confirm, again.
   expect(result.clicks).toBeLessThanOrEqual(3)
 })
