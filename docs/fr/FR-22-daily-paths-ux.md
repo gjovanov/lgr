@@ -519,6 +519,29 @@ Found along the way and fixed on its own:
 Production (lgr:v20261026-a9dae7528a8c, 2026-10-26, master f89e22eb) carries everything above that
 is merged, and FR-21 R1. Each deploy was field-tested on the acme-corp demo org.
 
+Field test (§10) on production, 2026-10-26, acme-corp, each write undone where the app allows:
+- §10.2: the 13-tier receipt with product update (#251) and the receipt → bill chain with stock
+  unchanged (#261) passed after their deploys;
+- §10.3: a card invoice is paid on issue (`card_on_issue`) and prints (PDF). It was undone with a
+  credit note;
+- §10.4: an issued proforma moves no stock; the converted invoice takes the next number of the
+  shared sales series (INV-2026-00017 card invoice, -00018 its credit note, -00019 the converted
+  proforma), so none is burned. It was voided afterwards;
+- §10.5: a client order 2 short, with its supplier order sent, converts into an invoice holding
+  exactly what is on the shelf (325, from three warehouses). The 2 on the supplier order stay
+  reserved and come back as `waiting`. All of it was cancelled afterwards;
+- §10.6 (read-only): on regal-pz the „Резервирано" / „Поръчано" columns of the Products list
+  reconcile exactly with the 4 reservations and the sent supplier order. acme-corp did not: the
+  seed invented 10 % holds with no reservation behind them. Fixed in the seed (#285), and
+  recomputed on prod with `syncReservedQuantities` (119 levels, 1,278 units → 0);
+- §10.1: the walks themselves stay on isolated servers. They write fixtures the demo org cannot
+  undo: issued invoices, paid till sales, open till sessions (#285 makes the P4 walks close
+  theirs). Their click paths were checked on prod in a browser after each deploy instead:
+  „+ Нов", the order subtitles, the row menus, and „Продай" with the article on the first line;
+- §10.7: #203 was closed by its owner on 2026-10-26. Notes for #168 and #4 are drafted for the
+  owner to post. One point for the staff: the place of deal prints the city of the warehouse
+  address, which is in Latin on both stores (Pazardzhik, Sofia).
+
 Data follow-ups run on production, 2026-10-26:
 - the 368 card invoices issued before FR-22.19 were settled with `scripts/settle-cash-invoices.ts
   --method card` (€23,777.48: regal-pz 173, regal-sf 195);
