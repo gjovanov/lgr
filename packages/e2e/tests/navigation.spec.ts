@@ -197,4 +197,44 @@ test.describe('Quick create, favourites and form keys (FR-22.49–.52)', () => {
     await page.waitForURL(/\/invoicing\/invoices\/new\?type=credit_note$/)
     await expect(page.getByRole('heading', { name: 'New Credit Note' })).toBeVisible()
   })
+
+  test('a new form focuses its first field, and Ctrl+S saves it', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/contacts/new', { waitUntil: 'networkidle' })
+
+    await expect(page.getByRole('textbox', { name: /company name/i })).toBeFocused()
+    await page.keyboard.type(`Shortcut Co ${Date.now()}`)
+
+    // The button names its key.
+    await page.getByRole('button', { name: 'Save', exact: true }).hover()
+    await expect(page.locator('.v-overlay--active').filter({ hasText: /^Ctrl\+S/ })).toBeVisible()
+
+    await page.keyboard.press('Control+s')
+    await page.waitForURL(/\/invoicing\/contacts$/)
+  })
+
+  test('a new invoice starts in its customer field, with the list closed until typing', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/invoices/new', { waitUntil: 'networkidle' })
+
+    const customer = page.getByRole('combobox', { name: /client/i })
+    await expect(customer).toBeFocused()
+    // The customers arrived while the field had the focus; Vuetify would open the list over the
+    // form for that alone, where the next click would pick a customer by accident.
+    await expect(customer).toHaveAttribute('aria-expanded', 'false')
+
+    await page.keyboard.type('Tech')
+    await expect(page.locator('.v-overlay--active .v-list-item').filter({ hasText: 'TechVision' }).first()).toBeVisible()
+  })
+
+  test('Esc closes a dialog (Vuetify\'s own default, kept)', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/invoices/new', { waitUntil: 'networkidle' })
+
+    await page.getByRole('button', { name: 'Columns' }).first().click()
+    const dialog = page.getByText('Choose which columns to show on line items.')
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+  })
 })

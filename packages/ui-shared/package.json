@@ -122,6 +122,7 @@
     "./nav/navigate": "./src/nav/navigate.ts",
     "./nav/open-page": "./src/nav/open-page.ts",
     "./nav/return-path": "./src/nav/return-path.ts",
+    "./composables/form-shortcuts": "./src/composables/form-shortcuts.ts",
     "./session/session": "./src/session/session.ts",
     "./session/switch-guards": "./src/session/switch-guards.ts",
     "./session/useOrgSession": "./src/session/useOrgSession.ts",

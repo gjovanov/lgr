@@ -5,6 +5,9 @@
     "moveDown": "Move down",
     "reset": "Reset"
   },
+  "keyboard": {
+    "ctrl": "Ctrl"
+  },
   "app": {
     "name": "Ledger",
     "tagline": "Complete ERP Solution"

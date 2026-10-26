@@ -5,6 +5,9 @@
     "moveDown": "Надолу",
     "reset": "Ресетирај"
   },
+  "keyboard": {
+    "ctrl": "Ctrl"
+  },
   "app": {
     "name": "Леџер",
     "tagline": "Комплетно ERP Решение"
