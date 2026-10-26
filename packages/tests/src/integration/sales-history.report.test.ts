@@ -224,14 +224,62 @@ describe('sales-history — POS rows', () => {
     expect(res.meta!.summary[0].cash).toBe(0)
   })
 
-  it('excludes cancelled transactions', async () => {
+  // FR-21.1 (B-1): the storno route leaves the original `cancelled` and adds a `completed` storno.
+  // Skipping the cancelled sale AND subtracting the storno took the sale out twice.
+  it('counts a stornoed sale, and its storno takes it back: the day nets to nothing', async () => {
     const s = await withPos()
+    const sale = await createTestPOSTransaction(s.orgId, s.session._id as Types.ObjectId, s.user._id as Types.ObjectId, {
+      status: 'cancelled', type: 'sale', total: 50, createdAt: at('2026-05-10T10:00:00'),
+      payments: [{ method: 'cash', amount: 50 }], transactionNumber: 'TXN-S',
+    })
     await createTestPOSTransaction(s.orgId, s.session._id as Types.ObjectId, s.user._id as Types.ObjectId, {
-      status: 'cancelled', total: 50, createdAt: at('2026-05-10T10:00:00'),
-      payments: [{ method: 'cash', amount: 50 }],
+      status: 'completed', type: 'storno', total: 50, createdAt: at('2026-05-10T10:05:00'),
+      payments: [{ method: 'cash', amount: 50 }], transactionNumber: 'TXN-Z',
+      originalTransactionId: sale._id as Types.ObjectId,
     })
     const res = await run(String(s.orgId), { period: DAY })
-    expect(res.rows).toHaveLength(0)
+    expect(res.rows.map(r => r.number).sort()).toEqual(['TXN-S', 'TXN-Z'])
+    expect(res.rows.find(r => r.number === 'TXN-S')!.total).toBe(50)
+    expect(res.meta!.summary[0].total).toBe(0)
+    expect(res.meta!.summary[0].cash).toBe(0)
+  })
+
+  it('leaves out a storno whose receipt failed: it reversed nothing (#145)', async () => {
+    const s = await withPos()
+    await createTestPOSTransaction(s.orgId, s.session._id as Types.ObjectId, s.user._id as Types.ObjectId, {
+      status: 'completed', type: 'sale', total: 50, createdAt: at('2026-05-10T10:00:00'),
+      payments: [{ method: 'cash', amount: 50 }], transactionNumber: 'TXN-S',
+    })
+    await createTestPOSTransaction(s.orgId, s.session._id as Types.ObjectId, s.user._id as Types.ObjectId, {
+      status: 'cancelled', type: 'storno', total: 50, createdAt: at('2026-05-10T10:05:00'),
+      payments: [{ method: 'cash', amount: 50 }], transactionNumber: 'TXN-Z',
+    })
+    const res = await run(String(s.orgId), { period: DAY })
+    expect(res.rows.map(r => r.number)).toEqual(['TXN-S'])
+    expect(res.meta!.summary[0].cash).toBe(50)
+  })
+
+  it('counts the cash the drawer kept, not the cash tendered', async () => {
+    const s = await withPos()
+    await createTestPOSTransaction(s.orgId, s.session._id as Types.ObjectId, s.user._id as Types.ObjectId, {
+      status: 'completed', total: 37.2, createdAt: at('2026-05-10T10:00:00'),
+      payments: [{ method: 'cash', amount: 50 }], changeDue: 12.8,
+    })
+    const sum = (await run(String(s.orgId), { period: DAY })).meta!.summary[0]
+    expect(sum.cash).toBe(37.2)
+    expect(sum.total).toBe(37.2)
+  })
+
+  it('reports a POS row in its session\'s currency (B-3: the row has none of its own)', async () => {
+    const s = await seed()
+    const session = await createTestPOSSession(s.orgId, s.wh._id as Types.ObjectId, s.user._id as Types.ObjectId, { currency: 'BGN' })
+    await createTestPOSTransaction(s.orgId, session._id as Types.ObjectId, s.user._id as Types.ObjectId, {
+      status: 'completed', total: 20, createdAt: at('2026-05-10T10:00:00'),
+      payments: [{ method: 'cash', amount: 20 }],
+    })
+    const res = await run(String(s.orgId), { period: DAY })
+    expect(res.rows[0].currency).toBe('BGN')
+    expect(res.meta!.summary.map(x => x.currency)).toEqual(['BGN'])
   })
 
   it('honours the source filter', async () => {
@@ -248,6 +296,22 @@ describe('sales-history — POS rows', () => {
     expect((await run(String(s.orgId), { period: DAY, source: 'pos' })).rows.map(r => r.number)).toEqual(['TXN-1'])
     expect((await run(String(s.orgId), { period: DAY, source: 'documents' })).rows.map(r => r.number)).toEqual(['CS-1'])
     expect((await run(String(s.orgId), { period: DAY, source: 'all' })).rows).toHaveLength(2)
+  })
+
+  it('drills a cash sale into its own page, an invoice into the invoice form (FR-21.3)', async () => {
+    const s = await seed()
+    await createTestInvoice(s.orgId, s.customer._id as Types.ObjectId, {
+      issueDate: at('2026-05-10'), type: 'cash_sale', direction: 'outgoing', status: 'paid',
+      total: 10, amountPaid: 10, invoiceNumber: 'CS-7',
+    })
+    await createTestInvoice(s.orgId, s.customer._id as Types.ObjectId, {
+      issueDate: at('2026-05-10'), type: 'invoice', direction: 'outgoing', status: 'paid',
+      total: 10, amountPaid: 10, paymentMethod: 'cash', invoiceNumber: 'INV-7',
+    })
+    const res = await run(String(s.orgId), { period: DAY })
+    const href = (n: string) => entry().drilldown!(res.rows.find(r => r.number === n)!)
+    expect(href('CS-7')).toMatch(/^\/invoicing\/cash-sales\/[0-9a-f]{24}\/edit$/)
+    expect(href('INV-7')).toMatch(/^\/invoicing\/invoices\/[0-9a-f]{24}\/edit$/)
   })
 })
 

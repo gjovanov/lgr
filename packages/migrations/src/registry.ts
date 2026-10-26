@@ -5,6 +5,8 @@ import { fileSha256 } from './migrations/0002-file-sha256.js'
 import { relativeFilePaths } from './migrations/0003-relative-file-paths.js'
 import { fileRowsFollowTheirBytes } from './migrations/0004-file-rows-follow-their-bytes.js'
 import { granularPermissions } from './migrations/0005-granular-permissions.js'
+import { posOutRecordOnly } from './migrations/0006-pos-out-record-only.js'
+import { cashSaleLineTotalsGross } from './migrations/0007-cash-sale-line-totals-gross.js'
 import FINGERPRINTS from './fingerprints.json' with { type: 'json' }
 
 /**
@@ -23,6 +25,8 @@ export const RELEASED: Migration[] = [
   relativeFilePaths,
   fileRowsFollowTheirBytes,
   granularPermissions,
+  posOutRecordOnly,
+  cashSaleLineTotalsGross,
 ]
 
 /** {@link RELEASED}, each carrying its file's fingerprint, which the runner checksums. */

@@ -7,6 +7,23 @@
 
 import type { RepositoryRegistry } from 'dal'
 import { getRepos } from '../context.js'
+import { isDateOnly, localDayEnd, localDayStart } from './local-day.js'
+
+/**
+ * The period the tables cover, from the query's `dateFrom` / `dateTo` (FR-21 B-7).
+ *
+ * The UI sends calendar dates. They are Bulgarian days — the ordinance's, and the fiscal devices'
+ * — so a period runs from Bulgarian midnight on `dateFrom` to the last millisecond of `dateTo`.
+ * Read as `new Date('YYYY-MM-DD')` they were 00:00 UTC, which made `dateTo` the START of its day:
+ * the POS tables, windowed on `createdAt`, dropped the whole last day, and a one-day export of
+ * them was empty. A full timestamp is taken as it is, for an API caller that sends one.
+ */
+export function suptoPeriod(dateFrom?: string, dateTo?: string, now: Date = new Date()): { dateFrom: Date; dateTo: Date } {
+  return {
+    dateFrom: !dateFrom ? now : isDateOnly(dateFrom) ? localDayStart(dateFrom) : new Date(dateFrom),
+    dateTo: !dateTo ? now : isDateOnly(dateTo) ? localDayEnd(dateTo) : new Date(dateTo),
+  }
+}
 
 export interface SuptoExportFilters {
   orgId: string
@@ -149,6 +166,8 @@ export async function exportStockMovementSummary(filters: SuptoExportFilters, re
   const mvFilter: any = {
     orgId: filters.orgId,
     date: { $gte: filters.dateFrom, $lte: filters.dateTo },
+    // A record-only movement repeats goods another movement moved (FR-21.4).
+    recordOnly: { $ne: true },
   }
   if (filters.warehouseId) {
     mvFilter.$or = [{ fromWarehouseId: filters.warehouseId }, { toWarehouseId: filters.warehouseId }]

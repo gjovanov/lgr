@@ -176,12 +176,11 @@ export function registerEventHandlers(): void {
     }
   })
 
-  // ── POS Session Closed → Batch Movement + Journal Entry ──
+  // ── POS Session Closed → the session's Journal Entry (FR-21.2; no batch movement since FR-21.4) ──
   eventBus.on('pos.session.closed', async (payload) => {
     const r = getRepos()
     const org = await r.orgs.findById(payload.orgId) as any
     const accountingSettings = org?.settings?.accounting
-    const inventorySettings = org?.settings?.inventory
     if (!accountingSettings?.defaultSaleJournalId) return
 
     const session = await r.posSessions.findById(payload.sessionId) as any
@@ -200,8 +199,7 @@ export function registerEventHandlers(): void {
       {
         receivableAccountId: accountingSettings.defaultReceivableAccountId,
         revenueAccountId: accountingSettings.defaultRevenueAccountId,
-        inventoryAccountId: inventorySettings?.defaultInventoryAccountId,
-        cogsAccountId: inventorySettings?.defaultCOGSAccountId,
+        cashOverShortAccountId: accountingSettings.cashOverShortAccountId,
       },
       { journalId: accountingSettings.defaultSaleJournalId },
       accountingSettings.autoPostInvoiceEntries ?? false,
@@ -220,18 +218,6 @@ export function registerEventHandlers(): void {
         entityName: session.sessionNumber,
         correlationId,
       })
-      if (result.batchMovement) {
-        createAuditEntry({
-          orgId: payload.orgId,
-          userId: 'system',
-          action: 'auto_create',
-          module: 'warehouse',
-          entityType: 'stock_movement',
-          entityId: result.batchMovement.id,
-          entityName: result.batchMovement.movementNumber,
-          correlationId,
-        })
-      }
       createAuditEntry({
         orgId: payload.orgId,
         userId: 'system',

@@ -144,6 +144,8 @@ export async function runWarehouseOperations(ctx: ReportHandlerContext): Promise
     orgId: orgObjectId,
     status: { $in: LIVE_STATUSES },
     $or: typeClause,
+    // A record-only movement repeats goods another movement moved (FR-21.4).
+    recordOnly: { $ne: true },
   }
 
   if (ctx.params.warehouseId) {
