@@ -105,7 +105,7 @@ test('P4-storno: reverse a till sale, starting at the terminal', async ({ page }
     walk.note(`The sale ${sale.transactionNumber} is not the journal’s top row.`)
   }
   const headers = (await page.locator('.v-main thead th').allTextContents()).map(h => h.trim()).filter(Boolean).join(' · ')
-  walk.note(`Best case: the sale is the newest, so it is the top row. Journal columns: ${headers}. No articles, no time of day, no cashier: an older sale is found by opening rows (eye) one by one, or by its TXN number (the search covers only the number and УНП) — and a customer of this non-fiscal till holds no receipt carrying either.`)
+  walk.note(`Best case: the sale is the newest, so it is the top row. Journal columns: ${headers}. No articles, no time of day, no cashier: an older sale is found by opening rows (eye) one by one, or by its number (the search covers only the number and УНП) — and a customer of this non-fiscal till holds no receipt carrying either.`)
 
   await walk.click(row.getByTestId('storno-button'), 'СТОРНО on the sale’s row')
   const dialog = page.getByTestId('storno-dialog')

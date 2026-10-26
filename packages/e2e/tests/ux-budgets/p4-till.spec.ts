@@ -33,7 +33,7 @@ function leafTexts(sel: string): string[] {
 }
 
 /** The English left in the Bulgarian UI: Latin and no Cyrillic, minus data (names, numbers, codes). */
-const DATA = /^(Product \d+|PRD-|TXN-|POS-|CSR-|SM-|Main Warehouse|Retail Store|Production Floor|Acme|EUR$|BGN$|USD$)/
+const DATA = /^(Product \d+|PRD-|TXN-|POS-|CSR?-|SM-|Main Warehouse|Retail Store|Production Floor|Acme|EUR$|BGN$|USD$)/
 function englishOnly(texts: string[]): string[] {
   return [...new Set(texts.filter(t => /[A-Za-z]/.test(t) && !/[А-Яа-я]/.test(t) && !DATA.test(t)))]
 }
@@ -153,7 +153,8 @@ test('P4-till: one counter sale paid by card', async ({ page, browser }, testInf
 
   // ── What the till leaves for the NEXT customer (FR-22.54).
   // The sale's result stays in the cart area: number, total, method, and what printed.
-  await expect(page.getByTestId('last-sale-number')).toHaveText(/^Продажба TXN-\d{4}-\d{7}$/)
+  // FR-21 (D-5): a till sale is a cash-register document, numbered in the cash-sale series.
+  await expect(page.getByTestId('last-sale-number')).toHaveText(/^Продажба CSR?-\d{4}-\d{5}$/)
   await expect(page.getByTestId('last-sale-total')).toContainText(totalAmount)
   await expect(lastSale).toContainText('С карта')
   await expect(page.getByTestId('last-sale-receipt')).toHaveText(NOTHING_PRINTED)
