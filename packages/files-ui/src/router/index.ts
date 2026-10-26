@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { consumeTokenHandoff, portalHref } from 'ui-shared/nav/navigate'
-import { hasOrgSession, isPersonOnly } from 'ui-shared/session/session'
+import { consumeTokenHandoff, signInHref } from 'ui-shared/nav/navigate'
+import { hasOrgSession } from 'ui-shared/session/session'
 
 const routes = [
   {
@@ -32,9 +32,10 @@ router.beforeEach((to, _from, next) => {
   // re-initializes from the tab's session.
   if (consumeTokenHandoff(to.query)) return
 
-  // An org session, in THIS tab. A person signed in without one yet picks an org on the portal.
+  // An org session, in THIS tab. Without one: the portal's sign-in (or its org picker, for a person
+  // signed in without an org), which brings the tab back to this page afterwards (FR-22.53).
   if (!hasOrgSession()) {
-    window.location.href = portalHref(isPersonOnly() ? '/orgs' : '/')
+    window.location.href = signInHref(router.options.history.base + to.fullPath)
     return
   }
   next()

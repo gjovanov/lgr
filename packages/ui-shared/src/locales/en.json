@@ -5,6 +5,9 @@
     "moveDown": "Move down",
     "reset": "Reset"
   },
+  "keyboard": {
+    "ctrl": "Ctrl"
+  },
   "app": {
     "name": "Ledger",
     "tagline": "Complete ERP Solution"
@@ -94,6 +97,29 @@
     "pinPage": "Pin this page",
     "unpinPage": "Unpin this page",
     "noFavorites": "No favorites yet — pin a page with the star.",
+    "quickCreate": "New",
+    "quickCreateHint": "Create a new document",
+    "newDoc": {
+      "salesInvoice": "Outgoing invoice",
+      "creditNote": "Credit note",
+      "proforma": "Proforma",
+      "cashSale": "Cash sale",
+      "bill": "Incoming invoice",
+      "goodsReceipt": "Goods receipt",
+      "customerOrder": "Customer order",
+      "supplierOrder": "Supplier order"
+    },
+    "newDocPage": {
+      "salesInvoice": "New outgoing invoice",
+      "creditNote": "New credit note",
+      "debitNote": "New debit note",
+      "proforma": "New proforma invoice",
+      "cashSale": "New cash sale",
+      "bill": "New incoming invoice",
+      "goodsReceipt": "New goods receipt",
+      "customerOrder": "New customer order",
+      "supplierOrder": "New supplier order"
+    },
     "dashboard": "Dashboard",
     "accounting": "Accounting",
     "accounts": "Accounts",
@@ -221,6 +247,7 @@
     "organizationHint": "Only needed when several people share your username.",
     "specificOrg": "Sign in to a specific organization",
     "completingSignIn": "Completing sign-in…",
+    "continueAfterSignIn": "Sign in to continue where you left off.",
     "errors": {
       "failed": "Sign-in failed. Please try again.",
       "invalid_credentials": "The username or password is not right.",

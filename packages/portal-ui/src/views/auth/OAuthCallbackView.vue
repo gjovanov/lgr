@@ -16,6 +16,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
+import { takeReturnPath } from 'ui-shared/nav/return-path'
 import { takeIdpResume } from './idp'
 
 /**
@@ -31,7 +32,8 @@ import { takeIdpResume } from './idp'
  * read it. A hand-crafted URL reaches the message below instead of a session.
  *
  * Where it goes next follows the password sign-in: an invitation waiting in this tab, the org
- * picker when the person has not entered an org (multi-org sign-in), else the app.
+ * picker when the person has not entered an org (multi-org sign-in), the page the sign-in page was
+ * asked to return to (FR-22.53, kept in this tab across the provider), else the app.
  */
 
 const router = useRouter()
@@ -40,6 +42,7 @@ const { t } = useI18n()
 const error = ref('')
 
 onMounted(async () => {
+  const next = takeReturnPath()
   try {
     const answer = await appStore.completeOAuthLogin()
     // FR-20.39: back to a server's "Sign in with LGR" authorize page, when that is what sent us.
@@ -47,7 +50,8 @@ onMounted(async () => {
     if (resume) return router.push(resume)
     const invite = sessionStorage.getItem('lgr_invite_code')
     if (invite) router.push({ name: 'invite', params: { code: invite } })
-    else if (answer.needsOrgChoice) router.push({ name: 'orgs' })
+    else if (answer.needsOrgChoice) router.push({ name: 'orgs', query: next ? { next } : undefined })
+    else if (next) window.location.assign(next)
     else router.push('/dashboard')
   } catch (e: any) {
     // The server answers 400 with one message for every refusal — unknown, expired or already

@@ -24,6 +24,9 @@
       <!-- The person's orgs: switching moves THIS tab only (multi-org sign-in). -->
       <OrgSwitcher v-if="org" :org="org" :mobile="mobile" />
 
+      <!-- FR-22.49: a new daily document from any app, in one move. -->
+      <NewDocumentMenu v-if="org" :mobile="mobile" />
+
       <!-- Inline menu items for topmenu layout (desktop only) -->
       <slot v-if="layout === 'topmenu' && !mobile" name="menu-bar" />
 
@@ -55,7 +58,9 @@
         @mark-all-read="$emit('notification-read-all')"
       />
 
-      <UserMenu :user="user" :compact="mobile" @logout="$emit('logout')" @profile="$emit('profile')" />
+      <!-- Avatar only below 1920 px: at 1366 px the name cost the app's own menu its last groups,
+           and „+ Нов" needs that room. The name moves into the menu it opens. -->
+      <UserMenu :user="user" :compact="mobile || !xlAndUp" @logout="$emit('logout')" @profile="$emit('profile')" />
     </v-app-bar>
 
     <v-main>
@@ -79,6 +84,7 @@ import type { AppInfo, ShellUser, ShellOrg } from './types'
 import type { NotificationItem } from './NotificationBell.vue'
 import AppSwitcher from './AppSwitcher.vue'
 import NavFavoritesMenu from './NavFavoritesMenu.vue'
+import NewDocumentMenu from './NewDocumentMenu.vue'
 import OrgSelector from './OrgSelector.vue'
 import OrgSwitcher from './OrgSwitcher.vue'
 import UserMenu from './UserMenu.vue'
@@ -118,7 +124,7 @@ const emit = defineEmits<{
   profile: []
 }>()
 
-const { mobile } = useDisplay()
+const { mobile, xlAndUp } = useDisplay()
 const rail = ref(true)
 const mobileDrawerOpen = ref(false)
 

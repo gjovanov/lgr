@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { consumeTokenHandoff, portalHref } from 'ui-shared/nav/navigate'
-import { hasOrgSession, isPersonOnly } from 'ui-shared/session/session'
+import { consumeTokenHandoff, signInHref } from 'ui-shared/nav/navigate'
+import { hasOrgSession } from 'ui-shared/session/session'
 import { pinOffered } from '../composables/useTillPin'
 
 const routes = [
@@ -41,11 +41,12 @@ router.beforeEach(async (to, _from, next) => {
 
   if (to.name === 'pos.pin') return next()
 
-  // An org session, in THIS tab. A person signed in without one yet picks an org on the portal.
+  // An org session, in THIS tab. Without one: the portal's sign-in (or its org picker, for a person
+  // signed in without an org), which brings the tab back to this page afterwards (FR-22.53).
   if (!hasOrgSession()) {
     // At a till paired with an on-prem server, the operator signs in here, with their PIN.
     if (await pinOffered()) return next({ name: 'pos.pin', query: { to: to.fullPath } })
-    window.location.href = portalHref(isPersonOnly() ? '/orgs' : '/')
+    window.location.href = signInHref(router.options.history.base + to.fullPath)
     return
   }
   next()

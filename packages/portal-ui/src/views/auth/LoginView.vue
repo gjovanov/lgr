@@ -5,7 +5,7 @@
       <v-alert v-if="notice" type="info" variant="tonal" density="compact" class="mb-4">{{ notice }}</v-alert>
       <!-- FR-20.39: on a linked server, the person's lgrai.app account first; the local password is for outages. -->
       <template v-if="lgr">
-        <v-btn block color="primary" size="large" prepend-icon="mdi-shield-account" data-test="sign-in-with-lgr" class="mb-3" @click="startLgrSignIn(lgr)">{{ $t('idp.signInWithLgr') }}</v-btn>
+        <v-btn block color="primary" size="large" prepend-icon="mdi-shield-account" data-test="sign-in-with-lgr" class="mb-3" @click="lgrSignIn(lgr)">{{ $t('idp.signInWithLgr') }}</v-btn>
         <div class="text-center text-body-2 text-medium-emphasis mb-3">{{ $t('idp.orLocal') }}</div>
       </template>
       <v-form @submit.prevent="handleLogin">
@@ -90,6 +90,7 @@ import { useOAuthProviders } from 'ui-shared/composables/useOAuthProviders'
 import { lastOrgId } from 'ui-shared/session/session'
 import { signInErrorMessage } from './sign-in-errors'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { rememberReturnPath, safeReturnPath } from 'ui-shared/nav/return-path'
 import { startLgrSignIn, takeIdpResume } from './idp'
 
 /**
@@ -112,6 +113,12 @@ const showOrg = ref(false)
 const form = reactive({ orgSlug: '', username: '', password: '' })
 /** A linked master offers "Sign in with LGR" (FR-20.39); lgrai.app answers 404. */
 const lgr = ref<{ server: string; clientId: string } | null>(null)
+/**
+ * FR-22.53: the page the person was on when their session ended (a 401, or a bookmark opened in a
+ * tab whose session had expired). Signing in goes back there. Only a path `safeReturnPath` would
+ * follow survives: this parameter is whatever the link says.
+ */
+const next = safeReturnPath(route.query.next)
 
 onMounted(() => {
   const invite = route.query.invite as string
@@ -126,6 +133,7 @@ onMounted(() => {
     error.value = signInErrorMessage(route.query.error, t, te)
   }
   if (route.query.reset === 'done') notice.value = t('auth.reset.done')
+  else if (next) notice.value = t('auth.continueAfterSignIn')
   loadProviders()
   httpClient.get('/auth/idp/config').then(({ data }) => { if (data?.enabled) lgr.value = { server: data.server, clientId: data.clientId } }).catch(() => {})
 })
@@ -141,17 +149,26 @@ function oauthLogin(provider: string) {
   if (showOrg.value && form.orgSlug.trim()) params.set('org_slug', form.orgSlug.trim())
   else if (lastOrgId()) params.set('prefer', lastOrgId())
   const query = params.toString()
+  // The provider hands back no query, so the page to return to waits in this tab.
+  rememberReturnPath(next)
   window.location.href = `/api/oauth/${provider}${query ? `?${query}` : ''}`
 }
 
-/** After any sign-in: an invitation waiting, the org picker, or the app. */
+function lgrSignIn(cfg: { server: string; clientId: string }) {
+  rememberReturnPath(next)
+  startLgrSignIn(cfg)
+}
+
+/** After any sign-in: an invitation waiting, the org picker, the page the person came from, or the app. */
 function proceed(answer: SignInAnswer) {
   // FR-20.39: a server's "Sign in with LGR" sent the person here to sign in to lgrai.app first.
   const resume = takeIdpResume()
   if (resume) return router.push(resume)
   const invite = sessionStorage.getItem('lgr_invite_code')
   if (invite) router.push({ name: 'invite', params: { code: invite } })
-  else if (answer.needsOrgChoice) router.push({ name: 'orgs' })
+  else if (answer.needsOrgChoice) router.push({ name: 'orgs', query: next ? { next } : undefined })
+  // A page load: the page is usually in another app.
+  else if (next) window.location.assign(next)
   else router.push('/dashboard')
 }
 
