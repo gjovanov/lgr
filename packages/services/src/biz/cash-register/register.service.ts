@@ -84,7 +84,16 @@ export interface RegisterContext {
   printer?: RegisterPrinter | null
   /** Book the dispatch even below zero: the till (whose own check runs before the print), an import. */
   allowNegative?: boolean
-  /** How the audit trail names the document: the till's `pos_transaction`. */
+  /** Move no stock at all: an import whose goods another document already moved. */
+  skipStock?: boolean
+  /**
+   * A door's own work around the dispatch, under the same failure rule: the back office confirms
+   * the transfers a sale asked for before it dispatches (FR-21.24), and re-derives the order a
+   * sale consumes once it has. Both run again on a resume, so each must be safe to repeat.
+   */
+  beforeStock?: (doc: any) => Promise<void>
+  afterStock?: (doc: any) => Promise<void>
+  /** How the audit trail names the document: the till's `pos_transaction`, the back office's `invoice`. */
   audit: { module: string; entityType: string }
 }
 
@@ -437,19 +446,25 @@ export async function runSaleSteps(c: RegisterContext, id: string): Promise<any>
     doc = await Invoice.findById(doc._id).lean().exec()
   }
 
-  if (!doc.register?.movementId && !doc.register?.stockError) {
+  if (!c.skipStock && !doc.register?.movementId && !doc.register?.stockError) {
     try {
+      if (c.beforeStock) {
+        await c.beforeStock(doc)
+        doc = await Invoice.findById(doc._id).lean().exec()
+      }
       const movementId = await moveSaleStock(c, doc)
       if (movementId) doc = await setRegister(doc._id, { movementId: oid(movementId) })
     } catch (e: any) {
       if (!reachedDeviceOrDrawer(doc)) {
         await rollBack(doc)
-        throw new RegisterRefusal(400, { message: e?.message })
+        if (e instanceof RegisterRefusal) throw e
+        throw new RegisterRefusal(e?.statusCode ?? 400, e?.code ? { code: e.code, message: e?.message } : { message: e?.message })
       }
       logger.error({ documentId: String(doc._id), error: e?.message }, 'Cash-register stock movement failed')
       doc = await setRegister(doc._id, { stockError: e?.message })
     }
   }
+  if (c.afterStock) await c.afterStock(doc)
 
   const done: any = await Invoice.findOneAndUpdate(
     { _id: doc._id, completedAt: { $exists: false } },

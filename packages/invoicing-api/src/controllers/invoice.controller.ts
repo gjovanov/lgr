@@ -28,19 +28,15 @@ import {
 import { logger } from 'services/logger'
 import { PendingTransferError, checkPendingTransfers, confirmTransferMovements } from 'services/biz/stock-transfer.service'
 import {
+  RegisterRefusal, insertRegisterDocument, originOf, runSaleSteps, settleKeyedDocument, type RegisterContext,
+} from 'services/biz/cash-register/register.service'
+import {
   ReceiptBillError, applyLinkedBillPrices, checkLinkedBillEdit, isReceiptLinked, linkedReceiptsOf, releaseReceiptLinks,
 } from 'services/biz/receipt-bill.service'
 
 // ── Idempotent create, issue and payment (FR-20.37, #155) ───────────────────────────────────
 
 type Status = (code: number, body: Record<string, unknown>) => any
-
-/**
- * The number a keyed cash sale holds between its insert and its real number. Never a valid
- * prefix, so it cannot collide with an allocated number; unique per key, so it cannot collide
- * with another pending sale.
- */
-const PENDING_NUMBER = '~pending:'
 
 interface CreateCtx {
   orgId: string
@@ -56,63 +52,50 @@ const reused = (status: Status, e: IdempotencyError) => status(e.statusCode, { c
 const refused = (status: Status, e: CashSaleInvoiceError) => status(e.statusCode, { code: e.code, message: e.message, ...(e.details || {}) })
 
 /**
- * Give a keyed cash sale its real CS number (it was inserted under `PENDING_NUMBER`).
- * Retries a number the counter handed out twice, as the unkeyed path does. Null after three.
+ * FR-21 (D-4): a back-office cash sale is a cash-register document, written by the one service
+ * that writes the till's. This door has no fiscal device and (until R5) no session; it brings its
+ * own work around the dispatch — the transfers the cash-sale form asked for (FR-21.24) before it,
+ * the order the sale consumes after it — and its request flags.
  */
-async function numberPendingCashSale(orgId: string, id: string, userId: string): Promise<any | null> {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const number = await getNextInvoiceNumber(orgId, 'outgoing', 'cash_sale')
-    try {
-      // No match = already numbered (a resumed request got there first); either way it is done.
-      await Invoice.updateOne(
-        { _id: id, orgId, invoiceNumber: { $regex: `^${PENDING_NUMBER}` } },
-        { $set: { invoiceNumber: number, numberHistory: [{ number, allocatedAt: new Date(), status: 'paid' }] } },
-      ).exec()
-      return getRepos().invoices.findOne({ id, orgId } as any)
-    } catch (e: any) {
-      if (e?.code !== 11000) throw e
-      logger.warn({ orgId, id, number, attempt }, 'Cash sale number already taken, retrying')
-    }
+function cashSaleContext(c: CreateCtx): RegisterContext {
+  return {
+    orgId: c.orgId,
+    user: c.user,
+    allowNegative: c.allowNegativeStock,
+    skipStock: c.skipStockMovement,
+    audit: { module: 'invoicing', entityType: 'invoice' },
+    beforeStock: async (doc: any) => {
+      if (!c.pendingTransferIds?.length || doc.pendingTransferIds?.length) return
+      try {
+        await confirmTransferMovements(c.orgId, c.pendingTransferIds)
+      } catch (e: any) {
+        if (e instanceof PendingTransferError) throw e
+        throw new Error(`Transfer confirmation failed: ${e.message}`)
+      }
+      await getRepos().invoices.updateInOrg(String(doc._id), c.orgId, { pendingTransferIds: c.pendingTransferIds } as any)
+    },
+    afterStock: async (doc: any) => syncOrderForInvoice(c.orgId, doc, c.user.id),
   }
-  return null
+}
+
+/** A cash sale's answer, or the service's refusal, as the route answers it. */
+async function cashSaleAnswer(c: CreateCtx, run: () => Promise<any>, status: Status) {
+  try {
+    const doc = await run()
+    return { invoice: await getRepos().invoices.findOne({ id: String(doc._id), orgId: c.orgId } as any) }
+  } catch (e: any) {
+    if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
+    throw e
+  }
 }
 
 /**
- * Finish a keyed create a crash interrupted: number a pending cash sale, move its stock if it
- * has not moved, derive order counters, mark it complete. Each step checks before acting.
- * Answers like the route: the document, or the cash sale's rollback error.
+ * Finish a keyed create a crash interrupted: derive its order counters and mark it complete.
+ * (A cash sale is finished by the cash-register service instead, see `settleCreate`.)
  */
 async function finishCreate(c: CreateCtx, id: string, status: Status) {
   const r = getRepos()
-  let invoice: any = await r.invoices.findOne({ id, orgId: c.orgId } as any)
-  if (c.isCashSale && String(invoice.invoiceNumber).startsWith(PENDING_NUMBER)) {
-    invoice = await numberPendingCashSale(c.orgId, id, c.user.id)
-    if (!invoice) {
-      await r.invoices.deleteInOrg(id, c.orgId)
-      return status(409, { message: 'Could not allocate the cash sale number after 3 attempts' })
-    }
-  }
-  if (c.isCashSale && !c.skipStockMovement) {
-    if (c.pendingTransferIds?.length && !invoice.pendingTransferIds?.length) {
-      try {
-        await confirmTransferMovements(c.orgId, c.pendingTransferIds)
-        await r.invoices.updateInOrg(id, c.orgId, { pendingTransferIds: c.pendingTransferIds } as any)
-      } catch (e: any) {
-        await r.invoices.deleteInOrg(id, c.orgId)
-        if (e instanceof PendingTransferError) return status(e.statusCode, { code: e.code, message: e.message })
-        return status(400, { message: `Transfer confirmation failed: ${e.message}` })
-      }
-    }
-    const moved = await StockMovement.exists({ orgId: c.orgId, invoiceId: id }).exec()
-    if (!moved) {
-      try {
-        await createInvoiceStockMovement(invoice, c.user.id, undefined, c.allowNegativeStock ? { allowNegative: true } : undefined)
-      } catch (e: any) {
-        await r.invoices.deleteInOrg(id, c.orgId)
-        return status(400, { message: e.message })
-      }
-    }
-  }
+  const invoice: any = await r.invoices.findOne({ id, orgId: c.orgId } as any)
   await syncOrderForInvoice(c.orgId, invoice, c.user.id)
   const done = await Invoice.findOneAndUpdate(
     { _id: id, orgId: c.orgId, completedAt: { $exists: false } },
@@ -134,6 +117,9 @@ async function settleCreate(existing: any, hash: string, c: CreateCtx, status: S
   const replay = async () => ({ invoice: await getRepos().invoices.findOne({ id, orgId: c.orgId } as any) })
   // Documents created before this field existed, or by a request that finished, are complete.
   if (existing.completedAt || !existing.leaseUntil) return replay()
+  if (existing.type === 'cash_sale') {
+    return cashSaleAnswer(c, () => settleKeyedDocument(existing, hash, async () => cashSaleContext(c), runSaleSteps), status)
+  }
   for (let round = 0; round < 2; round++) {
     if (await takeLease(Invoice, c.orgId, existing._id)) return finishCreate(c, id, status)
     const { doc, leaseLapsed } = await waitForCompletion(Invoice, c.orgId, existing._id)
@@ -676,31 +662,52 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         }
       }
 
+      // FR-21 (D-4): a cash sale is a cash-register document, written by the one service. It keeps
+      // this route's contract — the payload, the answer, the key — and leaves by the service's
+      // failure rule: no device and no drawer here, so a failure before it completes removes it.
+      // ⚠ A keyed one is INSERTED under a placeholder before its CS number is drawn: a legal
+      // sequence, where every losing duplicate of a racing retry would otherwise burn a number.
+      if (isCashSale) {
+        const fields = {
+          ...body,
+          lines,
+          dueDate,
+          orgId,
+          direction: 'outgoing',
+          status: 'paid',
+          statusHistory: [statusEntry('paid', undefined, user.id, 'cash_sale_created')],
+          taxTotal,
+          totalBase: body.totalBase ?? +(body.total * exchangeRate).toFixed(2),
+          billingAddress: body.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
+          amountPaid: body.total,
+          amountDue: 0,
+          paidAt: new Date(),
+          createdBy: user.id,
+          // §3.2: a PlusMinus till day (the CLI import tags it, its reference names the day) or a sale
+          // entered here.
+          register: { origin: originOf(body) },
+        }
+        return cashSaleAnswer(createCtx, async () => {
+          const outcome = await insertRegisterDocument(orgId, fields, key ? { key, hash: hash! } : undefined)
+          // A racing duplicate of this keyed request won the insert: answer as it does.
+          if ('existing' in outcome) return settleKeyedDocument(outcome.existing, hash!, async () => cashSaleContext(createCtx), runSaleSteps)
+          await upsertTags(orgId, 'invoice', body.tags)
+          return runSaleSteps(cashSaleContext(createCtx), String(outcome.inserted._id))
+        }, status)
+      }
+
       // Allocate + create with retry on duplicate-key. A collision indicates the sequence
       // counter drifted (e.g. legacy data) — the reconcile-on-allocate path inside
       // getNextInvoiceNumber catches up, so a retry usually succeeds on the 2nd attempt.
-      // Drafts use a separate per-type DRAFT_* counter; cash sales skip drafts entirely.
+      // Drafts use a separate per-type DRAFT_* counter.
       let invoice: any
       let invoiceNumber = ''
       let lastErr: any
       let updatedProductIds: string[] = []
-      /**
-       * ⚠ A keyed cash sale is INSERTED before its number is drawn, under a placeholder.
-       * Its CS number is a legal sequence: allocated first, every losing duplicate of a racing
-       * retry would burn one and leave a gap. Only the request whose insert wins numbers it.
-       * (Other types draw only DRAFT numbers here, whose gaps mean nothing.)
-       */
-      const keyedCashSale = !!key && isCashSale && !withProductUpdates
       for (let attempt = 0; attempt < 3; attempt++) {
-        if (keyedCashSale) {
-          invoiceNumber = `${PENDING_NUMBER}${key}`
-        } else if (initialStatus === 'draft') {
-          const draftNum = await getNextDraftInvoiceNumber(orgId, body.direction, body.type)
-          // Cash sales never reach here (initialStatus='paid'); other types always get a draft prefix.
-          invoiceNumber = draftNum || (await getNextInvoiceNumber(orgId, body.direction, body.type))
-        } else {
-          invoiceNumber = await getNextInvoiceNumber(orgId, body.direction, body.type)
-        }
+        const draftNum = await getNextDraftInvoiceNumber(orgId, body.direction, body.type)
+        // Every type but a cash sale (above) is created a draft, under a draft number.
+        invoiceNumber = draftNum || (await getNextInvoiceNumber(orgId, body.direction, body.type))
         try {
           const docFields = {
             ...body,
@@ -708,16 +715,15 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
             dueDate,
             invoiceNumber,
             orgId,
-            direction: isCashSale ? 'outgoing' : body.direction,
+            direction: body.direction,
             status: initialStatus,
-            statusHistory: [statusEntry(initialStatus, undefined, user.id, isCashSale ? 'cash_sale_created' : 'created')],
+            statusHistory: [statusEntry(initialStatus, undefined, user.id, 'created')],
             numberHistory: [{ number: invoiceNumber, allocatedAt: new Date(), status: initialStatus }],
             taxTotal,
             totalBase: body.totalBase ?? +(body.total * exchangeRate).toFixed(2),
             billingAddress: body.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
-            amountPaid: isCashSale ? body.total : 0,
-            amountDue: isCashSale ? 0 : body.total,
-            paidAt: isCashSale ? new Date() : undefined,
+            amountPaid: 0,
+            amountDue: body.total,
             ...(key ? { clientKey: key, requestHash: hash, leaseUntil: new Date(Date.now() + LEASE_MS) } : {}),
             createdBy: user.id,
           }
@@ -733,10 +739,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           lastErr = e
           if (e instanceof GRValidationError) return status(422, { message: e.message })
           // A racing duplicate of this keyed request won the insert: answer as it does.
-          // (The DAL's DuplicateError names the index's fields in its message. A keyed cash
-          // sale's placeholder number is unique per key, so a duplicate on EITHER index means
-          // the same request already exists — Mongo may report the number's index first.)
-          if (key && (isDuplicateKey(e) || /clientKey/.test(String(e?.message ?? '')) || (keyedCashSale && e?.code === 'DUPLICATE'))) {
+          // (The DAL's DuplicateError names the index's fields in its message.)
+          if (key && (isDuplicateKey(e) || /clientKey/.test(String(e?.message ?? '')))) {
             const existing = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
             if (existing) return settleCreate(existing, hash!, createCtx, status)
           }
@@ -747,14 +751,6 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (!invoice) {
         return status(409, { message: `Could not allocate invoice number after 3 attempts: ${lastErr?.message || 'duplicate'}` })
       }
-      if (keyedCashSale) {
-        const numbered = await numberPendingCashSale(orgId, invoice.id, user.id)
-        if (!numbered) {
-          await r.invoices.delete(invoice.id)
-          return status(409, { message: 'Could not allocate the cash sale number after 3 attempts' })
-        }
-        invoice = numbered
-      }
       await upsertTags(orgId, 'invoice', body.tags)
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: invoice.id, entityName: (invoice as any).invoiceNumber })
@@ -764,32 +760,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: pid, correlationId: invoice.id })
       }
 
-      // Cash sales trigger stock movement immediately (unless the import opted out)
-      if (isCashSale && !skipStockMovement) {
-        // Confirm pending transfers first (cross-warehouse)
-        if (pendingTransferIds?.length) {
-          try {
-            await confirmTransferMovements(orgId, pendingTransferIds)
-            await r.invoices.update(invoice.id, { pendingTransferIds } as any)
-          } catch (e: any) {
-            await r.invoices.delete(invoice.id)
-            if (e instanceof PendingTransferError) return status(e.statusCode, { code: e.code, message: e.message })
-            return status(400, { message: `Transfer confirmation failed: ${e.message}` })
-          }
-        }
-
-        try {
-          await createInvoiceStockMovement(invoice, user.id, undefined, allowNegativeStock ? { allowNegative: true } : undefined)
-        } catch (e: any) {
-          // Roll back the cash sale if stock validation fails
-          await r.invoices.delete(invoice.id)
-          return status(400, { message: e.message })
-        }
-      }
-
       // Order/reservation-linked creates (API imports, conversion round-trips) derive
-      // their counters immediately. Placed AFTER the cash-sale movement/rollback block
-      // so a rolled-back cash sale never leaves counters pointing at a deleted doc.
+      // their counters immediately.
       await syncOrderForInvoice(orgId, invoice, user.id)
 
       if (key) {
