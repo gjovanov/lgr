@@ -99,6 +99,25 @@ test.describe('An untouched order form is not „unsaved changes" (FR-22.13)', (
     await expect(leaveDialog(page)).toHaveCount(0)
   })
 
+  test('an edit after a save is unsaved again, and leaving asks (FR-22.16)', async ({ page }) => {
+    const api = await session()
+    const w = await world(api)
+    const ordi = await clientOrder(api, w, 2)
+
+    await loginForApp(page)
+    await page.goto(`/invoicing/internal-orders/${ordi._id}/edit`)
+    await expect(page.locator('.form-paper-header').getByText(ordi.orderNumber)).toBeVisible({ timeout: 15000 })
+    const notes = page.getByRole('textbox', { name: 'Notes' })
+    await notes.fill('saved note')
+    await page.getByRole('button', { name: /^save$/i }).first().click()
+    await expect(page.getByText(/saved successfully/i).first()).toBeVisible()
+
+    // The form stays on the order. An edit from here must not slip away unasked.
+    await notes.fill('saved note, then changed')
+    await page.getByTestId('form-back').click()
+    await expect(leaveDialog(page)).toHaveCount(1)
+  })
+
   test('a supplier order that loaded slowly', async ({ page }) => {
     const api = await session()
     const w = await world(api)

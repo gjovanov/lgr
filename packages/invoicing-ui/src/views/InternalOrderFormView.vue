@@ -792,7 +792,7 @@ const formActions = computed<FormAction[]>(() => [
 ])
 
 // ── pending changes ──
-const { markSaved, tryRestore, snapshot: snapshotPending } = usePendingChanges({
+const { markSaved, markClean, tryRestore, snapshot: snapshotPending } = usePendingChanges({
   appId: 'invoicing',
   entityType: 'internal_order',
   icon: 'mdi-account-clock-outline',
@@ -848,6 +848,8 @@ async function onSave() {
       showSuccess(t('common.savedSuccessfully'))
       markSaved()
       await loadOrder()
+      // It stays open on what it saved: an edit from here is unsaved again (FR-22.16, as the documents do).
+      markClean()
     } else {
       const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders`, buildPayload())
       showSuccess(t('common.savedSuccessfully'))
@@ -856,6 +858,7 @@ async function onSave() {
       orderNumber.value = data.internalOrder.orderNumber
       orderStatus.value = data.internalOrder.status
       await loadOrder(data.internalOrder._id)
+      markClean()
     }
   } catch (e: any) {
     showError(reservationErrorMessage(e, t))
