@@ -12,7 +12,7 @@ import { generateCompanionDocPDF, type CompanionDocData } from 'reporting/pdf/co
 import { generateCompanionDocXLSX } from 'reporting/excel/companion-doc.excel'
 import { docTitleFor, exportI18n } from 'reporting/i18n'
 import { sourceDocLabel } from 'reporting/companion-doc.i18n'
-import { getNextCompanionNumber, companionNumberField, buildPaymentMethodFilter, type CompanionDocKind } from './invoice.controller.js'
+import { getNextCompanionNumber, companionNumberField, buildPaymentMethodFilter, invoiceSortField, type CompanionDocKind } from './invoice.controller.js'
 import { canExport, canWrite } from '../lib/export-access.js'
 import { emailRequestBlock, isValidRecipient, RESEND_WINDOW_MS } from '../lib/email-guards.js'
 import { getOrgLogoDataUri } from 'services/biz/org-logo.service'
@@ -477,7 +477,8 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
 
       // Default sort matches usePaginatedTable defaults → createdAt desc. Accept explicit
       // overrides from the caller so the export row order mirrors what the user sees on screen.
-      const sortBy = ((body as any).sortBy as string) || 'createdAt'
+      // The grid's sort, № included (`number` is the column, `invoiceNumber` the field).
+      const sortBy = invoiceSortField((body as any).sortBy)
       const sortOrder = ((body as any).sortOrder as string) === 'asc' ? 1 : -1
       if (!isAllowedSortField(sortBy)) return status(400, { message: `Invalid sortBy: ${sortBy}` })
       const invoices = await Invoice.find(filter).sort({ [sortBy]: sortOrder }).limit(MAX_ROWS).lean()
@@ -631,7 +632,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         return status(res.error.code, { message: res.error.message, ...(res.error.detail ? { detail: res.error.detail } : {}) })
       }
 
-      const sortBy = (b.sortBy as string) || 'createdAt'
+      const sortBy = invoiceSortField(b.sortBy)
       const sortOrder = (b.sortOrder as string) === 'asc' ? 1 : -1
       if (!isAllowedSortField(sortBy)) return status(400, { message: `Invalid sortBy: ${sortBy}` })
 

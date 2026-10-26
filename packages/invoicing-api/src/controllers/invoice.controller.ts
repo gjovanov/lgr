@@ -313,6 +313,39 @@ function synthesizeStatusHistory(invoice: any): any[] {
 
 const PAYMENT_METHODS = ['cash', 'bank_transfer', 'card', 'cash_on_delivery', 'other']
 
+/** Half a cent: money is compared at the cent, never at floating-point precision. */
+const PAYMENT_TOLERANCE = 0.005
+
+const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
+
+/**
+ * FR-22.7: what a document still has to be paid — its total less what has been paid on it, the
+ * figure the record-payment dialog offers.
+ */
+function outstandingOf(doc: { total?: number; amountPaid?: number }): number {
+  return round2((Number(doc.total) || 0) - (Number(doc.amountPaid) || 0))
+}
+
+/** Whether `amount` pays more than the document still owes. */
+function overpays(doc: { total?: number; amountPaid?: number }, amount: number): boolean {
+  return (Number(doc.amountPaid) || 0) + amount > (Number(doc.total) || 0) + PAYMENT_TOLERANCE
+}
+
+/**
+ * The refusal of an overpayment. Nothing posts one on purpose: the dialog offers the outstanding
+ * amount, the cash rule settles exactly the total, and no import records payments through this
+ * route. An amount above what is owed was a typing slip that left the document paid with a
+ * negative amount due.
+ */
+function overpayment(status: Status, doc: { total?: number; amountPaid?: number }, amount: number) {
+  const outstanding = outstandingOf(doc)
+  return status(422, {
+    code: 'overpayment',
+    outstanding,
+    message: `Payment ${round2(amount)} is more than the ${outstanding} still due on this document`,
+  })
+}
+
 /**
  * Filter documents by payment method. A document matches when any of its recorded
  * payments (`payments[].method`) uses one of the requested methods, or — for documents
@@ -325,6 +358,17 @@ export function buildPaymentMethodFilter(raw: string | string[]): Record<string,
     .filter(s => PAYMENT_METHODS.includes(s))
   if (!list.length) return null
   return { $or: [{ 'payments.method': { $in: list } }, { paymentMethod: { $in: list } }] }
+}
+
+/**
+ * The field to sort documents on, given the key of the grid column the user clicked. The grids'
+ * № column is `number`, which the list adds to each row only after the query: Mongo sorted on a
+ * field no document has, so the rows stayed as found in both directions (FR-22.10). The stored
+ * field is `invoiceNumber`. The list exports take the grid's sort too, so they map it the same way.
+ */
+export function invoiceSortField(sortBy: unknown): string {
+  if (sortBy === 'number') return 'invoiceNumber'
+  return typeof sortBy === 'string' && sortBy ? sortBy : 'createdAt'
 }
 
 /** Companion documents printed alongside a sales document, each with its own counter. */
@@ -423,7 +467,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
-    const sortBy = (query.sortBy as string) || 'createdAt'
+    const sortBy = invoiceSortField(query.sortBy)
     const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
 
     const result = await r.invoices.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
@@ -1248,6 +1292,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       }
       if (['voided', 'cancelled', 'paid'].includes(invoice.status))
         return status(400, { message: 'Cannot record payment on this invoice' })
+      if (overpays(invoice, body.amount)) return overpayment(status, invoice, body.amount)
 
       /**
        * ⚠ ONE atomic update: append the payment, add it to `amountPaid`, and derive
@@ -1275,6 +1320,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           _id: oid(id), orgId: oid(orgId),
           status: { $nin: ['voided', 'cancelled', 'paid'] },
           ...(key ? { 'payments.clientKey': { $ne: key } } : {}),
+          // The overpayment check again, inside the update: two payments recorded at once each
+          // fit what was owed when they were read, and must not overpay it between them.
+          $expr: { $lte: [{ $add: [{ $ifNull: ['$amountPaid', 0] }, body.amount] }, { $add: ['$total', PAYMENT_TOLERANCE] }] },
         },
         [
           {
@@ -1316,11 +1364,15 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         { returnDocument: 'after' },
       )
       if (!after) {
-        // A concurrent request with this key won, or the invoice became paid/voided meanwhile.
-        const current = await Invoice.findOne({ _id: id, orgId }).lean().exec()
+        // A concurrent request with this key won, the invoice became paid/voided meanwhile, or
+        // another payment took what was left of it.
+        const current: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
         if (key) {
           const replayed = await replayPayment(current)
           if (replayed) return replayed
+        }
+        if (current && !['voided', 'cancelled', 'paid'].includes(current.status) && overpays(current, body.amount)) {
+          return overpayment(status, current, body.amount)
         }
         return status(400, { message: 'Cannot record payment on this invoice' })
       }
@@ -1441,8 +1493,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (proforma.status === 'converted')
       return status(400, { message: 'Proforma is already converted' })
 
-    // Auto-generate invoice number
-    const invoiceNumber = await getNextInvoiceNumber(orgId, proforma.direction)
+    // FR-22.3: the new invoice is a DRAFT, so it takes its number from the draft series, as a draft
+    // made by hand does (POST /). It took one from the ISSUED series, and issuing it took another:
+    // the first was left on no document, a gap in the sales series.
+    const invoiceNumber = (await getNextDraftInvoiceNumber(orgId, proforma.direction, 'invoice'))
+      || (await getNextInvoiceNumber(orgId, proforma.direction, 'invoice'))
 
     const invoice = await r.invoices.create({
       orgId,
@@ -1450,6 +1505,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       direction: proforma.direction,
       contactId: proforma.contactId,
       invoiceNumber,
+      numberHistory: [{ number: invoiceNumber, allocatedAt: new Date(), status: 'draft' }],
       issueDate: new Date(),
       dueDate: proforma.dueDate,
       currency: proforma.currency,

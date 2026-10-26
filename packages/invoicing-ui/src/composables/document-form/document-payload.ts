@@ -130,8 +130,9 @@ export interface LineAmounts {
 
 /**
  * Per-line raw (unrounded) amounts.
- *  - discount-aware (sales invoice, proforma): taxable = net − net·discount%, then tax.
- *  - non-discount (purchase, credit, debit, cash): legacy expressions reproduced exactly
+ *  - discount-aware (sales invoice, proforma, credit and debit notes): taxable =
+ *    net − net·discount%, then tax.
+ *  - non-discount (purchase invoice, cash sale): legacy expressions reproduced exactly
  *    (`qty·price·rate/100` and `qty·price·(1 + rate/100)`).
  */
 export function lineAmounts(l: LineInput, hasDiscount: boolean): LineAmounts {
@@ -204,6 +205,41 @@ export function buildPayloadLines(
     if (l.cashSaleLineId) out.cashSaleLineId = l.cashSaleLineId
     return out
   })
+}
+
+/**
+ * The lines a credit or debit note starts with once the user picks the invoice it corrects
+ * (FR-22.4): what was sold, as it was sold. The line's discount and unit come along — the copy
+ * used to zero the discount and drop the unit, so a note on a discounted sale credited the
+ * undiscounted price and every line became „бр." (B-6).
+ *
+ * Each line is marked `loaded`: the price is the invoice's, and a price editor must not swap it
+ * for whatever the article resolves to today. Order and reservation references stay behind —
+ * only a sales invoice may consume a reservation (the API refuses them on a note).
+ */
+export function linesFromRelatedInvoice(lines: any[] | undefined): Array<LineInput & { loaded: true }> {
+  return (lines || []).map((l: any) => ({
+    productId: l.productId ? String(l.productId) : undefined,
+    description: l.description || '',
+    quantity: num(l.quantity),
+    unit: l.unit || 'pcs',
+    unitPrice: num(l.unitPrice),
+    discount: num(l.discount),
+    taxRate: num(l.taxRate),
+    warehouseId: l.warehouseId ? String(l.warehouseId) : undefined,
+    resolvedPrice: num(l.unitPrice),
+    loaded: true as const,
+  }))
+}
+
+/**
+ * Whether a document's lines take their price from `/pricing/resolve`. That endpoint walks the
+ * SALES chain (selling price → category → tag → tier → contact), so only a document priced from
+ * the selling price may use it. A purchase document keeps the article's purchase price: resolving
+ * there replaced the supplier's price with what we sell the article for (B-10).
+ */
+export function resolvesSalesPrice(config: Pick<DocumentTypeConfig, 'priceField'>): boolean {
+  return config.priceField === 'sellingPrice'
 }
 
 /** productUpdates[] for the with-product-update flow: one entry per filled line whose
@@ -280,7 +316,9 @@ export function buildPayload(
   if (pc.emitDueDate) {
     p.dueDate = pc.dueDateFallbackToIssue ? (state.dueDate || state.issueDate) : state.dueDate
   }
-  if (pc.emitValidUntil) p.validUntil = state.validUntil
+  // A proforma's validity is its `dueDate`: the model has no `validUntil`, so sent under its own
+  // name the date was dropped and the server stored the issue date instead (B-11).
+  if (pc.emitValidUntil) p.dueDate = state.validUntil || state.issueDate
 
   // payment
   if (pc.emitPaymentMethod) p.paymentMethod = state.paymentMethod

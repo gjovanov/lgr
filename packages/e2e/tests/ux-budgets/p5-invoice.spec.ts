@@ -116,6 +116,12 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
   }
   const typeFilterText = (await page.locator('.v-field').filter({ hasText: 'Тип документ' }).first().innerText()).replace('Тип документ', '').trim()
   if (/статус/i.test(typeFilterText)) walk.note(`The „Тип документ" (document type) filter reads „${typeFilterText}" (all statuses).`)
+  // The list wrote every status and type into its URL as soon as it opened (B-17). Read the URL
+  // once its debounced write has had time to land.
+  const listUrl = await walk.offTheClock(async () => {
+    await page.waitForTimeout(800)
+    return page.url()
+  })
 
   // How the customer list opens before anything is typed (uncounted look, second tab) — why the
   // walk types the name instead of picking from the list.
@@ -244,6 +250,8 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
   await expect(page.getByRole('heading', { name: 'Редактиране на фактура' })).toBeVisible()
   walk.note('Print is only on the opened document, so the user reopens the invoice after issuing it; the list\'s „Експорт" is a list export, not the invoice.')
   if (await page.locator('.smart-buttons-row').getByText('Payments', { exact: true }).count()) english.push('the „Payments" smart button on the paid invoice')
+  const smartButtonTexts = (await page.locator('.smart-buttons-row').allInnerTexts()).join(' ')
+  const paidShown = (await page.getByTestId('totals-amount-paid').innerText().catch(() => '')).replace(/\s+/g, ' ')
 
   await walk.click(page.getByRole('button', { name: 'Печат' }).first(), 'print')
   const printDialog = page.locator('.v-overlay--active .v-card').filter({ hasText: 'Печат' })
@@ -273,4 +281,15 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
 
   const result = walk.finish()
   expect(result.clicks).toBeGreaterThan(0)
+
+  // ── FR-22 slice 1 guards (each failed on the code the budgets were first measured on) ──
+  // B-9 / FR-22.7: the payment dialog opens on what is still due, by the invoice's own method.
+  expect(methodShown).toMatch(/карта/i)
+  expect(amount).toBeCloseTo(issued.total - (issued.amountPaid || 0), 2)
+  // B-13 / FR-22.12: no English smart buttons; what has been paid shows in the totals card.
+  expect(smartButtonTexts).not.toMatch(/Journal Entry|Payments|Deliveries/)
+  expect(paidShown).toContain('Платена сума')
+  // B-17 / FR-22.15: the type filter names what it filters, and the bare list URL stays bare.
+  expect(typeFilterText).toBe('Всички типове')
+  expect(listUrl).not.toMatch(/[?&](status|type)=/)
 })

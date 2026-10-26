@@ -25,7 +25,7 @@
     <template #filters>
       <FilterBar v-model:search="search">
         <v-col cols="12" sm="6" md="2">
-          <StatusMultiselect v-model="typeFilter" :items="typeOptions" :label="$t('invoicing.documentType')" />
+          <StatusMultiselect v-model="typeFilter" :items="typeOptions" :label="$t('invoicing.documentType')" :all-label="$t('common.allTypes')" />
         </v-col>
         <v-col cols="12" sm="6" md="2">
           <StatusMultiselect v-model="statusFilter" :items="statusOptions" :label="$t('common.status')" />
@@ -187,42 +187,7 @@
       @committed="onImported"
     />
 
-    <v-dialog v-model="paymentDialog" max-width="500">
-      <v-card>
-        <v-card-title>{{ $t('invoicing.recordPayment') }}</v-card-title>
-        <v-card-text>
-          <v-form ref="paymentFormRef">
-            <v-text-field
-              v-model.number="paymentForm.amount"
-              :label="$t('common.amount')"
-              type="number"
-              :rules="[rules.required]"
-            />
-            <v-select
-              v-model="paymentForm.method"
-              :label="$t('invoicing.paymentMethod')"
-              :placeholder="$t('invoicing.paymentMethod')"
-              :items="paymentMethods"
-              item-title="text"
-              item-value="value"
-              persistent-placeholder
-              :rules="[rules.required]"
-            />
-            <DateField
-              v-model="paymentForm.date"
-              :label="$t('common.date')"
-              :rules="[rules.required]"
-            />
-            <v-text-field v-model="paymentForm.reference" :label="$t('invoicing.reference')" />
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="paymentDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="loading" @click="recordPayment">{{ $t('common.save') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <RecordPaymentDialog v-model="paymentDialog" :document="paymentDoc" @recorded="refresh" />
 
     <v-dialog v-model="deleteDialog" max-width="400">
       <v-card>
@@ -267,7 +232,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import { useListQueryState } from 'ui-shared/composables/useListQueryState'
+import { useListQueryState, allOptionsParam } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import DateField from 'ui-shared/components/DateField.vue'
@@ -284,12 +249,13 @@ import FilterBar from 'ui-shared/components/FilterBar.vue'
 import type { StatCardDef } from 'ui-shared/components/StatCard.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
-import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 import { useRowEmail } from '../composables/useRowEmail'
+import RecordPaymentDialog from '../components/RecordPaymentDialog.vue'
 
 interface Invoice {
   _id: string
   number: string
+  type: string
   contactName: string
   contactId?: string
   issueDate: string
@@ -298,14 +264,14 @@ interface Invoice {
   exchangeRate?: number
   total: number
   status: string
-  paidAmount?: number
+  amountPaid?: number
+  paymentMethod?: string
 }
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
-const paymentMethods = usePaymentMethods()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
@@ -325,17 +291,19 @@ const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')
 const deleteDialog = ref(false)
 const paymentDialog = ref(false)
+const paymentDoc = ref<Invoice | null>(null)
 const selectedId = ref('')
-const statusFilter = ref<string[]>([])
-// initialized in onMounted from statusOptions to "all selected"
+// FR-22.15: exactly the statuses a sales document can reach — issued (sent), paid in part or in
+// full, overdue, voided. All of them is the default, so the list's bare URL stays bare.
+const STATUSES = ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'voided'] as const
+const statusFilter = ref<string[]>([...STATUSES])
 const dateFrom = ref('')
 const dateTo = ref('')
 const tagFilter = ref<string[]>([])
 // FR-01: merged sales grid — invoice + credit note + debit note, filterable by type.
 const SALES_TYPES = ['invoice', 'credit_note', 'debit_note'] as const
 const TYPE_COLORS: Record<string, string> = { invoice: 'primary', credit_note: 'warning', debit_note: 'error' }
-const typeFilter = ref<string[]>([])
-const paymentFormRef = ref()
+const typeFilter = ref<string[]>([...SALES_TYPES])
 
 const transferDialog = ref(false)
 const transferShortfalls = ref<any[]>([])
@@ -343,15 +311,9 @@ const transferProposals = ref<any[]>([])
 const transferAllResolvable = ref(false)
 const transferConfirming = ref(false)
 const transferInvoiceId = ref('')
+const transferInvoiceType = ref('invoice')
 
-const statusOptions = computed(() => [
-  { value: 'draft',          title: t('invoicing.status.draft') },
-  { value: 'sent',           title: t('invoicing.status.sent') },
-  { value: 'partially_paid', title: t('invoicing.status.partially_paid') },
-  { value: 'paid',           title: t('invoicing.status.paid') },
-  { value: 'overdue',        title: t('invoicing.status.overdue') },
-  { value: 'voided',         title: t('invoicing.status.voided') },
-])
+const statusOptions = computed(() => STATUSES.map((v) => ({ value: v, title: t(`invoicing.status.${v}`) })))
 
 const allStatusesSelected = computed(() =>
   statusFilter.value.length === 0 || statusFilter.value.length === statusOptions.value.length,
@@ -386,8 +348,8 @@ const filters = computed(() => {
 // Declared BEFORE usePaginatedTable so its filters-watcher sees hydrated values.
 useListQueryState([
   { key: 'q', ref: search, mirror: debouncedSearch },
-  { key: 'type', ref: typeFilter, codec: 'csv' },
-  { key: 'status', ref: statusFilter, codec: 'csv' },
+  allOptionsParam('type', typeFilter, SALES_TYPES),
+  allOptionsParam('status', statusFilter, STATUSES),
   { key: 'from', ref: dateFrom, codec: 'date' },
   { key: 'to', ref: dateTo, codec: 'date' },
   { key: 'tags', ref: tagFilter, codec: 'csv' },
@@ -484,15 +446,16 @@ async function refresh() {
   fetchSummary()
 }
 
-const paymentForm = ref({
-  amount: 0,
-  method: 'bank_transfer',
-  date: new Date().toISOString().split('T')[0],
-  reference: '',
-})
-
-const rules = {
-  required: (v: string | number) => (v !== '' && v !== null && v !== 0) || t('validation.required'),
+// FR-22.14: the message names the document that was acted on — a credit note is not „Фактурата".
+const ISSUED_KEY: Record<string, string> = {
+  invoice: 'invoicing.invoiceSent',
+  credit_note: 'invoicing.creditNoteIssued',
+  debit_note: 'invoicing.debitNoteIssued',
+}
+const VOIDED_KEY: Record<string, string> = {
+  invoice: 'invoicing.invoiceVoided',
+  credit_note: 'invoicing.creditNoteVoided',
+  debit_note: 'invoicing.debitNoteVoided',
 }
 
 const headers = computed(() => [
@@ -572,6 +535,7 @@ async function sendInvoice(item: Invoice) {
         transferProposals.value = stockResult.proposals
         transferAllResolvable.value = stockResult.allResolvable
         transferInvoiceId.value = item._id
+        transferInvoiceType.value = item.type
         transferDialog.value = true
         loading.value = false
         return
@@ -581,7 +545,7 @@ async function sendInvoice(item: Invoice) {
     // Stock sufficient — send directly. #155: an unanswered attempt keeps its key, so issuing
     // again returns that issue — never a second dispatch or number.
     await issueAttempt.run({ id: item._id }, headers => httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/send`, {}, { headers }))
-    showSuccess(t('invoicing.invoiceSent'))
+    showSuccess(t(ISSUED_KEY[item.type] || ISSUED_KEY.invoice))
     await refresh()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
@@ -590,9 +554,8 @@ async function sendInvoice(item: Invoice) {
   }
 }
 
-// #155: one Idempotency-Key per Issue / Record-payment attempt (ui-shared/composables/idempotency).
+// #155: one Idempotency-Key per Issue attempt (ui-shared/composables/idempotency).
 const issueAttempt = createIdempotentAction()
-const paymentAttempt = createIdempotentAction()
 
 async function confirmTransferAndSend(proposals: any[]) {
   transferConfirming.value = true
@@ -603,7 +566,7 @@ async function confirmTransferAndSend(proposals: any[]) {
     // Send invoice with pending transfer IDs (backend confirms transfers first)
     const sendBody = { pendingTransferIds: transferResult.transferIds }
     await issueAttempt.run({ id: transferInvoiceId.value, ...sendBody }, headers => httpClient.post(`${appStore.orgUrl()}/invoices/${transferInvoiceId.value}/send`, sendBody, { headers }))
-    showSuccess(t('invoicing.invoiceSent'))
+    showSuccess(t(ISSUED_KEY[transferInvoiceType.value] || ISSUED_KEY.invoice))
     transferDialog.value = false
     await refresh()
   } catch (e: any) {
@@ -613,38 +576,17 @@ async function confirmTransferAndSend(proposals: any[]) {
   }
 }
 
+/** FR-22.7: the dialog opens on what the row still owes, by the method the row is paid with. */
 function openPaymentDialog(item: Invoice) {
-  selectedId.value = item._id
-  paymentForm.value = {
-    amount: (item.total || 0) - (item.paidAmount || 0),
-    method: 'bank_transfer',
-    date: new Date().toISOString().split('T')[0],
-    reference: '',
-  }
+  paymentDoc.value = item
   paymentDialog.value = true
-}
-
-async function recordPayment() {
-  const { valid } = await paymentFormRef.value.validate()
-  if (!valid) return
-  loading.value = true
-  try {
-    await paymentAttempt.run({ id: selectedId.value, ...paymentForm.value }, headers => httpClient.post(`${appStore.orgUrl()}/invoices/${selectedId.value}/payments`, paymentForm.value, { headers }))
-    showSuccess(t('invoicing.paymentRecorded'))
-    paymentDialog.value = false
-    await refresh()
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
-  } finally {
-    loading.value = false
-  }
 }
 
 async function voidInvoice(item: Invoice) {
   loading.value = true
   try {
     await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/void`)
-    showSuccess(t('invoicing.invoiceVoided'))
+    showSuccess(t(VOIDED_KEY[item.type] || VOIDED_KEY.invoice))
     await refresh()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
@@ -706,9 +648,6 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
 watch([dateFrom, dateTo, tagFilter], fetchSummary, { deep: true })
 
 onMounted(() => {
-  // Seed "all selected" only when the URL didn't provide a narrower selection (FR-05).
-  if (!statusFilter.value.length) statusFilter.value = statusOptions.value.map((o) => o.value)
-  if (!typeFilter.value.length) typeFilter.value = [...SALES_TYPES]
   fetchItems()
   fetchSummary()
 })

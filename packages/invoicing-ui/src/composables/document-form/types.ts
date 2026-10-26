@@ -50,7 +50,7 @@ export interface LineConfig {
 export interface TotalsConfig {
   /** Render the discount row in the totals card. */
   showDiscountRow: boolean
-  /** Emit a top-level `discountTotal` (sales invoice only). */
+  /** Emit a top-level `discountTotal` (sales invoice and the credit/debit notes). */
   emitDiscountTotal: boolean
   /** Emit a top-level `taxTotal` (sales invoice only). */
   emitTaxTotal: boolean
@@ -69,7 +69,7 @@ export interface PayloadConfig {
   emitDueDate: boolean
   /** Fall back `dueDate` → `issueDate` when empty (sales invoice only). */
   dueDateFallbackToIssue: boolean
-  /** Emit `validUntil` (proforma only). */
+  /** Emit the validity date `validUntil` (proforma only) — as `dueDate`, where the model keeps it. */
   emitValidUntil: boolean
   /** Emit `supplierInvoiceNumber` (purchase only). */
   emitSupplierInvoiceNumber: boolean

@@ -15,6 +15,7 @@ import { upsertAmountInWords } from 'config/amount-in-words'
 import { useGRColumns } from 'ui-shared/composables/useGRColumns'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
+import { appHref } from 'ui-shared/nav/navigate'
 import type { FormAction, SmartButtonDef, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import type { DocumentTypeConfig } from './types'
 import {
@@ -22,7 +23,9 @@ import {
   buildProductUpdates,
   computeTotals,
   lineAmounts,
+  linesFromRelatedInvoice,
   MAX_PRICE_TIERS,
+  resolvesSalesPrice,
   round2,
   type DocumentFormState,
 } from './document-payload'
@@ -471,7 +474,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   async function resolvePriceForLine(idx: number) {
     const line = form.lines[idx]
-    if (!line?.productId) return
+    // A purchase document keeps the purchase price `onProductSelected` put on the line (B-10).
+    if (!line?.productId || !resolvesSalesPrice(config)) return
     try {
       const params: Record<string, string> = { productId: line.productId }
       if (form.contactId) params.contactId = form.contactId
@@ -848,15 +852,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
           const { data } = await httpClient.get(`${orgUrl()}/invoices/${newId}`)
           const invoice = data.invoice
           if (invoice?.lines?.length) {
-            form.lines = invoice.lines.map((l: any) => ({
-              productId: l.productId || undefined,
-              description: l.description || '',
-              quantity: l.quantity || 1,
-              unitPrice: l.unitPrice || 0,
-              discount: 0,
-              taxRate: l.taxRate || 0,
-              warehouseId: l.warehouseId || undefined,
-            }))
+            form.lines = linesFromRelatedInvoice(invoice.lines)
+            // The doc-level tax-rate / warehouse controls show what the copied lines carry.
+            syncDocLevelFromLines()
           }
         } catch {
           /* */
@@ -902,20 +900,32 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     return [save, importAction]
   })
 
+  /**
+   * B-13: each button opens what it counts, in the app that has it. The invoicing SPA has no
+   * journal-entry or movement routes, so a router `to` led nowhere; these are cross-app links.
+   * What has been paid is in the totals card — a payment has no page to open.
+   */
   const smartButtons = computed<SmartButtonDef[]>(() => {
     if (!config.showSmartButtons || !invoiceData.value) return []
     const btns: SmartButtonDef[] = []
-    if (invoiceData.value.journalEntryId) {
-      btns.push({ label: 'Journal Entry', value: 1, icon: 'mdi-book-open-variant', to: '/accounting/journal-entries' })
+    const journalEntryId = invoiceData.value.journalEntryId
+    if (journalEntryId) {
+      btns.push({
+        label: t('invoicing.smart.journalEntry'),
+        value: 1,
+        icon: 'mdi-book-open-variant',
+        href: appHref('accounting', `/accounting/journal-entries/${journalEntryId}/edit`),
+      })
     }
-    const payments = invoiceData.value.payments || []
-    if (payments.length > 0) {
-      const totalPaid = payments.reduce((s: number, p: any) => s + (p.amount || 0), 0)
-      btns.push({ label: 'Payments', value: fmtCurrency(totalPaid), icon: 'mdi-cash-multiple' })
-    }
-    const transferIds = invoiceData.value.pendingTransferIds || []
+    const transferIds: string[] = (invoiceData.value.pendingTransferIds || []).map(String)
     if (transferIds.length > 0) {
-      btns.push({ label: 'Deliveries', value: transferIds.length, icon: 'mdi-truck-delivery', to: '/movements' })
+      btns.push({
+        label: t('invoicing.smart.transfers'),
+        value: transferIds.length,
+        icon: 'mdi-truck-delivery',
+        // A transfer records no link back to its invoice, so several open the transfers list.
+        href: appHref('inventory', transferIds.length === 1 ? `/inventory/movements/${transferIds[0]}` : '/inventory/movements?type=transfer'),
+      })
     }
     return btns
   })
@@ -1198,7 +1208,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       form.relatedInvoiceId = inv.relatedInvoiceId || ''
       form.issueDate = inv.issueDate?.split('T')[0] || inv.date?.split('T')[0] || ''
       form.dueDate = inv.dueDate?.split('T')[0] || ''
-      form.validUntil = inv.validUntil?.split('T')[0] || ''
+      // A proforma's validity is stored as its dueDate (B-11): the model has no validUntil.
+      form.validUntil = config.secondaryDate === 'validUntil' ? form.dueDate : ''
       form.currency = inv.currency || baseCurrency.value
       form.exchangeRate = inv.exchangeRate || 1
       form.paymentMethod = inv.paymentMethod || config.paymentMethodDefault

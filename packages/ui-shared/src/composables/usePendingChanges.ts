@@ -20,7 +20,9 @@ export function usePendingChanges(config: PendingChangesConfig) {
   const router = useRouter()
 
   const saved = ref(false)
-  let initialSnapshot = ''
+  // null until the form has taken its clean state (FR-22.13): leaving a document before it has
+  // finished loading is not leaving unsaved changes.
+  let initialSnapshot: string | null = null
   // The pending-changes entry id this form was restored from (if any). Kept around so
   // we can remove it on successful save instead of on tryRestore — letting users
   // navigate in/out of a restored form without losing the entry until they save or
@@ -28,6 +30,7 @@ export function usePendingChanges(config: PendingChangesConfig) {
   let restoredEntryId: string | null = null
 
   function isDirty(): boolean {
+    if (initialSnapshot === null) return false
     try {
       return JSON.stringify(config.getFormData()) !== initialSnapshot
     } catch {
@@ -39,7 +42,7 @@ export function usePendingChanges(config: PendingChangesConfig) {
     try {
       initialSnapshot = JSON.stringify(config.getFormData())
     } catch {
-      initialSnapshot = ''
+      initialSnapshot = null
     }
   }
 

@@ -196,7 +196,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import { useListQueryState } from 'ui-shared/composables/useListQueryState'
+import { useListQueryState, allOptionsParam } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
@@ -245,12 +245,14 @@ const dateFrom = ref<string | null>(null)
 const dateTo = ref<string | null>(null)
 const deleteDialog = ref(false)
 const selectedId = ref('')
-const statusFilter = ref<string[]>([])
-const statusOptions = computed(() => [
-  { value: 'draft',     title: t('invoicing.status.draft') },
-  { value: 'completed', title: t('invoicing.status.completed') },
-  { value: 'paid',      title: t('invoicing.status.paid') },
-])
+// FR-22.15: exactly the statuses a cash sale can have. It is paid the moment it is made (there is
+// no draft cash sale), and removing its source document voids it; „Завършена" (completed) is not
+// a status the model has. All of them is the default, so a bare URL stays bare.
+const STATUSES = ['paid', 'voided'] as const
+/** The list offered before FR-22.15: a bookmark carrying all of it means every status. */
+const LEGACY_ALL_STATUSES = ['draft', 'completed', 'paid']
+const statusFilter = ref<string[]>([...STATUSES])
+const statusOptions = computed(() => STATUSES.map((v) => ({ value: v, title: t(`invoicing.status.${v}`) })))
 const allStatusesSelected = computed(() =>
   statusFilter.value.length === 0 || statusFilter.value.length === statusOptions.value.length,
 )
@@ -279,7 +281,7 @@ const filters = computed(() => {
 // FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
 useListQueryState([
   { key: 'q', ref: search, mirror: debouncedSearch },
-  { key: 'status', ref: statusFilter, codec: 'csv' },
+  allOptionsParam('status', statusFilter, STATUSES, LEGACY_ALL_STATUSES),
   { key: 'from', ref: dateFrom, codec: 'date' },
   { key: 'to', ref: dateTo, codec: 'date' },
   { key: 'invoiced', ref: invoicedFilter, sanitize: (v: any) => (v === 'yes' || v === 'no' ? v : undefined) },
@@ -386,7 +388,6 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
 }
 
 onMounted(() => {
-  if (!statusFilter.value.length) statusFilter.value = statusOptions.value.map(o => o.value)
   fetchItems()
 })
 </script>
