@@ -4,8 +4,9 @@
 
 R1, the read side, is merged and on production since 2026-10-26: master `ddfd167f`, image
 `v20261026-ee6cc3b78103`. Its two migrations ran there, and the field checks match the baseline taken
-before the release. FR-21.14 ran on the owner's go the same day. This
-is what is done, what is left, and what turned up on the way that the spec does not say.
+before the release. FR-21.14 ran on the owner's go the same day. R2, the write side, is built and
+in review as a stack (#272 → #273 → #274; R2a #271 is merged); it is not deployed. This is what is
+done, what is left, and what turned up on the way that the spec does not say.
 
 ## 1. State
 
@@ -15,7 +16,10 @@ is what is done, what is left, and what turned up on the way that the spec does 
 | **R1b** — every reader counts a till sale once, whichever store holds it | FR-21.7 – FR-21.12 | #247, merged and deployed 2026-10-26 |
 | **R1c** — one journal page in both apps | FR-21.13 (B-6) | #248, merged and deployed 2026-10-26 |
 | Before R2 — the `regal` test sales | FR-21.14 | **Done 2026-10-26** (#269, owner's go): 74 test sales removed, see §5. |
-| R2 — the write side and the copy | FR-21.15 – FR-21.24 | not started |
+| R2a — `pendingTransferIds` | FR-21.24 | #271, merged 2026-10-26 (not deployed) |
+| R2b — the till writes cash-register documents | FR-21.15 – FR-21.20 (the till's door) | #272, in review |
+| R2c — the copy migration and the restore | FR-21.21 – FR-21.22 | #273 (on #272), in review |
+| R2d — the back office and the import; `docs/supto` | FR-21.15 (the other doors), FR-21.23 | #274 (on #273), in review |
 | R3 — freeze | FR-21.25 – FR-21.26 | not started |
 | R4 — contract | FR-21.27 – FR-21.28 | not started |
 | R5 — one terminal | FR-21.29 – FR-21.32 | not started |
@@ -57,7 +61,7 @@ The spec's ids were indicative (§5 says so), and master already had `0002`–`0
 |---|---|
 | `0003-cash-sale-line-totals` | `0007-cash-sale-line-totals-gross` |
 | `0004-pos-out-record-only` | `0006-pos-out-record-only` |
-| `0005-cash-register-copy` (R2) | the next free id when it lands (`0008` today) |
+| `0005-cash-register-copy` (R2) | `0008-cash-register-copy` (#273) |
 | `0006-cash-register-freeze` (R3) | the next one after it |
 
 FR-21.28's startup check has to name the freeze migration's real id.
@@ -108,6 +112,40 @@ Revisit any of these you disagree with. None is hard to change.
 10. **Test names follow §8.1.** `cash-register-immutability.flow.test.ts` also holds FR-21.10's
    keyed-lookup cases.
 
+**R2 (#271–#274):**
+
+11. **The service takes the fiscal device as a port.** `fiscal` imports `services`, so `services`
+    cannot import `fiscal`. `register.service.ts` holds the steps and the print-once state machine;
+    the till builds a `RegisterPrinter` from `fiscal/*` (`invoicing-api/src/lib/cash-register-till.ts`).
+12. **A new till sale is the copy of the POS row it would have been** (`tillSaleDocument` maps a
+    virtual row through `fromPosTransaction`). One mapping for new sales and copies, so R1's readers
+    and an R1 rollback read both alike.
+13. **The one failure rule, as code:** a failure removes the document only until the sale reached
+    the device (receipt `pending`/`printed`/`unknown`) or the drawer (`sessionTotalsApplied`).
+14. **The till's stock check** reads a new `settings.cashRegister.allowNegativeStock` (unset = allowed),
+    not `settings.inventory.allowNegativeStock`: that one defaults to false and nothing read it, so it
+    would have refused sales in every org. It has no UI yet.
+15. **A storno's return restocks at the cost the goods left at** (the dispatch line's
+    `resolvedUnitCost`), through `confirmMovement`, not through `reverseInvoiceStockMovement` (§4.13).
+16. **An invoiced sale is not stornoed** (409 `cash_sale_invoiced`): its credit note corrects it, so a
+    quantity is corrected once without partial stornos. The other way round, a stornoed sale cannot be
+    invoiced (`cash_sale_stornoed`). The spec's per-quantity interplay waits for partial storno (§11).
+17. **The till refuses `return` and `exchange`** (422 `register_type_unsupported`): no
+    cash-register equivalent, and the terminal never sends them.
+18. **No licence check on a `cash_storno`** (§4.10): it is a correction, like a credit note. The till's
+    sales are gated where they always were, at opening a session.
+19. **Audit names:** a till document keeps `entityType: 'pos_transaction'` (the ids are the rows', so
+    the history stays continuous); a back-office or imported one is `invoice`, as before.
+20. **A storno from the journal** has its own route, `POST /cash-register/documents/:id/storno`
+    (write rule `pos.write` or `invoicing.write`, plus the storno roles). A till sale names the open
+    session its refund leaves; a back-office sale needs none and prints nothing.
+21. **A restore that cannot copy an old bundle's POS rows warns instead of failing:** the readers union
+    both stores, and a blocker in an old bundle must not cost the operator the restore.
+22. **A voided storno's copy keeps its payments** (with nothing paid): SUPTO 18.2 always listed them, and
+    0008's parity holds the tables to what they printed before.
+23. **The digest checks a copied `TXN-` number on its own closed-series line**, so the history never
+    reads as gaps in CS, and without the counter comparison (that counter stopped).
+
 ## 4. Found on the way
 
 1. **The POS terminal shows ANY open session in the org.** `PosTerminalView.vue#fetchSessions`
@@ -154,13 +192,27 @@ Revisit any of these you disagree with. None is hard to change.
      - The „Издай фактура" action, in `CashSalesView.vue`'s row slot.
 
      `e2e/tests/cash-sale-invoice.spec.ts` now runs against the journal.
-9. **FR-20 P3-1b (#242) journals every write of a class-R model on a master node.** Invoice is
-   class R. R2's copy writes Invoice documents in bulk, and a master's mirror misses any of them
-   that bypass the capture. So check that the copy goes through the capture, or that its raw
-   writes are listed in `home-write-guard.flow.test.ts`.
-10. **The licence gate and `cash_storno`.** `licence-gate.ts`'s `NEW_SALES_DOCUMENT_TYPES` is
-    invoice, proforma and cash_sale. In R2, decide whether a `cash_storno`, or the till's document
-    writes, needs that check.
+9. **FR-20 P3-1b (#242) journals every write of a class-R model on a master node.** Settled in R2:
+   the capture is a change stream on the database, so it journals raw driver writes too. The copy's
+   raw writes are listed in `home-write-guard.flow.test.ts`, each behind `assertHomeIsHere`.
+10. **The licence gate and `cash_storno`.** Settled in R2: no gate on a storno (§3.18).
+11. **`confirmTransferMovements` confirmed any draft stock movement by id, in any org** (R2a, #271).
+    `/send` declares no body schema, so its `pendingTransferIds` reached it. Now only this org's draft
+    transfers; anything else refuses the list (422 `pending_transfer_invalid`).
+12. **`sequenceGroupFor('cash_storno')` fell through to `SALES_DOC`**: a storno would have drawn an
+    INV number. Fixed in R2b.
+13. ⚠ **`reverseInvoiceStockMovement` counts layer-costed goods twice on a void.** It restores the
+    consumed cost layers AND confirms a receipt, which layers the same goods again — and at the sale
+    price, which also moves `avgCost`. Still open; worth its own issue (FIFO/LIFO/FEFO orgs only).
+14. **`createInvoiceStockMovement` had no retry on a taken `SM-` number** (the till's own code had one).
+    Moving the till onto it would have lost a sale's stock to two tills selling at once. It retries now
+    (`createNumberedMovement`).
+15. **A failed storno's late retry could hand back another storno's claim.** The release was
+    unconditional; the POS path had the same flaw. It now releases only its own claim.
+16. **The SUPTO tables do not list a back-office storno.** 18.4 and 18.5 read the till's rows
+    (`origin: 'pos'`), and 18.1 reads cash sales only. A storno of a back-office sale is new in R2;
+    whether it belongs in 18.4/18.5 is the accountant's question before LGR is declared.
+17. **`GET /trade/pos/session/:id/transaction` read POS rows only.** It reads both stores since R2b.
 
 ## 5. What remains
 
@@ -195,25 +247,25 @@ called it a test too, so the window became 2026-03-01 … 2026-10-20, which hold
   back. The journal lists regal's 8 cash sales. regal-pz and regal-sf are unchanged.
 
 ### R2 (FR-21.15 – FR-21.24)
-- **What to build:**
-  - the service of D-4, with its three doors;
-  - `CASH_SALE` numbering, with TXN as a closed legacy row;
-  - the storno of D-2;
-  - the close JE over documents;
-  - stock through `createInvoiceStockMovement` with `invoiceId`;
-  - the copy migration with its parity check;
-  - restore converting older bundles;
-  - `docs/supto`;
-  - `pendingTransferIds` (FR-21.24).
-- **What is ready for it:**
-  - `cash-register/mapping.ts`. `fromPosTransaction` is the copy's row builder, and
-    `toPosTransaction` builds the till's response from a document. Their round trip is
-    unit-tested (`unit/cash-register-mapping.test.ts`).
-  - `answerFromDocument` in `pos.controller.ts`, which already replays a keyed till request from a
-    document.
-  - The R1 readers, which already read both stores and know `cash_storno` and `register`.
-- **The e2e fiscal device** for items 1, 4 and 9 of §8.3 is still to write:
-  `scripts/eltrade-tcp-stub.ts`.
+Built, in review (§1). FR-21.19 needed no code: the session JE already reads the session's rows
+through the union, and every till document carries its session. Each PR is safe to deploy alone:
+R1's readers already union both stores and know `cash_storno`.
+
+**Before the R2 deploy:**
+1. **CI** green on #272, #273 and #274; merge the stack in order, retargeting each next PR to
+   `master` before its base branch is deleted (§1).
+2. **E2E** on the stack against an isolated database (§7): the existing `cash-register`,
+   `cash-sales`, `cash-sale-invoice`, `pos-terminal`, `pos-transactions` specs and FR-22's walks.
+   Still to write: `scripts/eltrade-tcp-stub.ts` and §8.3's items 1, 4 and 7, and
+   `cash-register-migration.spec.ts`.
+3. **The rehearsal on mars** (§8.4): restore the latest nightly bundle of every org into a throwaway
+   `mongod`, run `bun scripts/cash-register-preflight.ts`, run `bun run migrate` twice (0008 must
+   apply once and then be a no-op), then `--parity`; roll the image back to R1 and forward again on
+   the same data. Attach the counts, the parity output and the timings to #273.
+4. **The device test** on prod, in `acme-corp` (§8.4), after the deploy: the non-fiscalized Eltrade A3
+   over Web Serial, text mode — open a session, sell, storno, close; both journals agree.
+5. **The deploy** itself, then `bun run migrate` on the build host (`MIGRATIONS_AUTO` is off), then
+   the read-only field checks of §8.4 against the R1 baseline.
 
 ### R3 – R5
 As the spec has them, after the points in §4 are settled.
@@ -233,6 +285,10 @@ As the spec has them, after the points in §4 are settled.
 | Integration tests | `tests/src/integration/cash-register-{readers,immutability,journal}.flow.test.ts`, plus R1a's `pos-session-journal`, `pos-out-record-only`, `cash-sale-line-totals.migration`, `supto-period` |
 | Unit tests | `tests/src/unit/cash-register-{counting,mapping}.test.ts`, `local-day.test.ts`, `grid-columns-default-hidden.test.ts` |
 | E2E | `e2e/tests/cash-register.spec.ts`, `pos-transactions.spec.ts`, `cash-sales.spec.ts`, `helpers/cash-register.ts` |
+| The write path (R2) | `services/src/biz/cash-register/register.service.ts` (the steps, the storno), `printer.ts` (the device port), `copy.ts` (one row on the spot) |
+| The till's side (R2) | `invoicing-api/src/lib/cash-register-till.ts` (the device, the till's answers, the storno door) |
+| The copy (R2) | `services/src/biz/cash-register/copy-org.ts`, `migrations/src/migrations/0008-cash-register-copy.ts`, `scripts/cash-register-preflight.ts` |
+| R2's tests | `tests/src/integration/cash-register-{sale,storno,idempotency,migration}.flow.test.ts`, `helpers/till-world.ts`, `helpers/till-row.ts` |
 
 ## 7. Running the tests
 
