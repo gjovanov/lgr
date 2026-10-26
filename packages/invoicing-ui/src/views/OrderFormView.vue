@@ -822,11 +822,12 @@ const formActions = computed<FormAction[]>(() => [
 ])
 
 // ── pending changes ──
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, tryRestore, snapshot: snapshotPending } = usePendingChanges({
   appId: 'invoicing',
   entityType: 'order',
   icon: 'mdi-clipboard-list-outline',
-  getFormData: () => JSON.parse(JSON.stringify({ ...form, _stagedReservations: staged })),
+  // `_expanded` is which lines are open — the view, not the order: opening one is not an edit.
+  getFormData: () => JSON.parse(JSON.stringify({ ...form, _stagedReservations: staged }, (k, v) => (k === '_expanded' ? undefined : v))),
   getPreviewFields: () => [
     { label: 'Date', value: form.issueDate || '' },
     { label: 'Suppliers', value: String(form.supplierGroups.length) },
@@ -1092,6 +1093,10 @@ async function loadOrder(id?: string, opts: { clearStaged?: boolean } = {}) {
     // Refresh the option pools so selected ids render their names.
     supplierOptions.value = mergeKnown(supplierOptions.value, 'supplier')
     clientOptions.value = mergeKnown(clientOptions.value, 'client')
+    // FR-22.13: what was just loaded is the clean state — not the 500 ms timer's guess, which a
+    // slower load beat. Unless reservation changes are still staged (Send keeps them): those are
+    // unsaved, and leaving must still ask.
+    if (!hasStaged.value) snapshotPending()
   } catch {
     showError(t('common.operationFailed'))
   } finally {

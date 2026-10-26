@@ -125,10 +125,10 @@
                     <td v-if="isEdit">
                       <div class="d-flex align-center ga-1 flex-wrap">
                         <v-chip size="x-small" variant="tonal" :color="lineCoverageColor(line)">
-                          {{ $t('invoicing.reservedQty') }}: {{ line.reservedQuantity || 0 }}/{{ line.quantity || 0 }}
+                          {{ $t('invoicing.reservedQty') }}: {{ figuresOf(line).reserved }}/{{ line.quantity || 0 }}
                         </v-chip>
-                        <v-chip v-if="(line.deliveredQuantity || 0) > 0" size="x-small" variant="tonal" color="success">
-                          {{ $t('invoicing.deliveredQty') }}: {{ line.deliveredQuantity }}
+                        <v-chip v-if="figuresOf(line).delivered > 0" size="x-small" variant="tonal" color="success">
+                          {{ $t('invoicing.deliveredQty') }}: {{ figuresOf(line).delivered }}
                         </v-chip>
                       </div>
                     </td>
@@ -463,6 +463,7 @@ import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue
 import EntityLink from 'ui-shared/components/EntityLink'
 import { reservationErrorMessage } from '../composables/reservation-errors'
 
+/** A line as the user edits it. What the server derives for it lives in `lineFigures`, not here. */
 interface LineRow {
   _id?: string
   productId?: string
@@ -472,9 +473,13 @@ interface LineRow {
   unit: string
   expectedUnitPrice?: number
   taxRate?: number
-  reservedQuantity?: number
-  invoicedQuantity?: number
-  deliveredQuantity?: number
+}
+
+/** A saved line's figures, derived by the server from its reservations and invoices. */
+interface LineFigures {
+  reserved: number
+  invoiced: number
+  delivered: number
 }
 
 const { t } = useI18n()
@@ -557,6 +562,33 @@ async function reserveAgain(res: any) {
 }
 
 /**
+ * What the server derives per saved line, by line id. Kept apart from `form` on purpose: the
+ * pending-changes snapshot is the form, and a reservation action or Convert changes these figures
+ * without the user editing anything — inside the form they made an untouched order read as
+ * „Незапазени промени" (the P7-chain flake).
+ */
+const lineFigures = ref<Record<string, LineFigures>>({})
+const NO_FIGURES: LineFigures = { reserved: 0, invoiced: 0, delivered: 0 }
+function figuresOf(line: LineRow): LineFigures {
+  return (line._id && lineFigures.value[String(line._id)]) || NO_FIGURES
+}
+function takeFigures(lines: any[]) {
+  lineFigures.value = Object.fromEntries((lines || []).map((l: any) => [String(l._id), {
+    reserved: Number(l.reservedQuantity) || 0,
+    invoiced: Number(l.invoicedQuantity) || 0,
+    delivered: Number(l.deliveredQuantity) || 0,
+  }]))
+}
+/** The reservations, their orders' numbers and the names, as GET /internal-orders/:id answers them. */
+function takeReservations(data: any) {
+  reservations.value = data.reservations || []
+  if (data.lookup?.contacts) Object.assign(contactNames.value, data.lookup.contacts)
+  if (data.lookup?.orders) {
+    for (const [oid, info] of Object.entries<any>(data.lookup.orders)) orderNumbers.value[oid] = info.orderNumber
+  }
+}
+
+/**
  * After a reservation action: the reservations and what the server derives from them (each line's
  * reserved / invoiced / delivered, the status) — never the fields the user may be editing. The
  * whole-form reload used here before threw unsaved line edits away.
@@ -564,21 +596,9 @@ async function reserveAgain(res: any) {
 async function refreshReservations() {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/invoicing/internal-orders/${route.params.id}`)
-    const o = data.internalOrder
-    orderStatus.value = o.status
-    const byId = new Map((o.lines || []).map((l: any) => [String(l._id), l]))
-    for (const line of form.lines as any[]) {
-      const fresh: any = line._id ? byId.get(String(line._id)) : null
-      if (!fresh) continue
-      line.reservedQuantity = fresh.reservedQuantity || 0
-      line.invoicedQuantity = fresh.invoicedQuantity || 0
-      line.deliveredQuantity = fresh.deliveredQuantity || 0
-    }
-    reservations.value = data.reservations || []
-    if (data.lookup?.contacts) Object.assign(contactNames.value, data.lookup.contacts)
-    if (data.lookup?.orders) {
-      for (const [oid, info] of Object.entries<any>(data.lookup.orders)) orderNumbers.value[oid] = info.orderNumber
-    }
+    orderStatus.value = data.internalOrder.status
+    takeFigures(data.internalOrder.lines)
+    takeReservations(data)
   } catch {
     showError(t('common.operationFailed'))
   }
@@ -589,13 +609,13 @@ function isLate(res: any) {
 }
 const coverage = computed(() => {
   const ordered = totalOrdered.value
-  const reserved = form.lines.reduce((s, l) => s + Math.min(Number(l.reservedQuantity) || 0, Number(l.quantity) || 0), 0)
+  const reserved = form.lines.reduce((s, l) => s + Math.min(figuresOf(l).reserved, Number(l.quantity) || 0), 0)
   if (reserved <= 0) return 'none'
   return ordered - reserved > 0 ? 'partial' : 'full'
 })
 function coverageColor(c: string) { return ({ none: 'error', partial: 'warning', full: 'success' }[c] || 'grey') }
 function lineCoverageColor(line: LineRow) {
-  const r = Number(line.reservedQuantity) || 0
+  const r = figuresOf(line).reserved
   const q = Number(line.quantity) || 0
   return r <= 0 ? 'error' : r < q ? 'warning' : 'success'
 }
@@ -685,8 +705,8 @@ function onProductSelected(line: LineRow, product: any) {
 }
 
 const totalOrdered = computed(() => form.lines.reduce((s, l) => s + (Number(l.quantity) || 0), 0))
-const totalReserved = computed(() => form.lines.reduce((s, l) => s + (Number(l.reservedQuantity) || 0), 0))
-const totalDelivered = computed(() => form.lines.reduce((s, l) => s + (Number(l.deliveredQuantity) || 0), 0))
+const totalReserved = computed(() => form.lines.reduce((s, l) => s + figuresOf(l).reserved, 0))
+const totalDelivered = computed(() => form.lines.reduce((s, l) => s + figuresOf(l).delivered, 0))
 const estimatedTotal = computed(() => form.lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.expectedUnitPrice) || 0), 0))
 
 // ── status pipeline + actions ──
@@ -707,7 +727,7 @@ const formActions = computed<FormAction[]>(() => [
 ])
 
 // ── pending changes ──
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, tryRestore, snapshot: snapshotPending } = usePendingChanges({
   appId: 'invoicing',
   entityType: 'internal_order',
   icon: 'mdi-account-clock-outline',
@@ -989,18 +1009,16 @@ async function loadOrder(id?: string) {
       unit: l.unit || 'pcs',
       expectedUnitPrice: l.expectedUnitPrice,
       taxRate: l.taxRate,
-      reservedQuantity: l.reservedQuantity || 0,
-      invoicedQuantity: l.invoicedQuantity || 0,
-      deliveredQuantity: l.deliveredQuantity || 0,
     }))
-    reservations.value = data.reservations || []
-    if (data.lookup?.contacts) Object.assign(contactNames.value, data.lookup.contacts)
-    if (data.lookup?.orders) {
-      for (const [oid, info] of Object.entries<any>(data.lookup.orders)) orderNumbers.value[oid] = info.orderNumber
-    }
+    takeFigures(o.lines)
+    takeReservations(data)
     if (form.contactId && contactNames.value[form.contactId] && !clientOptions.value.some((c: any) => c._id === form.contactId)) {
       clientOptions.value = [{ _id: form.contactId, companyName: contactNames.value[form.contactId] }, ...clientOptions.value]
     }
+    // FR-22.13: what was just loaded is the clean state. The composable's own snapshot runs on a
+    // 500 ms timer from mount, so a slower load counted as an edit, and so did every reload after
+    // Confirm, Complete or Convert: leaving an untouched order asked to keep „Незапазени промени".
+    snapshotPending()
   } catch {
     showError(t('common.operationFailed'))
   }
