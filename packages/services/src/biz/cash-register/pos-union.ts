@@ -1,19 +1,19 @@
 /**
- * FR-21.8 — every till row, from both stores, each once.
+ * FR-21.8 / FR-21.27 — every till row, read from the cash-register documents.
  *
- * Until R4 a till sale lives in one of two places:
- * - `postransactions`, where the POS has always written it;
- * - `invoices`, as a cash-register document with `register.origin: 'pos'` — every till sale from
- *   R2 on, and every row R2's migration copied.
- * A copy keeps the row's `_id`, so a row found in both is the same sale: it is read from the
- * document. The readers that still speak POS rows (SUPTO 18.1–18.5, the session journal entry,
- * `/trade/pos/transactions`) read through here, so they report every till sale exactly once
- * whichever store holds it, before the copy, after it, and after a rollback to R1.
+ * Until R4 a till sale could live in `postransactions` or in `invoices` (a cash-register document
+ * with `register.origin: 'pos'`), and this read both, each sale once. Since R3 every POS row has
+ * its document (migrations 0008/0009, a copy keeping the row's `_id`) and the model is frozen, so
+ * from R4 on the documents are the only store a reader asks. The readers that still speak POS rows
+ * (SUPTO 18.1–18.5, the session journal entry, the session's list) read through here, as the rows
+ * they were written against (`mapping.ts#toPosTransaction`).
  *
- * A till document's `issueDate` is the moment of the sale (the POS row's `createdAt`), so both
- * stores window on the same instant.
+ * ⚠ The server refuses the cash-register routes until it may read this way
+ * (`freeze-check.ts`, FR-21.28): a POS row with no document would otherwise be read by nobody.
+ *
+ * A till document's `issueDate` is the moment of the sale (the POS row's `createdAt`).
  */
-import { Invoice, POSTransaction } from 'db/models'
+import { Invoice } from 'db/models'
 import { toPosTransaction } from './mapping.js'
 
 export const REGISTER_TYPES = ['cash_sale', 'cash_storno'] as const
@@ -26,52 +26,37 @@ export interface PosUnionFilter {
   ids?: string[]
 }
 
-const oid = (v: unknown) => new POSTransaction.base.Types.ObjectId(String(v))
+const ObjectId = Invoice.base.Types.ObjectId
+const oid = (v: unknown) => new ObjectId(String(v))
 
 /** The till rows matching the filter, oldest first. */
 export async function loadPosRows(f: PosUnionFilter): Promise<any[]> {
-  const org = oid(f.orgId)
-  const posMatch: Record<string, any> = { orgId: org }
-  const docMatch: Record<string, any> = { orgId: org, type: { $in: REGISTER_TYPES }, 'register.origin': 'pos' }
+  const match: Record<string, any> = { orgId: oid(f.orgId), type: { $in: REGISTER_TYPES }, 'register.origin': 'pos' }
   if (f.from || f.to) {
     const window: Record<string, Date> = {}
     if (f.from) window.$gte = f.from
     if (f.to) window.$lte = f.to
-    posMatch.createdAt = window
-    docMatch.issueDate = window
+    match.issueDate = window
   }
   // A malformed session id names no session: an empty page, never a BSONError (500).
-  if (f.sessionId && !POSTransaction.base.Types.ObjectId.isValid(f.sessionId)) return []
-  if (f.sessionId) {
-    posMatch.sessionId = oid(f.sessionId)
-    docMatch['register.sessionId'] = oid(f.sessionId)
-  }
-  if (f.ids) {
-    const ids = f.ids.map(oid)
-    posMatch._id = { $in: ids }
-    docMatch._id = { $in: ids }
-  }
+  if (f.sessionId && !ObjectId.isValid(f.sessionId)) return []
+  if (f.sessionId) match['register.sessionId'] = oid(f.sessionId)
+  if (f.ids) match._id = { $in: f.ids.map(oid) }
 
-  const [rows, docs] = await Promise.all([
-    POSTransaction.find(posMatch).lean().exec(),
-    Invoice.find(docMatch).lean().exec(),
-  ])
-  const fromDocs = (docs as any[]).map(toPosTransaction)
-  const copied = new Set(fromDocs.map(d => String(d._id)))
-  return [...fromDocs, ...(rows as any[]).filter(r => !copied.has(String(r._id)))]
+  const docs: any[] = await Invoice.find(match).lean().exec()
+  return docs
+    .map(toPosTransaction)
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
     .map(asEntity)
 }
 
-/** One till row by id, from whichever store holds it (the document wins). */
+/** One till row by id. */
 export async function findPosRow(orgId: string, id: string): Promise<any | null> {
-  if (!POSTransaction.base.Types.ObjectId.isValid(id)) return null
+  if (!ObjectId.isValid(id)) return null
   const doc = await Invoice.findOne({
     _id: oid(id), orgId: oid(orgId), type: { $in: REGISTER_TYPES }, 'register.origin': 'pos',
   }).lean().exec()
-  if (doc) return asEntity(toPosTransaction(doc))
-  const row = await POSTransaction.findOne({ _id: oid(id), orgId: oid(orgId) }).lean().exec()
-  return row ? asEntity(row) : null
+  return doc ? asEntity(toPosTransaction(doc)) : null
 }
 
 /**
@@ -87,7 +72,7 @@ export function asEntity<T extends Record<string, any>>(row: T): T & { id: strin
 function stringifyIds(v: any): any {
   if (v === null || v === undefined) return v
   if (v instanceof Date) return v
-  if (v instanceof POSTransaction.base.Types.ObjectId) return String(v)
+  if (v instanceof ObjectId) return String(v)
   if (Array.isArray(v)) return v.map(stringifyIds)
   if (typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype) {
     const out: Record<string, any> = {}

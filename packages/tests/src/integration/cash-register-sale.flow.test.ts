@@ -291,8 +291,8 @@ describe('FR-21.15 — a till sale is a cash-register document', () => {
 
     const row = await findPosRow(w.orgId, json.transaction.id)
     expect(row).toMatchObject({ transactionNumber: json.transaction.transactionNumber, type: 'sale', status: 'completed', total: 24 })
-    const list = await w.call('GET', '/trade/pos/transactions?size=10')
-    expect(list.json.total).toBe(1)
+    // FR-21.27: the old global list is gone; the session's list and the journal read the document.
+    expect((await w.call('GET', '/trade/pos/transactions?size=10')).status).toBe(404)
     const ofSession = await w.call('GET', `/trade/pos/session/${w.sessionId}/transaction`)
     expect(ofSession.json.transactions.map((t: any) => t.id)).toEqual([json.transaction.id])
     const journal = await w.call('GET', '/cash-register/documents')

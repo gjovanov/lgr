@@ -8,7 +8,7 @@ import type {
   IProduct, IWarehouse, IStockLevel, IStockMovement, IInventoryCount, IPriceList, ICostLayer, IProductCategory,
   IStockLocation, IOperationType, IStockLot,
   IEmployee, IPayrollRun, IPayslip, ITimesheet,
-  IFiscalDevice, IWorkstation, IPOSPaymentMethod, IPOSSession, IPOSTransaction,
+  IFiscalDevice, IWorkstation, IPOSPaymentMethod, IPOSSession,
 } from './entities/index.js'
 
 /**
@@ -72,7 +72,7 @@ export interface RepositoryRegistry {
   // POS
   posPaymentMethods: IBatchRepository<IPOSPaymentMethod>
   posSessions: IBatchRepository<IPOSSession>
-  posTransactions: IBatchRepository<IPOSTransaction>
+  // FR-21.27: no `posTransactions` — a till sale is an `invoices` document since R2.
 
   // Fiscal / SUPTO
   fiscalDevices: IBatchRepository<IFiscalDevice>

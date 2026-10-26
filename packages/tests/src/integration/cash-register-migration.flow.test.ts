@@ -17,13 +17,12 @@ import { FrozenCollectionError } from 'db/plugins/frozen.plugin'
 import {
   CashRegisterCopyError, cashRegisterParity, cashRegisterPreflight, copyCashRegisterOrg,
 } from 'services/biz/cash-register/copy-org'
-import { copyPosRow } from 'services/biz/cash-register/copy'
 import { listJournal } from 'services/biz/cash-register/journal.service'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { buildDailyDigest } from 'services/biz/digest/daily-digest.service'
 import { runBackupForOrg } from 'services/biz/backup/backup-runner.service'
 import { inspectBundle, applyRestore } from 'services/biz/backup/backup-restore.service'
-import { BGN_PER_EUR } from 'services/biz/cash-register/mapping'
+import { BGN_PER_EUR, fromPosTransaction } from 'services/biz/cash-register/mapping'
 import { captureRejection } from '../helpers/capture-rejection'
 
 /**
@@ -211,8 +210,11 @@ describe('0008 — the copy', () => {
 
   it('a sale stornoed under R2 before the copy: parity reads its row as the copy reads it', async () => {
     const w = await legacyOrg()
-    // Copied on the spot and reversed by an R2 storno document; its frozen row still says `completed`.
-    const copy = await copyPosRow(String(w.orgId), String(w.printed._id))
+    // Copied on the spot by R2 (as R2's `copyPosRow` did, before R4 removed it) and reversed by an R2
+    // storno document; its frozen row still says `completed`.
+    const row: any = await POSTransaction.findById(w.printed._id).lean()
+    const copy: any = fromPosTransaction(row, w.closed.toObject(), { baseCurrency: 'EUR', unitOf: () => 'бр.' })
+    await Invoice.collection.insertOne(copy)
     const r2Storno = new ObjectId()
     await Invoice.collection.insertOne({
       _id: r2Storno, orgId: w.orgId, invoiceNumber: 'CS-2026-00009', type: 'cash_storno', direction: 'outgoing', status: 'paid',

@@ -8,14 +8,12 @@
  * `/trade/pos/session/:id/storno` and the journal's `/cash-register/documents/:id/storno` — and
  * both come through `stornoDoor`.
  */
-import { Invoice, Org, POSSession, POSTransaction } from 'db/models'
+import { Invoice, Org, POSSession } from 'db/models'
 import { getRepos } from 'services/context'
 import { orgDao } from 'services/dao/org.dao'
 import { logger } from 'services/logger'
-import { waitForCompletion } from 'services/biz/hot-path-key'
 import { toPosTransaction } from 'services/biz/cash-register/mapping'
 import { asEntity } from 'services/biz/cash-register/pos-union'
-import { copyPosRow } from 'services/biz/cash-register/copy'
 import type { RegisterPrinter } from 'services/biz/cash-register/printer'
 import {
   RegisterRefusal, claimForStorno, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally, releaseStornoClaim,
@@ -237,25 +235,13 @@ export async function tillContext(orgId: string, user: RegisterUser, session: an
   }
 }
 
-const IN_PROGRESS = { code: 'idempotency_in_progress', message: 'This request is still being processed — retry with the same Idempotency-Key.' }
-
 /**
- * The document a keyed till request already made, in either store (FR-21.10, §6 edge 1). A POS row
- * an older release wrote is copied on the spot — after the request that holds it finishes — and
- * then replayed or resumed as a document. A storno row brings its sale along.
+ * The document a keyed till request already made (FR-21.10, §6 edge 1). A key an older release put
+ * on a POS row travelled with the row into its document (0008/0009 keep `clientKey`), so the
+ * documents are the one place to look since R4 (FR-21.27).
  */
 export async function findKeyedTillDocument(orgId: string, key: string): Promise<any | null> {
-  const doc = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
-  if (doc) return doc
-  const row: any = await POSTransaction.findOne({ orgId, clientKey: key }).lean().exec()
-  if (!row) return null
-  if (!row.completedAt && row.leaseUntil && new Date(row.leaseUntil).getTime() > Date.now()) {
-    // A lease that lapsed while we waited: its holder is gone, and the copy below resumes it.
-    const { doc: done, leaseLapsed } = await waitForCompletion(POSTransaction, orgId, row._id)
-    if (!done?.completedAt && !leaseLapsed) throw new RegisterRefusal(409, IN_PROGRESS)
-  }
-  if (row.originalTransactionId) await copyPosRow(orgId, String(row.originalTransactionId))
-  return copyPosRow(orgId, String(row._id))
+  return Invoice.findOne({ orgId, clientKey: key }).lean().exec()
 }
 
 /** What the till answers for a sale: the document as the POS row it stands for. */
@@ -299,8 +285,8 @@ export interface StornoDoorInput {
  * - **An imported till day** and **an invoiced sale** are refused (`stornoRefusal`).
  *
  * The sale is claimed atomically, the storno is its own `cash_storno` document, and the sale stays
- * `paid` with `stornoState: 'full'`. A sale still held as a POS row is copied first; the claim is
- * taken on the copy and the frozen row is never written (§6 edge 3).
+ * `paid` with `stornoState: 'full'`. A sale an older release rang up is stornoed as its
+ * copy, under the row's id (§6 edge 3).
  */
 export async function stornoDoor(input: StornoDoorInput): Promise<{ status: number; body: Record<string, unknown> } | { transaction: any; stockError?: string }> {
   const { orgId, user, key, hash } = input
@@ -319,8 +305,10 @@ export async function stornoDoor(input: StornoDoorInput): Promise<{ status: numb
       if (existing) return answer(await settleKeyedDocument(existing, hash!, context, runStornoSteps))
     }
 
-    // From either store: a sale an older release rang up is copied first.
-    const original: any = await copyPosRow(orgId, input.originalId)
+    // A sale an older release rang up is its copy since 0008/0009, under the same id.
+    const original: any = Invoice.base.Types.ObjectId.isValid(input.originalId)
+      ? await Invoice.findOne({ _id: input.originalId, orgId }).lean().exec()
+      : null
     const refusal = await stornoRefusal(original)
     if (refusal) {
       // ⚠ A duplicate sent at the same moment can read the sale AFTER the first request claimed it

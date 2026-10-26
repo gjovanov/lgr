@@ -6,6 +6,8 @@ import {
   createTestOrg, createTestUser, createTestWarehouse, createTestProduct, createTestContact,
   createTestPOSSession, createTestPOSTransaction, createTestInvoice,
 } from '../helpers/factories'
+import { migrateTill } from '../helpers/migrate-till'
+import { resetRegisterReadiness } from 'services/biz/cash-register/freeze-check'
 import { Invoice, POSTransaction } from 'db/models'
 import { fromPosTransaction } from 'services/biz/cash-register/mapping'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
@@ -25,12 +27,13 @@ import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import type { Types } from 'mongoose'
 
 /**
- * FR-21.8 / FR-21.9 — every reader counts a till sale exactly once, whichever store holds it.
+ * FR-21.8 / FR-21.9 / FR-21.27 / FR-21.28 — every reader counts a till sale exactly once.
  *
- * Until R4 a till sale is a POS row, a cash-register document (`register.origin: 'pos'`), or both
- * (R2's copy keeps the `_id`). Each union reader is held to "once" in all three states. The
- * readers that only ever read invoices learn the storno: it counts against its sale, and a
- * voided document counts nothing.
+ * Since R4 a till sale is read from its cash-register document (`register.origin: 'pos'`) only,
+ * whether or not the frozen POS row it was copied from is still there. A row with no document is
+ * read by nobody, so the server refuses the cash register until 0009 has run. The readers that only
+ * ever read invoices learn the storno: it counts against its sale, and a voided document counts
+ * nothing.
  *
  * NOTE: no `.rejects` / `.resolves` (Bun-on-Windows deadlock, see Known Issues).
  */
@@ -68,7 +71,11 @@ async function seed() {
 }
 type S = Awaited<ReturnType<typeof seed>>
 
-/** A till sale in one of the three states a reader can meet it in. */
+/**
+ * A till sale as a reader can meet it. Since R4 that is a document: alone (written by R2), or beside
+ * the frozen POS row it was copied from ('both'). A row with no document ('pos') is what the
+ * readiness check refuses on (FR-21.28); the node it lives on has not run 0009.
+ */
 async function tillSale(s: S, how: 'pos' | 'document' | 'both', over: Record<string, any> = {}) {
   const row = await createTestPOSTransaction(s.orgId, s.session._id as Types.ObjectId, s.user._id as Types.ObjectId, {
     transactionNumber: 'TXN-2026-0000001', createdAt: AT, status: 'completed',
@@ -82,11 +89,13 @@ async function tillSale(s: S, how: 'pos' | 'document' | 'both', over: Record<str
     await Invoice.collection.insertOne(fromPosTransaction(row.toObject(), s.session.toObject(), { baseCurrency: 'EUR' }) as any)
   }
   if (how === 'document') await POSTransaction.collection.deleteOne({ _id: row._id })
+  // A node with documents only, or with every row copied, is one that ran 0008/0009.
+  if (how !== 'pos') await migrateTill(s.orgId)
   return row
 }
 
-describe('FR-21.8 — a till sale counts once, whichever store holds it', () => {
-  for (const how of ['pos', 'document', 'both'] as const) {
+describe('FR-21.8 / FR-21.27 — a till sale counts once, read from its document', () => {
+  for (const how of ['document', 'both'] as const) {
     describe(`held as: ${how}`, () => {
       it('SUPTO 18.1–18.3 list it once, and 18.1 does not list it again as a cash sale', async () => {
         const s = await seed()
@@ -125,27 +134,49 @@ describe('FR-21.8 — a till sale counts once, whichever store holds it', () => 
         expect(rows.map(r => r.transactionNumber)).toEqual(['TXN-2026-0000001'])
       })
 
-      it('/trade/pos/transactions and the journal list it once', async () => {
+      it("the session's list and the journal list it once; /trade/pos/transactions is gone", async () => {
         const s = await seed()
         const row = await tillSale(s, how)
-        const list = await get(`/org/${s.orgId}/trade/pos/transactions`, s.token)
+        const list = await get(`/org/${s.orgId}/trade/pos/session/${s.session._id}/transaction`, s.token)
         expect(list.status).toBe(200)
         expect(list.json.total).toBe(1)
-        expect(list.json.transactions[0].transactionNumber).toBe('TXN-2026-0000001')
-        const one = await get(`/org/${s.orgId}/trade/pos/transactions/${row._id}`, s.token)
-        expect(one.status).toBe(200)
-        expect(one.json.transaction.total).toBe(36)
+        expect(list.json.transactions[0]).toMatchObject({ transactionNumber: 'TXN-2026-0000001', total: 36 })
+        // FR-21.27: the old global list and its detail are removed; the journal replaces both.
+        expect((await get(`/org/${s.orgId}/trade/pos/transactions`, s.token)).status).toBe(404)
+        expect((await get(`/org/${s.orgId}/trade/pos/transactions/${row._id}`, s.token)).status).toBe(404)
 
         const journal = await get(`/org/${s.orgId}/cash-register/documents`, s.token)
         expect(journal.status).toBe(200)
         expect(journal.json.total).toBe(1)
         expect(journal.json.rows[0]).toMatchObject({
-          number: 'TXN-2026-0000001', kind: 'sale', origin: 'pos', status: 'completed', total: 36,
-          store: how === 'pos' ? 'pos' : 'invoice',
+          number: 'TXN-2026-0000001', kind: 'sale', origin: 'pos', status: 'completed', total: 36, store: 'invoice',
         })
       })
     })
   }
+
+  it('FR-21.28: a POS row no document holds is read by nobody, so the cash register refuses until 0009', async () => {
+    const s = await seed()
+    await tillSale(s, 'pos')
+    resetRegisterReadiness()
+    for (const path of [`/org/${s.orgId}/cash-register/documents`, `/org/${s.orgId}/trade/pos/session/${s.session._id}/transaction`]) {
+      const refused = await get(path, s.token)
+      expect(refused.status, path).toBe(503)
+      expect(refused.json.code).toBe('cash_register_not_migrated')
+      expect(refused.json.message).toContain('0009-cash-register-freeze')
+    }
+    // `bun run migrate`: the row becomes its document, 0009 is recorded, and the routes answer.
+    await migrateTill(s.orgId)
+    const journal = await get(`/org/${s.orgId}/cash-register/documents`, s.token)
+    expect(journal.status).toBe(200)
+    expect(journal.json.rows.map((r: any) => r.number)).toEqual(['TXN-2026-0000001'])
+  })
+
+  it('FR-21.28: a database with no POS row at all needs no migration to sell', async () => {
+    const s = await seed()
+    resetRegisterReadiness()
+    expect((await get(`/org/${s.orgId}/cash-register/documents`, s.token)).status).toBe(200)
+  })
 
   it('a stornoed sale and its storno: 18.4 lists the storno, 18.5 the sale, and the day nets to nothing', async () => {
     const s = await seed()

@@ -6,6 +6,7 @@ import {
   createTestOrg, createTestUser, createTestWarehouse, createTestProduct, createTestContact,
   createTestPOSSession, createTestPOSTransaction, createTestInvoice, createTestStockMovement,
 } from '../helpers/factories'
+import { migrateTill } from '../helpers/migrate-till'
 import { Invoice, POSTransaction } from 'db/models'
 import { fromPosTransaction } from 'services/biz/cash-register/mapping'
 import { cashRegisterController } from 'invoicing-api/src/controllers/cash-register.controller'
@@ -14,12 +15,12 @@ import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import type { Types } from 'mongoose'
 
 /**
- * FR-21.12 — the cash-register journal: one list, one detail, both stores.
+ * FR-21.12 — the cash-register journal: one list, one detail.
  *
- * The journal shows the till's sales (still POS rows, or documents), the back office's and the
- * PlusMinus imports' in one row shape. Filters, sort and paging run across both stores; a POS row a
- * document copied is read from the document. The route reads for the POS app AND the invoicing app,
- * and for a till signed in with a PIN.
+ * The journal shows the till's sales, the back office's and the PlusMinus imports' in one row
+ * shape. Since R4 every till sale is read from its document (FR-21.27): the fixture's legacy POS rows
+ * are copied first, as 0008/0009 copy them on a real node. The route reads for the POS app AND the
+ * invoicing app, and for a till signed in with a PIN.
  *
  * NOTE: no `.rejects` / `.resolves` (Bun-on-Windows deadlock, see Known Issues).
  */
@@ -99,6 +100,8 @@ async function world() {
   await Invoice.collection.insertOne(fromPosTransaction(copied.toObject(), session.toObject(), { stornoedBy: [stornoRow._id] }) as any)
   await Invoice.collection.insertOne(fromPosTransaction(stornoRow.toObject(), session.toObject()) as any)
   await POSTransaction.collection.deleteOne({ _id: stornoRow._id })
+  // R4 reads documents only: the remaining POS row becomes one, as 0008/0009 make it.
+  await migrateTill(orgId)
 
   async function get(path: string, tok = token) {
     const res = await app.handle(new Request(`http://localhost/org/${orgId}/cash-register${path}`, { headers: { authorization: `Bearer ${tok}` } }))
@@ -119,8 +122,9 @@ describe('the journal list', () => {
     expect(numbers(res)).toEqual([
       'TXN-2026-0000001', 'TXN-2026-0000003', 'TXN-2026-0000002', 'CS-2026-00003', 'CSR-2026-00002', 'CS-2026-00001',
     ])
-    // The copied sale appears once, read from its document.
+    // Every row is a document since R4, the copied sales included, each once.
     expect(res.json.rows.filter((r: any) => r.number === 'TXN-2026-0000002').map((r: any) => r.store)).toEqual(['invoice'])
+    expect(res.json.rows.every((r: any) => r.store === 'invoice')).toBe(true)
   })
 
   it('one row shape for every source', async () => {
@@ -128,7 +132,7 @@ describe('the journal list', () => {
     const res = await w.get('/documents')
     const by = (n: string) => res.json.rows.find((r: any) => r.number === n)
     expect(by('TXN-2026-0000001')).toMatchObject({
-      store: 'pos', kind: 'sale', origin: 'pos', status: 'completed', total: 12, currency: 'EUR', hasTime: true,
+      store: 'invoice', kind: 'sale', origin: 'pos', status: 'completed', total: 12, currency: 'EUR', hasTime: true,
       payments: [{ method: 'cash', amount: 12, tendered: 20 }], sessionNumber: 'POS-2026-000009', warehouseName: 'Склад 1',
       cashierName: 'Ivan Testov', stock: 'moved', fiscal: { isFiscal: true, state: 'printed', unp: 'ED399266-0001-0000001', deviceNumber: 'ED399266' },
     })
@@ -169,6 +173,7 @@ describe('the journal list', () => {
     } as any)
     await legacy({ transactionNumber: 'TXN-2026-0000101', isFiscal: true, fiscalReceiptNumber: '0000412', unpNumber: 'ED399266-0001-0000101' })
     await legacy({ transactionNumber: 'TXN-2026-0000102', isFiscal: false })
+    await migrateTill(w.orgId)
 
     const printed = await w.get('/documents?fiscalState=printed')
     expect(numbers(printed).sort()).toEqual(['TXN-2026-0000001', 'TXN-2026-0000002', 'TXN-2026-0000003', 'TXN-2026-0000101'])
@@ -199,8 +204,8 @@ describe('the journal list', () => {
     const by = (n: string) => all.json.rows.find((r: any) => r.number === n)
     expect(by('CS-2026-00001')).toMatchObject({ invoicingState: 'full', invoices: [{ number: 'INV-2026-00007', status: 'paid' }] })
     expect(by('CSR-2026-00002')).toMatchObject({ invoicingState: 'none', invoices: [] })
-    // Only a document can be invoiced: a POS row carries neither field, and a storno neither.
-    expect(by('TXN-2026-0000001').invoicingState).toBeUndefined()
+    // A till sale is a document since R4, so it carries the fields too; a storno never does.
+    expect(by('TXN-2026-0000001')).toMatchObject({ invoicingState: 'none', invoices: [] })
     expect(by('TXN-2026-0000003').invoicingState).toBeUndefined()
 
     expect(numbers(await w.get('/documents?invoiced=yes'))).toEqual(['CS-2026-00001'])

@@ -37,7 +37,7 @@ const DATA = /^(Product \d+|PRD-|TXN-|POS-|CSR?-|SM-|Main Warehouse|Retail Store
 function englishOnly(texts: string[]): string[] {
   return [...new Set(texts.filter(t => /[A-Za-z]/.test(t) && !/[А-Яа-я]/.test(t) && !DATA.test(t)))]
 }
-
+
 
 // The walk leaves its session open: close it, so later specs find the terminal without one.
 test.afterAll(async () => {
@@ -179,7 +179,8 @@ test('P4-till: one counter sale paid by card', async ({ page, browser }, testInf
   expect(result.clicks).toBeLessThanOrEqual(4)
 
   // ── The walk did what it says (uncounted).
-  const txns = await api.get(`/trade/pos/transactions?size=1&sessionId=${session.id || session._id}`)
+  // FR-21.27: the session's own list (the global `/trade/pos/transactions` is gone).
+  const txns = await api.get(`/trade/pos/session/${session.id || session._id}/transaction?size=1`)
   const sale = txns.transactions?.[0]
   expect(sale?.type).toBe('sale')
   expect(sale?.payments?.[0]?.method).toBe('card')

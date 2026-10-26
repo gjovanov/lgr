@@ -4,6 +4,7 @@ import {
   createTestOrg, createTestUser, createTestWarehouse, createTestContact, createTestInvoice,
   createTestPOSSession, createTestPOSTransaction,
 } from '../helpers/factories'
+import { migrateTill } from '../helpers/migrate-till'
 import { exportSummarizedSales, exportPaymentDetails, suptoPeriod } from 'services/biz/supto-export.service'
 import type { Types } from 'mongoose'
 
@@ -39,6 +40,8 @@ async function seed() {
   await createTestInvoice(orgId, contact._id as Types.ObjectId, {
     type: 'cash_sale', direction: 'outgoing', status: 'paid', invoiceNumber: 'CS-21', issueDate: new Date('2026-10-21'),
   } as any)
+  // R4 reads the till's history from documents: the rows above, as 0008/0009 copy them.
+  await migrateTill(orgId)
   return { orgId: String(orgId) }
 }
 

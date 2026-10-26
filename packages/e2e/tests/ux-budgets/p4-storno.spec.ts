@@ -45,7 +45,7 @@ function posTotals(quantity: number, unitPrice: number, taxRate: number) {
   const taxTotal = cents((total * taxRate) / (100 + taxRate))
   return { subtotal: cents(total - taxTotal), taxTotal, total }
 }
-
+
 
 // The walk leaves its session open: close it, so later specs find the terminal without one.
 test.afterAll(async () => {
@@ -145,9 +145,9 @@ test('P4-storno: reverse a till sale, starting at the terminal', async ({ page }
   expect(result.clicks).toBeGreaterThan(0)
 
   // ── The walk did what it says (uncounted).
-  const original = await api.get(`/trade/pos/transactions/${sale.id || sale._id}`)
-  expect(original.transaction?.status).toBe('cancelled')
-  const stornos = await api.get(`/trade/pos/transactions?type=storno&size=5`)
-  expect((stornos.transactions || []).some((t: any) => String(t.originalTransactionId) === String(sale.id || sale._id))).toBe(true)
+  // FR-21.27: read through the journal; the sale stays paid, stornoed, with its storno in its chain.
+  const original = await api.get(`/cash-register/documents/${sale.id || sale._id}`)
+  expect(original.row?.status).toBe('stornoed')
+  expect((original.related || []).some((r: any) => r.kind === 'storno' && r.relatedId === String(sale.id || sale._id))).toBe(true)
   expect((await product('PRD-0020')).stockAvailable).toBe(stockBeforeSale)
 })

@@ -70,5 +70,4 @@ export type {
   IWorkstation,
   IPOSPaymentMethod,
   IPOSSession,
-  IPOSTransaction, IPOSTransactionLine, IPOSTransactionPayment,
 } from './erp.js'

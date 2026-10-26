@@ -5,6 +5,7 @@ import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestContact, createTestInvoice, createTestPOSTransaction, createTestStockMovement } from '../helpers/factories'
 import { tillApp, tillWorld, forgetDevices } from '../helpers/till-world'
 import { tillRow } from '../helpers/till-row'
+import { migrateTill } from '../helpers/migrate-till'
 import { Invoice, POSSession, POSTransaction, StockMovement } from 'db/models'
 import { buildInvoiceHtml } from 'reporting/pdf/invoice.pdf'
 import { requestHash } from 'services/biz/hot-path-key'
@@ -199,7 +200,7 @@ describe('a storno of a back-office sale', () => {
 })
 
 describe('a sale an older release rang up (§6 edge 3)', () => {
-  it('is copied, the claim is taken on the copy, and the frozen POS row is never written', async () => {
+  it('is stornoed as its copy: the claim is taken on the copy, and the frozen POS row is never written', async () => {
     const w = await tillWorld(app, { device: false })
     const dispatch = await createTestStockMovement(w.oid, {
       type: 'dispatch', status: 'completed', fromWarehouseId: w.warehouse._id, notes: 'POS sale TXN-2026-0000041',
@@ -210,6 +211,8 @@ describe('a sale an older release rang up (§6 edge 3)', () => {
       lines: [{ productId: w.product._id, name: 'Болт DIN 933 М8Х25', quantity: 2, unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 4, lineTotal: 20 }],
       subtotal: 20, taxTotal: 4, total: 24, payments: [{ method: 'cash', amount: 24 }], movementId: dispatch._id,
     } as any)
+    // R4: the row was copied by 0008/0009 (keeping its `_id`), not on the spot by the storno.
+    await migrateTill(w.oid)
     const before: any = await POSTransaction.findById(row._id).lean()
 
     const res = await w.storno(String(row._id))

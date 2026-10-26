@@ -6,6 +6,7 @@ import {
   createTestOrg, createTestUser, createTestWarehouse, createTestProduct, createTestContact,
   createTestPOSSession, createTestPOSTransaction, createTestInvoice,
 } from '../helpers/factories'
+import { migrateTill } from '../helpers/migrate-till'
 import { DocFile, Invoice, POSTransaction } from 'db/models'
 import { fromPosTransaction } from 'services/biz/cash-register/mapping'
 import { requestHash } from 'services/biz/hot-path-key'
@@ -192,6 +193,8 @@ describe('FR-21.10 — a keyed till retry finds its sale in either store', () =>
   it('POST /invoices refuses a key a till sale already carries', async () => {
     const w = await world()
     await createTestPOSTransaction(w.orgId, w.session._id as Types.ObjectId, w.user._id as Types.ObjectId, { clientKey: 'till-key-00001' } as any)
+    // R4: the row's key travelled with it into its copy, where POST /invoices finds it.
+    await migrateTill(w.orgId)
     const res = await w.call('POST', '/invoices', {
       type: 'cash_sale', direction: 'outgoing', issueDate: '2026-10-21', currency: 'EUR',
       lines: [{ description: 'x', quantity: 1, unitPrice: 10, taxRate: 0 }], subtotal: 10, total: 10, paymentMethod: 'cash',

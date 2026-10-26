@@ -10,7 +10,7 @@ import { eventBus } from 'services/events/event-bus'
 import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
-import { Invoice, POSTransaction, Reservation, StockMovement } from 'db/models'
+import { Invoice, Reservation, StockMovement } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
@@ -575,12 +575,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       }
       if (key) {
         const existing = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
+        // FR-21.10: a key a till sale holds is found here too. A POS row's key travelled with it
+        // into its document (0008/0009), and a different request with it is answered 422.
         if (existing) return settleCreate(existing, hash!, createCtx, status)
-        // FR-21.10: a key is unique across both stores of till sales; one a POS row holds is a
-        // different request.
-        if (await POSTransaction.exists({ orgId, clientKey: key }).exec()) {
-          return status(422, { code: 'idempotency_key_reused', message: 'This Idempotency-Key was already used for a different request' })
-        }
       }
 
       // FR-20.55: on a master whose licence has run out, no new invoice, proforma or cash sale. A

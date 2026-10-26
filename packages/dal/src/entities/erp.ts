@@ -69,60 +69,11 @@ export interface IPOSSession extends TenantEntity {
   transactionCount: number
 }
 
-// ── POSTransaction ──
+// FR-21.27: the POSTransaction entity is gone. A till sale is a cash-register document (`Invoice`);
+// `postransactions` is frozen and read only by migrations and the restore, through the driver.
 
 export interface IPriceStep {
   type: 'base' | 'category' | 'tag' | 'contact' | 'tier' | 'override'
   label: string
   price: number
-}
-
-export interface IPOSTransactionLine {
-  id?: string
-  productId: string
-  name: string
-  quantity: number
-  unitPrice: number
-  discount: number
-  taxRate: number
-  taxAmount: number
-  lineTotal: number
-  priceExplanation?: IPriceStep[]
-}
-
-export interface IPOSTransactionPayment {
-  id?: string
-  method: string
-  amount: number
-  reference?: string
-}
-
-export interface IPOSTransaction extends TenantEntity {
-  sessionId: string
-  transactionNumber: string
-  type: string
-  status: string
-  customerId?: string
-  lines: IPOSTransactionLine[]
-  subtotal: number
-  discountTotal: number
-  taxTotal: number
-  total: number
-  payments: IPOSTransactionPayment[]
-  changeDue: number
-  invoiceId?: string
-  movementId?: string
-  // Fiscal / SUPTO
-  unpNumber?: string
-  fiscalReceiptNumber?: string
-  fiscalDeviceNumber?: string
-  printedAt?: Date
-  isFiscal: boolean
-  // Storno
-  originalUNP?: string
-  originalFiscalReceiptNumber?: string
-  originalTransactionDate?: Date
-  originalTransactionId?: string
-  stornoReason?: string
-  createdBy: string
 }

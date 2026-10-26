@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { orgDao } from 'services/dao/org.dao'
 import { getJournalDocument, listJournal } from 'services/biz/cash-register/journal.service'
+import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import { readIdempotencyKey, requestHash } from 'services/biz/hot-path-key'
 import { POSSession } from 'db/models'
 import { STORNO_ROLES, stornoDoor } from '../lib/cash-register-till.js'
@@ -22,6 +23,11 @@ const literal = <T extends string>(...values: T[]) => t.Optional(t.Union(values.
 
 export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-register' })
   .use(AppAuthService)
+  // FR-21.28: refused, with the reason, until the till's history may be read from documents only.
+  .onBeforeHandle(async ({ status }) => {
+    const refusal = await cashRegisterRefusal()
+    if (refusal) return status(503, refusal)
+  })
   .get(
     '/documents',
     async ({ params: { orgId }, query, user, status }) => {
