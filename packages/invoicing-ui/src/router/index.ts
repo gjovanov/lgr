@@ -40,6 +40,7 @@ const routes = [
 
       // ── Reservations (RES) ──
       { path: 'reservations', name: 'invoicing.reservations', component: () => import('../views/ReservationsView.vue'), meta: { breadcrumb: [{ title: 'Reservations' }] } },
+      { path: 'reservations/:id', name: 'invoicing.reservations.detail', component: () => import('../views/ReservationDetailView.vue'), meta: { breadcrumb: [{ title: 'Reservations', to: '/reservations' }, { title: 'Reservation' }] } },
 
       // ── Proforma ──
       { path: 'proforma', name: 'invoicing.proforma', component: () => import('../views/ProformaInvoicesView.vue'), meta: { breadcrumb: [{ title: 'Proforma' }] } },

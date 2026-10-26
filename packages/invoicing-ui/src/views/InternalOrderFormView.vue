@@ -141,7 +141,7 @@
                     <td :colspan="6" class="pt-0 pb-2">
                       <div v-for="res in lineReservations(line)" :key="res._id" class="d-flex align-center flex-wrap ga-2 text-body-2 ps-2">
                         <v-icon size="14" :color="resStatusColor(res.status)">mdi-lock-clock</v-icon>
-                        <span class="font-weight-medium">{{ res.reservationNumber }}</span>
+                        <EntityLink :label="res.reservationNumber" :to="{ name: 'invoicing.reservations.detail', params: { id: String(res._id) } }" />
                         <v-chip
                           size="x-small"
                           variant="tonal"
@@ -213,7 +213,7 @@
                 </thead>
                 <tbody>
                   <tr v-for="res in reservations" :key="res._id">
-                    <td class="text-no-wrap">{{ res.reservationNumber }}</td>
+                    <td class="text-no-wrap"><EntityLink :label="res.reservationNumber" :to="{ name: 'invoicing.reservations.detail', params: { id: String(res._id) } }" /></td>
                     <td>{{ lineDescription(res) }}</td>
                     <td>
                       <v-chip
@@ -460,6 +460,7 @@ import ProductLineDescription from '../components/ProductLineDescription.vue'
 import { useConversionFeedback } from '../composables/useConversionFeedback'
 import ReservationQuantityDialog from '../components/ReservationQuantityDialog.vue'
 import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 interface LineRow {
   _id?: string

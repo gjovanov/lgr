@@ -29,7 +29,7 @@
     </template>
 
     <template #item.number="{ item }">
-      <span class="font-weight-medium text-no-wrap">{{ item.number }}</span>
+      <span class="text-no-wrap"><EntityLink :label="item.number" :to="{ name: 'invoicing.reservations.detail', params: { id: item._id } }" /></span>
       <v-icon v-if="item.shortage" size="14" color="error" class="ml-1" :title="$t('invoicing.stockShortage')">mdi-alert</v-icon>
       <div v-if="item.repeatOf" class="text-caption text-medium-emphasis">{{ $t('invoicing.reservations.repeatOf') }}</div>
     </template>
@@ -131,6 +131,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import StatusChip from 'ui-shared/components/StatusChip'
+import EntityLink from 'ui-shared/components/EntityLink'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
