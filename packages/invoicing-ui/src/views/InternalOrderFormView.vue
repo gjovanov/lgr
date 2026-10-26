@@ -462,6 +462,19 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- FR-22.41: what Cancel or Complete releases, asked before it happens. -->
+    <OrderCascadeDialog
+      v-model="cascade.open"
+      side="client"
+      :title="$t(cascade.action === 'cancel' ? 'invoicing.cascade.cancelClientTitle' : 'invoicing.cascade.completeClientTitle', { number: documentNumber })"
+      :summary="cascadeNow"
+      :confirm-label="cascade.action === 'cancel' ? $t('invoicing.cancelOrder') : $t('invoicing.completeOrder')"
+      :confirm-color="cascade.action === 'cancel' ? 'error' : 'primary'"
+      :loading="cascade.busy"
+      :error="cascade.error"
+      @confirm="confirmCascade"
+    />
   </EntityFormShell>
 </template>
 
@@ -488,6 +501,8 @@ import EntityLink from 'ui-shared/components/EntityLink'
 import { reservationErrorMessage } from '../composables/reservation-errors'
 import { lineCoverage, orderCoverage } from 'config/order-coverage'
 import { asDraftOrder, defaultDraftFor, pickDraftsFor, type DraftOrder } from '../composables/order-generate'
+import { cascadeSummary } from '../composables/order-cascade'
+import OrderCascadeDialog from '../components/OrderCascadeDialog.vue'
 
 /** A line as the user edits it. What the server derives for it lives in `lineFigures`, not here. */
 interface LineRow {
@@ -844,21 +859,48 @@ async function onSave() {
   }
 }
 
-async function doAction(path: string, successKey: string) {
+/** True when it went through; a refusal goes to `onError` (the cascade dialog) or the snackbar. */
+async function doAction(path: string, successKey: string, opts: { onError?: (message: string) => void } = {}): Promise<boolean> {
   loading.value = true
   try {
     await httpClient.post(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/${path}`)
     showSuccess(t(successKey))
     await loadOrder()
+    return true
   } catch (e: any) {
-    showError(reservationErrorMessage(e, t))
+    const message = reservationErrorMessage(e, t)
+    if (opts.onError) opts.onError(message)
+    else showError(message)
+    return false
   } finally {
     loading.value = false
   }
 }
 function confirmOrder() { doAction('confirm', 'invoicing.orderConfirmed') }
-function completeOrder() { doAction('complete', 'invoicing.orderCompleted') }
-function cancelOrder() { doAction('cancel', 'invoicing.orderCancelled') }
+
+// ── FR-22.41: Complete and Cancel say what they release before they do it ──
+const cascade = reactive({ open: false, action: 'cancel' as 'cancel' | 'complete', error: '', busy: false })
+const cascadeNow = computed(() => cascadeSummary(reservations.value, 'client', orderNumbers.value))
+function openCascade(action: 'cancel' | 'complete') {
+  cascade.action = action
+  cascade.error = ''
+  cascade.open = true
+}
+/** Cancel always asks: it cannot be undone. Complete asks only when it lets reservations go. */
+function cancelOrder() { openCascade('cancel') }
+function completeOrder() {
+  if (cascadeNow.value.count > 0) openCascade('complete')
+  else doAction('complete', 'invoicing.orderCompleted')
+}
+async function confirmCascade() {
+  cascade.busy = true
+  cascade.error = ''
+  const ok = await doAction(cascade.action, cascade.action === 'cancel' ? 'invoicing.orderCancelled' : 'invoicing.orderCompleted', {
+    onError: (message) => { cascade.error = message },
+  })
+  cascade.busy = false
+  if (ok) cascade.open = false
+}
 
 async function convertOrder() {
   loading.value = true

@@ -4,7 +4,8 @@ import { loginForApp } from './helpers/login'
 /**
  * FR-22 slice 4b — the client-order and supplier-order forms. A form nobody touched is never
  * „unsaved changes", however slowly it loads and whatever its reservations do meanwhile; a client
- * order opens its next line by itself and says which lines stock cannot cover.
+ * order opens its next line by itself and says which lines stock cannot cover; each hand-off lands
+ * on the next document; and Cancel or Complete say what they release before they do it.
  */
 
 const apiBase = process.env.BASE_URL || 'http://localhost:4001'
@@ -229,5 +230,94 @@ test.describe('Each hand-off lands on the next document (FR-22.35)', () => {
     expect(invoice).toMatchObject({ status: 'draft', internalOrderId: ordi._id })
     // What waits on the supplier order is said, and stays reserved for a later invoice.
     await expect(page.locator('.v-snackbar')).toContainText(ordo.orderNumber)
+  })
+})
+
+test.describe('Cancel and Complete say what they release first (FR-22.41)', () => {
+  test('a supplier order names the client orders it lets down; „No" keeps it, a refusal says why', async ({ page }) => {
+    const api = await session()
+    const w = await world(api)
+    const ordi = await clientOrder(api, w, 4)
+    const gen = await api.call('POST', `/invoicing/internal-orders/${ordi._id}/generate-external`, {
+      lines: [{ internalOrderLineId: ordi.lines[0]._id, quantity: 4, supplierId: w.supplierId }],
+    })
+    const ordoId = gen.order._id
+    await api.call('POST', `/invoicing/orders/${ordoId}/send`)
+    // A supplier invoice booked against it: the server refuses the cancel while it is there.
+    const { invoice: bill } = await api.call('POST', '/invoices', {
+      type: 'invoice', direction: 'incoming', contactId: w.supplierId, issueDate: new Date().toISOString().slice(0, 10), currency: 'EUR',
+      orderId: ordoId, lines: [{ productId: w.productId, description: w.product.name, quantity: 1, unitPrice: 1, taxRate: 20 }], subtotal: 1, total: 1.2,
+    })
+
+    await loginForApp(page)
+    await page.goto(`/invoicing/orders/${ordoId}/edit`, { waitUntil: 'networkidle' })
+    const cancel = page.locator('.form-actions-bar').getByRole('button', { name: 'Cancel Order' })
+    const dialog = page.getByTestId('order-cascade')
+    await cancel.click()
+    await expect(dialog).toContainText('Reservations it releases: 1 (4 in all)')
+    await expect(dialog).toContainText('Clients who lose a reservation: 1')
+    await expect(dialog.getByTestId('order-cascade-orders')).toHaveText(`Incoming orders affected: ${ordi.orderNumber}`)
+    await dialog.getByRole('button', { name: 'No', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    expect((await api.call('GET', `/invoicing/orders/${ordoId}`)).order.status).toBe('sent')
+
+    await cancel.click()
+    await dialog.getByRole('button', { name: 'Cancel Order' }).click()
+    await expect(dialog.getByRole('alert')).toHaveText('The outgoing order has invoices: void or delete them before cancelling it.')
+
+    await api.call('DELETE', `/invoices/${bill._id}`)
+    await dialog.getByRole('button', { name: 'Cancel Order' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(page.locator('.v-snackbar')).toContainText(`Order cancelled. Incoming orders that lost reservations: ${ordi.orderNumber}`)
+    const after = await api.call('GET', `/invoicing/orders/${ordoId}`)
+    expect(after.order.status).toBe('cancelled')
+    expect(after.reservations.map((r: any) => [r.status, r.cancelReason])).toEqual([['cancelled', 'external_order_cancelled']])
+  })
+
+  test('a client order says what Complete and Cancel release: stock, and the supplier orders by number', async ({ page }) => {
+    const api = await session()
+    const w = await world(api, 2)
+    const ordi = await clientOrder(api, w, 5)
+    await api.call('POST', `/invoicing/internal-orders/${ordi._id}/reserve-available`, {})
+    const gen = await api.call('POST', `/invoicing/internal-orders/${ordi._id}/generate-external`, {
+      lines: [{ internalOrderLineId: ordi.lines[0]._id, quantity: 3, supplierId: w.supplierId }],
+    })
+
+    await loginForApp(page)
+    await page.goto(`/invoicing/internal-orders/${ordi._id}/edit`, { waitUntil: 'networkidle' })
+    const bar = page.locator('.form-actions-bar')
+    const dialog = page.getByTestId('order-cascade')
+    await bar.getByRole('button', { name: 'Complete', exact: true }).click()
+    await expect(dialog).toContainText(`Complete incoming order ${ordi.orderNumber}?`)
+    await expect(dialog).toContainText('Reservations it releases: 2 (5 in all)')
+    await expect(dialog).toContainText('Of them, from stock: 1')
+    await expect(dialog.getByTestId('order-cascade-orders')).toHaveText(`On outgoing orders: ${gen.order.orderNumber}`)
+    await dialog.getByRole('button', { name: 'No', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    expect((await api.call('GET', `/invoicing/internal-orders/${ordi._id}`)).internalOrder.status).toBe('confirmed')
+
+    await bar.getByRole('button', { name: 'Cancel Order' }).click()
+    await expect(dialog).toContainText(`Cancel incoming order ${ordi.orderNumber}?`)
+    await dialog.getByRole('button', { name: 'Cancel Order' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(page.locator('.v-snackbar')).toContainText('Order cancelled')
+    const after = await api.call('GET', `/invoicing/internal-orders/${ordi._id}`)
+    expect(after.internalOrder.status).toBe('cancelled')
+    expect(after.reservations.map((r: any) => [r.source, r.status, r.cancelReason])).toEqual([
+      ['stock', 'cancelled', 'internal_order_cancelled'],
+      ['order', 'cancelled', 'internal_order_cancelled'],
+    ])
+  })
+
+  test('a client order with nothing reserved completes without asking', async ({ page }) => {
+    const api = await session()
+    const w = await world(api)
+    const ordi = await clientOrder(api, w, 2)
+    await loginForApp(page)
+    await page.goto(`/invoicing/internal-orders/${ordi._id}/edit`, { waitUntil: 'networkidle' })
+    await page.locator('.form-actions-bar').getByRole('button', { name: 'Complete', exact: true }).click()
+    await expect(page.locator('.v-snackbar')).toContainText('Order completed')
+    await expect(page.getByTestId('order-cascade')).toHaveCount(0)
+    expect((await api.call('GET', `/invoicing/internal-orders/${ordi._id}`)).internalOrder.status).toBe('completed')
   })
 })

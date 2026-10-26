@@ -1449,6 +1449,21 @@
     "generateIntoHint": "Добавувачот има излезна нарачка што уште не е испратена: редовите може да се додадат на неа.",
     "addToOrder": "Додај",
     "externalOrderAppended": "Додадено на излезна нарачка {number}",
+    "cascade": {
+      "cancelSupplierTitle": "Да се откаже ли излезната нарачка {number}?",
+      "completeSupplierTitle": "Да се заврши ли излезната нарачка {number}?",
+      "cancelClientTitle": "Да се откаже ли влезната нарачка {number}?",
+      "completeClientTitle": "Да се заврши ли влезната нарачка {number}?",
+      "releases": "Резервации што ќе се ослободат: {count} (вкупна количина {quantity})",
+      "clients": "Клиенти што губат резервација: {count}",
+      "clientOrders": "Засегнати влезни нарачки: {numbers}",
+      "withoutOrder": "Резервации без влезна нарачка: {count}",
+      "fromStock": "Од нив од магацинот: {count}",
+      "supplierOrders": "На излезни нарачки: {numbers}",
+      "nothing": "На неа нема отворени резервации — ништо не се ослободува.",
+      "stagedLost": "Незачуваните промени на резервациите ќе бидат отфрлени.",
+      "cancelledReleased": "Нарачката е откажана. Влезни нарачки што изгубија резервации: {numbers}"
+    },
     "issueFlow": {
       "issueAndPrint": "Издади и печати",
       "issue": "Издади",

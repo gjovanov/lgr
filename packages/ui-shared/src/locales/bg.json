@@ -1328,6 +1328,21 @@
     "generateIntoHint": "Доставчикът има изходяща поръчка, която още не е изпратена: редовете могат да се добавят към нея.",
     "addToOrder": "Добави",
     "externalOrderAppended": "Добавено към изходяща поръчка {number}",
+    "cascade": {
+      "cancelSupplierTitle": "Да се откаже ли изходящата поръчка {number}?",
+      "completeSupplierTitle": "Да се приключи ли изходящата поръчка {number}?",
+      "cancelClientTitle": "Да се откаже ли входящата поръчка {number}?",
+      "completeClientTitle": "Да се приключи ли входящата поръчка {number}?",
+      "releases": "Резервации, които ще се освободят: {count} (общо количество {quantity})",
+      "clients": "Клиенти, които губят резервация: {count}",
+      "clientOrders": "Засегнати входящи поръчки: {numbers}",
+      "withoutOrder": "Резервации без входяща поръчка: {count}",
+      "fromStock": "От тях от склада: {count}",
+      "supplierOrders": "По изходящи поръчки: {numbers}",
+      "nothing": "По нея няма отворени резервации — нищо не се освобождава.",
+      "stagedLost": "Незапазените промени по резервациите ще бъдат отхвърлени.",
+      "cancelledReleased": "Поръчката е отказана. Входящи поръчки, загубили резервации: {numbers}"
+    },
     "issueFlow": {
       "issueAndPrint": "Издай и печатай",
       "issue": "Издай",
