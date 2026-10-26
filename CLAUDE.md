@@ -1155,10 +1155,34 @@ ORDI (InternalOrder, client demand)          ORDO (Order, supplier supply)
   whole-form reload it used threw unsaved line edits away.
 - `DELETE /orders/:id` (drafts only) cancels the draft's reservations (`external_order_cancelled`)
   instead of leaving them pointing at a deleted order.
-- **Tests**: `integration/order-form-reservations.flow.test.ts` (12), `e2e/tests/orders-reservations.spec.ts`
-  (3). The FR-22 walks take the shorter routes and assert them (`e2e/tests/ux-budgets/p7-*`):
+- **A reservation has a screen (FR-22.37).** Made on the Reservations list
+  (`ReservationCreateDialog`), opened at `/reservations/:id` (`ReservationDetailView`, fed by
+  `GET /reservations/:id` → `{reservation, detail}`: order + allocation, ORDI + line, every invoice
+  naming it in any status with the quantity it takes, repeat-of / repeated-as, preempted from / to,
+  user names). Every RES number links there, the product's stock tab through `appHref`.
+  - The dialog offers only `GET /reservations/sources?productId=&contactId=`
+    (`getReservationSources`), computed by the create's own rules: free stock per active warehouse,
+    room on allocations of sent / partly received ORDOs, the client's open ORDI lines.
+  - ⚠ `/reservations/new` (the „+ Нов" entry) is a REDIRECT to the list with `?new=1`, which the
+    list strips once the dialog is open. A route rendering the list itself would give the grid
+    another route name: the key of its column preferences and of its remembered filters.
+  - Refusals carry a code: `ReservationOpsError(status, message, {code, …figure})`, spread into
+    the body and said through `invoicing.reservations.errors.<code>` (`reservation-errors.ts`),
+    inside the dialog. The English message is unchanged. `unit/reservation-screen.test.ts` fails when
+    the service sends a code the UI does not know.
+  - A release is `/cancel` with an explicit quantity, so one that raced an invoice is refused rather
+    than freeing something else. All of an unconsumed reservation cancels it; anything less lowers
+    it. Buttons „Не" / „Освободи резервацията", the same dialog in the ORDI form (no `confirm()`).
+  - `POST /:id/repeat` takes the changes D-4 routes through it (another warehouse, client or
+    order): a body naming `source` replaces the supply, one naming `contactId` / `internalOrderId`
+    the demand (a client alone drops the ORDI link). Never the product, and still once. A one-click
+    repeat refused for a shortage opens the create dialog in repeat mode, the shortage named (§5.7).
+- **Tests**: `integration/order-form-reservations.flow.test.ts` (12), `integration/reservation-screen.flow.test.ts`
+  (10), `e2e/tests/orders-reservations.spec.ts` (3), `e2e/tests/reservations-page.spec.ts` (4). The FR-22
+  walks take the shorter routes and assert them (`e2e/tests/ux-budgets/p7-*`):
   P7-chain 27 → 26 clicks (the ORDO number is a link on the ORDI), P7-repeat 4 → 3 („Резервирай
-  отново" on the row), P7-who 2 + a second page → 1 (answered on the ORDO). ⚠ `e2e/tests/orders-product-autocomplete.spec.ts` belongs to no Playwright project, so it never
+  отново" on the row), P7-who 2 + a second page → 1 (answered on the ORDO), P7-new 4 (a reservation
+  made on the list). ⚠ `e2e/tests/orders-product-autocomplete.spec.ts` belongs to no Playwright project, so it never
   runs, and it is stale: its `.v-overlay .v-list-item` selector predates the product picker, whose
   menu does open.
 
