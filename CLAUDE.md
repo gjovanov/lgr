@@ -2520,6 +2520,18 @@ so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.
 - A moved org's desktop on the fiscal bridge is refused `org_moved` before its device is marked
   online, and a write a desktop route makes (`PUT /desktop/v1/self`) answers the home gate's 409
   (`spaErrorHandler` maps `HomeElsewhereError`, which was a 500).
-- Global only: the move back (P3-6c) is the master's to announce. The shell's half (verify, pin,
-  restart) is P3-6b's second step.
-- Tests: `desktop-repoint.flow` (8), Rust `uplink::tests` (the lan in health).
+- Global only: the move back (P3-6c) is the master's to announce.
+- **The shell** (`packages/desktop/src-tauri/src/repoint.rs`, `main.rs#follow_repoint`): believes
+  an instruction only under a key built into it (`include_str!` of `repoint-keys.json`), for its
+  own desktop id and org (`registration.json`), above `settings.homeEpoch` (a replay cannot send
+  it back), with a LAN origin `trust::may_pin` allows and the dates within a day of its CORRECTED
+  clock; then `trust::confirm`s the master's CA against the pin, saves server + pin + epoch, and
+  RESTARTS (`prepare_exit` + `app.restart()` from a thread: Tauri then runs `RunEvent::Exit`, where
+  the single-instance plugin releases its mutex before the relaunch). Not followed: `status.orgMoved`
+  and the Overview's `org-moved` banner; the next connection brings the instruction again.
+  ⚠ `save_settings` keeps the on-disk `homeEpoch`, as it keeps `master`.
+- ⚠ The shell and global verify ONE vector (`desktop/src-tauri/src/repoint-vector.json`, signed by
+  global's own signer with a throwaway key): change either verifier and the other's test says so.
+- Tests: `desktop-repoint.flow` (9), Rust `repoint::tests` + `presence::tests`, `uplink::tests`
+  (the lan in health). ⚠ Not yet walked with a real shell: this PC holds a real enrolled desktop
+  (a second shell hands off to it), so the walk is owed to the VM lane before the next desktop release.

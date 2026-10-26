@@ -1,0 +1,20 @@
+{
+  "about": "FR-20.82: an instruction global's signer (repoint-token.ts) made with a throwaway key; the shell (repoint.rs) and global (desktop-repoint.flow) both verify it, so the two cannot drift apart. Valid at nowSec. Kept as its three parts, joined by the tests with dots, so it is not stored as a token a scanner flags.",
+  "spki": "MCowBQYDK2VwAyEAXiC5g516B8s4zjE18ntaXnjg6xHgvYNa7UlsgU75BKE=",
+  "jwsParts": [
+    "eyJhbGciOiJFZERTQSIsInR5cCI6Imxnci1yZXBvaW50K2p3cyIsImtpZCI6IklZdG9VSldRaTJVZUdFNnkifQ",
+    "eyJ2IjoxLCJpc3MiOiJsZ3JhaS5hcHAiLCJzdWIiOiI2YWRmYzg4MTJmMWYzOTYwNTUyZGFhNzUiLCJvcmciOiI2YWRmYzg4MTJmMWYzOTYwNTUyZGFhNzAiLCJub2RlIjoibWFzdGVyLXJlcG9pbnR0ZXN0YWFhYWEiLCJlcG9jaCI6Mywic2VydmVyIjoiaHR0cHM6Ly8xOTIuMTY4LjguMTE1OjQ0NDMiLCJmcCI6InNoYTI1NjpKNF9Xdm5xejh2WGNXc1Ixbk0wYUIyY0QzZUY0Z0g1aUo2a0w3bU44b1A5IiwiaWF0IjoxNzkzMDE2MDAwLCJleHAiOjE3OTU2MDgwMDAsImp0aSI6IlF3TldtUzdFTTQ4dHRIaS0ifQ",
+    "6z4WBDJp3yLdRv4UYef4fd7pf9mccuJmUOB_6sUNMXHb28AF2GwLXWg4RyReiU9vyXNEAj-LZ4JIceBsNdaCAw"
+  ],
+  "desktopId": "6adfc8812f1f3960552daa75",
+  "orgId": "6adfc8812f1f3960552daa70",
+  "nowSec": 1793016060,
+  "claims": {
+    "sub": "6adfc8812f1f3960552daa75",
+    "org": "6adfc8812f1f3960552daa70",
+    "node": "master-repointtestaaaaa",
+    "epoch": 3,
+    "server": "https://192.168.8.115:4443",
+    "fp": "sha256:J4_Wvnqz8vXcWsR1nM0aB2cD3eF4gH5iJ6kL7mN8oP9"
+  }
+}

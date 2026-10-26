@@ -8,6 +8,7 @@ import { forgetAllHomes } from 'db/home/home'
 import { signDesktopToken } from 'services/biz/desktop/desktop.service'
 import { movedFor } from 'services/biz/desktop/repoint.service'
 import { acceptedRepointKeys, verifyRepoint } from 'services/biz/desktop/repoint-token'
+import { keysFromSpki } from 'services/biz/crypto/ed-jws'
 import { sanitizeHealth } from 'services/biz/node/node.service'
 import { Elysia } from 'elysia'
 import { createApiApp } from '../../../portal-api/src/api.js'
@@ -124,6 +125,18 @@ describe('what a desktop of a moved org is told (FR-20.82)', () => {
     forgetAllHomes()
     expect(await movedFor(t.desktopId, t.orgId)).toBeNull()
   }, 60_000)
+})
+
+describe('the contract the shell verifies (repoint-vector.json)', () => {
+  it('global believes the instruction the shell\'s own tests believe, and nothing else', async () => {
+    const v = JSON.parse(await Bun.file(new URL('../../../desktop/src-tauri/src/repoint-vector.json', import.meta.url)).text())
+    const keys = keysFromSpki([v.spki])
+    const jws = v.jwsParts.join('.')
+    const r = verifyRepoint(jws, keys, v.nowSec * 1000)
+    expect(r).toMatchObject({ ok: true, claims: { sub: v.desktopId, org: v.orgId, node: v.claims.node, epoch: v.claims.epoch, server: v.claims.server, fp: v.claims.fp } })
+    // The built-in keys never signed the vector: a throwaway key did.
+    expect(verifyRepoint(jws, acceptedRepointKeys(true), v.nowSec * 1000)).toEqual({ ok: false, reason: 'unknown_key' })
+  })
 })
 
 describe('/ws/desktop for a moved org', () => {

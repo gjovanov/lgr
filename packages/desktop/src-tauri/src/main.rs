@@ -24,6 +24,7 @@ mod framing;
 mod identity;
 mod keystore;
 mod presence;
+mod repoint;
 mod proxy;
 mod logs;
 mod paths;
@@ -85,6 +86,8 @@ pub struct AppState {
     /// setting it false again, and the old thread can read it after the reset - two presence
     /// threads, which is what the `started` latch exists to prevent. `quit` sets this as well.
     presence_stop: Arc<Mutex<Option<Arc<std::sync::atomic::AtomicBool>>>>,
+    /// FR-20.82 — the org moved and this desktop has not followed (yet), for the Overview.
+    org_moved: Arc<Mutex<Option<status::OrgMoved>>>,
     /// FR-14.28 — how many times the pending update has been put off for a busy till.
     deferrals: Arc<update::Deferrals>,
     /// FR-14.14 — the PKCE verifier for an OAuth flow currently in the system browser.
@@ -114,6 +117,7 @@ impl AppState {
             stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             presence_stop: Arc::new(Mutex::new(None)),
+            org_moved: Arc::new(Mutex::new(None)),
             deferrals: Arc::new(update::Deferrals::default()),
             oauth_verifier: Arc::new(Mutex::new(None)),
             idp_flow: Arc::new(Mutex::new(None)),
@@ -201,6 +205,8 @@ fn save_settings(app: AppHandle, incoming: settings::Settings) -> Result<setting
     s.master = on_disk.master;
     s.proxy_port = on_disk.proxy_port;
     s.web_server = on_disk.web_server;
+    // FR-20.82: a re-point's epoch is the shell's to raise; the page must not lower it.
+    s.home_epoch = on_disk.home_epoch;
     settings::save(&app, &s)?;
 
     // Keep the OS login item in step with the setting, and report a failure rather than leaving
@@ -962,6 +968,7 @@ fn build_status(app: &AppHandle) -> status::Status {
         },
         assignment: reg_status.assignment,
         server_pin: status_pin(&s.server_url, None),
+        org_moved: app.state::<AppState>().org_moved.lock().ok().and_then(|m| m.clone()),
     }
 }
 
@@ -1041,6 +1048,20 @@ fn start_presence(app: &AppHandle) {
                 let _ = handle.emit_to("main", "shell:revoked", msg);
                 // Bring the shell forward: a till whose registration just died must not keep
                 // showing a cloud app it can no longer reach.
+                show_main(&handle, Some("overview"));
+            }
+            presence::Event::Repoint { instruction, name } => {
+                // FR-20.82: the network work (the master's CA) off the presence thread, whose loop
+                // is about to read the refusal that follows and reconnect.
+                let app = handle.clone();
+                std::thread::spawn(move || follow_repoint(&app, &instruction, &name));
+            }
+            presence::Event::Moved { name } => {
+                let st = handle.state::<AppState>();
+                st.logger.warn(&format!("presence: the organisation moved to its own server ({name}); lgrai.app cannot say where it answers, so this desktop waits to be paired with it"));
+                if let Ok(mut m) = st.org_moved.lock() {
+                    *m = Some(status::OrgMoved { name, server: None, reason: None });
+                }
                 show_main(&handle, Some("overview"));
             }
             presence::Event::UpdateRequested => {
@@ -1382,7 +1403,73 @@ fn handle_deep_link(app: &AppHandle, raw: &str) {
 }
 
 /// Wait for the fiscal bridge to go idle, then exit (FR-14.6).
-fn quit(app: &AppHandle) {
+/// FR-20.82 — follow a re-point: believe it (`repoint::verify`), check the master's CA against its
+/// pin (`trust::confirm`), keep the new server and pin, and restart into them. The desktop keeps
+/// its id and its key: its registry row moved with the org, so it mints its tokens at the master as
+/// it did here. ⚠ A restart, not an in-place switch: the bridges hold the till's ports and cannot
+/// follow in-process, and a move needs every till closed anyway (its preflight).
+///
+/// Not followed, it says why on the Overview, and follows the instruction lgrai.app sends again on
+/// the next connection (a master switched off for the night is reached in the morning).
+fn follow_repoint(app: &AppHandle, instruction: &str, name: &str) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static FOLLOWING: AtomicBool = AtomicBool::new(false);
+    if FOLLOWING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let st = app.state::<AppState>();
+    let said = |server: Option<String>, reason: &str| {
+        if let Ok(mut m) = st.org_moved.lock() {
+            *m = Some(status::OrgMoved { name: name.to_string(), server, reason: Some(reason.to_string()) });
+        }
+    };
+    let outcome = (|| -> Result<repoint::Repoint, (Option<String>, String)> {
+        let dir = keystore::secure_dir().map_err(|_| (None, "no_secure_storage".to_string()))?;
+        let stored = keystore::load(&dir);
+        let cfg = settings::load(app);
+        // The corrected clock, as every assertion this desktop makes.
+        let now = identity::ClockOffset { millis: stored.clock_offset_ms }.now_sec(chrono::Utc::now().timestamp_millis());
+        let r = repoint::verify(instruction, &stored.desktop_id, &stored.org_id, cfg.home_epoch, now).map_err(|e| (None, e.to_string()))?;
+        let pin = trust::confirm(&r.server, &r.fingerprint).map_err(|e| (Some(r.server.clone()), e))?;
+        let mut cfg = cfg;
+        let left = cfg.master.take();
+        cfg.server_url = r.server.clone();
+        cfg.master = Some(settings::MasterSetting {
+            origin: r.server.clone(),
+            ca_pem: pin.ca_pem.clone(),
+            fingerprint: pin.fingerprint.clone(),
+            next_ca_pem: None,
+            next_fingerprint: None,
+            next_switch_at: None,
+        });
+        cfg.home_epoch = r.epoch;
+        settings::save(app, &cfg).map_err(|e| (Some(r.server.clone()), format!("settings_not_saved: {e}")))?;
+        trust::set_pin(&r.server, Some(pin));
+        if let Some(old) = left.filter(|old| old.origin != r.server) {
+            trust::set_pin(&old.origin, None);
+        }
+        Ok(r)
+    })();
+    match outcome {
+        Ok(r) => {
+            st.logger.info(&format!(
+                "re-pointed: the organisation now lives on {name} at {} (its CA {} is pinned, epoch {}); restarting to follow it",
+                r.server, r.fingerprint, r.epoch
+            ));
+            prepare_exit(app);
+            app.restart();
+        }
+        Err((server, reason)) => {
+            st.logger.warn(&format!("re-point to {name} not followed: {reason}; tried again on the next connection"));
+            said(server, &reason);
+            FOLLOWING.store(false, Ordering::SeqCst);
+        }
+    }
+}
+
+/// What quitting and restarting share: the bridge given its 10 s to finish a fiscal command, and
+/// every thread told to stop, so the next process finds the serial ports free.
+fn prepare_exit(app: &AppHandle) {
     let st = app.state::<AppState>();
     // ⚠ Bounded. "Wait for the bridge" must never become "never quit": a stuck bridge would
     // otherwise leave a window nobody can close.
@@ -1406,8 +1493,12 @@ fn quit(app: &AppHandle) {
         if let Some(flag) = slot.as_ref() {
             flag.store(true, std::sync::atomic::Ordering::SeqCst);
         }
-    }
-    st.logger.info("quitting");
+    };
+}
+
+fn quit(app: &AppHandle) {
+    prepare_exit(app);
+    app.state::<AppState>().logger.info("quitting");
     app.exit(0);
 }
 
@@ -1741,6 +1832,7 @@ fn print_status_without_app() {
         clock_skew_ms: reg.clock_skew_ms,
         assignment: reg.assignment,
         server_pin,
+        org_moved: None,
     };
     // One line, so every consumer can capture it (see `status`).
     println!("{}", serde_json::to_string(&st).unwrap_or_else(|_| "{}".into()));
