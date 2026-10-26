@@ -18,8 +18,11 @@ export interface InvoiceDocI18n {
     debit_note: string
     cash_sale: string
   }
-  /** Печатен маркер under the title. */
-  copyMark: { original: string; copy: string }
+  /**
+   * Печатен маркер under the title. `draft` marks a document printed before it is issued
+   * (FR-22.18): it has no number yet, and is not anybody's original.
+   */
+  copyMark: { original: string; copy: string; draft: string }
   label: {
     number: string
     date: string
@@ -75,7 +78,7 @@ const bg: InvoiceDocI18n = {
     debit_note: 'ДЕБИТНО ИЗВЕСТИЕ',
     cash_sale: 'КАСОВА ПРОДАЖБА',
   },
-  copyMark: { original: 'ОРИГИНАЛ', copy: 'КОПИЕ' },
+  copyMark: { original: 'ОРИГИНАЛ', copy: 'КОПИЕ', draft: 'ЧЕРНОВА' },
   label: {
     number: 'Номер',
     date: 'Дата',
@@ -135,7 +138,7 @@ const en: InvoiceDocI18n = {
     debit_note: 'DEBIT NOTE',
     cash_sale: 'CASH SALE',
   },
-  copyMark: { original: 'ORIGINAL', copy: 'COPY' },
+  copyMark: { original: 'ORIGINAL', copy: 'COPY', draft: 'DRAFT' },
   label: {
     number: 'Number',
     date: 'Date',
@@ -194,7 +197,7 @@ const de: InvoiceDocI18n = {
     debit_note: 'LASTSCHRIFT',
     cash_sale: 'BARVERKAUF',
   },
-  copyMark: { original: 'ORIGINAL', copy: 'KOPIE' },
+  copyMark: { original: 'ORIGINAL', copy: 'KOPIE', draft: 'ENTWURF' },
   label: {
     number: 'Nummer',
     date: 'Datum',
@@ -253,7 +256,7 @@ const mk: InvoiceDocI18n = {
     debit_note: 'ДЕБИТНА БЕЛЕШКА',
     cash_sale: 'КАСОВА ПРОДАЖБА',
   },
-  copyMark: { original: 'ОРИГИНАЛ', copy: 'КОПИЈА' },
+  copyMark: { original: 'ОРИГИНАЛ', copy: 'КОПИЈА', draft: 'НАЦРТ' },
   label: {
     number: 'Број',
     date: 'Датум',

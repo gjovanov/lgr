@@ -161,6 +161,10 @@ const CSS = `
   .page-foot { position: fixed; left: 0; right: 0; bottom: 0; border-top: 1px solid #000;
     padding-top: 3px; font-size: 7.5pt; display: flex; justify-content: space-between; gap: 8px; }
   .page-foot .credit { white-space: nowrap; }
+  /* A draft (FR-22.18): across every page, light enough to read the document through. */
+  .draft-watermark { position: fixed; top: 38%; left: 0; right: 0; text-align: center;
+    font-size: 88pt; font-weight: 700; letter-spacing: 0.08em; color: rgba(0, 0, 0, 0.09);
+    transform: rotate(-28deg); z-index: 0; pointer-events: none; }
 `
 
 export interface InvoicePdfOptions {
@@ -208,9 +212,16 @@ export function buildInvoiceHtml(
   const inv = invoice as any
   const cur = currencyMark(inv.currency)
 
+  /**
+   * FR-22.18: a document printed before it is issued. Its DRF- number goes when it is issued, so
+   * the page never shows it — a customer holding the printout would hold a number no invoice
+   * has. Every page says ЧЕРНОВА instead, and it prints as one copy: it is nobody's original.
+   */
+  const isDraft = inv.status === 'draft'
+
   // ── Title + number/date/УНП ──
   const metaRows = [
-    `<tr><td class="k">${esc(L.number)}:</td><td class="v">${esc(inv.invoiceNumber)}</td></tr>`,
+    isDraft ? '' : `<tr><td class="k">${esc(L.number)}:</td><td class="v">${esc(inv.invoiceNumber)}</td></tr>`,
     `<tr><td class="k">${esc(L.date)}:</td><td class="v">${fmtDate(inv.issueDate)}</td></tr>`,
     // УНП is only present on fiscally-registered sales; the line is omitted otherwise rather
     // than printed empty, since an invented number would be a compliance defect.
@@ -387,13 +398,19 @@ ${signatures}
   // unmarked one for the issuer — so the PDF carries both, the second starting on a fresh
   // page. Callers that ask for a specific marker (a reprint of one copy) get that single copy.
   const isSalesInvoice = (inv.type || 'invoice') === 'invoice' && inv.direction !== 'incoming'
-  const body = options?.copyMark
-    ? copy(options.copyMark === 'copy' ? i18n.copyMark.copy : i18n.copyMark.original)
-    : isSalesInvoice
-      ? `${copy(i18n.copyMark.original)}\n<div class="copy-break"></div>\n${copy(null)}`
-      : copy(i18n.copyMark.original)
+  const body = isDraft
+    ? copy(i18n.copyMark.draft)
+    : options?.copyMark
+      ? copy(options.copyMark === 'copy' ? i18n.copyMark.copy : i18n.copyMark.original)
+      : isSalesInvoice
+        ? `${copy(i18n.copyMark.original)}\n<div class="copy-break"></div>\n${copy(null)}`
+        : copy(i18n.copyMark.original)
+
+  // Fixed, so Chromium repeats it on every printed page of a long draft.
+  const watermark = isDraft ? `<div class="draft-watermark">${esc(i18n.copyMark.draft)}</div>` : ''
 
   const html = `
+${watermark}
 ${body}
 <div class="page-foot"><span>${esc(options?.footerText || '')}</span><span class="credit">${esc(productCredit(locale))}</span></div>
 `
