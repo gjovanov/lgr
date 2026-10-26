@@ -358,7 +358,7 @@ subtitles.
 | **D-5** | Cash sale → invoice: now, or inside FR-21? | Now, as a small slice: the staff need it, and FR-21 §11 defers it. Agree with Atanas that R2's migration carries the link. |
 | **D-6** | Today's till: quick fixes before FR-21 R5, or R5 requirements only? | Two contained fixes now: FR-22.54 (reset, refocus, show the result) and FR-22.55 (Enter adds). The rest becomes R5 requirements, agreed with Atanas. |
 | **D-7** | Place of deal: from the warehouse, or per user? | The document warehouse's `address.city`, falling back to the org address. Editable on the form. |
-| **D-8** | #203.1 asks for "Create buttons in one place", but every list's Create is already rightmost in its header. Which inconsistency did the staff mean? | Ask them. Meanwhile ship what removes every candidate: FR-22.50 (labelled buttons, one notes menu), FR-22.16–.18 (one action bar on every form) and FR-22.49 (one „+ Нов" everywhere). |
+| **D-8** | #203.1 asks for "Create buttons in one place", but every list's Create is already rightmost in its header. Which inconsistency did the staff mean? | Ask them. Meanwhile ship what removes every candidate: FR-22.50 (labelled buttons, one notes menu), FR-22.16–.18 (one action bar on every form) and FR-22.49 (one „+ Нов" everywhere). **Settled 2026-10-26:** „+ Нов" is what #203.1 asked for, and it stays as it is. That was confirmed when #203 was closed as completed. |
 
 **D-2, the journals question, verified on 2026-10-25: no separate slice is needed.**
 - A confirmed receipt posts Dr inventory / Cr purchases (`auto-journal.service.ts`,
