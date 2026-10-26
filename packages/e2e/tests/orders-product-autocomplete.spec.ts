@@ -9,7 +9,7 @@ import { loginForApp } from './helpers/login'
  */
 for (const target of [
   { name: 'invoice form', path: '/invoicing/invoices/new', heading: /new invoice/i },
-  { name: 'order form', path: '/invoicing/orders/new', heading: /new order/i },
+  { name: 'order form', path: '/invoicing/orders/new', heading: /new outgoing order/i },
 ]) {
   test(`product search fires ajax + arrows/Enter select on the ${target.name}`, async ({ page }) => {
     await loginForApp(page)

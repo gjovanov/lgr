@@ -128,6 +128,8 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['invoicing/contact', { need: [...INVOICING, ...INVENTORY, ...POS] }],
   // The import dialog (also opened from inventory's movements) offers an ORDO to book against.
   ['invoicing/orders', { need: [...INVOICING, ...INVENTORY] }],
+  // #203: a product's stock, holds and incoming goods, on the inventory app's product page.
+  ['invoicing/product-supply', { need: [...INVOICING, ...INVENTORY] }],
   ['invoicing/export', { self: 'canExport' }],
   ['invoicing/sequences', { self: 'admin or manager: the sequence configuration' }],
   ['invoicing', { need: INVOICING }],

@@ -14,16 +14,106 @@
           <v-card-text>
             <v-data-table
               :headers="stockLevelHeaders"
-              :items="stockLevels"
+              :items="stockRows"
               :loading="stockLoading"
               density="compact"
               hover
             >
               <template #item.quantity="{ item }">{{ item.quantity }}</template>
-              <template #item.availableQuantity="{ item }">{{ item.availableQuantity ?? item.quantity }}</template>
+              <template #item.reserved="{ item }">
+                <span :class="item.reserved > 0 ? 'text-warning font-weight-medium' : 'text-medium-emphasis'">{{ item.reserved }}</span>
+              </template>
+              <template #item.available="{ item }">{{ item.available }}</template>
+              <!-- #203: what is on its way on outgoing orders, and how much of it clients have. -->
+              <template #item.incoming="{ item }">
+                <span v-if="item.incoming > 0" class="text-info font-weight-medium">{{ item.incoming }}</span>
+                <span v-else class="text-medium-emphasis">0</span>
+                <div v-if="item.expectedDate" class="text-caption text-medium-emphasis">{{ String(item.expectedDate).slice(0, 10) }}</div>
+                <div v-if="item.planned > 0" class="text-caption text-medium-emphasis">+{{ item.planned }} {{ $t('warehouse.supply.planned') }}</div>
+              </template>
+              <template #item.reservedIncoming="{ item }">
+                <span :class="item.reservedIncoming > 0 ? 'text-warning font-weight-medium' : 'text-medium-emphasis'">{{ item.reservedIncoming }}</span>
+              </template>
               <template #item.avgCost="{ item }">{{ fmtCurrency(item.avgCost || 0) }}</template>
               <template #item.value="{ item }">{{ fmtCurrency((item.quantity || 0) * (item.avgCost || 0)) }}</template>
             </v-data-table>
+
+            <template v-if="supply?.incoming?.length">
+              <div class="text-subtitle-2 mt-6 mb-1">{{ $t('warehouse.supply.expectedDeliveries') }}</div>
+              <v-table density="compact">
+                <thead>
+                  <tr>
+                    <th>{{ $t('warehouse.supply.order') }}</th>
+                    <th>{{ $t('warehouse.supply.supplier') }}</th>
+                    <th>{{ $t('warehouse.warehouse') }}</th>
+                    <th>{{ $t('warehouse.supply.expectedDate') }}</th>
+                    <th class="text-end">{{ $t('warehouse.supply.ordered') }}</th>
+                    <th class="text-end">{{ $t('warehouse.supply.received') }}</th>
+                    <th class="text-end">{{ $t('warehouse.supply.outstanding') }}</th>
+                    <th>{{ $t('warehouse.supply.reservedFor') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in supply.incoming" :key="row.orderId + row.warehouseId + row.ordered">
+                    <td class="text-no-wrap">
+                      <a :href="appHref('invoicing', `/invoicing/orders/${row.orderId}/edit`)">{{ row.orderNumber }}</a>
+                      <v-chip v-if="row.planned" size="x-small" variant="tonal" class="ml-1">{{ $t('warehouse.supply.planned') }}</v-chip>
+                    </td>
+                    <td>{{ row.supplierName }}</td>
+                    <td>{{ row.warehouseName }}</td>
+                    <td class="text-no-wrap">{{ row.expectedDate ? String(row.expectedDate).slice(0, 10) : '—' }}</td>
+                    <td class="text-end">{{ row.ordered }}</td>
+                    <td class="text-end">{{ row.received }}</td>
+                    <td class="text-end font-weight-medium">{{ row.outstanding }}</td>
+                    <td>
+                      <v-chip v-for="c in row.clients" :key="c.contactId" size="x-small" variant="tonal" color="warning" class="mr-1">
+                        {{ c.name }}: {{ c.quantity }}
+                      </v-chip>
+                      <span v-if="!row.clients.length" class="text-medium-emphasis">—</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </v-table>
+            </template>
+
+            <template v-if="supply?.reservations?.length">
+              <div class="text-subtitle-2 mt-6 mb-1">{{ $t('warehouse.supply.reservations') }}</div>
+              <v-table density="compact">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>{{ $t('warehouse.supply.client') }}</th>
+                    <th>{{ $t('warehouse.supply.source') }}</th>
+                    <th>{{ $t('warehouse.supply.incomingOrder') }}</th>
+                    <th class="text-end">{{ $t('warehouse.quantity') }}</th>
+                    <th class="text-end">{{ $t('warehouse.supply.open') }}</th>
+                    <th>{{ $t('common.status') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in supply.reservations" :key="r.id">
+                    <td class="text-no-wrap">
+                      <a :href="appHref('invoicing', `/invoicing/reservations?q=${encodeURIComponent(r.number)}`)">{{ r.number }}</a>
+                    </td>
+                    <td>{{ r.contactName }}</td>
+                    <td>
+                      <template v-if="r.source === 'order'">
+                        <a :href="appHref('invoicing', `/invoicing/orders/${r.orderId}/edit`)">{{ r.orderNumber || '…' }}</a>
+                      </template>
+                      <span v-else>{{ $t('warehouse.supply.fromStock') }}</span>
+                      <div class="text-caption text-medium-emphasis">{{ r.warehouseName }}</div>
+                    </td>
+                    <td>
+                      <a v-if="r.internalOrderId" :href="appHref('invoicing', `/invoicing/internal-orders/${r.internalOrderId}/edit`)">{{ r.internalOrderNumber }}</a>
+                      <span v-else class="text-medium-emphasis">—</span>
+                    </td>
+                    <td class="text-end">{{ r.quantity }}</td>
+                    <td class="text-end">{{ r.open }}</td>
+                    <td><v-chip size="x-small" variant="tonal" :color="r.status === 'active' ? 'primary' : 'success'">{{ $t(`invoicing.status.${r.status}`) }}</v-chip></td>
+                  </tr>
+                </tbody>
+              </v-table>
+            </template>
           </v-card-text>
         </v-tabs-window-item>
 
@@ -232,6 +322,7 @@ import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import EntityLink from 'ui-shared/components/EntityLink'
+import { appHref } from 'ui-shared/nav/navigate'
 import ProductTabBar from '../components/ProductTabBar.vue'
 
 const route = useRoute()
@@ -261,9 +352,42 @@ const stockCounts = ref<any[]>([])
 const stockLevelHeaders = computed(() => [
   { title: t('warehouse.warehouse'), key: 'warehouseName' },
   { title: t('warehouse.quantity'), key: 'quantity', align: 'end' as const },
+  // #203: held for clients, free to sell, on its way, and promised from what is on its way.
+  { title: t('warehouse.supply.reserved'), key: 'reserved', align: 'end' as const },
+  { title: t('warehouse.supply.available'), key: 'available', align: 'end' as const },
+  { title: t('warehouse.supply.incoming'), key: 'incoming', align: 'end' as const },
+  { title: t('warehouse.supply.reservedIncoming'), key: 'reservedIncoming', align: 'end' as const },
   { title: t('warehouse.unitCost'), key: 'avgCost', align: 'end' as const },
   { title: t('warehouse.value'), key: 'value', align: 'end' as const },
 ])
+
+/**
+ * #203: the product's supply (`GET /invoicing/product-supply/:id`) beside its stock levels. A role
+ * that may not read it gets the plain levels — the supply columns then show what the levels know.
+ */
+const supply = ref<any>(null)
+const stockRows = computed(() => {
+  const byWh = new Map<string, any>((supply.value?.warehouses || []).map((w: any) => [w.warehouseId, w]))
+  const rows = stockLevels.value.map((l: any) => {
+    const id = String(l.warehouseId?._id || l.warehouseId || '')
+    const s = byWh.get(id)
+    byWh.delete(id)
+    return {
+      ...l,
+      reserved: s ? s.reserved : Number(l.reservedQuantity) || 0,
+      available: s ? s.available : (l.availableQuantity ?? l.quantity),
+      incoming: s?.incoming || 0,
+      reservedIncoming: s?.reservedIncoming || 0,
+      planned: s?.planned || 0,
+      expectedDate: s?.expectedDate || null,
+    }
+  })
+  // A warehouse with nothing on the shelf yet but goods on their way.
+  for (const s of byWh.values()) {
+    rows.push({ warehouseName: s.warehouseName, quantity: 0, avgCost: 0, ...s })
+  }
+  return rows
+})
 
 // FR-04 (#11): the list API returns from/toWarehouseName (not warehouseName) and — when
 // filtered to this product — a signed `productQuantity`; the old warehouseName/quantity
@@ -400,6 +524,12 @@ async function fetchStockData() {
     stockMovements.value = movementsRes.data.stockMovements || []
     stockCounts.value = countsRes.data.inventoryCounts || []
   } catch { /* */ }
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/product-supply/${productId.value}`)
+    supply.value = data.supply
+  } catch {
+    supply.value = null
+  }
   stockLoading.value = false
 }
 

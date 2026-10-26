@@ -4,7 +4,7 @@ import { startWalk, uxApi } from '../helpers/ux-budget'
 /**
  * P7 — Repeat a reservation. A stock reservation was cancelled by mistake and has to be made
  * again: cancel it from the Reservations list (the mistake), then put the same hold back the
- * shortest way the UI allows.
+ * shortest way the UI allows — since #252, „Резервирай отново" on the cancelled row itself.
  *
  * Products used: PRD-0029 (this walk's share of the acme-corp seed). Customer: Rhine Industries.
  */
@@ -97,29 +97,27 @@ test('P7 repeat: a reservation cancelled by mistake, made again', async ({ page 
   const dialogButtons = (await confirmDialog.getByRole('button').allTextContents()).map((t) => t.trim())
   walk.note(`Release dialog buttons: ${dialogButtons.map((b) => `„${b}"`).join(' / ')} — "dismiss" and "do it" both read as cancel; nothing says the release is final.`)
   await walk.click(confirmDialog.getByRole('button', { name: 'Откажи резервацията' }), 'confirm: release it')
-  await expect(snackbar(walk, 'Успешно запазено')).toBeVisible()
+  await expect(snackbar(walk, `Резервация ${original.reservationNumber} е отказана`)).toBeVisible()
   await expect(row).toContainText('Отказана')
   await expect(row.getByRole('button', { name: 'Откажи резервацията' })).toHaveCount(0)
   await settledShot(walk, 'cancelled')
   const cancelled = (await api.get(`/invoicing/reservations/${res._id}`)).reservation
   expect(cancelled.status).toBe('cancelled')
-  walk.note(`${original.reservationNumber} is now „Отказана" for good: the row keeps no action — no undo, no reactivate, no "reserve again"; the snackbar says only „Успешно запазено".`)
+  walk.note(`${original.reservationNumber} is now „Отказана"; the snackbar names it and says it can be reserved again from its row, which now offers „Резервирай отново".`)
   await expect(row).toContainText(`${QTY} / 0 / 0`)
   walk.note(`The cancelled row still reads „${QTY} / 0 / 0" under „Кол. / Фактурирано / Експедирано" — only the status chip says it holds nothing.`)
 
-  // ── 2. Make it again: the only way back is through the internal order ──
-  const ordiLink = row.getByRole('link', { name: ordi.orderNumber })
-  await expect(ordiLink).toBeVisible()
-  await walk.click(ordiLink, 'open the internal order (link in the row)')
-  await page.waitForURL(/\/internal-orders\/[0-9a-f]{24}\/edit/)
-  const reserveBtn = page.getByRole('button', { name: 'Резервирай от склад' })
-  await expect(reserveBtn).toBeVisible()
-  const lineRow = page.locator('tbody tr').filter({ hasText: product.name }).first()
-  await expect(lineRow).toContainText(`0/${QTY}`)
-  await settledShot(walk, 'ordi-unreserved')
-  await walk.click(reserveBtn, 'reserve from stock (again)')
-  await expect(snackbar(walk, /Създадени резервации: 1/)).toBeVisible()
-  await expect(lineRow).toContainText(`${QTY}/${QTY}`)
+  // ── 2. Make it again, from its own row (#252) ──
+  const again = row.getByRole('button', { name: 'Резервирай отново' })
+  await expect(again).toBeVisible()
+  await walk.click(again, 'reserve it again (row icon)')
+  const againSnack = snackbar(walk, /Резервирано отново като/)
+  await expect(againSnack).toBeVisible()
+  const freshNumber = ((await againSnack.innerText()).match(/като\s+(\S+)/) || [])[1]
+  expect(freshNumber).toMatch(/^RES-/)
+  const freshRow = page.locator('tbody tr').filter({ hasText: freshNumber })
+  await expect(freshRow).toContainText('Активна')
+  await expect(freshRow).toContainText('резервирана отново')
   await settledShot(walk, 'reserved-again')
 
   // What the walk did (uncounted): a NEW reservation, same product / quantity / warehouse / client.
@@ -130,9 +128,11 @@ test('P7 repeat: a reservation cancelled by mistake, made again', async ({ page 
   expect(String(fresh.warehouseId)).toBe(String(original.warehouseId))
   expect(String(fresh.contactId)).toBe(String(original.contactId))
   expect(fresh.number).not.toBe(original.reservationNumber)
-  walk.note(`The hold is back as a NEW document: ${fresh.number} (same ${QTY} × ${SKU}, same warehouse, same client); ${original.reservationNumber} stays in the list as „Отказана". „Резервирай от склад" restores it exactly only because the order had a preferred warehouse — otherwise it takes the warehouse with the most free stock.`)
-  walk.note('Had the cancelled reservation come from an external order\'s allocation (no internal order), the way back is the ORDO form: expand the line\'s allocations → „Резервирай за клиент" → dialog: client, quantity → „Резервирай".')
+  expect(fresh.number).toBe(freshNumber)
+  expect(String(fresh.repeatOf)).toBe(String(res._id))
+  walk.note(`The hold is back as a NEW document: ${fresh.number} (same ${QTY} × ${SKU}, same warehouse, same client, same internal-order line), marked „резервирана отново"; ${original.reservationNumber} stays in the list as „Отказана". The same row icon serves a reservation made on an external order's allocation, and both order forms offer it too; a second click answers with the same copy (a unique index on \`repeatOf\`).`)
 
   const result = walk.finish()
-  expect(result.clicks).toBeGreaterThan(0)
+  // FR-22.37 asks ≤ 4 for every reservation; the row icon (#252) makes it 3: cancel, confirm, again.
+  expect(result.clicks).toBeLessThanOrEqual(3)
 })

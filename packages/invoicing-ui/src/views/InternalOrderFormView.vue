@@ -91,7 +91,8 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(line, li) in form.lines" :key="line._id || li">
+                  <template v-for="(line, li) in form.lines" :key="line._id || li">
+                  <tr>
                     <td style="min-width:160px">
                       <div class="d-flex align-center ga-1">
                         <ProductLineDescription
@@ -135,6 +136,33 @@
                       <v-btn v-if="!readonly" icon="mdi-close" size="x-small" variant="text" tabindex="-1" :title="$t('common.remove')" :aria-label="$t('common.remove')" @click="form.lines.splice(li, 1)" />
                     </td>
                   </tr>
+                  <!-- #203: the line's reservations, where the line is — changed, cancelled or made again here. -->
+                  <tr v-if="isEdit && line._id && lineReservations(line).length">
+                    <td :colspan="6" class="pt-0 pb-2">
+                      <div v-for="res in lineReservations(line)" :key="res._id" class="d-flex align-center flex-wrap ga-2 text-body-2 ps-2">
+                        <v-icon size="14" :color="resStatusColor(res.status)">mdi-lock-clock</v-icon>
+                        <span class="font-weight-medium">{{ res.reservationNumber }}</span>
+                        <v-chip
+                          size="x-small"
+                          variant="tonal"
+                          :color="res.source === 'order' ? 'info' : undefined"
+                          :to="res.source === 'order' && res.orderId ? { name: 'invoicing.orders.edit', params: { id: String(res.orderId) } } : undefined"
+                        >
+                          {{ res.source === 'order' ? (orderNumbers[String(res.orderId)] || 'ORDO') : $t('invoicing.sourceStock') }}
+                        </v-chip>
+                        <span class="text-medium-emphasis">{{ warehouseName(res.warehouseId) }}</span>
+                        <span>{{ $t('invoicing.qty') }}: {{ res.quantity }}</span>
+                        <span v-if="res.invoicedQuantity || res.dispatchedQuantity" class="text-medium-emphasis">
+                          ({{ $t('invoicing.invoicedQty') }} {{ res.invoicedQuantity || 0 }} · {{ $t('invoicing.dispatchedQty') }} {{ res.dispatchedQuantity || 0 }})
+                        </span>
+                        <v-chip size="x-small" label variant="tonal" :color="resStatusColor(res.status)">{{ $t(`invoicing.status.${res.status}`) }}</v-chip>
+                        <v-btn v-if="res.status === 'active' && !readonly" icon="mdi-pencil" size="x-small" variant="text" :title="$t('invoicing.reservations.changeQuantity')" :aria-label="$t('invoicing.reservations.changeQuantity')" @click="openResEdit(res)" />
+                        <v-btn v-if="res.status === 'active' && !readonly" icon="mdi-close" size="x-small" variant="text" color="error" :title="$t('invoicing.cancelReservation')" :aria-label="$t('invoicing.cancelReservation')" @click="cancelReservation(res)" />
+                        <v-btn v-if="res.status === 'cancelled' && canReserve" icon="mdi-restore" size="x-small" variant="text" color="primary" :loading="repeating === res._id" :title="$t('invoicing.reservations.reserveAgain')" :aria-label="$t('invoicing.reservations.reserveAgain')" @click="reserveAgain(res)" />
+                      </div>
+                    </td>
+                  </tr>
+                  </template>
                 </tbody>
               </v-table>
             </div>
@@ -173,6 +201,7 @@
                 <thead>
                   <tr>
                     <th>{{ $t('invoicing.reservationNumber') }}</th>
+                    <th>{{ $t('invoicing.product') }}</th>
                     <th>{{ $t('invoicing.source') }}</th>
                     <th>{{ $t('warehouse.warehouse') }}</th>
                     <th class="text-end">{{ $t('invoicing.qty') }}</th>
@@ -185,8 +214,15 @@
                 <tbody>
                   <tr v-for="res in reservations" :key="res._id">
                     <td class="text-no-wrap">{{ res.reservationNumber }}</td>
+                    <td>{{ lineDescription(res) }}</td>
                     <td>
-                      <v-chip v-if="res.source === 'order'" size="x-small" variant="tonal" color="info">
+                      <v-chip
+                        v-if="res.source === 'order'"
+                        size="x-small"
+                        variant="tonal"
+                        color="info"
+                        :to="res.orderId ? { name: 'invoicing.orders.edit', params: { id: String(res.orderId) } } : undefined"
+                      >
                         {{ orderNumbers[String(res.orderId)] || 'ORDO' }}
                       </v-chip>
                       <v-chip v-else size="x-small" variant="tonal">{{ $t('invoicing.sourceStock') }}</v-chip>
@@ -212,6 +248,17 @@
                         :aria-label="$t('invoicing.cancelReservation')"
                         @click="cancelReservation(res)"
                       />
+                      <v-btn
+                        v-if="res.status === 'cancelled' && canReserve"
+                        icon="mdi-restore"
+                        size="x-small"
+                        variant="text"
+                        color="primary"
+                        :loading="repeating === res._id"
+                        :title="$t('invoicing.reservations.reserveAgain')"
+                        :aria-label="$t('invoicing.reservations.reserveAgain')"
+                        @click="reserveAgain(res)"
+                      />
                     </td>
                   </tr>
                 </tbody>
@@ -219,6 +266,12 @@
             </div>
           </v-card-text>
         </v-card>
+        <ReservationQuantityDialog
+          v-model="resEditDialog"
+          :reservation="resEditing"
+          :subtitle="resEditing ? lineDescription(resEditing) : ''"
+          @saved="refreshReservations"
+        />
 
         <!-- Notes / terms / tags + totals -->
         <v-row class="mt-4">
@@ -398,6 +451,7 @@ import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 import { useConversionFeedback } from '../composables/useConversionFeedback'
+import ReservationQuantityDialog from '../components/ReservationQuantityDialog.vue'
 
 interface LineRow {
   _id?: string
@@ -463,6 +517,63 @@ const activeReservations = computed(() => reservations.value.filter((r) => r.sta
 function resStatusColor(status: string) {
   return status === 'active' ? 'primary' : status === 'fulfilled' ? 'success' : 'error'
 }
+/** #203: a line's reservations, shown under it. */
+function lineReservations(line: any) {
+  return reservations.value.filter((r) => String(r.internalOrderLineId) === String(line._id))
+}
+function lineDescription(res: any) {
+  return form.lines.find((l: any) => String(l._id) === String(res.internalOrderLineId))?.description || '—'
+}
+const resEditDialog = ref(false)
+const resEditing = ref<any>(null)
+function openResEdit(res: any) {
+  resEditing.value = res
+  resEditDialog.value = true
+}
+const repeating = ref('')
+async function reserveAgain(res: any) {
+  repeating.value = res._id
+  try {
+    const { data } = await httpClient.post(`${orgUrl()}/invoicing/reservations/${res._id}/repeat`, {})
+    showSuccess(data.created
+      ? t('invoicing.reservations.reservedAgain', { number: data.reservation.reservationNumber })
+      : t('invoicing.reservations.alreadyReservedAgain', { number: data.reservation.reservationNumber }))
+    await refreshReservations()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    repeating.value = ''
+  }
+}
+
+/**
+ * After a reservation action: the reservations and what the server derives from them (each line's
+ * reserved / invoiced / delivered, the status) — never the fields the user may be editing. The
+ * whole-form reload used here before threw unsaved line edits away.
+ */
+async function refreshReservations() {
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/invoicing/internal-orders/${route.params.id}`)
+    const o = data.internalOrder
+    orderStatus.value = o.status
+    const byId = new Map((o.lines || []).map((l: any) => [String(l._id), l]))
+    for (const line of form.lines as any[]) {
+      const fresh: any = line._id ? byId.get(String(line._id)) : null
+      if (!fresh) continue
+      line.reservedQuantity = fresh.reservedQuantity || 0
+      line.invoicedQuantity = fresh.invoicedQuantity || 0
+      line.deliveredQuantity = fresh.deliveredQuantity || 0
+    }
+    reservations.value = data.reservations || []
+    if (data.lookup?.contacts) Object.assign(contactNames.value, data.lookup.contacts)
+    if (data.lookup?.orders) {
+      for (const [oid, info] of Object.entries<any>(data.lookup.orders)) orderNumbers.value[oid] = info.orderNumber
+    }
+  } catch {
+    showError(t('common.operationFailed'))
+  }
+}
+
 function isLate(res: any) {
   return !!(res.expectedDate && form.requestedDeliveryDate && res.expectedDate.split('T')[0] > form.requestedDeliveryDate)
 }
@@ -706,7 +817,7 @@ async function reserveAvailable() {
     const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/reserve-available`, {})
     if (data.created?.length) showSuccess(t('invoicing.reservedFromStock', { count: data.created.length }))
     else showSuccess(t('invoicing.noShortages'))
-    await loadOrder()
+    await refreshReservations()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
@@ -719,7 +830,7 @@ async function cancelReservation(res: any) {
   try {
     await httpClient.post(`${orgUrl()}/invoicing/reservations/${res._id}/cancel`, {})
     showSuccess(t('common.savedSuccessfully'))
-    await loadOrder()
+    await refreshReservations()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   }
@@ -759,7 +870,7 @@ async function coverAction(fn: () => Promise<any>) {
   try {
     await fn()
     showSuccess(t('common.savedSuccessfully'))
-    await Promise.all([loadOrder(), loadSuggestions()])
+    await Promise.all([refreshReservations(), loadSuggestions()])
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
@@ -836,7 +947,7 @@ async function submitGenerate() {
     const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/generate-external`, { lines })
     showSuccess(t('invoicing.externalOrderCreated', { number: data.order.orderNumber }))
     generateDialog.value = false
-    await loadOrder()
+    await refreshReservations()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
