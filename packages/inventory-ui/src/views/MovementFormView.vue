@@ -927,7 +927,7 @@ function applyNewReceiptDefaults() {
  */
 async function prefillFromProduct(id: string) {
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${id}`)
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${encodeURIComponent(id)}`)
     const product = data?.product
     if (!product) return
     await onLineProductSelected(0, { ...product, _id: String(product._id || product.id) })

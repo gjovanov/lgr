@@ -1006,7 +1006,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
    */
   async function prefillFromProduct(id: string) {
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${id}`)
+      const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${encodeURIComponent(id)}`)
       const product = data?.product
       const line = form.lines[0]
       if (!product || !line) return
