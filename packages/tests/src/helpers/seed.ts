@@ -285,8 +285,11 @@ export async function seed() {
           productId: products[i]._id,
           warehouseId: wh._id,
           quantity: qty,
-          reservedQuantity: Math.floor(qty * 0.1),
-          availableQuantity: Math.floor(qty * 0.9),
+          // Nothing is held: a hold is a Reservation, and the seed makes none. The 10 % it used to
+          // invent showed on the Products list as „Резервирано" with no reservation behind it, so the
+          // list never reconciled with the Reservations list (FR-22.45).
+          reservedQuantity: 0,
+          availableQuantity: qty,
           avgCost: products[i].purchasePrice,
         }),
       )
