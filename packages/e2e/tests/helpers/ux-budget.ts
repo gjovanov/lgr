@@ -273,3 +273,17 @@ export async function startWalk(page: Page, testInfo: TestInfo, opts: { id: stri
   walk.begin()
   return walk
 }
+
+/**
+ * Close every open till session of the org, counted exactly as expected. The terminal takes ANY
+ * open session as its own (FR-21), so a walk that leaves one open takes „Отвори сесия" away from
+ * every spec that runs after it (pos-terminal.spec).
+ */
+export async function closeOpenTillSessions(api: Awaited<ReturnType<typeof uxApi>>): Promise<void> {
+  const open = await api.get('/trade/pos/session?status=open&size=50')
+  for (const s of open.sessions || []) {
+    const id = s.id || s._id
+    const preview = await api.get(`/trade/pos/session/${id}/close-preview`)
+    await api.post(`/trade/pos/session/${id}/close`, { counted: preview.expected })
+  }
+}

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { signInForUx, startWalk, uxApi } from '../helpers/ux-budget'
+import { signInForUx, startWalk, uxApi, closeOpenTillSessions } from '../helpers/ux-budget'
 
 /**
  * P4-till — one counter sale at the till: PRD-0016 ×1 and PRD-0017 ×3, paid by card. The
@@ -37,6 +37,12 @@ const DATA = /^(Product \d+|PRD-|TXN-|POS-|CSR?-|SM-|Main Warehouse|Retail Store
 function englishOnly(texts: string[]): string[] {
   return [...new Set(texts.filter(t => /[A-Za-z]/.test(t) && !/[А-Яа-я]/.test(t) && !DATA.test(t)))]
 }
+
+
+// The walk leaves its session open: close it, so later specs find the terminal without one.
+test.afterAll(async () => {
+  await closeOpenTillSessions(await uxApi())
+})
 
 test('P4-till: one counter sale paid by card', async ({ page, browser }, testInfo) => {
   // ── Setup (uncounted): an open session on Main Warehouse, and stock for the two articles.

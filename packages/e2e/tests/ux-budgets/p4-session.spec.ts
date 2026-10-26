@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { startWalk, uxApi } from '../helpers/ux-budget'
+import { startWalk, uxApi, closeOpenTillSessions } from '../helpers/ux-budget'
 
 /**
  * P4-open — start of the day at the till: from `/pos/terminal` with no open session, open one
@@ -30,6 +30,12 @@ const DATA = /^(Product \d+|PRD-|TXN-|POS-|CSR?-|SM-|Main Warehouse|Retail Store
 function englishOnly(texts: string[]): string[] {
   return [...new Set(texts.filter(t => /[A-Za-z]/.test(t) && !/[А-Яа-я]/.test(t) && !DATA.test(t)))]
 }
+
+
+// The walk leaves its session open: close it, so later specs find the terminal without one.
+test.afterAll(async () => {
+  await closeOpenTillSessions(await uxApi())
+})
 
 test('P4-open: open the till for the day', async ({ page }, testInfo) => {
   // ── Setup (uncounted). The terminal takes ANY open session of the org as its own, so every
