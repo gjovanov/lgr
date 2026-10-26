@@ -207,7 +207,7 @@
       :proposals="transferProposals"
       :all-resolvable="transferAllResolvable"
       :confirming="transferConfirming"
-      @confirm="confirmTransferAndSend"
+      @confirm="confirmTransfers"
     />
 
     <!-- FR-10 (#19): one dialog for the whole grid, driven by the row the user clicked. -->
@@ -227,7 +227,6 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -250,6 +249,7 @@ import type { StatCardDef } from 'ui-shared/components/StatCard.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { useRowEmail } from '../composables/useRowEmail'
+import { useDocumentIssue } from '../composables/useDocumentIssue'
 import RecordPaymentDialog from '../components/RecordPaymentDialog.vue'
 
 interface Invoice {
@@ -304,14 +304,6 @@ const tagFilter = ref<string[]>([])
 const SALES_TYPES = ['invoice', 'credit_note', 'debit_note'] as const
 const TYPE_COLORS: Record<string, string> = { invoice: 'primary', credit_note: 'warning', debit_note: 'error' }
 const typeFilter = ref<string[]>([...SALES_TYPES])
-
-const transferDialog = ref(false)
-const transferShortfalls = ref<any[]>([])
-const transferProposals = ref<any[]>([])
-const transferAllResolvable = ref(false)
-const transferConfirming = ref(false)
-const transferInvoiceId = ref('')
-const transferInvoiceType = ref('invoice')
 
 const statusOptions = computed(() => STATUSES.map((v) => ({ value: v, title: t(`invoicing.status.${v}`) })))
 
@@ -447,11 +439,6 @@ async function refresh() {
 }
 
 // FR-22.14: the message names the document that was acted on — a credit note is not „Фактурата".
-const ISSUED_KEY: Record<string, string> = {
-  invoice: 'invoicing.invoiceSent',
-  credit_note: 'invoicing.creditNoteIssued',
-  debit_note: 'invoicing.debitNoteIssued',
-}
 const VOIDED_KEY: Record<string, string> = {
   invoice: 'invoicing.invoiceVoided',
   credit_note: 'invoicing.creditNoteVoided',
@@ -513,67 +500,22 @@ function statusColor(s: string) {
   return map[s] || 'grey'
 }
 
-async function sendInvoice(item: Invoice) {
-  loading.value = true
-  try {
-    // First fetch full invoice to get lines with warehouseId
-    const { data: invoiceData } = await httpClient.get(`${appStore.orgUrl()}/invoices/${item._id}`)
-    const invoice = invoiceData.invoice
-    const lines = (invoice.lines || []).filter((l: any) => l.productId && l.warehouseId)
+// FR-22.17: issuing — the stock check, the transfer dialog, `/send` — is shared with the document
+// form (composables/useDocumentIssue), which issues too now. Same requests, same messages.
+const {
+  transfer: {
+    open: transferDialog,
+    shortfalls: transferShortfalls,
+    proposals: transferProposals,
+    allResolvable: transferAllResolvable,
+    confirming: transferConfirming,
+  },
+  issue,
+  confirmTransfers,
+} = useDocumentIssue({ loading, onIssued: refresh })
 
-    if (lines.length > 0 && invoice.direction === 'outgoing') {
-      // Check stock availability
-      const { data: stockResult } = await httpClient.post(`${appStore.orgUrl()}/invoicing/stock-availability/check`, {
-        // Reservation-backed lines consume their own hold — send the ref so the pre-flight
-        // doesn't report the client's reserved stock as a shortfall.
-        lines: lines.map((l: any) => ({ productId: l.productId, warehouseId: l.warehouseId, quantity: l.quantity, reservationId: l.orderRef?.reservationId || undefined })),
-      })
-
-      if (!stockResult.sufficient) {
-        // Show transfer dialog
-        transferShortfalls.value = stockResult.shortfalls
-        transferProposals.value = stockResult.proposals
-        transferAllResolvable.value = stockResult.allResolvable
-        transferInvoiceId.value = item._id
-        transferInvoiceType.value = item.type
-        transferDialog.value = true
-        loading.value = false
-        return
-      }
-    }
-
-    // Stock sufficient — send directly. #155: an unanswered attempt keeps its key, so issuing
-    // again returns that issue — never a second dispatch or number.
-    await issueAttempt.run({ id: item._id }, headers => httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/send`, {}, { headers }))
-    showSuccess(t(ISSUED_KEY[item.type] || ISSUED_KEY.invoice))
-    await refresh()
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
-  } finally {
-    loading.value = false
-  }
-}
-
-// #155: one Idempotency-Key per Issue attempt (ui-shared/composables/idempotency).
-const issueAttempt = createIdempotentAction()
-
-async function confirmTransferAndSend(proposals: any[]) {
-  transferConfirming.value = true
-  try {
-    // Create transfer movements
-    const { data: transferResult } = await httpClient.post(`${appStore.orgUrl()}/invoicing/stock-availability/create-transfers`, { proposals })
-
-    // Send invoice with pending transfer IDs (backend confirms transfers first)
-    const sendBody = { pendingTransferIds: transferResult.transferIds }
-    await issueAttempt.run({ id: transferInvoiceId.value, ...sendBody }, headers => httpClient.post(`${appStore.orgUrl()}/invoices/${transferInvoiceId.value}/send`, sendBody, { headers }))
-    showSuccess(t(ISSUED_KEY[transferInvoiceType.value] || ISSUED_KEY.invoice))
-    transferDialog.value = false
-    await refresh()
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
-  } finally {
-    transferConfirming.value = false
-  }
+function sendInvoice(item: Invoice) {
+  return issue(item)
 }
 
 /** FR-22.7: the dialog opens on what the row still owes, by the method the row is paid with. */
