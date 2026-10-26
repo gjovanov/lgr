@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { loginAsAdmin } from './helpers/login'
+import { loginAsAdmin, loginForApp } from './helpers/login'
 import { navDrawer, openNavDrawer } from './helpers/nav'
 
 test.describe('Navigation', () => {
@@ -128,5 +128,73 @@ test.describe('Navigation', () => {
     // Should redirect to the login page
     await page.waitForURL('**/auth/login', { timeout: 10000 })
     await expect(page).toHaveURL(/auth\/login/)
+  })
+})
+
+/**
+ * FR-22 slice 6 — anywhere in one move: „+ New" in every top bar (FR-22.49), ★ pinning a blank
+ * form and showing it on the App Hub and the dashboard (FR-22.51), and the form keys (FR-22.52).
+ */
+test.describe('Quick create, favourites and form keys (FR-22.49–.52)', () => {
+  const base = process.env.BASE_URL || 'http://localhost:4001'
+
+  async function firstInvoiceId(): Promise<string> {
+    const res = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orgSlug: 'acme-corp', username: 'admin', password: 'test123' }),
+    })
+    const { token, org } = await res.json()
+    const list = await fetch(`${base}/api/org/${org.id}/invoices?direction=outgoing&type=invoice&size=1`, { headers: { Authorization: `Bearer ${token}` } })
+    const data = await list.json()
+    const inv = (data.invoices || [])[0]
+    expect(inv, 'the seed has an outgoing invoice').toBeTruthy()
+    return inv._id || inv.id
+  }
+
+  test('„New" lists the daily documents and opens a blank one', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/invoices', { waitUntil: 'networkidle' })
+
+    await page.getByTestId('new-document-menu').click()
+    const items = page.getByTestId('new-document-list').locator('.v-list-item')
+    await expect(items).toHaveCount(8)
+
+    // In the same app it is a router move: no page load.
+    await page.evaluate(() => { (window as any).__samePage = true })
+    await items.filter({ hasText: 'Proforma' }).click()
+    await page.waitForURL(/\/invoicing\/proforma\/new$/)
+    await expect(page.getByRole('heading', { name: /new proforma/i })).toBeVisible()
+    expect(await page.evaluate(() => (window as any).__samePage)).toBe(true)
+  })
+
+  test('„New" from an open invoice gives a blank invoice, not the open one', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto(`/invoicing/invoices/${await firstInvoiceId()}/edit`, { waitUntil: 'networkidle' })
+    await expect(page.getByRole('heading', { name: 'Edit Invoice' })).toBeVisible()
+
+    await page.getByTestId('new-document-menu').click()
+    await page.getByTestId('new-document-list').locator('.v-list-item').filter({ hasText: 'Outgoing invoice' }).click()
+    await page.waitForURL(/\/invoicing\/invoices\/new$/)
+    await expect(page.getByRole('heading', { name: 'New Invoice' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Edit Invoice' })).toHaveCount(0)
+  })
+
+  test('★ pins a blank form, and the App Hub and the dashboard show it as a tile', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/invoices/new?type=credit_note', { waitUntil: 'networkidle' })
+
+    await page.getByTestId('favorites-menu').click()
+    const pin = page.getByTestId('favorites-pin-current')
+    await expect(pin).toContainText('New credit note')
+    await pin.click()
+
+    for (const path of ['/apps', '/dashboard']) {
+      await page.goto(path, { waitUntil: 'networkidle' })
+      await expect(page.getByTestId('favorite-tile').filter({ hasText: 'New credit note' })).toBeVisible()
+    }
+    await page.getByTestId('favorite-tile').filter({ hasText: 'New credit note' }).click()
+    await page.waitForURL(/\/invoicing\/invoices\/new\?type=credit_note$/)
+    await expect(page.getByRole('heading', { name: 'New Credit Note' })).toBeVisible()
   })
 })

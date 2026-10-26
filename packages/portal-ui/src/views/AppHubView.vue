@@ -7,6 +7,9 @@
       </v-col>
     </v-row>
 
+    <!-- FR-22.51: the pages pinned with ★, one click away. -->
+    <FavoriteTiles class="mb-6" />
+
     <v-row v-if="loading">
       <v-col cols="12" class="d-flex justify-center">
         <v-progress-circular indeterminate color="primary" />
@@ -49,6 +52,7 @@ import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { appHomeHref } from 'ui-shared/nav/navigate'
+import FavoriteTiles from 'ui-shell/components/FavoriteTiles'
 import { useAppStore } from '../store/app.store'
 
 interface AppInfo {

@@ -1,7 +1,18 @@
 <template>
-  <v-menu :close-on-content-click="false" location="bottom end" min-width="300" max-width="360">
+  <!-- FR-22.51: opens on hover on a desktop (FR-05), like the menus beside it. -->
+  <v-menu
+    v-model="open"
+    :close-on-content-click="false"
+    location="bottom end"
+    min-width="300"
+    max-width="360"
+    :open-on-hover="hoverEnabled"
+    :open-on-click="true"
+    :open-delay="openDelay"
+    :close-delay="closeDelay"
+  >
     <template #activator="{ props }">
-      <v-btn v-bind="props" icon variant="text" :title="$t('nav.favorites')">
+      <v-btn v-bind="props" icon variant="text" :title="$t('nav.favorites')" data-testid="favorites-menu">
         <v-icon>{{ currentIsFav ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
       </v-btn>
     </template>
@@ -13,6 +24,7 @@
             :prepend-icon="currentIsFav ? 'mdi-star' : 'mdi-star-outline'"
             :title="currentIsFav ? $t('nav.unpinPage') : $t('nav.pinPage')"
             :subtitle="$t(currentPage.labelKey)"
+            data-testid="favorites-pin-current"
             @click="toggleFavorite(currentPage.id)"
           />
         </v-list>
@@ -53,25 +65,37 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { usePageFavorites } from 'ui-shared/composables/usePageFavorites'
-import { PAGE_REGISTRY, APP_NAV_META, matchPage, type PageDef } from 'ui-shared/nav/page-registry'
-import { navigateToPage } from 'ui-shared/nav/navigate'
+import { useHoverMenus } from 'ui-shared/composables/useHoverMenus'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { PAGE_REGISTRY, APP_NAV_META, canOpenPage, matchPage, type PageDef } from 'ui-shared/nav/page-registry'
+import { openPage } from 'ui-shared/nav/open-page'
 
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const { isFavorite, toggleFavorite, groupItems } = usePageFavorites()
+const { hoverEnabled, openDelay, closeDelay } = useHoverMenus()
+const open = ref(false)
 
-// The router path is app-relative; window.location.pathname is the full app-prefixed path
-// that the registry is keyed on. Re-read it whenever the route changes.
-const currentPath = ref(typeof window !== 'undefined' ? window.location.pathname : '')
-watch(() => route.fullPath, () => { currentPath.value = window.location.pathname })
+// The router path is app-relative; window.location is the full app-prefixed one that the
+// registry is keyed on. Re-read it whenever the route changes. The query counts too: the
+// invoice form opened as a credit note is a page of its own (FR-22.51).
+const here = () => (typeof window !== 'undefined' ? { path: window.location.pathname, search: window.location.search } : { path: '', search: '' })
+const currentLocation = ref(here())
+watch(() => route.fullPath, () => { currentLocation.value = here() })
 
-const currentPage = computed(() => matchPage(currentPath.value))
+const currentPage = computed(() => matchPage(currentLocation.value.path, currentLocation.value.search))
 const currentIsFav = computed(() => !!currentPage.value && isFavorite(currentPage.value.id))
 
+// What this person may open (FR-22 §5.8): a pin to a page their role no longer reaches is kept,
+// just not offered.
+const viewer = sessionViewer()
+const openable = PAGE_REGISTRY.filter((p) => canOpenPage(p, viewer))
+
 const sections = computed(() => {
-  const g = groupItems(PAGE_REGISTRY)
+  const g = groupItems(openable)
   const out: { key: string; labelKey: string; pages: PageDef[] }[] = []
   if (g.favorites.length) out.push({ key: 'fav', labelKey: 'nav.favorites', pages: g.favorites })
   if (g.frequent.length) out.push({ key: 'freq', labelKey: 'nav.frequent', pages: g.frequent })
@@ -83,7 +107,9 @@ function appName(appId: string): string {
   return key ? t(key) : appId
 }
 
+// The menu stays open for its own stars, so a move inside this app has to close it.
 function go(p: PageDef) {
-  navigateToPage(p)
+  open.value = false
+  openPage(p, router)
 }
 </script>

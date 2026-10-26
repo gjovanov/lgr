@@ -67,10 +67,11 @@ export function registerPlugins(app: App, options?: RegisterPluginsOptions) {
   if (options?.router) {
     app.use(options.router)
     // Track page visits (across every app) for the global ★ favorites/most-used menu.
-    // window.location.pathname is the full app-prefixed path once navigation is confirmed.
+    // window.location is the full app-prefixed URL once navigation is confirmed; its query
+    // tells a credit note's form from an invoice's.
     options.router.afterEach(() => {
       try {
-        const p = matchPage(window.location.pathname)
+        const p = matchPage(window.location.pathname, window.location.search)
         if (p) usePageFavorites().recordOpen(p.id)
       } catch {
         /* never let visit-tracking break navigation */
