@@ -1,5 +1,6 @@
 import { APP_NAV_META, type PageDef } from './page-registry'
-import { getOrg, getToken, onSignedOutElsewhere, setSession, type SessionOrg } from '../session/session'
+import { orgPickerPath, signInPath } from './return-path'
+import { getOrg, getToken, isPersonOnly, onSignedOutElsewhere, setSession, type SessionOrg } from '../session/session'
 
 /**
  * Navigate to a page that may live in a DIFFERENT app (each domain UI is its own SPA).
@@ -57,6 +58,14 @@ export function portalHref(path = '/'): string {
   if (!onAppDevServer) return path
   if (path.startsWith('/auth/') || !getToken()) return `http://localhost:4001${path}`
   return `http://localhost:4001${path}${handoffQuery(path)}`
+}
+
+/**
+ * Where an app sends a tab that has no org session: the sign-in page, or the org picker for a
+ * person signed in without an org. Either comes back to `returnTo` afterwards (FR-22.53).
+ */
+export function signInHref(returnTo?: string | null): string {
+  return portalHref(isPersonOnly() ? orgPickerPath(returnTo) : signInPath(returnTo))
 }
 
 /** Where an app tile or the app switcher goes: the app's home, in this tab's org. */

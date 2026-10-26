@@ -73,13 +73,13 @@
       <v-btn variant="text" prepend-icon="mdi-logout" :disabled="!!busy" @click="signOut">{{ $t('auth.logout') }}</v-btn>
     </v-card-actions>
 
-    <NewOrgDialog v-model="newOrgOpen" @entered="enterApps" />
+    <NewOrgDialog v-model="newOrgOpen" @entered="enterApps()" />
   </v-card>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import NewOrgDialog from 'ui-shell/components/NewOrgDialog'
 import {
@@ -91,6 +91,7 @@ import {
   type OrgChoice,
 } from 'ui-shared/session/useOrgSession'
 import { hasOrgSession } from 'ui-shared/session/session'
+import { safeReturnPath } from 'ui-shared/nav/return-path'
 import { useAppStore } from '../store/app.store'
 
 /**
@@ -99,8 +100,14 @@ import { useAppStore } from '../store/app.store'
  */
 
 const router = useRouter()
+const route = useRoute()
 const appStore = useAppStore()
 const { t, te } = useI18n()
+/**
+ * FR-22.53: the page the sign-in was asked to return to. Choosing an org goes there; joining or
+ * founding one does not, because that page belongs to an org the person was already in.
+ */
+const next = safeReturnPath(route.query.next)
 
 const loading = ref(true)
 const orgs = ref<OrgChoice[]>([])
@@ -143,18 +150,18 @@ function fail(err: unknown) {
 }
 
 /** A full load, so every store in the portal starts from the new session. */
-function enterApps() {
+function enterApps(to = '/apps') {
   sessionStorage.removeItem('lgr_invite_code')
-  window.location.href = '/apps'
+  window.location.href = to
 }
 
 async function choose(o: OrgChoice) {
-  if (o.current) return enterApps()
+  if (o.current) return enterApps(next ?? '/apps')
   busy.value = o.orgId
   error.value = ''
   try {
     await switchOrg(o.orgId)
-    enterApps()
+    enterApps(next ?? '/apps')
   } catch (err) {
     fail(err)
   }

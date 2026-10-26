@@ -129,3 +129,58 @@ test.describe('Account activation (S-06)', () => {
     await expect(page.getByRole('button', { name: /send a new link/i })).toBeVisible()
   })
 })
+
+/**
+ * FR-22.53 — after a 401, signing in returns to the page the person was on, and only to a page
+ * of ours: the `next` on the sign-in URL is whatever a link says.
+ */
+test.describe('Returning after sign-in (FR-22.53)', () => {
+  const base = process.env.BASE_URL || 'http://localhost:4001'
+
+  /** A well-formed session for a real org that the server refuses: the signature is nobody's. */
+  async function refusedSession() {
+    const res = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orgSlug: 'acme-corp', username: 'admin', password: 'test123' }),
+    })
+    const { org } = await res.json()
+    const part = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url')
+    const claims = { id: '000000000000000000000000', orgId: org.id, role: 'admin', permissions: [], exp: Math.floor(Date.now() / 1000) + 3600 }
+    return { token: `${part({ alg: 'HS256', typ: 'JWT' })}.${part(claims)}.not-a-signature`, org }
+  }
+
+  test('a 401 sends the tab to sign in, and signing in brings it back', async ({ page }) => {
+    const { token, org } = await refusedSession()
+    // Once per tab: the next navigations must run on the session the sign-in makes.
+    await page.addInitScript(({ token, org }) => {
+      if (sessionStorage.getItem('e2e-seeded')) return
+      sessionStorage.setItem('e2e-seeded', '1')
+      localStorage.setItem('lgr_token', token)
+      localStorage.setItem('lgr_org', JSON.stringify(org))
+    }, { token, org })
+
+    // The 401 moves the tab while the page is still loading: wait on the address, never a load.
+    await page.goto('/invoicing/invoices?status=draft', { waitUntil: 'commit' })
+    await expect(page).toHaveURL(/\/auth\/login\?next=/, { timeout: 15000 })
+    expect(new URL(page.url()).searchParams.get('next')).toBe('/invoicing/invoices?status=draft')
+    await expect(page.locator('.v-alert')).toContainText(/continue where you left off/i)
+
+    await page.getByRole('textbox', { name: /username/i }).fill('admin@acme.com')
+    await page.getByRole('textbox', { name: /password/i }).fill('test123')
+    await page.getByRole('button', { name: /sign in/i }).click()
+    await expect(page).toHaveURL(/\/invoicing\/invoices\?status=draft$/, { timeout: 15000 })
+    // …and stays there, on a session that works.
+    await expect(page.getByTestId('org-switcher')).toContainText('Acme')
+    await expect(page).toHaveURL(/\/invoicing\/invoices\?status=draft$/)
+  })
+
+  test('a sign-in link never sends the person to another site', async ({ page }) => {
+    await page.goto('/auth/login?next=%2F%2Fevil.example%2Flogin', { waitUntil: 'networkidle' })
+    await page.getByRole('textbox', { name: /username/i }).fill('admin@acme.com')
+    await page.getByRole('textbox', { name: /password/i }).fill('test123')
+    await page.getByRole('button', { name: /sign in/i }).click()
+    await page.waitForURL('**/dashboard', { timeout: 15000 })
+    expect(new URL(page.url()).host).toBe(new URL(base).host)
+  })
+})

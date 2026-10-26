@@ -221,6 +221,7 @@
     "organizationHint": "Nur nötig, wenn mehrere Personen Ihren Benutzernamen verwenden.",
     "specificOrg": "Bei einer bestimmten Organisation anmelden",
     "completingSignIn": "Anmeldung wird abgeschlossen…",
+    "continueAfterSignIn": "Melden Sie sich an, um dort weiterzumachen, wo Sie aufgehört haben.",
     "errors": {
       "failed": "Anmeldung fehlgeschlagen. Bitte versuchen Sie es erneut.",
       "invalid_credentials": "Benutzername oder Passwort ist nicht richtig.",

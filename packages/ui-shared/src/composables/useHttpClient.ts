@@ -2,6 +2,7 @@ import axios, { type AxiosInstance } from 'axios'
 import { useSnackbar } from './useSnackbar'
 import { getToken, recoverFrom401 } from '../session/session'
 import { portalHref } from '../nav/navigate'
+import { currentReturnPath, signInPath } from '../nav/return-path'
 
 /**
  * Factory function to create a configured HTTP client with auth interceptors.
@@ -39,8 +40,8 @@ export function createHttpClient(baseURL = '/api'): AxiosInstance {
           // a token it no longer holds. Reload so every view runs on the token it has now.
           if (sent && sent !== getToken()) window.location.reload()
         } else if (!window.location.pathname.startsWith('/auth')) {
-          // Redirect to portal login — domain apps live under /inventory/, /invoicing/, /accounting/, etc.
-          window.location.href = portalHref('/')
+          // To the portal's sign-in, which brings the person back to this page (FR-22.53).
+          window.location.href = portalHref(signInPath(currentReturnPath()))
         }
       } else if (!error.response || error.response.status >= 500) {
         // Only show snackbar for server errors (5xx) and network failures.

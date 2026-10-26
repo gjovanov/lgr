@@ -221,6 +221,7 @@
     "organizationHint": "Only needed when several people share your username.",
     "specificOrg": "Sign in to a specific organization",
     "completingSignIn": "Completing sign-in…",
+    "continueAfterSignIn": "Sign in to continue where you left off.",
     "errors": {
       "failed": "Sign-in failed. Please try again.",
       "invalid_credentials": "The username or password is not right.",

@@ -120,6 +120,7 @@
     "./composables/usePageFavorites": "./src/composables/usePageFavorites.ts",
     "./nav/page-registry": "./src/nav/page-registry.ts",
     "./nav/navigate": "./src/nav/navigate.ts",
+    "./nav/return-path": "./src/nav/return-path.ts",
     "./session/session": "./src/session/session.ts",
     "./session/switch-guards": "./src/session/switch-guards.ts",
     "./session/useOrgSession": "./src/session/useOrgSession.ts",

@@ -16,6 +16,7 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
+import { takeReturnPath } from 'ui-shared/nav/return-path'
 import { takeLgrSignIn } from './idp'
 
 /**
@@ -33,6 +34,8 @@ const error = ref('')
 onMounted(async () => {
   const q = (k: string) => (typeof route.query[k] === 'string' ? (route.query[k] as string) : '')
   const flow = q('state') ? takeLgrSignIn(q('state')) : null
+  // FR-22.53: the page the sign-in page was asked to return to, kept in this tab across lgrai.app.
+  const next = takeReturnPath()
   if (q('error')) {
     error.value = t('idp.cancelled')
     return
@@ -43,7 +46,9 @@ onMounted(async () => {
   }
   try {
     const answer = await appStore.completeLgrSignIn(q('code'), flow.verifier, flow.redirectUri)
-    router.replace(answer.needsOrgChoice ? { name: 'orgs' } : '/dashboard')
+    if (answer.needsOrgChoice) router.replace({ name: 'orgs', query: next ? { next } : undefined })
+    else if (next) window.location.replace(next)
+    else router.replace('/dashboard')
   } catch (e: any) {
     error.value = e?.response?.data?.message || t('common.operationFailed')
   }
