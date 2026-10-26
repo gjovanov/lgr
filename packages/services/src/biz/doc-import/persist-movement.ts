@@ -23,10 +23,10 @@ import type { MappedMovement, NewProductDraft } from './types.js'
 /** Default markup when a разписка carries a cost but no sale price. */
 const DEFAULT_MARKUP = 1.1
 /** Where catalog-new import products land until `assign-din-tags` recategorises them. */
-const DEFAULT_CATEGORY = 'Общи'
+export const DEFAULT_CATEGORY = 'Общи'
 
 /** Next SKU continuing the org's numeric sequence (max `<PREFIX>-NNNNN` + 1). */
-async function nextSkuBase(orgId: string, orgSlug?: string): Promise<{ prefix: string; next: number; pad: number }> {
+export async function nextSkuBase(orgId: string, orgSlug?: string): Promise<{ prefix: string; next: number; pad: number }> {
   const rows: any[] = await Product.find({ orgId } as any, { sku: 1 }).sort({ sku: -1 }).limit(10).lean()
   for (const p of rows) {
     const m = String(p.sku || '').match(/^(.*)-(\d+)$/)
@@ -34,6 +34,36 @@ async function nextSkuBase(orgId: string, orgSlug?: string): Promise<{ prefix: s
   }
   const prefix = (orgSlug || 'SKU').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'SKU'
   return { prefix, next: 1, pad: 5 }
+}
+
+/**
+ * A catalog-new product as an import creates it: priced at the document's cost, its sale price
+ * the document's (or the cost plus the default markup), its tiers the org's tier template with the
+ * tier-name tags that make tag-based pricing pick a slot. Shared with the inline „+ Нов продукт"
+ * of a receipt or bill line (FR-22.30), so there is one way a new article is born.
+ */
+export function newProductDoc(
+  orgId: string,
+  d: NewProductDraft,
+  o: { sku: string; categoryName: string; categoryId?: unknown; currency: string; taxRate: number },
+): Record<string, any> {
+  const selling = d.selling ?? (d.cost > 0 ? +(d.cost * DEFAULT_MARKUP).toFixed(4) : 0)
+  return {
+    orgId,
+    sku: o.sku,
+    name: d.name,
+    category: o.categoryName,
+    ...(o.categoryId ? { categoryId: o.categoryId } : {}),
+    type: 'goods',
+    unit: d.unit || 'pcs',
+    purchasePrice: d.cost,
+    sellingPrice: selling,
+    currency: o.currency,
+    taxRate: o.taxRate,
+    trackInventory: true,
+    isActive: true,
+    priceTiers: buildTiers(d.cost, d.tiers),
+  }
 }
 
 export interface CreatedProduct {
@@ -104,23 +134,10 @@ export async function createMissingProducts(
 
     const sku = `${prefix}-${String(next).padStart(pad, '0')}`
     next++
-    const selling = d.selling ?? (d.cost > 0 ? +(d.cost * DEFAULT_MARKUP).toFixed(4) : 0)
-    const created: any = await Product.create({
-      orgId,
-      sku,
-      name: d.name,
-      category: categoryName,
-      ...(category ? { categoryId: category._id } : {}),
-      type: 'goods',
-      unit: d.unit || 'pcs',
-      purchasePrice: d.cost,
-      sellingPrice: selling,
-      currency: 'BGN',
-      taxRate: 20,
-      trackInventory: true,
-      isActive: true,
-      priceTiers: buildTiers(d.cost, d.tiers),
-    })
+    // The import's own defaults (regal's currency and VAT) are unchanged by the extraction.
+    const created: any = await Product.create(newProductDoc(orgId, d, {
+      sku, categoryName, categoryId: category?._id, currency: 'BGN', taxRate: 20,
+    }))
     out.push({ productId: String(created._id), sku, name: d.name, created: true, requestedName: d.name })
   }
 
