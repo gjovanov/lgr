@@ -458,13 +458,20 @@ export async function runSaleSteps(c: RegisterContext, id: string): Promise<any>
       if (!reachedDeviceOrDrawer(doc)) {
         await rollBack(doc)
         if (e instanceof RegisterRefusal) throw e
-        throw new RegisterRefusal(e?.statusCode ?? 400, e?.code ? { code: e.code, message: e?.message } : { message: e?.message })
+        // Only a refusal of our own carries its status and code (a `PendingTransferError`, …): a
+        // driver error's numeric code (E11000) and its raw message are no answer for a client.
+        const own = typeof e?.code === 'string' && Number.isInteger(e?.statusCode) && e.statusCode >= 400 && e.statusCode < 500
+        throw new RegisterRefusal(own ? e.statusCode : 400, own ? { code: e.code, message: e?.message } : { message: e?.message })
       }
       logger.error({ documentId: String(doc._id), error: e?.message }, 'Cash-register stock movement failed')
       doc = await setRegister(doc._id, { stockError: e?.message })
     }
   }
-  if (c.afterStock) await c.afterStock(doc)
+  // Derived state only (the order counters a sale consumes), re-derived by every later write of
+  // the order: a failure here must not leave a sale that moved its goods unfinished and unaudited.
+  if (c.afterStock) {
+    await c.afterStock(doc).catch((e: any) => logger.error({ documentId: String(doc._id), error: e?.message }, 'Cash-register afterStock failed'))
+  }
 
   const done: any = await Invoice.findOneAndUpdate(
     { _id: doc._id, completedAt: { $exists: false } },
