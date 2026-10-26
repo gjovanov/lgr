@@ -53,6 +53,8 @@
       </v-card>
     </template>
 
+    <!-- A code with no break in it (E2E-CSP-1793022750769) must not widen the list past 1366 px. -->
+    <template #item.sku="{ item }"><span style="overflow-wrap: anywhere">{{ item.sku }}</span></template>
     <template #item.name="{ item }">
       <entity-link :label="item.name" :to="{ name: 'inventory.products.edit', params: { id: item._id, tab: 'edit' } }" />
     </template>
