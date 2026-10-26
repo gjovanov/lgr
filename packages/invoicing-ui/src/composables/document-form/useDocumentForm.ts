@@ -15,8 +15,8 @@ import { upsertAmountInWords } from 'config/amount-in-words'
 import { useGRColumns } from 'ui-shared/composables/useGRColumns'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
-import { rememberedSetting } from 'ui-shared/composables/useUserDefaults'
-import { defaultSelection, type ExportMode } from 'ui-shared/composables/useExportColumns'
+import { rememberedFlag, rememberedSetting } from 'ui-shared/composables/useUserDefaults'
+import { readPrintSettings, writePrintSettings, type PrintSettings } from '../print-settings'
 import { appHref } from 'ui-shared/nav/navigate'
 import type { FormAction, SmartButtonDef, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import type { DocumentTypeConfig } from './types'
@@ -28,6 +28,7 @@ import {
   lineAmounts,
   linesFromRelatedInvoice,
   MAX_PRICE_TIERS,
+  copyOfDocument,
   noteFromInvoice,
   resolvesSalesPrice,
   round2,
@@ -58,12 +59,7 @@ export interface UseDocumentFormOptions {
   onCreated?: (id: string) => void
 }
 
-/** What a print starts from: the user's last print settings (FR-22.20). Companions are never carried over. */
-export interface PrintSettings {
-  format: 'pdf' | 'xlsx'
-  mode: ExportMode
-  columns: string[]
-}
+export type { PrintSettings }
 
 /** Statuses of a document that stands issued: a note can correct it (the API's own rule). */
 const CORRECTABLE = ['sent', 'received', 'partially_paid', 'paid', 'overdue']
@@ -251,6 +247,18 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   // A cash sale is paid at the till, so cash on delivery is not one of its choices.
   const paymentMethods = usePaymentMethods({ cashOnDelivery: config.docType !== 'cash_sale' })
 
+  /**
+   * FR-22.26: the payment method this user last saved a document of this type with — where a new
+   * one starts. A counter that takes cards all day picked „С карта" on every invoice. Nothing
+   * remembered yet: the type's own default, as before. A till's method is fixed, and not chosen.
+   */
+  const payMethodMemory = config.paymentMethodMode === 'fixed' ? null : rememberedSetting<string>(`pay-method:${config.docType}`)
+  function rememberedPaymentMethod(): string | null {
+    const m = payMethodMemory?.read()
+    if (typeof m !== 'string') return null
+    return m === '' || paymentMethods.value.some((p) => p.value === m) ? m : null
+  }
+
   // The notes textarea binds to either `notes` or `reason` depending on the doc type.
   const notesModel = computed<string>({
     get: () => ((form as any)[config.notesFieldModel] as string) || '',
@@ -327,7 +335,36 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   function onDocWarehouseChange(whId: string | null) {
     docWarehouseId.value = whId
     for (const l of form.lines) l.warehouseId = whId || undefined
+    seedPlaceOfDeal()
   }
+
+  // ── FR-22.27 (D-7): place of deal ──
+  /** An outgoing document states where the deal was made; the cash sale's own form has none. */
+  const showPlaceOfDeal = config.direction === 'outgoing' && config.docType !== 'cash_sale'
+  /** The place this form put there itself — replaced when the warehouse changes; a typed one is kept. */
+  let autoPlace = ''
+
+  /** Where a new document's deal is made: its warehouse's city, else the org's address. */
+  function defaultPlaceOfDeal(): string {
+    const wh: any = (warehouses.value as any[]).find((w: any) => w._id === docWarehouseId.value)
+    // A warehouse address is an object; a few legacy ones are a single string with no city to read.
+    const whCity = wh && wh.address && typeof wh.address === 'object' ? String(wh.address.city || '').trim() : ''
+    if (whCity) return whCity
+    const addresses: any[] = (appStore.currentOrg as any)?.addresses || []
+    const orgAddress = addresses.find((a: any) => a.isDefault) || addresses[0]
+    return String(orgAddress?.city || '').trim()
+  }
+
+  /** A new outgoing document starts at its default place, and follows it until the user types one. */
+  function seedPlaceOfDeal() {
+    if (!showPlaceOfDeal || isEdit.value) return
+    if (form.placeOfTransaction && form.placeOfTransaction !== autoPlace) return
+    const place = defaultPlaceOfDeal()
+    form.placeOfTransaction = place
+    autoPlace = place
+  }
+  // The org (and its address) can arrive after the form has mounted.
+  watch(() => (appStore.currentOrg as any)?.addresses, () => seedPlaceOfDeal())
 
   const isPinnedDefaultWarehouse = computed(
     () => !!docWarehouseId.value && docWarehouseId.value === userDefaultWarehouseId.value,
@@ -656,10 +693,12 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   // customer (`/pricing/last-prices` — issued sales invoices and cash sales, same currency, this
   // document excluded). It wins over the document-wide named price when both are on: it is the
   // more specific choice. Lines whose product was never sold to the customer keep their price,
-  // and say so. Session state, like the document price: the line prices and their explanation
-  // ("Last price (INV-…, date)") are what is saved.
-  const lastPriceEnabled = config.docType === 'invoice'
-  const useLastPrice = ref(false)
+  // and say so. The line prices and their explanation ("Last price (INV-…, date)") are what is
+  // saved. FR-22.26: a proforma offers it too, and the choice is remembered per user and document
+  // type — a counter that always quotes a customer's last price no longer ticks it every time.
+  const lastPriceEnabled = config.docType === 'invoice' || config.docType === 'proforma'
+  const lastPriceMemory = rememberedFlag(`last-price:${config.docType}`)
+  const useLastPrice = ref(lastPriceEnabled && lastPriceMemory.read() === true)
   const lastPriceLoading = ref(false)
 
   async function fetchLastPrices(productIds: string[]): Promise<Record<string, any>> {
@@ -720,6 +759,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   async function onUseLastPriceChange(on: boolean | null) {
     useLastPrice.value = !!on
+    lastPriceMemory.write(useLastPrice.value)
     if (useLastPrice.value) await applyLastPrices()
     // Off: back to the prices the lines would have without it (and the document price, if any).
     else await reResolveLinePrices()
@@ -921,6 +961,41 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     }
   }
 
+  /**
+   * FR-22.24 — „Копирай" (`?copyOf=`): a new draft that starts as another document of this form
+   * (`copyOfDocument` says what comes along). Dated today, numbered when it is saved. A copied
+   * note keeps the invoice it corrects, and its own lines rather than that invoice's.
+   */
+  async function prefillFromCopy(id: string) {
+    try {
+      const { data } = await httpClient.get(`${orgUrl()}/invoices/${id}`)
+      const source = data.invoice
+      if (!source) return
+      const copy = copyOfDocument(source)
+      form.contactId = copy.contactId
+      await ensureSelectedContactLoaded(source.contactId)
+      if (copy.currency) form.currency = copy.currency
+      form.exchangeRate = copy.exchangeRate
+      if (config.paymentMethodMode !== 'fixed') form.paymentMethod = copy.paymentMethod
+      form.notes = copy.notes
+      form.terms = copy.terms
+      form.footer = copy.footer
+      form.reason = copy.reason
+      form.tags = copy.tags
+      if (copy.placeOfTransaction) form.placeOfTransaction = copy.placeOfTransaction
+      if (config.captureBillingAddress && copy.billingAddress) form.billingAddress = { ...copy.billingAddress } as any
+      form.lines = [...(copy.lines as Line[]), emptyLine()]
+      if (config.showRelatedInvoice && copy.relatedInvoiceId) {
+        prefilledFrom = copy.relatedInvoiceId
+        form.relatedInvoiceId = copy.relatedInvoiceId
+        await ensureSelectedRelatedInvoiceLoaded(copy.relatedInvoiceId)
+      }
+      syncDocLevelFromLines()
+    } catch {
+      /* A blank form, as „Нов" opens. */
+    }
+  }
+
   // ── status pipeline (i18n) ──
   // Carry the i18n KEYS (not resolved strings) so EntityFormShell resolves them in the render
   // path (`{{ $t(step) }}`) — that re-runs on locale change, unlike a pre-resolved string array
@@ -1054,23 +1129,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const companionNote = ref('')
   const { loading: exportLoading, exportOne } = useInvoicingExport(() => appStore.orgUrl())
 
-  /**
-   * FR-22.20: where a print starts — the user's last print settings (per user and org), or, until
-   * they print otherwise, what the print dialog starts with: a PDF of the detailed form with its
-   * default columns. The companion documents are never carried over: each is a numbered document
-   * of its own, printed only when asked for.
-   */
-  const printSettingsStore = rememberedSetting<PrintSettings>('doc-print')
-  function readPrintSettings(): PrintSettings {
-    const s = printSettingsStore.read()
-    const mode: ExportMode = s?.mode === 'compact' ? 'compact' : 'detailed'
-    const columns = Array.isArray(s?.columns) ? s!.columns.filter((c) => typeof c === 'string') : []
-    return {
-      format: s?.format === 'xlsx' ? 'xlsx' : 'pdf',
-      mode,
-      columns: columns.length ? columns : defaultSelection(mode, 'invoice'),
-    }
-  }
+  /** FR-22.20: where a print starts — the user's last print settings (`../print-settings`). */
   const lastPrint = ref<PrintSettings>(readPrintSettings())
 
   async function onExportSingle(o: {
@@ -1098,7 +1157,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       // What the user printed with is where the next print starts.
       const settings: PrintSettings = { format: o.format, mode: o.mode, columns: o.columns?.length ? [...o.columns] : lastPrint.value.columns }
       lastPrint.value = settings
-      printSettingsStore.write(settings)
+      writePrintSettings(settings)
     } catch (e: any) {
       showError(e?.response?.data?.message || t('export.failed'))
     }
@@ -1163,6 +1222,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     // Stored with the document so every later print repeats it; an empty box clears it.
     p.printNote = printNote.value.trim()
     p.companionNote = companionNote.value.trim()
+    // FR-22.27: the place of deal is a field of its own on an outgoing document, so a cleared one
+    // is saved as cleared (the shared builder sends it only when set).
+    if (showPlaceOfDeal) p.placeOfTransaction = (form.placeOfTransaction || '').trim()
     return p
   }
 
@@ -1190,7 +1252,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     loading.value = true
     try {
       let id = route.params.id ? String(route.params.id) : ''
-      if (isEdit.value) {
+      const created = !isEdit.value
+      if (!created) {
         await httpClient.put(`${orgUrl()}/invoices/${id}`, payload)
       } else {
         // #155: an unanswered save keeps its key, so saving again returns the document it made
@@ -1199,6 +1262,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
         id = String(data?.invoice?.id || data?.invoice?._id || '')
       }
       markSaved()
+      // FR-22.26: the method a new document was saved with is where the next one starts. Editing an
+      // older document changes nothing about the next.
+      if (created) payMethodMemory?.write(form.paymentMethod || '')
       if (!persistOpts.quiet) showSuccess(t(config.successKey))
       if (!staysOnSave) {
         router.push({ name: config.listRouteName })
@@ -1568,10 +1634,17 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
         (warehouses.value as any[]).find((w: any) => w.isDefault)?._id ||
         null
       if (candidate) onDocWarehouseChange(candidate)
+      else seedPlaceOfDeal()
       fetchPeekedNumber()
-      // FR-22.21: a note opened from the invoice it corrects starts as that invoice.
+      // FR-22.26: how this user last paid a document of this type.
+      const method = rememberedPaymentMethod()
+      if (method !== null) form.paymentMethod = method
+      // FR-22.24: a copy starts as its source; FR-22.21: a note opened from the invoice it
+      // corrects starts as that invoice.
+      const copyOf = String(route.query.copyOf || '')
       const relatedId = String(route.query.relatedInvoiceId || '')
-      if (relatedId && config.relatedInvoiceAutofill) await prefillFromInvoice(relatedId)
+      if (copyOf) await prefillFromCopy(copyOf)
+      else if (relatedId && config.relatedInvoiceAutofill) await prefillFromInvoice(relatedId)
     }
     if (isEdit.value) await loadDocument()
   })
@@ -1723,6 +1796,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     issueError,
     transfer: issuer.transfer,
     confirmTransfers: issuer.confirmTransfers,
+    // FR-22.27: place of deal
+    showPlaceOfDeal,
     // FR-22.21 / FR-22.22
     correctable,
     openNote,

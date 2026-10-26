@@ -7,6 +7,7 @@ import {
   buildPayload,
   buildProductUpdates,
   computeTotals,
+  copyOfDocument,
   linesFromRelatedInvoice,
   MAX_PRICE_TIERS,
   resolvesSalesPrice,
@@ -357,6 +358,62 @@ describe('linesFromRelatedInvoice — a note starts from what was sold (FR-22.4)
     expect(p.lines[0]).toMatchObject({ discount: 10, unit: 'box', lineTotal: 220.32 })
     expect(p.total).toBe(220.32)
     expect(p.lines[0]).not.toHaveProperty('loaded')
+  })
+})
+
+describe('copyOfDocument — „Копирай" starts a new draft as another document (FR-22.24)', () => {
+  const source = {
+    _id: 'inv-1',
+    invoiceNumber: 'INV-2026-00007',
+    draftNumber: 'DRF-INV-2026-00003',
+    status: 'sent',
+    issueDate: '2026-10-01T00:00:00.000Z',
+    dueDate: '2026-10-31T00:00:00.000Z',
+    reference: 'SUP-77',
+    contactId: { _id: 'c-1', companyName: 'Alpha' },
+    relatedInvoiceId: 'inv-0',
+    currency: 'USD',
+    exchangeRate: 0.92,
+    paymentMethod: 'card',
+    notes: 'n', terms: 't', footer: 'f', reason: 'r',
+    placeOfTransaction: 'София',
+    tags: ['vip'],
+    printNote: 'printed under the number',
+    companionNote: 'companion',
+    billingAddress: { street: '1 Main', city: 'Sofia', postalCode: '1000', country: 'BG' },
+    lines: [{
+      productId: 'p-1', description: 'Bolt', quantity: 3, unit: 'box', unitPrice: 12.5, discount: 10, taxRate: 20,
+      warehouseId: 'w-1', priceExplanation: [{ type: 'base', price: 12.5 }],
+      orderRef: { reservationId: 'res-1' }, sourceText: 'OCR', cashSaleLineId: 'csl-1',
+    }],
+  }
+
+  it('takes the partner, terms and lines as they were sold — the copied price stays the price', () => {
+    const c = copyOfDocument(source)
+    expect(c).toMatchObject({
+      contactId: 'c-1', relatedInvoiceId: 'inv-0', currency: 'USD', exchangeRate: 0.92, paymentMethod: 'card',
+      notes: 'n', terms: 't', footer: 'f', reason: 'r', placeOfTransaction: 'София', tags: ['vip'],
+      billingAddress: { street: '1 Main', city: 'Sofia', state: '', postalCode: '1000', country: 'BG' },
+    })
+    expect(c.lines).toEqual([{
+      productId: 'p-1', description: 'Bolt', quantity: 3, unit: 'box', unitPrice: 12.5, discount: 10, taxRate: 20,
+      warehouseId: 'w-1', priceExplanation: [{ type: 'base', price: 12.5 }], resolvedPrice: 12.5, loaded: true,
+    }])
+  })
+
+  it('leaves behind what belongs to the original alone', () => {
+    const c: any = copyOfDocument(source)
+    for (const k of ['invoiceNumber', 'draftNumber', 'status', 'issueDate', 'dueDate', 'reference', 'printNote', 'companionNote']) {
+      expect(c).not.toHaveProperty(k)
+    }
+    // A copy must not draw on the reservations the original consumed, nor carry its import wording.
+    for (const k of ['orderRef', 'sourceText', 'cashSaleLineId']) expect(c.lines[0]).not.toHaveProperty(k)
+  })
+
+  it('reads a contact given by id, and a document without the optional parts', () => {
+    const c = copyOfDocument({ contactId: 'c-9', lines: [] })
+    expect(c).toMatchObject({ contactId: 'c-9', relatedInvoiceId: '', exchangeRate: 1, tags: [], lines: [] })
+    expect(c).not.toHaveProperty('billingAddress')
   })
 })
 

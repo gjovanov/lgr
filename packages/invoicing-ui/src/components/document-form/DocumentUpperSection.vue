@@ -92,6 +92,14 @@
             />
           </v-col>
         </v-row>
+        <!-- FR-22.27 (D-7): where the deal is made — printed on the document. A new one starts at
+             its warehouse's city (else the org's); a place typed here is kept. -->
+        <v-text-field
+          v-if="showPlaceOfDeal"
+          v-model="form.placeOfTransaction"
+          :label="$t('invoicing.placeOfTransaction')"
+          data-testid="place-of-deal"
+        />
       </v-defaults-provider>
     </v-col>
   </v-row>
@@ -112,6 +120,7 @@ const {
   appStore,
   paymentMethods,
   onRelatedInvoiceSearch,
+  showPlaceOfDeal,
 } = props.doc
 
 const currencies = ['EUR', 'USD', 'GBP', 'CHF', 'MKD', 'BGN', 'RSD']
