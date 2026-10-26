@@ -427,13 +427,14 @@ const rules = { required: (v: string) => !!v || t('validation.required') }
 /**
  * FR-22.29: an editable movement's primary action books it — „Запази и потвърди" saves and
  * confirms in one go (it was Save, then a separate „Потвърди" on the draft it left). Plain Save
- * keeps a draft. FR-22.31: a completed receipt that names a supplier and is not billed yet offers
- * „Входяща фактура" — its supplier's bill, made from it.
+ * keeps a draft. FR-22.52: Ctrl+Enter runs „Запази и потвърди", Ctrl+S the plain Save. FR-22.31: a
+ * completed receipt that names a supplier and is not billed yet offers „Входяща фактура" — its
+ * supplier's bill, made from it.
  */
 const formActions = computed<FormAction[]>(() => {
   const actions: FormAction[] = []
   if (!readonly.value) {
-    actions.push({ label: t('warehouse.saveAndConfirm'), color: 'primary', icon: 'mdi-check-all', handler: saveAndConfirm, loading: saving.value })
+    actions.push({ label: t('warehouse.saveAndConfirm'), color: 'primary', icon: 'mdi-check-all', handler: saveAndConfirm, loading: saving.value, primary: true })
     actions.push({ label: t('common.save'), color: 'primary', variant: 'outlined', icon: 'mdi-content-save', handler: handleSubmit, loading: saving.value })
     // Importing onto a confirmed movement would be pointless — its stock is already applied.
     actions.push({

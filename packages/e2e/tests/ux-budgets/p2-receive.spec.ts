@@ -236,7 +236,10 @@ test('P2 receive: goods before the invoice — receipt with product update, incl
   // ── Book it: one action ──
   const created = page.waitForResponse((r: any) => /\/warehouse\/movement\/with-update$/.test(r.url()) && r.request().method() === 'POST')
   const confirmed = page.waitForResponse((r: any) => /\/warehouse\/movement\/[0-9a-f]{24}\/confirm$/.test(r.url()))
-  await walk.click(page.locator('.form-actions-bar').getByRole('button', { name: 'Запази и потвърди' }), 'save and confirm (book the stock)')
+  const book = page.locator('.form-actions-bar').getByRole('button', { name: 'Запази и потвърди' })
+  // FR-22.52: Ctrl+Enter books it as well; the shell names the key on the action it runs.
+  await expect(book).toHaveAttribute('aria-keyshortcuts', 'Control+Enter')
+  await walk.click(book, 'save and confirm (book the stock)')
   const createRes = await created
   expect(createRes.status(), `save: ${await createRes.text()}`).toBeLessThan(400)
   expect((await confirmed).status()).toBeLessThan(400)
