@@ -568,16 +568,25 @@ export async function stornoRefusal(original: any): Promise<RegisterRefusal | nu
       message: 'An imported till day is corrected by importing it again, not by a storno.',
     })
   }
-  // D-14: a quantity is corrected once. An invoiced sale is corrected through its invoice (a credit
-  // note returns the goods and counts negative); a storno on top would return them twice.
+  return invoicedRefusal(original)
+}
+
+/**
+ * D-14: a quantity is corrected once. An invoiced sale is corrected through its invoice (a credit
+ * note returns the goods and counts negative); a storno on top would return them twice. An invoice
+ * still being claimed (a `~pending:` draft) counts too.
+ *
+ * ⚠ Asked again AFTER `claimForStorno`: the invoice path writes its claim and then reads the sale's
+ * `stornoState`, and the storno writes its claim and then reads the invoices. Of the two racing, at
+ * least one sees the other. Read only before the claim, both could pass.
+ */
+export async function invoicedRefusal(original: any): Promise<RegisterRefusal | null> {
   const invoiced = await Invoice.exists({ orgId: original.orgId, 'cashSaleRef.cashSaleId': original._id, status: { $nin: ['voided', 'cancelled'] } }).exec()
-  if (invoiced) {
-    return new RegisterRefusal(409, {
-      code: 'cash_sale_invoiced',
-      message: 'An invoice was issued for this sale. Correct it with a credit note to that invoice, not a storno.',
-    })
-  }
-  return null
+  if (!invoiced) return null
+  return new RegisterRefusal(409, {
+    code: 'cash_sale_invoiced',
+    message: 'An invoice was issued for this sale. Correct it with a credit note to that invoice, not a storno.',
+  })
 }
 
 /** Where a cash sale came from, for documents written before `register.origin` existed. */
@@ -779,6 +788,8 @@ export async function runStornoSteps(c: RegisterContext, id: string): Promise<an
           return receiptNo
         }))
       } catch (e: any) {
+        // As for a sale: void the half-printed receipt, or the device refuses everything after it.
+        await printer.abandonReceipt().catch(() => {})
         logger.error({ documentId: id, error: e?.message }, 'Storno fiscal receipt printing FAILED')
         await printer.failed().catch(() => {})
         doc = await setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': e?.message, receiptError: e?.message })

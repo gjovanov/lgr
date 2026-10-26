@@ -40,6 +40,8 @@ export async function loadPosRows(f: PosUnionFilter): Promise<any[]> {
     posMatch.createdAt = window
     docMatch.issueDate = window
   }
+  // A malformed session id names no session: an empty page, never a BSONError (500).
+  if (f.sessionId && !POSTransaction.base.Types.ObjectId.isValid(f.sessionId)) return []
   if (f.sessionId) {
     posMatch.sessionId = oid(f.sessionId)
     docMatch['register.sessionId'] = oid(f.sessionId)

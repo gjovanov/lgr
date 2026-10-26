@@ -107,6 +107,19 @@ describe('FR-21.11 — a till document or a storno cannot be edited, deleted or 
     expect(res.status).toBe(200)
   })
 
+  it('a stornoed back-office sale is not voided, edited or deleted: its storno already reversed it', async () => {
+    const w = await world()
+    const sale = await createTestInvoice(w.orgId, w.contact._id as Types.ObjectId, {
+      type: 'cash_sale', direction: 'outgoing', status: 'paid', register: { origin: 'backoffice', stornoState: 'full' },
+    } as any)
+    for (const [method, path] of [['POST', `/invoices/${sale._id}/void`], ['PUT', `/invoices/${sale._id}`], ['DELETE', `/invoices/${sale._id}`]] as const) {
+      const res = await w.call(method, path, method === 'PUT' ? { notes: 'edited' } : undefined)
+      expect(res.status).toBe(409)
+      expect(res.json.code).toBe('register_document_immutable')
+    }
+    expect((await Invoice.findById(sale._id).lean() as any).status).toBe('paid')
+  })
+
   it('the Files rollback skips a till document and says why', async () => {
     const w = await world()
     const doc = await w.tillDocument()
