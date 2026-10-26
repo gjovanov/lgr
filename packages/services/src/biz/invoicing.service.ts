@@ -285,7 +285,8 @@ async function stockTrackedIds(orgId: string, lines: Array<{ productId?: string 
 }
 
 /**
- * An invoice converted from a складова разписка moves no stock, in either direction.
+ * An invoice converted from a складова разписка moves no stock, in either direction — and
+ * neither does a proforma, which is an offer.
  *
  * The goods left on the разписка; the invoice is the paperwork that follows it. Booking its
  * dispatch takes them out twice, and reversing it on a void puts back goods that never left on
@@ -293,6 +294,9 @@ async function stockTrackedIds(orgId: string, lines: Array<{ productId?: string 
  * the Issue button and the Void button alike — see `doc-import/conversion.ts`.
  */
 function movesNoStock(invoice: IInvoice, direction: 'book' | 'reverse'): boolean {
+  // A proforma is an offer, not a sale (FR-22.22): issuing, voiding or converting one moves no
+  // stock. The invoice it is converted into dispatches when that invoice is issued.
+  if (invoice.type === 'proforma') return true
   const src = (invoice as any).stockSource
   if (!src?.marker) return false
   logger.info({ invoiceId: invoice.id, marker: src.marker, direction }, 'Invoice carries a stock source — no stock movement')

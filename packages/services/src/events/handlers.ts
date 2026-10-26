@@ -32,6 +32,9 @@ export function registerEventHandlers(): void {
     if (!invoice) return
     // #171: an invoice for a cash sale documents revenue its cash sale already carries.
     if (invoice.cashSaleRef?.cashSaleId) return
+    // An issued proforma is an offer, not a receivable (FR-22.22): `/send` announces none, and
+    // one announced anyway posts nothing.
+    if (invoice.type === 'proforma') return
 
     const isOutgoing = invoice.direction === 'outgoing'
     const journalId = isOutgoing
