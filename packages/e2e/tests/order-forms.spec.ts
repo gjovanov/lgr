@@ -232,7 +232,8 @@ test.describe('Each hand-off lands on the next document (FR-22.35)', () => {
     await page.getByRole('button', { name: 'Generate supplier order' }).click()
     const dialog = page.locator('.v-overlay--active .v-card').filter({ has: page.getByTestId('generate-target') })
     // No supplier order ever carried the article: pick the supplier.
-    const supplier = dialog.getByRole('combobox', { name: 'Supplier' })
+    // exact: the target field beside it reads 'Supplier order' (D-1).
+    const supplier = dialog.getByRole('combobox', { name: 'Supplier', exact: true })
     await supplier.locator('xpath=ancestor::div[contains(@class,"v-field")][1]').click()
     await supplier.pressSequentially(w.supplierName, { delay: 20 })
     await page.locator('.v-overlay--active .v-list-item').filter({ hasText: w.supplierName }).first().click()
