@@ -120,13 +120,26 @@ async function planOne(orgId: string, doc: any, opts: DocDeleteOptions): Promise
       })
       continue
     }
-    const mv: any = await StockMovement.findOne({ orgId, _id: id }).select('movementNumber type status date lines createdAt').lean()
+    const mv: any = await StockMovement.findOne({ orgId, _id: id }).select('movementNumber type status date lines createdAt invoiceId').lean()
     if (mv) {
       const stale = uploadedAt && mv.createdAt && new Date(mv.createdAt) < uploadedAt
       if (stale) plan.provenanceMismatch = true
+      let action: DocDeleteAction = mv.status === 'cancelled' ? 'already_reversed' : !opts.rollback ? 'skip' : stale && !opts.force ? 'skip' : 'reverse'
+      // FR-22 §5.4: a live document that took this movement as its stock — a bill made from the
+      // receipt (`stockSource`, FR-22.31), an invoice converted from the note — moved nothing
+      // itself. Reversing the movement under it would leave that document standing on goods
+      // that are no longer booked. Void the document first.
+      if (action === 'reverse' && mv.invoiceId) {
+        const holder: any = await Invoice.findOne({ orgId, _id: mv.invoiceId, 'stockSource.movementIds': mv._id })
+          .select('invoiceNumber status').lean()
+        if (holder && !['voided', 'cancelled'].includes(holder.status)) {
+          plan.blocked = `${mv.movementNumber} is billed by ${holder.invoiceNumber} — void that document before rolling it back`
+          action = 'skip'
+        }
+      }
       plan.movements.push({
         id: String(mv._id), number: mv.movementNumber, type: mv.type, status: mv.status, date: dstr(mv.date), lineCount: (mv.lines || []).length,
-        action: mv.status === 'cancelled' ? 'already_reversed' : !opts.rollback ? 'skip' : stale && !opts.force ? 'skip' : 'reverse',
+        action,
       })
       continue
     }

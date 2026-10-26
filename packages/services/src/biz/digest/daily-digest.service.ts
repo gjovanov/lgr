@@ -29,6 +29,7 @@ import {
   readArchiveTriggers, readBackupStatus, readOrgBackupRun, readOrgRestores,
 } from '../backup/backup-status.service.js'
 import { effectiveMethods, bucketFor } from '../reports/sales-history.report.js'
+import { EFFECTIVE_DATE } from '../reports/warehouse-operations.report.js'
 import { INVOICING_SEQUENCE_KEYS, resolveDefPrefix } from '../sequence-registry.js'
 import { NOT_INVOICE_FOR_CASH_SALE } from '../sale-counting.js'
 import {
@@ -306,13 +307,14 @@ async function buildMaterials(orgId: string, date: string): Promise<DigestMateri
     {
       $lookup: {
         from: 'invoices', localField: 'invoiceId', foreignField: '_id', as: 'invoice',
-        pipeline: [{ $project: { issueDate: 1 } }],
+        pipeline: [{ $project: { issueDate: 1, 'stockSource.detectedBy': 1 } }],
       },
     },
     { $unwind: { path: '$invoice', preserveNullAndEmptyArrays: true } },
     // FR-07's rule: `createInvoiceStockMovement` stamps booking time, so the invoice's
-    // issueDate is the business date whenever there is one.
-    { $addFields: { effectiveDate: { $ifNull: ['$invoice.issueDate', '$date'] } } },
+    // issueDate is the business date whenever there is one — but a receipt a bill was made
+    // from keeps its own date (FR-22.31): it was loaded on that day, and counted then.
+    { $addFields: { effectiveDate: EFFECTIVE_DATE } },
     { $match: { effectiveDate: { $gte: from, $lte: to } } },
     { $unwind: '$lines' },
     {

@@ -48,6 +48,7 @@ import { internalOrderController } from 'invoicing-api/src/controllers/internal-
 import { reservationController } from 'invoicing-api/src/controllers/reservation.controller.js'
 import { productSupplyController } from 'invoicing-api/src/controllers/product-supply.controller.js'
 import { billImportController } from 'invoicing-api/src/controllers/bill-import.controller.js'
+import { receiptBillController } from 'invoicing-api/src/controllers/receipt-bill.controller.js'
 import { docImportController } from 'invoicing-api/src/controllers/doc-import.controller.js'
 import { paymentOrderController } from 'invoicing-api/src/controllers/payment-order.controller.js'
 import { cashOrderController } from 'invoicing-api/src/controllers/cash-order.controller.js'
@@ -217,6 +218,8 @@ export function createApiApp() {
         .use(reservationController)
         .use(productSupplyController)
         .use(billImportController)
+        // FR-22.31/32 (#168): the supplier's bill for goods a receipt already booked.
+        .use(receiptBillController)
         .use(docImportController)
         .use(paymentOrderController)
         .use(cashOrderController)
