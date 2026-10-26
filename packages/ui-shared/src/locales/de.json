@@ -1426,7 +1426,15 @@
         "releasable_exceeded": "Nur {releasable} können freigegeben werden.",
         "nothing_to_release": "Nichts mehr freizugeben: das Reservierte ist fakturiert oder versandt.",
         "already_cancelled": "Die Reservierung ist bereits storniert.",
-        "below_consumed": "Nicht unter {consumed}: so viel ist fakturiert oder versandt."
+        "below_consumed": "Nicht unter {consumed}: so viel ist fakturiert oder versandt.",
+        "reservation_not_active": "Die Reservierung ist nicht mehr aktiv.",
+        "nothing_to_preempt": "Nichts zu übernehmen: das dort Reservierte ist fakturiert oder versandt.",
+        "incoming_order_not_completable": "Nur eine bestätigte oder gelieferte eingehende Bestellung kann abgeschlossen werden.",
+        "incoming_order_not_cancellable": "Diese eingehende Bestellung kann nicht mehr storniert werden — schließen Sie sie stattdessen ab.",
+        "incoming_order_has_invoices": "Die eingehende Bestellung hat Rechnungen: stornieren oder löschen Sie sie vor dem Abbruch.",
+        "order_not_draft": "Diese ausgehende Bestellung ist kein Entwurf mehr: es kann nichts hinzugefügt werden.",
+        "no_target_warehouse": "Wählen Sie das Lager, in das die Ware geht: es ist kein Standardlager festgelegt.",
+        "order_has_invoices": "Die ausgehende Bestellung hat Rechnungen: stornieren oder löschen Sie sie vor dem Abbruch."
       }
     },
     "issueFlow": {

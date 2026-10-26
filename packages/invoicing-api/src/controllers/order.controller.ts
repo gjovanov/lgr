@@ -180,9 +180,9 @@ const orderBody = t.Object({
   })),
 })
 
-/** The answer to a refused reservation change, or rethrow. */
+/** The answer to a refused reservation change, with its code where it has one, or rethrow. */
 function reservationRefusal(status: any, e: any) {
-  if (e instanceof ReservationOpsError) return status(e.statusCode, { message: e.message })
+  if (e instanceof ReservationOpsError) return status(e.statusCode, { message: e.message, ...(e.details || {}) })
   throw e
 }
 
@@ -547,7 +547,7 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
       ],
     } as any).exec()
     if (liveLinked > 0) {
-      return status(409, { message: 'Order has linked invoices — void or delete them before cancelling' })
+      return status(409, { message: 'Order has linked invoices — void or delete them before cancelling', code: 'order_has_invoices' })
     }
 
     // Cascade: reservations sourced from this order lose their supply.

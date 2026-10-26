@@ -1305,7 +1305,15 @@
         "releasable_exceeded": "Only {releasable} can be released.",
         "nothing_to_release": "Nothing left to release: what is reserved is invoiced or dispatched.",
         "already_cancelled": "The reservation is already cancelled.",
-        "below_consumed": "Not below {consumed}: that much is invoiced or dispatched."
+        "below_consumed": "Not below {consumed}: that much is invoiced or dispatched.",
+        "reservation_not_active": "The reservation is no longer active.",
+        "nothing_to_preempt": "Nothing to take over: what is reserved there is invoiced or dispatched.",
+        "incoming_order_not_completable": "Only a confirmed or delivered incoming order can be completed.",
+        "incoming_order_not_cancellable": "This incoming order can no longer be cancelled — complete it instead.",
+        "incoming_order_has_invoices": "The incoming order has invoices: void or delete them before cancelling it.",
+        "order_not_draft": "That outgoing order is no longer a draft: nothing can be added to it.",
+        "no_target_warehouse": "Choose the warehouse the goods go to: no default warehouse is set.",
+        "order_has_invoices": "The outgoing order has invoices: void or delete them before cancelling it."
       }
     },
     "issueFlow": {

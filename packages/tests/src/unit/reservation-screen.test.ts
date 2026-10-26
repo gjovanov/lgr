@@ -6,7 +6,7 @@ import {
   type ReservationSources,
 } from '../../../invoicing-ui/src/composables/reservation-form'
 import {
-  RESERVATION_ERROR_CODES, isShortage, reservationErrorMessage,
+  ORDER_ERROR_CODES, RESERVATION_ERROR_CODES, isShortage, reservationErrorMessage,
 } from '../../../invoicing-ui/src/composables/reservation-errors'
 import { CANCEL_REASONS, reservationHistory } from '../../../invoicing-ui/src/composables/reservation-history'
 
@@ -119,10 +119,24 @@ describe('a refused reservation, in the user\'s language', () => {
     expect(sent).toEqual([...RESERVATION_ERROR_CODES].sort())
     for (const locale of LOCALES) {
       const c = catalogue(locale)
-      for (const code of RESERVATION_ERROR_CODES) {
+      for (const code of [...RESERVATION_ERROR_CODES, ...ORDER_ERROR_CODES]) {
         expect({ locale, code, ok: typeof valueAt(c, `invoicing.reservations.errors.${code}`) === 'string' }).toEqual({ locale, code, ok: true })
       }
     }
+  })
+
+  it('knows the supplier-order controller\'s own codes', () => {
+    const controller = readFileSync(join(PACKAGES, 'invoicing-api', 'src', 'controllers', 'order.controller.ts'), 'utf8')
+    // `awaiting_receipt` is Convert's, said by useConversionFeedback.
+    const sent = [...new Set([...controller.matchAll(/code: '([a-z_]+)'/g)].map((m) => m[1]))].filter((c) => c !== 'awaiting_receipt').sort()
+    expect(sent).toEqual([...ORDER_ERROR_CODES].sort())
+  })
+
+  it('says a client-order refusal the same way', () => {
+    expect(reservationErrorMessage(refusal({ message: 'Incoming order has linked invoices', code: 'incoming_order_has_invoices' }), t))
+      .toBe('invoicing.reservations.errors.incoming_order_has_invoices{"message":"Incoming order has linked invoices","code":"incoming_order_has_invoices"}')
+    expect(reservationErrorMessage(refusal({ message: 'Order has linked invoices', code: 'order_has_invoices' }), t))
+      .toStartWith('invoicing.reservations.errors.order_has_invoices')
   })
 })
 

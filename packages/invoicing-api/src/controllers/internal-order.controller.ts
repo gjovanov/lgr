@@ -36,8 +36,9 @@ function statusEntry(toStatus: string, fromStatus?: string, userId?: string, rea
   return { status: toStatus, fromStatus, changedAt: new Date(), changedBy: userId, reason }
 }
 
+/** The refusal's message, and its code and figure for the UI to say it in the user's language. */
 function opsError(status: any, e: any) {
-  if (e instanceof ReservationOpsError) return status(e.statusCode, { message: e.message })
+  if (e instanceof ReservationOpsError) return status(e.statusCode, { message: e.message, ...(e.details || {}) })
   throw e
 }
 

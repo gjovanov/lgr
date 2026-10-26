@@ -491,6 +491,7 @@ import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 import { useConversionFeedback } from '../composables/useConversionFeedback'
+import { reservationErrorMessage } from '../composables/reservation-errors'
 
 /** `_key` names an allocation before it is saved, so a reservation staged on it can point at it. */
 interface AllocRow { _id?: string; _key?: string; warehouseId: string; quantity: number; receivedQuantity?: number }
@@ -902,7 +903,7 @@ async function onSave() {
       await loadOrder(data.order._id, { clearStaged: true })
     }
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(reservationErrorMessage(e, t))
   } finally {
     saving.value = false
   }
@@ -917,7 +918,7 @@ async function doAction(path: string, successKey: string) {
     // After Send the order stays open and the staged changes stay with it.
     await loadOrder(undefined, { clearStaged: path === 'complete' || path === 'cancel' })
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(reservationErrorMessage(e, t))
   } finally {
     loading.value = false
   }
@@ -933,7 +934,7 @@ async function deleteOrder() {
     showSuccess(t('common.deletedSuccessfully'))
     router.push({ name: 'invoicing.orders' })
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(reservationErrorMessage(e, t))
   }
 }
 

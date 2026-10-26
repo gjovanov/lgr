@@ -461,6 +461,7 @@ import { useConversionFeedback } from '../composables/useConversionFeedback'
 import ReservationQuantityDialog from '../components/ReservationQuantityDialog.vue'
 import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
+import { reservationErrorMessage } from '../composables/reservation-errors'
 
 interface LineRow {
   _id?: string
@@ -549,7 +550,7 @@ async function reserveAgain(res: any) {
       : t('invoicing.reservations.alreadyReservedAgain', { number: data.reservation.reservationNumber }))
     await refreshReservations()
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(reservationErrorMessage(e, t))
   } finally {
     repeating.value = ''
   }
@@ -772,7 +773,7 @@ async function onSave() {
       await loadOrder(data.internalOrder._id)
     }
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(reservationErrorMessage(e, t))
   } finally {
     saving.value = false
   }
@@ -785,7 +786,7 @@ async function doAction(path: string, successKey: string) {
     showSuccess(t(successKey))
     await loadOrder()
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(reservationErrorMessage(e, t))
   } finally {
     loading.value = false
   }
@@ -814,7 +815,7 @@ async function deleteOrder() {
     showSuccess(t('common.deletedSuccessfully'))
     router.push({ name: 'invoicing.internalOrders' })
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(reservationErrorMessage(e, t))
   }
 }
 
@@ -828,7 +829,7 @@ async function reserveAvailable() {
     else showSuccess(t('invoicing.noShortages'))
     await refreshReservations()
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(reservationErrorMessage(e, t))
   } finally {
     reserving.value = false
   }
@@ -866,7 +867,7 @@ async function loadSuggestions() {
     suggestions.value = data.lines || []
     sugLookup.value = data.lookup || {}
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(reservationErrorMessage(e, t))
   } finally {
     loadingSuggestions.value = false
   }
@@ -879,7 +880,7 @@ async function coverAction(fn: () => Promise<any>) {
     showSuccess(t('common.savedSuccessfully'))
     await Promise.all([refreshReservations(), loadSuggestions()])
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(reservationErrorMessage(e, t))
   } finally {
     acting.value = false
   }
@@ -956,7 +957,7 @@ async function submitGenerate() {
     generateDialog.value = false
     await refreshReservations()
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(reservationErrorMessage(e, t))
   } finally {
     generating.value = false
   }
