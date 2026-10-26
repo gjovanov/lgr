@@ -36,3 +36,14 @@ export function lineUnitPrice(row: Locator): Locator {
 export function lineQuantity(row: Locator): Locator {
   return row.locator('input[type="number"]').first()
 }
+
+/**
+ * The description cell on a document line row — where the product search lives.
+ *
+ * ⚠ Not `row.locator('td').first()`, which is what the autocomplete specs used. Since
+ * 2026-10-08 every line opens with a `td.line-no` cell holding its number, so the first cell
+ * has no input and `fill()` waits out its timeout on a row that looks entirely normal.
+ */
+export function lineDescription(row: Locator): Locator {
+  return row.locator('td.line-no + td')
+}
