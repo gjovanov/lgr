@@ -76,8 +76,10 @@ test('P7 new: a reservation made on the Reservations list', async ({ page }, tes
   // ── 3. Reserve: the user lands on the new reservation ──
   await walk.click(dialog.getByRole('button', { name: 'Резервирай' }), 'reserve')
   await page.waitForURL(/\/invoicing\/reservations\/[0-9a-f]{24}$/)
-  const number = (await page.getByTestId('reservation-number').innerText()).trim()
-  expect(number).toMatch(/^RES-/)
+  // The page shows „—" until the reservation has loaded: wait for the number, then read it.
+  const numberEl = page.getByTestId('reservation-number')
+  await expect(numberEl).toHaveText(/^RES-/)
+  const number = (await numberEl.innerText()).trim()
   await expect(page.getByRole('link', { name: CUSTOMER })).toBeVisible()
   await expect(page.getByTestId('reservation-quantity')).toContainText(String(QTY))
   await expect(page.getByTestId('reservation-history')).toContainText('Създадена')

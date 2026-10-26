@@ -6,6 +6,10 @@ import { startWalk, uxApi } from '../helpers/ux-budget'
  * reserve what stock covers, put the shortage on an external order (ORDO) to a supplier, send
  * that ORDO, then turn the ORDI's reservations into a sales invoice and issue it.
  *
+ * The route (FR-22.35, since slice 4b): generating the ORDO lands on it, so it is sent right there;
+ * the ORDI is reached back through its number on the ORDO; Convert lands on the new draft invoice,
+ * which is issued on its own form („Издай", FR-22.17) — the sales list is never visited.
+ *
  * Products used: PRD-0026..0028 (this walk's share of the acme-corp seed). Customer: Nordic
  * Wholesale. Supplier: Luxor Imports.
  */
@@ -119,6 +123,8 @@ test('P7 chain: client order → reserve → external order → send → invoice
   const api = await uxApi()
   const [p26, p27, p28] = await Promise.all(['PRD-0026', 'PRD-0027', 'PRD-0028'].map((s) => productBySku(api, s)))
   const supplier = await contactByName(api, SUPPLIER)
+  const DEFAULT_WAREHOUSE: string = ((await api.get('/warehouse/warehouse?size=100')).warehouses || []).find((w: any) => w.isDefault)?.name
+  expect(DEFAULT_WAREHOUSE, 'the seed marks a default warehouse').toBeTruthy()
   await clearLeftovers(api, p28._id)
   await ensureSupplierHistory(api, p28, supplier._id)
   await topUp(api, p28, 20, 50)
@@ -146,7 +152,10 @@ test('P7 chain: client order → reserve → external order → send → invoice
   await page.waitForURL(/\/internal-orders\/new/)
   await expect(page.getByRole('heading', { name: 'Нова входяща поръчка' })).toBeVisible()
 
-  await walk.type(page.getByRole('combobox', { name: /Клиент/ }), 'Nordic', 'search the customer')
+  // A new document starts in its first field (FR-22.52): the customer search.
+  const customerField = page.getByRole('combobox', { name: /Клиент/ })
+  await expect(customerField).toBeFocused()
+  await walk.type(customerField, 'Nordic', 'search the customer', { focused: true })
   const clientOption = page.locator('.v-overlay--active .v-list-item').filter({ hasText: CUSTOMER }).first()
   await expect(clientOption).toBeVisible()
   await walk.click(clientOption, 'pick the customer')
@@ -156,18 +165,18 @@ test('P7 chain: client order → reserve → external order → send → invoice
   const rows = page.locator('tbody tr').filter({ has: page.getByPlaceholder('Търсете продукти...') })
   for (let i = 0; i < LINES.length; i++) {
     const { p, qty } = LINES[i]
-    if (i > 0) {
-      await walk.click(page.getByRole('button', { name: 'Добави ред' }), `add line ${i + 1}`)
-      await expect(rows).toHaveCount(i + 1)
-    }
     const row = rows.nth(i)
     await walk.type(row.getByPlaceholder('Търсете продукти...'), p.sku, `line ${i + 1}: search ${p.sku}`)
     const option = page.locator('.pld-overlay .pld-item').filter({ hasText: p.sku }).first()
     await expect(option).toBeVisible()
     await walk.click(option, `line ${i + 1}: pick ${p.sku}`)
     await expect(row.locator('.v-chip').filter({ hasText: p.name })).toBeVisible()
-    // Picking the product puts 1 in the quantity; the user types over it.
-    await walk.fill(row.locator('input[type="number"]').first(), String(qty), `line ${i + 1}: quantity ${qty}`)
+    // FR-22.43: the article opens the next line, and the cursor waits in this line's quantity,
+    // which picking the product set to 1 — the user types over it.
+    await expect(rows).toHaveCount(i + 2)
+    const quantity = row.getByRole('spinbutton', { name: 'Кол.' })
+    await expect(quantity).toBeFocused()
+    await walk.fill(quantity, String(qty), `line ${i + 1}: quantity ${qty}`, { focused: true })
   }
   await settledShot(walk, 'ordi-filled')
 
@@ -187,7 +196,10 @@ test('P7 chain: client order → reserve → external order → send → invoice
 
   // ── 2. Reserve what stock covers ──
   await walk.click(reserveBtn, 'reserve from stock')
-  await expect(snackbar(walk, /Създадени резервации/)).toBeVisible()
+  // FR-22.43: the message names what stock could not cover.
+  const reservedSnack = snackbar(walk, /Създадени резервации/)
+  await expect(reservedSnack).toBeVisible()
+  await expect(reservedSnack).toContainText(`${p28.name} (липсват ${SHORTAGE})`)
   await expect(page.locator('tbody tr').filter({ hasText: p28.name }).getByText(`${free28}/${shortQty}`)).toBeVisible()
   await settledShot(walk, 'reserved')
 
@@ -200,37 +212,33 @@ test('P7 chain: client order → reserve → external order → send → invoice
   const supplierBox = supplierField.locator('xpath=ancestor::div[contains(@class,"v-field")][1]')
   await expect(supplierBox).toContainText(SUPPLIER)
   await expect(genDialog.getByRole('spinbutton', { name: 'Кол.' })).toHaveValue(String(SHORTAGE))
+  // FR-22.42: the warehouse the goods go to is shown (the default one: the client order names
+  // none), and so is the supplier order they go on — a new one, as no draft of the supplier exists.
+  const whBox = genDialog.getByRole('combobox', { name: 'Към склад' }).locator('xpath=ancestor::div[contains(@class,"v-field")][1]')
+  await expect(whBox).toContainText(DEFAULT_WAREHOUSE)
+  await expect(genDialog.getByTestId('generate-target')).toContainText('Нова изходяща поръчка')
   await settledShot(walk, 'generate-dialog')
   walk.note(`Generate dialog: quantity (${SHORTAGE}) and supplier („${SUPPLIER}", from the last external order that carried the article) come pre-filled; on an article never ordered before the supplier is blank and costs a search + pick (+2 clicks, +1 typed).`)
-  walk.note('Generate dialog: „Склад" is blank and optional — the external order silently goes to the default warehouse (Main Warehouse); nothing says so.')
-  walk.note('Generate dialog always creates a NEW draft ORDO: the API can append to an existing draft (`orderId`), the dialog offers no choice — two client orders short on articles from the same supplier become two supplier orders.')
+  walk.note(`Generate dialog: „Към склад" reads „${DEFAULT_WAREHOUSE}" — where the goods will go — and „Изходяща поръчка" offers a draft of the same supplier when one exists (FR-22.42); here none does, so a new one.`)
   await walk.click(genDialog.getByRole('button', { name: 'Създай', exact: true }), 'create the external order')
   const ordoSnack = snackbar(walk, /Създадена е изходяща поръчка/)
   await expect(ordoSnack).toBeVisible()
   const draftOrdo = ((await ordoSnack.innerText()).match(/поръчка\s+(\S+)/) || [])[1]
   expect(draftOrdo).toMatch(/ORDO-/)
-  await settledShot(walk, 'ordo-generated')
 
-  // The new ORDO on the ORDI page (#252): its number is a link, under the short line and in the
-  // reservations table.
-  const ordoLink = page.getByRole('link', { name: draftOrdo }).first()
-  await expect(ordoLink).toBeVisible()
-  const coverageChip = (await page.locator('.form-paper-header .v-chip').last().innerText()).trim()
-  walk.note(`After the external order is generated (still a draft) the ORDI header reads „${coverageChip}" and the short line „${shortQty}/${shortQty}" reserved: units that are only on an unsent ORDO count as covered, the same as stock on the shelf.`)
-  walk.note(`ORDO ${draftOrdo}: its number is a link under the short line and in the ORDI's reservations table, so the order is one click away — no menu, no list.`)
-
-  // ── 4. Send the external order ──
-  await walk.click(ordoLink, 'open the external order (its number under the short line)')
+  // ── 4. Send the external order: FR-22.35 lands the user on it ──
   await page.waitForURL(/\/orders\/[0-9a-f]{24}\/edit/)
+  await expect(page.locator('.form-paper-header .text-h6')).toHaveText(draftOrdo)
   const sendBtn = page.locator('.form-actions-bar').getByRole('button', { name: 'Изпрати поръчката' })
   await expect(sendBtn).toBeVisible()
   await settledShot(walk, 'ordo-form')
+  walk.note(`„Създай" lands on the new external order ${draftOrdo} (FR-22.35): its number is on the page, not only in the snackbar, and „Изпрати поръчката" is the next click.`)
   await walk.click(sendBtn, 'send the external order')
   await expect(snackbar(walk, 'Поръчката е изпратена')).toBeVisible()
   await expect(page.locator('.form-paper-header .text-h6')).not.toHaveText(draftOrdo)
   const ordoNumber = (await page.locator('.form-paper-header .text-h6').innerText()).trim()
   await settledShot(walk, 'ordo-sent')
-  walk.note(`Sending renumbers the external order: ${draftOrdo} (the number the snackbar gave) becomes ${ordoNumber}.`)
+  walk.note(`Sending renumbers the external order: ${draftOrdo} becomes ${ordoNumber}.`)
 
   // ── 5. Back to the client order and convert ──
   // The ORDI number links from the reservation under the allocation (the line opens by itself,
@@ -251,16 +259,17 @@ test('P7 chain: client order → reserve → external order → send → invoice
   expect(draftInvoice).toBeTruthy()
   // FR-22.5: the message says what Convert left reserved, and on which external order.
   expect(invSnackText).toContain(ordoNumber)
-  await settledShot(walk, 'converted')
 
-  const invLinks = await page.getByRole('link', { name: draftInvoice! }).count()
-  walk.note(`Invoice ${draftInvoice}: its number is shown only in the snackbar; the ORDI page ${invLinks ? 'links it' : 'shows no link to it (the API returns it in lookup.invoices, the form does not render it)'} — the user goes through the menu to the sales list.`)
+  // FR-22.35: Convert lands on the new draft invoice's own form.
+  await page.waitForURL(/\/invoicing\/invoices\/[0-9a-f]{24}\/edit/)
+  const invoiceId = page.url().match(/invoices\/([0-9a-f]{24})/)![1]
+  await settledShot(walk, 'converted')
+  walk.note(`Convert lands on the new draft invoice ${draftInvoice} (FR-22.35); the snackbar still says what stays reserved on ${ordoNumber} (FR-22.5).`)
 
   // What Convert put on the invoice (uncounted) — the B-7 guard: what is on the shelf, and NOT the
   // reservation on the external order just sent, whose goods have not arrived (FR-22.5).
-  const { invoices } = await api.get(`/invoices?search=${encodeURIComponent(draftInvoice!)}&size=5`)
-  const inv = (invoices || []).find((i: any) => i.invoiceNumber === draftInvoice)
-  const draft = (await api.get(`/invoices/${inv._id}`)).invoice
+  const draft = (await api.get(`/invoices/${invoiceId}`)).invoice
+  expect(draft.invoiceNumber).toBe(draftInvoice)
   const onOrderRes = ((await api.get(`/invoicing/internal-orders/${ordiId}`)).reservations || [])
     .find((r: any) => r.source === 'order' && r.status === 'active')
   expect(onOrderRes?.quantity, 'the shortage is reserved on the external order').toBe(SHORTAGE)
@@ -268,22 +277,17 @@ test('P7 chain: client order → reserve → external order → send → invoice
     'Convert leaves the reservation on the unreceived external order off the invoice').toEqual([])
   const p28Qty = draft.lines.filter((l: any) => String(l.productId) === String(p28._id)).reduce((s: number, l: any) => s + l.quantity, 0)
   expect(p28Qty).toBe(free28)
-  // The list's Issue runs this pre-check first: nothing short, so no transfer dialog.
+  // Issue runs this pre-check first: nothing short, so no transfer dialog.
   const precheck = await api.post('/invoicing/stock-availability/check', {
     lines: draft.lines.map((l: any) => ({ productId: l.productId, warehouseId: l.warehouseId, quantity: l.quantity, reservationId: l.orderRef?.reservationId })),
   })
   expect(precheck.sufficient).toBe(true)
-  walk.note(`Convert invoiced what is on the shelf (${free28} of ${shortQty} × „${p28.name}") and left the ${SHORTAGE} units on ${ordoNumber}, sent but not received, reserved for a later invoice; the snackbar says so (FR-22.5). Before, it invoiced them too and Issue dispatched them: PRD-0028 on-hand 404 → −10 and the ORDI „Доставена" — the walk had to open the draft, remove that line and save it (3 clicks).`)
+  walk.note(`Convert invoiced what is on the shelf (${free28} of ${shortQty} × „${p28.name}") and left the ${SHORTAGE} units on ${ordoNumber}, sent but not received, reserved for a later invoice (FR-22.5).`)
 
-  // ── 6. Issue it from the sales list ──
-  await walk.menu('Изходящи документи', 'Документи за продажба')
-  await page.waitForURL(/\/invoicing\/invoices(\?|$)/)
-  const invRow = page.locator('tbody tr').filter({ hasText: draftInvoice! })
-  await expect(invRow).toBeVisible()
-  await settledShot(walk, 'invoice-list')
-  walk.note('The ORDI page does not link the draft invoice (FR-22.35, slice 4), so it is issued from the sales list: its row menu ⋮ → „Издай". FR-22.23 put a row\'s actions in one menu — one click more than the old row icon „Изпрати".')
-  await walk.click(invRow.getByTestId('row-actions'), 'the row\'s menu (⋮)')
-  await walk.click(page.getByTestId('row-action-issue'), 'issue (row menu „Издай")')
+  // ── 6. Issue it on its own form („Издай", FR-22.17) — no list, no row menu ──
+  const issueBtn = page.locator('.form-actions-bar').getByRole('button', { name: 'Издай', exact: true })
+  await expect(issueBtn).toBeVisible()
+  await walk.click(issueBtn, 'issue („Издай" on the invoice form)')
   await expect(snackbar(walk, 'Фактурата е изпратена успешно')).toBeVisible()
   await settledShot(walk, 'issued')
 
@@ -291,7 +295,7 @@ test('P7 chain: client order → reserve → external order → send → invoice
   // was not in it, and the client order is not „Доставена" for units still on order.
   let issued: any
   await expect.poll(async () => {
-    issued = (await api.get(`/invoices/${inv._id}`)).invoice
+    issued = (await api.get(`/invoices/${invoiceId}`)).invoice
     return issued?.status
   }, { timeout: 15000 }).toBe('sent')
   expect(issued.lines.some((l: any) => l.orderRef?.orderId)).toBe(false)
@@ -306,12 +310,14 @@ test('P7 chain: client order → reserve → external order → send → invoice
   expect(onOrderAfter).toMatchObject({ status: 'active', quantity: SHORTAGE, invoicedQuantity: 0, dispatchedQuantity: 0 })
   const ordoAfter = (await api.get(`/invoicing/orders?search=${ordoNumber}&size=5`)).orders?.[0]
   expect(ordoAfter?.status).toBe('sent')
-  walk.note(`End state: ${issued.invoiceNumber} issued (draft ${draftInvoice}, renumbered on issue); ${ordiNumber} partially delivered (${free28}/${shortQty}) with the ${SHORTAGE} units still reserved on ${ordoNumber} (sent). ORDO and ORDI link each other; ORDI → invoice is not a link.`)
+  walk.note(`End state: ${issued.invoiceNumber} issued (draft ${draftInvoice}, renumbered on issue); ${ordiNumber} partially delivered (${free28}/${shortQty}) with the ${SHORTAGE} units still reserved on ${ordoNumber} (sent). Every hand-off landed on the next document: ORDI → ORDO (generate), ORDO → ORDI (link), ORDI → invoice (convert).`)
 
   const result = walk.finish()
   // FR-22.5 took the walk from 30 clicks to 27 and the ORDO number as a link on the ORDI (#252,
-  // part of FR-22.35) to 26. FR-22.23 (one row menu) costs the issue step a click: 27, until the
-  // ORDI links its invoice (FR-22.35) and the walk issues it from the invoice's form instead. The
-  // rest of slice 4 (FR-22.35, .36, .43) takes it to ≤ 22.
-  expect(result.clicks).toBeLessThanOrEqual(27)
+  // part of FR-22.35) to 26. FR-22.43 takes 5 more: an article opens the next line (no „Добави ред"
+  // twice) and leaves the cursor in its quantity (three clicks); the customer field a new order
+  // starts in (FR-22.52) saves one the walk had not taken. FR-22.35 lands on the new external order
+  // (no click on its number) and on the new invoice, which issues on its own form (one click where
+  // the sales list took a menu and a row action). FR-22's target is ≤ 22.
+  expect(result.clicks).toBeLessThanOrEqual(18)
 })

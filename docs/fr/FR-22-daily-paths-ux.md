@@ -492,7 +492,7 @@ owner asks.
 | 4: orders and reservations | FR-22.34 (names), .35–.36 (links, linked invoices), .37 (repeat, quantity edit only), .39–.40 (list links, who reserved what) | merged: #252 (owned by another session). P7-chain 27 → 26, P7-repeat 4 → 3, P7-who → 1 |
 | 4 | D-1 subtitles | merged: #260 |
 | 4a | FR-22.37 rest (create on the list, `/reservations/:id`, partial release, cancel-dialog wording); the reservation in „+ Нов" (FR-22.49); RES numbers link to their page (FR-22.35) | in review: `feat/fr22-s4-reservations`. P7-new: 4 clicks; P7-chain, -repeat, -who unchanged (26, 3, 1) |
-| 4b | FR-22.41–.44 | open |
+| 4b | FR-22.41–.44; FR-22.35 for Generate and Convert (each lands on the new document, and the invoice is issued on its own form); FR-22.36 on both order forms, which did not list their invoices; FR-22.13 on both order forms; FR-22.39 search; FR-22.15 defaults on the order lists; refusals with codes on the order actions | in review: `feat/fr22-s4b-orders`, stacked on 4a. P7-chain 26 → 18 clicks (8 typed, 1 dialog), measured on master + 4a + 4b; P7-new, -repeat, -who unchanged (4, 3, 1) |
 | 5: products | FR-22.45 stock tab | merged: #252 |
 | 5 | FR-22.45 list columns, .46, .48 | in progress |
 | 5 | FR-22.47 (row actions) | after slice 3 (it opens the receipt form) |

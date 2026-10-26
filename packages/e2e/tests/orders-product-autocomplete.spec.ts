@@ -9,7 +9,7 @@ import { loginForApp } from './helpers/login'
  */
 for (const target of [
   { name: 'invoice form', path: '/invoicing/invoices/new', heading: /new invoice/i },
-  { name: 'order form', path: '/invoicing/orders/new', heading: /new outgoing order/i },
+  { name: 'order form', path: '/invoicing/orders/new', heading: /new supplier order/i },
 ]) {
   test(`product search fires ajax + arrows/Enter select on the ${target.name}`, async ({ page }) => {
     await loginForApp(page)
@@ -18,7 +18,9 @@ for (const target of [
 
     const lineRow = page.locator('.v-table tbody tr').first()
     await expect(lineRow).toBeVisible({ timeout: 10000 })
-    const descInput = lineRow.locator('td').first().locator('input').first()
+    // By what it asks for: the invoice line opens with its number (td.line-no), the order line
+    // does not, and both hold the same ProductLineDescription.
+    const descInput = lineRow.getByPlaceholder(/search products/i)
 
     const reqPromise = page.waitForRequest(
       (r) => r.url().includes('/warehouse/product') && r.url().includes('search='),
@@ -29,8 +31,8 @@ for (const target of [
     const req = await reqPromise
     expect(req.url()).toContain('search=')
 
-    // Menu with results opens…
-    const menuItem = page.locator('.v-overlay .v-list-item').first()
+    // Results open — in ProductLineDescription's own overlay, teleported to <body> (not a v-menu)…
+    const menuItem = page.locator('.pld-overlay .pld-item').first()
     await expect(menuItem).toBeVisible({ timeout: 5000 })
 
     // …and ↓ + Enter selects (menu must NOT close on arrows).
@@ -38,6 +40,6 @@ for (const target of [
     await page.waitForTimeout(150)
     await expect(menuItem).toBeVisible()
     await page.keyboard.press('Enter')
-    await expect(lineRow.locator('td').first().locator('.v-chip')).toBeVisible({ timeout: 4000 })
+    await expect(lineRow.locator('.v-chip').first()).toBeVisible({ timeout: 4000 })
   })
 }

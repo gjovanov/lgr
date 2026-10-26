@@ -440,9 +440,9 @@ export async function updateReservation(
 ): Promise<any> {
   const res: any = await Reservation.findOne({ _id: reservationId, orgId } as any).exec()
   if (!res) throw new ReservationOpsError(404, 'Reservation not found')
-  if (res.status === 'cancelled') throw new ReservationOpsError(422, 'A cancelled reservation cannot be changed — reserve it again instead')
+  if (res.status === 'cancelled') throw new ReservationOpsError(422, 'A cancelled reservation cannot be changed — reserve it again instead', { code: 'reservation_not_active', reservationStatus: res.status })
   // Raising a fulfilled one would quietly reopen a delivered record; a new reservation says what it is.
-  if (res.status !== 'active') throw new ReservationOpsError(422, `Reservation ${res.reservationNumber} is ${res.status} — it can no longer be changed`)
+  if (res.status !== 'active') throw new ReservationOpsError(422, `Reservation ${res.reservationNumber} is ${res.status} — it can no longer be changed`, { code: 'reservation_not_active', reservationStatus: res.status })
   const consumed = Math.max(num(res.invoicedQuantity), num(res.dispatchedQuantity))
   const reasons: string[] = []
 
@@ -621,7 +621,7 @@ export async function preemptReservation(
   const ordi: any = await InternalOrder.findOne({ _id: input.internalOrderId, orgId } as any).lean().exec()
   if (!ordi) throw new ReservationOpsError(404, 'Incoming order not found')
   if (!RESERVABLE_ORDI_STATUSES.includes(ordi.status)) {
-    throw new ReservationOpsError(422, `Cannot reserve for a ${ordi.status} incoming order`)
+    throw new ReservationOpsError(422, `Cannot reserve for a ${ordi.status} incoming order`, { code: 'incoming_order_not_reservable', orderStatus: ordi.status })
   }
   const line = (ordi.lines || []).find((l: any) => String(l._id) === String(input.internalOrderLineId))
   if (!line) throw new ReservationOpsError(404, 'Incoming order line not found')
@@ -633,7 +633,7 @@ export async function preemptReservation(
     await session.withTransaction(async () => {
       const source: any = await Reservation.findOne({ _id: reservationId, orgId } as any).session(session).exec()
       if (!source) throw new ReservationOpsError(404, 'Reservation not found')
-      if (source.status !== 'active') throw new ReservationOpsError(422, `Cannot preempt a ${source.status} reservation`)
+      if (source.status !== 'active') throw new ReservationOpsError(422, `Cannot preempt a ${source.status} reservation`, { code: 'reservation_not_active', reservationStatus: source.status })
       if (String(source.productId) !== String(line.productId)) {
         throw new ReservationOpsError(422, 'Product does not match the incoming order line')
       }
@@ -648,12 +648,12 @@ export async function preemptReservation(
       const reserved = sumBy(beneficiaryRes, 'internalOrderLineId').get(String(line._id)) || 0
       const openDemand = num(line.quantity) - reserved
       const amount = input.quantity ?? Math.min(releasable, openDemand)
-      if (!(amount > 0)) throw new ReservationOpsError(422, 'Nothing to preempt')
+      if (!(amount > 0)) throw new ReservationOpsError(422, 'Nothing to preempt', { code: 'nothing_to_preempt' })
       if (amount > releasable + 1e-9) {
-        throw new ReservationOpsError(422, `Amount exceeds the releasable quantity (releasable: ${releasable})`)
+        throw new ReservationOpsError(422, `Amount exceeds the releasable quantity (releasable: ${releasable})`, { code: 'releasable_exceeded', releasable })
       }
       if (amount > openDemand + 1e-9) {
-        throw new ReservationOpsError(422, `Amount exceeds the line's open demand (open: ${openDemand})`)
+        throw new ReservationOpsError(422, `Amount exceeds the line's open demand (open: ${openDemand})`, { code: 'line_demand_exceeded', open: openDemand })
       }
 
       applyReservationCancel(source, amount, 'preempted', userId, {
@@ -710,7 +710,7 @@ export async function reserveAvailableForInternalOrder(
   const ordi: any = await InternalOrder.findOne({ _id: internalOrderId, orgId } as any).lean().exec()
   if (!ordi) throw new ReservationOpsError(404, 'Incoming order not found')
   if (!RESERVABLE_ORDI_STATUSES.includes(ordi.status)) {
-    throw new ReservationOpsError(422, `Cannot reserve for a ${ordi.status} incoming order`)
+    throw new ReservationOpsError(422, `Cannot reserve for a ${ordi.status} incoming order`, { code: 'incoming_order_not_reservable', orderStatus: ordi.status })
   }
   const wanted = new Set((lineIds || []).map(String))
   const existing = await Reservation.find(
@@ -940,7 +940,7 @@ export async function completeInternalOrder(orgId: string, userId: string, inter
   const ordi: any = await InternalOrder.findOne({ _id: internalOrderId, orgId } as any).exec()
   if (!ordi) throw new ReservationOpsError(404, 'Incoming order not found')
   if (!['confirmed', 'partially_delivered', 'delivered'].includes(ordi.status)) {
-    throw new ReservationOpsError(400, 'Only confirmed/delivered incoming orders can be completed')
+    throw new ReservationOpsError(400, 'Only confirmed/delivered incoming orders can be completed', { code: 'incoming_order_not_completable', orderStatus: ordi.status })
   }
   const linked = await Reservation.find({ orgId, internalOrderId, status: { $ne: 'cancelled' } } as any).exec()
   const releasedIds: string[] = []
@@ -966,7 +966,7 @@ export async function cancelInternalOrder(orgId: string, userId: string, interna
   const ordi: any = await InternalOrder.findOne({ _id: internalOrderId, orgId } as any).exec()
   if (!ordi) throw new ReservationOpsError(404, 'Incoming order not found')
   if (!['draft', 'confirmed'].includes(ordi.status)) {
-    throw new ReservationOpsError(400, `Cannot cancel a ${ordi.status} incoming order — use complete instead`)
+    throw new ReservationOpsError(400, `Cannot cancel a ${ordi.status} incoming order — use complete instead`, { code: 'incoming_order_not_cancellable', orderStatus: ordi.status })
   }
   const liveLinked = await Invoice.countDocuments({
     orgId,
@@ -974,7 +974,7 @@ export async function cancelInternalOrder(orgId: string, userId: string, interna
     $or: [{ internalOrderId }, { 'lines.orderRef.internalOrderId': internalOrderId }],
   } as any).exec()
   if (liveLinked > 0) {
-    throw new ReservationOpsError(409, 'Incoming order has linked invoices — void or delete them before cancelling')
+    throw new ReservationOpsError(409, 'Incoming order has linked invoices — void or delete them before cancelling', { code: 'incoming_order_has_invoices' })
   }
 
   const linked = await Reservation.find({ orgId, internalOrderId, status: { $ne: 'cancelled' } } as any).exec()
@@ -1014,7 +1014,7 @@ export async function generateExternalOrder(
   const ordi: any = await InternalOrder.findOne({ _id: internalOrderId, orgId } as any).lean().exec()
   if (!ordi) throw new ReservationOpsError(404, 'Incoming order not found')
   if (!RESERVABLE_ORDI_STATUSES.includes(ordi.status)) {
-    throw new ReservationOpsError(422, `Cannot generate an outgoing order for a ${ordi.status} incoming order`)
+    throw new ReservationOpsError(422, `Cannot generate an outgoing order for a ${ordi.status} incoming order`, { code: 'incoming_order_not_reservable', orderStatus: ordi.status })
   }
   if (!input.lines?.length) throw new ReservationOpsError(422, 'At least one line is required')
 
@@ -1040,7 +1040,7 @@ export async function generateExternalOrder(
   if (input.orderId) {
     order = await Order.findOne({ _id: input.orderId, orgId } as any).exec()
     if (!order) throw new ReservationOpsError(404, 'Outgoing order not found')
-    if (order.status !== 'draft') throw new ReservationOpsError(422, 'Can only append to a draft outgoing order')
+    if (order.status !== 'draft') throw new ReservationOpsError(422, 'Can only append to a draft outgoing order', { code: 'order_not_draft', orderStatus: order.status })
   } else {
     if (!input.draftOrderNumber) throw new ReservationOpsError(422, 'draftOrderNumber is required when creating a new order')
     order = new Order({
@@ -1076,7 +1076,7 @@ export async function generateExternalOrder(
         const ordiLine: any = lineById.get(String(l.internalOrderLineId))
         const product: any = productById.get(String(ordiLine.productId))
         const whId = l.warehouseId || defaultWhId
-        if (!whId) throw new ReservationOpsError(422, 'No target warehouse (set one on the line, the incoming order, or mark a default warehouse)')
+        if (!whId) throw new ReservationOpsError(422, 'No target warehouse (set one on the line, the incoming order, or mark a default warehouse)', { code: 'no_target_warehouse' })
 
         let group = (order.supplierGroups as any[]).find((g: any) => String(g.supplierId) === String(l.supplierId))
         if (!group) {

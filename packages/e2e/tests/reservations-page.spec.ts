@@ -82,7 +82,7 @@ test.describe('Reservations get a screen (FR-22.37)', () => {
     await expect(dialog.getByRole('radio', { name: new RegExp(sent.orderNumber) })).toBeChecked()
     await expect(dialog.getByRole('radio')).toHaveCount(1)
     // The client's open order line is offered, not chosen.
-    const forOrder = dialog.getByRole('combobox', { name: /for an incoming order/i })
+    const forOrder = dialog.getByRole('combobox', { name: /for a customer order/i })
     await forOrder.locator('xpath=ancestor::div[contains(@class,"v-field")][1]').click()
     await page.locator('.v-overlay--active .v-list-item').filter({ hasText: ordi.orderNumber }).click()
     await dialog.getByRole('button', { name: 'Reserve' }).click()
@@ -180,5 +180,21 @@ test.describe('Reservations get a screen (FR-22.37)', () => {
     await page.getByTestId('new-document-list').locator('.v-list-item').filter({ hasText: 'Reservation' }).click()
     await expect(page.getByTestId('reservation-create')).toBeVisible()
     await expect(page).toHaveURL(/\/invoicing\/reservations(\?(?!.*new=)|$)/)
+  })
+})
+
+test.describe('The order lists keep a bare URL bare (FR-22.15)', () => {
+  test('every status is the declared default of the reservations, client-orders and supplier-orders lists', async ({ page }) => {
+    await loginForApp(page)
+    for (const path of ['/invoicing/reservations', '/invoicing/internal-orders', '/invoicing/orders']) {
+      await page.goto(path, { waitUntil: 'networkidle' })
+      // The list writes its state after a 250 ms debounce; give it the chance to.
+      await page.waitForTimeout(600)
+      expect(new URL(page.url()).search, path).toBe('')
+    }
+    // A status chosen in the URL still filters.
+    await page.goto('/invoicing/reservations?status=cancelled', { waitUntil: 'networkidle' })
+    await page.waitForTimeout(600)
+    expect(new URL(page.url()).searchParams.get('status')).toBe('cancelled')
   })
 })
