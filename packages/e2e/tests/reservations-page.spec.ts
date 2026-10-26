@@ -82,7 +82,7 @@ test.describe('Reservations get a screen (FR-22.37)', () => {
     await expect(dialog.getByRole('radio', { name: new RegExp(sent.orderNumber) })).toBeChecked()
     await expect(dialog.getByRole('radio')).toHaveCount(1)
     // The client's open order line is offered, not chosen.
-    const forOrder = dialog.getByRole('combobox', { name: /for an incoming order/i })
+    const forOrder = dialog.getByRole('combobox', { name: /for a customer order/i })
     await forOrder.locator('xpath=ancestor::div[contains(@class,"v-field")][1]').click()
     await page.locator('.v-overlay--active .v-list-item').filter({ hasText: ordi.orderNumber }).click()
     await dialog.getByRole('button', { name: 'Reserve' }).click()
