@@ -476,8 +476,8 @@ Writes go to **acme-corp** only, signed in through the API and undone afterwards
 
 ## 11. Progress
 
-Updated 2026-10-26 (evening). "Merged" means on master; deploys follow the `deploy-prod` skill when the
-owner asks.
+Updated 2026-10-26 (afternoon). "Merged" means on master; deploys follow the `deploy-prod` skill when
+the owner asks. Everything merged is on production.
 
 | Slice | Requirements | State |
 |---|---|---|
@@ -487,32 +487,40 @@ owner asks.
 | 1 | FR-22.6, .11 (B-8, B-14) | merged: #255. i18n parity is now a unit test |
 | 1 | FR-22.3, .4, .7, .8, .9, .12, .13, .14, .15, invoice-list № sort | merged: #258. P5-invoice 22 → 20, P5-credit 14 → 11, P3 14 → 12 |
 | 1 | FR-22.13 (B-15) | merged: #249 (the load-time re-snapshot) and #258 (the leave-before-load gap) |
-| 2: documents flow | FR-22.16–.27, .50 | in progress |
+| 2a: documents flow | FR-22.16–.22 (save stays, the form issues, „Издай и печатай", one-click print, notes from the invoice, card paid on issue, proforma) | merged: #264. P5-invoice 20 → 14, P5-credit 11 → 5, P6 17 → 12 |
+| 2b | FR-22.23–.27, .50 (one row menu at 1366 px, partner picker by recent use, remembered method and last price, place of deal, labelled Create) | merged: #266 |
 | 3: receipt → bill (#168) | FR-22.28–.33 | merged: #261. P2 17 clicks (was a dead end, target ≤ 20); P3 3 clicks with stock unchanged (was 14 and stock booked twice) |
 | 4: orders and reservations | FR-22.34 (names), .35–.36 (links, linked invoices), .37 (repeat, quantity edit only), .39–.40 (list links, who reserved what) | merged: #252 (owned by another session). P7-chain 27 → 26, P7-repeat 4 → 3, P7-who → 1 |
 | 4 | D-1 subtitles | merged: #260 |
-| 4a | FR-22.37 rest (create on the list, `/reservations/:id`, partial release, cancel-dialog wording); the reservation in „+ Нов" (FR-22.49); RES numbers link to their page (FR-22.35) | in review: `feat/fr22-s4-reservations`. P7-new: 4 clicks; P7-chain, -repeat, -who unchanged (26, 3, 1) |
-| 4b | FR-22.41–.44; FR-22.35 for Generate and Convert (each lands on the new document, and the invoice is issued on its own form); FR-22.36 on both order forms, which did not list their invoices; FR-22.13 on both order forms; FR-22.39 search; FR-22.15 defaults on the order lists; refusals with codes on the order actions | in review: `feat/fr22-s4b-orders`, stacked on 4a. P7-chain 26 → 18 clicks (8 typed, 1 dialog), measured on master + 4a + 4b; P7-new, -repeat, -who unchanged (4, 3, 1) |
+| 4a | FR-22.37 rest (create on the list, `/reservations/:id`, partial release, cancel-dialog wording); the reservation in „+ Нов"; RES numbers link to their page | merged: #265. P7-new: 4 clicks |
+| 4b | FR-22.41–.44; FR-22.35 for Generate and Convert; FR-22.36 on both order forms; FR-22.13 on both order forms; FR-22.39 search; FR-22.15 defaults; translated refusals; FR-22.34 English / German / Macedonian names per D-1 | merged: #267. P7-chain 26 → 18 |
 | 5: products | FR-22.45 stock tab | merged: #252 |
-| 5 | FR-22.45 list columns, .46, .48 | in progress |
-| 5 | FR-22.47 (row actions) | after slice 3 (it opens the receipt form) |
+| 5 | FR-22.45 list columns, .46, .48 | merged: #263. P1 6 → 5 |
+| 5 | FR-22.47 (row actions „Заприходи", „Продай", „Резервирай") | in review: #268. P1-act: 2 clicks to a sale of the article |
 | 6: navigation | FR-22.49, .51, .52, .53 | merged: #259. P0-new: 1 click per leg |
-| 6 | FR-22.50 (labelled Create buttons) | in progress, with slice 2 |
 | 7: counter | FR-22.54, .55 (D-6) | merged: #256. P4-till 8 → 3, P4-backoffice 9 → 6 |
 | 7 | FR-22.60 cash sale → invoice (D-5) | merged: #249 (owned by another session) |
 | 7 | FR-22.56–.59 | FR-21 R5 requirements |
 
 Found along the way and fixed on its own:
-- the fiscal-device address check (#257);
-- three stale e2e locators: the till search, the invoice line description and the cash-sales
-  Create button (#262). CI runs no e2e, so they had sat red. Only the till one came from FR-22:
-  it broke when #256 started putting the cursor in the search field.
+- the fiscal-device address check (#257; S-30, GHSA-5qqr-5jf7-pq2q, published 2026-10-26);
+- stale e2e locators: the till search, the invoice line description and the cash-sales Create
+  button (#262), and the order-line product field (#267). CI runs no e2e, so they had sat red.
+  Only the till one came from FR-22: it broke when #256 started putting the cursor in the search
+  field;
+- saving a product erased a category name no category record carried (#263): every product of the
+  `regal` org, and the acme seed;
+- voiding a DRAFT invoice booked its lines back into stock although nothing had left (#264). On
+  production it had happened once: in `regal`, DRF-INV-2026-00002 added 1,257 units in May. It
+  was reversed on 2026-10-26 by SM-2026-00097;
+- an outgoing credit note was stock-checked on issue although its return brings goods in (#264);
+- both order forms dropped any edit made after their first save (#267).
 
-Production (lgr:v20261026-9885437554af, 2026-10-26, master 366c6f5f) carries everything above
-that is merged. It was field-tested on the acme-corp demo org:
-- #258: № sort and the overpayment 422;
-- #261: the full #168 chain, undone afterwards — receipt, bill from receipt, second bill 409,
-  received with stock unchanged;
-- #259: „+ Нов" opens a new invoice in one click;
-- #260: the order subtitles;
-- regression checks for #255, #256 and #257.
+Production (lgr:v20261026-f4ec90565c22, 2026-10-26, master d6e4b00d) carries everything above that
+is merged. Each deploy was field-tested on the acme-corp demo org.
+
+Data follow-ups run on production, 2026-10-26:
+- the 368 card invoices issued before FR-22.19 were settled with `scripts/settle-cash-invoices.ts
+  --method card` (€23,777.48: regal-pz 173, regal-sf 195);
+- ⚠ the CASH invoices issued before the cash rule (regal-pz 387, regal-sf 115, €35.7k) have never
+  been settled. Running the same script with `--method cash` is the owner's call.
