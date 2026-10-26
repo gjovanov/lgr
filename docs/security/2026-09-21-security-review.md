@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-08**, **S-17**–**S-28** are fixed. The rest are open, ordered by severity below.
+**S-01**–**S-08**, **S-17**–**S-30** are fixed. The rest are open, ordered by severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger could join
@@ -19,7 +19,9 @@ field test. All eight are written up at the end.
 
 S-25–S-28 were found in October 2026 while specifying and building offline operation (FR-20). Each
 was fixed in a private fork, deployed the same day, and published as a GitHub security advisory once
-the fix had been verified on production. They are written up at the end too.
+the fix had been verified on production. They are written up at the end too. S-29 and S-30 came
+out of the same month: S-29 while designing FR-20's till PINs, S-30 during FR-22's review of the till
+and fiscal-device screens.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -52,6 +54,7 @@ the fix had been verified on production. They are written up at the end too.
 | **S-27** | **Critical** | **The two import upload endpoints wrote a file wherever its name pointed: any signed-in user could write any file in the container, as root** ([GHSA-f2fv-8rm4-9c9x](https://github.com/gjovanov/lgr/security/advisories/GHSA-f2fv-8rm4-9c9x)) | **Fixed 2026-10-23** |
 | **S-28** | **High** | **A role's permissions were enforced by the UI alone: read-only roles could write invoices, journal entries, payroll and stock through the API** ([GHSA-gg6h-4gv9-w2hx](https://github.com/gjovanov/lgr/security/advisories/GHSA-gg6h-4gv9-w2hx)) | **Fixed 2026-10-23** |
 | **S-29** | **High** | **Role permissions were not enforced on reads: any member of an org could read its payroll, ledgers and audit trail through the API** ([GHSA-9h98-9jvm-p9qw](https://github.com/gjovanov/lgr/security/advisories/GHSA-9h98-9jvm-p9qw)) | **Fixed 2026-10-25** |
+| **S-30** | **High** | **A fiscal device's TCP address was checked on create only, and by prefix: any user could make the server open connections to its own loopback and the cluster network** ([GHSA-5qqr-5jf7-pq2q](https://github.com/gjovanov/lgr/security/advisories/GHSA-5qqr-5jf7-pq2q)) | **Fixed 2026-10-26** |
 
 ---
 
@@ -1353,3 +1356,48 @@ answered as it does to an admin. S-28 had closed the same gap for writes.
   returned `settings` whole to every member.
 - `read-permission.flow.test.ts` walks the route table and holds each default role to every read of
   every app it may open.
+
+## S-30 — A fiscal device's TCP target reached internal addresses (High, **fixed 2026-10-26**)
+
+> Found on 2026-10-25 during FR-22's review of the till and fiscal-device screens. Reported in a
+> private draft advisory and fixed in #257, whose wording does not describe the flaw. The advisory was
+> published on 2026-10-26, once the fix had been verified on production
+> ([GHSA-5qqr-5jf7-pq2q](https://github.com/gjovanov/lgr/security/advisories/GHSA-5qqr-5jf7-pq2q)).
+
+**Where:** `POST` / `PUT /org/:orgId/fiscal/device` and `/fiscal/device/:id/connect`
+(`portal-api/src/controllers/fiscal-device.controller.ts`), and `connectDevice` /
+`buildConnectionConfig` in `fiscal/src/fiscal-device.service.ts`.
+
+**What was wrong:** an earlier hardening (labelled H6 in the code) checked a TCP device's address on
+create, but only when one was given, and only by string prefix (`127.`, `169.254.`, `::1`,
+`localhost`).
+- A device saved with no address connected to `127.0.0.1`: `buildConnectionConfig` fell back to it.
+- `127.1`, `0.0.0.0`, `::ffff:127.0.0.1`, the private ranges and any hostname resolving to them
+  passed the check.
+- `PUT` checked nothing.
+- `/connect` opened a socket to whatever was stored, on a port the user chose.
+
+- **Who:** an `admin`, `manager` or `warehouse_manager` of ANY org, which on lgrai.app means anyone
+  who signs up.
+- **Impact:** the server opened connections to internal host:port pairs and sent fiscal-protocol frames
+  there. That maps the cluster network and the pod's loopback services from success and timing. The
+  fiscal framing limits the payload, but the boundary between a tenant and the cluster was crossed.
+- **Exposure on the day:** none found. Production held no TCP fiscal device at all, only two
+  `browser` ones.
+
+### Fix
+
+- `fiscal/src/tcp-target.ts` holds one check, `resolveFiscalTcpTarget(host, policy)`. It runs at the
+  point the socket opens (`connectDevice`), so rows stored before the fix are covered too.
+  - A TCP device must name a host. `buildConnectionConfig` no longer falls back to `127.0.0.1`.
+  - The host is resolved once, and the socket connects to that address, never re-resolving the name.
+  - Loopback, unspecified, link-local, multicast and reserved addresses are refused, in their
+    IPv4-mapped and NAT64 forms too (`classifyAddress`).
+  - `fiscalTcpPolicy(nodeRole())`: on lgrai.app (`global`) the private and CGNAT ranges are refused as
+    well. An on-prem master (FR-20) reaches its own LAN.
+- Create and update refuse early with 400 (`missing_host`, `unresolvable`, `forbidden`). `/connect`
+  answers 422 and does not mark the device `error`.
+- The POS device form asks for an IP and a port for TCP, and offers `browser` first.
+- Tests: `unit/fiscal-tcp-target.test.ts`, `integration/fiscal-device-target.flow.test.ts`.
+- Verified on production on 2026-10-26: a device with no host, `127.1`, `10.0.0.5` or
+  `169.254.169.254` is refused with 400, and nothing is stored.
