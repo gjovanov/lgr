@@ -119,6 +119,7 @@
     "./components/GridColumnPickerDialog.vue": "./src/components/GridColumnPickerDialog.vue",
     "./composables/useGridColumns": "./src/composables/useGridColumns.ts",
     "./composables/useStorageIdentity": "./src/composables/useStorageIdentity.ts",
+    "./composables/useUserDefaults": "./src/composables/useUserDefaults.ts",
     "./composables/useGridNavigation": "./src/composables/useGridNavigation.ts",
     "./composables/useProductSearchMenu": "./src/composables/useProductSearchMenu.ts",
     "./composables/usePageFavorites": "./src/composables/usePageFavorites.ts",

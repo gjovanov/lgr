@@ -1573,6 +1573,10 @@
       "exists": "Dieses Produkt gibt es schon: {sku} — {name}",
       "useExisting": "Dieses verwenden"
     },
+    "saveAndConfirm": "Speichern und bestätigen",
+    "incomingInvoice": "Eingangsrechnung",
+    "billed": "Abgerechnet",
+    "billedBy": "Abgerechnet mit der Eingangsrechnung",
     "supply": {
       "reserved": "Reserviert",
       "available": "Verfügbar",

@@ -1573,6 +1573,10 @@
       "exists": "This product already exists: {sku} — {name}",
       "useExisting": "Use it"
     },
+    "saveAndConfirm": "Save and confirm",
+    "incomingInvoice": "Supplier bill",
+    "billed": "Billed",
+    "billedBy": "Billed by the supplier's bill",
     "supply": {
       "reserved": "Reserved",
       "available": "Available",

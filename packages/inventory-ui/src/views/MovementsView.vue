@@ -89,6 +89,20 @@
           </template>
           <template #item.status="{ item }">
             <StatusChip :status="item.status" :color-fn="statusColor" />
+            <!-- FR-22.31: a receipt its supplier's bill already pays for — the bill, one click away. -->
+            <v-chip
+              v-if="item.bill"
+              :href="appHref('invoicing', `/invoicing/bills/${item.bill.id}/edit`)"
+              size="x-small"
+              color="primary"
+              variant="tonal"
+              class="ml-1"
+              prepend-icon="mdi-receipt-text-check-outline"
+              :title="item.bill.number"
+              data-testid="movement-billed"
+            >
+              {{ $t('warehouse.billed') }}
+            </v-chip>
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total || 0) }}</template>
           <template #item.actions="{ item }">
@@ -165,8 +179,9 @@ import DateField from 'ui-shared/components/DateField.vue'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
+import { appHref } from 'ui-shared/nav/navigate'
 
-interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string }
+interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string; bill?: { id: string; number: string } }
 interface Warehouse { _id: string; name: string }
 interface Contact { _id: string; name: string; companyName?: string; firstName?: string; lastName?: string }
 const { t } = useI18n()

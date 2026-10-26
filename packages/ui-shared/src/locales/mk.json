@@ -1573,6 +1573,10 @@
       "exists": "Веќе постои таков производ: {sku} — {name}",
       "useExisting": "Користи го"
     },
+    "saveAndConfirm": "Зачувај и потврди",
+    "incomingInvoice": "Влезна фактура",
+    "billed": "Фактурирана",
+    "billedBy": "Фактурирана со влезна фактура",
     "supply": {
       "reserved": "Резервирано",
       "available": "Слободно",
