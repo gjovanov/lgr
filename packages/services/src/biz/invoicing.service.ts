@@ -450,6 +450,14 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
 export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
   const r = repos ?? getRepos()
   if (movesNoStock(invoice, 'reverse')) return
+  const originalMovements = await r.stockMovements.findMany({ orgId: invoice.orgId, invoiceId: invoice.id } as any)
+  // A draft has booked nothing: a document moves stock when it is issued. Reversing a draft's
+  // lines put goods that never left back on the shelf. Found 2026-10-26: one draft void had added
+  // 1,257 units in the `regal` org. A draft reverses only a booking it does carry.
+  if (invoice.status === 'draft' && !originalMovements.some((m: any) => m.status === 'completed')) {
+    logger.info({ invoiceId: invoice.id }, 'reverseInvoiceStockMovement: a draft booked no stock — nothing to reverse')
+    return
+  }
   // Symmetric with the booking above: what never moved must not be restocked on a void.
   const tracked = await stockTrackedIds(invoice.orgId, invoice.lines as any)
   const productLines = invoice.lines.filter(l => l.productId && l.warehouseId && tracked.has(String(l.productId)))
@@ -469,7 +477,6 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
   }
 
   // Restore cost layers from original dispatch movements
-  const originalMovements = await r.stockMovements.findMany({ orgId, invoiceId: invoice.id } as any)
   for (const mov of originalMovements) {
     if (mov.status !== 'completed') continue
     for (const line of mov.lines) {
