@@ -11,9 +11,13 @@ import { closeTillSession, createBackOfficeCashSale, journal, ringTillSale, stoc
  * the seeded cashier, and the back-office sale saved as the invoicing terminal saves one
  * (`helpers/cash-register.ts`): the seed has neither.
  *
+ * R2: a till sale is a cash-register document, so what reads only documents carries it — the
+ * cash-register report and its export among them.
+ *
  * Not here yet (§8.3): the receipt's УНП and the Z-report on close need a fiscal device in
- * Playwright (`scripts/eltrade-tcp-stub.ts`, still to write); the export carrying till sales and
- * a back-office sale joining a session are R2 and R5.
+ * Playwright, and the server refuses a loopback TCP device (`fiscal/tcp-target.ts`, SSRF): the TCP
+ * stub the spec planned needs a test seam first (handover §4). A back-office sale joining a
+ * session is R5.
  *
  * Serial: the storno, the roles and the old links are all about the one sale rung in `beforeAll`.
  */
@@ -55,6 +59,21 @@ test.describe('FR-21 — one cash register, two journals', () => {
     // A document opens on its invoicing page, where it prints and emails.
     await rowOf(page, backOffice.number).getByRole('link', { name: backOffice.number, exact: true }).click()
     await expect(page).toHaveURL(new RegExp(`/invoicing/cash-sales/${backOffice.id}/edit`))
+  })
+
+  test('R2: the cash-register report, which reads only documents, carries the till sale', async () => {
+    const admin = await apiLogin()
+    const res = await fetch(`${process.env.BASE_URL || 'http://localhost:4001'}/api/org/${admin.orgId}/reports/cash-register/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.token}` },
+      body: JSON.stringify({ params: {} }),
+    })
+    expect(res.status).toBe(200)
+    const report: any = await res.json()
+    const row = report.rows.find((r: any) => r.number === sale.number)
+    expect(row, `${sale.number} is in the report`).toBeTruthy()
+    expect(row.docType).toBe('cash_sale')
+    expect(row.total).toBeCloseTo(sale.total, 2)
   })
 
   test('a storno from the invoicing journal shows in both, and the stock is back', async ({ page }) => {
