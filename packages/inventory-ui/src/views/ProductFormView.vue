@@ -26,6 +26,7 @@
               </v-row>
               <v-row>
                 <v-col cols="12" md="4">
+                  <!-- A category name no category carries is shown as the placeholder, and kept. -->
                   <v-autocomplete
                     v-model="form.categoryId"
                     :label="$t('warehouse.category')"
@@ -33,6 +34,8 @@
                     item-title="name"
                     item-value="_id"
                     :loading="loadingCategories"
+                    :placeholder="unlinkedCategory || undefined"
+                    :persistent-placeholder="!!unlinkedCategory"
                     clearable
                   />
                 </v-col>
@@ -223,7 +226,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
@@ -365,7 +368,35 @@ function onTierFinalPriceChange(i: number) {
 const rules = { required: (v: string) => !!v || t('validation.required') }
 const margin = computed(() => form.purchasePrice > 0 ? (((form.sellingPrice - form.purchasePrice) / form.purchasePrice) * 100).toFixed(1) : '0.0')
 
-const { markSaved, tryRestore } = usePendingChanges({
+/**
+ * A category is stored twice: `categoryId`, which the field edits, and the `category` name that
+ * lists, reports and imports read. Some articles carry only the name (on 2026-10-26: every
+ * product of the `regal` org, and the acme seed), and the field cannot show it. Saving
+ * such an article used to write `category: ''`, erasing it. Now:
+ *   - on load, a name exactly one category carries is linked to that category;
+ *   - any other name is the field's placeholder, and saving keeps it;
+ *   - the name changes only when the user changes the field: a pick takes the category's name,
+ *     a clear drops it.
+ */
+const unlinkedCategory = computed(() => (form.categoryId ? '' : form.category))
+
+function linkCategoryByName() {
+  if (form.categoryId || !form.category) return
+  const key = (s: string) => (s || '').trim().toLocaleLowerCase('bg')
+  const hits = categories.value.filter(c => key(c.name) === key(form.category))
+  if (hits.length === 1) form.categoryId = hits[0]._id
+}
+
+watch(() => form.categoryId, (id, old) => {
+  if (id) {
+    const cat = categories.value.find(c => c._id === id)
+    if (cat) form.category = cat.name
+  } else if (old) {
+    form.category = ''
+  }
+})
+
+const { markSaved, tryRestore, snapshot } = usePendingChanges({
   appId: 'inventory',
   entityType: 'product',
   icon: 'mdi-package-variant',
@@ -560,12 +591,11 @@ async function handleSubmit() {
   if (!valid) return
   loading.value = true
   try {
-    // Set category name from selected category for backward compat
+    // Set category name from selected category for backward compat. No category selected leaves
+    // the name alone: clearing the field already dropped it, and a name no category carries is kept.
     if (form.categoryId) {
       const cat = categories.value.find(c => c._id === form.categoryId)
       if (cat) form.category = cat.name
-    } else {
-      form.category = ''
     }
 
     // Legacy customPrices/tagPrices UI was retired in Phase 7 (2026-04-21).
@@ -619,6 +649,7 @@ onMounted(async () => {
         standardCost: p.standardCost || 0,
         tags: p.tags || [],
       })
+      linkCategoryByName()
       sellingPricePercent.value = calcPercent(form.sellingPrice)
       priceEntries.value = mergePriceEntries(p.customPrices || [], p.tagPrices || [])
       // Load existing priceTiers; pad to 13 slots with base-price defaults if fewer exist.
@@ -649,6 +680,10 @@ onMounted(async () => {
     ensureTierSlots()
     await applyOrgDefaultVat()
   }
+  // The clean state is the loaded article, taken once the field watchers have run (FR-22.13).
+  // The default snapshot fires 500 ms after mount: a slower load left an untouched form dirty.
+  await nextTick()
+  snapshot()
 })
 
 /**
