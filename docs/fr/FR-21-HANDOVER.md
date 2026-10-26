@@ -1,12 +1,45 @@
-# FR-21 — handover (2026-10-25)
+# FR-21 — handover (2026-10-25, updated 2026-10-26)
 
 **To:** Atanas (@lazarovski) · **Tracking:** #171 · **Spec:** [FR-21](FR-21-cash-register-pos-and-cash-sales.md)
 
-R1, the read side, is merged and on production since 2026-10-26: master `ddfd167f`, image
-`v20261026-ee6cc3b78103`. Its two migrations ran there, and the field checks match the baseline taken
-before the release. FR-21.14 ran on the owner's go the same day. R2, the write side, is built and
-in review as a stack (#272 → #273 → #274; R2a #271 is merged); it is not deployed. This is what is
-done, what is left, and what turned up on the way that the spec does not say.
+R1, the read side, is merged and on production since 2026-10-26. It shipped in image
+`v20261026-ee6cc3b78103` (master `ddfd167f`). Prod now runs `v20261026-a9dae7528a8c` (master
+`f89e22eb`), which adds FR-21.14's cleanup script. R1's two migrations ran there, and the field
+checks matched the baseline taken before the release. FR-21.14 ran on the owner's go the same day.
+R2, the write side, is built and in review as a stack (#272 → #273 → #274), and none of it is
+deployed. R2a (#271) is merged but not deployed. This is what is done, what is left, and what
+turned up on the way that the spec does not say.
+
+## 0. Start here (2026-10-26)
+
+Atanas takes FR-21 over from here. In order:
+
+1. **R2's CI.**
+   - #272 is green.
+   - #273 and #274 failed one test, `unit/scripts-home-guard`: the new preflight script was not
+     listed as read-only. It is fixed in `6c9bb779` on R2c, and R2d is rebased onto it.
+   - Check that the re-runs pass.
+2. **Merge R2** in order, #272 → #273 → #274. Retarget each next PR to `master` before you delete
+   its base branch (§1). This document (#275) can merge at any time.
+3. **Deploy R2 when the owner gives the go** (§5, R2 steps 4–5):
+   - the field check before the deploy (the baseline);
+   - the deploy;
+   - `bun run migrate` on the build host;
+   - the field check again, and the diff;
+   - the device test in `acme-corp`.
+
+   After the deploy, watch the first cash-sale import. regal-pz and regal-sf import a till day
+   every day, so it is the busiest door R2d moved onto the new service.
+4. **#276**, the void-path bug (§4.13). It is independent of FR-21's releases.
+5. **Decide before R3–R5:**
+   - **The e2e fiscal device** (§5, R2 step 2). The recommendation is no bypass of the SSRF guard:
+     integration tests run printing on the Eltrade simulator, and the device test covers the real
+     connection.
+   - **SUPTO 18.4/18.5 and back-office stornos** (§4.16). This is the accountant's question.
+   - **The terminal shows any open session** (§4.1). Settle it before R5.
+
+⚠ **This repository is public.** Business figures never go into it, its issues or its PRs: sales
+totals, a day's cash, SUPTO sums. The field check's output stays on the build host.
 
 ## 1. State
 
@@ -16,10 +49,10 @@ done, what is left, and what turned up on the way that the spec does not say.
 | **R1b** — every reader counts a till sale once, whichever store holds it | FR-21.7 – FR-21.12 | #247, merged and deployed 2026-10-26 |
 | **R1c** — one journal page in both apps | FR-21.13 (B-6) | #248, merged and deployed 2026-10-26 |
 | Before R2 — the `regal` test sales | FR-21.14 | **Done 2026-10-26** (#269, owner's go): 74 test sales removed, see §5. |
-| R2a — `pendingTransferIds` | FR-21.24 | #271, merged 2026-10-26 (not deployed) |
-| R2b — the till writes cash-register documents | FR-21.15 – FR-21.20 (the till's door) | #272, in review |
-| R2c — the copy migration and the restore | FR-21.21 – FR-21.22 | #273 (on #272), in review |
-| R2d — the back office and the import; `docs/supto` | FR-21.15 (the other doors), FR-21.23 | #274 (on #273), in review |
+| R2a — `pendingTransferIds` | FR-21.24 | #271, merged 2026-10-26 (not deployed: prod runs `f89e22eb`) |
+| R2b — the till writes cash-register documents | FR-21.15 – FR-21.20 (the till's door) | #272, in review, CI green |
+| R2c — the copy migration and the restore | FR-21.21 – FR-21.22 | #273 (on #272), in review, CI re-running after the fix in `6c9bb779` |
+| R2d — the back office and the import; `docs/supto`; the field-check script | FR-21.15 (the other doors), FR-21.23 | #274 (on #273), in review, CI re-running |
 | R3 — freeze | FR-21.25 – FR-21.26 | not started |
 | R4 — contract | FR-21.27 – FR-21.28 | not started |
 | R5 — one terminal | FR-21.29 – FR-21.32 | not started |
@@ -40,13 +73,13 @@ restore the branch, reopen the PR, retarget it, and delete the branch again. For
 2. **Release note (FR-21.5).** The product ledger's cash-register totals for imported days rise by the
    VAT they were missing.
 3. **Field checks (§8.4), read-only.** One script ran against prod with the code before and after the
-   release: same 30-day window, same digest day.
+   release: same 30-day window, same digest day. The amounts stay off this public repository.
 
-   | Org | Journal rows = POS + cash sales | SUPTO 18.1, 30 days | 18.2–18.5 | Digest 10-23 cash = journal cash |
+   | Org | Journal rows = POS + cash sales | SUPTO 18.1, 30 days | 18.2–18.5 | Digest 10-23 cash vs journal cash |
    |---|---|---|---|---|
-   | regal | 82 = 74 + 8 | unchanged | unchanged | 0 = 0 |
-   | regal-pz | 66 = 0 + 66 | unchanged (20, 4563.13) | unchanged | 287.34 = 287.34 |
-   | regal-sf | 21 = 0 + 21 | unchanged (21, 16303.18) | unchanged | 7447.04 = 7447.04 |
+   | regal | 82 = 74 + 8 | unchanged | unchanged | equal |
+   | regal-pz | 66 = 0 + 66 | unchanged | unchanged | equal |
+   | regal-sf | 21 = 0 + 21 | unchanged | unchanged | equal |
 
    In the demo org `acme-corp`:
    - Both journal pages render.
@@ -206,8 +239,10 @@ Revisit any of these you disagree with. None is hard to change.
     the default costing method, every void of a sale that moved stock pulls `avgCost` toward the
     selling price — all the way to it when none of the product was left. A layer-costed product
     (FIFO/LIFO/FEFO) is worse: the consumed layers are restored first, and the receipt then layers the
-    same goods again. R2's storno does not go through it (§3.15). CLAUDE.md's till-overlap repair
-    does. Still open; worth its own issue.
+    same goods again. R2's storno does not go through it (§3.15), and `/void` refuses
+    cash-register documents. CLAUDE.md's till-overlap repair and the Files rollback do go through
+    it. **Filed as #276** (assigned), with a measured repro. A sale of 1 at 15, from 10 units at 10,
+    is voided: WAC then reads 10 @ 10.5, and FIFO's layers hold 11 units for 10 in stock.
 14. **`createInvoiceStockMovement` had no retry on a taken `SM-` number** (the till's own code had one).
     Moving the till onto it would have lost a sale's stock to two tills selling at once. It retries now
     (`createNumberedMovement`).
@@ -256,8 +291,8 @@ through the union, and every till document carries its session. Each PR is safe 
 R1's readers already union both stores and know `cash_storno`.
 
 **Before the R2 deploy:**
-1. **CI** green on #272, #273 and #274; merge the stack in order, retargeting each next PR to
-   `master` before its base branch is deleted (§1).
+1. **CI** green on #272, #273 and #274. One guard test failed and is fixed (§0). Merge the stack in
+   order, retargeting each next PR to `master` before its base branch is deleted (§1).
 2. **E2E** — passed on the stack, 2026-10-26, against an isolated database (§7). Covered:
    `cash-register`, `cash-sales`, `cash-sale-invoice`, `pos-terminal`, `pos-transactions` and FR-22's
    walks. `cash-register.spec` gained §8.3 item 7: the cash-register report and both exports (the list
@@ -278,7 +313,14 @@ R1's readers already union both stores and know `cash_storno`.
 4. **The device test** on prod, in `acme-corp` (§8.4), after the deploy: the non-fiscalized Eltrade A3
    over Web Serial, text mode — open a session, sell, storno, close; both journals agree.
 5. **The deploy** itself, then `bun run migrate` on the build host (`MIGRATIONS_AUTO` is off), then
-   the read-only field checks of §8.4 against the R1 baseline.
+   the read-only field checks of §8.4. `scripts/cash-register-field-check.ts` (R2d) has the commands:
+   - Take the baseline with the code still deployed, right before the deploy.
+   - Run it again after `migrate`, over the same `FIELD_FROM`/`FIELD_TO`/`FIELD_DIGEST_DAY`.
+   - Diff the two outputs. Only `code` and `origins` may change.
+   - Keep the outputs on the build host.
+
+   To rehearse again, for example R3's freeze migration, run `scripts/cash-register-rehearsal.sh
+   <branch>` on the build host. It does what step 3 did.
 
 ### R3 – R5
 As the spec has them, after the points in §4 are settled.
@@ -301,6 +343,7 @@ As the spec has them, after the points in §4 are settled.
 | The write path (R2) | `services/src/biz/cash-register/register.service.ts` (the steps, the storno), `printer.ts` (the device port), `copy.ts` (one row on the spot) |
 | The till's side (R2) | `invoicing-api/src/lib/cash-register-till.ts` (the device, the till's answers, the storno door) |
 | The copy (R2) | `services/src/biz/cash-register/copy-org.ts`, `migrations/src/migrations/0008-cash-register-copy.ts`, `scripts/cash-register-preflight.ts` |
+| The field check and the rehearsal | `scripts/cash-register-field-check.ts` (R2d), `scripts/cash-register-rehearsal.sh` (#275) |
 | R2's tests | `tests/src/integration/cash-register-{sale,storno,idempotency,migration}.flow.test.ts`, `helpers/till-world.ts`, `helpers/till-row.ts` |
 
 ## 7. Running the tests
