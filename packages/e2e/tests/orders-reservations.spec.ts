@@ -62,8 +62,11 @@ test.describe('Client reservations in the supplier order (#203)', () => {
     await page.goto(`/invoicing/orders/${s.orderId}/edit`)
     await expect(page.getByRole('heading', { name: /edit supplier order/i }).first()).toBeVisible({ timeout: 15000 })
 
-    // The allocation editor is folded; the reserve button is on the allocation.
-    await page.getByRole('button', { name: 'Allocations' }).first().click()
+    // The line's client-reservations grid is folded while the line holds none; reserving is per
+    // allocation inside it.
+    const grid = page.getByRole('button', { name: /client reservations/i }).first()
+    await expect(grid).toHaveAttribute('aria-expanded', 'false')
+    await grid.click()
     await page.getByRole('button', { name: /reserve for client/i }).first().click()
     const dialog = page.locator('.v-dialog').filter({ hasText: /reserve for client/i })
     await expect(dialog).toBeVisible()
@@ -84,6 +87,18 @@ test.describe('Client reservations in the supplier order (#203)', () => {
     // The staged row is replaced by the saved one when the order reloads — not before.
     await expect(page.getByText('unsaved changes')).toBeHidden()
     const number = (await reservationsOf(token, orgId, s.orderId))[0].reservationNumber
+
+    // The grid stays as the user left it across the save's reload, and folds and unfolds on demand.
+    const qtyField = page.getByRole('spinbutton', { name: new RegExp(number) })
+    await expect(qtyField).toBeVisible()
+    await grid.click()
+    await expect(qtyField).toBeHidden()
+    await grid.click()
+    await expect(qtyField).toBeVisible()
+    // Opened fresh, a line that holds a reservation shows its grid without a click.
+    await page.reload()
+    await expect(qtyField).toBeVisible({ timeout: 15000 })
+    await expect(grid).toHaveAttribute('aria-expanded', 'true')
 
     // Change it in place, then cancel it — each a save of the order.
     await page.getByRole('spinbutton', { name: new RegExp(number) }).fill('3')

@@ -108,8 +108,9 @@ test('P7 who reserved: per-client reserved quantity on one line of a supplier or
   await walk.click(ordoLink, 'open the external order')
   await page.waitForURL(/\/orders\/[0-9a-f]{24}\/edit/)
   const lineRow = (p: any) => page.locator('tbody tr').filter({ has: page.locator('.v-chip').filter({ hasText: p.name }) }).first()
-  // #252: a line whose allocations hold reservations opens by itself, and each reservation is a
-  // row under its allocation — client, number, and the quantity in a field named after the number.
+  // #252: a line holding reservations opens its client-reservations grid by itself, the row right
+  // under the line; each reservation is a row in it, grouped by allocation — client, number, and the
+  // quantity in a field named after the number.
   const editorOf = (p: any) => lineRow(p).locator('xpath=following-sibling::tr[1]')
   for (const [spec, p] of [[ASKED, asked], [OTHER, other]] as const) {
     const editor = editorOf(p)

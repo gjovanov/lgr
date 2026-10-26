@@ -1315,7 +1315,9 @@
         "order_not_draft": "That supplier order is no longer a draft: nothing can be added to it.",
         "no_target_warehouse": "Choose the warehouse the goods go to: no default warehouse is set.",
         "order_has_invoices": "The supplier order has invoices: void or delete them before cancelling it."
-      }
+      },
+      "clientReservations": "Client reservations",
+      "allocateFirst": "Allocate the line to a warehouse first, then reserve for clients."
     },
     "shortLine": "{name} ({missing} short)",
     "reservedFromStockShort": "Reservations created: {count}. Not enough free stock for: {lines}",
