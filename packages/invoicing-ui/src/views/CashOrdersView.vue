@@ -11,7 +11,7 @@
     @update:options="onUpdateOptions"
   >
     <template #actions>
-      <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
+      <CreateButton :label="$t('invoicing.newCashOrder')" @click="openCreate" />
     </template>
 
     <template #filters>
@@ -23,7 +23,7 @@
     </template>
 
     <template #empty-actions>
-      <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
+      <CreateButton :label="$t('invoicing.newCashOrder')" @click="openCreate" />
     </template>
 
     <!-- Cell renderers -->
@@ -98,7 +98,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
-import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import CreateButton from 'ui-shared/components/CreateButton.vue'
 import DateField from 'ui-shared/components/DateField.vue'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'

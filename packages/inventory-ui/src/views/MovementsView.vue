@@ -7,7 +7,8 @@
         <ViewSwitcher v-model="displayMode" :views="['list', 'kanban']" class="mr-2" />
         <export-menu @export="onExport" />
         <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
-        <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'inventory.movements.new' }">{{ $t('common.create') }}</responsive-btn>
+        <!-- FR-22.50: says what it creates — the form opens as a goods receipt. -->
+        <CreateButton :label="$t('nav.newDocPage.goodsReceipt')" :to="{ name: 'inventory.movements.new' }" />
       </div>
     </div>
 
@@ -171,7 +172,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ExportMenu from 'ui-shared/components/ExportMenu'
-import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import CreateButton from 'ui-shared/components/CreateButton.vue'
 import ProductLedgerTable from 'ui-shared/components/ProductLedgerTable.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import StatusChip from 'ui-shared/components/StatusChip'

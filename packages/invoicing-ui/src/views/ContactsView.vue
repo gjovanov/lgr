@@ -11,9 +11,7 @@
     @update:options="onUpdateOptions"
   >
     <template #actions>
-      <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.contacts.new' }">
-        {{ $t('common.create') }}
-      </responsive-btn>
+      <CreateButton :label="$t('invoicing.newContact')" :to="{ name: 'invoicing.contacts.new' }" />
     </template>
 
     <template #filters>
@@ -33,9 +31,7 @@
     </template>
 
     <template #empty-actions>
-      <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.contacts.new' }">
-        {{ $t('common.create') }}
-      </responsive-btn>
+      <CreateButton :label="$t('invoicing.newContact')" :to="{ name: 'invoicing.contacts.new' }" />
     </template>
 
     <!-- Cell renderers -->
@@ -86,7 +82,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
-import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import CreateButton from 'ui-shared/components/CreateButton.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
