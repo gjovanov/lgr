@@ -116,11 +116,11 @@ test.describe('Invoicing CRUD', () => {
       await expect(taxTotalLabel).toBeVisible()
     }
 
-    // Save the invoice
+    // Save the invoice. FR-22.16: it stays open, on its own edit route.
     await page.getByRole('button', { name: /^save$/i }).first().click()
 
     await expect(
-      page.locator('.v-data-table').or(page.getByRole('heading', { name: /new invoice/i }))
+      page.getByRole('heading', { name: /edit invoice/i }).or(page.getByRole('heading', { name: /new invoice/i }))
     ).toBeVisible({ timeout: 10000 })
   })
 

@@ -21,8 +21,11 @@
       </div>
     </v-container>
     <!-- Re-key on type switch: the form fully re-initialises with the new config
-         (fields, number peek, payload rules). Only possible pre-save, so nothing is lost. -->
-    <DocumentForm :key="docTypeKey" :config="DOCUMENT_CONFIGS[docTypeKey]" />
+         (fields, number peek, payload rules). Only possible pre-save, so nothing is lost.
+         FR-22.16: and on a different document — Vue Router reuses this view when only the
+         route's id or query changes — but not when a new document the form just saved moves
+         onto its own edit route (`adopt`). -->
+    <DocumentForm :key="`${docTypeKey}:${formKey}`" :config="DOCUMENT_CONFIGS[docTypeKey]" @created="adopt" />
   </div>
 </template>
 
@@ -31,6 +34,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DocumentForm from '../components/document-form/DocumentForm.vue'
 import { DOCUMENT_CONFIGS } from '../composables/document-form/configs'
+import { useDocumentRouteKey } from '../composables/document-form/useDocumentRouteKey'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useAppStore } from '../store/app.store'
 
@@ -41,12 +45,20 @@ const TYPE_COLORS: Record<SalesDocType, string> = { invoice: 'primary', credit_n
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const { formKey, adopt } = useDocumentRouteKey()
 
 const isEdit = computed(() => !!route.params.id)
 const docTypeKey = ref<SalesDocType>('invoice')
 const ready = ref(false)
 
-onMounted(async () => {
+function typeFromQuery(): SalesDocType {
+  const q = String(route.query.type || '')
+  return (TYPES as string[]).includes(q) ? (q as SalesDocType) : 'invoice'
+}
+
+/** Which form to mount: a stored document's type, or the type a new one is asked for. */
+async function resolveType() {
+  ready.value = false
   if (isEdit.value) {
     // Resolve which config to mount from the stored document's type. The form re-fetches
     // the document itself — this pre-read is only the config decision.
@@ -64,10 +76,17 @@ onMounted(async () => {
       docTypeKey.value = 'invoice'
     }
   } else {
-    const q = String(route.query.type || '')
-    docTypeKey.value = (TYPES as string[]).includes(q) ? (q as SalesDocType) : 'invoice'
+    docTypeKey.value = typeFromQuery()
   }
   ready.value = true
+}
+
+onMounted(resolveType)
+// A different document in this same view (FR-22.16).
+watch(formKey, resolveType)
+// „+ Нов" → a credit note while a new invoice is open changes only the query.
+watch(() => route.query.type, () => {
+  if (!isEdit.value && typeFromQuery() !== docTypeKey.value) docTypeKey.value = typeFromQuery()
 })
 
 // Keep the chosen type in the URL so redirects/deep links (?type=credit_note) round-trip.

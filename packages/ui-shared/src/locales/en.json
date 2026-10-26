@@ -1236,7 +1236,16 @@
       "savedWithOrder": "Saved together with the order.",
       "allocationGone": "The allocation it was on is no longer on this order",
       "noFreeQuantity": "Nothing on that allocation is free to reserve"
-    }
+    },
+    "issueFlow": {
+      "issueAndPrint": "Issue and print",
+      "issue": "Issue",
+      "saveAndIssue": "Save and issue",
+      "notIssued": "Not issued — the document is still a draft: {reason}",
+      "notIssuedStock": "not enough stock, and the transfer was not confirmed",
+      "printOptions": "Print with options…"
+    },
+    "proformaIssued": "Proforma issued successfully"
   },
   "pos": {
     "cartEmpty": "Cart is empty",

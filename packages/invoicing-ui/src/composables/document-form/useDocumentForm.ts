@@ -15,9 +15,12 @@ import { upsertAmountInWords } from 'config/amount-in-words'
 import { useGRColumns } from 'ui-shared/composables/useGRColumns'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
+import { rememberedSetting } from 'ui-shared/composables/useUserDefaults'
+import { defaultSelection, type ExportMode } from 'ui-shared/composables/useExportColumns'
 import { appHref } from 'ui-shared/nav/navigate'
 import type { FormAction, SmartButtonDef, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import type { DocumentTypeConfig } from './types'
+import { useDocumentIssue } from '../useDocumentIssue'
 import {
   buildPayload as buildPayloadPure,
   buildProductUpdates,
@@ -25,6 +28,7 @@ import {
   lineAmounts,
   linesFromRelatedInvoice,
   MAX_PRICE_TIERS,
+  noteFromInvoice,
   resolvesSalesPrice,
   round2,
   type DocumentFormState,
@@ -46,7 +50,23 @@ export interface UseDocumentFormOptions {
   /** Create-mode interceptor (cash sale stock check). Receives the built payload; may open a
    *  dialog and return { proceed:false } to suspend, then later call `submitCreate(extra)`. */
   onBeforeCreate?: (payload: Record<string, any>) => Promise<BeforeCreateResult> | BeforeCreateResult
+  /**
+   * A new document was just created as `id`, and the form is about to move onto its edit route.
+   * The view keeps the form mounted for that move (`useDocumentRouteKey#adopt`): it is the same
+   * document, and the form may still be issuing or printing it.
+   */
+  onCreated?: (id: string) => void
 }
+
+/** What a print starts from: the user's last print settings (FR-22.20). Companions are never carried over. */
+export interface PrintSettings {
+  format: 'pdf' | 'xlsx'
+  mode: ExportMode
+  columns: string[]
+}
+
+/** Statuses of a document that stands issued: a note can correct it (the API's own rule). */
+const CORRECTABLE = ['sent', 'received', 'partially_paid', 'paid', 'overdue']
 
 type Line = Record<string, any>
 
@@ -240,7 +260,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   })
 
   // ── pending changes ──
-  const { markSaved, tryRestore, snapshot: snapshotPending } = usePendingChanges({
+  const { markSaved, markClean: markCleanPending, isDirty: formDiffersFromStored, tryRestore } = usePendingChanges({
     appId: 'invoicing',
     entityType: config.pendingEntityType,
     icon: config.pendingIcon,
@@ -843,11 +863,17 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   }
 
   // ── related-invoice autofill (credit / debit) ──
+  /** The invoice `prefillFromInvoice` already copied: the watcher below must not copy it again. */
+  let prefilledFrom = ''
   if (config.relatedInvoiceAutofill) {
     watch(
       () => form.relatedInvoiceId,
       async (newId) => {
         if (!newId || isEdit.value) return
+        if (newId === prefilledFrom) {
+          prefilledFrom = ''
+          return
+        }
         try {
           const { data } = await httpClient.get(`${orgUrl()}/invoices/${newId}`)
           const invoice = data.invoice
@@ -861,6 +887,38 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
         }
       },
     )
+  }
+
+  /**
+   * FR-22.21: a note opened from the invoice it corrects (`?relatedInvoiceId=` — „Кредитно
+   * известие" / „Дебитно известие" on the invoice) starts as that invoice: its customer, the
+   * invoice itself, its currency and method, and its lines as they were sold. The user then keeps
+   * what is returned or charged. The customer is set without `onContactChange`, whose price
+   * re-resolution would replace the prices the invoice charged.
+   */
+  async function prefillFromInvoice(id: string) {
+    try {
+      const { data } = await httpClient.get(`${orgUrl()}/invoices/${id}`)
+      const invoice = data.invoice
+      if (!invoice) return
+      const note = noteFromInvoice(invoice)
+      form.contactId = note.contactId
+      await ensureSelectedContactLoaded(invoice.contactId)
+      if (note.currency) form.currency = note.currency
+      form.exchangeRate = note.exchangeRate
+      if (note.paymentMethod) form.paymentMethod = note.paymentMethod
+      form.lines = note.lines as Line[]
+      prefilledFrom = note.relatedInvoiceId
+      if (!invoices.value.some((i: any) => i._id === note.relatedInvoiceId)) {
+        invoices.value = [{ ...invoice, _id: invoice._id || invoice.id }, ...invoices.value]
+      }
+      form.relatedInvoiceId = note.relatedInvoiceId
+      syncDocLevelFromLines()
+      // The related-invoice candidates narrow to this customer, as a pick of the customer does.
+      void fetchInvoices()
+    } catch {
+      /* The user picks the invoice by hand, as before. */
+    }
   }
 
   // ── status pipeline (i18n) ──
@@ -892,20 +950,59 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   /** #171: the cash sale this invoice was issued for — its lines are that sale's, so no import. */
   const cashSaleRef = computed<{ cashSaleId: string; number: string; issueDate: string } | null>(() => invoiceData.value?.cashSaleRef || null)
 
+  /** A document the form issues itself: every outgoing one but the cash sale, issued as it is saved. */
+  const issuable = config.direction === 'outgoing' && config.docType !== 'cash_sale'
+  /** Not issued yet: a new document, or a draft. */
+  const isDraftDoc = computed(() => !isEdit.value || invoiceStatus.value === 'draft')
+  /** FR-22.21: an issued invoice can be corrected by a credit or a debit note. */
+  const correctable = computed(() =>
+    isEdit.value && (config.docType === 'invoice' || config.docType === 'purchase_invoice') && CORRECTABLE.includes(invoiceStatus.value),
+  )
+  /** FR-22.22: a proforma becomes an invoice once — and not after it was voided. */
+  const convertible = computed(() => config.docType === 'proforma' && !['converted', 'voided', 'cancelled'].includes(invoiceStatus.value))
+
   const formActions = computed<FormAction[]>(() => {
-    const save: FormAction = { label: t('common.save'), color: 'primary', handler: onSave, loading: loading.value }
-    if (cashSaleRef.value) return invoiceStatus.value === 'draft' ? [save] : []
+    const save: FormAction = { label: t('common.save'), color: 'primary', handler: onSave, loading: loading.value, save: true }
+    const outlinedSave: FormAction = { ...save, variant: 'outlined' }
+    const notes: FormAction[] = correctable.value
+      ? [
+          { label: t('invoicing.docType.credit_note'), icon: 'mdi-file-undo', variant: 'outlined', handler: () => openNote('credit_note') },
+          { label: t('invoicing.docType.debit_note'), icon: 'mdi-file-plus-outline', variant: 'outlined', handler: () => openNote('debit_note') },
+        ]
+      : []
+    if (cashSaleRef.value) return invoiceStatus.value === 'draft' ? [save] : notes
     // FR-22.33: a bill that is not received yet is saved and received in one action — the
     // primary one, so it comes first; plain Save keeps a draft.
-    if (config.saveAndReceive && (!isEdit.value || invoiceStatus.value === 'draft')) {
+    if (config.saveAndReceive && isDraftDoc.value) {
       const receive: FormAction = {
-        label: t('invoicing.saveAndReceive'), color: 'primary', icon: 'mdi-package-down', handler: onSaveAndReceive, loading: receiving.value,
+        label: t('invoicing.saveAndReceive'), color: 'primary', icon: 'mdi-package-down', handler: onSaveAndReceive, loading: receiving.value, primary: true,
       }
-      return [receive, { ...save, variant: 'outlined' }, importAction]
+      return [receive, outlinedSave, importAction]
+    }
+    const convert: FormAction | null = convertible.value
+      ? { label: t('invoicing.convertToInvoice'), icon: 'mdi-swap-horizontal', variant: 'outlined', handler: onConvert, loading: converting.value }
+      : null
+    // FR-22.17/.18: a document not issued yet is issued from its own form. „Издай и печатай"
+    // finishes the job, so it is the primary action and comes first. „Издай" saves first when the
+    // form holds anything unsaved, and says so.
+    if (issuable && isDraftDoc.value) {
+      const busy = issuing.value
+      return [
+        { label: t('invoicing.issueFlow.issueAndPrint'), color: 'primary', icon: 'mdi-printer-check', handler: () => issueFromForm(true), loading: busy && issuingWithPrint.value, disabled: busy && !issuingWithPrint.value, primary: true },
+        { label: t(isDirtyNow.value ? 'invoicing.issueFlow.saveAndIssue' : 'invoicing.issueFlow.issue'), color: 'primary', variant: 'outlined', icon: 'mdi-send-check', handler: () => issueFromForm(false), loading: busy && !issuingWithPrint.value, disabled: busy && issuingWithPrint.value },
+        outlinedSave,
+        ...(convert ? [convert] : []),
+        importAction,
+      ]
     }
     if (!isEdit.value) return [save, importAction]
-    if (config.editSaveGate === 'draft-only' && invoiceStatus.value !== 'draft') return []
-    return [save, importAction]
+    // Issued: what it can still change, and what follows from it.
+    const issued: FormAction[] = []
+    if (convert) issued.push({ ...convert, color: 'primary', variant: 'flat', primary: true })
+    if (config.editSaveGate !== 'draft-only') issued.push(issued.length ? outlinedSave : save)
+    issued.push(...notes)
+    if (config.editSaveGate !== 'draft-only') issued.push(importAction)
+    return issued
   })
 
   /**
@@ -956,6 +1053,26 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
    */
   const companionNote = ref('')
   const { loading: exportLoading, exportOne } = useInvoicingExport(() => appStore.orgUrl())
+
+  /**
+   * FR-22.20: where a print starts — the user's last print settings (per user and org), or, until
+   * they print otherwise, what the print dialog starts with: a PDF of the detailed form with its
+   * default columns. The companion documents are never carried over: each is a numbered document
+   * of its own, printed only when asked for.
+   */
+  const printSettingsStore = rememberedSetting<PrintSettings>('doc-print')
+  function readPrintSettings(): PrintSettings {
+    const s = printSettingsStore.read()
+    const mode: ExportMode = s?.mode === 'compact' ? 'compact' : 'detailed'
+    const columns = Array.isArray(s?.columns) ? s!.columns.filter((c) => typeof c === 'string') : []
+    return {
+      format: s?.format === 'xlsx' ? 'xlsx' : 'pdf',
+      mode,
+      columns: columns.length ? columns : defaultSelection(mode, 'invoice'),
+    }
+  }
+  const lastPrint = ref<PrintSettings>(readPrintSettings())
+
   async function onExportSingle(o: {
     format: 'xlsx' | 'pdf'
     mode: 'compact' | 'detailed'
@@ -978,9 +1095,49 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       }
       showExportDialog.value = false
       showSuccess(t('export.success'))
+      // What the user printed with is where the next print starts.
+      const settings: PrintSettings = { format: o.format, mode: o.mode, columns: o.columns?.length ? [...o.columns] : lastPrint.value.columns }
+      lastPrint.value = settings
+      printSettingsStore.write(settings)
     } catch (e: any) {
       showError(e?.response?.data?.message || t('export.failed'))
     }
+  }
+
+  /**
+   * FR-22.20 — „Печат": the document in one click, with the user's last settings. The options
+   * dialog stays one click further away (`onPrintOptions`). #4.13: a document that is new or holds
+   * unsaved edits is saved first — what prints is what is stored.
+   */
+  async function onPrint() {
+    if (!(await saveIfNeeded())) return
+    await onExportSingle({ ...lastPrint.value, companions: [] })
+  }
+
+  /** „Печат…": the print options (format, columns, companion documents), after saving the same way. */
+  async function onPrintOptions() {
+    if (!(await saveIfNeeded())) return
+    showExportDialog.value = true
+  }
+
+  /** Bumped when the form takes a fresh clean state, so `isDirtyNow` reads it again. */
+  const cleanTick = ref(0)
+  /** The print notes as stored: they live outside `form`, which the pending-changes snapshot covers. */
+  const storedNotes = { printNote: '', companionNote: '' }
+  /** The form differs from what is stored — always, for a document not saved yet. */
+  const isDirtyNow = computed(() => {
+    void cleanTick.value
+    if (!isEdit.value) return true
+    return formDiffersFromStored()
+      || printNote.value !== storedNotes.printNote
+      || companionNote.value !== storedNotes.companionNote
+  })
+  /** What the form shows now is what is stored (it was just loaded); an edit from here is unsaved. */
+  function markClean() {
+    storedNotes.printNote = printNote.value
+    storedNotes.companionNote = companionNote.value
+    markCleanPending()
+    cleanTick.value++
   }
 
   // ── persistence ──
@@ -1017,21 +1174,57 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   const createAttempt = createIdempotentAction()
 
-  async function persist(payload: Record<string, any>) {
+  /**
+   * FR-22.16: saving keeps the user on the document, as stored — a new one moves onto its own edit
+   * route. Save used to return to the list, so every next step (issue, print, a note) began by
+   * finding the document again. A cash sale is the exception: it is issued as it is saved, and its
+   * journal is where the next one starts (FR-21 owns that screen; FR-22.58 plans „Запази и нова").
+   */
+  const staysOnSave = config.docType !== 'cash_sale'
+
+  /**
+   * Save the payload. The document's id, or null when nothing was saved (the reason was shown).
+   * `quiet`: no "saved" message — the save is a step of a longer action that reports itself.
+   */
+  async function persist(payload: Record<string, any>, persistOpts: { quiet?: boolean } = {}): Promise<string | null> {
     loading.value = true
     try {
-      if (isEdit.value) await httpClient.put(`${orgUrl()}/invoices/${route.params.id}`, payload)
-      // #155: an unanswered save keeps its key, so saving again returns the document it made
-      // (a cash sale is issued and moves stock on create) instead of making a second one.
-      else await createAttempt.run(payload, headers => httpClient.post(`${orgUrl()}/invoices`, payload, { headers }))
+      let id = route.params.id ? String(route.params.id) : ''
+      if (isEdit.value) {
+        await httpClient.put(`${orgUrl()}/invoices/${id}`, payload)
+      } else {
+        // #155: an unanswered save keeps its key, so saving again returns the document it made
+        // (a cash sale is issued and moves stock on create) instead of making a second one.
+        const { data } = await createAttempt.run(payload, headers => httpClient.post(`${orgUrl()}/invoices`, payload, { headers }))
+        id = String(data?.invoice?.id || data?.invoice?._id || '')
+      }
       markSaved()
-      showSuccess(t(config.successKey))
-      router.push({ name: config.listRouteName })
+      if (!persistOpts.quiet) showSuccess(t(config.successKey))
+      if (!staysOnSave) {
+        router.push({ name: config.listRouteName })
+        return id
+      }
+      if (String(route.params.id || '') !== id) {
+        // On the saved document before anything else happens to it: should a following step fail
+        // (issue, receive, print), pressing again acts on this one rather than saving a second.
+        opts.onCreated?.(id)
+        await router.replace({ name: `${config.listRouteName}.edit`, params: { id } })
+      }
+      await loadDocument()
+      return id
     } catch (e: any) {
       showError(e?.response?.data?.message || t('common.operationFailed'))
+      return null
     } finally {
       loading.value = false
     }
+  }
+
+  /** The document as the form shows it, stored: its id, or null when it is invalid or was refused. */
+  async function saveIfNeeded(): Promise<string | null> {
+    if (isEdit.value && !isDirtyNow.value) return String(route.params.id)
+    if (!(await validate())) return null
+    return persist(buildPayload(), { quiet: true })
   }
 
   async function onSave() {
@@ -1068,21 +1261,12 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const receiving = ref(false)
   async function onSaveAndReceive() {
     if (!(await validate())) return
-    const payload = buildPayload()
     receiving.value = true
     try {
-      let id = route.params.id as string | undefined
-      if (id) {
-        await httpClient.put(`${orgUrl()}/invoices/${id}`, payload)
-        markSaved()
-      } else {
-        const { data } = await createAttempt.run(payload, headers => httpClient.post(`${orgUrl()}/invoices`, payload, { headers }))
-        id = data?.invoice?.id || data?.invoice?._id
-        markSaved()
-        // On the saved bill before receiving it: should receiving fail, pressing again receives
-        // this one rather than saving a second.
-        await router.replace({ name: `${config.listRouteName}.edit`, params: { id } })
-      }
+      // On the saved bill before receiving it: should receiving fail, pressing again receives
+      // this one rather than saving a second.
+      const id = await persist(buildPayload(), { quiet: true })
+      if (!id) return
       const { data: received } = await httpClient.post(`${orgUrl()}/invoices/${id}/receive`)
       // A bill made from receipts books no stock: its receipts did (FR-22.31).
       showSuccess(t(received?.invoice?.stockSource?.marker ? 'invoicing.linkDelivery.received' : 'invoicing.invoiceReceived'))
@@ -1093,6 +1277,74 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       if (route.params.id) await loadDocument()
     } finally {
       receiving.value = false
+    }
+  }
+
+  // ── issue (FR-22.17 / .18) ──
+  const issuer = useDocumentIssue()
+  const issuing = ref(false)
+  const issuingWithPrint = ref(false)
+  /** Why the document is still a draft after it was asked to be issued (FR-22 §5.2). */
+  const issueError = issuer.lastError
+
+  /**
+   * „Издай" / „Запази и издай" / „Издай и печатай": save what the form shows when it differs from
+   * what is stored, then issue through the very path the list's „Изпрати" takes — the stock check,
+   * the transfer dialog when a warehouse is short, `/send`. With `print`, the issued document is
+   * printed with the user's last print settings. Nothing prints unless it was issued: a document
+   * that could not be issued stays a draft, and the form says why.
+   */
+  async function issueFromForm(print: boolean) {
+    if (issuing.value) return
+    issuing.value = true
+    issuingWithPrint.value = print
+    issueError.value = ''
+    try {
+      const id = await saveIfNeeded()
+      if (!id) return
+      const outcome = await issuer.issue({ _id: id, type: config.apiType }, async () => {
+        await loadDocument()
+        if (print) await onExportSingle({ ...lastPrint.value, companions: [] })
+      })
+      // Refused: the draft as stored, with the reason on it. ('transfer': the dialog is open, and
+      // confirming it issues — and prints — the document.)
+      if (outcome === 'failed') await loadDocument()
+    } finally {
+      issuing.value = false
+      issuingWithPrint.value = false
+    }
+  }
+
+  /** FR-22.21: a credit or debit note for this invoice — its form opens on the invoice's customer and lines. */
+  function openNote(type: 'credit_note' | 'debit_note') {
+    const id = route.params.id
+    if (!id) return
+    router.push({
+      name: config.direction === 'incoming' ? 'invoicing.purchases.new' : 'invoicing.sales.new',
+      query: { type, relatedInvoiceId: String(id) },
+    })
+  }
+
+  /**
+   * FR-22.22 — „Преобразувай във фактура" on the proforma: the invoice it becomes opens at once,
+   * ready to be issued. The list used to stay where it was, the new invoice only a link in its row.
+   * A proforma that is new or edited is saved first.
+   */
+  const converting = ref(false)
+  async function onConvert() {
+    if (converting.value) return
+    converting.value = true
+    try {
+      const id = await saveIfNeeded()
+      if (!id) return
+      const { data } = await httpClient.post(`${orgUrl()}/invoices/${id}/convert`)
+      showSuccess(t('invoicing.convertedToInvoice'))
+      const invoiceId = data?.invoice?.id || data?.invoice?._id
+      if (invoiceId) await router.push({ name: 'invoicing.sales.edit', params: { id: String(invoiceId) } })
+    } catch (e: any) {
+      showError(e?.response?.data?.message || t('common.operationFailed'))
+    } finally {
+      converting.value = false
     }
   }
 
@@ -1284,8 +1536,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       if (form.relatedInvoiceId) await ensureSelectedRelatedInvoiceLoaded(form.relatedInvoiceId)
       // What was just loaded is the clean state. The composable's own snapshot runs on a 500 ms
       // timer from mount, so a slower load used to count as an edit: leaving an untouched
-      // document asked to keep "unsaved changes".
-      snapshotPending()
+      // document asked to keep "unsaved changes". After a save that stays on the document
+      // (FR-22.16) this also re-arms the guard the save had stood down.
+      markClean()
     } catch {
       /* */
     }
@@ -1310,6 +1563,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
         null
       if (candidate) onDocWarehouseChange(candidate)
       fetchPeekedNumber()
+      // FR-22.21: a note opened from the invoice it corrects starts as that invoice.
+      const relatedId = String(route.query.relatedInvoiceId || '')
+      if (relatedId && config.relatedInvoiceAutofill) await prefillFromInvoice(relatedId)
     }
     if (isEdit.value) await loadDocument()
   })
@@ -1437,15 +1693,36 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     companionNote,
     exportLoading,
     onExportSingle,
+    // FR-22.20: one click, the user's last settings; the options one click further
+    lastPrint,
+    onPrint,
+    onPrintOptions,
     // persistence
     buildPayload,
     onSave,
     submitCreate,
+    isDirtyNow,
     // FR-22.33: save and receive; and what a linker needs to reload the bill it changed
     onSaveAndReceive,
     receiving,
     loadDocument,
     markSaved,
+    /** A linker that made this new document itself tells the view it is the same document (FR-22.16). */
+    adoptCreated: (id: string) => opts.onCreated?.(id),
+    // FR-22.17/.18: issue from the form, and the stock check in front of it
+    issuable,
+    isDraftDoc,
+    issuing,
+    issueFromForm,
+    issueError,
+    transfer: issuer.transfer,
+    confirmTransfers: issuer.confirmTransfers,
+    // FR-22.21 / FR-22.22
+    correctable,
+    openNote,
+    convertible,
+    onConvert,
+    converting,
     // misc
     orgUrl,
     appStore,

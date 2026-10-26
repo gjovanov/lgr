@@ -20,7 +20,8 @@
         </v-chip>
       </div>
     </v-container>
-    <DocumentForm :key="apiType" :config="DOCUMENT_CONFIGS[CONFIG_BY_TYPE[apiType]]" />
+    <!-- Keyed on the type and on the document (FR-22.16) — see InvoiceFormView. -->
+    <DocumentForm :key="`${apiType}:${formKey}`" :config="DOCUMENT_CONFIGS[CONFIG_BY_TYPE[apiType]]" @created="adopt" />
   </div>
 </template>
 
@@ -29,6 +30,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DocumentForm from '../components/document-form/DocumentForm.vue'
 import { DOCUMENT_CONFIGS } from '../composables/document-form/configs'
+import { useDocumentRouteKey } from '../composables/document-form/useDocumentRouteKey'
 import type { DocType } from '../composables/document-form/types'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useAppStore } from '../store/app.store'
@@ -45,12 +47,20 @@ const CONFIG_BY_TYPE: Record<PurchaseApiType, DocType> = {
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const { formKey, adopt } = useDocumentRouteKey()
 
 const isEdit = computed(() => !!route.params.id)
 const apiType = ref<PurchaseApiType>('invoice')
 const ready = ref(false)
 
-onMounted(async () => {
+function typeFromQuery(): PurchaseApiType {
+  const q = String(route.query.type || '')
+  return (TYPES as string[]).includes(q) ? (q as PurchaseApiType) : 'invoice'
+}
+
+/** Which form to mount: a stored document's type, or the type a new one is asked for. */
+async function resolveType() {
+  ready.value = false
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${appStore.orgUrl()}/invoices/${route.params.id}`)
@@ -65,10 +75,16 @@ onMounted(async () => {
       apiType.value = 'invoice'
     }
   } else {
-    const q = String(route.query.type || '')
-    apiType.value = (TYPES as string[]).includes(q) ? (q as PurchaseApiType) : 'invoice'
+    apiType.value = typeFromQuery()
   }
   ready.value = true
+}
+
+onMounted(resolveType)
+// A different document in this same view (FR-22.16).
+watch(formKey, resolveType)
+watch(() => route.query.type, () => {
+  if (!isEdit.value && typeFromQuery() !== apiType.value) apiType.value = typeFromQuery()
 })
 
 watch(apiType, (t) => {

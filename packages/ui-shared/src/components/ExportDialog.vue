@@ -99,7 +99,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   filterColumns,
@@ -137,6 +137,11 @@ const props = defineProps<{
   showAggregate?: boolean
   /** Initial state of the aggregate checkbox when the dialog opens. */
   defaultAggregate?: boolean
+  /**
+   * The columns to open with instead of the mode's defaults — the user's last print (FR-22.20).
+   * Keys the mode does not offer are ignored; none left means the defaults.
+   */
+  initialColumns?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -182,6 +187,14 @@ watch(() => props.modelValue, (open) => {
     resetSelection()
     // Companion documents are opt-in on every print — never carried over from the last one.
     selectedCompanions.value = []
+    if (props.initialColumns?.length) {
+      const wanted = new Set(props.initialColumns)
+      // After the mode watcher below has reset the selection for the mode just set.
+      nextTick(() => {
+        const cols = availableColumns.value.filter(c => wanted.has(c.key)).map(c => c.key)
+        if (cols.length) selectedColumns.value = cols
+      })
+    }
   }
 })
 watch(mode, resetSelection)

@@ -123,6 +123,8 @@ export function useBillReceipts(doc: DocForm) {
           ...(doc.form.paymentMethod ? { paymentMethod: doc.form.paymentMethod } : {}),
         })
         doc.markSaved()
+        // The bill this form was typing, now saved: the form stays mounted for it (FR-22.16).
+        doc.adoptCreated(String(data.invoice.id))
         await router.replace({ name: `${doc.config.listRouteName}.edit`, params: { id: data.invoice.id } })
       }
       dialogOpen.value = false

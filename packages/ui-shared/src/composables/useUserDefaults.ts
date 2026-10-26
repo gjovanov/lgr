@@ -24,6 +24,28 @@ export function pinnedWarehouseId(): string {
   }
 }
 
+/**
+ * A remembered setting of any shape, stored as JSON: `null` when the user never made it, or when
+ * what is stored no longer parses (the caller then starts from its defaults, as it would anyway).
+ */
+export function rememberedSetting<T>(feature: string): { read(): T | null; write(value: T): void } {
+  return {
+    read() {
+      try {
+        const raw = localStorage.getItem(key(feature))
+        return raw === null ? null : (JSON.parse(raw) as T)
+      } catch {
+        return null
+      }
+    },
+    write(value: T) {
+      try {
+        localStorage.setItem(key(feature), JSON.stringify(value))
+      } catch { /* private browsing — nothing remembered */ }
+    },
+  }
+}
+
 /** A remembered on/off choice: `null` when the user never made it. */
 export function rememberedFlag(feature: string): { read(): boolean | null; write(on: boolean): void } {
   return {
