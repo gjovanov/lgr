@@ -1,0 +1,10 @@
+{
+  "about": "FR-20.82: the public halves of global's re-point keys (base64 SPKI DER, Ed25519), built into every desktop. When an org moves to its master, global tells each of the org's desktops where the master answers and which CA to pin, signed with the newest of these; a desktop follows only an instruction one of them verifies. A key is added or retired only through a release. The private half of the newest is REPOINT_SIGNING_KEY, sealed in lgr-secret. Separate from the licence and identity keys on purpose: a re-point must never pass for either, nor the reverse.",
+  "keys": [
+    {
+      "spki": "MCowBQYDK2VwAyEAIv15gHJWZzwUK/7odT8mNa5Aif4mPdrE8ioZzhAV6dQ=",
+      "made": "2026-10-26",
+      "privateHalf": "sealed as REPOINT_SIGNING_KEY in lgr-secret (lgr-deploy 97cd664)"
+    }
+  ]
+}

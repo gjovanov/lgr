@@ -13,6 +13,7 @@ import { identityChangesFor } from 'services/biz/identity/identity-feed.service'
 import { OnpremCredentialError, credentialChangesFor } from 'services/biz/identity/onprem-credentials.service'
 import { MoveError, copied, copyFailed, copyFor, movesForNode } from 'services/biz/move/move.service'
 import { rewelcomeNode } from '../websocket/uplink.js'
+import { repointOrgDesktops } from '../websocket/desktop.js'
 import {
   DesktopDownloadError,
   UPDATER_INSTALLERS,
@@ -296,8 +297,12 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
     async ({ node, params, body, status }: any) => {
       if (!OBJECT_ID.test(params.id)) return status(404, { code: 'not_found' })
       try {
-        const r = await copied(node._id, params.id, body)
-        if (r.ok) rewelcomeNode(node._id)
+        const r: any = await copied(node._id, params.id, body)
+        if (r.ok) {
+          rewelcomeNode(node._id)
+          // FR-20.82 (P3-6b): the org's desktops connected here learn where it lives now.
+          await repointOrgDesktops(r.orgId).catch(() => 0)
+        }
         return r
       } catch (e) {
         return failMove(status, e)

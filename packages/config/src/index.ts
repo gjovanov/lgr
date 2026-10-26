@@ -321,6 +321,15 @@ export const config = {
     /** The domain an org's own address sits under (`<slug>.lgrai.app`, D-13, plan step P3-4). */
     addressApex: (process.env.ORG_ADDRESS_APEX || '').trim().toLowerCase() || 'lgrai.app',
   },
+  /**
+   * FR-20.82 (plan step P3-6b) — global's re-point key, base64 PKCS#8 DER of an Ed25519 key, sealed
+   * in lgr-secret. When an org moves to its master, global tells each of its desktops where the master
+   * answers and which CA to pin, signed with it; a desktop verifies with the keys built into it
+   * (`repoint-keys.json`). Not fatal when missing: a desktop is then told only that its org moved.
+   */
+  repoint: {
+    signingKey: readLicenceSigningKey(process.env.REPOINT_SIGNING_KEY, readNodeRole(process.env.LGR_NODE_ROLE)),
+  },
   /** FR-20.55 — the licence of an org whose home is a master (plan step P2-3b). */
   licence: {
     signingKey: readLicenceSigningKey(process.env.LICENCE_SIGNING_KEY, readNodeRole(process.env.LGR_NODE_ROLE)),

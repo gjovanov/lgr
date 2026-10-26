@@ -324,10 +324,10 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                     Ok(nonce) => {
                         // FR-20.57: health from the supervisor's status, the API's and the data volume.
                         let health: uplink::HealthFn = {
-                            let (sup, data) = (sup.clone(), r.data.clone());
+                            let (sup, data, lan) = (sup.clone(), r.data.clone(), front.lan_state.clone());
                             std::sync::Arc::new(move || {
-                                let (sup, data) = (sup.clone(), data.clone());
-                                Box::pin(async move { uplink::health_frame(&sup.status_with_api().await, preflight::free_disk(&data)) })
+                                let (sup, data, lan) = (sup.clone(), data.clone(), lan.clone());
+                                Box::pin(async move { uplink::health_frame(&sup.status_with_api().await, preflight::free_disk(&data), uplink::read_lan(lan.as_deref()).as_ref()) })
                             })
                         };
                         for ch in uplink::CHANNELS {

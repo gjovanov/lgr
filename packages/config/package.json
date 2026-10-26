@@ -10,6 +10,7 @@
     "./amount-in-words": "./src/amount-in-words.ts",
     "./order-coverage": "./src/order-coverage.ts",
     "./licence-keys": "./src/licence-keys.json",
-    "./idp-keys": "./src/idp-keys.json"
+    "./idp-keys": "./src/idp-keys.json",
+    "./repoint-keys": "./src/repoint-keys.json"
   }
 }

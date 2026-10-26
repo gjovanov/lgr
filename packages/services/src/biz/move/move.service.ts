@@ -18,8 +18,8 @@
  *    with it, and the mirror's chain reset: the master's first pages re-send what the copy holds
  *    (idempotent), from a chain that starts at the move. Global keeps the documents as the mirror.
  *
- * Until the flip, an abort unfreezes global and nothing else changed. ⚠ The shop's desktops still
- * point at lgrai.app after the flip: until P3-6b re-points them, they pair again with the master.
+ * Until the flip, an abort unfreezes global and nothing else changed. After it, the shop's desktops
+ * are told where the org lives now (FR-20.82, `desktop/repoint.service.ts`).
  *
  * ⚠ **The audit trail is org data**, so global writes the org's entries only while the org is home
  * here: the start's entry is written before the freeze (and is in the copy), an abort's after the
@@ -300,8 +300,8 @@ export async function copied(nodeId: string, moveId: string, theirs: CopyReport)
   ).lean()
   if (!m) {
     // Flipped already (the answer was lost on the way): the master is told so, not refused.
-    const done = await OrgMove.exists({ _id: oid(moveId), to: nodeId, state: 'done' })
-    if (done) return { ok: true, epoch: ((await OrgMove.findById(moveId, { epochTo: 1 }).lean()) as any)?.epochTo }
+    const done: any = await OrgMove.findOne({ _id: oid(moveId), to: nodeId, state: 'done' }, { epochTo: 1, orgId: 1 }).lean()
+    if (done) return { ok: true, epoch: done.epochTo, orgId: String(done.orgId) }
     throw new MoveError(409, 'not_copying', 'The move is not waiting for this server\'s copy.')
   }
   // Global's own digests, of what it froze: the copy was built from them, and nothing moved since.
@@ -313,10 +313,10 @@ export async function copied(nodeId: string, moveId: string, theirs: CopyReport)
     await abortMove(moveId, `the copy differs from lgrai.app's in ${bad.join(', ')}`)
     return { ok: false, mismatch: bad }
   }
-  if (await flip(m)) return { ok: true, epoch: m.epochTo }
+  if (await flip(m)) return { ok: true, epoch: m.epochTo, orgId: String(m.orgId) }
   // An abort, or another process's flip, got there first: say which.
   const now: any = await OrgMove.findById(m._id, { state: 1 }).lean()
-  return now?.state === 'done' ? { ok: true, epoch: m.epochTo } : { ok: false, state: now?.state ?? 'gone' }
+  return now?.state === 'done' ? { ok: true, epoch: m.epochTo, orgId: String(m.orgId) } : { ok: false, state: now?.state ?? 'gone' }
 }
 
 /**
