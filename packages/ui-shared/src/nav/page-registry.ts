@@ -99,7 +99,7 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('accounting', '/fixed-assets', 'nav.fixedAssets', 'mdi-office-building'),
   // ── POS ──
   page('pos', '/terminal', 'nav.terminal', 'mdi-point-of-sale'),
-  page('pos', '/orders', 'nav.transactions', 'mdi-receipt'),
+  page('pos', '/orders', 'cashRegister.title', 'mdi-receipt'),
   page('pos', '/sessions', 'nav.sessions', 'mdi-clock-outline'),
   page('pos', '/devices', 'nav.devices', 'mdi-printer-pos'),
   // ── Payroll ──

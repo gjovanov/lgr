@@ -1486,6 +1486,83 @@
       "switchOperator": "Switch operator"
     }
   },
+  "cashRegister": {
+    "title": "Cash Register Sales",
+    "columns": {
+      "number": "Number",
+      "date": "Date & time",
+      "kind": "Kind",
+      "origin": "Origin",
+      "customer": "Customer",
+      "payment": "Payment",
+      "total": "Total",
+      "fiscal": "Receipt",
+      "status": "Status",
+      "session": "Session",
+      "cashier": "Cashier",
+      "warehouse": "Warehouse",
+      "device": "Device",
+      "subtotal": "Net",
+      "vat": "VAT",
+      "stock": "Stock",
+      "reference": "Reference"
+    },
+    "kind": {
+      "sale": "Sale",
+      "storno": "Storno"
+    },
+    "origin": {
+      "pos": "Till",
+      "backoffice": "Back office",
+      "import": "Import"
+    },
+    "status": {
+      "completed": "Completed",
+      "stornoed": "Stornoed",
+      "voided": "Voided"
+    },
+    "stock": {
+      "moved": "Moved",
+      "error": "Error",
+      "none": "—"
+    },
+    "fiscalState": {
+      "pending": "Printing",
+      "printed": "Printed",
+      "failed": "Failed",
+      "unknown": "Unknown",
+      "none": "—",
+      "noReceipt": "No receipt"
+    },
+    "filters": {
+      "kind": "Kind",
+      "origin": "Origin",
+      "status": "Status",
+      "fiscalState": "Receipt",
+      "paymentMethod": "Payment"
+    },
+    "detail": {
+      "lines": "Lines",
+      "payments": "Payments",
+      "tendered": "Tendered",
+      "change": "Change",
+      "related": "Storno",
+      "stornoOf": "Storno of",
+      "stornoedBy": "Stornoed by",
+      "movements": "Stock movements",
+      "session": "Session",
+      "journalEntry": "Journal entry",
+      "unmatched": "No product: counts in the total, moves no stock",
+      "back": "Back to cash sales",
+      "openDocument": "Open the document",
+      "notes": "Notes",
+      "notFound": "This cash sale was not found."
+    },
+    "empty": "No cash register sales yet",
+    "emptyHint": "Sales from the till, the back office and the imports appear here.",
+    "noTime": "imported day, no time of day",
+    "view": "Open"
+  },
   "warehouse": {
     "sku": "SKU",
     "product": "Product",

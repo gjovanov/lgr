@@ -92,7 +92,8 @@ test('P4-storno: reverse a till sale, starting at the terminal', async ({ page }
   if (!/сторно|рекламац|върн/i.test(tillTexts)) walk.note('The till itself offers no return or storno: the cashier leaves the terminal for the transactions journal.')
 
   // The top menus open on hover (FR-05): pointing at „Поръчки“ costs no click.
-  await walk.menu('Поръчки', 'Транзакции')
+  // FR-21.13: the journal is „Касови продажби“ now, in the POS app as in invoicing.
+  await walk.menu('Поръчки', 'Касови продажби')
   await page.waitForURL(/\/pos\/orders(\?|$)/)
 
   const rows = page.locator('.v-main tbody tr')

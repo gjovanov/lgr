@@ -832,6 +832,83 @@
       "switchOperator": "Bediener wechseln"
     }
   },
+  "cashRegister": {
+    "title": "Kassenverkäufe",
+    "columns": {
+      "number": "Nummer",
+      "date": "Datum & Zeit",
+      "kind": "Art",
+      "origin": "Herkunft",
+      "customer": "Kunde",
+      "payment": "Zahlung",
+      "total": "Summe",
+      "fiscal": "Bon",
+      "status": "Status",
+      "session": "Schicht",
+      "cashier": "Kassierer",
+      "warehouse": "Lager",
+      "device": "Gerät",
+      "subtotal": "Netto",
+      "vat": "MwSt.",
+      "stock": "Bestand",
+      "reference": "Referenz"
+    },
+    "kind": {
+      "sale": "Verkauf",
+      "storno": "Storno"
+    },
+    "origin": {
+      "pos": "Kasse",
+      "backoffice": "Büro",
+      "import": "Import"
+    },
+    "status": {
+      "completed": "Abgeschlossen",
+      "stornoed": "Storniert",
+      "voided": "Ungültig"
+    },
+    "stock": {
+      "moved": "Ausgebucht",
+      "error": "Fehler",
+      "none": "—"
+    },
+    "fiscalState": {
+      "pending": "Wird gedruckt",
+      "printed": "Gedruckt",
+      "failed": "Fehlgeschlagen",
+      "unknown": "Unbekannt",
+      "none": "—",
+      "noReceipt": "Kein Bon"
+    },
+    "filters": {
+      "kind": "Art",
+      "origin": "Herkunft",
+      "status": "Status",
+      "fiscalState": "Bon",
+      "paymentMethod": "Zahlung"
+    },
+    "detail": {
+      "lines": "Positionen",
+      "payments": "Zahlungen",
+      "tendered": "Gegeben",
+      "change": "Rückgeld",
+      "related": "Storno",
+      "stornoOf": "Storno von",
+      "stornoedBy": "Storniert durch",
+      "movements": "Lagerbewegungen",
+      "session": "Schicht",
+      "journalEntry": "Buchung",
+      "unmatched": "Ohne Artikel: zählt zur Summe, bucht keinen Bestand",
+      "back": "Zurück zu den Kassenverkäufen",
+      "openDocument": "Dokument öffnen",
+      "notes": "Notizen",
+      "notFound": "Dieser Kassenverkauf wurde nicht gefunden."
+    },
+    "empty": "Noch keine Kassenverkäufe",
+    "emptyHint": "Hier erscheinen die Verkäufe der Kasse, des Büros und der Importe.",
+    "noTime": "importierter Tag, ohne Uhrzeit",
+    "view": "Öffnen"
+  },
   "settings": {
     "organization": "Organisation",
     "users": "Benutzer & Rollen",

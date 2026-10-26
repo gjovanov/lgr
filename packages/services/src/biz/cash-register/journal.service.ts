@@ -15,6 +15,7 @@ import { Contact, Invoice, POSSession, POSTransaction, StockMovement, User, Ware
 import { isDateOnly, localDayEnd, localDayStart, BULGARIAN_TIME_ZONE } from '../local-day.js'
 import { keptByMethod, posRowSign } from './counting.js'
 import { REGISTER_TYPES } from './pos-union.js'
+import { invoicedCashSaleIds, invoicingByCashSale } from '../cash-sale-invoice.service.js'
 
 export type JournalKind = 'sale' | 'storno'
 export type JournalOrigin = 'pos' | 'backoffice' | 'import'
@@ -33,6 +34,11 @@ export interface JournalQuery {
   cashierId?: string
   contactId?: string
   paymentMethod?: string
+  /**
+   * #171: sales an invoice was issued for (`yes`), or not (`no`). Only a cash sale held as a
+   * document can be invoiced, so `yes` lists no POS row; neither lists a storno.
+   */
+  invoiced?: 'yes' | 'no'
   /** Calendar dates (`YYYY-MM-DD`) in `timeZone`. */
   dateFrom?: string
   dateTo?: string
@@ -94,6 +100,9 @@ export interface JournalRow {
   relatedId?: string
   /** On a sale: the stornos that reverse it. */
   stornoedBy?: string[]
+  /** #171: on a cash sale held as a document, the invoices issued for it and how far it is invoiced. */
+  invoices?: Array<{ id: string; number: string; status: string }>
+  invoicingState?: 'none' | 'partial' | 'full'
 }
 
 export interface JournalPage {
@@ -145,9 +154,10 @@ function fiscalStateMatch(state: string, stateField: string, receiptField: strin
 
 // ── The document side ───────────────────────────────────────────────────────
 
-function documentMatch(q: JournalQuery): Record<string, any> | null {
+function documentMatch(q: JournalQuery, invoiced: any[] | null): Record<string, any> | null {
   const and: Record<string, any>[] = [{ orgId: oid(q.orgId) }, { type: { $in: REGISTER_TYPES } }]
   if (q.kind) and.push({ type: q.kind === 'storno' ? 'cash_storno' : 'cash_sale' })
+  if (invoiced) and.push({ type: 'cash_sale', _id: q.invoiced === 'yes' ? { $in: invoiced } : { $nin: invoiced } })
   if (q.origin === 'pos') and.push({ 'register.origin': 'pos' })
   if (q.origin === 'import') {
     and.push({ $or: [
@@ -202,9 +212,11 @@ function documentMatch(q: JournalQuery): Record<string, any> | null {
 // ── The POS side: rows no document has copied ───────────────────────────────
 
 async function posMatch(q: JournalQuery): Promise<Record<string, any> | null> {
-  // A POS row is always the till's.
+  // A POS row is always the till's, and never invoiced: only a document can be (#171).
   if (q.origin && q.origin !== 'pos') return null
+  if (q.invoiced === 'yes') return null
   const and: Record<string, any>[] = [{ orgId: oid(q.orgId) }]
+  if (q.invoiced === 'no') and.push({ type: { $in: ['sale', 'exchange'] } })
   if (q.kind === 'sale') and.push({ type: { $in: ['sale', 'exchange'] } })
   if (q.kind === 'storno') and.push({ type: { $in: ['storno', 'return'] } })
   // A sale is cancelled only by its storno; a storno is cancelled when its receipt failed.
@@ -381,6 +393,17 @@ async function hydrate(orgId: string, rows: JournalRow[]): Promise<void> {
     if (r.warehouseId) r.warehouseName = warehouseName.get(r.warehouseId) || ''
     if (r.sessionId) r.sessionNumber = sessionNumber.get(r.sessionId) || ''
   }
+
+  // #171: the invoices issued for a cash sale, read back from them (the link lives only on them).
+  const cashSales = rows.filter(r => r.store === 'invoice' && r.kind === 'sale')
+  if (cashSales.length) {
+    const invoicing = await invoicingByCashSale(orgId, cashSales.map(r => r.id))
+    for (const r of cashSales) {
+      const inv = invoicing.get(r.id)
+      r.invoices = inv?.invoices || []
+      r.invoicingState = inv?.state || 'none'
+    }
+  }
 }
 
 // ── The page ────────────────────────────────────────────────────────────────
@@ -395,7 +418,8 @@ export async function listJournal(q: JournalQuery): Promise<JournalPage> {
   const dir = q.sortOrder === 'asc' ? 1 : -1
   const by = q.sortBy || 'date'
 
-  const docMatch = documentMatch(q)
+  const invoiced = q.invoiced === 'yes' || q.invoiced === 'no' ? await invoicedCashSaleIds(q.orgId) : null
+  const docMatch = documentMatch(q, invoiced)
   const pMatch = await posMatch(q)
 
   const docSort: Record<string, 1 | -1> = by === 'number' ? { invoiceNumber: dir } : by === 'total' ? { total: dir, _id: dir } : { issueDate: dir, createdAt: dir, _id: dir }

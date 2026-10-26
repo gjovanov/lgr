@@ -179,6 +179,36 @@ describe('the journal list', () => {
     expect(numbers(await w.get('/documents?fiscalState=failed'))).toEqual([])
   })
 
+  it('#171: a cash sale shows the invoices issued for it, and the journal filters on them', async () => {
+    const w = await world()
+    const sale: any = await Invoice.findById(w.backOffice._id).lean()
+    await createTestInvoice(w.orgId, w.contact._id as Types.ObjectId, {
+      type: 'invoice', direction: 'outgoing', status: 'paid', invoiceNumber: 'INV-2026-00007',
+      issueDate: new Date('2026-10-22T00:00:00.000Z'),
+      cashSaleRef: { cashSaleId: sale._id, number: sale.invoiceNumber, issueDate: sale.issueDate },
+      lines: sale.lines.map((l: any) => ({
+        productId: l.productId, description: l.description, quantity: l.quantity, unit: l.unit, unitPrice: l.unitPrice,
+        taxRate: l.taxRate, taxAmount: l.taxAmount, lineTotal: l.lineTotal, cashSaleLineId: l._id,
+      })),
+      subtotal: 20, taxTotal: 4, total: 24,
+    } as any)
+
+    const all = await w.get('/documents')
+    // The invoice itself is not a cash-register document: the journal still lists six rows.
+    expect(all.json.total).toBe(6)
+    const by = (n: string) => all.json.rows.find((r: any) => r.number === n)
+    expect(by('CS-2026-00001')).toMatchObject({ invoicingState: 'full', invoices: [{ number: 'INV-2026-00007', status: 'paid' }] })
+    expect(by('CSR-2026-00002')).toMatchObject({ invoicingState: 'none', invoices: [] })
+    // Only a document can be invoiced: a POS row carries neither field, and a storno neither.
+    expect(by('TXN-2026-0000001').invoicingState).toBeUndefined()
+    expect(by('TXN-2026-0000003').invoicingState).toBeUndefined()
+
+    expect(numbers(await w.get('/documents?invoiced=yes'))).toEqual(['CS-2026-00001'])
+    // Not invoiced: every other sale, from both stores; never a storno.
+    expect(numbers(await w.get('/documents?invoiced=no')).sort())
+      .toEqual(['CS-2026-00003', 'CSR-2026-00002', 'TXN-2026-0000001', 'TXN-2026-0000002'])
+  })
+
   it('a date range is whole days in the org\'s zone (Sofia by default)', async () => {
     const w = await world()
     // 22:30 on the 21st in Sofia is 19:30 UTC: still the 21st.

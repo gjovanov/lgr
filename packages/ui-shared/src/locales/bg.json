@@ -1486,6 +1486,83 @@
       "switchOperator": "Смяна на оператор"
     }
   },
+  "cashRegister": {
+    "title": "Касови продажби",
+    "columns": {
+      "number": "Номер",
+      "date": "Дата и час",
+      "kind": "Вид",
+      "origin": "Източник",
+      "customer": "Клиент",
+      "payment": "Плащане",
+      "total": "Сума",
+      "fiscal": "Касов бон",
+      "status": "Статус",
+      "session": "Смяна",
+      "cashier": "Касиер",
+      "warehouse": "Склад",
+      "device": "Устройство",
+      "subtotal": "Данъчна основа",
+      "vat": "ДДС",
+      "stock": "Наличност",
+      "reference": "Референция"
+    },
+    "kind": {
+      "sale": "Продажба",
+      "storno": "Сторно"
+    },
+    "origin": {
+      "pos": "Каса",
+      "backoffice": "Офис",
+      "import": "Импорт"
+    },
+    "status": {
+      "completed": "Приключена",
+      "stornoed": "Сторнирана",
+      "voided": "Анулирана"
+    },
+    "stock": {
+      "moved": "Изписана",
+      "error": "Грешка",
+      "none": "—"
+    },
+    "fiscalState": {
+      "pending": "Печат",
+      "printed": "Отпечатан",
+      "failed": "Неуспешен",
+      "unknown": "Неизвестен",
+      "none": "—",
+      "noReceipt": "Без касов бон"
+    },
+    "filters": {
+      "kind": "Вид",
+      "origin": "Източник",
+      "status": "Статус",
+      "fiscalState": "Бон",
+      "paymentMethod": "Плащане"
+    },
+    "detail": {
+      "lines": "Редове",
+      "payments": "Плащания",
+      "tendered": "Платено",
+      "change": "Ресто",
+      "related": "Сторно",
+      "stornoOf": "Сторно на",
+      "stornoedBy": "Сторнирана с",
+      "movements": "Складови движения",
+      "session": "Смяна",
+      "journalEntry": "Счетоводна статия",
+      "unmatched": "Без артикул: влиза в сумата, не се изписва",
+      "back": "Към касовите продажби",
+      "openDocument": "Отвори документа",
+      "notes": "Бележки",
+      "notFound": "Касовата продажба не е намерена."
+    },
+    "empty": "Все още няма касови продажби",
+    "emptyHint": "Тук се появяват продажбите от касата, офиса и импорта.",
+    "noTime": "импортиран ден, без час",
+    "view": "Отвори"
+  },
   "warehouse": {
     "sku": "SKU",
     "product": "Продукт",
