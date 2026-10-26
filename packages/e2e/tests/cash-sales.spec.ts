@@ -38,8 +38,9 @@ test.describe('Cash Register Sales', () => {
 
     await expect(page.getByRole('heading', { name: 'Cash Register Sales' })).toBeVisible()
 
-    // Click create button — navigates to /cash-sales/new
-    await page.locator('a.v-btn', { hasText: /create/i }).click()
+    // Click create button — navigates to /cash-sales/new. `.first()`: an empty list (the seed has
+    // no cash sales) offers a second Create in its empty state, to the same page.
+    await page.locator('a.v-btn', { hasText: /create/i }).first().click()
     await page.waitForURL('**/cash-sales/new')
 
     // FR-03: the detail page is a terminal — product catalog left, cart right.

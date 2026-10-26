@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
-import { lineUnitPrice } from './helpers/document-form'
+import { lineDescription, lineUnitPrice } from './helpers/document-form'
 
 /**
  * ⚠ Taller viewport than the default 720.
@@ -39,7 +39,7 @@ test.describe('Invoicing Product Autocomplete', () => {
     await expect(lineRow).toBeVisible()
 
     // Find the ProductLineDescription component's input inside the first td
-    const descriptionCell = lineRow.locator('td').first()
+    const descriptionCell = lineDescription(lineRow)
     const descInput = descriptionCell.locator('input').first()
 
     // Type a product search query (at least 2 chars to trigger dropdown)
@@ -92,7 +92,7 @@ test.describe('Invoicing Product Autocomplete', () => {
     await page.waitForTimeout(300)
 
     const lineRow = page.locator('.v-table tbody tr').first()
-    const descInput = lineRow.locator('td').first().locator('input').first()
+    const descInput = lineDescription(lineRow).locator('input').first()
 
     await descInput.click()
     // Real keyboard typing (this is what diverged from CDP/JS injection in prior debugging).
@@ -115,7 +115,7 @@ test.describe('Invoicing Product Autocomplete', () => {
     // An active/highlighted item is tracked and Enter commits it (chip appears).
     await expect(page.locator('.pld-overlay .pld-item--active')).toBeVisible()
     await page.keyboard.press('Enter')
-    await expect(lineRow.locator('td').first().locator('.v-chip')).toBeVisible({ timeout: 3000 })
+    await expect(lineDescription(lineRow).locator('.v-chip')).toBeVisible({ timeout: 3000 })
     // Overlay is gone after selection.
     await expect(items.first()).not.toBeVisible({ timeout: 3000 })
   })
@@ -134,7 +134,7 @@ test.describe('Invoicing Product Autocomplete', () => {
     await expect(lineRow).toBeVisible()
 
     // Type a description manually (not matching any product)
-    const descriptionCell = lineRow.locator('td').first()
+    const descriptionCell = lineDescription(lineRow)
     const descInput = descriptionCell.locator('input').first()
     await descInput.fill('Custom manual service description')
     await page.waitForTimeout(300)
