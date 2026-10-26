@@ -1624,6 +1624,7 @@
       "reserved": "Резервирано",
       "available": "Слободно",
       "incoming": "Очекувано",
+      "onOrder": "Нарачано",
       "reservedIncoming": "од нив резервирано",
       "planned": "планирано (нацрт)",
       "expectedDeliveries": "Очекувани испораки",

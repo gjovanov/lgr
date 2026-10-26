@@ -6,7 +6,7 @@ const { Types } = mongoose
 
 /**
  * Where a product stands (#203): on the shelf, held for clients, on its way on outgoing orders,
- * and how much of what is on its way is already promised — the product's „Наличност" tab.
+ * and how much of what is on its way is already promised.
  *
  * Nothing is counted in two columns:
  *   - `reserved` is the StockLevel's own `reservedQuantity` — holds on stock that is here, which
@@ -17,13 +17,16 @@ const { Types } = mongoose
  *
  * Drafts are listed apart as `planned`: an outgoing order that was never sent brings nothing.
  *
- * The reading is three steps over a SET of products — `loadSupplyDocs` → `incomingAllocations` →
- * `warehouseFigures` — then the names; a reader of several products shares the same definitions.
+ * Two readers, one definition. The product's „Наличност" tab (`getProductSupply`: one product,
+ * every document named) and the Products list (`getProductsSupplyTotals`: a page of products,
+ * figures only — FR-22.45) both run `loadSupplyDocs` → `incomingAllocations` → `warehouseFigures`,
+ * so the list's „Резервирано" and „Поръчано" cannot drift from what the tab lists behind them.
  */
 
 const num = (v: any) => Number(v) || 0
 const idStr = (v: any) => (v == null ? '' : String(v))
 const nameOf = (c: any) => c?.companyName || [c?.firstName, c?.lastName].filter(Boolean).join(' ') || ''
+const OBJECT_ID = /^[0-9a-f]{24}$/i
 
 export interface SupplyWarehouseRow {
   warehouseId: string
@@ -82,6 +85,18 @@ export interface ProductSupply {
   warehouses: SupplyWarehouseRow[]
   incoming: SupplyIncomingRow[]
   reservations: SupplyReservationRow[]
+}
+
+/** A product's figures on the Products list: summed over its warehouses, or the one filtered on. */
+export interface SupplyTotals {
+  /** Held for clients on stock that is here: Σ `StockLevel.reservedQuantity`. */
+  reserved: number
+  /** Ordered and not yet received, on sent / partly received outgoing orders. */
+  incoming: number
+  /** Of `incoming`, how much clients already have reserved. */
+  reservedIncoming: number
+  /** Outstanding on draft outgoing orders: not ordered yet, so never part of `incoming`. */
+  planned: number
 }
 
 /** The documents the supply of a set of products is computed from. */
@@ -278,3 +293,39 @@ export async function getProductSupply(orgId: string, productId: string): Promis
   }
 }
 
+/**
+ * FR-22.45: the Products list's „Резервирано" and „Поръчано" for a page of products — the
+ * figures of `getProductSupply`'s warehouse rows, summed per product over its warehouses, or
+ * taken from the one warehouse the list is filtered on.
+ *
+ * Three queries whatever the page size (never one per row), and no names: the list shows numbers,
+ * and the stock tab they link to names everything behind them. Every product asked about gets an
+ * entry, zeros included, so the list can tell "nothing reserved" from "not loaded". Ids that are
+ * not ObjectIds are ignored; the result is keyed by the lower-case id.
+ */
+export async function getProductsSupplyTotals(
+  orgId: string,
+  productIds: string[],
+  opts: { warehouseId?: string } = {},
+): Promise<Record<string, SupplyTotals>> {
+  const ids = [...new Set(productIds.map((id) => String(id).trim().toLowerCase()).filter((id) => OBJECT_ID.test(id)))]
+  const totals: Record<string, SupplyTotals> = {}
+  if (!ids.length) return totals
+  for (const id of ids) totals[id] = { reserved: 0, incoming: 0, reservedIncoming: 0, planned: 0 }
+
+  const docs = await loadSupplyDocs(orgId, ids)
+  const figures = warehouseFigures(docs.levels, incomingAllocations(docs, new Set(ids)))
+  const only = opts.warehouseId ? idStr(opts.warehouseId).toLowerCase() : ''
+  for (const [productId, byWh] of figures) {
+    const t = totals[productId]
+    if (!t) continue
+    for (const [warehouseId, w] of byWh) {
+      if (only && warehouseId !== only) continue
+      t.reserved += w.reserved
+      t.incoming += w.incoming
+      t.reservedIncoming += w.reservedIncoming
+      t.planned += w.planned
+    }
+  }
+  return totals
+}

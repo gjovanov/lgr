@@ -8,8 +8,12 @@ import { jwtUserId, orgIdFromStorage } from './useStorageIdentity'
  * The view keeps passing its full `headers` catalog; this composable projects it
  * through the user's saved preference:
  *   - hidden keys are dropped (the actions/expand columns are never hideable)
- *   - saved order wins; catalog keys not in the saved order (new columns shipped
- *     later) are appended at their catalog position
+ *   - saved order wins; a catalog key the saved order has never seen (a column shipped
+ *     later) goes right after the column that precedes it in the catalog, wherever the
+ *     user put that one
+ *
+ * A saved order exists only once the user has MOVED a column (hiding saves none), so a
+ * change of the default order reaches everyone who never reordered, and nobody else.
  *
  * Storage: `lgr:grid-cols:<userId>:<orgId>:<gridId>` → { order: string[], hidden: string[] }.
  * userId comes from this tab's session token (no app-store coupling here), orgId from the
@@ -28,6 +32,27 @@ const NEVER_HIDE = new Set(['actions', 'data-table-expand', 'data-table-select']
 interface GridColsPref {
   order: string[]
   hidden: string[]
+}
+
+/**
+ * The catalog's keys in a user's saved order. Keys the saved order lacks are placed right after
+ * their catalog predecessor (the first catalog key leads); keys the catalog no longer has drop.
+ * With nothing saved, that is the catalog order.
+ *
+ * Anchored on the predecessor, not the successor: when FR-22.46 moved „Наличност" before
+ * „Мярка" and added „Резервирано" / „Поръчано" after it, a user whose saved order still read
+ * Мярка, Наличност got the new columns BEFORE Мярка — away from the stock they qualify —
+ * because Мярка was the first saved column the catalog now lists after them.
+ */
+export function orderColumnKeys(catalog: readonly string[], saved: readonly string[]): string[] {
+  const out = [...new Set(saved)].filter((k) => catalog.includes(k))
+  // Walking the catalog in order, a key's predecessor is always placed by the time the key is:
+  // either it was saved, or it was inserted one step earlier.
+  catalog.forEach((k, i) => {
+    if (out.includes(k)) return
+    out.splice(i === 0 ? 0 : out.indexOf(catalog[i - 1]) + 1, 0, k)
+  })
+  return out
 }
 
 export function useGridColumns(opts: {
@@ -66,23 +91,8 @@ export function useGridColumns(opts: {
 
   const keyed = computed(() => (opts.headers.value || []).filter((h: any) => h && typeof h.key === 'string'))
 
-  /** Catalog keys in the user's order (saved order first, new catalog keys appended in place). */
-  const orderedKeys = computed<string[]>(() => {
-    const catalog = keyed.value.map((h: any) => h.key)
-    const saved = pref.value.order.filter((k) => catalog.includes(k))
-    const rest = catalog.filter((k: string) => !saved.includes(k))
-    // Splice unsaved (new) keys back at their catalog positions relative to saved ones.
-    const out = [...saved]
-    for (const k of rest) {
-      const catIdx = catalog.indexOf(k)
-      let insertAt = out.length
-      for (let i = 0; i < out.length; i++) {
-        if (catalog.indexOf(out[i]) > catIdx) { insertAt = i; break }
-      }
-      out.splice(insertAt, 0, k)
-    }
-    return out
-  })
+  /** Catalog keys in the user's order (`orderColumnKeys`). */
+  const orderedKeys = computed<string[]>(() => orderColumnKeys(keyed.value.map((h: any) => h.key), pref.value.order))
 
   const effectiveHeaders = computed(() => {
     const byKey = new Map(keyed.value.map((h: any) => [h.key, h]))

@@ -1062,7 +1062,7 @@ Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/CN/DN/BILL); cash sales skip
 
 ## Generic grid column picker + price-select + Словом + perf (2026-07-26)
 
-- **Per-user grid columns** (visibility + reorder) on EVERY `ListScaffold` grid: `ui-shared/composables/useGridColumns.ts` (localStorage `lgr:grid-cols:<userId>:<orgId>:<gridId>`, gridId = route name) + `GridColumnPickerDialog.vue`; a cog in the results header opens it. userId read from the JWT in localStorage (no app-store coupling). Grids NOT on ListScaffold (e.g. `ProductsView`) don't get it yet.
+- **Per-user grid columns** (visibility + reorder) on EVERY `ListScaffold` grid: `ui-shared/composables/useGridColumns.ts` (localStorage `lgr:grid-cols:<userId>:<orgId>:<gridId>`, gridId = route name) + `GridColumnPickerDialog.vue`; a cog in the results header opens it. userId read from the JWT in localStorage (no app-store coupling). Grids NOT on ListScaffold (e.g. `StockLevelsView`) don't get it yet. ⚠ A saved order exists only after a MOVE and then wins, so a new default order reaches only users who never reordered; a column the saved order has never seen goes right after its catalog predecessor (`orderColumnKeys`, FR-22.46).
 - **Price-select icon** (`ui-shared/PriceSelectButton.vue`) left of every invoice-line Unit Price: lists selling + all named tiers via `GET /pricing/options?...&all=true` (new `all` mode in `listPriceOptions` offers filterless Цена slots too); `onLinePriceSelected` sets price + base→chosen explanation.
 - **Amount-in-words (Словом)**: `ui-shared/composables/useAmountInWords.ts` (`amountInWords` / `upsertAmountInWords`) — deterministic en/bg/de/mk converter, client-side, written into notes on save of every OUTGOING doc (gated `config.direction === 'outgoing'` in `useDocumentForm.buildPayload`) + orders, in the user's UI language, de-duped on re-save. Legacy format: `Словом : … евро и NN цента, Данъчна основа X.XX €`. Unit-tested (`amount-in-words.test.ts`).
 - **Bottom Save/Print bar** on all doc forms (`DocumentForm.vue`) + order form.
@@ -1135,6 +1135,15 @@ ORDI (InternalOrder, client demand)          ORDO (Order, supplier supply)
   or partly received ORDO lines, outstanding quantity, the clients holding it) and the product's
   reservations. A draft ORDO is `planned`, never `incoming`: nothing was ordered yet. Shown on the
   product's Stock tab (`inventory-ui ProductStockView`), linking into invoicing via `appHref`.
+- **On the Products list** (FR-22.45/.46): `GET /warehouse/stock-level/by-products`, the call the
+  list already made for its stock badges, also returns `supply: {[productId]: {reserved, incoming,
+  reservedIncoming, planned}}` from `getProductsSupplyTotals`. It runs the stock tab's own steps
+  (`loadSupplyDocs → incomingAllocations → warehouseFigures`), so there is no second definition of
+  "reserved" or "incoming", and three queries serve a page of any size. With `warehouseId` the badges
+  AND the totals describe that warehouse only. „Резервирано" / „Поръчано" follow „Наличност", which
+  now precedes „Мярка"; each non-zero figure opens the stock tab. Tests: `integration/products-supply-list.flow.test.ts`
+  (parity with `getProductSupply`, 5 queries for 5 or 50 products), `unit/grid-column-order.test.ts`;
+  the P1 walk goes 6 → 5 clicks through the figure's link.
 - **Lists and the ORDI form.** ReservationsView: Source is the ORDO number (linked) or "Stock", the
   ORDI is linked, quantity edit (`ReservationQuantityDialog`) and reserve again, `source` filter in
   the URL. InternalOrderFormView: each line's reservations in a sub-row; a reservation action

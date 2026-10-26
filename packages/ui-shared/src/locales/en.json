@@ -1624,6 +1624,7 @@
       "reserved": "Reserved",
       "available": "Available",
       "incoming": "Expected",
+      "onOrder": "On order",
       "reservedIncoming": "of it reserved",
       "planned": "planned (draft)",
       "expectedDeliveries": "Expected deliveries",
