@@ -477,7 +477,7 @@ Writes go to **acme-corp** only, signed in through the API and undone afterwards
 ## 11. Progress
 
 Updated 2026-10-26 (afternoon). "Merged" means on master; deploys follow the `deploy-prod` skill when
-the owner asks. Everything merged is on production except #268.
+the owner asks. Everything merged is on production.
 
 | Slice | Requirements | State |
 |---|---|---|
@@ -496,7 +496,7 @@ the owner asks. Everything merged is on production except #268.
 | 4b | FR-22.41–.44; FR-22.35 for Generate and Convert; FR-22.36 on both order forms; FR-22.13 on both order forms; FR-22.39 search; FR-22.15 defaults; translated refusals; FR-22.34 English / German / Macedonian names per D-1 | merged: #267. P7-chain 26 → 18 |
 | 5: products | FR-22.45 stock tab | merged: #252 |
 | 5 | FR-22.45 list columns, .46, .48 | merged: #263. P1 6 → 5 |
-| 5 | FR-22.47 (row actions „Заприходи", „Продай", „Резервирай") | merged: #268, not yet deployed. P1-act: 2 clicks to a sale of the article |
+| 5 | FR-22.47 (row actions „Заприходи", „Продай", „Резервирай") | merged: #268. P1-act: 2 clicks to a sale of the article |
 | 6: navigation | FR-22.49, .51, .52, .53 | merged: #259. P0-new: 1 click per leg |
 | 7: counter | FR-22.54, .55 (D-6) | merged: #256. P4-till 8 → 3, P4-backoffice 9 → 6 |
 | 7 | FR-22.60 cash sale → invoice (D-5) | merged: #249 (owned by another session) |
@@ -516,11 +516,11 @@ Found along the way and fixed on its own:
 - an outgoing credit note was stock-checked on issue although its return brings goods in (#264);
 - both order forms dropped any edit made after their first save (#267).
 
-Production (lgr:v20261026-f4ec90565c22, 2026-10-26, master d6e4b00d) carries everything above that
-is merged. Each deploy was field-tested on the acme-corp demo org.
+Production (lgr:v20261026-a9dae7528a8c, 2026-10-26, master f89e22eb) carries everything above that
+is merged, and FR-21 R1. Each deploy was field-tested on the acme-corp demo org.
 
 Data follow-ups run on production, 2026-10-26:
 - the 368 card invoices issued before FR-22.19 were settled with `scripts/settle-cash-invoices.ts
   --method card` (€23,777.48: regal-pz 173, regal-sf 195);
-- ⚠ the CASH invoices issued before the cash rule (regal-pz 387, regal-sf 115, €35.7k) have never
-  been settled. Running the same script with `--method cash` is the owner's call.
+- the 502 cash invoices issued before the cash rule were settled with `--method cash` (€35,722.55:
+  regal-pz 387, regal-sf 115). No counter-paid invoice of either org shows money owed any more.
