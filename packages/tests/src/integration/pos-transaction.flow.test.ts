@@ -7,6 +7,7 @@ import {
   createTestWarehouse,
   createTestProduct,
   createTestStockLevel,
+  createTestPOSTransaction,
 } from '../helpers/factories'
 import { POSSession, POSTransaction } from 'db/models'
 import { getRepos } from 'services/context'
@@ -140,7 +141,8 @@ async function createTransactionViaRepos(
   const verified = validateTotals(body)
   const transactionNumber = await getNextNumber(orgId, 'TXN', 7)
 
-  const transaction = await r.posTransactions.create({
+  // FR-21.26: the model refuses writes; a legacy row is inserted the way an older release left it.
+  const transaction = await createTestPOSTransaction(orgId as any, sessionId as any, createdBy as any, {
     ...body,
     orgId,
     sessionId,
@@ -206,7 +208,7 @@ async function createStornoViaRepos(
 
   const transactionNumber = await getNextNumber(orgId, 'TXN', 7)
 
-  const stornoTransaction = await r.posTransactions.create({
+  const stornoTransaction = await createTestPOSTransaction(orgId as any, sessionId as any, createdBy as any, {
     orgId,
     sessionId,
     transactionNumber,
@@ -227,7 +229,7 @@ async function createStornoViaRepos(
   } as any)
 
   // Mark original as cancelled
-  await r.posTransactions.update(original.id, { status: 'cancelled' } as any)
+  await POSTransaction.collection.updateOne({ _id: new mongoose.Types.ObjectId(String(original.id)) }, { $set: { status: 'cancelled', updatedAt: new Date() } })
 
   // Atomic session total update
   await POSSession.findByIdAndUpdate(sessionId, {

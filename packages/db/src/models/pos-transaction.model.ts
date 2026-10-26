@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { frozenPlugin } from '../plugins/frozen.plugin.js'
 import { replicate } from '../replication/declare.js'
 
 export interface IPriceStep {
@@ -186,6 +187,8 @@ const posTransactionSchema = new Schema<IPOSTransaction>(
   { timestamps: true },
 )
 
+// FR-21.26: frozen first, so a write is refused for what it is before any other hook runs.
+posTransactionSchema.plugin(frozenPlugin, { collection: 'postransactions' })
 posTransactionSchema.plugin(tenantPlugin)
 // One transaction per client key. Partial, so the many rows without a key never collide.
 posTransactionSchema.index(

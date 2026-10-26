@@ -523,7 +523,14 @@ export async function createTestPOSTransaction(
     changeDue: 0,
     createdBy,
   }
-  return POSTransaction.create({ ...defaults, ...overrides }) as Promise<IPOSTransaction>
+  // FR-21.26: the model refuses writes, so a legacy row (what an older release wrote) is built by
+  // the model, which applies its defaults and validates it, and then inserted raw.
+  const now = new Date()
+  const row = new POSTransaction({ createdAt: now, updatedAt: now, ...defaults, ...overrides })
+  const invalid = row.validateSync()
+  if (invalid) throw invalid
+  await POSTransaction.collection.insertOne(row.toObject({ depopulate: true }) as any)
+  return row as unknown as IPOSTransaction
 }
 
 export async function createTestExchangeRate(orgId: Types.ObjectId, overrides: Partial<IExchangeRate> = {}): Promise<IExchangeRate> {

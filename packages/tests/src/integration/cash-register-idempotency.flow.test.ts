@@ -90,7 +90,7 @@ describe('a keyed till request an R1 till answered, retried against R2', () => {
   it('a keyed storno an R1 till made: the storno and its sale are copied, and the storno is replayed', async () => {
     const w = await tillWorld(app)
     const { row } = await soldByR1(w, 'deploy-key-0003')
-    await POSTransaction.updateOne({ _id: row._id }, { $set: { status: 'cancelled' } }).exec()
+    await POSTransaction.collection.updateOne({ _id: row._id }, { $set: { status: 'cancelled' } })
     const stornoBody = { originalTransactionId: String(row._id), reason: 'customer_return' }
     const stornoRow = await createTestPOSTransaction(w.oid, w.sessionId as any, w.user._id as Types.ObjectId, {
       type: 'storno', status: 'completed', transactionNumber: 'TXN-2026-0000078', total: 24, subtotal: 20, taxTotal: 4,

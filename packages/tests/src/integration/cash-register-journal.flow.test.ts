@@ -98,7 +98,7 @@ async function world() {
   })
   await Invoice.collection.insertOne(fromPosTransaction(copied.toObject(), session.toObject(), { stornoedBy: [stornoRow._id] }) as any)
   await Invoice.collection.insertOne(fromPosTransaction(stornoRow.toObject(), session.toObject()) as any)
-  await POSTransaction.deleteOne({ _id: stornoRow._id })
+  await POSTransaction.collection.deleteOne({ _id: stornoRow._id })
 
   async function get(path: string, tok = token) {
     const res = await app.handle(new Request(`http://localhost/org/${orgId}/cash-register${path}`, { headers: { authorization: `Bearer ${tok}` } }))

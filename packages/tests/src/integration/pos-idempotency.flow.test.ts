@@ -9,6 +9,7 @@ import {
   createTestProduct,
   createTestStockLevel,
   createTestFiscalDevice,
+  createTestPOSTransaction,
 } from '../helpers/factories'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { posController } from 'invoicing-api/src/controllers/pos.controller'
@@ -187,7 +188,8 @@ describe('a sale interrupted by a crash is finished by its retry, never printed 
     const body = saleBody(String(w.product._id))
     const counterBefore = await w.eltrade.getLastReceiptNumber()
     const unpNumber = await generateUNP(w.orgId, 'ED123456', '0001')
-    await POSTransaction.create({
+    // FR-21.26: an older release's row, inserted as it left it (the model refuses writes).
+    await createTestPOSTransaction(w.orgId as any, w.sessionId as any, w.user._id as any, {
       ...body, orgId: w.orgId, sessionId: w.sessionId,
       transactionNumber: await getNextNumber(w.orgId, 'TXN', 7), status: 'completed',
       unpNumber, fiscalDeviceNumber: 'ED123456', isFiscal: true,
@@ -261,7 +263,7 @@ describe('a sale interrupted by a crash is finished by its retry, never printed 
       return new Proxy(p, { get: (t, k) => (k === 'getLastReceiptNumber' ? undefined : typeof t[k] === 'function' ? t[k].bind(t) : t[k]) })
     })
     const body = saleBody(String(w.product._id))
-    await POSTransaction.create({
+    await createTestPOSTransaction(w.orgId as any, w.sessionId as any, w.user._id as any, {
       ...body, orgId: w.orgId, sessionId: w.sessionId,
       transactionNumber: await getNextNumber(w.orgId, 'TXN', 7), status: 'completed',
       unpNumber: await generateUNP(w.orgId, 'ED123456', '0001'), fiscalDeviceNumber: 'ED123456', isFiscal: true,

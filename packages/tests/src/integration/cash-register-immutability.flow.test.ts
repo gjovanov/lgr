@@ -71,7 +71,7 @@ async function world() {
     } as any)
     const doc = { ...fromPosTransaction(row.toObject(), session.toObject()), ...docOver }
     await Invoice.collection.insertOne(doc as any)
-    await POSTransaction.deleteOne({ _id: row._id })
+    await POSTransaction.collection.deleteOne({ _id: row._id })
     return doc
   }
   return { orgId, user, wh, product, contact, session, call, tillDocument }
