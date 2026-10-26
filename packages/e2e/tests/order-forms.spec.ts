@@ -176,3 +176,58 @@ test.describe('Generating a supplier order (FR-22.42)', () => {
     expect(after.supplierGroups[0].lines[1].allocations.map((a: any) => [String(a.warehouseId), a.quantity])).toEqual([[String(w.warehouse._id), 4]])
   })
 })
+
+test.describe('A client order covered by a supplier order not sent yet (FR-22.44)', () => {
+  test('reads „Ordered" on its header and its line, and „Reserved" once the supplier order goes out', async ({ page }) => {
+    const api = await session()
+    const w = await world(api)
+    const ordi = await clientOrder(api, w, 4)
+    const gen = await api.call('POST', `/invoicing/internal-orders/${ordi._id}/generate-external`, {
+      lines: [{ internalOrderLineId: ordi.lines[0]._id, quantity: 4, supplierId: w.supplierId }],
+    })
+    expect(gen.order?.status).toBe('draft')
+
+    await loginForApp(page)
+    await page.goto(`/invoicing/internal-orders/${ordi._id}/edit`, { waitUntil: 'networkidle' })
+    const header = page.locator('.form-paper-header .v-chip').last()
+    await expect(header).toHaveText('Ordered')
+    await expect(page.locator('tbody tr').filter({ hasText: w.product.name }).getByText('Ordered: 4/4')).toBeVisible()
+
+    await api.call('POST', `/invoicing/orders/${gen.order._id}/send`)
+    await page.reload({ waitUntil: 'networkidle' })
+    await expect(header).toHaveText('Reserved')
+    await expect(page.locator('tbody tr').filter({ hasText: w.product.name }).getByText('Reserved Qty: 4/4')).toBeVisible()
+  })
+})
+
+test.describe('Each hand-off lands on the next document (FR-22.35)', () => {
+  test('generating a supplier order opens it; converting the client order opens the new invoice', async ({ page }) => {
+    const api = await session()
+    const w = await world(api, 2)
+    const ordi = await clientOrder(api, w, 5)
+    await api.call('POST', `/invoicing/internal-orders/${ordi._id}/reserve-available`, {})
+
+    await loginForApp(page)
+    await page.goto(`/invoicing/internal-orders/${ordi._id}/edit`, { waitUntil: 'networkidle' })
+    await page.getByRole('button', { name: 'Generate outgoing order' }).click()
+    const dialog = page.locator('.v-overlay--active .v-card').filter({ has: page.getByTestId('generate-target') })
+    // No supplier order ever carried the article: pick the supplier.
+    const supplier = dialog.getByRole('combobox', { name: 'Supplier' })
+    await supplier.locator('xpath=ancestor::div[contains(@class,"v-field")][1]').click()
+    await supplier.pressSequentially(w.supplierName, { delay: 20 })
+    await page.locator('.v-overlay--active .v-list-item').filter({ hasText: w.supplierName }).first().click()
+    await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+    await page.waitForURL(/\/invoicing\/orders\/[0-9a-f]{24}\/edit$/)
+    const ordo = (await api.call('GET', `/invoicing/orders/${page.url().match(/orders\/([0-9a-f]{24})/)![1]}`)).order
+    await expect(page.locator('.form-paper-header .text-h6')).toHaveText(ordo.orderNumber)
+    expect(ordo.supplierGroups[0].lines[0].quantity).toBe(3)
+
+    await page.goto(`/invoicing/internal-orders/${ordi._id}/edit`, { waitUntil: 'networkidle' })
+    await page.locator('.form-actions-bar').getByRole('button', { name: 'Convert to Invoice' }).click()
+    await page.waitForURL(/\/invoicing\/invoices\/[0-9a-f]{24}\/edit$/)
+    const invoice = (await api.call('GET', `/invoices/${page.url().match(/invoices\/([0-9a-f]{24})/)![1]}`)).invoice
+    expect(invoice).toMatchObject({ status: 'draft', internalOrderId: ordi._id })
+    // What waits on the supplier order is said, and stays reserved for a later invoice.
+    await expect(page.locator('.v-snackbar')).toContainText(ordo.orderNumber)
+  })
+})

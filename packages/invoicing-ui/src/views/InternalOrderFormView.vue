@@ -864,8 +864,10 @@ async function convertOrder() {
   loading.value = true
   try {
     const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/convert`)
+    // The message says what stays reserved on supplier orders; it outlives the move.
     conversion.converted(data)
-    await loadOrder()
+    // FR-22.35: the user lands on the new draft invoice, which issues and prints from its own form.
+    await router.push({ name: 'invoicing.sales.edit', params: { id: String(data.invoice._id || data.invoice.id) } })
   } catch (e: any) {
     conversion.failed(e)
   } finally {
@@ -1069,7 +1071,8 @@ async function submitGenerate() {
     })
     showSuccess(t(appending ? 'invoicing.externalOrderAppended' : 'invoicing.externalOrderCreated', { number: data.order.orderNumber }))
     generateDialog.value = false
-    await refreshReservations()
+    // FR-22.35: the user lands on the supplier order — the next step is sending it.
+    await router.push({ name: 'invoicing.orders.edit', params: { id: String(data.order._id) } })
   } catch (e: any) {
     showError(reservationErrorMessage(e, t))
   } finally {
