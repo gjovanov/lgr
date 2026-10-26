@@ -16,6 +16,8 @@ import { setDisplayPrefix } from 'services/biz/sequence.service'
 import { getRepos } from 'services/context'
 import { Invoice, Org, POSSession, POSTransaction, Sequence, StockLevel, StockMovement } from 'db/models'
 import { tillApp, tillWorld, forgetDevices } from '../helpers/till-world'
+import { persistCashSale } from 'services/biz/doc-import/persist'
+import { AuditLog } from 'db/models'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 
@@ -378,5 +380,73 @@ describe('FR-21.16 — one failure rule, and the stock checked before the print'
     } finally {
       delete repo.create
     }
+  }, 60_000)
+})
+
+describe('FR-21.15 — the back office and the import go through the same service', () => {
+  it('a back-office cash sale: a document of origin backoffice, a CS number, stock by invoiceId, the route\'s answer as before', async () => {
+    const w = await tillWorld(app, { device: false })
+    const res = await w.backOfficeSale(2)
+
+    expect(res.status).toBe(200)
+    expect(res.json.invoice).toMatchObject({ type: 'cash_sale', status: 'paid', amountPaid: 24, amountDue: 0 })
+    expect(res.json.invoice.invoiceNumber).toMatch(/^CS-\d{4}-00001$/)
+    const doc: any = await Invoice.findById(res.json.invoice.id).lean()
+    expect(doc.register.origin).toBe('backoffice')
+    expect(doc.completedAt).toBeTruthy()
+    expect(await StockMovement.countDocuments({ orgId: w.oid, invoiceId: doc._id, type: 'dispatch' })).toBe(1)
+    expect((await w.stock()).quantity).toBe(8)
+    // The audit entry is written in the background (`createAuditEntry` is fire-and-forget).
+    let audited = 0
+    for (let i = 0; i < 20 && !audited; i++) {
+      audited = await AuditLog.countDocuments({ orgId: w.oid, entityId: { $in: [doc._id, String(doc._id)] }, action: 'create', module: 'invoicing' })
+      if (!audited) await new Promise(r => setTimeout(r, 50))
+    }
+    expect(audited).toBe(1)
+  }, 60_000)
+
+  it("the CLI's till day, posted to the same route, is an import", async () => {
+    const w = await tillWorld(app, { device: false })
+    const tagged = await w.backOfficeSale(1, { tags: ['cash-register-import'], allowNegativeStock: true })
+    const named = await w.backOfficeSale(1, { reference: 'salesAnalysis:2026-10-25', skipStockMovement: true })
+    for (const res of [tagged, named]) {
+      expect(res.status).toBe(200)
+      expect((await Invoice.findById(res.json.invoice.id).lean() as any).register.origin).toBe('import')
+    }
+    // skipStockMovement: its goods moved elsewhere.
+    expect(await StockMovement.countDocuments({ orgId: w.oid, invoiceId: named.json.invoice.id })).toBe(0)
+  }, 60_000)
+
+  it('a back-office sale the warehouse cannot cover is taken back whole: no document, no stock, no number', async () => {
+    const w = await tillWorld(app, { device: false, stock: 1 })
+    const res = await w.backOfficeSale(3)
+
+    expect(res.status).toBe(400)
+    expect(res.json.message).toMatch(/Insufficient stock/)
+    expect(await Invoice.countDocuments({ orgId: w.oid })).toBe(0)
+    expect((await w.stock()).quantity).toBe(1)
+  }, 60_000)
+
+  it('a Files import (persistCashSale): origin import, numbered from CASH_SALE, dispatched below zero if need be', async () => {
+    const w = await tillWorld(app, { device: false, stock: 1 })
+    const mapped: any = {
+      type: 'cash_sale', direction: 'outgoing', issueDate: '2026-10-25', currency: 'EUR', exchangeRate: 1,
+      reference: 'salesAnalysis:2026-10-25', tags: ['cash-register-import'], paymentMethod: 'cash',
+      lines: [{
+        productId: w.product._id, warehouseId: w.warehouse._id, description: 'Болт DIN 933 М8Х25', quantity: 3,
+        unit: 'бр.', unitPrice: 10, taxRate: 20, taxAmount: 6, lineTotal: 36,
+      }],
+      subtotal: 30, taxTotal: 6, total: 36,
+    }
+
+    const day = await persistCashSale(w.orgId, String(w.user._id), mapped)
+
+    expect(day.invoiceNumber).toMatch(/^CS-\d{4}-00001$/)
+    expect(day.register.origin).toBe('import')
+    expect(day.completedAt).toBeTruthy()
+    expect((await w.stock()).quantity).toBe(-2)
+
+    const noStock = await persistCashSale(w.orgId, String(w.user._id), { ...mapped, reference: 'salesAnalysis:2026-10-26' }, { adjustStock: false })
+    expect(await StockMovement.countDocuments({ orgId: w.oid, invoiceId: noStock._id })).toBe(0)
   }, 60_000)
 })

@@ -13,6 +13,7 @@ import { createAuditEntry } from '../audit-log.service.js'
 import { ensureSequenceAtLeast } from '../sequence.service.js'
 import { syncOrderForInvoice } from '../reservation.service.js'
 import { syncCashSettlement } from '../cash-settlement.service.js'
+import { RegisterRefusal, insertRegisterDocument, runSaleSteps } from '../cash-register/register.service.js'
 import {
   getNextDraftInvoiceNumber,
   getNextInvoiceNumber,
@@ -156,18 +157,19 @@ export async function persistCashSale(
   mapped: MappedInvoice,
   opts: { adjustStock?: boolean } = {},
 ): Promise<any> {
-  const r = getRepos()
   // A cash sale has no draft step, so it needs the same late match the draft path gets.
   await matchLinesCreatedSinceAnalysis(orgId, mapped)
-  const invoiceNumber = await getNextInvoiceNumber(orgId, 'outgoing', 'cash_sale')
   const issueDate = mapped.issueDate ? new Date(mapped.issueDate) : new Date()
 
-  const invoice: any = await r.invoices.create({
+  // FR-21 (D-4): a till day is a cash-register document (origin `import`), written by the one
+  // service: numbered from CASH_SALE, its stock dispatched through the invoice path — below zero
+  // if need be, since the export can name goods the warehouse has not booked yet — and taken back
+  // whole if that dispatch fails.
+  const fields = {
     orgId,
     type: 'cash_sale',
     direction: 'outgoing',
     contactId: mapped.contactId,
-    invoiceNumber,
     reference: mapped.reference,
     issueDate,
     dueDate: issueDate,
@@ -189,21 +191,25 @@ export async function persistCashSale(
     billingAddress: mapped.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
     status: 'paid',
     statusHistory: [{ status: 'paid', changedAt: new Date(), changedBy: userId, reason: 'cash_register_import' }],
-    numberHistory: [{ number: invoiceNumber, allocatedAt: new Date(), status: 'paid' }],
     createdBy: userId,
     tags: mapped.tags,
-  } as any)
-
-  if (opts.adjustStock !== false) {
-    try {
-      // allowNegative — migration dispatches items the warehouse may not hold yet.
-      await createInvoiceStockMovement(invoice, userId, undefined, { allowNegative: true })
-    } catch (e) {
-      await r.invoices.delete(String(invoice.id || invoice._id))
-      throw e
-    }
+    register: { origin: 'import' },
   }
-  return invoice
+  try {
+    const outcome = await insertRegisterDocument(orgId, fields)
+    if (!('inserted' in outcome)) throw new Error('A keyless insert cannot meet an existing document')
+    return await runSaleSteps({
+      orgId,
+      user: { id: userId },
+      allowNegative: true,
+      skipStock: opts.adjustStock === false,
+      audit: { module: 'invoicing', entityType: 'invoice' },
+    }, String(outcome.inserted._id))
+  } catch (e: any) {
+    // The import reports a failed item by its message, as it did when it wrote the sale itself.
+    if (e instanceof RegisterRefusal) throw new Error(String(e.body.message ?? e.message))
+    throw e
+  }
 }
 
 /**

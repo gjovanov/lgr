@@ -14,6 +14,7 @@
  *
  * Native `fetch`, like `helpers/api.ts` (Set-Cookie breaks Playwright's request context in v1.58).
  */
+import ExcelJS from 'exceljs'
 import { apiLogin, type ApiSession } from './api'
 
 const API = process.env.BASE_URL || 'http://localhost:4001'
@@ -101,6 +102,25 @@ export async function ringTillSale(session?: ApiSession): Promise<TillSale> {
 export async function closeTillSession(sessionId: string, cashier?: ApiSession): Promise<void> {
   const session = cashier || await apiLogin('acme-corp', 'sales', 'test123')
   await call(session, 'POST', `/trade/pos/session/${sessionId}/close`, { closingBalance: 0 })
+}
+
+/**
+ * The cash-register export (`POST /invoicing/export/kind/cash_register`) as rows of cell values:
+ * the document list, or with `aggregated: true` the per-product pivot. Read whole, never through
+ * ExcelJS's stream reader, which corrupts Cyrillic.
+ */
+export async function cashRegisterExport(session: ApiSession, body: Record<string, unknown>): Promise<unknown[][]> {
+  const res = await fetch(`${API}/api/org/${session.orgId}/invoicing/export/kind/cash_register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+    body: JSON.stringify({ format: 'xlsx', mode: 'compact', ...body }),
+  })
+  if (!res.ok) throw new Error(`export → ${res.status} ${await res.text()}`)
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(Buffer.from(await res.arrayBuffer()) as any)
+  const rows: unknown[][] = []
+  workbook.eachSheet(sheet => sheet.eachRow(row => { rows.push((row.values as unknown[]).slice(1)) }))
+  return rows
 }
 
 /** The sold product's stock at the till's warehouse now. */
