@@ -1918,6 +1918,13 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
 - ⚠ **The POS terminal shows ANY open session in the org**, not only its user's
   (`PosTerminalView.vue#fetchSessions`). E2E fixtures that open a session must close it, or
   `pos-terminal.spec.ts` loses its "Open Session" button (`e2e/tests/helpers/cash-register.ts`).
+- ⚠ **A body field the route's schema does not declare never reaches the handler**: Elysia's
+  normalize drops it without a word. `POST /invoices` read `pendingTransferIds` without declaring
+  it, so the cash-sale form's transfer-then-sell answered 400 for want of stock and left its draft
+  transfer behind (FR-21.24, `cash-register-sale.flow`). The ids are the client's:
+  `confirmTransferMovements(orgId, ids)` confirms only draft TRANSFERS of that org, and
+  `checkPendingTransfers` refuses the whole list (422 `pending_transfer_invalid`) before a sale
+  draws its number.
 
 ## An article starts its documents: „Заприходи", „Продай", „Резервирай" (2026-10-26, FR-22.47)
 

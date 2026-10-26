@@ -26,6 +26,7 @@ import {
   issueFieldsFor, invoicingByCashSale, invoicedCashSaleIds, liveInvoiceNumbersFor,
 } from 'services/biz/cash-sale-invoice.service'
 import { logger } from 'services/logger'
+import { PendingTransferError, checkPendingTransfers, confirmTransferMovements } from 'services/biz/stock-transfer.service'
 import {
   ReceiptBillError, applyLinkedBillPrices, checkLinkedBillEdit, isReceiptLinked, linkedReceiptsOf, releaseReceiptLinks,
 } from 'services/biz/receipt-bill.service'
@@ -93,12 +94,12 @@ async function finishCreate(c: CreateCtx, id: string, status: Status) {
   }
   if (c.isCashSale && !c.skipStockMovement) {
     if (c.pendingTransferIds?.length && !invoice.pendingTransferIds?.length) {
-      const { confirmTransferMovements } = await import('services/biz/stock-transfer.service')
       try {
-        await confirmTransferMovements(c.pendingTransferIds)
+        await confirmTransferMovements(c.orgId, c.pendingTransferIds)
         await r.invoices.updateInOrg(id, c.orgId, { pendingTransferIds: c.pendingTransferIds } as any)
       } catch (e: any) {
         await r.invoices.deleteInOrg(id, c.orgId)
+        if (e instanceof PendingTransferError) return status(e.statusCode, { code: e.code, message: e.message })
         return status(400, { message: `Transfer confirmation failed: ${e.message}` })
       }
     }
@@ -661,6 +662,19 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       const allowNegativeStock = (body as any).allowNegativeStock === true
       delete (body as any).skipStockMovement
       delete (body as any).allowNegativeStock
+      // FR-21.24: the transfers a cash sale asked for, confirmed before it dispatches. Not a
+      // document field until they are confirmed: a resumed create reads its absence as "not yet".
+      const pendingTransferIds = isCashSale && !skipStockMovement ? (body as any).pendingTransferIds as string[] | undefined : undefined
+      delete (body as any).pendingTransferIds
+      if (pendingTransferIds?.length) {
+        // Checked before the insert, so a refused list draws no CS number.
+        try {
+          await checkPendingTransfers(orgId, pendingTransferIds)
+        } catch (e: any) {
+          if (e instanceof PendingTransferError) return status(e.statusCode, { code: e.code, message: e.message })
+          throw e
+        }
+      }
 
       // Allocate + create with retry on duplicate-key. A collision indicates the sequence
       // counter drifted (e.g. legacy data) — the reconcile-on-allocate path inside
@@ -753,14 +767,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // Cash sales trigger stock movement immediately (unless the import opted out)
       if (isCashSale && !skipStockMovement) {
         // Confirm pending transfers first (cross-warehouse)
-        const pendingTransferIds = (body as any).pendingTransferIds as string[] | undefined
         if (pendingTransferIds?.length) {
-          const { confirmTransferMovements } = await import('services/biz/stock-transfer.service')
           try {
-            await confirmTransferMovements(pendingTransferIds)
+            await confirmTransferMovements(orgId, pendingTransferIds)
             await r.invoices.update(invoice.id, { pendingTransferIds } as any)
           } catch (e: any) {
             await r.invoices.delete(invoice.id)
+            if (e instanceof PendingTransferError) return status(e.statusCode, { code: e.code, message: e.message })
             return status(400, { message: `Transfer confirmation failed: ${e.message}` })
           }
         }
@@ -845,6 +858,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // reflects the sales) / tolerate negative stock while migrating.
         skipStockMovement: t.Optional(t.Boolean()),
         allowNegativeStock: t.Optional(t.Boolean()),
+        // FR-21.24: transfers the cash-sale form created for stock its warehouse lacks
+        // (`/stock-availability/create-transfers`), confirmed before the sale dispatches.
+        // Undeclared, Elysia's normalize dropped it and the sale failed for want of stock.
+        pendingTransferIds: t.Optional(t.Array(t.String())),
         notes: t.Optional(t.String()),
         // Free text printed under the number block of the form; stored with the document.
         printNote: t.Optional(t.String()),
@@ -1190,11 +1207,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     // Confirm pending transfer movements before dispatch (cross-warehouse transfers)
     const pendingTransferIds = (body as any)?.pendingTransferIds as string[] | undefined
     if (pendingTransferIds?.length && !(invoice as any).pendingTransferIds?.length) {
-      const { confirmTransferMovements } = await import('services/biz/stock-transfer.service')
       try {
-        await confirmTransferMovements(pendingTransferIds)
+        await confirmTransferMovements(orgId, pendingTransferIds)
       } catch (e: any) {
         await release()
+        if (e instanceof PendingTransferError) return status(e.statusCode, { code: e.code, message: e.message })
         return status(400, { message: `Transfer confirmation failed: ${e.message}` })
       }
     }
