@@ -7,6 +7,10 @@ import { invoiceController } from 'invoicing-api/src/controllers/invoice.control
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { convertDraftInvoice } from 'services/biz/doc-import/persist'
 import { CASH_ON_ISSUE } from 'services/biz/cash-settlement.service'
+
+/** FR-22.19 (D-3): what a card payment taken at the counter is marked with. A literal, not an
+ *  import: the code this test is written against before the rule existed had no such export. */
+const CARD_ON_ISSUE = 'card_on_issue'
 import { eventBus } from 'services/events/event-bus'
 import { Invoice } from 'db/models'
 import { config } from 'config'
@@ -212,6 +216,117 @@ describe('the other ways in', () => {
     const note = await w.draft('cash', 30, { type: 'credit_note', relatedInvoiceId: inv })
     await w.send(note)
     expect((await w.load(note)).status).toBe('sent')
+  })
+})
+
+/**
+ * FR-22.19 (D-3, #203.3): a card is paid at the counter as the invoice is written, exactly like
+ * cash — so it settles on issue under the same rules. It used to stay `sent` with its whole total
+ * due until someone found the list row and recorded the payment by hand: a second dialog, and the
+ * method picked a second time. Bank transfer and cash on delivery stay open (the tests above).
+ */
+describe('a card invoice is paid on issue, like cash (FR-22.19)', () => {
+  it('issuing it records the whole total as one card payment, dated the issue date', async () => {
+    const w = await world()
+    const id = await w.draft('card')
+    const res = await w.send(id)
+    expect(res.status).toBe(200)
+    expect(res.json.invoice.status).toBe('paid')
+    const inv = await w.load(id)
+    expect(inv.status).toBe('paid')
+    expect(inv.amountPaid).toBe(120)
+    expect(inv.amountDue).toBe(0)
+    expect(inv.payments).toHaveLength(1)
+    expect(inv.payments[0]).toMatchObject({ amount: 120, method: 'card', origin: CARD_ON_ISSUE })
+    expect(new Date(inv.payments[0].date).toISOString().slice(0, 10)).toBe(ISSUE_DATE)
+    expect(new Date(inv.paidAt).toISOString().slice(0, 10)).toBe(ISSUE_DATE)
+    expect(recorded).toEqual([expect.objectContaining({ invoiceId: id, amount: 120, method: 'card' })])
+  })
+
+  it('a draft saved with card stays a draft', async () => {
+    const w = await world()
+    const id = await w.draft('bank_transfer')
+    await w.put(id, { paymentMethod: 'card' })
+    const inv = await w.load(id)
+    expect(inv.status).toBe('draft')
+    expect(inv.payments).toHaveLength(0)
+  })
+
+  it('a paid card invoice follows its total up and down', async () => {
+    const w = await world()
+    const id = await w.draft('card')
+    await w.send(id)
+
+    await w.put(id, { lines: [{ description: 'Монтаж', quantity: 1, unitPrice: 150, taxRate: 0 }], subtotal: 150, total: 150 })
+    let inv = await w.load(id)
+    expect(inv.status).toBe('paid')
+    expect(inv.payments.map((p: any) => [p.amount, p.method, p.origin])).toEqual([[120, 'card', CARD_ON_ISSUE], [30, 'card', CARD_ON_ISSUE]])
+
+    await w.put(id, { lines: [{ description: 'Монтаж', quantity: 1, unitPrice: 100, taxRate: 0 }], subtotal: 100, total: 100 })
+    inv = await w.load(id)
+    expect(inv.status).toBe('paid')
+    expect(inv.amountDue).toBe(0)
+    expect(inv.payments.map((p: any) => [p.amount, p.origin])).toEqual([[100, CARD_ON_ISSUE]])
+  })
+
+  it('switching it to bank transfer takes the card payment back', async () => {
+    const w = await world()
+    const id = await w.draft('card')
+    await w.send(id)
+
+    const res = await w.put(id, { paymentMethod: 'bank_transfer' })
+    expect(res.json.invoice.status).toBe('sent')
+    const inv = await w.load(id)
+    expect(inv.payments).toHaveLength(0)
+    expect(inv.amountDue).toBe(120)
+    expect(inv.paidAt).toBeNull()
+  })
+
+  it('switching between card and cash moves the automatic payment to the other method', async () => {
+    const w = await world()
+    const id = await w.draft('card')
+    await w.send(id)
+
+    await w.put(id, { paymentMethod: 'cash' })
+    let inv = await w.load(id)
+    expect(inv.status).toBe('paid')
+    expect(inv.payments.map((p: any) => [p.amount, p.method, p.origin])).toEqual([[120, 'cash', CASH_ON_ISSUE]])
+
+    await w.put(id, { paymentMethod: 'card' })
+    inv = await w.load(id)
+    expect(inv.status).toBe('paid')
+    expect(inv.payments.map((p: any) => [p.amount, p.method, p.origin])).toEqual([[120, 'card', CARD_ON_ISSUE]])
+    expect(inv.amountPaid).toBe(120)
+  })
+
+  it('a payment someone recorded by hand is never taken back', async () => {
+    const w = await world()
+    const id = await w.draft('bank_transfer')
+    await w.send(id)
+    expect((await w.pay(id, { date: '2026-10-06', amount: 50, method: 'bank_transfer' })).status).toBe(200)
+
+    await w.put(id, { paymentMethod: 'card' })
+    let inv = await w.load(id)
+    expect(inv.status).toBe('paid')
+    expect(inv.payments.map((p: any) => [p.amount, p.method, p.origin ?? null])).toEqual([
+      [50, 'bank_transfer', null],
+      [70, 'card', CARD_ON_ISSUE],
+    ])
+
+    await w.put(id, { paymentMethod: 'cash_on_delivery' })
+    inv = await w.load(id)
+    expect(inv.status).toBe('partially_paid')
+    expect(inv.payments.map((p: any) => p.amount)).toEqual([50])
+  })
+
+  it('only sales invoices: a credit note paid by card stays as it was', async () => {
+    const w = await world()
+    const inv = await w.draft('bank_transfer')
+    await w.send(inv)
+    const note = await w.draft('card', 30, { type: 'credit_note', relatedInvoiceId: inv })
+    await w.send(note)
+    expect((await w.load(note)).status).toBe('sent')
+    expect((await w.load(note)).payments).toHaveLength(0)
   })
 })
 

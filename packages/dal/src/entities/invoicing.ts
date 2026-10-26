@@ -95,7 +95,7 @@ export interface IInvoicePayment {
   reference?: string
   bankAccountId?: string
   journalEntryId?: string
-  /** Set when the system, not a person, recorded it: `cash_on_issue` or `cash_register`. */
+  /** Set when the system, not a person, recorded it: `cash_on_issue`, `card_on_issue` or `cash_register`. */
   origin?: string
 }
 

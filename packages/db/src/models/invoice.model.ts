@@ -75,8 +75,9 @@ export interface IInvoicePayment {
   bankAccountId?: Types.ObjectId
   journalEntryId?: Types.ObjectId
   /**
-   * Set when the system, not a person, recorded it: `cash_on_issue` (services/biz/cash-settlement),
-   * or `cash_register` — the money of an invoice for a cash sale, which that cash sale took.
+   * Set when the system, not a person, recorded it: `cash_on_issue` / `card_on_issue` (paid at the
+   * counter as the invoice was issued — services/biz/cash-settlement), or `cash_register` — the
+   * money of an invoice for a cash sale, which that cash sale took.
    */
   origin?: string
   /** The `Idempotency-Key` that recorded this payment, and its request hash (#155). */
@@ -320,7 +321,7 @@ const invoiceSchema = new Schema<IInvoice>(
         reference: String,
         bankAccountId: { type: Schema.Types.ObjectId, ref: 'BankAccount' },
         journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
-        origin: { type: String, enum: ['cash_on_issue', 'cash_register'] },
+        origin: { type: String, enum: ['cash_on_issue', 'card_on_issue', 'cash_register'] },
         clientKey: String,
         requestHash: String,
       },
