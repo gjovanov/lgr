@@ -258,14 +258,23 @@ R1's readers already union both stores and know `cash_storno`.
 **Before the R2 deploy:**
 1. **CI** green on #272, #273 and #274; merge the stack in order, retargeting each next PR to
    `master` before its base branch is deleted (§1).
-2. **E2E** on the stack against an isolated database (§7): the existing `cash-register`,
-   `cash-sales`, `cash-sale-invoice`, `pos-terminal`, `pos-transactions` specs and FR-22's walks.
-   Still to write: `scripts/eltrade-tcp-stub.ts` and §8.3's items 1, 4 and 7, and
-   `cash-register-migration.spec.ts`.
-3. **The rehearsal on mars** (§8.4): restore the latest nightly bundle of every org into a throwaway
-   `mongod`, run `bun scripts/cash-register-preflight.ts`, run `bun run migrate` twice (0008 must
-   apply once and then be a no-op), then `--parity`; roll the image back to R1 and forward again on
-   the same data. Attach the counts, the parity output and the timings to #273.
+2. **E2E** — passed on the stack, 2026-10-26, against an isolated database (§7). Covered:
+   `cash-register`, `cash-sales`, `cash-sale-invoice`, `pos-terminal`, `pos-transactions` and FR-22's
+   walks. `cash-register.spec` gained §8.3 item 7: the cash-register report and both exports (the list
+   and the per-product pivot) carry a till sale.
+   **Not written:**
+   - §8.3 items 1, 4 and 9. They need a fiscal device in Playwright, and `fiscal/tcp-target.ts` (the
+     SSRF guard) refuses a loopback TCP device. So the planned `scripts/eltrade-tcp-stub.ts` needs a
+     test seam first, and that is a security decision.
+   - `cash-register-migration.spec.ts`. `cash-register-migration.flow` covers 0008 and the restore.
+3. **The rehearsal on mars** (§8.4) — done 2026-10-26, on a mongodump of prod in a throwaway
+   `mongod` (the same data as the nightly bundles, and newer).
+   - **Preflight:** clean, with 0 POS rows in any org, so 0008 only labels `register.origin`.
+   - **Migrate:** the first run took 201 ms, and the second was a no-op.
+   - **Field checks:** identical with R1 before, with R2 after, and with R1 after (the rollback).
+   - **Results:** posted on #273.
+   An older bundle that still holds POS rows is converted by the restore, which
+   `cash-register-migration.flow` covers.
 4. **The device test** on prod, in `acme-corp` (§8.4), after the deploy: the non-fiscalized Eltrade A3
    over Web Serial, text mode — open a session, sell, storno, close; both journals agree.
 5. **The deploy** itself, then `bun run migrate` on the build host (`MIGRATIONS_AUTO` is off), then
