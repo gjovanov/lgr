@@ -8,7 +8,7 @@ import { getRepos } from '../../context.js'
 import { Product, SupplierProductAlias, normalizeAlias, Warehouse } from 'db/models'
 import { matchProductsExact } from './matching.js'
 import { logger } from '../../logger/logger.js'
-import { createInvoiceStockMovement } from '../invoicing.service.js'
+import { createInvoiceStockMovement, unbookableStockLines, unbookableStockMessage } from '../invoicing.service.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { ensureSequenceAtLeast } from '../sequence.service.js'
 import { syncOrderForInvoice } from '../reservation.service.js'
@@ -254,6 +254,25 @@ export async function convertDraftInvoice(
   const invoice: any = await r.invoices.findOne({ id: invoiceId, orgId } as any)
   if (!invoice) return { ok: false, error: 'not found' }
   if (invoice.status !== 'draft') return { ok: false, error: 'not in draft status' }
+
+  /**
+   * ⚠ Refuse BEFORE anything is mutated.
+   *
+   * The booking guard inside `createInvoiceStockMovement` used to be the only check, and it runs
+   * AFTER this function has allocated the issued number and flipped the invoice to sent/received.
+   * A document with an unmatchable line therefore ended up persisted as `sent`, carrying its
+   * issued number and NO stock movement, while its DocFile still read `analyzed` — and a
+   * re-commit could not fix it, because `persist` creates invoices and never upserts by number,
+   * so the retry produced a second row of the same number.
+   *
+   * It happened three times on regal-sf in two days (INV-2000129121, -151, -165), each needing a
+   * manual delete before the document could be booked. Same predicate as the booking guard, so
+   * the two cannot disagree about what is bookable.
+   */
+  if (opts?.adjustStock !== false) {
+    const unresolved = unbookableStockLines(invoice)
+    if (unresolved.length) return { ok: false, error: unbookableStockMessage(invoice, unresolved) }
+  }
 
   const direction = invoice.direction as string
   const type = invoice.type as string
