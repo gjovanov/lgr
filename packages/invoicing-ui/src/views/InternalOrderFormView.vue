@@ -141,7 +141,7 @@
                     <td :colspan="6" class="pt-0 pb-2">
                       <div v-for="res in lineReservations(line)" :key="res._id" class="d-flex align-center flex-wrap ga-2 text-body-2 ps-2">
                         <v-icon size="14" :color="resStatusColor(res.status)">mdi-lock-clock</v-icon>
-                        <span class="font-weight-medium">{{ res.reservationNumber }}</span>
+                        <EntityLink :label="res.reservationNumber" :to="{ name: 'invoicing.reservations.detail', params: { id: String(res._id) } }" />
                         <v-chip
                           size="x-small"
                           variant="tonal"
@@ -157,7 +157,7 @@
                         </span>
                         <v-chip size="x-small" label variant="tonal" :color="resStatusColor(res.status)">{{ $t(`invoicing.status.${res.status}`) }}</v-chip>
                         <v-btn v-if="res.status === 'active' && !readonly" icon="mdi-pencil" size="x-small" variant="text" :title="$t('invoicing.reservations.changeQuantity')" :aria-label="$t('invoicing.reservations.changeQuantity')" @click="openResEdit(res)" />
-                        <v-btn v-if="res.status === 'active' && !readonly" icon="mdi-close" size="x-small" variant="text" color="error" :title="$t('invoicing.cancelReservation')" :aria-label="$t('invoicing.cancelReservation')" @click="cancelReservation(res)" />
+                        <v-btn v-if="res.status === 'active' && !readonly" icon="mdi-close" size="x-small" variant="text" color="error" :title="$t('invoicing.reservations.release')" :aria-label="$t('invoicing.reservations.release')" @click="openRelease(res)" />
                         <v-btn v-if="res.status === 'cancelled' && canReserve" icon="mdi-restore" size="x-small" variant="text" color="primary" :loading="repeating === res._id" :title="$t('invoicing.reservations.reserveAgain')" :aria-label="$t('invoicing.reservations.reserveAgain')" @click="reserveAgain(res)" />
                       </div>
                     </td>
@@ -213,7 +213,7 @@
                 </thead>
                 <tbody>
                   <tr v-for="res in reservations" :key="res._id">
-                    <td class="text-no-wrap">{{ res.reservationNumber }}</td>
+                    <td class="text-no-wrap"><EntityLink :label="res.reservationNumber" :to="{ name: 'invoicing.reservations.detail', params: { id: String(res._id) } }" /></td>
                     <td>{{ lineDescription(res) }}</td>
                     <td>
                       <v-chip
@@ -244,9 +244,9 @@
                         size="x-small"
                         variant="text"
                         color="error"
-                        :title="$t('invoicing.cancelReservation')"
-                        :aria-label="$t('invoicing.cancelReservation')"
-                        @click="cancelReservation(res)"
+                        :title="$t('invoicing.reservations.release')"
+                        :aria-label="$t('invoicing.reservations.release')"
+                        @click="openRelease(res)"
                       />
                       <v-btn
                         v-if="res.status === 'cancelled' && canReserve"
@@ -271,6 +271,13 @@
           :reservation="resEditing"
           :subtitle="resEditing ? lineDescription(resEditing) : ''"
           @saved="refreshReservations"
+        />
+        <!-- FR-22.37: the Reservations list's release dialog — all of it, or part. -->
+        <ReservationReleaseDialog
+          v-model="releaseDialog"
+          :reservation="releasing"
+          :subtitle="releasing ? lineDescription(releasing) : ''"
+          @released="refreshReservations"
         />
 
         <!-- Notes / terms / tags + totals -->
@@ -452,6 +459,8 @@ import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 import { useConversionFeedback } from '../composables/useConversionFeedback'
 import ReservationQuantityDialog from '../components/ReservationQuantityDialog.vue'
+import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue'
+import EntityLink from 'ui-shared/components/EntityLink'
 
 interface LineRow {
   _id?: string
@@ -825,15 +834,13 @@ async function reserveAvailable() {
   }
 }
 
-async function cancelReservation(res: any) {
-  if (!confirm(t('invoicing.cancelReservationConfirm', { number: res.reservationNumber }))) return
-  try {
-    await httpClient.post(`${orgUrl()}/invoicing/reservations/${res._id}/cancel`, {})
-    showSuccess(t('common.savedSuccessfully'))
-    await refreshReservations()
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
-  }
+// A release goes through the list's dialog — „Не" / „Освободи резервацията", all or part of it —
+// never a browser confirm() whose „OK" / „Отказ" both read as cancelling.
+const releaseDialog = ref(false)
+const releasing = ref<any>(null)
+function openRelease(res: any) {
+  releasing.value = res
+  releaseDialog.value = true
 }
 
 // ── cover-shortages dialog ──

@@ -342,6 +342,7 @@ then asserts them.
 | P7-repeat | 4 · only for reservations with a client order | ≤ 4 for every reservation | FR-22.37 |
 | P7-who | 2 + a second page | 1 click, answered on the supplier order | FR-22.40 |
 | *new* P0-new | — | from any page to any new daily document: ≤ 2 clicks | FR-22.49 |
+| *new* P7-new | — | a reservation made on the Reservations list: ≤ 4 clicks, ending on its own page | FR-22.37 |
 
 ## 4. Owner decisions
 
@@ -490,7 +491,8 @@ owner asks.
 | 3: receipt → bill (#168) | FR-22.28–.33 | merged: #261. P2 17 clicks (was a dead end, target ≤ 20); P3 3 clicks with stock unchanged (was 14 and stock booked twice) |
 | 4: orders and reservations | FR-22.34 (names), .35–.36 (links, linked invoices), .37 (repeat, quantity edit only), .39–.40 (list links, who reserved what) | merged: #252 (owned by another session). P7-chain 27 → 26, P7-repeat 4 → 3, P7-who → 1 |
 | 4 | D-1 subtitles | merged: #260 |
-| 4 | FR-22.37 rest (create on the list, `/reservations/:id`, partial release, cancel-dialog wording), .41–.44 | open |
+| 4a | FR-22.37 rest (create on the list, `/reservations/:id`, partial release, cancel-dialog wording); the reservation in „+ Нов" (FR-22.49); RES numbers link to their page (FR-22.35) | in review: `feat/fr22-s4-reservations`. P7-new: 4 clicks; P7-chain, -repeat, -who unchanged (26, 3, 1) |
+| 4b | FR-22.41–.44 | open |
 | 5: products | FR-22.45 stock tab | merged: #252 |
 | 5 | FR-22.45 list columns, .46, .48 | in progress |
 | 5 | FR-22.47 (row actions) | after slice 3 (it opens the receipt form) |

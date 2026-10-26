@@ -93,7 +93,7 @@
                 <tbody>
                   <tr v-for="r in supply.reservations" :key="r.id">
                     <td class="text-no-wrap">
-                      <a :href="appHref('invoicing', `/invoicing/reservations?q=${encodeURIComponent(r.number)}`)">{{ r.number }}</a>
+                      <a :href="appHref('invoicing', `/invoicing/reservations/${r.id}`)">{{ r.number }}</a>
                     </td>
                     <td>{{ r.contactName }}</td>
                     <td>

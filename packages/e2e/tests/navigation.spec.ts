@@ -158,7 +158,7 @@ test.describe('Quick create, favourites and form keys (FR-22.49–.52)', () => {
 
     await page.getByTestId('new-document-menu').click()
     const items = page.getByTestId('new-document-list').locator('.v-list-item')
-    await expect(items).toHaveCount(8)
+    await expect(items).toHaveCount(9)
 
     // In the same app it is a router move: no page load.
     await page.evaluate(() => { (window as any).__samePage = true })

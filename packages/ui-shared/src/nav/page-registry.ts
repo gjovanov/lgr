@@ -84,6 +84,8 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('inventory', '/movements/new', 'nav.newDocPage.goodsReceipt', 'mdi-truck-delivery-outline', WRITE_INVENTORY),
   page('invoicing', '/internal-orders/new', 'nav.newDocPage.customerOrder', 'mdi-clipboard-account-outline', WRITE_INVOICING),
   page('invoicing', '/orders/new', 'nav.newDocPage.supplierOrder', 'mdi-clipboard-arrow-right-outline', WRITE_INVOICING),
+  // FR-22.37: the Reservations list with its create dialog open (a redirect to `?new=1`).
+  page('invoicing', '/reservations/new', 'nav.newDocPage.reservation', 'mdi-lock-plus-outline', WRITE_INVOICING),
   // ── Accounting ──
   page('accounting', '/accounts', 'nav.accounts', 'mdi-chart-bar'),
   page('accounting', '/journal-entries', 'nav.journalEntries', 'mdi-book-open-variant'),
@@ -239,6 +241,7 @@ export const NEW_DOCUMENT_MENU: ReadonlyArray<ReadonlyArray<{ pageId: string; la
   [
     { pageId: '/invoicing/internal-orders/new', labelKey: 'nav.newDoc.customerOrder' },
     { pageId: '/invoicing/orders/new', labelKey: 'nav.newDoc.supplierOrder' },
+    { pageId: '/invoicing/reservations/new', labelKey: 'nav.newDoc.reservation' },
   ],
 ]
 

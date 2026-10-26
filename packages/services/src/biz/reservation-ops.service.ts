@@ -21,8 +21,14 @@ import {
  * through reservation.service afterwards — nothing here increments counters in place.
  */
 
+/**
+ * A refused reservation operation. `details` travel with the message in the response body: a
+ * `code` the UI translates (the message is the API's English) and the figure the refusal names,
+ * e.g. `{ code: 'insufficient_stock', available: 3 }`. The message stays as it was for every
+ * caller that reads it.
+ */
 export class ReservationOpsError extends Error {
-  constructor(public statusCode: number, message: string) {
+  constructor(public statusCode: number, message: string, public details?: { code: string } & Record<string, unknown>) {
     super(message)
   }
 }
@@ -113,10 +119,10 @@ async function validateDemand(orgId: string, input: CreateReservationInput): Pro
   const ordi: any = await InternalOrder.findOne({ _id: input.internalOrderId, orgId } as any).lean().exec()
   if (!ordi) throw new ReservationOpsError(404, 'Incoming order not found')
   if (!RESERVABLE_ORDI_STATUSES.includes(ordi.status)) {
-    throw new ReservationOpsError(422, `Cannot reserve for a ${ordi.status} incoming order`)
+    throw new ReservationOpsError(422, `Cannot reserve for a ${ordi.status} incoming order`, { code: 'incoming_order_not_reservable', orderStatus: ordi.status })
   }
   if (input.contactId && String(input.contactId) !== String(ordi.contactId)) {
-    throw new ReservationOpsError(422, 'contactId does not match the incoming order client')
+    throw new ReservationOpsError(422, 'contactId does not match the incoming order client', { code: 'contact_mismatch' })
   }
   if (!input.internalOrderLineId) throw new ReservationOpsError(422, 'internalOrderLineId is required')
   const line = (ordi.lines || []).find((l: any) => String(l._id) === String(input.internalOrderLineId))
@@ -131,7 +137,7 @@ async function validateDemand(orgId: string, input: CreateReservationInput): Pro
   const reserved = sumBy(existing, 'internalOrderLineId').get(String(line._id)) || 0
   const open = num(line.quantity) - reserved
   if (input.quantity > open + 1e-9) {
-    throw new ReservationOpsError(422, `Reservation exceeds the line's open demand (open: ${open})`)
+    throw new ReservationOpsError(422, `Reservation exceeds the line's open demand (open: ${open})`, { code: 'line_demand_exceeded', open })
   }
   return { ordi, contactId: String(ordi.contactId) }
 }
@@ -147,7 +153,7 @@ export async function createReservation(orgId: string, userId: string, input: Cr
     if (!input.warehouseId) throw new ReservationOpsError(422, 'warehouseId is required for stock reservations')
     const available = await availableAt(orgId, input.productId, input.warehouseId)
     if (input.quantity > available + 1e-9) {
-      throw new ReservationOpsError(422, `Insufficient available stock (available: ${available})`)
+      throw new ReservationOpsError(422, `Insufficient available stock (available: ${available})`, { code: 'insufficient_stock', available })
     }
     supply = { warehouseId: input.warehouseId }
   } else {
@@ -157,7 +163,7 @@ export async function createReservation(orgId: string, userId: string, input: Cr
     const order: any = await Order.findOne({ _id: input.orderId, orgId } as any).lean().exec()
     if (!order) throw new ReservationOpsError(404, 'Outgoing order not found')
     if (['completed', 'cancelled'].includes(order.status)) {
-      throw new ReservationOpsError(422, `Cannot reserve on a ${order.status} order`)
+      throw new ReservationOpsError(422, `Cannot reserve on a ${order.status} order`, { code: 'order_not_reservable', orderStatus: order.status })
     }
     const group = (order.supplierGroups || []).find((g: any) => String(g._id) === String(input.groupId))
     const line = group && (group.lines || []).find((l: any) => String(l._id) === String(input.lineId))
@@ -174,7 +180,7 @@ export async function createReservation(orgId: string, userId: string, input: Cr
     const reserved = sumBy(allocRes, 'allocationId').get(String(alloc._id)) || 0
     const free = num(alloc.quantity) - reserved
     if (input.quantity > free + 1e-9) {
-      throw new ReservationOpsError(422, `Reservation exceeds the allocation's free quantity (free: ${free})`)
+      throw new ReservationOpsError(422, `Reservation exceeds the allocation's free quantity (free: ${free})`, { code: 'allocation_full', free })
     }
     supply = {
       warehouseId: String(alloc.warehouseId),
@@ -208,6 +214,195 @@ export async function createReservation(orgId: string, userId: string, input: Cr
   return Reservation.findById(res._id).exec()
 }
 
+/** Supplier-order statuses a new reservation is offered on: out to the supplier, not all here yet. */
+const OFFERED_ORDER_STATUSES = ['sent', 'partially_received']
+
+export interface ReservationSources {
+  stock: Array<{ warehouseId: string; warehouseName: string; isDefault: boolean; onHand: number; reserved: number; free: number }>
+  allocations: Array<{
+    orderId: string
+    orderNumber: string
+    orderStatus: string
+    expectedDate: Date | null
+    supplierId: string
+    supplierName: string
+    groupId: string
+    lineId: string
+    allocationId: string
+    warehouseId: string
+    warehouseName: string
+    quantity: number
+    received: number
+    reserved: number
+    free: number
+  }>
+  demand: Array<{
+    internalOrderId: string
+    internalOrderNumber: string
+    status: string
+    priority: string
+    requestedDeliveryDate: Date | null
+    lineId: string
+    description: string
+    unit: string
+    quantity: number
+    reserved: number
+    open: number
+  }>
+}
+
+/**
+ * What a new reservation of this product can take (FR-22.37), by the rules `createReservation`
+ * checks, so the create dialog never offers what the create would refuse:
+ *   - stock, per warehouse: on hand − reserved, the StockLevel's own figures;
+ *   - allocations of supplier orders that are out to the supplier (sent, partly received):
+ *     allocated − what the non-cancelled reservations on it take. A draft has ordered nothing;
+ *   - the named client's open incoming-order lines for the product (confirmed, partly
+ *     delivered): ordered − what is reserved for the line. None without a client.
+ * Only what has room is listed.
+ */
+export async function getReservationSources(
+  orgId: string,
+  productId: string,
+  opts: { contactId?: string } = {},
+): Promise<ReservationSources> {
+  const [levels, orders, ordis] = await Promise.all([
+    StockLevel.find({ orgId, productId } as any, { warehouseId: 1, quantity: 1, reservedQuantity: 1 }).lean().exec(),
+    Order.find(
+      { orgId, status: { $in: OFFERED_ORDER_STATUSES }, 'supplierGroups.lines.productId': productId } as any,
+      { orderNumber: 1, status: 1, expectedDate: 1, supplierGroups: 1 },
+    ).lean().exec(),
+    opts.contactId
+      ? InternalOrder.find(
+          { orgId, contactId: opts.contactId, status: { $in: RESERVABLE_ORDI_STATUSES }, 'lines.productId': productId } as any,
+          { orderNumber: 1, status: 1, priority: 1, requestedDeliveryDate: 1, lines: 1, createdAt: 1 },
+        ).lean().exec()
+      : [],
+  ])
+
+  const allocs: Array<{ order: any; group: any; line: any; alloc: any }> = []
+  for (const order of orders as any[]) {
+    for (const group of order.supplierGroups || []) {
+      for (const line of group.lines || []) {
+        if (idStr(line.productId) !== String(productId)) continue
+        for (const alloc of line.allocations || []) allocs.push({ order, group, line, alloc })
+      }
+    }
+  }
+  const ordiIds = (ordis as any[]).map((o) => o._id)
+  const [onAllocations, onLines] = await Promise.all([
+    allocs.length
+      ? Reservation.find(
+          { orgId, allocationId: { $in: allocs.map((a) => a.alloc._id) }, status: { $ne: 'cancelled' } } as any,
+          { allocationId: 1, quantity: 1, status: 1 },
+        ).lean().exec()
+      : [],
+    ordiIds.length
+      ? Reservation.find(
+          { orgId, internalOrderId: { $in: ordiIds }, status: { $ne: 'cancelled' } } as any,
+          { internalOrderLineId: 1, quantity: 1, status: 1 },
+        ).lean().exec()
+      : [],
+  ])
+  const reservedByAlloc = sumBy(onAllocations, 'allocationId')
+  const reservedByLine = sumBy(onLines, 'internalOrderLineId')
+
+  const warehouseIds = new Set<string>([
+    ...(levels as any[]).map((l) => idStr(l.warehouseId)),
+    ...allocs.map((a) => idStr(a.alloc.warehouseId)),
+  ])
+  const supplierIds = new Set<string>(allocs.map((a) => idStr(a.group.supplierId)).filter(Boolean))
+  const [warehouses, suppliers] = await Promise.all([
+    warehouseIds.size
+      ? Warehouse.find({ orgId, _id: { $in: [...warehouseIds] } } as any, { name: 1, isDefault: 1, isActive: 1 }).lean().exec()
+      : [],
+    supplierIds.size
+      ? Contact.find({ orgId, _id: { $in: [...supplierIds] } } as any, { companyName: 1, firstName: 1, lastName: 1 }).lean().exec()
+      : [],
+  ])
+  const warehouseById = new Map((warehouses as any[]).map((w) => [idStr(w._id), w]))
+  const supplierName = new Map((suppliers as any[]).map((c) => [
+    idStr(c._id),
+    c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || '',
+  ]))
+
+  const stock = (levels as any[])
+    .map((l) => {
+      const w = warehouseById.get(idStr(l.warehouseId))
+      return {
+        warehouseId: idStr(l.warehouseId),
+        warehouseName: w?.name || '',
+        isDefault: !!w?.isDefault,
+        active: !!w && w.isActive !== false,
+        onHand: num(l.quantity),
+        reserved: num(l.reservedQuantity),
+        free: num(l.quantity) - num(l.reservedQuantity),
+      }
+    })
+    .filter((s) => s.active && s.free > 1e-9)
+    .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || b.free - a.free || a.warehouseName.localeCompare(b.warehouseName))
+    .map(({ active: _active, ...s }) => s)
+
+  const allocations = allocs
+    .map(({ order, group, line, alloc }) => {
+      const reserved = reservedByAlloc.get(idStr(alloc._id)) || 0
+      return {
+        orderId: idStr(order._id),
+        orderNumber: order.orderNumber || '',
+        orderStatus: order.status,
+        expectedDate: order.expectedDate || null,
+        supplierId: idStr(group.supplierId),
+        supplierName: supplierName.get(idStr(group.supplierId)) || '',
+        groupId: idStr(group._id),
+        lineId: idStr(line._id),
+        allocationId: idStr(alloc._id),
+        warehouseId: idStr(alloc.warehouseId),
+        warehouseName: warehouseById.get(idStr(alloc.warehouseId))?.name || '',
+        quantity: num(alloc.quantity),
+        received: num(alloc.receivedQuantity),
+        reserved,
+        free: num(alloc.quantity) - reserved,
+      }
+    })
+    .filter((a) => a.free > 1e-9)
+    .sort((a, b) => {
+      const ta = a.expectedDate ? new Date(a.expectedDate).getTime() : Number.MAX_SAFE_INTEGER
+      const tb = b.expectedDate ? new Date(b.expectedDate).getTime() : Number.MAX_SAFE_INTEGER
+      return ta - tb || a.orderNumber.localeCompare(b.orderNumber)
+    })
+
+  // The most pressing order first: the priority, then the deadline, as the cover dialog ranks them.
+  const byRank = (a: any, b: any) => {
+    const ra = priorityRank(a)
+    const rb = priorityRank(b)
+    return outranks(ra, rb) ? -1 : outranks(rb, ra) ? 1 : 0
+  }
+  const demand: ReservationSources['demand'] = []
+  for (const ordi of [...(ordis as any[])].sort(byRank)) {
+    for (const line of ordi.lines || []) {
+      if (idStr(line.productId) !== String(productId)) continue
+      const reserved = reservedByLine.get(idStr(line._id)) || 0
+      const open = num(line.quantity) - reserved
+      if (open <= 1e-9) continue
+      demand.push({
+        internalOrderId: idStr(ordi._id),
+        internalOrderNumber: ordi.orderNumber || '',
+        status: ordi.status,
+        priority: ordi.priority || 'normal',
+        requestedDeliveryDate: ordi.requestedDeliveryDate || null,
+        lineId: idStr(line._id),
+        description: line.description || '',
+        unit: line.unit || '',
+        quantity: num(line.quantity),
+        reserved,
+        open,
+      })
+    }
+  }
+
+  return { stock, allocations, demand }
+}
+
 export async function cancelReservation(
   orgId: string,
   userId: string,
@@ -216,12 +411,12 @@ export async function cancelReservation(
 ): Promise<any> {
   const res: any = await Reservation.findOne({ _id: reservationId, orgId } as any).exec()
   if (!res) throw new ReservationOpsError(404, 'Reservation not found')
-  if (res.status === 'cancelled') throw new ReservationOpsError(422, 'Reservation is already cancelled')
+  if (res.status === 'cancelled') throw new ReservationOpsError(422, 'Reservation is already cancelled', { code: 'already_cancelled' })
   const releasable = reservationReleasable(res)
   const amount = opts.quantity ?? releasable
-  if (!(amount > 0)) throw new ReservationOpsError(422, 'Nothing to release on this reservation')
+  if (!(amount > 0)) throw new ReservationOpsError(422, 'Nothing to release on this reservation', { code: 'nothing_to_release' })
   if (amount > releasable + 1e-9) {
-    throw new ReservationOpsError(422, `Amount exceeds the releasable quantity (releasable: ${releasable})`)
+    throw new ReservationOpsError(422, `Amount exceeds the releasable quantity (releasable: ${releasable})`, { code: 'releasable_exceeded', releasable })
   }
   applyReservationCancel(res, amount, opts.reason || 'manual', userId)
   await res.save()
@@ -268,7 +463,7 @@ export async function updateReservation(
     const q = num(input.quantity)
     if (!(q > 0)) throw new ReservationOpsError(422, 'quantity must be > 0 — cancel the reservation instead')
     if (q + 1e-9 < consumed) {
-      throw new ReservationOpsError(422, `Cannot go below the invoiced or dispatched quantity (${consumed})`)
+      throw new ReservationOpsError(422, `Cannot go below the invoiced or dispatched quantity (${consumed})`, { code: 'below_consumed', consumed })
     }
     const extra = q - num(res.quantity)
     if (extra > 0) await assertRoomFor(orgId, res, extra)
@@ -290,12 +485,14 @@ export async function updateReservation(
 async function assertRoomFor(orgId: string, res: any, extra: number): Promise<void> {
   if (res.source === 'stock') {
     const available = await availableAt(orgId, idStr(res.productId), idStr(res.warehouseId))
-    if (extra > available + 1e-9) throw new ReservationOpsError(422, `Insufficient available stock (available: ${available})`)
+    if (extra > available + 1e-9) {
+      throw new ReservationOpsError(422, `Insufficient available stock (available: ${available})`, { code: 'insufficient_stock', available })
+    }
   } else {
     const order: any = await Order.findOne({ _id: res.orderId, orgId } as any).lean().exec()
     if (!order) throw new ReservationOpsError(404, 'Outgoing order not found')
     if (['completed', 'cancelled'].includes(order.status)) {
-      throw new ReservationOpsError(422, `Cannot reserve on a ${order.status} order`)
+      throw new ReservationOpsError(422, `Cannot reserve on a ${order.status} order`, { code: 'order_not_reservable', orderStatus: order.status })
     }
     let alloc: any = null
     for (const g of order.supplierGroups || []) for (const l of g.lines || []) for (const a of l.allocations || []) {
@@ -307,12 +504,14 @@ async function assertRoomFor(orgId: string, res: any, extra: number): Promise<vo
       { allocationId: 1, quantity: 1, status: 1 },
     ).lean().exec()
     const free = num(alloc.quantity) - (sumBy(onAlloc, 'allocationId').get(idStr(alloc._id)) || 0)
-    if (extra > free + 1e-9) throw new ReservationOpsError(422, `Reservation exceeds the allocation's free quantity (free: ${free})`)
+    if (extra > free + 1e-9) {
+      throw new ReservationOpsError(422, `Reservation exceeds the allocation's free quantity (free: ${free})`, { code: 'allocation_full', free })
+    }
   }
   if (res.internalOrderId) {
     const ordi: any = await InternalOrder.findOne({ _id: res.internalOrderId, orgId } as any).lean().exec()
     if (!ordi || !RESERVABLE_ORDI_STATUSES.includes(ordi.status)) {
-      throw new ReservationOpsError(422, `Cannot reserve for a ${ordi?.status || 'missing'} incoming order`)
+      throw new ReservationOpsError(422, `Cannot reserve for a ${ordi?.status || 'missing'} incoming order`, { code: 'incoming_order_not_reservable', orderStatus: ordi?.status })
     }
     const line = (ordi.lines || []).find((l: any) => idStr(l._id) === idStr(res.internalOrderLineId))
     if (!line) throw new ReservationOpsError(404, 'Incoming order line not found')
@@ -321,35 +520,72 @@ async function assertRoomFor(orgId: string, res: any, extra: number): Promise<vo
       { internalOrderLineId: 1, quantity: 1, status: 1 },
     ).lean().exec()
     const open = num(line.quantity) - (sumBy(onLine, 'internalOrderLineId').get(idStr(line._id)) || 0)
-    if (extra > open + 1e-9) throw new ReservationOpsError(422, `Reservation exceeds the line's open demand (open: ${open})`)
+    if (extra > open + 1e-9) {
+      throw new ReservationOpsError(422, `Reservation exceeds the line's open demand (open: ${open})`, { code: 'line_demand_exceeded', open })
+    }
   }
 }
 
 /**
+ * What a repeat may change (D-4: to change the warehouse, the client or the order, cancel and
+ * repeat). Naming a `source` replaces the cancelled reservation's supply — its warehouse, or its
+ * supplier-order allocation — with the one named here. Naming a client or an incoming order
+ * replaces its demand: a client alone reserves outside any order. The product never changes; a
+ * different article is a new reservation, not a repeat.
+ */
+export interface RepeatOverrides {
+  quantity?: number
+  source?: 'stock' | 'order'
+  warehouseId?: string
+  orderId?: string
+  groupId?: string
+  lineId?: string
+  allocationId?: string
+  contactId?: string
+  internalOrderId?: string
+  internalOrderLineId?: string
+}
+
+/**
  * „Резервирай отново" (#203): a cancelled reservation, made again — the same client, product,
- * internal-order line and supply, validated as a fresh create (the supply may be gone by now).
- * Repeats once: a second request returns the repeat the first one made.
+ * internal-order line and supply unless `opts` names others, validated as a fresh create (the
+ * supply may be gone by now). Repeats once: a second request returns the repeat the first one
+ * made, whatever it asks for.
  */
 export async function repeatReservation(
   orgId: string,
   userId: string,
   reservationId: string,
-  opts: { quantity?: number } = {},
+  opts: RepeatOverrides = {},
 ): Promise<{ reservation: any; created: boolean }> {
   const old: any = await Reservation.findOne({ _id: reservationId, orgId } as any).lean().exec()
   if (!old) throw new ReservationOpsError(404, 'Reservation not found')
   if (old.status !== 'cancelled') throw new ReservationOpsError(422, 'Only a cancelled reservation can be reserved again')
   const already = await Reservation.findOne({ orgId, repeatOf: old._id } as any).exec()
   if (already) return { reservation: already, created: false }
+  const source: 'stock' | 'order' = opts.source ?? old.source
+  const supply = opts.source
+    ? (opts.source === 'stock'
+        ? { warehouseId: opts.warehouseId }
+        : { orderId: opts.orderId, groupId: opts.groupId, lineId: opts.lineId, allocationId: opts.allocationId })
+    : (old.source === 'stock'
+        ? { warehouseId: idStr(old.warehouseId) }
+        : { orderId: idStr(old.orderId), groupId: idStr(old.groupId), lineId: idStr(old.lineId), allocationId: idStr(old.allocationId) })
+  const demand = opts.contactId !== undefined || opts.internalOrderId !== undefined
+    ? {
+        ...(opts.contactId ? { contactId: opts.contactId } : {}),
+        ...(opts.internalOrderId ? { internalOrderId: opts.internalOrderId, internalOrderLineId: opts.internalOrderLineId } : {}),
+      }
+    : {
+        contactId: idStr(old.contactId),
+        ...(old.internalOrderId ? { internalOrderId: idStr(old.internalOrderId), internalOrderLineId: idStr(old.internalOrderLineId) } : {}),
+      }
   const input: CreateReservationInput = {
-    source: old.source,
+    source,
     productId: idStr(old.productId),
     quantity: opts.quantity ?? num(old.quantity),
-    contactId: idStr(old.contactId),
-    ...(old.internalOrderId ? { internalOrderId: idStr(old.internalOrderId), internalOrderLineId: idStr(old.internalOrderLineId) } : {}),
-    ...(old.source === 'stock'
-      ? { warehouseId: idStr(old.warehouseId) }
-      : { orderId: idStr(old.orderId), groupId: idStr(old.groupId), lineId: idStr(old.lineId), allocationId: idStr(old.allocationId) }),
+    ...demand,
+    ...supply,
     notes: old.notes,
     repeatOf: idStr(old._id),
   }

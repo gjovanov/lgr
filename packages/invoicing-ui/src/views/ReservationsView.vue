@@ -10,6 +10,19 @@
     :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
     @update:options="onUpdateOptions"
   >
+    <!-- FR-22.37: a reservation is made here too, not only from an order. -->
+    <template #actions>
+      <responsive-btn color="primary" icon="mdi-plus" data-testid="reservation-new" @click="openCreate()">
+        {{ $t('invoicing.reservations.create') }}
+      </responsive-btn>
+    </template>
+
+    <template #empty-actions="{ filtered }">
+      <responsive-btn v-if="!filtered" color="primary" icon="mdi-plus" @click="openCreate()">
+        {{ $t('invoicing.reservations.create') }}
+      </responsive-btn>
+    </template>
+
     <template #filters>
       <FilterBar v-model:search="search">
         <v-col cols="12" sm="6" md="3">
@@ -29,7 +42,7 @@
     </template>
 
     <template #item.number="{ item }">
-      <span class="font-weight-medium text-no-wrap">{{ item.number }}</span>
+      <span class="text-no-wrap"><EntityLink :label="item.number" :to="{ name: 'invoicing.reservations.detail', params: { id: item._id } }" /></span>
       <v-icon v-if="item.shortage" size="14" color="error" class="ml-1" :title="$t('invoicing.stockShortage')">mdi-alert</v-icon>
       <div v-if="item.repeatOf" class="text-caption text-medium-emphasis">{{ $t('invoicing.reservations.repeatOf') }}</div>
     </template>
@@ -80,13 +93,14 @@
           @click="openEdit(item)"
         />
         <v-btn
+          v-if="(item.releasable || 0) > 0"
           icon="mdi-close"
           size="small"
           variant="text"
           color="error"
-          :title="$t('invoicing.cancelReservation')"
-          :aria-label="$t('invoicing.cancelReservation')"
-          @click="confirmCancel(item)"
+          :title="$t('invoicing.reservations.release')"
+          :aria-label="$t('invoicing.reservations.release')"
+          @click="openRelease(item)"
         />
       </template>
       <!-- #203: a cancelled reservation can be made again directly — once. -->
@@ -103,17 +117,12 @@
       />
     </template>
 
-    <v-dialog v-model="cancelDialog" max-width="420">
-      <v-card>
-        <v-card-title>{{ $t('common.confirm') }}</v-card-title>
-        <v-card-text>{{ $t('invoicing.cancelReservationConfirm', { number: selected?.number }) }}</v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="cancelDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="error" @click="doCancel">{{ $t('invoicing.cancelReservation') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <ReservationReleaseDialog
+      v-model="releaseDialog"
+      :reservation="selected"
+      :subtitle="selected ? `${selected.productName || ''} · ${selected.contactName || ''}` : ''"
+      @released="fetchItems"
+    />
 
     <ReservationQuantityDialog
       v-model="editDialog"
@@ -121,11 +130,20 @@
       :subtitle="selected ? `${selected.productName || ''} · ${selected.contactName || ''}` : ''"
       @saved="fetchItems"
     />
+
+    <ReservationCreateDialog
+      v-model="createDialog"
+      :repeat="repeatSource"
+      :repeat-error="repeatError"
+      :preset-product-id="presetProductId"
+      @created="onCreated"
+    />
   </ListScaffold>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -134,22 +152,34 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import StatusChip from 'ui-shared/components/StatusChip'
+import EntityLink from 'ui-shared/components/EntityLink'
+import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import ReservationQuantityDialog from '../components/ReservationQuantityDialog.vue'
+import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue'
+import ReservationCreateDialog from '../components/ReservationCreateDialog.vue'
+import { isShortage, reservationErrorMessage } from '../composables/reservation-errors'
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 
 const { search, debouncedSearch } = useSearchDebounce()
 const statusFilter = ref<string[]>([])
 const sourceFilter = ref<'stock' | 'order' | null>(null)
-const cancelDialog = ref(false)
+const releaseDialog = ref(false)
 const editDialog = ref(false)
+const createDialog = ref(false)
 const repeating = ref('')
 const selected = ref<any>(null)
+/** The create dialog in repeat mode: a cancelled reservation whose source ran dry (FR-22 §5.7). */
+const repeatSource = ref<any>(null)
+const repeatError = ref('')
+const presetProductId = ref<string | null>(null)
 
 const statusOptions = computed(() => [
   { value: 'active', title: t('invoicing.status.active') },
@@ -204,21 +234,35 @@ function statusColor(s: string) {
   return ({ active: 'primary', fulfilled: 'success', cancelled: 'error' }[s] || 'grey')
 }
 
-function confirmCancel(item: any) { selected.value = item; cancelDialog.value = true }
-async function doCancel() {
-  try {
-    await httpClient.post(`${appStore.orgUrl()}/invoicing/reservations/${selected.value._id}/cancel`, {})
-    showSuccess(t('invoicing.reservations.cancelled', { number: selected.value.number }))
-    cancelDialog.value = false
-    await fetchItems()
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
-  }
+function openRelease(item: any) {
+  selected.value = item
+  releaseDialog.value = true
 }
 
 function openEdit(item: any) {
   selected.value = item
   editDialog.value = true
+}
+
+function openCreate(productId: string | null = null) {
+  repeatSource.value = null
+  repeatError.value = ''
+  presetProductId.value = productId
+  createDialog.value = true
+}
+
+/** A new reservation is shown on its own page, its number and links in view (FR-22.35). */
+function onCreated(reservation: any, created: boolean) {
+  const number = reservation?.reservationNumber
+  if (repeatSource.value) {
+    showSuccess(created
+      ? t('invoicing.reservations.reservedAgain', { number })
+      : t('invoicing.reservations.alreadyReservedAgain', { number }))
+    fetchItems()
+    return
+  }
+  showSuccess(t('invoicing.reservations.created', { number }))
+  router.push({ name: 'invoicing.reservations.detail', params: { id: String(reservation._id) } })
 }
 
 async function reserveAgain(item: any) {
@@ -230,14 +274,36 @@ async function reserveAgain(item: any) {
       : t('invoicing.reservations.alreadyReservedAgain', { number: data.reservation.reservationNumber }))
     await fetchItems()
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    // FR-22 §5.7: its source has nothing free any more — the dialog, with the shortage named.
+    if (isShortage(e)) {
+      repeatSource.value = item
+      repeatError.value = reservationErrorMessage(e, t)
+      presetProductId.value = null
+      createDialog.value = true
+    } else {
+      showError(reservationErrorMessage(e, t))
+    }
   } finally {
     repeating.value = ''
   }
 }
 
+/**
+ * `/reservations/new` (the „+ Нов" menu, a ★ pin) lands here as `?new=1`, optionally with
+ * `&productId=`: open the dialog, then take both out of the URL so a reload shows the list.
+ */
+function openFromQuery() {
+  if (route.query.new === undefined) return
+  const productId = typeof route.query.productId === 'string' ? route.query.productId : null
+  const { new: _new, productId: _productId, ...rest } = route.query
+  router.replace({ query: rest }).catch(() => { /* duplicate navigation */ })
+  openCreate(productId)
+}
+watch(() => route.query.new, () => openFromQuery())
+
 onMounted(() => {
   if (!statusFilter.value.length) statusFilter.value = statusOptions.value.map(o => o.value)
   fetchItems()
+  openFromQuery()
 })
 </script>

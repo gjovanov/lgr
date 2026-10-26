@@ -210,7 +210,7 @@
                               <div v-for="row in allocRows(alloc)" :key="row.key" class="d-flex align-center flex-wrap ga-2 text-body-2 ps-4 mt-1">
                                 <v-icon size="14" :color="row.cancelled ? 'error' : 'primary'">mdi-account-lock-outline</v-icon>
                                 <span :class="row.cancelled ? 'text-decoration-line-through text-medium-emphasis' : ''">{{ contactNames[row.contactId] || '—' }}</span>
-                                <span v-if="row.number" class="text-caption text-medium-emphasis">{{ row.number }}</span>
+                                <router-link v-if="row.number && row.resId" :to="{ name: 'invoicing.reservations.detail', params: { id: String(row.resId) } }" class="text-caption">{{ row.number }}</router-link>
                                 <v-chip v-else size="x-small" variant="tonal" color="success">{{ $t('invoicing.reservations.new') }}</v-chip>
                                 <router-link v-if="row.internalOrderId" :to="{ name: 'invoicing.internalOrders.edit', params: { id: row.internalOrderId } }" class="text-caption">
                                   {{ internalOrderNumbers[row.internalOrderId] || '…' }}
@@ -288,7 +288,9 @@
                 </thead>
                 <tbody>
                   <tr v-for="res in reservations" :key="res._id">
-                    <td class="text-no-wrap">{{ res.reservationNumber }}</td>
+                    <td class="text-no-wrap">
+                      <router-link :to="{ name: 'invoicing.reservations.detail', params: { id: String(res._id) } }">{{ res.reservationNumber }}</router-link>
+                    </td>
                     <td>{{ allocLineDescription(res.allocationId) }}</td>
                     <td>{{ contactNames[res.contactId] || '—' }}</td>
                     <td class="text-no-wrap">
