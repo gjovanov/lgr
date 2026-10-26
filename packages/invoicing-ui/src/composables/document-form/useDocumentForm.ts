@@ -1352,7 +1352,13 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   async function fetchContacts(search?: string) {
     loadingContacts.value = true
     try {
-      const params: Record<string, any> = { ...(config.contactFetchParams || {}), size: 20 }
+      // FR-22.25: this document's side first, the most recently used at the top — customers on
+      // an outgoing document, suppliers on an incoming one.
+      const params: Record<string, any> = {
+        ...(config.contactFetchParams || {}),
+        size: 20,
+        prefer: config.direction === 'incoming' ? 'supplier' : 'customer',
+      }
       if (search) params.search = search
       const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`, { params })
       contacts.value = data.contacts || []

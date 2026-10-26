@@ -5,6 +5,7 @@ import { lookupCompany } from 'services/biz/company-lookup.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
+import { pickerContacts } from 'services/biz/contact-picker.service'
 import { Invoice, StockMovement } from 'db/models'
 
 /**
@@ -53,6 +54,15 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
+
+    // FR-22.25: a document's partner picker asks for its side first, by recent use. Opt-in, and
+    // never when the caller sorts: the contacts list keeps its own columns' sort.
+    const prefer = query.prefer === 'customer' || query.prefer === 'supplier' ? query.prefer : null
+    if (prefer && !query.sortBy && size > 0) {
+      const result = await pickerContacts(orgId, filter, prefer, page, size)
+      return { contacts: result.items, ...result }
+    }
+
     const sortBy = (query.sortBy as string) || 'createdAt'
     const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : ((query.sortOrder as string) === 'asc' ? 1 : -1)
 
