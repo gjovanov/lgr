@@ -99,7 +99,10 @@ try {
     const all = await listJournal({ orgId, size: 1 })
     row.journalTotal = all.total
     row.journalInvariant = all.total === row.pos - row.copies + row.cashSales + row.cashStornos
-    const dayRows = await listJournal({ orgId, dateFrom: DIGEST_DAY, dateTo: DIGEST_DAY, timeZone: org.settings?.timezone, size: 500 })
+    // Every page of the day: a page holds at most 500 rows, and a busy day has more.
+    const dayQuery = { orgId, dateFrom: DIGEST_DAY, dateTo: DIGEST_DAY, timeZone: org.settings?.timezone, size: 500 }
+    const dayRows = await listJournal({ ...dayQuery, page: 0 })
+    for (let page = 1; page < dayRows.totalPages; page++) dayRows.rows.push(...(await listJournal({ ...dayQuery, page })).rows)
     let cash = 0
     for (const r of dayRows.rows) {
       if (r.status === 'voided') continue

@@ -183,10 +183,14 @@ const METHOD_COLUMN: Record<string, string> = {
  */
 function paidByMethod(doc: {
   docType?: string
+  status?: string
   paymentMethod?: string
   payments?: { method?: string; amount?: number }[]
   amountPaid?: number
 }): { method: string; amount: number }[] {
+  // A voided storno is one whose receipt did not print (#145): it refunded nothing. It keeps its
+  // payments for SUPTO 18.2, which must not read here as money paid back.
+  if (doc.docType === 'cash_storno' && doc.status === 'voided') return []
   const rows = (doc.payments || []).filter(p => p && Number(p.amount))
   if (rows.length) {
     return rows.map(p => ({ method: String(p.method || 'other'), amount: Number(p.amount) || 0 }))

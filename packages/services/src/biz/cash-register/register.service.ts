@@ -458,13 +458,20 @@ export async function runSaleSteps(c: RegisterContext, id: string): Promise<any>
       if (!reachedDeviceOrDrawer(doc)) {
         await rollBack(doc)
         if (e instanceof RegisterRefusal) throw e
-        throw new RegisterRefusal(e?.statusCode ?? 400, e?.code ? { code: e.code, message: e?.message } : { message: e?.message })
+        // Only a refusal of our own carries its status and code (a `PendingTransferError`, …): a
+        // driver error's numeric code (E11000) and its raw message are no answer for a client.
+        const own = typeof e?.code === 'string' && Number.isInteger(e?.statusCode) && e.statusCode >= 400 && e.statusCode < 500
+        throw new RegisterRefusal(own ? e.statusCode : 400, own ? { code: e.code, message: e?.message } : { message: e?.message })
       }
       logger.error({ documentId: String(doc._id), error: e?.message }, 'Cash-register stock movement failed')
       doc = await setRegister(doc._id, { stockError: e?.message })
     }
   }
-  if (c.afterStock) await c.afterStock(doc)
+  // Derived state only (the order counters a sale consumes), re-derived by every later write of
+  // the order: a failure here must not leave a sale that moved its goods unfinished and unaudited.
+  if (c.afterStock) {
+    await c.afterStock(doc).catch((e: any) => logger.error({ documentId: String(doc._id), error: e?.message }, 'Cash-register afterStock failed'))
+  }
 
   const done: any = await Invoice.findOneAndUpdate(
     { _id: doc._id, completedAt: { $exists: false } },
@@ -568,16 +575,25 @@ export async function stornoRefusal(original: any): Promise<RegisterRefusal | nu
       message: 'An imported till day is corrected by importing it again, not by a storno.',
     })
   }
-  // D-14: a quantity is corrected once. An invoiced sale is corrected through its invoice (a credit
-  // note returns the goods and counts negative); a storno on top would return them twice.
+  return invoicedRefusal(original)
+}
+
+/**
+ * D-14: a quantity is corrected once. An invoiced sale is corrected through its invoice (a credit
+ * note returns the goods and counts negative); a storno on top would return them twice. An invoice
+ * still being claimed (a `~pending:` draft) counts too.
+ *
+ * ⚠ Asked again AFTER `claimForStorno`: the invoice path writes its claim and then reads the sale's
+ * `stornoState`, and the storno writes its claim and then reads the invoices. Of the two racing, at
+ * least one sees the other. Read only before the claim, both could pass.
+ */
+export async function invoicedRefusal(original: any): Promise<RegisterRefusal | null> {
   const invoiced = await Invoice.exists({ orgId: original.orgId, 'cashSaleRef.cashSaleId': original._id, status: { $nin: ['voided', 'cancelled'] } }).exec()
-  if (invoiced) {
-    return new RegisterRefusal(409, {
-      code: 'cash_sale_invoiced',
-      message: 'An invoice was issued for this sale. Correct it with a credit note to that invoice, not a storno.',
-    })
-  }
-  return null
+  if (!invoiced) return null
+  return new RegisterRefusal(409, {
+    code: 'cash_sale_invoiced',
+    message: 'An invoice was issued for this sale. Correct it with a credit note to that invoice, not a storno.',
+  })
 }
 
 /** Where a cash sale came from, for documents written before `register.origin` existed. */
@@ -779,6 +795,8 @@ export async function runStornoSteps(c: RegisterContext, id: string): Promise<an
           return receiptNo
         }))
       } catch (e: any) {
+        // As for a sale: void the half-printed receipt, or the device refuses everything after it.
+        await printer.abandonReceipt().catch(() => {})
         logger.error({ documentId: id, error: e?.message }, 'Storno fiscal receipt printing FAILED')
         await printer.failed().catch(() => {})
         doc = await setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': e?.message, receiptError: e?.message })

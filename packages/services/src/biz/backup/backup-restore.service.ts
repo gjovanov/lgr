@@ -1007,10 +1007,14 @@ export async function applyRestore(
     // the operator the restore. `scripts/cash-register-preflight.ts` names what blocks it.
     if ((byCollection.get('POSTransaction') || []).length) {
       try {
-        const copy = await copyCashRegisterOrg(mongoose.connection.db as any, String(orgId))
+        // The preflight's warnings (a parallel run, a duplicate УНП, …) reach the operator.
+        const copy = await copyCashRegisterOrg(mongoose.connection.db as any, String(orgId), (message, extra) => {
+          if (extra?.code) warnings.push(`POSTransaction: ${message}`)
+        })
         if (copy.copied) logger.info({ orgId, copied: copy.copied }, 'Restore: POS rows copied into cash-register documents')
       } catch (e: any) {
-        warnings.push(`POSTransaction: the till's rows were restored but not converted into cash-register documents (${e?.message || e}). They are still read; run scripts/cash-register-preflight.ts and clear what it reports.`)
+        // ⚠ The copy writes batch by batch before its parity check: some rows may be converted already.
+        warnings.push(`POSTransaction: the till's rows were restored, but converting them into cash-register documents did not finish (${e?.message || e}). Some may be converted; every row is still read, once. Run scripts/cash-register-preflight.ts and clear what it reports.`)
       }
     }
 

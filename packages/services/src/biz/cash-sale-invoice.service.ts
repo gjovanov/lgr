@@ -658,6 +658,14 @@ export async function createInvoiceForCashSale(
     }
   }
 
+  // FR-21 D-14: a storno claims the sale atomically. This claim is written first and the sale read
+  // after, and the storno does the reverse (`invoicedRefusal`), so of the two racing one sees the other.
+  const latest: any = await Invoice.findOne({ _id: cs._id, orgId } as any, { 'register.stornoState': 1 }).lean().exec()
+  if (latest?.register?.stornoState === 'full') {
+    await dropOwn(own)
+    throw new CashSaleInvoiceError(422, 'cash_sale_stornoed', `Cash sale ${cs.invoiceNumber} was reversed by a storno — it cannot be invoiced`)
+  }
+
   // Does this claim fit beside the earlier ones? A later claim that does not gives way.
   const claims = (await liveInvoicesOf(orgId, cashSaleId)).map(claimOf)
   if (!claims.some(c => c.id === idOf(own._id))) claims.push(claimOf(own))

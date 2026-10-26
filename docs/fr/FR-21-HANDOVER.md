@@ -17,7 +17,10 @@ Atanas takes FR-21 over from here. In order:
 1. **R2 is merged into master and not deployed.** #272 (`75ff7c80`), #273 (`0ff55bc9`) and #274
    (`3e020145`) merged on 2026-10-26, each with CI green. The next deploy of master ships R2,
    whoever runs it.
-2. **Deploy R2 when the owner gives the go** (§5, R2 steps 4–5):
+2. **Merge #278 before that deploy.** A review of the stack (2026-10-26) found bugs in all three
+   PRs, and the stack merged before the fixes. #278 carries them, one commit per step. What was
+   fixed, and what was left because master does the same, is in §4.18–§4.21.
+3. **Deploy R2 when the owner gives the go** (§5, R2 steps 4–5):
    - the field check before the deploy (the baseline);
    - the deploy;
    - `bun run migrate` on the build host;
@@ -26,8 +29,8 @@ Atanas takes FR-21 over from here. In order:
 
    After the deploy, watch the first cash-sale import. regal-pz and regal-sf import a till day
    every day, so it is the busiest door R2d moved onto the new service.
-3. **#276**, the void-path bug (§4.13). It is independent of FR-21's releases.
-4. **Decide before R3–R5:**
+4. **#276**, the void-path bug (§4.13). It is independent of FR-21's releases.
+5. **Decide before R3–R5:**
    - **The e2e fiscal device** (§5, R2 step 2). The recommendation is no bypass of the SSRF guard:
      integration tests run printing on the Eltrade simulator, and the device test covers the real
      connection.
@@ -169,9 +172,14 @@ Revisit any of these you disagree with. None is hard to change.
     (write rule `pos.write` or `invoicing.write`, plus the storno roles). A till sale names the open
     session its refund leaves; a back-office sale needs none and prints nothing.
 21. **A restore that cannot copy an old bundle's POS rows warns instead of failing:** the readers union
-    both stores, and a blocker in an old bundle must not cost the operator the restore.
-22. **A voided storno's copy keeps its payments** (with nothing paid): SUPTO 18.2 always listed them, and
-    0008's parity holds the tables to what they printed before.
+    both stores, and a blocker in an old bundle must not cost the operator the restore. The copy
+    writes batch by batch before its parity check, so a copy that stops may have converted some rows;
+    the warning says so. The preflight's own warnings (a parallel run, a duplicate УНП) are in the
+    restore's warnings too.
+22. **A voided storno keeps its payments** (with nothing paid): SUPTO 18.2 always listed them, and
+    0008's parity holds the tables to what they printed before. A till storno whose receipt failed
+    keeps its refund payments the same way. Readers that sum money skip `voided` documents: the
+    digest and sales history by status, and the documents report's paid split explicitly (R2c).
 23. **The digest checks a copied `TXN-` number on its own closed-series line**, so the history never
     reads as gaps in CS, and without the counter comparison (that counter stopped).
 
@@ -249,6 +257,53 @@ Revisit any of these you disagree with. None is hard to change.
     whether it belongs in 18.4/18.5 is the accountant's question before LGR is declared.
 17. **`GET /trade/pos/session/:id/transaction` read POS rows only.** It reads both stores since R2b.
 
+**The review of the R2 stack (2026-10-26).** The fixes follow the merged stack in one PR,
+#278 (`fix/fr-21-r2-review`), one commit per step:
+
+18. **Fixed in R2b:**
+    - **A stornoed back-office sale could be voided, edited or deleted.** The journal stornos a
+      back-office sale since R2, and a void on top reversed its dispatch a second time.
+      `register.stornoState: 'full'` now makes a sale immutable like a till document (409
+      `register_document_immutable`), the Files rollback included.
+    - **A storno and „Издай фактура" could both pass.** Each now checks again after writing its
+      own claim (`invoicedRefusal` after `claimForStorno`, and `stornoState` after the invoice's
+      placeholder), so one of the two always sees the other.
+    - **A storno receipt that failed to print is voided on the device** (`abandonReceipt`), as a
+      sale's is.
+    - **A keyed retry waiting on an older release's POS row** whose lease lapsed resumes it, no
+      longer answering 409.
+    - **A malformed session id** lists no till rows, no longer a 500.
+19. **Fixed in R2c:**
+    - **0008 could wedge for good.** The check before each insert did not compare everything parity
+      compares after it (session, customer, change, the storno's original receipt, payment
+      references, line names and discounts). A copy that failed only parity was already written, so
+      every later run skipped it as copied and failed the same way. The pre-insert check now covers
+      every field parity reads.
+    - **One org's blocker held back every other org.** 0008 now copies each org on its own and
+      throws at the end naming the orgs it could not copy. It is still not recorded.
+    - **The restore's warnings** (§3.21), and the documents report's paid split (§3.22).
+    - 0008's fingerprint was re-recorded, not given a new migration: it has run nowhere that keeps
+      a record (the mars rehearsal's database is gone).
+20. **Fixed in R2d:**
+    - **A failure in `afterStock`** (the order counters) left a dispatched sale unfinished and
+      answered 500, and saving again made a second sale. It is logged now, and the sale completes.
+    - **Driver errors** (E11000) no longer reach the client as `{ code: 11000 }`.
+    - **The field check reads every page of the digest day**, not only the first 500 rows.
+21. **Left as they are, because master does the same** (worth their own issues):
+    - **An unkeyed or failed cash sale leaves a gap in CS.** The number is drawn before the stock
+      check, and a sale the check refuses is removed. Master does the same on both its keyed and
+      unkeyed paths. Possible fix: a back-office sale, which prints nothing, draws its number only
+      after its stock is checked.
+    - **The FR-21.24 transfers stay confirmed when the sale is rolled back,** and a retry with the
+      same ids is refused. The same as master's `finishCreate`.
+    - **A till storno of a fiscal sale prints no receipt when the device is offline**
+      (`printsReceipt` falls to false). The same as master. The journal's route reaches it too, and
+      whether it should refuse instead is a fiscal decision.
+    - **Accepted as designed:** a merge restore labels `register.origin` and links `invoiceId` on
+      live documents (derived fields only); 0008's behaviour lives in `copy-org.ts`, outside its
+      fingerprint, as 0002–0004's lives in `stored-path.ts`; preflight and parity hold an org's
+      rows in memory (prod has none); `register.origin` reads the import's tag.
+
 ## 5. What remains
 
 ### R1
@@ -283,8 +338,10 @@ called it a test too, so the window became 2026-03-01 … 2026-10-20, which hold
 
 ### R2 (FR-21.15 – FR-21.24)
 Merged on 2026-10-26, and not deployed (§1). FR-21.19 needed no code: the session JE already reads the session's rows
-through the union, and every till document carries its session. Each PR is safe to deploy alone:
-R1's readers already union both stores and know `cash_storno`.
+through the union, and every till document carries its session. R1's readers already union both
+stores and know `cash_storno`. All of R2 is on master and ships in one deploy, together with #278's
+fixes. (Deployed alone, R2b would have read a copied `TXN-` number as gaps in CS: the digest gives
+that series its own line only from R2c, §3.23.)
 
 **Before the R2 deploy:**
 1. **CI and the merge** — done 2026-10-26. Each PR went green (one guard test had failed and was

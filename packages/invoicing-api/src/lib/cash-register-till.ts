@@ -18,7 +18,7 @@ import { asEntity } from 'services/biz/cash-register/pos-union'
 import { copyPosRow } from 'services/biz/cash-register/copy'
 import type { RegisterPrinter } from 'services/biz/cash-register/printer'
 import {
-  RegisterRefusal, claimForStorno, insertRegisterDocument, newDocumentId, originOf, printedFiscally, releaseStornoClaim,
+  RegisterRefusal, claimForStorno, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally, releaseStornoClaim,
   runStornoSteps, settleKeyedDocument, stornoDocument, stornoRefusal,
   type RegisterContext, type RegisterSession, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
@@ -250,8 +250,9 @@ export async function findKeyedTillDocument(orgId: string, key: string): Promise
   const row: any = await POSTransaction.findOne({ orgId, clientKey: key }).lean().exec()
   if (!row) return null
   if (!row.completedAt && row.leaseUntil && new Date(row.leaseUntil).getTime() > Date.now()) {
-    const { doc: done } = await waitForCompletion(POSTransaction, orgId, row._id)
-    if (!done?.completedAt) throw new RegisterRefusal(409, IN_PROGRESS)
+    // A lease that lapsed while we waited: its holder is gone, and the copy below resumes it.
+    const { doc: done, leaseLapsed } = await waitForCompletion(POSTransaction, orgId, row._id)
+    if (!done?.completedAt && !leaseLapsed) throw new RegisterRefusal(409, IN_PROGRESS)
   }
   if (row.originalTransactionId) await copyPosRow(orgId, String(row.originalTransactionId))
   return copyPosRow(orgId, String(row._id))
@@ -368,6 +369,9 @@ export async function stornoDoor(input: StornoDoorInput): Promise<{ status: numb
 
     let inserted: any
     try {
+      // An invoice claimed between `stornoRefusal` and the claim (see `invoicedRefusal`).
+      const invoicedMeanwhile = await invoicedRefusal(original)
+      if (invoicedMeanwhile) throw invoicedMeanwhile
       const doc = stornoDocument({
         orgId, user, original, reason: input.reason, payments: input.payments,
         session: tillSale ? registerSessionOf(session) : null, printsReceipt, printer: c.printer ?? null,

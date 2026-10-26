@@ -33,7 +33,8 @@ const BATCH = 500
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 const cents = (n: unknown) => Math.round((Number(n) || 0) * 100)
 const oid = (v: unknown) => new Invoice.base.Types.ObjectId(String(v))
-const day = (d: unknown) => new Intl.DateTimeFormat('en-CA', { timeZone: BULGARIAN_TIME_ZONE }).format(new Date(d as any))
+const DAY_FORMAT = new Intl.DateTimeFormat('en-CA', { timeZone: BULGARIAN_TIME_ZONE })
+const day = (d: unknown) => DAY_FORMAT.format(new Date(d as any))
 
 export interface PreflightIssue {
   code: string
@@ -198,7 +199,7 @@ export async function copyPosRows(db: Db, orgId: string): Promise<{ copied: numb
     const productIds = [...new Set(todo.flatMap(r => (r.lines || []).map((l: any) => l.productId)).filter(Boolean).map(String))]
     const units = new Map<string, string>()
     if (productIds.length) {
-      for (const p of await db.collection('products').find({ _id: { $in: productIds.map(oid) } }, { projection: { unit: 1 } }).toArray()) {
+      for (const p of await db.collection('products').find({ orgId: org, _id: { $in: productIds.map(oid) } }, { projection: { unit: 1 } }).toArray()) {
         if (p.unit) units.set(String(p._id), String(p.unit))
       }
     }
@@ -284,23 +285,29 @@ export async function backfillCashSaleOrigin(db: Db, orgId: string): Promise<{ i
 // ── Step 5: parity ───────────────────────────────────────────────────────────
 
 const netLine = (l: any) => cents(l.lineTotal)
+const idOr = (v: unknown) => (v ? String(v) : '')
+/**
+ * ⚠ Every field the aggregates and the SUPTO cells below read, so that a copy which passes
+ * `rowDifferences` before its insert cannot fail parity after it. A copy that failed only then was
+ * already written, every later run skipped it as copied, and 0008 failed on every start.
+ */
 const rowKey = (t: any) => JSON.stringify([
   String(t._id), t.transactionNumber, t.type, t.status, new Date(t.createdAt).getTime(),
   t.unpNumber || '', t.fiscalReceiptNumber || '', t.fiscalDeviceNumber || '',
-  cents(t.subtotal), cents(t.discountTotal), cents(t.taxTotal), cents(t.total),
-  t.originalTransactionId ? String(t.originalTransactionId) : '', t.movementId ? String(t.movementId) : '',
+  cents(t.subtotal), cents(t.discountTotal), cents(t.taxTotal), cents(t.total), cents(t.changeDue),
+  idOr(t.originalTransactionId), idOr(t.movementId), idOr(t.sessionId), idOr(t.customerId),
+  t.originalUNP || '', t.originalFiscalReceiptNumber || '',
+  t.originalTransactionDate ? new Date(t.originalTransactionDate).getTime() : '', t.stornoReason || '',
 ])
 
-/** The money a row tendered per method, in cents: the payments SUPTO 18.2 prints. */
+/** The payments SUPTO 18.2 prints, each with its amount in cents and its reference. */
 function tenderedCents(t: any): string {
-  const by = new Map<string, number>()
-  for (const p of t.payments || []) by.set(p.method, (by.get(p.method) || 0) + cents(p.amount))
-  return JSON.stringify([...by].sort())
+  return JSON.stringify((t.payments || []).map((p: any) => [p.method, cents(p.amount), p.reference || '']).sort())
 }
 
 function linesKey(t: any): string {
   return JSON.stringify((t.lines || []).map((l: any) => [
-    l.productId ? String(l.productId) : '', l.quantity, cents(l.unitPrice), cents(l.taxAmount), netLine(l), l.taxRate || 0,
+    l.productId ? String(l.productId) : '', l.name, l.quantity, cents(l.unitPrice), l.discount || 0, cents(l.taxAmount), netLine(l), l.taxRate || 0,
   ]))
 }
 
