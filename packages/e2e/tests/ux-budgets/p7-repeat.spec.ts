@@ -84,9 +84,8 @@ test('P7 repeat: a reservation cancelled by mistake, made again', async ({ page 
   await expect(row).toBeVisible()
   await expect(row).toContainText(CUSTOMER)
   await settledShot(walk, 'reservations-list')
-  if (!(await page.getByRole('link', { name: /Създай/ }).count()) && !(await page.getByRole('button', { name: /Създай/ }).count())) {
-    walk.note('Reservations list: no Create button — a reservation can only be made from an internal order (Резервирай от склад / Покрий недостига) or an external order\'s allocation (Резервирай за клиент).')
-  }
+  await expect(page.getByRole('button', { name: 'Нова резервация' })).toBeVisible()
+  walk.note('Reservations list: „Нова резервация" makes one here (FR-22.37) — walked by P7-new; the number opens the reservation\'s own page.')
 
   // ── 1. The mistake: release it ──
   await walk.click(row.getByRole('button', { name: 'Освободи резервацията' }), 'release the reservation (row icon)')

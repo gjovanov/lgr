@@ -67,6 +67,7 @@ describe('page-registry matchPage — new-document forms', () => {
   it('a document that exists still resolves to its list', () => {
     expect(matchPage('/inventory/movements/6a1b2c')?.id).toBe('/inventory/movements')
     expect(matchPage('/invoicing/orders/6a1b2c/edit')?.id).toBe('/invoicing/orders')
+    expect(matchPage('/invoicing/reservations/6a1b2c')?.id).toBe('/invoicing/reservations')
   })
 
   it('the invoice form opened as a credit or debit note is that note’s page', () => {
@@ -137,7 +138,7 @@ describe('newDocumentMenu — „+ Нов" (FR-22.49)', () => {
       ['/invoicing/invoices/new', '/invoicing/invoices/new?type=credit_note', '/invoicing/proforma/new'],
       ['/invoicing/cash-sales/new'],
       ['/invoicing/bills/new', '/inventory/movements/new'],
-      ['/invoicing/internal-orders/new', '/invoicing/orders/new'],
+      ['/invoicing/internal-orders/new', '/invoicing/orders/new', '/invoicing/reservations/new'],
     ])
   })
 
@@ -167,6 +168,7 @@ describe('newDocumentMenu — „+ Нов" (FR-22.49)', () => {
       '/inventory/movements/new': '/api/org/:orgId/warehouse/movement',
       '/invoicing/internal-orders/new': '/api/org/:orgId/invoicing/internal-orders',
       '/invoicing/orders/new': '/api/org/:orgId/invoicing/orders',
+      '/invoicing/reservations/new': '/api/org/:orgId/invoicing/reservations',
     }
     for (const { pageId } of NEW_DOCUMENT_MENU.flat()) {
       const rule = writeRuleFor('POST', saves[pageId])

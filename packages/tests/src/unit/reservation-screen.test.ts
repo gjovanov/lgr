@@ -1,21 +1,72 @@
 import { describe, it, expect } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { releaseOutcome } from '../../../invoicing-ui/src/composables/reservation-form'
+import {
+  allocationKey, defaultSourceKey, demandKey, keyOfReservation, releaseOutcome, sourceBody, sourceOptions, stockKey,
+  type ReservationSources,
+} from '../../../invoicing-ui/src/composables/reservation-form'
 import {
   RESERVATION_ERROR_CODES, isShortage, reservationErrorMessage,
 } from '../../../invoicing-ui/src/composables/reservation-errors'
 import { CANCEL_REASONS, reservationHistory } from '../../../invoicing-ui/src/composables/reservation-history'
 
 /**
- * FR-22.37 — the rules behind the reservation dialogs and page: what a release leaves, how a
- * refusal is said, and how the history reads.
+ * FR-22.37 — the rules behind the reservation dialogs and page: which source a new reservation
+ * starts on, what a release leaves, how a refusal is said, and how the history reads.
  */
 
 const PACKAGES = join(import.meta.dir, '..', '..', '..')
 const LOCALES = ['en', 'bg', 'de', 'mk'] as const
 const catalogue = (l: string) => JSON.parse(readFileSync(join(PACKAGES, 'ui-shared', 'src', 'locales', `${l}.json`), 'utf8'))
 const valueAt = (obj: any, key: string) => key.split('.').reduce((o, k) => o?.[k], obj)
+
+const sources: ReservationSources = {
+  stock: [
+    { warehouseId: 'w1', warehouseName: 'Склад 1', isDefault: true, onHand: 10, reserved: 7, free: 3 },
+    { warehouseId: 'w2', warehouseName: 'Склад 2', isDefault: false, onHand: 40, reserved: 0, free: 40 },
+  ],
+  allocations: [{
+    orderId: 'o1', orderNumber: 'ORDO-2026-00001', orderStatus: 'sent', expectedDate: null, supplierId: 's1', supplierName: 'Fastbolt',
+    groupId: 'g1', lineId: 'l1', allocationId: 'a1', warehouseId: 'w1', warehouseName: 'Склад 1', quantity: 100, received: 0, reserved: 0, free: 100,
+  }],
+  demand: [],
+}
+
+describe('the source a new reservation starts on', () => {
+  const options = sourceOptions(sources)
+
+  it('lists stock first, then supplier orders', () => {
+    expect(options.map((o) => o.key)).toEqual([stockKey('w1'), stockKey('w2'), allocationKey('a1')])
+  })
+
+  it('is the first that holds the whole quantity, the default warehouse first', () => {
+    expect(defaultSourceKey(options, 2, null)).toBe(stockKey('w1'))
+    expect(defaultSourceKey(options, 30, null)).toBe(stockKey('w2'))
+    expect(defaultSourceKey(options, 60, null)).toBe(allocationKey('a1'))
+  })
+
+  it('is the first there is when none holds it all, so the shortage shows against a source', () => {
+    expect(defaultSourceKey(options, 500, null)).toBe(stockKey('w1'))
+    expect(defaultSourceKey([], 1, null)).toBeNull()
+  })
+
+  it('keeps the one asked for while it is offered, whatever the quantity', () => {
+    expect(defaultSourceKey(options, 2, allocationKey('a1'))).toBe(allocationKey('a1'))
+    expect(defaultSourceKey(options, 2, stockKey('gone'))).toBe(stockKey('w1'))
+  })
+
+  it('a repeat starts on the source of the reservation it repeats', () => {
+    expect(keyOfReservation({ source: 'stock', warehouseId: 'w2' })).toBe(stockKey('w2'))
+    expect(keyOfReservation({ source: 'order', warehouseId: 'w1', allocationId: 'a1' })).toBe(allocationKey('a1'))
+    expect(keyOfReservation(null)).toBeNull()
+  })
+
+  it('puts the source in the request as the API takes it', () => {
+    expect(sourceBody(options[1])).toEqual({ source: 'stock', warehouseId: 'w2' })
+    expect(sourceBody(options[2])).toEqual({ source: 'order', orderId: 'o1', groupId: 'g1', lineId: 'l1', allocationId: 'a1' })
+    expect(demandKey('i1', 'l9')).toBe('i1:l9')
+  })
+})
 
 describe('what releasing part of a reservation leaves', () => {
   it('everything of an untouched reservation cancels it', () => {

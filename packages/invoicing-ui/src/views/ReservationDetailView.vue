@@ -202,6 +202,7 @@
       on-page
       @released="load"
     />
+    <ReservationCreateDialog v-model="againDialog" :repeat="res" :repeat-error="repeatError" @created="onRepeated" />
   </EntityFormShell>
 </template>
 
@@ -218,8 +219,9 @@ import EntityLink from 'ui-shared/components/EntityLink'
 import { useAppStore } from '../store/app.store'
 import ReservationQuantityDialog from '../components/ReservationQuantityDialog.vue'
 import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue'
+import ReservationCreateDialog from '../components/ReservationCreateDialog.vue'
 import { reservationHistory, type HistoryTone } from '../composables/reservation-history'
-import { reservationErrorMessage } from '../composables/reservation-errors'
+import { isShortage, reservationErrorMessage } from '../composables/reservation-errors'
 
 /**
  * FR-22.37: a reservation's own page — `/reservations/:id`. Who it is for, what and how much, where
@@ -240,6 +242,8 @@ const loading = ref(false)
 const notFound = ref(false)
 const editDialog = ref(false)
 const releaseDialog = ref(false)
+const againDialog = ref(false)
+const repeatError = ref('')
 const repeating = ref(false)
 
 const localeCode = computed(() => (({ en: 'en-GB', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[String(locale.value)] || 'en-GB'))
@@ -325,7 +329,7 @@ async function load() {
   }
 }
 
-/** „Резервирай отново": the new reservation opens in its place. */
+/** „Резервирай отново": as it was; when its source has run dry, the dialog with the shortage named (§5.7). */
 async function reserveAgain() {
   if (!res.value) return
   repeating.value = true
@@ -333,7 +337,12 @@ async function reserveAgain() {
     const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/reservations/${res.value._id}/repeat`, {})
     onRepeated(data.reservation, data.created !== false)
   } catch (e: any) {
-    showError(reservationErrorMessage(e, t))
+    if (isShortage(e)) {
+      repeatError.value = reservationErrorMessage(e, t)
+      againDialog.value = true
+    } else {
+      showError(reservationErrorMessage(e, t))
+    }
   } finally {
     repeating.value = false
   }

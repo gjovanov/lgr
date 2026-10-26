@@ -107,7 +107,8 @@
       "bill": "Incoming invoice",
       "goodsReceipt": "Goods receipt",
       "customerOrder": "Customer order",
-      "supplierOrder": "Supplier order"
+      "supplierOrder": "Supplier order",
+      "reservation": "Reservation"
     },
     "newDocPage": {
       "salesInvoice": "New outgoing invoice",
@@ -118,7 +119,8 @@
       "bill": "New incoming invoice",
       "goodsReceipt": "New goods receipt",
       "customerOrder": "New customer order",
-      "supplierOrder": "New supplier order"
+      "supplierOrder": "New supplier order",
+      "reservation": "New reservation"
     },
     "dashboard": "Dashboard",
     "accounting": "Accounting",
@@ -1235,6 +1237,20 @@
       "savedWithOrder": "Saved together with the order.",
       "allocationGone": "The allocation it was on is no longer on this order",
       "noFreeQuantity": "Nothing on that allocation is free to reserve",
+      "create": "New reservation",
+      "created": "Reservation {number} created",
+      "againTitle": "Reserve {number} again",
+      "againHint": "{number} was cancelled. Change where the goods come from or how many, then reserve.",
+      "sourceLabel": "Where the goods come from",
+      "fromStock": "From stock",
+      "fromOrders": "Expected on an outgoing order",
+      "chooseProduct": "Choose a product to see where it can come from.",
+      "noSources": "Nothing to reserve this product from: no free stock, and no outgoing order with room for it.",
+      "onlyFree": "Only {free} free here",
+      "forOrder": "For an incoming order (optional)",
+      "forOrderHint": "The client has open incoming orders for this product.",
+      "orderLine": "{number}: {quantity} ordered, {open} open",
+      "onlyOpen": "Only {open} still open on {number}",
       "release": "Release the reservation",
       "releaseTitle": "Release reservation",
       "releaseQuantity": "Quantity to release",

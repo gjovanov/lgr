@@ -40,6 +40,10 @@ const routes = [
 
       // ── Reservations (RES) ──
       { path: 'reservations', name: 'invoicing.reservations', component: () => import('../views/ReservationsView.vue'), meta: { breadcrumb: [{ title: 'Reservations' }] } },
+      // FR-22.37: a new reservation is made in a dialog ON the list. This path („+ Нов", ★) opens
+      // it there: a redirect, so the grid keeps its own route name — the key of its column
+      // preferences and of its remembered filters. `?productId=` comes along to pre-fill it.
+      { path: 'reservations/new', name: 'invoicing.reservations.new', redirect: (to) => ({ name: 'invoicing.reservations', query: { ...to.query, new: '1' } }) },
       { path: 'reservations/:id', name: 'invoicing.reservations.detail', component: () => import('../views/ReservationDetailView.vue'), meta: { breadcrumb: [{ title: 'Reservations', to: '/reservations' }, { title: 'Reservation' }] } },
 
       // ── Proforma ──

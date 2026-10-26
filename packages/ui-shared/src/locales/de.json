@@ -107,7 +107,8 @@
       "bill": "Eingangsrechnung",
       "goodsReceipt": "Wareneingang",
       "customerOrder": "Kundenauftrag",
-      "supplierOrder": "Lieferantenbestellung"
+      "supplierOrder": "Lieferantenbestellung",
+      "reservation": "Reservierung"
     },
     "newDocPage": {
       "salesInvoice": "Neue Ausgangsrechnung",
@@ -118,7 +119,8 @@
       "bill": "Neue Eingangsrechnung",
       "goodsReceipt": "Neuer Wareneingang",
       "customerOrder": "Neuer Kundenauftrag",
-      "supplierOrder": "Neue Lieferantenbestellung"
+      "supplierOrder": "Neue Lieferantenbestellung",
+      "reservation": "Neue Reservierung"
     },
     "dashboard": "Dashboard",
     "accounting": "Buchhaltung",
@@ -1356,6 +1358,20 @@
       "savedWithOrder": "Wird zusammen mit der Bestellung gespeichert.",
       "allocationGone": "Die Zuteilung, auf der sie lag, ist nicht mehr in dieser Bestellung",
       "noFreeQuantity": "Auf dieser Zuteilung ist nichts mehr frei",
+      "create": "Neue Reservierung",
+      "created": "Reservierung {number} erstellt",
+      "againTitle": "{number} erneut reservieren",
+      "againHint": "{number} wurde storniert. Ändern Sie, woher die Ware kommt oder die Menge, und reservieren Sie.",
+      "sourceLabel": "Woher die Ware kommt",
+      "fromStock": "Aus dem Bestand",
+      "fromOrders": "Erwartet mit einer ausgehenden Bestellung",
+      "chooseProduct": "Wählen Sie ein Produkt, um zu sehen, woher es kommen kann.",
+      "noSources": "Nichts, woraus reserviert werden kann: kein freier Bestand und keine ausgehende Bestellung mit Platz für dieses Produkt.",
+      "onlyFree": "Hier sind nur {free} frei",
+      "forOrder": "Für eine eingehende Bestellung (optional)",
+      "forOrderHint": "Der Kunde hat offene eingehende Bestellungen für dieses Produkt.",
+      "orderLine": "{number}: {quantity} bestellt, {open} offen",
+      "onlyOpen": "Auf {number} sind nur noch {open} offen",
       "release": "Reservierung freigeben",
       "releaseTitle": "Freigabe der Reservierung",
       "releaseQuantity": "Freizugebende Menge",
