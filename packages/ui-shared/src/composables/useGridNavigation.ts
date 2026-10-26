@@ -1,8 +1,9 @@
 import { nextTick } from 'vue'
-import { productSearchMenuOpen } from '../useProductSearchMenu'
+import { productSearchMenuOpen } from './useProductSearchMenu'
 
 /**
- * Spreadsheet-like keyboard navigation for the invoice line-item grid.
+ * Spreadsheet-like keyboard navigation for a document's line grid — the invoicing forms' and the
+ * goods receipt's (FR-22.28; moved here from invoicing-ui for that, unchanged).
  *
  * One capture-phase `keydown` handler on the table wrapper does a DOM-walk (resilient to the
  * dynamically rendered columns), so no per-cell wiring is needed:

@@ -25,6 +25,9 @@ import {
   issueFieldsFor, invoicingByCashSale, invoicedCashSaleIds, liveInvoiceNumbersFor,
 } from 'services/biz/cash-sale-invoice.service'
 import { logger } from 'services/logger'
+import {
+  ReceiptBillError, applyLinkedBillPrices, checkLinkedBillEdit, isReceiptLinked, linkedReceiptsOf, releaseReceiptLinks,
+} from 'services/biz/receipt-bill.service'
 
 // ── Idempotent create, issue and payment (FR-20.37, #155) ───────────────────────────────────
 
@@ -600,6 +603,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       delete (body as any).cashSaleRef
       delete (body as any).taxEventDate
       for (const l of (body.lines || []) as any[]) delete l.cashSaleLineId
+      // `stockSource` makes a document move no stock at all. Only the paths that establish what
+      // already moved the goods write it — the cash-sale invoice, the import's stock-note match,
+      // `/invoicing/bills/from-receipt` — never a client (FR-22.31).
+      delete (body as any).stockSource
 
       // Inline product-master updates ride alongside the bill in one Mongo transaction.
       // Purchase bills only; not reachable from desktop/SQLite (desktop-ui has no bills form).
@@ -874,6 +881,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     return {
       invoice: {
         ...invoice,
+        // FR-22.31: a bill made from goods receipts links them, and its form compares its prices
+        // with what they were received at.
+        ...(isReceiptLinked(invoice) ? { receipts: await linkedReceiptsOf(orgId, invoice) } : {}),
         statusHistory: synthesizeStatusHistory(invoice),
         contactId: contact ? { _id: contact.id, id: contact.id, companyName: (contact as any).companyName, firstName: (contact as any).firstName, lastName: (contact as any).lastName, email: (contact as any).email } : invoice.contactId,
       },
@@ -946,6 +956,17 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         delete (body as any).cashSaleRef
         delete (body as any).taxEventDate
         for (const l of (body.lines || []) as any[]) delete l.cashSaleLineId
+      }
+      // An edit can neither give a document a stock source nor take one away (see POST).
+      delete (body as any).stockSource
+      // FR-22.31 (D-2): a bill made from goods receipts bills what they received, whole.
+      if (isReceiptLinked(existing)) {
+        try {
+          await checkLinkedBillEdit(orgId, existing, body as any)
+        } catch (e: any) {
+          if (e instanceof ReceiptBillError) return status(e.statusCode, { code: e.code, message: e.message, ...(e.details || {}) })
+          throw e
+        }
       }
       // A cash sale's line ids are what its invoices point at, and a PUT of `lines` replaces them.
       if (existing.type === 'cash_sale' && body.lines !== undefined) {
@@ -1078,6 +1099,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     // Deleting a draft conversion invoice re-opens the order reservations it consumed.
     await syncOrderForInvoice(orgId, existing, user.id)
+    // …and a draft bill made from goods receipts gives them back, to be billed again (FR-22.31).
+    await releaseReceiptLinks(orgId, existing)
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (existing as any)?.invoiceNumber })
 
@@ -1204,6 +1227,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     // ORD-linked documents: re-derive the order's reservation/receipt state
     // (dispatch consumes holds; incoming bills book receipts).
     await syncOrderForInvoice(orgId, updated || invoice, user.id)
+    // A bill made from goods receipts, issued here rather than by `/receive` (FR-22 D-2).
+    if (invoice.direction === 'incoming') await applyLinkedBillPrices(orgId, updated || invoice, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'send', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: issuedNumber, changes: { draftNumber: { from: draftNumber, to: null }, invoiceNumber: { from: draftNumber, to: issuedNumber } } })
 
@@ -1256,6 +1281,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     // ORD-linked bills: book the receipt onto the order (receivedQuantity, status, holds).
     await syncOrderForInvoice(orgId, updated || invoice, user.id)
+
+    // A bill made from goods receipts moved nothing just now (its `stockSource`); it carries the
+    // supplier's prices forward to the next receipts instead (FR-22 D-2).
+    await applyLinkedBillPrices(orgId, updated || invoice, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'receive', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: issuedNumber, changes: { invoiceNumber: { from: draftNumber, to: issuedNumber } } })
 
@@ -1433,6 +1462,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const updated = await r.invoices.updateInOrg(id, orgId, { status: 'voided', voidedAt: new Date(), statusHistory: history } as any)
 
     await syncOrderForInvoice(orgId, updated || invoice, user.id)
+    // FR-22 §5.3: a voided bill made from goods receipts gives them back — they can be billed
+    // again. Nothing moved above (its `stockSource` stops the reversal) and nothing moves here.
+    await releaseReceiptLinks(orgId, invoice)
 
     createAuditEntry({ orgId, userId: user.id, action: 'void', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
 

@@ -211,7 +211,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     issueDate: todayStr(),
     dueDate: config.secondaryDate === 'dueDate' ? plusMonths(1) : '',
     validUntil: config.secondaryDate === 'validUntil' ? plusDays(config.validUntilDefaultDays || 30) : '',
-    paymentMethod: config.paymentMethodDefault || 'cash',
+    paymentMethod: config.paymentMethodOnCreate ?? (config.paymentMethodDefault || 'cash'),
     currency: baseCurrency.value,
     exchangeRate: 1,
     notes: '',
@@ -895,6 +895,14 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const formActions = computed<FormAction[]>(() => {
     const save: FormAction = { label: t('common.save'), color: 'primary', handler: onSave, loading: loading.value }
     if (cashSaleRef.value) return invoiceStatus.value === 'draft' ? [save] : []
+    // FR-22.33: a bill that is not received yet is saved and received in one action — the
+    // primary one, so it comes first; plain Save keeps a draft.
+    if (config.saveAndReceive && (!isEdit.value || invoiceStatus.value === 'draft')) {
+      const receive: FormAction = {
+        label: t('invoicing.saveAndReceive'), color: 'primary', icon: 'mdi-package-down', handler: onSaveAndReceive, loading: receiving.value,
+      }
+      return [receive, { ...save, variant: 'outlined' }, importAction]
+    }
     if (!isEdit.value) return [save, importAction]
     if (config.editSaveGate === 'draft-only' && invoiceStatus.value !== 'draft') return []
     return [save, importAction]
@@ -1050,6 +1058,42 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   async function submitCreate(extra?: Record<string, any>) {
     const payload = { ...buildPayload(), ...(extra || {}) }
     await persist(payload)
+  }
+
+  /**
+   * FR-22.33 — „Запази и получи": save the bill, then receive it (it takes its issued number,
+   * and books its goods unless it was made from receipts that already did). The user stays on
+   * the bill, which now reads as received. Receiving was a list-row icon only.
+   */
+  const receiving = ref(false)
+  async function onSaveAndReceive() {
+    if (!(await validate())) return
+    const payload = buildPayload()
+    receiving.value = true
+    try {
+      let id = route.params.id as string | undefined
+      if (id) {
+        await httpClient.put(`${orgUrl()}/invoices/${id}`, payload)
+        markSaved()
+      } else {
+        const { data } = await createAttempt.run(payload, headers => httpClient.post(`${orgUrl()}/invoices`, payload, { headers }))
+        id = data?.invoice?.id || data?.invoice?._id
+        markSaved()
+        // On the saved bill before receiving it: should receiving fail, pressing again receives
+        // this one rather than saving a second.
+        await router.replace({ name: `${config.listRouteName}.edit`, params: { id } })
+      }
+      const { data: received } = await httpClient.post(`${orgUrl()}/invoices/${id}/receive`)
+      // A bill made from receipts books no stock: its receipts did (FR-22.31).
+      showSuccess(t(received?.invoice?.stockSource?.marker ? 'invoicing.linkDelivery.received' : 'invoicing.invoiceReceived'))
+      await loadDocument()
+    } catch (e: any) {
+      showError(e?.response?.data?.message || t('common.operationFailed'))
+      // Saved but not received: show what was saved, still a draft.
+      if (route.params.id) await loadDocument()
+    } finally {
+      receiving.value = false
+    }
   }
 
   // ── data loading ──
@@ -1397,6 +1441,11 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     buildPayload,
     onSave,
     submitCreate,
+    // FR-22.33: save and receive; and what a linker needs to reload the bill it changed
+    onSaveAndReceive,
+    receiving,
+    loadDocument,
+    markSaved,
     // misc
     orgUrl,
     appStore,

@@ -3,6 +3,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildProductSearchFilter } from 'services/biz/search.utils'
+import { QuickProductError, createQuickProduct } from 'services/biz/quick-product.service'
 
 export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/product' })
   .use(AppAuthService)
@@ -97,6 +98,32 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         tagPrices: t.Optional(t.Array(t.Any())),
         categoryPrices: t.Optional(t.Array(t.Any())),
         priceTiers: t.Optional(t.Array(t.Any())),
+      }),
+    },
+  )
+  // FR-22.30: „+ Нов продукт „…"" from a receipt or bill line — the next SKU, the org's tier
+  // template, „Общи" unless a category is chosen. 409 `product_exists` (with the article) for a
+  // name the catalog already has. See services/biz/quick-product.service.ts.
+  .post(
+    '/quick',
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      try {
+        return { product: await createQuickProduct(orgId, user, body) }
+      } catch (e: any) {
+        if (e instanceof QuickProductError) return status(e.statusCode, { code: e.code, message: e.message, ...(e.details || {}) })
+        throw e
+      }
+    },
+    {
+      isSignIn: true,
+      body: t.Object({
+        name: t.String({ minLength: 1, maxLength: 300 }),
+        unit: t.Optional(t.String({ minLength: 1 })),
+        categoryId: t.Optional(t.String()),
+        taxRate: t.Optional(t.Number({ minimum: 0, maximum: 100 })),
+        purchasePrice: t.Optional(t.Number({ minimum: 0 })),
+        sellingPrice: t.Optional(t.Number({ minimum: 0 })),
       }),
     },
   )

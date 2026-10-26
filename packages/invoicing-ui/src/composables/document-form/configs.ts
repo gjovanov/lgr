@@ -125,6 +125,7 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
 
     paymentMethodMode: 'clearable',
     paymentMethodDefault: '',
+    paymentMethodOnCreate: '',
 
     priceField: 'purchasePrice',
     priceEditor: 'plain',
@@ -142,6 +143,9 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
 
     stockTransferFlow: false,
     supportsProductUpdate: true,
+    saveAndReceive: true,
+    linkDelivery: true,
+    allowCreateProduct: true,
 
     totals: { showDiscountRow: false, emitDiscountTotal: false, emitTaxTotal: false, emitTotalBase: false },
     line: { hasDiscount: false, hasAccountId: false, unitFallback: true },

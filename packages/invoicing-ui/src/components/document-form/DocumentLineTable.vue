@@ -153,11 +153,13 @@
                 :description="line.description"
                 :product-id="line.productId"
                 :price-field="config.priceField"
+                :allow-create="!!config.allowCreateProduct"
                 class="flex-grow-1"
                 @update:description="line.description = $event"
                 @update:product-id="line.productId = $event"
                 @product-selected="onProductSelected(idx, $event)"
                 @product-cleared="onProductCleared(idx)"
+                @create-product="openQuickProduct(idx, $event)"
               />
               <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.browseProducts')" :aria-label="$t('invoicing.browseProducts')" @click="openProductPicker(idx)" />
             </div>
@@ -214,6 +216,11 @@
                 @change="onLinePriceManualChange(idx)"
               />
             </div>
+            <!-- FR-22 D-2: the bill keeps the supplier's price; the cost it was received at is shown. -->
+            <div v-if="receiptCostOf && receiptCostOf(line)" class="text-caption text-warning text-no-wrap" data-testid="receipt-cost">
+              {{ $t('invoicing.linkDelivery.receiptCost', { price: fmtCurrency(receiptCostOf(line)!.cost) }) }}
+              ({{ receiptCostOf(line)!.diff > 0 ? '+' : '' }}{{ fmtCurrency(receiptCostOf(line)!.diff) }})
+            </div>
           </td>
           <td v-if="isColActive('discount')">
             <v-text-field v-model.number="line.discount" type="number" min="0" max="100" suffix="%" density="compact" hide-details variant="underlined" />
@@ -251,6 +258,14 @@
       </tbody>
       </v-table>
     </div>
+
+    <!-- FR-22.30: the article the line's search did not find, created without leaving the document. -->
+    <QuickProductDialog
+      v-model="quickOpen"
+      :org-url="orgUrl()"
+      :initial-name="quickName"
+      @created="onQuickProductCreated"
+    />
   </div>
 </template>
 
@@ -263,9 +278,15 @@ import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
 import LineColumnPickerDialog from 'ui-shared/components/LineColumnPickerDialog.vue'
 import GRProductUpdateCell from 'ui-shared/components/GRProductUpdateCell.vue'
 import GRColumnPickerDialog from 'ui-shared/components/GRColumnPickerDialog.vue'
-import { useGridNavigation } from '../../composables/document-form/useGridNavigation'
+import QuickProductDialog from 'ui-shared/components/QuickProductDialog.vue'
+import { ref } from 'vue'
+import { useGridNavigation } from 'ui-shared/composables/useGridNavigation'
 
-const props = defineProps<{ doc: any }>()
+const props = defineProps<{
+  doc: any
+  /** A bill made from goods receipts: the cost a line's article was received at, when it differs. */
+  receiptCostOf?: (line: any) => { cost: number; diff: number } | null
+}>()
 
 const {
   config,
@@ -331,6 +352,26 @@ const {
 
 // Spreadsheet-like Tab/Enter navigation across the line-item cells.
 const { onGridKeydown } = useGridNavigation({ addLine, getLines: () => form.lines })
+
+// ── FR-22.30: „+ Нов продукт „…"" on a line ──
+const quickOpen = ref(false)
+const quickName = ref('')
+let quickLine = -1
+
+function openQuickProduct(idx: number, name: string) {
+  quickLine = idx
+  quickName.value = name
+  quickOpen.value = true
+}
+
+/** The new article (or the catalog's own, when it had it) goes on the line it was asked from. */
+async function onQuickProductCreated(product: any) {
+  const line = form.lines[quickLine]
+  if (!line || !product) return
+  line.productId = product._id || product.id
+  line.description = product.name
+  await onProductSelected(quickLine, { ...product, _id: line.productId })
+}
 </script>
 
 <style scoped>
