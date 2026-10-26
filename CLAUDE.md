@@ -1789,6 +1789,44 @@ or cash sale and prints it — one click (P5-invoice 20 → 14 clicks, 2 dialogs
   `document-form-flow.flow` (6), `unit/invoice-pdf-form` (+4); walks P5-invoice 14 · 6 · 0 dialogs,
   P5-credit 5 · 1, P6 12 · 5 · 0.
 
+## Document lists: one row menu, fit 1366 px, a Create that says what (2026-10-26, FR-22 slice 2b: FR-22.23–.27, .50)
+
+- **One menu per row** (FR-22.23/.24): `ui-shared/RowActionsMenu` (⋮, `row-action-<key>`). The
+  rules are `invoicing-ui/composables/document-row-actions.ts` — pure, and
+  `integration/document-row-actions.flow` holds each one against the real routes. ⚠ Void is offered
+  on an ISSUED document (`sent`/`received`; an invoice for a cash sale when `paid`) and asks first;
+  Delete on a DRAFT only. The lists had it the other way round („Анулирай" on drafts only, Delete on
+  every row). A row also offers Печат (one click, the last print settings —
+  `composables/print-settings.ts`, shared with the form), Копирай (`?copyOf=` → `copyOfDocument`:
+  partner, terms, lines; dated today, numbered on save) and, on an issued invoice, the credit and
+  debit note. A paid cash sale offers no Void any more (the till's storno is FR-21's).
+- **Fits 1366 px** (`ListScaffold` `fit`): one line per row, 8 px gutters, a long name `cell-clip`ped
+  (12em, or `--cell-clip`; the whole text in `title`). ⚠ On the sales list „Свързана фактура" and
+  „Проформа #" are ONE column, „Свързан документ"; Currency is `defaultHidden` on all three lists
+  (every amount is printed with its currency) and so is a bill's „Свързана фактура".
+  `useGridColumns` knows `defaultHidden` (the cog shows it again; `shown` in the saved pref). With
+  the widest rows (a 60-character name, a partly paid note, a converted proforma) the bg tables need
+  1135 / 1143 of 1300 px; de shortened two labels to fit. Measure before adding a column.
+- **Partner picker** (FR-22.25): `GET /invoicing/contact?prefer=customer|supplier` (without
+  `sortBy`) answers the side's partners of the last 365 days' documents, most recent first, then the
+  rest of that side, then everyone else (`services/biz/contact-picker.service.ts`). Recency is the
+  org's, not the user's.
+- **Remembered per user and document type** (FR-22.26): the payment method
+  (`lgr:pay-method:<docType>:<user>:<org>`), written when a NEW document is saved — editing an old
+  one changes nothing; a cash sale's method is fixed and never remembered. „Последна цена за
+  клиента" (`lgr:last-price:<docType>`) on the invoice and, now, the proforma.
+- **Place of deal** (FR-22.27, D-7): every outgoing document but the cash sale. A new one starts at
+  its warehouse's `address.city`, else the org's default address city, and follows the warehouse
+  until the user types one. `/convert` carries it from the proforma.
+- **Create says what it creates** (FR-22.50): `ui-shared/CreateButton` (`create-button`, ▾
+  `create-more` for the others). The sales and bills lists offer the notes beside the invoice, and a
+  list filtered to one kind creates that kind. The cash-sales list keeps „Създай" (FR-21's screen).
+- Tests: `integration/contact-picker.flow` (5), `document-row-actions.flow` (8);
+  `unit/grid-columns-default-hidden` (5), `unit/document-payload` (+3, `copyOfDocument`); e2e
+  `document-lists.spec` (5). Walks P5-invoice and P6 assert the remembered method, the place of
+  deal and the 1366 fit; P7-chain issues through ⋮ → „Издай", one click more than the old row icon,
+  until the client order links its invoice (FR-22.35).
+
 ## Known Issues
 
 - [MEDIUM] [2026-07-19] Cluster pod external DNS is INTERMITTENT: CoreDNS forwards to 10.10.20.1 (zeus virbr1 dnsmasq — answers fine locally) and periodically times out (CoreDNS logs `read udp 10.244.x→10.10.20.1:53: i/o timeout`; zeus shows no explicit 10.244.0.0/16 return route) → ArgoCD sync intermittently fails with ComparisonError "server misbehaving" on github.com, then succeeds on retry minutes later (observed 2026-07-19: first sync Error, queued retry completed → Synced). Workaround when stuck: `kubectl apply -k k8s/overlays/prod` from the mars `~/lgr-deploy` checkout (live state converges with git). Root-cause hunt belongs in k8s-cluster-multi (zeus WG/libvirt routing). Also: argocd CLI token on mars is expired — trigger syncs via `kubectl -n argocd patch application lgr --type merge --patch '{"operation":{"sync":{}}}'` or re-login. — Status: OPEN
