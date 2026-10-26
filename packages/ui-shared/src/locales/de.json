@@ -1464,6 +1464,10 @@
       "stagedLost": "Nicht gespeicherte Änderungen an den Reservierungen werden verworfen.",
       "cancelledReleased": "Bestellung storniert. Eingehende Bestellungen, die Reservierungen verloren haben: {numbers}"
     },
+    "linkedInvoices": {
+      "outgoing": "Ausgangsrechnung",
+      "incoming": "Eingangsrechnung"
+    },
     "issueFlow": {
       "issueAndPrint": "Ausstellen und drucken",
       "issue": "Ausstellen",

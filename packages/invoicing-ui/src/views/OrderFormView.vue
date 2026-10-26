@@ -337,6 +337,7 @@
             </div>
           </v-card-text>
         </v-card>
+        <OrderInvoicesCard v-if="isEdit" :invoices="linkedInvoices" :contacts="contactNames" :currency="form.currency || baseCurrency" :locale-code="localeCode" />
 
         <!-- Notes / terms / tags -->
         <v-row class="mt-4">
@@ -508,6 +509,7 @@ import { useConversionFeedback } from '../composables/useConversionFeedback'
 import { reservationErrorMessage } from '../composables/reservation-errors'
 import { cascadeSummary } from '../composables/order-cascade'
 import OrderCascadeDialog from '../components/OrderCascadeDialog.vue'
+import OrderInvoicesCard from '../components/OrderInvoicesCard.vue'
 
 /** `_key` names an allocation before it is saved, so a reservation staged on it can point at it. */
 interface AllocRow { _id?: string; _key?: string; warehouseId: string; quantity: number; receivedQuantity?: number }
@@ -573,6 +575,8 @@ const form = reactive({
 // ── linked reservations (RES- documents, loaded with the order) ──
 const reservations = ref<any[]>([])
 const internalOrderNumbers = ref<Record<string, string>>({})
+/** FR-22.36: the invoices against this order — supplier invoices and the sales invoices converted from it. */
+const linkedInvoices = ref<Record<string, any>>({})
 const activeReservations = computed(() => reservations.value.filter((r) => r.status !== 'cancelled'))
 const resByAlloc = computed(() => {
   const m = new Map<string, any[]>()
@@ -1132,6 +1136,7 @@ async function loadOrder(id?: string, opts: { clearStaged?: boolean } = {}) {
     }))
     // First-class reservations + names come with the response.
     reservations.value = data.reservations || []
+    linkedInvoices.value = data.lookup?.invoices || {}
     if (opts.clearStaged) clearStaged()
     if (data.lookup?.contacts) Object.assign(contactNames.value, data.lookup.contacts)
     if (data.lookup?.internalOrders) {

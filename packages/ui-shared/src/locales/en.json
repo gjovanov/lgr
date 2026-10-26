@@ -1343,6 +1343,10 @@
       "stagedLost": "The reservation changes you have not saved are dropped.",
       "cancelledReleased": "Order cancelled. Incoming orders that lost reservations: {numbers}"
     },
+    "linkedInvoices": {
+      "outgoing": "Outgoing invoice",
+      "incoming": "Incoming invoice"
+    },
     "issueFlow": {
       "issueAndPrint": "Issue and print",
       "issue": "Issue",

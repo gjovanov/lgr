@@ -230,6 +230,13 @@ test.describe('Each hand-off lands on the next document (FR-22.35)', () => {
     expect(invoice).toMatchObject({ status: 'draft', internalOrderId: ordi._id })
     // What waits on the supplier order is said, and stays reserved for a later invoice.
     await expect(page.locator('.v-snackbar')).toContainText(ordo.orderNumber)
+
+    // FR-22.36: back on the client order, the invoice is listed, and its number opens it.
+    await page.goto(`/invoicing/internal-orders/${ordi._id}/edit`, { waitUntil: 'networkidle' })
+    const listed = page.getByTestId('order-invoices').getByRole('link', { name: invoice.invoiceNumber })
+    await expect(listed).toBeVisible()
+    await listed.click()
+    await page.waitForURL(new RegExp(`/invoicing/invoices/${invoice._id}/edit$`))
   })
 })
 
@@ -251,6 +258,11 @@ test.describe('Cancel and Complete say what they release first (FR-22.41)', () =
 
     await loginForApp(page)
     await page.goto(`/invoicing/orders/${ordoId}/edit`, { waitUntil: 'networkidle' })
+    // FR-22.36: the supplier order lists the invoice booked against it, as an incoming one.
+    const invoiceRows = page.getByTestId('order-invoices').locator('tbody tr')
+    await expect(invoiceRows).toHaveCount(1)
+    await expect(invoiceRows.locator('td').nth(0)).toHaveText(bill.invoiceNumber)
+    await expect(invoiceRows.locator('td').nth(1)).toHaveText('Incoming invoice')
     const cancel = page.locator('.form-actions-bar').getByRole('button', { name: 'Cancel Order' })
     const dialog = page.getByTestId('order-cascade')
     await cancel.click()

@@ -94,7 +94,7 @@ async function nameMaps(orgId: string, ordi: any, reservations: any[]) {
   }
   const linkedInvoices = await Invoice.find(
     { orgId, $or: [{ internalOrderId: ordi._id }, { 'lines.orderRef.internalOrderId': ordi._id }] } as any,
-    { invoiceNumber: 1, type: 1, direction: 1, status: 1, total: 1, contactId: 1 },
+    { invoiceNumber: 1, type: 1, direction: 1, status: 1, total: 1, currency: 1, issueDate: 1, contactId: 1 },
   ).lean().exec()
   for (const inv of linkedInvoices) invoiceIds.add(String((inv as any)._id))
   const orderIds = [...new Set(reservations.map((r: any) => (r.orderId ? String(r.orderId) : '')).filter(Boolean))]
@@ -113,7 +113,7 @@ async function nameMaps(orgId: string, ordi: any, reservations: any[]) {
     orders: Object.fromEntries(orders.map((o: any) => [String(o._id), { orderNumber: o.orderNumber, status: o.status, expectedDate: o.expectedDate }])),
     invoices: Object.fromEntries(linkedInvoices.map((i: any) => [String(i._id), {
       invoiceNumber: i.invoiceNumber, type: i.type, direction: i.direction, status: i.status,
-      total: i.total, contactId: i.contactId ? String(i.contactId) : undefined,
+      total: i.total, currency: i.currency, issueDate: i.issueDate, contactId: i.contactId ? String(i.contactId) : undefined,
     }])),
   }
 }

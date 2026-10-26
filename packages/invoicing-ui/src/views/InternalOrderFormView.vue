@@ -273,6 +273,7 @@
             </div>
           </v-card-text>
         </v-card>
+        <OrderInvoicesCard v-if="isEdit" :invoices="linkedInvoices" :contacts="contactNames" :currency="form.currency || baseCurrency" :locale-code="localeCode" />
         <ReservationQuantityDialog
           v-model="resEditDialog"
           :reservation="resEditing"
@@ -503,6 +504,7 @@ import { lineCoverage, orderCoverage } from 'config/order-coverage'
 import { asDraftOrder, defaultDraftFor, pickDraftsFor, type DraftOrder } from '../composables/order-generate'
 import { cascadeSummary } from '../composables/order-cascade'
 import OrderCascadeDialog from '../components/OrderCascadeDialog.vue'
+import OrderInvoicesCard from '../components/OrderInvoicesCard.vue'
 
 /** A line as the user edits it. What the server derives for it lives in `lineFigures`, not here. */
 interface LineRow {
@@ -571,6 +573,8 @@ const priorityOptions = computed(() => (['low', 'normal', 'high', 'urgent'] as c
 // ── reservations + lookups ──
 const reservations = ref<any[]>([])
 const orderNumbers = ref<Record<string, string>>({})
+/** FR-22.36: the invoices made from this order, as its GET returns them. */
+const linkedInvoices = ref<Record<string, any>>({})
 const activeReservations = computed(() => reservations.value.filter((r) => r.status !== 'cancelled'))
 function resStatusColor(status: string) {
   return status === 'active' ? 'primary' : status === 'fulfilled' ? 'success' : 'error'
@@ -626,6 +630,7 @@ function takeFigures(lines: any[]) {
 /** The reservations, their orders' numbers and the names, as GET /internal-orders/:id answers them. */
 function takeReservations(data: any) {
   reservations.value = data.reservations || []
+  linkedInvoices.value = data.lookup?.invoices || {}
   if (data.lookup?.contacts) Object.assign(contactNames.value, data.lookup.contacts)
   if (data.lookup?.orders) {
     for (const [oid, info] of Object.entries<any>(data.lookup.orders)) orderNumbers.value[oid] = info.orderNumber

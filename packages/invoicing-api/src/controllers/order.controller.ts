@@ -90,7 +90,7 @@ async function nameMaps(orgId: string, order: any, reservations: any[] = []) {
   // A conversion invoice mixing sources may lack the doc-level orderId — match line refs too.
   const linkedInvoices = await Invoice.find(
     { orgId, $or: [{ orderId: order._id }, { 'lines.orderRef.orderId': order._id }] } as any,
-    { invoiceNumber: 1, type: 1, direction: 1, status: 1, orderGroupId: 1, total: 1, contactId: 1 },
+    { invoiceNumber: 1, type: 1, direction: 1, status: 1, orderGroupId: 1, total: 1, currency: 1, issueDate: 1, contactId: 1 },
   ).lean().exec()
   for (const inv of linkedInvoices) invoiceIds.add(String((inv as any)._id))
 
@@ -109,7 +109,8 @@ async function nameMaps(orgId: string, order: any, reservations: any[] = []) {
     internalOrders: Object.fromEntries(internalOrders.map((o: any) => [String(o._id), { orderNumber: o.orderNumber, status: o.status }])),
     invoices: Object.fromEntries(linkedInvoices.map((i: any) => [String(i._id), {
       invoiceNumber: i.invoiceNumber, type: i.type, direction: i.direction, status: i.status,
-      orderGroupId: i.orderGroupId ? String(i.orderGroupId) : undefined, total: i.total, contactId: i.contactId ? String(i.contactId) : undefined,
+      orderGroupId: i.orderGroupId ? String(i.orderGroupId) : undefined, total: i.total, currency: i.currency, issueDate: i.issueDate,
+      contactId: i.contactId ? String(i.contactId) : undefined,
     }])),
   }
 }

@@ -16,7 +16,7 @@ import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 /**
  * FR-22 slice 4b — the order screens: why a client-order or supplier-order action is refused (a
  * code the UI translates), what the Reservations list finds, how a client order's coverage reads,
- * and what generating a supplier order appends to.
+ * what generating a supplier order appends to, and the invoices an order's form lists.
  *
  * Over HTTP through the real controllers. NOTE: no `.rejects` / `.resolves` (Bun-on-Windows
  * deadlock, see Known Issues).
@@ -241,5 +241,31 @@ describe('generating a supplier order into a draft the supplier already has (FR-
       [2, draft.id, String(w.w1._id)], [5, draft.id, String(w.w1._id)],
     ].sort())
     expect(await Order.countDocuments({ orgId: w.orgId }).exec()).toBe(1)
+  }, 60_000)
+})
+
+describe('an order lists its invoices (FR-22.36)', () => {
+  it('both forms get each invoice with its number, kind, date, currency and total', async () => {
+    const w = await world()
+    const sent = await w.order('sent', 5)
+    const mine = await w.ordi(w.c1, [{ product: w.product, quantity: 2 }])
+    const sale = await w.draftInvoiceFor(mine.id, { currency: 'BGN', total: 7.2, issueDate: new Date('2026-10-20T00:00:00.000Z') })
+    const bill = await w.draftInvoiceFor('', {
+      internalOrderId: undefined, orderId: sent.id, direction: 'incoming', contactId: w.supplier._id, total: 12, invoiceNumber: 'DRF-BILL-1',
+    })
+
+    const ordiInvoices = (await w.call('GET', `/internal-orders/${mine.id}`)).json.lookup.invoices
+    expect(ordiInvoices).toEqual({
+      [String(sale._id)]: {
+        invoiceNumber: sale.invoiceNumber, type: 'invoice', direction: 'outgoing', status: 'draft',
+        total: 7.2, currency: 'BGN', issueDate: '2026-10-20T00:00:00.000Z', contactId: String(w.c1._id),
+      },
+    })
+    const ordoInvoices = (await w.call('GET', `/orders/${sent.id}`)).json.lookup.invoices
+    expect(Object.keys(ordoInvoices)).toEqual([String(bill._id)])
+    expect(ordoInvoices[String(bill._id)]).toMatchObject({
+      invoiceNumber: 'DRF-BILL-1', direction: 'incoming', total: 12, currency: 'EUR', contactId: String(w.supplier._id),
+    })
+    expect(typeof ordoInvoices[String(bill._id)].issueDate).toBe('string')
   }, 60_000)
 })
