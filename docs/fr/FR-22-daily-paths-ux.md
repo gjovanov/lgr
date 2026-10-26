@@ -477,7 +477,7 @@ Writes go to **acme-corp** only, signed in through the API and undone afterwards
 ## 11. Progress
 
 Updated 2026-10-26 (afternoon). "Merged" means on master; deploys follow the `deploy-prod` skill when
-the owner asks. Everything merged is on production.
+the owner asks. Everything merged is on production except #268.
 
 | Slice | Requirements | State |
 |---|---|---|
@@ -496,7 +496,7 @@ the owner asks. Everything merged is on production.
 | 4b | FR-22.41–.44; FR-22.35 for Generate and Convert; FR-22.36 on both order forms; FR-22.13 on both order forms; FR-22.39 search; FR-22.15 defaults; translated refusals; FR-22.34 English / German / Macedonian names per D-1 | merged: #267. P7-chain 26 → 18 |
 | 5: products | FR-22.45 stock tab | merged: #252 |
 | 5 | FR-22.45 list columns, .46, .48 | merged: #263. P1 6 → 5 |
-| 5 | FR-22.47 (row actions „Заприходи", „Продай", „Резервирай") | in review: #268. P1-act: 2 clicks to a sale of the article |
+| 5 | FR-22.47 (row actions „Заприходи", „Продай", „Резервирай") | merged: #268, not yet deployed. P1-act: 2 clicks to a sale of the article |
 | 6: navigation | FR-22.49, .51, .52, .53 | merged: #259. P0-new: 1 click per leg |
 | 7: counter | FR-22.54, .55 (D-6) | merged: #256. P4-till 8 → 3, P4-backoffice 9 → 6 |
 | 7 | FR-22.60 cash sale → invoice (D-5) | merged: #249 (owned by another session) |
