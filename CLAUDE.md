@@ -1177,12 +1177,45 @@ ORDI (InternalOrder, client demand)          ORDO (Order, supplier supply)
     order): a body naming `source` replaces the supply, one naming `contactId` / `internalOrderId`
     the demand (a client alone drops the ORDI link). Never the product, and still once. A one-click
     repeat refused for a shortage opens the create dialog in repeat mode, the shortage named (§5.7).
+- **The order forms (FR-22 slice 4b).**
+  - **Coverage has one rule**, `config/order-coverage` (`lineCoverage` / `orderCoverage`), used by
+    the ORDI list, the ORDI GET and the form: `full` when what is HELD covers the line, `ordered`
+    („Поръчана") when the reservations cover it but part waits on a DRAFT ORDO, else `partial` /
+    `none`. A sent ORDO's reservation counts as held. ⚠ `onUnsentOrderQuantity` (per line),
+    `reservationCoverage` and `shortQuantity` are derived on READ (`onUnsentOrders` in the
+    controller), never stored: sending the ORDO changes them without touching the ORDI.
+  - ⚠ **What the server derives per ORDI line (reserved, on unsent orders, invoiced, delivered)
+    lives in `lineFigures`, OUTSIDE `form`.** The pending-changes snapshot is the form; a reservation
+    action or Convert changes those figures with no edit, and inside the form they made an untouched
+    order read „Незапазени промени" (FR-22.13). Both order forms re-take the snapshot after every load
+    (`snapshot()` of `usePendingChanges`); the ORDO form only while nothing is staged.
+  - The ORDI form opens a blank line once the last one gets an article; lines without an article
+    are never sent (`productId` is required). „Резервирай от склад" names the lines it could not
+    cover from the response's `short[]`, also when nothing at all was free.
+  - `POST /internal-orders/:id/generate-external {orderId?}` appends to a DRAFT ORDO of any supplier
+    (a new supplier gets its own group; a target that is not a draft answers 422 `order_not_draft`). The dialog
+    preselects the newest draft carrying every supplier of its rows (`order-generate.ts`), else a
+    new order, and shows each row's warehouse: the ORDI's, else the default one.
+  - Hand-offs land on the next document (FR-22.35): generating opens the ORDO, Convert opens the new
+    draft invoice and its message still says what stays reserved. Both forms list their invoices
+    from `lookup.invoices` (`OrderInvoicesCard`, FR-22.36), each opening in its own form.
+  - Cancel and Complete confirm first (FR-22.41, `OrderCascadeDialog`) with what they release,
+    counted by `order-cascade.ts` on the server's rule (`reservationReleasable` > 0 on a reservation
+    not cancelled): an ORDO names the ORDIs it lets down, an ORDI says what sits on stock and names
+    the ORDOs. Cancel always asks; Complete asks when it releases something (the ORDO: or when
+    changes are staged). Both still run through `doAction`, which drops staged changes.
+  - The ORDI and ORDO actions pass the service's `{code, …figure}` through like the reservation
+    endpoints; the ORDO's own cancel refusal is `order_has_invoices` (`ORDER_ERROR_CODES`).
+  - The Reservations list's `search` matches the RES number, and the clients, articles (name or
+    SKU) and ORDO / ORDI numbers it matches first — each resolved to at most 500 ids.
 - **Tests**: `integration/order-form-reservations.flow.test.ts` (12), `integration/reservation-screen.flow.test.ts`
-  (10), `e2e/tests/orders-reservations.spec.ts` (3), `e2e/tests/reservations-page.spec.ts` (4). The FR-22
+  (10), `integration/order-screens.flow.test.ts` (6), `e2e/tests/orders-reservations.spec.ts` (3),
+  `e2e/tests/reservations-page.spec.ts` (5), `e2e/tests/order-forms.spec.ts` (10). The FR-22
   walks take the shorter routes and assert them (`e2e/tests/ux-budgets/p7-*`):
-  P7-chain 27 → 26 clicks (the ORDO number is a link on the ORDI), P7-repeat 4 → 3 („Резервирай
-  отново" on the row), P7-who 2 + a second page → 1 (answered on the ORDO), P7-new 4 (a reservation
-  made on the list). ⚠ `e2e/tests/orders-product-autocomplete.spec.ts` belongs to no Playwright project, so it never
+  P7-chain 27 → 26 clicks (the ORDO number is a link on the ORDI) → 18 (slice 4b: an article opens
+  the next line, each hand-off lands on the next document, the invoice is issued on its own form),
+  P7-repeat 4 → 3 („Резервирай отново" on the row), P7-who 2 + a second page → 1 (answered on the
+  ORDO), P7-new 4 (a reservation made on the list). ⚠ `e2e/tests/orders-product-autocomplete.spec.ts` belongs to no Playwright project, so it never
   runs, and it is stale: its `.v-overlay .v-list-item` selector predates the product picker, whose
   menu does open.
 
