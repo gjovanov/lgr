@@ -142,8 +142,11 @@ const up = () => cashRegisterCopy.up({ db: db(), log: () => {}, orgFilter: {} })
 describe('0008 — the copy', () => {
   it('copies every row under its own _id, number, УНП and times; links the movement; labels the other cash sales; parity holds', async () => {
     const w = await legacyOrg()
+    // R4: the readers read documents only, so before the copy a POS row is read by nobody (which is
+    // why the cash register waits for 0009, FR-21.28); the journal holds the org's 3 cash sales.
     const journalBefore = await listJournal({ orgId: String(w.orgId), size: 0 })
-    const tillBefore = await loadPosRows({ orgId: String(w.orgId) })
+    expect(journalBefore.total).toBe(3)
+    expect(await loadPosRows({ orgId: String(w.orgId) })).toEqual([])
 
     await up()
 
@@ -185,13 +188,15 @@ describe('0008 — the copy', () => {
     expect(await origin(w.backOffice)).toBe('backoffice')
     expect(await origin(w.viaFiles)).toBe('import')
 
-    // Parity, and every reader that unions both stores reads the same rows as before, each once.
+    // Parity, and after the copy every reader reads every row once, as the row it was.
     expect(await cashRegisterParity(db() as any, String(w.orgId))).toEqual([])
     const journalAfter = await listJournal({ orgId: String(w.orgId), size: 0 })
-    expect(journalAfter.total).toBe(journalBefore.total)
+    expect(journalAfter.total).toBe(journalBefore.total + w.rows.length)
     expect(journalAfter.rows.every(r => r.store === 'invoice')).toBe(true)
     const tillAfter = await loadPosRows({ orgId: String(w.orgId) })
-    expect(tillAfter.map(t => [t.id, t.transactionNumber, t.status, t.total])).toEqual(tillBefore.map(t => [t.id, t.transactionNumber, t.status, t.total]))
+    const asRead = (t: any) => [String(t._id ?? t.id), t.transactionNumber, t.status, t.total]
+    const byTime = (a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    expect(tillAfter.map(asRead)).toEqual([...(w.rows as any[])].sort(byTime).map(asRead))
     // The rows are where they were: expand only.
     expect(await POSTransaction.countDocuments({ orgId: w.orgId })).toBe(w.rows.length)
   }, 60_000)
