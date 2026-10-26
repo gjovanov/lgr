@@ -201,9 +201,13 @@ Revisit any of these you disagree with. None is hard to change.
     transfers; anything else refuses the list (422 `pending_transfer_invalid`).
 12. **`sequenceGroupFor('cash_storno')` fell through to `SALES_DOC`**: a storno would have drawn an
     INV number. Fixed in R2b.
-13. ⚠ **`reverseInvoiceStockMovement` counts layer-costed goods twice on a void.** It restores the
-    consumed cost layers AND confirms a receipt, which layers the same goods again — and at the sale
-    price, which also moves `avgCost`. Still open; worth its own issue (FIFO/LIFO/FEFO orgs only).
+13. ⚠ **`reverseInvoiceStockMovement` restocks a voided sale at its sale price.** The receipt it
+    confirms carries `unitCost = unitPrice`, and `adjustStock` folds that into `avgCost`. So under WAC,
+    the default costing method, every void of a sale that moved stock pulls `avgCost` toward the
+    selling price — all the way to it when none of the product was left. A layer-costed product
+    (FIFO/LIFO/FEFO) is worse: the consumed layers are restored first, and the receipt then layers the
+    same goods again. R2's storno does not go through it (§3.15). CLAUDE.md's till-overlap repair
+    does. Still open; worth its own issue.
 14. **`createInvoiceStockMovement` had no retry on a taken `SM-` number** (the till's own code had one).
     Moving the till onto it would have lost a sale's stock to two tills selling at once. It retries now
     (`createNumberedMovement`).
