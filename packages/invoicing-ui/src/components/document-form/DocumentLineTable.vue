@@ -263,7 +263,7 @@ import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
 import LineColumnPickerDialog from 'ui-shared/components/LineColumnPickerDialog.vue'
 import GRProductUpdateCell from 'ui-shared/components/GRProductUpdateCell.vue'
 import GRColumnPickerDialog from 'ui-shared/components/GRColumnPickerDialog.vue'
-import { useGridNavigation } from '../../composables/document-form/useGridNavigation'
+import { useGridNavigation } from 'ui-shared/composables/useGridNavigation'
 
 const props = defineProps<{ doc: any }>()
 

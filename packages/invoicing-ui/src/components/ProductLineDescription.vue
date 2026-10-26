@@ -61,7 +61,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
-import { setProductSearchMenuOpen } from '../composables/useProductSearchMenu'
+import { setProductSearchMenuOpen } from 'ui-shared/composables/useProductSearchMenu'
 
 interface Product {
   _id: string
