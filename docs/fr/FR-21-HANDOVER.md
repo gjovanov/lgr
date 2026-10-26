@@ -4,7 +4,7 @@
 
 R1, the read side, is merged and on production since 2026-10-26: master `ddfd167f`, image
 `v20261026-ee6cc3b78103`. Its two migrations ran there, and the field checks match the baseline taken
-before the release. No data has been removed: FR-21.14 waits for the owner's go on its dry run. This
+before the release. FR-21.14 ran on the owner's go the same day. This
 is what is done, what is left, and what turned up on the way that the spec does not say.
 
 ## 1. State
@@ -14,7 +14,7 @@ is what is done, what is left, and what turned up on the way that the spec does 
 | **R1a** — the fixes the merge depends on | FR-21.1 – FR-21.6 (B-1 – B-5, B-7) | #244, merged and deployed 2026-10-26 |
 | **R1b** — every reader counts a till sale once, whichever store holds it | FR-21.7 – FR-21.12 | #247, merged and deployed 2026-10-26 |
 | **R1c** — one journal page in both apps | FR-21.13 (B-6) | #248, merged and deployed 2026-10-26 |
-| Before R2 — the `regal` test sales | FR-21.14 | #269: the script. Dry run on prod, then **the owner's go**, then `--execute`. |
+| Before R2 — the `regal` test sales | FR-21.14 | **Done 2026-10-26** (#269, owner's go): 74 test sales removed, see §5. |
 | R2 — the write side and the copy | FR-21.15 – FR-21.24 | not started |
 | R3 — freeze | FR-21.25 – FR-21.26 | not started |
 | R4 — contract | FR-21.27 – FR-21.28 | not started |
@@ -173,15 +173,26 @@ Revisit any of these you disagree with. None is hard to change.
   - FR-22's walks (`--project=ux-budgets`): 17/17. The storno walk now reaches the journal by
     its new menu entry, „Касови продажби".
 
-### Before R2: FR-21.14
-The `regal` test sales of March–April 2026 go by §5.2, with `scripts/remove-test-pos-sales.ts` (#269,
-tested by `test-pos-sales-cleanup.flow`):
-1. Dry run on prod, from the build host's `~/lgr`.
-2. The owner's go on its numbers.
-3. `--execute --expect <n>`, with the NDJSON backup on mars.
+### Before R2: FR-21.14 — done 2026-10-26
+`scripts/remove-test-pos-sales.ts` (#269, tested by `test-pos-sales-cleanup.flow`) ran from the build host's `~/lgr` at
+`f89e22eb`, on the owner's go after the dry run.
 
-⚠ The baseline already shows one regal sale outside March–April (4.97, inside the last 30 days). The
-script refuses while any row lies outside the window, so the owner decides about that one too.
+**The window.** The dry run for March–April found 73 sales, and one more outside the window:
+TXN-2026-0000074 of 2026-10-20 (4.97, non-fiscal), alone in its still-open session. The owner
+called it a test too, so the window became 2026-03-01 … 2026-10-20, which holds every regal POS row.
+
+**What the run did:**
+- **Sales:** removed 74, all on the Tremol test device TRM20001 — 47 fiscal and 27 non-fiscal, 817.99 in total.
+- **Dispatches:** reversed and removed 34. The other 40 sales never moved stock (the March–April
+  SM-counter bug).
+- **Stock:** 49 units came back across 12 product/warehouse levels. Nine of those levels were
+  negative, because the tests sold stock that was not there, and they are exactly 0 now.
+- **Sessions:** removed 48, one of them the open POS-2026-000051. There were no POS-OUT batches and no
+  journal entries.
+- **AuditLog:** 156 `cleanup` entries were added, and nothing was deleted.
+- **Backup:** `mars:~/fr21-test-sales-regal-20261026T155134Z.ndjson`, 169 lines.
+- **Verified:** no regal POS row is left. Every restored level equals its value before plus what came
+  back. The journal lists regal's 8 cash sales. regal-pz and regal-sf are unchanged.
 
 ### R2 (FR-21.15 – FR-21.24)
 - **What to build:**
