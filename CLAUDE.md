@@ -1862,6 +1862,16 @@ or cash sale and prints it — one click (P5-invoice 20 → 14 clicks, 2 dialogs
 
 ## FR-21 — one cash register (in progress, #171)
 
+⚠ **Once R2 (#272–#274) is on master, the next deploy of master ships it, whoever runs it.** That
+deploy needs four more steps (handover §5):
+- the field check's baseline BEFORE it (`scripts/cash-register-field-check.ts`);
+- `bun run migrate` on the build host after it (`0008-cash-register-copy`; `MIGRATIONS_AUTO` is
+  off);
+- the field check again;
+- a device test in `acme-corp`.
+
+FR-21 is Atanas's (@lazarovski) since 2026-10-26: `docs/fr/FR-21-HANDOVER.md` §0.
+
 POS transactions (`/pos/orders`) and cash sales (`/invoicing/cash-sales`) are becoming one
 cash-register document. The spec is `docs/fr/FR-21-cash-register-pos-and-cash-sales.md`; #171
 tracks the steps. R1a (the correctness fixes the merge's parity checks depend on) has landed:
