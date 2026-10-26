@@ -1,5 +1,6 @@
 <template>
   <ListScaffold
+    fit
     :title="$t('nav.salesDocs')"
     :headers="headers"
     :items="items"
@@ -17,9 +18,9 @@
       <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" />
       <v-btn variant="outlined" prepend-icon="mdi-download" :loading="exportLoading" @click="showExportDialog = true">{{ $t('common.export') }}</v-btn>
       <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
-      <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.sales.new' }">
-        {{ $t('common.create') }}
-      </responsive-btn>
+      <!-- FR-22.50 (D-8): says what it creates; the notes beside it. A list filtered to one kind
+           of note creates that note. -->
+      <CreateButton :label="create.label" :to="create.to" :more="create.more" :more-label="$t('invoicing.createOther')" />
     </template>
 
     <template #filters>
@@ -43,9 +44,7 @@
     </template>
 
     <template #empty-actions>
-      <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.sales.new' }">
-        {{ $t('common.create') }}
-      </responsive-btn>
+      <CreateButton :label="create.label" :to="create.to" :more="create.more" :more-label="$t('invoicing.createOther')" />
     </template>
 
     <!-- Cell renderers -->
@@ -69,16 +68,21 @@
         {{ $t(`invoicing.docType.${item.type}`) }}
       </v-chip>
     </template>
-    <template #item.relatedInvoiceNumber="{ item }">
+    <!-- FR-22.23: the invoice a note corrects, or the proforma an invoice came from — one column
+         where there were two, each empty on most rows. -->
+    <template #item.relatedDocument="{ item }">
       <entity-link
         v-if="item.relatedInvoiceId"
         :label="item.relatedInvoiceNumber || ''"
         :to="{ name: 'invoicing.sales.edit', params: { id: item.relatedInvoiceId } }"
       />
+      <entity-link v-if="item.proformaId" :label="item.proformaNumber || ''" :to="{ name: 'invoicing.proforma.edit', params: { id: item.proformaId } }" />
+      <span v-else-if="item.proformaNumber">{{ item.proformaNumber }}</span>
     </template>
     <template #item.contactName="{ item }">
-      <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
-      <span v-else>{{ item.contactName }}</span>
+      <!-- FR-22.23: a long name is cut short on the row, whole on hover. -->
+      <entity-link v-if="item.contactId" class="cell-clip" :title="item.contactName" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
+      <span v-else class="cell-clip" :title="item.contactName">{{ item.contactName }}</span>
     </template>
     <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
     <template #item.dueDate="{ item }">{{ item.dueDate?.split('T')[0] }}</template>
@@ -87,63 +91,9 @@
     </template>
     <template #item.taxTotal="{ item }">{{ fmtCurrency(item.taxTotal, item.currency) }}</template>
     <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
-    <template #item.proformaNumber="{ item }">
-      <entity-link v-if="item.proformaId" :label="item.proformaNumber || ''" :to="{ name: 'invoicing.proforma.edit', params: { id: item.proformaId } }" />
-      <span v-else-if="item.proformaNumber">{{ item.proformaNumber }}</span>
-    </template>
     <template #item.actions="{ item }">
-      <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.sales.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
-      <v-btn
-        v-if="item.status === 'draft'"
-        icon="mdi-send"
-        size="small"
-        variant="text"
-        color="info"
-        :title="$t('invoicing.send')"
-        :aria-label="$t('invoicing.send')"
-        @click="sendInvoice(item)"
-      />
-      <v-btn
-        v-if="item.status === 'sent' || item.status === 'partially_paid'"
-        icon="mdi-cash"
-        size="small"
-        variant="text"
-        color="success"
-        :title="$t('invoicing.recordPayment')"
-        :aria-label="$t('invoicing.recordPayment')"
-        @click="openPaymentDialog(item)"
-      />
-      <v-btn
-        v-if="item.status === 'draft'"
-        icon="mdi-cancel"
-        size="small"
-        variant="text"
-        color="error"
-        :title="$t('invoicing.void')"
-        :aria-label="$t('invoicing.void')"
-        @click="voidInvoice(item)"
-      />
-      <!-- FR-10 (#19): email straight from the row. The tooltip hangs off a wrapper span —
-           a disabled v-btn has `pointer-events: none`, so a title on the button never shows
-           and the greyed icon looks broken instead of blocked. -->
-      <v-tooltip
-        location="top"
-        :text="canEmail(item) ? $t('invoicing.sendEmail.action') : $t('invoicing.sendEmail.draftBlocked')"
-      >
-        <template #activator="{ props: tip }">
-          <span v-bind="tip">
-            <v-btn
-              icon="mdi-email-arrow-right-outline"
-              size="small"
-              variant="text"
-              :disabled="!canEmail(item)"
-              :aria-label="$t('invoicing.sendEmail.action')"
-              @click="openRowEmail(item)"
-            />
-          </span>
-        </template>
-      </v-tooltip>
-      <v-btn icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
+      <!-- FR-22.23/.24: every action of the row in one menu, offered exactly when the API takes it. -->
+      <RowActionsMenu :actions="rowActions(item)" />
     </template>
 
     <!-- Kanban view -->
@@ -201,6 +151,19 @@
       </v-card>
     </v-dialog>
 
+    <!-- FR-22.23: voiding is offered on issued documents now — it reverses what they did, so it asks. -->
+    <v-dialog v-model="voidDialog" max-width="440">
+      <v-card data-testid="void-dialog">
+        <v-card-title>{{ $t('invoicing.void') }}</v-card-title>
+        <v-card-text>{{ $t('invoicing.voidConfirm', { number: voidTarget?.number || '' }) }}</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="voidDialog = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="error" :loading="loading" @click="doVoid">{{ $t('invoicing.void') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <StockTransferDialog
       v-model="transferDialog"
       :shortfalls="transferShortfalls"
@@ -232,7 +195,8 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState, allOptionsParam } from 'ui-shared/composables/useListQueryState'
-import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import CreateButton from 'ui-shared/components/CreateButton.vue'
+import RowActionsMenu, { type RowAction } from 'ui-shared/components/RowActionsMenu.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import DateField from 'ui-shared/components/DateField.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
@@ -250,12 +214,16 @@ import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { useRowEmail } from '../composables/useRowEmail'
 import { useDocumentIssue } from '../composables/useDocumentIssue'
+import { useRowPrint } from '../composables/useRowPrint'
+import * as can from '../composables/document-row-actions'
 import RecordPaymentDialog from '../components/RecordPaymentDialog.vue'
 
 interface Invoice {
   _id: string
   number: string
   type: string
+  /** #171: an invoice issued for a cash sale. */
+  cashSaleId?: string
   contactName: string
   contactId?: string
   issueDate: string
@@ -282,10 +250,10 @@ const {
   defaultTo: emailTo,
   defaultSubject: emailSubject,
   documentNumber: emailDocNumber,
-  canEmail,
   open: openRowEmail,
   send: sendRowEmail,
 } = useRowEmail()
+const { printRow } = useRowPrint()
 
 const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')
@@ -449,15 +417,16 @@ const headers = computed(() => [
   { title: t('invoicing.invoiceNumber'), key: 'number', sortable: true },
   { title: t('invoicing.documentType'), key: 'type' },
   { title: t('invoicing.contact'), key: 'contactName', sortable: true },
-  { title: t('invoicing.relatedInvoice'), key: 'relatedInvoiceNumber' },
+  { title: t('invoicing.relatedDocument'), key: 'relatedDocument', sortable: false },
   { title: t('invoicing.issueDate'), key: 'issueDate', sortable: true },
   { title: t('invoicing.dueDate'), key: 'dueDate', sortable: true },
-  { title: t('common.currency'), key: 'currency' },
+  // FR-22.23: every amount is printed with its currency, so this column is offered on the cog.
+  { title: t('common.currency'), key: 'currency', defaultHidden: true },
   { title: t('invoicing.tax'), key: 'taxTotal', align: 'end' as const, sortable: true },
   { title: t('common.total'), key: 'total', align: 'end' as const },
   { title: t('common.status'), key: 'status' },
-  { title: t('invoicing.proformaRef'), key: 'proformaNumber' },
-  { title: t('common.actions'), key: 'actions', sortable: false },
+  // FR-22.23: one menu button, so the column is as narrow as its title.
+  { title: '', key: 'actions', sortable: false, align: 'end' as const, width: 48 },
 ])
 
 const kanbanColumns = computed(() => [
@@ -535,6 +504,55 @@ async function voidInvoice(item: Invoice) {
   } finally {
     loading.value = false
   }
+}
+
+const voidDialog = ref(false)
+const voidTarget = ref<Invoice | null>(null)
+function confirmVoid(item: Invoice) {
+  voidTarget.value = item
+  voidDialog.value = true
+}
+async function doVoid() {
+  if (voidTarget.value) await voidInvoice(voidTarget.value)
+  voidDialog.value = false
+}
+
+// ── FR-22.50 (D-8): what the list's Create makes ──
+const NEW_DOC: Record<string, { key: string; icon: string }> = {
+  invoice: { key: 'invoicing.newInvoice', icon: 'mdi-file-document-outline' },
+  credit_note: { key: 'invoicing.newCreditNote', icon: 'mdi-file-undo' },
+  debit_note: { key: 'invoicing.newDebitNote', icon: 'mdi-file-plus-outline' },
+}
+const newDocRoute = (type: string) => ({ name: 'invoicing.sales.new', query: type === 'invoice' ? {} : { type } })
+/** An invoice — or, on a list filtered to one kind of note, that note. The others beside it. */
+const create = computed(() => {
+  const only = !allTypesSelected.value && typeFilter.value.length === 1 ? typeFilter.value[0] : 'invoice'
+  return {
+    label: t(NEW_DOC[only].key),
+    to: newDocRoute(only),
+    more: SALES_TYPES.filter((type) => type !== only).map((type) => ({ label: t(NEW_DOC[type].key), to: newDocRoute(type), icon: NEW_DOC[type].icon })),
+  }
+})
+
+/** FR-22.23/.24: a row's actions — each offered exactly when the API takes it (`document-row-actions`). */
+function rowActions(item: Invoice): RowAction[] {
+  const row = { type: item.type, direction: 'outgoing', status: item.status, cashSaleId: item.cashSaleId }
+  const note = (type: string) => ({ name: 'invoicing.sales.new', query: { type, relatedInvoiceId: item._id } })
+  return [
+    { key: 'open', label: t('common.open'), icon: 'mdi-open-in-app', to: { name: 'invoicing.sales.edit', params: { id: item._id } } },
+    { key: 'issue', label: t('invoicing.issueFlow.issue'), icon: 'mdi-send-check', show: can.canIssue(row), handler: () => sendInvoice(item) },
+    { key: 'print', label: t('common.print'), icon: 'mdi-printer', handler: () => printRow(item) },
+    { key: 'payment', label: t('invoicing.recordPayment'), icon: 'mdi-cash', show: can.canRecordPayment(row), handler: () => openPaymentDialog(item) },
+    { key: 'email', label: t('invoicing.sendEmail.action'), icon: 'mdi-email-arrow-right-outline', show: can.canEmail(row), handler: () => openRowEmail(item) },
+    { key: 'credit-note', label: t('invoicing.docType.credit_note'), icon: 'mdi-file-undo', show: can.canCorrect(row), to: note('credit_note') },
+    { key: 'debit-note', label: t('invoicing.docType.debit_note'), icon: 'mdi-file-plus-outline', show: can.canCorrect(row), to: note('debit_note') },
+    {
+      key: 'copy', label: t('common.copy'), icon: 'mdi-content-copy', show: can.canCopy(row),
+      to: { name: 'invoicing.sales.new', query: { ...(item.type !== 'invoice' ? { type: item.type } : {}), copyOf: item._id } },
+    },
+    { key: 'void', label: t('invoicing.void'), icon: 'mdi-cancel', color: 'error', divider: true, show: can.canVoid(row), handler: () => confirmVoid(item) },
+    { key: 'delete', label: t('common.delete'), icon: 'mdi-delete', color: 'error', divider: true, show: can.canDelete(row), handler: () => confirmDelete(item) },
+  ]
 }
 
 function confirmDelete(item: Invoice) {

@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
 import { apiLogin, apiGet } from './helpers/api'
 import { lineUnitPrice } from './helpers/document-form'
+import { rowAction, rowsWithStatus } from './helpers/row-actions'
 
 test.describe('Stock Validation on Invoicing', () => {
   test('should show error when creating cash register sale with insufficient stock', async ({ page }) => {
@@ -44,11 +45,11 @@ test.describe('Stock Validation on Invoicing', () => {
     await page.goto('/invoicing/invoices')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
-    // Look for a draft invoice with a send button
-    const sendBtn = page.locator('.v-data-table tbody tr .mdi-send').first()
-    const hasSendBtn = await sendBtn.isVisible({ timeout: 3000 }).catch(() => false)
+    // Look for a draft invoice — FR-22.23: its row menu offers „Issue"
+    const draftRows = rowsWithStatus(page, 'Draft')
+    const hasDraft = await draftRows.first().isVisible({ timeout: 3000 }).catch(() => false)
 
-    if (!hasSendBtn) {
+    if (!hasDraft) {
       // No draft invoices — create one with excessive stock request
       await page.goto('/invoicing/invoices/new')
       await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
@@ -103,12 +104,11 @@ test.describe('Stock Validation on Invoicing', () => {
       await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
     }
 
-    // Find and click send on a draft invoice
-    const sendButton = page.locator('.v-data-table tbody tr').first().locator('.mdi-send').first()
-    const canSend = await sendButton.isVisible({ timeout: 3000 }).catch(() => false)
+    // Find and issue a draft invoice
+    const canSend = await draftRows.first().isVisible({ timeout: 3000 }).catch(() => false)
 
     if (canSend) {
-      await sendButton.click()
+      await (await rowAction(draftRows.first(), 'issue')).click()
       await page.waitForTimeout(2000)
 
       // Check for error snackbar
@@ -183,12 +183,14 @@ test.describe('Stock Validation on Invoicing', () => {
     await page.goto('/invoicing/invoices')
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
-    // Look for a sent invoice that can be voided
-    const voidBtn = page.locator('.v-data-table tbody tr .mdi-cancel').first()
-    const hasVoidBtn = await voidBtn.isVisible({ timeout: 3000 }).catch(() => false)
+    // Look for a sent invoice that can be voided — FR-22.23: Void sits in the row menu of an
+    // issued document, and asks first.
+    const sentRow = rowsWithStatus(page, 'Sent').first()
+    const hasVoidBtn = await sentRow.isVisible({ timeout: 3000 }).catch(() => false)
 
     if (hasVoidBtn) {
-      await voidBtn.click()
+      await (await rowAction(sentRow, 'void')).click()
+      await page.getByTestId('void-dialog').getByRole('button', { name: /^void$/i }).click()
       await page.waitForTimeout(2000)
 
       // Check for snackbar — may show success or error depending on stock state
@@ -222,13 +224,14 @@ test.describe('Stock Validation on Invoicing', () => {
     if (rowCount > 0) {
       const hasNoData = await rows.first().getByText('No data available').isVisible().catch(() => false)
       if (!hasNoData) {
-        // Check for void buttons (mdi-cancel)
-        const voidBtn = page.locator('.v-data-table tbody tr .mdi-cancel').first()
-        const hasVoidBtn = await voidBtn.isVisible({ timeout: 2000 }).catch(() => false)
+        // A received bill offers Void in its row menu (FR-22.23)
+        const receivedRow = rowsWithStatus(page, 'Received').first()
+        const hasVoidBtn = await receivedRow.isVisible({ timeout: 2000 }).catch(() => false)
         if (hasVoidBtn) {
           // Clicking void on a received purchase invoice triggers reverseInvoiceStockMovement
           // which creates a dispatch — if stock was already used, this should show error
-          await voidBtn.click()
+          await (await rowAction(receivedRow, 'void')).click()
+          await page.getByTestId('void-dialog').getByRole('button', { name: /^void$/i }).click()
           await page.waitForTimeout(2000)
 
           const snackbar = page.locator('.v-snackbar')

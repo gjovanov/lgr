@@ -451,7 +451,8 @@
     "next": "Next",
     "copy": "Copy",
     "copied": "Copied",
-    "requiredFieldsNote": "* Required fields"
+    "requiredFieldsNote": "* Required fields",
+    "open": "Open"
   },
   "export": {
     "aggregated": "Aggregate by product",
@@ -1315,7 +1316,15 @@
       "notIssuedStock": "not enough stock, and the transfer was not confirmed",
       "printOptions": "Print with options…"
     },
-    "proformaIssued": "Proforma issued successfully"
+    "proformaIssued": "Proforma issued successfully",
+    "createOther": "Another document",
+    "voidConfirm": "Void {number}? It stays in the list as voided, and the stock it moved is moved back.",
+    "proformaVoided": "Proforma voided successfully",
+    "billVoided": "Incoming invoice voided successfully",
+    "newPaymentOrder": "New Payment Order",
+    "newCashOrder": "New Cash Order",
+    "relatedDocument": "Related document",
+    "voidConfirmProforma": "Void {number}? It stays in the list as voided and can no longer be converted into an invoice."
   },
   "pos": {
     "cartEmpty": "Cart is empty",

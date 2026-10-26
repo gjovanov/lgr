@@ -1,5 +1,6 @@
 <template>
   <ListScaffold
+    fit
     :title="$t('nav.purchaseDocs')"
     :headers="headers"
     :items="items"
@@ -17,9 +18,8 @@
       <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" />
       <v-btn variant="outlined" prepend-icon="mdi-download" :loading="exportLoading" @click="showExportDialog = true">{{ $t('common.export') }}</v-btn>
       <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
-      <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.purchases.new' }">
-        {{ $t('common.create') }}
-      </responsive-btn>
+      <!-- FR-22.50: says what it creates; the supplier's notes beside it. -->
+      <CreateButton :label="create.label" :to="create.to" :more="create.more" :more-label="$t('invoicing.createOther')" />
     </template>
 
     <template #filters>
@@ -43,9 +43,8 @@
     </template>
 
     <template #empty-actions>
-      <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.purchases.new' }">
-        {{ $t('common.create') }}
-      </responsive-btn>
+      <!-- FR-22.50: says what it creates; the supplier's notes beside it. -->
+      <CreateButton :label="create.label" :to="create.to" :more="create.more" :more-label="$t('invoicing.createOther')" />
     </template>
 
     <!-- Cell renderers -->
@@ -57,6 +56,9 @@
         {{ $t(`invoicing.docType.${item.type}`) }}
       </v-chip>
     </template>
+    <template #item.reference="{ item }">
+      <span class="cell-clip" style="--cell-clip: 8em" :title="item.reference">{{ item.reference }}</span>
+    </template>
     <template #item.relatedInvoiceNumber="{ item }">
       <entity-link
         v-if="item.relatedInvoiceId"
@@ -65,8 +67,9 @@
       />
     </template>
     <template #item.contactName="{ item }">
-      <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
-      <span v-else>{{ item.contactName }}</span>
+      <!-- FR-22.23: a long name is cut short on the row, whole on hover. -->
+      <entity-link v-if="item.contactId" class="cell-clip" :title="item.contactName" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
+      <span v-else class="cell-clip" :title="item.contactName">{{ item.contactName }}</span>
     </template>
     <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
     <template #item.dueDate="{ item }">{{ item.dueDate?.split('T')[0] }}</template>
@@ -76,28 +79,8 @@
     <template #item.taxTotal="{ item }">{{ fmtCurrency(item.taxTotal, item.currency) }}</template>
     <template #item.total="{ item }">{{ fmtCurrency(item.total, item.currency) }}</template>
     <template #item.actions="{ item }">
-      <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.purchases.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
-      <v-btn
-        v-if="item.status === 'draft'"
-        icon="mdi-package-down"
-        size="small"
-        variant="text"
-        color="primary"
-        :title="$t('invoicing.receive')"
-        :aria-label="$t('invoicing.receive')"
-        @click="receiveInvoice(item)"
-      />
-      <v-btn
-        v-if="item.status === 'draft' || item.status === 'received'"
-        icon="mdi-cash"
-        size="small"
-        variant="text"
-        color="success"
-        :title="$t('invoicing.recordPayment')"
-        :aria-label="$t('invoicing.recordPayment')"
-        @click="openPaymentDialog(item)"
-      />
-      <v-btn icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
+      <!-- FR-22.23/.24: every action of the row in one menu, offered exactly when the API takes it. -->
+      <RowActionsMenu :actions="rowActions(item)" />
     </template>
 
     <!-- Kanban view -->
@@ -155,6 +138,19 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- FR-22.23: a received bill can be voided — that takes its goods back out — so it asks. -->
+    <v-dialog v-model="voidDialog" max-width="440">
+      <v-card data-testid="void-dialog">
+        <v-card-title>{{ $t('invoicing.void') }}</v-card-title>
+        <v-card-text>{{ $t('invoicing.voidConfirm', { number: voidTarget?.number || '' }) }}</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="voidDialog = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="error" :loading="loading" @click="doVoid">{{ $t('invoicing.void') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </ListScaffold>
 </template>
 
@@ -168,7 +164,8 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState, allOptionsParam } from 'ui-shared/composables/useListQueryState'
-import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import CreateButton from 'ui-shared/components/CreateButton.vue'
+import RowActionsMenu, { type RowAction } from 'ui-shared/components/RowActionsMenu.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import DateField from 'ui-shared/components/DateField.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -183,6 +180,8 @@ import type { StatCardDef } from 'ui-shared/components/StatCard.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import RecordPaymentDialog from '../components/RecordPaymentDialog.vue'
+import { useRowPrint } from '../composables/useRowPrint'
+import * as can from '../composables/document-row-actions'
 interface Invoice { _id: string; number: string; type: string; supplierInvoiceNumber?: string; contactName: string; contactId?: string; issueDate: string; dueDate: string; status: string; total: number; amountPaid?: number; paymentMethod?: string; currency: string; exchangeRate?: number; notes?: string; lines?: any[] }
 
 const { t } = useI18n()
@@ -191,6 +190,7 @@ const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+const { printRow } = useRowPrint()
 
 const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')
@@ -355,14 +355,17 @@ const headers = computed(() => [
   { title: t('invoicing.documentType'), key: 'type' },
   { title: t('invoicing.supplierInvoiceNumber'), key: 'reference' },
   { title: t('invoicing.supplier'), key: 'contactName', sortable: true },
-  { title: t('invoicing.relatedInvoice'), key: 'relatedInvoiceNumber' },
+  // FR-22.23: filled only on a supplier's credit or debit note, so it is offered on the cog.
+  { title: t('invoicing.relatedInvoice'), key: 'relatedInvoiceNumber', defaultHidden: true },
   { title: t('invoicing.issueDate'), key: 'issueDate', sortable: true },
   { title: t('invoicing.dueDate'), key: 'dueDate', sortable: true },
-  { title: t('common.currency'), key: 'currency' },
+  // FR-22.23: every amount is printed with its currency, so this column is offered on the cog.
+  { title: t('common.currency'), key: 'currency', defaultHidden: true },
   { title: t('invoicing.tax'), key: 'taxTotal', align: 'end' as const, sortable: true },
   { title: t('common.total'), key: 'total', align: 'end' as const },
   { title: t('common.status'), key: 'status' },
-  { title: t('common.actions'), key: 'actions', sortable: false },
+  // FR-22.23: one menu button, so the column is as narrow as its title.
+  { title: '', key: 'actions', sortable: false, align: 'end' as const, width: 48 },
 ])
 
 const kanbanColumns = computed(() => [
@@ -405,6 +408,70 @@ async function receiveInvoice(item: Invoice) {
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   }
+}
+
+const VOIDED_KEY: Record<string, string> = {
+  invoice: 'invoicing.billVoided',
+  credit_note: 'invoicing.creditNoteVoided',
+  debit_note: 'invoicing.debitNoteVoided',
+}
+const voidDialog = ref(false)
+const voidTarget = ref<Invoice | null>(null)
+function confirmVoid(item: Invoice) {
+  voidTarget.value = item
+  voidDialog.value = true
+}
+async function doVoid() {
+  const item = voidTarget.value
+  if (!item) return
+  loading.value = true
+  try {
+    await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/void`)
+    showSuccess(t(VOIDED_KEY[item.type] || VOIDED_KEY.invoice))
+    voidDialog.value = false
+    await refresh()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    loading.value = false
+  }
+}
+
+// ── FR-22.50: what the list's Create makes ──
+const NEW_DOC: Record<string, { key: string; icon: string }> = {
+  invoice: { key: 'nav.newDocPage.bill', icon: 'mdi-receipt-text-outline' },
+  credit_note: { key: 'invoicing.newCreditNote', icon: 'mdi-file-undo' },
+  debit_note: { key: 'invoicing.newDebitNote', icon: 'mdi-file-plus-outline' },
+}
+const newDocRoute = (type: string) => ({ name: 'invoicing.purchases.new', query: type === 'invoice' ? {} : { type } })
+/** A supplier's bill — or, on a list filtered to one kind of note, that note. The others beside it. */
+const create = computed(() => {
+  const only = !allTypesSelected.value && typeFilter.value.length === 1 ? typeFilter.value[0] : 'invoice'
+  return {
+    label: t(NEW_DOC[only].key),
+    to: newDocRoute(only),
+    more: PURCHASE_TYPES.filter((type) => type !== only).map((type) => ({ label: t(NEW_DOC[type].key), to: newDocRoute(type), icon: NEW_DOC[type].icon })),
+  }
+})
+
+/** FR-22.23/.24: a row's actions — each offered exactly when the API takes it (`document-row-actions`). */
+function rowActions(item: Invoice): RowAction[] {
+  const row = { type: item.type, direction: 'incoming', status: item.status }
+  const note = (type: string) => ({ name: 'invoicing.purchases.new', query: { type, relatedInvoiceId: item._id } })
+  return [
+    { key: 'open', label: t('common.open'), icon: 'mdi-open-in-app', to: { name: 'invoicing.purchases.edit', params: { id: item._id } } },
+    { key: 'receive', label: t('invoicing.receive'), icon: 'mdi-package-down', show: can.canIssue(row), handler: () => receiveInvoice(item) },
+    { key: 'print', label: t('common.print'), icon: 'mdi-printer', handler: () => printRow(item) },
+    { key: 'payment', label: t('invoicing.recordPayment'), icon: 'mdi-cash', show: can.canRecordPayment(row), handler: () => openPaymentDialog(item) },
+    { key: 'credit-note', label: t('invoicing.docType.credit_note'), icon: 'mdi-file-undo', show: can.canCorrect(row), to: note('credit_note') },
+    { key: 'debit-note', label: t('invoicing.docType.debit_note'), icon: 'mdi-file-plus-outline', show: can.canCorrect(row), to: note('debit_note') },
+    {
+      key: 'copy', label: t('common.copy'), icon: 'mdi-content-copy',
+      to: { name: 'invoicing.purchases.new', query: { ...(item.type !== 'invoice' ? { type: item.type } : {}), copyOf: item._id } },
+    },
+    { key: 'void', label: t('invoicing.void'), icon: 'mdi-cancel', color: 'error', divider: true, show: can.canVoid(row), handler: () => confirmVoid(item) },
+    { key: 'delete', label: t('common.delete'), icon: 'mdi-delete', color: 'error', divider: true, show: can.canDelete(row), handler: () => confirmDelete(item) },
+  ]
 }
 
 function confirmDelete(item: Invoice) { selectedId.value = item._id; deleteDialog.value = true }
