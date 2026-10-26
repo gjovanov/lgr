@@ -1,4 +1,4 @@
-import { ref, inject, watch, onMounted, onUnmounted } from 'vue'
+import { ref, inject, watch, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { useRoute, useRouter, matchedRouteKey, type NavigationGuard, type RouteRecordNormalized } from 'vue-router'
 import { usePendingChangesStore } from '../stores/pending-changes.store'
 import { registerUnsavedCheck } from '../session/switch-guards'
@@ -128,7 +128,12 @@ export function usePendingChanges(config: PendingChangesConfig) {
     guarded = record
     guarded?.leaveGuards.add(leaveGuard)
   }
-  watch(() => shownUnder?.value, guardRecord, { immediate: true })
+  // As vue-router's own guard does under <keep-alive>: a cached, hidden form guards nothing, and
+  // must not follow the record of the page shown in its place.
+  let active = true
+  watch(() => shownUnder?.value, (record) => { if (active) guardRecord(record) }, { immediate: true })
+  onDeactivated(() => { active = false; guardRecord(undefined) })
+  onActivated(() => { active = true; guardRecord(shownUnder?.value) })
   onUnmounted(() => guardRecord(undefined))
 
   // Browser close / tab close
