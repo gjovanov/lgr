@@ -110,6 +110,12 @@
         "body": "Nothing works offline. Check the network, then try again.",
         "action": "Retry",
         "diagnostics": "Create diagnostics bundle"
+      },
+      "orgMoved": {
+        "title": "This organisation now runs on its own server ({name})",
+        "bodyUnknown": "lgrai.app could not tell this computer where that server answers. Ask your administrator for a pairing code, then register this desktop with it.",
+        "bodyNotFollowed": "This computer could not switch to it yet ({reason}). It tries again by itself; if this message stays, ask your administrator for a pairing code.",
+        "action": "Pair with the server"
       }
     },
     "settings": {

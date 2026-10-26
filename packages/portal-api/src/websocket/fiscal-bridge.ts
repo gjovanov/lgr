@@ -59,6 +59,7 @@ import {
   verifyDesktopToken,
   type DesktopTokenClaims,
 } from 'services/biz/desktop/desktop.service'
+import { movedFor } from 'services/biz/desktop/repoint.service'
 import type { IDesktop } from 'db/models'
 
 const COMMAND_TIMEOUT_MS = 60000 // 60s — device may be physically printing (step-by-step mode)
@@ -314,6 +315,15 @@ async function authenticateDesktopBridge(
     const message = e instanceof DesktopError ? e.message : 'A desktop credential is required.'
     refuse(ws, message, code)
     closeSocket(ws, code)
+    return null
+  }
+
+  // FR-20.82 (P3-6b): the org moved to its master, which holds the till's port now. Refused before
+  // anything of the org is written here (a bridge marks its device online), and said why.
+  const moved = await movedFor(String(desktop._id), String(desktop.orgId))
+  if (moved) {
+    refuse(ws, `This organisation is now on its own server (${moved.name}).`, 'org_moved')
+    closeSocket(ws, 'org_moved')
     return null
   }
 

@@ -130,6 +130,11 @@ pub enum Event {
     Revoked(String),
     /// FR-14.28 — an admin asked this desktop to update. C13 acts on it.
     UpdateRequested,
+    /// FR-20.82 — the org moved to its own server: the signed instruction, and the server's name.
+    /// Only `repoint::verify` decides whether it is believed.
+    Repoint { instruction: String, name: String },
+    /// FR-20.82 — the org moved, and lgrai.app cannot say where it answers.
+    Moved { name: String },
     /// ⚠ **Carries WHY.** It used to be a bare variant, so the three outcomes below all arrived
     /// at the handler indistinguishable - and the handler logged nothing at all, which made a
     /// desktop that could not reach its hub completely silent: app running, hub showing it
@@ -328,6 +333,9 @@ fn connect_once(
                         return Outcome::Refused;
                     }
                     Some(Incoming::Update) => on_event(Event::UpdateRequested),
+                    // FR-20.82: the refusal (`org_moved`) and the close follow; the loop ends there.
+                    Some(Incoming::Repoint { instruction, name }) => on_event(Event::Repoint { instruction, name }),
+                    Some(Incoming::Moved { name }) => on_event(Event::Moved { name }),
                     Some(Incoming::Refused) => {
                         let _ = socket.close(None);
                         return Outcome::Refused;
@@ -350,6 +358,8 @@ pub enum Incoming {
     Revoked(String),
     Update,
     Refused,
+    Repoint { instruction: String, name: String },
+    Moved { name: String },
 }
 
 pub fn classify(text: &str) -> Option<Incoming> {
@@ -361,6 +371,13 @@ pub fn classify(text: &str) -> Option<Incoming> {
             v.get("message").and_then(|m| m.as_str()).unwrap_or_default().to_string(),
         )),
         "desktop:update" => Some(Incoming::Update),
+        "desktop:repoint" => Some(Incoming::Repoint {
+            instruction: v.get("instruction")?.as_str()?.to_string(),
+            name: v.get("name").and_then(|m| m.as_str()).unwrap_or_default().to_string(),
+        }),
+        "desktop:moved" => Some(Incoming::Moved {
+            name: v.get("name").and_then(|m| m.as_str()).unwrap_or_default().to_string(),
+        }),
         // ⚠ `desktop:error` with `unauthenticated` is the revocation path's quieter sibling: the
         // credential was refused, so retrying with it is pointless.
         "desktop:error" => Some(Incoming::Refused),
@@ -530,6 +547,13 @@ mod tests {
             Some(Incoming::Revoked("removed".into()))
         );
         assert_eq!(classify(r#"{"type":"desktop:update"}"#), Some(Incoming::Update));
+        assert_eq!(
+            classify(r#"{"type":"desktop:repoint","instruction":"a.b.c","node":"master-x","name":"Kasa"}"#),
+            Some(Incoming::Repoint { instruction: "a.b.c".into(), name: "Kasa".into() })
+        );
+        assert_eq!(classify(r#"{"type":"desktop:moved","node":"master-x","name":"Kasa"}"#), Some(Incoming::Moved { name: "Kasa".into() }));
+        // A re-point with no instruction is nothing to follow.
+        assert_eq!(classify(r#"{"type":"desktop:repoint","name":"Kasa"}"#), None);
         assert_eq!(
             classify(r#"{"type":"desktop:error","code":"unauthenticated"}"#),
             Some(Incoming::Refused)

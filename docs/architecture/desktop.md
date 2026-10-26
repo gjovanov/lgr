@@ -137,6 +137,20 @@ enrollment, tokens, `/self`, the update manifest and download, presence, and the
   - A master whose address changes (DHCP) is found again by the certificate the desktop pinned.
     The desktop moves to the new address only once its pinned connection succeeds there.
   - Multicast is often blocked, so an address can always be typed instead.
+- **Following the org to its master (FR-20.82).** When an org moves from lgrai.app to its master,
+  lgrai.app tells each of its desktops where the master answers and which CA to pin there
+  (`desktop:repoint` on the presence socket). The shell follows only an instruction signed by a
+  key built into it (`config/src/repoint-keys.json`, checked in `repoint.rs`), for this desktop
+  and its org, with an epoch above the last one it followed. It then checks the master's CA
+  against the pin exactly as a pairing does, keeps the new server and pin, and restarts into
+  them. It keeps its id and its key: its registration moved with the org.
+  - ⚠ The signature matters because lgrai.app is reached through the OS store: a TLS-inspecting
+    middlebox the machine trusts could otherwise send the till to a server of its own.
+  - A restart rather than a switch in place: the fiscal bridges hold the till's ports, and a move
+    needs every till closed anyway.
+  - When it cannot follow (the master does not answer from here, its CA does not match), the
+    Overview says so and offers to pair; lgrai.app sends the instruction again at the next
+    connection. When lgrai.app cannot say where the master answers, it only says the org moved.
 
 ### Native fiscal bridge (FR-14.26, FR-14.27)
 

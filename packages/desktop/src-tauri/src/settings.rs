@@ -49,6 +49,10 @@ pub struct Settings {
     /// server clears that storage first, so nothing of one server's session reaches the next. Empty
     /// means not yet recorded (every install before this field), which clears nothing.
     pub web_server: String,
+    /// FR-20.82 — the epoch of the last re-point this desktop followed. An instruction at this epoch
+    /// or below is not followed again, so a replayed one cannot send the desktop back to a home its
+    /// org left. `0` until the first move. ⚠ The shell's own bookkeeping, as `master` is.
+    pub home_epoch: i64,
 }
 
 /// A paired master: its origin and its pinned CA.
@@ -83,6 +87,7 @@ impl Default for Settings {
             master: None,
             proxy_port: 0,
             web_server: String::new(),
+            home_epoch: 0,
         }
     }
 }

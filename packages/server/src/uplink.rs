@@ -149,13 +149,15 @@ fn close_ended(code: u16, reason: &str) -> Ended {
 }
 
 /// The `health` frame (FR-20.57): the supervisor's status (with the API's account of itself, as
-/// `status_with_api` gives it) and the data volume's free space. Global keeps known fields only.
-pub fn health_frame(status: &serde_json::Value, free_bytes: Option<u64>) -> serde_json::Value {
+/// `status_with_api` gives it), the data volume's free space, and where the LAN ingress answers
+/// (`state/lan.json`, when it is on): FR-20.82's re-point names that address, and pins that CA, for
+/// an org's desktops when the org moves here. Global keeps known fields only.
+pub fn health_frame(status: &serde_json::Value, free_bytes: Option<u64>, lan: Option<&serde_json::Value>) -> serde_json::Value {
     let children: Vec<serde_json::Value> = status["children"]
         .as_array()
         .map(|cs| cs.iter().map(|c| serde_json::json!({ "name": c["name"], "state": c["state"], "failures": c["failures"] })).collect())
         .unwrap_or_default();
-    serde_json::json!({
+    let mut frame = serde_json::json!({
         "t": "health",
         "versions": { "app": env!("CARGO_PKG_VERSION"), "protocol": 1 },
         "uptimeSecs": status["uptimeSecs"],
@@ -169,7 +171,16 @@ pub fn health_frame(status: &serde_json::Value, free_bytes: Option<u64>) -> serd
         },
         // FR-20.20: what runs, what is available, and an update kept out by open tills (the alarm).
         "update": status["update"],
-    })
+    });
+    if let Some(lan) = lan.filter(|l| l["url"].is_string() && l["caFingerprint"].is_string()) {
+        frame["lan"] = serde_json::json!({ "url": lan["url"], "caFingerprint": lan["caFingerprint"] });
+    }
+    frame
+}
+
+/// `state/lan.json` as the supervisor last wrote it, while the LAN ingress is on.
+pub fn read_lan(file: Option<&std::path::Path>) -> Option<serde_json::Value> {
+    serde_json::from_str(&std::fs::read_to_string(file?).ok()?).ok()
 }
 
 /// One connection on an open stream: `hello`, `welcome`, then pings and frames until it ends.
@@ -539,7 +550,11 @@ mod tests {
         let status: Status = Arc::new(Mutex::new(serde_json::json!({})));
         let addr = url.trim_start_matches("ws://").split('/').next().unwrap().to_string();
         let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
-        let health: HealthFn = Arc::new(|| Box::pin(async { health_frame(&serde_json::json!({ "uptimeSecs": 5, "children": [{ "name": "api", "state": "running", "failures": 0 }], "api": { "ok": true, "posOpen": 2, "clock": { "trusted": true } } }), Some(123)) }));
+        let lan = serde_json::json!({ "url": "https://192.168.8.115:4443", "caFingerprint": "sha256:J4_Wvnqz" });
+        let health: HealthFn = Arc::new(move || {
+            let lan = lan.clone();
+            Box::pin(async move { health_frame(&serde_json::json!({ "uptimeSecs": 5, "children": [{ "name": "api", "state": "running", "failures": 0 }], "api": { "ok": true, "posOpen": 2, "clock": { "trusted": true } } }), Some(123), Some(&lan)) })
+        });
         let mut t = quick();
         t.health = Duration::from_millis(50);
         let ended = session(&url, tcp, hello(), "interactive", t, &status, Hooks { health: Some(health), licence: None, pages: None }).await;
@@ -550,6 +565,21 @@ mod tests {
         let h: serde_json::Value = heard.iter().filter_map(|f| serde_json::from_str::<serde_json::Value>(f).ok()).find(|v| v["t"] == "health").expect("a health frame");
         assert_eq!((h["disk"]["freeBytes"].as_u64(), h["api"]["posOpen"].as_u64(), h["api"]["clockTrusted"].as_bool()), (Some(123), Some(2), Some(true)));
         assert_eq!(h["children"][0]["name"], "api");
+        assert_eq!((h["lan"]["url"].as_str(), h["lan"]["caFingerprint"].as_str()), (Some("https://192.168.8.115:4443"), Some("sha256:J4_Wvnqz")));
+    }
+
+    #[test]
+    fn the_lan_rides_in_health_only_when_the_ingress_names_an_address() {
+        let st = serde_json::json!({});
+        assert!(health_frame(&st, None, None).get("lan").is_none());
+        // No address yet (no default route): nothing to re-point a desktop to.
+        assert!(health_frame(&st, None, Some(&serde_json::json!({ "url": null, "caFingerprint": "sha256:x" }))).get("lan").is_none());
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("lan.json");
+        assert!(read_lan(Some(&file)).is_none());
+        std::fs::write(&file, r#"{"url":"https://10.0.0.5:4443","caFingerprint":"sha256:abc","extra":1}"#).unwrap();
+        let f = health_frame(&st, None, read_lan(Some(&file)).as_ref());
+        assert_eq!(f["lan"], serde_json::json!({ "url": "https://10.0.0.5:4443", "caFingerprint": "sha256:abc" }));
     }
 
     #[tokio::test]

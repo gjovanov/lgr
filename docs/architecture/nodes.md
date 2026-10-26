@@ -591,9 +591,13 @@ a server linked at Full). lgrai.app runs the move (`services/biz/move/move.servi
 - ⚠ **The audit trail is org data**: lgrai.app writes the move's entry before the freeze (so it is in
   the copy), an abort's after the unfreeze, and the server records the arrival once the org is home
   there; it reaches lgrai.app with the mirror.
-- **Not yet**: the shop's desktops are not re-pointed (P3-6b) and still open lgrai.app, where the org
-  is read-only, until they are paired with the server; the move back to the cloud, promotion, and
-  the fenced export and import (P3-6c to e).
+- **The desktops follow** (FR-20.82): lgrai.app tells each of the org's desktops where the server
+  answers on the shop's LAN and which CA to pin there, in an instruction signed for that desktop
+  alone, at the flip and whenever the desktop next connects. The desktop keeps its id and its key:
+  its registry row moved with the org, so nothing is enrolled again. The server's health reports say
+  where its LAN ingress answers; when lgrai.app does not know, the desktop is only told that its org
+  moved, and offers to pair. Nothing of a moved org's desktop is written on lgrai.app.
+- **Not yet**: the move back to the cloud, promotion, and the fenced export and import (P3-6c to e).
 
 ## Not built yet
 

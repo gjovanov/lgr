@@ -22,6 +22,7 @@ import {
   verifyAssertion,
 } from '../desktop/desktop-crypto.js'
 import { isSealPublicKey } from '../crypto/node-seal.js'
+import { CA_PIN, LAN_URL } from '../desktop/repoint-token.js'
 
 /**
  * Global's registry of masters (FR-20.2, plan step P2-1): an org admin mints a code on lgrai.app,
@@ -571,6 +572,11 @@ export function sanitizeHealth(frame: any, at = new Date()): Record<string, unkn
       clockTrusted: bool(frame?.api?.clockTrusted),
     },
     update: sanitizeUpdate(frame?.update),
+    // FR-20.82 (P3-6b): where its LAN ingress answers, and the pin of its CA: what a re-point names
+    // for an org's desktops when the org moves here. Kept only in the shape a desktop would take.
+    lan: typeof frame?.lan?.url === 'string' && LAN_URL.test(frame.lan.url) && typeof frame?.lan?.caFingerprint === 'string' && CA_PIN.test(frame.lan.caFingerprint)
+      ? { url: frame.lan.url, caFingerprint: frame.lan.caFingerprint }
+      : undefined,
   })
 }
 

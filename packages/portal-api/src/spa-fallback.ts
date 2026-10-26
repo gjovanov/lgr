@@ -95,6 +95,13 @@ export function spaErrorHandler(indexHtmlMap: Partial<Record<UiModule, string>>)
       set.status = 422
       return { message: validationMessage(err) }
     }
+    // FR-20.4: a write the home guard refused below the routes, on a route with no `:orgId` for the
+    // home gate to see (a desktop's own `PUT /desktop/v1/self` for an org that moved): the gate's
+    // answer, never a 500.
+    if (err?.name === 'HomeElsewhereError') {
+      set.status = 409
+      return { code: 'org_home_elsewhere', message: err.message, home: { kind: err.info?.home === 'global' ? 'global' : 'master', state: err.info?.state } }
+    }
     if (code === 'NOT_FOUND') {
       const pathname = new URL(request.url).pathname
       if (!pathname.startsWith('/api/') && !pathname.match(/\.\w{2,}$/)) {

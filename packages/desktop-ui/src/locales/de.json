@@ -110,6 +110,12 @@
         "body": "Ohne Verbindung funktioniert nichts. Prüfen Sie das Netzwerk und versuchen Sie es erneut.",
         "action": "Erneut versuchen",
         "diagnostics": "Diagnosepaket erstellen"
+      },
+      "orgMoved": {
+        "title": "Diese Organisation läuft jetzt auf ihrem eigenen Server ({name})",
+        "bodyUnknown": "lgrai.app konnte diesem Computer nicht sagen, wo dieser Server antwortet. Bitten Sie Ihre Administration um einen Kopplungscode und registrieren Sie diesen Desktop damit.",
+        "bodyNotFollowed": "Dieser Computer konnte noch nicht zu ihm wechseln ({reason}). Er versucht es selbst erneut; bleibt diese Meldung, bitten Sie Ihre Administration um einen Kopplungscode.",
+        "action": "Mit dem Server koppeln"
       }
     },
     "settings": {

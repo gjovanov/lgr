@@ -954,7 +954,7 @@ Atomic counter using MongoDB `findOneAndUpdate` with `$inc`. Race-condition safe
   registered LGR Desktop (Rust `serialport`) relays commands from the LGR server to a USB fiscal
   printer. Protocol: `fiscal:bridge:register` → `fiscal:command` / `fiscal:response`, with
   `fiscal:bridge:evicted` and `fiscal:bridge:error` codes (`bridge_in_use`, `device_not_assigned`,
-  `bridged_by_desktop`, `desktop_revoked`, `key_rotated`). ⚠ An unauthenticated socket is closed
+  `bridged_by_desktop`, `desktop_revoked`, `key_rotated`, `org_moved`). ⚠ An unauthenticated socket is closed
   after 10 s.
 - **Workstations**: `GET/POST/PUT/DELETE /api/org/:orgId/fiscal/workstation`
 - **SUPTO export**: `GET /api/org/:orgId/supto/export/tables` (list), `GET /supto/export/:tableId?dateFrom=&dateTo=` (XLSX download) — tables 18.1–18.9, restricted to admin/nra_auditor
@@ -2498,8 +2498,8 @@ Operator page: `docs/architecture/nodes.md#moving-an-org-to-its-master-fr-2079`.
 - A flip is claimed INSIDE its transaction: a report sent again after a crash between `verifying` and
   the flip finishes it, one after the flip is answered done, and a late second flip changes nothing
   (it would otherwise delete the mirror's new chain).
-- Not yet: desktop re-point (P3-6b; until then the shop's desktops pair with the master again), master
-  → cloud (P3-6c), promotion (P3-6d), fenced export/import (P3-6e).
+- The desktops follow (P3-6b, below). Not yet: master → cloud (P3-6c), promotion (P3-6d), fenced
+  export/import (P3-6e).
   - ⚠ For P3-6c: `collectionDigests` hashes canonical EJSON in STORED field order, and the mirror's
     apply reorders a split document (`$mergeObjects: [home, kept]` puts global's fields last). A move
     back cannot compare the master with the mirror that way: it needs an order-insensitive digest.
@@ -2508,3 +2508,42 @@ Operator page: `docs/architecture/nodes.md#moving-an-org-to-its-master-fr-2079`.
   master's import, activation, a lost report, the abort's people rule, the refusals, and the routes) and
   `bun packages/tests/src/two-node/move-e2e.script.ts` (real processes, as `mirror-e2e`: 18 checks
   from preflight through the flip to the mirror equal again).
+
+## Desktops follow their org's home (2026-10-26, FR-20.82, plan step P3-6b)
+
+After a move to a master, global tells each of the org's desktops where the master answers and which
+CA to pin there; the desktop keeps its id and its key (its registry row moved with the org, FR-20.63),
+so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.ts#movedFor`.
+- **Where the master answers**: the supervisor's health frame carries `lan {url, caFingerprint}` from
+  `state/lan.json` (only while the LAN ingress is on); `sanitizeHealth` keeps it only in the shape a
+  desktop takes (`LAN_URL`, `CA_PIN` in `repoint-token.ts`).
+- **A re-point** (`desktop:repoint {instruction, node, name}` on `/ws/desktop`): an EdDSA JWS, typ
+  `lgr-repoint+jws`, for ONE desktop (`sub`), its org, the master and the move's epoch, the
+  master's LAN URL and CA pin; 30 days. Signed with `REPOINT_SIGNING_KEY` (sealed in lgr-secret),
+  verified by the desktop against `config/src/repoint-keys.json` built into it. ⚠ The signature is
+  the point: a till reaches lgrai.app through the machine's trust store, so a TLS-inspecting middlebox
+  it trusts could otherwise send it to a server of its own, pinned from then on.
+- **`desktop:moved {node, name}`** instead when global cannot say where (no `health.lan`, the node
+  removed, no key): the shell says the org moved and offers to pair.
+- **When**: at the flip (`repointOrgDesktops`, after `copied`), at every later authentication, and
+  on the heartbeat (a flip on another process), each followed by `desktop:error {code: 'org_moved'}`
+  and a close: a shell older than P3-6b takes that as any refusal. ⚠ Nothing of a moved org's desktop
+  is written on global (`lastSeenAt` would be refused: the rows are the mirror's now).
+- A moved org's desktop on the fiscal bridge is refused `org_moved` before its device is marked
+  online, and a write a desktop route makes (`PUT /desktop/v1/self`) answers the home gate's 409
+  (`spaErrorHandler` maps `HomeElsewhereError`, which was a 500).
+- Global only: the move back (P3-6c) is the master's to announce.
+- **The shell** (`packages/desktop/src-tauri/src/repoint.rs`, `main.rs#follow_repoint`): believes
+  an instruction only under a key built into it (`include_str!` of `repoint-keys.json`), for its
+  own desktop id and org (`registration.json`), above `settings.homeEpoch` (a replay cannot send
+  it back), with a LAN origin `trust::may_pin` allows and the dates within a day of its CORRECTED
+  clock; then `trust::confirm`s the master's CA against the pin, saves server + pin + epoch, and
+  RESTARTS (`prepare_exit` + `app.restart()` from a thread: Tauri then runs `RunEvent::Exit`, where
+  the single-instance plugin releases its mutex before the relaunch). Not followed: `status.orgMoved`
+  and the Overview's `org-moved` banner; the next connection brings the instruction again.
+  ⚠ `save_settings` keeps the on-disk `homeEpoch`, as it keeps `master`.
+- ⚠ The shell and global verify ONE vector (`desktop/src-tauri/src/repoint-vector.json`, signed by
+  global's own signer with a throwaway key): change either verifier and the other's test says so.
+- Tests: `desktop-repoint.flow` (9), Rust `repoint::tests` + `presence::tests`, `uplink::tests`
+  (the lan in health). ⚠ Not yet walked with a real shell: this PC holds a real enrolled desktop
+  (a second shell hands off to it), so the walk is owed to the VM lane before the next desktop release.

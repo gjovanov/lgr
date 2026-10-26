@@ -45,6 +45,21 @@ pub struct Status {
     /// words a person compares with the master's Desktops page. `None` for lgrai.app. A certificate's
     /// fingerprint is public, so this is no exception to the no-credential rule above.
     pub server_pin: Option<ServerPin>,
+    /// FR-20.82 — the org moved to its own server, and this desktop has not followed it (yet): where
+    /// to, and why not, as the Overview tells the person at the till. `None` while it has nothing
+    /// to say.
+    pub org_moved: Option<OrgMoved>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgMoved {
+    /// The server's name as lgrai.app knows it.
+    pub name: String,
+    /// Where it answers, when lgrai.app said so and the instruction was believed.
+    pub server: Option<String>,
+    /// Why this desktop did not follow, as a stable code; `None`: lgrai.app could not say where.
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -142,6 +157,7 @@ mod tests {
             update: Update::default(),
             assignment: Assignment::default(),
             server_pin: None,
+            org_moved: None,
         }
     }
 

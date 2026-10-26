@@ -90,6 +90,11 @@ export interface ShellStatus {
    * words, which a person can compare with the master's Desktops page. `null` for lgrai.app.
    */
   serverPin?: { fingerprint: string; words: string[] } | null
+  /**
+   * FR-20.82 — the org moved to its own server and this desktop has not followed (yet): the server's
+   * name, where it answers when lgrai.app said so, and why not (`null`: lgrai.app could not say).
+   */
+  orgMoved?: { name: string; server: string | null; reason: string | null } | null
 }
 
 /**

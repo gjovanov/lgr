@@ -35,7 +35,7 @@ export const CLOCK_SKEW_LIMIT_MS = 2 * 60 * 1000
 
 export interface ShellBanner {
   /** Stable id — C15 asserts on these rather than on translated text. */
-  id: 'not-registered' | 'revoked' | 'key-in-file' | 'clock-skew' | 'update-required' | 'server-unreachable'
+  id: 'org-moved' | 'not-registered' | 'revoked' | 'key-in-file' | 'clock-skew' | 'update-required' | 'server-unreachable'
   severity: 'info' | 'warning' | 'error'
   titleKey: string
   bodyKey: string
@@ -73,6 +73,19 @@ export function useShellState() {
     const s = status.value
     if (!s) return []
     const out: ShellBanner[] = []
+
+    // FR-20.82: first, because until this desktop follows its org nothing else on it works.
+    if (s.orgMoved) {
+      out.push({
+        id: 'org-moved',
+        severity: 'warning',
+        titleKey: 'shell.banner.orgMoved.title',
+        bodyKey: s.orgMoved.reason ? 'shell.banner.orgMoved.bodyNotFollowed' : 'shell.banner.orgMoved.bodyUnknown',
+        params: { name: s.orgMoved.name, reason: s.orgMoved.reason ?? '' },
+        action: { labelKey: 'shell.banner.orgMoved.action', kind: 'register' },
+        ...(s.orgMoved.reason ? { secondary: { labelKey: 'shell.banner.serverUnreachable.diagnostics', kind: 'diagnostics' as const } } : {}),
+      })
+    }
 
     if (s.registration.state === 'revoked') {
       out.push({
