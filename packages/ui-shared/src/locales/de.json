@@ -1514,7 +1514,9 @@
         "order_not_draft": "Diese Lieferantenbestellung ist kein Entwurf mehr: es kann nichts hinzugefügt werden.",
         "no_target_warehouse": "Wählen Sie das Lager, in das die Ware geht: es ist kein Standardlager festgelegt.",
         "order_has_invoices": "Die Lieferantenbestellung hat Rechnungen: stornieren oder löschen Sie sie vor dem Abbruch."
-      }
+      },
+      "clientReservations": "Kundenreservierungen",
+      "allocateFirst": "Teilen Sie die Zeile zuerst einem Lager zu und reservieren Sie dann für Kunden."
     },
     "shortLine": "{name} ({missing} fehlen)",
     "reservedFromStockShort": "Reservierungen erstellt: {count}. Nicht genug freier Bestand für: {lines}",

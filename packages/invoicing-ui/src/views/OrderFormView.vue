@@ -95,7 +95,10 @@
                 <v-table density="compact">
                   <thead>
                     <tr>
-                      <th style="width:50%;min-width:50vw">{{ $t('common.description') }}</th>
+                      <!-- The description takes what the fixed columns leave, as on the invoice form: half the
+                           viewport pushed the allocations, and the reservations grid's status and actions,
+                           off-screen on a 1366 px laptop. -->
+                      <th style="min-width:220px">{{ $t('common.description') }}</th>
                       <th class="text-end" style="width: 110px">{{ $t('invoicing.qty') }}</th>
                       <th style="width:110px;min-width:110px">{{ $t('invoicing.unit') }}</th>
                       <th class="text-end" style="width: 130px">{{ $t('invoicing.expectedPrice') }}</th>
@@ -162,6 +165,21 @@
                               :aria-label="$t('invoicing.allocations')"
                               @click="line._expanded = !line._expanded"
                             />
+                            <!-- The line's client reservations open and close on their own, under the allocations. -->
+                            <v-btn
+                              v-if="line.productId || lineResRows(line).length"
+                              size="x-small"
+                              :variant="line._resExpanded ? 'flat' : 'tonal'"
+                              color="primary"
+                              prepend-icon="mdi-account-lock-outline"
+                              :append-icon="line._resExpanded ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+                              :title="$t('invoicing.reservations.clientReservations')"
+                              :aria-label="$t('invoicing.reservations.clientReservations')"
+                              :aria-expanded="!!line._resExpanded"
+                              @click="line._resExpanded = !line._resExpanded"
+                            >
+                              {{ lineResCount(line) }}
+                            </v-btn>
                           </div>
                         </td>
                         <td>
@@ -192,53 +210,108 @@
                                 <v-chip size="x-small" variant="tonal">
                                   {{ $t('invoicing.freeQty') }}: {{ allocFree(alloc) }}
                                 </v-chip>
-                                <!-- #203: on every allocation — a new one too; it is saved with the order. -->
-                                <v-btn
-                                  v-if="!readonly && line.productId && alloc.warehouseId"
-                                  size="x-small"
-                                  variant="text"
-                                  color="primary"
-                                  prepend-icon="mdi-account-lock-outline"
-                                  :disabled="allocFree(alloc) <= 0"
-                                  @click="openReserveDialog(line, alloc)"
-                                >
-                                  {{ $t('invoicing.reserveForClient') }}
-                                </v-btn>
                                 <v-btn v-if="!readonly" icon="mdi-close" size="x-small" variant="text" color="error" :title="$t('common.remove')" :aria-label="$t('common.remove')" @click="line.allocations.splice(ai, 1)" />
-                              </div>
-                              <!-- #203: the allocation's client reservations, changed here and saved with the order. -->
-                              <div v-for="row in allocRows(alloc)" :key="row.key" class="d-flex align-center flex-wrap ga-2 text-body-2 ps-4 mt-1">
-                                <v-icon size="14" :color="row.cancelled ? 'error' : 'primary'">mdi-account-lock-outline</v-icon>
-                                <span :class="row.cancelled ? 'text-decoration-line-through text-medium-emphasis' : ''">{{ contactNames[row.contactId] || '—' }}</span>
-                                <router-link v-if="row.number && row.resId" :to="{ name: 'invoicing.reservations.detail', params: { id: String(row.resId) } }" class="text-caption">{{ row.number }}</router-link>
-                                <v-chip v-else size="x-small" variant="tonal" color="success">{{ $t('invoicing.reservations.new') }}</v-chip>
-                                <router-link v-if="row.internalOrderId" :to="{ name: 'invoicing.internalOrders.edit', params: { id: row.internalOrderId } }" class="text-caption">
-                                  {{ internalOrderNumbers[row.internalOrderId] || '…' }}
-                                </router-link>
-                                <v-text-field
-                                  v-if="row.editable"
-                                  :model-value="row.quantity"
-                                  type="number"
-                                  :min="row.consumed"
-                                  density="compact"
-                                  hide-details
-                                  variant="underlined"
-                                  style="max-width: 90px"
-                                  :aria-label="row.number ? `${$t('invoicing.qty')} ${row.number}` : $t('invoicing.qty')"
-                                  @update:model-value="(v: any) => setRowQuantity(row, Number(v))"
-                                />
-                                <span v-else>{{ row.quantity }}</span>
-                                <span v-if="row.consumed > 0" class="text-caption text-medium-emphasis">({{ $t('invoicing.invoicedQty') }} {{ row.invoiced }} · {{ $t('invoicing.dispatchedQty') }} {{ row.dispatched }})</span>
-                                <v-chip v-if="row.cancelled" size="x-small" variant="tonal" color="error">{{ $t('invoicing.reservations.willCancel') }}</v-chip>
-                                <v-btn v-if="row.editable && row.canChangeClient" icon="mdi-account-switch-outline" size="x-small" variant="text" :title="$t('invoicing.reservations.changeClient')" :aria-label="$t('invoicing.reservations.changeClient')" @click="openClientChange(row, line, alloc)" />
-                                <v-btn v-if="!readonly && !row.cancelled && row.cancellable" icon="mdi-close" size="x-small" variant="text" color="error" :title="$t('invoicing.cancelReservation')" :aria-label="$t('invoicing.cancelReservation')" @click="removeRow(row)" />
-                                <v-btn v-if="!readonly && row.cancelled" icon="mdi-undo" size="x-small" variant="text" :title="$t('invoicing.reservations.keep')" :aria-label="$t('invoicing.reservations.keep')" @click="removeRow(row)" />
                               </div>
                             </div>
                             <v-btn v-if="!readonly" size="small" variant="outlined" prepend-icon="mdi-warehouse" @click="line.allocations.push(emptyAllocation())">
                               {{ $t('invoicing.addAllocation') }}
                             </v-btn>
                             <span v-if="overAllocated(line)" class="text-error text-caption ml-2">{{ $t('invoicing.overAllocated') }}</span>
+                          </v-sheet>
+                        </td>
+                      </tr>
+                      <!-- #203: the line's client reservations, a grid of their own, grouped by allocation.
+                           Changed here and saved with the order (`reservationChanges`). -->
+                      <tr v-if="line._resExpanded">
+                        <td :colspan="isEdit ? 7 : 6" class="pa-0">
+                          <v-sheet color="surface" class="pa-2 ps-3" style="border-left: 3px solid rgb(var(--v-theme-secondary))">
+                            <div v-if="!line.allocations.length" class="text-medium-emphasis text-body-2 pa-2">
+                              {{ $t('invoicing.reservations.allocateFirst') }}
+                            </div>
+                            <v-table v-else density="compact" class="order-res-grid">
+                              <thead>
+                                <tr>
+                                  <th>{{ $t('invoicing.customer') }}</th>
+                                  <th>{{ $t('invoicing.reservationNumber') }}</th>
+                                  <th>{{ $t('invoicing.internalOrder') }}</th>
+                                  <th class="text-end" style="width: 120px">{{ $t('invoicing.qty') }}</th>
+                                  <th class="text-end">{{ $t('invoicing.invoicedQty') }}</th>
+                                  <th class="text-end">{{ $t('invoicing.dispatchedQty') }}</th>
+                                  <th>{{ $t('common.status') }}</th>
+                                  <th style="width: 90px"></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <template v-for="(alloc, ai) in line.allocations" :key="alloc._id || alloc._key || ai">
+                                  <tr class="order-res-group">
+                                    <td colspan="8">
+                                      <div class="d-flex align-center ga-2 flex-wrap text-body-2">
+                                        <v-icon size="16" color="medium-emphasis">mdi-warehouse</v-icon>
+                                        <span class="font-weight-medium">{{ warehouseName(alloc.warehouseId) || '—' }}</span>
+                                        <span class="text-medium-emphasis">{{ $t('invoicing.qty') }} {{ alloc.quantity }} · {{ $t('invoicing.freeQty') }}: {{ allocFree(alloc) }}</span>
+                                        <v-spacer />
+                                        <!-- On every allocation, a new one too: the reservation is saved with the order. -->
+                                        <v-btn
+                                          v-if="!readonly && line.productId && alloc.warehouseId"
+                                          size="x-small"
+                                          variant="text"
+                                          color="primary"
+                                          prepend-icon="mdi-account-lock-outline"
+                                          :disabled="allocFree(alloc) <= 0"
+                                          @click="openReserveDialog(line, alloc)"
+                                        >
+                                          {{ $t('invoicing.reserveForClient') }}
+                                        </v-btn>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                  <tr v-for="row in allocRows(alloc)" :key="row.key">
+                                    <td :class="row.cancelled ? 'text-decoration-line-through text-medium-emphasis' : ''">{{ contactNames[row.contactId] || '—' }}</td>
+                                    <td class="text-no-wrap">
+                                      <router-link v-if="row.number && row.resId" :to="{ name: 'invoicing.reservations.detail', params: { id: String(row.resId) } }">{{ row.number }}</router-link>
+                                      <span v-else class="text-medium-emphasis">—</span>
+                                    </td>
+                                    <td class="text-no-wrap">
+                                      <router-link v-if="row.internalOrderId" :to="{ name: 'invoicing.internalOrders.edit', params: { id: row.internalOrderId } }">
+                                        {{ internalOrderNumbers[row.internalOrderId] || '…' }}
+                                      </router-link>
+                                      <span v-else class="text-medium-emphasis">—</span>
+                                    </td>
+                                    <td class="text-end">
+                                      <v-text-field
+                                        v-if="row.editable"
+                                        :model-value="row.quantity"
+                                        type="number"
+                                        :min="row.consumed"
+                                        density="compact"
+                                        hide-details
+                                        variant="underlined"
+                                        class="ms-auto"
+                                        style="max-width: 100px"
+                                        :aria-label="row.number ? `${$t('invoicing.qty')} ${row.number}` : $t('invoicing.qty')"
+                                        @update:model-value="(v: any) => setRowQuantity(row, Number(v))"
+                                      />
+                                      <span v-else>{{ row.quantity }}</span>
+                                    </td>
+                                    <td class="text-end">{{ row.invoiced }}</td>
+                                    <td class="text-end">{{ row.dispatched }}</td>
+                                    <td>
+                                      <v-chip v-if="row.cancelled" size="x-small" variant="tonal" color="error">{{ $t('invoicing.reservations.willCancel') }}</v-chip>
+                                      <v-chip v-else-if="row.createKey" size="x-small" variant="tonal" color="success">{{ $t('invoicing.reservations.new') }}</v-chip>
+                                      <v-chip v-else-if="row.status" size="x-small" label variant="tonal" :color="resStatusColor(row.status)">{{ $t(`invoicing.status.${row.status}`) }}</v-chip>
+                                    </td>
+                                    <td class="text-no-wrap text-end">
+                                      <v-btn v-if="row.editable && row.canChangeClient" icon="mdi-account-switch-outline" size="x-small" variant="text" :title="$t('invoicing.reservations.changeClient')" :aria-label="$t('invoicing.reservations.changeClient')" @click="openClientChange(row, line, alloc)" />
+                                      <v-btn v-if="!readonly && !row.cancelled && row.cancellable" icon="mdi-close" size="x-small" variant="text" color="error" :title="$t('invoicing.cancelReservation')" :aria-label="$t('invoicing.cancelReservation')" @click="removeRow(row)" />
+                                      <v-btn v-if="!readonly && row.cancelled" icon="mdi-undo" size="x-small" variant="text" :title="$t('invoicing.reservations.keep')" :aria-label="$t('invoicing.reservations.keep')" @click="removeRow(row)" />
+                                    </td>
+                                  </tr>
+                                  <tr v-if="!allocRows(alloc).length">
+                                    <td colspan="8" class="text-medium-emphasis text-caption ps-8">{{ $t('invoicing.noReservationsYet') }}</td>
+                                  </tr>
+                                </template>
+                              </tbody>
+                            </v-table>
                           </v-sheet>
                         </td>
                       </tr>
@@ -524,7 +597,10 @@ interface LineRow {
   taxRate?: number
   receivedQuantity?: number
   allocations: AllocRow[]
+  /** The allocation editor is open. */
   _expanded?: boolean
+  /** The client-reservations grid is open. */
+  _resExpanded?: boolean
 }
 interface GroupRow { _id?: string; supplierId: string; reference?: string; notes?: string; lines: LineRow[] }
 
@@ -558,7 +634,7 @@ function newKey() {
   return globalThis.crypto?.randomUUID?.() || `k${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
 }
 function emptyAllocation(): AllocRow { return { _key: newKey(), warehouseId: '', quantity: 0 } }
-function emptyLine(): LineRow { return { description: '', quantity: 0, unit: 'pcs', allocations: [], _expanded: false } }
+function emptyLine(): LineRow { return { description: '', quantity: 0, unit: 'pcs', allocations: [], _expanded: false, _resExpanded: false } }
 function emptyGroup(): GroupRow { return { supplierId: '', reference: '', lines: [emptyLine()] } }
 
 const form = reactive({
@@ -706,7 +782,7 @@ const isOn = (ref: { id?: string; key?: string }, alloc: AllocRow) =>
   (!!ref.id && !!alloc._id && String(ref.id) === String(alloc._id)) || (!!ref.key && ref.key === alloc._key)
 
 interface ResRow {
-  key: string; resId?: string; createKey?: string; number?: string; contactId: string; quantity: number
+  key: string; resId?: string; createKey?: string; number?: string; status?: string; contactId: string; quantity: number
   invoiced: number; dispatched: number; consumed: number; internalOrderId?: string
   cancelled: boolean; editable: boolean; cancellable: boolean; canChangeClient: boolean
 }
@@ -721,7 +797,7 @@ function allocRows(alloc: AllocRow): ResRow[] {
       const dispatched = Number(r.dispatchedQuantity) || 0
       const consumed = Math.max(invoiced, dispatched)
       rows.push({
-        key: r._id, resId: r._id, number: r.reservationNumber, contactId: String(u.contactId ?? r.contactId),
+        key: r._id, resId: r._id, number: r.reservationNumber, status: r.status, contactId: String(u.contactId ?? r.contactId),
         quantity: u.quantity ?? Number(r.quantity) ?? 0, invoiced, dispatched, consumed,
         internalOrderId: r.internalOrderId ? String(r.internalOrderId) : undefined,
         cancelled, editable: !readonly.value && !cancelled && r.status === 'active',
@@ -738,6 +814,14 @@ function allocRows(alloc: AllocRow): ResRow[] {
     })
   }
   return rows
+}
+/** All of a line's reservation rows, over its allocations. */
+function lineResRows(line: LineRow): ResRow[] {
+  return line.allocations.flatMap((a) => allocRows(a))
+}
+/** What the line's toggle shows: its reservations that stay. */
+function lineResCount(line: LineRow) {
+  return lineResRows(line).filter((r) => !r.cancelled).length
 }
 function allocReserved(alloc: AllocRow) {
   return allocRows(alloc).reduce((s, r) => s + (r.cancelled ? r.consumed : Number(r.quantity) || 0), 0)
@@ -846,8 +930,8 @@ const { markSaved, markClean, tryRestore, snapshot: snapshotPending } = usePendi
   appId: 'invoicing',
   entityType: 'order',
   icon: 'mdi-clipboard-list-outline',
-  // `_expanded` is which lines are open — the view, not the order: opening one is not an edit.
-  getFormData: () => JSON.parse(JSON.stringify({ ...form, _stagedReservations: staged }, (k, v) => (k === '_expanded' ? undefined : v))),
+  // `_expanded` / `_resExpanded` are which lines are open — the view, not the order: opening one is not an edit.
+  getFormData: () => JSON.parse(JSON.stringify({ ...form, _stagedReservations: staged }, (k, v) => (k === '_expanded' || k === '_resExpanded' ? undefined : v))),
   getPreviewFields: () => [
     { label: 'Date', value: form.issueDate || '' },
     { label: 'Suppliers', value: String(form.supplierGroups.length) },
@@ -1112,6 +1196,9 @@ async function loadOrder(id?: string, opts: { clearStaged?: boolean } = {}) {
     form.notes = o.notes || ''
     form.terms = o.terms || ''
     form.tags = o.tags || []
+    // What the user opened or closed stays so across a reload (a save reloads the order).
+    const wasOpen = new Map<string, { alloc: boolean; res: boolean }>()
+    for (const g of form.supplierGroups) for (const l of g.lines) if (l._id) wasOpen.set(String(l._id), { alloc: !!l._expanded, res: !!l._resExpanded })
     form.supplierGroups = (o.supplierGroups || []).map((g: any) => ({
       _id: g._id,
       supplierId: g.supplierId,
@@ -1127,8 +1214,10 @@ async function loadOrder(id?: string, opts: { clearStaged?: boolean } = {}) {
         expectedUnitPrice: l.expectedUnitPrice,
         taxRate: l.taxRate,
         receivedQuantity: l.receivedQuantity || 0,
-        // #203: a line whose allocations carry reservations opens, so they are seen, not hidden.
-        _expanded: (data.reservations || []).some((r: any) => r.status !== 'cancelled' && String(r.lineId) === String(l._id)),
+        _expanded: wasOpen.get(String(l._id))?.alloc ?? false,
+        // #203: a line holding live reservations opens its reservations grid, so they are seen, not hidden.
+        _resExpanded: wasOpen.get(String(l._id))?.res
+          ?? (data.reservations || []).some((r: any) => r.status !== 'cancelled' && String(r.lineId) === String(l._id)),
         allocations: (l.allocations || []).map((a: any) => ({
           _id: a._id,
           warehouseId: a.warehouseId,

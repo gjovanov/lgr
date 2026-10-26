@@ -1116,8 +1116,13 @@ ORDI (InternalOrder, client demand)          ORDO (Order, supplier supply)
   - `planOrderReservations` (pure) keeps an allocation at or above what its live reservations hold:
     untouched in this save → the legacy **409** message ("…cancel or preempt them before shrinking"),
     changed in this save → **422** naming the allocation.
-  - The form keeps `staged {creates, updates, cancels}`, renders them under their allocation
-    ("new" / "cancelled on save") and opens every line that holds live reservations. ⚠ After a save
+  - The form keeps `staged {creates, updates, cancels}` and shows them in each line's own
+    **client-reservations grid**, a nested, collapsible row under the line, separate from the
+    allocation editor, grouped by allocation with „Резервирай за клиент" per group. Its status column
+    reads "new" / "cancelled on save". A line holding live reservations opens that grid by itself.
+    The open/closed state of both expanders survives the reload after a save (`wasOpen` in
+    `loadOrder`), and neither counts as an edit (`_expanded` / `_resExpanded` are kept out of the
+    pending-changes snapshot). The P7-who walk reads the grid as the row right under the line. ⚠ After a save
     the staged changes go **in the same tick** the reloaded reservations arrive
     (`loadOrder(id, { clearStaged: true })`): clearing them before the request left the allocation
     empty while the order reloaded, and whatever was typed in that window was lost — the e2e caught

@@ -241,7 +241,7 @@ test('P7 chain: client order → reserve → external order → send → invoice
   walk.note(`Sending renumbers the external order: ${draftOrdo} becomes ${ordoNumber}.`)
 
   // ── 5. Back to the client order and convert ──
-  // The ORDI number links from the reservation under the allocation (the line opens by itself,
+  // The ORDI number links from the reservation in the line's reservations grid (open by itself,
   // #252) and from the reservations card below.
   const ordiLink = page.getByRole('link', { name: ordiNumber }).first()
   await ordiLink.scrollIntoViewIfNeeded()
