@@ -7,6 +7,11 @@
     :loading="loading"
     back-to="/products"
   >
+    <!-- FR-22.47: what the article leads to, read from the article as stored. -->
+    <template #header-actions>
+      <ProductDocActions v-if="isEdit" :product="storedProduct" />
+    </template>
+
     <v-form ref="formRef" @submit.prevent="handleSubmit">
       <ProductTabBar :active-tab="urlTab" :is-new="!isEdit" :product-id="(route.params.id as string) || ''" />
 
@@ -240,6 +245,8 @@ import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import ProductTabBar from '../components/ProductTabBar.vue'
+import ProductDocActions from '../components/ProductDocActions.vue'
+import type { ProductForActions } from '../composables/product-doc-actions'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -300,6 +307,20 @@ const form = reactive({
   standardCost: 0,
   tags: [] as string[],
 })
+
+/**
+ * FR-22.47: the article as stored, which its „Продай" / „Резервирай" read — not the form, whose
+ * „Активен" switch means nothing until it is saved. Null until the article has loaded.
+ */
+const storedProduct = ref<ProductForActions | null>(null)
+function keepStored(p: { _id?: string; id?: string; isActive?: boolean; trackInventory?: boolean } | null | undefined) {
+  if (!p) return
+  storedProduct.value = {
+    _id: String(p._id || p.id || route.params.id),
+    isActive: p.isActive !== false,
+    trackInventory: p.trackInventory !== false,
+  }
+}
 
 const costingMethodItems = [
   { title: t('warehouse.costingWAC'), value: 'wac' },
@@ -614,8 +635,9 @@ async function handleSubmit() {
     const payload = { ...form, priceTiers: tiersPayload }
 
     if (isEdit.value) {
-      await httpClient.put(`${orgUrl()}/warehouse/product/${route.params.id}`, payload)
+      const { data } = await httpClient.put(`${orgUrl()}/warehouse/product/${route.params.id}`, payload)
       markSaved()
+      keepStored(data?.product)
       showSuccess(t('common.savedSuccessfully'))
       // Stay on the current tab.
     } else {
@@ -633,7 +655,15 @@ async function handleSubmit() {
 
 onMounted(async () => {
   await Promise.all([tierContacts.search(), fetchCategories()])
-  if (tryRestore()) return
+  if (tryRestore()) {
+    // The form holds the restored edits; the header's actions still read the article as stored.
+    if (isEdit.value) {
+      httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
+        .then(({ data }) => keepStored(data?.product))
+        .catch(() => { /* no actions until it can be read */ })
+    }
+    return
+  }
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
@@ -649,6 +679,7 @@ onMounted(async () => {
         standardCost: p.standardCost || 0,
         tags: p.tags || [],
       })
+      keepStored(p)
       linkCategoryByName()
       sellingPricePercent.value = calcPercent(form.sellingPrice)
       priceEntries.value = mergePriceEntries(p.customPrices || [], p.tagPrices || [])

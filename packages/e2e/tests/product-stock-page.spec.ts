@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { rowAction } from './helpers/row-actions'
 
 test.describe('Product Stock Page', () => {
   test('should navigate from products list to product stock page', async ({ page }) => {
@@ -15,8 +16,8 @@ test.describe('Product Stock Page', () => {
     const hasNoData = await rows.first().getByText('No data available').isVisible().catch(() => false)
     if (hasNoData) return
 
-    // Click stock icon on first product row
-    const stockBtn = rows.first().locator('.mdi-chart-box').first()
+    // The first product row's menu → „Stock" (FR-22.47: the row's actions are one ⋮ menu)
+    const stockBtn = await rowAction(rows.first(), 'stock')
     await expect(stockBtn).toBeVisible({ timeout: 3000 })
     await stockBtn.click()
 
@@ -37,8 +38,7 @@ test.describe('Product Stock Page', () => {
     if (hasNoData) return
 
     // Navigate to stock page
-    const stockBtn = rows.first().locator('.mdi-chart-box').first()
-    await stockBtn.click()
+    await (await rowAction(rows.first(), 'stock')).click()
     await page.waitForURL('**/products/*/stock', { timeout: 10000 })
 
     // The filters and the summary live on the LEDGER tab, not Stock: the flat 7-tab refactor
@@ -80,8 +80,7 @@ test.describe('Product Stock Page', () => {
     if (hasNoData) return
 
     // Navigate to stock page
-    const stockBtn = rows.first().locator('.mdi-chart-box').first()
-    await stockBtn.click()
+    await (await rowAction(rows.first(), 'stock')).click()
     await page.waitForURL('**/products/*/stock', { timeout: 10000 })
 
     // Click back button
@@ -104,8 +103,7 @@ test.describe('Product Stock Page', () => {
     if (hasNoData) return
 
     // Navigate to stock page
-    const stockBtn = rows.first().locator('.mdi-chart-box').first()
-    await stockBtn.click()
+    await (await rowAction(rows.first(), 'stock')).click()
     await page.waitForURL('**/products/*/stock', { timeout: 10000 })
 
     // The event-type filter is on the ledger tab — see the note in the first test.

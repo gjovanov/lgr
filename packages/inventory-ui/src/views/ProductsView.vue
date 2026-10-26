@@ -106,9 +106,9 @@
       </v-icon>
     </template>
     <template #item.actions="{ item }">
-      <v-btn icon="mdi-chart-box" size="small" variant="text" color="info" :title="$t('warehouse.productStock')" :to="{ name: 'inventory.products.stock', params: { id: item._id, tab: 'stock' } }" />
-      <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.products.edit', params: { id: item._id, tab: 'edit' } }" />
-      <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
+      <!-- FR-22.23 / .47: the row's actions in one menu — the article's pages, the documents it
+           starts („Заприходи", „Продай", „Резервирай"), and Delete apart. -->
+      <RowActionsMenu :actions="rowActions(item)" />
     </template>
 
     <v-dialog v-model="deleteDialog" max-width="400">
@@ -141,8 +141,10 @@ import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
+import RowActionsMenu, { type RowAction } from 'ui-shared/components/RowActionsMenu.vue'
+import { useProductDocActions } from '../composables/useProductDocActions'
 
-interface Product { _id: string; sku: string; name: string; category: string; type: string; unit: string; purchasePrice: number; sellingPrice: number; isActive: boolean }
+interface Product { _id: string; sku: string; name: string; category: string; type: string; unit: string; purchasePrice: number; sellingPrice: number; isActive: boolean; trackInventory?: boolean }
 interface StockBadge { warehouseId: string; warehouseName: string; quantity: number; availableQuantity: number }
 /** `getProductsSupplyTotals` — the definitions of the product's stock tab, summed. */
 interface SupplyTotals { reserved: number; incoming: number; reservedIncoming: number; planned: number }
@@ -262,6 +264,32 @@ async function fetchStockBadges() {
   }
 }
 watch(items, fetchStockBadges)
+
+const { actionsFor } = useProductDocActions()
+
+/**
+ * A row's menu: the article's two pages, then what it starts (FR-22.47) — each offered only to a
+ * role whose Save the form's API takes, never receiving or reserving a service, and selling or
+ * reserving a deactivated article disabled with the reason — then Delete, apart.
+ */
+function rowActions(item: Product): RowAction[] {
+  const documents: RowAction[] = actionsFor(item).map((a, i) => ({
+    key: a.key,
+    label: t(a.labelKey),
+    icon: a.icon,
+    to: a.to,
+    href: a.href,
+    divider: i === 0,
+    disabled: !!a.disabledKey,
+    hint: a.disabledKey ? t(a.disabledKey) : undefined,
+  }))
+  return [
+    { key: 'edit', label: t('common.edit'), icon: 'mdi-pencil', to: { name: 'inventory.products.edit', params: { id: item._id, tab: 'edit' } } },
+    { key: 'stock', label: t('warehouse.tabStock'), icon: 'mdi-chart-box', to: stockTab(item) },
+    ...documents,
+    { key: 'delete', label: t('common.delete'), icon: 'mdi-delete', color: 'error', divider: true, handler: () => confirmDelete(item) },
+  ]
+}
 
 function confirmDelete(item: Product) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
