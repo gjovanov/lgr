@@ -380,7 +380,7 @@ In review on `feat/fr-21-r3-freeze`:
 - **FR-21.25:** `0009-cash-register-freeze` runs `copy-org.ts` over every org with POS rows. It copies the rows written since 0008 (a rollback to R1 between the two), then re-runs parity over the whole history, and throws naming the orgs that disagree.
 - **FR-21.26:** `POSTransaction` carries `db/plugins/frozen.plugin.ts`. Every write through the model throws `FrozenCollectionError` ("postransactions is frozen (FR-21)"): save, insertMany, every query write, document writes and bulkWrite. Raw `Model.collection.*` writes pass, as they pass the home guard. Those are the restore, the move and the mirror, already listed in `home-write-guard.flow.test.ts`.
 - **What still wrote through the model:**
-  - the deprecated `erp.service` POS functions, which R4 removes;
+  - the deprecated `erp.service` POS functions and their unit test, which only wrote POS rows: removed in R3, a step of FR-21.27 brought forward;
   - the FR-21.14 cleanup script, whose delete is raw now, behind its home check;
   - the test factory and six test files, which insert legacy rows raw now.
 

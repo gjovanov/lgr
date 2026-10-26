@@ -1546,8 +1546,9 @@ in LGR while the device still had it open.
   the **device's** day, not one session).
 - UI: `pos-ui/src/components/CloseSessionDialog.vue` — per-method expected/counted/difference
   rows modeled on the legacy screen, three visually distinct outcomes.
-- `erp.service.closePOSSession` is the old duplicate; marked `@deprecated` (its only callers
-  are its own tests) rather than deleted.
+- `erp.service.closePOSSession` was the old duplicate, `@deprecated` with only its own tests as
+  callers. It and the other `erp.service` POS functions were deleted in FR-21 R3, once
+  `postransactions` was frozen.
 
 ## FR-10 — email an outgoing invoice (2026-08-25)
 
