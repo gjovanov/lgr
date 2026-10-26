@@ -215,18 +215,47 @@ export async function createTransferMovements(
   return transferIds
 }
 
+/** A `pendingTransferIds` entry that is not a transfer of the request's org (FR-21.24). */
+export class PendingTransferError extends Error {
+  readonly statusCode = 422
+  readonly code = 'pending_transfer_invalid'
+  constructor(message: string) {
+    super(message)
+    this.name = 'PendingTransferError'
+  }
+}
+
 /**
- * Confirm transfer movements by ID. Used before sending an invoice
- * that depends on these transfers.
+ * Check the transfers a document asks to confirm before it dispatches (`pendingTransferIds`),
+ * before anything is written. Each id must be a transfer of THIS org that is still a draft, or
+ * one an earlier attempt of the same request already completed.
+ *
+ * ⚠ The ids come from the client. One that does not qualify refuses the whole list, and the
+ * answer never says whether it exists elsewhere: another org's movement, or a receipt, is never
+ * confirmed through a sale. Returns the ids de-duplicated, in order.
  */
-export async function confirmTransferMovements(
-  transferIds: string[],
-): Promise<void> {
+export async function checkPendingTransfers(orgId: string, transferIds: unknown): Promise<string[]> {
+  if (!Array.isArray(transferIds) || transferIds.some(id => typeof id !== 'string' || !/^[a-f0-9]{24}$/i.test(id))) {
+    throw new PendingTransferError('pendingTransferIds must be a list of stock movement ids')
+  }
+  const ids = [...new Set(transferIds as string[])]
+  if (!ids.length) return ids
+  const found = await getRepos().stockMovements.findMany({ id: { $in: ids }, orgId, type: 'transfer' } as any)
+  const usable = new Set(found.filter(m => m.status === 'draft' || m.status === 'completed').map(m => String(m.id)))
+  const refused = ids.filter(id => !usable.has(id))
+  if (refused.length) throw new PendingTransferError(`Not a pending transfer of this organization: ${refused.join(', ')}`)
+  return ids
+}
+
+/**
+ * Confirm the transfers a document depends on, before it dispatches: a sale's create, an
+ * invoice's issue. Checked as `checkPendingTransfers` checks them; a completed one is left alone.
+ */
+export async function confirmTransferMovements(orgId: string, transferIds: string[]): Promise<void> {
+  const ids = await checkPendingTransfers(orgId, transferIds)
   const r = getRepos()
-  for (const id of transferIds) {
-    const movement = await r.stockMovements.findById(id)
-    if (movement && movement.status === 'draft') {
-      await confirmMovement(id, r)
-    }
+  for (const id of ids) {
+    const movement = await r.stockMovements.findOne({ id, orgId, type: 'transfer' } as any)
+    if (movement?.status === 'draft') await confirmMovement(id, r)
   }
 }
