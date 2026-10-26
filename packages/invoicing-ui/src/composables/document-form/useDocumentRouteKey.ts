@@ -19,8 +19,9 @@ export function useDocumentRouteKey() {
   function documentOf(): string {
     const id = route.params.id
     if (id) return String(id)
-    // A new document is defined by what it starts from: a related invoice, or one it copies.
-    return `new:${route.query.relatedInvoiceId || ''}:${route.query.copyOf || ''}`
+    // A new document is defined by what it starts from: a related invoice, one it copies, or the
+    // article it was opened from (FR-22.47).
+    return `new:${route.query.relatedInvoiceId || ''}:${route.query.copyOf || ''}:${route.query.productId || ''}`
   }
 
   /** Bumped when a different document arrives: what the form's `:key` follows. */

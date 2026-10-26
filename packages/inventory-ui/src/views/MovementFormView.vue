@@ -917,6 +917,23 @@ function applyNewReceiptDefaults() {
   if (grSwitchMemory.read()) grWithUpdate.value = true
 }
 
+/**
+ * FR-22.47 — „Заприходи" on an article (`?productId=`): the new receipt starts with that article
+ * on its first line, filled exactly as picking it there fills it (`onLineProductSelected`): the
+ * cost the receipt uses (its purchase price), what the destination holds of it, its staged product
+ * update when that switch is on, and the next blank line, with the cursor in the quantity. It
+ * runs after the receipt's defaults, so the stock shown is the chosen destination's. An article
+ * that cannot be read leaves the blank receipt „Нова стокова разписка" opens.
+ */
+async function prefillFromProduct(id: string) {
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${id}`)
+    const product = data?.product
+    if (!product) return
+    await onLineProductSelected(0, { ...product, _id: String(product._id || product.id) })
+  } catch { /* the blank receipt */ }
+}
+
 onMounted(async () => {
   await Promise.all([fetchWarehouses(), partners.search(), fetchCategories()])
   if (tryRestore()) return
@@ -925,6 +942,8 @@ onMounted(async () => {
     return
   }
   applyNewReceiptDefaults()
+  const productId = typeof route.query.productId === 'string' ? route.query.productId : ''
+  if (productId) await prefillFromProduct(productId)
 })
 </script>
 
