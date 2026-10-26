@@ -8,6 +8,9 @@ import { jwtUserId, orgIdFromStorage } from './useStorageIdentity'
  * The view keeps passing its full `headers` catalog; this composable projects it
  * through the user's saved preference:
  *   - hidden keys are dropped (the actions/expand columns are never hideable)
+ *   - a column the view marks `defaultHidden` starts hidden until the user shows it (FR-22.23:
+ *     a document list fits 1366 px, so a column that repeats what another shows — the currency
+ *     of an amount printed with its currency — is offered on the cog rather than shown)
  *   - saved order wins; a catalog key the saved order has never seen (a column shipped
  *     later) goes right after the column that precedes it in the catalog, wherever the
  *     user put that one
@@ -15,7 +18,8 @@ import { jwtUserId, orgIdFromStorage } from './useStorageIdentity'
  * A saved order exists only once the user has MOVED a column (hiding saves none), so a
  * change of the default order reaches everyone who never reordered, and nobody else.
  *
- * Storage: `lgr:grid-cols:<userId>:<orgId>:<gridId>` → { order: string[], hidden: string[] }.
+ * Storage: `lgr:grid-cols:<userId>:<orgId>:<gridId>` → { order: string[], hidden: string[],
+ * shown?: string[] } — `shown` holds the default-hidden columns the user turned on.
  * userId comes from this tab's session token (no app-store coupling here), orgId from the
  * session's org (`session/session.ts`).
  */
@@ -32,6 +36,8 @@ const NEVER_HIDE = new Set(['actions', 'data-table-expand', 'data-table-select']
 interface GridColsPref {
   order: string[]
   hidden: string[]
+  /** Default-hidden columns the user turned on. */
+  shown: string[]
 }
 
 /**
@@ -63,7 +69,7 @@ export function useGridColumns(opts: {
   const gridId = typeof opts.gridId === 'function' ? computed(opts.gridId) : opts.gridId
   const storageKey = computed(() => `lgr:grid-cols:${jwtUserId()}:${orgIdFromStorage()}:${gridId.value || 'grid'}`)
 
-  const pref = ref<GridColsPref>({ order: [], hidden: [] })
+  const pref = ref<GridColsPref>({ order: [], hidden: [], shown: [] })
 
   function load() {
     try {
@@ -72,15 +78,16 @@ export function useGridColumns(opts: {
       pref.value = {
         order: Array.isArray(parsed?.order) ? parsed.order.filter((k: any) => typeof k === 'string') : [],
         hidden: Array.isArray(parsed?.hidden) ? parsed.hidden.filter((k: any) => typeof k === 'string') : [],
+        shown: Array.isArray(parsed?.shown) ? parsed.shown.filter((k: any) => typeof k === 'string') : [],
       }
     } catch {
-      pref.value = { order: [], hidden: [] }
+      pref.value = { order: [], hidden: [], shown: [] }
     }
   }
 
   function save() {
     try {
-      if (!pref.value.order.length && !pref.value.hidden.length) localStorage.removeItem(storageKey.value)
+      if (!pref.value.order.length && !pref.value.hidden.length && !pref.value.shown.length) localStorage.removeItem(storageKey.value)
       else localStorage.setItem(storageKey.value, JSON.stringify(pref.value))
     } catch {
       /* quota / private browsing */
@@ -91,14 +98,21 @@ export function useGridColumns(opts: {
 
   const keyed = computed(() => (opts.headers.value || []).filter((h: any) => h && typeof h.key === 'string'))
 
+  /** Hidden: by the user, or by the view (`defaultHidden`) until the user shows it. */
+  function isHidden(key: string): boolean {
+    if (NEVER_HIDE.has(key)) return false
+    if (pref.value.hidden.includes(key)) return true
+    const h: any = keyed.value.find((x: any) => x.key === key)
+    return !!h?.defaultHidden && !pref.value.shown.includes(key)
+  }
+
   /** Catalog keys in the user's order (`orderColumnKeys`). */
   const orderedKeys = computed<string[]>(() => orderColumnKeys(keyed.value.map((h: any) => h.key), pref.value.order))
 
   const effectiveHeaders = computed(() => {
     const byKey = new Map(keyed.value.map((h: any) => [h.key, h]))
-    const hidden = new Set(pref.value.hidden.filter((k) => !NEVER_HIDE.has(k)))
     const rows = orderedKeys.value
-      .filter((k) => !hidden.has(k))
+      .filter((k) => !isHidden(k))
       .map((k) => byKey.get(k))
       .filter(Boolean)
     // Headers without a key (rare) keep their original trailing position.
@@ -112,7 +126,7 @@ export function useGridColumns(opts: {
       return {
         key: k,
         title: String(h?.title ?? k),
-        visible: !pref.value.hidden.includes(k),
+        visible: !isHidden(k),
         locked: NEVER_HIDE.has(k),
       }
     }),
@@ -121,9 +135,15 @@ export function useGridColumns(opts: {
   function toggle(key: string) {
     if (NEVER_HIDE.has(key)) return
     const hidden = new Set(pref.value.hidden)
-    if (hidden.has(key)) hidden.delete(key)
-    else hidden.add(key)
-    pref.value = { ...pref.value, hidden: [...hidden] }
+    const shown = new Set(pref.value.shown)
+    if (isHidden(key)) {
+      hidden.delete(key)
+      if ((keyed.value.find((x: any) => x.key === key) as any)?.defaultHidden) shown.add(key)
+    } else {
+      hidden.add(key)
+      shown.delete(key)
+    }
+    pref.value = { ...pref.value, hidden: [...hidden], shown: [...shown] }
     save()
   }
 
@@ -149,11 +169,11 @@ export function useGridColumns(opts: {
   }
 
   function reset() {
-    pref.value = { order: [], hidden: [] }
+    pref.value = { order: [], hidden: [], shown: [] }
     save()
   }
 
-  const customized = computed(() => pref.value.order.length > 0 || pref.value.hidden.length > 0)
+  const customized = computed(() => pref.value.order.length > 0 || pref.value.hidden.length > 0 || pref.value.shown.length > 0)
 
   return { effectiveHeaders, entries, toggle, move, reorder, reset, customized }
 }

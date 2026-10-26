@@ -1,5 +1,6 @@
 <template>
   <ListScaffold
+    fit
     :title="$t('nav.proforma')"
     :headers="headers"
     :items="items"
@@ -14,9 +15,8 @@
     <template #actions>
       <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" />
       <v-btn variant="outlined" prepend-icon="mdi-download" :loading="exportLoading" @click="showExportDialog = true">{{ $t('common.export') }}</v-btn>
-      <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.proforma.new' }">
-        {{ $t('common.create') }}
-      </responsive-btn>
+      <!-- FR-22.50: says what it creates. -->
+      <CreateButton :label="$t('invoicing.newProformaInvoice')" :to="{ name: 'invoicing.proforma.new' }" />
     </template>
 
     <template #filters>
@@ -31,9 +31,8 @@
     </template>
 
     <template #empty-actions>
-      <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.proforma.new' }">
-        {{ $t('common.create') }}
-      </responsive-btn>
+      <!-- FR-22.50: says what it creates. -->
+      <CreateButton :label="$t('invoicing.newProformaInvoice')" :to="{ name: 'invoicing.proforma.new' }" />
     </template>
 
     <!-- Cell renderers -->
@@ -41,8 +40,9 @@
       <entity-link :label="item.number" :to="{ name: 'invoicing.proforma.edit', params: { id: item._id } }" />
     </template>
     <template #item.contactName="{ item }">
-      <entity-link v-if="item.contactId" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
-      <span v-else>{{ item.contactName }}</span>
+      <!-- FR-22.23: a long name is cut short on the row, whole on hover. -->
+      <entity-link v-if="item.contactId" class="cell-clip" :title="item.contactName" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
+      <span v-else class="cell-clip" :title="item.contactName">{{ item.contactName }}</span>
     </template>
     <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
     <template #item.dueDate="{ item }">{{ item.dueDate?.split('T')[0] }}</template>
@@ -55,28 +55,8 @@
       <span v-else-if="item.convertedInvoiceNumber">{{ item.convertedInvoiceNumber }}</span>
     </template>
     <template #item.actions="{ item }">
-      <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.proforma.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
-      <v-btn v-if="item.status !== 'converted'" icon="mdi-swap-horizontal" size="small" variant="text" color="success" :title="$t('invoicing.convertToInvoice')" :aria-label="$t('invoicing.convertToInvoice')" @click="convert(item)" />
-      <!-- FR-10 (#19): email from the row. Tooltip on a wrapper span — a disabled v-btn has
-           `pointer-events: none`, so a tooltip on the button itself never fires. -->
-      <v-tooltip
-        location="top"
-        :text="canEmail(item) ? $t('invoicing.sendEmail.action') : $t('invoicing.sendEmail.draftBlocked')"
-      >
-        <template #activator="{ props: tip }">
-          <span v-bind="tip">
-            <v-btn
-              icon="mdi-email-arrow-right-outline"
-              size="small"
-              variant="text"
-              :disabled="!canEmail(item)"
-              :aria-label="$t('invoicing.sendEmail.action')"
-              @click="openRowEmail(item)"
-            />
-          </span>
-        </template>
-      </v-tooltip>
-      <v-btn icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
+      <!-- FR-22.23/.24: every action of the row in one menu, offered exactly when the API takes it. -->
+      <RowActionsMenu :actions="rowActions(item)" />
     </template>
 
     <!-- Kanban view -->
@@ -124,6 +104,19 @@
       </v-card>
     </v-dialog>
 
+    <!-- FR-22.23: an issued proforma can be voided; it asks first. -->
+    <v-dialog v-model="voidDialog" max-width="440">
+      <v-card data-testid="void-dialog">
+        <v-card-title>{{ $t('invoicing.void') }}</v-card-title>
+        <v-card-text>{{ $t('invoicing.voidConfirmProforma', { number: voidTarget?.number || '' }) }}</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="voidDialog = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="error" :loading="loading" @click="doVoid">{{ $t('invoicing.void') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- FR-10 (#19): one dialog for the whole grid, driven by the row the user clicked. -->
     <SendEmailDialog
       v-model="emailDialog"
@@ -147,7 +140,8 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState, allOptionsParam } from 'ui-shared/composables/useListQueryState'
-import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import CreateButton from 'ui-shared/components/CreateButton.vue'
+import RowActionsMenu, { type RowAction } from 'ui-shared/components/RowActionsMenu.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
@@ -160,7 +154,10 @@ import FilterBar from 'ui-shared/components/FilterBar.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { useRowEmail } from '../composables/useRowEmail'
-interface Item { _id: string; number: string; contactName: string; contactId?: string; issueDate: string; validUntil: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; convertedInvoiceId?: string; convertedInvoiceNumber?: string }
+import { useDocumentIssue } from '../composables/useDocumentIssue'
+import { useRowPrint } from '../composables/useRowPrint'
+import * as can from '../composables/document-row-actions'
+interface Item { _id: string; number: string; type?: string; contactName: string; contactId?: string; issueDate: string; validUntil: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; convertedInvoiceId?: string; convertedInvoiceNumber?: string }
 
 const { t } = useI18n()
 const router = useRouter()
@@ -177,10 +174,10 @@ const {
   defaultTo: emailTo,
   defaultSubject: emailSubject,
   documentNumber: emailDocNumber,
-  canEmail,
   open: openRowEmail,
   send: sendRowEmail,
 } = useRowEmail()
+const { printRow } = useRowPrint()
 
 const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')
@@ -231,11 +228,13 @@ const headers = computed(() => [
   { title: t('invoicing.contact'), key: 'contactName', sortable: true },
   { title: t('invoicing.issueDate'), key: 'issueDate', sortable: true },
   { title: t('invoicing.validUntil'), key: 'dueDate', sortable: true },
-  { title: t('common.currency'), key: 'currency' },
+  // FR-22.23: every amount is printed with its currency, so this column is offered on the cog.
+  { title: t('common.currency'), key: 'currency', defaultHidden: true },
   { title: t('common.total'), key: 'total', align: 'end' as const },
   { title: t('common.status'), key: 'status' },
   { title: t('invoicing.invoiceRef'), key: 'convertedInvoiceNumber' },
-  { title: t('common.actions'), key: 'actions', sortable: false },
+  // FR-22.23: one menu button, so the column is as narrow as its title.
+  { title: '', key: 'actions', sortable: false, align: 'end' as const, width: 48 },
 ])
 
 const kanbanColumns = computed(() => [
@@ -273,6 +272,47 @@ async function convert(item: Item) {
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
+}
+
+// FR-22.22: a proforma is issued (its PRF number) through the path every document issues by; it
+// asks no stock question — an offer moves none.
+const { issue } = useDocumentIssue({ loading, onIssued: () => fetchItems() })
+
+const voidDialog = ref(false)
+const voidTarget = ref<Item | null>(null)
+function confirmVoid(item: Item) {
+  voidTarget.value = item
+  voidDialog.value = true
+}
+async function doVoid() {
+  const item = voidTarget.value
+  if (!item) return
+  loading.value = true
+  try {
+    await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/void`)
+    showSuccess(t('invoicing.proformaVoided'))
+    voidDialog.value = false
+    await fetchItems()
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    loading.value = false
+  }
+}
+
+/** FR-22.23/.24: a row's actions — each offered exactly when the API takes it (`document-row-actions`). */
+function rowActions(item: Item): RowAction[] {
+  const row = { type: 'proforma', direction: 'outgoing', status: item.status }
+  return [
+    { key: 'open', label: t('common.open'), icon: 'mdi-open-in-app', to: { name: 'invoicing.proforma.edit', params: { id: item._id } } },
+    { key: 'issue', label: t('invoicing.issueFlow.issue'), icon: 'mdi-send-check', show: can.canIssue(row), handler: () => issue({ _id: item._id, type: 'proforma' }) },
+    { key: 'print', label: t('common.print'), icon: 'mdi-printer', handler: () => printRow(item) },
+    { key: 'email', label: t('invoicing.sendEmail.action'), icon: 'mdi-email-arrow-right-outline', show: can.canEmail(row), handler: () => openRowEmail(item) },
+    { key: 'convert', label: t('invoicing.convertToInvoice'), icon: 'mdi-swap-horizontal', show: can.canConvert(row), handler: () => convert(item) },
+    { key: 'copy', label: t('common.copy'), icon: 'mdi-content-copy', to: { name: 'invoicing.proforma.new', query: { copyOf: item._id } } },
+    { key: 'void', label: t('invoicing.void'), icon: 'mdi-cancel', color: 'error', divider: true, show: can.canVoid(row), handler: () => confirmVoid(item) },
+    { key: 'delete', label: t('common.delete'), icon: 'mdi-delete', color: 'error', divider: true, show: can.canDelete(row), handler: () => confirmDelete(item) },
+  ]
 }
 
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }

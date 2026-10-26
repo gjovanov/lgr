@@ -451,7 +451,8 @@
     "next": "Weiter",
     "copy": "Kopieren",
     "copied": "Kopiert",
-    "requiredFieldsNote": "* Pflichtfelder"
+    "requiredFieldsNote": "* Pflichtfelder",
+    "open": "Öffnen"
   },
   "export": {
     "aggregated": "Nach Produkt aggregieren",
@@ -992,7 +993,7 @@
     "contact": "Kontakt",
     "client": "Kunde",
     "issueDate": "Ausstellungsdatum",
-    "dueDate": "Fälligkeitsdatum",
+    "dueDate": "Fällig am",
     "dateFrom": "Datum von",
     "dateTo": "Datum bis",
     "exchangeRate": "Wechselkurs",
@@ -1151,7 +1152,7 @@
     "void": "Stornieren",
     "paymentMethod": "Zahlungsmethode",
     "deleteInvoiceConfirm": "Sind Sie sicher, dass Sie diese Rechnung löschen möchten?",
-    "supplierInvoiceNumber": "Lieferantenrechnungsnr.",
+    "supplierInvoiceNumber": "Lief.-Rechnungsnr.",
     "validUntil": "Gültig bis",
     "convertToInvoice": "In Rechnung umwandeln",
     "relatedInvoice": "Zugehörige Rechnung",
@@ -1436,7 +1437,15 @@
       "notIssuedStock": "der Bestand reicht nicht, und die Umlagerung wurde nicht bestätigt",
       "printOptions": "Drucken mit Optionen…"
     },
-    "proformaIssued": "Proforma erfolgreich ausgestellt"
+    "proformaIssued": "Proforma erfolgreich ausgestellt",
+    "createOther": "Anderes Dokument",
+    "voidConfirm": "{number} stornieren? Es bleibt als storniert in der Liste, und der Bestand, den es bewegt hat, wird zurückgebucht.",
+    "proformaVoided": "Proforma erfolgreich storniert",
+    "billVoided": "Eingangsrechnung erfolgreich storniert",
+    "newPaymentOrder": "Neuer Zahlungsauftrag",
+    "newCashOrder": "Neuer Kassenbeleg",
+    "relatedDocument": "Verknüpftes Dokument",
+    "voidConfirmProforma": "{number} stornieren? Sie bleibt als storniert in der Liste und kann nicht mehr in eine Rechnung umgewandelt werden."
   },
   "warehouse": {
     "sku": "Artikelnr.",

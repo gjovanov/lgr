@@ -141,7 +141,8 @@ test('P7 chain: client order → reserve → external order → send → invoice
   await walk.shot('ordi-list')
 
   // ── 1. New internal order ──
-  await walk.click(page.getByRole('link', { name: /Създай/ }).first(), 'create internal order (list)')
+  // FR-22.50: the list's Create says what it creates.
+  await walk.click(page.getByRole('link', { name: 'Нова входяща поръчка' }).first(), 'create internal order („Нова входяща поръчка")')
   await page.waitForURL(/\/internal-orders\/new/)
   await expect(page.getByRole('heading', { name: 'Нова входяща поръчка' })).toBeVisible()
 
@@ -280,8 +281,9 @@ test('P7 chain: client order → reserve → external order → send → invoice
   const invRow = page.locator('tbody tr').filter({ hasText: draftInvoice! })
   await expect(invRow).toBeVisible()
   await settledShot(walk, 'invoice-list')
-  walk.note('Neither the ORDI page nor the invoice form issues the draft: it is issued from its row icon „Изпрати" on the sales list.')
-  await walk.click(invRow.getByRole('button', { name: 'Изпрати', exact: true }), 'issue (row „Изпрати")')
+  walk.note('The ORDI page does not link the draft invoice (FR-22.35, slice 4), so it is issued from the sales list: its row menu ⋮ → „Издай". FR-22.23 put a row\'s actions in one menu — one click more than the old row icon „Изпрати".')
+  await walk.click(invRow.getByTestId('row-actions'), 'the row\'s menu (⋮)')
+  await walk.click(page.getByTestId('row-action-issue'), 'issue (row menu „Издай")')
   await expect(snackbar(walk, 'Фактурата е изпратена успешно')).toBeVisible()
   await settledShot(walk, 'issued')
 
@@ -308,6 +310,8 @@ test('P7 chain: client order → reserve → external order → send → invoice
 
   const result = walk.finish()
   // FR-22.5 took the walk from 30 clicks to 27 and the ORDO number as a link on the ORDI (#252,
-  // part of FR-22.35) to 26; the rest of slice 4 (FR-22.35, .36, .43) takes it to ≤ 22.
-  expect(result.clicks).toBeLessThanOrEqual(26)
+  // part of FR-22.35) to 26. FR-22.23 (one row menu) costs the issue step a click: 27, until the
+  // ORDI links its invoice (FR-22.35) and the walk issues it from the invoice's form instead. The
+  // rest of slice 4 (FR-22.35, .36, .43) takes it to ≤ 22.
+  expect(result.clicks).toBeLessThanOrEqual(27)
 })

@@ -254,6 +254,46 @@ export function noteFromInvoice(invoice: any): Required<Pick<DocumentFormState, 
 }
 
 /**
+ * FR-22.24 — „Копирай": a new draft that starts as another document — the same partner, lines,
+ * prices, method, terms and notes — dated today and numbered when it is saved. Left behind: what
+ * belongs to the original alone — its numbers and dates, the supplier's own invoice number, the
+ * reservations its lines consumed (a copy must not draw on them a second time), the import's OCR
+ * wording, and its print notes.
+ */
+export function copyOfDocument(doc: any): Required<Pick<DocumentFormState, 'contactId' | 'relatedInvoiceId' | 'currency' | 'exchangeRate' | 'paymentMethod' | 'notes' | 'terms' | 'footer' | 'reason' | 'placeOfTransaction' | 'tags' | 'lines'>> & { billingAddress?: BillingAddress } {
+  const contact = doc?.contactId
+  const b = doc?.billingAddress
+  return {
+    contactId: contact ? String(contact._id || contact.id || contact) : '',
+    relatedInvoiceId: doc?.relatedInvoiceId ? String(doc.relatedInvoiceId) : '',
+    currency: doc?.currency || '',
+    exchangeRate: num(doc?.exchangeRate) || 1,
+    paymentMethod: doc?.paymentMethod || '',
+    notes: doc?.notes || '',
+    terms: doc?.terms || '',
+    footer: doc?.footer || '',
+    reason: doc?.reason || '',
+    placeOfTransaction: doc?.placeOfTransaction || '',
+    tags: Array.isArray(doc?.tags) ? [...doc.tags] : [],
+    ...(b ? { billingAddress: { street: b.street || '', city: b.city || '', state: b.state || '', postalCode: b.postalCode || '', country: b.country || '' } } : {}),
+    lines: (doc?.lines || []).map((l: any) => ({
+      productId: l.productId ? String(l.productId) : undefined,
+      description: l.description || '',
+      quantity: num(l.quantity),
+      unit: l.unit || 'pcs',
+      unitPrice: num(l.unitPrice),
+      discount: num(l.discount),
+      taxRate: num(l.taxRate),
+      warehouseId: l.warehouseId ? String(l.warehouseId) : undefined,
+      priceExplanation: l.priceExplanation || undefined,
+      resolvedPrice: num(l.unitPrice),
+      // The copied price is the document's: the price editor must not swap it for today's.
+      loaded: true,
+    })),
+  }
+}
+
+/**
  * Whether a document's lines take their price from `/pricing/resolve`. That endpoint walks the
  * SALES chain (selling price → category → tag → tier → contact), so only a document priced from
  * the selling price may use it. A purchase document keeps the article's purchase price: resolving

@@ -146,7 +146,8 @@ test('P2 receive: goods before the invoice — receipt with product update, incl
   const isSupplierList = (r: any) => r.request().method() === 'GET' && /\/invoicing\/contact\?/.test(r.url())
     && new URL(r.url()).searchParams.get('type') === 'supplier'
   const formContacts = page.waitForResponse(isSupplierList)
-  await walk.click(page.getByRole('link', { name: 'Създай' }), 'new movement')
+  // FR-22.50: the list's Create says what it creates.
+  await walk.click(page.getByRole('link', { name: 'Нова стокова разписка' }).first(), 'new goods receipt („Нова стокова разписка")')
   await page.waitForURL(/\/movements\/new/)
   const offered: string[] = ((await (await formContacts).json()).contacts || []).map((c: any) => c.companyName)
   await expect(supplierField(page).input).toBeVisible()

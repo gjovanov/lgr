@@ -90,7 +90,6 @@
         :aria-label="$t('invoicing.cashSaleInvoice.action')"
         @click="openInvoiceDialog(item)"
       />
-      <v-btn v-if="item.status === 'paid'" icon="mdi-cancel" size="small" variant="text" color="warning" :title="$t('invoicing.void')" :aria-label="$t('invoicing.void')" @click="voidCashSale(item)" />
       <!-- FR-10 (#19): email from the row. Tooltip on a wrapper span — a disabled v-btn has
            `pointer-events: none`, so a tooltip on the button itself never fires. -->
       <v-tooltip
@@ -334,16 +333,6 @@ const kanbanItems = computed(() => {
 
 function fmtCurrency(amount: number, currency?: string) { return formatCurrency(amount, currency || baseCurrency.value, localeCode.value) }
 function statusColor(s: string) { return ({ paid: 'success', voided: 'error', draft: 'grey' }[s] || 'grey') }
-
-async function voidCashSale(item: Item) {
-  try {
-    await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/void`)
-    showSuccess(t('invoicing.cashSaleVoided'))
-    await fetchItems()
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
-  }
-}
 
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {

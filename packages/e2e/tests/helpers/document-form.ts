@@ -47,3 +47,12 @@ export function lineQuantity(row: Locator): Locator {
 export function lineDescription(row: Locator): Locator {
   return row.locator('td.line-no + td')
 }
+
+/**
+ * Each line of the open document form as one string — its text and its fields' values. A line with
+ * no product holds its description in a field, which a text match never sees.
+ */
+export async function lineValues(page: Page): Promise<string[]> {
+  return page.locator('.line-table tbody tr').evaluateAll((rows) => rows.map((r) =>
+    [r.textContent || '', ...Array.from(r.querySelectorAll('input, textarea')).map((i) => (i as HTMLInputElement).value)].join(' | ')))
+}
