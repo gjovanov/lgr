@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { startWalk, uxApi } from '../helpers/ux-budget'
+import { startWalk, uxApi, closeOpenTillSessions } from '../helpers/ux-budget'
 
 /**
  * P4-storno — a customer brings the goods back: the cashier, standing at the till
@@ -45,6 +45,12 @@ function posTotals(quantity: number, unitPrice: number, taxRate: number) {
   const taxTotal = cents((total * taxRate) / (100 + taxRate))
   return { subtotal: cents(total - taxTotal), taxTotal, total }
 }
+
+
+// The walk leaves its session open: close it, so later specs find the terminal without one.
+test.afterAll(async () => {
+  await closeOpenTillSessions(await uxApi())
+})
 
 test('P4-storno: reverse a till sale, starting at the terminal', async ({ page }, testInfo) => {
   // ── Setup (uncounted): an open session on Main Warehouse and a sale of PRD-0020 ×1 on it.
