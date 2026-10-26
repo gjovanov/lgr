@@ -9,9 +9,27 @@ import {
   buildConnectionConfig,
   isDeviceConnected,
 } from 'fiscal/fiscal-device.service'
+import { FiscalTargetError, fiscalTcpPolicy, resolveFiscalTcpTarget } from 'fiscal/tcp-target'
+import { nodeRole } from 'config'
 import { bridgeHolder, rebindBridgePrinter } from '../websocket/fiscal-bridge.js'
 
 const FISCAL_ADMIN_ROLES = ['admin', 'manager', 'warehouse_manager']
+
+/**
+ * A TCP device's address is checked when it is saved, so the admin hears about it at once — the
+ * same check `connectDevice` makes again before it opens a socket, which is what actually protects
+ * the server (it also covers any row saved without one). Returns an error body, or null.
+ */
+async function tcpTargetError(connectionType: string | undefined, params: { ip?: string } | undefined) {
+  if (connectionType !== 'tcp') return null
+  try {
+    await resolveFiscalTcpTarget(params?.ip, fiscalTcpPolicy(nodeRole()))
+    return null
+  } catch (e) {
+    if (e instanceof FiscalTargetError) return { message: e.message, code: e.code }
+    throw e
+  }
+}
 
 const ManufacturerSchema = t.Union([
   t.Literal('datecs'), t.Literal('daisy'), t.Literal('tremol'), t.Literal('eltrade'), t.Literal('incotex'),
@@ -66,13 +84,9 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       return status(400, { message: 'Device number must be exactly 8 characters' })
     }
 
-    // H6: Validate IP address if TCP connection
-    if (body.connectionType === 'tcp' && body.connectionParams?.ip) {
-      const ip = body.connectionParams.ip
-      if (ip.startsWith('127.') || ip.startsWith('169.254.') || ip === '::1' || ip === 'localhost') {
-        return status(400, { message: 'Invalid fiscal device IP address' })
-      }
-    }
+    // H6: a TCP device must name an address the server may connect to (see `tcpTargetError`).
+    const targetError = await tcpTargetError(body.connectionType, body.connectionParams)
+    if (targetError) return status(400, targetError)
 
     const device = await r.fiscalDevices.create({
       ...body,
@@ -119,6 +133,13 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
 
     const existing = await r.fiscalDevices.findOne({ id, orgId } as any) as any
     if (!existing) return status(404, { message: 'Fiscal device not found' })
+
+    // The device as it will be after this save: `connectionParams` replaces the stored ones whole.
+    const targetError = await tcpTargetError(
+      body.connectionType ?? existing.connectionType,
+      body.connectionParams ?? existing.connectionParams,
+    )
+    if (targetError) return status(400, targetError)
 
     const updated = await r.fiscalDevices.updateInOrg(id, orgId, body as any)
 
@@ -208,6 +229,9 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       await r.fiscalDevices.updateInOrg(id, orgId, { status: 'online', lastCommunicationAt: new Date() } as any)
       return { message: 'Connected', status: 'online' }
     } catch (e: any) {
+      // A refused address is the device's configuration, not a broken printer: nothing was
+      // opened, and the device is NOT marked `error`, which would stop every sale on it.
+      if (e instanceof FiscalTargetError) return status(422, { message: e.message, code: e.code })
       await r.fiscalDevices.updateInOrg(id, orgId, { status: 'error' } as any)
       return status(500, { message: `Connection failed: ${e.message}` })
     }
