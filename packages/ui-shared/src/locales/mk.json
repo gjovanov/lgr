@@ -1455,6 +1455,10 @@
     "totalUnits": "Вкупни Единици",
     "avgCost": "Просечна Цена",
     "lowStockOnly": "Само Ниски Залихи",
+    "activeFilter": {
+      "active": "Активни",
+      "inactive": "Неактивни"
+    },
     "outOfStock": "Нема на Залиха",
     "lowStock": "Ниска Залиха",
     "inStock": "На Залиха",

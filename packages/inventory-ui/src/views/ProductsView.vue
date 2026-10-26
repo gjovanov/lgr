@@ -19,10 +19,10 @@
       <v-card class="mb-4">
         <v-card-text class="pb-4">
           <v-row>
-            <v-col cols="12" md="3">
+            <v-col cols="12" md="2">
               <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
             </v-col>
-            <v-col cols="12" md="3">
+            <v-col cols="12" md="2">
               <v-autocomplete
                 v-model="warehouseFilter"
                 :items="warehouseOptions"
@@ -43,6 +43,10 @@
             </v-col>
             <v-col cols="12" md="2">
               <TagInput v-model="tagFilter" type="product" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
+            </v-col>
+            <v-col cols="12" md="2">
+              <!-- FR-22.48: a deactivated article stays out of the list unless this asks for it. -->
+              <v-select v-model="activeFilter" :label="$t('common.status')" :items="activeFilterItems" hide-details density="compact" />
             </v-col>
           </v-row>
         </v-card-text>
@@ -144,6 +148,10 @@ interface StockBadge { warehouseId: string; warehouseName: string; quantity: num
 interface SupplyTotals { reserved: number; incoming: number; reservedIncoming: number; planned: number }
 const NO_SUPPLY: SupplyTotals = { reserved: 0, incoming: 0, reservedIncoming: 0, planned: 0 }
 
+/** FR-22.48: which articles the list shows. A deactivated one only when asked for. */
+const ACTIVE_FILTERS = ['active', 'inactive', 'all'] as const
+type ActiveFilter = (typeof ACTIVE_FILTERS)[number]
+
 const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
@@ -160,10 +168,17 @@ const categoryFilter = ref<string | null>(null)
 const typeFilter = ref<string | null>(null)
 const tagFilter = ref<string[]>([])
 const warehouseFilter = ref<string | null>(null)
+const activeFilter = ref<ActiveFilter>('active')
 const categoryOptions = ref<string[]>([])
 const warehouseOptions = ref<any[]>([])
 const stockMap = ref<Record<string, StockBadge[]>>({})
 const supplyMap = ref<Record<string, SupplyTotals>>({})
+
+const activeFilterItems = computed(() => [
+  { title: t('warehouse.activeFilter.active'), value: 'active' },
+  { title: t('warehouse.activeFilter.inactive'), value: 'inactive' },
+  { title: t('common.all'), value: 'all' },
+])
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
@@ -172,11 +187,12 @@ const filters = computed(() => {
   if (typeFilter.value) f.type = typeFilter.value
   if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
   if (warehouseFilter.value) f.warehouseId = warehouseFilter.value
+  if (activeFilter.value !== 'all') f.isActive = activeFilter.value === 'active' ? 'true' : 'false'
   return f
 })
 
 const hasActiveFilters = computed(() =>
-  !!(debouncedSearch.value || categoryFilter.value || typeFilter.value || tagFilter.value.length || warehouseFilter.value),
+  !!(debouncedSearch.value || categoryFilter.value || typeFilter.value || tagFilter.value.length || warehouseFilter.value || activeFilter.value !== 'active'),
 )
 
 const url = computed(() => `${appStore.orgUrl()}/warehouse/product`)
@@ -187,6 +203,8 @@ useListQueryState([
   { key: 'type', ref: typeFilter },
   { key: 'tags', ref: tagFilter, codec: 'csv' },
   { key: 'warehouse', ref: warehouseFilter },
+  // The default is declared, so a bare URL stays bare and means "active articles".
+  { key: 'status', ref: activeFilter, default: 'active', sanitize: (v) => (ACTIVE_FILTERS.includes(v) ? v : undefined) },
 ])
 
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
@@ -210,7 +228,9 @@ const headers = computed(() => [
   { title: t('warehouse.unit'), key: 'unit' },
   { title: t('warehouse.purchasePrice'), key: 'purchasePrice', align: 'end' as const },
   { title: t('warehouse.sellingPrice'), key: 'sellingPrice', align: 'end' as const },
-  { title: t('common.active'), key: 'isActive', align: 'center' as const },
+  // FR-22.48: only when the list can hold deactivated articles. Among active ones it says "yes"
+  // on every row, and its width is what keeps the row actions inside 1366 px.
+  ...(activeFilter.value === 'active' ? [] : [{ title: t('common.active'), key: 'isActive', align: 'center' as const }]),
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 

@@ -1135,13 +1135,17 @@ ORDI (InternalOrder, client demand)          ORDO (Order, supplier supply)
   or partly received ORDO lines, outstanding quantity, the clients holding it) and the product's
   reservations. A draft ORDO is `planned`, never `incoming`: nothing was ordered yet. Shown on the
   product's Stock tab (`inventory-ui ProductStockView`), linking into invoicing via `appHref`.
-- **On the Products list** (FR-22.45/.46): `GET /warehouse/stock-level/by-products`, the call the
+- **On the Products list** (FR-22.45/.46/.48): `GET /warehouse/stock-level/by-products`, the call the
   list already made for its stock badges, also returns `supply: {[productId]: {reserved, incoming,
   reservedIncoming, planned}}` from `getProductsSupplyTotals`. It runs the stock tab's own steps
   (`loadSupplyDocs → incomingAllocations → warehouseFigures`), so there is no second definition of
   "reserved" or "incoming", and three queries serve a page of any size. With `warehouseId` the badges
   AND the totals describe that warehouse only. „Резервирано" / „Поръчано" follow „Наличност", which
-  now precedes „Мярка"; each non-zero figure opens the stock tab. Tests: `integration/products-supply-list.flow.test.ts`
+  now precedes „Мярка"; each non-zero figure opens the stock tab. `GET /warehouse/product?isActive=
+  true|false` (`true` is `$ne: false`: a product without the flag is active); without it, both, as
+  every picker expects. The list defaults to active articles (`status` in the URL, a declared
+  default), and shows its „Активен" column only when deactivated ones can be listed: that width is
+  what keeps the row actions inside 1366 px. Tests: `integration/products-supply-list.flow.test.ts`
   (parity with `getProductSupply`, 5 queries for 5 or 50 products), `unit/grid-column-order.test.ts`;
   the P1 walk goes 6 → 5 clicks through the figure's link.
 - **Lists and the ORDI form.** ReservationsView: Source is the ORDO number (linked) or "Stock", the

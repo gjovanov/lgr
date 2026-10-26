@@ -1455,6 +1455,10 @@
     "totalUnits": "Total Units",
     "avgCost": "Avg Cost",
     "lowStockOnly": "Low Stock Only",
+    "activeFilter": {
+      "active": "Active",
+      "inactive": "Deactivated"
+    },
     "outOfStock": "Out of Stock",
     "lowStock": "Low Stock",
     "inStock": "In Stock",

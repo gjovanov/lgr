@@ -8,7 +8,7 @@ import {
 import { stockLevelController } from 'warehouse-api/src/controllers/stock-level.controller'
 import { productController } from 'warehouse-api/src/controllers/product.controller'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
-import { Invoice, Order, StockLevel } from 'db/models'
+import { Invoice, Order, Product, StockLevel } from 'db/models'
 import { mongoose } from 'db/connection'
 import { getProductSupply, getProductsSupplyTotals, type ProductSupply, type SupplyTotals } from 'services/biz/product-supply.service'
 import { createReservation } from 'services/biz/reservation-ops.service'
@@ -24,6 +24,8 @@ import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
  * of "reserved" or "incoming": the list links each figure to the tab, and a number that changes
  * on the way there is worse than no number. And a page of 50 must cost what a page of 5 costs.
  *
+ * FR-22.48 — the list asks for active or deactivated articles; the API's default is unchanged.
+ *
  * NOTE: no `.rejects` / `.resolves` (Bun-on-Windows deadlock, see Known Issues).
  */
 
@@ -36,6 +38,7 @@ afterAll(async () => { await teardownTestDB() }, 60_000)
 afterEach(async () => { await clearCollections() }, 30_000)
 
 const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
+const { Types } = mongoose
 const FIGURES = ['reserved', 'incoming', 'reservedIncoming', 'planned'] as const
 const ZERO: SupplyTotals = { reserved: 0, incoming: 0, reservedIncoming: 0, planned: 0 }
 
@@ -295,3 +298,33 @@ describe('the Products list: reserved and on order, per article (FR-22.45)', () 
   }, 120_000)
 })
 
+describe('the Products list hides deactivated articles unless asked (FR-22.48)', () => {
+  it('?isActive=true lists the active ones (and those saved before the flag), false the deactivated', async () => {
+    const w = await world()
+    const active = await createTestProduct(w.org._id, { name: 'Активен', sku: 'PSL-ACT' } as any)
+    const retired = await createTestProduct(w.org._id, { name: 'Деактивиран', sku: 'PSL-OFF', isActive: false, deactivatedAt: new Date() } as any)
+    // Written around Mongoose, so the schema default cannot fill in the flag.
+    const legacyId = new Types.ObjectId()
+    await Product.collection.insertOne({
+      _id: legacyId, orgId: w.org._id, sku: 'PSL-OLD', name: 'Отпреди флага', category: 'General', type: 'goods', unit: 'pcs',
+    } as any)
+
+    const list = async (query: string) => {
+      const res = await w.get(`/product?size=50${query}`)
+      expect(res.status).toBe(200)
+      return res.json.products.map((p: any) => String(p._id)).sort()
+    }
+    expect(await list('&isActive=true')).toEqual([String(active._id), String(legacyId)].sort())
+    expect(await list('&isActive=false')).toEqual([String(retired._id)])
+    // Every other caller — the pickers, the API clients — still gets both, as before.
+    expect(await list('')).toEqual([String(active._id), String(retired._id), String(legacyId)].sort())
+  }, 60_000)
+
+  it('a deactivated article disappears from the default list when it is deleted', async () => {
+    const w = await world()
+    const p = await createTestProduct(w.org._id, { name: 'За изтриване', sku: 'PSL-DEL' } as any)
+    expect((await w.call('DELETE', `/product/${p._id}`)).status).toBe(200)
+    expect((await w.get('/product?size=50&isActive=true')).json.products).toHaveLength(0)
+    expect((await w.get('/product?size=50&isActive=false')).json.products.map((x: any) => x.sku)).toEqual(['PSL-DEL'])
+  }, 60_000)
+})
