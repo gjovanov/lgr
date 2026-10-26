@@ -1,5 +1,5 @@
 import type { Migration } from '../types.js'
-import { copyCashRegisterOrg } from 'services/biz/cash-register/copy-org'
+import { CashRegisterCopyError, copyCashRegisterOrg } from 'services/biz/cash-register/copy-org'
 
 /**
  * Every POS transaction becomes its cash-register document (FR-21.21, §5.3).
@@ -26,7 +26,18 @@ export const cashRegisterCopy: Migration = {
       ...(await db.collection('postransactions').distinct('orgId', { ...orgFilter })).map(String),
       ...(await db.collection('invoices').distinct('orgId', { ...orgFilter, type: 'cash_sale', 'register.origin': { $exists: false } })).map(String),
     ])
-    for (const orgId of [...orgs].sort()) await copyCashRegisterOrg(db as any, orgId, log)
+    // ⚠ One org's blocker must not hold every other org back: each is copied on its own, and the
+    // migration throws at the end (so it is not recorded and runs again) naming the ones that failed.
+    const failed: { orgId: string; message: string }[] = []
+    for (const orgId of [...orgs].sort()) {
+      try {
+        await copyCashRegisterOrg(db as any, orgId, log)
+      } catch (e: any) {
+        log(`org ${orgId}: NOT copied: ${e?.message || e}`)
+        failed.push({ orgId, message: e?.message || String(e) })
+      }
+    }
+    if (failed.length) throw new CashRegisterCopyError(failed.map(f => f.orgId).join(', '), failed.map(f => f.message))
     log(`orgs copied: ${orgs.size}`)
   },
 }

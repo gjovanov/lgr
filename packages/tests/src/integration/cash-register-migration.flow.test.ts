@@ -260,6 +260,23 @@ describe('0008 — what stops it', () => {
     expect(await db().collection(COLLECTION).findOne({ _id: '0008-cash-register-copy' as any })).toBeNull()
   }, 60_000)
 
+  it("one org's blocker does not hold another org back; the migration still is not recorded", async () => {
+    const blocked = await legacyOrg('legacy-blocked')
+    const clean = await legacyOrg('legacy-clean')
+    await POSTransaction.collection.insertOne({
+      _id: new ObjectId(), orgId: blocked.orgId, sessionId: blocked.closed._id, transactionNumber: 'TXN-2026-0000099', type: 'return',
+      status: 'completed', lines: [], subtotal: 0, total: 0, payments: [], createdBy: blocked.user._id, createdAt: T(20), updatedAt: T(20),
+    } as any)
+
+    const err: any = await captureRejection(runMigrations({ db: db() }))
+    expect(err).toBeInstanceOf(CashRegisterCopyError)
+    expect(String(err.message)).toContain(String(blocked.orgId))
+    expect(await Invoice.countDocuments({ orgId: blocked.orgId, 'register.legacy.source': 'postransactions' })).toBe(0)
+    expect(await Invoice.countDocuments({ orgId: clean.orgId, 'register.legacy.source': 'postransactions' })).toBe(clean.rows.length)
+    expect(await cashRegisterParity(db() as any, String(clean.orgId))).toEqual([])
+    expect(await db().collection(COLLECTION).findOne({ _id: '0008-cash-register-copy' as any })).toBeNull()
+  }, 60_000)
+
   it('a copy the model refuses stops its batch before the batch is written', async () => {
     const w = await legacyOrg()
     await POSTransaction.collection.updateOne({ _id: (w.rows[2] as any)._id }, { $set: { payments: [{ method: 'bitcoin', amount: 24 }] } })
@@ -284,7 +301,10 @@ describe('FR-21.22 — a restore converts an older bundle', () => {
     })
 
     expect(applied.status).toBe('completed')
-    expect(applied.warnings.filter((x: string) => x.startsWith('POSTransaction'))).toEqual([])
+    // Converted; and the preflight's warnings reach the operator (here: a till day also imported).
+    const tillWarnings = applied.warnings.filter((x: string) => x.startsWith('POSTransaction'))
+    expect(tillWarnings.some((x: string) => /did not finish/.test(x))).toBe(false)
+    expect(tillWarnings.some((x: string) => /the same goods counted twice/.test(x))).toBe(true)
     expect(await Invoice.countDocuments({ orgId: w.orgId, 'register.legacy.source': 'postransactions' })).toBe(w.rows.length)
     expect(await cashRegisterParity(db() as any, String(w.orgId))).toEqual([])
   }, 120_000)
