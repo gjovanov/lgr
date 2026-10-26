@@ -42,6 +42,9 @@ export const EXACT_WRITE_RULES: ReadonlyMap<string, WriteRule> = new Map<string,
   ['POST invoicing/export/kind/:kind', { self: 'canExport' }],
   ['POST invoicing/export/:id/email', { self: 'canWrite, and outgoing issued documents only' }],
   ['POST invoicing/stock-availability/check', { need: ['invoicing.read', 'inventory.read'] }],
+  // FR-21.18: the journal's storno, from the POS app's /pos/orders or invoicing's /cash-sales. The
+  // route also requires a storno role (admin, manager, warehouse_manager), as the till's does.
+  ['POST cash-register/documents/:id/storno', { need: ['pos.write', 'invoicing.write'] }],
   ['POST doc-import/extract', { need: ['invoicing.write', 'inventory.write'] }],
   ['POST doc-import/analyze', { self: 'PERMISSION_BY_TARGET: the write permission of the surface imported into' }],
   ['POST doc-import/commit', { self: 'PERMISSION_BY_TARGET: the write permission of the surface imported into' }],
