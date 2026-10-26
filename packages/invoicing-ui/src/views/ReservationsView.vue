@@ -150,7 +150,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import { useListQueryState } from 'ui-shared/composables/useListQueryState'
+import { useListQueryState, allOptionsParam } from 'ui-shared/composables/useListQueryState'
 import StatusChip from 'ui-shared/components/StatusChip'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
@@ -169,7 +169,6 @@ const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 
 const { search, debouncedSearch } = useSearchDebounce()
-const statusFilter = ref<string[]>([])
 const sourceFilter = ref<'stock' | 'order' | null>(null)
 const releaseDialog = ref(false)
 const editDialog = ref(false)
@@ -181,11 +180,11 @@ const repeatSource = ref<any>(null)
 const repeatError = ref('')
 const presetProductId = ref<string | null>(null)
 
-const statusOptions = computed(() => [
-  { value: 'active', title: t('invoicing.status.active') },
-  { value: 'fulfilled', title: t('invoicing.status.fulfilled') },
-  { value: 'cancelled', title: t('invoicing.status.cancelled') },
-])
+// FR-22.15: exactly the statuses a reservation can have; all of them is the declared default, so a
+// bare URL stays bare (the list used to write every status into it on load).
+const STATUSES = ['active', 'fulfilled', 'cancelled'] as const
+const statusFilter = ref<string[]>([...STATUSES])
+const statusOptions = computed(() => STATUSES.map((value) => ({ value, title: t(`invoicing.status.${value}`) })))
 const sourceOptions = computed(() => [
   { value: 'stock', title: t('invoicing.sourceStock') },
   { value: 'order', title: t('invoicing.reservations.fromOutgoingOrder') },
@@ -206,7 +205,7 @@ const filters = computed(() => {
 // FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
 useListQueryState([
   { key: 'q', ref: search, mirror: debouncedSearch },
-  { key: 'status', ref: statusFilter, codec: 'csv' },
+  allOptionsParam('status', statusFilter, STATUSES),
   { key: 'source', ref: sourceFilter, sanitize: (v: any) => (v === 'stock' || v === 'order' ? v : undefined) },
 ])
 
@@ -302,7 +301,6 @@ function openFromQuery() {
 watch(() => route.query.new, () => openFromQuery())
 
 onMounted(() => {
-  if (!statusFilter.value.length) statusFilter.value = statusOptions.value.map(o => o.value)
   fetchItems()
   openFromQuery()
 })

@@ -182,3 +182,19 @@ test.describe('Reservations get a screen (FR-22.37)', () => {
     await expect(page).toHaveURL(/\/invoicing\/reservations(\?(?!.*new=)|$)/)
   })
 })
+
+test.describe('The order lists keep a bare URL bare (FR-22.15)', () => {
+  test('every status is the declared default of the reservations, client-orders and supplier-orders lists', async ({ page }) => {
+    await loginForApp(page)
+    for (const path of ['/invoicing/reservations', '/invoicing/internal-orders', '/invoicing/orders']) {
+      await page.goto(path, { waitUntil: 'networkidle' })
+      // The list writes its state after a 250 ms debounce; give it the chance to.
+      await page.waitForTimeout(600)
+      expect(new URL(page.url()).search, path).toBe('')
+    }
+    // A status chosen in the URL still filters.
+    await page.goto('/invoicing/reservations?status=cancelled', { waitUntil: 'networkidle' })
+    await page.waitForTimeout(600)
+    expect(new URL(page.url()).searchParams.get('status')).toBe('cancelled')
+  })
+})

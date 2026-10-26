@@ -84,7 +84,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import { useListQueryState } from 'ui-shared/composables/useListQueryState'
+import { useListQueryState, allOptionsParam } from 'ui-shared/composables/useListQueryState'
 import CreateButton from 'ui-shared/components/CreateButton.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import StatusChip from 'ui-shared/components/StatusChip'
@@ -115,16 +115,12 @@ const { showSuccess, showError } = useSnackbar()
 const { search, debouncedSearch } = useSearchDebounce()
 const deleteDialog = ref(false)
 const selectedId = ref('')
-const statusFilter = ref<string[]>([])
 
-const statusOptions = computed(() => [
-  { value: 'draft', title: t('invoicing.status.draft') },
-  { value: 'confirmed', title: t('invoicing.status.confirmed') },
-  { value: 'partially_delivered', title: t('invoicing.status.partially_delivered') },
-  { value: 'delivered', title: t('invoicing.status.delivered') },
-  { value: 'completed', title: t('invoicing.status.completed') },
-  { value: 'cancelled', title: t('invoicing.status.cancelled') },
-])
+// FR-22.15: exactly the statuses a client order can have; all of them is the declared default, so a
+// bare URL stays bare (the list used to write every status into it on load).
+const STATUSES = ['draft', 'confirmed', 'partially_delivered', 'delivered', 'completed', 'cancelled'] as const
+const statusFilter = ref<string[]>([...STATUSES])
+const statusOptions = computed(() => STATUSES.map((value) => ({ value, title: t(`invoicing.status.${value}`) })))
 const allStatusesSelected = computed(() =>
   statusFilter.value.length === 0 || statusFilter.value.length === statusOptions.value.length,
 )
@@ -140,7 +136,7 @@ const filters = computed(() => {
 // FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
 useListQueryState([
   { key: 'q', ref: search, mirror: debouncedSearch },
-  { key: 'status', ref: statusFilter, codec: 'csv' },
+  allOptionsParam('status', statusFilter, STATUSES),
 ])
 
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
@@ -198,7 +194,6 @@ async function doDelete() {
 }
 
 onMounted(() => {
-  if (!statusFilter.value.length) statusFilter.value = statusOptions.value.map(o => o.value)
   fetchItems()
 })
 </script>
