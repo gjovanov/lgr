@@ -750,6 +750,98 @@ const SALE_BODY = t.Object({
   nonFiscal: t.Optional(t.Boolean()),
 })
 
+// ── The terminals' catalog ──────────────────────────────────────────────────────────────────
+// `GET /catalog` is the product grid of the till (PosTerminalView) and of the cash-sale terminal
+// (CashSaleTerminal); `GET /catalog/lookup` is the one product Enter adds from their search.
+
+/** The grid's filter: active products, the typed search, and the category / type / tag filters. */
+function catalogFilter(orgId: string, query: Record<string, any>): Record<string, any> {
+  const productFilter: Record<string, any> = { orgId, isActive: true }
+  if (query.search) {
+    // The same search the inventory product list runs (see buildProductSearchFilter).
+    Object.assign(productFilter, buildProductSearchFilter(query.search as string))
+  }
+  if (query.category) productFilter.category = query.category
+  if (query.type) productFilter.type = query.type
+  if (query.tags) {
+    const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
+    productFilter.tags = { $in: tagList }
+  }
+  return productFilter
+}
+
+/** Products the way a terminal shows them, with the stock of `warehouseId` when one is given. */
+async function toCatalogProducts(orgId: string, items: any[], warehouseId: unknown) {
+  const stockMap = new Map<string, number>()
+  if (warehouseId && items.length > 0) {
+    const productIds = items.map((p: any) => p.id)
+    const stockLevels = await getRepos().stockLevels.findMany(
+      { orgId, warehouseId, productId: { $in: productIds } } as any,
+    )
+    for (const sl of stockLevels) {
+      stockMap.set(sl.productId, sl.quantity)
+    }
+  }
+  return items.map((p: any) => ({
+    productId: p.id,
+    productName: p.name,
+    sku: p.sku,
+    barcode: p.barcode,
+    unitPrice: p.sellingPrice,
+    taxRate: p.taxRate ?? 0,
+    unit: p.unit,
+    type: p.type,
+    category: p.category,
+    stockAvailable: stockMap.get(p.id) ?? null,
+  }))
+}
+
+type CodeMatch = 'barcode' | 'sku' | 'search'
+
+/**
+ * FR-22.55: the product Enter adds from a terminal's search. A barcode scanner types the code
+ * and presses Enter within milliseconds, long before the search's 300 ms debounce has filtered
+ * the grid, so the terminal asks here instead of counting the cards it shows.
+ *
+ * The first rung that matches anything decides:
+ *   1. the barcode is the code: as typed, then ignoring case;
+ *   2. the SKU is the code, the same way (a barcode outranks a SKU: a scanner reads barcodes);
+ *   3. no exact match: the grid's own search, with the grid's filters, finds exactly one product.
+ * Two products on the deciding rung answer `null`, as does a search finding several: a scan is
+ * never guessed, and the terminal shows the search instead. Only active products, as in the
+ * grid. The exact rungs ignore the grid's category / type / tag filters: a scanned article is
+ * that article, whatever the cashier was browsing.
+ */
+async function lookupCatalogCode(
+  orgId: string,
+  code: string,
+  query: Record<string, any>,
+): Promise<{ product: any; matchedBy: CodeMatch } | null> {
+  const r = getRepos()
+  const lower = code.toLocaleLowerCase('bg')
+  // The raw fields as well as the `*Lower` mirrors: a product written past the mirror hooks
+  // (a bulkWrite) is still found by the code exactly as printed on it.
+  const exact = await r.products.findAll({
+    orgId,
+    isActive: true,
+    $or: [{ barcode: code }, { barcodeLower: lower }, { sku: code }, { skuLower: lower }],
+  } as any, { page: 0, size: 20, sort: { name: 1 } })
+  const folded = (v: unknown) => (typeof v === 'string' ? v.toLocaleLowerCase('bg') : undefined)
+  const rungs: Array<[CodeMatch, (p: any) => boolean]> = [
+    ['barcode', p => p.barcode === code],
+    ['barcode', p => folded(p.barcode) === lower],
+    ['sku', p => p.sku === code],
+    ['sku', p => folded(p.sku) === lower],
+  ]
+  for (const [matchedBy, matches] of rungs) {
+    const hits = exact.items.filter(matches)
+    if (hits.length === 1) return { product: hits[0], matchedBy }
+    if (hits.length > 1) return null
+  }
+  const found = await r.products.findAll(catalogFilter(orgId, { ...query, search: code }), { page: 0, size: 2, sort: { name: 1 } })
+  return found.total === 1 ? { product: found.items[0], matchedBy: 'search' } : null
+}
+
 export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
   .use(AppAuthService)
   // ── POS Catalog (server-side pagination + filters) ──
@@ -757,50 +849,26 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
 
-    const productFilter: Record<string, any> = { orgId, isActive: true }
-    if (query.search) {
-      // The same search the inventory product list runs (see buildProductSearchFilter).
-      Object.assign(productFilter, buildProductSearchFilter(query.search as string))
-    }
-    if (query.category) productFilter.category = query.category
-    if (query.type) productFilter.type = query.type
-    if (query.tags) {
-      const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
-      productFilter.tags = { $in: tagList }
-    }
-
     const page = Math.max(0, Number(query.page) || 0)
     const size = Math.min(200, Math.max(1, Number(query.size) || 24))
     const sortBy = (query.sortBy as string) || 'name'
     const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : 1
 
-    const productResult = await r.products.findAll(productFilter, { page, size, sort: { [sortBy]: sortOrder } })
-
-    let stockMap = new Map<string, number>()
-    if (query.warehouseId && productResult.items.length > 0) {
-      const productIds = productResult.items.map((p: any) => p.id)
-      const stockLevels = await r.stockLevels.findMany(
-        { orgId, warehouseId: query.warehouseId, productId: { $in: productIds } } as any,
-      )
-      for (const sl of stockLevels) {
-        stockMap.set(sl.productId, sl.quantity)
-      }
-    }
-
-    const products = productResult.items.map((p: any) => ({
-      productId: p.id,
-      productName: p.name,
-      sku: p.sku,
-      barcode: p.barcode,
-      unitPrice: p.sellingPrice,
-      taxRate: p.taxRate ?? 0,
-      unit: p.unit,
-      type: p.type,
-      category: p.category,
-      stockAvailable: stockMap.get(p.id) ?? null,
-    }))
+    const productResult = await r.products.findAll(catalogFilter(orgId, query), { page, size, sort: { [sortBy]: sortOrder } })
+    const products = await toCatalogProducts(orgId, productResult.items, query.warehouseId)
 
     return { products, total: productResult.total, totalPages: productResult.totalPages, page, size }
+  }, { isSignIn: true })
+  // FR-22.55: the one product Enter adds from the till's or the cash-sale terminal's search —
+  // `{ product, matchedBy }`, or `{ product: null }` when the code names nothing unambiguously.
+  // `warehouseId`, `category`, `type` and `tags` are the grid's own parameters.
+  .get('/catalog/lookup', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const code = typeof query.code === 'string' ? query.code.trim() : ''
+    const hit = code ? await lookupCatalogCode(orgId, code, query) : null
+    if (!hit) return { product: null, matchedBy: null }
+    const [product] = await toCatalogProducts(orgId, [hit.product], query.warehouseId)
+    return { product, matchedBy: hit.matchedBy }
   }, { isSignIn: true })
   // ── Sessions ──
   .post(

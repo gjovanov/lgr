@@ -750,6 +750,14 @@
     },
     "noFiscalDevice": "Kein Fiskalgerät für Browser konfiguriert. Wenden Sie sich an den Administrator.",
     "saleCompleted": "Verkauf abgeschlossen",
+    "lastSale": {
+      "title": "Verkauf {number}",
+      "change": "Rückgeld: {amount}",
+      "fiscalReceipt": "Fiskalbeleg Nr. {number}",
+      "unp": "UNP {unp}",
+      "textReceipt": "Ein nicht-fiskalischer Beleg wurde gedruckt",
+      "notPrinted": "Es wurde nichts gedruckt: An dieser Kasse ist kein Fiskalgerät angeschlossen"
+    },
     "saleOutcomeUnknown": "Keine Antwort vom Server — der Verkauf ist möglicherweise schon gebucht. Erneut auf „Verkauf abschließen“ drücken: der Warenkorb wird nicht doppelt verbucht.",
     "filterByTags": "Nach Tags filtern",
     "close": {
