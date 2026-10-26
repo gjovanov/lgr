@@ -24,6 +24,7 @@ const READ_ONLY: Record<string, string> = {
   'preview-daily-digest.ts': 'renders a digest to an HTML file: no send, no claim',
   'data-scan.ts': 'reads every collection for production orgs\' ids and slugs (FR-20.113): writes nothing',
   'gen-replication-meta.ts': 'loads the models to read their replicate() decisions (FR-20.62): connects to nothing',
+  'cash-register-preflight.ts': 'reports what FR-21\'s copy (0008) would meet, and its parity over the copies (FR-21.21): writes nothing',
 }
 
 const sources = () =>
