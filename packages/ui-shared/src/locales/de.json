@@ -730,6 +730,7 @@
         "tax_base_reduction": "Minderung der Steuerbemessungsgrundlage"
       },
       "noOpenSession": "Öffnen Sie zuerst eine Kassensitzung im Lager dieses Verkaufs — die Erstattung erfolgt aus dieser Kasse.",
+      "noReceipt": "Ein Verkauf aus dem Büro: Der Storno druckt keinen Beleg und braucht keine Sitzung.",
       "fromSession": "Erstattet aus Sitzung {session}",
       "confirm": "Stornieren",
       "done": "Storno {number} durchgeführt"
@@ -2486,6 +2487,7 @@
     "storagePrefix": "Speicherschlüssel",
     "displayPrefix": "Anzeigepräfix",
     "lastNumber": "Letzte Nummer",
+    "posSessions": "Kassensitzungen",
     "empty": "Noch keine Nummernkreise",
     "emptyHint": "Nummernkreise erscheinen hier, sobald Sie Ihr erstes Dokument erstellen."
   },

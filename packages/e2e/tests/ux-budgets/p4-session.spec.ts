@@ -26,7 +26,7 @@ function leafTexts(sel: string): string[] {
 }
 
 /** The English left in the Bulgarian UI: Latin and no Cyrillic, minus data (names, numbers, codes). */
-const DATA = /^(Product \d+|PRD-|TXN-|POS-|CSR-|SM-|Main Warehouse|Retail Store|Production Floor|Acme|EUR$|BGN$|USD$)/
+const DATA = /^(Product \d+|PRD-|TXN-|POS-|CSR?-|SM-|Main Warehouse|Retail Store|Production Floor|Acme|EUR$|BGN$|USD$)/
 function englishOnly(texts: string[]): string[] {
   return [...new Set(texts.filter(t => /[A-Za-z]/.test(t) && !/[А-Яа-я]/.test(t) && !DATA.test(t)))]
 }

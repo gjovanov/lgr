@@ -14,7 +14,9 @@ import { createAuditEntry } from 'services/biz/audit-log.service'
 export { INVOICING_SEQUENCE_KEYS } from 'services/biz/sequence-registry'
 import { INVOICING_SEQUENCE_KEYS } from 'services/biz/sequence-registry'
 
-const ALLOWED_PREFIXES = new Set(INVOICING_SEQUENCE_KEYS.map(e => e.prefix))
+/** A closed series allocates nothing (FR-21's TXN): it is neither listed nor configurable. */
+const OPEN_SEQUENCE_KEYS = INVOICING_SEQUENCE_KEYS.filter(e => !e.closed)
+const ALLOWED_PREFIXES = new Set(OPEN_SEQUENCE_KEYS.map(e => e.prefix))
 
 export const sequenceConfigController = new Elysia({ prefix: '/org/:orgId/invoicing/sequences' })
   .use(AppAuthService)
@@ -29,7 +31,7 @@ export const sequenceConfigController = new Elysia({ prefix: '/org/:orgId/invoic
 
     // Surface one row per (group × variant). For each, find the active counter for the current
     // year and the year=0 displayPrefix override (if any).
-    const rows = INVOICING_SEQUENCE_KEYS.map(entry => {
+    const rows = OPEN_SEQUENCE_KEYS.map(entry => {
       const counter = all.find(s => s.prefix === entry.prefix && s.year === currentYear)
       const override = all.find(s => s.prefix === entry.prefix && s.year === 0)
       return {

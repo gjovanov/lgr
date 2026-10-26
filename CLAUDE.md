@@ -1900,9 +1900,10 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
 - ⚠ **Till documents and stornos are immutable** (D-8, `cash-register/immutability.ts`): `PUT`,
   `DELETE`, `/void` answer 409 `register_document_immutable`, and the Files rollback skips them.
   Back-office cash sales behave as before.
-- **Keyed retries find their sale in either store**: the till's keyed paths replay a document
-  (`answerFromDocument`), and `POST /invoices` refuses a key a POS row already carries (422). A
-  storno of a sale only a newer release holds is 409 `storno_needs_newer_release`.
+- **Keyed retries find their sale in either store**: a till request whose key is on a POS row an
+  older release wrote is copied on the spot and replayed or finished as a document
+  (`lib/cash-register-till.ts#findKeyedTillDocument`), and `POST /invoices` refuses a key a POS
+  row already carries (422).
 - **The journal**: `GET /org/:orgId/cash-register/documents` and `/:id`
   (`cash-register/journal.service.ts`), gated on `pos.read || invoicing.read` and readable by a
   PIN till. One component, `ui-shared/components/cash-register/CashRegisterJournal.vue`, is
@@ -1918,6 +1919,34 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
 - ⚠ **The POS terminal shows ANY open session in the org**, not only its user's
   (`PosTerminalView.vue#fetchSessions`). E2E fixtures that open a session must close it, or
   `pos-terminal.spec.ts` loses its "Open Session" button (`e2e/tests/helpers/cash-register.ts`).
+- ⚠ **Since R2 the till writes cash-register documents, never `POSTransaction`.** The steps live
+  in `services/biz/cash-register/register.service.ts` (insert → number → УНП → print once →
+  session totals → stock → complete → audit), on the `Invoice` row's `register` block. `services`
+  must not import `fiscal/*` (which imports it), so the till hands the service a
+  `RegisterPrinter` port built in `invoicing-api/src/lib/cash-register-till.ts`. A new till
+  sale IS the copy of the POS row it would have been (`tillSaleDocument` maps a virtual row
+  through `fromPosTransaction`): one mapping, so the R1 readers and an R1 rollback read both alike.
+  - ⚠ **One failure rule**: a failure removes the document only until the sale reached the device
+    (receipt `pending`/`printed`/`unknown`) or the drawer (`sessionTotalsApplied`); after that
+    it is recorded (`register.stockError`/`receiptError`).
+  - **Numbers**: till sales AND stornos are `CASH_SALE` (`sequenceGroupFor('cash_storno')` fell
+    through to SALES_DOC before R2); `TXN` is a `closed` registry row (allocates nothing, not on
+    the sequences page); session numbers are the registry's `POS` row
+    (`nextRegistryNumber(orgId, 'pos_session')`).
+  - **Stock goes through `createInvoiceStockMovement`** (the movement carries `invoiceId`), whose
+    numbering now retries a taken `SM-` number like the till's did (`createNumberedMovement`).
+  - ⚠ **The till's stock check is `settings.cashRegister.allowNegativeStock`** (unset = allowed),
+    run before the receipt. NOT `settings.inventory.allowNegativeStock`: it defaults to false and
+    nothing read it, so wiring the till to it would have refused sales in every org.
+  - **Storno** (D-2): a `cash_storno` document, positive; the sale stays `paid` with
+    `register.stornoState: 'full'` + `stornoedBy` (claimed atomically). One door for the till route
+    and the journal's `POST /cash-register/documents/:id/storno` (session-less for a back-office
+    sale). Refused: an imported day, an INVOICED sale (its credit note corrects it), a storno. A
+    POS-row sale is copied first (`copy.ts#copyPosRow`); the frozen row is never written.
+  - ⚠ **The storno's return restocks at the cost the goods LEFT at** (the dispatch line's
+    `resolvedUnitCost`), through `confirmMovement`. Not `reverseInvoiceStockMovement`: on a void
+    it restores the consumed layers AND confirms a receipt that layers them again, at the sale
+    price — layer-costed (FIFO/LIFO) goods counted twice. That void path is still open.
 - ⚠ **A body field the route's schema does not declare never reaches the handler**: Elysia's
   normalize drops it without a word. `POST /invoices` read `pendingTransferIds` without declaring
   it, so the cash-sale form's transfer-then-sell answered 400 for want of stock and left its draft

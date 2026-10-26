@@ -225,10 +225,16 @@ export function buildInvoiceHtml(
     `<tr><td class="k">${esc(L.date)}:</td><td class="v">${fmtDate(inv.issueDate)}</td></tr>`,
     // УНП is only present on fiscally-registered sales; the line is omitted otherwise rather
     // than printed empty, since an invented number would be a compliance defect.
-    inv.unpNumber ? `<tr><td class="k">${esc(L.unp)} :</td><td class="v">${esc(inv.unpNumber)}</td></tr>` : '',
-    // #171: an invoice issued for a cash sale names it — number and the date of the sale.
+    // A till document carries it in its register block (FR-21).
+    (inv.unpNumber || inv.register?.unp)
+      ? `<tr><td class="k">${esc(L.unp)} :</td><td class="v">${esc(inv.unpNumber || inv.register.unp)}</td></tr>`
+      : '',
+    // #171: an invoice issued for a cash sale names it — number and the date of the sale, and for a
+    // till sale its УНП and fiscal receipt (FR-21 §3.9).
     inv.cashSaleRef?.number
-      ? `<tr><td class="k">${esc(L.forCashSale)}:</td><td class="v">${esc(inv.cashSaleRef.number)} / ${fmtDate(inv.cashSaleRef.issueDate)}</td></tr>`
+      ? `<tr><td class="k">${esc(L.forCashSale)}:</td><td class="v">${esc(inv.cashSaleRef.number)} / ${fmtDate(inv.cashSaleRef.issueDate)}${
+        inv.cashSaleRef.unp ? ` · ${esc(L.unp)} ${esc(inv.cashSaleRef.unp)}` : ''}${
+        inv.cashSaleRef.receiptNumber ? ` · ${esc(L.receiptNo)} ${esc(inv.cashSaleRef.receiptNumber)}` : ''}</td></tr>`
       : '',
   ].join('')
 

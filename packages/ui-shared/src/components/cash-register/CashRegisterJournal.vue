@@ -302,7 +302,10 @@ function canStorno(row: any) {
 }
 
 function openStorno(row: any) {
-  stornoTarget.value = { id: row.id, number: row.number, total: row.total, currency: row.currency, unp: row.fiscal?.unp, sessionId: row.sessionId }
+  stornoTarget.value = {
+    id: row.id, number: row.number, total: row.total, currency: row.currency, unp: row.fiscal?.unp,
+    sessionId: row.sessionId, origin: row.origin, warehouseId: row.warehouseId,
+  }
   stornoOpen.value = true
 }
 

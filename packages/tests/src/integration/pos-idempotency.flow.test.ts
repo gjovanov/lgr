@@ -14,7 +14,7 @@ import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { posController } from 'invoicing-api/src/controllers/pos.controller'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
-import { POSSession, POSTransaction, StockMovement } from 'db/models'
+import { Invoice, POSSession, POSTransaction, StockMovement } from 'db/models'
 import { getRepos } from 'services/context'
 import { getNextNumber, generateUNP } from 'services/biz/sequence.service'
 import { requestHash } from 'services/biz/hot-path-key'
@@ -122,7 +122,9 @@ describe('a keyed POS sale happens once', () => {
     expect(ids.size).toBe(1)
     expect(new Set(answers.map(a => a.json.transaction.fiscalReceiptNumber)).size).toBe(1)
 
-    expect(await POSTransaction.countDocuments({ orgId: w.orgId }).exec()).toBe(1)
+    // FR-21: one cash-register document; the till writes no POS row any more.
+    expect(await Invoice.countDocuments({ orgId: w.orgId, type: 'cash_sale' }).exec()).toBe(1)
+    expect(await POSTransaction.countDocuments({ orgId: w.orgId }).exec()).toBe(0)
     expect(await movements(w.orgId)).toBe(1)
     expect(fiscalReceipts(w.sim)).toHaveLength(1)
     const s = await session(w.sessionId)
@@ -155,7 +157,7 @@ describe('a keyed POS sale happens once', () => {
     expect(other.status).toBe(422)
     expect(other.json.code).toBe('idempotency_key_reused')
     expect(fiscalReceipts(w.sim)).toHaveLength(1)
-    expect(await POSTransaction.countDocuments({ orgId: w.orgId }).exec()).toBe(1)
+    expect(await Invoice.countDocuments({ orgId: w.orgId, type: 'cash_sale' }).exec()).toBe(1)
   }, 60_000)
 
   it('a malformed key is refused rather than ignored', async () => {
@@ -309,7 +311,7 @@ describe('storno, session open and session close with a key', () => {
     expect(answers.map(a => a.status)).toEqual([200, 200, 200])
     expect(new Set(answers.map(a => a.json.transaction.id)).size).toBe(1)
     expect(stornoReceipts(w.sim)).toHaveLength(1)
-    expect(await POSTransaction.countDocuments({ orgId: w.orgId, type: 'storno' }).exec()).toBe(1)
+    expect(await Invoice.countDocuments({ orgId: w.orgId, type: 'cash_storno' }).exec()).toBe(1)
     expect(await StockMovement.countDocuments({ orgId: w.orgId, type: 'return' }).exec()).toBe(1)
     const s = await session(w.sessionId)
     expect(s.totalReturns).toBe(24)
@@ -321,12 +323,12 @@ describe('storno, session open and session close with a key', () => {
     const saleId = await soldOnce(w)
     const body = { originalTransactionId: saleId, reason: 'customer_return' }
 
-    // The window, held open: the first request has claimed the sale and not yet written its row.
-    await POSTransaction.updateOne({ _id: saleId }, { $set: { status: 'cancelled' } }).exec()
+    // The window, held open: the first request has claimed the sale and not yet written its storno.
+    await Invoice.updateOne({ _id: saleId }, { $set: { 'register.stornoState': 'full' } }).exec()
     const duplicate = post(stornoUrl(w), w.token, body, 'storno-key-0003')
     await new Promise(res => setTimeout(res, 250))
     // ...and now the first request itself runs.
-    await POSTransaction.updateOne({ _id: saleId }, { $set: { status: 'completed' } }).exec()
+    await Invoice.updateOne({ _id: saleId }, { $set: { 'register.stornoState': 'none' } }).exec()
     const first = await post(stornoUrl(w), w.token, body, 'storno-key-0003')
     const late = await duplicate
 

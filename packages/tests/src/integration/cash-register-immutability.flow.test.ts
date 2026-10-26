@@ -23,7 +23,9 @@ import type { Types } from 'mongoose'
  * - A till document or a storno is never edited, deleted or voided (409): a POS row was immutable
  *   because no route could change it, and `PUT /invoices/:id` edits any document in any status.
  * - A keyed retry finds its sale in either store: R2 writes till sales as documents, and after a
- *   rollback to R1 a retry must replay that document, never ring the sale up again.
+ *   rollback to R1 a retry must replay that document, never ring the sale up again. Since R2 this
+ *   code is the one that writes them: it replays a finished document and finishes an interrupted
+ *   one, and a till document is stornoed like any sale (the R1 refusals are gone with R1).
  *
  * NOTE: no `.rejects` / `.resolves` (Bun-on-Windows deadlock, see Known Issues).
  */
@@ -141,7 +143,7 @@ describe('FR-21.10 — a keyed till retry finds its sale in either store', () =>
     expect(await POSTransaction.countDocuments({ orgId: w.orgId })).toBe(0)
   })
 
-  it('the same key with a different body is 422; a document still in progress is 409', async () => {
+  it('the same key with a different body is 422; a document an interrupted request left is finished by its retry', async () => {
     const w = await world()
     const b = body(String(w.product._id))
     await w.tillDocument({ clientKey: 'retry-key-0002', requestHash: requestHash(`pos.sale:${w.session._id}`, b) })
@@ -149,20 +151,29 @@ describe('FR-21.10 — a keyed till retry finds its sale in either store', () =>
     const reused = await w.call('POST', `/trade/pos/session/${w.session._id}/transaction`, { ...b, payments: [{ method: 'card', amount: 24 }] }, 'retry-key-0002')
     expect(reused.status).toBe(422)
 
-    await w.tillDocument(
+    // No lease on it: the request that wrote it is gone. Its retry finishes it, as one sale.
+    const left = await w.tillDocument(
       { clientKey: 'retry-key-0003', requestHash: requestHash(`pos.sale:${w.session._id}`, b), transactionNumber: 'X2', completedAt: undefined },
     )
-    const busy = await w.call('POST', `/trade/pos/session/${w.session._id}/transaction`, b, 'retry-key-0003')
-    expect(busy.status).toBe(409)
-    expect(busy.json.code).toBe('idempotency_in_progress')
+    const retry = await w.call('POST', `/trade/pos/session/${w.session._id}/transaction`, b, 'retry-key-0003')
+    expect(retry.status).toBe(200)
+    expect(retry.json.transaction.id).toBe(String(left._id))
+    expect((await Invoice.findById(left._id).lean() as any).completedAt).toBeTruthy()
+    expect(await Invoice.countDocuments({ orgId: w.orgId, clientKey: 'retry-key-0003' })).toBe(1)
   })
 
-  it('a storno of a sale only a newer release holds is refused with a reason, not a 404', async () => {
+  it('a till sale held as a document is stornoed: it stays paid, and a cash_storno reverses it', async () => {
     const w = await world()
     const doc = await w.tillDocument()
     const res = await w.call('POST', `/trade/pos/session/${w.session._id}/storno`, { originalTransactionId: String(doc._id), reason: 'customer_return' })
-    expect(res.status).toBe(409)
-    expect(res.json.code).toBe('storno_needs_newer_release')
+    expect(res.status).toBe(200)
+    const sale: any = await Invoice.findById(doc._id).lean()
+    expect(sale.status).toBe('paid')
+    expect(sale.register.stornoState).toBe('full')
+    const storno: any = await Invoice.findOne({ orgId: w.orgId, type: 'cash_storno' }).lean()
+    expect(String(storno.relatedInvoiceId)).toBe(String(doc._id))
+    expect(sale.register.stornoedBy.map(String)).toEqual([String(storno._id)])
+    expect(res.json.transaction.id).toBe(String(storno._id))
   })
 
   it('POST /invoices refuses a key a till sale already carries', async () => {

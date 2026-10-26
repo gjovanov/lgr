@@ -77,7 +77,7 @@ interface SequenceRow {
   defaultDisplay: string
   displayPrefix: string
   group: 'invoice' | 'proforma' | 'bill' | 'cash_sale' | 'order'
-    | 'internal_order' | 'reservation' | 'certificate' | 'pp_protocol'
+    | 'internal_order' | 'reservation' | 'certificate' | 'pp_protocol' | 'pos_session'
   variant: 'draft' | 'issued'
   year: number
   lastNumber: number
@@ -116,6 +116,7 @@ function groupLabel(group: string): string {
     reservation: t('nav.reservations'),
     certificate: t('export.certificate'),
     pp_protocol: t('export.ppProtocol'),
+    pos_session: t('sequences.posSessions'),
   }
   return map[group] || group
 }

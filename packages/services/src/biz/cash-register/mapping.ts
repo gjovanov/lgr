@@ -69,12 +69,18 @@ function documentType(row: any): 'cash_sale' | 'cash_storno' {
 }
 
 /**
- * The money kept per payment: change comes off the last cash payment, which is the one it was
- * handed back from. What was tendered stays on the payment as `tendered` when it differs.
+ * The money kept per payment, so that `Σ payments.amount = total` holds for every reader (§3.2).
+ * What was handed over beyond the total comes off the cash payments, last first, which is where
+ * change is handed back from. What was tendered stays on the payment as `tendered` when it differs.
+ *
+ * The excess is read from the row's own payments, not from `changeDue`: a storno row carries the
+ * SALE's payments and no change of its own (#145), so a storno of a 24.00 sale paid with 30.00 in
+ * cash holds 30.00 and `changeDue: 0`. Its refund is 24.00.
  */
 function keptPayments(row: any, date: Date) {
   const payments: any[] = (row.payments || []).map((p: any) => ({ ...p }))
-  let change = round2(row.changeDue || 0)
+  const handed = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+  let change = round2(Math.max(0, handed - (Number(row.total) || 0)))
   for (let i = payments.length - 1; i >= 0 && change > 0; i--) {
     if (payments[i].method !== 'cash') continue
     const take = Math.min(change, Number(payments[i].amount) || 0)

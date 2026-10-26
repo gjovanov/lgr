@@ -23,18 +23,23 @@ export interface StornoableRow {
   status?: string
   origin?: string
   store?: string
+  /** #171: how far an invoice covers the sale. */
+  invoicingState?: string
 }
 
 /**
- * A row of the journal that the till can reverse today: a completed till sale still held as a POS
- * row. A till sale already held as a cash-register document is reversed by R2's storno; a
- * back-office or imported sale has no fiscal receipt to reverse (FR-21 §3.5, R2).
+ * A row of the journal a storno can reverse (FR-21 §3.5): a completed sale, rung up at the till or
+ * entered in the back office, in either store (the server copies a POS row first).
+ *
+ * Not an imported till day: it is corrected by importing it again. Not an invoiced sale: an
+ * invoice was issued for it, and the credit note to that invoice is its correction (a quantity is
+ * corrected once, D-14).
  */
 export function canStornoJournalRow(row: StornoableRow | null | undefined, role: string | undefined): boolean {
   if (!row || !role) return false
   return row.kind === 'sale'
     && row.status === 'completed'
-    && row.origin === 'pos'
-    && row.store === 'pos'
+    && (row.origin === 'pos' || row.origin === 'backoffice')
+    && (row.invoicingState ?? 'none') === 'none'
     && (STORNO_ROLES as readonly string[]).includes(role)
 }

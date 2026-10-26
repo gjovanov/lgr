@@ -15,7 +15,7 @@ import { posController } from 'invoicing-api/src/controllers/pos.controller'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { setReachWriterForTests } from 'fiscal/device-reach'
-import { FiscalDevice, POSTransaction } from 'db/models'
+import { FiscalDevice, Invoice, POSTransaction } from 'db/models'
 import { getRepos } from 'services/context'
 import { getNextNumber } from 'services/biz/sequence.service'
 import { config } from 'config'
@@ -133,6 +133,7 @@ describe('Прил. 29 т. 8 at the till (SUPTO production mode)', () => {
     expect(json.deviceName).toBe('Eltrade A3')
     expect(new Date(json.lastCommunicationAt).getTime()).toBeLessThan(Date.now() - 2 * HOUR)
     expect(await POSTransaction.countDocuments({})).toBe(0)
+    expect(await Invoice.countDocuments({})).toBe(0)
   })
 
   it('refuses one never reached at all', async () => {
