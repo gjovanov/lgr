@@ -115,6 +115,8 @@
     "orders": "Orders",
     "externalOrders": "Outgoing Orders",
     "internalOrders": "Incoming Orders",
+    "internalOrdersHint": "from customers",
+    "externalOrdersHint": "to suppliers",
     "reservations": "Reservations",
     "creditNotes": "Credit Notes",
     "paymentOrders": "Payment Orders",

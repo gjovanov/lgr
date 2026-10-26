@@ -115,6 +115,8 @@
     "orders": "Поръчки",
     "externalOrders": "Изходящи поръчки",
     "internalOrders": "Входящи поръчки",
+    "internalOrdersHint": "от клиенти",
+    "externalOrdersHint": "към доставчици",
     "reservations": "Резервации",
     "creditNotes": "Кредитни известия",
     "paymentOrders": "Платежни нареждания",
