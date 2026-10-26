@@ -40,11 +40,14 @@ export function stockCheckLines(lines: any[] | undefined): StockCheckLine[] {
 }
 
 /**
- * Whether issuing the document is checked for stock first: what the list checked (an outgoing
- * document), except a proforma, which is an offer and moves no stock (FR-22.22).
+ * Whether issuing the document is checked for stock first: when issuing it DISPATCHES, i.e. an
+ * outgoing invoice or debit note. A proforma is an offer and moves no stock (FR-22.22). An
+ * outgoing credit note is a return that brings the goods back in, and the server checks only
+ * dispatches. Checking a credit note here could hold back a return of an article that has sold
+ * out, which is when returns come.
  */
 export function checksStockOnIssue(doc: { direction?: string; type?: string }): boolean {
-  return doc.direction === 'outgoing' && doc.type !== 'proforma'
+  return doc.direction === 'outgoing' && doc.type !== 'proforma' && doc.type !== 'credit_note'
 }
 
 /** FR-22.14: the message names the document that was issued — a credit note is not „Фактурата". */

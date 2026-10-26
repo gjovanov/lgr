@@ -1727,7 +1727,7 @@ or cash sale and prints it — one click (P5-invoice 20 → 14 clicks, 2 dialogs
   integration test drives the same functions — and `useDocumentIssue` adds the transfer dialog, the
   idempotent `/send` and the messages. The sales list's „Изпрати", the form's „Издай" / „Запази и
   издай" / „Издай и печатай" and the cash-sale form's pre-create check (`useStockTransfer`) use it.
-  A proforma is never stock-checked. Refused, or the transfer dialog closed: nothing prints, and the
+  A proforma is never stock-checked, nor is a credit note: its return brings the goods in. Refused, or the transfer dialog closed: nothing prints, and the
   draft says why (`issueError`).
 - **„Печат" prints in one click** with the user's last settings (`lgr:doc-print:<user>:<org>`:
   format, mode, columns — never the companion documents); „Печат с настройки…" beside it opens the

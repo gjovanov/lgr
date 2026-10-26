@@ -158,6 +158,23 @@ describe("issuing from the form takes the list's path (FR-22.17)", () => {
     expect(await w.level(w.store)).toBe(2)
   })
 
+  it('a credit note is issued without a stock check: its return brings the goods in', async () => {
+    const w = await world()
+    // The invoice it corrects: 1 of the store's 2 leaves.
+    const invoiceId = await w.draft('invoice', 1)
+    await sendIssue(w.client, w.orgUrl, invoiceId)
+    expect(await w.level(w.store)).toBe(1)
+
+    // 40 back into a store that holds 1: a return of more than is on the shelf is ordinary.
+    const id = await w.draft('credit_note', 40, { relatedInvoiceId: invoiceId })
+    const { check } = await prepareIssue(w.client, w.orgUrl, id)
+    expect(check).toBeNull()
+    const issued = await sendIssue(w.client, w.orgUrl, id)
+
+    expect(issued.status).toBe('sent')
+    expect(await w.level(w.store)).toBe(41)
+  })
+
   it('refused (§5.2): the document stays a draft, says why, and no number is burned', async () => {
     const w = await world()
     const id = await w.draft('invoice', 5)
