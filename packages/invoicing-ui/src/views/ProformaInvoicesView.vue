@@ -239,7 +239,7 @@ const headers = computed(() => [
 const kanbanColumns = computed(() => [
   { id: 'draft', title: t('invoicing.status.draft'), color: 'grey' },
   { id: 'sent', title: t('invoicing.status.sent'), color: 'blue' },
-  { id: 'converted', title: t('invoicing.statusConverted', 'Converted'), color: 'green' },
+  { id: 'converted', title: t('invoicing.status.converted'), color: 'green' },
 ])
 
 const kanbanItems = computed(() => {

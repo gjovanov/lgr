@@ -8,7 +8,7 @@
   >
     {{ snackbar.message }}
     <template #actions>
-      <v-btn variant="text" @click="hideSnackbar">Close</v-btn>
+      <v-btn variant="text" @click="hideSnackbar">{{ $t('common.close') }}</v-btn>
     </template>
   </v-snackbar>
 </template>

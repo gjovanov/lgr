@@ -39,7 +39,7 @@
               <v-select v-model="categoryFilter" :label="$t('warehouse.category')" :items="categoryOptions" clearable hide-details density="compact" />
             </v-col>
             <v-col cols="12" md="2">
-              <v-select v-model="typeFilter" :label="$t('common.type')" :items="['goods', 'service']" clearable hide-details density="compact" />
+              <v-select v-model="typeFilter" :label="$t('common.type')" :items="productTypeItems(['goods', 'service'])" clearable hide-details density="compact" />
             </v-col>
             <v-col cols="12" md="2">
               <TagInput v-model="tagFilter" type="product" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
@@ -52,6 +52,7 @@
     <template #item.name="{ item }">
       <entity-link :label="item.name" :to="{ name: 'inventory.products.edit', params: { id: item._id, tab: 'edit' } }" />
     </template>
+    <template #item.type="{ item }">{{ productTypeLabel(item.type) }}</template>
     <template #item.stock="{ item }">
       <div class="d-flex flex-wrap ga-1 py-1">
         <v-chip
@@ -104,6 +105,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
+import { useProductTypes } from 'ui-shared/composables/useProductTypes'
 import ListScaffold from 'ui-shared/components/ListScaffold'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
@@ -117,6 +119,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
+const { productTypeLabel, productTypeItems } = useProductTypes()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 

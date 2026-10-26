@@ -42,6 +42,7 @@
               <div class="d-flex align-center ga-1">
                 <ContactAutocompleteWithCreate
                   v-model="contactId"
+                  :org-url="appStore.orgUrl()"
                   :contacts="contacts"
                   :label="$t('invoicing.customer')"
                   required
@@ -153,7 +154,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import DateField from 'ui-shared/components/DateField.vue'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
-import ContactAutocompleteWithCreate from './ContactAutocompleteWithCreate.vue'
+import ContactAutocompleteWithCreate from 'ui-shared/components/ContactAutocompleteWithCreate.vue'
 import { useAppStore } from '../store/app.store'
 
 /**

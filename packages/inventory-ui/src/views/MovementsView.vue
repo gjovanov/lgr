@@ -23,7 +23,7 @@
           </v-col>
           <v-col cols="12" md="2">
             <!-- `completed` is what confirmMovement leaves behind, so it belongs here. -->
-            <v-select v-model="statusFilter" :label="$t('common.status')" :items="['draft', 'confirmed', 'completed', 'cancelled']" clearable hide-details density="compact" />
+            <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusItems" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
             <v-select v-model="warehouseIdFilter" :label="$t('warehouse.warehouse')" :items="warehouses" item-title="name" item-value="_id" clearable hide-details density="compact" />
@@ -192,12 +192,17 @@ const displayMode = ref<'list' | 'kanban'>('list')
 const dateFrom = ref('')
 const dateTo = ref('')
 
-const kanbanColumns = [
-  { id: 'draft', title: 'Draft', color: 'grey' },
-  { id: 'confirmed', title: 'Confirmed', color: 'blue' },
-  { id: 'completed', title: 'Completed', color: 'green' },
-  { id: 'cancelled', title: 'Cancelled', color: 'red' },
-]
+// A movement's statuses, named as the list's status chips name them (FR-22.11: they were
+// English in every language, in the status filter and as the board's column titles).
+const MOVEMENT_STATUSES = ['draft', 'confirmed', 'completed', 'cancelled'] as const
+const statusItems = computed(() => MOVEMENT_STATUSES.map(value => ({ title: t(`invoicing.status.${value}`), value })))
+
+const kanbanColumns = computed(() => [
+  { id: 'draft', title: t('invoicing.status.draft'), color: 'grey' },
+  { id: 'confirmed', title: t('invoicing.status.confirmed'), color: 'blue' },
+  { id: 'completed', title: t('invoicing.status.completed'), color: 'green' },
+  { id: 'cancelled', title: t('invoicing.status.cancelled'), color: 'red' },
+])
 
 const kanbanItems = computed(() => {
   const grouped: Record<string, any[]> = { draft: [], confirmed: [], completed: [], cancelled: [] }

@@ -94,8 +94,9 @@
 <script setup lang="ts">
 /**
  * Shared address + bank-details sub-editor. Extracted verbatim from the duplicated
- * markup in invoicing-ui's ContactFormView and ContactAutocompleteWithCreate so the
- * exact same fields/behavior render in both places (and any future contact editor).
+ * markup in invoicing-ui's ContactFormView and ContactAutocompleteWithCreate (now in
+ * ui-shared) so the exact same fields/behavior render in both places (and any future
+ * contact editor).
  *
  * Both arrays are bound via v-model and mutated in place:
  *   <AddressBankEditor v-model:addresses="form.addresses" v-model:bankDetails="form.bankDetails" />

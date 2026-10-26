@@ -21,9 +21,15 @@ import { startWalk, signInForUx, uxApi } from '../helpers/ux-budget'
  *
  * Setup (uncounted): the acme-corp seed has NO product categories, and the API refuses an article
  * without one. Regal has categories, so the walks run against one created here ("UX Общи").
+ *
+ * The supplier is one the receipt form could NOT offer before FR-22.6 (B-8): the field loaded the
+ * API's 10 newest contacts of every type and filtered only those, so three of the seed's eight
+ * suppliers were out of reach. It now searches the server for suppliers, and both walks assert
+ * that such a supplier is offered, picked and (when the receipt saves) stored.
  */
 
-const SUPPLIER = 'Global Logistics'
+/** Preferred supplier: the one the walks measured as unreachable through the old field. */
+const SUPPLIER = 'Luxor Imports'
 const WAREHOUSE = 'Main Warehouse'
 const CATEGORY = 'UX Общи'
 const MOVEMENTS_MENU = 'Документи за движение на стоки'
@@ -147,36 +153,108 @@ async function setPrices(walk: any, page: any, sku: string, name: string, curren
   await expect(page.locator('.v-snackbar').filter({ hasText: 'Успешно запазено' })).toBeVisible()
 }
 
-/** From any inventory page: the movements list, then a new movement; reports what Контакт offers. */
-async function openNewMovement(walk: any, page: any, api: Api): Promise<{ supplier: string; note: string }> {
-  const isContactList = (r: any) => /\/invoicing\/contact(\?|$)/.test(r.url()) && r.request().method() === 'GET'
-  const listContacts = page.waitForResponse(isContactList) // the movements list loads its own copy
+interface SupplierChoice {
+  id: string
+  name: string
+  /** It was out of the old field's reach: not among the API's 10 newest contacts. */
+  wasUnreachable: boolean
+  unreachableBefore: string[]
+  supplierCount: number
+}
+
+/**
+ * Uncounted: which supplier the walk receives from. Before FR-22.6 the receipt's partner field
+ * loaded `GET /invoicing/contact` with no size — the API's 10 newest contacts of every type — and
+ * filtered only those, so a supplier outside them could not be picked at all (B-8). The walk
+ * takes SUPPLIER when it is such a one, else the first that is, so it proves the fix every run.
+ */
+async function pickSupplier(api: Api): Promise<SupplierChoice> {
+  const all: any[] = (await api.get('/invoicing/contact?size=500')).contacts || []
+  const oldField = new Set(((await api.get('/invoicing/contact')).contacts || []).map((c: any) => c._id))
+  const suppliers = all.filter(c => c.type === 'supplier' || c.type === 'both')
+  const unreachable = suppliers.filter(c => !oldField.has(c._id))
+  const chosen = unreachable.find(c => c.companyName === SUPPLIER) || unreachable[0]
+    || suppliers.find(c => c.companyName === SUPPLIER) || suppliers[0]
+  expect(chosen, 'a supplier to receive from').toBeTruthy()
+  return {
+    id: chosen._id,
+    name: chosen.companyName,
+    wasUnreachable: !oldField.has(chosen._id),
+    unreachableBefore: unreachable.map(c => c.companyName),
+    supplierCount: suppliers.length,
+  }
+}
+
+/** The receipt's „Доставчик" field (a v-autocomplete) and the box Vuetify paints around it. */
+function supplierField(page: any) {
+  const input = page.getByRole('combobox', { name: /^Доставчик/ })
+  return { input, box: input.locator('xpath=ancestor::div[contains(@class,"v-field")][1]') }
+}
+
+/**
+ * From any inventory page: the movements list, then a new movement. Checks, uncounted, what the
+ * receipt's „Доставчик" field asks the server for (B-8: suppliers only, never a fixed page).
+ */
+async function openNewMovement(walk: any, page: any, choice: SupplierChoice): Promise<{ offered: string[]; note: string }> {
+  const isSupplierList = (r: any) => r.request().method() === 'GET' && /\/invoicing\/contact\?/.test(r.url())
+    && new URL(r.url()).searchParams.get('type') === 'supplier'
   await walk.menu('Склад', MOVEMENTS_MENU)
   await page.waitForURL(/\/inventory\/movements(\?.*)?$/)
-  await listContacts
-  const formContacts = page.waitForResponse(isContactList)
+  const formContacts = page.waitForResponse(isSupplierList)
   await walk.click(page.getByRole('link', { name: 'Създай' }), 'new movement')
   await page.waitForURL(/\/movements\/new/)
   const res = await formContacts
-  const body = await res.json()
-  const offered: string[] = (body.contacts || []).map((c: any) => c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' '))
-  const all = (await api.get('/invoicing/contact?size=200')).contacts || []
-  const supplierCapable: string[] = all.filter((c: any) => c.type === 'supplier' || c.type === 'both').map((c: any) => c.companyName)
-  const unreachable = supplierCapable.filter(n => !offered.includes(n))
+  const listed: any[] = (await res.json()).contacts || []
+  const customers = listed.filter(c => c.type !== 'supplier' && c.type !== 'both').map(c => c.companyName)
+  expect(customers, 'a receipt\'s „Доставчик" lists customers').toEqual([])
+  await expect(supplierField(page).input).toBeVisible()
+  const offered = listed.map(c => c.companyName)
   const size = new URL(res.url()).searchParams.get('size')
-  const supplier = offered.includes(SUPPLIER) ? SUPPLIER : (supplierCapable.find(n => offered.includes(n)) as string)
-  const note = `Контакт field: GET /invoicing/contact ${size ? `size=${size}` : 'with no size'} → offers ${offered.length} of the org's ${all.length} contacts (newest first; it filters only what it loaded, so typing a missing name finds nothing) and mixes in customers — the field is „Контакт", not „Доставчик". Supplier-capable contacts NOT reachable: ${unreachable.length ? unreachable.join(', ') : 'none'} (${supplierCapable.length - unreachable.length} of ${supplierCapable.length} reachable).${supplier !== SUPPLIER ? ` ${SUPPLIER} was not offered; used ${supplier}.` : ''}`
-  return { supplier, note }
+  const note = `„Доставчик" (FR-22.6): the field asks the server for suppliers (GET /invoicing/contact?type=supplier&size=${size}) and opens with ${offered.length} of the org's ${choice.supplierCount} supplier-capable contacts, no customers; typing searches the server. `
+    + (choice.wasUnreachable
+      ? `${choice.name} is picked: the old field could not reach it (it loaded the API's 10 newest contacts of every type; also out of reach then: ${choice.unreachableBefore.filter(n => n !== choice.name).join(', ') || 'none'}).`
+      : `Every supplier of this org is among its 10 newest contacts, so the old field could reach ${choice.name} too.`)
+  return { offered, note }
+}
+
+/** Pick the walk's supplier: from the list when it opens with it, else by typing its name. */
+async function chooseSupplier(walk: any, page: any, choice: SupplierChoice, offered: string[]): Promise<void> {
+  if (offered.includes(choice.name)) {
+    await walk.choose(page, /^Доставчик/, choice.name, `Доставчик: ${choice.name}`)
+  } else {
+    const fragment = choice.name.split(' ')[0]
+    await walk.type(supplierField(page).input, fragment, `Доставчик: search „${fragment}"`)
+    const option = page.locator('.v-overlay--active .v-list-item').filter({ hasText: choice.name }).first()
+    await expect(option).toBeVisible()
+    await walk.click(option, `Доставчик: pick ${choice.name}`)
+  }
+  await expect(supplierField(page).box).toContainText(choice.name)
 }
 
 /** Uncounted, in its own browser context: can the receipt form create an article, and what does an article without a category get? */
-async function probe(browser: any, baseURL: string, stamp: string): Promise<string[]> {
+async function probe(browser: any, baseURL: string, stamp: string, supplier: SupplierChoice): Promise<string[]> {
   const ctx = await browser.newContext({ baseURL, viewport: { width: 1366, height: 768 } })
   const p = await ctx.newPage()
   const notes: string[] = []
   try {
     await signInForUx(p)
     await p.goto('/inventory/movements/new', { waitUntil: 'networkidle' })
+
+    // FR-22.6 (B-8): typing in „Доставчик" asks the server, suppliers only, and finds the supplier.
+    const fragment = supplier.name.split(' ')[0].slice(0, 4)
+    const asked = p.waitForResponse((r: any) => /\/invoicing\/contact\?/.test(r.url())
+      && new URL(r.url()).searchParams.get('search') === fragment)
+    const field = supplierField(p)
+    await field.box.click()
+    await field.input.pressSequentially(fragment, { delay: 20 })
+    const res = await asked
+    expect(new URL(res.url()).searchParams.get('type'), 'the supplier search is limited to suppliers').toBe('supplier')
+    const found: string[] = ((await res.json()).contacts || []).map((c: any) => c.companyName)
+    expect(found, `searching „${fragment}" finds ${supplier.name}`).toContain(supplier.name)
+    await expect(p.locator('.v-overlay--active .v-list-item').filter({ hasText: supplier.name }).first()).toBeVisible()
+    notes.push(`Verified: typing „${fragment}" in „Доставчик" searches the server (GET /invoicing/contact?search=${fragment}&type=supplier) and offers ${supplier.name}.`)
+    await p.keyboard.press('Escape')
+
     const search = p.getByPlaceholder('Търсете продукти...').first()
     await search.click()
     await search.pressSequentially(`Brand new ${stamp}`, { delay: 20 })
@@ -228,7 +306,8 @@ test('P2 receive: goods before the invoice — receipt with product update, incl
     'PRD-0014': { qty: 5, purchase: money(before['PRD-0014'].purchasePrice + 1.25), selling: money(before['PRD-0014'].sellingPrice + 2.5) },
     [newSku]: { qty: 7, purchase: '12.4', selling: '19.9' },
   }
-  const probeNotes = await probe(browser, testInfo.project.use.baseURL as string, stamp)
+  const supplier = await pickSupplier(api)
+  const probeNotes = await probe(browser, testInfo.project.use.baseURL as string, stamp, supplier)
   const pageErrors: string[] = []
   page.on('pageerror', e => pageErrors.push(e.message))
   page.on('console', m => { if (m.type() === 'error') pageErrors.push(m.text()) })
@@ -246,16 +325,21 @@ test('P2 receive: goods before the invoice — receipt with product update, incl
   // Its prices are left to the receipt's product-update columns: the receipt line needs the
   // unit cost anyway, so that is the shorter route (and the one the switch exists for).
   await createArticle(walk, page, newSku, newName)
+  // FR-22.11 (B-14): the message bar used to close with a hard-coded English „Close", and the
+  // article's type read as the stored „goods".
+  const closeLabel = (await page.locator('.v-snackbar .v-snackbar__actions').first().innerText()).trim()
+  expect(closeLabel, 'the message bar closes in Bulgarian').toMatch(/^затвори$/i)
   const typeShown = (await page.locator('.v-select').filter({ hasText: 'Тип' }).first().locator('.v-select__selection').innerText()).trim()
-  if (/goods/.test(typeShown)) walk.note(`New-article form: Тип shows the raw English value "${typeShown}" in the bg UI. SKU is required and nothing suggests the next one.`)
+  expect(typeShown, 'the new article\'s Тип').toBe('Стока')
+  walk.note('New-article form: SKU is required and nothing suggests the next one.')
 
   // ── The receipt ──
-  const { supplier, note: contactNote } = await openNewMovement(walk, page, api)
-  walk.note(contactNote)
+  const { offered, note: supplierNote } = await openNewMovement(walk, page, supplier)
+  walk.note(supplierNote)
   const toWhShown = (await page.getByRole('combobox', { name: /Към склад/ }).locator('xpath=ancestor::div[contains(@class,"v-field")][1]').innerText()).trim()
   if (!/Main Warehouse/.test(toWhShown)) walk.note('Receipt form: type defaults to Заприходяване, but „Към склад" starts empty — the org default warehouse is not preselected (the bill form does preselect it).')
   await walk.choose(page, /Към склад/, WAREHOUSE, 'Към склад: Main Warehouse')
-  await walk.choose(page, /^Контакт/, supplier, `Контакт: ${supplier}`)
+  await chooseSupplier(walk, page, supplier, offered)
 
   const chipOff = page.locator('.v-chip').filter({ hasText: 'Без актуализация на продукт' })
   await expect(chipOff).toBeVisible()
@@ -305,8 +389,6 @@ test('P2 receive: goods before the invoice — receipt with product update, incl
     const body = await updateRes.json().catch(() => ({}))
     await expect(page.locator('.v-snackbar .v-snackbar__content')).toBeVisible()
     const shown = (await page.locator('.v-snackbar .v-snackbar__content').innerText()).replace(/\s+/g, ' ').trim()
-    const closeLabel = (await page.locator('.v-snackbar .v-snackbar__actions').innerText()).trim()
-    if (/close/i.test(closeLabel)) walk.note(`Every message bar closes with an English "${closeLabel}" button (hard-coded in each SPA's App.vue).`)
     await walk.shot('save-refused')
     walk.note(`DEAD END at Save: HTTP ${updateRes.status()}, the user reads "${shown}" (English, names a product id). The form sends 13 price-tier slots per line (MAX_PRICE_TIERS = 13, as the Product model allows) whenever a slot holds a price; the server's sanitizeProductUpdates still caps priceTiers at 10. Every article with a selling price trips it, so the switch is unusable. Nothing was saved: no movement, no price change.`)
     walk.note('Instead: switch the update off, Save, „Потвърди", then set each article\'s prices in Products — or, shorter, the prices first and a plain receipt whose lines inherit the unit cost (measured as P2b). Had Save worked, the receipt would still be a draft needing „Потвърди".')
@@ -328,7 +410,8 @@ test('P2 receive: goods before the invoice — receipt with product update, incl
   extra.push(`API after the walk: PRD-0013 stock ${before['PRD-0013'].stock} → ${after['PRD-0013'].stock}, purchase ${before['PRD-0013'].purchasePrice} → ${after['PRD-0013'].purchasePrice}, selling ${before['PRD-0013'].sellingPrice} → ${after['PRD-0013'].sellingPrice}; PRD-0014 stock ${before['PRD-0014'].stock} → ${after['PRD-0014'].stock}; new article stock ${after[newSku]?.stock ?? 'n/a'}, purchase ${after[newSku]?.purchasePrice}, selling ${after[newSku]?.sellingPrice}, VAT ${after[newSku]?.taxRate} % (the org default is 18 %, PRD-0013 carries ${after['PRD-0013'].taxRate} %).`)
   if (movementId) {
     const mv = await api.get(`/warehouse/movement/${movementId}`)
-    extra.push(`Movement ${mv?.stockMovement?.movementNumber}: status ${mv?.stockMovement?.status}.`)
+    extra.push(`Movement ${mv?.stockMovement?.movementNumber}: status ${mv?.stockMovement?.status}, supplier ${supplier.name}.`)
+    expect(mv?.stockMovement?.contactId, 'the receipt stores the supplier picked in „Доставчик"').toBe(supplier.id)
   }
   appendNotes(testInfo, 'P2', result, extra)
   expect(result.clicks).toBeGreaterThan(0)
@@ -356,6 +439,7 @@ test('P2b receive: the shortest route that works today — prices in Products fi
     'PRD-0014': { qty: 5, purchase: money(before['PRD-0014'].purchasePrice + 1.25), selling: money(before['PRD-0014'].sellingPrice + 2.5) },
     [newSku]: { qty: 7, purchase: '12.4', selling: '19.9' },
   }
+  const supplier = await pickSupplier(api)
   const pageErrors: string[] = []
   page.on('pageerror', e => pageErrors.push(e.message))
   page.on('console', m => { if (m.type() === 'error') pageErrors.push(m.text()) })
@@ -376,10 +460,10 @@ test('P2b receive: the shortest route that works today — prices in Products fi
   await createArticle(walk, page, newSku, newName, target[newSku])
 
   // ── The receipt ──
-  const { supplier, note: contactNote } = await openNewMovement(walk, page, api)
-  walk.note(contactNote)
+  const { offered, note: supplierNote } = await openNewMovement(walk, page, supplier)
+  walk.note(supplierNote)
   await walk.choose(page, /Към склад/, WAREHOUSE, 'Към склад: Main Warehouse')
-  await walk.choose(page, /^Контакт/, supplier, `Контакт: ${supplier}`)
+  await chooseSupplier(walk, page, supplier, offered)
 
   const qtyCol = await colIndex(page, 'Количество')
   const costCol = await colIndex(page, 'Единична цена')
@@ -414,8 +498,9 @@ test('P2b receive: the shortest route that works today — prices in Products fi
   await walk.shot('draft-saved')
   await walk.click(page.getByRole('button', { name: 'Потвърди' }), 'confirm (book the stock)')
   await expect(page.locator('.v-snackbar').filter({ hasText: 'Успешно завършено' })).toBeVisible()
+  // FR-22.11 (B-14): the pipeline read „draft → confirmed → completed" in every language.
   const chips = (await page.locator('.form-actions-bar .v-chip').allInnerTexts()).map(s => s.trim()).filter(Boolean)
-  if (chips.some(c => /^(draft|confirmed|completed)$/i.test(c))) walk.note(`The movement's status pipeline is English in the bg UI: ${chips.join(' → ')}.`)
+  expect(chips, 'the movement\'s status pipeline').toEqual(['Чернова', 'Потвърдена', 'Завършена'])
   await walk.shot('receipt-completed')
 
   const result = walk.finish()
@@ -426,7 +511,7 @@ test('P2b receive: the shortest route that works today — prices in Products fi
   const extra: string[] = []
   const tierErr = pageErrors.find(e => /ensureTenTiers/.test(e))
   if (tierErr) extra.push(`New-article form throws on load ("${tierErr.split('\n')[0]}", ProductFormView calls a function that does not exist), so its price-tier table stays empty: the new article is saved with ${after[newSku]?.tiers.length ?? '?'} tier slots.`)
-  extra.push(`Stock (API): PRD-0013 ${before['PRD-0013'].stock} → ${after['PRD-0013'].stock} (+${after['PRD-0013'].stock - before['PRD-0013'].stock}), PRD-0014 ${before['PRD-0014'].stock} → ${after['PRD-0014'].stock} (+${after['PRD-0014'].stock - before['PRD-0014'].stock}), new article ${after[newSku]?.stock}. Movement ${mv?.stockMovement?.movementNumber}: ${mv?.stockMovement?.status}.`)
+  extra.push(`Stock (API): PRD-0013 ${before['PRD-0013'].stock} → ${after['PRD-0013'].stock} (+${after['PRD-0013'].stock - before['PRD-0013'].stock}), PRD-0014 ${before['PRD-0014'].stock} → ${after['PRD-0014'].stock} (+${after['PRD-0014'].stock - before['PRD-0014'].stock}), new article ${after[newSku]?.stock}. Movement ${mv?.stockMovement?.movementNumber}: ${mv?.stockMovement?.status}, supplier ${supplier.name}.`)
   extra.push(`Prices (API): PRD-0013 purchase ${before['PRD-0013'].purchasePrice} → ${after['PRD-0013'].purchasePrice}, selling ${before['PRD-0013'].sellingPrice} → ${after['PRD-0013'].sellingPrice}; new article purchase ${after[newSku]?.purchasePrice}, selling ${after[newSku]?.sellingPrice}, VAT ${after[newSku]?.taxRate} % (org default 18 %; the form's VAT field defaults to 0).`)
   const t13 = after['PRD-0013'].tiers
   const atCost = t13.filter((x: any) => Number(x.finalPrice) === Number(after['PRD-0013'].purchasePrice))
@@ -438,4 +523,6 @@ test('P2b receive: the shortest route that works today — prices in Products fi
   appendNotes(testInfo, 'P2b', result, extra)
 
   expect(after['PRD-0013'].stock - before['PRD-0013'].stock).toBe(10)
+  // B-8: the supplier the old field could not offer is the one the receipt stores.
+  expect(mv?.stockMovement?.contactId, 'the receipt stores the supplier picked in „Доставчик"').toBe(supplier.id)
 })

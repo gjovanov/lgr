@@ -2,7 +2,7 @@
   <EntityFormShell
     :title="isEdit ? $t('warehouse.viewMovement') : $t('common.create') + ' ' + $t('warehouse.movementDoc')"
     :subtitle="isEdit ? (movement.number || '') : ''"
-    :status="isEdit ? { steps: ['draft', 'confirmed', 'completed'], current: movement.status } : undefined"
+    :status="isEdit ? statusDef : undefined"
     :actions="formActions"
     :loading="loading"
     back-to="/movements"
@@ -33,7 +33,22 @@
           <DateField v-model="form.date" :label="$t('common.date')" :rules="[rules.required]" :disabled="readonly" density="compact" />
         </v-col>
       </v-row>
-      <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" />
+      <!-- FR-22.6 (B-8): searched on the server, so every supplier can be reached; on a receipt
+           it lists suppliers only and is called „Доставчик". -->
+      <v-defaults-provider :defaults="{ VAutocomplete: { density: 'compact' } }">
+        <ContactAutocompleteWithCreate
+          v-model="form.contactId"
+          :contacts="partners.contacts.value"
+          :loading="partners.loading.value"
+          :label="partnerLabel"
+          :org-url="appStore.orgUrl()"
+          :new-contact-type="isReceipt ? 'supplier' : undefined"
+          :disabled="readonly"
+          data-testid="movement-partner"
+          @update:search="partners.onSearch"
+          @contact-created="partners.add"
+        />
+      </v-defaults-provider>
 
       <div class="d-flex align-center mt-4 mb-2">
         <span class="text-subtitle-2">{{ $t('invoicing.lineItems') }}</span>
@@ -101,7 +116,7 @@
                 <v-select
                   v-if="col.key === 'type'"
                   :model-value="productUpdateFor(line).type"
-                  :items="['goods', 'service', 'raw_material', 'finished_product']"
+                  :items="productTypeItems()"
                   density="compact"
                   hide-details
                   variant="underlined"
@@ -224,7 +239,10 @@ import DateField from 'ui-shared/components/DateField.vue'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
-import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
+import ContactAutocompleteWithCreate from 'ui-shared/components/ContactAutocompleteWithCreate.vue'
+import { useContactSearch } from 'ui-shared/composables/useContactSearch'
+import { useProductTypes } from 'ui-shared/composables/useProductTypes'
+import type { FormAction, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import GRColumnPicker from '../components/GRColumnPicker.vue'
 import { useGRColumns } from '../composables/useGRColumns'
 
@@ -232,7 +250,6 @@ import { useGRColumns } from '../composables/useGRColumns'
 import { MAX_PRICE_TIERS } from 'config/constants'
 
 interface Warehouse { _id: string; name: string }
-interface Contact { _id: string; name: string }
 
 const route = useRoute()
 const router = useRouter()
@@ -246,10 +263,19 @@ const loading = ref(false)
 const saving = ref(false)
 const formRef = ref()
 const warehouses = ref<Warehouse[]>([])
-const contacts = ref<Contact[]>([])
 const movement = ref<{ number?: string; status: string }>({ status: 'draft' })
 // Draft movements stay editable; confirmed/completed are read-only (stock already applied).
 const readonly = computed(() => isEdit.value && movement.value.status !== 'draft')
+
+/**
+ * The status pipeline. EntityFormShell translates each step as an i18n KEY, so the bare
+ * 'draft' / 'confirmed' / 'completed' it used to get rendered as English in every language
+ * (FR-22.11). Same words as the movements list's status chips.
+ */
+const statusDef = computed<StatusDef>(() => ({
+  steps: ['draft', 'confirmed', 'completed'].map(s => `invoicing.status.${s}`),
+  current: `invoicing.status.${movement.value.status}`,
+}))
 
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -271,6 +297,24 @@ const form = ref({
 const movementTypeItems = computed(() =>
   ['receipt', 'dispatch', 'transfer', 'adjustment'].map(value => ({ title: t(`warehouse.movementTypes.${value}`), value })),
 )
+
+// ── the partner: the supplier on a receipt, any contact otherwise ──
+/**
+ * FR-22.6 (B-8). The field used to load `GET /invoicing/contact` with no size: the API's 10
+ * newest contacts of every type, filtered in the browser, so an older supplier could not be
+ * picked at all and customers filled the list. It now searches the server; on a receipt it
+ * asks for suppliers (and `both`) only.
+ */
+const isReceipt = computed(() => form.value.type === 'receipt')
+const partnerLabel = computed(() => t(isReceipt.value ? 'invoicing.supplier' : 'invoicing.contact'))
+const partners = useContactSearch({
+  orgUrl: () => appStore.orgUrl(),
+  type: () => (isReceipt.value ? 'supplier' : undefined),
+  selected: () => [form.value.contactId],
+})
+watch(() => form.value.type, () => { void partners.search() })
+// A loaded, restored or imported movement names its contact by id: fetch it so it shows by name.
+watch(() => form.value.contactId, () => { void partners.ensureSelected() })
 
 // ── neither warehouse set ──
 /**
@@ -308,6 +352,7 @@ const grWithUpdate = ref(false)
 const columnPickerOpen = ref(false)
 const { activeColumns } = useGRColumns()
 const categories = ref<Array<{ _id: string; name: string }>>([])
+const { productTypeItems } = useProductTypes()
 const uomCodes = ['pcs', 'pair', 'set', 'box', 'pack', 'dozen', 'g', 'kg', 'ton', 'lb', 'oz', 'ml', 'L', 'm3', 'gal', 'mm', 'cm', 'm', 'km', 'in', 'ft', 'm2', 'ha', 'hr', 'day', 'month']
 const uomOptions = computed(() => uomCodes.map(code => ({ title: `${t(`warehouse.uom.${code}`, code)} (${code})`, value: code })))
 
@@ -321,8 +366,9 @@ const { markSaved, tryRestore } = usePendingChanges({
   entityType: 'stockMovement',
   icon: 'mdi-swap-horizontal',
   getFormData: () => ({ ...form.value }),
+  // The pending-changes panel shows the values: the type by its name, not as „receipt".
   getPreviewFields: () => [
-    { label: 'Type', value: form.value.type },
+    { label: 'Type', value: t(`warehouse.movementTypes.${form.value.type}`) },
     { label: 'Date', value: form.value.date },
   ],
   // A draft saved before the warehouses became `null` when empty may carry ''.
@@ -648,11 +694,6 @@ watch(() => form.value.fromWarehouseId, () => {
   })
 })
 
-function contactDisplayName(c: any): string {
-  if (c.companyName) return c.companyName
-  return [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email || c._id
-}
-
 async function fetchWarehouses() {
   try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } }); warehouses.value = data.warehouses || [] } catch { /* */ }
 }
@@ -705,15 +746,8 @@ function onUnitCostChange(idx: number) {
   setUpdate(line, 'purchasePrice', purchase)
 }
 
-async function fetchContacts() {
-  try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`)
-    contacts.value = (data.contacts || []).map((c: any) => ({ ...c, name: contactDisplayName(c) }))
-  } catch { /* */ }
-}
-
 onMounted(async () => {
-  await Promise.all([fetchWarehouses(), fetchContacts(), fetchCategories()])
+  await Promise.all([fetchWarehouses(), partners.search(), fetchCategories()])
   if (tryRestore()) return
   fetchItem()
 })

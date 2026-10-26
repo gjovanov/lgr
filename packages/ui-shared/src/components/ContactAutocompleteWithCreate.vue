@@ -3,15 +3,16 @@
     <v-autocomplete
       :model-value="modelValue"
       @update:model-value="$emit('update:modelValue', $event)"
-      @update:search="$emit('update:search', $event)"
+      @update:search="onSearch"
       :label="label"
       :items="allItems"
-      item-title="companyName"
+      :item-title="contactTitle"
       item-value="_id"
       :rules="required ? [rules.required] : []"
       clearable
       no-filter
       :loading="loading"
+      :disabled="disabled"
     >
       <template #append-item>
         <v-divider />
@@ -114,22 +115,36 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * A party picker that can also create the party: the invoice forms' „Клиент", the cash sale's
+ * customer and the goods receipt's „Доставчик".
+ *
+ * Promoted from invoicing-ui (FR-22.6) so the receipt form in inventory-ui could use it. It only
+ * SHOWS `contacts`: the caller owns the list and answers `update:search` with a server query —
+ * `useContactSearch` does that for a form that has no list of its own, `useDocumentForm` does it
+ * for the invoice forms.
+ */
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import AddressBankEditor from 'ui-shared/components/AddressBankEditor.vue'
+import { httpClient } from '../composables/useHttpClient'
+import { useSnackbar } from '../composables/useSnackbar'
+import { contactTitle } from '../composables/useContactSearch'
 import { buildContactPayload, isValidOptionalEmail } from '../composables/contact-payload'
+import AddressBankEditor from './AddressBankEditor.vue'
 
-interface Contact { _id: string; companyName: string; [key: string]: any }
+interface Contact { _id: string; companyName?: string; [key: string]: any }
 
 const props = defineProps<{
-  modelValue: string
+  modelValue: string | null | undefined
   contacts: Contact[]
   label: string
+  /** `/org/<id>` of the tab's org: where a new contact is created and looked up. */
+  orgUrl: string
   required?: boolean
   loading?: boolean
+  disabled?: boolean
+  /** The type a contact created here starts as: a supplier on a receipt, a customer elsewhere. */
+  newContactType?: 'customer' | 'supplier' | 'both'
 }>()
 
 const emit = defineEmits<{
@@ -139,8 +154,17 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+
+/**
+ * Vuetify writes the chosen contact's name back into the search box. That is not a query: passed
+ * on, it would narrow the list to the one contact already chosen.
+ */
+function onSearch(text: string) {
+  const chosen = props.contacts.find(c => c._id === props.modelValue)
+  if (chosen && text === contactTitle(chosen)) return
+  emit('update:search', text)
+}
 
 const createDialog = ref(false)
 const createFormRef = ref()
@@ -151,7 +175,7 @@ const emptyAddress = () => ({ type: 'billing', street: '', city: '', postalCode:
 const emptyBank = () => ({ bankName: '', accountNumber: '', iban: '', swift: '', currency: 'EUR', isDefault: false })
 const emptyContact = () => ({
   companyName: '',
-  type: 'customer',
+  type: props.newContactType || 'customer',
   firstName: '',
   lastName: '',
   email: '',
@@ -172,7 +196,7 @@ const rules = {
   email: (v: string) => isValidOptionalEmail(v) || t('validation.invalidEmail'),
 }
 
-function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
+function orgUrl() { return props.orgUrl }
 
 function openCreateDialog() {
   newContact.value = emptyContact()

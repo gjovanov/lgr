@@ -84,7 +84,7 @@
               <v-chip size="x-small" color="error" label>{{ $t('files.compare.missing') }}: {{ item.compare.missingFromLgr }}</v-chip>
             </template>
             <template v-else>
-              <v-chip v-if="item.status === 'committed'" size="x-small" color="success" label prepend-icon="mdi-check">{{ $t('invoicing.status.committed') || 'committed' }}</v-chip>
+              <v-chip v-if="item.status === 'committed'" size="x-small" color="success" label prepend-icon="mdi-check">{{ $t('files.status.committed') }}</v-chip>
               <v-btn v-if="canOcr(item)" size="x-small" variant="tonal" :loading="item._ocr" prepend-icon="mdi-text-recognition" @click="ocr(item)">{{ $t('files.ocrAction') }}</v-btn>
               <v-btn v-if="canAnalyze(item)" size="x-small" variant="tonal" color="primary" :loading="item._busy" prepend-icon="mdi-magnify-scan" @click="analyze(item)">{{ $t('files.analyze') }}</v-btn>
               <v-btn v-if="canReconcile(item)" size="x-small" variant="tonal" color="deep-purple" :loading="item._busy" prepend-icon="mdi-sync-alert" @click="reconcile(item)">{{ $t('files.reconcile.action') }}</v-btn>
