@@ -1885,9 +1885,9 @@ tracks the steps. R1a (the correctness fixes the merge's parity checks depend on
 - **SUPTO periods are Bulgarian days** (`suptoPeriod`, `services/biz/local-day.ts`): `dateTo` used
   to parse as 00:00 UTC, the start of its day, so the POS tables lost the whole last day.
 
-R1b (the read side: every reader counts a till sale once, whichever store holds it) and R1c (one
-journal page in both apps) are built; the handover for what remains is
-`docs/fr/FR-21-HANDOVER.md`.
+R1 — R1a, R1b (the read side: every reader counts a till sale once, whichever store holds it) and
+R1c (one journal page in both apps) — is on production since 2026-10-26 (`v20261026-ee6cc3b78103`,
+migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md`.
 
 - ⚠ **Till sales are read through `loadPosRows`** (`cash-register/pos-union.ts`), never from
   `postransactions` directly: the union of the till's documents (`register.origin: 'pos'`) and the

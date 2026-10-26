@@ -2,39 +2,52 @@
 
 **To:** Atanas (@lazarovski) · **Tracking:** #171 · **Spec:** [FR-21](FR-21-cash-register-pos-and-cash-sales.md)
 
-R1, the read side, is built in three stacked PRs. Nothing is deployed and nothing on production
-has been touched: no migration has run there and no data was removed. This is what is done, what
-is left, and what turned up on the way that the spec does not say.
+R1, the read side, is merged and on production since 2026-10-26: master `ddfd167f`, image
+`v20261026-ee6cc3b78103`. Its two migrations ran there, and the field checks match the baseline taken
+before the release. No data has been removed: FR-21.14 waits for the owner's go on its dry run. This
+is what is done, what is left, and what turned up on the way that the spec does not say.
 
 ## 1. State
 
 | Step | Requirements | State |
 |---|---|---|
-| **R1a** — the fixes the merge depends on | FR-21.1 – FR-21.6 (B-1 – B-5, B-7) | PR #244 |
-| **R1b** — every reader counts a till sale once, whichever store holds it | FR-21.7 – FR-21.12 | PR #247 (base: #244's branch) |
-| **R1c** — one journal page in both apps | FR-21.13 (B-6) | PR #248 (base: R1b's branch) |
-| Before R2 — the `regal` test sales | FR-21.14 | **not started.** Needs the owner's go on production. |
+| **R1a** — the fixes the merge depends on | FR-21.1 – FR-21.6 (B-1 – B-5, B-7) | #244, merged and deployed 2026-10-26 |
+| **R1b** — every reader counts a till sale once, whichever store holds it | FR-21.7 – FR-21.12 | #247, merged and deployed 2026-10-26 |
+| **R1c** — one journal page in both apps | FR-21.13 (B-6) | #248, merged and deployed 2026-10-26 |
+| Before R2 — the `regal` test sales | FR-21.14 | #269: the script. Dry run on prod, then **the owner's go**, then `--execute`. |
 | R2 — the write side and the copy | FR-21.15 – FR-21.24 | not started |
 | R3 — freeze | FR-21.25 – FR-21.26 | not started |
 | R4 — contract | FR-21.27 – FR-21.28 | not started |
 | R5 — one terminal | FR-21.29 – FR-21.32 | not started |
 
-**Merge order:** #244 → #247 (R1b) → #248 (R1c). Each PR's base is the branch below it; when that branch is merged
-and deleted, GitHub retargets the next PR to `master`. Each part can be deployed on its own, in
-that order: R1b reads both stores under the old pages, and R1c only adds the page. Deploying the
-three together is the simplest.
+⚠ **Merging a stack: retarget the next PR before deleting the merged branch.** GitHub CLOSED #247 when
+#244's head branch was deleted with `gh pr merge --delete-branch`, instead of retargeting it. A closed
+PR's base cannot be changed, and it cannot be reopened while its base branch is gone. The fix was to
+restore the branch, reopen the PR, retarget it, and delete the branch again. For the rest of the stack:
+`gh pr edit <next> --base master` first, then delete the old base, then merge.
 
-**Deploying R1:**
-1. Run the migrations: `bun run migrate`. `MIGRATIONS_AUTO` is false on production, so this is a
-   step, not a side effect. There are two migrations:
-   - `0006-pos-out-record-only`
-   - `0007-cash-sale-line-totals-gross`
-2. Release note (FR-21.5): the product ledger's cash-register totals for imported days rise by the
+**The R1 release, 2026-10-26:**
+1. **Migrations.** `bun run migrate` ran from the build host's `~/lgr` (at the deployed commit, through a
+   port-forward). `MIGRATIONS_AUTO` is off on production, so this is a step, not a side effect.
+   - `0006-pos-out-record-only` marked 0 batches: prod had no POS-OUT movement.
+   - `0007-cash-sale-line-totals-gross` converted 87 cash sales: all of regal-pz's 66 and regal-sf's 21
+     imported days.
+   - ⚠ The host's `node_modules` was stale, so `bun install --frozen-lockfile` comes first there.
+2. **Release note (FR-21.5).** The product ledger's cash-register totals for imported days rise by the
    VAT they were missing.
-3. Field checks on `regal`, `regal-pz` and `regal-sf` (§8.4). All read-only:
-   - The journal's row count equals `postransactions` plus the cash sales before the release.
-   - SUPTO 18.1 for the last 30 days is unchanged.
-   - Yesterday's digest cash KPIs equal the journal's total.
+3. **Field checks (§8.4), read-only.** One script ran against prod with the code before and after the
+   release: same 30-day window, same digest day.
+
+   | Org | Journal rows = POS + cash sales | SUPTO 18.1, 30 days | 18.2–18.5 | Digest 10-23 cash = journal cash |
+   |---|---|---|---|---|
+   | regal | 82 = 74 + 8 | unchanged | unchanged | 0 = 0 |
+   | regal-pz | 66 = 0 + 66 | unchanged (20, 4563.13) | unchanged | 287.34 = 287.34 |
+   | regal-sf | 21 = 0 + 21 | unchanged (21, 16303.18) | unchanged | 7447.04 = 7447.04 |
+
+   In the demo org `acme-corp`:
+   - Both journal pages render.
+   - The API answers.
+   - An invoiced cash sale (#249) is listed once, carrying its invoice.
 
 ## 2. The migration ids are not the spec's
 
@@ -152,7 +165,7 @@ Revisit any of these you disagree with. None is hard to change.
 ## 5. What remains
 
 ### R1
-- Review and merge #244 → #247 → #248, then deploy (§1).
+- Done: merged, deployed and field-checked on 2026-10-26 (§1).
 - The checks run on 2026-10-26 against the final state of the stack, rebased onto master `96299b36` (after #249 and FR-22 up to #267):
   - `bun run test`: 3368 pass, 20 skip, 0 fail (3388 tests in 313 files).
   - `bun run build`: green.
@@ -161,13 +174,14 @@ Revisit any of these you disagree with. None is hard to change.
     its new menu entry, „Касови продажби".
 
 ### Before R2: FR-21.14
-The `regal` test sales of March–April 2026 go by §5.2:
-1. Dry run.
-2. The owner's go.
-3. Execute, with the backup on mars.
-4. `test-pos-sales-cleanup.flow.test.ts`.
+The `regal` test sales of March–April 2026 go by §5.2, with `scripts/remove-test-pos-sales.ts` (#269,
+tested by `test-pos-sales-cleanup.flow`):
+1. Dry run on prod, from the build host's `~/lgr`.
+2. The owner's go on its numbers.
+3. `--execute --expect <n>`, with the NDJSON backup on mars.
 
-None of it has started, and nothing was deleted.
+⚠ The baseline already shows one regal sale outside March–April (4.97, inside the last 30 days). The
+script refuses while any row lies outside the window, so the owner decides about that one too.
 
 ### R2 (FR-21.15 – FR-21.24)
 - **What to build:**
