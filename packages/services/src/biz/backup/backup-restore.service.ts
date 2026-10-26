@@ -55,6 +55,7 @@ import {
 import { BUNDLE_FORMAT, type BackupBundleManifest } from './backup-bundle.types.js'
 import { orgDocsDir, restoreFilesSidecar } from './backup-files.service.js'
 import { normalizeStored, resolveStored } from '../files/stored-path.js'
+import { copyCashRegisterOrg } from '../cash-register/copy-org.js'
 
 /** Documents per `insertMany`. Large enough to be worth batching, small enough to stay bounded. */
 const INSERT_BATCH = 500
@@ -995,6 +996,23 @@ export async function applyRestore(
       })
     }
     results.sort((a, b) => a.name.localeCompare(b.name))
+
+    // ── FR-21.22: a bundle taken before R2 brings back till rows without their documents ─────
+    //
+    // Since R2 a till sale is a cash-register document, and migration 0008 copied every POS row.
+    // A bundle older than that restores POS rows with no copy, so the same per-org copy runs here
+    // (it is idempotent: a row with its copy is left alone, and only fields that are missing are
+    // set). ⚠ A copy it cannot make is REPORTED, not fatal: the readers union both stores, so an
+    // uncopied row is still read, and a preflight blocker in a two-year-old bundle must not cost
+    // the operator the restore. `scripts/cash-register-preflight.ts` names what blocks it.
+    if ((byCollection.get('POSTransaction') || []).length) {
+      try {
+        const copy = await copyCashRegisterOrg(mongoose.connection.db as any, String(orgId))
+        if (copy.copied) logger.info({ orgId, copied: copy.copied }, 'Restore: POS rows copied into cash-register documents')
+      } catch (e: any) {
+        warnings.push(`POSTransaction: the till's rows were restored but not converted into cash-register documents (${e?.message || e}). They are still read; run scripts/cash-register-preflight.ts and clear what it reports.`)
+      }
+    }
 
     // ── FR-13.29/13.37: the files, and the ones that are not there ─────────────
     let filesNote = ''

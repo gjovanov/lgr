@@ -151,6 +151,10 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
     count: 2,
     why: 'THE mirror applier on global (FR-20.65): writes a master-homed org\'s documents past the home guard by design, only after the isolation checks (FR-20.66); these two are mirror_state',
   },
+  'services/src/biz/cash-register/copy-org.ts': {
+    count: 3,
+    why: 'FR-21.21 the copy of an org\'s POS rows (migration 0008 and a restore): the copies, their movement links and the cash sales\' origin; copyPosRows and backfillCashSaleOrigin call assertHomeIsHere(orgId) first',
+  },
   'services/src/biz/move/move-bundle.ts': {
     count: 4,
     why: 'the move\'s import on a master (FR-20.79): only into an EMPTY org the master froze for the move, type-exact past every hook; the documents and the people (insertMany), a held person\'s tokenVersion only ever up, and an aborted import\'s own documents',

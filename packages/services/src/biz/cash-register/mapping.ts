@@ -147,7 +147,10 @@ export function fromPosTransaction(row: any, session: PosSessionInfo | null | un
     totalBase: round2((Number(row.total) || 0) * exchangeRate),
     amountPaid: status === 'paid' ? row.total : 0,
     amountDue: 0,
-    payments: status === 'paid' ? payments : [],
+    // ⚠ Kept on a voided storno too, with nothing paid: SUPTO 18.2 has always listed the payments
+    // of every till row, the failed storno's included, and the copy must not change what it prints.
+    // Every reader that sums money counts `paid` documents only.
+    payments,
     ...(methods.length === 1 ? { paymentMethod: methods[0] } : {}),
     ...(status === 'paid' ? { paidAt: createdAt } : {}),
     ...(type === 'cash_storno' && row.originalTransactionId ? { relatedInvoiceId: row.originalTransactionId } : {}),
