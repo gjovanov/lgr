@@ -1670,6 +1670,45 @@ and the prototype's five docs.
 - Tests: `integration/cash-sale-invoice.flow` (16), `cash-sale-invoice-readers.flow` (6),
   `unit/cash-sale-invoice` (12), `e2e/tests/cash-sale-invoice.spec.ts` (2).
 
+## A receipt first, then its bill (2026-10-26, FR-22 slice 3: FR-22.28–.33, #168)
+
+Goods arrive before the supplier's invoice: a receipt books them, the bill comes days later. A bill
+receives its own goods, so a bill typed in for them booked the stock twice (FR-22 B-4).
+`services/biz/receipt-bill.service.ts`, routes `/org/:orgId/invoicing/bills/{from-receipt,
+billable-receipts,:id/link-receipts}`.
+
+- „Входяща фактура" on a completed receipt with a supplier makes a DRAFT bill from it (one bill may
+  cover several receipts of ONE supplier, D-2). The bill carries `stockSource { marker:
+  'movement:<ids>', detectedBy: 'manual' }`, so receive, issue, void and the Files rollback move no
+  stock (`movesNoStock`). The receipt's `invoiceId` is the CLAIM, a compare-and-set: a receipt is
+  billed once (409), and the product ledger names the bill next to it.
+- ⚠ Void and DELETE of such a bill give the receipts back (`releaseReceiptLinks`, only the claims
+  that bill still holds). A Files rollback of a receipt a live document stands on is blocked — for
+  ANY `stockSource` link (§5.4).
+- ⚠ PUT keeps the bill to what was received (D-2: billed once and whole): every stock-tracked
+  quantity must equal the receipts' (422 `receipt_quantity_mismatch`), the supplier cannot change.
+  Prices, text and lines that hold no stock (a fee, a service) stay free.
+- Receiving it moves `purchasePrice` to the billed price for future receipts — only where it still
+  equals the receipts' cost (a newer price stays); avgCost and cost layers are never re-costed, and
+  posting is unchanged (FR-22's D-2 note).
+- `POST`/`PUT /invoices` strip `stockSource` (Elysia's schema already drops it; this is defence in
+  depth). `link-receipts` takes only an EMPTY draft: lines already on a bill would silently never be
+  received once it is linked.
+- ⚠ The warehouse report and the digest date a billed receipt by its OWN date
+  (`warehouse-operations.report.ts#EFFECTIVE_DATE`): the bill's issueDate would move the delivery to
+  the day its invoice came, and the digest would count it twice.
+- „+ Нов продукт „…"" on a receipt or bill line: `POST /warehouse/product/quick`
+  (`quick-product.service.ts`), built by doc-import's own `newProductDoc` (next SKU, tier template)
+  at the org's currency and VAT, in „Общи" (made when the org has none). A name the catalog has, or
+  has but for separators, is 409 with that article. The search offers creation only once it has
+  answered for what is typed — offered earlier, a quick click created an existing article.
+- Receipt form: „Към склад" from the user's pinned document warehouse (`lgr:default-wh:…`) else the
+  org default; the product-update switch remembered (`lgr:gr-with-update:<user>:<org>`, both via
+  `ui-shared/composables/useUserDefaults`); „Запази и потвърди" first; „Наличност" reads the
+  destination on a receipt. `useGridNavigation` lives in ui-shared now.
+- Tests: `integration/receipt-bill.flow` (13), `quick-product.flow` (2); walks P2 (17 clicks · 12
+  typed · 0 hops) and P3 (3 · 1 · 1, stock unchanged).
+
 ## Known Issues
 
 - [MEDIUM] [2026-07-19] Cluster pod external DNS is INTERMITTENT: CoreDNS forwards to 10.10.20.1 (zeus virbr1 dnsmasq — answers fine locally) and periodically times out (CoreDNS logs `read udp 10.244.x→10.10.20.1:53: i/o timeout`; zeus shows no explicit 10.244.0.0/16 return route) → ArgoCD sync intermittently fails with ComparisonError "server misbehaving" on github.com, then succeeds on retry minutes later (observed 2026-07-19: first sync Error, queued retry completed → Synced). Workaround when stuck: `kubectl apply -k k8s/overlays/prod` from the mars `~/lgr-deploy` checkout (live state converges with git). Root-cause hunt belongs in k8s-cluster-multi (zeus WG/libvirt routing). Also: argocd CLI token on mars is expired — trigger syncs via `kubectl -n argocd patch application lgr --type merge --patch '{"operation":{"sync":{}}}'` or re-login. — Status: OPEN
