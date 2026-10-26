@@ -12,7 +12,16 @@ import { lineQuantity } from '../helpers/document-form'
  * copies what was actually sold.
  *
  * Products used: PRD-0024, PRD-0025 (this agent's share of the acme-corp seed).
+ *
+ * FR-22 slice 2 route: the issued invoice offers „Кредитно известие" (FR-22.21), which opens the
+ * note already holding the invoice's customer, the invoice itself and its lines; „Запази и издай"
+ * issues it from its form (FR-22.17). It used to be Създай → Кредитно известие, the customer
+ * searched, the invoice picked from a list of bare numbers, the reason typed, Save back to the
+ * list and the row's „Изпрати": 14 clicks, 11 after slice 1.
  */
+
+/** FR-22 §3: P5-credit ≤ 6 clicks · 1 typed. */
+const BUDGET = { clicks: 6, typed: 1 }
 
 type Api = Awaited<ReturnType<typeof uxApi>>
 
@@ -133,8 +142,8 @@ test('P5 credit note: one returned article from an issued invoice', async ({ pag
   const customer = (contacts || []).find((c: any) => c.companyName === CUSTOMER)
   expect(customer, CUSTOMER).toBeTruthy()
   const source = await issueSourceInvoice(api, products, customer._id)
+  const sourceId = String(source._id || source.id)
   const sourceLine = source.lines.find((l: any) => String(l.productId) === products[RETURNED.sku]._id)
-  const netUnit = round2(sourceLine.unitPrice * (1 - RETURNED.discount / 100))
   const since = new Date(Date.now() - 1000)
 
   const walk = await startWalk(page, testInfo, {
@@ -146,57 +155,27 @@ test('P5 credit note: one returned article from an issued invoice', async ({ pag
   await expect(sourceRow).toBeVisible()
   await walk.shot('sales-list-with-invoice')
 
-  // Can the user start from the invoice? Look, without counting: the row's actions, and the
-  // opened invoice in a second tab.
-  const rowActions = await sourceRow.locator('button, a').evaluateAll((els) =>
-    els.map((e) => e.getAttribute('aria-label') || e.getAttribute('title') || (e as HTMLElement).innerText.trim()).filter(Boolean))
-  const formButtons = await walk.offTheClock(async () => {
-    const probe = await page.context().newPage()
-    await probe.goto(`/invoicing/invoices/${source._id || source.id}/edit`, { waitUntil: 'networkidle' })
-    await expect(probe.getByRole('heading', { name: 'Редактиране на фактура' })).toBeVisible()
-    const names = await probe.getByRole('button').evaluateAll((els) =>
-      els.map((e) => ((e as HTMLElement).innerText || e.getAttribute('aria-label') || '').trim()).filter(Boolean))
-    await probe.close()
-    return names
-  })
-  const creditFromInvoice = [...rowActions, ...formButtons].filter((t) => /кредит|сторн|върн/i.test(t))
-  if (!creditFromInvoice.length) {
-    walk.note(`No way to start from the invoice: its list row offers only [${rowActions.join(', ')}] and the opened invoice has no credit-note action. The user starts a new document (Създай → Кредитно известие) and finds the invoice again in „Свързана фактура".`)
-  }
+  // ── 1. Open the invoice the goods came back from ──
+  await walk.click(sourceRow.getByRole('link', { name: source.invoiceNumber }), `open ${source.invoiceNumber} (its number)`)
+  await page.waitForURL(new RegExp(`/invoices/${sourceId}/edit`))
+  await expect(page.getByRole('heading', { name: 'Редактиране на фактура' })).toBeVisible()
 
-  // ── 1. New credit note ──
-  await walk.click(page.getByRole('link', { name: /Създай/ }).first(), 'create (list)')
-  await page.waitForURL(/\/invoicing\/invoices\/new/)
-  await walk.click(page.getByRole('button', { name: 'Кредитно известие' }), 'type: Кредитно известие')
+  // ── 2. „Кредитно известие" on the invoice (FR-22.21) ──
+  await walk.click(page.getByRole('button', { name: 'Кредитно известие' }).first(), 'credit note from the invoice')
+  await page.waitForURL(/\/invoicing\/invoices\/new\?.*type=credit_note/)
+  expect(new URL(page.url()).searchParams.get('relatedInvoiceId')).toBe(sourceId)
   await expect(page.getByRole('heading', { name: 'Ново кредитно известие' })).toBeVisible()
-
-  // ── 2. Customer ──
-  await walk.type(page.getByRole('combobox', { name: /Клиент/ }), 'Nordic', 'search the customer')
-  const clientOption = page.locator('.v-overlay--active .v-list-item').filter({ hasText: CUSTOMER }).first()
-  await expect(clientOption).toBeVisible()
-  await walk.click(clientOption, 'pick the customer')
-
-  // ── 3. The invoice being credited ──
-  // Narrowed to this customer's issued invoices once the customer is chosen; the newest first.
-  const relInput = page.getByRole('combobox', { name: /Свързана фактура/ })
-  await relInput.scrollIntoViewIfNeeded()
-  await walk.click(relInput.locator('xpath=ancestor::div[contains(@class,"v-field")][1]'), 'related invoice: open the list')
-  const relOptions = page.locator('.v-overlay--active .v-list-item')
-  await expect(relOptions.filter({ hasText: source.invoiceNumber }).first()).toBeVisible()
-  const relTexts = (await relOptions.allInnerTexts()).map((t) => t.trim()).filter(Boolean)
-  if (relTexts.every((t) => /^[A-ZА-Я-]+-\d{4}-\d+$/.test(t))) {
-    walk.note(`„Свързана фактура" lists the customer's invoices as bare numbers (${relTexts.slice(0, 3).join(', ')}, …) — no date or amount to recognise the one being returned by.`)
-  }
-  await walk.click(relOptions.filter({ hasText: source.invoiceNumber }).first(), `related invoice: pick ${source.invoiceNumber}`)
   const rows = page.locator('.line-table tbody tr')
   await expect(rows).toHaveCount(source.lines.length)
-  await expect(page.locator('.v-overlay--active .v-list-item')).toHaveCount(0)
   await rows.first().evaluate((el) => el.scrollIntoView({ block: 'center' }))
-  await walk.shot('lines-copied')
+  await walk.shot('note-started-from-invoice')
 
-  // What the copy kept (uncounted). The unit price is the list price whether or not the discount
-  // came along (the discount sits in its own column, hidden by default), so the line's net amount
-  // — „Междинна сума", qty × price less the discount — is what tells.
+  // What the note started with (uncounted): the invoice's customer, the invoice itself, and its lines.
+  const relatedShown = await page.locator('.v-field').filter({ has: page.getByRole('combobox', { name: /Свързана фактура/ }) }).first().innerText()
+  const customerShown = await page.locator('.doc-banner-party').innerText()
+  // The unit price is the list price whether or not the discount came along (the discount sits in
+  // its own column, hidden by default), so the line's net amount — „Междинна сума", qty × price less
+  // the discount — is what tells.
   const copied = rows.filter({ hasText: products[RETURNED.sku].name }).first()
   const copiedPrice = Number((await creditUnitPrice(copied).inputValue()).replace(',', '.'))
   const unitCell = (await copied.locator('td').nth(3).innerText()).trim()
@@ -204,80 +183,48 @@ test('P5 credit note: one returned article from an issued invoice', async ({ pag
   const netCol = headers.findIndex((h) => h.trim() === 'Междинна сума')
   const copiedNet = netCol < 0 ? NaN : money(await copied.locator('td').nth(netCol).innerText())
   const discountKept = Math.abs(copiedNet - round2(RETURNED.soldQty * sourceLine.unitPrice * (1 - RETURNED.discount / 100))) < 0.011
-  const copyNotes: string[] = []
-  copyNotes.push(`all ${source.lines.length} invoice lines are copied (the user deletes the ones not returned)`)
-  copyNotes.push(discountKept
-    ? `the 10 % discount comes along (the line nets ${copiedNet.toFixed(2)} at the list price ${copiedPrice.toFixed(2)})`
-    : `the 10 % discount is dropped — the line comes in at the list price ${copiedPrice.toFixed(2)}, so it would credit ${copiedPrice.toFixed(2)} instead of the ${netUnit.toFixed(2)} charged`)
-  copyNotes.push(/кут/i.test(unitCell) ? 'the unit „кут." comes along' : `the unit is lost — „кут." (box) came in as „${unitCell || 'empty'}"`)
-  walk.note(`Related-invoice copy: ${copyNotes.join('; ')}.`)
+  walk.note(`The note opened on ${CUSTOMER}, invoice ${source.invoiceNumber} and its ${source.lines.length} lines: the 10 % discount ${discountKept ? `came along (the line nets ${copiedNet.toFixed(2)} at the list price ${copiedPrice.toFixed(2)})` : 'was DROPPED'}, the unit reads „${unitCell}".`)
 
-  // ── 4. Keep only the returned article, one box ──
+  // ── 3. Keep only the returned article, one box ──
   const keptRow = rows.filter({ hasText: products[KEPT.sku].name }).first()
-  const removeBtn = keptRow.locator('td').last().getByRole('button')
-  const removeLabel = (await removeBtn.getAttribute('aria-label')) || ''
-  if (removeLabel === 'common.remove') walk.note('The line delete button\'s tooltip / accessible name is the raw key „common.remove" (missing translation).')
-  await walk.click(removeBtn, `remove the line not returned (${KEPT.sku})`)
+  await walk.click(keptRow.locator('td').last().getByRole('button'), `remove the line not returned (${KEPT.sku})`)
   await expect(rows).toHaveCount(source.lines.length - 1)
-  const line = rows.first()
-  await walk.fill(lineQuantity(line), '1', 'quantity 1')
+  await walk.fill(lineQuantity(rows.first()), '1', 'quantity 1')
+  await walk.shot('ready-to-issue')
 
-  // The price the customer actually paid — typed only when the discount did not come along.
-  if (!discountKept) {
-    await walk.fill(creditUnitPrice(line), String(netUnit), `unit price ${netUnit} (list price less the 10 % the invoice gave)`)
-  }
-  // The unit the article was sold in.
-  if (!/кут/i.test(unitCell)) {
-    const unitInput = line.locator('td').nth(3).locator('input[role="combobox"]')
-    await walk.type(unitInput, 'кут', 'unit: search „кут"')
-    const unitOption = page.locator('.v-overlay--active .v-list-item').filter({ hasText: /кут/i }).first()
-    await expect(unitOption).toBeVisible()
-    await walk.click(unitOption, 'unit: pick „кут."')
-  }
-
-  // ── 5. Reason ──
-  // Not required by the form, but a credit note states why it was issued.
-  await walk.fill(page.getByLabel('Причина'), `Върната 1 кут. ${products[RETURNED.sku].name} по фактура ${source.invoiceNumber}`, 'reason')
-  await walk.shot('ready-to-save')
-
-  // ── 6. Save — back to the list ──
-  await walk.click(page.getByRole('button', { name: 'Запази' }).first(), 'save')
-  await page.waitForURL(/\/invoicing\/invoices(\?|$)/)
-  await expect(page.locator('.v-snackbar').filter({ hasText: 'Успешно запазено' })).toBeVisible()
-
-  let draft: any
-  await expect.poll(async () => {
-    const { invoices } = await api.get(`/invoices?type=credit_note&contactId=${customer._id}&size=10&sortBy=createdAt&sortOrder=desc`)
-    draft = (invoices || []).find((i: any) => new Date(i.createdAt) >= since && String(i.relatedInvoiceId) === String(source._id || source.id))
-    return !!draft
-  }, { timeout: 15000 }).toBe(true)
-  const draftRow = page.locator('tbody tr').filter({ hasText: draft.invoiceNumber })
-  await expect(draftRow).toBeVisible()
-  await walk.shot('draft-in-list')
-
-  // ── 7. Issue (row action) ──
-  await walk.scrollTableToEnd('the row actions')
-  await walk.click(draftRow.getByRole('button', { name: 'Изпрати', exact: true }), 'issue (row „Изпрати")')
+  // ── 4. „Запази и издай": saved and issued from its own form (FR-22.17) ──
+  await walk.click(page.getByRole('button', { name: 'Запази и издай' }).first(), 'save and issue („Запази и издай")')
   // Either wording, so the walk measures the old code too; the guard at the end wants the right one.
   const issuedMessage = page.locator('.v-snackbar').filter({ hasText: /(Фактурата е изпратена|Кредитното известие е издадено) успешно/ })
   await expect(issuedMessage).toBeVisible()
   const issuedMessageText = (await issuedMessage.locator('.v-snackbar__content').innerText()).trim()
-  let issued: any
-  await expect.poll(async () => {
-    issued = (await api.get(`/invoices/${draft._id}`)).invoice
-    return issued?.status
-  }, { timeout: 15000 }).toBe('sent')
-  await expect(page.locator('tbody tr').filter({ hasText: issued.invoiceNumber })).toBeVisible()
+  await page.waitForURL(/\/invoicing\/invoices\/[0-9a-f]{24}\/edit/)
+  await expect(page.getByRole('heading', { name: 'Редактиране на кредитно известие' })).toBeVisible()
   await walk.shot('credit-note-issued')
 
   // What was issued (uncounted).
+  let issued: any
+  await expect.poll(async () => {
+    const { invoices } = await api.get(`/invoices?type=credit_note&contactId=${customer._id}&size=10&sortBy=createdAt&sortOrder=desc`)
+    issued = (invoices || []).find((i: any) => new Date(i.createdAt) >= since && String(i.relatedInvoiceId) === sourceId)
+    return issued?.status
+  }, { timeout: 15000 }).toBe('sent')
   const cl = issued.lines?.[0] || {}
-  walk.note(`Issued ${issued.invoiceNumber} (draft ${draft.invoiceNumber}), crediting ${cl.quantity} × ${cl.unitPrice} ${cl.unit} at ${cl.discount || 0} % off, total ${issued.total}; the success message says „${issuedMessageText}".`)
-  expect(issued.lines).toHaveLength(1)
-  expect(cl.quantity).toBe(1)
+  walk.note(`Issued ${issued.invoiceNumber} (draft ${issued.draftNumber}), crediting ${cl.quantity} × ${cl.unitPrice} ${cl.unit} at ${cl.discount || 0} % off, total ${issued.total}; the success message says „${issuedMessageText}".`)
 
   const result = walk.finish()
-  expect(result.clicks).toBeGreaterThan(0)
+
+  // ── FR-22 §3 budget for P5-credit ──
+  expect(result.clicks).toBeLessThanOrEqual(BUDGET.clicks)
+  expect(result.typed).toBeLessThanOrEqual(BUDGET.typed)
+  expect(result.hops).toBe(0)
+  // FR-22.21: the note started as the invoice — its customer and the invoice it corrects.
+  expect(relatedShown).toContain(source.invoiceNumber)
+  expect(customerShown).toContain(CUSTOMER)
+  expect(String(issued.contactId)).toBe(String(customer._id))
+  expect(page.url()).toContain(`/invoices/${issued._id}/edit`)
+  expect(issued.lines).toHaveLength(1)
+  expect(cl.quantity).toBe(1)
 
   // ── FR-22 slice 1 guards (each failed on the code the budgets were first measured on) ──
   // B-6 / FR-22.4: the copy keeps the invoice's discount and unit, and the note credits the
