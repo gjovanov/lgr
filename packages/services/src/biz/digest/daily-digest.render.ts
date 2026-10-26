@@ -425,7 +425,8 @@ function renderSequence(seq: DigestSequenceLine | undefined, L: DigestStrings): 
 
 function renderFamily(f: DigestDocumentFamily, title: string, L: DigestStrings): string {
   const head = `<div style="font-weight:bold;margin-top:10px">${esc(title)}</div>`
-  if (!f.count) return head + renderSequence(f.sequence, L) + noneLine(L)
+  const sequences = renderSequence(f.sequence, L) + (f.closedSequences || []).map(s => renderSequence(s, L)).join('')
+  if (!f.count) return head + sequences + noneLine(L)
 
   const rows = f.rows.map(r => `
     <tr>
@@ -438,7 +439,7 @@ function renderFamily(f: DigestDocumentFamily, title: string, L: DigestStrings):
 
   return [
     head,
-    renderSequence(f.sequence, L),
+    sequences,
     `<table style="${S.table}">`,
     `<tr><th style="${S.th}">${esc(L.number)}</th><th style="${S.th}">${esc(L.contact)}</th>`,
     `<th style="${S.th}">${esc(L.status)}</th><th style="${S.th}">${esc(L.method)}</th>`,

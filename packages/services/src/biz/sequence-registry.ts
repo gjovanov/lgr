@@ -109,6 +109,14 @@ export function sequenceGroupFor(type: string, direction?: string): SequenceGrou
   return (INVOICING_SEQUENCE_KEYS.find(e => e.group === type)?.group as SequenceGroup) || 'invoice'
 }
 
+/**
+ * The closed series a number was issued under, if any: a `TXN-…` till receipt copied into a
+ * cash-register document keeps its number, and is checked against its own series, not `CASH_SALE`.
+ */
+export function closedSeriesOf(number: string | undefined): SequenceKeyDef | null {
+  return INVOICING_SEQUENCE_KEYS.find(e => e.closed && String(number ?? '').startsWith(`${e.defaultDisplay}-`)) ?? null
+}
+
 /** The registry row for a group/variant, or null when that combination doesn't allocate. */
 export function sequenceDefFor(group: SequenceGroup, variant: SequenceVariant): SequenceKeyDef | null {
   const row = INVOICING_SEQUENCE_KEYS.find(e => e.group === group && e.variant === variant && !e.closed)

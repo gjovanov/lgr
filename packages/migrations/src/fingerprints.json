@@ -6,5 +6,6 @@
   "0004-file-rows-follow-their-bytes": "cacb9b45519a89f3c71e9d2e723275281cbd6d6e24219da5b3af2b6880789c7b",
   "0005-granular-permissions": "df70152b09479ccdde2726b2b6988d8c91e182a2c741fe0b242ab01ffa4b21f3",
   "0006-pos-out-record-only": "61dcd57f7cc816664e40d0abc9f17788420ebf5152c360ff7749042449727a6d",
-  "0007-cash-sale-line-totals-gross": "3bb815db21266ce52470580a7bd866ca8d8a15c569ef97f597b78034d27be840"
+  "0007-cash-sale-line-totals-gross": "3bb815db21266ce52470580a7bd866ca8d8a15c569ef97f597b78034d27be840",
+  "0008-cash-register-copy": "e1657e09f38696540c3e74e69d037e36a3edce6642b6d21c42e867600793a4e4"
 }

@@ -66,10 +66,10 @@ describe('fromPosTransaction', () => {
     })
   })
 
-  it('a storno whose receipt failed is voided, and keeps no payment', () => {
+  it('a storno whose receipt failed is voided and paid nothing; its payments stay, as SUPTO 18.2 lists them', () => {
     const doc = fromPosTransaction(sale({ type: 'storno', status: 'cancelled', updatedAt: later }), session)
     expect(doc.status).toBe('voided')
-    expect(doc.payments).toEqual([])
+    expect(doc.payments.map((p: any) => [p.method, p.amount])).toEqual([['cash', 36]])
     expect(doc.amountPaid).toBe(0)
     expect(doc.register.cancelledAt).toEqual(later)
   })
@@ -127,8 +127,7 @@ describe('the round trip', () => {
       const back = toPosTransaction(fromPosTransaction(row, session))
       const { currency, ...rest } = back
       expect(currency).toBe('EUR')
-      // A voided storno keeps no payment as a document.
-      const expected: any = { ...row, payments: row.type === 'storno' && row.status === 'cancelled' ? [] : row.payments }
+      const expected: any = { ...row }
       for (const k of Object.keys(expected)) if (expected[k] === undefined) delete expected[k]
       expect(rest).toEqual(expected)
     })

@@ -77,6 +77,11 @@ export interface DigestDocumentFamily {
   total: number
   count: number
   sequence?: DigestSequenceLine
+  /**
+   * FR-21.17: numbers of a closed series among the family's documents — the cash register's `TXN-…`
+   * copies — each series on its own line, so they never read as gaps in the live one.
+   */
+  closedSequences?: DigestSequenceLine[]
 }
 
 export interface DigestDocuments {

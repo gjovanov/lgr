@@ -30,7 +30,7 @@ import {
 } from '../backup/backup-status.service.js'
 import { effectiveMethods, bucketFor } from '../reports/sales-history.report.js'
 import { EFFECTIVE_DATE } from '../reports/warehouse-operations.report.js'
-import { INVOICING_SEQUENCE_KEYS, resolveDefPrefix } from '../sequence-registry.js'
+import { INVOICING_SEQUENCE_KEYS, closedSeriesOf, resolveDefPrefix } from '../sequence-registry.js'
 import { NOT_INVOICE_FOR_CASH_SALE } from '../sale-counting.js'
 import {
   DIGEST_CAPS,
@@ -176,6 +176,7 @@ async function buildSequenceLine(
   orgId: string,
   counterKey: string,
   numbers: string[],
+  opts: { closed?: boolean } = {},
 ): Promise<DigestSequenceLine> {
   const def = INVOICING_SEQUENCE_KEYS.find(k => k.prefix === counterKey)!
   // Never hardcode a prefix — the org may have overridden the display (year-0 sentinel).
@@ -216,7 +217,8 @@ async function buildSequenceLine(
     }
   }
 
-  if (counter && typeof counter.lastNumber === 'number' && counter.lastNumber !== hi) {
+  // A closed series' counter stopped where it stopped: its last number says nothing about a day.
+  if (!opts.closed && counter && typeof counter.lastNumber === 'number' && counter.lastNumber !== hi) {
     line.lastNumberMismatch = { dayMax: hi, counter: counter.lastNumber }
   }
 
@@ -280,14 +282,21 @@ async function buildDocuments(orgId: string, date: string): Promise<DigestDocume
     total: round2(cash.reduce((s, r) => s + (r.status === 'voided' ? 0 : (r.type === 'cash_storno' ? -1 : 1) * (r.total || 0)), 0)),
   }
 
-  const [salesSeq, cashSeq] = await Promise.all([
+  // FR-21.17: a copied till receipt keeps its TXN number; that closed series gets its own line.
+  const closed = new Map<string, string[]>()
+  for (const r of cash) {
+    const def = closedSeriesOf(r.number)
+    if (def) closed.set(def.prefix, [...(closed.get(def.prefix) || []), r.number])
+  }
+  const [salesSeq, cashSeq, ...closedSeqs] = await Promise.all([
     buildSequenceLine(orgId, 'SALES_DOC', sales.map(r => r.number)),
-    buildSequenceLine(orgId, 'CASH_SALE', cash.map(r => r.number)),
+    buildSequenceLine(orgId, 'CASH_SALE', cash.filter(r => !closedSeriesOf(r.number)).map(r => r.number)),
+    ...[...closed].map(([key, numbers]) => buildSequenceLine(orgId, key, numbers, { closed: true })),
   ])
 
   return {
     sales: { ...salesFamily, sequence: salesSeq },
-    cash: { ...cashFamily, sequence: cashSeq },
+    cash: { ...cashFamily, sequence: cashSeq, ...(closedSeqs.length ? { closedSequences: closedSeqs } : {}) },
     purchases: { count: purchases.length, total: round2(purchases.reduce((s, r) => s + (r.total || 0), 0)) },
   }
 }

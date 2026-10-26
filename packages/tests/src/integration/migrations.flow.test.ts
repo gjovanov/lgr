@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestUser, createTestProduct, createTestWarehouse, createTestContact } from '../helpers/factories'
+import {
+  createTestOrg, createTestUser, createTestProduct, createTestWarehouse, createTestContact, createTestPOSSession, createTestPOSTransaction,
+} from '../helpers/factories'
+import type { Types } from 'mongoose'
 import { mongoose } from 'db/connection'
 import {
   runMigrations, migrationStatus, checksumOf, assertRegistryOrder,
@@ -168,10 +171,25 @@ describe('every registered migration runs twice on a seeded database with no cha
 
   it('the whole registry, applied then re-run migration by migration', async () => {
     const org = await createTestOrg()
-    await createTestUser(org._id)
+    const user = await createTestUser(org._id)
     await createTestContact(org._id)
     const wh = await createTestWarehouse(org._id)
-    await createTestProduct(org._id, { warehouseId: wh._id } as any)
+    const product = await createTestProduct(org._id, { warehouseId: wh._id } as any)
+    // FR-21: a till session with a sale and its storno (0008 copies them), and a back-office cash sale
+    // (0008 labels its origin).
+    const session = await createTestPOSSession(org._id, wh._id as Types.ObjectId, user._id as Types.ObjectId)
+    const line = { productId: product._id, name: 'Bolt', quantity: 1, unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 2, lineTotal: 10 }
+    const sale = await createTestPOSTransaction(org._id, session._id as Types.ObjectId, user._id as Types.ObjectId, {
+      status: 'cancelled', lines: [line], subtotal: 10, taxTotal: 2, total: 12, payments: [{ method: 'cash', amount: 12 }],
+    } as any)
+    await createTestPOSTransaction(org._id, session._id as Types.ObjectId, user._id as Types.ObjectId, {
+      type: 'storno', originalTransactionId: sale._id, lines: [line], subtotal: 10, taxTotal: 2, total: 12, payments: [{ method: 'cash', amount: 12 }],
+    } as any)
+    await db().collection('invoices').insertOne({
+      orgId: org._id, invoiceNumber: 'CS-2026-00001', type: 'cash_sale', direction: 'outgoing', status: 'paid', currency: 'EUR',
+      exchangeRate: 1, issueDate: new Date(), dueDate: new Date(), lines: [], subtotal: 10, taxTotal: 2, total: 12,
+      billingAddress: {}, attachments: [], createdBy: user._id,
+    })
 
     await runMigrations({ db: db() })
     const once = await snapshot()
