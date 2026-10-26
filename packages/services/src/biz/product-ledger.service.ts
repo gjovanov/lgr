@@ -389,7 +389,8 @@ async function computeSalesSummary(
 
   const matchStage: Record<string, any> = {
     orgId: orgOid,
-    type: { $in: ['cash_sale', 'invoice'] },
+    // A cash-sale storno takes its sale back (FR-21.9).
+    type: { $in: ['cash_sale', 'cash_storno', 'invoice'] },
     direction: 'outgoing',
     status: { $nin: ['draft', 'cancelled', 'voided'] },
     'lines.productId': productOid,
@@ -428,7 +429,8 @@ async function computeSalesSummary(
     let totalCashRegisterSales = 0
     let totalInvoiceSales = 0
     for (const r of results) {
-      if (r._id === 'cash_sale') totalCashRegisterSales = r.total
+      if (r._id === 'cash_sale') totalCashRegisterSales += r.total
+      else if (r._id === 'cash_storno') totalCashRegisterSales -= r.total
       else if (r._id === 'invoice') totalInvoiceSales = r.total
     }
     return {

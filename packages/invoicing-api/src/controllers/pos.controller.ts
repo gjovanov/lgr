@@ -8,7 +8,9 @@ import { eventBus } from 'services/events/event-bus'
 import { getNextNumber, generateUNP } from 'services/biz/sequence.service'
 import { confirmMovement } from 'services/biz/warehouse.service'
 import { logger } from 'services/logger'
-import { POSSession, POSTransaction } from 'db/models'
+import { Invoice, POSSession, POSTransaction } from 'db/models'
+import { toPosTransaction } from 'services/biz/cash-register/mapping'
+import { asEntity, findPosRow, loadPosRows } from 'services/biz/cash-register/pos-union'
 import {
   isDeviceConnected,
   getPrinter,
@@ -564,6 +566,37 @@ async function settleKeyed<C>(
     if (!leaseLapsed) break
   }
   return status(409, { code: 'idempotency_in_progress', message: 'This request is still being processed — retry with the same Idempotency-Key.' })
+}
+
+/**
+ * FR-21.10 — a keyed till request whose sale or storno lives as a cash-register document.
+ *
+ * From R2 the till writes its sales as documents in `invoices`. After a rollback to this code, a
+ * retry of such a request must find it there and answer as it did: never ring the sale up a second
+ * time, with a second УНП and a second receipt. This code cannot resume another release's steps, so
+ * a document still in progress answers 409 and the client retries until it completes.
+ */
+async function answerFromDocument(orgId: string, key: string, hash: string, status: Status, kind: 'sale' | 'storno') {
+  const doc: any = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
+  if (!doc) return null
+  if (doc.requestHash !== hash) {
+    return status(422, { code: 'idempotency_key_reused', message: 'This Idempotency-Key was already used for a different request' })
+  }
+  if (!doc.completedAt) {
+    return status(409, { code: 'idempotency_in_progress', message: 'This request is still being processed — retry with the same Idempotency-Key.' })
+  }
+  const transaction: any = asEntity(toPosTransaction(doc))
+  if (kind === 'storno' && transaction.status === 'cancelled' && transaction.receiptError) {
+    return status(503, {
+      code: 'fiscal_error',
+      message: `The storno receipt was not printed, so nothing was reversed: ${transaction.receiptError}`,
+    })
+  }
+  return {
+    transaction,
+    ...(kind === 'sale' && transaction.receiptError ? { receiptError: transaction.receiptError } : {}),
+    ...(transaction.stockError ? { stockError: transaction.stockError } : {}),
+  }
 }
 
 /** A keyed request's replay or resume, with a reused key turned into its 422. */
@@ -1259,6 +1292,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       if (key) {
         const existing = await POSTransaction.findOne({ orgId, clientKey: key }).lean().exec()
         if (existing) return settle(existing, hash!, saleContext, runSaleSteps, respond, status)
+        const fromDocument = await answerFromDocument(orgId, key, hash!, status, 'sale')
+        if (fromDocument) return fromDocument
       }
 
       if (session.status === 'closed') return status(400, { message: 'Session is closed' })
@@ -1355,7 +1390,21 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       if (!session) return status(404, { message: 'POS session not found' })
 
       const original = await r.posTransactions.findOne({ id: body.originalTransactionId, orgId } as any) as any
-      if (!original) return status(404, { message: 'Original transaction not found' })
+      if (!original) {
+        // FR-21: a till sale a newer release wrote as a cash-register document. This release can
+        // read it but not reverse it (FR-21 §6, edge 5); its storno waits for that release.
+        if (key) {
+          const fromDocument = await answerFromDocument(orgId, key, requestHash(`pos.storno:${sessionId}`, body), status, 'storno')
+          if (fromDocument) return fromDocument
+        }
+        if (await findPosRow(orgId, body.originalTransactionId)) {
+          return status(409, {
+            code: 'storno_needs_newer_release',
+            message: 'This sale was recorded by a newer version of LGR. It can be reversed once that version is running again.',
+          })
+        }
+        return status(404, { message: 'Original transaction not found' })
+      }
 
       const stornoContext = async (): Promise<CtxOrError<StornoCtx>> => {
         try {
@@ -1375,6 +1424,10 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       const answerKeyed = (row: any) => settle(row, hash!, stornoContext, runStornoSteps, (id: string, st: Status) => stornoResponse(id, orgId, st), status)
       const keyed = await findKeyed()
       if (keyed) return answerKeyed(keyed)
+      if (key) {
+        const fromDocument = await answerFromDocument(orgId, key, hash!, status, 'storno')
+        if (fromDocument) return fromDocument
+      }
 
       if (session.status === 'closed') return status(400, { message: 'Session is closed' })
       if (original.status === 'cancelled') {
@@ -1475,39 +1528,53 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     },
   )
   // ── Global Transaction List (across all sessions) ──
+  // FR-21.8: both stores, each row once — a till sale is a POS row until R2 and a cash-register
+  // document after it. Filtered, sorted and paged after the union; the shape is the one this
+  // route always answered (the DAL's page). The journal (`/cash-register/documents`) replaces it.
   .get('/transactions', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    const r = getRepos()
 
-    const filter: Record<string, any> = { orgId }
-    if (query.type) filter.type = query.type
-    if (query.status) filter.status = query.status
-    if (query.sessionId) filter.sessionId = query.sessionId
-    if (query.isFiscal !== undefined) filter.isFiscal = query.isFiscal === 'true'
-    if (query.search) {
-      filter.$or = [
-        { transactionNumber: { $regex: query.search, $options: 'i' } },
-        { unpNumber: { $regex: query.search, $options: 'i' } },
-      ]
+    const from = query.dateFrom ? new Date(query.dateFrom as string) : undefined
+    const to = query.dateTo ? new Date(query.dateTo as string + 'T23:59:59') : undefined
+    let rows = await loadPosRows({ orgId, from, to, sessionId: (query.sessionId as string) || undefined })
+    if (query.type) rows = rows.filter(t => t.type === query.type)
+    if (query.status) rows = rows.filter(t => t.status === query.status)
+    if (query.isFiscal !== undefined) {
+      const want = query.isFiscal === 'true'
+      rows = rows.filter(t => !!t.isFiscal === want)
     }
-    if (query.dateFrom || query.dateTo) {
-      filter.createdAt = {} as any
-      if (query.dateFrom) (filter.createdAt as any).$gte = new Date(query.dateFrom as string)
-      if (query.dateTo) (filter.createdAt as any).$lte = new Date(query.dateTo as string + 'T23:59:59')
+    if (query.search) {
+      const needle = String(query.search).toLowerCase()
+      rows = rows.filter(t =>
+        String(t.transactionNumber || '').toLowerCase().includes(needle)
+        || String(t.unpNumber || '').toLowerCase().includes(needle))
     }
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
     const sortBy = (query.sortBy as string) || 'createdAt'
-    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+    const dir = (query.sortOrder as string) === 'asc' ? 1 : -1
+    const key = (v: unknown) => (v instanceof Date ? v.getTime() : typeof v === 'string' && sortBy.endsWith('At') ? Date.parse(v) : v) as any
+    rows.sort((a, b) => {
+      const x = key(a[sortBy])
+      const y = key(b[sortBy])
+      return (x === y ? 0 : x === undefined || x === null ? -1 : y === undefined || y === null ? 1 : x < y ? -1 : 1) * dir
+    })
 
-    const result = await r.posTransactions.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
-    return { transactions: result.items, ...result }
+    const total = rows.length
+    const items = size > 0 ? rows.slice(page * size, page * size + size) : rows
+    return {
+      transactions: items,
+      items,
+      total,
+      page: size > 0 ? page : 0,
+      size: size > 0 ? size : items.length,
+      totalPages: size > 0 ? Math.ceil(total / size) : 1,
+    }
   }, { isSignIn: true })
   .get('/transactions/:txnId', async ({ params: { orgId, txnId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    const r = getRepos()
-    const transaction = await r.posTransactions.findOne({ id: txnId, orgId } as any)
+    const transaction = await findPosRow(orgId, txnId)
     if (!transaction) return status(404, { message: 'Transaction not found' })
     return { transaction }
   }, { isSignIn: true })

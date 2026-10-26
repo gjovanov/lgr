@@ -11,6 +11,7 @@ import {
   createMovementValuationEntry,
   createPOSSessionJournalEntry,
 } from '../biz/auto-journal.service.js'
+import { loadPosRows } from '../biz/cash-register/pos-union.js'
 import { logger } from '../logger/logger.js'
 
 let _registered = false
@@ -186,16 +187,14 @@ export function registerEventHandlers(): void {
     const session = await r.posSessions.findById(payload.sessionId) as any
     if (!session || session.journalEntryId) return // idempotency
 
-    // Load all session transactions in one query
-    const txResult = await r.posTransactions.findAll(
-      { orgId: payload.orgId, sessionId: payload.sessionId } as any,
-      { page: 0, size: 10000 },
-    )
+    // The session's rows from both stores, each once (FR-21.8): a till sale is a POS row until
+    // R2 and a cash-register document after it, and a session can span the switch.
+    const rows = await loadPosRows({ orgId: payload.orgId, sessionId: payload.sessionId })
 
     const result = await createPOSSessionJournalEntry(
       payload.orgId,
       session,
-      txResult.items,
+      rows,
       {
         receivableAccountId: accountingSettings.defaultReceivableAccountId,
         revenueAccountId: accountingSettings.defaultRevenueAccountId,

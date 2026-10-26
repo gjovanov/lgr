@@ -545,7 +545,7 @@ Each release is deployed before the next one merges. R1 may ship as several PRs,
 | `status` cancelled, on a storno (its print failed) | `voided` |
 | `createdAt`, `updatedAt`, `completedAt` | same, written with timestamps off. `issueDate`, `dueDate` and (when paid) `paidAt` are set to `createdAt`. |
 | `customerId` | `contactId` |
-| the session's `currency` | `currency`. `exchangeRate` is 1, or 1.95583 for a BGN session in an EUR org. `totalBase` follows. |
+| the session's `currency` | `currency`. `exchangeRate` is 1, or 1/1.95583 for a BGN session in an EUR org (the rate is the base-currency value of one unit: `totalBase = total × exchangeRate`). `totalBase` follows. |
 | the session's `warehouseId` | every line's `warehouseId`, and `register.warehouseId` |
 | `lines[].name` | `lines[].description`. `unit` comes from the product, falling back to `бр.` |
 | `lines[].productId`, `quantity`, `unitPrice`, `discount`, `taxRate`, `taxAmount`, `priceExplanation` | same |
@@ -576,7 +576,7 @@ After R2, an FR-13 restore of a bundle taken before R2 brings back `POSTransacti
 5. **Rollback from R2 to R1.** Sales made under R2 stay visible and protected, but can't be stornoed until R2 is back. This is documented, not fixed.
 6. **A parallel run** (an imported till day plus till sales for the same day) counts the same goods twice. The preflight lists such days, and the journal shows each row's origin.
 7. **`return`/`exchange` rows.** The terminal never sends them, so any count above zero is a blocker for a human to decide.
-8. **A BGN session in an EUR org.** The document currency is BGN, with `exchangeRate` 1.95583 (the fixed changeover rate). Any other currency pair is a blocker.
+8. **A BGN session in an EUR org.** The document currency is BGN, with `exchangeRate` 1/1.95583 (one lev in euros, at the fixed changeover rate). Any other currency pair is a blocker.
 9. **A Tremol print in state `unknown`** is copied as it is and never reprinted.
 10. **`POS-OUT`.** From R1 none is created, and `0004` flags any that exist as record-only, so 18.8, FR-07 and FR-11.7c stop counting them twice.
 11. **A duplicate УНП in history** is reported, and the unique index is not created for that org.

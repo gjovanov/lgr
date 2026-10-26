@@ -54,7 +54,8 @@ export type DocumentKind = 'outgoing' | 'incoming' | 'cash_register'
 const KIND_FILTER: Record<DocumentKind, Record<string, any>> = {
   outgoing: { type: { $in: ['invoice', 'credit_note', 'debit_note'] }, direction: 'outgoing' },
   incoming: { type: 'invoice', direction: 'incoming' },
-  cash_register: { type: 'cash_sale' },
+  // Its sales and their stornos, which count against them (FR-21.9).
+  cash_register: { type: { $in: ['cash_sale', 'cash_storno'] } },
 }
 
 /**
@@ -79,9 +80,12 @@ function cents(n: number): number {
   return v === 0 ? 0 : v
 }
 
-/** A credit note gives money back: it counts against the period, whatever sign it was stored with. */
+/**
+ * A credit note gives money back, and so does a cash-sale storno (FR-21.9): it counts against the
+ * period, whatever sign it was stored with.
+ */
 function signed(docType: string | undefined, value: number): number {
-  return docType === 'credit_note' && value ? -Math.abs(value) : value
+  return (docType === 'credit_note' || docType === 'cash_storno') && value ? -Math.abs(value) : value
 }
 
 /** The document amounts a register shows and totals. */
@@ -190,7 +194,8 @@ function paidByMethod(doc: {
   const paid = Number(doc.amountPaid) || 0
   if (!paid) return []
   if (doc.paymentMethod) return [{ method: String(doc.paymentMethod), amount: paid }]
-  if (doc.docType === 'cash_sale') return [{ method: 'cash', amount: paid }]
+  // A cash sale with no payment row was paid in cash at the till; its storno refunds in cash.
+  if (doc.docType === 'cash_sale' || doc.docType === 'cash_storno') return [{ method: 'cash', amount: paid }]
   return []
 }
 

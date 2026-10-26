@@ -59,6 +59,7 @@ import { agingReportController } from 'invoicing-api/src/controllers/aging-repor
 import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller.js'
 import { sequenceConfigController } from 'invoicing-api/src/controllers/sequence-config.controller.js'
 import { posController } from 'invoicing-api/src/controllers/pos.controller.js'
+import { cashRegisterController } from 'invoicing-api/src/controllers/cash-register.controller.js'
 
 // Warehouse controllers
 import { productController } from 'warehouse-api/src/controllers/product.controller.js'
@@ -256,6 +257,8 @@ export function createApiApp() {
         // POS
         .use(posController)
         .use(posPaymentMethodController)
+        // FR-21.12: the cash-register journal, shared by the POS and invoicing apps
+        .use(cashRegisterController)
 
         // Reports
         .use(reportsController)

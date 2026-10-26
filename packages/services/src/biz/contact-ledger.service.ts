@@ -97,8 +97,8 @@ export async function getContactLedger(
     },
     {
       $addFields: {
-        // Credit notes get negative sign
-        _sign: { $cond: [{ $eq: ['$type', 'credit_note'] }, -1, 1] },
+        // Credit notes and cash-sale stornos (FR-21.9) give money back: negative sign
+        _sign: { $cond: [{ $in: ['$type', ['credit_note', 'cash_storno']] }, -1, 1] },
       },
     },
     {
@@ -173,6 +173,11 @@ export async function getContactLedger(
     if (r._id.direction === 'outgoing') {
       if (r._id.type === 'credit_note') {
         totalCreditNotes += r.total
+      } else if (r._id.type === 'cash_storno') {
+        // A cash-sale storno takes its sale back, exactly (FR-21.9).
+        totalSalesNet -= r.subtotal
+        totalTax -= r.taxTotal
+        totalSalesGross -= r.total
       } else {
         totalSalesNet += r.subtotal
         totalTax += r.taxTotal
@@ -205,6 +210,8 @@ export async function getContactLedger(
       $project: {
         cost: {
           $multiply: [
+            // A cash-sale storno brings the goods back (FR-21.9).
+            { $cond: [{ $eq: ['$type', 'cash_storno'] }, -1, 1] },
             '$lines.quantity',
             { $ifNull: [{ $arrayElemAt: ['$_product.purchasePrice', 0] }, 0] },
           ],

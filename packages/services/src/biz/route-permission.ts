@@ -146,6 +146,8 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
 
   // The cash-sale terminal in the invoicing app sells from the POS catalog.
   ['trade/pos/catalog', { need: [...POS, ...INVOICING] }],
+  // FR-21.12: the cash-register journal is the POS app's /pos/orders AND invoicing's /cash-sales.
+  ['cash-register', { need: [...POS, ...INVOICING] }],
   ['trade/pos', { need: POS }],
   ['pos', { need: POS }],
   ['pricing', { need: [...INVOICING, ...POS, ...INVENTORY] }],
@@ -282,6 +284,8 @@ export function readRefusal(
 export const PIN_SCOPE_ORG: readonly string[] = [
   '', 'apps', 'notification', 'logo', 'licence', 'trade/pos', 'pos', 'fiscal', 'pricing', 'tags',
   'warehouse/product-category', 'warehouse/warehouse',
+  // FR-21.12: the till's own journal (/pos/orders). Read-only routes only.
+  'cash-register',
 ]
 // The PIN pad itself too: the next operator signs in while the last one's PIN session is attached.
 export const PIN_SCOPE_OTHER: ReadonlySet<string> = new Set([

@@ -4,6 +4,7 @@ import { createAuditEntry } from '../audit-log.service.js'
 import { reverseInvoiceStockMovement } from '../invoicing.service.js'
 import { liveInvoiceNumbersFor } from '../cash-sale-invoice.service.js'
 import { syncOrderForInvoice } from '../reservation.service.js'
+import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from '../cash-register/immutability.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { stockMovementDao } from '../../dao/warehouse/stock-movement.dao.js'
 import { trashDocumentFile } from './doc-store.service.js'
@@ -100,11 +101,14 @@ async function planOne(orgId: string, doc: any, opts: DocDeleteOptions): Promise
 
   // ── invoices + movements this document booked ──
   for (const id of ids) {
-    const inv: any = await Invoice.findOne({ orgId, _id: id }).select('invoiceNumber type status total issueDate createdAt').lean()
+    const inv: any = await Invoice.findOne({ orgId, _id: id }).select('invoiceNumber type status total issueDate createdAt register.origin').lean()
     if (inv) {
       const stale = uploadedAt && inv.createdAt && new Date(inv.createdAt) < uploadedAt
       if (stale) plan.provenanceMismatch = true
-      let action: DocDeleteAction = inv.status === 'voided' ? 'already_reversed' : !opts.rollback ? 'skip' : stale && !opts.force ? 'skip' : 'void'
+      // FR-21.11: a till document or a storno is never voided, whatever booked it.
+      const immutable = isImmutableRegisterDocument(inv)
+      if (immutable) plan.warnings.push(`${inv.invoiceNumber}: ${REGISTER_DOCUMENT_IMMUTABLE.message}`)
+      let action: DocDeleteAction = inv.status === 'voided' ? 'already_reversed' : immutable || !opts.rollback ? 'skip' : stale && !opts.force ? 'skip' : 'void'
       // #171: an invoice issued for this cash sale says the goods left on it. Voiding the sale
       // under it would put them back on the shelf while the customer's invoice still stands.
       if (action === 'void' && inv.type === 'cash_sale') {
