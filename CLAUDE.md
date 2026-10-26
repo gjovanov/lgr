@@ -1062,7 +1062,7 @@ Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/CN/DN/BILL); cash sales skip
 
 ## Generic grid column picker + price-select + Словом + perf (2026-07-26)
 
-- **Per-user grid columns** (visibility + reorder) on EVERY `ListScaffold` grid: `ui-shared/composables/useGridColumns.ts` (localStorage `lgr:grid-cols:<userId>:<orgId>:<gridId>`, gridId = route name) + `GridColumnPickerDialog.vue`; a cog in the results header opens it. userId read from the JWT in localStorage (no app-store coupling). Grids NOT on ListScaffold (e.g. `ProductsView`) don't get it yet.
+- **Per-user grid columns** (visibility + reorder) on EVERY `ListScaffold` grid: `ui-shared/composables/useGridColumns.ts` (localStorage `lgr:grid-cols:<userId>:<orgId>:<gridId>`, gridId = route name) + `GridColumnPickerDialog.vue`; a cog in the results header opens it. userId read from the JWT in localStorage (no app-store coupling). Grids NOT on ListScaffold (e.g. `StockLevelsView`) don't get it yet. ⚠ A saved order exists only after a MOVE and then wins, so a new default order reaches only users who never reordered; a column the saved order has never seen goes right after its catalog predecessor (`orderColumnKeys`, FR-22.46).
 - **Price-select icon** (`ui-shared/PriceSelectButton.vue`) left of every invoice-line Unit Price: lists selling + all named tiers via `GET /pricing/options?...&all=true` (new `all` mode in `listPriceOptions` offers filterless Цена slots too); `onLinePriceSelected` sets price + base→chosen explanation.
 - **Amount-in-words (Словом)**: `ui-shared/composables/useAmountInWords.ts` (`amountInWords` / `upsertAmountInWords`) — deterministic en/bg/de/mk converter, client-side, written into notes on save of every OUTGOING doc (gated `config.direction === 'outgoing'` in `useDocumentForm.buildPayload`) + orders, in the user's UI language, de-duped on re-save. Legacy format: `Словом : … евро и NN цента, Данъчна основа X.XX €`. Unit-tested (`amount-in-words.test.ts`).
 - **Bottom Save/Print bar** on all doc forms (`DocumentForm.vue`) + order form.
@@ -1135,6 +1135,19 @@ ORDI (InternalOrder, client demand)          ORDO (Order, supplier supply)
   or partly received ORDO lines, outstanding quantity, the clients holding it) and the product's
   reservations. A draft ORDO is `planned`, never `incoming`: nothing was ordered yet. Shown on the
   product's Stock tab (`inventory-ui ProductStockView`), linking into invoicing via `appHref`.
+- **On the Products list** (FR-22.45/.46/.48): `GET /warehouse/stock-level/by-products`, the call the
+  list already made for its stock badges, also returns `supply: {[productId]: {reserved, incoming,
+  reservedIncoming, planned}}` from `getProductsSupplyTotals`. It runs the stock tab's own steps
+  (`loadSupplyDocs → incomingAllocations → warehouseFigures`), so there is no second definition of
+  "reserved" or "incoming", and three queries serve a page of any size. With `warehouseId` the badges
+  AND the totals describe that warehouse only. „Резервирано" / „Поръчано" follow „Наличност", which
+  now precedes „Мярка"; each non-zero figure opens the stock tab. `GET /warehouse/product?isActive=
+  true|false` (`true` is `$ne: false`: a product without the flag is active); without it, both, as
+  every picker expects. The list defaults to active articles (`status` in the URL, a declared
+  default), and shows its „Активен" column only when deactivated ones can be listed: that width is
+  what keeps the row actions inside 1366 px. Tests: `integration/products-supply-list.flow.test.ts`
+  (parity with `getProductSupply`, 5 queries for 5 or 50 products), `unit/grid-column-order.test.ts`;
+  the P1 walk goes 6 → 5 clicks through the figure's link.
 - **Lists and the ORDI form.** ReservationsView: Source is the ORDO number (linked) or "Stock", the
   ORDI is linked, quantity edit (`ReservationQuantityDialog`) and reserve again, `source` filter in
   the URL. InternalOrderFormView: each line's reservations in a sub-row; a reservation action
@@ -1311,6 +1324,8 @@ type `shipment` → `dispatch` (the backend enum) and `completed` added to the s
 ## DIN/ISO Fastener Catalog + Product Tagging (2026-08-03)
 
 Global reference collection **`din_catalog`** (model `DinCatalog`, no tenantPlugin — like ExchangeRate; explicit collection name) holds 165 DIN↔ISO/EN rows in 12 Bulgarian categories from the „DIN ↔ ISO/EN разширен каталог крепежни елементи" DOCX; data committed at `scripts/data/din-catalog.json`. `scripts/seed-din-catalog.ts` upserts it and (with `--org`) creates the 12 `ProductCategory` docs. `scripts/assign-din-tags.ts` derives **product tags from NAMES** — `DIN 933` (+whitelisted variants 7504-K/M/N/O/P/R, 125-A/B, 7380-1/2, 976-1; junk-proof against "- K 8.8" class markers), catalog cross-tags (`DIN 933`→`ISO 4017`, `EN 14399-4`→`DIN 6914`), canonical Cyrillic dimensions (`М8Х25`/`Ф90Х529`/`6Х70`, pipe fractions `1/2Х3/8` excluded), coating/material/strength (`ZN`/`BL`/`HDG`/`YELLOW ZINC`/`A2`/`A4`/`МЕСИНГ`/`6.8|8.8|10.9|12.9`) — via `$addToSet` + Tag vocabulary upserts, and **recategorizes** catalog-DIN products (first DIN wins; only out of „Общи"/the 12 unless `--force-category`; sets category+categoryId+categoryLower explicitly since bulkWrite bypasses loweredFieldsPlugin). Extraction: `packages/services/src/biz/fastener-tags.utils.ts` (import-pure; tests `packages/tests/src/unit/fastener-tags.test.ts`). ProductsView category filter now loads from `/warehouse/product-category` (was: derived from first page of products). Ops: re-run assign-din-tags after `receive-new-products`; after `seed-products --clean` re-run BOTH scripts (clean wipes tags+categories). Skill: `.claude/skills/assign-din-tags/`. ⚠ Bun transpiles Cyrillic regex literals to `\uXXXX` — never send them to Mongo as `$regex` (PCRE2 error 51091); query tags by equality.
+
+⚠ **A product carries its category twice**: `categoryId`, which the form edits, and the `category` name that lists, reports and imports read. Some articles carry only the NAME: on 2026-10-26, every product of the `regal` org and of the acme seed. On load, `ProductFormView` links such a name to the one category that carries it. Otherwise it shows the name as the field's placeholder and keeps it on save, and only clearing the field drops it. Until 2026-10-26, saving such an article wrote `category: ''` (regression test: `e2e/tests/product-category.spec.ts`).
 
 ## Reports app module — FR-06 / #14 P1 (2026-08-25)
 

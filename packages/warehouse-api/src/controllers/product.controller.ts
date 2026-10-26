@@ -21,6 +21,11 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
       const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
       filter.tags = { $in: tagList }
     }
+    // FR-22.48: the Products list asks for active or deactivated articles; without the param every
+    // caller (the pickers, the API clients) still gets both. "Active" is `$ne: false`, not `true`:
+    // a product saved before the field existed has none, and has always been listed as active.
+    if (query.isActive === 'true') filter.isActive = { $ne: false }
+    else if (query.isActive === 'false') filter.isActive = false
     if (query.warehouseId) {
       // Restrict to products that currently hold stock in the selected warehouse.
       const stock = await r.stockLevels.findMany({ orgId, warehouseId: query.warehouseId, quantity: { $gt: 0 } } as any)

@@ -1455,6 +1455,10 @@
     "totalUnits": "Общо Единици",
     "avgCost": "Средна Цена",
     "lowStockOnly": "Само намалели количества",
+    "activeFilter": {
+      "active": "Активни",
+      "inactive": "Неактивни"
+    },
     "outOfStock": "Изчерпан",
     "lowStock": "Намалена наличност",
     "inStock": "В наличност",
@@ -1624,6 +1628,7 @@
       "reserved": "Резервирано",
       "available": "Свободно",
       "incoming": "Очаквано",
+      "onOrder": "Поръчано",
       "reservedIncoming": "от тях резервирано",
       "planned": "планирано (чернова)",
       "expectedDeliveries": "Очаквани доставки",

@@ -2,6 +2,7 @@ import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { buildSearchFilter } from 'services/biz/search.utils'
+import { getProductsSupplyTotals } from 'services/biz/product-supply.service'
 
 export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/stock-level' })
   .use(AppAuthService)
@@ -68,15 +69,24 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
   }, { isSignIn: true })
   // Bulk per-warehouse stock for a set of products — powers the products-grid quantity badges
   // without an N+1 (one call per rendered page). Returns { stock: { [productId]: [{ warehouse… }] } }.
+  //
+  // FR-22.45: the same call carries each product's „Резервирано" / „Поръчано" (`supply`), from
+  // the definitions the product's stock tab uses (`getProductsSupplyTotals`). With `warehouseId`
+  // (the list's warehouse filter) the badges and the totals both describe that warehouse only, so
+  // a row never shows one warehouse's stock beside another's holds.
   .get('/by-products', async ({ params: { orgId }, query }) => {
     const r = getRepos()
     const ids = String(query.productIds || '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean)
-    if (!ids.length) return { stock: {} }
+    if (!ids.length) return { stock: {}, supply: {} }
+    const warehouseId = query.warehouseId ? String(query.warehouseId) : ''
 
-    const rows = await r.stockLevels.findMany({ orgId, productId: { $in: ids } } as any)
+    const [rows, supply] = await Promise.all([
+      r.stockLevels.findMany({ orgId, productId: { $in: ids }, ...(warehouseId ? { warehouseId } : {}) } as any),
+      getProductsSupplyTotals(orgId, ids, { warehouseId: warehouseId || undefined }),
+    ])
     const whIds = [...new Set(rows.map((s: any) => s.warehouseId).filter(Boolean))]
     const warehouses = whIds.length ? await r.warehouses.findMany({ id: { $in: whIds } } as any) : []
     const whMap = new Map(warehouses.map((w: any) => [w.id, w.name]))
@@ -92,5 +102,5 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
         availableQuantity: s.availableQuantity ?? s.quantity ?? 0,
       })
     }
-    return { stock }
+    return { stock, supply }
   }, { isSignIn: true })

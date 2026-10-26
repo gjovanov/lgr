@@ -1455,6 +1455,10 @@
     "totalUnits": "Gesamteinheiten",
     "avgCost": "Durchschnittspreis",
     "lowStockOnly": "Nur niedriger Bestand",
+    "activeFilter": {
+      "active": "Aktive",
+      "inactive": "Deaktivierte"
+    },
     "outOfStock": "Nicht vorrätig",
     "lowStock": "Niedriger Bestand",
     "inStock": "Auf Lager",
@@ -1624,6 +1628,7 @@
       "reserved": "Reserviert",
       "available": "Verfügbar",
       "incoming": "Erwartet",
+      "onOrder": "Bestellt",
       "reservedIncoming": "davon reserviert",
       "planned": "geplant (Entwurf)",
       "expectedDeliveries": "Erwartete Lieferungen",

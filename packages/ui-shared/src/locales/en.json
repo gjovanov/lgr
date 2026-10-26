@@ -1455,6 +1455,10 @@
     "totalUnits": "Total Units",
     "avgCost": "Avg Cost",
     "lowStockOnly": "Low Stock Only",
+    "activeFilter": {
+      "active": "Active",
+      "inactive": "Deactivated"
+    },
     "outOfStock": "Out of Stock",
     "lowStock": "Low Stock",
     "inStock": "In Stock",
@@ -1624,6 +1628,7 @@
       "reserved": "Reserved",
       "available": "Available",
       "incoming": "Expected",
+      "onOrder": "On order",
       "reservedIncoming": "of it reserved",
       "planned": "planned (draft)",
       "expectedDeliveries": "Expected deliveries",
