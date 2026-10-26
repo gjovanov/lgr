@@ -23,6 +23,8 @@ function opsError(status: any, e: any) {
 
 const num = (v: any) => Number(v) || 0
 const idStr = (v: any) => (v == null ? '' : String(v))
+/** How many clients, articles or orders one search term may stand for: enough to be useful, bounded. */
+const SEARCH_MATCH_CAP = 500
 const isId = (v: unknown) => typeof v === 'string' && mongoose.Types.ObjectId.isValid(v)
 const contactName = (c: any) => c?.companyName || [c?.firstName, c?.lastName].filter(Boolean).join(' ') || ''
 
@@ -223,16 +225,27 @@ export const reservationController = new Elysia({ prefix: '/org/:orgId/invoicing
     if (query.contactId) filter.contactId = query.contactId
     if (query.source) filter.source = query.source
     if (query.search) {
-      const s = String(query.search)
-      const esc = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      // FR-22.39: the reservation's number, its client, its article (name or SKU, as the product
+      // search reads them) and the numbers of the orders on either side of it.
+      const s = String(query.search).trim()
+      const number = { $regex: s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' }
       const contactFilter = buildSearchFilter(s, ['companyName', 'firstName', 'lastName'], {
         lowered: { companyName: 'companyNameLower', firstName: 'firstNameLower', lastName: 'lastNameLower' },
       })
-      const matching = await Contact.find({ orgId, ...contactFilter } as any, { _id: 1 }).lean().exec()
-      const ids = matching.map((c: any) => c._id)
+      const productFilter = buildSearchFilter(s, ['name', 'sku'], { lowered: { name: 'nameLower', sku: 'skuLower' }, homoglyphs: true })
+      const ids = (rows: any[]) => rows.map((r: any) => r._id)
+      const [contacts, products, orders, ordis] = await Promise.all([
+        Contact.find({ orgId, ...contactFilter } as any, { _id: 1 }).limit(SEARCH_MATCH_CAP).lean().exec(),
+        Product.find({ orgId, ...productFilter } as any, { _id: 1 }).limit(SEARCH_MATCH_CAP).lean().exec(),
+        Order.find({ orgId, orderNumber: number } as any, { _id: 1 }).limit(SEARCH_MATCH_CAP).lean().exec(),
+        InternalOrder.find({ orgId, orderNumber: number } as any, { _id: 1 }).limit(SEARCH_MATCH_CAP).lean().exec(),
+      ])
       filter.$or = [
-        { reservationNumber: { $regex: esc, $options: 'i' } },
-        ...(ids.length ? [{ contactId: { $in: ids } }] : []),
+        { reservationNumber: number },
+        ...(contacts.length ? [{ contactId: { $in: ids(contacts) } }] : []),
+        ...(products.length ? [{ productId: { $in: ids(products) } }] : []),
+        ...(orders.length ? [{ orderId: { $in: ids(orders) } }] : []),
+        ...(ordis.length ? [{ internalOrderId: { $in: ids(ordis) } }] : []),
       ]
     }
 

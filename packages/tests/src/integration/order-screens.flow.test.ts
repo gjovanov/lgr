@@ -150,3 +150,34 @@ describe('a refused client-order or supplier-order action says why', () => {
     expect(res.json).toMatchObject({ code: 'order_has_invoices' })
   }, 60_000)
 })
+
+describe('the Reservations list finds a reservation by', () => {
+  it('its number, its client, its article\'s name or SKU, and the number of either order', async () => {
+    const w = await world()
+    const sent = await w.order('sent', 6)
+    const mine = await w.ordi(w.c1, [{ product: w.product, quantity: 3 }])
+    // RES 1: Клиент 1's bolts from stock, for the client order. RES 2: Клиент 2's nuts from stock.
+    // RES 3: Клиент 2's bolts on the supplier order.
+    const r1 = (await w.call('POST', '/reservations', {
+      source: 'stock', productId: String(w.product._id), warehouseId: String(w.w1._id), contactId: String(w.c1._id), quantity: 2,
+      internalOrderId: mine.id, internalOrderLineId: mine.lineIds[0],
+    })).json.reservation
+    const r2 = (await w.call('POST', '/reservations', {
+      source: 'stock', productId: String(w.other._id), warehouseId: String(w.w1._id), contactId: String(w.c2._id), quantity: 1,
+    })).json.reservation
+    const r3 = (await w.call('POST', '/reservations', {
+      source: 'order', productId: String(w.product._id), contactId: String(w.c2._id), quantity: 4, ...sent.alloc,
+    })).json.reservation
+    const found = async (q: string) =>
+      ((await w.call('GET', `/reservations?search=${encodeURIComponent(q)}&size=50`)).json.reservations || [])
+        .map((r: any) => r.reservationNumber).sort()
+
+    expect(await found(r2.reservationNumber)).toEqual([r2.reservationNumber])
+    expect(await found('Клиент 2')).toEqual([r2.reservationNumber, r3.reservationNumber].sort())
+    expect(await found('гайка')).toEqual([r2.reservationNumber])           // the article's name, any case
+    expect(await found('blt-m8')).toEqual([r1.reservationNumber, r3.reservationNumber].sort()) // its SKU
+    expect(await found(sent.number)).toEqual([r3.reservationNumber])      // the supplier order
+    expect(await found(mine.number)).toEqual([r1.reservationNumber])      // the client order
+    expect(await found('nothing like it')).toEqual([])
+  }, 60_000)
+})
