@@ -1709,11 +1709,51 @@ billable-receipts,:id/link-receipts}`.
 - Tests: `integration/receipt-bill.flow` (13), `quick-product.flow` (2); walks P2 (17 clicks · 12
   typed · 0 hops) and P3 (3 · 1 · 1, stock unchanged).
 
+## Issue, print and get paid on the document (2026-10-26, FR-22 slice 2a: FR-22.16–.22)
+
+A sales document is finished on its own form: „Издай и печатай" saves it, issues it, settles a card
+or cash sale and prints it — one click (P5-invoice 20 → 14 clicks, 2 dialogs → 0).
+
+- **Save stays on the document** (every invoicing document form but the cash sale, which FR-21
+  owns): a new one moves onto its own edit route. The views key `DocumentForm` on
+  `document-form/useDocumentRouteKey`: a different document remounts the form (Vue Router reuses the
+  view when only the id or query changes, so A's form used to stay up under B's address), and the
+  form's own create keeps it (`onCreated` → `adopt`) — it goes on issuing or printing what it made.
+  ⚠ `usePendingChanges`' leave guard now FOLLOWS the route record: `onBeforeRouteLeave` binds to
+  the record of the moment, and after new → edit in the same form it never ran again. `markClean()`
+  (called by `loadDocument`) re-arms it after a save that stays.
+- **One issue path** (FR-22.17): `invoicing-ui/composables/document-issue.ts` holds the requests (the
+  document, `/stock-availability/check`, `create-transfers`, `/send`) with no Vue in it — the
+  integration test drives the same functions — and `useDocumentIssue` adds the transfer dialog, the
+  idempotent `/send` and the messages. The sales list's „Изпрати", the form's „Издай" / „Запази и
+  издай" / „Издай и печатай" and the cash-sale form's pre-create check (`useStockTransfer`) use it.
+  A proforma is never stock-checked. Refused, or the transfer dialog closed: nothing prints, and the
+  draft says why (`issueError`).
+- **„Печат" prints in one click** with the user's last settings (`lgr:doc-print:<user>:<org>`:
+  format, mode, columns — never the companion documents); „Печат с настройки…" beside it opens the
+  dialog on them (`ExportDialog` `initialColumns`). An edited document is saved first. A printed
+  draft says ЧЕРНОВА, as one copy, without its DRF- number (`invoice.pdf.ts`).
+- **Card is paid on issue like cash** (D-3): `syncCashSettlement` records `card_on_issue`; cash ↔
+  card moves the automatic payment; hand-recorded payments are untouched; bank transfer and cash on
+  delivery stay open. Card invoices issued earlier are not back-filled.
+- **A proforma is issued** from the PROFORMA series and moves no stock on any path (`movesNoStock`),
+  announces no `invoice.posted`; `/convert` carries the payment method, place of deal and tags, and
+  Convert (form and list) lands on the new invoice's form.
+- **A note from its invoice** (FR-22.21): „Кредитно известие" / „Дебитно известие" on an issued
+  invoice or bill open `…/new?type=credit_note|debit_note&relatedInvoiceId=`, which starts as the
+  invoice (`noteFromInvoice`: customer, the invoice, currency and rate, payment method, lines as
+  sold). ⚠ The customer is set without `onContactChange`: its price re-resolution would replace the
+  prices the invoice charged.
+- Tests: `integration/cash-settlement.flow` (+7 card), `proforma-issue.flow` (6),
+  `document-form-flow.flow` (6), `unit/invoice-pdf-form` (+4); walks P5-invoice 14 · 6 · 0 dialogs,
+  P5-credit 5 · 1, P6 12 · 5 · 0.
+
 ## Known Issues
 
 - [MEDIUM] [2026-07-19] Cluster pod external DNS is INTERMITTENT: CoreDNS forwards to 10.10.20.1 (zeus virbr1 dnsmasq — answers fine locally) and periodically times out (CoreDNS logs `read udp 10.244.x→10.10.20.1:53: i/o timeout`; zeus shows no explicit 10.244.0.0/16 return route) → ArgoCD sync intermittently fails with ComparisonError "server misbehaving" on github.com, then succeeds on retry minutes later (observed 2026-07-19: first sync Error, queued retry completed → Synced). Workaround when stuck: `kubectl apply -k k8s/overlays/prod` from the mars `~/lgr-deploy` checkout (live state converges with git). Root-cause hunt belongs in k8s-cluster-multi (zeus WG/libvirt routing). Also: argocd CLI token on mars is expired — trigger syncs via `kubectl -n argocd patch application lgr --type merge --patch '{"operation":{"sync":{}}}'` or re-login. — Status: OPEN
 - [MEDIUM] [2026-08-25] `integration/pos-transaction.flow.test.ts` — 9 of 21 tests fail on Windows (test 13 hangs ~150s, then 14–20 each time out at exactly 60s). It is the `.rejects` deadlock below, not a regression: **verified by stashing the only change on that path and reproducing the identical failure on unmodified code**. The file has 6 `.rejects`/`.resolves` usages; test 13 is the first one. Convert them to try/catch capture, or run the file on Linux/mars. — **Status: RESOLVED 2026-09-15** — all 6 converted with the sweep below; the file passes in the full run.
 - [MEDIUM] [2026-07-19] Bun 1.3.12 on Windows: `expect(p).rejects` deadlocks when the rejection follows MongoDB driver I/O — the pending op hangs ~45s, mongod gets reaped ("killed N dangling processes") → cascading ECONNREFUSED + segfault. Workaround: try/catch capture (see `bill-with-update.flow.test.ts` `captureRejection`); ~60 `.rejects` usages across 23 test files can hang on Windows — run those files on Linux/mars, or convert as touched. **2026-07-26**: `.resolves` is affected too (proven by minimal probe: same promise via plain await = instant, via `.resolves` matcher = deadlock + hook-timeout cascade that poisons every later test in the process); which files trip it is module-graph/timing sensitive. `invoice-stock-validation.flow.test.ts` converted (all `.rejects`→captureRejection, `.resolves`→plain await) → 15/15 in 4s. Convert BOTH matcher kinds as touched. — **Status: RESOLVED 2026-09-15.** "As touched" was the mistake: the matchers were hit one at a time for two months while `bun run test` was, on Windows, not slow but COMPLETELY BLOCKED. `accounting.flow.test.ts` is the first file the runner reaches and line 124 used `.rejects`, so the shared mongod was reaped before any other file ran and all ~125 that followed cascaded into ECONNREFUSED — the suite never reported at all. All 58 remaining call sites across 19 files are now converted to the shared `helpers/capture-rejection.ts` (`captureRejection` + `expectRejection`), which replaces the three private copies that had grown in different files. `bun run test` completes: **1505 tests / 126 files in ~5m, 1493 pass / 7 skip / 5 fail** (the 5 are real pre-existing failures in `app-hub.flow`, `compare-snapshot` and `org-logo` that the hang had been hiding). ⚠ **Never reintroduce `.rejects`/`.resolves` in this suite** — one is enough to block everything again. ⚠ When sweeping, scan RECURSIVELY: `dal/repos/` (named `dal/parity/` until 2026-09-29) and `unit/biz/` are two levels down and a `unit/*.test.ts` glob silently misses 23 sites.
+- [HIGH] [2026-10-26] **Voiding a DRAFT outgoing invoice books a receipt for goods that never left.** `POST /invoices/:id/void` accepts `draft`, and `reverseInvoiceStockMovement` reverses the lines whether or not a dispatch ever happened: a 4-piece draft voided took stock 10 → 14 (one `receipt` movement). The sales list offered „Анулирай" on drafts ONLY. Found during FR-22 slice 2; the row menu of slice 2b offers Delete on drafts instead, but the route itself needs its own decision (reverse only what the document's movements dispatched, or refuse a draft void). — Status: OPEN
 - [HIGH] [2026-03-10] 18 compact DAO controllers missing Elysia body validation schemas (arbitrary field injection risk) — Status: OPEN
 - [HIGH] [2026-03-10] BaseDao read methods missing .lean() (Mongoose document overhead on all DAO reads) — Status: OPEN
 - [RESOLVED] [2026-03-10] "N+1 in findBelowMinStock()" — the entry was stale on two counts, verified 2026-08-26 while implementing FR-11: there is no `findBelowMinStock`, the method is `findLowStock` in `services/src/dao/warehouse/product.dao.ts`, and it has been a single batched `$in` query (not a per-product loop) since before this entry was written. Nothing to fix.
