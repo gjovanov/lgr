@@ -319,6 +319,11 @@ function refusal(cs: any): { statusCode: number; code: string; message: string }
   if (cs.status !== 'paid') {
     return { statusCode: 422, code: 'cash_sale_not_paid', message: `Cash sale ${cs.invoiceNumber} is ${cs.status} — only a paid cash sale can be invoiced` }
   }
+  // FR-21 (D-2): a stornoed sale stays `paid`; its storno already reversed it. A quantity is
+  // corrected once (D-14), so it is not invoiced afterwards either.
+  if (cs.register?.stornoState === 'full') {
+    return { statusCode: 422, code: 'cash_sale_stornoed', message: `Cash sale ${cs.invoiceNumber} was reversed by a storno — it cannot be invoiced` }
+  }
   return null
 }
 
@@ -542,6 +547,9 @@ function buildInvoiceDoc(orgId: string, cs: any, contact: any, actor: Actor, wan
       number: cs.invoiceNumber,
       issueDate: cs.issueDate,
       ...(cs.contactId ? { contactId: cs.contactId } : {}),
+      // A till sale's fiscal receipt (FR-21 §3.9): the invoice prints it beside the sale's number.
+      ...(cs.register?.unp ? { unp: cs.register.unp } : {}),
+      ...(cs.register?.fiscalReceiptNumber ? { receiptNumber: cs.register.fiscalReceiptNumber } : {}),
     },
     stockSource: stockSourceFor(cs, movementIds),
   }

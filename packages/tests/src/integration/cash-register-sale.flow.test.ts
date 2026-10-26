@@ -10,16 +10,22 @@ import {
   createTestProduct,
   createTestStockLevel,
 } from '../helpers/factories'
-import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
-import { stockAvailabilityController } from 'invoicing-api/src/controllers/stock-availability.controller'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { createTransferMovements } from 'services/biz/stock-transfer.service'
-import { Invoice, StockLevel, StockMovement } from 'db/models'
+import { findPosRow } from 'services/biz/cash-register/pos-union'
+import { setDisplayPrefix } from 'services/biz/sequence.service'
+import { getRepos } from 'services/context'
+import { Invoice, Org, POSSession, POSTransaction, Sequence, StockLevel, StockMovement } from 'db/models'
+import { tillApp, tillWorld, forgetDevices } from '../helpers/till-world'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 
 /**
- * FR-21 R2 — a cash-register sale over HTTP.
+ * FR-21 R2 — a cash-register sale over HTTP, through each door of the one service (D-4).
+ *
+ * The till (FR-21.15–FR-21.17, FR-21.20): a sale rung up at the till is a cash-register document —
+ * the register block, a CS number, the УНП, exactly one receipt on the Eltrade simulator, the
+ * session's totals, and stock linked by `invoiceId`. A failure before the receipt may print takes the
+ * sale back; a failure after it is recorded on the document and shown.
  *
  * FR-21.24: the cash-sale form sells stock that is short in the till's warehouse by creating
  * draft transfers first (`/stock-availability/create-transfers`) and handing their ids to the
@@ -36,10 +42,13 @@ let app: Elysia
 
 beforeAll(async () => {
   await setupTestDB()
-  app = new Elysia().onError(spaErrorHandler({}) as any).use(invoiceController).use(stockAvailabilityController)
+  app = tillApp()
 }, 60_000)
 afterAll(async () => { await teardownTestDB() }, 60_000)
-afterEach(async () => { await clearCollections() }, 30_000)
+afterEach(async () => {
+  forgetDevices()
+  await clearCollections()
+}, 30_000)
 
 const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
 async function tokenFor(u: { id: string; orgId: string }) {
@@ -215,5 +224,159 @@ describe("FR-21.24 — issuing a draft confirms only this org's transfers", () =
     const doc = await Invoice.findById(draft.json.invoice.id).lean().exec() as any
     expect(doc.status).toBe('draft')
     expect(doc.issue?.leaseUntil ?? null).toBeNull()
+  }, 60_000)
+})
+
+describe('FR-21.15 — a till sale is a cash-register document', () => {
+  it('a fiscal sale on the Eltrade: the register block, a CS number, the УНП, one receipt, the session totals, stock by invoiceId', async () => {
+    const w = await tillWorld(app)
+    const res = await w.sell(2, { tendered: 30 })
+
+    expect(res.status).toBe(200)
+    expect(res.json.receiptError).toBeUndefined()
+    expect(res.json.stockError).toBeUndefined()
+    const doc: any = await Invoice.findById(res.json.transaction.id).lean()
+    const year = new Date().getFullYear()
+    expect(doc).toMatchObject({
+      type: 'cash_sale', direction: 'outgoing', status: 'paid', invoiceNumber: `CS-${year}-00001`,
+      currency: 'EUR', exchangeRate: 1, subtotal: 20, taxTotal: 4, total: 24, amountPaid: 24, amountDue: 0,
+    })
+    expect(doc.completedAt).toBeTruthy()
+    expect(doc.register).toMatchObject({
+      origin: 'pos', fiscalDeviceNumber: 'ED123456', operatorCode: '0001', unp: 'ED123456-0001-0000001',
+      isFiscal: true, changeDue: 6, sessionTotalsApplied: true, stornoState: 'none',
+    })
+    expect(String(doc.register.sessionId)).toBe(w.sessionId)
+    expect(String(doc.register.warehouseId)).toBe(String(w.warehouse._id))
+    expect(doc.register.fiscal.state).toBe('printed')
+    expect(doc.register.legacy).toBeUndefined()
+    // The lines are the document's: gross, the product's unit, the session's warehouse (D-7).
+    expect(doc.lines[0]).toMatchObject({ description: 'Болт DIN 933 М8Х25', quantity: 2, unit: 'бр.', lineTotal: 24, taxAmount: 4 })
+    expect(String(doc.lines[0].warehouseId)).toBe(String(w.warehouse._id))
+    // The payment is what the drawer kept; what was handed over stays on it.
+    expect(doc.payments.map((p: any) => [p.method, p.amount, p.tendered])).toEqual([['cash', 24, 30]])
+
+    // Exactly one receipt, under the document's УНП.
+    const receipts = w.sim!.receipts.filter(r => r.kind === 'fiscal' && !r.voided)
+    expect(receipts).toHaveLength(1)
+    expect(receipts[0].header[1]).toBe('ED123456-0001-0000001')
+    expect(doc.register.fiscalReceiptNumber).toBe(receipts[0].number)
+
+    // The drawer: 24 kept of the 30 tendered.
+    const session: any = await POSSession.findById(w.sessionId).lean()
+    expect(session).toMatchObject({ totalSales: 24, totalCash: 24, transactionCount: 1 })
+
+    // Stock through the invoice path: the movement names the document.
+    const moved: any[] = await StockMovement.find({ orgId: w.oid, invoiceId: doc._id }).lean()
+    expect(moved.map(m => [m.type, m.status])).toEqual([['dispatch', 'completed']])
+    expect(String(doc.register.movementId)).toBe(String(moved[0]._id))
+    expect((await w.stock()).quantity).toBe(8)
+
+    // The till's answer is the POS row it stands for; nothing is written to the old store.
+    expect(res.json.transaction).toMatchObject({
+      transactionNumber: doc.invoiceNumber, type: 'sale', status: 'completed', total: 24, changeDue: 6,
+      unpNumber: 'ED123456-0001-0000001', fiscalReceiptNumber: receipts[0].number,
+    })
+    expect(res.json.transaction.payments).toEqual([{ method: 'cash', amount: 30 }])
+    expect(await POSTransaction.countDocuments({ orgId: w.oid })).toBe(0)
+    // TXN allocates nothing any more (D-5).
+    expect(await Sequence.countDocuments({ orgId: w.oid, prefix: 'TXN' })).toBe(0)
+  }, 60_000)
+
+  it('the readers that still speak POS rows read it once, as the row it stands for', async () => {
+    const w = await tillWorld(app)
+    const { json } = await w.sell()
+
+    const row = await findPosRow(w.orgId, json.transaction.id)
+    expect(row).toMatchObject({ transactionNumber: json.transaction.transactionNumber, type: 'sale', status: 'completed', total: 24 })
+    const list = await w.call('GET', '/trade/pos/transactions?size=10')
+    expect(list.json.total).toBe(1)
+    const ofSession = await w.call('GET', `/trade/pos/session/${w.sessionId}/transaction`)
+    expect(ofSession.json.transactions.map((t: any) => t.id)).toEqual([json.transaction.id])
+    const journal = await w.call('GET', '/cash-register/documents')
+    expect(journal.json.rows.map((r: any) => [r.number, r.store, r.origin, r.kind])).toEqual([[json.transaction.transactionNumber, 'invoice', 'pos', 'sale']])
+  }, 60_000)
+
+  it('a text receipt, and no device at all: the same document, its receipt state says which', async () => {
+    const w = await tillWorld(app)
+    const text = await w.sell(1, { nonFiscal: true })
+    expect(text.status).toBe(200)
+    const doc: any = await Invoice.findById(text.json.transaction.id).lean()
+    expect(doc.register).toMatchObject({ isFiscal: false, fiscal: { state: 'printed', mode: 'text' } })
+    expect(doc.register.unp).toBeUndefined()
+    expect(w.sim!.receipts.filter(r => r.kind === 'fiscal')).toHaveLength(0)
+
+    const bare = await tillWorld(app, { device: false })
+    const none = await bare.sell(1)
+    expect(none.status).toBe(200)
+    const plain: any = await Invoice.findById(none.json.transaction.id).lean()
+    expect(plain.register.fiscal.state).toBe('none')
+    expect(plain.register.isFiscal).toBe(false)
+  }, 60_000)
+
+  it('a session number comes from the registry, under the org\'s own prefix', async () => {
+    const w = await tillWorld(app, { device: false })
+    const year = new Date().getFullYear()
+    expect(w.session.sessionNumber).toBe(`POS-${year}-000001`)
+
+    await w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 100 } })
+    await setDisplayPrefix(w.orgId, 'POS', 'KS')
+    const next = await w.call('POST', '/trade/pos/session', { warehouseId: String(w.warehouse._id), openingBalance: 0, currency: 'EUR' })
+    expect(next.json.session.sessionNumber).toBe(`KS-${year}-000002`)
+  }, 60_000)
+
+  it('a return or an exchange is not rung up: a sale is reversed by its storno', async () => {
+    const w = await tillWorld(app, { device: false })
+    const res = await w.call('POST', `/trade/pos/session/${w.sessionId}/transaction`, { ...w.saleBody(), type: 'return' })
+    expect(res.status).toBe(422)
+    expect(res.json.code).toBe('register_type_unsupported')
+    expect(await Invoice.countDocuments({ orgId: w.oid })).toBe(0)
+  }, 60_000)
+})
+
+describe('FR-21.16 — one failure rule, and the stock checked before the print', () => {
+  it('by default the till sells what the warehouse does not hold, as it always did', async () => {
+    const w = await tillWorld(app, { stock: 1 })
+    const res = await w.sell(3)
+    expect(res.status).toBe(200)
+    expect(res.json.stockError).toBeUndefined()
+    expect((await w.stock()).quantity).toBe(-2)
+  }, 60_000)
+
+  it('an org that does not allow it: refused before the receipt, and nothing is written — no number, no receipt, no total', async () => {
+    const w = await tillWorld(app, { stock: 1 })
+    await Org.updateOne({ _id: w.oid }, { $set: { 'settings.cashRegister.allowNegativeStock': false } }).exec()
+
+    const res = await w.sell(3)
+
+    expect(res.status).toBe(400)
+    expect(res.json.code).toBe('insufficient_stock')
+    expect(await Invoice.countDocuments({ orgId: w.oid })).toBe(0)
+    expect(w.sim!.receipts).toHaveLength(0)
+    expect((await POSSession.findById(w.sessionId).lean() as any).transactionCount).toBe(0)
+    expect((await w.stock()).quantity).toBe(1)
+    // The CS series lost nothing: the next sale takes the first number.
+    const next = await w.sell(1)
+    expect(next.json.transaction.transactionNumber).toMatch(/-00001$/)
+  }, 60_000)
+
+  it('a failure after the receipt printed is recorded on the document, and the sale stands', async () => {
+    const w = await tillWorld(app)
+    const repo = getRepos().stockMovements as any
+    repo.create = async () => { throw new Error('write concern timeout') }
+    try {
+      const res = await w.sell(2)
+
+      expect(res.status).toBe(200)
+      expect(res.json.stockError).toBe('write concern timeout')
+      const doc: any = await Invoice.findById(res.json.transaction.id).lean()
+      expect(doc.register.stockError).toBe('write concern timeout')
+      expect(doc.register.fiscal.state).toBe('printed')
+      expect(doc.completedAt).toBeTruthy()
+      expect((await POSSession.findById(w.sessionId).lean() as any).totalSales).toBe(24)
+      expect((await w.stock()).quantity).toBe(10)
+    } finally {
+      delete repo.create
+    }
   }, 60_000)
 })

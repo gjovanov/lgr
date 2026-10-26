@@ -284,7 +284,8 @@ export function readRefusal(
 export const PIN_SCOPE_ORG: readonly string[] = [
   '', 'apps', 'notification', 'logo', 'licence', 'trade/pos', 'pos', 'fiscal', 'pricing', 'tags',
   'warehouse/product-category', 'warehouse/warehouse',
-  // FR-21.12: the till's own journal (/pos/orders). Read-only routes only.
+  // FR-21.12: the till's own journal (/pos/orders), and its storno (FR-21.18): a manager's PIN
+  // reverses a sale there as it does at the till, the role still checked by the route.
   'cash-register',
 ]
 // The PIN pad itself too: the next operator signs in while the last one's PIN session is attached.

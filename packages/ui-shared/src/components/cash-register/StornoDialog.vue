@@ -12,7 +12,11 @@
           <span>{{ sale.unp }}</span>
         </div>
 
-        <v-progress-linear v-if="loadingSession" indeterminate class="mb-3" />
+        <!-- A back-office sale has no receipt and no drawer: its storno prints nothing (FR-21 §3.5). -->
+        <div v-if="!needsSession" class="text-caption text-medium-emphasis mb-3" data-testid="storno-no-receipt">
+          {{ $t('pos.storno.noReceipt') }}
+        </div>
+        <v-progress-linear v-else-if="loadingSession" indeterminate class="mb-3" />
         <!-- The refund leaves the drawer of an OPEN session in the sale's own warehouse — the same
              till and fiscal device the sale went through (the server enforces this too). -->
         <v-alert v-else-if="!targetSession" type="warning" variant="tonal" density="compact" class="mb-3" data-testid="storno-no-session">
@@ -40,7 +44,7 @@
           color="error"
           variant="flat"
           :loading="submitting"
-          :disabled="!targetSession || !reason"
+          :disabled="(needsSession && !targetSession) || !reason"
           data-testid="storno-confirm"
           @click="submit"
         >
@@ -53,10 +57,11 @@
 
 <script setup lang="ts">
 /**
- * #145 / FR-21 — STORNO a till sale from the cash-register journal, in the POS app or in invoicing:
- * the goods go back to the warehouse, the refund leaves the register, and the fiscal device prints
- * the storno receipt (Н-18). All of that is the server's `POST /trade/pos/session/:id/storno`; this
- * picks the session and the reason.
+ * #145 / FR-21 — STORNO a sale from the cash-register journal, in the POS app or in invoicing: the
+ * goods go back to the warehouse, and for a till sale the refund leaves the register and the fiscal
+ * device prints the storno receipt (Н-18). All of that is the server's
+ * `POST /cash-register/documents/:id/storno`; this picks the session (a till sale's) and the reason.
+ * A back-office sale needs no session: it has no receipt to reverse.
  *
  * ⚠ A storno whose fiscal receipt fails to print reverses NOTHING (the server answers 503
  * `fiscal_error`) — the message is shown as is, so the operator knows to fix the printer and retry.
@@ -74,6 +79,10 @@ export interface StornoTarget {
   currency?: string
   unp?: string
   sessionId?: string
+  /** `pos` (the till) or `backoffice`: only a till sale goes back through a session. */
+  origin?: string
+  /** The warehouse it was sold from, when the row names it. */
+  warehouseId?: string
 }
 
 const props = defineProps<{
@@ -105,19 +114,22 @@ function fmtCurrency(amount: number) {
   return formatCurrency(amount, props.sale?.currency || 'EUR', code)
 }
 
+/** A back-office sale is reversed without one. */
+const needsSession = computed(() => props.sale?.origin !== 'backoffice')
+
 /** An open session in the sale's warehouse — this user's own first, else anyone's. */
 async function findTargetSession() {
   targetSession.value = null
   error.value = ''
-  if (!props.sale?.sessionId) return
+  if (!needsSession.value || (!props.sale?.sessionId && !props.sale?.warehouseId)) return
   loadingSession.value = true
   try {
     const base = `${props.orgUrl}/trade/pos`
-    const [{ data: orig }, { data: open }] = await Promise.all([
-      httpClient.get(`${base}/session/${props.sale.sessionId}`),
+    const [orig, { data: open }] = await Promise.all([
+      props.sale?.warehouseId ? Promise.resolve(null) : httpClient.get(`${base}/session/${props.sale!.sessionId}`).then(r => r.data),
       httpClient.get(`${base}/session`, { params: { status: 'open', size: 50 } }),
     ])
-    const warehouseId = String(orig?.session?.warehouseId || '')
+    const warehouseId = String(props.sale?.warehouseId || orig?.session?.warehouseId || '')
     const candidates = (open?.sessions || []).filter((s: any) => String(s.warehouseId) === warehouseId)
     targetSession.value = candidates.find((s: any) => String(s.cashierId) === String(props.userId)) || candidates[0] || null
   } catch (e: any) {
@@ -138,13 +150,13 @@ watch(() => [props.modelValue, props.sale?.id], ([open]) => {
 const attempt = createIdempotentAction()
 
 async function submit() {
-  if (!targetSession.value || !props.sale) return
+  if (!props.sale || (needsSession.value && !targetSession.value)) return
   submitting.value = true
   error.value = ''
   try {
-    const sessionId = targetSession.value.id || targetSession.value._id
-    const body = { originalTransactionId: props.sale.id, reason: reason.value }
-    const { data } = await httpClient.post(`${props.orgUrl}/trade/pos/session/${sessionId}/storno`, body, { headers: attempt.headers(body) })
+    const sessionId = needsSession.value ? String(targetSession.value.id || targetSession.value._id) : undefined
+    const body = { reason: reason.value, ...(sessionId ? { sessionId } : {}) }
+    const { data } = await httpClient.post(`${props.orgUrl}/cash-register/documents/${props.sale.id}/storno`, body, { headers: attempt.headers(body) })
     attempt.settle()
     emit('done', data)
     emit('update:modelValue', false)

@@ -29,6 +29,8 @@ export interface InvoiceDocI18n {
     unp: string
     /** The cash sale an invoice was issued for (#171). */
     forCashSale: string
+    /** A fiscal receipt's number (FR-21 §3.9). */
+    receiptNo: string
     recipient: string
     supplier: string
     city: string
@@ -84,6 +86,7 @@ const bg: InvoiceDocI18n = {
     date: 'Дата',
     unp: 'УНП',
     forCashSale: 'Към касова продажба',
+    receiptNo: 'ФБ №',
     recipient: 'ПОЛУЧАТЕЛ',
     supplier: 'ДОСТАВЧИК',
     city: 'Град',
@@ -144,6 +147,7 @@ const en: InvoiceDocI18n = {
     date: 'Date',
     unp: 'USN',
     forCashSale: 'For cash sale',
+    receiptNo: 'Receipt No.',
     recipient: 'RECIPIENT',
     supplier: 'SUPPLIER',
     city: 'City',
@@ -203,6 +207,7 @@ const de: InvoiceDocI18n = {
     date: 'Datum',
     unp: 'USN',
     forCashSale: 'Zum Barverkauf',
+    receiptNo: 'Beleg-Nr.',
     recipient: 'EMPFÄNGER',
     supplier: 'LIEFERANT',
     city: 'Stadt',
@@ -262,6 +267,7 @@ const mk: InvoiceDocI18n = {
     date: 'Датум',
     unp: 'УНП',
     forCashSale: 'Кон готовинска продажба',
+    receiptNo: 'Фиск. сметка бр.',
     recipient: 'ПРИМАЧ',
     supplier: 'ДОСТАВУВАЧ',
     city: 'Град',

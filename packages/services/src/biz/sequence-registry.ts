@@ -12,7 +12,7 @@
  *   org override for the counter key (year=0 sentinel)  →  `defaultDisplay` below.
  * `resolveSequencePrefix()` implements it; nothing should hardcode a prefix literal.
  */
-import { getDisplayPrefix } from './sequence.service.js'
+import { getDisplayPrefix, getNextNumber } from './sequence.service.js'
 
 export type SequenceGroup =
   | 'invoice'
@@ -24,6 +24,7 @@ export type SequenceGroup =
   | 'reservation'
   | 'certificate'
   | 'pp_protocol'
+  | 'pos_session'
 
 export type SequenceVariant = 'draft' | 'issued'
 
@@ -39,6 +40,14 @@ export interface SequenceKeyDef {
    * Cash sales have no draft state — they go straight to issued.
    */
   unused?: boolean
+  /**
+   * A series that allocates nothing any more, kept so its history can still be read: the
+   * digest's continuity check (FR-11.7b) recognises its numbers, and the configuration page
+   * does not offer it. FR-21's `TXN`, the till's own receipts until R2.
+   */
+  closed?: boolean
+  /** Digits of the running number, when not 5. */
+  padLength?: number
 }
 
 /**
@@ -70,6 +79,11 @@ export const INVOICING_SEQUENCE_KEYS: SequenceKeyDef[] = [
   // Companion documents printed alongside an outgoing sales document — own running numbers.
   { prefix: 'CERTIFICATE', defaultDisplay: 'CERT',    group: 'certificate',    variant: 'issued' },
   { prefix: 'PP_PROTOCOL', defaultDisplay: 'PPP',     group: 'pp_protocol',    variant: 'issued' },
+  // The till's sessions (FR-21.17): `POS-2026-000051`.
+  { prefix: 'POS',         defaultDisplay: 'POS',     group: 'pos_session',    variant: 'issued', padLength: 6 },
+  // FR-21.17 (D-5): the till's own receipt series until R2. Every cash-register document is a
+  // CASH_SALE number since; the copies of older till sales keep their TXN numbers.
+  { prefix: 'TXN',         defaultDisplay: 'TXN',     group: 'cash_sale',      variant: 'issued', closed: true, padLength: 7 },
 ]
 
 /**
@@ -84,7 +98,8 @@ export const LEGACY_DISPLAY_ALIASES: Record<string, string[]> = {
 /** Map an invoicing document (type + direction) onto its sequence group. */
 export function sequenceGroupFor(type: string, direction?: string): SequenceGroup {
   if (type === 'proforma') return 'proforma'
-  if (type === 'cash_sale') return 'cash_sale'
+  // FR-21 (D-5): a storno is numbered in the series of the sales it reverses.
+  if (type === 'cash_sale' || type === 'cash_storno') return 'cash_sale'
   // Credit/debit notes share the series of the side they correct: outgoing notes are
   // numbered with the sales invoices, incoming notes with the purchase bills.
   if (type === 'credit_note' || type === 'debit_note' || type === 'invoice') {
@@ -96,7 +111,7 @@ export function sequenceGroupFor(type: string, direction?: string): SequenceGrou
 
 /** The registry row for a group/variant, or null when that combination doesn't allocate. */
 export function sequenceDefFor(group: SequenceGroup, variant: SequenceVariant): SequenceKeyDef | null {
-  const row = INVOICING_SEQUENCE_KEYS.find(e => e.group === group && e.variant === variant)
+  const row = INVOICING_SEQUENCE_KEYS.find(e => e.group === group && e.variant === variant && !e.closed)
   if (!row || row.unused) return null
   return row
 }
@@ -120,6 +135,18 @@ export async function resolveSequencePrefix(
   const def = sequenceDefFor(group, variant)
   if (!def) return null
   return resolveDefPrefix(orgId, def)
+}
+
+/**
+ * The next number of a registry series: its counter, its padding and the org's display prefix.
+ * `getNextNumber` alone prints the counter key, which an org may have renamed.
+ */
+export async function nextRegistryNumber(orgId: string, group: SequenceGroup, variant: SequenceVariant = 'issued'): Promise<string> {
+  const def = sequenceDefFor(group, variant)
+  if (!def) throw new Error(`No ${variant} series is registered for ${group}`)
+  const year = new Date().getFullYear()
+  const raw = await getNextNumber(orgId, def.prefix, def.padLength ?? 5, year)
+  return `${await resolveDefPrefix(orgId, def)}-${year}-${raw.split('-').pop()}`
 }
 
 /** Same resolution for an already-known registry row. */

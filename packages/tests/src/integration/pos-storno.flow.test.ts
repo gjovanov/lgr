@@ -14,7 +14,8 @@ import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { posController, stornoRefundBuckets, expectedTotals } from 'invoicing-api/src/controllers/pos.controller'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
-import { POSSession, POSTransaction, StockLevel } from 'db/models'
+import { Invoice, POSSession, POSTransaction, StockLevel } from 'db/models'
+import { tillRow } from '../helpers/till-row'
 import { getRepos } from 'services/context'
 import { getNextNumber } from 'services/biz/sequence.service'
 import { config } from 'config'
@@ -108,7 +109,8 @@ async function sell(w: Awaited<ReturnType<typeof world>>, nonFiscal = true) {
 }
 
 const sessionOf = (w: { session: { id: string } }) => POSSession.findById(w.session.id).lean().exec() as any
-const txnById = (id: string) => POSTransaction.findById(id).lean().exec() as any
+/** FR-21: a till sale is a cash-register document since R2; read as the POS row it stands for. */
+const txnById = (id: string) => tillRow(id)
 async function stockOf(w: Awaited<ReturnType<typeof world>>) {
   const level = await StockLevel.findOne({ orgId: w.org._id, productId: w.product._id, warehouseId: w.warehouse._id }).lean().exec() as any
   return level.quantity
@@ -159,8 +161,9 @@ describe('POS storno (#145)', () => {
     expect(s.totalReturns).toBe(24)
     expect(expectedTotals(s).cash).toBe(100)
     expect(await stockOf(w)).toBe(10) // not 12: the goods came back once
-    const completedStornos = await POSTransaction.countDocuments({ orgId: w.org._id, type: 'storno', status: 'completed' })
-    expect(completedStornos).toBe(1)
+    // One storno document, which counts; the till writes no POS row any more.
+    expect(await Invoice.countDocuments({ orgId: w.org._id, type: 'cash_storno', status: 'paid' })).toBe(1)
+    expect(await POSTransaction.countDocuments({ orgId: w.org._id })).toBe(0)
   })
 
   it('reverses NOTHING when the fiscal storno receipt fails to print', async () => {
@@ -194,9 +197,10 @@ describe('POS storno (#145)', () => {
     expect(after.totalReturns).toBe(before.totalReturns)
     expect(after.totalCash).toBe(before.totalCash)
     expect(await stockOf(w)).toBe(stockBefore)
-    // The attempted storno row is voided, not left looking like a completed refund.
-    const stornos = await POSTransaction.find({ orgId: w.org._id, type: 'storno' }).lean().exec() as any[]
-    expect(stornos.every(t => t.status === 'cancelled')).toBe(true)
+    // The attempted storno is voided, not left looking like a completed refund.
+    const stornos = await Invoice.find({ orgId: w.org._id, type: 'cash_storno' }).lean().exec() as any[]
+    expect(stornos.length).toBe(1)
+    expect(stornos.every(t => t.status === 'voided')).toBe(true)
 
     // And it can simply be retried once the printer is back.
     delete (printer as any).printStornoReceipt

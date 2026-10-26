@@ -14,7 +14,8 @@ import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { posController, fiscalUnitPrice } from 'invoicing-api/src/controllers/pos.controller'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
-import { FiscalDevice, POSTransaction } from 'db/models'
+import { FiscalDevice } from 'db/models'
+import { tillRow } from '../helpers/till-row'
 import { getRepos } from 'services/context'
 import { getNextNumber } from 'services/biz/sequence.service'
 import { config } from 'config'
@@ -127,7 +128,7 @@ describe('POS sale on an Eltrade', () => {
     expect(receipt.sales).toEqual([{ text: 'Болт DIN 933 М8Х25', group: 'Б', price: 12, quantity: 2, percent: 0, amount: 24 }])
     expect(receipt.payments).toEqual([{ mode: 'P', amount: 24 }])
 
-    const saved = await POSTransaction.findById(json.transaction.id || json.transaction._id).lean().exec() as any
+    const saved = await tillRow(json.transaction.id || json.transaction._id)
     expect(saved.fiscalReceiptNumber).toBe('0000101')
     expect(saved.isFiscal).toBe(true)
   })

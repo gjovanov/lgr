@@ -15,7 +15,8 @@ import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { posController } from 'invoicing-api/src/controllers/pos.controller'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
-import { Org, POSTransaction, StockLevel, StockMovement } from 'db/models'
+import { Org, StockLevel, StockMovement } from 'db/models'
+import { tillRow } from '../helpers/till-row'
 import { getRepos } from 'services/context'
 import { getNextNumber } from 'services/biz/sequence.service'
 import { config } from 'config'
@@ -120,8 +121,9 @@ async function stockOf(w: Awaited<ReturnType<typeof world>>) {
   return level.quantity
 }
 
+/** FR-21: a till sale is a cash-register document since R2; read as the POS row it stands for. */
 async function savedTransaction(json: any) {
-  return POSTransaction.findById(json.transaction.id || json.transaction._id).lean().exec() as any
+  return tillRow(json.transaction.id || json.transaction._id)
 }
 
 describe('POS stock movements', () => {

@@ -66,6 +66,17 @@ export interface IOrg extends Document {
       defaultCOGSAccountId?: string
       useLocations?: boolean
     }
+    /** FR-21: the cash register (the till and every cash-register document). */
+    cashRegister?: {
+      /**
+       * Whether the till may sell what the warehouse does not hold (FR-21.16). Unset means YES,
+       * which is what the till always did: it never checked. `false` checks the stock before a
+       * receipt can print, and refuses the sale. Not `inventory.allowNegativeStock`, which
+       * defaults to false and which no code read: following it would have made every till that
+       * never touched it refuse sales.
+       */
+      allowNegativeStock?: boolean
+    }
     accounting?: {
       defaultReceivableAccountId?: string
       defaultPayableAccountId?: string
@@ -207,6 +218,10 @@ const orgSchema = new Schema<IOrg>(
         defaultInventoryAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
         defaultCOGSAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
         useLocations: { type: Boolean, default: false },
+      },
+      // No default: an org that never set it reads as "allowed" (see the interface).
+      cashRegister: {
+        allowNegativeStock: Boolean,
       },
       accounting: {
         defaultReceivableAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },

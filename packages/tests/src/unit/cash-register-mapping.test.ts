@@ -83,6 +83,15 @@ describe('fromPosTransaction', () => {
     expect(doc.paymentMethod).toBeUndefined()
   })
 
+  it("a storno carrying the sale's payments refunds what the sale kept, not what was handed over", () => {
+    // #145: a storno row copies the SALE's tendered payments and has no change of its own.
+    const doc = fromPosTransaction(sale({ type: 'storno', changeDue: 0, originalTransactionId: 'T0' }), session)
+    expect(doc.payments).toEqual([{ date: at, method: 'cash', amount: 36, tendered: 50 }])
+    expect(doc.payments.reduce((s: number, p: any) => s + p.amount, 0)).toBe(doc.total)
+    // And it reads back as the row it was.
+    expect(toPosTransaction(doc).payments).toEqual([{ method: 'cash', amount: 50 }])
+  })
+
   it('refuses a return or exchange, and a currency it has no rate for', () => {
     expect(() => fromPosTransaction(sale({ type: 'return' }), session)).toThrow(CashRegisterMappingError)
     expect(() => fromPosTransaction(sale(), { ...session, currency: 'USD' }, { baseCurrency: 'EUR' })).toThrow(CashRegisterMappingError)

@@ -1384,6 +1384,7 @@
         "tax_base_reduction": "Tax base reduction"
       },
       "noOpenSession": "Open a POS session in the warehouse of this sale first — the refund leaves that till.",
+      "noReceipt": "A back-office sale: the storno prints no receipt and needs no session.",
       "fromSession": "Refunded from session {session}",
       "confirm": "Storno",
       "done": "Storno {number} completed"
@@ -2486,6 +2487,7 @@
     "storagePrefix": "Storage Key",
     "displayPrefix": "Display Prefix",
     "lastNumber": "Last Number",
+    "posSessions": "Till sessions",
     "empty": "No sequences yet",
     "emptyHint": "Number sequences appear here once you create your first document."
   },

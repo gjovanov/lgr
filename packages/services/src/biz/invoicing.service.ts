@@ -110,15 +110,35 @@ export function calculateInvoiceTotals(
 async function getNextMovementNumber(orgId: string, repos: RepositoryRegistry): Promise<string> {
   const year = new Date().getFullYear()
   const prefix = `SM-${year}-`
-  const movements = await repos.stockMovements.findMany(
+  // The latest one only: listing every movement of the year to read the first was the cost of a
+  // number in an org with thousands of them.
+  const latest = await repos.stockMovements.findAll(
     { orgId, movementNumber: { $regex: `^${prefix}` } } as any,
-    { movementNumber: -1 },
+    { page: 0, size: 1, sort: { movementNumber: -1 } },
   )
-  if (!movements.length) {
-    return `${prefix}00001`
+  const currentNum = parseInt(String(latest.items[0]?.movementNumber ?? '').slice(prefix.length), 10)
+  return `${prefix}${String((Number.isFinite(currentNum) ? currentNum : 0) + 1).padStart(5, '0')}`
+}
+
+/**
+ * Create a stock movement under the org's next `SM-<year>-NNNNN`: the latest number + 1, as every
+ * movement path numbers them.
+ *
+ * "Latest + 1" is read-then-write, so another till or an import booking at the same moment can
+ * take the number first. A duplicate is retried under a fresh number rather than failing the
+ * booking. (The till did this on its own until FR-21 moved it onto this path: two tills selling at
+ * once would otherwise lose one sale's stock to the unique index.)
+ */
+export async function createNumberedMovement(repos: RepositoryRegistry, orgId: string, data: Record<string, any>): Promise<any> {
+  for (let attempt = 1; ; attempt++) {
+    const movementNumber = await getNextMovementNumber(orgId, repos)
+    try {
+      return await repos.stockMovements.create({ ...data, orgId, movementNumber } as any)
+    } catch (e: any) {
+      if (e?.code !== 'DUPLICATE' || attempt >= 5) throw e
+      logger.warn({ orgId, movementNumber, attempt }, 'Stock movement number already taken, retrying')
+    }
   }
-  const currentNum = parseInt(movements[0].movementNumber.replace(prefix, ''), 10)
-  return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
 }
 
 export interface ReservationBudgets {
@@ -285,6 +305,20 @@ async function stockTrackedIds(orgId: string, lines: Array<{ productId?: string 
 }
 
 /**
+ * Refuse a dispatch the warehouses cannot cover, before anything is written: the check
+ * `createInvoiceStockMovement` runs, on the lines it would book (products that hold stock, on a
+ * warehouse). The till runs it before a receipt can print, when its org does not let it sell below
+ * zero (FR-21.16).
+ */
+export async function assertDispatchAvailable(
+  orgId: string,
+  lines: { productId?: string; warehouseId?: string; quantity: number; description?: string }[],
+): Promise<void> {
+  const tracked = await stockTrackedIds(orgId, lines)
+  await validateStockAvailability(orgId, lines.filter(l => l.productId && l.warehouseId && tracked.has(String(l.productId))))
+}
+
+/**
  * An invoice converted from a складова разписка moves no stock, in either direction — and
  * neither does a proforma, which is an offer.
  *
@@ -417,7 +451,6 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
   }
 
   for (const [warehouseId, lines] of byWarehouse) {
-    const movementNumber = await getNextMovementNumber(orgId, r)
     const movementLines = lines.map(l => ({
       productId: l.productId!,
       quantity: l.quantity,
@@ -426,9 +459,7 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
     }))
     const totalAmount = movementLines.reduce((s, l) => s + l.totalCost, 0)
 
-    const movement = await r.stockMovements.create({
-      orgId,
-      movementNumber,
+    const movement = await createNumberedMovement(r, orgId, {
       type: movementType,
       status: 'draft',
       date: new Date(),
@@ -506,7 +537,6 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
   }
 
   for (const [warehouseId, lines] of byWarehouse) {
-    const movementNumber = await getNextMovementNumber(orgId, r)
     const movementLines = lines.map(l => ({
       productId: l.productId!,
       quantity: l.quantity,
@@ -515,9 +545,7 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
     }))
     const totalAmount = movementLines.reduce((s, l) => s + l.totalCost, 0)
 
-    const movement = await r.stockMovements.create({
-      orgId,
-      movementNumber,
+    const movement = await createNumberedMovement(r, orgId, {
       type: reverseType,
       status: 'draft',
       date: new Date(),

@@ -65,6 +65,9 @@ export interface IInvoiceCashSaleRef {
   issueDate: Date
   /** The customer the cash sale itself named, if any: the per-customer reports need it. */
   contactId?: Types.ObjectId
+  /** A till sale's УНП and fiscal receipt number, printed beside its number (FR-21 §3.9). */
+  unp?: string
+  receiptNumber?: string
 }
 
 export interface IInvoicePayment {
@@ -433,6 +436,8 @@ const invoiceSchema = new Schema<IInvoice>(
           number: { type: String, required: true },
           issueDate: { type: Date, required: true },
           contactId: { type: Schema.Types.ObjectId, ref: 'Contact' },
+          unp: String,
+          receiptNumber: String,
         },
         { _id: false },
       ),

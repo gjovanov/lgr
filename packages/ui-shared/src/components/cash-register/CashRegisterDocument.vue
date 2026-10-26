@@ -223,7 +223,9 @@ function statusColor(s: string) {
 const stornoOpen = ref(false)
 const stornoTarget = computed(() => {
   const r = doc.value?.row
-  return r ? { id: r.id, number: r.number, total: r.total, currency: r.currency, unp: r.fiscal?.unp, sessionId: r.sessionId } : null
+  return r
+    ? { id: r.id, number: r.number, total: r.total, currency: r.currency, unp: r.fiscal?.unp, sessionId: r.sessionId, origin: r.origin, warehouseId: r.warehouseId }
+    : null
 })
 
 function onStornoDone(result: { transaction: any; stockError?: string }) {
