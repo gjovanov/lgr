@@ -472,3 +472,32 @@ Writes go to **acme-corp** only, signed in through the API and undone afterwards
    that reserved and on-order quantities match what the staff expect for three articles they
    name.
 7. Hand the bg note per issue (#203, #168, #4) to the owner to post.
+
+## 11. Progress
+
+Updated 2026-10-26. "Merged" means on master; deploys follow the `deploy-prod` skill when the
+owner asks.
+
+| Slice | Requirements | State |
+|---|---|---|
+| Baseline | the walks, this FR | merged: #250 |
+| 1: defects | FR-22.1–.2 (B-1..B-3) | merged: #251. P2 completes: 33 clicks, up from a dead end |
+| 1 | FR-22.5, .10 (B-7, B-12) | merged: #254. P7-chain 30 → 27 |
+| 1 | FR-22.6, .11 (B-8, B-14) | merged: #255. i18n parity is now a unit test |
+| 1 | FR-22.3, .4, .7, .8, .9, .12, .13, .14, .15, invoice-list № sort | PR #258. P5-invoice 22 → 20, P5-credit 14 → 11, P3 14 → 12 |
+| 1 | FR-22.13 (B-15) | the load-time re-snapshot shipped in #249; the leave-before-load gap is in #258 |
+| 2: documents flow | FR-22.16–.27 | after slice 3 (same files) |
+| 3: receipt → bill (#168) | FR-22.28–.33 | in progress |
+| 4: orders and reservations | FR-22.34 (names), .35–.36 (links, linked invoices), .37 (repeat, quantity edit only), .39–.40 (list links, who reserved what) | merged: #252 (owned by another session). P7-chain 27 → 26, P7-repeat 4 → 3, P7-who → 1 |
+| 4 | D-1 subtitles | PR #260 |
+| 4 | FR-22.37 rest (create on the list, `/reservations/:id`, partial release, cancel-dialog wording), .41–.44 | open |
+| 5: products | FR-22.45 stock tab | merged: #252 |
+| 5 | FR-22.45 list columns, .46, .48 | in progress |
+| 5 | FR-22.47 (row actions) | after slice 3 (it opens the receipt form) |
+| 6: navigation | FR-22.49, .51, .52, .53 | PR #259. P0-new: 1 click per leg |
+| 6 | FR-22.50 (labelled Create buttons) | open |
+| 7: counter | FR-22.54, .55 (D-6) | merged: #256. P4-till 8 → 3, P4-backoffice 9 → 6 |
+| 7 | FR-22.60 cash sale → invoice (D-5) | merged: #249 (owned by another session) |
+| 7 | FR-22.56–.59 | FR-21 R5 requirements |
+
+Found along the way and fixed on its own: the fiscal-device address check (#257).
