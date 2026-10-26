@@ -6,7 +6,16 @@ import { logger } from '../logger/logger.js'
 import { getEffectiveCostingMethod, createCostLayers, consumeCostLayers, type ConsumptionResult } from './costing.service.js'
 import { eventBus } from '../events/event-bus.js'
 
-export async function confirmMovement(movementId: string, repos?: RepositoryRegistry): Promise<IStockMovement> {
+export interface ConfirmMovementOptions {
+  /**
+   * `<productId>|<warehouseId>` pairs whose cost layers the caller already restored (a void's
+   * reversal restores the layers its dispatch consumed). Incoming stock there creates no layer of
+   * its own: a second one would hold the same goods twice (#276).
+   */
+  layersRestored?: Set<string>
+}
+
+export async function confirmMovement(movementId: string, repos?: RepositoryRegistry, opts?: ConfirmMovementOptions): Promise<IStockMovement> {
   const r = repos ?? getRepos()
   const movement = await r.stockMovements.findById(movementId)
   if (!movement) throw new Error('Stock movement not found')
@@ -31,7 +40,8 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
 
       // For layer-based methods, create cost layers on incoming stock
       const method = await getEffectiveCostingMethod(orgId, productId, r)
-      if (method !== 'wac' && method !== 'standard') {
+      const restored = opts?.layersRestored?.has(`${String(productId)}|${String(movement.toWarehouseId)}`)
+      if (method !== 'wac' && method !== 'standard' && !restored) {
         // For transfers, use the consumed cost; for receipts, use the line cost
         const layerCost = consumptionResult?.weightedUnitCost ?? line.unitCost
         await createCostLayers(orgId, movement.toWarehouseId, movementId, movement.movementNumber, movementDate, {

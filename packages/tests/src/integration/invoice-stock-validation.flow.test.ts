@@ -9,7 +9,7 @@ import {
   createTestContact,
   createTestInvoice,
 } from '../helpers/factories'
-import { StockLevel, StockMovement } from 'db/models'
+import { CostLayer, StockLevel, StockMovement } from 'db/models'
 import {
   createInvoiceStockMovement,
   reverseInvoiceStockMovement,
@@ -419,6 +419,40 @@ describe('Reverse Stock Movement — Void Validation', () => {
     level = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: warehouse._id })
     expect(level!.quantity).toBe(100)
   })
+
+  // #276: a void put the goods back at the SALE price. Under WAC that moved avgCost towards the
+  // selling price; under FIFO the restored layers AND a new one at the sale price held them twice.
+  for (const costingMethod of ['wac', 'fifo'] as const) {
+    it(`voiding a sale restocks at the cost the goods left at, not at the sale price (${costingMethod}, #276)`, async () => {
+      const org = await createTestOrg()
+      const user = await createTestUser(org._id)
+      const contact = await createTestContact(org._id)
+      const product = await createTestProduct(org._id, { costingMethod } as any)
+      const warehouse = await createTestWarehouse(org._id)
+      const line = (quantity: number, unitPrice: number) => ({
+        productId: String(product._id), warehouseId: String(warehouse._id), description: 'Bolt',
+        quantity, unit: 'pcs', unitPrice, discount: 0, taxRate: 0, taxAmount: 0, lineTotal: quantity * unitPrice,
+      })
+      // Receive 10 @ 10 (a bill books a receipt, and the receipt opens the FIFO layer).
+      const bill = await createTestInvoice(org._id, contact._id, { direction: 'incoming', type: 'invoice', status: 'received', lines: [line(10, 10)] })
+      await createInvoiceStockMovement(bill, String(user._id))
+      // Sell 1 @ 15, then void it.
+      const sale = await createTestInvoice(org._id, contact._id, { direction: 'outgoing', type: 'invoice', status: 'sent', lines: [line(1, 15)] })
+      await createInvoiceStockMovement(sale, String(user._id))
+      await reverseInvoiceStockMovement(sale, String(user._id))
+
+      const level: any = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: warehouse._id }).lean()
+      expect(level.quantity).toBe(10)
+      expect(level.avgCost).toBeCloseTo(10, 6)
+      const receipt: any = await StockMovement.findOne({ orgId: org._id, invoiceId: sale._id, type: 'receipt' }).lean()
+      expect(receipt.lines[0].unitCost).toBeCloseTo(10, 6)
+      if (costingMethod === 'fifo') {
+        const layers: any[] = await CostLayer.find({ orgId: org._id, productId: product._id, warehouseId: warehouse._id }).lean()
+        expect(layers.reduce((s, l) => s + l.remainingQuantity, 0)).toBe(10)
+        expect(layers.every(l => l.unitCost === 10)).toBe(true)
+      }
+    })
+  }
 
   it('voiding a draft that booked nothing puts nothing back (found 2026-10-26: +1,257 phantom units)', async () => {
     const org = await createTestOrg()

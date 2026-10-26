@@ -507,13 +507,23 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
     byWarehouse.get(whId)!.push(line)
   }
 
-  // Restore cost layers from original dispatch movements
+  // Restore cost layers from original dispatch movements, and note what each unit cost when it
+  // left: goods that come back on a void come back at that cost, never at the document's price.
+  const layersRestored = new Set<string>()
+  const leftAt = new Map<string, { qty: number; cost: number }>()
   for (const mov of originalMovements) {
-    if (mov.status !== 'completed') continue
-    for (const line of mov.lines) {
-      if ((line as any).costAllocations?.length) {
-        await restoreCostLayers((line as any).costAllocations, r)
+    if (mov.status !== 'completed' || !mov.fromWarehouseId) continue
+    for (const line of mov.lines as any[]) {
+      const key = `${String(line.productId)}|${String(mov.fromWarehouseId)}`
+      if (line.costAllocations?.length) {
+        await restoreCostLayers(line.costAllocations, r)
+        layersRestored.add(key)
       }
+      const allocated = (line.costAllocations || []).reduce((s: number, a: any) => s + (Number(a.totalCost) || 0), 0)
+      const unit = line.costAllocations?.length && line.quantity ? allocated / line.quantity : Number(line.resolvedUnitCost)
+      if (!Number.isFinite(unit) || !line.quantity) continue
+      const acc = leftAt.get(key) ?? { qty: 0, cost: 0 }
+      leftAt.set(key, { qty: acc.qty + Number(line.quantity), cost: acc.cost + unit * Number(line.quantity) })
     }
   }
 
@@ -537,11 +547,21 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
   }
 
   for (const [warehouseId, lines] of byWarehouse) {
-    const movementLines = lines.map(l => ({
-      productId: l.productId!,
-      quantity: l.quantity,
-      unitCost: l.unitPrice,
-      totalCost: l.quantity * l.unitPrice,
+    const movementLines = await Promise.all(lines.map(async l => {
+      // #276: a receipt's unitCost is folded into avgCost and becomes a layer. At the document's
+      // price, every void of a sale pulled avgCost towards the selling price. A reversal receipt
+      // carries what the goods left at; a dispatch out ignores its line cost (it consumes).
+      let unitCost = l.unitPrice
+      if (reverseType === 'receipt') {
+        const left = leftAt.get(`${String(l.productId)}|${warehouseId}`)
+        if (left?.qty) unitCost = left.cost / left.qty
+        else {
+          // No dispatch recorded what it cost: today's average, so a void moves no average.
+          const level = await r.stockLevels.findOne({ orgId, productId: String(l.productId), warehouseId } as any)
+          if (level) unitCost = Number((level as any).avgCost) || 0
+        }
+      }
+      return { productId: l.productId!, quantity: l.quantity, unitCost, totalCost: l.quantity * unitCost }
     }))
     const totalAmount = movementLines.reduce((s, l) => s + l.totalCost, 0)
 
@@ -559,7 +579,8 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
       createdBy: userId,
     } as any)
 
-    await confirmMovement(movement.id, r)
+    // The layers the dispatch consumed are back already; the receipt must not add a second set.
+    await confirmMovement(movement.id, r, { layersRestored })
   }
 
   logger.info({ invoiceId: invoice.id, reverseType }, 'Invoice stock movement reversed')
