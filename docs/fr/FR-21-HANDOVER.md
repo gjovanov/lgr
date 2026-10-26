@@ -257,7 +257,8 @@ Revisit any of these you disagree with. None is hard to change.
     whether it belongs in 18.4/18.5 is the accountant's question before LGR is declared.
 17. **`GET /trade/pos/session/:id/transaction` read POS rows only.** It reads both stores since R2b.
 
-**The review of the R2 stack (2026-10-26).** One fix commit per branch:
+**The review of the R2 stack (2026-10-26).** The fixes follow the merged stack in one PR,
+#278 (`fix/fr-21-r2-review`), one commit per step:
 
 18. **Fixed in R2b:**
     - **A stornoed back-office sale could be voided, edited or deleted.** The journal stornos a
