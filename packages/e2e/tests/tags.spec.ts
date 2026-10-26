@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
 import { waitForDataTable, countTableRows, uniqueName } from './helpers/crud'
+import { rowAction } from './helpers/row-actions'
 
 test.describe('Tags Feature', () => {
   test.beforeEach(async ({ page }) => {
@@ -65,7 +66,7 @@ test.describe('Tags Feature', () => {
     // Click edit on the product we just created
     const row = page.locator('.v-data-table tbody tr').filter({ hasText: sku })
     await expect(row).toBeVisible({ timeout: 10000 })
-    await row.locator('.mdi-pencil').click()
+    await (await rowAction(row, 'edit')).click()
 
     // Wait for the form to load
     await expect(page).toHaveURL(/inventory\/products\/.*\/edit/, { timeout: 10000 })

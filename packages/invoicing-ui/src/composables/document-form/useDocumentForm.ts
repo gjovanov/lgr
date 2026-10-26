@@ -996,6 +996,28 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     }
   }
 
+  /**
+   * FR-22.47 — „Продай" on an article (`?productId=`): a new document whose first line is that
+   * article, filled through `onProductSelected` exactly as picking it on the line fills it: its
+   * unit and VAT, the price the pricing chain resolves (the purchase price on a purchase document,
+   * B-10), the document-wide and last-customer prices when those are on, and the next blank line.
+   * It runs after the form's own defaults, so the line sits in the document's warehouse. An article
+   * that cannot be read leaves the blank form „Нов" opens.
+   */
+  async function prefillFromProduct(id: string) {
+    try {
+      const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${encodeURIComponent(id)}`)
+      const product = data?.product
+      const line = form.lines[0]
+      if (!product || !line) return
+      line.productId = String(product._id || product.id)
+      line.description = product.name
+      await onProductSelected(0, { ...product, _id: line.productId })
+    } catch {
+      /* A blank form, as „Нов" opens. */
+    }
+  }
+
   // ── status pipeline (i18n) ──
   // Carry the i18n KEYS (not resolved strings) so EntityFormShell resolves them in the render
   // path (`{{ $t(step) }}`) — that re-runs on locale change, unlike a pre-resolved string array
@@ -1640,11 +1662,14 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       const method = rememberedPaymentMethod()
       if (method !== null) form.paymentMethod = method
       // FR-22.24: a copy starts as its source; FR-22.21: a note opened from the invoice it
-      // corrects starts as that invoice.
+      // corrects starts as that invoice; FR-22.47: a document opened from an article starts with
+      // it on the first line.
       const copyOf = String(route.query.copyOf || '')
       const relatedId = String(route.query.relatedInvoiceId || '')
+      const productId = String(route.query.productId || '')
       if (copyOf) await prefillFromCopy(copyOf)
       else if (relatedId && config.relatedInvoiceAutofill) await prefillFromInvoice(relatedId)
+      else if (productId) await prefillFromProduct(productId)
     }
     if (isEdit.value) await loadDocument()
   })

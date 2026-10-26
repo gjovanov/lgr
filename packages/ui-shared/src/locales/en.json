@@ -1849,6 +1849,12 @@
       "incomingOrder": "Customer order",
       "open": "Open",
       "fromStock": "Stock"
+    },
+    "productActions": {
+      "receive": "Receive",
+      "sell": "Sell",
+      "reserve": "Reserve",
+      "inactive": "The product is deactivated — activate it to sell or reserve it."
     }
   },
   "pricing": {

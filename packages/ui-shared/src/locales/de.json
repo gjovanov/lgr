@@ -1849,6 +1849,12 @@
       "incomingOrder": "Kundenbestellung",
       "open": "Offen",
       "fromStock": "Lager"
+    },
+    "productActions": {
+      "receive": "Einbuchen",
+      "sell": "Verkaufen",
+      "reserve": "Reservieren",
+      "inactive": "Der Artikel ist deaktiviert – aktivieren Sie ihn, um ihn zu verkaufen oder zu reservieren."
     }
   },
   "pricing": {

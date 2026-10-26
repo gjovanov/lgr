@@ -21,6 +21,11 @@
         <h1 class="text-subtitle-1 font-weight-bold ml-1 mb-0">{{ title }}</h1>
         <span v-if="subtitle" class="text-body-2 text-medium-emphasis ml-1">{{ subtitle }}</span>
       </div>
+
+      <!-- What the record leads to, beside its title on every tab of it (FR-22.47: an article's
+           „Заприходи" / „Продай" / „Резервирай"). Small buttons: the bar keeps its height, which
+           `.form-content` subtracts. -->
+      <slot name="header-actions" />
     </div>
 
     <!-- Main content area: sheet (left) + sidebar (right) — full width, fixed height -->

@@ -1,8 +1,11 @@
 <template>
   <v-container fluid>
-    <div class="d-flex align-center mb-4">
+    <div class="d-flex align-center flex-wrap ga-2 mb-4">
       <v-btn icon variant="text" @click="router.back()"><v-icon>mdi-arrow-left</v-icon></v-btn>
       <h1 class="text-h5 ml-2">{{ $t('warehouse.productStock') }}: {{ product?.name || '' }}</h1>
+      <v-spacer />
+      <!-- FR-22.47: the same actions as on the article's other tabs. -->
+      <ProductDocActions :product="product" />
     </div>
 
     <v-card>
@@ -324,6 +327,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import EntityLink from 'ui-shared/components/EntityLink'
 import { appHref } from 'ui-shared/nav/navigate'
 import ProductTabBar from '../components/ProductTabBar.vue'
+import ProductDocActions from '../components/ProductDocActions.vue'
 
 const route = useRoute()
 const router = useRouter()

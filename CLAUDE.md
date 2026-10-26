@@ -1919,6 +1919,37 @@ journal page in both apps) are built; the handover for what remains is
   (`PosTerminalView.vue#fetchSessions`). E2E fixtures that open a session must close it, or
   `pos-terminal.spec.ts` loses its "Open Session" button (`e2e/tests/helpers/cash-register.ts`).
 
+## An article starts its documents: „Заприходи", „Продай", „Резервирай" (2026-10-26, FR-22.47)
+
+- **Where**: the Products list's row menu (one ⋮ now — Edit, Stock, the three, Delete apart) and the
+  article's page header on every tab (`inventory-ui/ProductDocActions`, in `EntityFormShell`'s
+  `#header-actions` slot and in the stock view's header). The page reads the article AS STORED: its
+  „Активен" switch means nothing until it is saved.
+- **Rules**: `inventory-ui/composables/product-doc-actions.ts` (pure, `unit/product-doc-actions.test`).
+  Each action IS the „+ Нов" form's PAGE_REGISTRY row, so it is offered exactly to whom that form's
+  Save is (§5.8: Заприходи `inventory.write`; Продай and Резервирай `invoicing.write`). A service
+  (`trackInventory: false`) is never received or reserved; a deactivated article's Продай and
+  Резервирай are listed disabled, the reason in a tooltip; Заприходи stays. Into another app the
+  action is an `href` from `appHref`, in this one a route (`useProductDocActions`); `RowActionsMenu`
+  takes `href`, `disabled` and `hint` for that.
+- ⚠ **The `?productId=` contract**: a NEW document opened with it starts with that article on its
+  first line, filled by the very handler a pick on the line calls — never a hand-built line, which
+  would skip the pricing chain, the stock shown or the staged product update. It runs after the
+  form's own defaults, so the line sits in the right warehouse, and stays in the URL (as `copyOf`
+  does): a reload starts the same document again.
+  - `/inventory/movements/new?productId=` (receipt): `onLineProductSelected` — the purchase price as
+    the cost, what the DESTINATION holds, the product update when that switch is on, the next blank
+    line, the cursor in the quantity. A movement line has no unit.
+  - `/invoicing/<document>/new?productId=` (every `useDocumentForm` form): `onProductSelected` —
+    unit, VAT, the price the chain resolves (a purchase document's is the purchase price, B-10), the
+    document-wide or last-customer price when on, the next blank line. `copyOf` and
+    `relatedInvoiceId` win over it; it is part of a new document's `useDocumentRouteKey`.
+  - `/invoicing/reservations/new?productId=` (slice 4a): the list with its create dialog open on
+    the article; the list then takes both parameters out of the URL.
+- Tests: `unit/product-doc-actions` (7), e2e `product-actions.spec` (10: both places × three
+  landings, deactivated, service, two roles, the list at 1366 px); walk P1-act: the row menu →
+  „Продай", 2 clicks · 0 typed · 1 page load (the invoice is another app).
+
 ## Known Issues
 
 - [MEDIUM] [2026-07-19] Cluster pod external DNS is INTERMITTENT: CoreDNS forwards to 10.10.20.1 (zeus virbr1 dnsmasq — answers fine locally) and periodically times out (CoreDNS logs `read udp 10.244.x→10.10.20.1:53: i/o timeout`; zeus shows no explicit 10.244.0.0/16 return route) → ArgoCD sync intermittently fails with ComparisonError "server misbehaving" on github.com, then succeeds on retry minutes later (observed 2026-07-19: first sync Error, queued retry completed → Synced). Workaround when stuck: `kubectl apply -k k8s/overlays/prod` from the mars `~/lgr-deploy` checkout (live state converges with git). Root-cause hunt belongs in k8s-cluster-multi (zeus WG/libvirt routing). Also: argocd CLI token on mars is expired — trigger syncs via `kubectl -n argocd patch application lgr --type merge --patch '{"operation":{"sync":{}}}'` or re-login. — Status: OPEN
