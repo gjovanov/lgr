@@ -141,6 +141,8 @@
     "orders": "Нарачки",
     "externalOrders": "Излезни нарачки",
     "internalOrders": "Влезни нарачки",
+    "internalOrdersHint": "од клиенти",
+    "externalOrdersHint": "кон добавувачи",
     "reservations": "Резервации",
     "creditNotes": "Кредитни Ноти",
     "paymentOrders": "Налози за Плаќање",

@@ -77,8 +77,8 @@ const menuItems = computed<TopMenuItem[]>(() => [
     label: t('nav.orders'),
     icon: 'mdi-clipboard-list-outline',
     children: [
-      { label: t('nav.internalOrders'), icon: 'mdi-account-clock-outline', to: '/internal-orders' },
-      { label: t('nav.externalOrders'), icon: 'mdi-clipboard-list-outline', to: '/orders' },
+      { label: t('nav.internalOrders'), subtitle: t('nav.internalOrdersHint'), icon: 'mdi-account-clock-outline', to: '/internal-orders' },
+      { label: t('nav.externalOrders'), subtitle: t('nav.externalOrdersHint'), icon: 'mdi-clipboard-list-outline', to: '/orders' },
       { label: t('nav.reservations'), icon: 'mdi-lock-clock', to: '/reservations' },
     ],
   },

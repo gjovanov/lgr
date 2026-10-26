@@ -141,6 +141,8 @@
     "orders": "Bestellungen",
     "externalOrders": "Ausgehende Bestellungen",
     "internalOrders": "Eingehende Bestellungen",
+    "internalOrdersHint": "von Kunden",
+    "externalOrdersHint": "an Lieferanten",
     "reservations": "Reservierungen",
     "creditNotes": "Gutschriften",
     "paymentOrders": "Zahlungsaufträge",

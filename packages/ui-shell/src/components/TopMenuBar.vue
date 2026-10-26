@@ -33,6 +33,7 @@
               :to="child.to"
               :prepend-icon="child.icon"
               :title="child.label"
+              :subtitle="child.subtitle"
             />
           </template>
         </v-list>
@@ -74,6 +75,7 @@
                 :to="child.to"
                 :prepend-icon="child.icon"
                 :title="child.label"
+                :subtitle="child.subtitle"
                 @click="mobileOpen = false"
               />
             </template>
@@ -106,6 +108,8 @@ export interface TopMenuItem {
 
 export interface TopMenuChild {
   label: string
+  /** A second line that settles what the label alone leaves open (FR-22 D-1). */
+  subtitle?: string
   icon?: string
   to?: string
   divider?: boolean

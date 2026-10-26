@@ -1,6 +1,7 @@
 <template>
   <ListScaffold
     :title="$t('nav.externalOrders')"
+    :subtitle="$t('nav.externalOrdersHint')"
     :headers="headers"
     :items="items"
     :loading="loading"

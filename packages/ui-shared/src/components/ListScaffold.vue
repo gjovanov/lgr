@@ -2,7 +2,10 @@
   <v-container fluid>
     <!-- Header: title + actions -->
     <div class="d-flex align-center mb-4 ga-2 flex-wrap">
-      <h1 class="text-h5">{{ title }}</h1>
+      <div>
+        <h1 class="text-h5">{{ title }}</h1>
+        <div v-if="subtitle" class="text-body-2 text-medium-emphasis">{{ subtitle }}</div>
+      </div>
       <v-spacer />
       <div class="d-flex ga-2 align-center flex-wrap justify-end">
         <slot name="actions" />
@@ -129,6 +132,8 @@ interface EmptyDef {
 
 const props = withDefaults(defineProps<{
   title: string
+  /** A second line under the title, e.g. which way an order goes (FR-22 D-1). */
+  subtitle?: string
   headers: any[]
   items: any[]
   loading: boolean
