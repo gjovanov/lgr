@@ -181,3 +181,35 @@ describe('the Reservations list finds a reservation by', () => {
     expect(await found('nothing like it')).toEqual([])
   }, 60_000)
 })
+
+describe('a client order covered by a supplier order not sent yet (FR-22.44)', () => {
+  it('reads „ordered", line by line and on the list, until the supplier order goes out', async () => {
+    const w = await world()
+    // Line 1 (bolts): 4, all from stock. Line 2 (nuts): 15 — 10 from stock, 5 put on a new draft
+    // supplier order the way „Създай изходяща поръчка" does it.
+    const mine = await w.ordi(w.c1, [{ product: w.product, quantity: 4 }, { product: w.other, quantity: 15 }])
+    expect((await w.call('POST', `/internal-orders/${mine.id}/reserve-available`, {})).json.short).toEqual([
+      expect.objectContaining({ lineId: mine.lineIds[1], missing: 5 }),
+    ])
+    const gen = await w.call('POST', `/internal-orders/${mine.id}/generate-external`, {
+      lines: [{ internalOrderLineId: mine.lineIds[1], quantity: 5, supplierId: String(w.supplier._id) }],
+    })
+    expect(gen.status).toBe(200)
+    expect(gen.json.order.status).toBe('draft')
+
+    const read = async () => (await w.call('GET', `/internal-orders/${mine.id}`)).json.internalOrder
+    const listed = async () => ((await w.call('GET', '/internal-orders?size=50')).json.internalOrders || []).find((o: any) => o._id === mine.id)
+    const before = await read()
+    expect(before.reservationCoverage).toBe('ordered')
+    expect(before.shortQuantity).toBe(0)
+    expect(before.lines.map((l: any) => [l.reservedQuantity, l.onUnsentOrderQuantity])).toEqual([[4, 0], [15, 5]])
+    expect((await listed()).reservationCoverage).toBe('ordered')
+
+    // Sent: the supplier order orders it now — the client order reads reserved.
+    expect((await w.call('POST', `/orders/${gen.json.order._id}/send`)).status).toBe(200)
+    const after = await read()
+    expect(after.reservationCoverage).toBe('full')
+    expect(after.lines.map((l: any) => l.onUnsentOrderQuantity)).toEqual([0, 0])
+    expect((await listed()).reservationCoverage).toBe('full')
+  }, 60_000)
+})

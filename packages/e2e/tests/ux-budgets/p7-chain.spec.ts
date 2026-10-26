@@ -221,8 +221,12 @@ test('P7 chain: client order → reserve → external order → send → invoice
   // reservations table.
   const ordoLink = page.getByRole('link', { name: draftOrdo }).first()
   await expect(ordoLink).toBeVisible()
-  const coverageChip = (await page.locator('.form-paper-header .v-chip').last().innerText()).trim()
-  walk.note(`After the external order is generated (still a draft) the ORDI header reads „${coverageChip}" and the short line „${shortQty}/${shortQty}" reserved: units that are only on an unsent ORDO count as covered, the same as stock on the shelf.`)
+  // FR-22.44: units only on a supplier order not sent yet are not on the shelf — the order and its
+  // short line read „Поръчана", not „Резервирана".
+  const coverageChip = page.locator('.form-paper-header .v-chip').last()
+  await expect(coverageChip).toHaveText('Поръчана')
+  await expect(page.locator('tbody tr').filter({ hasText: p28.name }).getByText(`Поръчана: ${shortQty}/${shortQty}`)).toBeVisible()
+  walk.note(`After the external order is generated (still a draft) the ORDI header and the short line read „Поръчана" (${shortQty}/${shortQty}, ${SHORTAGE} of them on the unsent ORDO), not „Резервирана" — FR-22.44.`)
   walk.note(`ORDO ${draftOrdo}: its number is a link under the short line and in the ORDI's reservations table, so the order is one click away — no menu, no list.`)
 
   // ── 4. Send the external order ──

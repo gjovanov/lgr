@@ -978,7 +978,8 @@
       "label": "Покритие",
       "none": "Без резервация",
       "partial": "Частично резервирана",
-      "full": "Резервирана"
+      "full": "Резервирана",
+      "ordered": "Поръчана"
     },
     "invoicedQty": "Фактурирано",
     "dispatchedQty": "Експедирано",
@@ -1319,6 +1320,7 @@
     "shortLine": "{name} (липсват {missing})",
     "reservedFromStockShort": "Създадени резервации: {count}. Не стига свободна наличност за: {lines}",
     "nothingFreeFor": "Няма свободна наличност за: {lines}",
+    "onUnsentOrder": "{count} от тях — по изходяща поръчка, която още не е изпратена",
     "issueFlow": {
       "issueAndPrint": "Издай и печатай",
       "issue": "Издай",

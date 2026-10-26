@@ -164,8 +164,9 @@ function statusColor(s: string) {
 function priorityColor(p: string) {
   return ({ low: 'grey', normal: undefined, high: 'warning', urgent: 'error' } as Record<string, string | undefined>)[p]
 }
+/** FR-22.44: `ordered` — covered, but partly by a supplier order not sent yet. */
 function coverageColor(c: string) {
-  return ({ none: 'error', partial: 'warning', full: 'success' }[c] || 'grey')
+  return ({ none: 'error', partial: 'warning', ordered: 'info', full: 'success' }[c] || 'grey')
 }
 
 async function confirmOrder(item: Item) {

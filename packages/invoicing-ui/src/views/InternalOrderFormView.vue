@@ -125,8 +125,14 @@
                     </td>
                     <td v-if="isEdit">
                       <div v-if="line._id" class="d-flex align-center ga-1 flex-wrap">
-                        <v-chip size="x-small" variant="tonal" :color="lineCoverageColor(line)">
-                          {{ $t('invoicing.reservedQty') }}: {{ figuresOf(line).reserved }}/{{ line.quantity || 0 }}
+                        <!-- FR-22.44: a line whose cover waits on a supplier order not sent yet reads „Поръчана". -->
+                        <v-chip
+                          size="x-small"
+                          variant="tonal"
+                          :color="lineCoverageColor(line)"
+                          :title="figuresOf(line).onUnsentOrder > 0 ? $t('invoicing.onUnsentOrder', { count: figuresOf(line).onUnsentOrder }) : undefined"
+                        >
+                          {{ lineCoverageOf(line).status === 'ordered' ? $t('invoicing.coverage.ordered') : $t('invoicing.reservedQty') }}: {{ figuresOf(line).reserved }}/{{ line.quantity || 0 }}
                         </v-chip>
                         <v-chip v-if="figuresOf(line).delivered > 0" size="x-small" variant="tonal" color="success">
                           {{ $t('invoicing.deliveredQty') }}: {{ figuresOf(line).delivered }}
@@ -463,6 +469,7 @@ import ReservationQuantityDialog from '../components/ReservationQuantityDialog.v
 import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import { reservationErrorMessage } from '../composables/reservation-errors'
+import { lineCoverage, orderCoverage } from 'config/order-coverage'
 
 /** A line as the user edits it. What the server derives for it lives in `lineFigures`, not here. */
 interface LineRow {
@@ -479,6 +486,8 @@ interface LineRow {
 /** A saved line's figures, derived by the server from its reservations and invoices. */
 interface LineFigures {
   reserved: number
+  /** Of `reserved`, what waits on a supplier order not sent yet (FR-22.44). */
+  onUnsentOrder: number
   invoiced: number
   delivered: number
 }
@@ -569,13 +578,14 @@ async function reserveAgain(res: any) {
  * „Незапазени промени" (the P7-chain flake).
  */
 const lineFigures = ref<Record<string, LineFigures>>({})
-const NO_FIGURES: LineFigures = { reserved: 0, invoiced: 0, delivered: 0 }
+const NO_FIGURES: LineFigures = { reserved: 0, onUnsentOrder: 0, invoiced: 0, delivered: 0 }
 function figuresOf(line: LineRow): LineFigures {
   return (line._id && lineFigures.value[String(line._id)]) || NO_FIGURES
 }
 function takeFigures(lines: any[]) {
   lineFigures.value = Object.fromEntries((lines || []).map((l: any) => [String(l._id), {
     reserved: Number(l.reservedQuantity) || 0,
+    onUnsentOrder: Number(l.onUnsentOrderQuantity) || 0,
     invoiced: Number(l.invoicedQuantity) || 0,
     delivered: Number(l.deliveredQuantity) || 0,
   }]))
@@ -608,18 +618,15 @@ async function refreshReservations() {
 function isLate(res: any) {
   return !!(res.expectedDate && form.requestedDeliveryDate && res.expectedDate.split('T')[0] > form.requestedDeliveryDate)
 }
-const coverage = computed(() => {
-  const ordered = totalOrdered.value
-  const reserved = form.lines.reduce((s, l) => s + Math.min(figuresOf(l).reserved, Number(l.quantity) || 0), 0)
-  if (reserved <= 0) return 'none'
-  return ordered - reserved > 0 ? 'partial' : 'full'
-})
-function coverageColor(c: string) { return ({ none: 'error', partial: 'warning', full: 'success' }[c] || 'grey') }
-function lineCoverageColor(line: LineRow) {
-  const r = figuresOf(line).reserved
-  const q = Number(line.quantity) || 0
-  return r <= 0 ? 'error' : r < q ? 'warning' : 'success'
+/** FR-22.44: covered on stock (`full`), or partly only by a supplier order not sent yet (`ordered`). */
+function coverageInput(line: LineRow) {
+  const f = figuresOf(line)
+  return { quantity: line.quantity, reserved: f.reserved, onUnsentOrder: f.onUnsentOrder }
 }
+const coverage = computed(() => orderCoverage(form.lines.map(coverageInput)).status)
+function lineCoverageOf(line: LineRow) { return lineCoverage(coverageInput(line)) }
+function coverageColor(c: string) { return ({ none: 'error', partial: 'warning', ordered: 'info', full: 'success' }[c] || 'grey') }
+function lineCoverageColor(line: LineRow) { return coverageColor(lineCoverageOf(line).status) }
 
 // ── contacts (server-searched pools) + warehouses ──
 const clientOptions = ref<any[]>([])

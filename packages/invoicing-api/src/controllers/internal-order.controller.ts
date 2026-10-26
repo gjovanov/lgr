@@ -16,6 +16,7 @@ import {
 import { InternalOrder, Reservation, Invoice, Order, Contact, Warehouse, Product } from 'db/models'
 import { sequenceDefFor, resolveSequencePrefix } from 'services/biz/sequence-registry'
 import { getNextOrderNumber } from './order.controller.js'
+import { orderCoverage } from 'config/order-coverage'
 import { buildConversionInvoice, planConversion, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
 
 // ── numbering ─────────────────────────────────────────────────────────────────
@@ -44,18 +45,39 @@ function opsError(status: any, e: any) {
 
 const num = (v: any) => Number(v) || 0
 
-function coverageOf(ordi: any): { reservationCoverage: 'none' | 'partial' | 'full'; shortQuantity: number } {
-  let ordered = 0
-  let reserved = 0
-  for (const line of ordi.lines || []) {
-    ordered += num(line.quantity)
-    reserved += Math.min(num(line.reservedQuantity), num(line.quantity))
+/**
+ * FR-22.44: per client order, per line, what its reservations hold on supplier orders that were
+ * never sent — drafts, which order nothing yet. Keyed `${ordiId}|${lineId}`.
+ */
+async function onUnsentOrders(orgId: string, ordiIds: any[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>()
+  if (!ordiIds.length) return out
+  const onOrders: any[] = await Reservation.find(
+    { orgId, internalOrderId: { $in: ordiIds }, source: 'order', status: { $ne: 'cancelled' } } as any,
+    { internalOrderId: 1, internalOrderLineId: 1, orderId: 1, quantity: 1 },
+  ).lean().exec()
+  const orderIds = [...new Set(onOrders.map((r) => String(r.orderId || '')).filter(Boolean))]
+  if (!orderIds.length) return out
+  const drafts = new Set((await Order.find({ orgId, _id: { $in: orderIds }, status: 'draft' } as any, { _id: 1 }).lean().exec())
+    .map((o: any) => String(o._id)))
+  for (const r of onOrders) {
+    if (!drafts.has(String(r.orderId))) continue
+    const k = `${r.internalOrderId}|${r.internalOrderLineId}`
+    out.set(k, (out.get(k) || 0) + num(r.quantity))
   }
-  const short = Math.max(0, ordered - reserved)
-  return {
-    reservationCoverage: reserved <= 0 ? 'none' : short > 0 ? 'partial' : 'full',
-    shortQuantity: short,
-  }
+  return out
+}
+
+/** The order's coverage (`config/order-coverage`), and each line's share on unsent supplier orders. */
+function coverageOf(ordi: any, unsent: Map<string, number>) {
+  const lines = (ordi.lines || []).map((l: any) => ({
+    ...l,
+    onUnsentOrderQuantity: unsent.get(`${ordi._id}|${l._id}`) || 0,
+  }))
+  const { status, shortQuantity } = orderCoverage(lines.map((l: any) => ({
+    quantity: l.quantity, reserved: l.reservedQuantity, onUnsentOrder: l.onUnsentOrderQuantity,
+  })))
+  return { lines, reservationCoverage: status, shortQuantity }
 }
 
 async function nameMaps(orgId: string, ordi: any, reservations: any[]) {
@@ -180,6 +202,7 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
       ? await Contact.find({ orgId, _id: { $in: contactIds } } as any, { companyName: 1, firstName: 1, lastName: 1 }).lean().exec()
       : []
     const nameOf = new Map(contacts.map((c: any) => [String(c._id), c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ')]))
+    const unsent = await onUnsentOrders(orgId, items.map((o: any) => o._id))
 
     const internalOrders = items.map((o: any) => {
       let ordered = 0
@@ -188,14 +211,15 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
         ordered += num(line.quantity)
         delivered += num(line.deliveredQuantity)
       }
-      const cov = coverageOf(o)
+      const { reservationCoverage, shortQuantity } = coverageOf(o, unsent)
       return {
         ...o,
         number: o.orderNumber,
         contactName: nameOf.get(String(o.contactId)) || '',
         orderedQuantity: ordered,
         deliveredQuantity: delivered,
-        ...cov,
+        reservationCoverage,
+        shortQuantity,
         late: !!(o.requestedDeliveryDate
           && new Date(o.requestedDeliveryDate) < new Date()
           && !['delivered', 'completed', 'cancelled'].includes(o.status)),
@@ -262,8 +286,10 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
     const ordi: any = await InternalOrder.findOne({ _id: id, orgId } as any).lean().exec()
     if (!ordi) return status(404, { message: 'Incoming order not found' })
     const reservations = await Reservation.find({ orgId, internalOrderId: id } as any).sort({ createdAt: 1 }).lean().exec()
-    const lookup = await nameMaps(orgId, ordi, reservations)
-    return { internalOrder: { ...ordi, ...coverageOf(ordi) }, reservations, lookup }
+    const [lookup, unsent] = await Promise.all([nameMaps(orgId, ordi, reservations), onUnsentOrders(orgId, [ordi._id])])
+    // Lines carry `onUnsentOrderQuantity` (derived on read, never stored: sending the supplier order
+    // changes it without touching this client order).
+    return { internalOrder: { ...ordi, ...coverageOf(ordi, unsent) }, reservations, lookup }
   }, { isSignIn: true })
   .put(
     '/:id',

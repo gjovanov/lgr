@@ -978,7 +978,8 @@
       "label": "Coverage",
       "none": "Unreserved",
       "partial": "Partially reserved",
-      "full": "Reserved"
+      "full": "Reserved",
+      "ordered": "Ordered"
     },
     "invoicedQty": "Invoiced Qty",
     "dispatchedQty": "Dispatched Qty",
@@ -1319,6 +1320,7 @@
     "shortLine": "{name} ({missing} short)",
     "reservedFromStockShort": "Reservations created: {count}. Not enough free stock for: {lines}",
     "nothingFreeFor": "No free stock for: {lines}",
+    "onUnsentOrder": "{count} of it on a supplier order not sent yet",
     "issueFlow": {
       "issueAndPrint": "Issue and print",
       "issue": "Issue",

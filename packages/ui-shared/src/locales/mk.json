@@ -1099,7 +1099,8 @@
       "label": "Покриеност",
       "none": "Без резервација",
       "partial": "Делумно резервирана",
-      "full": "Резервирана"
+      "full": "Резервирана",
+      "ordered": "Нарачана"
     },
     "invoicedQty": "Фактурирано",
     "dispatchedQty": "Испратено",
@@ -1440,6 +1441,7 @@
     "shortLine": "{name} (недостасуваат {missing})",
     "reservedFromStockShort": "Креирани резервации: {count}. Нема доволно слободна залиха за: {lines}",
     "nothingFreeFor": "Нема слободна залиха за: {lines}",
+    "onUnsentOrder": "{count} од нив — на излезна нарачка што уште не е испратена",
     "issueFlow": {
       "issueAndPrint": "Издади и печати",
       "issue": "Издади",

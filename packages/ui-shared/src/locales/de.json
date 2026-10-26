@@ -1099,7 +1099,8 @@
       "label": "Abdeckung",
       "none": "Nicht reserviert",
       "partial": "Teilweise reserviert",
-      "full": "Reserviert"
+      "full": "Reserviert",
+      "ordered": "Bestellt"
     },
     "invoicedQty": "Fakturierte Menge",
     "dispatchedQty": "Versandte Menge",
@@ -1440,6 +1441,7 @@
     "shortLine": "{name} ({missing} fehlen)",
     "reservedFromStockShort": "Reservierungen erstellt: {count}. Nicht genug freier Bestand für: {lines}",
     "nothingFreeFor": "Kein freier Bestand für: {lines}",
+    "onUnsentOrder": "{count} davon auf einer noch nicht gesendeten Lieferantenbestellung",
     "issueFlow": {
       "issueAndPrint": "Ausstellen und drucken",
       "issue": "Ausstellen",
