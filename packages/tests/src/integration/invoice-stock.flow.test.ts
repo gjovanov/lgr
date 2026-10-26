@@ -390,8 +390,10 @@ describe('a line with a quantity but no product', () => {
     const warehouse = await createTestWarehouse(org._id)
     await createTestStockLevel(org._id, product._id, warehouse._id, { quantity: 100, availableQuantity: 100, avgCost: 5 })
 
+    // Issued: those documents went out. A draft has booked nothing, so it reverses nothing.
     const invoice = await createTestInvoice(org._id, contact._id, {
       direction: 'outgoing',
+      status: 'sent',
       invoiceNumber: 'INV-FREETEXT-4',
       lines: [
         line({ productId: product._id, quantity: 10, warehouseId: warehouse._id }),

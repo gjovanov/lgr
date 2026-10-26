@@ -139,6 +139,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
@@ -162,6 +163,7 @@ import { useRowEmail } from '../composables/useRowEmail'
 interface Item { _id: string; number: string; contactName: string; contactId?: string; issueDate: string; validUntil: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; convertedInvoiceId?: string; convertedInvoiceNumber?: string }
 
 const { t } = useI18n()
+const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
@@ -256,12 +258,18 @@ const kanbanItems = computed(() => {
 function fmtCurrency(amount: number, currency?: string) { return formatCurrency(amount, currency || baseCurrency.value, localeCode.value) }
 function statusColor(s: string) { return ({ draft: 'grey', sent: 'info', converted: 'success', voided: 'error' }[s] || 'grey') }
 
+/**
+ * FR-22.22: the invoice the proforma becomes opens at once, ready to be issued. The list used to
+ * stay where it was, the new invoice only a link in the row's „Фактура #" column.
+ */
 async function convert(item: Item) {
   loading.value = true
   try {
-    await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/convert`)
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/convert`)
     showSuccess(t('invoicing.convertedToInvoice'))
-    await fetchItems()
+    const invoiceId = data?.invoice?.id || data?.invoice?._id
+    if (invoiceId) await router.push({ name: 'invoicing.sales.edit', params: { id: String(invoiceId) } })
+    else await fetchItems()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }

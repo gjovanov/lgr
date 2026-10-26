@@ -252,7 +252,9 @@ test.describe('Export — single invoice from details', () => {
     // one is first depends on what other specs created, so pin the shape, not the type.
     await expect(page.getByRole('heading', { name: /^edit /i })).toBeVisible({ timeout: 10000 })
 
-    await openExportDialog(page, /^print$/i)
+    // FR-22.20: „Print" prints at once with the last settings; the options — Excel among them —
+    // are the button beside it.
+    await openExportDialog(page, /^print with options/i)
     await page.getByRole('radio', { name: /excel/i }).click()
     const dl = await clickDownloadAndWait(page)
     expect(dl.suggestedFilename()).toMatch(/\.xlsx$/i)

@@ -233,6 +233,27 @@ export function linesFromRelatedInvoice(lines: any[] | undefined): Array<LineInp
 }
 
 /**
+ * A credit or debit note started FROM an issued invoice (FR-22.21: „Кредитно известие" /
+ * „Дебитно известие" on the invoice): everything the note takes from it — the customer, the
+ * invoice it corrects, its currency and how it was paid, and its lines as they were sold
+ * (`linesFromRelatedInvoice`). The user then keeps what is returned or charged.
+ *
+ * The currency is the invoice's: a note corrects amounts in the currency they were charged in,
+ * and starting from the org's base currency put a USD invoice's note in EUR.
+ */
+export function noteFromInvoice(invoice: any): Required<Pick<DocumentFormState, 'contactId' | 'relatedInvoiceId' | 'currency' | 'exchangeRate' | 'paymentMethod' | 'lines'>> {
+  const contact = invoice?.contactId
+  return {
+    contactId: contact ? String(contact._id || contact.id || contact) : '',
+    relatedInvoiceId: String(invoice?.id || invoice?._id || ''),
+    currency: invoice?.currency || '',
+    exchangeRate: num(invoice?.exchangeRate) || 1,
+    paymentMethod: invoice?.paymentMethod || '',
+    lines: linesFromRelatedInvoice(invoice?.lines),
+  }
+}
+
+/**
  * Whether a document's lines take their price from `/pricing/resolve`. That endpoint walks the
  * SALES chain (selling price → category → tag → tier → contact), so only a document priced from
  * the selling price may use it. A purchase document keeps the article's purchase price: resolving

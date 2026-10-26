@@ -420,6 +420,32 @@ describe('Reverse Stock Movement — Void Validation', () => {
     expect(level!.quantity).toBe(100)
   })
 
+  it('voiding a draft that booked nothing puts nothing back (found 2026-10-26: +1,257 phantom units)', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const contact = await createTestContact(org._id)
+    const product = await createTestProduct(org._id)
+    const warehouse = await createTestWarehouse(org._id)
+    await createTestStockLevel(org._id, product._id, warehouse._id, { quantity: 10, availableQuantity: 10, avgCost: 10 })
+
+    // A draft moves no stock: it dispatches when it is issued.
+    const draft = await createTestInvoice(org._id, contact._id, {
+      direction: 'outgoing',
+      type: 'invoice',
+      status: 'draft',
+      lines: [{
+        productId: String(product._id), warehouseId: String(warehouse._id), description: 'Never left',
+        quantity: 4, unit: 'pcs', unitPrice: 15, discount: 0, taxRate: 20, taxAmount: 12, lineTotal: 72,
+      }],
+    })
+
+    await reverseInvoiceStockMovement(draft, String(user._id))
+
+    const level = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: warehouse._id })
+    expect(level!.quantity).toBe(10)
+    expect(await StockMovement.countDocuments({ orgId: org._id, invoiceId: draft._id })).toBe(0)
+  })
+
   it('should validate stock when voiding credit note (return → dispatch reversal)', async () => {
     const org = await createTestOrg()
     const user = await createTestUser(org._id)

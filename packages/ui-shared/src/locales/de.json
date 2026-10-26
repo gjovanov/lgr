@@ -1357,7 +1357,16 @@
       "savedWithOrder": "Wird zusammen mit der Bestellung gespeichert.",
       "allocationGone": "Die Zuteilung, auf der sie lag, ist nicht mehr in dieser Bestellung",
       "noFreeQuantity": "Auf dieser Zuteilung ist nichts mehr frei"
-    }
+    },
+    "issueFlow": {
+      "issueAndPrint": "Ausstellen und drucken",
+      "issue": "Ausstellen",
+      "saveAndIssue": "Speichern und ausstellen",
+      "notIssued": "Nicht ausgestellt — das Dokument bleibt ein Entwurf: {reason}",
+      "notIssuedStock": "der Bestand reicht nicht, und die Umlagerung wurde nicht bestätigt",
+      "printOptions": "Drucken mit Optionen…"
+    },
+    "proformaIssued": "Proforma erfolgreich ausgestellt"
   },
   "warehouse": {
     "sku": "Artikelnr.",

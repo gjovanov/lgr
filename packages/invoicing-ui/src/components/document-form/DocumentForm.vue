@@ -133,6 +133,8 @@
       </div>
     </template>
 
+    <!-- On a saved document only: a new one has „Издай и печатай" in the action bar and Печат
+         (which saves first) at the bottom, and this row would push its lines down the screen. -->
     <div v-if="isEdit" class="d-flex justify-end align-center ga-2 mb-2">
       <!-- FR-10.9: a quiet "this went out already" marker, so nobody re-sends blindly. -->
       <v-chip
@@ -170,10 +172,39 @@
           </span>
         </template>
       </v-tooltip>
-      <v-btn variant="outlined" prepend-icon="mdi-printer" :loading="exportLoading" @click="showExportDialog = true">
-        {{ $t('common.print') }}
-      </v-btn>
+      <!-- FR-22.20: „Печат" prints in one click with the user's last settings; the options are the
+           button beside it. An edited document is saved first (#4.13). -->
+      <div class="d-inline-flex print-split">
+        <v-btn variant="outlined" prepend-icon="mdi-printer" class="rounded-e-0" :loading="exportLoading" data-testid="print-now" @click="doc.onPrint">
+          {{ $t('common.print') }}
+        </v-btn>
+        <v-btn
+          variant="outlined"
+          class="rounded-s-0 print-options"
+          min-width="0"
+          :title="$t('invoicing.issueFlow.printOptions')"
+          :aria-label="$t('invoicing.issueFlow.printOptions')"
+          data-testid="print-options"
+          @click="doc.onPrintOptions"
+        >
+          <v-icon>mdi-tune-variant</v-icon>
+        </v-btn>
+      </div>
     </div>
+
+    <!-- FR-22 §5.2: asked to be issued, and not issued — the draft says why. -->
+    <v-alert
+      v-if="issueError && isDraftDoc"
+      type="warning"
+      variant="tonal"
+      density="compact"
+      class="mb-3"
+      closable
+      data-testid="issue-error"
+      @click:close="issueError = ''"
+    >
+      {{ $t('invoicing.issueFlow.notIssued', { reason: issueError }) }}
+    </v-alert>
 
     <SendEmailDialog
       v-model="showEmailDialog"
@@ -187,11 +218,23 @@
     <ExportDialog
       v-model="showExportDialog"
       :loading="exportLoading"
-      default-mode="detailed"
+      :default-format="lastPrint.format"
+      :default-mode="lastPrint.mode"
+      :initial-columns="lastPrint.columns"
       :title="$t('common.print')"
       icon="mdi-printer"
       :companion-docs="companionDocs"
       @confirm="onExportSingle"
+    />
+
+    <!-- FR-22.17: issuing from the form checks stock as the list does, and offers the same transfers. -->
+    <StockTransferDialog
+      v-model="transferOpen"
+      :shortfalls="transferShortfalls"
+      :proposals="transferProposals"
+      :all-resolvable="transferAllResolvable"
+      :confirming="transferConfirming"
+      @confirm="confirmTransfers"
     />
 
     <v-form ref="formRef" @submit.prevent="onSave">
@@ -315,9 +358,21 @@
               </span>
             </template>
           </v-tooltip>
-          <v-btn v-if="isEdit" variant="outlined" prepend-icon="mdi-printer" :loading="exportLoading" @click="showExportDialog = true">
-            {{ $t('common.print') }}
-          </v-btn>
+          <div class="d-inline-flex print-split">
+            <v-btn variant="outlined" prepend-icon="mdi-printer" class="rounded-e-0" :loading="exportLoading" @click="doc.onPrint">
+              {{ $t('common.print') }}
+            </v-btn>
+            <v-btn
+              variant="outlined"
+              class="rounded-s-0 print-options"
+              min-width="0"
+              :title="$t('invoicing.issueFlow.printOptions')"
+              :aria-label="$t('invoicing.issueFlow.printOptions')"
+              @click="doc.onPrintOptions"
+            >
+              <v-icon>mdi-tune-variant</v-icon>
+            </v-btn>
+          </div>
           <v-btn
             v-if="canSaveAndReceive"
             color="primary"
@@ -328,8 +383,22 @@
           >
             {{ $t('invoicing.saveAndReceive') }}
           </v-btn>
-          <v-btn color="primary" :variant="canSaveAndReceive ? 'outlined' : 'flat'" prepend-icon="mdi-content-save" :loading="loading" @click="onSave">
+          <v-btn color="primary" :variant="canSaveAndReceive || bottomActions.length ? 'outlined' : 'flat'" prepend-icon="mdi-content-save" :loading="loading" @click="onSave">
             {{ $t('common.save') }}
+          </v-btn>
+          <!-- What follows from the document — issue, convert, a note — as the top bar offers it,
+               the action that finishes the job rightmost. -->
+          <v-btn
+            v-for="a in bottomActions"
+            :key="a.label"
+            :color="a.color || 'primary'"
+            :variant="a.primary ? 'flat' : 'outlined'"
+            :prepend-icon="a.icon"
+            :loading="a.loading"
+            :disabled="a.disabled"
+            @click="a.handler"
+          >
+            {{ a.label }}
           </v-btn>
         </div>
       </v-defaults-provider>
@@ -411,6 +480,8 @@ import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
+import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
+import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import BankInfoRow from '../BankInfoRow.vue'
 import SignatureFooter from '../SignatureFooter.vue'
 import ContactAutocompleteWithCreate from 'ui-shared/components/ContactAutocompleteWithCreate.vue'
@@ -427,7 +498,12 @@ const props = defineProps<{
   onBeforeCreate?: UseDocumentFormOptions['onBeforeCreate']
 }>()
 
-const doc = useDocumentForm(props.config, { onBeforeCreate: props.onBeforeCreate })
+const emit = defineEmits<{
+  /** A new document was saved as `id`; the form moves onto its edit route and stays mounted (FR-22.16). */
+  created: [id: string]
+}>()
+
+const doc = useDocumentForm(props.config, { onBeforeCreate: props.onBeforeCreate, onCreated: (id) => emit('created', id) })
 // FR-22.31/.32: a supplier bill and the goods receipts it pays for.
 const billReceipts = useBillReceipts(doc)
 
@@ -495,7 +571,31 @@ const {
   importDialogOpen,
   applyImportedDocument,
   cashSaleRef,
+  lastPrint,
+  issueError,
+  isDraftDoc,
+  confirmTransfers,
 } = doc
+
+// FR-22.17: the stock check's transfer dialog, as top-level refs so the template unwraps them.
+const {
+  open: transferOpen,
+  shortfalls: transferShortfalls,
+  proposals: transferProposals,
+  allResolvable: transferAllResolvable,
+  confirming: transferConfirming,
+} = doc.transfer
+
+/**
+ * The bottom bar repeats what the top bar offers beyond Save and Import (which it has its own
+ * buttons for): issue, convert, a note — reversed, so the action that finishes the job sits at the
+ * far right, where Save used to end the row.
+ */
+const bottomActions = computed<FormAction[]>(() =>
+  formActions.value
+    .filter((a) => !a.save && a.label !== t('docImport.importFile') && a.label !== t('invoicing.saveAndReceive'))
+    .reverse(),
+)
 
 // ── FR-10 (#19): email this document ──────────────────────────────────────
 
@@ -618,6 +718,11 @@ defineExpose({ submitCreate, doc })
 .doc-banner-note :deep(.v-messages),
 .doc-banner-note :deep(.v-label) {
   text-align: start;
+}
+/* FR-22.20: „Печат" and its options, one control in two parts. */
+.print-split .print-options {
+  padding-inline: 8px;
+  border-inline-start-width: 0;
 }
 .doc-banner {
   background: linear-gradient(

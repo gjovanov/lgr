@@ -204,3 +204,41 @@ describe('printed invoice form', () => {
     expect(original).not.toContain('КОПИЕ')
   })
 })
+
+/**
+ * FR-22.18: a document printed before it is issued. Its DRF- number goes on issue, so a printout
+ * carrying it would hand the customer a number no invoice will ever have.
+ */
+describe('a printed draft', () => {
+  const draft = { status: 'draft', invoiceNumber: 'DRF-INV-2026-00042' }
+
+  it('says ЧЕРНОВА, as one copy, and never shows its draft number', () => {
+    const html = build(draft)
+    expect(html).toContain('ЧЕРНОВА')
+    expect(html).toContain('draft-watermark')
+    expect(html).not.toContain('DRF-INV-2026-00042')
+    expect(html).not.toContain('ОРИГИНАЛ')
+    expect(html).not.toContain('copy-break')
+    // The date still prints; only the number row is left out.
+    expect(html).toContain('21.03.2026')
+  })
+
+  it('in the language it is printed in', () => {
+    const en = buildInvoiceHtml({ ...baseInvoice, ...draft } as any, { name: 'Test Org' } as any, {} as any, undefined, { locale: 'en' }).html
+    expect(en).toContain('DRAFT')
+    expect(en).not.toContain('DRF-INV')
+  })
+
+  it('wins over a requested marker: a draft is nobody’s original', () => {
+    const html = build(draft, {}, { copyMark: 'original' })
+    expect(html).toContain('ЧЕРНОВА')
+    expect(html).not.toContain('ОРИГИНАЛ')
+  })
+
+  it('an issued document prints its number and no draft mark', () => {
+    const html = build({ status: 'sent' })
+    expect(html).toContain('INV-2026-00001')
+    expect(html).not.toContain('ЧЕРНОВА')
+    expect(html).not.toContain('draft-watermark')
+  })
+})

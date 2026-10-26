@@ -8,6 +8,11 @@ import { lineQuantity } from '../helpers/document-form'
  *
  * Products used: PRD-0021..0023 (this agent's share of the acme-corp seed). Customer: Alpha
  * Manufacturing.
+ *
+ * FR-22 slice 2 route: the form issues, prints and — for a card sale — settles itself in one
+ * action, „Издай и печатай" (FR-22.16–.20). It used to be Save (back to the list), the row's
+ * „Изпрати", the row's „Запис на плащане" dialog with the card picked a second time, then the
+ * invoice reopened for Печат and its print dialog: 22 clicks and 2 dialogs, 20 after slice 1.
  */
 
 type Api = Awaited<ReturnType<typeof uxApi>>
@@ -19,6 +24,9 @@ const LINES = [
   { sku: 'PRD-0022', qty: 1 },
   { sku: 'PRD-0023', qty: 4 },
 ]
+
+/** FR-22 §3: P5-invoice ≤ 14 clicks · 6 typed · ≤ 1 dialog, and paid with no extra step. */
+const BUDGET = { clicks: 14, typed: 6, dialogs: 1 }
 
 /** Product records by SKU (uncounted setup). */
 async function productsBySku(api: Api, skus: string[]): Promise<Record<string, any>> {
@@ -73,16 +81,6 @@ async function findNewDoc(api: Api, opts: { type: string; contactId: string; pro
   return doc
 }
 
-/** The print dialog is taller than a 768 px window; its Download button sits below the fold. */
-async function revealDialogButton(walk: UxWalk, dialog: Loc, button: Loc) {
-  const box = await button.boundingBox()
-  const card = await dialog.boundingBox()
-  if (box && card && box.y + box.height > card.y + card.height) {
-    await button.scrollIntoViewIfNeeded()
-    walk.scrolled('the print dialog down to its Download button')
-  }
-}
-
 /** The text a v-select shows (its selection), without its label. */
 async function selectText(field: Loc): Promise<string> {
   return (await field.locator('.v-select__selection-text').allInnerTexts()).join(', ').trim()
@@ -105,40 +103,13 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
   })
   await walk.shot('sales-list')
 
-  // What the starting page looks like at 1366×768 (uncounted).
-  const wrapGeom = await page.locator('.v-table__wrapper').first().evaluate((el) => {
-    const r = el.getBoundingClientRect()
-    const heights = [...el.querySelectorAll('tbody tr')].map((tr) => Math.round(tr.getBoundingClientRect().height))
-    return { hidden: el.scrollWidth - el.clientWidth, bottom: Math.round(r.bottom + window.scrollY), top: Math.round(r.top), minH: Math.min(...heights), maxH: Math.max(...heights) }
-  })
-  if (wrapGeom.hidden > 0) {
-    walk.note(`List at 1366×768: the Actions column (Изпрати / Запис на плащане / Редактирай) is ${wrapGeom.hidden}px past the table's right edge, and the table's sideways scrollbar is at its bottom (${wrapGeom.bottom}px down a 768px window). The row icons stack vertically, so rows are ${wrapGeom.minH}–${wrapGeom.maxH}px tall and the table starts ${wrapGeom.top}px down: about two rows fit on screen.`)
-  }
   const typeFilterText = (await page.locator('.v-field').filter({ hasText: 'Тип документ' }).first().innerText()).replace('Тип документ', '').trim()
-  if (/статус/i.test(typeFilterText)) walk.note(`The „Тип документ" (document type) filter reads „${typeFilterText}" (all statuses).`)
   // The list wrote every status and type into its URL as soon as it opened (B-17). Read the URL
   // once its debounced write has had time to land.
   const listUrl = await walk.offTheClock(async () => {
     await page.waitForTimeout(800)
     return page.url()
   })
-
-  // How the customer list opens before anything is typed (uncounted look, second tab) — why the
-  // walk types the name instead of picking from the list.
-  const { opened, supplierList } = await walk.offTheClock(async () => {
-    const look = await page.context().newPage()
-    await look.goto('/invoicing/invoices/new', { waitUntil: 'networkidle' })
-    await expect(look.getByRole('heading', { name: 'Нова фактура' })).toBeVisible()
-    await look.getByRole('combobox', { name: /Клиент/ }).locator('xpath=ancestor::div[contains(@class,"v-field")][1]').click()
-    await expect(look.locator('.v-overlay--active .v-list-item').first()).toBeVisible()
-    const items = (await look.locator('.v-overlay--active .v-list-item').allInnerTexts()).map((t) => t.trim()).filter(Boolean)
-    await look.close()
-    const { contacts: sup } = await api.get('/invoicing/contact?type=supplier&size=100')
-    return { opened: items, supplierList: sup }
-  })
-  const suppliersShown = opened.filter((n) => (supplierList || []).some((c: any) => c.type === 'supplier' && c.companyName === n))
-  const pos = opened.indexOf(CUSTOMER) + 1
-  walk.note(`The „Клиент" list opens with ${opened.length - 1} contacts in no useful order (${CUSTOMER} is no. ${pos || '—'}, below the menu's fold)${suppliersShown.length ? ` and includes suppliers (${suppliersShown.slice(0, 3).join(', ')}…)` : ''}, so the user types the name.`)
 
   // ── 1. New invoice ──
   await walk.click(page.getByRole('link', { name: /Създай/ }).first(), 'create (list)')
@@ -178,114 +149,46 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
   await expect(rows).toHaveCount(LINES.length + 1)
   await walk.shot('lines-entered')
 
-  // Place of deal: the form shows „Място на сделката: —" and offers no field to fill it.
-  const placeText = await page.locator('.signature-footer').innerText().catch(() => '')
-  if (/Място на сделката:\s*—/.test(placeText)) {
-    walk.note('„Място на сделката" is display-only on the form („—"): no field and no org default, so the printed invoice has none.')
-  }
-  const peeked = (await page.locator('.doc-banner-meta .text-h6').innerText()).trim()
-
-  // ── 5. Save — returns to the list ──
-  await walk.click(page.getByRole('button', { name: 'Запази' }).first(), 'save')
-  await page.waitForURL(/\/invoicing\/invoices(\?|$)/)
-  const saved = page.locator('.v-snackbar').filter({ hasText: 'Успешно запазено' })
-  await expect(saved).toBeVisible()
-  if (await saved.getByRole('button', { name: /^close$/i }).count()) english.push('every snackbar\'s „CLOSE" button')
-
-  const draft = await findNewDoc(api, { type: 'invoice', contactId: customer._id, productId: products[LINES[0].sku]._id, since })
-  expect(draft.status).toBe('draft')
-  expect(draft.paymentMethod).toBe('card')
-  const draftRow = page.locator('tbody tr').filter({ hasText: draft.invoiceNumber })
-  await expect(draftRow).toBeVisible()
-  await walk.shot('draft-in-list')
-  walk.note(`Save returns to the list with the invoice still a draft (${peeked}); the form has no Issue button — issuing is the list row's „Изпрати" (send) icon.`)
-  // Does the draft offer Print? (uncounted look, second tab)
-  const draftPrint = await walk.offTheClock(async () => {
-    const probe = await page.context().newPage()
-    await probe.goto(`/invoicing/invoices/${draft._id}/edit`, { waitUntil: 'networkidle' })
-    await expect(probe.getByRole('heading', { name: 'Редактиране на фактура' })).toBeVisible()
-    const visible = await probe.getByRole('button', { name: 'Печат' }).first().isVisible()
-    await probe.close()
-    return visible
-  })
-  if (draftPrint) walk.note(`The draft's own form offers Печат too: printed before issuing, the customer's invoice would carry ${draft.invoiceNumber}.`)
-
-  // ── 6. Issue (row action) ──
-  await walk.scrollTableToEnd('the row actions')
-  await walk.click(draftRow.getByRole('button', { name: 'Изпрати', exact: true }), 'issue (row „Изпрати")')
-  await expect(page.locator('.v-snackbar').filter({ hasText: 'Фактурата е изпратена успешно' })).toBeVisible()
-  let issued: any
-  await expect.poll(async () => {
-    issued = (await api.get(`/invoices/${draft._id}`)).invoice
-    return issued?.status
-  }, { timeout: 15000 }).toBe('sent')
-  const issuedRow = page.locator('tbody tr').filter({ hasText: issued.invoiceNumber })
-  await expect(issuedRow).toBeVisible()
-  await walk.shot('issued-in-list')
-
-  // ── 7. Record the card payment (row action) ──
-  await walk.scrollTableToEnd('the row actions')
-  await walk.click(issuedRow.getByRole('button', { name: 'Запис на плащане' }), 'record payment (row)')
-  const payDialog = page.locator('.v-overlay--active .v-card').filter({ hasText: 'Запис на плащане' })
-  await expect(payDialog).toBeVisible()
-  walk.dialog('record payment')
-  const amount = Number(await payDialog.getByLabel('Сума').inputValue())
-  expect(amount).toBeCloseTo(issued.total, 2)
-  const methodShown = await selectText(payDialog.locator('.v-field').filter({ has: page.getByRole('combobox', { name: 'Метод на плащане' }) }).first())
-  walk.note(`Card at the counter is not settled on issue — only „В брой" is (cash-settlement rule; ${pmDefault ? `the form defaults to „${pmDefault}"` : 'no default'}): a card sale stays „Изпратена" until a payment is recorded on the list row.`)
-  if (!/карта/i.test(methodShown)) {
-    walk.note(`Record-payment dialog: the amount is prefilled (${amount}) but the method defaults to „${methodShown}" although the invoice says „С карта" — card is picked a second time.`)
-    await walk.choose(payDialog, /Метод на плащане/, 'С карта', 'payment method: card (again)')
-  }
-  await walk.shot('payment-dialog')
-  await walk.click(payDialog.getByRole('button', { name: 'Запази' }), 'save payment')
-  await expect(page.locator('.v-snackbar').filter({ hasText: 'Плащането е записано успешно' })).toBeVisible()
-  await expect(issuedRow.getByText('Платена')).toBeVisible()
-  await walk.shot('paid-in-list')
-
-  // ── 8. Open it and print ──
-  await walk.scrollTableToEnd('the row actions')
-  await walk.click(issuedRow.getByRole('link', { name: 'Редактирай' }), 'open the issued invoice (row pencil)')
-  await page.waitForURL(new RegExp(`/invoices/${draft._id}/edit`))
-  await expect(page.getByRole('heading', { name: 'Редактиране на фактура' })).toBeVisible()
-  walk.note('Print is only on the opened document, so the user reopens the invoice after issuing it; the list\'s „Експорт" is a list export, not the invoice.')
-  if (await page.locator('.smart-buttons-row').getByText('Payments', { exact: true }).count()) english.push('the „Payments" smart button on the paid invoice')
-  const smartButtonTexts = (await page.locator('.smart-buttons-row').allInnerTexts()).join(' ')
-  const paidShown = (await page.getByTestId('totals-amount-paid').innerText().catch(() => '')).replace(/\s+/g, ' ')
-
-  await walk.click(page.getByRole('button', { name: 'Печат' }).first(), 'print')
-  const printDialog = page.locator('.v-overlay--active .v-card').filter({ hasText: 'Печат' })
-  await expect(printDialog).toBeVisible()
-  walk.dialog('print options (format / mode / columns / companion documents)')
-  const downloadBtn = printDialog.getByRole('button', { name: /Download|Изтегли/ })
-  await expect(downloadBtn).toBeVisible()
-  await walk.shot('print-dialog')
-  if (await printDialog.getByRole('button', { name: 'Download' }).count()) english.push('the print dialog\'s „Download" button (`common.download` missing from bg.json)')
-  const enCols = (await printDialog.locator('.v-checkbox label').allInnerTexts()).filter((t) => /^(Qty|Unit)$/.test(t.trim()))
-  if (enCols.length) english.push(`print column names ${enCols.map((t) => `„${t.trim()}"`).join(' and ')}`)
-  await revealDialogButton(walk, printDialog, downloadBtn)
+  // ── 5. „Издай и печатай": saved, issued, paid and printed in one action ──
+  const issueAndPrint = page.getByRole('button', { name: 'Издай и печатай' }).first()
+  await expect(issueAndPrint).toBeVisible()
   const downloadPromise = page.waitForEvent('download', { timeout: 60000 })
-  await walk.click(downloadBtn, 'download the PDF')
+  await walk.click(issueAndPrint, 'issue and print („Издай и печатай")')
   const download = await downloadPromise
-  expect(download.suggestedFilename()).toBe(`${issued.invoiceNumber}.pdf`)
   await expect(page.locator('.v-snackbar').filter({ hasText: 'Експортът е генериран' })).toBeVisible()
-  await walk.shot('printed')
+  // On the issued invoice: its own edit route, its number, paid.
+  await page.waitForURL(/\/invoicing\/invoices\/[0-9a-f]{24}\/edit/)
+  await expect(page.getByRole('heading', { name: 'Редактиране на фактура' })).toBeVisible()
+  await walk.shot('issued-paid-printed')
 
   // What was stored (uncounted).
+  const draft = await findNewDoc(api, { type: 'invoice', contactId: customer._id, productId: products[LINES[0].sku]._id, since })
   const final = (await api.get(`/invoices/${draft._id}`)).invoice
-  expect(final.status).toBe('paid')
-  expect(final.paymentMethod).toBe('card')
-  expect(final.payments?.[0]?.method).toBe('card')
-  walk.note(`Draft ${draft.invoiceNumber} was issued as ${issued.invoiceNumber}, printed as ${download.suggestedFilename()}, paid by card.`)
+  expect(download.suggestedFilename()).toBe(`${final.invoiceNumber}.pdf`)
+  expect(page.url()).toContain(`/invoices/${draft._id}/edit`)
+  await expect(page.locator('.doc-banner-meta .text-h6')).toHaveText(final.invoiceNumber)
+  await expect(page.locator('.doc-banner-meta .v-chip')).toContainText('Платена')
+  const paidShown = (await page.getByTestId('totals-amount-paid').innerText().catch(() => '')).replace(/\s+/g, ' ')
+  const smartButtonTexts = (await page.locator('.smart-buttons-row').allInnerTexts()).join(' ')
+  if (await page.locator('.v-snackbar').getByRole('button', { name: /^close$/i }).count()) english.push('every snackbar\'s „CLOSE" button')
+
+  walk.note(`„Издай и печатай" saved the draft (${final.draftNumber}), issued it as ${final.invoiceNumber}, settled it by card (${final.payments?.map((p: any) => `${p.amount} ${p.method}/${p.origin}`).join(', ')}) and printed ${download.suggestedFilename()} — one click, no dialog, still on the invoice.`)
+  walk.note(`The payment method field starts as „${pmDefault || 'празно'}"; card is chosen once (FR-22.26 will remember it per user).`)
   if (english.length) walk.note(`English in the bg UI: ${english.join('; ')}.`)
 
   const result = walk.finish()
-  expect(result.clicks).toBeGreaterThan(0)
 
-  // ── FR-22 slice 1 guards (each failed on the code the budgets were first measured on) ──
-  // B-9 / FR-22.7: the payment dialog opens on what is still due, by the invoice's own method.
-  expect(methodShown).toMatch(/карта/i)
-  expect(amount).toBeCloseTo(issued.total - (issued.amountPaid || 0), 2)
+  // ── FR-22 §3 budget for P5-invoice ──
+  expect(result.clicks).toBeLessThanOrEqual(BUDGET.clicks)
+  expect(result.typed).toBeLessThanOrEqual(BUDGET.typed)
+  expect(result.dialogs).toBeLessThanOrEqual(BUDGET.dialogs)
+  expect(result.hops).toBe(0)
+  // Paid with no extra step (FR-22.19, D-3): a card sale is settled when it is issued.
+  expect(final).toMatchObject({ status: 'paid', paymentMethod: 'card', amountDue: 0 })
+  expect(final.payments).toEqual([expect.objectContaining({ method: 'card', origin: 'card_on_issue', amount: final.total })])
+  expect(final.invoiceNumber).not.toMatch(/^DRF-/)
+
+  // ── FR-22 slice 1 guards that still apply on this route ──
   // B-13 / FR-22.12: no English smart buttons; what has been paid shows in the totals card.
   expect(smartButtonTexts).not.toMatch(/Journal Entry|Payments|Deliveries/)
   expect(paidShown).toContain('Платена сума')

@@ -83,10 +83,10 @@ test.describe('Invoicing', () => {
     // Save the invoice
     await page.getByRole('button', { name: /^save$/i }).first().click()
 
-    // Verify redirect to sales list or form stays with validation errors
-    // (save may fail if contact is required and no contacts exist in the system)
+    // FR-22.16: a saved invoice stays open, on its own edit route; the form stays new when
+    // validation stops the save (a contact is required and the system may have none).
     await expect(
-      page.locator('.v-data-table').or(page.getByRole('heading', { name: 'New Invoice' }))
+      page.getByRole('heading', { name: 'Edit Invoice' }).or(page.getByRole('heading', { name: 'New Invoice' }))
     ).toBeVisible({ timeout: 10000 })
   })
 

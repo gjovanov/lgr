@@ -1234,6 +1234,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     // The sale's revenue belongs to its cash sale: an invoice for one posts no second entry.
     if (forCashSale) return { invoice: updated }
+    // An issued proforma is an offer (FR-22.22): no receivable, no revenue, nothing paid. The
+    // invoice it is converted into posts when that invoice is issued.
+    if (invoice.type === 'proforma') return { invoice: updated }
 
     // Emit for cross-module journal entry creation
     eventBus.emit('invoice.posted', {
@@ -1553,6 +1556,12 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       notes: proforma.notes,
       terms: proforma.terms,
       footer: proforma.footer,
+      // FR-22.22: the deal the customer accepted — how it is paid, where it is made, what it is
+      // filed under. A card proforma used to become an invoice with no method, so issuing it left
+      // the card sale unpaid (FR-22.19).
+      paymentMethod: (proforma as any).paymentMethod,
+      placeOfTransaction: (proforma as any).placeOfTransaction,
+      tags: (proforma as any).tags || [],
       billingAddress: proforma.billingAddress,
       shippingAddress: proforma.shippingAddress,
       proformaId: proforma.id,
