@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
 import { apiLogin } from './helpers/api'
-import { closeTillSession, createBackOfficeCashSale, journal, ringTillSale, stockOf } from './helpers/cash-register'
+import { cashRegisterExport, closeTillSession, createBackOfficeCashSale, journal, ringTillSale, stockOf } from './helpers/cash-register'
 
 /**
  * FR-21 (#171), R1 — one cash register, two journals.
@@ -12,7 +12,7 @@ import { closeTillSession, createBackOfficeCashSale, journal, ringTillSale, stoc
  * (`helpers/cash-register.ts`): the seed has neither.
  *
  * R2: a till sale is a cash-register document, so what reads only documents carries it — the
- * cash-register report and its export among them.
+ * cash-register report and both exports, the list and the per-product pivot (§8.3 item 7).
  *
  * Not here yet (§8.3): the receipt's УНП and the Z-report on close need a fiscal device in
  * Playwright, and the server refuses a loopback TCP device (`fiscal/tcp-target.ts`, SSRF): the TCP
@@ -61,7 +61,7 @@ test.describe('FR-21 — one cash register, two journals', () => {
     await expect(page).toHaveURL(new RegExp(`/invoicing/cash-sales/${backOffice.id}/edit`))
   })
 
-  test('R2: the cash-register report, which reads only documents, carries the till sale', async () => {
+  test('R2: the cash-register report and both exports, which read only documents, carry the till sale', async () => {
     const admin = await apiLogin()
     const res = await fetch(`${process.env.BASE_URL || 'http://localhost:4001'}/api/org/${admin.orgId}/reports/cash-register/run`, {
       method: 'POST',
@@ -74,6 +74,16 @@ test.describe('FR-21 — one cash register, two journals', () => {
     expect(row, `${sale.number} is in the report`).toBeTruthy()
     expect(row.docType).toBe('cash_sale')
     expect(row.total).toBeCloseTo(sale.total, 2)
+
+    // The exports, narrowed to the sale by its number: the list has its row, and the pivot is the
+    // one item it sold.
+    const list = await cashRegisterExport(admin, { search: sale.number })
+    expect(list.some(cells => cells.includes(sale.number)), `${sale.number} is in the list export`).toBe(true)
+    const pivot = await cashRegisterExport(admin, { search: sale.number, aggregated: true, columns: ['sku', 'totalQuantity', 'grossTotal'] })
+    const item = pivot.find(cells => cells[0] === sale.sku)
+    expect(item, `${sale.sku} is in the aggregate export`).toBeTruthy()
+    expect(item![1]).toBe(1)
+    expect(Number(item![2])).toBeCloseTo(sale.total, 2)
   })
 
   test('a storno from the invoicing journal shows in both, and the stock is back', async ({ page }) => {
