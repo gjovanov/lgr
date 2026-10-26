@@ -52,7 +52,7 @@ totals, a day's cash, SUPTO sums. The field check's output stays on the build ho
 | R2b — the till writes cash-register documents | FR-21.15 – FR-21.20 (the till's door) | #272, merged 2026-10-26, not deployed |
 | R2c — the copy migration and the restore | FR-21.21 – FR-21.22 | #273, merged 2026-10-26, not deployed |
 | R2d — the back office and the import; `docs/supto`; the field-check script | FR-21.15 (the other doors), FR-21.23 | #274, merged 2026-10-26, not deployed |
-| R3 — freeze | FR-21.25 – FR-21.26 | not started |
+| R3 — freeze | FR-21.25 – FR-21.26 | in review (`0009-cash-register-freeze`, the frozen model) |
 | R4 — contract | FR-21.27 – FR-21.28 | not started |
 | R5 — one terminal | FR-21.29 – FR-21.32 | not started |
 
@@ -94,9 +94,9 @@ The spec's ids were indicative (§5 says so), and master already had `0002`–`0
 | `0003-cash-sale-line-totals` | `0007-cash-sale-line-totals-gross` |
 | `0004-pos-out-record-only` | `0006-pos-out-record-only` |
 | `0005-cash-register-copy` (R2) | `0008-cash-register-copy` (#273) |
-| `0006-cash-register-freeze` (R3) | the next one after it |
+| `0006-cash-register-freeze` (R3) | `0009-cash-register-freeze` |
 
-FR-21.28's startup check has to name the freeze migration's real id.
+FR-21.28's startup check has to name the freeze migration's real id: `0009-cash-register-freeze`.
 
 ## 3. Decisions taken while building
 
@@ -375,8 +375,19 @@ that series its own line only from R2c, §3.23.)
    To rehearse again, for example R3's freeze migration, run `scripts/cash-register-rehearsal.sh
    <branch>` on the build host. It does what step 3 did.
 
-### R3 – R5
-As the spec has them, after the points in §4 are settled.
+### R3 (FR-21.25 – FR-21.26)
+In review on `feat/fr-21-r3-freeze`:
+- **FR-21.25:** `0009-cash-register-freeze` runs `copy-org.ts` over every org with POS rows. It copies the rows written since 0008 (a rollback to R1 between the two), then re-runs parity over the whole history, and throws naming the orgs that disagree.
+- **FR-21.26:** `POSTransaction` carries `db/plugins/frozen.plugin.ts`. Every write through the model throws `FrozenCollectionError` ("postransactions is frozen (FR-21)"): save, insertMany, every query write, document writes and bulkWrite. Raw `Model.collection.*` writes pass, as they pass the home guard. Those are the restore, the move and the mirror, already listed in `home-write-guard.flow.test.ts`.
+- **What still wrote through the model:**
+  - the deprecated `erp.service` POS functions and their unit test, which only wrote POS rows: removed in R3, a step of FR-21.27 brought forward;
+  - the FR-21.14 cleanup script, whose delete is raw now, behind its home check;
+  - the test factory and six test files, which insert legacy rows raw now.
+
+**The deploy:** as R2's. Take the field check, deploy, `bun run migrate` (0009), and diff the field check. Prod has no POS rows, so 0009 finds nothing to copy and only proves parity. Rolling back to R2 is safe, because R2 never writes `POSTransaction`.
+
+### R4 – R5
+As the spec has them, after the points in §4 are settled. FR-21.28's startup check names `0009-cash-register-freeze`.
 
 ## 6. Where things are
 

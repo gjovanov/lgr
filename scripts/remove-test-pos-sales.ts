@@ -302,7 +302,8 @@ export async function executeTestSaleCleanup(
       await audit('stock_movement', m.id, m.number, `the dispatch of test sale ${sale.number}, reversed and removed`)
       audits++
     }
-    await POSTransaction.deleteOne({ _id: sale.id, orgId }).exec()
+    // FR-21.26: the model is frozen. The org's home was asserted before any write (assertScriptHome).
+    await POSTransaction.collection.deleteOne({ _id: new mongoose.Types.ObjectId(String(sale.id)), orgId: new mongoose.Types.ObjectId(String(orgId)) })
     await audit('pos_transaction', sale.id, sale.number, `test sale of ${new Date(sale.createdAt).toISOString()} removed`)
     audits++
   }

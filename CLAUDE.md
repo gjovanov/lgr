@@ -1551,8 +1551,9 @@ in LGR while the device still had it open.
   the **device's** day, not one session).
 - UI: `pos-ui/src/components/CloseSessionDialog.vue` — per-method expected/counted/difference
   rows modeled on the legacy screen, three visually distinct outcomes.
-- `erp.service.closePOSSession` is the old duplicate; marked `@deprecated` (its only callers
-  are its own tests) rather than deleted.
+- `erp.service.closePOSSession` was the old duplicate, `@deprecated` with only its own tests as
+  callers. It and the other `erp.service` POS functions were deleted in FR-21 R3, once
+  `postransactions` was frozen.
 
 ## FR-10 — email an outgoing invoice (2026-08-25)
 
@@ -1963,6 +1964,12 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
     it restores the consumed layers AND confirms a receipt that layers them again, at the sale
     price — layer-costed (FIFO/LIFO) goods counted twice, and WAC's `avgCost` pulled toward the selling
     price. That void path is still open (#276).
+- ⚠ **`postransactions` is frozen (R3, FR-21.26)**: the `POSTransaction` model carries
+  `db/plugins/frozen.plugin.ts`, so every write through it (save, insertMany, query writes,
+  bulkWrite) throws `FrozenCollectionError`. Migration `0009-cash-register-freeze` copied the last
+  rows and proved parity. A test that needs a legacy row inserts it raw: `createTestPOSTransaction`
+  builds it with the model and writes `POSTransaction.collection.insertOne`. R4's startup check
+  (FR-21.28) names `0009`.
 - ⚠ **A body field the route's schema does not declare never reaches the handler**: Elysia's
   normalize drops it without a word. `POST /invoices` read `pendingTransferIds` without declaring
   it, so the cash-sale form's transfer-then-sell answered 400 for want of stock and left its draft

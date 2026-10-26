@@ -12,6 +12,8 @@ import { BackupRun, DocFile, Invoice, POSTransaction, StockMovement } from 'db/m
 import { config } from 'config'
 import { runMigrations, COLLECTION } from 'migrations/runner'
 import { cashRegisterCopy } from 'migrations/migrations/0008-cash-register-copy'
+import { cashRegisterFreeze } from 'migrations/migrations/0009-cash-register-freeze'
+import { FrozenCollectionError } from 'db/plugins/frozen.plugin'
 import {
   CashRegisterCopyError, cashRegisterParity, cashRegisterPreflight, copyCashRegisterOrg,
 } from 'services/biz/cash-register/copy-org'
@@ -284,6 +286,72 @@ describe('0008 — what stops it', () => {
     expect(err).toBeInstanceOf(CashRegisterCopyError)
     expect(String(err.message)).toContain('bitcoin')
     expect(await Invoice.countDocuments({ orgId: w.orgId, 'register.legacy.source': 'postransactions' })).toBe(0)
+  }, 60_000)
+})
+
+describe('R3 — the freeze (FR-21.25, FR-21.26)', () => {
+  const freeze = () => cashRegisterFreeze.up({ db: db(), log: () => {}, orgFilter: {} })
+
+  it('the POSTransaction model refuses every write; raw driver writes still pass', async () => {
+    const w = await legacyOrg('legacy-frozen')
+    const row: any = w.rows[0]
+    const attempts: [string, () => Promise<unknown>][] = [
+      ['create', () => POSTransaction.create({ ...row, _id: new ObjectId(), transactionNumber: 'TXN-2026-0000777' })],
+      ['insertMany', () => POSTransaction.insertMany([{ ...row, _id: new ObjectId(), transactionNumber: 'TXN-2026-0000778' }])],
+      ['updateOne', () => POSTransaction.updateOne({ _id: row._id }, { $set: { status: 'cancelled' } }).exec()],
+      ['updateMany', () => POSTransaction.updateMany({ orgId: w.orgId }, { $set: { status: 'cancelled' } }).exec()],
+      ['findOneAndUpdate', () => POSTransaction.findOneAndUpdate({ _id: row._id }, { $set: { status: 'cancelled' } }).exec()],
+      ['deleteOne', () => POSTransaction.deleteOne({ _id: row._id }).exec()],
+      ['deleteMany', () => POSTransaction.deleteMany({ orgId: w.orgId }).exec()],
+      ['bulkWrite', () => POSTransaction.bulkWrite([{ deleteOne: { filter: { _id: row._id } } }])],
+      ['doc.save', async () => { const d: any = await POSTransaction.findById(row._id); d.status = 'cancelled'; return d.save() }],
+    ]
+    for (const [name, attempt] of attempts) {
+      const err: any = await captureRejection(attempt())
+      expect(err, name).toBeInstanceOf(FrozenCollectionError)
+      expect(String(err.message), name).toContain('postransactions is frozen (FR-21)')
+    }
+    // Nothing moved; and a raw write (a restore, a move, the mirror) is not stopped by the model.
+    expect(await POSTransaction.countDocuments({ orgId: w.orgId })).toBe(w.rows.length)
+    expect((await POSTransaction.findById(row._id).lean() as any).status).toBe('completed')
+    await POSTransaction.collection.updateOne({ _id: row._id }, { $set: { note: 'raw' } })
+    expect((await POSTransaction.findById(row._id).lean() as any).note).toBe('raw')
+  }, 60_000)
+
+  it('0009 copies a straggler an older release wrote after 0008, proves parity and is recorded once', async () => {
+    const w = await legacyOrg('legacy-straggler')
+    await up()
+    // A rollback to R1 between 0008 and 0009: the till wrote one more POS row.
+    const straggler: any = { ...(w.rows[1] as any), _id: new ObjectId(), transactionNumber: 'TXN-2026-0000500', createdAt: T(17), updatedAt: T(17), completedAt: T(17) }
+    delete straggler.clientKey
+    await POSTransaction.collection.insertOne(straggler)
+
+    await freeze()
+    const copy: any = await Invoice.findById(straggler._id).lean()
+    expect(copy?.invoiceNumber).toBe('TXN-2026-0000500')
+    expect(copy?.register?.origin).toBe('pos')
+    expect(await cashRegisterParity(db() as any, String(w.orgId))).toEqual([])
+    // A second run changes nothing.
+    const snap = async () => JSON.stringify(await Invoice.find({}).sort({ _id: 1 }).lean())
+    const once = await snap()
+    await freeze()
+    expect(await snap()).toBe(once)
+    // The runner records it after 0008, once.
+    const res = await runMigrations({ db: db() })
+    expect(res.applied).toEqual(expect.arrayContaining(['0008-cash-register-copy', '0009-cash-register-freeze']))
+    expect(await snap()).toBe(once)
+  }, 60_000)
+
+  it('0009 throws on a copy that no longer matches its row, and is not recorded', async () => {
+    const w = await legacyOrg('legacy-mismatch')
+    await up()
+    await Invoice.collection.updateOne({ _id: (w.rows[0] as any)._id }, { $set: { total: 999 } })
+    const err: any = await captureRejection(freeze())
+    expect(err).toBeInstanceOf(CashRegisterCopyError)
+    expect(String(err.message)).toContain(String(w.orgId))
+    // Through the runner nothing past the mismatch is recorded.
+    await captureRejection(runMigrations({ db: db() }))
+    expect(await db().collection(COLLECTION).findOne({ _id: '0009-cash-register-freeze' as any })).toBeNull()
   }, 60_000)
 })
 

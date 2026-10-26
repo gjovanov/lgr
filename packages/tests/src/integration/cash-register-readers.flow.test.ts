@@ -81,7 +81,7 @@ async function tillSale(s: S, how: 'pos' | 'document' | 'both', over: Record<str
   if (how !== 'pos') {
     await Invoice.collection.insertOne(fromPosTransaction(row.toObject(), s.session.toObject(), { baseCurrency: 'EUR' }) as any)
   }
-  if (how === 'document') await POSTransaction.deleteOne({ _id: row._id })
+  if (how === 'document') await POSTransaction.collection.deleteOne({ _id: row._id })
   return row
 }
 
