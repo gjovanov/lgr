@@ -148,3 +148,31 @@ test.describe('The client-order form (FR-22.43)', () => {
     await expect(page.locator('.v-snackbar')).toContainText(`No free stock for: ${w.product.name} (3 short)`)
   })
 })
+
+test.describe('Generating a supplier order (FR-22.42)', () => {
+  test('offers the supplier\'s draft, adds the line to it, and says where the goods go', async ({ page }) => {
+    const api = await session()
+    const w = await world(api)
+    // The supplier already has a draft carrying the article: the cover dialog's supplier hint.
+    const { order: draft } = await api.call('POST', '/invoicing/orders', {
+      issueDate: new Date().toISOString().slice(0, 10), currency: 'EUR', tags: [],
+      supplierGroups: [{ supplierId: w.supplierId, lines: [{ productId: w.productId, description: w.product.name, quantity: 2, unit: 'pcs', allocations: [] }] }],
+    })
+    const ordi = await clientOrder(api, w, 4)
+
+    await loginForApp(page)
+    await page.goto(`/invoicing/internal-orders/${ordi._id}/edit`, { waitUntil: 'networkidle' })
+    await page.getByRole('button', { name: 'Generate outgoing order' }).click()
+    const dialog = page.locator('.v-overlay--active .v-card').filter({ has: page.getByTestId('generate-target') })
+    await expect(dialog).toBeVisible()
+    const field = (name: string) => dialog.getByRole('combobox', { name }).locator('xpath=ancestor::div[contains(@class,"v-field")][1]')
+    await expect(field('To warehouse')).toContainText(w.warehouse.name)
+    await expect(dialog.getByTestId('generate-target')).toContainText(`Add to ${draft.orderNumber}`)
+    await dialog.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect(page.locator('.v-snackbar')).toContainText(`Added to outgoing order ${draft.orderNumber}`)
+
+    const after = (await api.call('GET', `/invoicing/orders/${draft._id}`)).order
+    expect(after.supplierGroups[0].lines.map((l: any) => l.quantity)).toEqual([2, 4])
+    expect(after.supplierGroups[0].lines[1].allocations.map((a: any) => [String(a.warehouseId), a.quantity])).toEqual([[String(w.warehouse._id), 4]])
+  })
+})

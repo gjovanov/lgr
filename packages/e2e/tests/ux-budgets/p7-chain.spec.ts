@@ -119,6 +119,8 @@ test('P7 chain: client order → reserve → external order → send → invoice
   const api = await uxApi()
   const [p26, p27, p28] = await Promise.all(['PRD-0026', 'PRD-0027', 'PRD-0028'].map((s) => productBySku(api, s)))
   const supplier = await contactByName(api, SUPPLIER)
+  const DEFAULT_WAREHOUSE: string = ((await api.get('/warehouse/warehouse?size=100')).warehouses || []).find((w: any) => w.isDefault)?.name
+  expect(DEFAULT_WAREHOUSE, 'the seed marks a default warehouse').toBeTruthy()
   await clearLeftovers(api, p28._id)
   await ensureSupplierHistory(api, p28, supplier._id)
   await topUp(api, p28, 20, 50)
@@ -206,10 +208,14 @@ test('P7 chain: client order → reserve → external order → send → invoice
   const supplierBox = supplierField.locator('xpath=ancestor::div[contains(@class,"v-field")][1]')
   await expect(supplierBox).toContainText(SUPPLIER)
   await expect(genDialog.getByRole('spinbutton', { name: 'Кол.' })).toHaveValue(String(SHORTAGE))
+  // FR-22.42: the warehouse the goods go to is shown (the default one: the client order names
+  // none), and so is the supplier order they go on — a new one, as no draft of the supplier exists.
+  const whBox = genDialog.getByRole('combobox', { name: 'Към склад' }).locator('xpath=ancestor::div[contains(@class,"v-field")][1]')
+  await expect(whBox).toContainText(DEFAULT_WAREHOUSE)
+  await expect(genDialog.getByTestId('generate-target')).toContainText('Нова изходяща поръчка')
   await settledShot(walk, 'generate-dialog')
   walk.note(`Generate dialog: quantity (${SHORTAGE}) and supplier („${SUPPLIER}", from the last external order that carried the article) come pre-filled; on an article never ordered before the supplier is blank and costs a search + pick (+2 clicks, +1 typed).`)
-  walk.note('Generate dialog: „Склад" is blank and optional — the external order silently goes to the default warehouse (Main Warehouse); nothing says so.')
-  walk.note('Generate dialog always creates a NEW draft ORDO: the API can append to an existing draft (`orderId`), the dialog offers no choice — two client orders short on articles from the same supplier become two supplier orders.')
+  walk.note(`Generate dialog: „Към склад" reads „${DEFAULT_WAREHOUSE}" — where the goods will go — and „Изходяща поръчка" offers a draft of the same supplier when one exists (FR-22.42); here none does, so a new one.`)
   await walk.click(genDialog.getByRole('button', { name: 'Създай', exact: true }), 'create the external order')
   const ordoSnack = snackbar(walk, /Създадена е изходяща поръчка/)
   await expect(ordoSnack).toBeVisible()

@@ -1442,6 +1442,13 @@
     "reservedFromStockShort": "Reservierungen erstellt: {count}. Nicht genug freier Bestand für: {lines}",
     "nothingFreeFor": "Kein freier Bestand für: {lines}",
     "onUnsentOrder": "{count} davon auf einer noch nicht gesendeten Lieferantenbestellung",
+    "toWarehouse": "In das Lager",
+    "generateInto": "Ausgehende Bestellung",
+    "generateIntoNew": "Eine neue ausgehende Bestellung",
+    "generateIntoDraft": "Zu {number} hinzufügen — {suppliers} ({lines} Positionen)",
+    "generateIntoHint": "Der Lieferant hat eine noch nicht gesendete ausgehende Bestellung: die Positionen können dazukommen.",
+    "addToOrder": "Hinzufügen",
+    "externalOrderAppended": "Zur ausgehenden Bestellung {number} hinzugefügt",
     "issueFlow": {
       "issueAndPrint": "Ausstellen und drucken",
       "issue": "Ausstellen",

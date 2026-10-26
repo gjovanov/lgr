@@ -213,3 +213,33 @@ describe('a client order covered by a supplier order not sent yet (FR-22.44)', (
     expect((await listed()).reservationCoverage).toBe('full')
   }, 60_000)
 })
+
+describe('generating a supplier order into a draft the supplier already has (FR-22.42)', () => {
+  it('adds the lines to it — under the supplier\'s group, or a new group for another supplier', async () => {
+    const w = await world()
+    const draft = await w.order('draft', 3, { product: w.other })
+    const mine = await w.ordi(w.c1, [{ product: w.product, quantity: 15 }, { product: w.other, quantity: 12 }])
+    expect((await w.call('POST', `/internal-orders/${mine.id}/reserve-available`, {})).status).toBe(200)
+
+    const res = await w.call('POST', `/internal-orders/${mine.id}/generate-external`, {
+      orderId: draft.id,
+      lines: [
+        { internalOrderLineId: mine.lineIds[0], quantity: 5, supplierId: String(w.supplier2._id) },
+        { internalOrderLineId: mine.lineIds[1], quantity: 2, supplierId: String(w.supplier._id) },
+      ],
+    })
+    expect(res.status).toBe(200)
+    expect(res.json.order._id).toBe(draft.id)
+    expect(res.json.order.orderNumber).toBe(draft.number)
+    const groups = res.json.order.supplierGroups.map((g: any) => [String(g.supplierId), g.lines.map((l: any) => l.quantity)])
+    expect(groups).toEqual([
+      [String(w.supplier._id), [3, 2]],      // the draft's own supplier: its line, then the new one
+      [String(w.supplier2._id), [5]],        // another supplier: a group of its own
+    ])
+    // Each new line goes to the default warehouse when the client order names none, reserved for it.
+    expect(res.json.reservations.map((r: any) => [r.quantity, String(r.orderId), String(r.warehouseId)]).sort()).toEqual([
+      [2, draft.id, String(w.w1._id)], [5, draft.id, String(w.w1._id)],
+    ].sort())
+    expect(await Order.countDocuments({ orgId: w.orgId }).exec()).toBe(1)
+  }, 60_000)
+})

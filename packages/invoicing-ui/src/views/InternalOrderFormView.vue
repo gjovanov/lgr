@@ -433,14 +433,31 @@
               :loading="loadingContacts"
               @update:search="(s: string) => onContactSearch(s, 'supplier')"
             />
-            <v-autocomplete v-model="row.warehouseId" :items="warehouses" item-title="name" item-value="_id" :label="$t('warehouse.warehouse')" density="compact" variant="outlined" hide-details style="min-width: 180px" />
+            <!-- FR-22.42: where the goods go, said up front — the order's warehouse, else the default one. -->
+            <v-autocomplete v-model="row.warehouseId" :items="warehouses" item-title="name" item-value="_id" :label="$t('invoicing.toWarehouse')" density="compact" variant="outlined" hide-details style="min-width: 180px" />
           </div>
+          <!-- FR-22.42: a draft supplier order of the same supplier can take the lines, instead of a new one. -->
+          <v-select
+            v-if="generateRows.length"
+            v-model="generateTarget"
+            :items="generateTargets"
+            item-title="title"
+            item-value="value"
+            :label="$t('invoicing.generateInto')"
+            :hint="generateTargets.length > 1 ? $t('invoicing.generateIntoHint') : ''"
+            persistent-hint
+            density="compact"
+            variant="outlined"
+            class="mt-4"
+            data-testid="generate-target"
+            @update:model-value="generateTargetTouched = true"
+          />
         </v-card-text>
         <v-card-actions>
           <v-spacer />
           <v-btn @click="generateDialog = false">{{ $t('common.cancel') }}</v-btn>
           <v-btn color="primary" variant="flat" :loading="generating" :disabled="!generateRows.some(r => r.quantity > 0 && r.supplierId)" @click="submitGenerate">
-            {{ $t('common.create') }}
+            {{ generateTarget === 'new' ? $t('common.create') : $t('invoicing.addToOrder') }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -449,7 +466,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
@@ -470,6 +487,7 @@ import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue
 import EntityLink from 'ui-shared/components/EntityLink'
 import { reservationErrorMessage } from '../composables/reservation-errors'
 import { lineCoverage, orderCoverage } from 'config/order-coverage'
+import { asDraftOrder, defaultDraftFor, pickDraftsFor, type DraftOrder } from '../composables/order-generate'
 
 /** A line as the user edits it. What the server derives for it lives in `lineFigures`, not here. */
 interface LineRow {
@@ -632,7 +650,7 @@ function lineCoverageColor(line: LineRow) { return coverageColor(lineCoverageOf(
 const clientOptions = ref<any[]>([])
 const supplierOptions = ref<any[]>([])
 const loadingContacts = ref(false)
-const warehouses = ref<Array<{ _id: string; name: string }>>([])
+const warehouses = ref<Array<{ _id: string; name: string; isDefault?: boolean }>>([])
 const contactNames = ref<Record<string, string>>({})
 
 let contactSearchTimer: ReturnType<typeof setTimeout> | null = null
@@ -976,15 +994,50 @@ function preempt(line: any, p: any) {
 const generateDialog = ref(false)
 const generating = ref(false)
 const generateRows = ref<any[]>([])
+/** 'new', or the id of the draft supplier order the lines are added to (FR-22.42). */
+const generateTarget = ref<string>('new')
+const generateTargetTouched = ref(false)
+const draftOrders = ref<DraftOrder[]>([])
+
+/**
+ * The warehouse the goods go to when the dialog leaves it empty — the order's own, else the
+ * default one — which is what `generateExternalOrder` falls back to. Shown, not implied.
+ */
+const fallbackWarehouseId = computed(() => form.warehouseId || warehouses.value.find((w) => w.isDefault)?._id || '')
+
+const generateTargets = computed(() => [
+  { value: 'new', title: t('invoicing.generateIntoNew') },
+  ...pickDraftsFor(draftOrders.value, generateRows.value.map((r) => r.supplierId)).map((d) => ({
+    value: d._id,
+    title: t('invoicing.generateIntoDraft', { number: d.orderNumber, suppliers: d.supplierNames.join(', '), lines: d.lineCount }),
+  })),
+])
+
+// Until the user picks one, the target follows the suppliers: their newest draft, else a new order.
+watch(() => generateRows.value.map((r) => r.supplierId).join('|'), () => {
+  if (!generateDialog.value || generateTargetTouched.value) return
+  generateTarget.value = defaultDraftFor(draftOrders.value, generateRows.value.map((r) => r.supplierId))?._id || 'new'
+  if (!generateTargets.value.some((o) => o.value === generateTarget.value)) generateTarget.value = 'new'
+})
+
+async function loadDraftOrders() {
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/invoicing/orders`, { params: { status: 'draft', size: 100, sortBy: 'createdAt', sortOrder: 'desc' } })
+    draftOrders.value = (data.orders || []).map(asDraftOrder)
+  } catch {
+    draftOrders.value = []
+  }
+}
 
 async function openGenerateDialog() {
-  if (!suggestions.value.length) await loadSuggestions()
+  // Fresh every time: a reservation made since the cover dialog last looked changes what is short.
+  await Promise.all([loadSuggestions(), loadDraftOrders()])
   generateRows.value = suggestions.value.map((line) => ({
     internalOrderLineId: line.lineId,
     description: sugLookup.value.products?.[line.productId]?.name || line.productId,
     quantity: line.openQuantity,
     supplierId: line.supplierHint?.supplierId || '',
-    warehouseId: form.warehouseId || '',
+    warehouseId: fallbackWarehouseId.value,
   }))
   // Make hinted suppliers resolvable in the autocomplete.
   for (const row of generateRows.value) {
@@ -992,6 +1045,8 @@ async function openGenerateDialog() {
       supplierOptions.value = [{ _id: row.supplierId, companyName: sugLookup.value.contacts[row.supplierId] }, ...supplierOptions.value]
     }
   }
+  generateTargetTouched.value = false
+  generateTarget.value = defaultDraftFor(draftOrders.value, generateRows.value.map((r) => r.supplierId))?._id || 'new'
   generateDialog.value = true
 }
 
@@ -1006,9 +1061,13 @@ async function submitGenerate() {
     }))
   if (!lines.length) return
   generating.value = true
+  const appending = generateTarget.value !== 'new'
   try {
-    const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/generate-external`, { lines })
-    showSuccess(t('invoicing.externalOrderCreated', { number: data.order.orderNumber }))
+    const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/generate-external`, {
+      lines,
+      ...(appending ? { orderId: generateTarget.value } : {}),
+    })
+    showSuccess(t(appending ? 'invoicing.externalOrderAppended' : 'invoicing.externalOrderCreated', { number: data.order.orderNumber }))
     generateDialog.value = false
     await refreshReservations()
   } catch (e: any) {

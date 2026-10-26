@@ -1321,6 +1321,13 @@
     "reservedFromStockShort": "Reservations created: {count}. Not enough free stock for: {lines}",
     "nothingFreeFor": "No free stock for: {lines}",
     "onUnsentOrder": "{count} of it on a supplier order not sent yet",
+    "toWarehouse": "To warehouse",
+    "generateInto": "Outgoing order",
+    "generateIntoNew": "A new outgoing order",
+    "generateIntoDraft": "Add to {number} — {suppliers} ({lines} lines)",
+    "generateIntoHint": "The supplier has an outgoing order that is not sent yet: the lines can go on it.",
+    "addToOrder": "Add",
+    "externalOrderAppended": "Added to outgoing order {number}",
     "issueFlow": {
       "issueAndPrint": "Issue and print",
       "issue": "Issue",

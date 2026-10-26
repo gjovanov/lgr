@@ -1442,6 +1442,13 @@
     "reservedFromStockShort": "Креирани резервации: {count}. Нема доволно слободна залиха за: {lines}",
     "nothingFreeFor": "Нема слободна залиха за: {lines}",
     "onUnsentOrder": "{count} од нив — на излезна нарачка што уште не е испратена",
+    "toWarehouse": "Во магацин",
+    "generateInto": "Излезна нарачка",
+    "generateIntoNew": "Нова излезна нарачка",
+    "generateIntoDraft": "Додај кон {number} — {suppliers} (редови: {lines})",
+    "generateIntoHint": "Добавувачот има излезна нарачка што уште не е испратена: редовите може да се додадат на неа.",
+    "addToOrder": "Додај",
+    "externalOrderAppended": "Додадено на излезна нарачка {number}",
     "issueFlow": {
       "issueAndPrint": "Издади и печати",
       "issue": "Издади",

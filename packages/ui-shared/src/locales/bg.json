@@ -1321,6 +1321,13 @@
     "reservedFromStockShort": "Създадени резервации: {count}. Не стига свободна наличност за: {lines}",
     "nothingFreeFor": "Няма свободна наличност за: {lines}",
     "onUnsentOrder": "{count} от тях — по изходяща поръчка, която още не е изпратена",
+    "toWarehouse": "Към склад",
+    "generateInto": "Изходяща поръчка",
+    "generateIntoNew": "Нова изходяща поръчка",
+    "generateIntoDraft": "Добави към {number} — {suppliers} (редове: {lines})",
+    "generateIntoHint": "Доставчикът има изходяща поръчка, която още не е изпратена: редовете могат да се добавят към нея.",
+    "addToOrder": "Добави",
+    "externalOrderAppended": "Добавено към изходяща поръчка {number}",
     "issueFlow": {
       "issueAndPrint": "Издай и печатай",
       "issue": "Издай",
