@@ -41,6 +41,17 @@
         <div v-if="products.length === 0" class="pld-item pld-item--empty">
           {{ $t('invoicing.noProductsFound') }}
         </div>
+        <!-- FR-22.30: what was typed is not in the catalog — create it from the line. -->
+        <div
+          v-if="offerCreate"
+          class="pld-item pld-item--create"
+          :class="{ 'pld-item--active': highlightedIndex === products.length }"
+          data-testid="product-line-create"
+          @mousemove="highlightedIndex = products.length"
+          @click="createProduct"
+        >
+          {{ $t('warehouse.quickProduct.option', { name: searchText.trim() }) }}
+        </div>
       </div>
     </Teleport>
     <v-chip
@@ -78,6 +89,8 @@ const props = defineProps<{
   description: string
   productId?: string
   priceField: 'sellingPrice' | 'purchasePrice'
+  /** Offer „+ Нов продукт „…"" for what was typed (FR-22.30): the parent opens the dialog. */
+  allowCreate?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -85,6 +98,8 @@ const emit = defineEmits<{
   'update:productId': [value: string | undefined]
   'product-selected': [product: Product]
   'product-cleared': []
+  /** The user asked to create the article they typed. */
+  'create-product': [name: string]
 }>()
 
 const appStore = useAppStore()
@@ -102,6 +117,29 @@ const linkedProductName = ref('')
 const searchText = ref('')
 const overlayStyle = ref<Record<string, string>>({})
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * The catalog has answered for exactly what is typed now. Until then the rows are the previous
+ * query's, and offering to create the article would invite creating one that exists.
+ */
+const answeredFor = ref('')
+
+/** The typed text names no article the search found: offer to create it, as the last row. */
+const offerCreate = computed(() => {
+  const q = searchText.value.trim().toLocaleLowerCase()
+  if (!props.allowCreate || q.length < 2 || loading.value || answeredFor.value !== searchText.value.trim()) return false
+  // A result called — or coded — what was typed is the article, not a new one.
+  return !products.value.some((p: any) => [p.name, p.sku, p.barcode].some((n) => String(n || '').trim().toLocaleLowerCase() === q))
+})
+/** Rows the keyboard walks: the results, then the create row. */
+const rowCount = computed(() => products.value.length + (offerCreate.value ? 1 : 0))
+
+function createProduct() {
+  const name = searchText.value.trim()
+  if (!name) return
+  menuOpen.value = false
+  emit('create-product', name)
+}
 
 // Fixed-position the teleported overlay directly under the input. Uses viewport coords so it
 // escapes the table's overflow clipping (the reason we teleport to body). Repositioned on any
@@ -143,8 +181,9 @@ async function fetchProducts(query: string) {
     if (!orgId) return
     const { data } = await httpClient.get(`/org/${orgId}/warehouse/product`, { params: { search: query, size: 10 } })
     products.value = data.products || []
-    highlightedIndex.value = products.value.length ? 0 : -1
-    menuOpen.value = products.value.length > 0
+    answeredFor.value = query.trim()
+    highlightedIndex.value = products.value.length || props.allowCreate ? 0 : -1
+    menuOpen.value = products.value.length > 0 || (!!props.allowCreate && query.trim().length >= 2)
     if (menuOpen.value) nextTick(positionOverlay)
   } catch { /* */ } finally {
     loading.value = false
@@ -175,9 +214,9 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === 'ArrowDown') {
     e.preventDefault()
     e.stopPropagation()
-    if (!menuOpen.value && products.value.length) { menuOpen.value = true; nextTick(positionOverlay); return }
-    if (!products.value.length) return
-    highlightedIndex.value = Math.min(products.value.length - 1, highlightedIndex.value + 1)
+    if (!menuOpen.value && rowCount.value) { menuOpen.value = true; nextTick(positionOverlay); return }
+    if (!rowCount.value) return
+    highlightedIndex.value = Math.min(rowCount.value - 1, highlightedIndex.value + 1)
     scrollHighlightedIntoView()
   } else if (e.key === 'ArrowUp') {
     if (!menuOpen.value) return
@@ -186,9 +225,10 @@ function onKeydown(e: KeyboardEvent) {
     highlightedIndex.value = Math.max(0, highlightedIndex.value - 1)
     scrollHighlightedIntoView()
   } else if (e.key === 'Enter') {
-    if (!menuOpen.value || !products.value.length) return
+    if (!menuOpen.value || !rowCount.value) return
     e.preventDefault()
     e.stopPropagation()
+    if (offerCreate.value && highlightedIndex.value === products.value.length) { createProduct(); return }
     const p = products.value[highlightedIndex.value]
     if (p) selectProduct(p)
   } else if (e.key === 'Escape') {
@@ -282,6 +322,10 @@ onBeforeUnmount(() => {
 }
 .pld-item--empty:hover {
   background: transparent;
+}
+.pld-item--create {
+  color: rgb(var(--v-theme-primary));
+  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
 }
 .pld-item-title {
   font-size: 0.875rem;

@@ -1566,6 +1566,13 @@
       "production_in": "Produktionszugang",
       "production_out": "Produktionsabgang"
     },
+    "quickProduct": {
+      "option": "+ Neues Produkt „{name}“",
+      "defaultCategoryNew": "„{name}“ wird angelegt",
+      "skuHint": "Die Artikelnummer setzt die Nummernfolge der Organisation fort; die Preisstufen folgen ihrer Vorlage.",
+      "exists": "Dieses Produkt gibt es schon: {sku} — {name}",
+      "useExisting": "Dieses verwenden"
+    },
     "supply": {
       "reserved": "Reserviert",
       "available": "Verfügbar",

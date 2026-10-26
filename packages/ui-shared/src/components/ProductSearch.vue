@@ -2,6 +2,7 @@
   <v-autocomplete
     v-model="selectedProduct"
     v-model:search="searchQuery"
+    v-model:menu="menuOpen"
     :items="products"
     :loading="loading"
     item-title="displayName"
@@ -26,15 +27,27 @@
       </v-list-item>
     </template>
     <template #no-data>
-      <v-list-item v-if="searchQuery && searchQuery.length >= 2">
-        <v-list-item-title class="text-grey">{{ $t('invoicing.noProductsFound') }}</v-list-item-title>
+      <template v-if="searchQuery && searchQuery.length >= 2">
+        <v-list-item>
+          <v-list-item-title class="text-grey">{{ $t('invoicing.noProductsFound') }}</v-list-item-title>
+        </v-list-item>
+        <v-list-item v-if="allowCreate && answered" class="text-primary" data-testid="product-search-create" @click="createProduct">
+          <v-list-item-title>{{ $t('warehouse.quickProduct.option', { name: searchQuery.trim() }) }}</v-list-item-title>
+        </v-list-item>
+      </template>
+    </template>
+    <!-- FR-22.30: a search that finds articles, but not this one, can still create it. -->
+    <template v-if="offerCreateBelowResults" #append-item>
+      <v-divider />
+      <v-list-item class="text-primary" data-testid="product-search-create" @click="createProduct">
+        <v-list-item-title>{{ $t('warehouse.quickProduct.option', { name: searchQuery.trim() }) }}</v-list-item-title>
       </v-list-item>
     </template>
   </v-autocomplete>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { httpClient } from '../composables/useHttpClient'
 
 export interface ProductResult {
@@ -52,18 +65,49 @@ const props = defineProps<{
   orgUrl: string
   disabled?: boolean
   initialProduct?: { _id: string; name: string } | null
+  /** Offer „+ Нов продукт „…"" for what was typed (FR-22.30): the parent opens the dialog. */
+  allowCreate?: boolean
 }>()
 
 const emit = defineEmits<{
   'product-selected': [product: ProductResult]
   'product-cleared': []
+  /** The user asked to create the article they typed. */
+  'create-product': [name: string]
 }>()
 
 const searchQuery = ref('')
 const products = ref<ProductResult[]>([])
 const loading = ref(false)
+const menuOpen = ref(false)
 const selectedProduct = ref<ProductResult | null>(null)
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * The catalog has answered for exactly what is typed now. Until then the list is the previous
+ * query's (or empty), and offering to create the article would invite creating one that exists:
+ * a quick click on „+ Нов продукт „PRD-0013"" before the search returned PRD-0013 itself.
+ */
+const answeredFor = ref('')
+const answered = computed(() => !loading.value && answeredFor.value === String(searchQuery.value || '').trim())
+
+/** Results came back, but none is called what was typed: the new article is still one click away. */
+const offerCreateBelowResults = computed(() => {
+  const q = String(searchQuery.value || '').trim().toLocaleLowerCase()
+  if (!props.allowCreate || !answered.value || q.length < 2 || !products.value.length) return false
+  // A result called — or coded — what was typed is the article; and the box also echoes a picked
+  // article's title ("name (SKU)"). Neither is a request for a new one.
+  const named = (p: (ProductResult & { barcode?: string }) | null) =>
+    [p?.name, p?.displayName, p?.sku, p?.barcode].some(n => String(n || '').trim().toLocaleLowerCase() === q)
+  return !named(selectedProduct.value) && !products.value.some(named)
+})
+
+function createProduct() {
+  const name = String(searchQuery.value || '').trim()
+  if (!name) return
+  menuOpen.value = false
+  emit('create-product', name)
+}
 
 // Sync selection from the parent: initial edit value or an external pick (e.g. ProductPickerDialog).
 // The picked product must also be present in `products`, otherwise the autocomplete cannot resolve
@@ -98,6 +142,7 @@ async function fetchProducts(query: string) {
       ...p,
       displayName: `${p.name} (${p.sku})`,
     }))
+    answeredFor.value = query.trim()
   } catch { /* */ } finally {
     loading.value = false
   }

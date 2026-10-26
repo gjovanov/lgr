@@ -1566,6 +1566,13 @@
       "production_in": "Производство вход",
       "production_out": "Производство изход"
     },
+    "quickProduct": {
+      "option": "+ Нов продукт „{name}“",
+      "defaultCategoryNew": "„{name}“ ще бъде създадена",
+      "skuHint": "Кодът продължава поредицата на организацията; ценовите нива следват шаблона ѝ.",
+      "exists": "Вече има такъв продукт: {sku} — {name}",
+      "useExisting": "Използвай го"
+    },
     "supply": {
       "reserved": "Резервирано",
       "available": "Свободно",

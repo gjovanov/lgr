@@ -1566,6 +1566,13 @@
       "production_in": "Production in",
       "production_out": "Production out"
     },
+    "quickProduct": {
+      "option": "+ New product “{name}”",
+      "defaultCategoryNew": "“{name}” will be created",
+      "skuHint": "The SKU continues the organisation's sequence; the price tiers follow its template.",
+      "exists": "This product already exists: {sku} — {name}",
+      "useExisting": "Use it"
+    },
     "supply": {
       "reserved": "Reserved",
       "available": "Available",
