@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 import { hostname } from 'os'
-import { MirrorState, NodePresence, Org, OrgHome, ServerNode, UPLINK_CHANNELS, type UplinkChannel } from 'db/models'
+import { LIVE_MOVE_STATES, MirrorState, NodePresence, Org, OrgHome, OrgMove, ServerNode, UPLINK_CHANNELS, type UplinkChannel } from 'db/models'
 import { mongoose } from 'db/connection'
 import { applyPage } from 'services/biz/replication/apply'
 import { BSON, decodePage, type Page } from 'services/biz/replication/pages'
@@ -342,6 +342,10 @@ async function hello(ws: any, conn: Conn, msg: any): Promise<void> {
   const metadataOnly = conn.ch === 'bulk'
     ? new Set((await Org.find({ _id: { $in: node.orgIds }, 'settings.node.mirrorFiles': false }, { _id: 1 }).lean()).map((o: any) => String(o._id)))
     : new Set<string>()
+  // FR-20.80 (P3-6c): a move back takes every file, whatever the org chose.
+  if (metadataOnly.size) {
+    for (const m of await OrgMove.find({ orgId: { $in: [...metadataOnly] }, kind: 'to_global', state: { $in: [...LIVE_MOVE_STATES] } }, { orgId: 1 }).lean()) metadataOnly.delete(String((m as any).orgId))
+  }
   // FR-20.55: a licence per entitled org, on the interactive socket. A failure sends none: the
   // master keeps what it holds, and the 10-minute re-check tries again.
   const licences = conn.ch === 'interactive'

@@ -559,6 +559,27 @@ offline (Q2). Only the master writes the org, and the copy follows it one way:
 - **Not yet:** dead letters (P3-2c), the reconcile after a new journal epoch, and the re-seed of a
   restored master (P3-7).
 
+## Moving an org back to lgrai.app (FR-20.80)
+
+An org admin moves the org back from its server on the Servers page ("Move back to lgrai.app"). No
+copy travels: lgrai.app's mirror already holds the org, and the move waits until it holds all of it.
+1. **Preflight**, every check at once:
+   - the server is registered, linked at Full, connected and healthy;
+   - no till is open and nothing prints there;
+   - the mirror is live;
+   - every file is on lgrai.app or on its way. A file the server cannot send blocks the move unless
+     the admin leaves it behind.
+2. **The server freezes the org** and waits until its last writes are captured, then reports how far
+   its journal goes.
+3. **lgrai.app catches up:** its pages up to that point, every file (an org that keeps its files on
+   its server sends them now), then the server's digests of the org, compared with the mirror's
+   whatever the order of fields.
+4. **The files go back where their rows say**, and lgrai.app becomes the org's home again, one epoch
+   up.
+5. **The server keeps a read-only copy.** Its desktops are told the org moved.
+
+Until the switch, an abort leaves the org on its server, which unfreezes it.
+
 ## Moving an org to its master (FR-20.79)
 
 An org admin moves the org from lgrai.app to one of its servers on the Servers page ("Move here", on

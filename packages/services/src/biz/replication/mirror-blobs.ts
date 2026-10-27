@@ -20,10 +20,10 @@
  */
 import { createHash } from 'node:crypto'
 import { constants as fsConstants } from 'node:fs'
-import { copyFile, mkdir, open, rename, stat, truncate, unlink } from 'node:fs/promises'
-import { join, resolve, sep } from 'node:path'
+import { copyFile, mkdir, open, rename, rm, stat, truncate, unlink } from 'node:fs/promises'
+import { dirname, join, resolve, sep } from 'node:path'
 import { config, nodeRole } from 'config'
-import { ArchiveUnit, DocFile, File as FileModel, MirrorBlob, MirrorState, Org, ServerNode } from 'db/models'
+import { ArchiveUnit, DocFile, File as FileModel, LIVE_MOVE_STATES, MirrorBlob, MirrorState, Org, OrgMove, ServerNode } from 'db/models'
 import { homeOf } from 'db/home/home'
 import { mongoose } from 'db/connection'
 import { logger } from '../../logger/logger.js'
@@ -122,7 +122,14 @@ async function senderRefusal(nodeId: string, orgId: string): Promise<{ reason: B
 /** Whether the org's files travel to the mirror: unless its admin chose metadata only. */
 export async function filesMirrored(orgId: string): Promise<boolean> {
   const org: any = await Org.findById(orgId, { 'settings.node.mirrorFiles': 1 }).lean()
-  return org?.settings?.node?.mirrorFiles !== false
+  if (org?.settings?.node?.mirrorFiles !== false) return true
+  // FR-20.80: a move back to lgrai.app takes every file, whatever the org chose.
+  return movingBack(orgId)
+}
+
+/** Whether a move of the org back to lgrai.app is under way (FR-20.80, P3-6c). */
+export async function movingBack(orgId: string): Promise<boolean> {
+  return !!(await OrgMove.exists({ orgId, kind: 'to_global', state: { $in: [...LIVE_MOVE_STATES] } }))
 }
 
 interface Referenced {
@@ -399,6 +406,75 @@ export async function blobUnavailable(nodeId: string, orgId: string, sha256: str
       },
     )
   })
+}
+
+/**
+ * Where each file of the org must be once global is its home again (FR-20.80, P3-6c): the stored
+ * path of every row global's mirror holds, with the content its row names. A current document wins
+ * over an archive unit, which wins over a `File` row, when two name one path with different bytes;
+ * those are counted, never guessed.
+ */
+async function placements(orgId: string): Promise<{ want: Map<string, string>; conflicts: number }> {
+  const [docs, files, units] = await Promise.all([
+    DocFile.find({ orgId }, { currentChecksum: 1, currentPath: 1, archived: 1 }).lean(),
+    FileModel.find({ orgId, sha256: { $type: 'string' }, storageProvider: { $in: ['local', null] } }, { sha256: 1, storagePath: 1 }).lean(),
+    ArchiveUnit.find({ orgId, sha256: { $type: 'string' } }, { sha256: 1, path: 1 }).lean(),
+  ])
+  const want = new Map<string, string>()
+  let conflicts = 0
+  const claim = (rel: unknown, sha: unknown) => {
+    if (typeof rel !== 'string' || typeof sha !== 'string' || !SHA256_HEX.test(sha)) return
+    let abs: string
+    try {
+      abs = resolveStored(rel, orgId)
+    } catch {
+      return
+    }
+    const had = want.get(abs)
+    if (had === undefined) want.set(abs, sha)
+    else if (had !== sha) conflicts++
+  }
+  const archived = new Set((docs as any[]).filter(d => d.archived).map(d => d.currentChecksum))
+  for (const d of docs as any[]) if (!d.archived) claim(d.currentPath, d.currentChecksum)
+  for (const u of units as any[]) claim(u.path, u.sha256)
+  // The File row of a document now in an archive names bytes that live in its unit.
+  for (const f of files as any[]) if (!archived.has(f.sha256)) claim(f.storagePath, f.sha256)
+  return { want, conflicts }
+}
+
+/**
+ * Put every file of the org where its row says, from the content store (FR-20.80, P3-6c): global
+ * reads an org homed here by path. A file already there with the right bytes stays; one with other
+ * bytes is replaced. Idempotent, so a tick that dies half-way is simply run again.
+ */
+export async function placeFilesBack(orgId: string): Promise<{ placed: number; present: number; missing: number; conflicts: number }> {
+  const { want, conflicts } = await placements(orgId)
+  let placed = 0
+  let present = 0
+  let missing = 0
+  for (const [abs, sha] of want) {
+    const s = await stat(abs).catch(() => null)
+    if (s?.isFile() && (await hashFile(abs)) === sha) {
+      present++
+      continue
+    }
+    const blob = await mirroredBlobFile(orgId, sha)
+    if (!blob) {
+      missing++
+      continue
+    }
+    await mkdir(dirname(abs), { recursive: true })
+    await placeCopy(blob, abs)
+    placed++
+  }
+  return { placed, present, missing, conflicts }
+}
+
+/** Once the org is home here again, its content store goes: every file is where its row says. */
+export async function dropMirrorBlobs(orgId: string): Promise<number> {
+  const r = await MirrorBlob.deleteMany({ orgId })
+  await rm(blobDir(orgId), { recursive: true, force: true }).catch(() => {})
+  return r.deletedCount ?? 0
 }
 
 /** True where a mirrored org's files are read by content: on global, for an org homed elsewhere. */

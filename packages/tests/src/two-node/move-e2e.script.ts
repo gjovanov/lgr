@@ -6,6 +6,10 @@
  * it through the supervisor's egress, and the flip makes the master its home. The mirror then
  * starts again from the move, and ends equal to the master, document for document.
  *
+ * Then back (FR-20.80, plan step P3-6c): the shop makes a document with a file on the master, the
+ * admin moves the org back to lgrai.app, the master freezes it and drains, global puts the file
+ * where its row says and flips, and the master keeps a read-only copy.
+ *
  *   bun packages/tests/src/two-node/move-e2e.script.ts
  *
  * Needs: `cargo build` (packages/server), `bun run build` + `bun run build:server` (dist/lgr-server).
@@ -239,6 +243,43 @@ try {
   check('global raised no alarm', !(st?.alarms ?? []).length, JSON.stringify(st?.alarms ?? []))
   const audit = await mdb.collection('auditlogs').findOne({ orgId, entityType: 'org_move', entityName: 'from lgrai.app' })
   check('the master recorded the arrival in the org\'s own trail', !!audit)
+
+  // ── FR-20.80 (P3-6c): back to lgrai.app ─────────────────────────────────────────────────────────
+  // A document the shop makes on the master, with its file: global gets the file by content.
+  const made = randomBytes(40_000)
+  const madeRel = `${String(orgId)}/docs/2026-10-27/made-at-the-shop.pdf`
+  mkdirSync(join(DATA, 'uploads', String(orgId), 'docs', '2026-10-27'), { recursive: true })
+  writeFileSync(join(DATA, 'uploads', ...madeRel.split('/')), made)
+  const madeSha = createHash('sha256').update(made).digest('hex')
+  await mdb.collection('docfiles').insertOne({ _id: new mongoose.Types.ObjectId(), orgId, docType: 'invoice', docNumber: 'made-at-the-shop', docDate: '2026-10-27', originalName: 'made-at-the-shop.pdf', currentPath: madeRel, currentChecksum: madeSha, version: 1, mimeType: 'application/pdf', size: made.length, status: 'uploaded', uploadedAt: new Date() })
+  const backReady = await until(async () => {
+    const r = await asAdmin('POST', `/org/${orgId}/moves/preflight`, { to: 'global' })
+    return r.status === 200 && r.body.ok ? r.body : false
+  }, 120_000, 2000)
+  check('the move back passes its preflight', !!backReady, backReady ? '' : JSON.stringify((await asAdmin('POST', `/org/${orgId}/moves/preflight`, { to: 'global' })).body?.checks?.filter((c: any) => !c.ok)))
+  const back = await asAdmin('POST', `/org/${orgId}/moves/`, { to: 'global' })
+  check('the admin starts the move back', back.status === 200 && back.body?.move?.kind === 'to_global' && back.body?.move?.state === 'freezing', JSON.stringify(back.body))
+  const mFrozen = await until(async () => ((await mdb.collection('org_homes').findOne({ orgId })) as any)?.state === 'freezing', 60_000)
+  check('…the master freezes the org', !!mFrozen)
+  const backDone = await until(async () => {
+    const r = await asAdmin('GET', `/org/${orgId}/moves/current`)
+    return r.body?.move && ['done', 'aborted'].includes(r.body.move.state) ? r.body.move : false
+  }, 300_000, 2000)
+  check('the move back ends done: drained, verified, the files put back, flipped', !!backDone && backDone.state === 'done', JSON.stringify(backDone ? { state: backDone.state, error: backDone.error, steps: backDone.steps?.map((x: any) => x.name), placed: backDone.placed } : 'no end'))
+  const gBack: any = await gdb.collection('org_homes').findOne({ orgId })
+  check('global is the org\'s home again, one epoch up', gBack?.home === 'global' && gBack?.epoch === 2 && gBack?.state === 'active', JSON.stringify(gBack && { home: gBack.home, epoch: gBack.epoch, state: gBack.state }))
+  const mBack = await until(async () => {
+    const h: any = await mdb.collection('org_homes').findOne({ orgId })
+    return h?.home === 'global' ? h : false
+  }, 60_000)
+  check('the master leaves it, at that epoch, keeping a read-only copy', !!mBack && (mBack as any).epoch === 2 && (mBack as any).state === 'active' && (await mdb.collection('contacts').countDocuments({ orgId })) > 0)
+  const placedFile = join(GLOBAL_UPLOADS, ...madeRel.split('/'))
+  check('the file the shop made is on global where its row says', existsSync(placedFile) && createHash('sha256').update(readFileSync(placedFile)).digest('hex') === madeSha)
+  const writeBack = await asAdmin('POST', `/org/${orgId}/invoicing/contact`, { type: 'customer', companyName: 'Written on lgrai.app again' })
+  check('global writes the org again', writeBack.status === 200, `${writeBack.status} ${writeBack.body?.code ?? ''}`)
+  check('…and keeps no mirror state or content store for it', (await gdb.collection('mirror_state').countDocuments({ orgId })) === 0 && (await gdb.collection('mirror_blobs').countDocuments({ orgId })) === 0)
+  const leftAudit = await until(() => gdb.collection('auditlogs').findOne({ orgId, entityType: 'org_move', entityName: 'to lgrai.app' }), 10_000)
+  check('the org\'s trail, written on the master before the freeze, came back with it', !!leftAudit)
 } catch (e) {
   failed++
   console.log(`FAIL  ${e instanceof Error ? e.message : String(e)}`)

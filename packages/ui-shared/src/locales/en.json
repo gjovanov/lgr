@@ -3244,6 +3244,43 @@
       "aborted": "The move was aborted",
       "done": "{name} is the organization's home now",
       "live": "A move to {name} is under way: {state}"
+    },
+    "moveBack": {
+      "action": "Move back to lgrai.app",
+      "title": "Move {org} back to lgrai.app",
+      "intro": "The server freezes the organization and sends lgrai.app everything it does not have yet, documents and files; then lgrai.app is its home again, and the server keeps a read-only copy. Nothing is written while it moves, so close the tills first.",
+      "check": {
+        "home_master": "The organization lives on one of its servers",
+        "no_move": "No other move is under way",
+        "registered": "The server is registered for this organization",
+        "full": "The server is linked at Full",
+        "no_clone_alarm": "No clone alarm",
+        "connected": "The server is connected",
+        "healthy": "The server reports healthy",
+        "no_till_open": "No till session is open",
+        "no_fiscal_command": "No fiscal device is printing",
+        "mirror_live": "lgrai.app keeps a mirror of it",
+        "files": "Every file is on lgrai.app, or on its way"
+      },
+      "allowMissingFiles": "Move back without the files the server cannot send",
+      "filesNote": "This organization keeps its files on its server: they are sent to lgrai.app first.",
+      "start": "Start the move back",
+      "state": {
+        "freezing": "The server is freezing the organization",
+        "copying": "lgrai.app is catching up",
+        "verifying": "Putting the files back in place",
+        "done": "Done: lgrai.app is the organization's home again",
+        "aborted": "Aborted: the organization stays on its server"
+      },
+      "waiting": {
+        "pages": "its documents",
+        "files": "its files",
+        "digests": "a last comparison"
+      },
+      "waitingFor": "waiting for {what}",
+      "desktopsNote": "The shop's desktops will say the organization moved: pair them with lgrai.app again.",
+      "live": "A move back to lgrai.app is under way: {state}",
+      "done": "lgrai.app is the organization's home again"
     }
   },
   "desktops": {

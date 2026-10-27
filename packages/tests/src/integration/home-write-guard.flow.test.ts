@@ -155,6 +155,10 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
     count: 3,
     why: 'FR-21.21 the copy of an org\'s POS rows (migration 0008 and a restore): the copies, their movement links and the cash sales\' origin; copyPosRows and backfillCashSaleOrigin call assertHomeIsHere(orgId) first',
   },
+  'services/src/biz/move/move-back.service.ts': {
+    count: 2,
+    why: 'the move back\'s flip (FR-20.80 steps 4–6), in its transaction while the org is still homed on its master: Org.homeEpochHighWater (a field global owns) and the mirror_state row the flip ends',
+  },
   'services/src/biz/move/move-bundle.ts': {
     count: 4,
     why: 'the move\'s import on a master (FR-20.79): only into an EMPTY org the master froze for the move, type-exact past every hook; the documents and the people (insertMany), a held person\'s tokenVersion only ever up, and an aborted import\'s own documents',
