@@ -142,10 +142,17 @@ jobs:
       - name: The supervisor needs no C runtime
         shell: pwsh
         run: |
+          # The IMPORT TABLE, never a scan for DLL names: the binary also names vcruntime140.dll and
+          # msvcp140.dll as data (the runtime files it carries for mongod), which a scan cannot tell
+          # from an import.
           $exe = 'packages/server/target/release/lgr-server.exe'
-          $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe))
-          $hits = [regex]::Matches($text, '(?i)(vcruntime140(_1)?|msvcp140|ucrtbase|api-ms-win-crt-[a-z0-9-]+)\.dll') | ForEach-Object Value | Sort-Object -Unique
-          if ($hits) { Write-Error "lgr-server.exe imports the C runtime, which a clean Windows does not have: $($hits -join ', ')"; exit 1 }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $dumpbin = & $vswhere -latest -products * -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
+          if (-not $dumpbin) { Write-Error 'no dumpbin on this runner'; exit 1 }
+          $deps = (& $dumpbin /nologo /dependents $exe) -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '\.dll$' }
+          "lgr-server.exe imports: $($deps -join ', ')"
+          $crt = $deps | Where-Object { $_ -match '^(?i)(vcruntime140(_1)?|msvcp140(_\d)?|ucrtbase|api-ms-win-crt-.+)\.dll$' }
+          if ($crt) { Write-Error "lgr-server.exe imports the C runtime, which a clean Windows does not have: $($crt -join ', ')"; exit 1 }
           'lgr-server.exe imports no C runtime'
 
       # ⚠ Signed BEFORE the MSI is built, and no step after this one runs cargo.
