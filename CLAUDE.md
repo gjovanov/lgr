@@ -1235,9 +1235,9 @@ ORDI (InternalOrder, client demand)          ORDO (Order, supplier supply)
   P7-chain 27 → 26 clicks (the ORDO number is a link on the ORDI) → 18 (slice 4b: an article opens
   the next line, each hand-off lands on the next document, the invoice is issued on its own form),
   P7-repeat 4 → 3 („Резервирай отново" on the row), P7-who 2 + a second page → 1 (answered on the
-  ORDO), P7-new 4 (a reservation made on the list). ⚠ `e2e/tests/orders-product-autocomplete.spec.ts` belongs to no Playwright project, so it never
-  runs, and it is stale: its `.v-overlay .v-list-item` selector predates the product picker, whose
-  menu does open.
+  ORDO), P7-new 4 (a reservation made on the list). `e2e/tests/orders-product-autocomplete.spec.ts` (in `invoicing-inventory` since
+  2026-10-27) checks the product search on both order forms: server search, ↓ keeps the results
+  open, Enter picks. The invoice form's copy is `invoicing-product-autocomplete.spec.ts`.
 
 ## Flat 7-tab Product Route (2026-04-21)
 
