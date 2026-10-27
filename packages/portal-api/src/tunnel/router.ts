@@ -11,8 +11,9 @@
  * - **The server is not connected:** a static notice (503), never a sign-in page (FR-20.75).
  * - A reserved label (`www`, …) is lgrai.app's own name: not an address, and passed on.
  *
- * ⚠ Forwarding to the pod that holds the server's uplink is P3-4d: until then a server connected to
- * another pod reads as not connected here.
+ * - **The server's socket on another pod** (P3-4d): the request is forwarded there as a hop
+ *   (`forward.ts`, `hop.ts`). A hop has passed the edge already, keeps the browser's address, and is
+ *   never forwarded again.
  */
 import { config, nodeRole } from 'config'
 import { homeOf } from 'db/home/home'
@@ -20,6 +21,8 @@ import { ServerNode } from 'db/models'
 import { addressRoute, reservedLabels } from 'services/biz/address/org-address.service'
 import { clientIp } from '../auth/client-ip.js'
 import { anonymousAllowed, anonymousWithinLimit, hasCredential } from './edge.js'
+import { forwardHttp, forwardWebSocket, holderOf } from './forward.js'
+import { verifyHop } from './hop.js'
 import { noticeResponse } from './notice.js'
 import { tunnelSocketOf } from './sockets.js'
 import { TunnelError, tunnelHttp, tunnelWebSocket } from './streams.js'
@@ -80,8 +83,10 @@ export function tunnelRouter() {
 
     const url = new URL(request.url)
     const upgrade = (request.headers.get('upgrade') ?? '').toLowerCase() === 'websocket'
-    const ip = clientIp(Object.fromEntries(request.headers as any)) ?? null
-    if (!hasCredential(request.headers)) {
+    // A hop from another pod (P3-4d) passed the edge there, and names the browser's address.
+    const hop = verifyHop(request)
+    const ip = hop ? hop.clientIp : (clientIp(Object.fromEntries(request.headers as any)) ?? null)
+    if (!hop && !hasCredential(request.headers)) {
       if (!anonymousAllowed(request.method, url.pathname, upgrade)) {
         return Response.json({ code: 'unauthenticated', message: 'Sign in to the organization first.' }, { status: 401, headers: { 'cache-control': 'no-store' } })
       }
@@ -91,12 +96,23 @@ export function tunnelRouter() {
     const req = { nodeId: route.nodeId, request, clientIp: ip }
     if (upgrade) {
       if (tunnelWebSocket(req, server)) return new Response(null, { status: 101 })
-      return noticeResponse(tunnelSocketOf(route.nodeId) ? 'busy' : 'offline', accept)
+      const here = !!tunnelSocketOf(route.nodeId)
+      if (!here && !hop) {
+        const there = await holderOf(route.nodeId)
+        if (there && forwardWebSocket(there, request, ip, server)) return new Response(null, { status: 101 })
+      }
+      return noticeResponse(here ? 'busy' : 'offline', accept)
     }
     try {
       return await tunnelHttp(req)
     } catch (e) {
       if (!(e instanceof TunnelError)) throw e
+      // Not here: nothing of the request was sent, so it may go to the pod that holds the socket.
+      if (e.code === 'offline' && !hop) {
+        const there = await holderOf(route.nodeId)
+        const answer = there ? await forwardHttp(there, request, ip) : null
+        if (answer) return answer
+      }
       if (e.code === 'offline' || e.code === 'link_lost') return noticeResponse('offline', accept)
       if (e.code === 'busy') return noticeResponse('busy', accept)
       return Response.json({ code: e.code, message: e.message }, { status: e.code === 'idle' ? 504 : 502, headers: { 'cache-control': 'no-store' } })

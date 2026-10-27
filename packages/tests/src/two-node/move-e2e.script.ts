@@ -8,7 +8,8 @@
  *
  * Then the org's address (FR-20.72–20.74, plan step P3-4c): `move-e2e.lgrai.app`, sent to global's
  * port, reaches the master's API over the master's own link. Its session, its writes, its pages and
- * its WebSockets, and never a stamp the client wrote.
+ * its WebSockets, and never a stamp the client wrote. And through a second pod of lgrai.app, which
+ * holds no socket of the master and forwards to the one that does (P3-4d).
  *
  * Then back (FR-20.80, plan step P3-6c): the shop makes a document with a file on the master, the
  * admin moves the org back to lgrai.app, the master freezes it and drains, global puts the file
@@ -129,6 +130,8 @@ Object.assign(globalEnv, {
   RETENTION_CHECK_INTERVAL_MS: '0',
   DESKTOP_REAPER_INTERVAL_MS: '0',
   NODE_REAPER_INTERVAL_MS: '0',
+  // FR-20.73 (P3-4d): where lgrai.app's other pods reach this one.
+  LGR_POD_ADDR: `http://127.0.0.1:${globalPort}`,
 })
 const globalProc = Bun.spawn(['bun', 'src/unified.ts'], { cwd: join(REPO, 'packages', 'portal-api'), env: globalEnv, stdout: 'pipe', stderr: 'pipe' })
 let globalLog = ''
@@ -341,6 +344,45 @@ try {
     ws.onclose = () => { clearTimeout(timer); res(got) }
   })
   check('a WebSocket through the address signs in on the master and is answered', said.join(',') === 'authenticated,pong', said.join(','))
+
+  // FR-20.73 (P3-4d): the same address, landing on another of lgrai.app's pods, one that holds no
+  // socket of the master: it forwards to the pod that does. Started for this alone, on the same database.
+  const podBPort = freePort()
+  const podB = Bun.spawn(['bun', 'src/unified.ts'], {
+    cwd: join(REPO, 'packages', 'portal-api'),
+    env: { ...globalEnv, PORT: String(podBPort), LGR_POD_ADDR: `http://127.0.0.1:${podBPort}`, MIGRATIONS_AUTO: 'false' },
+    stdout: 'ignore',
+    stderr: 'ignore',
+  })
+  try {
+    const bUp = await until(async () => (await fetch(`http://127.0.0.1:${podBPort}/api/health`).then(r => r.status === 200, () => false)) || (podB.exitCode !== null ? null : false), 120_000, 300)
+    check('a second pod of lgrai.app comes up', !!bUp)
+    const viaB = (path: string, init: RequestInit = {}) =>
+      fetch(`http://127.0.0.1:${podBPort}${path}`, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), host: 'move-e2e.lgrai.app' } })
+    const readB = await viaB(`/api/org/${orgId}/invoicing/contact?size=200`, { headers: bearer })
+    const readBody: any = await readB.json().catch(() => null)
+    const wroteB = await viaB(`/api/org/${orgId}/invoicing/contact`, { method: 'POST', headers: { ...bearer, 'content-type': 'application/json' }, body: JSON.stringify({ type: 'customer', companyName: 'Written through the other pod' }) })
+    check('a request landing on the other pod reaches the master through the pod holding its link: read and write',
+      readB.status === 200 && (readBody?.contacts ?? []).some((c: any) => c.companyName === 'Written through the address') && wroteB.status === 200 && !!(await mdb.collection('contacts').findOne({ orgId, companyName: 'Written through the other pod' })),
+      `${readB.status} ${wroteB.status}`)
+    const saidB = await new Promise<string[]>(res => {
+      const got: string[] = []
+      const ws = new WebSocket(`ws://127.0.0.1:${podBPort}/ws/tasks`, { headers: { host: 'move-e2e.lgrai.app' } } as any)
+      const timer = setTimeout(() => { try { ws.close() } catch { /* closed */ } ; res(got) }, 15_000)
+      ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', token: shopToken }))
+      ws.onmessage = e => {
+        const m = JSON.parse(String(e.data))
+        got.push(m.type)
+        if (m.type === 'authenticated') ws.send(JSON.stringify({ type: 'ping' }))
+        if (m.type === 'pong') { clearTimeout(timer); try { ws.close() } catch { /* closed */ } ; res(got) }
+      }
+      ws.onclose = () => { clearTimeout(timer); res(got) }
+    })
+    check('…and a WebSocket, opened on the pod holding the link', saidB.join(',') === 'authenticated,pong', saidB.join(','))
+  } finally {
+    podB.kill()
+    await podB.exited
+  }
 
   if (PROMOTE) {
     // ── FR-20.81 (P3-6d): the server is lost, and lgrai.app's copy is promoted ─────────────────────

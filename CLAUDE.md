@@ -2617,8 +2617,7 @@ so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.
     address answers with a notice for 12 months and is never issued again.
   - **"Sign in with LGR"** now returns a person only to an ACTIVE address of the server's orgs
     (`activeLabelsOf`), no longer to any slug.
-  - **Next:** forwarding between global's pods (P3-4d), then the DNS record and the edge's server
-    block (P3-4e).
+  - **Next:** the wildcard DNS record and the edge's server block (P3-4e, lgr-deploy#27).
   - **The edge** (mars' Docker nginx, `gjovanov/nginx`) already holds a ZeroSSL certificate for
     `*.lgrai.app`. P3-4e adds the wildcard DNS record at Cloudflare and the nginx server block.
     ⚠ The zone already serves `harvex` and `qa`.
@@ -2651,8 +2650,21 @@ so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.
     `raw.sendBinary`.
   - ⚠ **The browser's WebSocket is upgraded inside `onRequest`**, with `server.upgrade(req, {data:
     handlers})` (Elysia dispatches to `ws.data.*`), and the hook returns a 101.
-  - **Not yet:** forwarding to the pod that holds the uplink is P3-4d. Until then, a server connected
-    to another pod reads as offline here.
+  - **Across pods** (P3-4d; `forward.ts`, `hop.ts`, `pod.ts`). A request may land on a pod that does
+    not hold the server's interactive socket. That pod forwards it to the pod that does, found by the
+    uplink's presence row, which now records `podAddr`.
+    - `podAddr` is `LGR_POD_ADDR`, else `http://<POD_IP or the first non-internal IPv4>:<PORT>`.
+    - The row must be fresh (75 s), must not be under a clone alarm, and must name another pod.
+    - HTTP is streamed both ways, byte for byte (`decompress: false`). A WebSocket is accepted here
+      and opened there.
+    - The forward is a HOP: `X-LGR-Hop: <ts>.<HMAC>` over the time, the method, the `Host`, the path
+      and `X-LGR-Hop-Client`, keyed from `JWT_SECRET` and valid for 30 s.
+    - A hop has passed the edge already and keeps the browser's address. ⚠ It is NEVER forwarded
+      again: a socket gone from both pods answers offline instead of bouncing.
+    - A hop that does not verify is the client's own request, so the edge applies. Every `X-LGR-*`
+      is dropped before the server either way.
+    - The other pod unreachable: offline. Only an `offline` failure forwards, since nothing of the
+      request was sent; a link lost mid-request never does.
 - **The tunnel, the server's side (FR-20.73, P3-4c; `packages/server/src/tunnel.rs`).** The supervisor
   carries the streams on its INTERACTIVE uplink only, and not while that socket is suspended or
   outdated. A clone alarm ends the tunnel along with every stream in it.
