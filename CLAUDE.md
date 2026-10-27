@@ -2698,14 +2698,31 @@ gave a customer. So, on a master, for an org written there, the legal series LOC
     (`series-lock-tick`, masters, its first run at start);
   - the journal below **lgrai.app's watermark** (`linkAlarmsTick`; `/self`'s `mirrors`): the other
     mark kept outside, by global. A healthy master is never behind the pages it sent. ⚠ This is the
-    one that catches a reverted VM snapshot (its own mark went back with the disk) and a restored
-    database whose chain the master can no longer continue: its pump stops that org on
-    `chain_unknown` WITHOUT telling global, so no refusal is ever recorded there. Dated by the
-    mirror's `lastPageAt`, so a database still behind after the unlock does not lock again;
+    one that catches a reverted VM snapshot: its own mark went back with the disk;
+  - lgrai.app holding pages of the org **past the newest this database ever built** (`buildPage`,
+    when the pump asks: `chain_unknown` with `wentBack`): a restored database whose chain the
+    master can no longer continue. ⚠ Its pump stops that org WITHOUT telling global, so this is the
+    master's own finding; global never records a refusal for it. Below the newest page built here an
+    unknown chain concludes nothing (global may be the one restored);
   - what lgrai.app says of the master (`linkAlarmsTick`, every minute): a clone alarm, or its pages
     refused as a history that went back (`instance_changed`, `stale_journal`, `diverged`) more
     recently than its last applied page. `GET /api/node/v1/self` carries `cloneAlarm`, `wentBack`
     and `mirrors` (per org with a chain: `watermark`, `lastPageAt`).
+- ⚠ **A history that went back is RECORDED once** (`noteWentBack`, `repl_orgs.wentBack {at, reason,
+  detail}`; reason `mirror_ahead` or the mirror's refusal), and numbering locks with the record,
+  never with the sign. The pump sends the refused history again on every new session and lgrai.app
+  dates each refusal anew, so a sign seen again after a person recorded the numbers must find the
+  record and change nothing. The re-seed from the mirror is what clears it.
+- **The anchor is never evicted** (`buildPage`): `repl_orgs.pages` keeps the 32 newest pages AND
+  the one global last said it stands on, and a page built again with the same rows is recorded once.
+  ⚠ Before, 32 retries while global could not apply (it errs every 5 s) pushed the anchor out, and
+  the org stopped for good on `chain_unknown`, which now would also read as a database gone back.
+- **lgrai.app is told** (`reportOrgState`, every minute, `POST /api/node/v1/org-state` →
+  `recordOrgState` → `ServerNode.orgState`): per org written there, the journal's head, the
+  went-back record and the numbering lock with its reason. Kept for the orgs the server is registered
+  for only, known reasons only, text cut short, no date after now; `orgStateFor` puts ONE org's on the
+  Servers page (chips "Database went back", "Numbering locked" with the reason as a tooltip, ×4).
+  The master's word, shown to the admin: nothing on lgrai.app decides on it.
 - ⚠ **A Replace restore is REFUSED on a master lgrai.app knows** (`replaceRefusedHere`, before
   anything is read or written, no `RestoreRun` row): registered at any link level, capturing, or with
   pages of the org built. Its deletes and rewrites are journaled like any other write, so its pages
@@ -2719,17 +2736,21 @@ gave a customer. So, on a master, for an org written there, the legal series LOC
     path with `:orgId` is a user's org route to the tenant guard); with the link down,
     the person's reading stands alone;
   - it records `seriesUnlockedAt` and resets the mark.
-  - ⚠ A signal from BEFORE the last unlock does not lock again: replication stays refused until a
-    re-seed, and the journal may stay below its old mark a while.
+  - ⚠ A sign seen again does not lock again: replication stays refused until a re-seed, and the
+    journal may stay below its marks a while. The went-back record decides that (above); a clone
+    alarm counts only when it is newer than `seriesUnlockedAt`.
 - ⚠ An org arriving by a move resets the mark (`activate`): an org that left and came back starts a
   new journal, which its old mark would read as a rewind.
 - Not yet: the fiscal device as a witness (its last receipt ahead of the database), a clone seen on
   the LAN (DNS-SD `bootNonce`), and the re-seed from the mirror (FR-20.71, AC 36), which needs the
   mirror's reconcile (FR-20.70).
-- Tests: `series-lock.flow` (6: the mark and the unlock; global's alarms, the mirror's floor, no
-  re-lock; the journal below global's watermark, no re-lock after the unlock; `nodeSelf`; a Replace
-  locking before its first write where lgrai.app never knew the server, a refused one or a Merge
-  locking nothing; a Replace refused where it knows the server).
+- Tests: `series-lock.flow` (7: the mark and the unlock; global's alarms, the mirror's floor, no
+  re-lock, a refusal dated anew after the unlock locking nothing; the journal below global's
+  watermark, no re-lock until the record is cleared; `nodeSelf`; a Replace locking before its first
+  write where lgrai.app never knew the server, a refused one or a Merge locking nothing; a Replace
+  refused where it knows the server; the report and what lgrai.app keeps of it);
+  `replication-pages.flow` (+2: the anchor through 40 rebuilds and the chain going on from it, a
+  mirror past every page built here; `pageFor` recording and locking once).
 
 ## What a fenced server did after the cutoff (2026-10-27, FR-20.84, plan step P3-6e)
 

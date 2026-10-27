@@ -144,8 +144,12 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
     why: 'the capture\'s own node-local state (repl_journal, repl_orgs, repl_engine, FR-20.61): never org data',
   },
   'services/src/biz/replication/pages.ts': {
-    count: 3,
-    why: 'node-local: node_instance, the master\'s own chain records (repl_orgs.pages), rejournal\'s journal rows',
+    count: 5,
+    why: 'node-local: node_instance, the master\'s own chain records (repl_orgs.pages: the page built, and the anchor kept), rejournal\'s journal rows',
+  },
+  'services/src/biz/home/series-lock.service.ts': {
+    count: 1,
+    why: 'node-local: the went-back record on the org\'s journal row (repl_orgs.wentBack, FR-20.51), set once',
   },
   'services/src/biz/replication/apply.ts': {
     count: 2,

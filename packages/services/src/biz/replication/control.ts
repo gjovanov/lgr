@@ -11,6 +11,7 @@ import { thisNode } from 'db/home/home'
 import { ENGINE_ID } from './capture.js'
 import { captureOn } from './engine.js'
 import { BSON, PAGE_DOCS, buildPage, rejournal } from './pages.js'
+import { noteWentBack } from '../home/series-lock.service.js'
 
 const OBJECT_ID = /^[0-9a-f]{24}$/
 const HASH = /^(?:[0-9a-f]{64})?$/
@@ -59,7 +60,12 @@ export async function pageFor(ask: PageAsk): Promise<PageAnswer> {
   const { db, client } = handles()
   const built = await buildPage(client, db, ask.orgId, { after: ask.after, afterHash: ask.afterHash, nodeId: thisNode(), maxDocs: ask.maxDocs })
   if ('empty' in built) return { status: 204 }
-  if ('refused' in built) return { status: 409, refused: built.refused, detail: built.detail }
+  if ('refused' in built) {
+    // FR-20.51 (P3-7): the mirror holds pages this database never built: it went back under it, and
+    // its legal numbering locks. The supervisor stops the org without a word to global.
+    if (built.wentBack) await noteWentBack(ask.orgId, 'mirror_ahead', built.detail).catch(() => false)
+    return { status: 409, refused: built.refused, detail: built.detail }
+  }
   return { status: 200, bytes: built.bytes, fromSeq: built.page.fromSeq, toSeq: built.page.toSeq, chainHash: built.page.chainHash, rows: built.page.rows.length }
 }
 

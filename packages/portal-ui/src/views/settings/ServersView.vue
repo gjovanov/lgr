@@ -198,6 +198,16 @@
             <span>{{ item.name }}</span>
             <v-chip v-if="item.ephemeral" size="x-small" variant="tonal" color="info">{{ $t('servers.ephemeral') }}</v-chip>
             <v-chip v-if="item.cloneAlarm" size="x-small" color="error" variant="flat" data-test="clone-alarm">{{ $t('servers.cloneAlarm') }}</v-chip>
+            <!-- FR-20.51 (P3-7): what the server says of this org: its database went back, its numbering is locked. -->
+            <v-chip v-if="item.orgState?.wentBack" size="x-small" color="error" variant="tonal" :title="$t('servers.wentBackHint')" data-test="went-back">{{ $t('servers.wentBack') }}</v-chip>
+            <v-chip
+              v-if="item.orgState?.numbering"
+              size="x-small"
+              color="warning"
+              variant="tonal"
+              :title="te(`servers.lastNumbers.reason.${item.orgState.numbering.reason}`) ? $t(`servers.lastNumbers.reason.${item.orgState.numbering.reason}`) : item.orgState.numbering.reason"
+              data-test="numbering-locked"
+            >{{ $t('servers.numberingLocked') }}</v-chip>
           </div>
           <div class="text-caption text-medium-emphasis"><code>{{ item.id }}</code></div>
         </template>

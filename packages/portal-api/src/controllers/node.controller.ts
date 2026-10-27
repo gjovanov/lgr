@@ -12,6 +12,7 @@ import {
   mintNodeEnrollmentCode,
   mintNodeEnrollmentKey,
   nodeToWire,
+  orgStateFor,
   presenceOfNodes,
   revokeNodeForOrg,
 } from 'services/biz/node/node.service'
@@ -68,7 +69,7 @@ export const nodeController = new Elysia({ prefix: '/org/:orgId/nodes' })
       const result = await paginateQuery(ServerNode as any, filter, query, { sortBy: 'lastSeenAt', size: 25 })
       const connected = await presenceOfNodes(result.items.map((n: any) => String(n._id)))
       return {
-        nodes: result.items.map((n: any) => ({ ...nodeToWire(n), connected: connected.get(String(n._id)), relays: relaysFor(n, orgId) })),
+        nodes: result.items.map((n: any) => ({ ...nodeToWire(n), connected: connected.get(String(n._id)), relays: relaysFor(n, orgId), orgState: orgStateFor(n, orgId) })),
         total: result.total, page: result.page, pageSize: result.size,
       }
     },
@@ -132,7 +133,7 @@ export const nodeController = new Elysia({ prefix: '/org/:orgId/nodes' })
       if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
       const n = await ServerNode.findOne({ _id: id, orgIds: orgId }).lean()
       if (!n) return status(404, { message: 'Server not found' })
-      return { node: { ...nodeToWire(n), relays: relaysFor(n, orgId) } }
+      return { node: { ...nodeToWire(n), relays: relaysFor(n, orgId), orgState: orgStateFor(n, orgId) } }
     },
     { isSignIn: true },
   )
@@ -171,7 +172,7 @@ export const nodeController = new Elysia({ prefix: '/org/:orgId/nodes' })
           .filter(kind => body[kind] !== undefined)
           .map(kind => ({ field: `relays.${kind}`, oldValue: before[kind], newValue: body[kind] })),
       })
-      return { node: { ...nodeToWire(after), relays: relaysFor(after, orgId) } }
+      return { node: { ...nodeToWire(after), relays: relaysFor(after, orgId), orgState: orgStateFor(after, orgId) } }
     },
     { isSignIn: true, body: t.Object({ mail: t.Optional(t.Boolean()), documents: t.Optional(t.Boolean()) }) },
   )

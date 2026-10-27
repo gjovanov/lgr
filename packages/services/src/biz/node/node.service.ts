@@ -593,6 +593,47 @@ export function sanitizeHealth(frame: any, at = new Date()): Record<string, unkn
   })
 }
 
+// ── What a master says of the orgs it writes (FR-20.51, P3-7) ───────────────────────────────────
+
+const WENT_BACK_REASONS: ReadonlySet<string> = new Set(['mirror_ahead', 'instance_changed', 'stale_journal', 'diverged'])
+const LOCK_REASONS: ReadonlySet<string> = new Set(['promoted', 'restored', 'went_back', 'clone'])
+/** A time a master reported, kept only when it is one, and not after now (its clock may be wrong). */
+const when = (v: unknown, now: Date) => {
+  const d = typeof v === 'string' || v instanceof Date ? new Date(v) : null
+  return d && Number.isFinite(d.getTime()) ? new Date(Math.min(d.getTime(), now.getTime())) : undefined
+}
+
+/**
+ * A master's account of the orgs it writes (`POST /api/node/v1/org-state`, every minute): where each
+ * org's journal stands, whether its database went back underneath the mirror, and whether its legal
+ * numbering is locked and why. Kept per node, for the orgs it is registered for only, every string
+ * cut short, every reason one of the known ones: shown to the org's admin on the Servers page, and
+ * never trusted to decide what the mirror holds. Returns how many orgs it kept.
+ */
+export async function recordOrgState(node: IServerNode, body: any, at = new Date()): Promise<number> {
+  const mine = new Set((node.orgIds ?? []).map(String))
+  const seen = new Set<string>()
+  const orgs: any[] = []
+  for (const o of Array.isArray(body?.orgs) ? body.orgs.slice(0, 100) : []) {
+    const orgId = typeof o?.orgId === 'string' ? o.orgId : ''
+    if (!mine.has(orgId) || seen.has(orgId)) continue
+    seen.add(orgId)
+    const wentBack = o.wentBack && WENT_BACK_REASONS.has(o.wentBack.reason) ? compact({ at: when(o.wentBack.at, at), reason: o.wentBack.reason, detail: str(o.wentBack.detail, 300) }) : undefined
+    const numbering = o.numbering && LOCK_REASONS.has(o.numbering.reason) ? compact({ since: when(o.numbering.since, at), reason: o.numbering.reason, detail: str(o.numbering.detail, 300) }) : undefined
+    const head = num(o.head, 1e15)
+    // ⚠ Not through `compact`: it would take the ObjectId apart.
+    orgs.push({ orgId: (node.orgIds ?? []).find(id => String(id) === orgId), at, ...(head !== undefined ? { head } : {}), ...(wentBack ? { wentBack } : {}), ...(numbering ? { numbering } : {}) })
+  }
+  await ServerNode.updateOne({ _id: node._id }, { $set: { orgState: orgs } })
+  return orgs.length
+}
+
+/** What the Servers page shows of a master's account of ONE org: never what it says of its others. */
+export function orgStateFor(n: any, orgId: string) {
+  const s = (n.orgState ?? []).find((x: any) => String(x.orgId) === orgId)
+  return s ? { at: s.at, ...(s.wentBack ? { wentBack: s.wentBack } : {}), ...(s.numbering ? { numbering: s.numbering } : {}) } : null
+}
+
 /** Which channels of each node a live socket holds now: a row heartbeated within 75 s. */
 export async function presenceOfNodes(ids: string[]): Promise<Map<string, { interactive: boolean; bulk: boolean }>> {
   const fresh = new Date(Date.now() - 75_000)
