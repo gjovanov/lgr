@@ -11,9 +11,10 @@ turned up on the way that the spec does not say.
 
 ## 0. What is left (2026-10-27)
 
-- **FR-21.32 (SHOULD):** `pos.write` on the till's write routes. First a read-only query on prod for
-  the users who used the till in the last 90 days without that permission (its output stays on the
-  build host); switch it on once that list is empty.
+- **The `warehouse_manager` storno (owner's call, found with FR-21.32).** `STORNO_ROLES`
+  (`cash-register-till.ts`) names `warehouse_manager`, but its default permissions hold neither
+  `pos.write` nor `invoicing.write`, so it reaches no storno door. Either the role gets `pos.write`,
+  or it leaves `STORNO_ROLES`.
 - **The R2 device test in `acme-corp`**, including the fiscal print of a back-office line with a
   discount (§5, R5b).
 - **#279** (a gap in the CS series), **#280** (transfers stay confirmed after a rollback), **#281**
@@ -66,7 +67,7 @@ totals, a day's cash, SUPTO sums. The field check's output stays on the build ho
 | R2d — the back office and the import; `docs/supto`; the field-check script | FR-21.15 (the other doors), FR-21.23 | #274, deployed 2026-10-26. Left: the device test in `acme-corp` |
 | R3 — freeze | FR-21.25 – FR-21.26 | #284, deployed 2026-10-27, `0009` applied |
 | R4 — contract | FR-21.27 – FR-21.28 | #286, deployed 2026-10-27 |
-| R5 — one terminal | FR-21.29 – FR-21.32 | R5a (#315, FR-21.31) and R5b (#316, FR-21.29/.30) deployed 2026-10-27. FR-21.32 (SHOULD) open |
+| R5 — one terminal | FR-21.29 – FR-21.32 | R5a (#315, FR-21.31) and R5b (#316, FR-21.29/.30) deployed 2026-10-27. FR-21.32: in force since S-28, pinned by a test (§5, R5) |
 
 ⚠ **Merging a stack: retarget the next PR before deleting the merged branch.** GitHub CLOSED #247 when
 #244's head branch was deleted with `gh pr merge --delete-branch`, instead of retargeting it. A closed
@@ -449,7 +450,10 @@ Split in two.
   - `POST /invoices` now checks a back-office cash sale with the till's function and tolerance (0.02, 422 `cash_sale_total_mismatch`) and stores the server's figures. An imported day keeps the totals of its file.
   - `RegisterTerminal` takes the totals as props, because ui-shared does not depend on `config`.
 - **The receipt choice (FR-21.31's last piece).** The form shows „Бон на устройството на сесията" (none / fiscal / text) only when its user has an open session, and sends it as `receipt` (`useDocumentForm`'s new `extraPayload`).
-- **FR-21.32 (SHOULD), not done:** `pos.write` on the till's write routes. It needs the preflight's list of users who used the till in the last 90 days without that permission, and stays a follow-up.
+- **FR-21.32 (SHOULD): already in force.** The spec (2026-10-21) found no route checking `pos.read`/`pos.write`. S-28 (`e2e09d5b`, 2026-10-23) then gave every write under `trade/pos` and `pos` the rule `need: ['pos.write']` (`route-permission.ts`), enforced by every auth plugin before the body is read. Nothing was left to switch on.
+  - **The preflight**, read-only on production on 2026-10-27: everyone who opened a session or wrote a till document (or a POS row) in the last 90 days, with permissions computed as `tokenize` does (org-scoped sets, else the role and its extras). Nobody lacked `pos.write`. Its output stays on the build host (`~/fr21-r2/fr21-32-preflight.json`).
+  - `cash-register-till-permission.flow` pins it: every write route of `posController` resolves to `pos.write`, and `nra_auditor`, `accountant`, `warehouse_manager` and `member` get 403 `permission_required` at open, sale, storno and close, with nothing written; `sales` works the till.
+  - A back-office sale that joins a session (FR-21.31) goes through `POST /invoices` and needs `invoicing.write`, not `pos.write`. Opening that session needed `pos.write`.
 
 ⚠ **Check on hardware:** the fiscal print of a back-office line with a **discount**. Till lines and form lines carry `discount` alike, but only the till's has been printed on a device.
 
