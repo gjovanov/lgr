@@ -260,7 +260,7 @@ async function runDataPriming() {
       product
         ? getProductLedger(orgId, String((product as any)._id), { page: 0, size: 1 }).catch(() => null)
         : Promise.resolve(null),
-      getInvoiceSummary(orgId).catch(() => null),
+      getInvoiceSummary(orgId, { direction: 'outgoing' }).catch(() => null),
     ])
     logger.info({ duration: Date.now() - start, orgId }, 'Mongo data priming complete')
   } catch (e) {

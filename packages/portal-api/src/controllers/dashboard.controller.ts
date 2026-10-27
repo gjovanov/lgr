@@ -91,7 +91,10 @@ export const dashboardController = new Elysia({ prefix: '/org/:orgId/dashboard' 
 
     const [pl, invSummary, stock, empPage, recent, aging] = await Promise.all([
       plTotals(orgId, ytdStart, now).catch(() => ({ totalRevenue: 0, totalExpenses: 0, netIncome: 0 })),
-      getInvoiceSummary(orgId).catch(() => ({
+      // The customer side only, as the receivables aging beside these cards: the summary covers
+      // both directions when asked for none, and supplier bills were being added to what
+      // customers owe and paid.
+      getInvoiceSummary(orgId, { direction: 'outgoing' }).catch(() => ({
         outstanding: { amount: 0, count: 0 },
         overdue: { amount: 0, count: 0 },
         paid30d: { amount: 0, count: 0 },
