@@ -619,8 +619,28 @@ numbers locks nothing more, and it tells lgrai.app every minute: the Servers pag
 
 The page says why numbering waits, and a person records the last numbers off the last printed
 documents and the fiscal device's report. Numbering resumes above them, and above lgrai.app's copy
-when the server can ask it. Not yet: the fiscal device checked on its own, a clone seen on the shop's
-network, and re-seeding the server from lgrai.app's copy.
+when the server can ask it. Not yet: the fiscal device checked on its own, and a clone seen on the
+shop's network.
+
+### Re-seeding a server from lgrai.app's copy (FR-20.71)
+
+A server whose database went back can no longer continue lgrai.app's copy of the organization: its
+changes stop reaching lgrai.app. lgrai.app's copy is the newest complete one there is, deletions
+included, so an org admin re-seeds the server from it on the Servers page ("Re-seed from lgrai.app's
+copy", on the server's row while it is connected and says its database went back):
+1. **lgrai.app checks** that the server is the organization's home, connected and healthy, with no
+   till open and nothing printing, that it has a copy to give, and that the server's database really
+   went back. Re-seeding a server that did not would replace newer data with older. The admin types
+   the organization's address name.
+2. **The server checks again**, freezes the organization, and keeps everything it holds of it in a
+   file under its documents, for good. What it wrote that lgrai.app never received exists only there
+   and on paper, so it also lists what of it lgrai.app's copy lacks, and the issued sales among it.
+3. **It replaces** the organization with lgrai.app's copy, files included, and lgrai.app starts the
+   copy's history again from the server's: nothing on lgrai.app is deleted.
+4. **Legal numbering stays locked** on the server until its last numbers are recorded there: what it
+   issued after the last change lgrai.app received is on paper and in the fiscal device only.
+
+An abort puts back what the server held. Bringing the kept sales into the books is not done yet.
 
 ## Promoting lgrai.app's copy (FR-20.81)
 

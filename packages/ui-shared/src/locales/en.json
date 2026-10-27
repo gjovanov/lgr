@@ -3314,6 +3314,40 @@
       "live": "lgrai.app's copy is becoming the organization's home: {state}",
       "done": "lgrai.app's copy is the organization's home now"
     },
+    "reseed": {
+      "action": "Re-seed from lgrai.app's copy",
+      "title": "Re-seed {name} from lgrai.app's copy",
+      "intro": "This server's database went back in time (a restore, or a snapshot reverted), and it can no longer continue lgrai.app's copy of the organization. Re-seeding replaces the organization on the server with lgrai.app's copy, which holds everything up to the server's last page, deletions included.",
+      "warn": "Everything the server holds of the organization is replaced. What it holds that lgrai.app's copy lacks is kept on the server, in a file, and listed when the re-seed ends: issued sales among it must be brought into the books. Legal numbering on the server stays locked until its last numbers are recorded there.",
+      "asOf": "lgrai.app's copy holds the organization as of {when}.",
+      "files": "{missing} files are not on lgrai.app: the server keeps its own.",
+      "start": "Re-seed",
+      "started": "The re-seed started: lgrai.app builds its copy for the server",
+      "live": "Re-seeding {name} from lgrai.app's copy: {state}",
+      "done": "{name} holds lgrai.app's copy again. Record its last numbers on the server to resume legal numbering.",
+      "kept": "It kept the {n} documents it held before; {only} of them were not in lgrai.app's copy.",
+      "sales": "Issued sales among them: {n} ({numbers}). Bring them into the books.",
+      "state": {
+        "copying": "the server takes the copy",
+        "verifying": "checking the copy",
+        "aborted": "The re-seed was aborted: the server holds what it held."
+      },
+      "check": {
+        "home_master": "The organization is written on this server",
+        "no_move": "No other move of the organization is under way",
+        "registered": "The server is registered for the organization",
+        "full": "The server is linked at Full",
+        "no_clone_alarm": "No other machine answers as this server",
+        "seal_key": "lgrai.app knows the server's seal key",
+        "connected": "The server is connected",
+        "healthy": "The server reports healthy",
+        "disk": "The server has room for the copy",
+        "no_till_open": "No till session is open on the server",
+        "no_fiscal_command": "No fiscal device is printing on the server",
+        "mirror": "lgrai.app holds a copy of the organization",
+        "went_back": "The server's database went back in time"
+      }
+    },
     "lastNumbers": {
       "title": "Record the last numbers issued at the site",
       "intro": "Legal numbering is frozen: lgrai.app must not issue a number the lost server already gave a customer. Read the last number of each series off the last printed documents and the fiscal device's daily report.",

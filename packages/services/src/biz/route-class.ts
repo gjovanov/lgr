@@ -27,6 +27,8 @@ export const READ_ONLY_WRITES: ReadonlySet<string> = new Set([
   'POST /api/org/:orgId/moves/preflight',
   // FR-20.81 (P3-6d): what stands in the way of a promotion; nothing is written.
   'POST /api/org/:orgId/moves/promote/preflight',
+  // FR-20.71 (P3-7): what stands in the way of a re-seed of the org's server; nothing is written.
+  'POST /api/org/:orgId/moves/reseed/preflight',
 ])
 
 /**
@@ -57,6 +59,9 @@ export const GLOBAL_STATE_WRITES: ReadonlySet<string> = new Set([
   // FR-20.81 (P3-6d): promoting the mirror of an org whose home is a lost master: global's record of
   // the move, the flip done by its tick.
   'POST /api/org/:orgId/moves/promote',
+  // FR-20.71 (P3-7): re-seeding the org's server from the mirror: global's record of the re-seed,
+  // for an org whose home is that server (always: it is the case the route exists for).
+  'POST /api/org/:orgId/moves/reseed',
 ])
 
 /**

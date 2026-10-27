@@ -2742,8 +2742,7 @@ gave a customer. So, on a master, for an org written there, the legal series LOC
 - ⚠ An org arriving by a move resets the mark (`activate`): an org that left and came back starts a
   new journal, which its old mark would read as a rewind.
 - Not yet: the fiscal device as a witness (its last receipt ahead of the database), a clone seen on
-  the LAN (DNS-SD `bootNonce`), and the re-seed from the mirror (FR-20.71, AC 36), which needs the
-  mirror's reconcile (FR-20.70).
+  the LAN (DNS-SD `bootNonce`), and bringing a re-seed's kept sales into the books (below).
 - Tests: `series-lock.flow` (7: the mark and the unlock; global's alarms, the mirror's floor, no
   re-lock, a refusal dated anew after the unlock locking nothing; the journal below global's
   watermark, no re-lock until the record is cleared; `nodeSelf`; a Replace locking before its first
@@ -2751,6 +2750,60 @@ gave a customer. So, on a master, for an org written there, the legal series LOC
   refused where it knows the server; the report and what lgrai.app keeps of it);
   `replication-pages.flow` (+2: the anchor through 40 rebuilds and the chain going on from it, a
   mirror past every page built here; `pageFor` recording and locking once).
+
+## Re-seeding a server from lgrai.app's copy (2026-10-27, FR-20.71, AC 36, plan step P3-7)
+
+A server whose database went back underneath the mirror (above) can no longer continue its chain,
+and its numbering is locked. The mirror is the newest complete copy there is and knows every delete
+made since the backup, so the org admin re-seeds the server FROM it: its copy of the org is REPLACED,
+never merged ("only what it lacks or holds older" would bring back what was deleted since).
+`org_moves {kind: 'reseed'}`, home and epoch unchanged. Global: `services/biz/move/reseed.service.ts`;
+the server: `move-worker.service.ts#reseedHere`.
+- **Preflight** (`POST /api/org/:orgId/moves/reseed/preflight`, admin): home the server, active; no
+  other move; registered at Full, no clone alarm (decide which machine is real first), its seal key;
+  both sockets, healthy, room, no till open, no fiscal command; the mirror has a chain; and the
+  server's database WENT BACK: its org-state report says so, or the mirror refused its history since
+  its last page. ⚠ Re-seeding a server that did not go back replaces newer data with older.
+  ⚠ Both routes are for an org written ELSEWHERE, so the home gate must let them through: the
+  preflight is in `READ_ONLY_WRITES`, the start in `GLOBAL_STATE_WRITES` (`route-class.ts`). Missing,
+  both answered 409 `org_home_elsewhere`; only the real-process e2e saw it, the services-level tests
+  call past the gate (`reseed.flow` has an HTTP test for it now).
+- **Start** (`POST /moves/reseed {slug}`): created `copying` with `buildingAt: new Date(0)`, so
+  `moveTick` takes it at once as "a build that died long ago"; it builds the move bundle of global's
+  MIRROR (credentials sealed to the server's key) and `buildMirrorFilesSidecar` (every file the
+  mirror's rows name, read from the content store by hash, at its row's path; `buildFilesSidecar` now
+  takes explicit `entries`). Nothing freezes on global, and global writes none of the org's trail.
+- **The server**, whatever global's preflight said, re-seeds only if `repl_orgs.wentBack` is set;
+  else it reports `failed`. Then: the org `frozen` (same epoch) and `repl_orgs.pages` cleared, so
+  no page continues the old chain; after 2 × `HOME_CACHE_MS`, everything the org holds is KEPT ONCE,
+  for good, at `<org>/docs/reseed/<move>.ndjson.zst` (under `docs/`, so its backups carry it: what
+  the server wrote that lgrai.app never received exists only there and on paper), with what the copy
+  lacks (`notInCopy`: documents only there, issued sales and their numbers); then
+  `discardMoveImport` + `importMoveBundle` + the files + `forgetFeedCursors`, and `copied` with
+  `replaced`. A failed round is tried again; the org stays frozen.
+- **The flip** (`reseedCopied`): the server's digests are compared with the COPY's (`m.digests`),
+  never with the mirror's as it is now (global's own fields of a split document may change
+  meanwhile); equal, one transaction claims the move and deletes `mirror_state`, and the server's
+  bulk socket is welcomed again. Its pages start a new chain from 0: what the mirror holds, re-sent
+  unchanged, and tombstones only for what it never held, so nothing on the mirror is deleted.
+- **Done** on the server: unfrozen, the went-back record cleared, the mark reset, the re-seed in the
+  org's trail. ⚠ Legal numbering STAYS LOCKED: what the server issued between its last page and the
+  failure is on paper and in the fiscal device only, so a person still records the last numbers.
+- **Aborted**: the server puts back what it replaced from the kept copy, then unfreezes (a rollback
+  that fails leaves it frozen, loudly). An abort before anything was replaced only unfreezes.
+- The Servers page offers "Re-seed from lgrai.app's copy" on the home server's row while it is
+  connected and says its database went back; the dialog runs the preflight, says what is replaced and
+  kept, and wants the slug. The move banner says, when done, how many documents were kept and the
+  issued sales among those lgrai.app lacked (×4).
+- Not yet: bringing those kept sales into the books (the audited import, run on the server).
+- Tests: `reseed.flow` (7: the preflight and its went-back evidence; the copy of the mirror with its
+  files and the flip, the mirror losing nothing; the routes through the home gate over HTTP; a
+  differing copy aborted; the server freezing, keeping, replacing and unfreezing with numbering
+  still locked; a server that did not go back refusing; an abort rolling back from the kept copy);
+  real-process `two-node/move-e2e.script.ts --reseed` (a real master's documents, journal and
+  outside mark taken back to a snapshot, the mirror ahead: found by the master itself, recorded,
+  locked, told; re-seeded; what was made since back, what was deleted since gone, the mirror
+  untouched, a new chain caught up).
 
 ## What a fenced server did after the cutoff (2026-10-27, FR-20.84, plan step P3-6e)
 

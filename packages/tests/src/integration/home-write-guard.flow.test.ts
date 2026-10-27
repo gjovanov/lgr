@@ -151,6 +151,14 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
     count: 1,
     why: 'node-local: the went-back record on the org\'s journal row (repl_orgs.wentBack, FR-20.51), set once',
   },
+  'services/src/biz/move/move-worker.service.ts': {
+    count: 2,
+    why: 'node-local: a re-seed (FR-20.71) clears the org\'s page chain when it freezes the org, and its went-back record when done (repl_orgs)',
+  },
+  'services/src/biz/move/reseed.service.ts': {
+    count: 1,
+    why: 'the re-seed\'s flip (FR-20.71), in its transaction: the mirror_state row whose chain it ends',
+  },
   'services/src/biz/replication/apply.ts': {
     count: 2,
     why: 'THE mirror applier on global (FR-20.65): writes a master-homed org\'s documents past the home guard by design, only after the isolation checks (FR-20.66); these two are mirror_state',

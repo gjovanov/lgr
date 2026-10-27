@@ -29,13 +29,26 @@
  *   read-only copy, and the cloud re-points global signed for the org's desktops (FR-20.82): each
  *   desktop that connects here is handed its own, and follows the org back.
  * - **Aborted**: unfrozen, the org stays home here.
+ *
+ * **A re-seed** (FR-20.71, plan step P3-7, `kind: 'reseed'`) replaces this server's copy of an org it
+ * stays the home of with lgrai.app's, once its database went back underneath the mirror:
+ * - **Asked**: refused unless `repl_orgs.wentBack` says this database went back (whatever global's
+ *   preflight said), and while a till, a print or a job runs; otherwise the org freezes here and its
+ *   page chain is cleared, so nothing continues the old history.
+ * - **Frozen** for twice the home cache's lifetime: everything the org holds is KEPT, once, for good
+ *   (`docs/reseed/<move>.ndjson.zst`; what this server wrote that lgrai.app never received exists only
+ *   there), with what of it the copy lacks; then the org's documents go and the copy's come in, with
+ *   its files, and the digests go to global. A failed round is tried again; the org stays frozen.
+ * - **Done**: unfrozen, the went-back record cleared and the mark reset, the re-seed in the org's
+ *   trail. Legal numbering stays locked until a person records the last numbers here.
+ * - **Aborted**: what was replaced is put back from the kept copy first, then the org is unfrozen.
  */
 import { join } from 'node:path'
 import { mkdir, open, rm } from 'node:fs/promises'
 import type { mongo } from 'mongoose'
 import { config, nodeRole } from 'config'
 import { mongoose } from 'db/connection'
-import { BackgroundTask, Identity, LocalCredential, NodeState, OrgHome, POSSession, User } from 'db/models'
+import { BackgroundTask, Identity, LocalCredential, NodeState, OrgHome, POSSession, ReplOrg, User } from 'db/models'
 import { HOME_CACHE_MS, forgetHome, thisNode } from 'db/home/home'
 import { logger } from '../../logger/logger.js'
 import { recordAuditEntry } from '../audit-log.service.js'
@@ -45,7 +58,8 @@ import { restoreFilesSidecar } from '../backup/backup-files.service.js'
 import { forgetFeedCursors } from '../identity/identity-feed.service.js'
 import { applyCredentialChanges } from '../identity/onprem-credentials.service.js'
 import { masterSealKey } from '../node/node-seal-key.js'
-import { discardMoveImport, fileSha256, importMoveBundle, orgHasData } from './move-bundle.js'
+import { discardMoveImport, fileSha256, importMoveBundle, moveCollections, orgHasData, readMoveBundle, writeMoveBundle } from './move-bundle.js'
+import { idKey } from '../replication/pages.js'
 import { homeDigests } from './home-digest.js'
 import { cloudRepointsKept, keepCloudRepoints } from '../desktop/repoint.service.js'
 import { FENCED_CHUNK, fencedExportPath, writeFencedExport } from './fenced-export.service.js'
@@ -56,7 +70,7 @@ type ObjectId = mongo.ObjectId
 interface MoveView {
   id: string
   orgId: string
-  /** `to_master` (taken here) or `to_global` (left from here); absent from a global older than P3-6c. */
+  /** `to_master` (taken here), `to_global` (left from here), `promote` (fenced here) or `reseed` (replaced here); absent from a global older than P3-6c. */
   kind?: string
   state: string
   epochFrom?: number
@@ -379,6 +393,198 @@ async function fenceHere(m: MoveView): Promise<boolean> {
   return true
 }
 
+// ── A re-seed from lgrai.app's copy (FR-20.71, plan step P3-7) ─────────────────────────────────
+
+interface Kept {
+  /** Under the org's tree (`docs/reseed/…`), so its backups carry it. */
+  file: string
+  documents: number
+  onlyThere: number
+  sales: number
+  salesNumbers: string[]
+}
+
+/** What a re-seed replaced, kept for good: what this server wrote that lgrai.app never received is only there. */
+const keptPath = (orgId: string, moveId: string) => join(config.upload.dir, orgId, 'docs', 'reseed', `${moveId}.ndjson.zst`)
+/** Phases in which the org here may hold the copy's documents, in part or whole. */
+const REPLACED_PHASES: ReadonlySet<string> = new Set(['replacing', 'imported', 'mismatch', 'reported'])
+
+/**
+ * What the org holds here that the copy does not: documents only here, and the issued sales among
+ * them (an invoice with its number, never a draft). Read before anything is replaced.
+ */
+async function notInCopy(db: any, orgId: ObjectId, bundlePath: string): Promise<Pick<Kept, 'onlyThere' | 'sales' | 'salesNumbers'>> {
+  const inCopy = new Set<string>()
+  const it = readMoveBundle(bundlePath)
+  for (;;) {
+    const r = await it.next()
+    if (r.done) break
+    if (r.value.kind === 'doc') inCopy.add(`${r.value.coll}|${idKey(r.value.doc._id)}`)
+  }
+  let onlyThere = 0
+  let sales = 0
+  const salesNumbers: string[] = []
+  for (const e of moveCollections()) {
+    const sale = e.collection === 'invoices'
+    const filter = e.orgPath === '_id' ? { _id: orgId } : { orgId }
+    for await (const d of db.collection(e.collection).find(filter, { projection: { _id: 1, ...(sale ? { invoiceNumber: 1, status: 1 } : {}) }, promoteValues: false })) {
+      if (inCopy.has(`${e.collection}|${idKey(d._id)}`)) continue
+      onlyThere++
+      if (sale && d.status !== 'draft' && typeof d.invoiceNumber === 'string') {
+        sales++
+        if (salesNumbers.length < 50) salesNumbers.push(d.invoiceNumber)
+      }
+    }
+  }
+  return { onlyThere, sales, salesNumbers }
+}
+
+/** Put back what a re-seed replaced, from the copy it kept: an aborted re-seed changes nothing. */
+async function rollBackReseed(m: MoveView): Promise<void> {
+  const db = mongoose.connection.db as any
+  const orgId = oid(m.orgId)
+  await discardMoveImport(db, orgId)
+  await importMoveBundle(db, orgId, keptPath(m.orgId, m.id))
+}
+
+/**
+ * This server's side of a re-seed. Checked here again, whatever global's preflight said: only a
+ * database that went back underneath the mirror (`repl_orgs.wentBack`) is replaced. Then the org
+ * freezes, waits out the home cache, keeps everything it holds (once), and takes the copy; the report
+ * flips the move, and the org is unfrozen with a new chain to send. An abort puts back what it held.
+ */
+async function reseedHere(call: Call, m: MoveView, at: Phase | null, now: Date, fiscalBusy: () => number): Promise<boolean> {
+  const orgId = oid(m.orgId)
+  const home: any = await OrgHome.findOne({ orgId }).lean()
+  const frozenHere = home?.home === thisNode() && home.state === 'frozen' && home.epoch === m.epochTo
+  const phase = at?.phase
+  const kept = (at as any)?.kept as Kept | undefined
+  if (m.state === 'done') {
+    if (!frozenHere || (phase !== 'imported' && phase !== 'reported')) return false
+    const r = await OrgHome.updateOne({ orgId, home: thisNode(), state: 'frozen', epoch: m.epochTo }, { $set: { state: 'active', since: new Date() } })
+    forgetHome(orgId)
+    if (r.modifiedCount) {
+      // A new chain from here on: the history that went back is behind it, and the mark starts again.
+      await ReplOrg.collection.updateOne({ orgId }, { $unset: { wentBack: '' } })
+      await resetJournalHwm(m.orgId).catch(() => {})
+      if (m.startedBy) {
+        await recordAuditEntry({ orgId: m.orgId, userId: m.startedBy, action: 'update', module: 'admin', entityType: 'org_move', entityId: m.id, entityName: 're-seeded from lgrai.app\'s copy', changes: [{ field: 'data', oldValue: kept ? `${kept.documents} documents, kept in ${kept.file}` : 'this server\'s copy', newValue: 'lgrai.app\'s copy' }] }).catch(() => {})
+      }
+      logger.warn({ orgId: m.orgId, kept: kept?.file, onlyThere: kept?.onlyThere, sales: kept?.sales }, 'Re-seed: the organisation holds lgrai.app\'s copy here; legal numbering waits for the site\'s last numbers')
+    }
+    await setPhase(m.id, 'active', { kept })
+    return true
+  }
+  if (m.state === 'aborted') {
+    if (!frozenHere) return false
+    if (phase && REPLACED_PHASES.has(phase)) {
+      try {
+        await rollBackReseed(m)
+      } catch (e: any) {
+        // Left frozen: an org half replaced is not one to write.
+        logger.error({ orgId: m.orgId, moveId: m.id, err: e?.message ?? String(e), kept: kept?.file }, 'Re-seed: aborted, and what it replaced could not be put back; the organisation stays FROZEN here')
+        return false
+      }
+    }
+    await OrgHome.updateOne({ orgId, home: thisNode(), state: 'frozen', epoch: m.epochTo }, { $set: { state: 'active', since: new Date() } })
+    forgetHome(orgId)
+    await setPhase(m.id, 'unfrozen', { kept })
+    logger.warn({ orgId: m.orgId, moveId: m.id }, 'Re-seed: aborted on lgrai.app; the organisation is unfrozen here, as it was')
+    return true
+  }
+  if (phase === 'refused' || phase === 'reported' || phase === 'mismatch') return false
+  if (phase === 'imported') {
+    await sendReseeded(call, m)
+    return true
+  }
+  if (m.state !== 'copying' || !m.bundle || !m.files) return false
+
+  if (!phase) {
+    const repl: any = await ReplOrg.findOne({ orgId }, { wentBack: 1 }).lean()
+    const homeHere = home?.home === thisNode() && home.state === 'active' && home.epoch === m.epochFrom
+    const why = !homeHere
+      ? `this server is not the organisation's home at epoch ${m.epochFrom}`
+      : !repl?.wentBack
+        ? 'this server\'s database did not go back underneath lgrai.app\'s copy: a re-seed would replace what it holds with an older copy'
+        : await busyReason(orgId, fiscalBusy)
+    if (why) {
+      await report(call, m.id, 'failed', { reason: why }).catch(() => {})
+      await setPhase(m.id, 'refused', { reason: why })
+      logger.warn({ orgId: m.orgId, moveId: m.id, reason: why }, 'Re-seed: refused here')
+      return true
+    }
+    await OrgHome.updateOne({ orgId, home: thisNode(), state: 'active', epoch: m.epochFrom }, { $set: { state: 'frozen', since: now } })
+    forgetHome(orgId)
+    // No page continues the old chain while the org is replaced: lgrai.app starts a new one at the flip.
+    await ReplOrg.collection.updateOne({ orgId }, { $set: { pages: [] } })
+    await setPhase(m.id, 'frozen', { frozenAt: now })
+    logger.warn({ orgId: m.orgId, moveId: m.id }, 'Re-seed: the organisation is frozen here, to be replaced by lgrai.app\'s copy')
+    return true
+  }
+  // A write a process made on a cached "home is here" lands before what is kept is read.
+  const frozenAt = new Date((at as any).frozenAt ?? now)
+  if (phase === 'frozen' && now.getTime() - frozenAt.getTime() < 2 * HOME_CACHE_MS) return false
+  if (phase !== 'frozen' && phase !== 'replacing') return false
+  await replaceHere(call, m, frozenAt, kept)
+  return true
+}
+
+/** Keep what the org holds (once), then replace it with the copy and its files, and report. */
+async function replaceHere(call: Call, m: MoveView, frozenAt: Date, already?: Kept): Promise<void> {
+  const orgId = oid(m.orgId)
+  const db = mongoose.connection.db as any
+  const dir = join(config.upload.dir, m.orgId, 'backups', 'moves')
+  await mkdir(dir, { recursive: true })
+  const bundlePath = join(dir, `move-${m.id}.ndjson.zst`)
+  const filesPath = join(dir, `move-${m.id}.files.ndjson.zst`)
+  let kept = already
+  try {
+    const seal = await masterSealKey()
+    const nodeId = config.node.id
+    if (!seal || !nodeId) throw new Error('this server has no seal key or node id yet')
+    await download(call, `/api/node/v1/moves/${m.id}/bundle`, bundlePath, m.bundle!)
+    await download(call, `/api/node/v1/moves/${m.id}/files`, filesPath, m.files!)
+    if (!kept) {
+      // ⚠ Kept ONCE, before the first write: from then on the org here holds the copy's documents.
+      const w = await writeMoveBundle(db, orgId, keptPath(m.orgId, m.id))
+      kept = { file: `docs/reseed/${m.id}.ndjson.zst`, documents: w.documents, ...(await notInCopy(db, orgId, bundlePath)) }
+      await setPhase(m.id, 'replacing', { frozenAt, kept })
+    }
+    // From the start each time: the org's documents out, the copy's in.
+    await discardMoveImport(db, orgId)
+    const imported = await importMoveBundle(db, orgId, bundlePath, { applyCredentials: items => applyCredentialChanges(items, seal, nodeId) })
+    const files = await restoreFilesSidecar(filesPath, m.orgId)
+    if (files.checksumFailures.length || files.refused.length) {
+      throw new Error(`${files.checksumFailures.length} files arrived damaged and ${files.refused.length} were refused`)
+    }
+    // What changed about these people on lgrai.app while this server was behind reaches them next.
+    await forgetFeedCursors()
+    await setPhase(m.id, 'imported', { frozenAt, kept, copy: { digests: imported.digests, people: imported.people, credentials: imported.credentials } })
+    logger.warn({ orgId: m.orgId, moveId: m.id, documents: imported.documents, files: files.written, kept: kept.file, onlyThere: kept.onlyThere, sales: kept.sales }, 'Re-seed: lgrai.app\'s copy replaced the organisation here; what it replaced is kept')
+  } catch (e: any) {
+    // Tried again on the next tick: the copy stays on lgrai.app until the move ends, and the org stays frozen.
+    logger.error({ orgId: m.orgId, moveId: m.id, err: e?.message ?? String(e) }, 'Re-seed: this round failed; the next one tries again')
+  } finally {
+    await rm(bundlePath, { force: true }).catch(() => {})
+    await rm(filesPath, { force: true }).catch(() => {})
+  }
+  await sendReseeded(call, m)
+}
+
+/** The digests to global, with what was replaced. A report lost on the way is sent again next tick. */
+async function sendReseeded(call: Call, m: MoveView): Promise<void> {
+  const at: any = await phaseOf(m.id)
+  if (at?.phase !== 'imported' || !at.copy) return
+  let answer: any
+  try {
+    answer = await report(call, m.id, 'copied', { ...at.copy, ...(at.kept ? { replaced: at.kept } : {}) })
+  } catch (e: any) {
+    logger.warn({ orgId: m.orgId, moveId: m.id, err: e?.message ?? String(e) }, 'Re-seed: the digests did not reach lgrai.app; sent again on the next round')
+    return
+  }
+  await setPhase(m.id, answer?.ok === false ? 'mismatch' : 'reported', { frozenAt: at.frozenAt, kept: at.kept })
+}
+
 const exportKey = (moveId: string) => `fenced-export:${moveId}`
 /** At most this many chunks of an export a tick: the link is the shop's, and other work waits. */
 const CHUNKS_PER_TICK = 16
@@ -452,6 +658,14 @@ export async function moveWorkerTick(now = new Date(), fetchImpl: Fetch = fetch,
     const moves: MoveView[] = ((await res.json()) as any)?.moves ?? []
     for (const m of moves) {
       const at = await phaseOf(m.id)
+      // FR-20.71 (P3-7): this server's copy of the org replaced by lgrai.app's. The home stays here.
+      if (m.kind === 'reseed') {
+        if (await reseedHere(call, m, at, now, fiscalBusy).catch(e => {
+          logger.warn({ moveId: m.id, err: e?.message ?? String(e) }, 'Re-seed: this round failed; the next one tries again')
+          return false
+        })) acted++
+        continue
+      }
       if (m.kind === 'promote') {
         if (await fenceHere(m)) acted++
         else if (await exportFenced(call, m, at).catch(e => {

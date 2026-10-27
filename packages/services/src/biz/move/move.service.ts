@@ -192,6 +192,14 @@ export async function abortMove(moveId: string, reason: string, by?: { id: strin
     logger.warn({ orgId: String(move.orgId), moveId, reason }, 'Move back: aborted; the server unfreezes the organisation')
     return move
   }
+  // FR-20.71 (P3-7): a re-seed froze nothing here either, and the org's trail is the server's. Only
+  // the copy global built goes; the server unfreezes on its next report.
+  if (move.kind === 'reseed') {
+    if (move.bundle?.file) await rm(join(moveDir(move.orgId), move.bundle.file), { force: true }).catch(() => {})
+    if (move.files?.file) await rm(join(moveDir(move.orgId), move.files.file), { force: true }).catch(() => {})
+    logger.warn({ orgId: String(move.orgId), moveId, reason }, 'Re-seed: aborted; the server unfreezes the organisation')
+    return move
+  }
   await unfreeze(move.orgId, move.epochFrom)
   await rm(join(moveDir(move.orgId), `move-${moveId}.ndjson.zst`), { force: true }).catch(() => {})
   await rm(join(moveDir(move.orgId), `move-${moveId}.files.ndjson.zst`), { force: true }).catch(() => {})
@@ -219,7 +227,9 @@ export async function moveTick(now = new Date()): Promise<number> {
     ).lean()
     if (!move) break
     try {
-      await buildCopy(move, now)
+      // FR-20.71 (P3-7): a re-seed's copy is of the mirror, for a server that stays the home.
+      if (move.kind === 'reseed') await (await import('./reseed.service.js')).buildReseedCopy(move)
+      else await buildCopy(move, now)
       built++
     } catch (e: any) {
       logger.error({ moveId: String(move._id), err: e?.message ?? String(e) }, 'Move: the copy could not be built')
@@ -319,10 +329,12 @@ export async function copied(nodeId: string, moveId: string, theirs: CopyReport)
   ).lean()
   if (!m) {
     // Flipped already (the answer was lost on the way): the master is told so, not refused.
-    const done: any = await OrgMove.findOne({ _id: oid(moveId), to: nodeId, state: 'done' }, { epochTo: 1, orgId: 1 }).lean()
-    if (done) return { ok: true, epoch: done.epochTo, orgId: String(done.orgId) }
+    const done: any = await OrgMove.findOne({ _id: oid(moveId), to: nodeId, state: 'done' }, { epochTo: 1, orgId: 1, kind: 1 }).lean()
+    if (done) return { ok: true, epoch: done.epochTo, orgId: String(done.orgId), ...(done.kind === 'reseed' ? { kind: 'reseed' } : {}) }
     throw new MoveError(409, 'not_copying', 'The move is not waiting for this server\'s copy.')
   }
+  // FR-20.71 (P3-7): a re-seed is checked against its own copy, and flips no home.
+  if (m.kind === 'reseed') return (await import('./reseed.service.js')).reseedCopied(m, theirs as any)
   // Global's own digests, of what it froze: the copy was built from them, and nothing moved since.
   const ours = await collectionDigests(mongoose.connection.db as any, m.orgId)
   const bad = [...new Set([...digestMismatch(ours, m.digests ?? {}), ...digestMismatch(ours, theirs?.digests ?? {})])]
@@ -381,5 +393,8 @@ export async function copyFailed(nodeId: string, moveId: string, reason: string)
     $or: [{ to: nodeId, state: { $in: ['copying', 'verifying'] } }, { from: nodeId, kind: 'to_global', state: { $in: ['freezing', 'copying'] } }],
   }, { kind: 1 }).lean()
   if (!m) throw new MoveError(409, 'not_copying', 'The move is not waiting for this server.')
-  return abortMove(moveId, m.kind === 'to_global' ? `the server would not leave the organisation: ${reason}` : `the server could not take the copy: ${reason}`)
+  return abortMove(
+    moveId,
+    m.kind === 'to_global' ? `the server would not leave the organisation: ${reason}` : m.kind === 'reseed' ? `the server was not re-seeded: ${reason}` : `the server could not take the copy: ${reason}`,
+  )
 }

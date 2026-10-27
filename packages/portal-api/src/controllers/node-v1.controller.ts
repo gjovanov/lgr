@@ -332,9 +332,10 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
       try {
         const r: any = await copied(node._id, params.id, body)
         if (r.ok) {
+          // A re-seed (P3-7) too: its pump starts the org's new chain only from a new welcome.
           rewelcomeNode(node._id)
-          // FR-20.82 (P3-6b): the org's desktops connected here learn where it lives now.
-          await repointOrgDesktops(r.orgId).catch(() => 0)
+          // FR-20.82 (P3-6b): the org's desktops connected here learn where it lives now. A re-seed moves no home.
+          if (r.kind !== 'reseed') await repointOrgDesktops(r.orgId).catch(() => 0)
         }
         return r
       } catch (e) {
@@ -346,6 +347,14 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
         digests: t.Record(t.String(), t.Object({ count: t.Integer({ minimum: 0 }), sha256: t.String({ pattern: '^[0-9a-f]{64}$' }) }), { maxProperties: 500 }),
         people: t.Integer({ minimum: 0 }),
         credentials: t.Integer({ minimum: 0 }),
+        // A re-seed (P3-7): what the server held before, kept there, and what of it the copy lacked.
+        replaced: t.Optional(t.Object({
+          file: t.String({ maxLength: 300 }),
+          documents: t.Integer({ minimum: 0 }),
+          onlyThere: t.Integer({ minimum: 0 }),
+          sales: t.Integer({ minimum: 0 }),
+          salesNumbers: t.Array(t.String({ maxLength: 60 }), { maxItems: 50 }),
+        })),
       }),
     },
   )

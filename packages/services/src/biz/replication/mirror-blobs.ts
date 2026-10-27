@@ -21,7 +21,7 @@
 import { createHash } from 'node:crypto'
 import { constants as fsConstants } from 'node:fs'
 import { copyFile, mkdir, open, rename, rm, stat, truncate, unlink } from 'node:fs/promises'
-import { dirname, join, resolve, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { config, nodeRole } from 'config'
 import { ArchiveUnit, DocFile, File as FileModel, LIVE_MOVE_STATES, MirrorBlob, MirrorState, Org, OrgMove, ServerNode } from 'db/models'
 import { homeOf } from 'db/home/home'
@@ -29,6 +29,7 @@ import { mongoose } from 'db/connection'
 import { logger } from '../../logger/logger.js'
 import { resolveStored } from '../files/stored-path.js'
 import { SHA256_HEX, type BlobChunk } from './blob-frame.js'
+import { buildFilesSidecar, type BuiltFilesSidecar } from '../backup/backup-files.service.js'
 
 /** Contents named in one `blob-want`; the master asks again for the rest. */
 export const WANT_PER_ASK = 64
@@ -468,6 +469,30 @@ export async function placeFilesBack(orgId: string): Promise<{ placed: number; p
     placed++
   }
   return { placed, present, missing, conflicts }
+}
+
+/**
+ * The org's files as the mirror holds them, packed for a re-seed of its master (FR-20.71, P3-7):
+ * every file the mirror's rows name, read from the content store by hash, at the path its row says, in
+ * a files sidecar the master restores as it restores a move's. A file lgrai.app does not hold (records
+ * only, or not arrived yet) is left out and counted: the master keeps whatever it has at that path.
+ */
+export async function buildMirrorFilesSidecar(orgId: string, baseName: string): Promise<BuiltFilesSidecar & { missing: number; conflicts: number }> {
+  const { want, conflicts } = await placements(orgId)
+  const root = resolve(config.upload.dir, String(orgId))
+  const entries: Array<{ path: string; abs: string }> = []
+  let missing = 0
+  for (const [abs, sha] of want) {
+    const rel = relative(root, abs)
+    if (!rel || rel.startsWith('..') || resolve(root, rel) !== abs) continue
+    const blob = await mirroredBlobFile(orgId, sha)
+    if (!blob) {
+      missing++
+      continue
+    }
+    entries.push({ path: rel.split(sep).join('/'), abs: blob })
+  }
+  return { ...(await buildFilesSidecar(orgId, baseName, { subdir: 'moves', entries })), missing, conflicts }
 }
 
 /** Once the org is home here again, its content store goes: every file is where its row says. */

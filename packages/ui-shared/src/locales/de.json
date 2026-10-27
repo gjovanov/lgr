@@ -3314,6 +3314,40 @@
       "live": "Die Kopie auf lgrai.app wird zum Zuhause der Organisation: {state}",
       "done": "Die Kopie auf lgrai.app ist jetzt das Zuhause der Organisation"
     },
+    "reseed": {
+      "action": "Aus der Kopie auf lgrai.app neu befüllen",
+      "title": "{name} aus der Kopie auf lgrai.app neu befüllen",
+      "intro": "Die Datenbank dieses Servers ist in der Zeit zurückgegangen (eine Wiederherstellung oder ein zurückgespielter Snapshot) und kann die Kopie der Organisation auf lgrai.app nicht mehr fortsetzen. Neu befüllen ersetzt die Organisation auf dem Server durch die Kopie auf lgrai.app, die alles bis zur letzten Seite des Servers enthält, Löschungen eingeschlossen.",
+      "warn": "Alles, was der Server von der Organisation hält, wird ersetzt. Was er hält und die Kopie auf lgrai.app nicht, bleibt auf dem Server in einer Datei erhalten und wird am Ende aufgelistet: Ausgestellte Verkäufe darunter müssen verbucht werden. Die gesetzliche Nummerierung auf dem Server bleibt gesperrt, bis dort die letzten Nummern erfasst sind.",
+      "asOf": "Die Kopie auf lgrai.app hält die Organisation mit Stand {when}.",
+      "files": "{missing} Dateien sind nicht auf lgrai.app: Der Server behält seine eigenen.",
+      "start": "Neu befüllen",
+      "started": "Das Neubefüllen hat begonnen: lgrai.app erstellt seine Kopie für den Server",
+      "live": "{name} wird aus der Kopie auf lgrai.app neu befüllt: {state}",
+      "done": "{name} hält wieder die Kopie von lgrai.app. Erfassen Sie dort seine letzten Nummern, damit die gesetzliche Nummerierung weitergeht.",
+      "kept": "Er hat die {n} Dokumente aufbewahrt, die er vorher hielt; {only} davon fehlten in der Kopie auf lgrai.app.",
+      "sales": "Ausgestellte Verkäufe darunter: {n} ({numbers}). Verbuchen Sie sie.",
+      "state": {
+        "copying": "der Server übernimmt die Kopie",
+        "verifying": "die Kopie wird geprüft",
+        "aborted": "Das Neubefüllen wurde abgebrochen: Der Server hält, was er hielt."
+      },
+      "check": {
+        "home_master": "Die Organisation wird auf diesem Server geschrieben",
+        "no_move": "Kein anderer Umzug der Organisation läuft",
+        "registered": "Der Server ist für die Organisation registriert",
+        "full": "Der Server ist mit Full verbunden",
+        "no_clone_alarm": "Keine andere Maschine antwortet als dieser Server",
+        "seal_key": "lgrai.app kennt den Versiegelungsschlüssel des Servers",
+        "connected": "Der Server ist verbunden",
+        "healthy": "Der Server meldet sich gesund",
+        "disk": "Der Server hat Platz für die Kopie",
+        "no_till_open": "Auf dem Server ist keine Kassensitzung offen",
+        "no_fiscal_command": "Auf dem Server druckt kein Fiskalgerät",
+        "mirror": "lgrai.app hält eine Kopie der Organisation",
+        "went_back": "Die Datenbank des Servers ist in der Zeit zurückgegangen"
+      }
+    },
     "lastNumbers": {
       "title": "Die letzten am Standort vergebenen Nummern erfassen",
       "intro": "Die gesetzliche Nummerierung ist eingefroren: lgrai.app darf keine Nummer vergeben, die der verlorene Server schon einem Kunden gegeben hat. Lesen Sie die letzte Nummer jeder Reihe von den zuletzt gedruckten Belegen und dem Tagesbericht des Fiskalgeräts ab.",

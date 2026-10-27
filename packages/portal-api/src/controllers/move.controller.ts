@@ -5,6 +5,7 @@ import { fiscalInFlight } from 'fiscal/in-flight'
 import { MoveError, abortMove, currentMove, preflightMove, startMove } from 'services/biz/move/move.service'
 import { preflightMoveBack, startMoveBack } from 'services/biz/move/move-back.service'
 import { preflightPromote, promote } from 'services/biz/move/promote.service'
+import { preflightReseed, startReseed } from 'services/biz/move/reseed.service'
 import { fencedExportsOf } from 'services/biz/move/fenced-export.service'
 import { requestFencedImport } from 'services/biz/move/fenced-import.service'
 import { rewelcomeNode } from '../websocket/uplink.js'
@@ -60,6 +61,8 @@ function toWire(m: any) {
     // A promotion: what was attested, and from when the mirror's copy is all there is.
     evidence: m.evidence ? { hardware: m.evidence.hardware, silenceSince: m.evidence.silenceSince ?? null } : null,
     lossFrom: m.lossFrom ?? null,
+    // A re-seed: what the server held before, kept there, and what of it lgrai.app's copy lacked.
+    replaced: m.replaced ? { documents: m.replaced.documents, onlyThere: m.replaced.onlyThere, sales: m.replaced.sales, salesNumbers: m.replaced.salesNumbers ?? [] } : null,
     steps: (m.steps ?? []).map((s: any) => ({ name: s.name, at: s.at, ok: s.ok, detail: s.detail ?? null })),
   }
 }
@@ -135,6 +138,35 @@ export const moveController = new Elysia({ prefix: '/org/:orgId/moves' })
       isSignIn: true,
       body: t.Object({ hardware: t.Union([t.Literal('off'), t.Literal('destroyed')]), tillsDisconnected: t.Boolean(), slug: t.String({ maxLength: 200 }) }),
     },
+  )
+
+  /**
+   * FR-20.71 (P3-7): re-seeding the org's server from lgrai.app's copy, once its database went back.
+   * What stands in the way, all of it at once, and why the server is said to have gone back. Writes nothing.
+   */
+  .post(
+    '/reseed/preflight',
+    async ({ params: { orgId }, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
+      return preflightReseed(orgId)
+    },
+    { isSignIn: true },
+  )
+
+  /** Start it, the slug typed: lgrai.app builds its copy, and the server replaces its own with it. */
+  .post(
+    '/reseed',
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
+      try {
+        return { move: toWire(await startReseed(orgId, { id: user.id }, body.slug)) }
+      } catch (e) {
+        return fail(status, e)
+      }
+    },
+    { isSignIn: true, body: t.Object({ slug: t.String({ maxLength: 200 }) }) },
   )
 
   /**
