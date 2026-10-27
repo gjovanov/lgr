@@ -3427,7 +3427,20 @@
         "went_back": "Die Datenbank dieses Servers ist gegenüber der Kopie auf lgrai.app in der Zeit zurückgegangen (wiederhergestellt oder ein Snapshot zurückgespielt): Er kann Nummern enthalten, die der Standort schon vergeben hat.",
         "clone": "Eine andere Maschine antwortet als dieser Server, mit seinen Schlüsseln (im Netz des Standorts oder mit lgrai.app verbunden): Bis eine Person entscheidet, welche Maschine die echte ist, und die andere als neuer Server neu installiert ist, darf keine von beiden eine gesetzliche Nummer vergeben."
       },
-      "mirror": "Die Kopie auf lgrai.app hat {n}"
+      "mirror": "Die Kopie auf lgrai.app hat {n}",
+      "devices": {
+        "title": "Was die Fiskalgeräte sagen",
+        "intro": "Ein Gerät zählt jedes Dokument, das es druckt: Bons, Stornos, nicht-fiskalische Bons und Berichte, auch die über seine Tastatur gedruckten. Dieser Zähler ist keine der Nummern oben. Er zeigt, welche Dokumente zu lesen sind: die УНП des letzten Bons ergibt die Serie des Geräts.",
+        "read": "Letztes Dokument: {n} (gelesen {at})",
+        "not_connected": "Nicht mit diesem Server verbunden: lesen Sie den letzten Bon von seinem Papier ab.",
+        "unsupported": "Dieses Gerät meldet sein letztes Dokument nicht: lesen Sie es von seinem Papier ab.",
+        "error": "Keine Antwort: {error}",
+        "recorded": "Der letzte Bon, den diese Datenbank von ihm erfasst hat: {receipt}, {number}, УНП {unp}, {at}",
+        "none": "Diese Datenbank hat keinen Bon von ihm erfasst.",
+        "ahead": "Nach diesem Bon gedruckte Dokumente: {n}. Lesen Sie sie von seinem Papier ab. Ein Fiskalbon darunter fehlt in dieser Datenbank, und die УНП muss nach seiner weitergehen.",
+        "same": "Seitdem wurde nichts gedruckt.",
+        "behind": "Sein Zähler liegt unter dem dieser Datenbank: prüfen Sie, ob es dasselbe Gerät ist."
+      }
     },
     "fenced": {
       "title": "Was {name} getan hat, nachdem er ersetzt wurde",

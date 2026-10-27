@@ -5,6 +5,8 @@ import { AuthService } from '../auth/auth.service.js'
 import { MoveError } from 'services/biz/move/move.service'
 import { legalSeriesOf, recordLastNumbers } from 'services/biz/move/promote.service'
 import { mirrorLegalSeries } from 'services/biz/home/series-lock.service'
+import { deviceEvidence, type DeviceReading } from 'services/biz/home/device-witness.service'
+import { getPrinter, isDeviceConnected } from 'fiscal/fiscal-device.service'
 
 /**
  * Whether the org's legal numbering waits for the last numbers issued at a site, and recording them
@@ -14,7 +16,32 @@ import { mirrorLegalSeries } from 'services/biz/home/series-lock.service'
  * On a master, lgrai.app's mirror of the org is a floor too, when it can be asked: numbering
  * resumes above the highest of the person's reading and the mirror's. With the link down, the
  * person's reading stands alone, and the audit says so.
+ *
+ * While it waits, each fiscal device of the org is asked for its last document (AC 49), beside the
+ * last receipt this database recorded on it. Evidence for the person, kept in the audit with their
+ * reading: never a lock or a floor by itself (`device-witness.service.ts` says why).
  */
+
+const READ_TIMEOUT_MS = 5_000
+
+/** One device's last document number, if it is connected here and its protocol reports one. */
+async function readDevice(deviceId: string): Promise<DeviceReading> {
+  if (!isDeviceConnected(deviceId)) return { state: 'not_connected' }
+  const printer = getPrinter(deviceId)
+  if (typeof printer.getLastReceiptNumber !== 'function') return { state: 'unsupported' }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const n = await Promise.race([
+      printer.getLastReceiptNumber(),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`no answer within ${READ_TIMEOUT_MS / 1000} s`)), READ_TIMEOUT_MS) }),
+    ])
+    return n === undefined || !Number.isSafeInteger(n) ? { state: 'unsupported' } : { state: 'read', lastDocument: n, readAt: new Date() }
+  } catch (e: any) {
+    return { state: 'error', error: String(e?.message ?? e).slice(0, 200) }
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 function canAdmin(user: any): boolean {
   return user?.role === 'admin' || !!user?.permissions?.includes('admin.settings')
@@ -31,7 +58,9 @@ export const numberingController = new Elysia({ prefix: '/org/:orgId/numbering' 
       if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
       const home: any = await OrgHome.findOne({ orgId }, { seriesFrozen: 1 }).lean()
       const frozen = home?.seriesFrozen
-      const mirror = frozen?.since && nodeRole() === 'master' ? await mirrorLegalSeries(orgId) : null
+      const [mirror, devices] = frozen?.since
+        ? await Promise.all([nodeRole() === 'master' ? mirrorLegalSeries(orgId) : null, deviceEvidence(orgId, readDevice)])
+        : [null, []]
       return {
         frozen: !!frozen?.since,
         since: frozen?.since ?? null,
@@ -39,6 +68,7 @@ export const numberingController = new Elysia({ prefix: '/org/:orgId/numbering' 
         detail: frozen?.detail ?? null,
         series: await legalSeriesOf(orgId),
         mirror,
+        devices,
       }
     },
     { isSignIn: true },
@@ -51,8 +81,8 @@ export const numberingController = new Elysia({ prefix: '/org/:orgId/numbering' 
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
       try {
-        const floor = nodeRole() === 'master' ? await mirrorLegalSeries(orgId) : null
-        return { series: await recordLastNumbers(orgId, { id: user.id, operatorCode: user.operatorCode }, body.series, floor) }
+        const [floor, devices] = await Promise.all([nodeRole() === 'master' ? mirrorLegalSeries(orgId) : null, deviceEvidence(orgId, readDevice)])
+        return { series: await recordLastNumbers(orgId, { id: user.id, operatorCode: user.operatorCode }, body.series, floor, devices) }
       } catch (e) {
         if (e instanceof MoveError) return status(e.statusCode, { code: e.code, message: e.message, ...(e.extra ?? {}) })
         throw e
