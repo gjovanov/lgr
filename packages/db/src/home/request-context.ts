@@ -25,6 +25,11 @@ export interface RequestContext {
   orgId?: string
   /** In `GET_WRITERS`: a read that is known, and allowed, to write. */
   listedWriter: boolean
+  /**
+   * FR-20.48: where the request came from on a master, for its audit entries: `lan:<desktopId>`,
+   * `lan`, `tunnel` or `loopback` (`front-guard.ts#requestVia`). Absent without a front.
+   */
+  via?: string
 }
 
 const storage = new AsyncLocalStorage<RequestContext | null>()

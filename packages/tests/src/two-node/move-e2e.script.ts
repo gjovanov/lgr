@@ -318,6 +318,9 @@ try {
   check('a session the master signed reads the org through its address: the master answers', listed.status === 200 && (listedBody?.contacts ?? []).some((c: any) => c.companyName === 'Written at the shop 0') && notHere.status === 401, `${listed.status}, on global itself ${notHere.status}`)
   const posted = await viaAddress(`/api/org/${orgId}/invoicing/contact`, { method: 'POST', headers: { ...bearer, 'content-type': 'application/json' }, body: JSON.stringify({ type: 'customer', companyName: 'Written through the address', notes: 'n'.repeat(5000) }) })
   check('…and writes it: the body crosses, and the document is the master\'s', posted.status === 200 && !!(await mdb.collection('contacts').findOne({ orgId, companyName: 'Written through the address' })), `${posted.status}`)
+  // FR-20.48: the master's audit trail says where that write came from.
+  const viaRow: any = await until(() => mdb.collection('auditlogs').findOne({ orgId, entityType: 'contact', entityName: 'Written through the address' }), 15_000, 500)
+  check('…and the master\'s audit entry for it says it came through the address', viaRow?.via === 'tunnel', JSON.stringify(viaRow ? { via: viaRow.via } : null))
   // What the client stamps never crosses: the master sees the tunnel, which may not create an org.
   const stamped = await viaAddress('/api/auth/register', { method: 'POST', headers: { ...bearer, 'x-lgr-source': 'console', 'x-lgr-front': 'forged', 'content-type': 'application/json' }, body: '{}' })
   check('…while a stamp the client writes is dropped: org creation stays the console\'s', stamped.status === 404, `${stamped.status}`)

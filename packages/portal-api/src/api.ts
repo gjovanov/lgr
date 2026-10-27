@@ -1,6 +1,7 @@
 import { Elysia } from 'elysia'
 import { enterRequest, leaveRequest } from 'db/home/request-context'
 import { isReadOnlyRoute, isListedReadWriter, routeKey } from 'services/biz/route-class'
+import { requestVia } from './front/front-guard.js'
 
 // Portal controllers
 import { authController } from './controllers/auth.controller.js'
@@ -135,6 +136,7 @@ export function createApiApp() {
         route: routeKey(request.method, route),
         orgId: (params as Record<string, string | undefined> | undefined)?.orgId,
         listedWriter: isListedReadWriter(request.method, route),
+        via: requestVia(request),
       })
     })
     .onAfterResponse({ as: 'global' }, () => { leaveRequest() })

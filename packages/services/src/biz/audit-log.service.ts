@@ -1,5 +1,7 @@
-import { AuditLog, User } from 'db/models'
+import { nodeRole } from 'config'
+import { AuditLog, Desktop, User } from 'db/models'
 import { mongoose } from 'db/connection'
+import { currentRequest } from 'db/home/request-context'
 import { getRepos } from '../context.js'
 const { Types } = mongoose
 
@@ -19,6 +21,8 @@ export interface AuditEntry {
   changes?: { field: string; oldValue: any; newValue: any }[]
   ipAddress?: string
   userAgent?: string
+  /** FR-20.48: where it came from, when the request context cannot say (a socket's own event). */
+  via?: string
 }
 
 export interface AuditQueryOptions {
@@ -87,8 +91,36 @@ function auditDoc(entry: AuditEntry) {
     changes: entry.changes,
     ipAddress: entry.ipAddress,
     userAgent: entry.userAgent,
+    via: viaOf(entry),
     timestamp: new Date(),
   }
+}
+
+/**
+ * FR-20.48: on a master, every entry says where it came from: the request's `via` (a till, the
+ * org's address, the console), and `loopback` for the server's own work (a tick, a job outside any
+ * request). Nothing on lgrai.app, which has no shop network or tunnel of its own.
+ */
+function viaOf(entry: AuditEntry): string | undefined {
+  if (entry.via) return entry.via
+  const via = currentRequest()?.via
+  if (via) return via
+  return nodeRole() === 'master' ? 'loopback' : undefined
+}
+
+/** The desktops a page of entries names (`lan:<desktopId>`), by id, with their names. */
+async function viaDesktops(orgId: string, docs: any[]): Promise<Map<string, string>> {
+  const ids = [...new Set(docs.map(d => (typeof d.via === 'string' && d.via.startsWith('lan:') ? d.via.slice(4) : '')).filter(id => /^[0-9a-f]{24}$/.test(id)))]
+  if (!ids.length) return new Map()
+  const rows: any[] = await Desktop.find({ orgId: new Types.ObjectId(orgId), _id: { $in: ids.map(id => new Types.ObjectId(id)) } }, { name: 1 }).lean().exec()
+  return new Map(rows.map(r => [String(r._id), String(r.name ?? '')]))
+}
+
+/** The entry's origin as the audit page shows it: the code, and the desktop's name for a till. */
+function viaWire(d: any, desktops: Map<string, string>) {
+  if (!d.via) return {}
+  const desktop = typeof d.via === 'string' && d.via.startsWith('lan:') ? desktops.get(d.via.slice(4)) : undefined
+  return { via: d.via, ...(desktop ? { viaDesktop: desktop } : {}) }
 }
 
 /**
@@ -173,6 +205,7 @@ export async function queryAuditLogs(orgId: string, options: AuditQueryOptions =
       .exec(),
     AuditLog.countDocuments(filter).exec(),
   ])
+  const desktops = await viaDesktops(orgId, docs)
 
   const logs = docs.map((d: any) => ({
     _id: String(d._id),
@@ -191,6 +224,7 @@ export async function queryAuditLogs(orgId: string, options: AuditQueryOptions =
     changes: d.changes || [],
     ipAddress: d.ipAddress,
     userAgent: d.userAgent,
+    ...viaWire(d, desktops),
     timestamp: d.timestamp?.toISOString(),
   }))
 

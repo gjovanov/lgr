@@ -1016,7 +1016,14 @@
     "oldValue": "Alter Wert",
     "timestamp": "Zeitstempel",
     "user": "Benutzer",
-    "entityType": "Entitätstyp"
+    "entityType": "Entitätstyp",
+    "via": {
+      "label": "Herkunft",
+      "tunnel": "die Adresse der Organisation auf lgrai.app",
+      "loopback": "der Server selbst",
+      "desktop": "der Desktop {name}",
+      "lan": "das Netzwerk des Geschäfts"
+    }
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",
