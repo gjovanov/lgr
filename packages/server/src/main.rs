@@ -31,6 +31,7 @@ mod register;
 mod replication;
 mod service;
 mod signatures;
+mod status_file;
 mod supervisor;
 mod updates;
 mod uplink;
@@ -327,6 +328,9 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                     None
                 }
             };
+            // FR-20.101 (P3-8): the oplog's reach, read as the administrator, for the health frame and
+            // the status file.
+            let oplog = plan.clone().map(|p| std::sync::Arc::new(mongod::OplogWindow::new(p)));
             if let Some(r) = registrar {
                 sup.set_registrar(r.clone());
                 // FR-20.52: the uplink, one task per channel, for as long as the supervisor runs. It
@@ -334,10 +338,8 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                 match boot.clone() {
                     Some(nonce) => {
                         // FR-20.57: health from the supervisor's status, the API's and the data volume.
-                        // FR-20.101 (P3-8): the oplog's reach, read as the administrator.
-                        let oplog = plan.clone().map(|p| std::sync::Arc::new(mongod::OplogWindow::new(p)));
                         let health: uplink::HealthFn = {
-                            let (sup, data, lan) = (sup.clone(), r.data.clone(), front.lan_state.clone());
+                            let (sup, data, lan, oplog) = (sup.clone(), r.data.clone(), front.lan_state.clone(), oplog.clone());
                             std::sync::Arc::new(move || {
                                 let (sup, data, lan, oplog) = (sup.clone(), data.clone(), lan.clone(), oplog.clone());
                                 Box::pin(async move {
@@ -380,6 +382,9 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                     None => tracing::error!("no uplink this start"),
                 }
             }
+            // FR-20.98 (P3-8b): the supervisor's account, for the API's status page, every 30 s: whether
+            // the uplink is up or not, since offline is when it is read most.
+            sup.add_service(tokio::spawn(status_file::run(sup.clone(), paths.data.join("state").join("status.json"), paths.data.clone(), oplog.clone(), status_file::EVERY)));
             // The egress first: the API is given its address, and a CONNECT may come at once.
             match tokio::net::TcpListener::bind(("127.0.0.1", front.egress_port)).await {
                 Ok(listener) => sup.add_service(tokio::spawn(egress::serve(listener, front.egress_secret.clone(), egress_rules))),

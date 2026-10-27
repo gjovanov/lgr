@@ -230,6 +230,12 @@ export async function resetJournalHwm(orgId: string, now = new Date()): Promise<
 
 // ── What lgrai.app says of this server ───────────────────────────────────────────────────────────
 
+/** What lgrai.app last said of this server (`/self`), and when: the status page's mirror position (P3-8b). */
+let lastSelf: { at: Date; body: any } | null = null
+export function lastSelfAnswer(): { at: Date; body: any } | null {
+  return lastSelf
+}
+
 /**
  * Ask lgrai.app what it holds against this server: a clone alarm, orgs whose pages it refuses as a
  * history that went back, and how far it holds each org's journal. Each locks the org's series here,
@@ -242,6 +248,7 @@ export async function linkAlarmsTick(fetchImpl: typeof fetch = fetch, now = new 
   const res = await fetchWithTimeout(new URL('/api/node/v1/self', token.server), { headers: { authorization: `Bearer ${token.token}` } }, { timeoutMs: 15_000, fetchImpl })
   if (!res.ok) return 0
   const self: any = await res.json().catch(() => ({}))
+  lastSelf = { at: now, body: self }
   const homes: any[] = await OrgHome.find({ home: thisNode() }, { orgId: 1, seriesUnlockedAt: 1 }).lean()
   if (!homes.length) return 0
   const heads = new Map<string, number>(

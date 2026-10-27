@@ -16,6 +16,7 @@ import {
   type DigestDocumentFamily,
   type DigestMaterialBlock,
   type DigestSequenceLine,
+  type DigestServer,
   type Section,
 } from './daily-digest.types.js'
 
@@ -130,6 +131,19 @@ export interface DigestStrings {
   backupTrigger_restore_time: string
   backupDocuments: string
   hoursAgo: string
+
+  /** FR-20.100 — the org's own server. */
+  server: string
+  serverMirror: string
+  serverMirrorCurrent: string
+  serverMirrorBehind: string
+  serverUnheard: string
+  serverNotYetHeard: string
+  serverBackup: string
+  serverBackupNone: string
+  serverBackupAge: string
+  serverQueued: string
+  serverQueuedText: string
 }
 
 export const DIGEST_I18N: Record<string, DigestStrings> = {
@@ -186,6 +200,17 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupTrigger_restore_time: 'restore time',
     backupDocuments: 'documents',
     hoursAgo: '{n} h ago',
+    server: 'This organisation’s server',
+    serverMirror: 'lgrai.app’s copy',
+    serverMirrorCurrent: 'up to date',
+    serverMirrorBehind: '{n} changes behind; the last arrived {h} h ago',
+    serverUnheard: 'lgrai.app has not answered the server for {h} h — it may be offline',
+    serverNotYetHeard: 'not heard from lgrai.app since the server started',
+    serverBackup: 'Last backup on the server',
+    serverBackupNone: 'NO BACKUP of this organisation on the server',
+    serverBackupAge: '{h} h ago',
+    serverQueued: 'Waiting for the internet',
+    serverQueuedText: '{n}, the oldest {h} h old',
   },
   bg: {
     subject: 'Дневен отчет', heading: 'Дневен отчет', forDate: 'за', allClear: 'Няма отклонения — денят изглежда чист.',
@@ -240,6 +265,17 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupTrigger_restore_time: 'време за възстановяване',
     backupDocuments: 'документа',
     hoursAgo: 'преди {n} ч.',
+    server: 'Сървърът на организацията',
+    serverMirror: 'Копието в lgrai.app',
+    serverMirrorCurrent: 'актуално',
+    serverMirrorBehind: 'изостава с {n} промени; последната пристигна преди {h} ч.',
+    serverUnheard: 'lgrai.app не е отговарял на сървъра {h} ч. — възможно е сървърът да е без интернет',
+    serverNotYetHeard: 'няма вест от lgrai.app от стартирането на сървъра',
+    serverBackup: 'Последен архив на сървъра',
+    serverBackupNone: 'НЯМА архив на организацията на сървъра',
+    serverBackupAge: 'преди {h} ч.',
+    serverQueued: 'Чака интернет',
+    serverQueuedText: '{n}, най-старото чака от {h} ч.',
   },
   de: {
     subject: 'Tagesbericht', heading: 'Tagesbericht', forDate: 'für', allClear: 'Keine Auffälligkeiten — der Tag sieht sauber aus.',
@@ -294,6 +330,17 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupTrigger_restore_time: 'Wiederherstellungsdauer',
     backupDocuments: 'Dokumente',
     hoursAgo: 'vor {n} h',
+    server: 'Server der Organisation',
+    serverMirror: 'Kopie auf lgrai.app',
+    serverMirrorCurrent: 'aktuell',
+    serverMirrorBehind: '{n} Änderungen zurück; die letzte kam vor {h} h',
+    serverUnheard: 'lgrai.app hat dem Server seit {h} h nicht geantwortet — er ist womöglich offline',
+    serverNotYetHeard: 'seit dem Start des Servers nichts von lgrai.app gehört',
+    serverBackup: 'Letzte Sicherung auf dem Server',
+    serverBackupNone: 'KEINE Sicherung der Organisation auf dem Server',
+    serverBackupAge: 'vor {h} h',
+    serverQueued: 'Wartet auf das Internet',
+    serverQueuedText: '{n}, das älteste seit {h} h',
   },
   mk: {
     subject: 'Дневен извештај', heading: 'Дневен извештај', forDate: 'за', allClear: 'Нема отстапувања — денот изгледа чист.',
@@ -348,6 +395,17 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     backupTrigger_restore_time: 'време за враќање',
     backupDocuments: 'документи',
     hoursAgo: 'пред {n} ч.',
+    server: 'Серверот на организацијата',
+    serverMirror: 'Копијата на lgrai.app',
+    serverMirrorCurrent: 'ажурна',
+    serverMirrorBehind: 'заостанува {n} промени; последната пристигна пред {h} ч.',
+    serverUnheard: 'lgrai.app не му одговорил на серверот {h} ч. — можеби е без интернет',
+    serverNotYetHeard: 'нема вест од lgrai.app од стартувањето на серверот',
+    serverBackup: 'Последна резервна копија на серверот',
+    serverBackupNone: 'НЕМА резервна копија на организацијата на серверот',
+    serverBackupAge: 'пред {h} ч.',
+    serverQueued: 'Чека интернет',
+    serverQueuedText: '{n}, најстарото чека {h} ч.',
   },
 }
 
@@ -495,6 +553,32 @@ function bytes(n: number): string {
  * reason this section exists is that roomler's zero-snapshot uploads backup looked exactly
  * like a quiet, healthy one.
  */
+/** FR-20.100 — three lines, each red when it crossed its threshold. */
+function renderServer(v: DigestServer, L: DigestStrings): string {
+  const has = (a: string) => v.alarms.includes(a as any)
+  const line = (label: string, text: string, alarm: boolean) =>
+    `<div style="${S.note}${alarm ? `;${S.bad}` : ''}">${esc(label)}: ${esc(text)}</div>`
+  const mirror = has('unheard')
+    ? (v.heardHours === undefined ? L.serverNotYetHeard : fmt(L.serverUnheard, { h: v.heardHours }))
+    : v.heardHours === undefined
+      ? L.serverNotYetHeard
+      : !v.mirror
+        ? L.none
+        : v.mirror.behind > 0
+          ? fmt(L.serverMirrorBehind, { n: v.mirror.behind, h: v.mirror.lastPageHours ?? '?' })
+          : L.serverMirrorCurrent
+  const backup = v.backupHours === undefined
+    ? (has('backup_none') ? L.serverBackupNone : L.none)
+    : fmt(L.serverBackupAge, { h: v.backupHours })
+  const queued = v.queued ? fmt(L.serverQueuedText, { n: v.queued, h: v.oldestQueuedHours ?? 0 }) : L.none
+  return [
+    h2(L.server),
+    line(L.serverMirror, mirror, has('unheard') || has('mirror_lag')),
+    line(L.serverBackup, backup, has('backup_stale') || has('backup_none')),
+    line(L.serverQueued, queued, has('queued_old')),
+  ].join('\n')
+}
+
 function renderBackups(b: DigestBackups, L: DigestStrings): string {
   const banner = (text: string, bad: boolean) =>
     `<p style="margin:6px 0 10px;padding:10px 12px;${bad
@@ -837,6 +921,8 @@ export function renderDigestHtml(data: DailyDigestData): string {
       : ''
     return h2(L.ops) + tasks + emails
   }))
+
+  out.push(guard(data.server, L, v => renderServer(v, L)))
 
   out.push(guard(data.backups, L, b => renderBackups(b, L)))
 

@@ -245,6 +245,18 @@ and `…?ch=bulk` (`portal-api/src/websocket/uplink.ts`, mounted on global only)
   under 10 % free, an oplog under seven days, a fenced server, a clock over two minutes off. A
   frame older than ten minutes raises nothing. The Servers page shows a server's alarms (a lag only
   its own org's), and the Nodes page every master's, with its link and last backup.
+- **The master's own status page (P3-8b, FR-20.98).** On the server, for the org's admins, and
+  offline above all: Settings → This server. The supervisor writes its status to
+  `state/status.json` every 30 seconds, whether the uplink is up or not, and the page joins it to
+  what the server's database holds of the org: its processes, disk and oplog reach, the update, the
+  link and the mirror's pacing, the journal and how far lgrai.app's copy holds it, the last backup,
+  what waits for the internet, the fiscal devices and the desktops online. It also lists the
+  Прил. 32 fields (installation type, data location, database address, protocol, topology), ready to
+  copy, with the reminder that the trader re-files them within seven days of a change. A status older
+  than two minutes is shown as such. lgrai.app has no such page: its Servers page says what it hears.
+- **The daily digest (P3-8b, FR-20.100).** An org written on its own server gets its digest from
+  that server, and the digest says how far lgrai.app's copy holds the org, the last backup on the
+  server, and what waits for the internet, each line red past the threshold the Servers page uses.
 
 ## Desktop updates through the master (FR-20.56)
 

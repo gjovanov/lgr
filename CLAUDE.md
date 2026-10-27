@@ -2561,8 +2561,28 @@ so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.
   clock over ±2 min. ⚠ A health frame older than ten minutes raises nothing: away is the
   connection's to say. `alarmsOfNodes` batches presence, homes and mirrors; the org's Servers
   list carries `alarms` (a lag only that org's) and `/admin/nodes` everyone's, with link and last
-  backup (`useNodeAlarms` formats both, durations through `Intl`, ×4). Not yet (P3-8b/c): the
-  master's own status page, the digest's on-prem lines, the Прил. 32 fields, the SUPTO alarm.
+  backup (`useNodeAlarms` formats both, durations through `Intl`, ×4). Not yet (P3-8c): the
+  SUPTO alarm.
+- **A master's own status page (FR-20.98, FR-20.50, P3-8b; `/settings/server`).** The supervisor
+  writes its status every 30 s to `state/status.json` (`status_file.rs`: atomic, with the volume and
+  the oplog's reach beside it; nothing secret is in a supervisor status), beside the node token, so
+  the API finds it at `dirname(LGR_NODE_TOKEN_FILE)`. `services/biz/node/server-status.ts` joins it to
+  what this database holds of the org (home, journal head, last backup, outbox, fiscal devices,
+  desktops online) and to lgrai.app's last `/self` (`lastSelfAnswer`, kept by the link-alarm tick:
+  the mirror's watermark), and adds the Прил. 32 fields ready to copy (т. 5, 7, 10–13: re-filed
+  within 7 days of a change, чл. 52з(1)). `GET /org/:orgId/server/status`: admin or
+  `admin.settings`, **404 on lgrai.app**; `GET …/server/here` answers any member whether to show
+  the nav entry, 200 either way. ⚠ One server may hold several orgs: the licence is projected to
+  THIS org's (plan, paid through, grace, error), never the supervisor's whole list. A file older than
+  two minutes says the supervisor is not writing.
+- **The digest's on-prem lines (FR-20.100, P3-8b; `buildServerSection`).** An org's digest is built
+  on its home (FR-20.85), so on a master it gains a `server` section: lgrai.app's copy (behind by how
+  much, the last page's age, from `lastSelfAnswer`), the last backup there, and what waits in the
+  outbox, each red past FR-20.101's threshold (`ALARM_AT`): `unheard` (no `/self` for an hour, or
+  never by an API up that long; ⚠ never just after a start, when the first tick has not run),
+  `mirror_lag`, `backup_stale` / `backup_none` (only once the org's home is 26 h old),
+  `queued_old`. Any alarm keeps the day off "all clear". `settings.dailyDigest.sections.server`
+  (default on); never built on lgrai.app.
 - **Where the master answers**: the supervisor's health frame carries `lan {url, caFingerprint}` from
   `state/lan.json` (only while the LAN ingress is on); `sanitizeHealth` keeps it only in the shape a
   desktop takes (`LAN_URL`, `CA_PIN` in `repoint-token.ts`).

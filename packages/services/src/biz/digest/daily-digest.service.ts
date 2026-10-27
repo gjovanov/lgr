@@ -15,15 +15,22 @@
  * trade-off FR-08 recorded rather than pretending to solve.
  */
 
+import { nodeRole } from 'config'
 import {
   Invoice,
   StockLevel,
   StockMovement,
   Sequence,
   BackgroundTask,
+  BackupRun,
   EmailLog,
   Org,
+  OrgHome,
+  Outbox,
+  ReplOrg,
 } from 'db/models'
+import { lastSelfAnswer } from '../home/series-lock.service.js'
+import { ALARM_AT } from '../node/node-alarms.js'
 import { queryAuditLogs } from '../audit-log.service.js'
 import {
   readArchiveTriggers, readBackupStatus, readOrgBackupRun, readOrgRestores,
@@ -48,6 +55,8 @@ import {
   type DigestOps,
   type DigestSectionKey,
   type DigestSequenceLine,
+  type DigestServer,
+  type DigestServerAlarm,
   type DigestStock,
   type DigestUndocumented,
   type Section,
@@ -666,6 +675,76 @@ async function buildOps(orgId: string, date: string): Promise<DigestOps> {
   }
 }
 
+// ── FR-20.100 an org written on its own server ──────────────────────────────
+
+export interface ServerSectionInput {
+  now?: Date
+  /** How long this API process has run: a server just started has not been heard from yet. */
+  uptimeSecs?: number
+  /** What lgrai.app last said of this server (`/self`); by default as the link-alarm tick kept it. */
+  self?: { at: Date; body: any } | null
+}
+
+/**
+ * FR-20.100 (plan step P3-8b): the org on its own server, for the morning: lgrai.app's copy, the last
+ * backup there, what waits for the internet. The thresholds are FR-20.101's (`ALARM_AT`), the ones
+ * lgrai.app's Servers page raises; the server's machine (disk, oplog, clock) is its status page's.
+ */
+export async function buildServerSection(orgId: string, input: ServerSectionInput = {}): Promise<DigestServer> {
+  const now = input.now ?? new Date()
+  const uptimeSecs = input.uptimeSecs ?? process.uptime()
+  const self = input.self === undefined ? lastSelfAnswer() : input.self
+  const org = oid(orgId)
+  const open = { orgId: org, state: { $in: ['queued', 'sending'] } }
+  const [repl, home, backup, queued, oldest]: [any, any, any, number, any] = await Promise.all([
+    ReplOrg.findOne({ orgId: org }, { seq: 1 }).lean().exec(),
+    OrgHome.findOne({ orgId: org }, { since: 1 }).lean().exec(),
+    BackupRun.findOne({ orgId: org, status: 'completed', completedAt: { $exists: true } }, { completedAt: 1 })
+      .sort({ completedAt: -1 }).lean().exec(),
+    Outbox.countDocuments(open).exec(),
+    Outbox.findOne(open, { createdAt: 1 }).sort({ createdAt: 1 }).lean().exec(),
+  ])
+  const ms = (v: unknown) => {
+    const t = v ? new Date(v as any).getTime() : Number.NaN
+    return Number.isFinite(t) ? Math.max(0, now.getTime() - t) : undefined
+  }
+  const hours = (age: number | undefined) => (age === undefined ? undefined : Math.floor(age / 3_600_000))
+  const lagMs = ALARM_AT.lagSecs * 1000
+  const alarms: DigestServerAlarm[] = []
+
+  // Not heard for an hour; or never, by a server that has run that long.
+  const heard = self ? ms(self.at) : undefined
+  if (self ? (heard ?? 0) > lagMs : uptimeSecs > ALARM_AT.lagSecs) alarms.push('unheard')
+  let mirror: DigestServer['mirror']
+  const m = self && !alarms.includes('unheard') ? (self.body?.mirrors ?? []).find((x: any) => x?.orgId === orgId) : undefined
+  if (m) {
+    const behind = Math.max(0, Number(repl?.seq ?? 0) - Number(m.watermark ?? 0))
+    const sincePage = ms(m.lastPageAt)
+    mirror = { behind, ...(sincePage !== undefined ? { lastPageHours: hours(sincePage) } : {}) }
+    if (behind > 0 && (sincePage ?? Number.POSITIVE_INFINITY) > lagMs) alarms.push('mirror_lag')
+  }
+
+  const backupAge = ms(backup?.completedAt)
+  if (backupAge === undefined) {
+    // None at all, once the org has been written here that long (lgrai.app's rule, P3-8a).
+    if ((ms(home?.since) ?? 0) > ALARM_AT.backupSecs * 1000) alarms.push('backup_none')
+  } else if (backupAge > ALARM_AT.backupSecs * 1000) {
+    alarms.push('backup_stale')
+  }
+
+  const oldestAge = queued ? ms(oldest?.createdAt) : undefined
+  if ((oldestAge ?? 0) > lagMs) alarms.push('queued_old')
+
+  return {
+    ...(heard !== undefined ? { heardHours: hours(heard) } : {}),
+    ...(mirror ? { mirror } : {}),
+    ...(backupAge !== undefined ? { backupHours: hours(backupAge) } : {}),
+    queued,
+    ...(oldestAge !== undefined ? { oldestQueuedHours: hours(oldestAge) } : {}),
+    alarms,
+  }
+}
+
 // ── Assembly ────────────────────────────────────────────────────────────────
 
 /** True when a section carries nothing worth a reader's attention. */
@@ -702,6 +781,9 @@ function sectionIsEmpty(key: DigestSectionKey, value: any): boolean {
       return !value.sold.rowCount && !value.transferred.rowCount && !value.loaded.rowCount
     case 'ops':
       return !value.tasks.length && !value.failedEmailCount
+    // FR-20.100: a server that crossed no threshold is nothing to report.
+    case 'server':
+      return !value.alarms.length
     default:
       return !value.count
   }
@@ -743,7 +825,7 @@ export async function buildDailyDigest(
   }
 
   // Fan out like the dashboard: independent, each degrading on its own.
-  const [kpis, documents, materials, stock, corrections, undocumented, duplicates, edited, ops, backups] =
+  const [kpis, documents, materials, stock, corrections, undocumented, duplicates, edited, ops, backups, server] =
     await Promise.all([
       on('kpis') ? section('kpis', () => buildKpis(orgId, localDate)) : undefined,
       on('documents') ? section('documents', () => buildDocuments(orgId, localDate)) : undefined,
@@ -778,6 +860,9 @@ export async function buildDailyDigest(
           }
         })
         : undefined,
+      // FR-20.100 — only on the org's own server: lgrai.app builds no digest for an org it does not
+      // write, and an org it writes has no server to report.
+      on('server') && nodeRole() === 'master' ? section('server', () => buildServerSection(orgId)) : undefined,
     ])
 
   data.kpis = kpis
@@ -790,6 +875,7 @@ export async function buildDailyDigest(
   data.editedAfterIssue = edited
   data.ops = ops
   data.backups = backups
+  data.server = server
 
   data.allClear = DIGEST_SECTION_KEYS.every(k => {
     const v = (data as any)[k]

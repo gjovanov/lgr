@@ -41,6 +41,8 @@ const routes = [
       // FR-14.23 (#57). Route name is load-bearing (Playwright navigation) - named once, never renamed.
       { path: 'settings/desktops', name: 'settings.desktops', component: () => import('../views/settings/DesktopsView.vue') },
       { path: 'settings/servers', name: 'settings.servers', component: () => import('../views/settings/ServersView.vue') },
+      // FR-20.98 (P3-8b): a master's own status page; on lgrai.app it says where its servers are shown.
+      { path: 'settings/server', name: 'settings.server', component: () => import('../views/settings/ServerStatusView.vue') },
 
       // Admin
       { path: 'admin/audit-log', name: 'admin.audit-log', component: () => import('../views/admin/AuditLogView.vue') },

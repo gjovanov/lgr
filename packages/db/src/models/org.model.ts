@@ -263,6 +263,8 @@ const orgSchema = new Schema<IOrg>(
           // org sees the same cluster-wide figures. Turning it on is the deliberate act here,
           // and it is the last step of the Layer-1 install (docs/BACKUP-RUNBOOK.md §3).
           backups: { type: Boolean, default: false },
+          // FR-20.100 — the org's own server; built only there, so on lgrai.app it is never present.
+          server: { type: Boolean, default: true },
         },
         locale: String,
       },
