@@ -31,6 +31,7 @@
       <v-list-item prepend-icon="mdi-email-outline" title="Invites" to="/settings/invites" />
       <v-list-item prepend-icon="mdi-monitor-dashboard" :title="$t('desktops.title')" to="/settings/desktops" />
       <v-list-item prepend-icon="mdi-server-network" :title="$t('servers.title')" to="/settings/servers" />
+      <v-list-item v-if="onServer" prepend-icon="mdi-server" :title="$t('serverStatus.title')" to="/settings/server" data-test="nav-server-status" />
       <v-list-item prepend-icon="mdi-credit-card-outline" title="Billing" to="/settings/billing" />
       <v-list-item prepend-icon="mdi-clipboard-text-clock" :title="$t('nav.auditLog')" to="/admin/audit-log" />
       <!--
@@ -87,6 +88,8 @@ const apps = ref<AppInfo[]>([])
 const pendingChangesOpen = ref(false)
 /** FR-13.27 — whether to SHOW the backup entry. Never whether the caller may use it. */
 const canAdminBackups = ref(false)
+/** FR-20.98 (P3-8b): on a master, for an admin, the server's own status page. */
+const onServer = ref(false)
 
 function handleRestore(entry: PendingChangeEntry) {
   pendingChangesOpen.value = false
@@ -123,6 +126,12 @@ onMounted(async () => {
       canAdminBackups.value = !!data?.sysAdmin
     } catch {
       canAdminBackups.value = false
+    }
+    try {
+      const { data } = await httpClient.get(`/org/${appStore.currentOrg.id}/server/here`)
+      onServer.value = !!data?.server
+    } catch {
+      onServer.value = false
     }
   }
 })

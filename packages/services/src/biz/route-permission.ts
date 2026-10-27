@@ -173,6 +173,7 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['nodes', { self: 'admin role, or admin.settings (FR-20.2; global only, 404 on a master)' }],
   ['moves', { self: 'admin role, or admin.settings (FR-20.79; global only, 404 on a master)' }],
   ['numbering', { self: 'admin role, or admin.settings (FR-20.51: whether legal numbering waits, and the series; every node)' }],
+  ['server', { self: "admin role, or admin.settings (FR-20.98: a master's own status page, 404 on lgrai.app); `here` tells any member only whether to show it" }],
   ['integration', { self: 'admin role' }],
   ['invite', { self: 'admin role' }],
   ['permission-sets', { self: 'admin role, or admin.settings' }],
