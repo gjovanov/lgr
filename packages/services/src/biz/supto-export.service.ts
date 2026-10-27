@@ -9,6 +9,8 @@ import type { RepositoryRegistry } from 'dal'
 import { getRepos } from '../context.js'
 import { isDateOnly, localDayEnd, localDayStart } from './local-day.js'
 import { loadPosRows } from './cash-register/pos-union.js'
+import { originOf } from './cash-register/register.service.js'
+import { User } from 'db/models'
 
 /**
  * The period the tables cover, from the query's `dateFrom` / `dateTo` (FR-21 B-7).
@@ -56,7 +58,7 @@ export async function exportSummarizedSales(filters: SuptoExportFilters, repos?:
   const r = repos ?? getRepos()
   const transactions = await tillRows(filters, t =>
     SALE_TYPES.includes(t.type)
-    && (!filters.operatorCode || String(t.unpNumber || '').includes(`-${filters.operatorCode}-`)))
+    && (!filters.operatorCode || t.operatorCode === filters.operatorCode))
 
   // Also include cash_sale invoices — but not the till's own documents, already listed above.
   const invoiceQuery: any = {
@@ -65,7 +67,24 @@ export async function exportSummarizedSales(filters: SuptoExportFilters, repos?:
     issueDate: { $gte: filters.dateFrom, $lte: filters.dateTo },
     'register.origin': { $ne: 'pos' },
   }
-  const cashSales = await r.invoices.findMany(invoiceQuery, { issueDate: 1 })
+  const found = await r.invoices.findMany(invoiceQuery, { issueDate: 1 })
+
+  // #323: the operator of a back-office cash sale. A joined sale stores it (it is the till's, above);
+  // a sessionless one names its author, whose code it is. An imported day has none: its author is
+  // whoever ran the import, not who sold.
+  const authors = [...new Set(found.filter((d: any) => !d.register?.operatorCode && originOf(d) !== 'import' && d.createdBy).map((d: any) => String(d.createdBy)))]
+  const codeOf = new Map(authors.length
+    ? (await User.find({ _id: { $in: authors }, orgId: filters.orgId }, { operatorCode: 1 }).lean().exec()).map((u: any) => [String(u._id), u.operatorCode as string | undefined])
+    : [])
+  const cashSales = found
+    .map((d: any) => ({
+      ...d,
+      register: {
+        ...(d.register || {}),
+        operatorCode: d.register?.operatorCode || (originOf(d) === 'import' ? undefined : codeOf.get(String(d.createdBy))),
+      },
+    }))
+    .filter((d: any) => !filters.operatorCode || d.register.operatorCode === filters.operatorCode)
 
   return { transactions, cashSales }
 }
