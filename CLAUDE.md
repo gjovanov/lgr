@@ -2697,6 +2697,9 @@ any member of the org may, nothing in it is secret, and it is in the PIN scope t
   leaves it out) but a server that writes nothing more of the org.
 - An org written here: nothing shows (`home: 'here'`).
 - Polled every two minutes, so a server going offline, or coming back, shows without a reload.
+  The page that changes where the org is written says so at once (`ui-shared/useHomeChanged`:
+  the Servers page when a move starts or ends, and when a promotion's last numbers are saved), or
+  the banner went on saying "numbering waits" under "numbering resumes" for up to two minutes.
 - **A refused write says why, in the reader's language.**
   - `setRefusalTranslator` (`ui-shared/useHttpClient`): the shell registers its words for a 409 the
     server names by code, and the interceptor rewrites `data.message`, which is what every view already

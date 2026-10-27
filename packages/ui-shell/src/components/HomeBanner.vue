@@ -18,6 +18,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient, setRefusalTranslator } from 'ui-shared/composables/useHttpClient'
+import { onHomeChanged } from 'ui-shared/composables/useHomeChanged'
 
 /**
  * FR-20.75 (plan step P3-5) — where the org lives, above every page of every app, when it is not
@@ -74,9 +75,12 @@ watch(() => props.orgId, id => {
 
 const REFUSALS: Record<string, string> = { org_home_elsewhere: 'home.writeRefused', series_frozen: 'home.seriesFrozen' }
 setRefusalTranslator(code => (REFUSALS[code] ? t(REFUSALS[code]) : null))
+// A page that moved the org, or reopened its numbering, says so: look again now.
+const stopListening = onHomeChanged(() => void load(props.orgId))
 onUnmounted(() => {
   if (timer) clearInterval(timer)
   setRefusalTranslator(null)
+  stopListening()
 })
 
 const when = (v?: string | null) => (v ? new Date(v).toLocaleString(locale.value) : t('home.unknown'))
