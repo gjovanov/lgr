@@ -306,8 +306,8 @@ try {
     const draft = await asAdmin('POST', `/org/${orgId}/invoices`, { type: 'invoice', direction: 'outgoing', contactId: customer.body?.contact?.id, issueDate: '2026-10-27', currency: 'EUR', lines: [line], subtotal: 10, taxTotal: 2, total: 12, paymentMethod: 'bank_transfer' })
     const refused = await asAdmin('POST', `/org/${orgId}/invoices/${draft.body?.invoice?.id}/send`, {})
     check('…but issues no legal number: it waits for the site\'s last numbers', draft.status === 200 && refused.status === 409 && refused.body?.code === 'series_frozen', `${draft.status} ${refused.status} ${refused.body?.code}`)
-    const series = (await asAdmin('GET', `/org/${orgId}/moves/last-numbers`)).body?.series ?? []
-    const recorded = await asAdmin('POST', `/org/${orgId}/moves/last-numbers`, { series: series.map((x: any) => ({ ...x, last: x.prefix === 'SALES_DOC' ? 500 : x.last })) })
+    const series = (await asAdmin('GET', `/org/${orgId}/numbering/last-numbers`)).body?.series ?? []
+    const recorded = await asAdmin('POST', `/org/${orgId}/numbering/last-numbers`, { series: series.map((x: any) => ({ ...x, last: x.prefix === 'SALES_DOC' ? 500 : x.last })) })
     const issued = await asAdmin('POST', `/org/${orgId}/invoices/${draft.body?.invoice?.id}/send`, {})
     check('the site\'s last numbers recorded, numbering resumes above them', recorded.status === 200 && issued.status === 200 && /-00501$/.test(issued.body?.invoice?.invoiceNumber ?? ''), `${recorded.status} ${issued.status} ${issued.body?.invoice?.invoiceNumber}`)
 
@@ -352,6 +352,12 @@ try {
   }
 
   if (!PROMOTE) {
+    // ── FR-20.51 (P3-7): a master that never went back keeps its numbering open ─────────────────────
+    // Its boot check and its minute tick (the journal's mark, lgrai.app's alarms) have run by now.
+    await Bun.sleep(65_000)
+    const open: any = await mdb.collection('org_homes').findOne({ orgId })
+    check('the master\'s legal numbering stays open: no restore, no clone, no history gone back', !open?.seriesFrozen && existsSync(join(DATA, 'state', 'journal-hwm.json')), JSON.stringify(open?.seriesFrozen ?? null))
+
     // ── FR-20.80 (P3-6c): back to lgrai.app ─────────────────────────────────────────────────────────
     // A document the shop makes on the master, with its file: global gets the file by content.
     const made = randomBytes(40_000)

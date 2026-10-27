@@ -32,7 +32,12 @@ export interface IOrgHome extends Document {
    * a number the site may already have given another customer. Set by the promotion's flip, cleared
    * only by `recordLastNumbers`.
    */
-  seriesFrozen?: { since: Date; reason: string; moveId?: string }
+  seriesFrozen?: { since: Date; reason: string; moveId?: string; detail?: string }
+  /**
+   * FR-20.51 (P3-7): when a person last recorded the site's last numbers here. A lock signal from
+   * before it (a refusal still standing, the journal still below its old mark) does not lock again.
+   */
+  seriesUnlockedAt?: Date
   /**
    * FR-20.8 (P3-6d): on a master that is no longer the org's home, the watermark global held when it
    * was replaced. Everything this master captured above it waits to be exported (FR-20.84).
@@ -48,7 +53,8 @@ const orgHomeSchema = new Schema<IOrgHome>(
     state: { type: String, required: true, default: 'active', enum: ['active', 'freezing', 'frozen', 'fenced', 'hold'] },
     since: { type: Date, required: true, default: Date.now },
     changedBy: String,
-    seriesFrozen: { since: Date, reason: String, moveId: String },
+    seriesFrozen: { since: Date, reason: String, moveId: String, detail: String },
+    seriesUnlockedAt: Date,
     fenceCutoff: Number,
   },
   { collection: 'org_homes' },

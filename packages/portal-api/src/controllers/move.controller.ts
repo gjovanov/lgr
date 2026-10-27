@@ -4,10 +4,9 @@ import { AuthService } from '../auth/auth.service.js'
 import { fiscalInFlight } from 'fiscal/in-flight'
 import { MoveError, abortMove, currentMove, preflightMove, startMove } from 'services/biz/move/move.service'
 import { preflightMoveBack, startMoveBack } from 'services/biz/move/move-back.service'
-import { legalSeriesOf, preflightPromote, promote, recordLastNumbers } from 'services/biz/move/promote.service'
+import { preflightPromote, promote } from 'services/biz/move/promote.service'
 import { fencedExportsOf } from 'services/biz/move/fenced-export.service'
 import { requestFencedImport } from 'services/biz/move/fenced-import.service'
-import { OrgHome } from 'db/models'
 import { rewelcomeNode } from '../websocket/uplink.js'
 
 /**
@@ -172,35 +171,7 @@ export const moveController = new Elysia({ prefix: '/org/:orgId/moves' })
     { isSignIn: true },
   )
 
-  /** Whether legal numbering waits for the site's last numbers, and the series a person must give. */
-  .get(
-    '/last-numbers',
-    async ({ params: { orgId }, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
-      const home: any = await OrgHome.findOne({ orgId }, { seriesFrozen: 1 }).lean()
-      return { frozen: !!home?.seriesFrozen?.since, since: home?.seriesFrozen?.since ?? null, series: await legalSeriesOf(orgId) }
-    },
-    { isSignIn: true },
-  )
-
-  /** The last numbers issued at the site: each legal series resumes above them, and numbering opens. */
-  .post(
-    '/last-numbers',
-    async ({ params: { orgId }, body, user, status }) => {
-      if (!user) return status(401, { message: 'Unauthorized' })
-      if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
-      try {
-        return { series: await recordLastNumbers(orgId, { id: user.id, operatorCode: user.operatorCode }, body.series) }
-      } catch (e) {
-        return fail(status, e)
-      }
-    },
-    {
-      isSignIn: true,
-      body: t.Object({ series: t.Array(t.Object({ prefix: t.String({ maxLength: 40 }), year: t.Integer({ minimum: 0 }), last: t.Integer({ minimum: 0 }) }), { maxItems: 200 }) }),
-    },
-  )
+  // The site's last numbers moved to `numbering.controller.ts` (P3-7): a master locks its own too.
 
   /** The org's live move, or its last one. */
   .get(
