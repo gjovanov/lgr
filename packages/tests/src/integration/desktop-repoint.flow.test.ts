@@ -136,6 +136,11 @@ describe('the contract the shell verifies (repoint-vector.json)', () => {
     expect(r).toMatchObject({ ok: true, claims: { sub: v.desktopId, org: v.orgId, node: v.claims.node, epoch: v.claims.epoch, server: v.claims.server, fp: v.claims.fp } })
     // The built-in keys never signed the vector: a throwaway key did.
     expect(verifyRepoint(jws, acceptedRepointKeys(true), v.nowSec * 1000)).toEqual({ ok: false, reason: 'unknown_key' })
+    // FR-20.80 (P3-6c): back to lgrai.app, no pin. Which cloud is the shell's to judge; a pin there is no shape.
+    const cloud = verifyRepoint(v.cloudJwsParts.join('.'), keys, v.nowSec * 1000)
+    expect(cloud).toMatchObject({ ok: true, claims: { sub: v.desktopId, org: v.orgId, node: 'global', epoch: 4, server: 'https://lgrai.app' } })
+    expect((cloud as any).claims.fp).toBeUndefined()
+    expect(verifyRepoint(v.cloudPinnedJwsParts.join('.'), keys, v.nowSec * 1000)).toEqual({ ok: false, reason: 'bad_claims' })
   })
 })
 

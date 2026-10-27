@@ -576,7 +576,9 @@ copy travels: lgrai.app's mirror already holds the org, and the move waits until
    whatever the order of fields.
 4. **The files go back where their rows say**, and lgrai.app becomes the org's home again, one epoch
    up.
-5. **The server keeps a read-only copy.** Its desktops are told the org moved.
+5. **The server keeps a read-only copy.** Its desktops are handed an instruction lgrai.app signed for
+   each of them, and follow the org back on their own (a desktop older than this release says the
+   org moved, and is paired again by hand).
 
 Until the switch, an abort leaves the org on its server, which unfreezes it.
 

@@ -2587,10 +2587,27 @@ mirror holds ALL of it. Global: `services/biz/move/move-back.service.ts`; the ma
 
   After it, the content store (`dropMirrorBlobs`) goes, and the master is re-welcomed.
 - **The master** hears `done` (from `drained` or its moves) and sets its home record to
-  `{home: 'global', epoch}`. It keeps a read-only copy (its home gate refuses writes). Its desktops
-  get `desktop:moved {node: 'global', name: 'lgrai.app'}` (`movedFor` on a master), and re-pair by
-  hand until P3-6c's second step signs them a re-point. ⚠ A later move to that master needs the copy
-  removed first: the import refuses an org with data.
+  `{home: 'global', epoch}`. It keeps a read-only copy (its home gate refuses writes). ⚠ A later move
+  to that master needs the copy removed first: the import refuses an org with data.
+- **Its desktops follow** (FR-20.82, the second step):
+  - `drained`'s `done` answer carries one CLOUD re-point per active desktop of the org
+    (`cloudRepointsFor`): the same JWS as P3-6b's, signed afresh on every answer with
+    `REPOINT_SIGNING_KEY`, but with `node: 'global'`, `server` = global's own public https origin
+    (`OAUTH_BASE_URL`) and NO `fp`;
+  - the master keeps them (`keepCloudRepoints`, `NodeState cloud-repoint:<org>`), asking global
+    again if the answer was lost;
+  - its `movedFor` hands each desktop its own instruction (`desktop:repoint`), or `desktop:moved`
+    for one global signed nothing for;
+  - the shell (`repoint.rs`) believes a pinless one ONLY for the cloud built into it (`CLOUD`, `https://lgrai.app` unless
+    `LGR_CLOUD_URL` at build time): anything else is `not_our_cloud`, and a cloud one carrying a pin
+    is `bad_claims`. Followed, it drops the master's pin, saves the cloud and the epoch, and restarts.
+    ⚠ Without that rule a pinless instruction would send the till wherever its signer said, trusted
+    through the OS store.
+  - ⚠ Both verifiers test the cloud cases against the one vector (`repoint-vector.json`, regenerated
+    with a new throwaway key: `jwsParts`, `cloudJwsParts`, `cloudOtherJwsParts`,
+    `cloudPinnedJwsParts`).
+  - Until a desktop release carries the shell's half, the desktops show the org-moved banner and
+    re-pair by hand.
 - **An abort** (the admin, a refusal, a timeout) leaves the home where it was; the master unfreezes on
   its next report. Global writes no audit entry for it: the org's trail lives on its master.
 - `homeDigests` (`move/home-digest.ts`): per collection, over `homePart` (what pages carry, never

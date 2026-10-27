@@ -16,7 +16,9 @@
  *    (`placeFilesBack`), since global reads an org homed here by path, then flips.
  * 5. **The flip**, in one transaction that first claims the move: the epoch up by one, the home
  *    global, `homeEpochHighWater` with it, the mirror's chain deleted. The master leaves the org on its
- *    next report and keeps a read-only copy; its desktops are told the org moved.
+ *    next report and keeps a read-only copy. The answer that tells it carries one signed cloud
+ *    re-point per desktop of the org (FR-20.82), which the master hands on: its desktops are connected
+ *    to it, not here.
  *
  * Until the flip, an abort leaves the home where it was: the master unfreezes on its next report.
  * ⚠ The org's audit trail is written on the master (it is the org's data, and the master is its home
@@ -28,6 +30,7 @@ import { LIVE_MOVE_STATES, MirrorState, Org, OrgHome, OrgMove, POSSession, Serve
 import { forgetHome, homeOf } from 'db/home/home'
 import { logger } from '../../logger/logger.js'
 import { presenceOfNodes } from '../node/node.service.js'
+import { cloudRepointsFor } from '../desktop/repoint.service.js'
 import { dropMirrorBlobs, mirrorFilesStatus, placeFilesBack, type MirrorFilesStatus } from '../replication/mirror-blobs.js'
 import { homeDigests } from './home-digest.js'
 import { digestMismatch, type Digests } from './move-bundle.js'
@@ -107,7 +110,7 @@ export interface DrainReport {
 }
 
 export type DrainAnswer =
-  | { ok: true; epoch: number; orgId: string }
+  | { ok: true; epoch: number; orgId: string; repoints?: Array<{ desktopId: string; instruction: string }> }
   | { ok: false; state: 'aborted'; error?: string }
   | { wait: 'pages'; watermark: number; head: number }
   | { wait: 'files'; files: MirrorFilesStatus }
@@ -127,7 +130,8 @@ async function waitOn(m: any, on: string, detail?: string) {
 export async function drained(nodeId: string, moveId: string, report: DrainReport): Promise<DrainAnswer> {
   const m: any = await OrgMove.findOne({ _id: oid(moveId), kind: 'to_global', from: nodeId }).lean()
   if (!m) throw new MoveError(404, 'not_found', 'No such move back for this server.')
-  if (m.state === 'done') return { ok: true, epoch: m.epochTo, orgId: String(m.orgId) }
+  // Signed afresh on every answer: they last 30 days, and the master may ask again after a restart.
+  if (m.state === 'done') return { ok: true, epoch: m.epochTo, orgId: String(m.orgId), repoints: await cloudRepointsFor(String(m.orgId), m.epochTo) }
   if (m.state === 'aborted') return { ok: false, state: 'aborted', ...(m.error ? { error: m.error } : {}) }
   if (m.state === 'verifying') return { wait: 'placing' }
   if (!Number.isSafeInteger(report?.head) || report.head < 0) throw new MoveError(422, 'bad_report', 'A drain report names the journal head.')
