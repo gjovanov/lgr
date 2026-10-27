@@ -3,6 +3,7 @@
   "type": "module",
   "exports": {
     "./composables/useHttpClient": "./src/composables/useHttpClient.ts",
+    "./composables/useHomeChanged": "./src/composables/useHomeChanged.ts",
     "./composables/idempotency": "./src/composables/idempotency.ts",
     "./composables/useSnackbar": "./src/composables/useSnackbar.ts",
     "./composables/useWebSocket": "./src/composables/useWebSocket.ts",

@@ -391,6 +391,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { announceHomeChanged } from 'ui-shared/composables/useHomeChanged'
 import { useAppStore } from '../../store/app.store'
 
 /**
@@ -602,12 +603,16 @@ const filesBlocking = computed(() => !!preflight.value?.checks.find(c => c.name 
 const credentialsSettled = computed(() => (preflight.value?.missingCredentials ?? []).every(p => allowMissing.value.includes(p.identityId)))
 const canStart = computed(() => !!preflight.value && shownChecks.value.every(c => c.ok))
 
+let wasLive: boolean | null = null
 async function loadMove() {
   try {
     const { data } = await httpClient.get(`${moveBase()}/current`)
     move.value = data.move
   } catch { move.value = null }
   const live = !!move.value && LIVE.includes(move.value.state)
+  // A move starting or ending changes where the org is written: the banner above looks again now.
+  if (wasLive !== null && live !== wasLive) announceHomeChanged()
+  wasLive = live
   if (live && !moveTimer) moveTimer = setInterval(loadMove, 3000)
   if (!live && moveTimer) {
     clearInterval(moveTimer)
@@ -697,6 +702,7 @@ async function saveLastNumbers() {
     const series = lastNumbers.value.series.map(s => ({ prefix: s.prefix, year: s.year, last: Math.max(0, Math.floor(Number(siteNumbers.value[`${s.prefix}|${s.year}`] ?? s.last))) }))
     await httpClient.post(`${moveBase()}/last-numbers`, { series })
     showSnackbar(t('servers.lastNumbers.saved'), 'success')
+    announceHomeChanged()
     lastNumbersConfirmed.value = false
     await loadLastNumbers()
   } catch (e: any) {
