@@ -32,6 +32,7 @@ import { logger } from '../../logger/logger.js'
 import { recordAuditEntry } from '../audit-log.service.js'
 import { presenceOfNodes } from '../node/node.service.js'
 import { cloudRepointsFor } from '../desktop/repoint.service.js'
+import { mirrorDeadLetterStatus } from '../replication/dead-letters.js'
 import { dropMirrorBlobs, mirrorFilesStatus, placeFilesBack, type MirrorFilesStatus } from '../replication/mirror-blobs.js'
 import { homeDigests } from './home-digest.js'
 import { digestMismatch, type Digests } from './move-bundle.js'
@@ -77,6 +78,9 @@ export async function preflightMoveBack(orgId: string, allowMissingFiles = false
   // FR-20.70 (P3-7f): while a reconcile runs, the copy may still hold what the server deleted.
   const reconciling = !!mirror?.reconcileRequired || (!!mirror?.reconcile && !mirror.reconcile.doneAt)
   add('mirror_live', !!mirror && !reconciling, mirror ? 'the mirror is being made equal to the server again (the server lost the record of its changes)' : 'the server has not mirrored this organisation yet')
+  // P3-2c: a document set aside is not on the copy, and the move back would wait for its digest for ever.
+  const dead = await mirrorDeadLetterStatus(orgId)
+  add('mirror_whole', dead.open === 0, `${dead.open} documents could not be written to lgrai.app's copy (the Servers page lists them)`)
 
   const files = await mirrorFilesStatus(orgId)
   const lost = files.missingOnMaster + files.failing

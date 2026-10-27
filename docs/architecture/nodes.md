@@ -557,7 +557,12 @@ offline (Q2). Only the master writes the org, and the copy follows it one way:
   - An org may keep its files on its server only ("Files on lgrai.app" on the Servers page, the
     metadata-only option): its records are mirrored, and its files open only on the server.
   - A file the master cannot read is reported as missing there.
-- **Not yet:** dead letters (P3-2c).
+- **One document never stops the org** (P3-2c): a document lgrai.app cannot write (its id or a
+  unique value belongs to another org there, or the database refuses it) is set aside, and the rest
+  of the page applies. lgrai.app asks the server for it again, less often each time, and the page
+  that finally writes it clears it. The Servers page lists what is set aside, and a move back waits
+  for it.
+- **Not yet:** pacing the bulk socket against the shop's upstream (FR-20.52).
 
 ## Read-only where the org is not written (FR-20.75)
 
@@ -759,7 +764,7 @@ FR-20's P1 to P3:
   invitations to an on-prem org (plan A.6.8, with the move), off-site backups, reference data;
 - reading documents without the internet on Windows: the package carrying poppler and tesseract
   (P2-6c did Linux, where the .deb depends on the distribution's);
-- the tunnel, and the mirror's dead letters (P3-2c); its transport, files, re-seed and reconcile are above;
+- the tunnel, and pacing the mirror on the shop's upstream (P3-2c); its transport, files, dead letters, re-seed and reconcile are above;
 - the rest of the moves: a legal number a fenced server and lgrai.app both issued, resolved by a
   credit note and a re-issue (FR-20.51; everything else of the moves is above);
 - setting a local credential on the master itself, right after a Sign in with LGR, and sending it up

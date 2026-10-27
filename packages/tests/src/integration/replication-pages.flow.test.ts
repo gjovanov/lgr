@@ -419,7 +419,7 @@ describe('isolation (FR-20.66)', () => {
     expect(st.alarms.map((a: any) => a.kind)).toEqual(['not_registered', 'clone_alarm', 'not_registered'])
   }, 60_000)
 
-  it('a document id another org holds is refused, never deleted', async () => {
+  it('a document id another org holds is never written over or deleted: that document is set aside (P3-2c)', async () => {
     const orgId = await homedOrg()
     await journal(orgId)
     await sync(orgId)
@@ -429,8 +429,11 @@ describe('isolation (FR-20.66)', () => {
     await master.collection<any>('contacts').insertOne({ _id: theirs, orgId, companyName: 'Mine Ltd', type: 'customer' })
     await rejournal(client, master, orgId, 'contacts', [theirs])
     const [r] = await sync(orgId)
-    expect(refusedAs(r)).toBe('foreign_collision')
+    expect(refusedAs(r)).toBe('applied')
+    expect((r as any).setAside).toBe(1)
     expect(await mirror.collection('contacts').findOne({ _id: theirs })).toMatchObject({ orgId: other, companyName: 'Theirs Ltd' })
+    // `mirror-dead-letters.flow` follows what becomes of it.
+    expect(await mirror.collection('mirror_dead_letters').countDocuments({ orgId, status: 'open' })).toBe(1)
   }, 60_000)
 })
 

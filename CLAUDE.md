@@ -2431,7 +2431,21 @@ A master journals its own writes and sends them to lgrai.app's mirror of the org
     read-then-write would lose a Stripe webhook's write in between.
   - ⚠ A duplicate key ABORTS a MongoDB transaction, so a collision is resolved by trying again with
     the stale same-org document deleted first, and `resend {coll, ids}` asks the master for it again
-    (`rejournal`). A key or `_id` another org holds refuses the page and is never deleted.
+    (`rejournal`). A key or `_id` another org holds is never written over or deleted: that
+    document is SET ASIDE (below).
+  - **One document never stops the org** (P3-2c, FR-20.65; `replication/dead-letters.ts`,
+    `mirror_dead_letters`, node state): a document whose `_id` another org holds (found before the
+    first attempt, one `$in` a collection, not one retry each), whose unique key another org holds,
+    or that the database refuses (a server code that is the document's: not 11000, not a
+    transient/server-state code, no `TransientTransactionError` label) is left out of the next
+    attempt and recorded `open`, with a `dead_letter` alarm the first time; the rest of the page
+    applies. More than `DEAD_MAX` (100) in one page fail it (`page-error`). An open one rides the
+    org's next acknowledgement as `resend` once its `retryAt` comes (5 min, doubling to a day),
+    and the page that writes it resolves it, so a conflict someone removes heals by itself. The
+    Servers page's "Files on lgrai.app" card lists them (×4), and the move back waits on them
+    (`mirror_whole`): a set-aside document would keep its digest from ever matching.
+    The isolation refusals (another org's row, a collection that does not replicate, a file outside
+    the org) still refuse the whole page: those are not one document's trouble.
   - ⚠ A stale SPLIT document is parked (its key set to `~stale~<id>`), never deleted: its global
     and node fields travel in no page, so a resent membership would come back with no person and,
     looking new, without its sanctioned link.
@@ -2562,7 +2576,8 @@ mirror holds ALL of it. Global: `services/biz/move/move-back.service.ts`; the ma
     connected on both sockets and healthy;
   - no till open and no fiscal command in flight there (its health frame's `posOpen` and
     `fiscalInFlight`; unknown is not 0) and no open session among the mirrored rows;
-  - a live mirror (no reconcile running: `mirror_state.reconcile` done, or none);
+  - a live mirror (no reconcile running: `mirror_state.reconcile` done, or none), and a whole one
+    (no document set aside, `mirror_whole`, P3-2c);
   - every file the mirror's rows name is on lgrai.app or on its way. A file the server cannot send
     blocks the move unless the admin leaves it behind (`allowMissingFiles`).
 - **Asked** (`freezing`): global records the move and re-welcomes the master, so a records-only

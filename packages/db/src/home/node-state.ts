@@ -30,6 +30,8 @@
  *   would claim a freeze or a flip that is not happening.
  * - `MirrorBlob`: which files of an org homed on a master global's mirror holds (FR-20.69, P3-3).
  *   Restored from an old bundle it would claim bytes the mirror no longer has, or forget ones it has.
+ * - `MirrorDeadLetter`: a document of a master's page global's mirror set aside (FR-20.65, P3-2c).
+ *   Restored from an old bundle it would ask the master again for documents long since written.
  * - `FencedExport`: what a fenced master did after the cutoff, as it reached global (FR-20.84,
  *   P3-6e). Its bytes live under the org's `docs/`, which the org's backups carry; the row is
  *   global's record of their arrival.
@@ -60,6 +62,7 @@ export const NODE_STATE_MODELS: ReadonlySet<string> = new Set([
   'ReplOrg',
   'MirrorState',
   'MirrorBlob',
+  'MirrorDeadLetter',
   'OrgMove',
   'FencedExport',
   'FencedImportItem',
