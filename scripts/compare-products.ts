@@ -27,7 +27,7 @@
  *   --file <path>     (required) storeAvailability_*.xlsx (WSL UNC ok)
  *   --org <slug>      org slug (default: regal-pz)
  *   --api <url>       API base (default: https://lgrai.app)
- *   --warehouse <c>   warehouse code or name (default: Pazardzhik / org default)
+ *   --warehouse <c>   warehouse code or name (default: Пазарджик / org default)
  *   --qty-tol <n>     quantity tolerance (default: 0.001)
  *   --price-tol <n>   price tolerance in EUR (default: 0.005 = half a cent)
  *   --limit <n>       truncate detail rows per section (default: unlimited — list ALL diffs)
@@ -249,7 +249,7 @@ async function main() {
   const norm = (s: string) => collapse(s)
   let wh = warehouseArg
     ? whs.find((w: any) => w.code === warehouseArg || norm(w.name) === norm(warehouseArg) || norm(w.code) === norm(warehouseArg))
-    : (whs.find((w: any) => norm(w.name) === 'pazardzhik' || w.code === 'pz') || whs.find((w: any) => w.isDefault) || whs[0])
+    : (whs.find((w: any) => ['pazardzhik', 'пазарджик'].includes(norm(w.name)) || w.code === 'pz') || whs.find((w: any) => w.isDefault) || whs[0])
   if (!wh) { console.error(`Warehouse "${warehouseArg}" not found.`); process.exit(1) }
   console.log(`Warehouse: ${wh.name} (${wh.code})`)
 

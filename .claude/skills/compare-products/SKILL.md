@@ -54,7 +54,7 @@ bun run scripts/compare-products.ts --file "$FILE"
 ```
 
 Options: `--org <slug>` (default `regal-pz`) · `--api <url>` · `--warehouse
-<code|name>` (default: **Pazardzhik / pz**, else org default) · `--qty-tol <n>`
+<code|name>` (default: **Пазарджик / pz**, else org default) · `--qty-tol <n>`
 (default 0.001) · `--price-tol <n>` (default 0.005 EUR) · `--limit <n>` (default
 unlimited — ALL rows listed) · `--out <path>` · `--txt [path]` (also write the readable report) · `--no-csv`
 · `--reverse-since <YYYY-MM-DD>` (date-correct a stale snapshot — see below).
@@ -108,4 +108,4 @@ strips the 07-29 activity and shows only the true structural residual.
   high-stock SKU reports its real quantity, not 0.
 - Tolerances: default qty 0.001 (exact for integer counts, room for kg), price
   0.005 EUR (ignores sub-half-cent rounding). Tighten/loosen per need.
-- Warehouse defaults to Pazardzhik; pass `--warehouse` for a different store.
+- Warehouse defaults to Пазарджик; pass `--warehouse` for a different store.

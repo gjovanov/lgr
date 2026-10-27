@@ -13,7 +13,7 @@ allowed-tools: Bash(bun:*), Read
 
 
 Backed by `scripts/transfer-stock.ts`. РЕГАЛ operates more than one store; goods move
-from СКЛАД-1 (the LGR-tracked Pazardzhik warehouse) to other stores
+from СКЛАД-1 (the LGR-tracked Пазарджик warehouse) to other stores
 (СКЛАД - УЛ.М.ВОЙВОДА 12, МАГАЗИН - РЕГАЛ - СОФИЯ, …) on `sklrazp_*.pdf` notes.
 LGR tracks a single warehouse, so each transfer becomes a **movement OUT** that
 reduces the warehouse quantity and adds nowhere ("into the unknown"). These
@@ -67,7 +67,7 @@ bun run scripts/transfer-stock.ts --items <transfers.json> --execute
 ```
 
 Options: `--org <slug>` (default `regal-pz`) · `--api <url>` · `--warehouse
-<code>` (default: org default = Pazardzhik) · `--max-date <YYYY-MM-DD>` (only
+<code>` (default: org default = Пазарджик) · `--max-date <YYYY-MM-DD>` (only
 transfers dated ≤ this — e.g. to book just the pre-snapshot backlog for a clean
 reconciliation) · `--skip-unmatched`.
 
@@ -75,7 +75,7 @@ reconciliation) · `--skip-unmatched`.
 
 - Per transfer: `✓ SM-… confirmed | first "<product>" <before> → <after> OK`.
 - Movement-count delta at the end; `/inventory/movements` shows the `transfer`
-  movements (status completed, source = Pazardzhik, no destination).
+  movements (status completed, source = Пазарджик, no destination).
 - After booking the pre-snapshot backlog, re-run `compare-products` against the
   matching `storeAvailability` — the "LGR higher" quantity drifts should shrink.
 
