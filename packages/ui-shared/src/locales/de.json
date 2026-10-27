@@ -3192,6 +3192,20 @@
     "relayDefault": "Standard der Verbindungsstufe",
     "relayWhat": "E-Mail über lgrai.app: Rechnungen, Tagesberichte und andere E-Mails eines Servers sendet lgrai.app in seinem Namen. Empfänger, Betreff, Text und Anhänge jeder E-Mail gehen über lgrai.app an SendGrid. Bei der Verbindungsstufe Control standardmäßig aus.",
     "relayDocumentsWhat": "Dokumente über lgrai.app: Ein Server hat keinen eigenen Leser, daher werden die PDFs, die Sie dort importieren, an lgrai.app gesendet. lgrai.app entnimmt ihren Text und lässt ein Dokument, das sein Parser nicht lesen kann, von einem KI-Modell erfassen. Das PDF und sein Text gehen über lgrai.app (der Text an das Modell); nur die Antwort wird aufbewahrt, zwei Tage lang. Bei der Verbindungsstufe Control standardmäßig aus.",
+    "files": {
+      "title": "Dateien auf lgrai.app",
+      "intro": "Solange {name} das Zuhause der Organisation ist, hält lgrai.app eine Kopie ihrer Datensätze. Mit den Dateien öffnet sich jedes Dokument auch hier, während der Server offline ist, und ein Umzug zurück zu lgrai.app hat nichts mehr zu senden.",
+      "switch": "Auch die Dateien kopieren",
+      "metadataOnly": "Nur Datensätze: Die Dateien bleiben auf dem Server und öffnen sich nur dort. Dateien, die schon auf lgrai.app sind, öffnen sich weiterhin.",
+      "complete": "Alle {count} Dateien sind auf lgrai.app.",
+      "progress": "{held} von {count} Dateien sind auf lgrai.app.",
+      "arriving": "{count} kommen gerade an.",
+      "waiting": "{count} warten, bis sie an der Reihe sind.",
+      "missing": "{count} fehlen auch auf dem Server: Sie sind dort möglicherweise verloren.",
+      "failing": "{count} kamen beschädigt an und werden später erneut gesendet.",
+      "none": "Noch keine Dateien.",
+      "saved": "Gespeichert. Der Server folgt innerhalb einer Minute."
+    },
     "move": {
       "action": "Hierher umziehen",
       "title": "{org} auf {name} umziehen",
@@ -3418,5 +3432,9 @@
     "joinAs": "{org} als {email} beitreten",
     "joinFailed": "Der Organisation konnte nicht beigetreten werden.",
     "openOrg": "{org} öffnen"
+  },
+  "mirror": {
+    "file_not_mirrored": "Diese Datei ist vom Server der Organisation noch nicht auf lgrai.app angekommen. Sie öffnet sich jetzt dort und hier, sobald sie ankommt.",
+    "files_not_mirrored": "Diese Organisation behält ihre Dateien nur auf ihrem Server: Die Datei öffnet sich dort."
   }
 }

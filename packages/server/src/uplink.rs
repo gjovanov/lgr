@@ -250,7 +250,8 @@ where
     }
 
     // FR-20.64: the mirror's pages, on the bulk socket of a master linked at Full.
-    let (page_tx, mut page_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(1);
+    // FR-20.69: and the org's files behind them, with the words that go with them.
+    let (page_tx, mut page_rx) = tokio::sync::mpsc::channel::<crate::replication::Out>(1);
     let (answer_tx, answer_rx) = tokio::sync::mpsc::unbounded_channel::<serde_json::Value>();
     let mut pumping = false;
     let _pump = match &hooks.pages {
@@ -284,9 +285,13 @@ where
                 }
                 patch(status, ch, "lastHealthAt", now_iso().into());
             }
-            Some(bytes) = page_rx.recv(), if pumping => {
-                if let Err(e) = ws.send(Message::binary(bytes)).await {
-                    return Ended::Closed(format!("a page was not sent: {e}"));
+            Some(frame) = page_rx.recv(), if pumping => {
+                let sent = match frame {
+                    crate::replication::Out::Binary(bytes) => ws.send(Message::binary(bytes)).await,
+                    crate::replication::Out::Text(word) => ws.send(Message::text(word)).await,
+                };
+                if let Err(e) = sent {
+                    return Ended::Closed(format!("a mirror frame was not sent: {e}"));
                 }
             }
             _ = tokio::time::sleep_until((last + timing.silent).into()) => {
@@ -317,7 +322,7 @@ where
                                     keep(jws);
                                 }
                             }
-                            Some("page-ack" | "page-refused" | "page-error") => {
+                            Some("page-ack" | "page-refused" | "page-error" | "blob-want" | "blob-ack" | "blob-refused" | "blob-error") => {
                                 let _ = answer_tx.send(v);
                             }
                             Some("error") => tracing::warn!(ch, code = v["code"].as_str().unwrap_or(""), "global: {}", v["message"].as_str().unwrap_or("")),

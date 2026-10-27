@@ -134,6 +134,12 @@ export interface IOrg extends Document {
      */
     node?: {
       ephemeralKeysEnabled?: boolean
+      /**
+       * FR-20.69 (P3-3): whether this org's files travel to global's mirror while its home is a
+       * master. Unset is yes; `false` is the metadata-only option: the records are mirrored, the
+       * files stay on the master. Global's own, like the rest of `settings.node`.
+       */
+      mirrorFiles?: boolean
     }
     modules: string[]
     integrations?: {
@@ -274,6 +280,8 @@ const orgSchema = new Schema<IOrg>(
       // FR-20.2 — reusable registration keys for the field lanes' throwaway masters. Off unless asked for.
       node: {
         ephemeralKeysEnabled: { type: Boolean, default: false },
+        // FR-20.69: unset means "mirror the files too". No default, so no org needs a backfill.
+        mirrorFiles: { type: Boolean },
       },
       modules: [{ type: String }],
       integrations: {

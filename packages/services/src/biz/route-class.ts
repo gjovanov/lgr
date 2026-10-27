@@ -45,6 +45,9 @@ export const GLOBAL_STATE_WRITES: ReadonlySet<string> = new Set([
   'DELETE /api/org/:orgId/nodes/enrollment-keys/:id',
   // FR-20.59 (P2-6): which services global relays for a master, global's own record.
   'PUT /api/org/:orgId/nodes/:id/relays',
+  // FR-20.69 (P3-3): whether the org's files travel to the mirror, global's part of the org
+  // (`settings.node`, which no page overwrites).
+  'PUT /api/org/:orgId/nodes/mirror',
   // FR-20.79 (P3-6a): global's record of a move and the org's home. The abort is exactly for an org
   // that is frozen, which the home gate would otherwise refuse.
   'POST /api/org/:orgId/moves/',

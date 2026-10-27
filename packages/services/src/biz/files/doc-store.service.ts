@@ -12,6 +12,7 @@ import { ocrExtract } from '../doc-import/ocr-client.js'
 import { detectDocKind } from '../doc-import/detect.js'
 import { runAndDumpCompare } from './compare-snapshot.service.js'
 import { resolveStored, toStored } from './stored-path.js'
+import { mirroredBlobFile, mirrorFileMissing, readsByContent } from '../replication/mirror-blobs.js'
 
 /**
  * Files app — the PV-backed, versioned, audited document store. Extends the (previously
@@ -327,6 +328,8 @@ export async function trashDocumentFile(orgId: string, doc: { docDate: string; o
 export async function getVersions(orgId: string, docFileId: string) {
   const doc = await DocFile.findOne({ orgId, _id: docFileId }).lean()
   if (!doc) return { current: null, versions: [] as any[] }
+  // FR-20.69 (P3-3): a mirror lists them from their rows; their bytes were never on this disk.
+  if (await readsByContent(orgId)) return { current: { name: doc.originalName, path: doc.currentPath, version: doc.version }, versions: await mirroredVersions(orgId, doc) }
   const vdir = containedJoin(dateDir(orgId, doc.docDate), 'versions')
   let files: string[] = []
   try { files = await readdir(vdir) } catch { /* none yet */ }
@@ -339,10 +342,58 @@ export async function getVersions(orgId: string, docFileId: string) {
   return { current: { name: doc.originalName, path: doc.currentPath, version: doc.version }, versions }
 }
 
-/** Resolve the on-disk path for a download (current canonical, or a named archived version). */
-export async function resolveDownload(orgId: string, docFileId: string, versionName?: string): Promise<{ path: string; name: string; mime: string } | null> {
+/** A document's earlier versions as a mirror knows them: the `File` rows that followed their bytes into `versions/`. */
+async function mirroredVersions(orgId: string, doc: any) {
+  const prefix = `${toStored(containedJoin(dateDir(orgId, doc.docDate), 'versions'))}/`
+  const base = doc.originalName.replace(/.[^.]+$/, '')
+  // A range, not a regex: the names are Cyrillic, and the prefix is a literal.
+  const rows: any[] = await FileModel.find({ orgId, storagePath: { $gte: prefix, $lt: `${prefix}￿` } }, { storagePath: 1, size: 1, updatedAt: 1 }).lean()
+  return rows
+    .map(r => ({ name: String(r.storagePath).slice(prefix.length), size: r.size, archivedAt: r.updatedAt }))
+    .filter(v => !v.name.includes('/') && v.name.startsWith(base + '_'))
+    .sort((a, b) => +new Date(b.archivedAt) - +new Date(a.archivedAt))
+}
+
+/**
+ * FR-20.69 (P3-3): a download on global of an org homed on a master. The bytes are read by content
+ * (the row's sha256), never where the row says: the row's path is the master's to choose. Global's
+ * own copy from before a move is taken into the content store on the way, checked by its hash; a
+ * document in an archive is read out of its unit, and nothing is written back.
+ */
+async function mirroredDownload(orgId: string, doc: any, versionName?: string): Promise<{ path?: string; bytes?: Uint8Array; name: string; mime: string }> {
+  if (versionName) {
+    const safe = safeFileName(versionName)
+    const stored = toStored(containedJoin(dateDir(orgId, doc.docDate), 'versions', safe))
+    const row: any = await FileModel.findOne({ orgId, storagePath: stored }, { sha256: 1 }).lean()
+    const path = row ? await mirroredBlobFile(orgId, row.sha256, [stored]) : null
+    if (!path) throw await mirrorFileMissing(orgId)
+    return { path, name: safe, mime: doc.mimeType }
+  }
+  const held = await mirroredBlobFile(orgId, doc.currentChecksum, [doc.currentPath])
+  if (held) return { path: held, name: doc.originalName, mime: doc.mimeType }
+  if (doc.archived && doc.archiveRef) {
+    const { ArchiveUnit } = await import('db/models')
+    const { memberPathOf, readUnitMember } = await import('../archive/archive.service.js')
+    const unit: any = await ArchiveUnit.findOne({ orgId, _id: doc.archiveRef }, { sha256: 1, path: 1 }).lean()
+    const unitFile = unit ? await mirroredBlobFile(orgId, unit.sha256, unit.path ? [unit.path] : []) : null
+    const bytes = unitFile ? await readUnitMember(unitFile, memberPathOf(doc)) : null
+    // ⚠ Exactly the content the row names, or nothing: the unit is checked against its own checksums.
+    if (bytes && createHash('sha256').update(bytes).digest('hex') === doc.currentChecksum) {
+      return { bytes: new Uint8Array(bytes), name: doc.originalName, mime: doc.mimeType }
+    }
+  }
+  throw await mirrorFileMissing(orgId)
+}
+
+/**
+ * Resolve the on-disk path for a download (current canonical, or a named archived version). On a
+ * mirror it may be the bytes themselves (a document read out of its archive unit), and an absent
+ * file throws `MirrorFileMissing`, which says why.
+ */
+export async function resolveDownload(orgId: string, docFileId: string, versionName?: string): Promise<{ path?: string; bytes?: Uint8Array; name: string; mime: string } | null> {
   const doc = await DocFile.findOne({ orgId, _id: docFileId }).lean()
   if (!doc) return null
+  if (await readsByContent(orgId)) return mirroredDownload(orgId, doc, versionName)
   if (versionName) {
     // ⚠ The previous `.replace(/[/\\]/g, '')` stripped separators but left `..` intact as a
     // whole segment, so the sanitiser passed the one input it existed to stop. `safeFileName`
@@ -450,6 +501,9 @@ export async function resolveCompareDump(orgId: string, userId: string, docFileI
   const doc = await DocFile.findOne({ orgId, _id: docFileId }).lean()
   if (!doc) throw new Error('DocFile not found')
   if (doc.docType !== 'store_availability') throw new Error('Only a storeAvailability snapshot has a diff')
+  // FR-20.69 (P3-3): a diff is made, and kept, beside the snapshot where the org lives. A mirror
+  // has neither, and must write nothing.
+  if (await readsByContent(orgId)) throw new Error("The diff is made on the organisation's server: open it there.")
   const name = `compare-${doc.docNumber}.${format}`
   const path = containedJoin(dateDir(orgId, doc.docDate), safeFileName(name))
   try {

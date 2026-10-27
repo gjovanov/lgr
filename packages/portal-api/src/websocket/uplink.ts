@@ -1,9 +1,11 @@
 import { randomBytes } from 'crypto'
 import { hostname } from 'os'
-import { MirrorState, NodePresence, OrgHome, ServerNode, UPLINK_CHANNELS, type UplinkChannel } from 'db/models'
+import { MirrorState, NodePresence, Org, OrgHome, ServerNode, UPLINK_CHANNELS, type UplinkChannel } from 'db/models'
 import { mongoose } from 'db/connection'
 import { applyPage } from 'services/biz/replication/apply'
 import { BSON, decodePage, type Page } from 'services/biz/replication/pages'
+import { BlobFrameError, decodeBlobChunk, isBlobFrame, type BlobChunk } from 'services/biz/replication/blob-frame'
+import { acceptChunk, blobUnavailable, wantBlobs } from 'services/biz/replication/mirror-blobs'
 import { config } from 'config'
 import { loadActiveNode, NodeError, sanitizeHealth, verifyNodeToken, type NodeTokenClaims } from 'services/biz/node/node.service'
 import { meetsMinimum } from 'services/biz/desktop/version'
@@ -147,15 +149,17 @@ export async function handleUplinkMessage(ws: any, raw: any): Promise<void> {
   const conn = conns.get(key(ws))
   if (!conn) return
   conn.lastFrameAt = Date.now()
-  // FR-20.64 (P3-2b): a mirror page is a binary frame, zstd from its first byte.
+  // FR-20.64 (P3-2b): a mirror page is a binary frame, zstd from its first byte. FR-20.69 (P3-3): a
+  // file's chunk is one too, behind its own magic.
   const bytes = raw instanceof Uint8Array ? raw : raw instanceof ArrayBuffer ? new Uint8Array(raw) : null
-  if (bytes && isPage(bytes)) {
+  if (bytes && (isPage(bytes) || isBlobFrame(bytes))) {
     if (!conn.nodeId) {
       send(ws, { t: 'error', code: 'unauthenticated', message: 'Say hello first.' })
       close(ws, CLOSE.unauthenticated, 'unauthenticated')
       return
     }
-    await pageFrame(ws, conn, bytes)
+    if (isPage(bytes)) await pageFrame(ws, conn, bytes)
+    else await blobFrame(ws, conn, bytes)
     return
   }
   const msg = parse(raw)
@@ -185,6 +189,10 @@ export async function handleUplinkMessage(ws: any, raw: any): Promise<void> {
     if (conn.ch !== 'interactive' || conn.suspended || Date.now() - conn.lastHealthAt < HEALTH_EVERY_MS) return
     conn.lastHealthAt = Date.now()
     await ServerNode.updateOne({ _id: conn.nodeId, status: 'active' }, { $set: { health: sanitizeHealth(msg) } })
+    return
+  }
+  if (msg.t === 'blob-sync' || msg.t === 'blob-unavailable') {
+    await blobMessage(ws, conn, msg)
     return
   }
   if (msg.t === 'hello') {
@@ -238,6 +246,57 @@ async function pageFrame(ws: any, conn: Conn, bytes: Uint8Array): Promise<void> 
   }
 }
 
+/** Why this socket may not carry an org's files at all, or null (as for pages). */
+function blobChannelRefusal(conn: Conn): string | null {
+  if (conn.ch !== 'bulk') return 'bad_channel'
+  if (conn.suspended) return 'clone_alarm'
+  if (conn.outdated) return 'master_outdated'
+  return null
+}
+
+/**
+ * FR-20.69 (P3-3): the master asks which of an org's files the mirror lacks (`blob-sync`), or says it
+ * cannot send one global asked for (`blob-unavailable`). Global answers what ITS rows of that org
+ * name, never what the master lists: an answer must not say what another org holds (FR-20.66).
+ */
+async function blobMessage(ws: any, conn: Conn, msg: any): Promise<void> {
+  const orgId = typeof msg.orgId === 'string' && /^[0-9a-f]{24}$/.test(msg.orgId) ? msg.orgId : null
+  if (!orgId) return send(ws, { t: 'error', code: 'bad_message', message: `${msg.t} names no org.` })
+  const no = blobChannelRefusal(conn)
+  if (no === 'bad_channel') return send(ws, { t: 'error', code: 'bad_channel', message: 'Files travel on the bulk socket.' })
+  try {
+    if (msg.t === 'blob-sync') {
+      if (no) return send(ws, { t: 'blob-refused', orgId, reason: no })
+      send(ws, await wantBlobs(conn.nodeId!, orgId))
+    } else if (!no) {
+      await blobUnavailable(conn.nodeId!, orgId, String(msg.sha256 ?? ''), String(msg.reason ?? 'missing'))
+    }
+  } catch (e) {
+    logger.error({ nodeId: conn.nodeId, orgId, t: msg.t, err: e instanceof Error ? e.message : String(e) }, "Mirror: an org's files could not be looked at")
+    send(ws, { t: 'blob-error', orgId, message: "The mirror could not look at this org's files; ask again later." })
+  }
+}
+
+/** FR-20.69 (P3-3): one chunk of a file global asked for, written where the mirror stands. */
+async function blobFrame(ws: any, conn: Conn, bytes: Uint8Array): Promise<void> {
+  const no = blobChannelRefusal(conn)
+  if (no === 'bad_channel') return send(ws, { t: 'error', code: 'bad_channel', message: 'Files travel on the bulk socket.' })
+  let chunk: BlobChunk
+  try {
+    chunk = decodeBlobChunk(bytes)
+  } catch (e) {
+    return send(ws, { t: 'blob-refused', reason: 'malformed', detail: e instanceof BlobFrameError ? e.message : 'not a file chunk' })
+  }
+  const base = { orgId: chunk.orgId, sha256: chunk.sha256 }
+  if (no) return send(ws, { t: 'blob-refused', ...base, reason: no })
+  try {
+    send(ws, await acceptChunk(conn.nodeId!, chunk))
+  } catch (e) {
+    logger.error({ nodeId: conn.nodeId, ...base, offset: chunk.offset, err: e instanceof Error ? e.message : String(e) }, 'Mirror: a file chunk could not be written')
+    send(ws, { t: 'blob-error', ...base, message: 'The chunk could not be written; send it again later.' })
+  }
+}
+
 async function hello(ws: any, conn: Conn, msg: any): Promise<void> {
   if (msg.v !== 1 || msg.ch !== conn.ch || typeof msg.bootNonce !== 'string' || msg.bootNonce.length < 8 || msg.bootNonce.length > 64) {
     send(ws, { t: 'error', code: 'bad_hello', message: 'hello needs v 1, the URL\'s ch, and a bootNonce.' })
@@ -279,6 +338,10 @@ async function hello(ws: any, conn: Conn, msg: any): Promise<void> {
   const mirrors = conn.ch === 'bulk'
     ? new Map((await MirrorState.find({ orgId: { $in: node.orgIds } }).lean()).map((m: any) => [String(m.orgId), m]))
     : new Map()
+  // FR-20.69 (P3-3): whether each org's files travel too, or its records only.
+  const metadataOnly = conn.ch === 'bulk'
+    ? new Set((await Org.find({ _id: { $in: node.orgIds }, 'settings.node.mirrorFiles': false }, { _id: 1 }).lean()).map((o: any) => String(o._id)))
+    : new Set<string>()
   // FR-20.55: a licence per entitled org, on the interactive socket. A failure sends none: the
   // master keeps what it holds, and the 10-minute re-check tries again.
   const licences = conn.ch === 'interactive'
@@ -301,7 +364,7 @@ async function hello(ws: any, conn: Conn, msg: any): Promise<void> {
       return {
         orgId: String(id), home: h?.home ?? 'global', homeEpoch: h?.epoch ?? 0, state: h?.state ?? 'active', linkLevel: node.linkLevel,
         ...(licence ? { entitlements: licence.jws } : {}),
-        ...(conn.ch === 'bulk' ? { mirror: { watermark: m?.watermark ?? 0, chainHash: m?.chainHash ?? '', journalEpoch: m?.journalEpoch ?? null, instanceEpoch: m?.instanceEpoch ?? null } } : {}),
+        ...(conn.ch === 'bulk' ? { mirror: { watermark: m?.watermark ?? 0, chainHash: m?.chainHash ?? '', journalEpoch: m?.journalEpoch ?? null, instanceEpoch: m?.instanceEpoch ?? null }, files: metadataOnly.has(String(id)) ? 'metadata' : 'all' } : {}),
       }
     }),
   })

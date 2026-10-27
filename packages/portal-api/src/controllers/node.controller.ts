@@ -1,10 +1,12 @@
 import { Elysia, t } from 'elysia'
 import { nodeRole } from 'config'
-import { NodeEnrollmentCode, NodeEnrollmentKey, NodeEnrollmentKeyUse, ServerNode } from 'db/models'
+import { NodeEnrollmentCode, NodeEnrollmentKey, NodeEnrollmentKeyUse, Org, ServerNode } from 'db/models'
+import { homeOf } from 'db/home/home'
 import { AuthService } from '../auth/auth.service.js'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { paginateQuery } from 'services/utils/pagination'
-import { notifyNodeRevoked } from '../websocket/uplink.js'
+import { notifyNodeRevoked, rewelcomeNode } from '../websocket/uplink.js'
+import { mirrorFilesStatus } from 'services/biz/replication/mirror-blobs'
 import {
   NodeError,
   mintNodeEnrollmentCode,
@@ -14,6 +16,7 @@ import {
   revokeNodeForOrg,
 } from 'services/biz/node/node.service'
 import { relayEnabled } from 'services/biz/relay/mail-relay.service'
+import { logger } from 'services/logger'
 
 /**
  * The Servers page's API (FR-20.2, plan step P2-1): an org's registered masters, the codes that
@@ -70,6 +73,56 @@ export const nodeController = new Elysia({ prefix: '/org/:orgId/nodes' })
       }
     },
     { isSignIn: true },
+  )
+
+  /**
+   * FR-20.69 (plan step P3-3): the org's files on lgrai.app's mirror while its home is one of its
+   * servers: whether they travel at all (the metadata-only option), and how many have arrived.
+   */
+  .get(
+    '/mirror',
+    async ({ params: { orgId }, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
+      const home = await homeOf(orgId)
+      return { mirror: { home: home.home, ...(await mirrorFilesStatus(orgId)) } }
+    },
+    { isSignIn: true },
+  )
+
+  /**
+   * FR-20.69: metadata only, or the files too. The org's own choice for its own files, on global's
+   * part of the org (`settings.node`, which no page overwrites). Files already on the mirror stay
+   * there and keep opening. ⚠ Through the home gate (`GLOBAL_STATE_WRITES`): the case it exists for is
+   * an org homed on a master.
+   */
+  .put(
+    '/mirror',
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
+      const org: any = await Org.findById(orgId, { 'settings.node.mirrorFiles': 1 }).lean()
+      if (!org) return status(404, { message: 'Not found' })
+      const before = org.settings?.node?.mirrorFiles !== false
+      if (before !== body.files) {
+        // ⚠ No timestamps: `updatedAt` is the home's field (FR-20.63). Touched here, global's copy of
+        // a mirrored org would differ from its home's until the master next sends the org.
+        await Org.updateOne({ _id: orgId }, { $set: { 'settings.node.mirrorFiles': body.files } }, { timestamps: false })
+        const home = await homeOf(orgId, { fresh: true })
+        const change = { field: 'settings.node.mirrorFiles', oldValue: before, newValue: body.files }
+        if (home.home === 'global') {
+          createAuditEntry({ orgId, userId: user.id, operatorCode: user.operatorCode, action: 'update', module: 'admin', entityType: 'org', entityId: orgId, entityName: 'mirror', changes: [change] })
+        } else {
+          // The org's audit trail is written where the org lives; global says it in its own log.
+          logger.info({ orgId, userId: user.id, home: home.home, ...change }, 'Mirror: an org chose whether its files travel to lgrai.app')
+          // The master's pump reads the choice from its bulk welcome: welcomed again, it follows now.
+          rewelcomeNode(home.home)
+        }
+      }
+      const home = await homeOf(orgId)
+      return { mirror: { home: home.home, ...(await mirrorFilesStatus(orgId)) } }
+    },
+    { isSignIn: true, body: t.Object({ files: t.Boolean() }) },
   )
 
   .get(

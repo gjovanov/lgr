@@ -2547,3 +2547,80 @@ so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.
 - Tests: `desktop-repoint.flow` (9), Rust `repoint::tests` + `presence::tests`, `uplink::tests`
   (the lan in health). ⚠ Not yet walked with a real shell: this PC holds a real enrolled desktop
   (a second shell hands off to it), so the walk is owed to the VM lane before the next desktop release.
+
+## The mirror's files (2026-10-27, FR-20.66, FR-20.69, plan step P3-3)
+
+An org homed on a master sends its files to lgrai.app's mirror behind its documents, on the bulk
+socket. Global stores and reads them BY CONTENT, per org: `<UPLOAD_DIR>/<orgId>/blobs/<sha256>`,
+recorded in `mirror_blobs` (`MirrorBlob`, node state). ⚠ Never where a mirrored row says: the
+row's path is the master's to choose.
+- **Who asks for what** (`services/biz/replication/mirror-blobs.ts#wantBlobs`): once an org's pages
+  are caught up, the supervisor sends `blob-sync {orgId}`. Global answers `blob-want {want: [{sha256,
+  offset, size}], more, files}`: the contents ITS rows of that org name and it does not hold
+  (`DocFile.currentChecksum` of a document not in an archive, `File.sha256` of local rows, and
+  `ArchiveUnit.sha256`), 64 at a time.
+  - ⚠ Computed per org and from nothing the master lists. A store shared across orgs, or an answer
+    from the master's own list, would tell any master whether another org holds some file (AC 52).
+    Two orgs with the same bytes hold two rows and two files.
+  - This replaces the plan's `blob-have {sha256[]}`: the master lists nothing.
+- **Chunks** (`blob-frame.ts`): `LGRB` + version + a JSON header `{orgId, sha256, offset, size}`
+  + at most 1 MB. The magic is not zstd's, so a chunk is never taken for a page.
+  - The master's API reads them (`blob-source.ts#blobFor`, `POST /replication/blob` on the control
+    socket): the org's rows with that hash (current documents, versions, deleted ones, imports,
+    archive units), and only if the org is homed here at Full. At offset 0 it hashes the whole file
+    first, so bytes that are not what their row says never leave (`hash_mismatch`).
+  - Global (`acceptChunk`) takes a chunk only from the org's home (registered, Full, no clone
+    alarm), only for a content it asked for, and only at its own offset. Anything else is answered
+    with where to resume. The file grows as `<sha256>.part` and is named `<sha256>` once whole AND
+    hashing to its name. A bad file is dropped and asked for again after a growing wait (10 min,
+    doubling, at most a day).
+  - `blob-unavailable`: the master holds no readable bytes for a content global asked for. Asked
+    again after 6 h, and counted as **missing on the master**, which there is lost data.
+- **The supervisor** (`replication.rs`): pages first, then a page is asked for before every chunk.
+  While files wait, every other turn is theirs, so a busy shop's pages cannot starve them. It asks
+  again after pages brought rows (at most every 10 s), and every 10 minutes regardless.
+  - Files only where the welcome says `files: 'all'`. A global older than P3-3 says nothing, and
+    gets nothing.
+  - ⚠ `not_ready`, `not_full` and `not_home` from the API wait 10 s, never the 10 minutes of other
+    refusals (`LAGGING`). The API reads the link level and the home through 5-second caches, so right
+    after a registration at Full it may still say `not_full`. That stalled a fresh master's first pages
+    for ten minutes; the mirror e2e caught it.
+  - `lgr-server status` shows `bulk.replication.<org>.files`.
+- **Global's own copy from before a move** is taken, never asked for. A file at a mirrored row's
+  stored path, under the org and outside `blobs/`, that hashes to the row's content is COPIED into
+  the store (a reflink where the filesystem has them, never a hard link: the original stays global's
+  own). Bounded per ask (200 files / 512 MB). The same happens on read, one file at a time, so such a
+  file opens even for an org that mirrors its records only.
+- **Read by content** (`readsByContent`: on global, an org whose home is not global):
+  - `resolveDownload`: the current file by `currentChecksum`; `?version=` by the version's `File`
+    row; an archived document out of its unit's blob, checked against the row's checksum, and NEVER
+    written back.
+  - `getVersions` from the `File` rows, never `readdir`.
+  - The compare dump is refused: it is made where the org lives.
+  - A file not there answers 404 `file_not_mirrored`, or `files_not_mirrored` for a records-only
+    org. The Files app says either in words (`mirror.*`, ×4).
+- **Records only** (the metadata-only option): `Org.settings.node.mirrorFiles: false`, global's own
+  part of the org, which no page overwrites. Set on the Servers page ("Files on lgrai.app", shown
+  while a server is the org's home) through `GET/PUT /api/org/:orgId/nodes/mirror` (admin.settings,
+  `GLOBAL_STATE_WRITES`). The PUT re-welcomes the master (`rewelcomeNode`), whose pump reads the
+  choice from its welcome. Files already on the mirror stay and keep opening.
+- **`mirrorFilesStatus`**: referenced, held, arriving, waiting, missing on the master, failing, and
+  `complete`, which is what a move back (P3-6c, FR-20.80) must wait for.
+- `MIRROR_FILES_MAX_GB` (50 by default) caps one org's files on the mirror. Past it, global asks for
+  no more and raises an alarm: a master could otherwise fill the disk every org shares.
+- Indexes: `File {orgId, sha256}` (partial), `DocFile {orgId, currentChecksum}`.
+- ⚠ The mirror's own writes on a GET (taking a pre-move copy, re-asking for a file the disk lost) are
+  global's node state (`mirror_blobs` and `blobs/`), never the org's data.
+- ⚠ Global writing its own part of a mirrored org passes `{ timestamps: false }`. Mongoose would
+  otherwise set `updatedAt`, which is the home's field, and the mirror would differ from the home
+  until the master next sends the org. The e2e's digest caught it.
+- Not yet:
+  - removing blobs no row names any more;
+  - pacing against the interactive socket (P3-2c);
+  - putting blobs back at their stored paths when an org comes home to global (P3-6c, P3-6d).
+- Tests:
+  - `mirror-files.flow` (9): the lane, isolation, records only, pre-move copies, reads by content
+    (AC 63), and an end to end through `blobFor` and the uplink;
+  - Rust `replication::tests` (6 new);
+  - `two-node/mirror-e2e.script.ts`, with a real supervisor: two files, one in three chunks, reach
+    global and open there; records only stops a new file, and switching back sends it.

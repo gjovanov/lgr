@@ -41,6 +41,12 @@ export interface ReplicationHandlers {
   >
   /** Global's resend after a collision, as it sent it (EJSON: the ids keep their types). */
   resend: (text: string) => Promise<{ journaled: number }>
+  /** FR-20.69 (P3-3): a chunk of a file global asked for, framed; or why there is none. */
+  blob?: (body: unknown) => Promise<
+    | { status: 200; bytes: Uint8Array; size: number; length: number }
+    | { status: 404; code: string; detail: string }
+    | { status: 409; refused: string; detail: string }
+  >
 }
 
 const json = (status: number, body: unknown) =>
@@ -91,7 +97,8 @@ export function startControlSocket(path: string, secret: string, handlers: Contr
 
 /**
  * `GET /replication`, `POST /replication/page` (JSON ask; the page's bytes, 204 when there is nothing
- * to send, 409 with the reason), `POST /replication/resend` (EJSON).
+ * to send, 409 with the reason), `POST /replication/resend` (EJSON), `POST /replication/blob` (JSON
+ * ask; a file chunk's frame, 404 when this server holds no such bytes for the org, 409 with the reason).
  */
 async function replicationRoute(request: Request, pathname: string, r: ReplicationHandlers, srv: { timeout: (req: Request, seconds: number) => void }): Promise<Response> {
   if (request.method === 'GET' && pathname === '/replication') return json(200, await r.status())
@@ -113,5 +120,20 @@ async function replicationRoute(request: Request, pathname: string, r: Replicati
     })
   }
   if (request.method === 'POST' && pathname === '/replication/resend') return json(200, await r.resend(await request.text()))
+  if (request.method === 'POST' && pathname === '/replication/blob' && r.blob) {
+    // The first chunk of a file hashes all of it: an archive unit may be hundreds of MB.
+    srv.timeout(request, 60)
+    const answer = await r.blob(await request.json().catch(() => null))
+    if (answer.status === 404) return json(404, { code: answer.code, detail: answer.detail })
+    if (answer.status === 409) return json(409, { refused: answer.refused, detail: answer.detail })
+    return new Response(answer.bytes as Uint8Array<ArrayBuffer>, {
+      status: 200,
+      headers: {
+        'content-type': 'application/x-lgr-blob',
+        'x-lgr-blob-size': String(answer.size),
+        'x-lgr-blob-length': String(answer.length),
+      },
+    })
+  }
   return json(404, { code: 'not_found' })
 }
