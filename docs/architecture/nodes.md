@@ -370,6 +370,9 @@ Updates that come by themselves (plan step P1-8c, `updates.rs`, `helper.rs`, `si
   signing in needs gets through (the app's pages, "Sign in with LGR", and WebSockets that sign in
   first), and strangers are limited per minute. While the server is not connected, the address shows
   a short notice instead.
+- **Where an audit entry came from** (FR-20.48). On the org's own server, every entry in the audit log
+  says where it came from: a till, by its name; the org's address on lgrai.app; or the server itself.
+  An auditor can tell a sale rung at the counter from a change made remotely.
 - **An org on hold on lgrai.app** (P3-8d, FR-20.3). Each minute a master tells lgrai.app which home
   record it holds for each org it writes. A newer one than lgrai.app's means lgrai.app's database
   is older than the org's last move (a disaster-recovery restore), so lgrai.app stops writing the org

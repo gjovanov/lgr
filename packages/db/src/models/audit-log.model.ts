@@ -17,6 +17,11 @@ export interface IAuditLog extends Document {
   changes?: { field: string; oldValue: any; newValue: any }[]
   ipAddress?: string
   userAgent?: string
+  /**
+   * FR-20.48: where the entry came from on a master: `lan:<desktopId>` (a till), `lan`, `tunnel`
+   * (the org's address) or `loopback` (the server's console, or its own work). Absent on lgrai.app.
+   */
+  via?: string
   timestamp: Date
 }
 
@@ -39,6 +44,7 @@ const auditLogSchema = new Schema<IAuditLog>({
   }],
   ipAddress: String,
   userAgent: String,
+  via: String,
   timestamp: { type: Date, default: Date.now },
 })
 

@@ -55,6 +55,22 @@ export function frontSource(headers: HeaderBag): FrontSource | undefined {
   return s && SOURCES.has(s) ? (s as FrontSource) : undefined
 }
 
+/**
+ * FR-20.48: where a request came from, for its audit entries. `lan:<desktopId>` (a till on the shop's
+ * network, by its credential), `lan` (one before it holds one), `tunnel` (the org's address) or
+ * `loopback` (the server's own console). `undefined` with no front: lgrai.app, development.
+ * The front guard has checked the stamps and the credential by the time anything reads this.
+ */
+export function requestVia(request: Request | null | undefined): string | undefined {
+  if (!request) return undefined
+  const source = frontSource(request.headers)
+  if (source === 'tunnel') return 'tunnel'
+  if (source === 'console') return 'loopback'
+  if (source !== 'lan') return undefined
+  const claims = verifyDesktopToken(request.headers.get(DESKTOP_TOKEN_HEADER) ?? undefined)
+  return claims ? `lan:${claims.desktopId}` : 'lan'
+}
+
 /** The client's address as the supervisor's ingress saw it. `undefined` with no front. */
 export function frontClientIp(headers: HeaderBag): string | undefined {
   if (!config.front.secret) return undefined

@@ -159,6 +159,7 @@
                 <div class="mt-2 text-caption text-medium-emphasis">
                   ID: {{ item.entityId }}
                   <span v-if="item.ipAddress"> | IP: {{ item.ipAddress }}</span>
+                  <span v-if="item.via" data-test="audit-via"> | {{ t('admin.via.label') }}: {{ viaText(item) }}</span>
                 </div>
               </td>
             </tr>
@@ -261,6 +262,16 @@ function onUpdateOptions(opts: any) {
 
 function formatDateTime(date: string) {
   return date ? new Date(date).toLocaleString() : ''
+}
+
+/** FR-20.48: where an entry made on the org's own server came from. */
+function viaText(item: any): string {
+  const via = String(item.via ?? '')
+  if (via === 'tunnel') return t('admin.via.tunnel')
+  if (via === 'loopback') return t('admin.via.loopback')
+  if (via.startsWith('lan:')) return t('admin.via.desktop', { name: item.viaDesktop || via.slice(4) })
+  if (via === 'lan') return t('admin.via.lan')
+  return via
 }
 
 function formatValue(val: any) {

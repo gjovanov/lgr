@@ -335,6 +335,21 @@ is ever read as a stamp.
     credential the API verifies, never a stamp it trusts.
 - **`clientIp()` behind the front** returns `x-lgr-client-ip` only. There is no nginx in front of a
   master, so `X-Real-IP` and `X-Forwarded-For` are the client's own text.
+- **Every audit entry says where it came from (FR-20.48)**, so an auditor can tell a till from a
+  remote session. The field is `AuditLog.via`:
+  - `lan:<desktopId>`: a till, by its credential;
+  - `lan`: the shop's network without a credential;
+  - `tunnel`: the org's address;
+  - `loopback`: the console, and the server's own work (a tick, or a job outside any request).
+
+  How it is set:
+  - `requestVia` (`front-guard.ts`) derives it, and `api.ts`'s synchronous `onTransform` puts it
+    in the request context.
+  - `auditDoc` stamps it on every entry, so none of the ~240 call sites changed.
+  - A socket's own event has no request context, so it passes `via` itself (the fiscal bridge's
+    takeover).
+  - lgrai.app records none.
+  - The audit page names the till (`viaDesktop`; strings `admin.via.*` ×4).
 - **The control socket** (`control-socket.ts`): HTTP over AF_UNIX (`Bun.serve({ unix })`), and every
   request carries the front secret.
   - `GET /status`: schedulers, `fiscalInFlight`, `posOpen`, requests and sockets in flight.
