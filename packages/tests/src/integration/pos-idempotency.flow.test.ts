@@ -12,6 +12,7 @@ import {
   createTestPOSTransaction,
 } from '../helpers/factories'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
+import { migrateTill } from '../helpers/migrate-till'
 import { posController } from 'invoicing-api/src/controllers/pos.controller'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
@@ -198,6 +199,8 @@ describe('a sale interrupted by a crash is finished by its retry, never printed 
       leaseUntil: new Date(Date.now() - 1000), // the process that held it is gone
       createdBy: String(w.user._id),
     } as any)
+    // R4: 0008/0009 copied the row with its key, its fiscal step and its counter; the retry resumes that.
+    await migrateTill(w.orgId)
     return { body, unpNumber, counterBefore: counterBefore! }
   }
 
@@ -271,6 +274,7 @@ describe('a sale interrupted by a crash is finished by its retry, never printed 
       clientKey: 'crash-key-0004', requestHash: requestHash(`pos.sale:${w.sessionId}`, body),
       leaseUntil: new Date(Date.now() - 1000), createdBy: String(w.user._id),
     } as any)
+    await migrateTill(w.orgId)
 
     const res = await post(w.url, w.token, body, 'crash-key-0004')
 

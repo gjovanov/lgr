@@ -9,6 +9,7 @@ import {
   createTestPOSSession,
   createTestPOSTransaction,
 } from '../helpers/factories'
+import { migrateTill } from '../helpers/migrate-till'
 import { reportById, validateParams } from 'services/biz/report-registry'
 import { effectiveMethods, bucketFor } from 'services/biz/reports/sales-history.report'
 import type { Types } from 'mongoose'
@@ -28,6 +29,11 @@ afterEach(async () => { await clearCollections() })
 const entry = () => reportById('sales-history')!
 const run = (orgId: string, params: Record<string, any> = {}) =>
   entry().handler!({ orgId, params: validateParams(entry(), params), output: 'table' })
+/** FR-21 R4: legacy POS rows are read once they are documents, as 0008/0009 make them. */
+const runMigrated = async (orgId: string, params: Record<string, any> = {}) => {
+  await migrateTill(orgId)
+  return run(orgId, params)
+}
 
 const DAY = { preset: 'custom', from: '2026-05-10', to: '2026-05-10' }
 const at = (iso: string) => new Date(iso)
@@ -200,7 +206,7 @@ describe('sales-history — POS rows', () => {
       payments: [{ method: 'cash', amount: 42 }], fiscalDeviceNumber: 'DT123456',
       transactionNumber: 'TXN-9',
     })
-    const res = await run(String(s.orgId), { period: DAY })
+    const res = await runMigrated(String(s.orgId), { period: DAY })
     const row = res.rows.find(r => r.number === 'TXN-9')!
     expect(row.rowType).toBe('pos')
     expect(row.register).toBe('DT123456')
@@ -218,7 +224,7 @@ describe('sales-history — POS rows', () => {
       status: 'completed', type: 'storno', total: 50, createdAt: at('2026-05-10T10:05:00'),
       payments: [{ method: 'cash', amount: 50 }], transactionNumber: 'TXN-Z',
     })
-    const res = await run(String(s.orgId), { period: DAY })
+    const res = await runMigrated(String(s.orgId), { period: DAY })
     expect(res.rows.find(r => r.number === 'TXN-Z')!.total).toBe(-50)
     // A sale and its storno net to nothing.
     expect(res.meta!.summary[0].cash).toBe(0)
@@ -237,7 +243,7 @@ describe('sales-history — POS rows', () => {
       payments: [{ method: 'cash', amount: 50 }], transactionNumber: 'TXN-Z',
       originalTransactionId: sale._id as Types.ObjectId,
     })
-    const res = await run(String(s.orgId), { period: DAY })
+    const res = await runMigrated(String(s.orgId), { period: DAY })
     expect(res.rows.map(r => r.number).sort()).toEqual(['TXN-S', 'TXN-Z'])
     expect(res.rows.find(r => r.number === 'TXN-S')!.total).toBe(50)
     expect(res.meta!.summary[0].total).toBe(0)
@@ -254,7 +260,7 @@ describe('sales-history — POS rows', () => {
       status: 'cancelled', type: 'storno', total: 50, createdAt: at('2026-05-10T10:05:00'),
       payments: [{ method: 'cash', amount: 50 }], transactionNumber: 'TXN-Z',
     })
-    const res = await run(String(s.orgId), { period: DAY })
+    const res = await runMigrated(String(s.orgId), { period: DAY })
     expect(res.rows.map(r => r.number)).toEqual(['TXN-S'])
     expect(res.meta!.summary[0].cash).toBe(50)
   })
@@ -265,7 +271,7 @@ describe('sales-history — POS rows', () => {
       status: 'completed', total: 37.2, createdAt: at('2026-05-10T10:00:00'),
       payments: [{ method: 'cash', amount: 50 }], changeDue: 12.8,
     })
-    const sum = (await run(String(s.orgId), { period: DAY })).meta!.summary[0]
+    const sum = (await runMigrated(String(s.orgId), { period: DAY })).meta!.summary[0]
     expect(sum.cash).toBe(37.2)
     expect(sum.total).toBe(37.2)
   })
@@ -277,7 +283,7 @@ describe('sales-history — POS rows', () => {
       status: 'completed', total: 20, createdAt: at('2026-05-10T10:00:00'),
       payments: [{ method: 'cash', amount: 20 }],
     })
-    const res = await run(String(s.orgId), { period: DAY })
+    const res = await runMigrated(String(s.orgId), { period: DAY })
     expect(res.rows[0].currency).toBe('BGN')
     expect(res.meta!.summary.map(x => x.currency)).toEqual(['BGN'])
   })
@@ -293,9 +299,9 @@ describe('sales-history — POS rows', () => {
       total: 10, amountPaid: 10, invoiceNumber: 'CS-1',
     })
 
-    expect((await run(String(s.orgId), { period: DAY, source: 'pos' })).rows.map(r => r.number)).toEqual(['TXN-1'])
-    expect((await run(String(s.orgId), { period: DAY, source: 'documents' })).rows.map(r => r.number)).toEqual(['CS-1'])
-    expect((await run(String(s.orgId), { period: DAY, source: 'all' })).rows).toHaveLength(2)
+    expect((await runMigrated(String(s.orgId), { period: DAY, source: 'pos' })).rows.map(r => r.number)).toEqual(['TXN-1'])
+    expect((await runMigrated(String(s.orgId), { period: DAY, source: 'documents' })).rows.map(r => r.number)).toEqual(['CS-1'])
+    expect((await runMigrated(String(s.orgId), { period: DAY, source: 'all' })).rows).toHaveLength(2)
   })
 
   it('drills a cash sale into its own page, an invoice into the invoice form (FR-21.3)', async () => {
@@ -308,7 +314,7 @@ describe('sales-history — POS rows', () => {
       issueDate: at('2026-05-10'), type: 'invoice', direction: 'outgoing', status: 'paid',
       total: 10, amountPaid: 10, paymentMethod: 'cash', invoiceNumber: 'INV-7',
     })
-    const res = await run(String(s.orgId), { period: DAY })
+    const res = await runMigrated(String(s.orgId), { period: DAY })
     const href = (n: string) => entry().drilldown!(res.rows.find(r => r.number === n)!)
     expect(href('CS-7')).toMatch(/^\/invoicing\/cash-sales\/[0-9a-f]{24}\/edit$/)
     expect(href('INV-7')).toMatch(/^\/invoicing\/invoices\/[0-9a-f]{24}\/edit$/)

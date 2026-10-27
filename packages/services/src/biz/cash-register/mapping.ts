@@ -6,7 +6,7 @@
  * - `fromPosTransaction` is what the R2 copy (`0005`-style migration) and a restore of an older
  *   bundle write;
  * - `toPosTransaction` is how the readers that still speak POS rows — SUPTO 18.1–18.5, the session
- *   journal entry, `/trade/pos/transactions` — read a document while both stores exist (FR-21.8).
+ *   journal entry, the session's list — read a document as the row it stands for (FR-21.8; R4 removed `/trade/pos/transactions`).
  *
  * Round trip: `toPosTransaction(fromPosTransaction(x))` gives `x` back, except that a line's net
  * value comes back rounded to the cent (the document keeps the gross, `lineTotal`).

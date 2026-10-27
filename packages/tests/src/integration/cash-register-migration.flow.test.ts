@@ -17,13 +17,12 @@ import { FrozenCollectionError } from 'db/plugins/frozen.plugin'
 import {
   CashRegisterCopyError, cashRegisterParity, cashRegisterPreflight, copyCashRegisterOrg,
 } from 'services/biz/cash-register/copy-org'
-import { copyPosRow } from 'services/biz/cash-register/copy'
 import { listJournal } from 'services/biz/cash-register/journal.service'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { buildDailyDigest } from 'services/biz/digest/daily-digest.service'
 import { runBackupForOrg } from 'services/biz/backup/backup-runner.service'
 import { inspectBundle, applyRestore } from 'services/biz/backup/backup-restore.service'
-import { BGN_PER_EUR } from 'services/biz/cash-register/mapping'
+import { BGN_PER_EUR, fromPosTransaction } from 'services/biz/cash-register/mapping'
 import { captureRejection } from '../helpers/capture-rejection'
 
 /**
@@ -143,8 +142,11 @@ const up = () => cashRegisterCopy.up({ db: db(), log: () => {}, orgFilter: {} })
 describe('0008 — the copy', () => {
   it('copies every row under its own _id, number, УНП and times; links the movement; labels the other cash sales; parity holds', async () => {
     const w = await legacyOrg()
+    // R4: the readers read documents only, so before the copy a POS row is read by nobody (which is
+    // why the cash register waits for 0009, FR-21.28); the journal holds the org's 3 cash sales.
     const journalBefore = await listJournal({ orgId: String(w.orgId), size: 0 })
-    const tillBefore = await loadPosRows({ orgId: String(w.orgId) })
+    expect(journalBefore.total).toBe(3)
+    expect(await loadPosRows({ orgId: String(w.orgId) })).toEqual([])
 
     await up()
 
@@ -186,13 +188,15 @@ describe('0008 — the copy', () => {
     expect(await origin(w.backOffice)).toBe('backoffice')
     expect(await origin(w.viaFiles)).toBe('import')
 
-    // Parity, and every reader that unions both stores reads the same rows as before, each once.
+    // Parity, and after the copy every reader reads every row once, as the row it was.
     expect(await cashRegisterParity(db() as any, String(w.orgId))).toEqual([])
     const journalAfter = await listJournal({ orgId: String(w.orgId), size: 0 })
-    expect(journalAfter.total).toBe(journalBefore.total)
+    expect(journalAfter.total).toBe(journalBefore.total + w.rows.length)
     expect(journalAfter.rows.every(r => r.store === 'invoice')).toBe(true)
     const tillAfter = await loadPosRows({ orgId: String(w.orgId) })
-    expect(tillAfter.map(t => [t.id, t.transactionNumber, t.status, t.total])).toEqual(tillBefore.map(t => [t.id, t.transactionNumber, t.status, t.total]))
+    const asRead = (t: any) => [String(t._id ?? t.id), t.transactionNumber, t.status, t.total]
+    const byTime = (a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    expect(tillAfter.map(asRead)).toEqual([...(w.rows as any[])].sort(byTime).map(asRead))
     // The rows are where they were: expand only.
     expect(await POSTransaction.countDocuments({ orgId: w.orgId })).toBe(w.rows.length)
   }, 60_000)
@@ -211,8 +215,11 @@ describe('0008 — the copy', () => {
 
   it('a sale stornoed under R2 before the copy: parity reads its row as the copy reads it', async () => {
     const w = await legacyOrg()
-    // Copied on the spot and reversed by an R2 storno document; its frozen row still says `completed`.
-    const copy = await copyPosRow(String(w.orgId), String(w.printed._id))
+    // Copied on the spot by R2 (as R2's `copyPosRow` did, before R4 removed it) and reversed by an R2
+    // storno document; its frozen row still says `completed`.
+    const row: any = await POSTransaction.findById(w.printed._id).lean()
+    const copy: any = fromPosTransaction(row, w.closed.toObject(), { baseCurrency: 'EUR', unitOf: () => 'бр.' })
+    await Invoice.collection.insertOne(copy)
     const r2Storno = new ObjectId()
     await Invoice.collection.insertOne({
       _id: r2Storno, orgId: w.orgId, invoiceNumber: 'CS-2026-00009', type: 'cash_storno', direction: 'outgoing', status: 'paid',

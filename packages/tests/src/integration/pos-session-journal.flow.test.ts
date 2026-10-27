@@ -4,6 +4,7 @@ import {
   createTestOrg, createTestUser, createTestWarehouse, createTestAccount,
   createTestPOSSession, createTestPOSTransaction,
 } from '../helpers/factories'
+import { migrateTill } from '../helpers/migrate-till'
 import { Journal, JournalEntry, Org, POSSession, StockMovement } from 'db/models'
 import { createPOSSessionJournalEntry } from 'services/biz/auto-journal.service'
 import { registerEventHandlers, resetEventHandlers } from 'services/events/handlers'
@@ -190,6 +191,8 @@ describe('the pos.session.closed handler', () => {
       lines: [{ productId: s.wh._id, name: 'x', quantity: 1, unitPrice: 50, discount: 0, taxRate: 20, taxAmount: 10, lineTotal: 50 }] as any,
     })
 
+    // R4: the handler reads the session's till documents; the row above is one once copied.
+    await migrateTill(s.orgId)
     registerEventHandlers()
     eventBus.emit('pos.session.closed', { sessionId: String(s.session._id), orgId: String(s.orgId), userId: String(s.user._id) })
 

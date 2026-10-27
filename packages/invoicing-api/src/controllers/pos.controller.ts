@@ -8,7 +8,8 @@ import { nextRegistryNumber } from 'services/biz/sequence-registry'
 import { assertDispatchAvailable } from 'services/biz/invoicing.service'
 import { logger } from 'services/logger'
 import { POSSession } from 'db/models'
-import { findPosRow, loadPosRows } from 'services/biz/cash-register/pos-union'
+import { loadPosRows } from 'services/biz/cash-register/pos-union'
+import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import {
   RegisterRefusal, insertRegisterDocument, runSaleSteps, settleKeyedDocument, tillSaleDocument,
 } from 'services/biz/cash-register/register.service'
@@ -269,6 +270,11 @@ function pageOf(rows: any[], query: Record<string, any>) {
 
 export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
   .use(AppAuthService)
+  // FR-21.28: the till is refused, with the reason, until its history may be read from documents only.
+  .onBeforeHandle(async ({ status }) => {
+    const refusal = await cashRegisterRefusal()
+    if (refusal) return status(503, refusal)
+  })
   // ── POS Catalog (server-side pagination + filters) ──
   .get('/catalog', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
@@ -779,34 +785,5 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       }),
     },
   )
-  // ── Global Transaction List (across all sessions) ──
-  // FR-21.8: both stores, each row once — a till sale is a POS row until R2 and a cash-register
-  // document after it. Filtered, sorted and paged after the union; the shape is the one this
-  // route always answered (the DAL's page). The journal (`/cash-register/documents`) replaces it.
-  .get('/transactions', async ({ params: { orgId }, query, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-
-    const from = query.dateFrom ? new Date(query.dateFrom as string) : undefined
-    const to = query.dateTo ? new Date(query.dateTo as string + 'T23:59:59') : undefined
-    let rows = await loadPosRows({ orgId, from, to, sessionId: (query.sessionId as string) || undefined })
-    if (query.type) rows = rows.filter(t => t.type === query.type)
-    if (query.status) rows = rows.filter(t => t.status === query.status)
-    if (query.isFiscal !== undefined) {
-      const want = query.isFiscal === 'true'
-      rows = rows.filter(t => !!t.isFiscal === want)
-    }
-    if (query.search) {
-      const needle = String(query.search).toLowerCase()
-      rows = rows.filter(t =>
-        String(t.transactionNumber || '').toLowerCase().includes(needle)
-        || String(t.unpNumber || '').toLowerCase().includes(needle))
-    }
-
-    return pageOf(rows, query)
-  }, { isSignIn: true })
-  .get('/transactions/:txnId', async ({ params: { orgId, txnId }, user, status }) => {
-    if (!user) return status(401, { message: 'Unauthorized' })
-    const transaction = await findPosRow(orgId, txnId)
-    if (!transaction) return status(404, { message: 'Transaction not found' })
-    return { transaction }
-  }, { isSignIn: true })
+  // FR-21.27: `GET /transactions` and `/transactions/:txnId` are gone. The journal
+  // (`/cash-register/documents[/:id]`) lists and opens every till sale and storno since R1.

@@ -3,6 +3,7 @@ import type { Elysia } from 'elysia'
 import type { Types } from 'mongoose'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestPOSTransaction } from '../helpers/factories'
+import { migrateTill } from '../helpers/migrate-till'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
 import { requestHash } from 'services/biz/hot-path-key'
 import { Invoice, POSSession, POSTransaction, StockMovement } from 'db/models'
@@ -52,10 +53,13 @@ async function soldByR1(w: TillWorld, key: string, quantity = 2) {
   return { body, row, dispatch }
 }
 
-describe('a keyed till request an R1 till answered, retried against R2', () => {
-  it('is copied and replayed: no second document, УНП or receipt, and the POS row stays as it was', async () => {
+// R4: an R1 till's rows reach R4 as their copies (0008/0009 keep the `_id`, the key and the steps),
+// so each case copies them first, as the migration does, and the retry replays the copy.
+describe('a keyed till request an R1 till answered, retried after the copy', () => {
+  it('is replayed from its copy: no second document, УНП or receipt, and the POS row stays as it was', async () => {
     const w = await tillWorld(app)
     const { body, row, dispatch } = await soldByR1(w, 'deploy-key-0001')
+    await migrateTill(w.oid)
     const before: any = await POSTransaction.findById(row._id).lean()
 
     const res = await w.call('POST', `/trade/pos/session/${w.sessionId}/transaction`, body, 'deploy-key-0001')
@@ -78,16 +82,17 @@ describe('a keyed till request an R1 till answered, retried against R2', () => {
     expect(await Invoice.countDocuments({ orgId: w.oid })).toBe(1)
   }, 60_000)
 
-  it('the same key on a different request is 422, whichever store holds it', async () => {
+  it('the same key on a different request is 422', async () => {
     const w = await tillWorld(app)
     await soldByR1(w, 'deploy-key-0002')
+    await migrateTill(w.oid)
     const res = await w.call('POST', `/trade/pos/session/${w.sessionId}/transaction`, w.saleBody(3), 'deploy-key-0002')
     expect(res.status).toBe(422)
     expect(res.json.code).toBe('idempotency_key_reused')
     expect(w.sim!.receipts).toHaveLength(0)
   }, 60_000)
 
-  it('a keyed storno an R1 till made: the storno and its sale are copied, and the storno is replayed', async () => {
+  it('a keyed storno an R1 till made: the storno and its sale are copies, and the storno is replayed', async () => {
     const w = await tillWorld(app)
     const { row } = await soldByR1(w, 'deploy-key-0003')
     await POSTransaction.collection.updateOne({ _id: row._id }, { $set: { status: 'cancelled' } })
@@ -97,6 +102,7 @@ describe('a keyed till request an R1 till answered, retried against R2', () => {
       lines: (row as any).lines, payments: [{ method: 'cash', amount: 24 }], originalTransactionId: row._id,
       clientKey: 'deploy-storno-01', requestHash: requestHash(`pos.storno:${w.sessionId}`, stornoBody), completedAt: new Date(),
     } as any)
+    await migrateTill(w.oid)
 
     const res = await w.call('POST', `/trade/pos/session/${w.sessionId}/storno`, stornoBody, 'deploy-storno-01')
 

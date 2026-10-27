@@ -53,7 +53,7 @@ totals, a day's cash, SUPTO sums. The field check's output stays on the build ho
 | R2c — the copy migration and the restore | FR-21.21 – FR-21.22 | #273, merged 2026-10-26, not deployed |
 | R2d — the back office and the import; `docs/supto`; the field-check script | FR-21.15 (the other doors), FR-21.23 | #274, merged 2026-10-26, not deployed |
 | R3 — freeze | FR-21.25 – FR-21.26 | in review (`0009-cash-register-freeze`, the frozen model) |
-| R4 — contract | FR-21.27 – FR-21.28 | not started |
+| R4 — contract | FR-21.27 – FR-21.28 | in review, stacked on R3 (#284) |
 | R5 — one terminal | FR-21.29 – FR-21.32 | not started |
 
 ⚠ **Merging a stack: retarget the next PR before deleting the merged branch.** GitHub CLOSED #247 when
@@ -376,7 +376,7 @@ that series its own line only from R2c, §3.23.)
    <branch>` on the build host. It does what step 3 did.
 
 ### R3 (FR-21.25 – FR-21.26)
-In review on `feat/fr-21-r3-freeze`:
+In review as #284 (`feat/fr-21-r3-freeze`):
 - **FR-21.25:** `0009-cash-register-freeze` runs `copy-org.ts` over every org with POS rows. It copies the rows written since 0008 (a rollback to R1 between the two), then re-runs parity over the whole history, and throws naming the orgs that disagree.
 - **FR-21.26:** `POSTransaction` carries `db/plugins/frozen.plugin.ts`. Every write through the model throws `FrozenCollectionError` ("postransactions is frozen (FR-21)"): save, insertMany, every query write, document writes and bulkWrite. Raw `Model.collection.*` writes pass, as they pass the home guard. Those are the restore, the move and the mirror, already listed in `home-write-guard.flow.test.ts`.
 - **What still wrote through the model:**
@@ -386,8 +386,26 @@ In review on `feat/fr-21-r3-freeze`:
 
 **The deploy:** as R2's. Take the field check, deploy, `bun run migrate` (0009), and diff the field check. Prod has no POS rows, so 0009 finds nothing to copy and only proves parity. Rolling back to R2 is safe, because R2 never writes `POSTransaction`.
 
-### R4 – R5
-As the spec has them, after the points in §4 are settled. FR-21.28's startup check names `0009-cash-register-freeze`.
+### R4 (FR-21.27 – FR-21.28)
+In review on `feat/fr-21-r4-contract`, stacked on #284. It merges and deploys only after R3 is on prod.
+- **FR-21.27, no runtime reader asks `postransactions`:**
+  - `pos-union.ts` (`loadPosRows`, `findPosRow`) and the journal (`journal.service.ts`) read the till's documents only;
+  - the till's keyed lookup and `POST /invoices` find a key on the documents, where 0008/0009 carried it;
+  - a storno finds its sale there too, so R2's on-the-spot `copyPosRow` is gone;
+  - removed: `GET /trade/pos/transactions` and `/transactions/:txnId` (the journal replaces them), and the DAL's `posTransactions` repository and `IPOSTransaction*` entities;
+  - still reading it, through the driver: migrations, the restore of an older bundle (`copy-org.ts`) and the read-only scripts.
+- **FR-21.28, `cash-register/freeze-check.ts`:**
+  - the till's routes, the journal and SUPTO 18.1–18.5 answer 503 `cash_register_not_migrated`, naming the migration, until `0009-cash-register-freeze` is recorded;
+  - ⚠ **this departs from the spec on purpose:** an empty `postransactions` counts as ready too. The danger is a POS row no reader sees, and a new database or master has none;
+  - it is checked at startup (logged), then every 15 s until ready, so `bun run migrate` lifts it without a restart.
+- **Tests:**
+  - a test that seeds legacy POS rows first runs `helpers/migrate-till.ts` (the copy and the 0009 record), as a migrated node has them;
+  - `pos-transaction.flow` is deleted with the DAL repository it tested;
+  - the e2e walks `p4-storno` and `p4-till`, and `tenant-isolation.spec`, read the journal or the session's list.
+- **The deploy** is as R3's, with no migration of its own. On prod, 0009 is recorded by R3's deploy, so the routes answer at once. Rolling back to R3 is safe: R3 still reads both stores.
+
+### R5
+As the spec has it, after the points in §4 are settled.
 
 ## 6. Where things are
 

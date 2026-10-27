@@ -298,6 +298,11 @@ setTimeout(async () => {
     const count = await resetStaleFiscalStatuses()
     if (count > 0) logger.info({ count }, 'Reset stale fiscal device statuses to offline')
   })
+  // FR-21.28: say at startup when the cash register will answer 503 until `bun run migrate` (0009).
+  await once('cash-register-readiness', async () => {
+    const { logRegisterReadiness } = await import('services/biz/cash-register/freeze-check')
+    await logRegisterReadiness()
+  })
   // Warms caches; nothing waits for it.
   void once('data-priming', runDataPriming)
 

@@ -148,7 +148,7 @@ const APP_READS: Record<string, string[]> = {
     'warehouse/stock-level', 'warehouse/price-list', 'warehouse/cost-layer', 'warehouse/inventory-count',
     'invoicing/contact', 'invoicing/orders', 'tags',
   ],
-  pos: ['trade/pos/catalog', 'trade/pos/catalog/lookup', 'trade/pos/session', 'trade/pos/transactions', 'warehouse/product-category', 'warehouse/warehouse', 'fiscal/device', 'tags'],
+  pos: ['trade/pos/catalog', 'trade/pos/catalog/lookup', 'trade/pos/session','warehouse/product-category', 'warehouse/warehouse', 'fiscal/device', 'tags'],
   accounting: ['accounting/account', 'accounting/journal', 'accounting/exchange-rate', 'accounting/fiscal-year', 'accounting/report/trial-balance'],
   payroll: ['payroll/employee', 'payroll/payslip', 'payroll/run', 'payroll/timesheet'],
   reports: ['reports/catalog'],

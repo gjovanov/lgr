@@ -9,7 +9,7 @@ import {
   Product, Warehouse, StockLevel, StockMovement, InventoryCount, PriceList, CostLayer, ProductCategory,
   StockLocation, OperationType, StockLot,
   Employee, PayrollRun, Payslip, Timesheet,
-  POSPaymentMethod, POSSession, POSTransaction,
+  POSPaymentMethod, POSSession,
   FiscalDevice, Workstation,
 } from 'db/models'
 import { MongoRepository } from './base.repository.js'
@@ -87,7 +87,6 @@ export async function createMongoRepositories(config: DalConfig): Promise<Reposi
     // POS
     posPaymentMethods: new MongoRepository(POSPaymentMethod),
     posSessions: new MongoRepository(POSSession),
-    posTransactions: new MongoRepository(POSTransaction),
 
     // Fiscal / SUPTO
     fiscalDevices: new MongoRepository(FiscalDevice),

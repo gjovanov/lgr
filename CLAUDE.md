@@ -1921,20 +1921,25 @@ R1c (one journal page in both apps) — is on production since 2026-10-26 (`v202
 migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md`.
 
 - ⚠ **Till sales are read through `loadPosRows`** (`cash-register/pos-union.ts`), never from
-  `postransactions` directly: the union of the till's documents (`register.origin: 'pos'`) and the
-  POS rows, de-duplicated by `_id` with the document winning (R2's copy keeps the `_id`). A reader
-  that ALSO reads cash-sale documents must exclude `register.origin: 'pos'` there, or it counts a
-  copied sale twice.
+  `postransactions` (R4, FR-21.27): the till's documents (`register.origin: 'pos'`) read back as
+  the POS rows they stand for. Only migrations and the restore read `postransactions`, through the
+  driver. A reader that ALSO reads cash-sale documents must exclude `register.origin: 'pos'` there,
+  or it counts a till sale twice.
+- ⚠ **The cash register refuses until it may read that way** (FR-21.28,
+  `cash-register/freeze-check.ts`): the till's routes, the journal and SUPTO 18.1–18.5 answer 503
+  `cash_register_not_migrated` while `postransactions` holds a row and `0009-cash-register-freeze`
+  is not recorded. An empty `postransactions` (a new database or master) needs no migration. Checked
+  at startup, then every 15 s until ready. A test seeding legacy POS rows runs
+  `helpers/migrate-till.ts#migrateTill` (the copy + the 0009 record) before it reads.
 - ⚠ **`cash_storno` is a document type, stored POSITIVE.** Every invoice-side reader of cash sales
   (digest, documents report, export, product/contact ledgers, invoice summary, sales history) takes
   it with sign −1. Nothing writes one before R2; a new reader must learn it anyway.
 - ⚠ **Till documents and stornos are immutable** (D-8, `cash-register/immutability.ts`): `PUT`,
   `DELETE`, `/void` answer 409 `register_document_immutable`, and the Files rollback skips them.
   Back-office cash sales behave as before.
-- **Keyed retries find their sale in either store**: a till request whose key is on a POS row an
-  older release wrote is copied on the spot and replayed or finished as a document
-  (`lib/cash-register-till.ts#findKeyedTillDocument`), and `POST /invoices` refuses a key a POS
-  row already carries (422).
+- **Keyed retries find their sale on its document**: a key an older release put on a POS row
+  travelled with it into its copy (0008/0009), so `lib/cash-register-till.ts#findKeyedTillDocument`
+  and `POST /invoices` look in `invoices` only (R4); a different request with that key is 422.
 - **The journal**: `GET /org/:orgId/cash-register/documents` and `/:id`
   (`cash-register/journal.service.ts`), gated on `pos.read || invoicing.read` and readable by a
   PIN till. One component, `ui-shared/components/cash-register/CashRegisterJournal.vue`, is
@@ -1973,7 +1978,8 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
     `register.stornoState: 'full'` + `stornoedBy` (claimed atomically). One door for the till route
     and the journal's `POST /cash-register/documents/:id/storno` (session-less for a back-office
     sale). Refused: an imported day, an INVOICED sale (its credit note corrects it), a storno. A
-    POS-row sale is copied first (`copy.ts#copyPosRow`); the frozen row is never written.
+    POS-row sale is stornoed as its copy (0008/0009; R2's on-the-spot `copyPosRow` went in R4); the
+    frozen row is never written.
   - ⚠ **The storno's return restocks at the cost the goods LEFT at** (the dispatch line's
     `resolvedUnitCost`), through `confirmMovement`. Not `reverseInvoiceStockMovement`: on a void
     it restores the consumed layers AND confirms a receipt that layers them again, at the sale
@@ -1983,8 +1989,9 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
   `db/plugins/frozen.plugin.ts`, so every write through it (save, insertMany, query writes,
   bulkWrite) throws `FrozenCollectionError`. Migration `0009-cash-register-freeze` copied the last
   rows and proved parity. A test that needs a legacy row inserts it raw: `createTestPOSTransaction`
-  builds it with the model and writes `POSTransaction.collection.insertOne`. R4's startup check
-  (FR-21.28) names `0009`.
+  builds it with the model and writes `POSTransaction.collection.insertOne`. R4 removed what still
+  read it at runtime: `GET /trade/pos/transactions*` (the journal replaces it), the DAL's
+  `posTransactions` repository, the journal's POS side and R2's on-the-spot copy (FR-21.27).
 - ⚠ **A body field the route's schema does not declare never reaches the handler**: Elysia's
   normalize drops it without a word. `POST /invoices` read `pendingTransferIds` without declaring
   it, so the cash-sale form's transfer-then-sell answered 400 for want of stock and left its draft
