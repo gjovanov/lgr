@@ -547,13 +547,22 @@ export async function loadActiveDesktop(claims: DesktopTokenClaims): Promise<IDe
 
 export type Presence = 'online' | 'stale' | 'offline'
 
-/** Seen within this window but with no live socket = `stale` (FR-14.21). */
+/** Seen within this window but not online = `stale` (FR-14.21). */
 export const PRESENCE_STALE_MS = 90 * 1000
+/**
+ * Online = a socket AND a heartbeat within this window: two missed 30 s heartbeats and some slack.
+ *
+ * ⚠ A socket alone proves nothing. A till whose cable is pulled leaves its socket open on the hub
+ * until something times it out (the edge's 300 s), and the first field lane (vmtest T-0,
+ * 2026-10-27) watched a cut desktop read `online` for four minutes. The heartbeat is what says it
+ * is still there: it stops with the link.
+ */
+export const PRESENCE_ONLINE_MS = 75 * 1000
 
-export function presenceOf(desktop: Pick<IDesktop, 'lastSeenAt'>, hasSocket: boolean): Presence {
-  if (hasSocket) return 'online'
+export function presenceOf(desktop: Pick<IDesktop, 'lastSeenAt'>, hasSocket: boolean, now = Date.now()): Presence {
   const seen = desktop.lastSeenAt?.getTime() ?? 0
-  return Date.now() - seen <= PRESENCE_STALE_MS ? 'stale' : 'offline'
+  if (hasSocket && now - seen <= PRESENCE_ONLINE_MS) return 'online'
+  return now - seen <= PRESENCE_STALE_MS ? 'stale' : 'offline'
 }
 
 export async function reportSelf(

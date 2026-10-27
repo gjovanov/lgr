@@ -101,6 +101,12 @@ and that site could send back a code for its own account (a login CSRF).
   Settings never hold a credential, so a copied settings file yields nothing.
 - **Presence** is `/ws/desktop`, authenticated by its first message and closed after 10 s
   otherwise (`presence.rs`). The Overview's connection chip reads it.
+  - The hub calls a desktop **online** only with a socket AND a heartbeat (every 30 s) in the last
+    75 s; **stale** ("Not responding") when it was heard from within 90 s; **offline** after that
+    (`presenceOf`).
+  - ⚠ A socket alone proves nothing. A till whose cable is pulled leaves its socket open on the hub
+    until the edge times it out (300 s): the first field lane watched a cut desktop read online for
+    four minutes. Now it is offline within 90 s of the cut.
 - **The Desktops page** lists, revokes, rotates and updates desktops (`desktop.controller.ts`).
   Revoking or rotating a key drops that desktop's fiscal bridge from the server side.
 - **The version floor.** Below `DESKTOP_MIN_VERSION`, the token exchange answers 426

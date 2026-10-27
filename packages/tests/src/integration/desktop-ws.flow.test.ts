@@ -245,3 +245,29 @@ describe('the authentication deadline', () => {
     AUTH_DEADLINE_MS + 5000,
   )
 })
+
+describe('a revoked desktop is told at once (FR-14.22)', () => {
+  it('the revoke route sends the notice down its socket and closes it', async () => {
+    // ⚠ `notifyDesktopRevoked` was written and never called: the first field lane (vmtest T-0)
+    // revoked a desktop, and its shell still did not know two minutes later.
+    const { desktopController } = await import('../../../portal-api/src/controllers/desktop.controller')
+    const { org, desktop, token } = await seedDesktop()
+    const ws = fakeWs()
+    handleDesktopOpen(ws)
+    await handleDesktopMessage(ws, JSON.stringify({ type: 'desktop:auth', token }))
+    expect(isDesktopOnline(String(desktop._id))).toBe(true)
+
+    const admin = await createTestUser(org._id, { role: 'admin' } as any)
+    const adminToken = await signer.sign({ id: String(admin._id), orgId: String(org._id), role: 'admin', permissions: ['admin.settings'] })
+    const app = new Elysia().use(desktopController)
+    const res = await app.handle(new Request(`http://localhost/org/${org._id}/desktops/${desktop._id}/revoke`, {
+      method: 'POST', headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ reason: 'test' }),
+    }))
+    expect(res.status).toBe(200)
+
+    expect(ws.last('desktop:revoked')?.message).toContain((org as any).name)
+    expect(ws.closed.length).toBe(1)
+    handleDesktopClose(ws)
+    expect(isDesktopOnline(String(desktop._id))).toBe(false)
+  })
+})

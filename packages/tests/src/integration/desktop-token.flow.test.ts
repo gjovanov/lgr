@@ -244,6 +244,17 @@ describe('presence', () => {
     expect(presenceOf({ lastSeenAt: new Date(now - 10 * 60_000) } as any, false)).toBe('offline')
     expect(presenceOf({ lastSeenAt: undefined } as any, false)).toBe('offline')
   })
+
+  it('needs a heartbeat as well as a socket: a cut link leaves the socket open, and the heartbeat stops', () => {
+    const now = Date.now()
+    // Heartbeats every 30 s: one missed is still online.
+    expect(presenceOf({ lastSeenAt: new Date(now - 45_000) } as any, true, now)).toBe('online')
+    // Two missed and more: the socket is still registered, the till is not there.
+    expect(presenceOf({ lastSeenAt: new Date(now - 80_000) } as any, true, now)).toBe('stale')
+    // Offline within 90 s of the last heartbeat, so within 90 s of the cut.
+    expect(presenceOf({ lastSeenAt: new Date(now - 91_000) } as any, true, now)).toBe('offline')
+    expect(presenceOf({ lastSeenAt: undefined } as any, true, now)).toBe('offline')
+  })
 })
 
 describe('the audience, behind a proxy', () => {
