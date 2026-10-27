@@ -1881,7 +1881,7 @@ or cash sale and prints it — one click (P5-invoice 20 → 14 clicks, 2 dialogs
   deal and the 1366 fit; P7-chain issues through ⋮ → „Издай", one click more than the old row icon,
   until the client order links its invoice (FR-22.35).
 
-## FR-21 — one cash register (#171; R1–R5 on production 2026-10-27, FR-21.32 open)
+## FR-21 — one cash register (#171; R1–R5 on production 2026-10-27)
 
 ⚠ **R2 (#272–#274) is on master since 2026-10-26 and NOT deployed: the next deploy of master ships
 it, whoever runs it.** That deploy needs four more steps (handover §5):
