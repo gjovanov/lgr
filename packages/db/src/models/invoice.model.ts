@@ -217,9 +217,25 @@ export interface IInvoice extends Document {
    * FR-20.84 (P3-6e): a document a replaced server issued after the cutoff, brought in by the audited
    * import: its source (the server, the promotion, the export), the method, when, and who asked
    * (Прил. 42). Everything else of the document is as the site wrote it; `number` is the site's when
-   * the import had to give a draft another.
+   * the import had to give a draft another. `reseed_kept` (P3-7g): what a re-seed kept on the server,
+   * brought in there (no export, so no `exportId`).
    */
-  importedFrom?: { kind: 'fenced_export'; exportId: Types.ObjectId; moveId: Types.ObjectId; nodeId: string; at: Date; by: Types.ObjectId; number?: string }
+  importedFrom?: { kind: 'fenced_export' | 'reseed_kept'; exportId?: Types.ObjectId; moveId: Types.ObjectId; nodeId: string; at: Date; by: Types.ObjectId; number?: string }
+  /**
+   * FR-20.51, AC 51: a legal number issued twice. Both documents exist on paper, so both are in the
+   * books under it; this one, the second to reach this database, names the other (`withId`). The
+   * unique key is `{orgId, invoiceNumber, numberClash.withId}`, so the pair fits and a third never
+   * does. The LATER of the two is annulled by a credit note and re-issued under a new number (ЗДДС
+   * чл. 116), never edited or deleted: `correction` holds the two drafts once a person prepares them.
+   */
+  numberClash?: {
+    withId: Types.ObjectId
+    withNumber: string
+    /** Where this document came in from: `fenced_export`, `reseed_kept`. */
+    source: string
+    at: Date
+    correction?: { target: Types.ObjectId; creditNoteId: Types.ObjectId; reissueId: Types.ObjectId; preparedAt: Date; preparedBy: Types.ObjectId }
+  }
   /** How the document is (to be) paid: cash | card | bank_transfer | cash_on_delivery. */
   paymentMethod?: string
   /** Съставил — who authored the document (OCR-imported name or the creating user). */
@@ -419,7 +435,7 @@ const invoiceSchema = new Schema<IInvoice>(
       completedAt: Date,
     },
     importedFrom: {
-      kind: { type: String, enum: ['fenced_export'] },
+      kind: { type: String, enum: ['fenced_export', 'reseed_kept'] },
       exportId: Schema.Types.ObjectId,
       moveId: Schema.Types.ObjectId,
       nodeId: String,
@@ -465,6 +481,33 @@ const invoiceSchema = new Schema<IInvoice>(
       required: false,
     },
     taxEventDate: Date,
+    // ⚠ A single nested subdocument, like `cashSaleRef`: an invoice without a clash carries none, so
+    // `numberClash.withId` is missing (null) in the unique key for every ordinary document.
+    numberClash: {
+      type: new Schema(
+        {
+          withId: { type: Schema.Types.ObjectId, ref: 'Invoice', required: true },
+          withNumber: { type: String, required: true },
+          source: { type: String, required: true },
+          at: { type: Date, required: true },
+          correction: {
+            type: new Schema(
+              {
+                target: { type: Schema.Types.ObjectId, ref: 'Invoice', required: true },
+                creditNoteId: { type: Schema.Types.ObjectId, ref: 'Invoice', required: true },
+                reissueId: { type: Schema.Types.ObjectId, ref: 'Invoice', required: true },
+                preparedAt: { type: Date, required: true },
+                preparedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+              },
+              { _id: false },
+            ),
+            required: false,
+          },
+        },
+        { _id: false },
+      ),
+      required: false,
+    },
     stockSource: {
       marker: String,
       docNumber: String,
@@ -546,8 +589,17 @@ const invoiceSchema = new Schema<IInvoice>(
   { timestamps: true },
 )
 
+/** The unique key on an org's invoice numbers (AC 51), by name: migration 0010 and the tests use it. */
+export const INVOICE_NUMBER_KEY = 'invoice_number_unique'
+
 invoiceSchema.plugin(tenantPlugin)
-invoiceSchema.index({ orgId: 1, invoiceNumber: 1 }, { unique: true })
+/**
+ * One number, one document, but for a number issued twice (FR-20.51, AC 51): the pair's second carries
+ * `numberClash.withId`, so it fits beside the first, and a third never does. Every ordinary invoice
+ * has no such field, which the key reads as null: `(org, number)` stays unique for them exactly as
+ * before. Migration `0010-invoice-number-clash` replaced the old `orgId_1_invoiceNumber_1`.
+ */
+invoiceSchema.index({ orgId: 1, invoiceNumber: 1, 'numberClash.withId': 1 }, { unique: true, name: INVOICE_NUMBER_KEY })
 // FR-20.84: what an audited import brought in, by the export it came from.
 invoiceSchema.index({ orgId: 1, 'importedFrom.exportId': 1 }, { partialFilterExpression: { 'importedFrom.exportId': { $exists: true } } })
 // One document per client key. Partial, so the many documents without a key never collide.

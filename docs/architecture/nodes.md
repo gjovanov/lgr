@@ -827,8 +827,13 @@ a server linked at Full). lgrai.app runs the move (`services/biz/move/move.servi
   its registry row moved with the org, so nothing is enrolled again. The server's health reports say
   where its LAN ingress answers; when lgrai.app does not know, the desktop is only told that its org
   moved, and offers to pair. Nothing of a moved org's desktop is written on lgrai.app.
-- The move back to the cloud, promotion, the fenced export and its import are above. **Not yet**: a
-  legal number issued twice, resolved by a credit note and a re-issue.
+- The move back to the cloud, promotion, the fenced export and its import are above.
+- **A number issued twice** (AC 51). A server cut off from lgrai.app, or one whose database went
+  back, can issue a number lgrai.app's copy also gave to another document. Both are on paper, so both
+  are in the books under that number, the second flagged with the first. The Sales invoices list says
+  so. One click prepares the correction the law asks for: the later document annulled by a credit
+  note and re-issued under a new number, as two drafts a person checks and issues. Neither moves
+  stock, and neither document of the pair is edited or deleted.
 
 ## Not built yet
 

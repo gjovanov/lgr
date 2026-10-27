@@ -9,6 +9,7 @@ import { posOutRecordOnly } from './migrations/0006-pos-out-record-only.js'
 import { cashSaleLineTotalsGross } from './migrations/0007-cash-sale-line-totals-gross.js'
 import { cashRegisterCopy } from './migrations/0008-cash-register-copy.js'
 import { cashRegisterFreeze } from './migrations/0009-cash-register-freeze.js'
+import { invoiceNumberClash } from './migrations/0010-invoice-number-clash.js'
 import FINGERPRINTS from './fingerprints.json' with { type: 'json' }
 
 /**
@@ -31,6 +32,7 @@ export const RELEASED: Migration[] = [
   cashSaleLineTotalsGross,
   cashRegisterCopy,
   cashRegisterFreeze,
+  invoiceNumberClash,
 ]
 
 /** {@link RELEASED}, each carrying its file's fingerprint, which the runner checksums. */

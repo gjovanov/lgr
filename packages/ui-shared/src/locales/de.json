@@ -1571,7 +1571,23 @@
     "newPaymentOrder": "Neuer Zahlungsauftrag",
     "newCashOrder": "Neuer Kassenbeleg",
     "relatedDocument": "Verknüpftes Dokument",
-    "voidConfirmProforma": "{number} stornieren? Sie bleibt als storniert in der Liste und kann nicht mehr in eine Rechnung umgewandelt werden."
+    "voidConfirmProforma": "{number} stornieren? Sie bleibt als storniert in der Liste und kann nicht mehr in eine Rechnung umgewandelt werden.",
+    "numberClash": {
+      "banner": "{n} Rechnungsnummern wurden doppelt vergeben. Das spätere Dokument jedes Paars wird durch eine Gutschrift aufgehoben und unter einer neuen Nummer neu ausgestellt (ЗДДС Art. 116).",
+      "review": "Prüfen",
+      "title": "Doppelt vergebene Nummern",
+      "intro": "Eine doppelt vergebene Nummer wird nie durch Bearbeiten oder Löschen eines der Dokumente korrigiert. Das spätere wird durch eine Gutschrift aufgehoben und unter einer neuen Nummer neu ausgestellt; beide werden hier als Entwürfe vorbereitet, die Sie prüfen und ausstellen. Keiner bewegt Bestand: die Ware ging einmal hinaus. Die Zahlungen bleiben beim aufgehobenen Dokument, bis Sie sie zuordnen.",
+      "number": "Nummer",
+      "documents": "Dokumente",
+      "correction": "Korrektur",
+      "later": "später",
+      "corrected": "Korrigiert",
+      "prepared": "Entwürfe vorbereitet: prüfen und ausstellen",
+      "prepare": "Korrektur vorbereiten",
+      "byPerson": "Ein Barverkauf oder eine Notiz wird von einem Menschen korrigiert",
+      "preparedToast": "Gutschrift und Neuausstellung sind als Entwürfe vorbereitet",
+      "failed": "Es konnte nicht vorbereitet werden."
+    }
   },
   "warehouse": {
     "sku": "Artikelnr.",

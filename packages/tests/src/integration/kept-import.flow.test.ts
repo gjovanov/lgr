@@ -161,8 +161,9 @@ describe('what a re-seed kept, brought into the books on the server (FR-20.71, P
     expect(await JournalEntry.exists({ _id: inv.journalEntryId })).toBeTruthy()
     const paid: any = await Invoice.collection.findOne({ _id: w.ids.paid52 } as any)
     expect(await JournalEntry.exists({ _id: paid.payments[0].journalEntryId })).toBeTruthy()
-    // 10 − 2 (INV-50) − 1 (INV-52) + 5 (the delivery) = 12; the nut below zero, as the shelf went.
-    expect(await stockOf(w.oid, w.bolt._id, w.wh._id)).toBe(12)
+    // 10 − 2 (INV-50) − 1 (INV-52) − 1 (the INV-42 issued twice) + 5 (the delivery) = 11; the nut
+    // below zero, as the shelf went.
+    expect(await stockOf(w.oid, w.bolt._id, w.wh._id)).toBe(11)
     expect(await stockOf(w.oid, w.ids.newProduct, w.wh._id)).toBe(-3)
     // ── a till sale: its stock here, its session journaled at its close ──
     const cs: any = await Invoice.collection.findOne({ _id: w.ids.cashSale } as any)
@@ -174,8 +175,10 @@ describe('what a re-seed kept, brought into the books on the server (FR-20.71, P
     // ── never overwritten: the copy's INV-41 stays the copy's ──
     expect(((await Invoice.collection.findOne({ _id: w.shared41 } as any)) as any)?.total).toBe(99)
     // ── left for a person, each with why ──
-    expect(await Invoice.exists({ _id: w.ids.clash })).toBeNull()
-    expect(await outcome('invoices', w.ids.clash)).toMatchObject({ outcome: 'skipped', reason: 'number_taken', number: `INV-${year}-00042` })
+    // AC 51: the kept INV-42 and the copy's are both in the books, the kept one flagged.
+    const clash: any = await Invoice.collection.findOne({ _id: w.ids.clash } as any)
+    expect([clash?.invoiceNumber, clash?.numberClash?.source]).toEqual([`INV-${year}-00042`, 'reseed_kept'])
+    expect(await outcome('invoices', w.ids.clash)).toMatchObject({ outcome: 'imported', reason: 'number_clash', number: `INV-${year}-00042` })
     expect(await outcome('invoices', w.ids.missing)).toMatchObject({ outcome: 'skipped', reason: 'missing_reference' })
     expect(await outcome('invoices', w.ids.draft)).toMatchObject({ outcome: 'skipped', reason: 'kept_draft', number: `DRF-INV-${year}-00003` })
     expect(await outcome('stockmovements', w.ids.draftMovement)).toMatchObject({ outcome: 'skipped', reason: 'kept_draft' })
@@ -187,12 +190,12 @@ describe('what a re-seed kept, brought into the books on the server (FR-20.71, P
     const seq = async (prefix: string, y = year) => Number(((await Sequence.findOne({ orgId: w.oid, prefix, year: y }).lean()) as any)?.lastNumber ?? 0)
     expect(await seq('SALES_DOC')).toBe(52)
     expect(await seq('UNP-ED123456', 0)).toBe(7)
-    expect(done.counts).toMatchObject({ 'skipped:number_taken': 1, 'skipped:missing_reference': 1, 'skipped:kept_draft': 2 })
+    expect(done.counts).toMatchObject({ 'imported:number_clash': 1, 'skipped:missing_reference': 1, 'skipped:kept_draft': 2 })
     expect(done.counts.imported).toBe(7)
     // ── the page's account of it ──
     const [run] = await keptOf(w.orgId)
     expect(run).toMatchObject({ moveId: w.moveId, done: true, import: { state: 'done' } })
-    expect(run.left.map((l: any) => l.reason).sort()).toEqual(['kept_draft', 'kept_draft', 'missing_reference', 'number_taken'])
+    expect(run.left.map((l: any) => l.reason).sort()).toEqual(['kept_draft', 'kept_draft', 'missing_reference'])
     expect(await AuditLog.exists({ orgId: w.oid, entityType: 'org_move', action: 'import', entityId: new mongoose.Types.ObjectId(w.moveId) })).toBeTruthy()
   }, 120_000)
 

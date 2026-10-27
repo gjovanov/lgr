@@ -1372,7 +1372,23 @@
     "newPaymentOrder": "New Payment Order",
     "newCashOrder": "New Cash Order",
     "relatedDocument": "Related document",
-    "voidConfirmProforma": "Void {number}? It stays in the list as voided and can no longer be converted into an invoice."
+    "voidConfirmProforma": "Void {number}? It stays in the list as voided and can no longer be converted into an invoice.",
+    "numberClash": {
+      "banner": "{n} invoice numbers were issued twice. The later document of each pair is annulled by a credit note and re-issued under a new number (ЗДДС чл. 116).",
+      "review": "Review",
+      "title": "Numbers issued twice",
+      "intro": "A number issued twice is never corrected by editing or deleting either document. The later one is annulled by a credit note and re-issued under a new number; both are prepared here as drafts, which you check and issue. Neither moves stock: the goods left once. Its payments stay on the annulled document until you allocate them.",
+      "number": "Number",
+      "documents": "Documents",
+      "correction": "Correction",
+      "later": "later",
+      "corrected": "Corrected",
+      "prepared": "Drafts prepared: check and issue them",
+      "prepare": "Prepare the correction",
+      "byPerson": "A cash sale or a note is corrected by a person",
+      "preparedToast": "The credit note and the re-issue are prepared as drafts",
+      "failed": "It could not be prepared."
+    }
   },
   "pos": {
     "cartEmpty": "Cart is empty",

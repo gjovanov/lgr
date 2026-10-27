@@ -178,8 +178,9 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
     const paid: any = await Invoice.collection.findOne({ _id: w.ids.paid52 } as any)
     expect(paid.payments[0].journalEntryId && String(paid.payments[0].journalEntryId) !== String(w.ids.je)).toBe(true)
     expect(await JournalEntry.exists({ _id: paid.payments[0].journalEntryId })).toBeTruthy()
-    // 10 − 2 (INV-50) − 1 (INV-52) + 5 (the delivery) = 12; the nut went below zero, as the shelf did.
-    expect(await stockOf(w.oid, w.bolt._id, w.wh._id)).toBe(12)
+    // 10 − 2 (INV-50) − 1 (INV-52) − 1 (the INV-42 issued twice: the goods left all the same) + 5 (the
+    // delivery) = 11; the nut went below zero, as the shelf did.
+    expect(await stockOf(w.oid, w.bolt._id, w.wh._id)).toBe(11)
     expect(await stockOf(w.oid, w.ids.newProduct, w.wh._id)).toBe(-3)
     // ── a till sale: its stock here, its session journaled at its close ──
     const cs: any = await Invoice.collection.findOne({ _id: w.ids.cashSale } as any)
@@ -202,8 +203,11 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
     expect(sha(readFileSync(join(root, 'global', ...w.rel.split('/'))))).toBe(sha(w.content))
     expect(await AuditLog.exists({ _id: w.ids.audit })).toBeTruthy()
     // ── left for a person, each with why ──
-    expect(await Invoice.exists({ _id: w.ids.clash })).toBeNull()
-    expect(await outcome('invoices', w.ids.clash)).toMatchObject({ outcome: 'skipped', reason: 'number_taken', number: `INV-${year}-00042` })
+    // AC 51: a number issued twice. Both are on paper, so both are in the books: the site's under its
+    // number, flagged with lgrai.app's (the later is corrected by a credit note and a re-issue).
+    const clash: any = await Invoice.collection.findOne({ _id: w.ids.clash } as any)
+    expect([clash?.invoiceNumber, String(clash?.numberClash?.withId), clash?.numberClash?.source]).toEqual([`INV-${year}-00042`, String(w.ours42), 'fenced_export'])
+    expect(await outcome('invoices', w.ids.clash)).toMatchObject({ outcome: 'imported', reason: 'number_clash', number: `INV-${year}-00042` })
     expect(await Invoice.exists({ _id: w.ids.missing })).toBeNull()
     expect(await outcome('invoices', w.ids.missing)).toMatchObject({ outcome: 'skipped', reason: 'missing_reference' })
     expect(await outcome('stockmovements', w.ids.saleMovement)).toMatchObject({ outcome: 'skipped', reason: 'made_by_its_sale' })
@@ -216,11 +220,11 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
     expect(await seq('CASH_SALE')).toBe(10)
     expect(await seq('UNP-ED123456', 0)).toBe(7)
     // ── done, counted, and the review says what became of each sale ──
-    expect(done.import.counts).toMatchObject({ 'imported': expect.any(Number), 'skipped:number_taken': 1, 'skipped:missing_reference': 1, 'skipped:made_by_its_sale': 1, 'skipped:not_imported_kind': 1, 'skipped:deletion': 1 })
+    expect(done.import.counts).toMatchObject({ 'imported': expect.any(Number), 'imported:number_clash': 1, 'skipped:missing_reference': 1, 'skipped:made_by_its_sale': 1, 'skipped:not_imported_kind': 1, 'skipped:deletion': 1 })
     const [review] = await fencedExportsOf(w.orgId)
     const by = Object.fromEntries(review.legal.map(l => [l.number, l]))
     expect(by[`INV-${year}-00050`]).toMatchObject({ onGlobal: 'absent', imported: { outcome: 'imported' } })
-    expect(by[`INV-${year}-00042`]).toMatchObject({ onGlobal: 'collision', imported: { outcome: 'skipped', reason: 'number_taken' } })
+    expect(by[`INV-${year}-00042`]).toMatchObject({ onGlobal: 'collision', imported: { outcome: 'imported', reason: 'number_clash' } })
     expect(review).toMatchObject({ nodeName: null, import: { state: 'done' } })
     expect(await AuditLog.exists({ orgId: w.oid, entityType: 'fenced_export', action: 'import', entityId: w.ex._id })).toBeTruthy()
   }, 120_000)

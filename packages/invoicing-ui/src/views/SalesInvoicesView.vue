@@ -24,6 +24,7 @@
     </template>
 
     <template #filters>
+      <NumberClashBanner />
       <FilterBar v-model:search="search">
         <v-col cols="12" sm="6" md="2">
           <StatusMultiselect v-model="typeFilter" :items="typeOptions" :label="$t('invoicing.documentType')" :all-label="$t('common.allTypes')" />
@@ -196,6 +197,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState, allOptionsParam } from 'ui-shared/composables/useListQueryState'
 import CreateButton from 'ui-shared/components/CreateButton.vue'
+import NumberClashBanner from '../components/NumberClashBanner.vue'
 import RowActionsMenu, { type RowAction } from 'ui-shared/components/RowActionsMenu.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import DateField from 'ui-shared/components/DateField.vue'
