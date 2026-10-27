@@ -1952,9 +1952,16 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
 - ⚠ **`exchangeRate` is the base-currency value of ONE unit of the document's currency**
   (`totalBase = total × exchangeRate`): a BGN till session in an EUR org maps to 1/1.95583, not
   1.95583 (`cash-register/mapping.ts#exchangeRateFor`).
-- ⚠ **The POS terminal shows ANY open session in the org**, not only its user's
-  (`PosTerminalView.vue#fetchSessions`). E2E fixtures that open a session must close it, or
-  `pos-terminal.spec.ts` loses its "Open Session" button (`e2e/tests/helpers/cash-register.ts`).
+- ⚠ **The POS terminal rings into the user's OWN open session** (owner, 2026-10-27, FR-21 R5):
+  `PosTerminalView.vue#fetchSessions` asks `GET /trade/pos/session?cashierId=<me>`, and a sale into
+  another cashier's session is 403 `session_not_yours` (a keyed retry of a sale already made is
+  answered first). Until R5 it took the first open session in the org.
+- **A back-office cash sale joins its author's open session** (FR-21.31, D-13): `POST /invoices`
+  writes it with `register.origin: 'pos'`, `joinedFrom: 'backoffice'` and the session, so it counts
+  in the drawer's totals, the close JE and SUPTO, is immutable and is reversed by a storno through a
+  till. Its lines keep their warehouses. It prints on the session's device only when the request
+  says `receipt: 'fiscal' | 'text'`. An imported day never joins. Test fixtures: `till-world`'s
+  `backOfficeSale` posts as a clerk with no session, `cashierBackOfficeSale` as the till's cashier.
 - ⚠ **Since R2 the till writes cash-register documents, never `POSTransaction`.** The steps live
   in `services/biz/cash-register/register.service.ts` (insert → number → УНП → print once →
   session totals → stock → complete → audit), on the `Invoice` row's `register` block. `services`

@@ -54,7 +54,7 @@ totals, a day's cash, SUPTO sums. The field check's output stays on the build ho
 | R2d — the back office and the import; `docs/supto`; the field-check script | FR-21.15 (the other doors), FR-21.23 | #274, merged 2026-10-26, not deployed |
 | R3 — freeze | FR-21.25 – FR-21.26 | in review (`0009-cash-register-freeze`, the frozen model) |
 | R4 — contract | FR-21.27 – FR-21.28 | in review, stacked on R3 (#284) |
-| R5 — one terminal | FR-21.29 – FR-21.32 | not started |
+| R5 — one terminal | FR-21.29 – FR-21.32 | R5a (the session join, FR-21.31) in review; R5b (the one terminal, FR-21.29/.30/.32) to do |
 
 ⚠ **Merging a stack: retarget the next PR before deleting the merged branch.** GitHub CLOSED #247 when
 #244's head branch was deleted with `gh pr merge --delete-branch`, instead of retargeting it. A closed
@@ -188,8 +188,9 @@ Revisit any of these you disagree with. None is hard to change.
 1. **The POS terminal shows ANY open session in the org.** `PosTerminalView.vue#fetchSessions`
    loads the org's last ten sessions, and `activeSession` is the first open one. So cashier B's
    terminal rings into cashier A's session, although the server lets each cashier open their own.
-   - R5's D-13 ("the user's open session") builds on whichever of the two is meant. Decide it
-     before R5.
+   - R5's D-13 ("the user's open session") builds on whichever of the two is meant. **Decided
+     2026-10-27: the user's own.** R5a makes the terminal ask for the user's sessions and refuses
+     a sale into another cashier's (403 `session_not_yours`).
    - The e2e fixtures close their sessions because of it.
    - FR-22's till walks (`e2e/tests/ux-budgets/p4-*`, #250) leave the admin's session open. So
      `pos-terminal.spec.ts` fails when it runs after them in the same database. The walks, that spec and
@@ -404,8 +405,30 @@ In review on `feat/fr-21-r4-contract`, stacked on #284. It merges and deploys on
   - the e2e walks `p4-storno` and `p4-till`, and `tenant-isolation.spec`, read the journal or the session's list.
 - **The deploy** is as R3's, with no migration of its own. On prod, 0009 is recorded by R3's deploy, so the routes answer at once. Rolling back to R3 is safe: R3 still reads both stores.
 
-### R5
-As the spec has it, after the points in §4 are settled.
+### R5 (FR-21.29 – FR-21.32)
+Split in two.
+
+**R5a, the server (in review, `feat/fr-21-r5a-session-join`):**
+- **The terminal rings into the user's own session** (owner, 2026-10-27).
+  - `PosTerminalView.vue#fetchSessions` passes `cashierId`.
+  - `POST /session/:id/transaction` answers 403 `session_not_yours` for another cashier's session. A keyed retry of a sale already made is answered first.
+- **FR-21.31 (D-13): a back-office sale joins its author's open session.** `POST /invoices` writes it with `register.origin: 'pos'`, `joinedFrom: 'backoffice'`, the session, its warehouse and the cashier. Because it is a till document:
+  - it counts in the drawer's totals and in the close JE (`loadPosRows`), and in SUPTO;
+  - it is immutable, and is reversed by a storno through a till.
+
+  Its lines keep their own warehouses (§6 edge 14). A sale sent with only a header method gets its payment row, so the drawer sees the cash. A keyed retry resumes it in its own session. An imported day never joins.
+- **The receipt prints on the session's device only when the request asks** (`receipt: 'fiscal' | 'text'`). The back-office form sends nothing today, so nothing prints unexpectedly. R5b's terminal sends the till's choice. The context (the device, the operator code) is built before the document, so a refusal leaves nothing behind.
+- **Revenue is posted once.** A back-office cash sale never posted a JE of its own (`invoice.posted` fires only from `/send`), so a joined sale's revenue is the session close's alone.
+- **Tests:**
+  - `cash-register-session-join.flow`: 7 tests;
+  - `till-world`'s `backOfficeSale` now posts as a clerk with no session, so the existing back-office cases mean what they meant; `cashierBackOfficeSale` joins.
+
+**R5b, the UI (to do):**
+- **FR-21.29:** one `RegisterTerminal` (ui-shared) for `/pos/terminal` and `/invoicing/cash-sales/new`. It sends the receipt choice.
+- **FR-21.30:** `computePosTotals` for every cash-register document.
+- **FR-21.32 (SHOULD):** `pos.write` on the till's write routes, once the preflight's list of affected users is empty.
+
+⚠ **Check on hardware:** the fiscal print of a back-office line with a **discount**. Till lines and form lines carry `discount` alike, but only the till's has been printed on a device.
 
 ## 6. Where things are
 

@@ -10,7 +10,8 @@ import { eventBus } from 'services/events/event-bus'
 import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
-import { Invoice, Reservation, StockMovement } from 'db/models'
+import { Invoice, POSSession, Reservation, StockMovement } from 'db/models'
+import { tillContext } from '../lib/cash-register-till.js'
 import { assertHomeIsHere } from 'db/home/home'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
@@ -45,6 +46,15 @@ interface CreateCtx {
   skipStockMovement: boolean
   allowNegativeStock: boolean
   pendingTransferIds?: string[]
+  /** FR-21.31: the author's open session, which a back-office cash sale joins. */
+  joined?: any | null
+  /** How a joined sale prints on its session's device; absent, it prints nothing. */
+  receipt?: 'fiscal' | 'text'
+}
+
+/** FR-21.31 (D-13): the author's own open session, which their back-office cash sale joins. */
+async function openSessionOf(orgId: string, userId: string): Promise<any | null> {
+  return POSSession.findOne({ orgId, cashierId: userId, status: 'open' }).sort({ openedAt: -1 }).lean().exec()
 }
 
 const reused = (status: Status, e: IdempotencyError) => status(e.statusCode, { code: e.code, message: e.message })
@@ -53,12 +63,18 @@ const refused = (status: Status, e: CashSaleInvoiceError) => status(e.statusCode
 
 /**
  * FR-21 (D-4): a back-office cash sale is a cash-register document, written by the one service
- * that writes the till's. This door has no fiscal device and (until R5) no session; it brings its
- * own work around the dispatch — the transfers the cash-sale form asked for (FR-21.24) before it,
- * the order the sale consumes after it — and its request flags.
+ * that writes the till's. It brings its own work around the dispatch — the transfers the cash-sale
+ * form asked for (FR-21.24) before it, the order the sale consumes after it — and its request flags.
+ *
+ * FR-21.31 (D-13): when its author has an open session, it joins it. The session's drawer takes the
+ * money (its totals, its close JE) and, when the request asks for a receipt, the session's device
+ * prints it as the till's would. `tillContext` may refuse (a device in error, no operator code for a
+ * fiscal receipt), so a joined sale's context is built before its document is.
  */
-function cashSaleContext(c: CreateCtx): RegisterContext {
+async function cashSaleContext(c: CreateCtx): Promise<RegisterContext> {
+  const till = c.joined ? await tillContext(c.orgId, c.user, c.joined, { needsOperator: c.receipt === 'fiscal' }) : null
   return {
+    ...(till ? { session: till.session, printer: c.receipt ? till.printer : null } : {}),
     orgId: c.orgId,
     user: c.user,
     allowNegative: c.allowNegativeStock,
@@ -118,7 +134,12 @@ async function settleCreate(existing: any, hash: string, c: CreateCtx, status: S
   // Documents created before this field existed, or by a request that finished, are complete.
   if (existing.completedAt || !existing.leaseUntil) return replay()
   if (existing.type === 'cash_sale') {
-    return cashSaleAnswer(c, () => settleKeyedDocument(existing, hash, async () => cashSaleContext(c), runSaleSteps), status)
+    // FR-21.31: a joined sale resumes in ITS session, with the receipt it asked for.
+    const reg = existing.register || {}
+    const resume: CreateCtx = reg.joinedFrom && reg.sessionId
+      ? { ...c, joined: await POSSession.findOne({ _id: reg.sessionId, orgId: c.orgId }).lean().exec(), receipt: reg.fiscal?.mode }
+      : c
+    return cashSaleAnswer(c, () => settleKeyedDocument(existing, hash, async () => cashSaleContext(resume), runSaleSteps), status)
   }
   for (let round = 0; round < 2; round++) {
     if (await takeLease(Invoice, c.orgId, existing._id)) return finishCreate(c, id, status)
@@ -666,6 +687,20 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // ⚠ A keyed one is INSERTED under a placeholder before its CS number is drawn: a legal
       // sequence, where every losing duplicate of a racing retry would otherwise burn a number.
       if (isCashSale) {
+        const origin = originOf(body)
+        // FR-21.31 (D-13): a sale entered here by someone with an open session joins it. An imported
+        // till day never does: it is a day's takings, not one drawer's sale.
+        createCtx.joined = origin === 'backoffice' ? await openSessionOf(orgId, user.id) : null
+        createCtx.receipt = (body as any).receipt
+        let context: RegisterContext
+        try {
+          context = await cashSaleContext(createCtx)
+        } catch (e: any) {
+          if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
+          throw e
+        }
+        const joined = createCtx.joined
+        const printer = context.printer ?? null
         const fields = {
           ...body,
           lines,
@@ -683,14 +718,34 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           createdBy: user.id,
           // §3.2: a PlusMinus till day (the CLI import tags it, its reference names the day) or a sale
           // entered here.
-          register: { origin: originOf(body) },
+          register: joined
+            ? {
+                // FR-21.31: the drawer's sale, as the till's are: its totals, its close JE, SUPTO, a
+                // storno through a till of that session's warehouse. Its lines keep their own
+                // warehouses for stock (§6 edge 14).
+                origin: 'pos',
+                joinedFrom: 'backoffice',
+                sessionId: joined._id,
+                warehouseId: joined.warehouseId,
+                cashierId: user.id,
+                ...(user.operatorCode ? { operatorCode: user.operatorCode } : {}),
+                ...(printer ? { fiscalDeviceNumber: printer.deviceNumber } : {}),
+                isFiscal: !!printer && createCtx.receipt === 'fiscal',
+                fiscal: printer && createCtx.receipt ? { state: 'pending', mode: createCtx.receipt } : { state: 'none' },
+                changeDue: 0,
+              }
+            : { origin },
+          // The drawer counts payments: a joined sale sent with its header method only gets its row.
+          ...(joined && !(body as any).payments?.length
+            ? { payments: [{ date: new Date(), method: (body as any).paymentMethod || 'cash', amount: body.total }] }
+            : {}),
         }
         return cashSaleAnswer(createCtx, async () => {
           const outcome = await insertRegisterDocument(orgId, fields, key ? { key, hash: hash! } : undefined)
           // A racing duplicate of this keyed request won the insert: answer as it does.
-          if ('existing' in outcome) return settleKeyedDocument(outcome.existing, hash!, async () => cashSaleContext(createCtx), runSaleSteps)
+          if ('existing' in outcome) return settleKeyedDocument(outcome.existing, hash!, async () => context, runSaleSteps)
           await upsertTags(orgId, 'invoice', body.tags)
-          return runSaleSteps(cashSaleContext(createCtx), String(outcome.inserted._id))
+          return runSaleSteps(context, String(outcome.inserted._id))
         }, status)
       }
 
@@ -832,6 +887,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // (`/stock-availability/create-transfers`), confirmed before the sale dispatches.
         // Undeclared, Elysia's normalize dropped it and the sale failed for want of stock.
         pendingTransferIds: t.Optional(t.Array(t.String())),
+        // FR-21.31: a cash sale that joins its author's open session prints on that session's device
+        // only when asked, as the till's "Non-fiscal" switch asks (`text`) or not (`fiscal`).
+        receipt: t.Optional(t.Union([t.Literal('fiscal'), t.Literal('text')])),
         notes: t.Optional(t.String()),
         // Free text printed under the number block of the form; stored with the document.
         printNote: t.Optional(t.String()),
