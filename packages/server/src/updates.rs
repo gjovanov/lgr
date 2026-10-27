@@ -15,6 +15,8 @@
 //!   nothing is forced.
 //! - `UPDATE_AUTO=off` turns automatic updates off; an update from a file (`update apply`) still
 //!   works (the plan's kill switch).
+//! - **A SUPTO version waits for its declaration** (FR-20.50, P3-8c, `supto.rs`): the helper is not
+//!   woken for it, and the status says which version waits (`suptoWaiting`, an alarm on lgrai.app).
 //! - ⚠ The supervisor is not a trust boundary for the update itself: everything it says the helper
 //!   checks again or does not need (the bytes' signatures, the version inside them).
 
@@ -207,11 +209,20 @@ pub fn running_version(paths: &crate::config::Paths) -> String {
     install::HomeManifest::read(&paths.home).map(|m| m.version).unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string())
 }
 
+/// An update global offers: its version, and the SUPTO version it waits for, if it does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Candidate {
+    pub version: String,
+    pub supto_waiting: Option<String>,
+}
+
 pub struct Updates {
     pub registrar: Arc<Registrar>,
     pub settings: Settings,
     pub egress: (u16, String),
     pub running: String,
+    /// FR-20.50: the SUPTO version that runs (this build's).
+    pub supto: String,
     pub root: Option<Root>,
     deferrals_file: PathBuf,
     network: Mutex<(Vec<std::net::IpAddr>, Option<Instant>)>,
@@ -221,7 +232,7 @@ pub struct Updates {
 impl Updates {
     pub fn new(registrar: Arc<Registrar>, settings: Settings, egress: (u16, String), running: String, root: Option<Root>) -> Self {
         let deferrals_file = registrar.data.join("state").join("update-deferrals.json");
-        Self { registrar, settings, egress, running, root, deferrals_file, network: Mutex::new((crate::certs::lan_addresses(), None)), status: Arc::new(Mutex::new(serde_json::Value::Null)) }
+        Self { registrar, settings, egress, running, supto: crate::supto::this_build(), root, deferrals_file, network: Mutex::new((crate::certs::lan_addresses(), None)), status: Arc::new(Mutex::new(serde_json::Value::Null)) }
     }
 
     fn network_changed_secs_ago(&self) -> Option<u64> {
@@ -287,8 +298,9 @@ impl Updates {
         self.root.as_ref().and_then(|r| UpdateState::load(r).ok()).is_some_and(|s| s.failed.iter().any(|f| f.version == v))
     }
 
-    /// What global offers this machine, if it is newer than what runs: `(version, offer)`.
-    async fn candidate(&self) -> Result<Option<String>> {
+    /// What global offers this machine, if it is newer than what runs: its version, and the SUPTO
+    /// version it waits for, if it does.
+    async fn candidate(&self) -> Result<Option<Candidate>> {
         let Some(reg) = crate::register::current(&self.registrar.data) else { return Ok(None) };
         let key = crate::node_key::NodeKey::load_or_create(&self.registrar.data)?;
         let token = crate::register::fetch_token(&reg.server, &reg.node_id, &key, &self.registrar.client).await?;
@@ -303,7 +315,8 @@ impl Updates {
         if offer["targets"][install::this_target()].is_null() || !version::is_upgrade(&self.running, &v) || self.failed(&v) {
             return Ok(None);
         }
-        Ok(Some(v))
+        let supto_waiting = crate::supto::waits(&offer, Some(&self.supto));
+        Ok(Some(Candidate { version: v, supto_waiting }))
     }
 
     /// For as long as the supervisor runs.
@@ -313,7 +326,7 @@ impl Updates {
             return;
         }
         let mut deferrals: Deferrals = std::fs::read_to_string(&self.deferrals_file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-        let (mut last_offer, mut candidate): (Option<Instant>, Option<String>) = (None, None);
+        let (mut last_offer, mut candidate): (Option<Instant>, Option<Candidate>) = (None, None);
         let mut last_wake: Option<(String, Instant)> = None;
         // A minute after start: the API first, and a crash loop never asks global on every start.
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -330,8 +343,22 @@ impl Updates {
             let (gate, day) = self.gate_now(sup.api_control()).await;
             let now = time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap_or_default();
             match (&candidate, &gate) {
-                (None, _) => self.set(serde_json::json!({ "state": "up-to-date", "running": self.running, "auto": self.settings.auto, "checkedAt": now })),
-                (Some(v), Gate::Open) => {
+                (None, _) => self.set(serde_json::json!({ "state": "up-to-date", "running": self.running, "supto": self.supto, "auto": self.settings.auto, "checkedAt": now })),
+                // FR-20.50: not before its declaration, whatever the gate says; nothing is counted.
+                (Some(Candidate { version: v, supto_waiting: Some(waiting) }), _) => {
+                    self.set(serde_json::json!({
+                        "state": "deferred",
+                        "running": self.running,
+                        "supto": self.supto,
+                        "available": v,
+                        "reason": format!("SUPTO version {waiting} waits for its declaration to НАП"),
+                        "suptoWaiting": waiting,
+                        "blockedWindows": 0,
+                        "alarm": false,
+                        "checkedAt": now,
+                    }));
+                }
+                (Some(Candidate { version: v, .. }), Gate::Open) => {
                     let due = last_wake.as_ref().is_none_or(|(w, at)| w != v || at.elapsed() >= WAKE_EVERY);
                     if due {
                         tracing::info!(version = %v, "an update is available and nothing is in its way: waking the update helper");
@@ -340,9 +367,9 @@ impl Updates {
                             Err(e) => tracing::error!(error = %format!("{e:#}"), "the update helper could not be woken"),
                         }
                     }
-                    self.set(serde_json::json!({ "state": "installing", "running": self.running, "available": v, "checkedAt": now }));
+                    self.set(serde_json::json!({ "state": "installing", "running": self.running, "supto": self.supto, "available": v, "checkedAt": now }));
                 }
-                (Some(v), Gate::Closed { reason, busy }) => {
+                (Some(Candidate { version: v, .. }), Gate::Closed { reason, busy }) => {
                     let mut blocked = 0;
                     if *busy {
                         if let Some(day) = day {
@@ -359,6 +386,7 @@ impl Updates {
                     self.set(serde_json::json!({
                         "state": "deferred",
                         "running": self.running,
+                        "supto": self.supto,
                         "available": v,
                         "reason": reason,
                         "blockedWindows": if deferrals.version == *v { deferrals.windows.len() } else { blocked },

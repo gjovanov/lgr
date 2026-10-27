@@ -13,6 +13,7 @@ import {
   type NodeLinkLevel,
 } from 'db/models'
 import { config } from 'config'
+import { SUPTO_VERSION_RE } from 'config/supto'
 import { logger } from '../../logger/logger.js'
 import {
   generateEnrollmentCode,
@@ -547,6 +548,8 @@ const skewOf = (v: unknown, at: Date) => {
 }
 /** A version as a release names it, or nothing: never free text a master chose. */
 const ver = (v: unknown) => (typeof v === 'string' && /^\d{1,6}\.\d{1,6}\.\d{1,6}(-[0-9A-Za-z.-]{1,40})?$/.test(v) ? v : undefined)
+/** FR-20.50: a SUPTO version (`SUPTO_VERSION_RE`), or the word a master uses for a release that names none. */
+const supto = (v: unknown) => (typeof v === 'string' && (v === 'unknown' || SUPTO_VERSION_RE.test(v)) ? v : undefined)
 const UPDATE_STATES = ['up-to-date', 'installing', 'deferred', 'not-versioned'] as const
 
 /**
@@ -557,7 +560,11 @@ function sanitizeUpdate(u: any) {
   if (!u || typeof u !== 'object') return undefined
   const state = (UPDATE_STATES as readonly string[]).includes(u.state) ? u.state : undefined
   if (!state) return undefined
-  return { state, running: ver(u.running), available: ver(u.available), reason: str(u.reason, 160), blockedWindows: num(u.blockedWindows, 1000), alarm: bool(u.alarm) }
+  return {
+    state, running: ver(u.running), available: ver(u.available), reason: str(u.reason, 160), blockedWindows: num(u.blockedWindows, 1000), alarm: bool(u.alarm),
+    // FR-20.50 (P3-8c): the SUPTO version that runs, and the one an update waits for (an alarm).
+    supto: supto(u.supto), suptoWaiting: supto(u.suptoWaiting),
+  }
 }
 
 /**
@@ -687,7 +694,7 @@ export function nodeToWire(n: any) {
           posOpen: n.health.api?.posOpen,
           clockTrusted: n.health.api?.clockTrusted,
           update: n.health.update
-            ? { state: n.health.update.state, available: n.health.update.available, reason: n.health.update.reason, blockedWindows: n.health.update.blockedWindows, alarm: !!n.health.update.alarm }
+            ? { state: n.health.update.state, available: n.health.update.available, reason: n.health.update.reason, blockedWindows: n.health.update.blockedWindows, alarm: !!n.health.update.alarm, supto: n.health.update.supto, suptoWaiting: n.health.update.suptoWaiting }
             : undefined,
         }
       : null,

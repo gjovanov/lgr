@@ -60,7 +60,7 @@ function writeStatus(writtenAt: Date, licences: any[]) {
     uplink: { interactive: { state: 'connected' }, bulk: { state: 'connected', pacing: { rateBytesPerSec: 65536, delayMs: 12, cuts: 3 } } },
     children: [{ name: 'mongod', state: 'running', failures: 0 }, { name: 'api', state: 'running', failures: 1 }],
     licences,
-    update: { state: 'deferred', running: '0.9.0', available: '0.9.1', reason: 'a till is open', blockedWindows: 2, alarm: false, checkedAt: 1 },
+    update: { state: 'deferred', running: '0.9.0', supto: '1', available: '0.9.1', reason: 'a till is open', blockedWindows: 2, alarm: false, checkedAt: 1 },
     disk: { freeBytes: 40 * 2 ** 30, totalBytes: 100 * 2 ** 30 },
     oplogWindowSecs: null,
     writtenAt: writtenAt.toISOString(),
@@ -129,7 +129,7 @@ describe('a master\'s status page (P3-8b)', () => {
       fresh: true,
       children: [{ name: 'mongod', state: 'running', failures: 0 }, { name: 'api', state: 'running', failures: 1 }],
       uplink: { interactive: 'connected', bulk: 'connected', pacing: { rateBytesPerSec: 65536, delayMs: 12 } },
-      update: { state: 'deferred', running: '0.9.0', available: '0.9.1', reason: 'a till is open', blockedWindows: 2, alarm: false },
+      update: { state: 'deferred', running: '0.9.0', available: '0.9.1', reason: 'a till is open', blockedWindows: 2, alarm: false, supto: '1', suptoWaiting: null },
       disk: { freeBytes: 40 * 2 ** 30, totalBytes: 100 * 2 ** 30 },
       oplogWindowSecs: null,
       linkLevel: 'full',
@@ -146,7 +146,7 @@ describe('a master\'s status page (P3-8b)', () => {
       desktops: { active: 2, online: 1 },
     })
     expect(new Date(s.org.lastBackupAt).toISOString()).toBe('2026-10-26T02:00:00.000Z')
-    expect(s.pril32).toMatchObject({ installation: 'lan', database: 'MongoDB', mirror: 'https://lgrai.test', linkLevel: 'full', desktops: 2, version: '0.9.0' })
+    expect(s.pril32).toMatchObject({ installation: 'lan', database: 'MongoDB', mirror: 'https://lgrai.test', linkLevel: 'full', desktops: 2, version: '0.9.0', supto: '1' })
     expect(typeof s.pril32.host).toBe('string')
     // Nothing of the other org, and nothing of the supervisor's own plumbing.
     const wire = JSON.stringify(s)

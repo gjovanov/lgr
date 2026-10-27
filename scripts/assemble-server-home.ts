@@ -10,7 +10,7 @@
  *   chrome/               chrome-headless-shell, pinned by packages/server/pdf-browser.lock.json
  *   package/              `bun run build:server`'s output (dist/lgr-server)
  *   licences/             mongod's SSPL and notices and where its source is; Chrome's are in chrome/
- *   HOME.json             what this home is: version, commit, target, and what it carries
+ *   HOME.json             what this home is: version, commit, target, SUPTO version, and what it carries
  *
  *   bun scripts/assemble-server-home.ts --target windows-x64 --version 0.1.0 \
  *     --server-bin packages/server/target/release/lgr-server.exe --package dist/lgr-server \
@@ -102,6 +102,9 @@ if (import.meta.main) {
     target,
     commit: manifest.commit,
     commitDate: manifest.commitDate,
+    // FR-20.50 (P3-8c): the SUPTO version this source implements. The helper checks the offer's
+    // claim against it: inside the signed bytes, it is the one that counts.
+    supto: JSON.parse(readFileSync(join(ROOT, 'packages', 'config', 'src', 'supto.json'), 'utf8')).version,
     bun: lock.bun.version,
     mongod: lock.mongod.version,
     chrome: chrome ? pdf.buildId : null,

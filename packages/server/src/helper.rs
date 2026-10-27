@@ -354,6 +354,13 @@ fn try_update(root: &Root) -> Result<bool> {
     if !crate::version::is_upgrade(&state.current, &offer.version) || state.failed.iter().any(|f| f.version == offer.version) {
         return Ok(false);
     }
+    // FR-20.50 (P3-8c): a SUPTO version waits for its declaration. What runs is the current home's
+    // (this helper may be an older version's), or this build's when that home names none.
+    let running_supto = install::HomeManifest::read(&root.version_dir(&state.current)).ok().and_then(|m| m.supto).unwrap_or_else(crate::supto::this_build);
+    if let Some(waiting) = crate::supto::waits(&body, Some(&running_supto)) {
+        tracing::info!(version = %offer.version, supto = %waiting, "not installed: its SUPTO version waits for its declaration");
+        return Ok(false);
+    }
     // Installed and verified already (a window closed between its download and its switch)?
     if install::verify_home(&root.version_dir(&offer.version)).is_err() {
         let staging = root.staging();
@@ -384,6 +391,9 @@ fn try_update(root: &Root) -> Result<bool> {
             if installed.version() != offer.version {
                 anyhow::bail!("the bundle says it is {}, and the offer {}", installed.version(), offer.version);
             }
+            // So is its SUPTO version: the offer only said which one it is.
+            let bundled = install::HomeManifest::read(&root.version_dir(&offer.version))?.supto;
+            crate::supto::bundle_is_offered(&body, bundled.as_deref())?;
             Ok(())
         })();
         let _ = install::remove_tree(&staging);

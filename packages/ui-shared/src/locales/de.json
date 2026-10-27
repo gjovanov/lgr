@@ -3446,7 +3446,8 @@
       "disk_low": "Datenträger {pct}% frei",
       "oplog_short": "Der Datenbankverlauf reicht nur {age} zurück",
       "fenced": "Für {n} Organisationen gesperrt",
-      "clock_skew": "Uhr geht um {age} falsch"
+      "clock_skew": "Uhr geht um {age} falsch",
+      "supto_waiting": "SUPTO-Version {version} wartet auf ihre Anmeldung"
     }
   },
   "serverStatus": {
@@ -3457,6 +3458,7 @@
     "noSupervisor": "LGR Server hat sich noch nicht gemeldet. Er läuft nicht oder kann seinen Status nicht schreiben.",
     "machine": "Der Rechner",
     "version": "Version",
+    "supto": "SUPTO-Version",
     "uptime": "Läuft seit",
     "processes": "Prozesse",
     "disk": "Datenträger",
@@ -3466,6 +3468,7 @@
     "update": "Updates",
     "updateUpToDate": "{running}, aktuell",
     "updateNotVersioned": "Wird mit seinem Paket aktualisiert",
+    "updateSuptoWaits": "{version} wartet: SUPTO-Version {supto} ist bei der НАП noch nicht angemeldet",
     "link": "Verbindung zu lgrai.app",
     "linkLevel": "Verbindungsstufe",
     "notRegistered": "Nicht registriert",
@@ -3510,6 +3513,7 @@
       "databaseValue": "{db} unter {address}",
       "protocol": "Protokoll",
       "protocolValue": "HTTPS (TLS) zwischen den Desktops und dem Server; TLS zu lgrai.app",
+      "supto": "SUPTO-Version",
       "topology": "Topologie",
       "topologyValue": "{desktops} Desktops → Server (LGR Server {version}) → Kopie auf {mirror}, Verbindungsstufe {link}"
     }

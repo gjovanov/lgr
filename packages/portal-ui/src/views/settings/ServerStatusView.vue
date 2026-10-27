@@ -22,12 +22,13 @@
             <v-card-text>
               <dl class="kv">
                 <dt>{{ $t('serverStatus.version') }}</dt><dd>{{ s.supervisor?.version ?? '—' }}</dd>
+                <dt>{{ $t('serverStatus.supto') }}</dt><dd data-test="server-supto">{{ s.supervisor?.update?.supto ?? '—' }}</dd>
                 <dt>{{ $t('serverStatus.uptime') }}</dt><dd>{{ s.supervisor?.uptimeSecs != null ? duration(s.supervisor.uptimeSecs) : '—' }}</dd>
                 <dt>{{ $t('serverStatus.processes') }}</dt>
                 <dd><v-chip v-for="c in s.supervisor?.children ?? []" :key="c.name" size="x-small" :color="c.state === 'running' ? 'success' : 'error'" variant="tonal" class="mr-1">{{ c.name }}: {{ c.state }}</v-chip></dd>
                 <dt>{{ $t('serverStatus.disk') }}</dt><dd>{{ diskText }}</dd>
                 <dt>{{ $t('serverStatus.oplog') }}</dt><dd>{{ s.supervisor?.oplogWindowSecs != null ? duration(s.supervisor.oplogWindowSecs) : $t('serverStatus.oplogNotFull') }}</dd>
-                <dt>{{ $t('serverStatus.update') }}</dt><dd :class="s.supervisor?.update?.alarm ? 'text-error' : undefined">{{ updateText }}</dd>
+                <dt>{{ $t('serverStatus.update') }}</dt><dd :class="s.supervisor?.update?.alarm || s.supervisor?.update?.suptoWaiting ? 'text-error' : undefined">{{ updateText }}</dd>
               </dl>
             </v-card-text>
           </v-card>
@@ -133,6 +134,7 @@ const updateText = computed(() => {
   const u = s.value?.supervisor?.update
   if (!u) return '—'
   if (u.state === 'installing') return t('servers.updateInstalling', { version: u.available })
+  if (u.state === 'deferred' && u.suptoWaiting) return t('serverStatus.updateSuptoWaits', { version: u.available, supto: u.suptoWaiting })
   if (u.state === 'deferred') {
     const waits = t('servers.updateWaits', { version: u.available, reason: u.reason ?? '' })
     return u.alarm ? `${waits} · ${t('servers.updateAlarm', { n: u.blockedWindows })}` : waits
@@ -170,6 +172,7 @@ const pril32Rows = computed(() => {
     { label: t('serverStatus.p32.location'), value: t('serverStatus.p32.locationValue', { host: p.host, lan: p.lanUrl ?? '—', mirror: p.mirror ?? 'lgrai.app' }) },
     { label: t('serverStatus.p32.database'), value: t('serverStatus.p32.databaseValue', { db: p.database, address: p.databaseAddress ?? '—' }) },
     { label: t('serverStatus.p32.protocol'), value: t('serverStatus.p32.protocolValue') },
+    { label: t('serverStatus.p32.supto'), value: p.supto ?? '—' },
     { label: t('serverStatus.p32.topology'), value: t('serverStatus.p32.topologyValue', { desktops: p.desktops, mirror: p.mirror ?? 'lgrai.app', link: linkText.value, version: p.version ?? '?' }) },
   ]
 })

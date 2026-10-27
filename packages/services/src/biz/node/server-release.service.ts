@@ -1,4 +1,5 @@
 import { config } from 'config'
+import { SUPTO_DECLARED, suptoOffer, type SuptoOffer } from 'config/supto'
 import { GithubReleaseError, openReleaseAsset, releaseByTag, type GithubSource, type ReleaseAsset } from '../github-release.js'
 
 /**
@@ -13,6 +14,10 @@ import { GithubReleaseError, openReleaseAsset, releaseByTag, type GithubSource, 
  * - `<bundle>.asc`: roomler's release GPG signature, the platform signature on Linux (on Windows the
  *   platform signature is the Authenticode one on `lgr-server.exe`, inside the bundle);
  * - `<bundle>.sha256`: a transport check, never a trust anchor.
+ *
+ * And one per release, `lgr-server-<version>.supto`: its SUPTO version (FR-20.50, P3-8c), which the
+ * offer marks declared or not against this build's `config/supto`. A master holds an undeclared one
+ * once anything is declared, and checks the bundle's own `HOME.json` against the claim.
  *
  * ⚠ Nothing here is a trust boundary: the master checks every byte against keys built into its own
  * package, whoever served them (FR-20.53 lets a TLS-inspecting proxy in). This only says which
@@ -60,14 +65,16 @@ export interface ServerReleaseOffer {
   version: string
   /** FR-20.58: the oldest master build global talks to. */
   minVersion: string
+  /** FR-20.50: the release's SUPTO version, whether it is declared, and whether that is enforced yet. */
+  supto: SuptoOffer
   targets: Partial<Record<ServerTarget, ServerTargetOffer>>
 }
 
 const AGENT = 'lgr-server-release'
 const SMALL_MAX_BYTES = 8192
 const CACHE_TTL_MS = 10 * 60_000
-/** Per version: the offer, and the assets of its bundles (a download needs their ids). */
-const cache = new Map<string, { at: number; offer: ServerReleaseOffer | null; bundles: Map<string, ReleaseAsset> }>()
+/** Per version: the offer (its SUPTO version as the release names it), and the assets of its bundles (a download needs their ids). */
+const cache = new Map<string, { at: number; offer: (Omit<ServerReleaseOffer, 'supto'> & { supto: string | null }) | null; bundles: Map<string, ReleaseAsset> }>()
 
 /** Tests only. */
 export function resetServerReleaseCache(): void {
@@ -98,8 +105,10 @@ async function smallText(src: GithubSource, tag: string, asset: ReleaseAsset | u
  * half-published release as an update. Null when there is no such release or no complete target.
  * Cached ten minutes, misses included.
  */
-export async function serverReleaseOffer(version: string, over: Partial<GithubSource> & { now?: () => number } = {}): Promise<ServerReleaseOffer | null> {
-  return (await cachedRelease(version, over))?.offer ?? null
+export async function serverReleaseOffer(version: string, over: Partial<GithubSource> & { now?: () => number; declared?: readonly string[] } = {}): Promise<ServerReleaseOffer | null> {
+  const offer = (await cachedRelease(version, over))?.offer
+  // Declared or not against this build's list, as it is now: a declaration needs no new release.
+  return offer ? { ...offer, supto: suptoOffer(offer.supto, over.declared ?? SUPTO_DECLARED) } : null
 }
 
 async function cachedRelease(version: string, over: Partial<GithubSource> & { now?: () => number } = {}) {
@@ -112,7 +121,7 @@ async function cachedRelease(version: string, over: Partial<GithubSource> & { no
   const tag = `server-v${version}`
   // Not cached on error: a GitHub outage must not pin "no such release" for ten minutes.
   const rel = await releaseByTag(src, tag, AGENT).catch(e => { throw asReleaseError(e) })
-  let offer: ServerReleaseOffer | null = null
+  let offer: (Omit<ServerReleaseOffer, 'supto'> & { supto: string | null }) | null = null
   const bundles = new Map<string, ReleaseAsset>()
   if (rel) {
     const byName = new Map(rel.assets.map(a => [a.name, a]))
@@ -133,7 +142,11 @@ async function cachedRelease(version: string, over: Partial<GithubSource> & { no
       targets[target] = { bundle: { name, size: bundle.size }, signature, platform, sha256: sha256[1] }
       bundles.set(name, bundle)
     }
-    if (Object.keys(targets).length) offer = { version, minVersion: config.node.minMasterVersion, targets }
+    if (Object.keys(targets).length) {
+      // A release from before P3-8c names none: null, which waits once anything is declared.
+      const supto = await smallText(src, tag, byName.get(`lgr-server-${version}.supto`)).catch(e => { throw asReleaseError(e) })
+      offer = { version, minVersion: config.node.minMasterVersion, supto, targets }
+    }
   }
   const entry = { at: now, offer, bundles }
   cache.set(version, entry)

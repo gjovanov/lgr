@@ -71,6 +71,13 @@ describe('the alarms a master raises (FR-20.101)', () => {
     expect(nodeAlarms({ node: { health: h, enrolledAt: ago(30 * 86400) }, connected: up, mirrors: [], now: NOW })).toEqual([])
   })
 
+  it("an update held for its SUPTO version's declaration (P3-8c)", () => {
+    const h = healthy({ update: { state: 'deferred', available: '0.4.0', suptoWaiting: '2' } })
+    expect(nodeAlarms({ node: { health: h }, connected: up, mirrors: [], now: NOW })).toEqual([{ kind: 'supto_waiting', value: null, detail: '2' }])
+    // Held by the tills, not by the SUPTO version: that alarm is the update's own.
+    expect(nodeAlarms({ node: { health: healthy({ update: { state: 'deferred', available: '0.4.0' } }) }, connected: up, mirrors: [], now: NOW })).toEqual([])
+  })
+
   it('a health frame older than ten minutes says nothing about now', () => {
     const stale = healthy({ at: ago(ALARM_AT.healthFreshMs / 1000 + 60), disk: { freeBytes: 1, totalBytes: 1000 } })
     expect(nodeAlarms({ node: { health: stale }, connected: up, mirrors: [], now: NOW })).toEqual([])
@@ -91,6 +98,14 @@ describe('what lgrai.app keeps of a health frame for them (P3-8)', () => {
     expect(h.clockSkewSecs).toBe(210)
     expect(h.api.lastBackupAt).toEqual(new Date('2026-10-27T02:00:00Z'))
     expect([h.api.fenced, h.api.outboxQueued]).toEqual([1, 4])
+  })
+
+  it('the SUPTO version that runs and the one an update waits for, and nothing that is not one (P3-8c)', () => {
+    const at = new Date('2026-10-27T12:00:00Z')
+    const h: any = sanitizeHealth({ update: { state: 'deferred', running: '0.3.0', available: '0.4.0', supto: '1', suptoWaiting: '2' } }, at)
+    expect([h.update.supto, h.update.suptoWaiting]).toEqual(['1', '2'])
+    const bad: any = sanitizeHealth({ update: { state: 'deferred', supto: '../etc', suptoWaiting: 'x'.repeat(40) } }, at)
+    expect([bad.update.supto, bad.update.suptoWaiting]).toEqual([undefined, undefined])
   })
 
   it('nothing a master chose beyond the shapes: a backup in the future is now, a clock that is no time is nothing', () => {

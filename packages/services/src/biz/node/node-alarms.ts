@@ -11,7 +11,8 @@
  *   however long a capture stops (the supervisor sends no window).
  * - **Fenced**: the server is fenced for some org (lgrai.app's copy was promoted while it was away).
  * - **Clock** more than two minutes off lgrai.app's.
- * - Not yet: a SUPTO version waiting for its declaration (P3-8c).
+ * - **A SUPTO version waiting for its declaration** (P3-8c, FR-20.50): an update the server holds
+ *   because its SUPTO version is not declared to НАП yet.
  *
  * ⚠ A health frame older than ten minutes says nothing about now: the alarms read from it are not
  * raised (the server being away is what the Servers page's connection says).
@@ -19,7 +20,7 @@
 import { MirrorState, OrgHome, ServerNode } from 'db/models'
 import { presenceOfNodes } from './node.service.js'
 
-export type NodeAlarmKind = 'mirror_lag' | 'backup_stale' | 'disk_low' | 'oplog_short' | 'fenced' | 'clock_skew'
+export type NodeAlarmKind = 'mirror_lag' | 'backup_stale' | 'disk_low' | 'oplog_short' | 'fenced' | 'clock_skew' | 'supto_waiting'
 
 export interface NodeAlarm {
   kind: NodeAlarmKind
@@ -27,6 +28,8 @@ export interface NodeAlarm {
   value: number | null
   /** The org it is about, for a mirror's lag. */
   orgId?: string
+  /** The SUPTO version an update waits for. */
+  detail?: string
 }
 
 export const ALARM_AT = {
@@ -78,6 +81,7 @@ export function nodeAlarms({ node, connected, mirrors, now }: AlarmInput): NodeA
   if (typeof h.oplogWindowSecs === 'number' && h.oplogWindowSecs < ALARM_AT.oplogSecs) out.push({ kind: 'oplog_short', value: h.oplogWindowSecs })
   if (typeof h.api?.fenced === 'number' && h.api.fenced > 0) out.push({ kind: 'fenced', value: h.api.fenced })
   if (typeof h.clockSkewSecs === 'number' && Math.abs(h.clockSkewSecs) > ALARM_AT.skewSecs) out.push({ kind: 'clock_skew', value: h.clockSkewSecs })
+  if (typeof h.update?.suptoWaiting === 'string') out.push({ kind: 'supto_waiting', value: null, detail: h.update.suptoWaiting })
   return out
 }
 

@@ -33,6 +33,7 @@ mod service;
 mod signatures;
 mod status_file;
 mod supervisor;
+mod supto;
 mod updates;
 mod uplink;
 mod version;
