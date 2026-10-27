@@ -40,9 +40,19 @@ const isId = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{24
 const time = (v: unknown) => (v ? new Date(v as any).getTime() : 0)
 const day = (v: unknown) => (v ? new Date(v as any).toISOString().slice(0, 10) : '?')
 
-/** The later of a pair: by issue date, then by when it was made, then by id. */
+/** When a document got its number: sent, else made, else its id's own moment (a site's raw row has neither). */
+function issuedAt(d: Doc): number {
+  const id = d._id && typeof d._id.getTimestamp === 'function' ? d._id.getTimestamp().getTime() : 0
+  return time(d.sentAt) || time(d.createdAt) || id
+}
+
+/**
+ * The later of a pair: by the day it carries, then by when it got its number, then by id. ⚠ The
+ * issue date is a calendar date (the form sends `YYYY-MM-DD`, midnight), so two documents of one day
+ * are told apart by the moment, never by that midnight.
+ */
 export function laterOf(a: Doc, b: Doc): Doc {
-  const by = [time(a.issueDate) - time(b.issueDate), time(a.createdAt) - time(b.createdAt), String(a._id).localeCompare(String(b._id))]
+  const by = [day(a.issueDate).localeCompare(day(b.issueDate)), issuedAt(a) - issuedAt(b), String(a._id).localeCompare(String(b._id))]
   for (const d of by) if (d !== 0) return d > 0 ? a : b
   return a
 }
@@ -145,7 +155,8 @@ export async function prepareClashCorrection(orgId: string, invoiceId: string, b
     amountDue: target.total,
     paymentMethod: target.paymentMethod,
     placeOfTransaction: target.placeOfTransaction,
-    billingAddress: target.billingAddress,
+    // An invoice made without one keeps none (an empty address is minimised away): required here.
+    billingAddress: target.billingAddress ?? {},
     shippingAddress: target.shippingAddress,
     tags: target.tags ?? [],
     stockSource: marker,

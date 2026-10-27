@@ -95,9 +95,17 @@ describe('correcting a number issued twice (AC 51)', () => {
     const number = `INV-${year}-00042`
     const earlier = sale(w, number, { issueDate: new Date(Date.now() - day), createdAt: new Date(Date.now() - day) })
     await Invoice.collection.insertOne(earlier as any)
-    const later = sale(w, number, { total: 24, subtotal: 20, taxTotal: 4, amountDue: 24, numberClash: { withId: earlier._id, withNumber: number, source: 'fenced_export', at: new Date() } })
+    // Made without a billing address, as the API allows: the drafts still save.
+    const { billingAddress: _none, ...noAddress } = sale(w, number, { total: 24, subtotal: 20, taxTotal: 4, amountDue: 24, numberClash: { withId: earlier._id, withNumber: number, source: 'fenced_export', at: new Date() } }) as any
+    const later = noAddress
     await Invoice.collection.insertOne(later as any)
     expect(String(laterOf(earlier, later)._id)).toBe(String(later._id))
+    // One day: the moment the number was issued decides, never the date's midnight. A site's raw row
+    // without timestamps takes its id's moment.
+    const morning = { _id: new mongoose.Types.ObjectId(Math.floor((Date.now() - 3_600_000) / 1000).toString(16).padStart(8, '0') + '0000000000000000'), issueDate: new Date(new Date().toISOString().slice(0, 10)) }
+    const sentLater = { _id: oid(), issueDate: new Date(new Date().toISOString().slice(0, 10)), sentAt: new Date() }
+    expect(String(laterOf(morning, sentLater)._id)).toBe(String(sentLater._id))
+    expect(String(laterOf(sentLater, morning)._id)).toBe(String(sentLater._id))
 
     const [pair] = await listNumberClashes(w.orgId)
     expect(pair).toMatchObject({ id: String(later._id), number, later: 'flagged', correctable: true, correction: null, resolved: false, other: { id: String(earlier._id) } })

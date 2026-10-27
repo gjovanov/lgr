@@ -2646,10 +2646,11 @@ so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.
     address answers with a notice for 12 months and is never issued again.
   - **"Sign in with LGR"** now returns a person only to an ACTIVE address of the server's orgs
     (`activeLabelsOf`), no longer to any slug.
-  - **Next:** the wildcard DNS record and the edge's server block (P3-4e, lgr-deploy#27).
-  - **The edge** (mars' Docker nginx, `gjovanov/nginx`) already holds a ZeroSSL certificate for
-    `*.lgrai.app`. P3-4e adds the wildcard DNS record at Cloudflare and the nginx server block.
-    ⚠ The zone already serves `harvex` and `qa`.
+  - **The edge** (mars' Docker nginx, `gjovanov/nginx`; P3-4e, lgr-deploy#27, live since 2026-10-27)
+    holds a ZeroSSL certificate for `*.lgrai.app`, and the zone a wildcard A record beside the
+    server block `org-addresses.lgrai.app.conf`. ⚠ A name with its own record (`qa`) wins over
+    the wildcard. `harvex` was retired the same day: its record and vhost are gone, so the name now
+    reaches LGR and answers the unknown-label 404.
 - **The tunnel, lgrai.app's side (FR-20.72–20.74, FR-20.78, P3-4b; `portal-api/src/tunnel/`).** A
   global-only `onRequest`, registered FIRST in `unified.ts`, handles every `Host` of the form
   `<label>.<ORG_ADDRESS_APEX>` whose label is not reserved. Such a request belongs to the org's
