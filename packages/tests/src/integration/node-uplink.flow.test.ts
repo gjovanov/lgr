@@ -131,7 +131,15 @@ describe('a registered master connects', () => {
     await Bun.sleep(20)
     await handleUplinkMessage(ws, JSON.stringify({ t: 'ping' }))
     expect(ws.has('pong')).toBe(true)
+    expect(ws.last('pong').n).toBeUndefined()
     expect(((await NodePresence.findOne({ nodeId: stub.nodeId }).lean()) as any).heartbeatAt.getTime()).toBeGreaterThan(before)
+    // FR-20.52 (P3-2c): a numbered ping is answered with its number, so its round trip is timed exactly.
+    await handleUplinkMessage(ws, JSON.stringify({ t: 'ping', n: 7 }))
+    expect(ws.last('pong').n).toBe(7)
+    for (const n of [-1, 1.5, 'x']) {
+      await handleUplinkMessage(ws, JSON.stringify({ t: 'ping', n }))
+      expect(ws.last('pong').n).toBeUndefined()
+    }
 
     // A clean close gives the row up.
     await handleUplinkClose(ws)

@@ -181,7 +181,8 @@ export async function handleUplinkMessage(ws: any, raw: any): Promise<void> {
 
   if (msg.t === 'ping') {
     await heartbeat(conn)
-    send(ws, { t: 'pong', serverTime: new Date().toISOString() })
+    // FR-20.52 (P3-2c): the ping's number comes back, so the supervisor times each round trip exactly.
+    send(ws, { t: 'pong', serverTime: new Date().toISOString(), ...(Number.isSafeInteger(msg.n) && msg.n >= 0 ? { n: msg.n } : {}) })
     return
   }
   if (msg.t === 'health') {

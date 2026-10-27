@@ -10,7 +10,7 @@ import { mongoose } from 'db/connection'
 import { thisNode } from 'db/home/home'
 import { ENGINE_ID } from './capture.js'
 import { captureOn } from './engine.js'
-import { BSON, PAGE_DOCS, buildPage, rejournal } from './pages.js'
+import { BSON, PAGE_BYTES, PAGE_DOCS, buildPage, rejournal } from './pages.js'
 import { noteWentBack } from '../home/series-lock.service.js'
 
 const OBJECT_ID = /^[0-9a-f]{24}$/
@@ -27,6 +27,8 @@ export interface PageAsk {
   after: number
   afterHash: string
   maxDocs?: number
+  /** FR-20.52 (P3-2c): at most this many bytes of documents, so a paced supervisor's page fits its line's moment. */
+  maxBytes?: number
 }
 
 export type PageAnswer =
@@ -39,12 +41,14 @@ export function readPageAsk(body: any): PageAsk {
   const after = Number(body?.after)
   const afterHash = String(body?.afterHash ?? '')
   const maxDocs = body?.maxDocs === undefined ? undefined : Number(body.maxDocs)
+  const maxBytes = body?.maxBytes === undefined ? undefined : Number(body.maxBytes)
   if (!OBJECT_ID.test(orgId)) throw new ControlAskError('orgId is not an org id')
   if (!Number.isSafeInteger(after) || after < 0) throw new ControlAskError('after is not a seq')
   if (!HASH.test(afterHash)) throw new ControlAskError('afterHash is not a chain hash')
   if ((after === 0) !== (afterHash === '')) throw new ControlAskError('the first page starts at 0 with no hash, every other page from both')
   if (maxDocs !== undefined && (!Number.isSafeInteger(maxDocs) || maxDocs < 1 || maxDocs > PAGE_DOCS)) throw new ControlAskError(`maxDocs is 1..${PAGE_DOCS}`)
-  return { orgId, after, afterHash, ...(maxDocs ? { maxDocs } : {}) }
+  if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > PAGE_BYTES)) throw new ControlAskError(`maxBytes is 1..${PAGE_BYTES}`)
+  return { orgId, after, afterHash, ...(maxDocs ? { maxDocs } : {}), ...(maxBytes ? { maxBytes } : {}) }
 }
 
 function handles() {
@@ -58,7 +62,7 @@ export async function pageFor(ask: PageAsk): Promise<PageAnswer> {
   // FR-20.54: at Control the mirror is off, and so is the capture it is sent from.
   if (!captureOn()) return { status: 409, refused: 'not_full', detail: 'this master is not linked at Full' }
   const { db, client } = handles()
-  const built = await buildPage(client, db, ask.orgId, { after: ask.after, afterHash: ask.afterHash, nodeId: thisNode(), maxDocs: ask.maxDocs })
+  const built = await buildPage(client, db, ask.orgId, { after: ask.after, afterHash: ask.afterHash, nodeId: thisNode(), maxDocs: ask.maxDocs, maxBytes: ask.maxBytes })
   if ('empty' in built) return { status: 204 }
   if ('refused' in built) {
     // FR-20.51 (P3-7): the mirror holds pages this database never built: it went back under it, and

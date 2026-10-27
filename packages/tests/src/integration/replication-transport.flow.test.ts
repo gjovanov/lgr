@@ -144,6 +144,21 @@ describe("the master's control socket (P3-2b)", () => {
     expect(await unknown.json()).toMatchObject({ refused: 'chain_unknown' })
   }, 60_000)
 
+  it('a paced supervisor asks for pieces: a page of at most maxBytes, the rest in the next (P3-2c)', async () => {
+    const { orgId } = await homed()
+    // Two documents (the org and a contact): a byte bound below their sum takes one a page.
+    const one = await call('/replication/page', JSON.stringify({ orgId: String(orgId), after: 0, afterHash: '', maxBytes: 64 }))
+    expect(one.status).toBe(200)
+    const first = decodePage(new Uint8Array(await one.arrayBuffer()))
+    expect(first.rows).toHaveLength(1)
+    const two = decodePage(new Uint8Array(await (await call('/replication/page', JSON.stringify({ orgId: String(orgId), after: first.toSeq, afterHash: first.chainHash, maxBytes: 64 }))).arrayBuffer()))
+    expect(two.rows).toHaveLength(1)
+    expect([...first.rows, ...two.rows].map(x => x.coll).sort()).toEqual(['contacts', 'orgs'])
+    for (const bad of [0, -1, 1.5, 5 * 1024 * 1024]) {
+      expect((await call('/replication/page', JSON.stringify({ orgId: String(orgId), after: 0, afterHash: '', maxBytes: bad }))).status).toBe(400)
+    }
+  }, 60_000)
+
   it('a malformed ask is a 400, no secret a 403, and a master not linked at Full sends no page', async () => {
     const { orgId } = await homed()
     expect((await call('/replication/page', JSON.stringify({ orgId: 'nope', after: 0, afterHash: '' }))).status).toBe(400)

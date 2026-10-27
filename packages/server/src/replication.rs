@@ -11,9 +11,13 @@
 //!   `page-error`. An answer that never comes is given up after a minute and the page built again
 //!   from the last acknowledged point: global acknowledges what it already holds.
 //! - **Refusals by kind.** Behind or ahead of the mirror: again, from where global says. Another
-//!   history (a restore, a revert, a clone), another journal or instance epoch, or a chain this master
-//!   never built: that org stops, loudly, because a re-seed or a reconcile (P3-7) is a person's call.
+//!   history (a restore, a revert, a clone), another instance epoch, or a chain this master never
+//!   built: that org stops, loudly, because a re-seed (P3-7d) is a person's call. A newer journal
+//!   epoch is no refusal since P3-7f: global takes it, and the API reconciles the copy itself.
 //!   Anything else waits ten minutes.
+//! - **Paced** (FR-20.52, P3-2c): pages and chunks are asked for in pieces the shop's line sends in a
+//!   moment, and spaced out by `pacing.rs`, which the interactive socket's round trips steer: what
+//!   queues in front of a click on that line is what the mirror holds back for.
 //! - Nothing to send: look again in two seconds.
 //!
 //! **The files** (FR-20.69, P3-3) travel behind the documents, on the same socket, for an org whose
@@ -94,18 +98,25 @@ const CHUNK_WAIT: Duration = Duration::from_secs(75);
 pub struct ApiPages {
     socket: PathBuf,
     secret: String,
+    /// FR-20.52: pages and chunks asked for in pieces the line sends in a moment.
+    pacer: Option<Arc<crate::pacing::Pacer>>,
 }
 
 impl ApiPages {
-    pub fn new(socket: PathBuf, secret: String) -> Self {
-        Self { socket, secret }
+    pub fn new(socket: PathBuf, secret: String, pacer: Option<Arc<crate::pacing::Pacer>>) -> Self {
+        Self { socket, secret, pacer }
     }
 }
 
 impl PageSource for ApiPages {
     fn page<'a>(&'a self, org: &'a str, after: u64, after_hash: &'a str) -> BoxFut<'a, Result<Built>> {
         Box::pin(async move {
-            let ask = serde_json::json!({ "orgId": org, "after": after, "afterHash": after_hash }).to_string();
+            let mut ask = serde_json::json!({ "orgId": org, "after": after, "afterHash": after_hash });
+            // An API before P3-2c ignores it, and sends its pages whole.
+            if let Some(p) = &self.pacer {
+                ask["maxBytes"] = p.piece().into();
+            }
+            let ask = ask.to_string();
             let r = control::call_with(&self.socket, &self.secret, "POST", "/replication/page", Some(ask.as_bytes()), PAGE_WAIT, PAGE_MAX).await?;
             match r.code {
                 200 => {
@@ -136,7 +147,11 @@ impl PageSource for ApiPages {
 
     fn chunk<'a>(&'a self, org: &'a str, sha256: &'a str, offset: u64) -> BoxFut<'a, Result<Chunk>> {
         Box::pin(async move {
-            let ask = serde_json::json!({ "orgId": org, "sha256": sha256, "offset": offset }).to_string();
+            let mut ask = serde_json::json!({ "orgId": org, "sha256": sha256, "offset": offset });
+            if let Some(p) = &self.pacer {
+                ask["length"] = p.piece().into();
+            }
+            let ask = ask.to_string();
             let r = control::call_with(&self.socket, &self.secret, "POST", "/replication/blob", Some(ask.as_bytes()), CHUNK_WAIT, CHUNK_MAX).await?;
             match r.code {
                 200 => {
@@ -221,7 +236,8 @@ impl Default for PumpTiming {
     }
 }
 
-/// Refusals a resend will never change: another history or epoch. The org waits for a person (P3-7).
+/// Refusals a resend will never change: another history or epoch. The org waits for a person (P3-7d).
+/// (`reconcile_required` is only ever said by a global before P3-7f, which reconciles by itself now.)
 const STOPPING: &[&str] = &["diverged", "instance_changed", "stale_journal", "reconcile_required", "epoch_changed", "chain_unknown"];
 
 /// Refusals of the API's own that pass by themselves within seconds: the org's seeding runs, or the
@@ -313,7 +329,7 @@ struct Org {
 }
 
 fn stop(o: &mut Org, reason: &str, detail: &str) {
-    tracing::error!(org = %o.id, reason, detail, "the mirror cannot continue this org's history; it waits for a re-seed or a reconcile (an administrator's decision)");
+    tracing::error!(org = %o.id, reason, detail, "the mirror cannot continue this org's history; it waits for a re-seed from lgrai.app's copy (an administrator's decision)");
     o.stopped = Some(reason.to_string());
     o.in_flight = None;
 }
@@ -488,7 +504,7 @@ async fn answer(orgs: &mut [Org], v: &serde_json::Value, source: &dyn PageSource
 
 /// One step of an org's files: the next chunk of the file at the front, or the ask for what global
 /// lacks. False when the socket is gone.
-async fn files_step(o: &mut Org, source: &dyn PageSource, out: &mpsc::Sender<Out>, t: PumpTiming) -> bool {
+async fn files_step(o: &mut Org, source: &dyn PageSource, out: &mpsc::Sender<Out>, t: PumpTiming, pacer: Option<&crate::pacing::Pacer>) -> bool {
     let now = Instant::now();
     let Some(w) = o.files.queue.front().cloned() else {
         let ask = serde_json::json!({ "t": "blob-sync", "orgId": o.id }).to_string();
@@ -500,6 +516,9 @@ async fn files_step(o: &mut Org, source: &dyn PageSource, out: &mpsc::Sender<Out
     };
     match source.chunk(&o.id, &w.sha, w.offset).await {
         Ok(Chunk::Frame { bytes, .. }) => {
+            if let Some(p) = pacer {
+                p.take(bytes.len()).await;
+            }
             if out.send(Out::Binary(bytes)).await.is_err() {
                 return false;
             }
@@ -534,7 +553,7 @@ async fn files_step(o: &mut Org, source: &dyn PageSource, out: &mpsc::Sender<Out
 }
 
 /// Send the orgs' pages and files until the socket ends: `out` is the session's, `answers` global's frames.
-pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Sender<Out>, mut answers: mpsc::UnboundedReceiver<serde_json::Value>, status: Status, t: PumpTiming) {
+pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Sender<Out>, mut answers: mpsc::UnboundedReceiver<serde_json::Value>, status: Status, t: PumpTiming, pacer: Option<Arc<crate::pacing::Pacer>>) {
     let now = Instant::now();
     let mut orgs: Vec<Org> = starts
         .into_iter()
@@ -580,7 +599,7 @@ pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Se
             // While files wait, every other turn is theirs.
             if orgs[i].files.turn && orgs[i].files.due(now, t) && !orgs[i].files.queue.is_empty() {
                 orgs[i].files.turn = false;
-                if !files_step(&mut orgs[i], &*source, &out, t).await {
+                if !files_step(&mut orgs[i], &*source, &out, t, pacer.as_deref()).await {
                     return;
                 }
                 continue;
@@ -588,6 +607,10 @@ pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Se
             let (id, after, hash) = (orgs[i].id.clone(), orgs[i].after, orgs[i].hash.clone());
             match source.page(&id, after, &hash).await {
                 Ok(Built::Page { bytes, to_seq }) => {
+                    // FR-20.52: the line's share, spaced out; the socket's loop never waits on it.
+                    if let Some(p) = &pacer {
+                        p.take(bytes.len()).await;
+                    }
                     if out.send(Out::Binary(bytes)).await.is_err() {
                         return; // the socket is gone; the next session starts from what global says
                     }
@@ -597,7 +620,7 @@ pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Se
                 // Caught up: the files' turn, if they have one.
                 Ok(Built::Empty) => {
                     if orgs[i].files.due(Instant::now(), t) {
-                        if !files_step(&mut orgs[i], &*source, &out, t).await {
+                        if !files_step(&mut orgs[i], &*source, &out, t, pacer.as_deref()).await {
                             return;
                         }
                     } else {
@@ -732,7 +755,7 @@ mod tests {
         let (out_tx, out) = mpsc::channel(1);
         let (answers, ans_rx) = mpsc::unbounded_channel();
         let status = status();
-        let task = tokio::spawn(pump(starts, script, out_tx, ans_rx, status.clone(), quick()));
+        let task = tokio::spawn(pump(starts, script, out_tx, ans_rx, status.clone(), quick(), None));
         Harness { out, answers, task, status }
     }
 

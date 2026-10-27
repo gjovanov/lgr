@@ -4,7 +4,9 @@
  * (the API in role global, behind T-1's TLS front and chaos proxy), home of one org. Its writes reach
  * global's mirror as they are; its files follow by content and open on global; the link is cut, then
  * throttled, while the master keeps writing; the mirror ends equal to the master, document for
- * document.
+ * document. Then the shop's ONE upstream behind a deep buffer (the chaos proxy's `uplink`): a click
+ * through the same line answers within 2 s while a 3,000-document and 2 MB catch-up goes on, because
+ * the bulk socket is paced (FR-20.52, FR-20.68, P3-2c).
  *
  *   bun packages/tests/src/two-node/mirror-e2e.script.ts
  *
@@ -261,6 +263,38 @@ try {
   await mdb.collection('contacts').insertMany(Array.from({ length: 400 }, (_, i) => contact(1000 + i)))
   await caughtUp('through a link throttled to 48 KB/s, a 400-document burst arrives whole', 300_000)
   chaos.throttle(null)
+
+  // ── FR-20.52, FR-20.68: the shop's ONE upstream, behind a router with a deep buffer ──────────────
+  // Every connection toward lgrai.app waits in one queue, so a click (a request through the same
+  // line) waits behind every byte of the mirror queued before it. The bulk socket is paced: it holds
+  // back as the line's delay rises, and sends in pieces small enough to wait behind.
+  const UPLINK = 64 * 1024
+  chaos.uplink(UPLINK)
+  const clicks: number[] = []
+  let probing = true
+  const probe = (async () => {
+    while (probing) {
+      const t0 = performance.now()
+      const ok = await fetch(`${SERVER}/api/health`, { tls: { ca: ca.ca }, keepalive: false, signal: AbortSignal.timeout(60_000) } as any).then(r => r.status === 200, () => false)
+      clicks.push(ok ? performance.now() - t0 : 60_000)
+      await Bun.sleep(500)
+    }
+  })()
+  const burstStart = Date.now()
+  // Notes that do not compress away: the line carries what a real catalog would.
+  await mdb.collection('contacts').insertMany(Array.from({ length: 3000 }, (_, i) => ({ ...contact(5000 + i), notes: randomBytes(300).toString('base64') })))
+  const bulky = randomBytes(2_000_000)
+  await putFile('bulky.pdf', bulky)
+  await caughtUp(`through one shared ${UPLINK / 1024} KB/s upstream, a 3,000-document burst arrives whole`, 900_000)
+  check('…and a 2 MB file behind it', !!(await until(() => heldOnGlobal(bulky), 900_000, 2000)))
+  const burstMs = Date.now() - burstStart
+  probing = false
+  await probe
+  chaos.uplink(null)
+  const sorted = [...clicks].sort((a, b) => a - b)
+  const at = (q: number) => Math.round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))] ?? 0)
+  console.log(`INFO  ${clicks.length} clicks through the shared upstream in ${Math.round(burstMs / 1000)} s: p50 ${at(0.5)} ms, p95 ${at(0.95)} ms, worst ${at(1)} ms`)
+  check('a click through the same line answers within 2 s while the mirror catches up (p95)', at(0.95) < 2000, `p95 ${at(0.95)} ms, worst ${at(1)} ms`)
 
   // Nothing alarmed on the way.
   const st: any = await mongoose.connection.db!.collection('mirror_state').findOne({ orgId })

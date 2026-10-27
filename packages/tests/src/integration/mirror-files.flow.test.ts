@@ -486,6 +486,26 @@ describe("the master's side: a chunk read by content, in its own org (FR-20.69)"
     expect(threw).toContain('sha256')
   }, 60_000)
 
+  it('a paced supervisor asks for pieces: a chunk of at most `length`, from any offset (P3-2c)', async () => {
+    const h = await homedHere()
+    const content = randomBytes(5000)
+    const row = await docRow(h.oid, content)
+    place(row.path, content)
+    // The first piece hashes the whole file before a byte leaves, as a whole chunk does.
+    const first = await blobFor(readBlobAsk({ orgId: h.orgId, sha256: sha(content), offset: 0, length: 2048 }))
+    expect(first).toMatchObject({ status: 200, size: 5000, length: 2048 })
+    const second = await blobFor(readBlobAsk({ orgId: h.orgId, sha256: sha(content), offset: 2048, length: 2048 }))
+    const last = await blobFor(readBlobAsk({ orgId: h.orgId, sha256: sha(content), offset: 4096, length: 2048 }))
+    expect([second, last].map((c: any) => c.length)).toEqual([2048, 904])
+    const bytes = Buffer.concat([first, second, last].map((c: any) => Buffer.from(decodeBlobChunk(c.bytes).bytes)))
+    expect(bytes.equals(content)).toBe(true)
+    for (const length of [0, -5, 1.5, (1 << 20) + 1]) {
+      let threw = ''
+      try { readBlobAsk({ orgId: h.orgId, sha256: sha(content), offset: 0, length }) } catch (e: any) { threw = e.message }
+      expect(threw).toContain('length')
+    }
+  }, 60_000)
+
   it('over the control socket: the frame and its size, as the supervisor reads them', async () => {
     const h = await homedHere()
     const content = randomBytes(1234)
