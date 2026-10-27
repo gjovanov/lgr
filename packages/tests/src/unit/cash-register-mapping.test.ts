@@ -129,6 +129,10 @@ describe('the round trip', () => {
       expect(currency).toBe('EUR')
       const expected: any = { ...row }
       for (const k of Object.keys(expected)) if (expected[k] === undefined) delete expected[k]
+      // #323: the row comes back naming its operator, for SUPTO 18.1. A POS row never stored one;
+      // its УНП names it, and a text-mode sale (no УНП) names none.
+      const operator = operatorCodeOfUnp(row.unpNumber)
+      if (operator) expected.operatorCode = operator
       expect(rest).toEqual(expected)
     })
   }

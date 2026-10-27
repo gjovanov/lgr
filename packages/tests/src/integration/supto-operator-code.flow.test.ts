@@ -25,7 +25,13 @@ afterEach(async () => {
   await clearCollections()
 }, 30_000)
 
-const today = () => new Date().toISOString().slice(0, 10)
+/**
+ * The period: from a fixed day to a day from now, as a full timestamp (`suptoPeriod` takes one as it
+ * is). Not "today" as a date: SUPTO days are Bulgarian, so after 22:00 UTC (00:00 in Sofia) the UTC
+ * date names a day that has already ended, and the sales just made fall outside it — which is how CI
+ * failed this file at 22:0x UTC.
+ */
+const period = () => suptoPeriod('2026-10-01', new Date(Date.now() + 86_400_000).toISOString())
 
 /** Column F („Operator Code") of 18.1, keyed by column B (the number). */
 async function operatorColumn(buffer: Buffer): Promise<Record<string, string>> {
@@ -53,7 +59,7 @@ describe('SUPTO 18.1 — the operator code (#323)', () => {
     const imported = await w.backOfficeSale(1, { reference: 'salesAnalysis:2026-10-26', skipStockMovement: true })
     expect(imported.status).toBe(200)
 
-    const { transactions, cashSales } = await exportSummarizedSales({ orgId: w.orgId, ...suptoPeriod('2026-10-01', today()) })
+    const { transactions, cashSales } = await exportSummarizedSales({ orgId: w.orgId, ...period() })
     const byNumber = Object.fromEntries(transactions.map((t: any) => [t.transactionNumber, t.operatorCode]))
     expect(byNumber[fiscal.json.transaction.transactionNumber]).toBe('0001')
     expect(byNumber[text.json.transaction.transactionNumber]).toBe('0001') // no УНП: the stored code
@@ -71,11 +77,11 @@ describe('SUPTO 18.1 — the operator code (#323)', () => {
     const backOffice = await w.backOfficeSale(1)
     expect([till.status, backOffice.status]).toEqual([200, 200])
 
-    const mine = await exportSummarizedSales({ orgId: w.orgId, ...suptoPeriod('2026-10-01', today()), operatorCode: '0001' })
+    const mine = await exportSummarizedSales({ orgId: w.orgId, ...period(), operatorCode: '0001' })
     expect(mine.transactions.map((t: any) => t.transactionNumber)).toEqual([till.json.transaction.transactionNumber])
     expect(mine.cashSales).toHaveLength(0)
 
-    const clerks = await exportSummarizedSales({ orgId: w.orgId, ...suptoPeriod('2026-10-01', today()), operatorCode: '0002' })
+    const clerks = await exportSummarizedSales({ orgId: w.orgId, ...period(), operatorCode: '0002' })
     expect(clerks.transactions).toHaveLength(0)
     expect(clerks.cashSales.map((d: any) => d.invoiceNumber)).toEqual([backOffice.json.invoice.invoiceNumber])
   })
