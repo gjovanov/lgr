@@ -538,9 +538,10 @@ Field test (§10) on production, 2026-10-26, acme-corp, each write undone where 
   undo: issued invoices, paid till sales, open till sessions (#285 makes the P4 walks close
   theirs). Their click paths were checked on prod in a browser after each deploy instead:
   „+ Нов", the order subtitles, the row menus, and „Продай" with the article on the first line;
-- §10.7: #203 was closed by its owner on 2026-10-26. Notes for #168 and #4 are drafted for the
-  owner to post. One point for the staff: the place of deal prints the city of the warehouse
-  address, which is in Latin on both stores (Pazardzhik, Sofia).
+- §10.7: #203 was closed by its owner on 2026-10-26. The notes for #168 and #4 were posted on
+  2026-10-27, on the owner's go. The place of deal prints the city of the warehouse address,
+  which both stores had in Latin. It is „Пазарджик" / „София" since 2026-10-27, audit-logged
+  as the owner.
 
 Data follow-ups run on production, 2026-10-26:
 - the 368 card invoices issued before FR-22.19 were settled with `scripts/settle-cash-invoices.ts
