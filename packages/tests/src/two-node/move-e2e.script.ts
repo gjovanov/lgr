@@ -25,7 +25,8 @@
  * numbers once recorded, and gives the sale's number to another. The link comes back: the server
  * learns of it, fences itself, and exports everything above the cutoff, which reaches global for
  * review with that collision named. The admin brings it into the books: the other sale arrives as
- * the site wrote it, the colliding one stays out, named.
+ * the site wrote it, and the colliding one too, flagged with lgrai.app's (AC 51): the later of the two
+ * is annulled by a credit note and re-issued, prepared as two drafts.
  *
  * Or, with `--reseed` (FR-20.71, AC 36, plan step P3-7): the master's database goes back underneath
  * the mirror, the way a disk reverted to a snapshot would (the org's documents, its journal and the
@@ -494,7 +495,17 @@ try {
     const kept: any = await gdb.collection('invoices').findOne({ _id: otherSale })
     check('the sale lgrai.app never numbered arrives as the site wrote it, with where it came from', kept?.invoiceNumber === 'INV-2026-00502' && kept?.total === 49 && new Date(kept?.issueDate).getTime() === soldAt.getTime() && kept?.importedFrom?.kind === 'fenced_export' && String(kept?.importedFrom?.exportId) === String(arrived?._id), JSON.stringify(kept && { number: kept.invoiceNumber, total: kept.total, importedFrom: kept.importedFrom }))
     check('…numbering goes on above it', (((await gdb.collection('sequences').findOne({ orgId, prefix: 'SALES_DOC', year: new Date().getFullYear() })) as any)?.lastNumber ?? 0) >= 502)
-    check('the one whose number lgrai.app gave to another stays out, named', !(await gdb.collection('invoices').findOne({ _id: lateSale })) && !!(await gdb.collection('fenced_import_items').findOne({ exportId: arrived?._id, coll: 'invoices', docKey: String(lateSale), outcome: 'skipped', reason: 'number_taken' })))
+    // AC 51: the number was issued twice; both are on paper, so both are in the books.
+    const twice: any = await gdb.collection('invoices').findOne({ _id: lateSale })
+    const otherId = String(issued.body?.invoice?.id ?? issued.body?.invoice?._id)
+    check('the one whose number lgrai.app gave to another comes in too, flagged with it', twice?.invoiceNumber === 'INV-2026-00501' && String(twice?.numberClash?.withId) === otherId && !!(await gdb.collection('fenced_import_items').findOne({ exportId: arrived?._id, coll: 'invoices', docKey: String(lateSale), outcome: 'imported', reason: 'number_clash' })), JSON.stringify(twice && { number: twice.invoiceNumber, numberClash: twice.numberClash }))
+    const clashes = await asAdmin('GET', `/org/${orgId}/invoicing/number-clashes`)
+    const pair = (clashes.body?.clashes ?? []).find((c: any) => c.id === String(lateSale))
+    check('…listed as a pair, lgrai.app\'s the later', clashes.status === 200 && pair?.later === 'other' && pair?.other?.id === otherId && pair?.correctable === true, JSON.stringify(pair && { later: pair.later, correctable: pair.correctable }))
+    const prepared = await asAdmin('POST', `/org/${orgId}/invoicing/number-clashes/${String(lateSale)}/prepare`, {})
+    const cn: any = prepared.body?.correction?.creditNote?.id ? await gdb.collection('invoices').findOne({ _id: new mongoose.Types.ObjectId(prepared.body.correction.creditNote.id) }) : null
+    const re: any = prepared.body?.correction?.reissue?.id ? await gdb.collection('invoices').findOne({ _id: new mongoose.Types.ObjectId(prepared.body.correction.reissue.id) }) : null
+    check('the correction is prepared: a credit note annulling the later, and its re-issue, drafts that move no stock', prepared.status === 200 && cn?.type === 'credit_note' && cn?.status === 'draft' && String(cn?.relatedInvoiceId) === otherId && !!cn?.stockSource?.marker && re?.type === 'invoice' && re?.status === 'draft' && !!re?.stockSource?.marker, JSON.stringify(prepared.body))
     check('the customer it sold to is here', !!(await gdb.collection('contacts').findOne({ orgId, companyName: 'Sold to while the link was down' })))
     await Bun.sleep(15_000)
     check('its pump sends nothing more of the org: lgrai.app keeps no mirror of it', (await gdb.collection('mirror_state').countDocuments({ orgId })) === 0)

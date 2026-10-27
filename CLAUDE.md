@@ -2572,7 +2572,7 @@ Operator page: `docs/architecture/nodes.md#moving-an-org-to-its-master-fr-2079`.
   (it would otherwise delete the mirror's new chain).
 - The desktops follow (P3-6b, below), the org can move back (P3-6c, below), a lost server's copy
   can be promoted (P3-6d, below), and a fenced server's work reaches lgrai.app and is brought into
-  the books (P3-6e, below). Not yet: a number issued twice (credit note + re-issue).
+  the books (P3-6e, below). A number issued twice is kept and corrected (AC 51, below).
   - ⚠ `collectionDigests` hashes canonical EJSON in STORED field order, and the mirror's apply
     reorders a split document (`$mergeObjects: [home, kept]` puts global's fields last). So the move
     back compares with `homeDigests` instead, which is order-insensitive.
@@ -2656,10 +2656,11 @@ so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.
     address answers with a notice for 12 months and is never issued again.
   - **"Sign in with LGR"** now returns a person only to an ACTIVE address of the server's orgs
     (`activeLabelsOf`), no longer to any slug.
-  - **Next:** the wildcard DNS record and the edge's server block (P3-4e, lgr-deploy#27).
-  - **The edge** (mars' Docker nginx, `gjovanov/nginx`) already holds a ZeroSSL certificate for
-    `*.lgrai.app`. P3-4e adds the wildcard DNS record at Cloudflare and the nginx server block.
-    ⚠ The zone already serves `harvex` and `qa`.
+  - **The edge** (mars' Docker nginx, `gjovanov/nginx`; P3-4e, lgr-deploy#27, live since 2026-10-27)
+    holds a ZeroSSL certificate for `*.lgrai.app`, and the zone a wildcard A record beside the
+    server block `org-addresses.lgrai.app.conf`. ⚠ A name with its own record (`qa`) wins over
+    the wildcard. `harvex` was retired the same day: its record and vhost are gone, so the name now
+    reaches LGR and answers the unknown-label 404.
 - **The tunnel, lgrai.app's side (FR-20.72–20.74, FR-20.78, P3-4b; `portal-api/src/tunnel/`).** A
   global-only `onRequest`, registered FIRST in `unified.ts`, handles every `Host` of the form
   `<label>.<ORG_ADDRESS_APEX>` whose label is not reserved. Such a request belongs to the org's
@@ -3073,8 +3074,8 @@ the server: `move-worker.service.ts#reseedHere`.
   - ⚠ **Master data only when named.** Nothing in the app hard-deletes it, so a named one is new
     work. An unnamed one might be something a raw script deleted after the restore point, so it is
     counted in `keptOnly` and never resurrected.
-  - **Left for a person:** a number the copy gave to another document (`number_taken`, the AC 51
-    remedy), drafts (`kept_draft`), and what names something neither copy holds.
+  - **Left for a person:** drafts (`kept_draft`), and what names something neither copy holds. A
+    number the copy gave to another document comes in flagged (AC 51, below).
   - **Never touched:** what the copy holds.
   - **Bookkeeping.** Rows in `fenced_import_items` with the re-seed's id as the run, state in
     `NodeState` `kept-import:<moveId>` (lease 10 min), audited. Numbering continues above every
@@ -3206,7 +3207,8 @@ batches of 200 under a 2-minute lease, phase by phase:
 - **All or nothing per document**: a sale whose stock cannot be booked is taken out again (`failed`).
 - **Left for a person, each with why** (`fenced_import_items`, node state, one row per document):
   - `same_id`: changed here as well;
-  - `number_taken`: a legal number lgrai.app gave to another document;
+  - `number_taken`: only before migration 0010, or a third document for a number already
+    issued twice (since AC 51 a second one comes in flagged, `imported:number_clash`);
   - `missing_reference`: a sale naming a product, warehouse or customer lgrai.app does not hold;
   - `made_by_its_sale`: a movement its sale's import makes again;
   - `unique_conflict`;
@@ -3226,8 +3228,33 @@ batches of 200 under a 2-minute lease, phase by phase:
 - The review shows, per sale, what the import did; the server's name comes with the export, so a
   removed server shows its name, not its id. Count labels are plural-free ("Files: 1") in all four
   languages.
-- Not yet: a legal number issued twice. It needs both documents under one number, and
-  `{orgId, invoiceNumber}` is unique.
+- **A legal number issued twice (AC 51, FR-20.51; `services/biz/number-clash.service.ts`).** Both
+  documents are on paper, so both are in the books under the number. The second to reach the database
+  carries `numberClash {withId, withNumber, source, at}`.
+  - ⚠ **The unique key is `{orgId, invoiceNumber, numberClash.withId}`** (`INVOICE_NUMBER_KEY`,
+    migration `0010-invoice-number-clash`, which replaced `orgId_1_invoiceNumber_1`). Every
+    ordinary invoice has no `numberClash` and the key reads it as null, so `(org, number)` stays
+    exactly as unique for them. The pair's second fits; a third never does.
+  - ⚠ **`numberClash` is a SINGLE NESTED SUBDOCUMENT**, like `cashSaleRef`. A nested-path object
+    would be materialised on every invoice (as `stockSource` is), and the key would no longer read
+    null for ordinary documents.
+  - ⚠ **A partial index cannot do this:** `partialFilterExpression` takes no `$exists: false`.
+  - **Remedy** (spec §5.5, ЗДДС чл. 116): the LATER of the pair is annulled by a credit note and
+    re-issued under a new number, never edited or deleted. "Prepare the correction"
+    (`POST /org/:orgId/invoicing/number-clashes/:id/prepare`, `invoicing.write`; listed by
+    `GET …/number-clashes`) makes two DRAFTS for a person to issue:
+    - a credit note (`relatedInvoiceId` = the later document) and its re-issue;
+    - both carry `stockSource.marker` `number_clash:<id>`, so neither moves stock;
+    - neither copies the lines' `orderRef`;
+    - payments stay on the annulled document, for a person to allocate.
+  - Only an outgoing invoice is prepared. A cash sale's legal number is its УНП, so a cash-sale pair
+    is corrected by a person.
+  - The Sales invoices list shows the banner and the dialog (`NumberClashBanner.vue`, ×4).
+  - Rollout: `bun run migrate` on prod after the deploy. Until it runs, the old key refuses the
+    pair and the imports leave it `number_taken`, as before.
+- Tests: `number-clash.flow` (5: the key; the migration twice; the correction, of either
+  document, stock-free and once; a cash sale refused; the routes), and the fenced and kept imports'
+  flags.
 - Tests: `fenced-import.flow` (3: the real export of a second database playing the site, imported to
   the end and checked against the books; a crash repeating nothing; the refusals).
 

@@ -44,6 +44,7 @@ import { journalAnalysisController } from 'accounting-api/src/controllers/journa
 // Invoicing controllers
 import { contactController } from 'invoicing-api/src/controllers/contact.controller.js'
 import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller.js'
+import { numberClashController } from 'invoicing-api/src/controllers/number-clash.controller.js'
 import { orderController } from 'invoicing-api/src/controllers/order.controller.js'
 import { internalOrderController } from 'invoicing-api/src/controllers/internal-order.controller.js'
 import { reservationController } from 'invoicing-api/src/controllers/reservation.controller.js'
@@ -220,6 +221,7 @@ export function createApiApp() {
         // Invoicing
         .use(contactController)
         .use(invoiceController)
+        .use(numberClashController)
         .use(orderController)
         .use(internalOrderController)
         .use(reservationController)

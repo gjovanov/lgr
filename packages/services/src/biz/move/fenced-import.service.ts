@@ -220,30 +220,43 @@ async function bookSale(ctx: Ctx, doc: Doc): Promise<void> {
 
 export async function importSale(ctx: Ctx, doc: Doc): Promise<Outcome> {
   const number = String(doc.invoiceNumber ?? '')
-  const there: any = await Invoice.collection.findOne({ _id: doc._id } as any, { projection: { importedFrom: 1, invoiceNumber: 1 } })
+  /** The other document of this number, when the number was issued twice (AC 51). */
+  let clashed: string | null = null
+  const there: any = await Invoice.collection.findOne({ _id: doc._id } as any, { projection: { importedFrom: 1, invoiceNumber: 1, numberClash: 1 } })
   if (there && !isOurs(there.importedFrom, ctx)) return skipped('same_id', 'lgrai.app holds this document, changed since the cutoff', number)
   if (!there) {
     const missing = await missingFor(ctx.org, doc)
     if (missing) return skipped('missing_reference', `it names ${missing}, which lgrai.app does not hold`, number)
     let kept = asKept(doc, ctx)
-    const clash = await Invoice.collection.findOne({ orgId: ctx.org, invoiceNumber: number, _id: { $ne: doc._id } } as any, { projection: { _id: 1 } })
+    // The document that holds this number here, a pair's second never being one.
+    const clash: any = await Invoice.collection.findOne({ orgId: ctx.org, invoiceNumber: number, _id: { $ne: doc._id }, 'numberClash.withId': { $exists: false } } as any, { projection: { _id: 1 } })
     if (clash) {
-      // ⚠ FR-20.51: a legal number issued twice is resolved by a credit note and a re-issue, never here.
-      if (doc.status !== 'draft') return skipped('number_taken', `lgrai.app gave ${number} to another document`, number)
-      const next = await getNextDraftInvoiceNumber(ctx.orgId, doc.direction, doc.type)
-      if (!next) return skipped('number_taken', `no draft series for ${doc.type}`, number)
-      kept = { ...asKept(doc, ctx, number), invoiceNumber: next }
+      if (doc.status !== 'draft') {
+        // ⚠ FR-20.51, AC 51: a legal number issued twice. Both exist on paper, so both are in the
+        // books: this one keeps its number, flagged with the other, and the later of the two is
+        // annulled by a credit note and re-issued (`number-clash.service.ts`), never edited here.
+        kept = { ...kept, numberClash: { withId: clash._id, withNumber: number, source: ctx.source.kind, at: ctx.at } }
+        clashed = String(clash._id)
+      } else {
+        const next = await getNextDraftInvoiceNumber(ctx.orgId, doc.direction, doc.type)
+        if (!next) return skipped('number_taken', `no draft series for ${doc.type}`, number)
+        kept = { ...asKept(doc, ctx, number), invoiceNumber: next }
+      }
     }
     try {
       await Invoice.collection.insertOne(kept as any)
     } catch (e: any) {
+      // Before migration 0010 the key holds one document per number; or a pair already holds it.
       if (e?.code === 11000 && /invoiceNumber/.test(String(e?.message))) return skipped('number_taken', `lgrai.app gave ${number} to another document`, number)
       throw e
     }
     await continueSeries(ctx.orgId, kept)
     createAuditEntry({
       orgId: ctx.orgId, userId: ctx.by, action: 'import', module: 'invoicing', entityType: 'invoice', entityId: String(doc._id), entityName: String(kept.invoiceNumber),
-      changes: [{ field: 'source', oldValue: null, newValue: sourceText(ctx) }],
+      changes: [
+        { field: 'source', oldValue: null, newValue: sourceText(ctx) },
+        ...(clashed ? [{ field: 'numberClash', oldValue: null, newValue: `${number} was issued twice: also ${clashed}` }] : []),
+      ],
     })
   }
   try {
@@ -255,6 +268,9 @@ export async function importSale(ctx: Ctx, doc: Doc): Promise<Outcome> {
     }
     return failed(e?.message ?? String(e), number)
   }
+  if (clashed) return imported('number_clash', number, `${number} is also ${clashed}: the later is annulled by a credit note and re-issued`)
+  // A run cut short after this one came in: its flag says so.
+  if (there?.numberClash?.withId) return imported('number_clash', number, `${number} is also ${String(there.numberClash.withId)}: the later is annulled by a credit note and re-issued`)
   return imported(undefined, number)
 }
 
