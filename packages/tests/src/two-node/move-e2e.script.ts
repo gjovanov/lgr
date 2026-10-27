@@ -194,6 +194,18 @@ try {
   const reg = await cli('register', '--server', SERVER, '--code', code, '--link', 'full', '--name', 'Move e2e')
   check('the master registers with global at Full', reg.code === 0, reg.out.split('\n').slice(-2).join(' | '))
   if (reg.code !== 0) throw new Error('registration failed')
+  // P3-8b (FR-20.98): the supervisor writes its account for the master's own status page, every 30 s.
+  const statusFile: any = await until(() => {
+    try {
+      const v = JSON.parse(readFileSync(join(DATA, 'state', 'status.json'), 'utf8'))
+      return v.registration?.linkLevel === 'full' && v.disk?.totalBytes > 0 ? v : false
+    } catch {
+      return false
+    }
+  }, 75_000, 1000)
+  check("the supervisor writes its status for the master's own page: its processes, the disk, the link",
+    !!statusFile && Date.now() - new Date(statusFile.writtenAt).getTime() < 60_000 && (statusFile.children ?? []).some((c: any) => c.name === 'api' && c.state === 'running') && statusFile.disk.freeBytes > 0,
+    JSON.stringify(statusFile && { writtenAt: statusFile.writtenAt, link: statusFile.registration?.linkLevel, disk: statusFile.disk, children: (statusFile.children ?? []).map((c: any) => c.name + ':' + c.state) }))
   const secrets = Object.fromEntries(readFileSync(join(DATA, 'keys', 'mongo.env'), 'utf8').split(/\r?\n/).filter(Boolean).map(l => l.split(/=(.*)/s).slice(0, 2)))
   master = await mongoose.mongo.MongoClient.connect(`mongodb://lgr-admin:${encodeURIComponent(secrets.MONGO_ADMIN_PASSWORD)}@127.0.0.1:${MONGOD_PORT}/?directConnection=true&authSource=admin`)
   const mdb = master.db('lgr')

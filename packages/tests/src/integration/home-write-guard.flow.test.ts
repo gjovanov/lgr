@@ -147,6 +147,10 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
     count: 5,
     why: 'node-local: node_instance, the master\'s own chain records (repl_orgs.pages: the page built, and the anchor kept), rejournal\'s journal rows',
   },
+  'services/src/biz/home/home-hold.service.ts': {
+    count: 2,
+    why: 'a sys-admin settling an org\'s home hold (FR-20.3, P3-8d): Org.homeEpochHighWater, a field global owns, made to agree with the record released or adopted, while the org is on hold and its data is written nowhere here',
+  },
   'services/src/biz/home/series-lock.service.ts': {
     count: 1,
     why: 'node-local: the went-back record on the org\'s journal row (repl_orgs.wentBack, FR-20.51), set once',

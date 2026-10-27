@@ -13,6 +13,8 @@
  * - **Clock** more than two minutes off lgrai.app's.
  * - **A SUPTO version waiting for its declaration** (P3-8c, FR-20.50): an update the server holds
  *   because its SUPTO version is not declared to НАП yet.
+ * - **Orgs on hold** (P3-8d, FR-20.3): lgrai.app holds orgs of the server, homed on it or of which it
+ *   reported a newer home record, until a sys-admin settles them (`home-hold.service.ts`).
  *
  * ⚠ A health frame older than ten minutes says nothing about now: the alarms read from it are not
  * raised (the server being away is what the Servers page's connection says).
@@ -20,7 +22,7 @@
 import { MirrorState, OrgHome, ServerNode } from 'db/models'
 import { presenceOfNodes } from './node.service.js'
 
-export type NodeAlarmKind = 'mirror_lag' | 'backup_stale' | 'disk_low' | 'oplog_short' | 'fenced' | 'clock_skew' | 'supto_waiting'
+export type NodeAlarmKind = 'mirror_lag' | 'backup_stale' | 'disk_low' | 'oplog_short' | 'fenced' | 'clock_skew' | 'supto_waiting' | 'home_hold'
 
 export interface NodeAlarm {
   kind: NodeAlarmKind
@@ -88,13 +90,21 @@ export function nodeAlarms({ node, connected, mirrors, now }: AlarmInput): NodeA
 /** The alarms of each of `nodes`, its presence and its orgs' mirrors read in a few queries. */
 export async function alarmsOfNodes(nodes: any[], now = new Date()): Promise<Map<string, NodeAlarm[]>> {
   const ids = nodes.map(n => String(n._id))
-  const [connected, homes] = await Promise.all([presenceOfNodes(ids), OrgHome.find({ home: { $in: ids } }, { orgId: 1, home: 1 }).lean()])
+  const [connected, homes, held] = await Promise.all([
+    presenceOfNodes(ids),
+    OrgHome.find({ home: { $in: ids } }, { orgId: 1, home: 1 }).lean(),
+    // FR-20.3: orgs lgrai.app holds, homed on a server or claimed by one.
+    OrgHome.find({ state: 'hold', $or: [{ home: { $in: ids } }, { 'hold.claim.nodeId': { $in: ids } }] }, { orgId: 1, home: 1, 'hold.claim.nodeId': 1 }).lean(),
+  ])
   const mirrors: any[] = homes.length ? await MirrorState.find({ orgId: { $in: (homes as any[]).map(h => h.orgId) } }, { orgId: 1, watermark: 1, lastPageAt: 1 }).lean() : []
   const byOrg = new Map(mirrors.map(m => [String(m.orgId), m]))
   const out = new Map<string, NodeAlarm[]>()
   for (const n of nodes) {
     const mine = (homes as any[]).filter(h => h.home === String(n._id)).map(h => byOrg.get(String(h.orgId)) ?? { orgId: h.orgId })
-    out.set(String(n._id), nodeAlarms({ node: n, connected: connected.get(String(n._id)), mirrors: mine, now }))
+    const alarms = nodeAlarms({ node: n, connected: connected.get(String(n._id)), mirrors: mine, now })
+    const holds = (held as any[]).filter(h => h.home === String(n._id) || h.hold?.claim?.nodeId === String(n._id)).length
+    if (holds) alarms.push({ kind: 'home_hold', value: holds })
+    out.set(String(n._id), alarms)
   }
   return out
 }

@@ -1,10 +1,11 @@
-import { Elysia } from 'elysia'
+import { Elysia, t } from 'elysia'
 import { nodeRole } from 'config'
 import { Org, ServerNode } from 'db/models'
 import { AuthService } from '../auth/auth.service.js'
 import { nodeToWire, presenceOfNodes } from 'services/biz/node/node.service'
 import { isSysAdmin } from 'services/biz/sys-admin'
 import { alarmsOfNodes } from 'services/biz/node/node-alarms'
+import { HomeHoldError, heldHomes, holdAfterRestore, releaseHold } from 'services/biz/home/home-hold.service'
 
 /**
  * The sys-admin Nodes page's API (FR-20 plan step P2-3a): every master registered with global,
@@ -46,4 +47,50 @@ export const adminNodesController = new Elysia({ prefix: '/admin/nodes' })
       }
     },
     { isSignIn: true },
+  )
+  // FR-20.3 (P3-8d): the orgs lgrai.app holds, taken or derived from the record, and settling one.
+  .get(
+    '/held',
+    async ({ user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!isSysAdmin(user)) return status(403, { message: 'This page requires a system administrator' })
+      return { held: await heldHomes() }
+    },
+    { isSignIn: true },
+  )
+  // The runbook's step after a disaster-recovery restore of global: every org with a server on hold.
+  // GET says how many it would hold; POST holds them.
+  .get(
+    '/held/after-restore',
+    async ({ user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!isSysAdmin(user)) return status(403, { message: 'This page requires a system administrator' })
+      return await holdAfterRestore({ execute: false })
+    },
+    { isSignIn: true },
+  )
+  .post(
+    '/held/after-restore',
+    async ({ user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!isSysAdmin(user)) return status(403, { message: 'This page requires a system administrator' })
+      return await holdAfterRestore({ execute: true })
+    },
+    { isSignIn: true },
+  )
+  // ⚠ `:id`, never `:orgId`: the org gates (the tenant guard, the home gate) are for an org's own
+  // routes, and a sys-admin settles any org's hold, which is on hold, from no org of its own.
+  .post(
+    '/held/:id/release',
+    async ({ user, params: { id: orgId }, body, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!isSysAdmin(user)) return status(403, { message: 'This page requires a system administrator' })
+      try {
+        return { home: await releaseHold(orgId, (user as any).email || String((user as any).id), { adopt: body.adopt === true }) }
+      } catch (e) {
+        if (e instanceof HomeHoldError) return status(e.statusCode, { code: e.code, message: e.message })
+        throw e
+      }
+    },
+    { isSignIn: true, body: t.Object({ adopt: t.Optional(t.Boolean()) }) },
   )

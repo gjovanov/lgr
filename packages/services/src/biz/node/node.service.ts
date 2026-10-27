@@ -15,6 +15,7 @@ import {
 import { config } from 'config'
 import { SUPTO_VERSION_RE } from 'config/supto'
 import { logger } from '../../logger/logger.js'
+import { noteReportedHomes } from '../home/home-hold.service.js'
 import {
   generateEnrollmentCode,
   generateEnrollmentKey,
@@ -645,6 +646,14 @@ export async function recordOrgState(node: IServerNode, body: any, at = new Date
     orgs.push({ orgId: (node.orgIds ?? []).find(id => String(id) === orgId), at, ...(head !== undefined ? { head } : {}), ...(wentBack ? { wentBack } : {}), ...(numbering ? { numbering } : {}) })
   }
   await ServerNode.updateOne({ _id: node._id }, { $set: { orgState: orgs } })
+  // FR-20.3 (P3-8d): the server's home record of each org it writes, against global's. Only an ACTIVE
+  // row is a claim: a master writes its row at a move's new epoch as `frozen` while it imports, BEFORE
+  // global flips (move-worker), and holding the org then would break the very move. An org it holds
+  // fenced or on hold claims nothing either. An older server sends no epoch.
+  const claims = (Array.isArray(body?.orgs) ? body.orgs.slice(0, 100) : [])
+    .filter((o: any) => typeof o?.orgId === 'string' && Number.isSafeInteger(o?.epoch) && o?.state === 'active')
+    .map((o: any) => ({ orgId: o.orgId, epoch: o.epoch }))
+  if (claims.length) await noteReportedHomes(node as any, claims, at)
   return orgs.length
 }
 
