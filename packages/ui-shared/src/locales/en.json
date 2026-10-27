@@ -3281,6 +3281,48 @@
       "desktopsNote": "The shop's desktops will say the organization moved: pair them with lgrai.app again.",
       "live": "A move back to lgrai.app is under way: {state}",
       "done": "lgrai.app is the organization's home again"
+    },
+    "promote": {
+      "action": "Promote lgrai.app's copy",
+      "title": "Make lgrai.app's copy the home of {org}",
+      "intro": "Only when the server is lost for good. lgrai.app's copy becomes the organization's home, and its legal numbering stays frozen until you record the last numbers issued at the site.",
+      "loss": "Changes made on the server after {when} are not on lgrai.app. If that server is still running, it may issue invoice numbers that lgrai.app will issue again.",
+      "lossUnknown": "lgrai.app holds no change from this server.",
+      "files": "{missing} of the organization's files are not on lgrai.app.",
+      "hardware": "What happened to the server",
+      "hardwareOff": "It is switched off",
+      "hardwareDestroyed": "It is destroyed, or gone for good",
+      "silence": "The server has been silent since {since}: promoting a switched-off server needs 24 hours of silence.",
+      "tills": "Its tills are disconnected from it",
+      "slug": "Type {slug} to confirm",
+      "start": "Promote the copy",
+      "started": "lgrai.app's copy is becoming the organization's home",
+      "check": {
+        "home_master": "The organization lives on one of its servers",
+        "no_move": "No other move is under way",
+        "disconnected": "The server is not connected",
+        "mirror": "lgrai.app keeps a copy of it"
+      },
+      "state": {
+        "verifying": "Putting the files in place",
+        "done": "Done: lgrai.app's copy is the organization's home",
+        "aborted": "Aborted"
+      },
+      "live": "lgrai.app's copy is becoming the organization's home: {state}",
+      "done": "lgrai.app's copy is the organization's home now"
+    },
+    "lastNumbers": {
+      "title": "Record the last numbers issued at the site",
+      "intro": "Legal numbering is frozen: lgrai.app must not issue a number the lost server already gave a customer. Read the last number of each series off the last printed documents and the fiscal device's daily report.",
+      "series": {
+        "SALES_DOC": "Sales documents {year}",
+        "CASH_SALE": "Cash sales {year}",
+        "UNP": "УНП of fiscal device {device}"
+      },
+      "here": "lgrai.app has {n}",
+      "confirm": "These are the last numbers issued at the site",
+      "save": "Resume numbering",
+      "saved": "Numbering resumes above the site's last numbers"
     }
   },
   "desktops": {
@@ -3480,6 +3522,8 @@
     "livesOnCloud": "This organization lives on lgrai.app now: this server keeps a read-only copy.",
     "moving": "This organization is moving: nothing can be written until the move ends.",
     "writeRefused": "Read-only here: this organization is written on its server.",
-    "unknown": "an unknown time"
+    "unknown": "an unknown time",
+    "seriesFrozen": "Legal numbering waits: record the last numbers issued at the site, on the Servers page.",
+    "fenced": "This server was replaced as the organization's home: it writes nothing more of it."
   }
 }

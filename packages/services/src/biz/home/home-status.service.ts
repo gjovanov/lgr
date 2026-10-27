@@ -9,6 +9,9 @@
  * - **On a master, an org that went back to lgrai.app** (FR-20.80) is the read-only copy the master
  *   keeps: the banner says so.
  * - **A move under way** freezes the org wherever it lives: nothing can be written until it ends.
+ * - **After a promotion** (FR-20.81): on lgrai.app, legal numbering waits for the lost site's last
+ *   numbers (`seriesFrozen`); on the master it replaced, the org is FENCED (`state: 'fenced'`), which
+ *   is no move: the server writes nothing more of it, for good.
  *
  * Nothing in it is secret: a server's name and whether it is online, never its address or its health.
  */
@@ -31,15 +34,21 @@ export interface HomeStatus {
   since?: string | null
   /** The last change the mirror holds: as of when this copy is. */
   asOf?: string | null
+  /** FR-20.81: legal numbering waits for the last numbers issued at a lost site. */
+  seriesFrozen?: { since: string }
 }
 
 const iso = (d: unknown) => (d ? new Date(d as any).toISOString() : null)
 
 export async function homeStatus(orgId: string): Promise<HomeStatus> {
   const home = await homeOf(orgId, { fresh: true })
-  const moving = home.state !== 'active' || !!(await OrgMove.exists({ orgId, state: { $in: [...LIVE_MOVE_STATES] } }))
+  // A fenced home is not frozen for a move: it is replaced, and says so.
+  const moving = (home.state !== 'active' && home.state !== 'fenced') || !!(await OrgMove.exists({ orgId, state: { $in: [...LIVE_MOVE_STATES] } }))
   const base = { state: home.state, epoch: home.epoch, moving }
-  if (home.home === thisNode()) return { home: 'here', ...base }
+  if (home.home === thisNode()) {
+    const row: any = await OrgHome.findOne({ orgId }, { seriesFrozen: 1 }).lean()
+    return { home: 'here', ...base, ...(row?.seriesFrozen?.since ? { seriesFrozen: { since: new Date(row.seriesFrozen.since).toISOString() } } : {}) }
+  }
 
   if (nodeRole() === 'master') {
     // The org went back to lgrai.app: this server keeps a read-only copy.

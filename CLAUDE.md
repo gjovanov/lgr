@@ -2498,8 +2498,8 @@ Operator page: `docs/architecture/nodes.md#moving-an-org-to-its-master-fr-2079`.
 - A flip is claimed INSIDE its transaction: a report sent again after a crash between `verifying` and
   the flip finishes it, one after the flip is answered done, and a late second flip changes nothing
   (it would otherwise delete the mirror's new chain).
-- The desktops follow (P3-6b, below), and the org can move back (P3-6c, below). Not yet: promotion
-  (P3-6d), fenced export/import (P3-6e).
+- The desktops follow (P3-6b, below), the org can move back (P3-6c, below), and a lost server's
+  copy can be promoted (P3-6d, below). Not yet: fenced export/import (P3-6e).
   - ⚠ `collectionDigests` hashes canonical EJSON in STORED field order, and the mirror's apply
     reorders a split document (`$mergeObjects: [home, kept]` puts global's fields last). So the move
     back compares with `homeDigests` instead, which is order-insensitive.
@@ -2620,6 +2620,63 @@ mirror holds ALL of it. Global: `services/biz/move/move-back.service.ts`; the ma
   - `two-node/move-e2e.script.ts`: the forward move, then BACK with a real `lgr-server` (a file the
     shop made comes home by content and lands at its stored path; global writes the org again).
 
+## Promoting lgrai.app's copy of a lost server (2026-10-27, FR-20.81, plan step P3-6d)
+
+When an org's server is gone for good, the org admin makes lgrai.app's mirror its home: "Promote
+lgrai.app's copy" on the Servers page, on the home server's row while it is not connected
+(`POST /api/org/:orgId/moves/promote/preflight`, `POST /moves/promote`). Global:
+`services/biz/move/promote.service.ts`; `org_moves` with `kind: 'promote'`.
+- ⚠ **The danger is not lost data, it is a server that is only cut off**: still issuing invoices in
+  the shop above the mirror's counters, while lgrai.app issues the same numbers to other customers.
+  So a promotion takes EVIDENCE, and freezes the legal series after it:
+  - preflight: the home is one of the org's servers, no other move, the server connected on neither
+    socket (one that answers is moved back instead), and a mirror to promote;
+  - the attestation: the server is off or destroyed, its tills are disconnected, and the slug typed;
+  - 24 h of silence (`SILENCE_MS`, from `ServerNode.lastSeenAt`) unless destroyed is attested
+    (`not_silent_long_enough`);
+  - the dialog states the loss window (`lossFrom` = `mirror_state.lastPageAt`) AND the
+    duplicate-number risk, and how many files lgrai.app lacks.
+- **The flip** is the move back's. The move is created `verifying` (no copy, no drain; it takes
+  whatever files global holds, `allowMissingFiles`), and `moveBackTick` places the files and flips in
+  one transaction: epoch + 1, home global, `homeEpochHighWater`, `mirror_state` deleted, and
+  `OrgHome.seriesFrozen {since, reason: 'promoted', moveId}`. Then the content store goes, and the
+  org's audit trail (here from now on) records the promotion and its evidence.
+- **The legal series** (`LEGAL_SERIES`: `SALES_DOC`, `CASH_SALE`, and every `UNP-<device>`, in
+  `sequence.service.ts`) stay frozen until a person records the last number the site issued in each,
+  read off the last printed documents and the fiscal device's daily report (`GET`/`POST
+  /moves/last-numbers`, the Servers page's card).
+  - Every series lgrai.app knows must be given, so none opens by omission (`series_missing`).
+  - Each resumes above the higher of the site's number and the mirror's (`ensureSequenceAtLeast`,
+    never lowered). Then `seriesFrozen` is unset, and the change audited.
+  - `getNextNumber` (legal prefixes) and `generateUNP` refuse while frozen (`SeriesFrozenError` →
+    409 `series_frozen`, in `spaErrorHandler`). Drafts, proformas, bills, orders and journal entries
+    go on.
+  - ⚠ **Every issuing path refuses BEFORE it moves anything** (`issuableRefusal`):
+    - `/send` before its claim and its dispatch;
+    - `insertRegisterDocument` before the insert (a storno gives its claim back);
+    - an invoice for a cash sale before its placeholder;
+    - an import's conversion before its number (one carrying its own number goes on).
+
+    Refused at the allocation alone, a `/send` would leave a draft that had already dispatched.
+- **The old server, if it comes back**, learns of the move from its moves (`movesForNode` lists a
+  promotion of an org it was home of) and FENCES itself (`move-worker.service.ts#fenceHere`): home
+  global at the new epoch, `state: 'fenced'`, `fenceCutoff` = the mirror's watermark at the
+  promotion. It writes nothing more of the org and never resumes on its own; what it captured above
+  the cutoff waits for the export (FR-20.84, P3-6e). Global's welcome names the org `home: 'global'`,
+  so the pump sends nothing of it.
+  - ⚠ A done promotion stays in `movesForNode` however old (the others drop out after 30 days): a
+    server back after a month must still fence.
+  - ⚠ A REVOKED server is never told: its token is refused, and it goes on selling at the site. Revoke
+    a server that was stolen, never one that may come back on its own.
+- **Replacing a dead server** is a promotion followed by a move to the new machine (FR-20.79): a new
+  node with new keys, its desktops paired again (a dead server re-points nothing).
+- Banners (P3-5): `home.seriesFrozen` on lgrai.app while frozen, `home.fenced` on the old server.
+- Tests: `promote.flow` (4: the evidence; the flip, the freeze and the last numbers; the old
+  server fencing itself; every issuing path refused before it moves anything) and
+  `bun packages/tests/src/two-node/move-e2e.script.ts --promote` (real processes, 32 checks: the move
+  to a real `lgr-server`, a file the shop made, the supervisor stopped, the promotion, numbering frozen
+  then resumed above the site's number, and the restarted server fenced at exactly the cutoff).
+
 ## Read-only where the org is not written (2026-10-27, FR-20.75, plan step P3-5, first half)
 
 Above every page of every app, `ui-shell/HomeBanner.vue` says when the org is not written here. It
@@ -2633,13 +2690,17 @@ any member of the org may, nothing in it is secret, and it is in the PIN scope t
 - **On a master, an org that went back to lgrai.app** (`home: 'global'`): the read-only copy it keeps.
 - **A move under way** (`moving`: the home record not `active`, or a live `org_moves` row): nothing can
   be written until it ends.
+- **After a promotion** (P3-6d): `seriesFrozen` on `home: 'here'`, a warning until the site's last
+  numbers are recorded; and `state: 'fenced'` on the server it replaced, which is no move (`moving`
+  leaves it out) but a server that writes nothing more of the org.
 - An org written here: nothing shows (`home: 'here'`).
 - Polled every two minutes, so a server going offline, or coming back, shows without a reload.
 - **A refused write says why, in the reader's language.**
   - `setRefusalTranslator` (`ui-shared/useHttpClient`): the shell registers its words for a 409 the
     server names by code, and the interceptor rewrites `data.message`, which is what every view already
     shows. The client itself has no i18n.
-  - `org_home_elsewhere` → `home.writeRefused`. Strings: `home.*`, ×4.
+  - `org_home_elsewhere` → `home.writeRefused`, `series_frozen` → `home.seriesFrozen`. Strings:
+    `home.*`, ×4.
 - Not yet (P3-4, the tunnel): the org's own address, which shows only a static notice while its server
   is offline and never a sign-in.
 - Tests: `home-status.flow` (4).

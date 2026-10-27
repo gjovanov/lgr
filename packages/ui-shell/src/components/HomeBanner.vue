@@ -25,8 +25,10 @@ import { httpClient, setRefusalTranslator } from 'ui-shared/composables/useHttpC
  * - on lgrai.app, for an org homed on one of its servers: a read-only copy, as of its last change,
  *   with the server online or offline since when;
  * - on a master, for an org that went back to lgrai.app: the read-only copy this server keeps;
- * - anywhere, while a move freezes the org.
- * Nothing shows for an org written here. And a write the server refuses for that reason is said in
+ * - anywhere, while a move freezes the org;
+ * - after a promotion (FR-20.81): on lgrai.app, while legal numbering waits for the lost site's last
+ *   numbers; on the master it replaced, that the server writes nothing more of the org.
+ * Nothing else shows for an org written here. And a write the server refuses for that reason is said in
  * words (`setRefusalTranslator`), not as the server's English.
  */
 
@@ -35,7 +37,9 @@ const { t, locale } = useI18n()
 
 interface HomeStatus {
   home: 'here' | 'master' | 'global'
+  state?: string
   moving: boolean
+  seriesFrozen?: { since: string }
   server?: { id: string; name: string }
   online?: boolean
   since?: string | null
@@ -68,7 +72,8 @@ watch(() => props.orgId, id => {
   if (id) timer = setInterval(() => void load(id), 120_000)
 }, { immediate: true })
 
-setRefusalTranslator(code => (code === 'org_home_elsewhere' ? t('home.writeRefused') : null))
+const REFUSALS: Record<string, string> = { org_home_elsewhere: 'home.writeRefused', series_frozen: 'home.seriesFrozen' }
+setRefusalTranslator(code => (REFUSALS[code] ? t(REFUSALS[code]) : null))
 onUnmounted(() => {
   if (timer) clearInterval(timer)
   setRefusalTranslator(null)
@@ -76,17 +81,21 @@ onUnmounted(() => {
 
 const when = (v?: string | null) => (v ? new Date(v).toLocaleString(locale.value) : t('home.unknown'))
 
-const kind = computed(() => (status.value?.moving || (status.value?.home === 'master' && !status.value.online) ? 'warning' : 'info'))
+const kind = computed(() => {
+  const s = status.value
+  return s && (s.moving || s.seriesFrozen || s.state === 'fenced' || (s.home === 'master' && !s.online)) ? 'warning' : 'info'
+})
 
 const text = computed(() => {
   const s = status.value
   if (!s) return ''
   if (s.moving) return t('home.moving')
+  if (s.home === 'here') return s.seriesFrozen ? t('home.seriesFrozen') : ''
   if (s.home === 'master') {
     const name = s.server?.name ?? ''
     return s.online ? t('home.writtenOnServer', { name, asOf: when(s.asOf) }) : t('home.serverOffline', { name, since: when(s.since), asOf: when(s.asOf) })
   }
-  if (s.home === 'global') return t('home.livesOnCloud')
+  if (s.home === 'global') return s.state === 'fenced' ? t('home.fenced') : t('home.livesOnCloud')
   return ''
 })
 </script>

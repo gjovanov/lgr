@@ -102,6 +102,11 @@ export function spaErrorHandler(indexHtmlMap: Partial<Record<UiModule, string>>)
       set.status = 409
       return { code: 'org_home_elsewhere', message: err.message, home: { kind: err.info?.home === 'global' ? 'global' : 'master', state: err.info?.state } }
     }
+    // FR-20.81 (P3-6d): a legal number asked for while the series wait for the site's last numbers.
+    if (err?.name === 'SeriesFrozenError') {
+      set.status = 409
+      return { code: 'series_frozen', message: err.message }
+    }
     if (code === 'NOT_FOUND') {
       const pathname = new URL(request.url).pathname
       if (!pathname.startsWith('/api/') && !pathname.match(/\.\w{2,}$/)) {

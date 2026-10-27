@@ -25,6 +25,8 @@ export const READ_ONLY_WRITES: ReadonlySet<string> = new Set([
   'POST /api/org/:orgId/invoicing/stock-availability/check',
   // FR-20.79 (P3-6a): what stands in the way of a move, checked; nothing is written.
   'POST /api/org/:orgId/moves/preflight',
+  // FR-20.81 (P3-6d): what stands in the way of a promotion; nothing is written.
+  'POST /api/org/:orgId/moves/promote/preflight',
 ])
 
 /**
@@ -52,6 +54,9 @@ export const GLOBAL_STATE_WRITES: ReadonlySet<string> = new Set([
   // that is frozen, which the home gate would otherwise refuse.
   'POST /api/org/:orgId/moves/',
   'POST /api/org/:orgId/moves/:id/abort',
+  // FR-20.81 (P3-6d): promoting the mirror of an org whose home is a lost master: global's record of
+  // the move, the flip done by its tick.
+  'POST /api/org/:orgId/moves/promote',
 ])
 
 /**

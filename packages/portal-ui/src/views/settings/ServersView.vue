@@ -24,7 +24,13 @@
         class="mb-3"
         data-test="move-banner"
       >
-        <template v-if="move.kind === 'to_global'">
+        <template v-if="move.kind === 'promote'">
+          <!-- FR-20.81 (P3-6d): the mirror made the home. -->
+          <div v-if="LIVE.includes(move.state)">{{ $t('servers.promote.live', { state: $t(`servers.promote.state.${move.state}`) }) }}</div>
+          <div v-else-if="move.state === 'done'">{{ $t('servers.promote.done') }}</div>
+          <div v-else>{{ $t('servers.promote.state.aborted') }}<span v-if="move.error"> · {{ move.error }}</span></div>
+        </template>
+        <template v-else-if="move.kind === 'to_global'">
           <!-- FR-20.80 (P3-6c): back to lgrai.app. -->
           <div v-if="LIVE.includes(move.state)">
             {{ $t('servers.moveBack.live', { state: $t(`servers.moveBack.state.${move.state}`) }) }}
@@ -48,6 +54,27 @@
           <v-btn size="small" variant="text" color="error" :loading="moveBusy" data-test="abort-move" @click="abortMove">{{ $t('servers.move.abort') }}</v-btn>
         </template>
       </v-alert>
+      <!-- FR-20.81 (P3-6d): after a promotion, legal numbering waits for the site's last numbers. -->
+      <v-card v-if="lastNumbers?.frozen" variant="outlined" color="warning" class="mb-3" data-test="last-numbers">
+        <v-card-title class="text-subtitle-1 text-wrap">{{ $t('servers.lastNumbers.title') }}</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-3">{{ $t('servers.lastNumbers.intro') }}</p>
+          <v-row v-for="s in lastNumbers.series" :key="s.prefix + s.year" dense align="center">
+            <v-col cols="12" sm="6" class="text-body-2">
+              {{ seriesLabel(s) }}
+              <div class="text-caption text-medium-emphasis">{{ $t('servers.lastNumbers.here', { n: s.last }) }}</div>
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field v-model.number="siteNumbers[s.prefix + '|' + s.year]" type="number" :min="0" density="compact" hide-details :data-test="'last-' + s.prefix" />
+            </v-col>
+          </v-row>
+          <v-checkbox v-model="lastNumbersConfirmed" :label="$t('servers.lastNumbers.confirm')" density="compact" hide-details class="mt-2" data-test="last-numbers-confirm" />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn color="primary" :disabled="!lastNumbersConfirmed" :loading="lastNumbersBusy" data-test="last-numbers-save" @click="saveLastNumbers">{{ $t('servers.lastNumbers.save') }}</v-btn>
+        </v-card-actions>
+      </v-card>
       <!-- FR-20.69 (P3-3): while one of the org's servers is its home, its files on lgrai.app. -->
       <v-card v-if="mirror && mirror.home !== 'global'" variant="outlined" class="mb-3" data-test="mirror-files">
         <v-card-title class="text-subtitle-1">{{ $t('servers.files.title') }}</v-card-title>
@@ -176,6 +203,16 @@
             {{ $t('servers.moveBack.action') }}
           </v-btn>
           <v-btn
+            v-if="mirror?.home === item.id && !item.connected?.interactive && !item.connected?.bulk && !(move && LIVE.includes(move.state))"
+            size="small"
+            variant="text"
+            color="error"
+            data-test="promote"
+            @click="openPromote(item)"
+          >
+            {{ $t('servers.promote.action') }}
+          </v-btn>
+          <v-btn
             v-if="item.status === 'active'"
             size="small"
             variant="text"
@@ -223,6 +260,47 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="addOpen = false">{{ $t('common.close') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- ── Promote lgrai.app's copy (FR-20.81): evidence, not a confirmation ───────────────── -->
+    <v-dialog v-model="promoteOpen" max-width="620">
+      <v-card>
+        <v-card-title class="text-wrap">{{ $t('servers.promote.title', { org: appStore.currentOrg?.name ?? '' }) }}</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-3">{{ $t('servers.promote.intro') }}</p>
+          <div v-if="!promotePre" class="text-center py-4"><v-progress-circular indeterminate color="primary" /></div>
+          <template v-else>
+            <v-list density="compact" class="py-0" data-test="promote-checks">
+              <v-list-item v-for="c in promotePre.checks" :key="c.name">
+                <template #prepend>
+                  <v-icon :color="c.ok ? 'success' : 'error'" size="small">{{ c.ok ? 'mdi-check-circle' : 'mdi-close-circle' }}</v-icon>
+                </template>
+                <v-list-item-title class="text-body-2 text-wrap">{{ $t(`servers.promote.check.${c.name}`) }}</v-list-item-title>
+                <v-list-item-subtitle v-if="!c.ok && c.detail" class="text-wrap">{{ c.detail }}</v-list-item-subtitle>
+              </v-list-item>
+            </v-list>
+            <v-alert type="warning" variant="tonal" density="compact" class="my-3" data-test="promote-loss">
+              {{ promotePre.lossFrom ? $t('servers.promote.loss', { when: new Date(promotePre.lossFrom).toLocaleString() }) : $t('servers.promote.lossUnknown') }}
+              <div v-if="promotePre.files.referenced > promotePre.files.held" class="mt-1">{{ $t('servers.promote.files', { missing: promotePre.files.referenced - promotePre.files.held }) }}</div>
+            </v-alert>
+            <div class="text-subtitle-2">{{ $t('servers.promote.hardware') }}</div>
+            <v-radio-group v-model="promoteHardware" density="compact" hide-details>
+              <v-radio value="off" :label="$t('servers.promote.hardwareOff')" data-test="hardware-off" />
+              <v-radio value="destroyed" :label="$t('servers.promote.hardwareDestroyed')" data-test="hardware-destroyed" />
+            </v-radio-group>
+            <p v-if="promoteHardware === 'off' && !promotePre.silentLongEnough" class="text-caption text-error mt-1">
+              {{ $t('servers.promote.silence', { since: promotePre.silenceSince ? new Date(promotePre.silenceSince).toLocaleString() : '—' }) }}
+            </p>
+            <v-checkbox v-model="promoteTills" :label="$t('servers.promote.tills')" density="compact" hide-details data-test="tills-disconnected" />
+            <v-text-field v-model="promoteSlug" :label="$t('servers.promote.slug', { slug: appStore.currentOrg?.slug ?? '' })" density="compact" class="mt-2" data-test="promote-slug" />
+          </template>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="promoteOpen = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="error" :disabled="!canPromote" :loading="moveBusy" data-test="start-promote" @click="startPromote">{{ $t('servers.promote.start') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -425,6 +503,7 @@ async function setMirrorFiles(on: boolean) {
 async function load() {
   void loadMove()
   void loadMirror()
+  void loadLastNumbers()
   loading.value = true
   try {
     const { data } = await httpClient.get(base(), { params: { size: 100, ...(includeRevoked.value ? { includeRevoked: 'true' } : {}) } })
@@ -534,10 +613,96 @@ async function loadMove() {
     clearInterval(moveTimer)
     moveTimer = null
     if (move.value?.state === 'done') {
-      showSnackbar(move.value.kind === 'to_global' ? t('servers.moveBack.done') : t('servers.move.done', { name: nodeName(move.value.to) }), 'success', 6000)
-      // Where the org lives changed: the files card and the actions follow.
+      showSnackbar(move.value.kind === 'promote' ? t('servers.promote.done') : move.value.kind === 'to_global' ? t('servers.moveBack.done') : t('servers.move.done', { name: nodeName(move.value.to) }), 'success', 6000)
+      // Where the org lives changed: the files card, the actions and the numbering follow.
       void loadMirror()
+      void loadLastNumbers()
     }
+  }
+}
+
+// ── Promote lgrai.app's copy (FR-20.81) ────────────────────────────────────────────────────
+interface PromotePre {
+  ok: boolean
+  checks: Array<{ name: string; ok: boolean; detail?: string }>
+  lossFrom: string | null
+  silenceSince: string | null
+  silentLongEnough: boolean
+  files: { referenced: number; held: number }
+}
+const promoteOpen = ref(false)
+const promotePre = ref<PromotePre | null>(null)
+const promoteHardware = ref<'off' | 'destroyed' | null>(null)
+const promoteTills = ref(false)
+const promoteSlug = ref('')
+const canPromote = computed(() =>
+  !!promotePre.value?.ok && !!promoteHardware.value && promoteTills.value && promoteSlug.value === appStore.currentOrg?.slug
+  && (promoteHardware.value === 'destroyed' || promotePre.value.silentLongEnough))
+
+async function openPromote(item: ServerRow) {
+  moveTarget.value = item
+  promotePre.value = null
+  promoteHardware.value = null
+  promoteTills.value = false
+  promoteSlug.value = ''
+  promoteOpen.value = true
+  try {
+    promotePre.value = (await httpClient.post(`${moveBase()}/promote/preflight`, {})).data
+  } catch {
+    promoteOpen.value = false
+  }
+}
+
+async function startPromote() {
+  moveBusy.value = true
+  try {
+    const { data } = await httpClient.post(`${moveBase()}/promote`, { hardware: promoteHardware.value, tillsDisconnected: promoteTills.value, slug: promoteSlug.value })
+    move.value = data.move
+    promoteOpen.value = false
+    showSnackbar(t('servers.promote.started'), 'warning')
+    await loadMove()
+  } catch (e: any) {
+    if (e?.response?.data?.checks) promotePre.value = { ...(promotePre.value as PromotePre), checks: e.response.data.checks, ok: false }
+    else showSnackbar(e?.response?.data?.message ?? t('common.operationFailed'), 'error')
+  } finally {
+    moveBusy.value = false
+  }
+}
+
+// ── The site's last numbers, after a promotion (FR-20.81) ───────────────────────────────────
+interface SeriesRow { prefix: string; year: number; last: number }
+const lastNumbers = ref<{ frozen: boolean; series: SeriesRow[] } | null>(null)
+const siteNumbers = ref<Record<string, number>>({})
+const lastNumbersConfirmed = ref(false)
+const lastNumbersBusy = ref(false)
+const seriesLabel = (s: SeriesRow) => s.prefix.startsWith('UNP-')
+  ? t('servers.lastNumbers.series.UNP', { device: s.prefix.slice(4) })
+  : t(`servers.lastNumbers.series.${s.prefix}`, { year: s.year })
+
+async function loadLastNumbers() {
+  try {
+    const { data } = await httpClient.get(`${moveBase()}/last-numbers`)
+    lastNumbers.value = data
+    // Offered at lgrai.app's own: a person reads the site's off its last documents and corrects them.
+    siteNumbers.value = Object.fromEntries((data.series ?? []).map((s: SeriesRow) => [`${s.prefix}|${s.year}`, s.last]))
+  } catch {
+    lastNumbers.value = null
+  }
+}
+
+async function saveLastNumbers() {
+  if (!lastNumbers.value) return
+  lastNumbersBusy.value = true
+  try {
+    const series = lastNumbers.value.series.map(s => ({ prefix: s.prefix, year: s.year, last: Math.max(0, Math.floor(Number(siteNumbers.value[`${s.prefix}|${s.year}`] ?? s.last))) }))
+    await httpClient.post(`${moveBase()}/last-numbers`, { series })
+    showSnackbar(t('servers.lastNumbers.saved'), 'success')
+    lastNumbersConfirmed.value = false
+    await loadLastNumbers()
+  } catch (e: any) {
+    showSnackbar(e?.response?.data?.message ?? t('common.operationFailed'), 'error')
+  } finally {
+    lastNumbersBusy.value = false
   }
 }
 

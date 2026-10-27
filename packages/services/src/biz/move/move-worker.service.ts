@@ -59,6 +59,8 @@ interface MoveView {
   state: string
   epochFrom?: number
   epochTo: number
+  /** `promote`: the watermark global held when it took the org over; what this server captured above it waits for the export. */
+  fenceCutoff?: number
   startedBy?: string
   bundle?: { sha256: string; bytes: number }
   files?: { sha256: string; bytes: number }
@@ -351,6 +353,26 @@ async function moveBack(call: Call, m: MoveView, at: Phase | null, now: Date, fi
   return true
 }
 
+/**
+ * FR-20.8, FR-20.81 (P3-6d): lgrai.app promoted its mirror of an org while this server was away. The
+ * org's home is global now, one epoch up: this server FENCES itself for it. It writes nothing more of
+ * the org (the home gate and the write guard refuse a fenced home), never resumes on its own, and what
+ * it captured above `fenceCutoff` waits to be exported (FR-20.84).
+ */
+async function fenceHere(m: MoveView): Promise<boolean> {
+  if (m.state !== 'done') return false
+  const orgId = oid(m.orgId)
+  const r = await OrgHome.updateOne(
+    { orgId, home: thisNode(), epoch: { $lt: m.epochTo } },
+    { $set: { home: 'global', epoch: m.epochTo, state: 'fenced', fenceCutoff: m.fenceCutoff ?? 0, since: new Date() } },
+  )
+  forgetHome(orgId)
+  if (!r.modifiedCount) return false
+  await setPhase(m.id, 'fenced')
+  logger.error({ orgId: m.orgId, epoch: m.epochTo, fenceCutoff: m.fenceCutoff }, 'Promotion: lgrai.app took this organisation over while this server was away; it is FENCED here, and writes nothing more of it')
+  return true
+}
+
 /** The master's scheduler tick. One pass at a time; a failure is retried on the next. */
 export async function moveWorkerTick(now = new Date(), fetchImpl: Fetch = fetch, fiscalBusy: () => number = () => 0): Promise<number> {
   if (nodeRole() !== 'master' || running) return 0
@@ -365,6 +387,10 @@ export async function moveWorkerTick(now = new Date(), fetchImpl: Fetch = fetch,
     const moves: MoveView[] = ((await res.json()) as any)?.moves ?? []
     for (const m of moves) {
       const at = await phaseOf(m.id)
+      if (m.kind === 'promote') {
+        if (await fenceHere(m)) acted++
+        continue
+      }
       // ⚠ First: a move back is left from here, never imported or discarded.
       if (m.kind === 'to_global') {
         if (await moveBack(call, m, at, now, fiscalBusy).catch(e => {

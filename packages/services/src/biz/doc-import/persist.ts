@@ -17,6 +17,7 @@ import { RegisterRefusal, insertRegisterDocument, runSaleSteps } from '../cash-r
 import {
   getNextDraftInvoiceNumber,
   getNextInvoiceNumber,
+  issuableRefusal,
   resolveDocPrefix,
   sequenceKeyFor,
 } from '../invoice-numbering.service.js'
@@ -278,6 +279,12 @@ export async function convertDraftInvoice(
   if (opts?.adjustStock !== false) {
     const unresolved = unbookableStockLines(invoice)
     if (unresolved.length) return { ok: false, error: unbookableStockMessage(invoice, unresolved) }
+  }
+  // FR-20.81 (P3-6d): a document that needs a new legal number waits with its series; one that
+  // carries its own number allocates none.
+  if (!/^\d+$/.test(clean(invoice.reference))) {
+    const frozen = await issuableRefusal(orgId, invoice.direction, invoice.type)
+    if (frozen) return { ok: false, error: frozen.message }
   }
 
   const direction = invoice.direction as string

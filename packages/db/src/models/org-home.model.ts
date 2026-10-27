@@ -26,6 +26,18 @@ export interface IOrgHome extends Document {
   state: OrgHomeState
   since: Date
   changedBy?: string
+  /**
+   * FR-20.81 (P3-6d): the org's LEGAL series (sales documents, cash sales, УНП) are frozen here until a
+   * person records the last numbers its lost master issued: after a promotion, global must not issue
+   * a number the site may already have given another customer. Set by the promotion's flip, cleared
+   * only by `recordLastNumbers`.
+   */
+  seriesFrozen?: { since: Date; reason: string; moveId?: string }
+  /**
+   * FR-20.8 (P3-6d): on a master that is no longer the org's home, the watermark global held when it
+   * was replaced. Everything this master captured above it waits to be exported (FR-20.84).
+   */
+  fenceCutoff?: number
 }
 
 const orgHomeSchema = new Schema<IOrgHome>(
@@ -36,6 +48,8 @@ const orgHomeSchema = new Schema<IOrgHome>(
     state: { type: String, required: true, default: 'active', enum: ['active', 'freezing', 'frozen', 'fenced', 'hold'] },
     since: { type: Date, required: true, default: Date.now },
     changedBy: String,
+    seriesFrozen: { since: Date, reason: String, moveId: String },
+    fenceCutoff: Number,
   },
   { collection: 'org_homes' },
 )

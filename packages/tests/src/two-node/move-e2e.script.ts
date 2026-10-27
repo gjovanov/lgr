@@ -10,7 +10,12 @@
  * admin moves the org back to lgrai.app, the master freezes it and drains, global puts the file
  * where its row says and flips, and the master keeps a read-only copy.
  *
- *   bun packages/tests/src/two-node/move-e2e.script.ts
+ * Or, with `--promote` (FR-20.81, plan step P3-6d): the shop makes a document with a file, and the
+ * server is LOST (the supervisor stops). The admin promotes lgrai.app's copy on evidence; global puts
+ * the file where its row says and flips with the legal series frozen; numbering resumes above the
+ * site's last numbers once recorded. Then the server comes back, learns of it, and fences itself.
+ *
+ *   bun packages/tests/src/two-node/move-e2e.script.ts [--promote]
  *
  * Needs: `cargo build` (packages/server), `bun run build` + `bun run build:server` (dist/lgr-server).
  * About three minutes. Passwords and keys are read, never printed. Exit 0 when every check passed.
@@ -42,6 +47,7 @@ const DATA = process.env.MOVE_E2E_DATA ?? join(process.env.TEMP ?? '/tmp', 'lgrm
 const SCRATCH = join(process.env.TEMP ?? '/tmp', `lgr-move-e2e-${randomBytes(3).toString('hex')}`)
 const MONGOD_PORT = 27237
 const LOCAL_PASSWORD = randomBytes(12).toString('base64url')
+const PROMOTE = process.argv.includes('--promote')
 
 let failed = 0
 const check = (label: string, ok: boolean, detail = '') => {
@@ -244,42 +250,108 @@ try {
   const audit = await mdb.collection('auditlogs').findOne({ orgId, entityType: 'org_move', entityName: 'from lgrai.app' })
   check('the master recorded the arrival in the org\'s own trail', !!audit)
 
-  // ── FR-20.80 (P3-6c): back to lgrai.app ─────────────────────────────────────────────────────────
-  // A document the shop makes on the master, with its file: global gets the file by content.
-  const made = randomBytes(40_000)
-  const madeRel = `${String(orgId)}/docs/2026-10-27/made-at-the-shop.pdf`
-  mkdirSync(join(DATA, 'uploads', String(orgId), 'docs', '2026-10-27'), { recursive: true })
-  writeFileSync(join(DATA, 'uploads', ...madeRel.split('/')), made)
-  const madeSha = createHash('sha256').update(made).digest('hex')
-  await mdb.collection('docfiles').insertOne({ _id: new mongoose.Types.ObjectId(), orgId, docType: 'invoice', docNumber: 'made-at-the-shop', docDate: '2026-10-27', originalName: 'made-at-the-shop.pdf', currentPath: madeRel, currentChecksum: madeSha, version: 1, mimeType: 'application/pdf', size: made.length, status: 'uploaded', uploadedAt: new Date() })
-  const backReady = await until(async () => {
-    const r = await asAdmin('POST', `/org/${orgId}/moves/preflight`, { to: 'global' })
-    return r.status === 200 && r.body.ok ? r.body : false
-  }, 120_000, 2000)
-  check('the move back passes its preflight', !!backReady, backReady ? '' : JSON.stringify((await asAdmin('POST', `/org/${orgId}/moves/preflight`, { to: 'global' })).body?.checks?.filter((c: any) => !c.ok)))
-  const back = await asAdmin('POST', `/org/${orgId}/moves/`, { to: 'global' })
-  check('the admin starts the move back', back.status === 200 && back.body?.move?.kind === 'to_global' && back.body?.move?.state === 'freezing', JSON.stringify(back.body))
-  const mFrozen = await until(async () => ((await mdb.collection('org_homes').findOne({ orgId })) as any)?.state === 'freezing', 60_000)
-  check('…the master freezes the org', !!mFrozen)
-  const backDone = await until(async () => {
-    const r = await asAdmin('GET', `/org/${orgId}/moves/current`)
-    return r.body?.move && ['done', 'aborted'].includes(r.body.move.state) ? r.body.move : false
-  }, 300_000, 2000)
-  check('the move back ends done: drained, verified, the files put back, flipped', !!backDone && backDone.state === 'done', JSON.stringify(backDone ? { state: backDone.state, error: backDone.error, steps: backDone.steps?.map((x: any) => x.name), placed: backDone.placed } : 'no end'))
-  const gBack: any = await gdb.collection('org_homes').findOne({ orgId })
-  check('global is the org\'s home again, one epoch up', gBack?.home === 'global' && gBack?.epoch === 2 && gBack?.state === 'active', JSON.stringify(gBack && { home: gBack.home, epoch: gBack.epoch, state: gBack.state }))
-  const mBack = await until(async () => {
-    const h: any = await mdb.collection('org_homes').findOne({ orgId })
-    return h?.home === 'global' ? h : false
-  }, 60_000)
-  check('the master leaves it, at that epoch, keeping a read-only copy', !!mBack && (mBack as any).epoch === 2 && (mBack as any).state === 'active' && (await mdb.collection('contacts').countDocuments({ orgId })) > 0)
-  const placedFile = join(GLOBAL_UPLOADS, ...madeRel.split('/'))
-  check('the file the shop made is on global where its row says', existsSync(placedFile) && createHash('sha256').update(readFileSync(placedFile)).digest('hex') === madeSha)
-  const writeBack = await asAdmin('POST', `/org/${orgId}/invoicing/contact`, { type: 'customer', companyName: 'Written on lgrai.app again' })
-  check('global writes the org again', writeBack.status === 200, `${writeBack.status} ${writeBack.body?.code ?? ''}`)
-  check('…and keeps no mirror state or content store for it', (await gdb.collection('mirror_state').countDocuments({ orgId })) === 0 && (await gdb.collection('mirror_blobs').countDocuments({ orgId })) === 0)
-  const leftAudit = await until(() => gdb.collection('auditlogs').findOne({ orgId, entityType: 'org_move', entityName: 'to lgrai.app' }), 10_000)
-  check('the org\'s trail, written on the master before the freeze, came back with it', !!leftAudit)
+  if (PROMOTE) {
+    // ── FR-20.81 (P3-6d): the server is lost, and lgrai.app's copy is promoted ─────────────────────
+    // A document the shop makes, its file on lgrai.app by content before the server goes.
+    const made = randomBytes(40_000)
+    const madeRel = `${String(orgId)}/docs/2026-10-27/made-before-the-loss.pdf`
+    mkdirSync(join(DATA, 'uploads', String(orgId), 'docs', '2026-10-27'), { recursive: true })
+    writeFileSync(join(DATA, 'uploads', ...madeRel.split('/')), made)
+    const madeSha = createHash('sha256').update(made).digest('hex')
+    await mdb.collection('docfiles').insertOne({ _id: new mongoose.Types.ObjectId(), orgId, docType: 'invoice', docNumber: 'made-before-the-loss', docDate: '2026-10-27', originalName: 'made-before-the-loss.pdf', currentPath: madeRel, currentChecksum: madeSha, version: 1, mimeType: 'application/pdf', size: made.length, status: 'uploaded', uploadedAt: new Date() })
+    const held = await until(() => gdb.collection('mirror_blobs').findOne({ orgId, sha256: madeSha, state: 'ok' }), 180_000, 2000)
+    check('the shop\'s new file reaches lgrai.app by content', !!held)
+    const watermark = await mirrorAt()
+    // The server is lost: its supervisor stops, and both sockets close.
+    await cli('stop')
+    await Promise.race([sup!.exited, Bun.sleep(30_000)])
+    sup!.kill()
+    await master!.close().catch(() => {})
+    const gone = await until(async () => {
+      const r = await asAdmin('POST', `/org/${orgId}/moves/promote/preflight`, {})
+      return r.status === 200 && r.body?.ok ? r.body : false
+    }, 120_000, 2000)
+    check('with the server gone, the promotion passes its preflight', !!gone, gone ? '' : JSON.stringify((await asAdmin('POST', `/org/${orgId}/moves/promote/preflight`, {})).body?.checks?.filter((c: any) => !c.ok)))
+    const off = await asAdmin('POST', `/org/${orgId}/moves/promote`, { hardware: 'off', tillsDisconnected: true, slug: 'move-e2e' })
+    check('"switched off" a minute ago is refused: 24 h of silence first', off.status === 409 && off.body?.code === 'not_silent_long_enough', `${off.status} ${off.body?.code}`)
+    const promoted = await asAdmin('POST', `/org/${orgId}/moves/promote`, { hardware: 'destroyed', tillsDisconnected: true, slug: 'move-e2e' })
+    check('attested destroyed, the promotion starts', promoted.status === 200 && promoted.body?.move?.kind === 'promote' && promoted.body?.move?.state === 'verifying', JSON.stringify(promoted.body))
+    const pDone = await until(async () => {
+      const r = await asAdmin('GET', `/org/${orgId}/moves/current`)
+      return r.body?.move?.kind === 'promote' && ['done', 'aborted'].includes(r.body.move.state) ? r.body.move : false
+    }, 120_000, 2000)
+    check('the promotion ends done: the files put back, flipped', !!pDone && pDone.state === 'done' && pDone.placed?.missing === 0, JSON.stringify(pDone ? { state: pDone.state, error: pDone.error, placed: pDone.placed } : 'no end'))
+    const gProm: any = await gdb.collection('org_homes').findOne({ orgId })
+    check('global is the home, one epoch up, its legal series frozen', gProm?.home === 'global' && gProm?.epoch === 2 && gProm?.state === 'active' && !!gProm?.seriesFrozen?.since, JSON.stringify(gProm && { home: gProm.home, epoch: gProm.epoch, state: gProm.state, seriesFrozen: gProm.seriesFrozen }))
+    const cutoff = ((await gdb.collection('org_moves').findOne({ orgId, kind: 'promote' })) as any)?.fenceCutoff
+    check('…its fence cutoff the watermark the mirror held', cutoff === watermark, `${cutoff} vs ${watermark}`)
+    const placedFile = join(GLOBAL_UPLOADS, ...madeRel.split('/'))
+    check('the file the shop made is on global where its row says', existsSync(placedFile) && createHash('sha256').update(readFileSync(placedFile)).digest('hex') === madeSha)
+    const customer = await asAdmin('POST', `/org/${orgId}/invoicing/contact`, { type: 'customer', companyName: 'Written after the promotion' })
+    check('global writes the org again', customer.status === 200, `${customer.status} ${customer.body?.code ?? ''}`)
+    const line = { description: 'Service', quantity: 1, unitPrice: 10, taxRate: 20 }
+    const draft = await asAdmin('POST', `/org/${orgId}/invoices`, { type: 'invoice', direction: 'outgoing', contactId: customer.body?.contact?.id, issueDate: '2026-10-27', currency: 'EUR', lines: [line], subtotal: 10, taxTotal: 2, total: 12, paymentMethod: 'bank_transfer' })
+    const refused = await asAdmin('POST', `/org/${orgId}/invoices/${draft.body?.invoice?.id}/send`, {})
+    check('…but issues no legal number: it waits for the site\'s last numbers', draft.status === 200 && refused.status === 409 && refused.body?.code === 'series_frozen', `${draft.status} ${refused.status} ${refused.body?.code}`)
+    const series = (await asAdmin('GET', `/org/${orgId}/moves/last-numbers`)).body?.series ?? []
+    const recorded = await asAdmin('POST', `/org/${orgId}/moves/last-numbers`, { series: series.map((x: any) => ({ ...x, last: x.prefix === 'SALES_DOC' ? 500 : x.last })) })
+    const issued = await asAdmin('POST', `/org/${orgId}/invoices/${draft.body?.invoice?.id}/send`, {})
+    check('the site\'s last numbers recorded, numbering resumes above them', recorded.status === 200 && issued.status === 200 && /-00501$/.test(issued.body?.invoice?.invoiceNumber ?? ''), `${recorded.status} ${issued.status} ${issued.body?.invoice?.invoiceNumber}`)
+
+    // The server comes back: it learns of the promotion from its moves, and fences itself.
+    sup = Bun.spawn([EXE, 'run'], { env: supEnv, stdout: 'ignore', stderr: 'pipe' })
+    void (async () => { for await (const c of sup!.stderr as ReadableStream<Uint8Array>) supLog = (supLog + new TextDecoder().decode(c)).slice(-60_000) })()
+    const again = await until(async () => ((await supStatus())?.children ?? []).some((c: any) => c.name === 'api' && c.state === 'running'), 180_000)
+    check('the server comes back', !!again)
+    master = await mongoose.mongo.MongoClient.connect(`mongodb://lgr-admin:${encodeURIComponent(secrets.MONGO_ADMIN_PASSWORD)}@127.0.0.1:${MONGOD_PORT}/?directConnection=true&authSource=admin`)
+    const back = master.db('lgr')
+    const fenced: any = await until(async () => {
+      const h: any = await back.collection('org_homes').findOne({ orgId })
+      return h?.state === 'fenced' ? h : false
+    }, 120_000, 2000)
+    check('…and fences itself: lgrai.app the home at epoch 2, at the cutoff', !!fenced && fenced.home === 'global' && fenced.epoch === 2 && fenced.fenceCutoff === cutoff, JSON.stringify(fenced && { home: fenced.home, epoch: fenced.epoch, state: fenced.state, fenceCutoff: fenced.fenceCutoff }))
+    await Bun.sleep(15_000)
+    check('its pump sends nothing more of the org: lgrai.app keeps no mirror of it', (await gdb.collection('mirror_state').countDocuments({ orgId })) === 0)
+  }
+
+  if (!PROMOTE) {
+    // ── FR-20.80 (P3-6c): back to lgrai.app ─────────────────────────────────────────────────────────
+    // A document the shop makes on the master, with its file: global gets the file by content.
+    const made = randomBytes(40_000)
+    const madeRel = `${String(orgId)}/docs/2026-10-27/made-at-the-shop.pdf`
+    mkdirSync(join(DATA, 'uploads', String(orgId), 'docs', '2026-10-27'), { recursive: true })
+    writeFileSync(join(DATA, 'uploads', ...madeRel.split('/')), made)
+    const madeSha = createHash('sha256').update(made).digest('hex')
+    await mdb.collection('docfiles').insertOne({ _id: new mongoose.Types.ObjectId(), orgId, docType: 'invoice', docNumber: 'made-at-the-shop', docDate: '2026-10-27', originalName: 'made-at-the-shop.pdf', currentPath: madeRel, currentChecksum: madeSha, version: 1, mimeType: 'application/pdf', size: made.length, status: 'uploaded', uploadedAt: new Date() })
+    const backReady = await until(async () => {
+      const r = await asAdmin('POST', `/org/${orgId}/moves/preflight`, { to: 'global' })
+      return r.status === 200 && r.body.ok ? r.body : false
+    }, 120_000, 2000)
+    check('the move back passes its preflight', !!backReady, backReady ? '' : JSON.stringify((await asAdmin('POST', `/org/${orgId}/moves/preflight`, { to: 'global' })).body?.checks?.filter((c: any) => !c.ok)))
+    const back = await asAdmin('POST', `/org/${orgId}/moves/`, { to: 'global' })
+    check('the admin starts the move back', back.status === 200 && back.body?.move?.kind === 'to_global' && back.body?.move?.state === 'freezing', JSON.stringify(back.body))
+    const mFrozen = await until(async () => ((await mdb.collection('org_homes').findOne({ orgId })) as any)?.state === 'freezing', 60_000)
+    check('…the master freezes the org', !!mFrozen)
+    const backDone = await until(async () => {
+      const r = await asAdmin('GET', `/org/${orgId}/moves/current`)
+      return r.body?.move && ['done', 'aborted'].includes(r.body.move.state) ? r.body.move : false
+    }, 300_000, 2000)
+    check('the move back ends done: drained, verified, the files put back, flipped', !!backDone && backDone.state === 'done', JSON.stringify(backDone ? { state: backDone.state, error: backDone.error, steps: backDone.steps?.map((x: any) => x.name), placed: backDone.placed } : 'no end'))
+    const gBack: any = await gdb.collection('org_homes').findOne({ orgId })
+    check('global is the org\'s home again, one epoch up', gBack?.home === 'global' && gBack?.epoch === 2 && gBack?.state === 'active', JSON.stringify(gBack && { home: gBack.home, epoch: gBack.epoch, state: gBack.state }))
+    const mBack = await until(async () => {
+      const h: any = await mdb.collection('org_homes').findOne({ orgId })
+      return h?.home === 'global' ? h : false
+    }, 60_000)
+    check('the master leaves it, at that epoch, keeping a read-only copy', !!mBack && (mBack as any).epoch === 2 && (mBack as any).state === 'active' && (await mdb.collection('contacts').countDocuments({ orgId })) > 0)
+    const placedFile = join(GLOBAL_UPLOADS, ...madeRel.split('/'))
+    check('the file the shop made is on global where its row says', existsSync(placedFile) && createHash('sha256').update(readFileSync(placedFile)).digest('hex') === madeSha)
+    const writeBack = await asAdmin('POST', `/org/${orgId}/invoicing/contact`, { type: 'customer', companyName: 'Written on lgrai.app again' })
+    check('global writes the org again', writeBack.status === 200, `${writeBack.status} ${writeBack.body?.code ?? ''}`)
+    check('…and keeps no mirror state or content store for it', (await gdb.collection('mirror_state').countDocuments({ orgId })) === 0 && (await gdb.collection('mirror_blobs').countDocuments({ orgId })) === 0)
+    const leftAudit = await until(() => gdb.collection('auditlogs').findOne({ orgId, entityType: 'org_move', entityName: 'to lgrai.app' }), 10_000)
+    check('the org\'s trail, written on the master before the freeze, came back with it', !!leftAudit)
+  }
 } catch (e) {
   failed++
   console.log(`FAIL  ${e instanceof Error ? e.message : String(e)}`)

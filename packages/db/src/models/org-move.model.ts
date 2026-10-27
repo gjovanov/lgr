@@ -62,6 +62,14 @@ export interface IOrgMove {
   verifiedAt?: Date
   /** `to_global`: when a process took the files' placement; one that never finished is taken again. */
   placingAt?: Date
+  /**
+   * `promote` (FR-20.81): what the admin attested, and what global saw: the master off or destroyed,
+   * its tills disconnected, silent since `silenceSince`. The mirror holds the org up to `lossFrom`;
+   * `fenceCutoff` is its watermark, which the master fences at if it ever comes back.
+   */
+  evidence?: { hardware: 'off' | 'destroyed'; tillsDisconnected: boolean; silenceSince?: Date; attestedAt: Date }
+  lossFrom?: Date
+  fenceCutoff?: number
   placed?: { placed: number; present: number; missing: number }
   steps: IOrgMoveStep[]
   error?: string
@@ -95,6 +103,9 @@ const orgMoveSchema = new Schema<IOrgMove>(
     waiting: { on: String, since: Date, detail: String },
     verifiedAt: Date,
     placingAt: Date,
+    evidence: { hardware: { type: String, enum: ['off', 'destroyed'] }, tillsDisconnected: Boolean, silenceSince: Date, attestedAt: Date },
+    lossFrom: Date,
+    fenceCutoff: Number,
     placed: { placed: Number, present: Number, missing: Number },
     steps: { type: [stepSchema], default: [] },
     error: { type: String, maxlength: 2000 },
