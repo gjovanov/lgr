@@ -1,3 +1,4 @@
+import { Invoice } from 'db/models'
 import { getRepos } from '../context.js'
 import { confirmMovement } from './warehouse.service.js'
 import { loadReservationBudgets } from './invoicing.service.js'
@@ -233,8 +234,14 @@ export class PendingTransferError extends Error {
  * ⚠ The ids come from the client. One that does not qualify refuses the whole list, and the
  * answer never says whether it exists elsewhere: another org's movement, or a receipt, is never
  * confirmed through a sale. Returns the ids de-duplicated, in order.
+ *
+ * #280: a COMPLETED transfer is accepted only while no other document names it. That is the retry
+ * of a sale that confirmed it and then rolled back (the sale is gone, the goods have moved, and the
+ * retry sells from them). A transfer a document went through with is that document's: another sale
+ * naming it would claim goods it never brought. `forDocumentId` is the document asking, which may
+ * already name it (an issue resumed after a crash).
  */
-export async function checkPendingTransfers(orgId: string, transferIds: unknown): Promise<string[]> {
+export async function checkPendingTransfers(orgId: string, transferIds: unknown, opts: { forDocumentId?: string } = {}): Promise<string[]> {
   if (!Array.isArray(transferIds) || transferIds.some(id => typeof id !== 'string' || !/^[a-f0-9]{24}$/i.test(id))) {
     throw new PendingTransferError('pendingTransferIds must be a list of stock movement ids')
   }
@@ -244,6 +251,18 @@ export async function checkPendingTransfers(orgId: string, transferIds: unknown)
   const usable = new Set(found.filter(m => m.status === 'draft' || m.status === 'completed').map(m => String(m.id)))
   const refused = ids.filter(id => !usable.has(id))
   if (refused.length) throw new PendingTransferError(`Not a pending transfer of this organization: ${refused.join(', ')}`)
+
+  const completed = found.filter(m => m.status === 'completed').map(m => String(m.id))
+  if (completed.length) {
+    const claimed: any[] = await Invoice.find({
+      orgId, pendingTransferIds: { $in: completed },
+      ...(opts.forDocumentId ? { _id: { $ne: opts.forDocumentId } } : {}),
+    }, { invoiceNumber: 1, pendingTransferIds: 1 }).lean().exec()
+    if (claimed.length) {
+      const taken = completed.filter(id => claimed.some(d => (d.pendingTransferIds || []).some((t: any) => String(t) === id)))
+      throw new PendingTransferError(`These transfers were already made for another document (${claimed.map(d => d.invoiceNumber).join(', ')}): ${taken.join(', ')}`)
+    }
+  }
   return ids
 }
 
@@ -251,8 +270,8 @@ export async function checkPendingTransfers(orgId: string, transferIds: unknown)
  * Confirm the transfers a document depends on, before it dispatches: a sale's create, an
  * invoice's issue. Checked as `checkPendingTransfers` checks them; a completed one is left alone.
  */
-export async function confirmTransferMovements(orgId: string, transferIds: string[]): Promise<void> {
-  const ids = await checkPendingTransfers(orgId, transferIds)
+export async function confirmTransferMovements(orgId: string, transferIds: string[], opts: { forDocumentId?: string } = {}): Promise<void> {
+  const ids = await checkPendingTransfers(orgId, transferIds, opts)
   const r = getRepos()
   for (const id of ids) {
     const movement = await r.stockMovements.findOne({ id, orgId, type: 'transfer' } as any)

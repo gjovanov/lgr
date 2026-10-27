@@ -193,6 +193,60 @@ describe('FR-21.24 — a cash sale confirms the transfers it asked for', () => {
   }, 60_000)
 })
 
+describe('#280 — a sale that rolled back after confirming its transfers', () => {
+  /** A sale of 10 (7 brought over by the transfer) plus one unit of an article the till does not hold. */
+  async function rolledBack(key?: string) {
+    const w = await world()
+    const other = await createTestProduct(w.org._id, { sellingPrice: 5, taxRate: 0 } as any)
+    await createTestStockLevel(w.org._id, other._id, w.till._id, { quantity: 0, availableQuantity: 0, avgCost: 2 } as any)
+    const transferIds = await w.transfersFor(10)
+    const body = w.cashSale(10, {
+      pendingTransferIds: transferIds,
+      lines: [w.line(10), { productId: String(other._id), warehouseId: String(w.till._id), description: 'Шайба', quantity: 1, unitPrice: 5, taxRate: 0 }],
+      subtotal: 105, total: 105,
+    })
+    const first = await w.call('POST', '/invoices', body, key)
+    // The transfer was confirmed, then the dispatch was refused for the other article: the sale is gone.
+    expect(first.status).toBe(400)
+    expect(await Invoice.countDocuments({ orgId: w.orgId }).exec()).toBe(0)
+    expect((await w.movement(transferIds[0])).status).toBe('completed')
+    expect(await w.level(w.till._id)).toBe(10)
+    // The missing article arrives.
+    await StockLevel.updateOne({ orgId: w.orgId, productId: other._id, warehouseId: w.till._id }, { $set: { quantity: 5, availableQuantity: 5 } }).exec()
+    return { w, body, transferIds }
+  }
+
+  for (const key of [undefined, 'cs-280-retry']) {
+    it(`its retry${key ? ' with the same key' : ''} counts the transfer as done and sells: nothing moves twice`, async () => {
+      const { w, body, transferIds } = await rolledBack(key)
+
+      const retry = await w.call('POST', '/invoices', body, key)
+
+      expect(retry.status).toBe(200)
+      const sale: any = await Invoice.findById(retry.json.invoice.id).lean().exec()
+      expect(sale.pendingTransferIds.map(String)).toEqual(transferIds)
+      // 3 + 7 brought over once − 10 sold; the depot gave its 7 once.
+      expect(await w.level(w.till._id)).toBe(0)
+      expect(await w.level(w.depot._id)).toBe(13)
+      expect(await StockMovement.countDocuments({ orgId: w.orgId, type: 'transfer' }).exec()).toBe(1)
+    }, 60_000)
+  }
+
+  it('a transfer a sale went through with is not another sale\'s to claim', async () => {
+    const w = await world()
+    const transferIds = await w.transfersFor(10)
+    const sold = await w.call('POST', '/invoices', w.cashSale(10, { pendingTransferIds: transferIds }))
+    expect(sold.status).toBe(200)
+    await StockLevel.updateOne({ orgId: w.orgId, productId: w.product._id, warehouseId: w.till._id }, { $set: { quantity: 5, availableQuantity: 5 } }).exec()
+
+    const other = await w.call('POST', '/invoices', w.cashSale(2, { pendingTransferIds: transferIds }))
+
+    expect(other.status).toBe(422)
+    expect(other.json.code).toBe('pending_transfer_invalid')
+    expect(await Invoice.countDocuments({ orgId: w.orgId }).exec()).toBe(1)
+  }, 60_000)
+})
+
 describe("FR-21.24 — issuing a draft confirms only this org's transfers", () => {
   const invoiceBody = (w: Awaited<ReturnType<typeof world>>, quantity: number) => ({
     type: 'invoice', direction: 'outgoing', contactId: String(w.contact._id), issueDate: '2026-10-26', currency: 'EUR',

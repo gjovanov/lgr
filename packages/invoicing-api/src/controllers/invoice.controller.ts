@@ -84,7 +84,7 @@ async function cashSaleContext(c: CreateCtx): Promise<RegisterContext> {
     beforeStock: async (doc: any) => {
       if (!c.pendingTransferIds?.length || doc.pendingTransferIds?.length) return
       try {
-        await confirmTransferMovements(c.orgId, c.pendingTransferIds)
+        await confirmTransferMovements(c.orgId, c.pendingTransferIds, { forDocumentId: String(doc._id) })
       } catch (e: any) {
         if (e instanceof PendingTransferError) throw e
         throw new Error(`Transfer confirmation failed: ${e.message}`)
@@ -1258,7 +1258,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const pendingTransferIds = (body as any)?.pendingTransferIds as string[] | undefined
     if (pendingTransferIds?.length && !(invoice as any).pendingTransferIds?.length) {
       try {
-        await confirmTransferMovements(orgId, pendingTransferIds)
+        await confirmTransferMovements(orgId, pendingTransferIds, { forDocumentId: String(id) })
       } catch (e: any) {
         await release()
         if (e instanceof PendingTransferError) return status(e.statusCode, { code: e.code, message: e.message })
