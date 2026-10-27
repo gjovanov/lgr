@@ -14,6 +14,7 @@ import { logger } from 'services/logger'
 import { isTunFrame } from 'services/biz/tunnel/tunnel-frame'
 import { setTunnelSocketLookup } from '../tunnel/sockets.js'
 import { onTunnelControl, onTunnelData, onTunnelSocketClosed } from '../tunnel/streams.js'
+import { podAddr } from '../tunnel/pod.js'
 
 /**
  * The uplink, global's side (FR-20.52, plan step P2-2a): a registered master's two sockets,
@@ -414,10 +415,12 @@ async function hello(ws: any, conn: Conn, msg: any): Promise<void> {
 async function claimPresence(conn: Conn): Promise<'claimed' | 'replaced' | 'clone'> {
   const now = new Date()
   const stale = new Date(now.getTime() - DEAD_AFTER_MS)
-  const ours = { connId: conn.connId, bootNonce: conn.bootNonce!, podId: POD, connectedAt: now, heartbeatAt: now }
+  // FR-20.73 (P3-4d): where the other pods forward a request to this server's address.
+  const addr = podAddr()
+  const ours = { connId: conn.connId, bootNonce: conn.bootNonce!, podId: POD, connectedAt: now, heartbeatAt: now, ...(addr ? { podAddr: addr } : {}) }
   const before = await NodePresence.findOneAndUpdate(
     { nodeId: conn.nodeId, channel: conn.ch, $or: [{ heartbeatAt: { $lt: stale } }, { bootNonce: conn.bootNonce }] },
-    { $set: ours, $unset: { clone: 1 } },
+    { $set: ours, $unset: { clone: 1, ...(addr ? {} : { podAddr: 1 }) } },
     { new: false },
   ).lean()
   if (before) {

@@ -23,6 +23,11 @@ export interface INodePresence extends Document {
   bootNonce: string
   /** Which global process holds the socket (its hostname), for the status page. */
   podId: string
+  /**
+   * Where the other pods reach that process (`http://<pod IP>:<port>`): a request to an org's address
+   * that lands elsewhere is forwarded there (FR-20.73, P3-4d). Absent: reached only on its own pod.
+   */
+  podAddr?: string
   connectedAt: Date
   heartbeatAt: Date
   /** Set when a second live connection with another boot nonce tried to take this one's place. */
@@ -37,6 +42,7 @@ const presenceSchema = new Schema<INodePresence>(
     connId: { type: String, required: true },
     bootNonce: { type: String, required: true },
     podId: { type: String, required: true },
+    podAddr: { type: String },
     connectedAt: { type: Date, required: true },
     heartbeatAt: { type: Date, required: true },
     clone: { bootNonce: String, at: Date },
