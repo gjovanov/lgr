@@ -559,6 +559,15 @@ offline (Q2). Only the master writes the org, and the copy follows it one way:
 - **Not yet:** dead letters (P3-2c), the reconcile after a new journal epoch, and the re-seed of a
   restored master (P3-7).
 
+## Read-only where the org is not written (FR-20.75)
+
+Every page of every app carries a banner while the org is not written where it is open:
+- **On lgrai.app, for an org that lives on its server:** the banner names the server and says how
+  current the copy is. It turns into a warning, saying since when, while the server is offline.
+  Reads, reports and exports work; a write is refused, and says why in the reader's language.
+- **On a server, for an org that went back to lgrai.app:** the copy the server keeps is read-only.
+- **Anywhere, while a move is under way:** nothing can be written until it ends.
+
 ## Moving an org back to lgrai.app (FR-20.80)
 
 An org admin moves the org back from its server on the Servers page ("Move back to lgrai.app"). No

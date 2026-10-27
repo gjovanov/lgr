@@ -3473,5 +3473,13 @@
   "mirror": {
     "file_not_mirrored": "This file has not reached lgrai.app from the organization's server yet. It opens there now, and here once it arrives.",
     "files_not_mirrored": "This organization keeps its files on its server only: the file opens there."
+  },
+  "home": {
+    "writtenOnServer": "This organization is written on its server {name}: here you see a read-only copy, as of {asOf}.",
+    "serverOffline": "The organization's server {name} is offline since {since}: this is a read-only copy, as of {asOf}.",
+    "livesOnCloud": "This organization lives on lgrai.app now: this server keeps a read-only copy.",
+    "moving": "This organization is moving: nothing can be written until the move ends.",
+    "writeRefused": "Read-only here: this organization is written on its server.",
+    "unknown": "an unknown time"
   }
 }

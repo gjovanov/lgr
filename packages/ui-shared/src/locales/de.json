@@ -3473,5 +3473,13 @@
   "mirror": {
     "file_not_mirrored": "Diese Datei ist vom Server der Organisation noch nicht auf lgrai.app angekommen. Sie öffnet sich jetzt dort und hier, sobald sie ankommt.",
     "files_not_mirrored": "Diese Organisation behält ihre Dateien nur auf ihrem Server: Die Datei öffnet sich dort."
+  },
+  "home": {
+    "writtenOnServer": "Diese Organisation wird auf ihrem Server {name} geschrieben: Hier sehen Sie eine schreibgeschützte Kopie, Stand {asOf}.",
+    "serverOffline": "Der Server {name} der Organisation ist seit {since} offline: Dies ist eine schreibgeschützte Kopie, Stand {asOf}.",
+    "livesOnCloud": "Diese Organisation lebt jetzt auf lgrai.app: Dieser Server behält eine schreibgeschützte Kopie.",
+    "moving": "Diese Organisation zieht um: Bis der Umzug endet, kann nichts geschrieben werden.",
+    "writeRefused": "Hier nur lesbar: Diese Organisation wird auf ihrem Server geschrieben.",
+    "unknown": "unbekannt"
   }
 }

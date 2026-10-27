@@ -2620,6 +2620,30 @@ mirror holds ALL of it. Global: `services/biz/move/move-back.service.ts`; the ma
   - `two-node/move-e2e.script.ts`: the forward move, then BACK with a real `lgr-server` (a file the
     shop made comes home by content and lands at its stored path; global writes the org again).
 
+## Read-only where the org is not written (2026-10-27, FR-20.75, plan step P3-5, first half)
+
+Above every page of every app, `ui-shell/HomeBanner.vue` says when the org is not written here. It
+reads `GET /api/org/:orgId/home` (`services/biz/home/home-status.service.ts`, `home.controller.ts`):
+any member of the org may, nothing in it is secret, and it is in the PIN scope too.
+- **On lgrai.app, an org homed on one of its servers** (`home: 'master'`) is a read-only copy:
+  - the server's name, and whether it holds both sockets now;
+  - while it does not, since when (`lastSeenAt`);
+  - as of when the copy holds (`mirror_state.lastPageAt`).
+  - Online it is an info banner; offline, a warning.
+- **On a master, an org that went back to lgrai.app** (`home: 'global'`): the read-only copy it keeps.
+- **A move under way** (`moving`: the home record not `active`, or a live `org_moves` row): nothing can
+  be written until it ends.
+- An org written here: nothing shows (`home: 'here'`).
+- Polled every two minutes, so a server going offline, or coming back, shows without a reload.
+- **A refused write says why, in the reader's language.**
+  - `setRefusalTranslator` (`ui-shared/useHttpClient`): the shell registers its words for a 409 the
+    server names by code, and the interceptor rewrites `data.message`, which is what every view already
+    shows. The client itself has no i18n.
+  - `org_home_elsewhere` → `home.writeRefused`. Strings: `home.*`, ×4.
+- Not yet (P3-4, the tunnel): the org's own address, which shows only a static notice while its server
+  is offline and never a sign-in.
+- Tests: `home-status.flow` (4).
+
 ## The mirror's files (2026-10-27, FR-20.66, FR-20.69, plan step P3-3)
 
 An org homed on a master sends its files to lgrai.app's mirror behind its documents, on the bulk
