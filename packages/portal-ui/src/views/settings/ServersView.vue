@@ -30,6 +30,18 @@
           <div v-else-if="move.state === 'done'">{{ $t('servers.promote.done') }}</div>
           <div v-else>{{ $t('servers.promote.state.aborted') }}<span v-if="move.error"> · {{ move.error }}</span></div>
         </template>
+        <template v-else-if="move.kind === 'reseed'">
+          <!-- FR-20.71 (P3-7): the server's copy replaced by lgrai.app's; what it held is kept there. -->
+          <div v-if="LIVE.includes(move.state)">{{ $t('servers.reseed.live', { name: nodeName(move.to), state: $t(`servers.reseed.state.${move.state}`) }) }}</div>
+          <div v-else-if="move.state === 'done'">
+            {{ $t('servers.reseed.done', { name: nodeName(move.to) }) }}
+            <div v-if="move.replaced" class="text-caption mt-1" data-test="reseed-replaced">
+              {{ $t('servers.reseed.kept', { n: move.replaced.documents, only: move.replaced.onlyThere }) }}
+              <template v-if="move.replaced.sales">{{ ' ' + $t('servers.reseed.sales', { n: move.replaced.sales, numbers: move.replaced.salesNumbers.join(', ') }) }}</template>
+            </div>
+          </div>
+          <div v-else>{{ $t('servers.reseed.state.aborted') }}<span v-if="move.error"> · {{ move.error }}</span></div>
+        </template>
         <template v-else-if="move.kind === 'to_global'">
           <!-- FR-20.80 (P3-6c): back to lgrai.app. -->
           <div v-if="LIVE.includes(move.state)">
@@ -297,6 +309,16 @@
             {{ $t('servers.promote.action') }}
           </v-btn>
           <v-btn
+            v-if="item.status === 'active' && mirror?.home === item.id && item.orgState?.wentBack && item.connected?.interactive && item.connected?.bulk && !(move && LIVE.includes(move.state))"
+            size="small"
+            variant="text"
+            color="warning"
+            data-test="reseed"
+            @click="openReseed(item)"
+          >
+            {{ $t('servers.reseed.action') }}
+          </v-btn>
+          <v-btn
             v-if="item.status === 'active'"
             size="small"
             variant="text"
@@ -405,6 +427,39 @@
           <v-spacer />
           <v-btn @click="promoteOpen = false">{{ $t('common.cancel') }}</v-btn>
           <v-btn color="error" :disabled="!canPromote" :loading="moveBusy" data-test="start-promote" @click="startPromote">{{ $t('servers.promote.start') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- ── Re-seed a server from lgrai.app's copy (FR-20.71): its database went back ───────── -->
+    <v-dialog v-model="reseedOpen" max-width="620">
+      <v-card>
+        <v-card-title class="text-wrap">{{ $t('servers.reseed.title', { name: moveTarget?.name ?? '' }) }}</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-3">{{ $t('servers.reseed.intro') }}</p>
+          <div v-if="!reseedPre" class="text-center py-4"><v-progress-circular indeterminate color="primary" /></div>
+          <template v-else>
+            <v-list density="compact" class="py-0" data-test="reseed-checks">
+              <v-list-item v-for="c in reseedPre.checks" :key="c.name">
+                <template #prepend>
+                  <v-icon :color="c.ok ? 'success' : 'error'" size="small">{{ c.ok ? 'mdi-check-circle' : 'mdi-close-circle' }}</v-icon>
+                </template>
+                <v-list-item-title class="text-body-2 text-wrap">{{ $t(`servers.reseed.check.${c.name}`) }}</v-list-item-title>
+                <v-list-item-subtitle v-if="!c.ok && c.detail" class="text-wrap">{{ c.detail }}</v-list-item-subtitle>
+              </v-list-item>
+            </v-list>
+            <v-alert type="warning" variant="tonal" density="compact" class="my-3" data-test="reseed-warning">
+              {{ $t('servers.reseed.warn') }}
+              <div v-if="reseedPre.lastPageAt" class="mt-1">{{ $t('servers.reseed.asOf', { when: new Date(reseedPre.lastPageAt).toLocaleString() }) }}</div>
+              <div v-if="reseedPre.files.referenced > reseedPre.files.held" class="mt-1">{{ $t('servers.reseed.files', { missing: reseedPre.files.referenced - reseedPre.files.held }) }}</div>
+            </v-alert>
+            <v-text-field v-model="reseedSlug" :label="$t('servers.promote.slug', { slug: appStore.currentOrg?.slug ?? '' })" density="compact" data-test="reseed-slug" />
+          </template>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="reseedOpen = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="warning" :disabled="!canReseed" :loading="moveBusy" data-test="start-reseed" @click="startReseed">{{ $t('servers.reseed.start') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -523,6 +578,8 @@ interface ServerRow {
   versions?: { app?: string }
   lastSeenAt?: string
   cloneAlarm?: boolean
+  /** FR-20.51 (P3-7): what the server says of this org: its database went back, its numbering is locked. */
+  orgState?: { at?: string; wentBack?: { at?: string; reason: string; detail?: string }; numbering?: { since?: string; reason: string; detail?: string } } | null
   connected?: { interactive: boolean; bulk: boolean }
   health?: {
     appVersion?: string
@@ -677,7 +734,17 @@ onUnmounted(() => {
 })
 
 // ── Move here (FR-20.79) ────────────────────────────────────────────────────────────────────
-interface MoveRow { id: string; kind?: string; state: string; to: string; endedAt?: string | null; error?: string | null; waiting?: { on: string } | null }
+interface MoveRow {
+  id: string
+  kind?: string
+  state: string
+  to: string
+  endedAt?: string | null
+  error?: string | null
+  waiting?: { on: string } | null
+  /** A re-seed (P3-7): what the server held before, and what of it lgrai.app's copy lacked. */
+  replaced?: { documents: number; onlyThere: number; sales: number; salesNumbers: string[] } | null
+}
 interface Preflight { ok: boolean; checks: Array<{ name: string; ok: boolean; detail?: string }>; missingCredentials?: Array<{ identityId: string; name: string; email?: string }> }
 
 const LIVE = ['freezing', 'copying', 'verifying', 'flipped']
@@ -723,7 +790,14 @@ async function loadMove() {
     clearInterval(moveTimer)
     moveTimer = null
     if (move.value?.state === 'done') {
-      showSnackbar(move.value.kind === 'promote' ? t('servers.promote.done') : move.value.kind === 'to_global' ? t('servers.moveBack.done') : t('servers.move.done', { name: nodeName(move.value.to) }), 'success', 6000)
+      showSnackbar(
+        move.value.kind === 'promote' ? t('servers.promote.done')
+          : move.value.kind === 'to_global' ? t('servers.moveBack.done')
+            : move.value.kind === 'reseed' ? t('servers.reseed.done', { name: nodeName(move.value.to) })
+              : t('servers.move.done', { name: nodeName(move.value.to) }),
+        'success',
+        6000,
+      )
       // Where the org lives changed: the files card, the actions and the numbering follow.
       void loadMirror()
       void loadLastNumbers()
@@ -773,6 +847,46 @@ async function startPromote() {
     await loadMove()
   } catch (e: any) {
     if (e?.response?.data?.checks) promotePre.value = { ...(promotePre.value as PromotePre), checks: e.response.data.checks, ok: false }
+    else showSnackbar(e?.response?.data?.message ?? t('common.operationFailed'), 'error')
+  } finally {
+    moveBusy.value = false
+  }
+}
+
+// ── Re-seed a server from lgrai.app's copy (FR-20.71, P3-7) ─────────────────────────────────
+interface ReseedPre {
+  ok: boolean
+  checks: Array<{ name: string; ok: boolean; detail?: string }>
+  lastPageAt: string | null
+  files: { referenced: number; held: number }
+}
+const reseedOpen = ref(false)
+const reseedPre = ref<ReseedPre | null>(null)
+const reseedSlug = ref('')
+const canReseed = computed(() => !!reseedPre.value?.ok && reseedSlug.value === appStore.currentOrg?.slug)
+
+async function openReseed(item: ServerRow) {
+  moveTarget.value = item
+  reseedPre.value = null
+  reseedSlug.value = ''
+  reseedOpen.value = true
+  try {
+    reseedPre.value = (await httpClient.post(`${moveBase()}/reseed/preflight`, {})).data
+  } catch {
+    reseedOpen.value = false
+  }
+}
+
+async function startReseed() {
+  moveBusy.value = true
+  try {
+    const { data } = await httpClient.post(`${moveBase()}/reseed`, { slug: reseedSlug.value })
+    move.value = data.move
+    reseedOpen.value = false
+    showSnackbar(t('servers.reseed.started'), 'warning')
+    await loadMove()
+  } catch (e: any) {
+    if (e?.response?.data?.checks) reseedPre.value = { ...(reseedPre.value as ReseedPre), checks: e.response.data.checks, ok: false }
     else showSnackbar(e?.response?.data?.message ?? t('common.operationFailed'), 'error')
   } finally {
     moveBusy.value = false

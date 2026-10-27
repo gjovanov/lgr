@@ -14,8 +14,13 @@ import { replicate } from '../replication/declare.js'
  * `copying` (the mirror drains: pages up to the master's journal head, every file, then equal
  * digests), `verifying` (equal: global puts the files back where their rows say), then `done` (the
  * flip: global is the home again). Until the flip, an abort unfreezes the org on the master.
+ *
+ * `reseed` (P3-7, FR-20.71) replaces a master's copy of the org whose database went back with the
+ * mirror's: `copying` (global builds the copy from its mirror; the master freezes the org, keeps what
+ * it replaces, replaces it) → `verifying` (its digests equal the copy's) → `done` (the mirror's chain
+ * starts again from the master's copy). The home and its epoch never change.
  */
-export type OrgMoveKind = 'to_master' | 'to_global' | 'promote'
+export type OrgMoveKind = 'to_master' | 'to_global' | 'promote' | 'reseed'
 export type OrgMoveState = 'freezing' | 'copying' | 'verifying' | 'flipped' | 'done' | 'aborted'
 export const LIVE_MOVE_STATES: readonly OrgMoveState[] = ['freezing', 'copying', 'verifying', 'flipped']
 
@@ -77,6 +82,12 @@ export interface IOrgMove {
    */
   fenceJournalEpoch?: number
   placed?: { placed: number; present: number; missing: number }
+  /**
+   * `reseed` (FR-20.71, P3-7): what the server held of the org before lgrai.app's copy replaced it,
+   * kept on the server for good (`file`, under the org's `docs/`), and what of it the copy lacked:
+   * documents only there, and the issued sales among them (their numbers, the first 50).
+   */
+  replaced?: { file: string; documents: number; onlyThere: number; sales: number; salesNumbers: string[] }
   steps: IOrgMoveStep[]
   error?: string
   endedAt?: Date
@@ -88,7 +99,7 @@ const stepSchema = new Schema<IOrgMoveStep>({ name: String, at: Date, ok: Boolea
 const orgMoveSchema = new Schema<IOrgMove>(
   {
     orgId: { type: Schema.Types.ObjectId, required: true },
-    kind: { type: String, required: true, enum: ['to_master', 'to_global', 'promote'] },
+    kind: { type: String, required: true, enum: ['to_master', 'to_global', 'promote', 'reseed'] },
     state: { type: String, required: true, enum: ['freezing', 'copying', 'verifying', 'flipped', 'done', 'aborted'] },
     from: { type: String, required: true, maxlength: 80 },
     to: { type: String, required: true, maxlength: 80 },
@@ -114,6 +125,7 @@ const orgMoveSchema = new Schema<IOrgMove>(
     fenceCutoff: Number,
     fenceJournalEpoch: Number,
     placed: { placed: Number, present: Number, missing: Number },
+    replaced: { type: new Schema({ file: String, documents: Number, onlyThere: Number, sales: Number, salesNumbers: [String] }, { _id: false }), default: undefined },
     steps: { type: [stepSchema], default: [] },
     error: { type: String, maxlength: 2000 },
     endedAt: Date,

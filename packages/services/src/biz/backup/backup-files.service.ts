@@ -148,12 +148,16 @@ export interface BuiltFilesSidecar {
 export async function buildFilesSidecar(
   orgId: string,
   baseName: string,
-  /** `root: 'org'` packs the whole upload tree (FR-20.21, a master); `docs` is FR-13.29's scope. */
-  opts: { subdir?: string; root?: 'docs' | 'org' } = {},
+  /**
+   * `root: 'org'` packs the whole upload tree (FR-20.21, a master); `docs` is FR-13.29's scope.
+   * `entries` packs exactly those files instead, each at its path under the org's tree, read from
+   * wherever it lies (FR-20.71: a mirror's content store, by hash, for a re-seed).
+   */
+  opts: { subdir?: string; root?: 'docs' | 'org'; entries?: ReadonlyArray<{ path: string; abs: string }> } = {},
 ): Promise<BuiltFilesSidecar> {
-  const wholeTree = opts.root === 'org'
+  const wholeTree = opts.root === 'org' || !!opts.entries
   const docsRoot = wholeTree ? orgUploadDir(orgId) : orgDocsDir(orgId)
-  const files = await walk(docsRoot, '', wholeTree ? NOT_UPLOADS : new Set())
+  const files = opts.entries ?? (await walk(docsRoot, '', wholeTree ? NOT_UPLOADS : new Set())).map(rel => ({ path: rel, abs: join(docsRoot, rel) }))
 
   const dir = join(config.upload.dir, String(orgId), 'backups', opts.subdir || '')
   await mkdir(dir, { recursive: true })
@@ -181,8 +185,7 @@ export async function buildFilesSidecar(
 
   let count = 0
   let contentBytes = 0
-  for (const rel of files) {
-    const abs = join(docsRoot, rel)
+  for (const { path: rel, abs } of files) {
     let content: Buffer
     try {
       content = Buffer.from(await Bun.file(abs).arrayBuffer())

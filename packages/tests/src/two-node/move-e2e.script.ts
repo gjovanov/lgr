@@ -19,7 +19,15 @@
  * review with that collision named. The admin brings it into the books: the other sale arrives as
  * the site wrote it, the colliding one stays out, named.
  *
- *   bun packages/tests/src/two-node/move-e2e.script.ts [--promote]
+ * Or, with `--reseed` (FR-20.71, AC 36, plan step P3-7): the master's database goes back underneath
+ * the mirror, the way a disk reverted to a snapshot would (the org's documents, its journal and the
+ * journal's mark outside the database, all as they were minutes before). The master can no longer
+ * continue the mirror's chain: it records that, locks legal numbering and tells lgrai.app. The admin
+ * re-seeds it from lgrai.app's copy: what was made since comes back, what was deleted since stays
+ * deleted, nothing on the mirror is deleted, what the master held is kept, and the mirror's chain
+ * starts again from the master, numbering still locked until the site's last numbers are recorded.
+ *
+ *   bun packages/tests/src/two-node/move-e2e.script.ts [--promote | --reseed]
  *
  * Needs: `cargo build` (packages/server), `bun run build` + `bun run build:server` (dist/lgr-server).
  * About three minutes. Passwords and keys are read, never printed. Exit 0 when every check passed.
@@ -28,6 +36,7 @@ import { MongoBinary, MongoMemoryReplSet } from 'mongodb-memory-server'
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import zlib from 'node:zlib'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { makeTestCa, tlsFront } from './tls-front'
@@ -52,6 +61,7 @@ const SCRATCH = join(process.env.TEMP ?? '/tmp', `lgr-move-e2e-${randomBytes(3).
 const MONGOD_PORT = 27237
 const LOCAL_PASSWORD = randomBytes(12).toString('base64url')
 const PROMOTE = process.argv.includes('--promote')
+const RESEED = process.argv.includes('--reseed')
 
 let failed = 0
 const check = (label: string, ok: boolean, detail = '') => {
@@ -351,7 +361,89 @@ try {
     check('its pump sends nothing more of the org: lgrai.app keeps no mirror of it', (await gdb.collection('mirror_state').countDocuments({ orgId })) === 0)
   }
 
-  if (!PROMOTE) {
+  if (RESEED) {
+    // ── FR-20.71 (P3-7): the master's database goes back underneath the mirror, and is re-seeded ────
+    const replicated = Object.values(REPLICATION_META).filter(e => (e.class === 'R' || e.class === 'S') && e.orgPath)
+    const scope = (e: any) => (e.orgPath === '_id' ? { _id: orgId } : { orgId })
+    // What a snapshot of the disk holds now: the org's documents, its journal, and the mark beside the token.
+    const snap: Record<string, any[]> = {}
+    for (const e of replicated) snap[e.collection] = await mdb.collection(e.collection).find(scope(e), { promoteValues: false }).toArray()
+    const snapJournal = await mdb.collection('repl_journal').find({ orgId }, { promoteValues: false }).toArray()
+    const snapRepl: any = await mdb.collection('repl_orgs').findOne({ orgId }, { promoteValues: false })
+    const hwm = join(DATA, 'state', 'journal-hwm.json')
+    const snapHwm = existsSync(hwm) ? readFileSync(hwm) : null
+    // Then the shop goes on, and the mirror follows: a customer made, one deleted.
+    const madeAfter = new mongoose.Types.ObjectId()
+    await mdb.collection('contacts').insertOne({ _id: madeAfter, orgId, companyName: 'Made after the snapshot', type: 'customer', isActive: true })
+    const deletedAfter: any = await mdb.collection('contacts').findOne({ orgId, companyName: 'Written at the shop 3' })
+    await mdb.collection('contacts').deleteOne({ _id: deletedAfter._id })
+    await caughtUp('what the shop wrote after the snapshot reaches the mirror')
+    const before = await digest(gdb)
+    const watermark = await mirrorAt()
+
+    // The disk goes back to the snapshot. Its writes are the disk's, never the shop's: the org is out
+    // of the capture while they land, and its journal row comes back last, as the snapshot had it.
+    await mdb.collection('repl_orgs').updateOne({ orgId }, { $set: { enabled: false } })
+    await Bun.sleep(2_000)
+    for (const e of replicated) {
+      await mdb.collection(e.collection).deleteMany(scope(e))
+      if (snap[e.collection].length) await mdb.collection(e.collection).insertMany(snap[e.collection])
+    }
+    await mdb.collection('repl_journal').deleteMany({ orgId })
+    if (snapJournal.length) await mdb.collection('repl_journal').insertMany(snapJournal)
+    await Bun.sleep(3_000)
+    await mdb.collection('repl_orgs').replaceOne({ orgId }, snapRepl)
+    if (snapHwm) writeFileSync(hwm, snapHwm)
+    check('the master\'s database is back where the snapshot left it', !(await mdb.collection('contacts').findOne({ _id: madeAfter })) && !!(await mdb.collection('contacts').findOne({ _id: deletedAfter._id })) && (await headOf()) < watermark, `head ${await headOf()}, mirror ${watermark}`)
+
+    // The master finds out on its own (its own mark went back with the disk), locks, and says so.
+    const record: any = await until(async () => ((await mdb.collection('repl_orgs').findOne({ orgId })) as any)?.wentBack, 120_000, 1000)
+    check('the master records that its database went back underneath the mirror', !!record && ['mirror_ahead', 'instance_changed', 'stale_journal', 'diverged'].includes(record.reason), JSON.stringify(record))
+    const locked: any = await mdb.collection('org_homes').findOne({ orgId })
+    check('…and its legal numbering locks with it', locked?.seriesFrozen?.reason === 'went_back' || locked?.seriesFrozen?.reason === 'restored', JSON.stringify(locked?.seriesFrozen ?? null))
+    const told = await until(async () => {
+      const n: any = await gdb.collection('nodes').findOne({ _id: nodeId })
+      return (n?.orgState ?? []).find((o: any) => String(o.orgId) === String(orgId))?.wentBack ?? false
+    }, 120_000, 2000)
+    check('…and tells lgrai.app, which shows it on the Servers page', !!told, JSON.stringify(told))
+    await Bun.sleep(10_000)
+    check('it cannot overwrite the mirror: nothing on lgrai.app moved', JSON.stringify(await digest(gdb)) === JSON.stringify(before) && (await mirrorAt()) === watermark, `mirror at ${await mirrorAt()}`)
+
+    // The admin re-seeds it from lgrai.app's copy.
+    const pre = await until(async () => {
+      const r = await asAdmin('POST', `/org/${orgId}/moves/reseed/preflight`, {})
+      return r.status === 200 && r.body?.ok ? r.body : false
+    }, 60_000, 2000)
+    check('the re-seed passes its preflight: the server went back', !!pre && pre.wentBack?.reason, pre ? JSON.stringify(pre.wentBack) : JSON.stringify((await asAdmin('POST', `/org/${orgId}/moves/reseed/preflight`, {})).body?.checks?.filter((c: any) => !c.ok)))
+    const wrongSlug = await asAdmin('POST', `/org/${orgId}/moves/reseed`, { slug: 'move-e2e-x' })
+    check('…not without the slug typed', wrongSlug.status === 422 && wrongSlug.body?.code === 'slug_mismatch', `${wrongSlug.status} ${wrongSlug.body?.code}`)
+    const started = await asAdmin('POST', `/org/${orgId}/moves/reseed`, { slug: 'move-e2e' })
+    check('the admin starts the re-seed', started.status === 200 && started.body?.move?.kind === 'reseed' && started.body?.move?.state === 'copying', JSON.stringify(started.body))
+    const rDone = await until(async () => {
+      const r = await asAdmin('GET', `/org/${orgId}/moves/current`)
+      return r.body?.move?.kind === 'reseed' && ['done', 'aborted'].includes(r.body.move.state) ? r.body.move : false
+    }, 240_000, 2000)
+    check('the re-seed ends done: the copy built, kept and taken, verified, flipped', !!rDone && rDone.state === 'done', JSON.stringify(rDone ? { state: rDone.state, error: rDone.error, steps: rDone.steps?.map((x: any) => x.name), replaced: rDone.replaced } : 'no end'))
+    check('…it says what the server held that lgrai.app lacked', (rDone?.replaced?.onlyThere ?? 0) >= 1 && (rDone?.replaced?.documents ?? 0) > 0, JSON.stringify(rDone?.replaced))
+    const unfrozen = await until(async () => ((await mdb.collection('org_homes').findOne({ orgId })) as any)?.state === 'active', 60_000)
+    check('the master is the org\'s home still, unfrozen, at the same epoch', !!unfrozen && ((await mdb.collection('org_homes').findOne({ orgId })) as any)?.epoch === 1)
+    check('what was made since the snapshot came back', !!(await mdb.collection('contacts').findOne({ _id: madeAfter })))
+    check('what was deleted since stays deleted', !(await mdb.collection('contacts').findOne({ _id: deletedAfter._id })))
+    const keptFile = join(DATA, 'uploads', String(orgId), 'docs', 'reseed', `${rDone?.id}.ndjson.zst`)
+    check('what the master held is kept, for good, under the org\'s documents', existsSync(keptFile) && zlib.zstdDecompressSync(readFileSync(keptFile)).toString('utf8').includes('Written at the shop 3'))
+    check('…and its went-back record is cleared', !((await mdb.collection('repl_orgs').findOne({ orgId })) as any)?.wentBack)
+    const still: any = await mdb.collection('org_homes').findOne({ orgId })
+    check('legal numbering stays locked until the site\'s last numbers are recorded', !!still?.seriesFrozen?.since, JSON.stringify(still?.seriesFrozen ?? null))
+    // The mirror's chain starts again from the master, and nothing on it was deleted.
+    await caughtUp('the mirror follows the master again, on a new chain', 240_000)
+    check('…nothing on the mirror was deleted', !!(await gdb.collection('contacts').findOne({ _id: madeAfter })) && (await gdb.collection('contacts').countDocuments({ orgId })) === (await mdb.collection('contacts').countDocuments({ orgId })))
+    await mdb.collection('contacts').insertOne({ _id: new mongoose.Types.ObjectId(), orgId, companyName: 'Written after the re-seed', type: 'customer', isActive: true })
+    await caughtUp('what the shop writes after the re-seed reaches the mirror')
+    const stAfter: any = await gdb.collection('mirror_state').findOne({ orgId })
+    check('global raised no alarm on the new chain', !(stAfter?.alarms ?? []).length, JSON.stringify(stAfter?.alarms ?? []))
+  }
+
+  if (!PROMOTE && !RESEED) {
     // ── FR-20.51 (P3-7): a master that never went back keeps its numbering open ─────────────────────
     // Its boot check and its minute tick (the journal's mark, lgrai.app's alarms) have run by now.
     await Bun.sleep(65_000)
