@@ -159,9 +159,13 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
     count: 1,
     why: 'the re-seed\'s flip (FR-20.71), in its transaction: the mirror_state row whose chain it ends',
   },
+  'services/src/biz/replication/reconcile.ts': {
+    count: 3,
+    why: 'the reconcile on global (FR-20.70): the mirror_state row that follows it (where the master stood, and when the copy got there)',
+  },
   'services/src/biz/replication/apply.ts': {
-    count: 2,
-    why: 'THE mirror applier on global (FR-20.65): writes a master-homed org\'s documents past the home guard by design, only after the isolation checks (FR-20.66); these two are mirror_state',
+    count: 1,
+    why: 'THE mirror applier on global (FR-20.65): writes a master-homed org\'s documents past the home guard by design, only after the isolation checks (FR-20.66); this one is mirror_state (a refusal; P3-7f took out the reconcile_required write)',
   },
   'services/src/biz/cash-register/copy-org.ts': {
     count: 3,

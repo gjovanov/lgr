@@ -387,6 +387,12 @@ setTimeout(async () => {
         return locked
       }),
     },
+    // FR-20.70 (P3-7f) — after this master lost the record of its changes, lgrai.app's copy of each
+    // org written here is made equal to it again: the copy's ids asked for and journaled again.
+    {
+      name: 'mirror-reconcile-tick', intervalMs: config.node.role === 'master' ? 60_000 : 0, immediate: true,
+      ...lazy(() => import('services/biz/replication/reconcile'), m => m.mirrorReconcileTick()),
+    },
     // FR-20.84 (P3-6e) — the audited import of a fenced export a person asked for: one batch a tick,
     // under a lease, so a crash or another pod repeats nothing.
     {

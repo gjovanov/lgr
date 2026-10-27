@@ -34,8 +34,25 @@ export interface IMirrorState {
   /** Pages refused since the last one applied, and why the last one was. */
   refused: number
   lastRefusal?: { reason: string; at: Date; detail?: string }
-  /** A newer journal epoch, waiting for a reconcile (P3-7). */
+  /** A newer journal epoch, waiting for a reconcile. Written only by a global before P3-7f, which refused it. */
   reconcileRequired?: { journalEpoch: number; since: Date }
+  /**
+   * FR-20.70 (P3-7f): the master lost the record of its changes (a new journal epoch) and this copy is
+   * being made equal to its home again, the home winning. From the first page of the epoch: `deleted`
+   * counts what its pages removed from the copy since, and `kept` the issued sales they would have
+   * removed (FR-20.51: never). `head` is where the master's journal stood once it had journaled every
+   * id this copy holds again; the reconcile is done when the watermark reaches it.
+   */
+  reconcile?: {
+    journalEpoch: number
+    since: Date
+    head?: number
+    reportedAt?: Date
+    asked?: number
+    doneAt?: Date
+    deleted: number
+    kept: Array<{ coll: string; id: string; number?: string; at: Date }>
+  }
   /** What needs a person: a forged or foreign page, a broken chain, an unsanctioned membership. The newest 20. */
   alarms: IMirrorAlarm[]
   updatedAt: Date
@@ -54,6 +71,22 @@ const mirrorStateSchema = new Schema<IMirrorState>(
     refused: { type: Number, default: 0 },
     lastRefusal: { reason: String, at: Date, detail: String },
     reconcileRequired: { journalEpoch: Number, since: Date },
+    reconcile: {
+      type: new Schema(
+        {
+          journalEpoch: Number,
+          since: Date,
+          head: Number,
+          reportedAt: Date,
+          asked: Number,
+          doneAt: Date,
+          deleted: { type: Number, default: 0 },
+          kept: { type: [{ _id: false, coll: String, id: String, number: String, at: Date }], default: [] },
+        },
+        { _id: false },
+      ),
+      default: undefined,
+    },
     alarms: { type: [{ _id: false, kind: String, at: Date, detail: String }], default: [] },
   },
   { timestamps: { createdAt: false, updatedAt: true }, collection: 'mirror_state' },

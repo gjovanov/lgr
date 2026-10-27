@@ -73,8 +73,10 @@ export async function preflightMoveBack(orgId: string, allowMissingFiles = false
   add('no_till_open', node?.health?.api?.posOpen === 0 && !tillsOpen, node?.health?.api?.posOpen == null ? 'the server cannot say whether a till is open' : 'a till session is open on the server: close it first')
   add('no_fiscal_command', node?.health?.api?.fiscalInFlight === 0, 'a fiscal device is printing on the server, or the server cannot say')
 
-  const mirror: any = await MirrorState.findOne({ orgId: org }, { watermark: 1, reconcileRequired: 1 }).lean()
-  add('mirror_live', !!mirror && !mirror.reconcileRequired, mirror ? 'the mirror waits for a reconcile (a new journal epoch on the server)' : 'the server has not mirrored this organisation yet')
+  const mirror: any = await MirrorState.findOne({ orgId: org }, { watermark: 1, reconcileRequired: 1, reconcile: 1 }).lean()
+  // FR-20.70 (P3-7f): while a reconcile runs, the copy may still hold what the server deleted.
+  const reconciling = !!mirror?.reconcileRequired || (!!mirror?.reconcile && !mirror.reconcile.doneAt)
+  add('mirror_live', !!mirror && !reconciling, mirror ? 'the mirror is being made equal to the server again (the server lost the record of its changes)' : 'the server has not mirrored this organisation yet')
 
   const files = await mirrorFilesStatus(orgId)
   const lost = files.missingOnMaster + files.failing

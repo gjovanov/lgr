@@ -335,20 +335,22 @@ describe('the chain (FR-20.64, FR-20.71)', () => {
     expect(((await master.collection('repl_orgs').findOne({ orgId })) as any).wentBack.at).toEqual(first.at)
   }, 60_000)
 
-  it('a newer journal epoch waits for a reconcile, and another instance of the master is refused', async () => {
+  it('a newer journal epoch that continues the chain starts a reconcile, and another instance of the master is refused', async () => {
     const orgId = await homedOrg()
     const c = await createTestContact(orgId as any)
     await journal(orgId)
     await sync(orgId)
     await rejournal(client, master, orgId, 'contacts', [c._id])
 
-    expect(refusedAs(await applyPage(client, mirror, forge(await nextPage(orgId), p => { p.journalEpoch = 2 }), ctx))).toBe('reconcile_required')
-    const st: any = await mirror.collection('mirror_state').findOne({ orgId })
-    expect(st.reconcileRequired.journalEpoch).toBe(2)
-    expect(st.alarms ?? []).toHaveLength(0)
-
     expect(refusedAs(await applyPage(client, mirror, forge(await nextPage(orgId), p => { p.instanceEpoch = '0'.repeat(32) }), ctx))).toBe('instance_changed')
     expect(((await mirror.collection('mirror_state').findOne({ orgId })) as any).alarms.map((a: any) => a.kind)).toEqual(['instance_changed'])
+
+    // P3-7f (FR-20.70): the same history at a new journal epoch is applied, and the reconcile starts
+    // (`mirror-reconcile.flow` follows it to the end).
+    expect(refusedAs(await applyPage(client, mirror, forge(await nextPage(orgId), p => { p.journalEpoch = 2 }), ctx))).toBe('applied')
+    const st: any = await mirror.collection('mirror_state').findOne({ orgId })
+    expect(st).toMatchObject({ journalEpoch: 2, reconcile: { journalEpoch: 2, deleted: 0 } })
+    expect(st.reconcileRequired).toBeUndefined()
   }, 60_000)
 })
 

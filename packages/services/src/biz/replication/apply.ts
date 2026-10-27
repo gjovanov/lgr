@@ -24,12 +24,21 @@
  *   and node fields travel in no page. A key another org holds is refused, never deleted.
  * - **A membership's link to a person is global's to sanction** (FR-20.63). A `User` naming a person
  *   the mirror's copy does not already name is applied without the link, inert, with an alarm.
+ * - **A newer journal epoch is the master's lost history, and starts a reconcile** (FR-20.61,
+ *   FR-20.70, P3-7f). Its first page is applied only if it continues the chain from the watermark:
+ *   the master still holds the page global stands on, so it did not go back under it (FR-20.51).
+ *   Every document the master has comes again in that epoch, and what it deleted in the gap comes
+ *   once the master journals again every id this copy holds (`reconcile.ts`); `mirror_state.reconcile`
+ *   follows it until the watermark passes where the master stood then.
+ * - **No page deletes an issued sale** (FR-20.51): an issued invoice or a till sale the home no
+ *   longer has stays here, with an alarm. A home that lost one went back, and this may be its only copy.
  */
 import type { mongo } from 'mongoose'
 import type { MetaEntry } from 'db/replication/generate'
 import { homeOf, type OrgHomeInfo } from 'db/home/home'
 import { logger } from '../../logger/logger.js'
 import { validateStored } from '../files/stored-path.js'
+import { ISSUED_SALE_FIELDS, issuedSale } from './issued-sales.js'
 import { mirrorPipeline } from './project.js'
 import { PAGE_DOCS, chainHash, decodeDoc, decodePage, idKey, metaOf, type Page, type PageRow } from './pages.js'
 
@@ -40,6 +49,8 @@ type ObjectId = mongo.ObjectId
 
 const MIRROR = 'mirror_state'
 const ALARMS_KEPT = 20
+/** Issued sales a reconcile kept, listed on its record (each also raises an alarm). */
+const KEPT_SALES = 100
 /** Collisions resolved in one page before it is given up as unresolvable (each costs one retry). */
 const COLLISIONS_MAX = 50
 /** States in which the home still sends: a move freezes the org and drains its last pages first. */
@@ -66,8 +77,6 @@ export type Refusal =
   | 'instance_changed'
   /** An older journal epoch than the mirror's. */
   | 'stale_journal'
-  /** A newer journal epoch: it waits for a reconcile (FR-20.61, FR-20.70). */
-  | 'reconcile_required'
   /** The home epoch moved on: the move resets the mirror's chain (P3-6). */
   | 'epoch_changed'
   /** Continues from the watermark with another history: a restore, a revert or a clone (FR-20.51). */
@@ -176,21 +185,26 @@ function prepare(page: Page): Prepared[] {
   return out
 }
 
-/** Whether the page applies, is the last one again, or is refused (FR-20.64, FR-20.61, FR-20.71). */
-function decide(st: Record<string, any> | null, page: Page): 'genesis' | 'apply' | 'duplicate' {
+/**
+ * Whether the page applies, is the last one again, or is refused (FR-20.64, FR-20.61, FR-20.71).
+ * `reconcile`: it applies, and is the first of a newer journal epoch (FR-20.70).
+ */
+function decide(st: Record<string, any> | null, page: Page): 'genesis' | 'apply' | 'reconcile' | 'duplicate' {
   const chain: string = st?.chainHash || ''
   if (!chain) {
     if (page.fromSeq !== 0 || page.prevHash !== '') throw new Refused('gap', 'the mirror has no page yet: the first starts at 0')
     return 'genesis'
   }
   if (st!.instanceEpoch !== page.instanceEpoch) throw new Refused('instance_changed', `the mirror was sent instance ${st!.instanceEpoch}`)
-  if (page.journalEpoch > st!.journalEpoch) throw new Refused('reconcile_required', `journal epoch ${page.journalEpoch} after ${st!.journalEpoch}`)
   if (page.journalEpoch < st!.journalEpoch) throw new Refused('stale_journal', `journal epoch ${page.journalEpoch} before ${st!.journalEpoch}`)
   if (page.epoch !== st!.epoch) throw new Refused('epoch_changed', `home epoch ${page.epoch}, the mirror's chain is of ${st!.epoch}`)
   const watermark: number = st!.watermark ?? 0
   if (page.fromSeq === watermark) {
     if (page.prevHash !== chain) throw new Refused('diverged', `the page continues another chain from ${watermark}`)
-    return 'apply'
+    // ⚠ Only a page that continues the chain may raise the journal epoch: the master holds the page
+    // global stands on, so its database did not go back under the mirror, and lost only the record
+    // of its changes (FR-20.61). Made equal to it, the copy loses nothing it should keep.
+    return page.journalEpoch > st!.journalEpoch ? 'reconcile' : 'apply'
   }
   if (page.fromSeq < watermark) {
     if (page.toSeq === watermark && page.chainHash === chain) return 'duplicate'
@@ -249,9 +263,6 @@ async function refuse(db: Db, page: Page, r: Refused, now: Date): Promise<ApplyR
   }
   if (alarm) update.$push = { alarms: { $each: [{ kind: r.reason, at: now, ...(r.detail ? { detail: r.detail.slice(0, 500) } : {}) }], $slice: -ALARMS_KEPT } }
   await db.collection<any>(MIRROR).updateOne({ orgId: page.orgId }, update, { upsert: true })
-  if (r.reason === 'reconcile_required') {
-    await db.collection<any>(MIRROR).updateOne({ orgId: page.orgId, reconcileRequired: { $exists: false } }, { $set: { reconcileRequired: { journalEpoch: page.journalEpoch, since: now } } })
-  }
   const log = { orgId: String(page.orgId), nodeId: page.nodeId, reason: r.reason, detail: r.detail, fromSeq: page.fromSeq, toSeq: page.toSeq }
   if (alarm) logger.warn(log, 'Mirror: a page was refused')
   else logger.info(log, 'Mirror: a page was refused')
@@ -305,6 +316,9 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
       let applied = 0
       let deleted = 0
       let alarms: string[] = []
+      let kept: Array<{ coll: string; id: string; number: string }> = []
+      // Set inside the transaction's callback: the assertion keeps the compiler from narrowing it to null.
+      let reconciling = null as 'started' | 'done' | null
       const session = client.startSession()
       try {
         await session.withTransaction(
@@ -313,6 +327,8 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
             applied = 0
             deleted = 0
             alarms = []
+            kept = []
+            reconciling = null
             const mirror = db.collection<any>(MIRROR)
             const st = await mirror.findOne({ orgId: page.orgId }, { session })
             const decision = decide(st, page)
@@ -329,6 +345,17 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
               try {
                 const coll = db.collection<any>(p.row.coll)
                 if (!p.doc) {
+                  // FR-20.51: an issued sale the home no longer has stays here. Nothing on the home
+                  // deletes one (a draft only): the home lost it, and this may be its only copy.
+                  const fields = ISSUED_SALE_FIELDS[p.row.coll]
+                  if (fields) {
+                    const held = await coll.findOne({ _id: p.row.id, orgId: page.orgId }, { session, projection: fields })
+                    const number = issuedSale(p.row.coll, held)
+                    if (number !== null) {
+                      kept.push({ coll: p.row.coll, id: String(p.row.id), number })
+                      continue
+                    }
+                  }
                   deleted += (await coll.deleteOne({ _id: p.row.id, orgId: page.orgId }, { session })).deletedCount
                 } else if (p.entry.class === 'R') {
                   await coll.replaceOne({ _id: p.doc._id, orgId: page.orgId }, p.doc, { upsert: true, session })
@@ -367,7 +394,29 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
               updatedAt: now,
             }
             const update: Record<string, any> = { $set: set }
-            if (alarms.length) update.$push = { alarms: { $each: alarms.map(detail => ({ kind: 'membership_unsanctioned', at: now, detail: detail.slice(0, 500) })), $slice: -ALARMS_KEPT } }
+            const raised = [
+              ...alarms.map(detail => ({ kind: 'membership_unsanctioned', at: now, detail: detail.slice(0, 500) })),
+              ...kept.map(k => ({ kind: 'sale_kept', at: now, detail: `${k.coll} ${k.id} (${k.number}): the home no longer has this issued sale, and lgrai.app keeps it`.slice(0, 500) })),
+            ]
+            if (raised.length) update.$push = { alarms: { $each: raised, $slice: -ALARMS_KEPT } }
+            // FR-20.70 (P3-7f): the reconcile this page starts, or goes on with.
+            const rec = st?.reconcile
+            const keptRows = kept.map(k => ({ ...k, at: now }))
+            if (decision === 'reconcile') update.$unset = { reconcileRequired: '' }
+            // A new chain: whatever an old one's reconcile said is not about it.
+            if (decision === 'genesis') update.$unset = { reconcile: '', reconcileRequired: '' }
+            if (decision === 'reconcile' && rec?.journalEpoch !== page.journalEpoch) {
+              set.reconcile = { journalEpoch: page.journalEpoch, since: now, deleted, kept: keptRows }
+              reconciling = 'started'
+            } else if (rec && !rec.doneAt && rec.journalEpoch === page.journalEpoch) {
+              if (decision === 'reconcile') reconciling = 'started'
+              if (deleted) update.$inc = { 'reconcile.deleted': deleted }
+              if (keptRows.length) update.$push = { ...(update.$push ?? {}), 'reconcile.kept': { $each: keptRows, $slice: -KEPT_SALES } }
+              if (typeof rec.head === 'number' && page.toSeq >= rec.head) {
+                set['reconcile.doneAt'] = now
+                reconciling = 'done'
+              }
+            }
             if (decision === 'genesis') {
               // A refusal may have left a row with no chain: the first page takes it.
               await mirror.updateOne({ orgId: page.orgId, $or: [{ chainHash: '' }, { chainHash: { $exists: false } }] }, update, { session, upsert: true })
@@ -412,6 +461,9 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
       }
       if (duplicate) return { ok: true, duplicate: true, ...(await where(db, page.orgId)), applied: 0, deleted: 0, resend: [], alarms: [] }
       for (const a of alarms) logger.warn({ orgId: String(page.orgId), nodeId: page.nodeId }, `Mirror: ${a}`)
+      for (const k of kept) logger.warn({ orgId: String(page.orgId), nodeId: page.nodeId, ...k }, 'Mirror: the home no longer has an issued sale; lgrai.app keeps it (FR-20.51)')
+      if (reconciling === 'started') logger.warn({ orgId: String(page.orgId), nodeId: page.nodeId, journalEpoch: page.journalEpoch }, 'Mirror: the master lost the record of its changes; its copy here is made equal to it again (FR-20.70)')
+      if (reconciling === 'done') logger.info({ orgId: String(page.orgId), nodeId: page.nodeId, journalEpoch: page.journalEpoch }, 'Mirror: the reconcile is done; the copy is its home\'s again')
       return {
         ok: true,
         watermark: page.toSeq,
