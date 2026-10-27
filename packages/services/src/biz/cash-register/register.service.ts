@@ -29,7 +29,7 @@ import { logger } from '../../logger/logger.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { generateUNP } from '../sequence.service.js'
 import { getNextInvoiceNumber, issuableRefusal } from '../invoice-numbering.service.js'
-import { createInvoiceStockMovement, createNumberedMovement } from '../invoicing.service.js'
+import { createInvoiceStockMovement, createNumberedMovement, reverseInvoiceStockMovement } from '../invoicing.service.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { IdempotencyError, LEASE_MS, assertSameRequest, takeLease, waitForCompletion } from '../hot-path-key.js'
 import { exchangeRateFor, fromPosTransaction } from './mapping.js'
@@ -47,6 +47,15 @@ import type { RegisterPrinter } from './printer.js'
  */
 export const PENDING_NUMBER = '~pending:'
 export const isPendingNumber = (n: unknown) => String(n ?? '').startsWith(PENDING_NUMBER)
+
+/**
+ * #279: a sale that rings into no session (the back office, the import) is numbered only AFTER its
+ * stock moved. It reaches neither a device nor a drawer, so a refused dispatch removes it, and a
+ * number drawn before that refusal was lost: a gap in CS, a legal sequence SUPTO audits. A sale with
+ * a session is numbered first: its receipt needs the number, and once its drawer has the money a
+ * stock failure is recorded on it, never rolled back (D-4), so it leaves no gap.
+ */
+const numbersAfterStock = (doc: any) => doc?.type === 'cash_sale' && !doc?.register?.sessionId
 
 type ObjectId = InstanceType<typeof Invoice.base.Types.ObjectId>
 const oid = (v: unknown): ObjectId => new Invoice.base.Types.ObjectId(String(v))
@@ -371,7 +380,12 @@ function saleIncrements(doc: any): Record<string, number> {
 }
 
 /** The document as `createInvoiceStockMovement` reads an invoice: an entity, with `id`. */
-const asInvoiceEntity = (doc: any) => ({ ...doc, id: String(doc._id), orgId: String(doc.orgId) })
+// A sale numbered after its stock (#279) still holds its placeholder here: the stock path's messages
+// quote `invoiceNumber || id`, so they name the id rather than `~pending:…`.
+const asInvoiceEntity = (doc: any) => ({
+  ...doc, id: String(doc._id), orgId: String(doc.orgId),
+  invoiceNumber: isPendingNumber(doc.invoiceNumber) ? '' : doc.invoiceNumber,
+})
 
 /**
  * The sale's dispatch, through the invoice path (D-7): the movement carries `invoiceId`, so FR-07
@@ -420,7 +434,7 @@ export async function runSaleSteps(c: RegisterContext, id: string): Promise<any>
   let doc: any = await Invoice.findOne({ _id: oid(id), orgId: oid(c.orgId) }).lean().exec()
   if (!doc) throw new RegisterRefusal(404, { message: 'Cash-register document not found' })
 
-  if (isPendingNumber(doc.invoiceNumber)) {
+  if (isPendingNumber(doc.invoiceNumber) && !numbersAfterStock(doc)) {
     const numbered = await numberPending(c.orgId, doc)
     if (!numbered) {
       await rollBack(doc)
@@ -467,6 +481,19 @@ export async function runSaleSteps(c: RegisterContext, id: string): Promise<any>
       doc = await setRegister(doc._id, { stockError: e?.message })
     }
   }
+
+  // #279: a sessionless sale draws its number now that its stock is settled. Should the counter fail
+  // three times (it hands a number out twice), the sale is undone as any failure before a device or a
+  // drawer is (D-4): its dispatch reversed, the document removed. No number was lost.
+  if (isPendingNumber(doc.invoiceNumber)) {
+    const numbered = await numberPending(c.orgId, doc)
+    if (!numbered) {
+      if (doc.register?.movementId) await reverseInvoiceStockMovement(asInvoiceEntity(doc) as any, c.user.id, getRepos(), { allowNegative: true })
+      await rollBack(doc)
+      throw new RegisterRefusal(409, { message: 'Could not allocate the cash-register number after 3 attempts' })
+    }
+    doc = numbered
+  }
   // Derived state only (the order counters a sale consumes), re-derived by every later write of
   // the order: a failure here must not leave a sale that moved its goods unfinished and unaudited.
   if (c.afterStock) {
@@ -505,7 +532,11 @@ export async function insertRegisterDocument(
   if (frozen) throw new RegisterRefusal(409, { code: frozen.code, message: frozen.message })
   let lastErr: any
   for (let attempt = 0; attempt < 3; attempt++) {
-    const number = keyed ? `${PENDING_NUMBER}${keyed.key}` : await getNextInvoiceNumber(orgId, 'outgoing', document.type)
+    // A keyed document waits under its key; a sessionless cash sale under its own id (#279), and
+    // `runSaleSteps` numbers it after its stock.
+    const number = keyed
+      ? `${PENDING_NUMBER}${keyed.key}`
+      : numbersAfterStock(document) ? `${PENDING_NUMBER}doc:${String(document._id ?? (document._id = newDocumentId()))}` : await getNextInvoiceNumber(orgId, 'outgoing', document.type)
     const fields = {
       ...document,
       issueDate: document.issueDate ?? new Date(),
