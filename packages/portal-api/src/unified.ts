@@ -405,6 +405,11 @@ setTimeout(async () => {
       name: 'fenced-import-tick', intervalMs: config.node.role === 'global' ? config.move.tickMs : 0, immediate: true,
       ...lazy(() => import('services/biz/move/fenced-import.service'), m => m.fencedImportTick()),
     },
+    // FR-20.71 (P3-7g) — on a master: what a re-seed kept, brought into the books once a person asks.
+    {
+      name: 'kept-import-tick', intervalMs: config.node.role === 'master' ? config.move.tickMs : 0, immediate: true,
+      ...lazy(() => import('services/biz/move/kept-import.service'), m => m.keptImportTick()),
+    },
     {
       name: 'move-worker', intervalMs: config.node.role === 'master' ? config.move.workerMs : 0, immediate: true,
       ...lazy(

@@ -2975,8 +2975,8 @@ gave a customer. So, on a master, for an org written there, the legal series LOC
 - ⚠ An org arriving by a move resets the mark (`activate`): an org that left and came back starts a
   new journal, which its old mark would read as a rewind.
 - Not yet: the fiscal device as a witness (its last receipt ahead of the database: what the
-  device's counter counts, and whether it moves when the device sells on its own, wants the device),
-  and bringing a re-seed's kept sales into the books (below).
+  device's counter counts, and whether it moves when the device sells on its own, wants the device).
+  Bringing a re-seed's kept sales into the books is P3-7g (below).
 - Tests: `series-lock.flow` (7: the mark and the unlock; global's alarms, the mirror's floor, no
   re-lock, a refusal dated anew after the unlock locking nothing; the journal below global's
   watermark, no re-lock until the record is cleared; `nodeSelf`; a Replace locking before its first
@@ -3032,7 +3032,29 @@ the server: `move-worker.service.ts#reseedHere`.
   connected and says its database went back; the dialog runs the preflight, says what is replaced and
   kept, and wants the slug. The move banner says, when done, how many documents were kept and the
   issued sales among those lgrai.app lacked (×4).
-- Not yet: bringing those kept sales into the books (the audited import, run on the server).
+- **The kept sales into the books (P3-7g; `move/kept-import.service.ts`).** On the server's status
+  page an org's admin asks once (`GET /org/:orgId/server/kept`, `POST …/kept/:moveId/import`: admin
+  or `admin.settings`, on the server only, for a re-seed that FINISHED, i.e. phase `active`). The
+  server's `kept-import-tick` then runs the kept file under the fenced import's own rules: the
+  shared `Ctx` now carries `runId` and `source`, and `importedFrom.kind` is `reseed_kept`.
+  - **The candidates.** The file is read once. Its documents are checked against the org as it is
+    now, in batches of 1,000 ids. Only those it holds no longer are candidates, plus this run's own
+    earlier imports, so a run cut short finishes and records them.
+  - **Brought in:**
+    - every NON-DRAFT invoice, booked here (stock below zero if need be, the journal entry, the
+      payments' entries);
+    - the till sessions they name, journaled at the end once all their sales are in;
+    - movements of their own that moved stock;
+    - the contacts, products, categories and stores these NAME.
+  - ⚠ **Master data only when named.** Nothing in the app hard-deletes it, so a named one is new
+    work. An unnamed one might be something a raw script deleted after the restore point, so it is
+    counted in `keptOnly` and never resurrected.
+  - **Left for a person:** a number the copy gave to another document (`number_taken`, the AC 51
+    remedy), drafts (`kept_draft`), and what names something neither copy holds.
+  - **Never touched:** what the copy holds.
+  - **Bookkeeping.** Rows in `fenced_import_items` with the re-seed's id as the run, state in
+    `NodeState` `kept-import:<moveId>` (lease 10 min), audited. Numbering continues above every
+    number brought in (no lock check: it is a raw counter bump, never an issue).
 - Tests: `reseed.flow` (7: the preflight and its went-back evidence; the copy of the mirror with its
   files and the flip, the mirror losing nothing; the routes through the home gate over HTTP; a
   differing copy aborted; the server freezing, keeping, replacing and unfreezing with numbering

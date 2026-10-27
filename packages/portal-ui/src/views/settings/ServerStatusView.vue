@@ -101,8 +101,62 @@
             </v-card-text>
           </v-card>
         </v-col>
+
+        <!-- FR-20.71 (P3-7g): what a re-seed kept here, and its issued sales brought into the books. -->
+        <v-col v-for="run in kept" :key="run.moveId" cols="12">
+          <v-card variant="outlined" data-test="server-kept">
+            <v-card-title class="text-subtitle-1">{{ $t('serverStatus.kept.title', { when: run.at ? when(run.at) : '—' }) }}</v-card-title>
+            <v-card-text>
+              <p v-if="run.kept" class="text-body-2 mb-1">{{ $t('serverStatus.kept.summary', { documents: run.kept.documents, onlyThere: run.kept.onlyThere, sales: run.kept.sales }) }}</p>
+              <p v-if="run.kept?.salesNumbers?.length" class="text-caption text-medium-emphasis mb-2">{{ $t('serverStatus.kept.salesNumbers', { numbers: run.kept.salesNumbers.join(', ') }) }}</p>
+              <p v-if="!run.done" class="text-body-2">{{ $t('serverStatus.kept.notDone') }}</p>
+              <template v-else-if="!run.import">
+                <v-btn size="small" color="primary" variant="tonal" prepend-icon="mdi-book-arrow-down" data-test="kept-import" @click="askKept(run)">{{ $t('serverStatus.kept.action') }}</v-btn>
+              </template>
+              <template v-else>
+                <p class="text-body-2 mb-1" data-test="kept-state">
+                  {{ run.import.state === 'done' ? $t('serverStatus.kept.done', { when: when(run.import.doneAt) }) : run.import.state === 'running' ? $t('serverStatus.kept.running') : $t('serverStatus.kept.requested') }}
+                </p>
+                <v-alert v-if="run.import.error" type="warning" variant="tonal" density="compact" class="mb-2">{{ $t('serverStatus.kept.error', { error: run.import.error }) }}</v-alert>
+                <p v-if="run.import.counts" class="text-body-2 mb-1">{{ keptCounts(run.import.counts) }}</p>
+                <p v-if="run.import.keptOnly && Object.keys(run.import.keptOnly).length" class="text-caption text-medium-emphasis mb-2">
+                  {{ $t('serverStatus.kept.keptOnly', { list: Object.entries(run.import.keptOnly).map(([k, n]) => `${k} ${n}`).join(', ') }) }}
+                </p>
+                <v-table v-if="run.left.length" density="compact" data-test="kept-left">
+                  <thead><tr><th>{{ $t('serverStatus.kept.leftTitle') }}</th><th>{{ $t('serverStatus.kept.reasonHeader') }}</th></tr></thead>
+                  <tbody>
+                    <tr v-for="l in run.left" :key="`${l.coll}|${l.docKey}`">
+                      <td>{{ l.number || `${l.coll} ${l.docKey}` }}</td>
+                      <td>{{ keptReason(l) }}</td>
+                    </tr>
+                  </tbody>
+                </v-table>
+              </template>
+            </v-card-text>
+          </v-card>
+        </v-col>
       </v-row>
     </template>
+
+    <v-dialog v-model="keptDialog" max-width="600">
+      <v-card data-test="kept-dialog">
+        <v-card-title>{{ $t('serverStatus.kept.action') }}</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-2">{{ $t('serverStatus.kept.intro') }}</p>
+          <ul class="text-body-2 ml-4 mb-2">
+            <li>{{ $t('serverStatus.kept.ruleIn') }}</li>
+            <li>{{ $t('serverStatus.kept.ruleLeft') }}</li>
+            <li>{{ $t('serverStatus.kept.ruleNever') }}</li>
+          </ul>
+          <v-alert v-if="keptError" type="error" variant="tonal" density="compact">{{ keptError }}</v-alert>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="keptDialog = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="primary" variant="flat" :loading="askingKept" data-test="kept-confirm" @click="confirmKept">{{ $t('serverStatus.kept.confirm') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <v-dialog v-model="inspectionDialog" max-width="560">
       <v-card data-test="inspection-dialog">
@@ -287,12 +341,47 @@ async function copyPril32() {
   }
 }
 
+// FR-20.71 (P3-7g): what a re-seed kept on this server, and the import of its issued sales.
+const kept = ref<any[]>([])
+const keptDialog = ref(false)
+const askingKept = ref(false)
+const keptError = ref('')
+const keptRun = ref<any | null>(null)
+function keptCounts(c: Record<string, number>) {
+  const sum = (prefix: string) => Object.entries(c).filter(([k]) => k === prefix || k.startsWith(`${prefix}:`)).reduce((n, [, v]) => n + v, 0)
+  return t('serverStatus.kept.counts', { imported: sum('imported'), skipped: sum('skipped'), failed: sum('failed') })
+}
+function keptReason(l: any) {
+  return l.reason && te(`serverStatus.kept.reason.${l.reason}`) ? t(`serverStatus.kept.reason.${l.reason}`) : (l.detail ?? l.reason ?? '—')
+}
+function askKept(run: any) {
+  keptRun.value = run
+  keptError.value = ''
+  keptDialog.value = true
+}
+async function confirmKept() {
+  const orgId = appStore.currentOrg?.id
+  if (!orgId || !keptRun.value) return
+  askingKept.value = true
+  try {
+    await httpClient.post(`/org/${orgId}/server/kept/${keptRun.value.moveId}/import`)
+    keptDialog.value = false
+    showSnackbar(t('serverStatus.kept.requested'), 'success')
+    await load()
+  } catch (e: any) {
+    keptError.value = e?.response?.data?.message ?? t('serverStatus.kept.failed')
+  } finally {
+    askingKept.value = false
+  }
+}
+
 async function load() {
   const orgId = appStore.currentOrg?.id
   if (!orgId) return
   loading.value = true
   try {
     s.value = (await httpClient.get(`/org/${orgId}/server/status`)).data.status
+    kept.value = (await httpClient.get(`/org/${orgId}/server/kept`).catch(() => ({ data: { kept: [] } }))).data.kept ?? []
   } catch (e: any) {
     if (e?.response?.status === 404) elsewhere.value = true
   } finally {

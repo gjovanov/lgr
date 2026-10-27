@@ -3606,6 +3606,34 @@
         "path_required": "A server off the premises needs an inspection path.",
         "detail_required": "Say how an inspector reaches the server that way."
       }
+    },
+    "kept": {
+      "title": "Kept by the re-seed of {when}",
+      "summary": "{documents} documents kept. {onlyThere} were not in lgrai.app's copy, {sales} of them issued sales.",
+      "salesNumbers": "Issued sales only in the kept copy: {numbers}",
+      "action": "Bring the kept sales into the books",
+      "intro": "This server goes through what the re-seed kept, document by document:",
+      "ruleIn": "an issued sale only in the kept copy is kept exactly as it was, with its number, and booked here: its stock, below zero if need be, its journal entry and its payments' entries. What it names comes with it;",
+      "ruleLeft": "a number lgrai.app's copy gave to another document, a draft, and anything it cannot book are left for a person, each with why;",
+      "ruleNever": "nothing lgrai.app's copy holds is touched.",
+      "confirm": "Bring them in",
+      "requested": "This server is bringing them into the books",
+      "running": "Bringing them into the books…",
+      "done": "In the books {when}",
+      "counts": "Brought in: {imported} · left for a person: {skipped} · not booked: {failed}",
+      "keptOnly": "Only in the kept copy and not brought in: {list}",
+      "notDone": "This re-seed did not finish, so its kept copy holds nothing to bring in.",
+      "error": "The last attempt failed: {error}. It goes on by itself.",
+      "failed": "It could not be asked for.",
+      "leftTitle": "Left for a person",
+      "reasonHeader": "Why",
+      "reason": {
+        "number_taken": "lgrai.app's copy gave this number to another document: a credit note and a re-issue resolve it",
+        "missing_reference": "it names something neither copy holds",
+        "kept_draft": "a draft: a person decides",
+        "booking_failed": "it could not be booked",
+        "session_not_journaled": "the session's journal entry waits for its other sales"
+      }
     }
   },
   "desktops": {

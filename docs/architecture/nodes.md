@@ -714,7 +714,15 @@ copy", on the server's row while it is connected and says its database went back
 4. **Legal numbering stays locked** on the server until its last numbers are recorded there: what it
    issued after the last change lgrai.app received is on paper and in the fiscal device only.
 
-An abort puts back what the server held. Bringing the kept sales into the books is not done yet.
+An abort puts back what the server held.
+
+**The kept sales into the books** (P3-7g). An issued sale only in what the server kept was printed by
+a till and is held by a customer, so it must not vanish. On the server's status page the org's admin
+asks once to bring them into the books there. Each sale comes in exactly as the till issued it, with
+its number, and is booked as it would have been: its stock, its journal entry, its payments. What it
+names comes with it. A number lgrai.app's copy has since given to another document, a draft, and
+anything that cannot be booked are listed for a person, each with why. Nothing lgrai.app's copy holds
+is touched, and nothing a sale does not name comes back.
 
 ### Reconciling lgrai.app's copy (FR-20.70)
 
