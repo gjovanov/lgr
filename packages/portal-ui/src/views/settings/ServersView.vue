@@ -77,7 +77,7 @@
       </v-card>
       <!-- FR-20.84 (P3-6e): what a replaced server did after the cutoff, as it reached lgrai.app, for review. -->
       <v-card v-for="ex in fencedExports" :key="ex.id" variant="outlined" class="mb-3" data-test="fenced-export">
-        <v-card-title class="text-subtitle-1 text-wrap">{{ $t('servers.fenced.title', { name: nodeName(ex.nodeId) }) }}</v-card-title>
+        <v-card-title class="text-subtitle-1 text-wrap">{{ $t('servers.fenced.title', { name: ex.nodeName || nodeName(ex.nodeId) }) }}</v-card-title>
         <v-card-text>
           <p class="text-body-2 mb-2">{{ $t('servers.fenced.intro') }}</p>
           <v-chip size="small" :color="ex.state === 'received' ? 'success' : ex.state === 'refused' ? 'error' : 'info'" variant="tonal" class="mb-2" data-test="fenced-state">
@@ -92,6 +92,18 @@
             <v-alert v-if="ex.collisions" type="warning" variant="tonal" density="compact" class="my-2" data-test="fenced-collisions">
               {{ $t('servers.fenced.collisions', { n: ex.collisions }) }}
             </v-alert>
+            <!-- FR-20.84 (P3-6e): the audited import, asked for here, run by lgrai.app. -->
+            <div class="d-flex align-center flex-wrap ga-2 my-2" data-test="fenced-import">
+              <template v-if="!ex.import">
+                <v-btn v-if="ex.state === 'received'" color="primary" variant="tonal" size="small" data-test="fenced-import-start" @click="importOpen = ex">{{ $t('servers.fenced.import.action') }}</v-btn>
+              </template>
+              <v-chip v-else-if="ex.import.state !== 'done'" size="small" color="info" variant="tonal" data-test="fenced-import-running">{{ $t('servers.fenced.import.running') }}</v-chip>
+              <template v-else>
+                <v-chip size="small" color="success" variant="tonal" data-test="fenced-import-done">{{ $t('servers.fenced.import.done', { when: fmtDate(ex.import.doneAt) }) }}</v-chip>
+                <span class="text-body-2">{{ $t('servers.fenced.import.counts', importCounts(ex.import.counts)) }}</span>
+              </template>
+              <span v-if="ex.import?.error" class="text-caption text-error">{{ ex.import.error }}</span>
+            </div>
             <div class="text-subtitle-2 mt-3">{{ $t('servers.fenced.legalTitle') }}</div>
             <div v-if="!ex.legal.length" class="text-body-2 text-medium-emphasis">{{ $t('servers.fenced.noLegal') }}</div>
             <v-table v-else density="compact" class="mt-1" data-test="fenced-legal">
@@ -102,6 +114,7 @@
                   <th>{{ $t('servers.fenced.date') }}</th>
                   <th class="text-end">{{ $t('servers.fenced.total') }}</th>
                   <th>{{ $t('servers.fenced.onGlobalLabel') }}</th>
+                  <th v-if="ex.import">{{ $t('servers.fenced.import.label') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -114,6 +127,16 @@
                     <v-chip size="x-small" :color="l.onGlobal === 'collision' ? 'error' : l.onGlobal === 'same_id' ? 'info' : 'success'" variant="tonal">
                       {{ $t(`servers.fenced.onGlobal.${l.onGlobal}`, { number: l.collidesWith?.number ?? '' }) }}
                     </v-chip>
+                  </td>
+                  <td v-if="ex.import" :data-test="'fenced-outcome-' + (l.imported?.outcome ?? 'pending')">
+                    <template v-if="l.imported">
+                      <v-chip size="x-small" :color="l.imported.outcome === 'imported' ? 'success' : l.imported.outcome === 'failed' ? 'error' : 'warning'" variant="tonal">
+                        {{ $t(`servers.fenced.outcome.${l.imported.outcome}`) }}
+                      </v-chip>
+                      <div v-if="l.imported.outcome !== 'imported' && l.imported.reason" class="text-caption text-medium-emphasis">
+                        {{ te(`servers.fenced.reason.${l.imported.reason}`) ? $t(`servers.fenced.reason.${l.imported.reason}`) : l.imported.reason }}
+                      </div>
+                    </template>
                   </td>
                 </tr>
               </tbody>
@@ -307,6 +330,26 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="addOpen = false">{{ $t('common.close') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- ── Bring a fenced export into the books (FR-20.84) ───────────────────────────────────── -->
+    <v-dialog :model-value="!!importOpen" max-width="560" @update:model-value="v => { if (!v) importOpen = null }">
+      <v-card v-if="importOpen">
+        <v-card-title class="text-wrap">{{ $t('servers.fenced.import.title', { name: importOpen.nodeName || nodeName(importOpen.nodeId) }) }}</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-2">{{ $t('servers.fenced.import.intro') }}</p>
+          <ul class="text-body-2 ps-4">
+            <li>{{ $t('servers.fenced.import.kept') }}</li>
+            <li>{{ $t('servers.fenced.import.booked') }}</li>
+            <li>{{ $t('servers.fenced.import.left') }}</li>
+          </ul>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="importOpen = null">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="primary" :loading="importBusy" data-test="fenced-import-confirm" @click="startImport">{{ $t('servers.fenced.import.confirm') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -761,10 +804,22 @@ async function saveLastNumbers() {
 }
 
 // ── What a replaced server did after the cutoff (FR-20.84, P3-6e) ────────────────────────────
-interface FencedLegal { id: string; number?: string; type?: string; issueDate?: string; total?: number; currency?: string; onGlobal: 'absent' | 'same_id' | 'collision'; collidesWith?: { number: string } }
+interface FencedLegal {
+  id: string
+  number?: string
+  type?: string
+  issueDate?: string
+  total?: number
+  currency?: string
+  onGlobal: 'absent' | 'same_id' | 'collision'
+  collidesWith?: { number: string }
+  imported?: { outcome: 'imported' | 'skipped' | 'failed'; reason?: string; detail?: string }
+}
 interface FencedExportRow {
   id: string
   nodeId: string
+  nodeName: string | null
+  import: { state: 'requested' | 'running' | 'done'; requestedAt: string | null; doneAt: string | null; counts: Record<string, number> | null; error: string | null } | null
   state: 'receiving' | 'received' | 'refused'
   size: number
   received: number
@@ -778,11 +833,41 @@ const fencedExports = ref<FencedExportRow[]>([])
 const fmtDate = (v?: string | null, day = false) => (v ? (day ? new Date(v).toLocaleDateString() : new Date(v).toLocaleString()) : '—')
 const docTypeLabel = (type?: string) => (type && te(`invoicing.docType.${type}`) ? t(`invoicing.docType.${type}`) : (type ?? ''))
 
+let fencedTimer: ReturnType<typeof setTimeout> | null = null
 async function loadFencedExports() {
   try {
     fencedExports.value = (await httpClient.get(`${moveBase()}/fenced-exports`)).data.exports ?? []
   } catch {
     fencedExports.value = []
+  }
+  // While an import runs, its outcomes come in: look again until it is done.
+  if (fencedTimer) clearTimeout(fencedTimer)
+  fencedTimer = fencedExports.value.some(e => e.import && e.import.state !== 'done') ? setTimeout(loadFencedExports, 4000) : null
+}
+onUnmounted(() => {
+  if (fencedTimer) clearTimeout(fencedTimer)
+})
+
+/** The import's counts as three numbers: in the books, left for a person, not booked. */
+function importCounts(counts: Record<string, number> | null) {
+  const sum = (prefix: string) => Object.entries(counts ?? {}).filter(([k]) => k === prefix || k.startsWith(`${prefix}:`)).reduce((n, [, v]) => n + v, 0)
+  return { imported: sum('imported'), skipped: sum('skipped'), failed: sum('failed') }
+}
+
+const importOpen = ref<FencedExportRow | null>(null)
+const importBusy = ref(false)
+async function startImport() {
+  if (!importOpen.value) return
+  importBusy.value = true
+  try {
+    fencedExports.value = (await httpClient.post(`${moveBase()}/fenced-exports/${importOpen.value.id}/import`, {})).data.exports ?? fencedExports.value
+    importOpen.value = null
+    showSnackbar(t('servers.fenced.import.started'), 'success')
+    void loadFencedExports()
+  } catch (e: any) {
+    showSnackbar(e?.response?.data?.message ?? t('common.operationFailed'), 'error')
+  } finally {
+    importBusy.value = false
   }
 }
 

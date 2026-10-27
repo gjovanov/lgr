@@ -2499,8 +2499,8 @@ Operator page: `docs/architecture/nodes.md#moving-an-org-to-its-master-fr-2079`.
   the flip finishes it, one after the flip is answered done, and a late second flip changes nothing
   (it would otherwise delete the mirror's new chain).
 - The desktops follow (P3-6b, below), the org can move back (P3-6c, below), a lost server's copy
-  can be promoted (P3-6d, below), and a fenced server's work reaches lgrai.app for review (P3-6e,
-  below). Not yet: its audited import.
+  can be promoted (P3-6d, below), and a fenced server's work reaches lgrai.app and is brought into
+  the books (P3-6e, below). Not yet: a number issued twice (credit note + re-issue).
   - ⚠ `collectionDigests` hashes canonical EJSON in STORED field order, and the mirror's apply
     reorders a split document (`$mergeObjects: [home, kept]` puts global's fields last). So the move
     back compares with `homeDigests` instead, which is order-insensitive.
@@ -2680,12 +2680,11 @@ lgrai.app's copy" on the Servers page, on the home server's row while it is not 
   to a real `lgr-server`, a file the shop made, the supervisor stopped, the promotion, numbering frozen
   then resumed above the site's number, and the restarted server fenced at exactly the cutoff).
 
-## What a fenced server did after the cutoff (2026-10-27, FR-20.84, plan step P3-6e, first half)
+## What a fenced server did after the cutoff (2026-10-27, FR-20.84, plan step P3-6e)
 
 A server that comes back after a promotion fences itself (above), then EXPORTS everything its
-journal captured above the cutoff and sends it to lgrai.app, where a person reviews it. Bringing its
-sales into the books is the audited import, not built yet: nothing of the export is written into
-the org. `services/biz/move/fenced-export.service.ts`; the master's half is
+journal captured above the cutoff and sends it to lgrai.app, where a person reviews it and brings it
+into the books through the audited import (second half, below). Nothing is imported on its own. `services/biz/move/fenced-export.service.ts`; the master's half is
 `move-worker.service.ts#exportFenced`.
 - **What it holds** (`lgr-fenced/1`, one zstd stream):
   - every document behind a `repl_journal` row above `fenceCutoff`, as a move carries it
@@ -2723,9 +2722,66 @@ the org. `services/biz/move/fenced-export.service.ts`; the master's half is
   - `fenced-export.flow` (6): what it holds, AC 38, the chunked receipt, refused and kept, the
     review's three cases, and the worker exporting once and sending until global has it, across a
     cut link;
-  - `move-e2e.script.ts --promote` (37): the shop's link CUT by the chaos proxy, a sale made while cut,
-    the promotion, and on the link's return the fence, the export with exactly that sale and its
-    customer, the same bytes on both sides, and the review naming the collision.
+  - `move-e2e.script.ts --promote` (43): the shop's link CUT by the chaos proxy, two sales made while
+    cut, the promotion, and on the link's return the fence, the export with exactly those sales and
+    their customer, the same bytes on both sides, the review naming the collision, and the import.
+
+### The audited import (second half)
+
+"Bring into the books" on the review card (`POST /api/org/:orgId/moves/fenced-exports/:id/import`,
+admin, asked once) sets `FencedExport.import`. Global's `fenced-import-tick` (every 10 s) runs it in
+batches of 200 under a 2-minute lease, phase by phase:
+- what a sale names (contacts, product categories, products, warehouses, tags);
+- till sessions;
+- sales;
+- stock movements;
+- documents and their files;
+- the site's audit trail.
+
+`services/biz/move/fenced-import.service.ts`.
+- **Kept as it was** (Прил. 42): a document new to lgrai.app is inserted with its own `_id`, number,
+  dates and content. A sale gets `Invoice.importedFrom` {kind, exportId, moveId, nodeId, at, by}. What
+  it points at that stays behind is dropped: `journalEntryId`, each payment's `journalEntryId`,
+  `register.movementId`.
+- **Booked here as lgrai.app would have** (`bookSale`):
+  - an issued sale: `createInvoiceStockMovement` with `allowNegative` (the goods left), its entry
+    (`postInvoiceJournal`), each payment's entry (`postPaymentJournal`, on THAT payment), and
+    `syncOrderForInvoice`;
+  - an invoice for a cash sale books nothing of its own (#171);
+  - a bill: its receipt and its orders, no entry (as `/receive`);
+  - a till sale: its stock, `register.movementId` set to it. Its entry is its session's: an imported
+    closed session drops the site's `journalEntryId` and is posted at the end
+    (`postPosSessionJournal`), only if EVERY sale of it came in;
+  - a stock movement of its own (a delivery, a transfer, a write-off) that the site applied
+    (`completed`/`confirmed`): inserted as a draft, then `confirmMovement`. A movement number lgrai.app
+    has since used gets the next one (`importedFrom.number` keeps the site's).
+- **All or nothing per document**: a sale whose stock cannot be booked is taken out again (`failed`).
+- **Left for a person, each with why** (`fenced_import_items`, node state, one row per document):
+  - `same_id`: changed here as well;
+  - `number_taken`: a legal number lgrai.app gave to another document;
+  - `missing_reference`: a sale naming a product, warehouse or customer lgrai.app does not hold;
+  - `made_by_its_sale`: a movement its sale's import makes again;
+  - `unique_conflict`;
+  - `deletion` (never applied);
+  - `not_imported_kind`: everything else, journal entries and payment/cash orders included.
+  - A draft's number is no legal number: a taken one gets the next draft number.
+- **Numbering continues above** every number imported (`ensureSequenceAtLeast`), the УНП of each
+  device included.
+- **Resumable**: a document already ours (`importedFrom.exportId`) is booked on, never inserted
+  again, and every booking checks what it would create first: a stock movement for the sale, its
+  `journalEntryId`, each payment's, the session's.
+- ⚠ `postInvoiceJournal`/`postPosSessionJournal` are the event handlers' bodies, exported unchanged
+  (refactor only). `invoice.posted` itself is NOT idempotent: the import checks `journalEntryId` first.
+- ⚠ The repository's invoice carries its payments WITHOUT their `_id`s or entries:
+  `postPaymentJournal` reads the invoice raw and stamps the one payment with a positional `$set`.
+- ⚠ `confirmMovement` leaves `completed`, not `confirmed`: test for both.
+- The review shows, per sale, what the import did; the server's name comes with the export, so a
+  removed server shows its name, not its id. Count labels are plural-free ("Files: 1") in all four
+  languages.
+- Not yet: a legal number issued twice. It needs both documents under one number, and
+  `{orgId, invoiceNumber}` is unique.
+- Tests: `fenced-import.flow` (3: the real export of a second database playing the site, imported to
+  the end and checked against the books; a crash repeating nothing; the refusals).
 
 ## Read-only where the org is not written (2026-10-27, FR-20.75, plan step P3-5, first half)
 

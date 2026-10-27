@@ -208,6 +208,13 @@ export interface IInvoice extends Document {
    * again. Carries the key that issued it, so its retry gets the issued document back.
    */
   issue?: { clientKey?: string; requestHash?: string; leaseUntil?: Date; completedAt?: Date }
+  /**
+   * FR-20.84 (P3-6e): a document a replaced server issued after the cutoff, brought in by the audited
+   * import: its source (the server, the promotion, the export), the method, when, and who asked
+   * (Прил. 42). Everything else of the document is as the site wrote it; `number` is the site's when
+   * the import had to give a draft another.
+   */
+  importedFrom?: { kind: 'fenced_export'; exportId: Types.ObjectId; moveId: Types.ObjectId; nodeId: string; at: Date; by: Types.ObjectId; number?: string }
   /** How the document is (to be) paid: cash | card | bank_transfer | cash_on_delivery. */
   paymentMethod?: string
   /** Съставил — who authored the document (OCR-imported name or the creating user). */
@@ -406,6 +413,15 @@ const invoiceSchema = new Schema<IInvoice>(
       leaseUntil: Date,
       completedAt: Date,
     },
+    importedFrom: {
+      kind: { type: String, enum: ['fenced_export'] },
+      exportId: Schema.Types.ObjectId,
+      moveId: Schema.Types.ObjectId,
+      nodeId: String,
+      at: Date,
+      by: Schema.Types.ObjectId,
+      number: String,
+    },
     paymentMethod: String,
     preparedBy: String,
     placeOfTransaction: String,
@@ -526,6 +542,8 @@ const invoiceSchema = new Schema<IInvoice>(
 
 invoiceSchema.plugin(tenantPlugin)
 invoiceSchema.index({ orgId: 1, invoiceNumber: 1 }, { unique: true })
+// FR-20.84: what an audited import brought in, by the export it came from.
+invoiceSchema.index({ orgId: 1, 'importedFrom.exportId': 1 }, { partialFilterExpression: { 'importedFrom.exportId': { $exists: true } } })
 // One document per client key. Partial, so the many documents without a key never collide.
 invoiceSchema.index(
   { orgId: 1, clientKey: 1 },

@@ -123,6 +123,7 @@ export { MirrorBlob, MIRROR_BLOB_STATES, type IMirrorBlob, type MirrorBlobState 
 export { NodeInstance, type INodeInstance } from './node-instance.model.js'
 export { OrgMove, LIVE_MOVE_STATES, type IOrgMove, type IOrgMoveStep, type OrgMoveKind, type OrgMoveState } from './org-move.model.js'
 export { FencedExport, FENCED_EXPORT_STATES, type IFencedExport, type FencedExportState, type FencedLegalDoc } from './fenced-export.model.js'
+export { FencedImportItem, FENCED_IMPORT_OUTCOMES, type IFencedImportItem, type FencedImportOutcome } from './fenced-import-item.model.js'
 
 // Infrastructure
 export { Sequence, type ISequence } from './sequence.model.js'

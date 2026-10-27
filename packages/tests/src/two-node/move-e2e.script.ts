@@ -16,7 +16,8 @@
  * where its row says and flips with the legal series frozen; numbering resumes above the site's last
  * numbers once recorded, and gives the sale's number to another. The link comes back: the server
  * learns of it, fences itself, and exports everything above the cutoff, which reaches global for
- * review with that collision named.
+ * review with that collision named. The admin brings it into the books: the other sale arrives as
+ * the site wrote it, the colliding one stays out, named.
  *
  *   bun packages/tests/src/two-node/move-e2e.script.ts [--promote]
  *
@@ -273,6 +274,10 @@ try {
     const lateSale = new mongoose.Types.ObjectId()
     await mdb.collection('contacts').insertOne({ _id: new mongoose.Types.ObjectId(), orgId, companyName: 'Sold to while the link was down', type: 'customer', isActive: true })
     await mdb.collection('invoices').insertOne({ _id: lateSale, orgId, type: 'invoice', direction: 'outgoing', invoiceNumber: 'INV-2026-00501', status: 'sent', issueDate: new Date(), total: 99, currency: 'EUR', lines: [] })
+    // And one lgrai.app will never number: it comes into the books as it is.
+    const soldAt = new Date(Date.now() - 60_000)
+    const otherSale = new mongoose.Types.ObjectId()
+    await mdb.collection('invoices').insertOne({ _id: otherSale, orgId, type: 'invoice', direction: 'outgoing', invoiceNumber: 'INV-2026-00502', status: 'sent', issueDate: soldAt, createdAt: soldAt, total: 49, currency: 'EUR', lines: [] })
     const journaled = await until(async () => (await headOf()) > watermark + 1, 60_000, 500)
     check('the cut-off server goes on, and journals what it does', !!journaled, `head ${await headOf()}, cutoff ${watermark}`)
     const gone = await until(async () => {
@@ -320,7 +325,7 @@ try {
       return r && r.state !== 'receiving' ? r : false
     }, 120_000, 2000)
     check('its export reaches lgrai.app, whole and checked', arrived?.state === 'received' && arrived.cutoff === cutoff, JSON.stringify(arrived && { state: arrived.state, error: arrived.error, cutoff: arrived.cutoff, summary: arrived.summary && { documents: arrived.summary.documents, byColl: arrived.summary.byColl } }))
-    check('…holding the sale and the customer it made with the link down', arrived?.summary?.byColl?.invoices >= 1 && arrived?.summary?.byColl?.contacts >= 1 && (arrived?.summary?.legal ?? []).some((l: any) => l.id === String(lateSale) && l.number === 'INV-2026-00501'))
+    check('…holding the sales and the customer it made with the link down', arrived?.summary?.byColl?.invoices >= 2 && arrived?.summary?.byColl?.contacts >= 1 && (arrived?.summary?.legal ?? []).some((l: any) => l.id === String(lateSale) && l.number === 'INV-2026-00501'))
     const here = join(DATA, 'uploads', String(orgId), 'docs', 'fenced', `fenced-${moveId}.ndjson.zst`)
     const there = join(GLOBAL_UPLOADS, String(orgId), 'docs', 'fenced', `fenced-${moveId}.ndjson.zst`)
     const shaOf = (p: string) => createHash('sha256').update(readFileSync(p)).digest('hex')
@@ -328,7 +333,20 @@ try {
     const review = await asAdmin('GET', `/org/${orgId}/moves/fenced-exports`)
     const listed = review.body?.exports?.[0]?.legal?.find((l: any) => l.id === String(lateSale))
     check('the review names the sale whose number lgrai.app gave to another', review.status === 200 && listed?.onGlobal === 'collision' && listed?.collidesWith?.id === String(issued.body?.invoice?.id ?? issued.body?.invoice?._id), JSON.stringify(listed))
-    check('…and writes none of it into the org', !(await gdb.collection('invoices').findOne({ _id: lateSale })))
+    check('…and writes none of it into the org', !(await gdb.collection('invoices').findOne({ _id: lateSale })) && !(await gdb.collection('invoices').findOne({ _id: otherSale })))
+    // The admin brings it into the books.
+    const asked = await asAdmin('POST', `/org/${orgId}/moves/fenced-exports/${String(arrived?._id)}/import`, {})
+    check('the admin brings it into the books', asked.status === 200, `${asked.status} ${asked.body?.code ?? ''}`)
+    const imported: any = await until(async () => {
+      const r: any = await gdb.collection('fenced_exports').findOne({ _id: arrived?._id })
+      return r?.import?.state === 'done' ? r : false
+    }, 120_000, 2000)
+    check('…which lgrai.app does, to the end', !!imported, JSON.stringify(imported?.import ?? null))
+    const kept: any = await gdb.collection('invoices').findOne({ _id: otherSale })
+    check('the sale lgrai.app never numbered arrives as the site wrote it, with where it came from', kept?.invoiceNumber === 'INV-2026-00502' && kept?.total === 49 && new Date(kept?.issueDate).getTime() === soldAt.getTime() && kept?.importedFrom?.kind === 'fenced_export' && String(kept?.importedFrom?.exportId) === String(arrived?._id), JSON.stringify(kept && { number: kept.invoiceNumber, total: kept.total, importedFrom: kept.importedFrom }))
+    check('…numbering goes on above it', (((await gdb.collection('sequences').findOne({ orgId, prefix: 'SALES_DOC', year: new Date().getFullYear() })) as any)?.lastNumber ?? 0) >= 502)
+    check('the one whose number lgrai.app gave to another stays out, named', !(await gdb.collection('invoices').findOne({ _id: lateSale })) && !!(await gdb.collection('fenced_import_items').findOne({ exportId: arrived?._id, coll: 'invoices', docKey: String(lateSale), outcome: 'skipped', reason: 'number_taken' })))
+    check('the customer it sold to is here', !!(await gdb.collection('contacts').findOne({ orgId, companyName: 'Sold to while the link was down' })))
     await Bun.sleep(15_000)
     check('its pump sends nothing more of the org: lgrai.app keeps no mirror of it', (await gdb.collection('mirror_state').countDocuments({ orgId })) === 0)
   }

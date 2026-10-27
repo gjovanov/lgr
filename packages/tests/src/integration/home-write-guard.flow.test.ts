@@ -159,6 +159,10 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
     count: 2,
     why: 'the move back\'s flip (FR-20.80 steps 4–6), in its transaction while the org is still homed on its master: Org.homeEpochHighWater (a field global owns) and the mirror_state row the flip ends',
   },
+  'services/src/biz/move/fenced-import.service.ts': {
+    count: 7,
+    why: 'the audited import of a fenced export (FR-20.84) into an org homed HERE (its POST is home-gated, its tick runs on global): the site\'s documents inserted type-exact with their own ids past every hook (Прил. 42: unchanged), the register sale\'s link to the stock movement booked here, and the rollback of a document whose booking failed (its own, by importedFrom)',
+  },
   'services/src/biz/move/move-bundle.ts': {
     count: 4,
     why: 'the move\'s import on a master (FR-20.79): only into an EMPTY org the master froze for the move, type-exact past every hook; the documents and the people (insertMany), a held person\'s tokenVersion only ever up, and an aborted import\'s own documents',

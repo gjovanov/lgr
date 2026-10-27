@@ -367,6 +367,12 @@ setTimeout(async () => {
         m => m.back.moveBackTick(new Date(), { flippedBack: nodeId => m.uplink.rewelcomeNode(nodeId) }),
       ),
     },
+    // FR-20.84 (P3-6e) — the audited import of a fenced export a person asked for: one batch a tick,
+    // under a lease, so a crash or another pod repeats nothing.
+    {
+      name: 'fenced-import-tick', intervalMs: config.node.role === 'global' ? config.move.tickMs : 0, immediate: true,
+      ...lazy(() => import('services/biz/move/fenced-import.service'), m => m.fencedImportTick()),
+    },
     {
       name: 'move-worker', intervalMs: config.node.role === 'master' ? config.move.workerMs : 0, immediate: true,
       ...lazy(

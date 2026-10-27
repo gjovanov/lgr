@@ -107,7 +107,7 @@ export function calculateInvoiceTotals(
   }
 }
 
-async function getNextMovementNumber(orgId: string, repos: RepositoryRegistry): Promise<string> {
+export async function getNextMovementNumber(orgId: string, repos: RepositoryRegistry): Promise<string> {
   const year = new Date().getFullYear()
   const prefix = `SM-${year}-`
   // The latest one only: listing every movement of the year to read the first was the cost of a

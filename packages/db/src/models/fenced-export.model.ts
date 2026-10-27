@@ -61,6 +61,21 @@ export interface IFencedExport {
   }
   error?: string
   receivedAt?: Date
+  /**
+   * The audited import (P3-6e, second half): asked for by a person, run by global's tick in batches
+   * under a lease, resumed by whichever process holds it next.
+   */
+  import?: {
+    state: 'requested' | 'running' | 'done'
+    requestedBy: Types.ObjectId
+    requestedAt: Date
+    leaseUntil?: Date
+    startedAt?: Date
+    doneAt?: Date
+    /** Per outcome and reason, how many documents. */
+    counts?: Record<string, number>
+    error?: string
+  }
   createdAt: Date
   updatedAt: Date
 }
@@ -81,6 +96,16 @@ const fencedExportSchema = new Schema<IFencedExport>(
     summary: { type: Schema.Types.Mixed },
     error: { type: String, maxlength: 2000 },
     receivedAt: Date,
+    import: {
+      state: { type: String, enum: ['requested', 'running', 'done'] },
+      requestedBy: Schema.Types.ObjectId,
+      requestedAt: Date,
+      leaseUntil: Date,
+      startedAt: Date,
+      doneAt: Date,
+      counts: { type: Schema.Types.Mixed },
+      error: { type: String, maxlength: 2000 },
+    },
   },
   { timestamps: true, collection: 'fenced_exports' },
 )
