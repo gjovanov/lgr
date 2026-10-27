@@ -598,15 +598,23 @@ Until the switch, an abort leaves the org on its server, which unfreezes it.
 A server restored from a backup, rolled back to a VM snapshot, or cloned onto another machine could
 issue an invoice number the shop already gave a customer. So it locks legal numbering (sales
 documents, cash sales, the fiscal devices' УНП) when:
-- an organization is restored from a backup on it;
+- an organization is restored from a backup on it by Replace (a Merge, which only adds what is
+  missing, locks nothing);
 - its journal of changes is behind a mark it keeps outside the database, which only a database that
   went back in time can be: checked before it starts serving, and every minute;
+- its journal is behind what lgrai.app's copy already holds of it: the mark lgrai.app keeps. This one
+  catches a VM rolled back to a snapshot, whose own mark went back with the disk;
 - lgrai.app reports another machine connected as it, or refuses its history as one that went back.
 
-The page says why, and a person records the last numbers off the last printed documents and the
-fiscal device's report. Numbering resumes above them, and above lgrai.app's copy when the server can
-ask it. Not yet: the fiscal device checked on its own, a clone seen on the shop's network, and
-re-seeding the server from lgrai.app's copy.
+On a server registered with lgrai.app, a restore by Replace is refused outright: it would take the
+server back in time underneath lgrai.app's copy and then send that older history to it, deleting
+there what the backup lacks. To go back to a backup, move the organization to lgrai.app and restore it
+there. Merge stays available.
+
+The page says why numbering waits, and a person records the last numbers off the last printed
+documents and the fiscal device's report. Numbering resumes above them, and above lgrai.app's copy
+when the server can ask it. Not yet: the fiscal device checked on its own, a clone seen on the shop's
+network, and re-seeding the server from lgrai.app's copy.
 
 ## Promoting lgrai.app's copy (FR-20.81)
 

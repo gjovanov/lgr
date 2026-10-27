@@ -374,9 +374,10 @@ setTimeout(async () => {
       ),
     },
     // FR-20.51 (P3-7) — on a master: the journal against its mark, and what lgrai.app says of this
-    // server (a clone alarm, pages refused as a history that went back). Either locks legal numbering.
+    // server (a clone alarm, pages refused as a history that went back, how far it holds the journal).
+    // Any of them locks legal numbering. From the start: a reverted disk is caught by the last one.
     {
-      name: 'series-lock-tick', intervalMs: config.node.role === 'master' ? 60_000 : 0, immediate: false,
+      name: 'series-lock-tick', intervalMs: config.node.role === 'master' ? 60_000 : 0, immediate: true,
       ...lazy(() => import('services/biz/home/series-lock.service'), async m => (await m.journalHwmTick()) + (await m.linkAlarmsTick())),
     },
     // FR-20.84 (P3-6e) — the audited import of a fenced export a person asked for: one batch a tick,

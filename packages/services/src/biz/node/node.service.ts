@@ -461,12 +461,16 @@ export async function loadActiveNode(claims: NodeTokenClaims): Promise<IServerNo
   return node
 }
 
+/** The mirror's refusals that mean the master's history went back (`series-lock.service#WENT_BACK_REFUSALS`). */
+const WENT_BACK: ReadonlySet<string> = new Set(['instance_changed', 'stale_journal', 'diverged'])
+
 /** What a node may know about itself: its registration and the orgs on it, by name. */
 export async function nodeSelf(node: IServerNode) {
   const orgs = await Org.find({ _id: { $in: node.orgIds } }).select('name slug').lean()
-  // FR-20.51 (P3-7): what makes the master lock its legal series: a clone alarm, and its pages
-  // refused as a history that went back, when that refusal is the newest thing the mirror heard.
-  const states: any[] = await MirrorState.find({ orgId: { $in: node.orgIds }, nodeId: node._id, 'lastRefusal.reason': { $in: ['instance_changed', 'stale_journal', 'diverged'] } }, { orgId: 1, lastRefusal: 1, lastPageAt: 1 }).lean()
+  // FR-20.51 (P3-7): what makes the master lock its legal series: a clone alarm, its pages refused as
+  // a history that went back when that refusal is the newest thing the mirror heard, and how far the
+  // mirror holds each org's journal (a master whose journal is below that went back).
+  const states: any[] = await MirrorState.find({ orgId: { $in: node.orgIds }, nodeId: node._id, chainHash: { $nin: ['', null] } }, { orgId: 1, watermark: 1, lastRefusal: 1, lastPageAt: 1 }).lean()
   return {
     nodeId: node._id,
     name: node.name,
@@ -477,8 +481,9 @@ export async function nodeSelf(node: IServerNode) {
     orgs: orgs.map((o: any) => ({ id: String(o._id), slug: o.slug, name: o.name })),
     cloneAlarm: (node as any).cloneAlarm?.at ? { at: (node as any).cloneAlarm.at } : null,
     wentBack: states
-      .filter(s => !s.lastPageAt || new Date(s.lastRefusal.at) > new Date(s.lastPageAt))
+      .filter(s => WENT_BACK.has(s.lastRefusal?.reason) && s.lastRefusal.at && (!s.lastPageAt || new Date(s.lastRefusal.at) > new Date(s.lastPageAt)))
       .map(s => ({ orgId: String(s.orgId), reason: s.lastRefusal.reason, at: s.lastRefusal.at })),
+    mirrors: states.map(s => ({ orgId: String(s.orgId), watermark: s.watermark ?? 0, lastPageAt: s.lastPageAt ?? null })),
   }
 }
 

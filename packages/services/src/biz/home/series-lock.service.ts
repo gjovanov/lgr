@@ -6,11 +6,18 @@
  * legal number is drawn, and every issuing path refuses before it moves anything.
  *
  * What locks it, on a master, for an org written there:
- * - **An in-app restore** of the org (FR-13, `applyRestore`).
+ * - **An in-app Replace restore** of the org (FR-13, `applyRestore`). ⚠ Only where lgrai.app keeps
+ *   no copy of it: on a server registered with lgrai.app a Replace is REFUSED (`replaceRefusedHere`),
+ *   because its writes are journaled like any other and its pages would take the mirror back in time
+ *   with it. A Merge only adds what is missing and never lowers a counter: it locks nothing.
  * - **The journal behind its own high-water mark.** The capture's per-org `seq` only ever grows in a
  *   database that was never rewound, so a mark kept OUTSIDE the database (a file beside the node
  *   token) that the database falls below means the database was restored or reverted. Checked at the
  *   API's start, before it serves, and every minute.
+ * - **The journal behind lgrai.app's watermark**: the other mark kept outside, by global. A healthy
+ *   master is never behind the pages it sent. ⚠ This is what catches a reverted VM snapshot, whose
+ *   own mark went back with the disk, and a restored database whose chain the master can no longer
+ *   continue: its pump stops that org (`chain_unknown`) without a word to global.
  * - **lgrai.app refusing its pages as a history that went back** (`instance_changed`,
  *   `stale_journal`, `diverged`): a reverted VM snapshot written to, when linked.
  * - **A clone alarm**: another machine connected as this server (FR-20.8).
@@ -23,6 +30,7 @@
  * Not yet: the fiscal device as a witness (its last receipt ahead of the database), the clone seen
  * on the LAN, and the re-seed from the mirror.
  */
+import { readFileSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { mongo } from 'mongoose'
@@ -33,6 +41,7 @@ import { thisNode } from 'db/home/home'
 import { logger } from '../../logger/logger.js'
 import { fetchWithTimeout } from '../outbound-fetch.js'
 import { readNodeToken } from '../relay/outbox-worker.js'
+import { captureOn } from '../replication/engine.js'
 
 type ObjectId = mongo.ObjectId
 const oid = (v: unknown) => new mongoose.Types.ObjectId(String(v)) as unknown as ObjectId
@@ -52,6 +61,37 @@ export async function lockLegalSeries(orgId: string, reason: SeriesLockReason, d
   )
   if (r.modifiedCount) logger.error({ orgId, reason, detail }, 'Legal numbering is LOCKED here until a person records the last numbers issued at the site')
   return r.modifiedCount > 0
+}
+
+// ── A restore on a master ────────────────────────────────────────────────────────────────────────
+
+/** Whether this server is registered with lgrai.app, at any link level: its registration on record. */
+function registeredWithLgrai(): boolean {
+  const file = config.replication.registrationFile
+  if (!file) return false
+  try {
+    return typeof JSON.parse(readFileSync(file, 'utf8'))?.linkLevel === 'string'
+  } catch {
+    return false
+  }
+}
+
+export const REPLACE_REFUSED =
+  'On a server registered with lgrai.app, Replace is refused: lgrai.app keeps a copy of this organisation, and a restore ' +
+  'here would take the server back in time underneath it, then send that history to the copy. To go back to a backup, move ' +
+  'the organisation to lgrai.app and restore it there. Merge, which only adds what is missing, stays available.'
+
+/**
+ * FR-20.51, FR-20.71 (P3-7): why a restore of `orgId` may not run on this master, or null. A Replace
+ * deletes and rewrites the org's documents, and the capture journals that like any other write: where
+ * lgrai.app keeps a copy (the server is registered, captures, or has paged the org), the pages would
+ * carry the backup's state to it, deleting there what the backup lacks. Only a server lgrai.app has
+ * never known restores by Replace, and its legal series lock.
+ */
+export async function replaceRefusedHere(orgId: string, mode: string): Promise<string | null> {
+  if (nodeRole() !== 'master' || mode !== 'replace') return null
+  if (captureOn() || registeredWithLgrai()) return REPLACE_REFUSED
+  return (await ReplOrg.exists({ orgId: oid(orgId), 'pages.0': { $exists: true } })) ? REPLACE_REFUSED : null
 }
 
 // ── The journal's high-water mark, kept outside the database ─────────────────────────────────────
@@ -125,8 +165,9 @@ export async function resetJournalHwm(orgId: string, now = new Date()): Promise<
 // ── What lgrai.app says of this server ───────────────────────────────────────────────────────────
 
 /**
- * Ask lgrai.app what it holds against this server: a clone alarm, and orgs whose pages it refuses as
- * a history that went back. Each locks the org's series here, if it is newer than the last unlock.
+ * Ask lgrai.app what it holds against this server: a clone alarm, orgs whose pages it refuses as a
+ * history that went back, and how far it holds each org's journal. Each locks the org's series here,
+ * if it is newer than the last unlock.
  */
 export async function linkAlarmsTick(fetchImpl: typeof fetch = fetch, now = new Date()): Promise<number> {
   if (nodeRole() !== 'master') return 0
@@ -136,6 +177,10 @@ export async function linkAlarmsTick(fetchImpl: typeof fetch = fetch, now = new 
   if (!res.ok) return 0
   const self: any = await res.json().catch(() => ({}))
   const homes: any[] = await OrgHome.find({ home: thisNode() }, { orgId: 1, seriesUnlockedAt: 1 }).lean()
+  if (!homes.length) return 0
+  const heads = new Map<string, number>(
+    ((await ReplOrg.find({ orgId: { $in: homes.map(h => h.orgId) } }, { orgId: 1, seq: 1 }).lean()) as any[]).map(r => [String(r.orgId), Number(r.seq ?? 0)]),
+  )
   let locked = 0
   for (const h of homes) {
     const key = String(h.orgId)
@@ -147,6 +192,15 @@ export async function linkAlarmsTick(fetchImpl: typeof fetch = fetch, now = new 
     const back = (self.wentBack ?? []).find((w: any) => w.orgId === key)
     if (back?.at && new Date(back.at).getTime() > since) {
       if (await lockLegalSeries(key, 'went_back', `lgrai.app refuses this server's pages: ${back.reason}`, now)) locked++
+      continue
+    }
+    // ⚠ Dated by the last page lgrai.app applied: a database still behind after a person recorded the
+    // numbers (no re-seed yet) is the same event, and never locks again.
+    const mirror = (self.mirrors ?? []).find((m: any) => m.orgId === key)
+    const head = heads.get(key)
+    const watermark = Number(mirror?.watermark ?? 0)
+    if (head !== undefined && head < watermark && (mirror?.lastPageAt ? new Date(mirror.lastPageAt).getTime() : 0) > since) {
+      if (await lockLegalSeries(key, 'went_back', `lgrai.app holds this server's journal of the organisation up to ${watermark}, and it is at ${head} here: the database went back`, now)) locked++
     }
   }
   return locked
