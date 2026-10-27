@@ -8,7 +8,8 @@
 //! - **Memory and disk:** at least 4 GB of RAM, and 20 GB free on the data volume.
 //! - **Where the data goes:** a local, fixed disk. Not a network share, a redirected path or a
 //!   roaming profile: a database on any of those is lost, corrupted, or slow beyond use.
-//! - **Windows only:** the VC++ runtime is present.
+//! - **Windows only:** the VC++ runtime `mongod` links is where Windows loads it from: the package's
+//!   `bin\`, which carries it app-local, or System32.
 
 use serde::Serialize;
 use std::path::Path;
@@ -192,19 +193,51 @@ pub fn location(data: &Path) -> Check {
     }
 }
 
-#[cfg(windows)]
-pub fn vc_runtime() -> Check {
-    let system = std::env::var_os("SystemRoot").map(std::path::PathBuf::from).unwrap_or_else(|| r"C:\Windows".into()).join("System32");
-    let present = ["vcruntime140.dll", "msvcp140.dll"].iter().all(|dll| system.join(dll).exists());
-    check("vc-runtime", present, if present { "the VC++ runtime is installed" } else { "the VC++ 2015-2022 runtime is missing: the installer installs it" })
+/// The VC++ runtime `mongod.exe` links: what the package's `bin\` carries
+/// (`scripts/assemble-server-home.ts`).
+#[cfg(any(windows, test))]
+const CRT: [&str; 3] = ["msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"];
+
+/// Each DLL counts where Windows loads it from: beside `mongod.exe` first, then System32.
+///
+/// ⚠ Never System32 alone. The package ships the runtime app-local, and a clean Windows has none in
+/// System32: checking only there refused to start every master on a machine nobody had installed
+/// the redistributable on, which the CI runners and every developer machine have (found by the
+/// vmtest `master-win11` lane, 2026-10-28).
+#[cfg(any(windows, test))]
+fn vc_runtime_in(bin: &Path, system: &Path) -> Check {
+    let missing: Vec<&str> = CRT.iter().copied().filter(|dll| !bin.join(dll).exists() && !system.join(dll).exists()).collect();
+    if !missing.is_empty() {
+        let detail = format!(
+            "the VC++ 2015-2022 runtime mongod needs is missing ({}): neither {} nor System32 has it; reinstalling LGR Server puts it back",
+            missing.join(", "),
+            bin.display()
+        );
+        return check("vc-runtime", false, detail);
+    }
+    if CRT.iter().all(|dll| bin.join(dll).exists()) {
+        check("vc-runtime", true, format!("the VC++ runtime ships with the server ({})", bin.display()))
+    } else {
+        check("vc-runtime", true, "the VC++ runtime is installed")
+    }
 }
 
-/// Every check, in the order they are shown.
-pub fn run(data: &Path) -> Vec<Check> {
+/// `bin` holds the `mongod` that will run (`install::runtime_bin`).
+#[cfg(windows)]
+pub fn vc_runtime(bin: &Path) -> Check {
+    let system = std::env::var_os("SystemRoot").map(std::path::PathBuf::from).unwrap_or_else(|| r"C:\Windows".into()).join("System32");
+    vc_runtime_in(bin, &system)
+}
+
+/// Every check, in the order they are shown. `bin` holds the `mongod` that will run
+/// (`install::runtime_bin`).
+///
+/// ⚠ Nothing here names `crate::`: this file must stay a leaf, the checks and nothing they lean on.
+pub fn run(data: &Path, #[allow(unused_variables)] bin: &Path) -> Vec<Check> {
     #[allow(unused_mut)]
     let mut checks = vec![cpu(), memory(), disk(data), location(data)];
     #[cfg(windows)]
-    checks.push(vc_runtime());
+    checks.push(vc_runtime(bin));
     checks
 }
 
@@ -222,7 +255,7 @@ mod tests {
     #[test]
     fn this_machine_answers_every_check() {
         let dir = scratch();
-        let checks = run(dir.path());
+        let checks = run(dir.path(), dir.path());
         let names: Vec<&str> = checks.iter().map(|c| c.name).collect();
         assert!(names.starts_with(&["cpu", "memory", "disk", "location"]), "{names:?}");
         // A developer machine or a CI runner can run MongoDB (the test suite does): these hold here.
@@ -258,5 +291,49 @@ mod tests {
     fn a_network_path_is_refused() {
         assert!(not_local(Path::new(r"\\fileserver\share\lgr")).is_some());
         assert!(not_local(Path::new("//fileserver/share/lgr")).is_some());
+    }
+
+    fn with_dlls(dir: &Path, dlls: &[&str]) {
+        std::fs::create_dir_all(dir).unwrap();
+        for d in dlls {
+            std::fs::write(dir.join(d), b"").unwrap();
+        }
+    }
+
+    /// The machine the vmtest lane found: a clean Windows, nothing in System32, the package's own copy
+    /// beside mongod.
+    #[test]
+    fn the_runtime_the_package_carries_is_enough() {
+        let dir = scratch();
+        let (bin, system) = (dir.path().join("bin"), dir.path().join("System32"));
+        with_dlls(&bin, &CRT);
+        with_dlls(&system, &[]);
+        let c = vc_runtime_in(&bin, &system);
+        assert!(c.ok, "{c:?}");
+        assert!(c.detail.contains("ships with the server"), "{c:?}");
+    }
+
+    #[test]
+    fn a_runtime_in_neither_place_is_missing_and_named() {
+        let dir = scratch();
+        let (bin, system) = (dir.path().join("bin"), dir.path().join("System32"));
+        with_dlls(&bin, &["msvcp140.dll"]);
+        with_dlls(&system, &[]);
+        let c = vc_runtime_in(&bin, &system);
+        assert!(!c.ok, "{c:?}");
+        assert!(c.detail.contains("vcruntime140.dll, vcruntime140_1.dll"), "{c:?}");
+        assert!(!c.detail.contains("msvcp140.dll"), "only what is missing is named: {c:?}");
+    }
+
+    /// Windows looks beside the program first and then in System32, one DLL at a time.
+    #[test]
+    fn system32_still_counts_dll_by_dll() {
+        let dir = scratch();
+        let (bin, system) = (dir.path().join("bin"), dir.path().join("System32"));
+        with_dlls(&bin, &["msvcp140.dll", "vcruntime140.dll"]);
+        with_dlls(&system, &["vcruntime140_1.dll"]);
+        let c = vc_runtime_in(&bin, &system);
+        assert!(c.ok, "{c:?}");
+        assert_eq!(c.detail, "the VC++ runtime is installed");
     }
 }

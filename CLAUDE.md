@@ -2436,6 +2436,12 @@ a pull request touching it builds unsigned and installs.
   (`update install-bundle`) BEFORE any version, with its app-local runtime, is unpacked. server-v0.1.0
   linked it dynamically: the first field lane (vmtest T-3, a clean Win11) failed the install with 1603,
   STATUS_DLL_NOT_FOUND. The release runner has the runtime installed, so CI's own MSI install passed.
+- ⚠ **The preflight looks for that runtime where `mongod` loads it** (`preflight::vc_runtime_in`): the
+  version's `bin\` first, then System32, DLL by DLL. It used to look in System32 alone, so on a clean
+  Windows the supervisor refused every start (exit 7, which the event log renders as "The storage
+  control blocks were destroyed") while all three DLLs sat in `bin\`. Found by the same lane, on
+  0.1.1's first build. `install::runtime_bin` answers for `installer\lgr-server.exe`, which has no
+  `bin\`.
 - ⚠ The MSI creates the service with a deferred custom action, `service install --no-start`, and
   starts it with ServiceControl. `install` is idempotent (an upgrade runs it again).
 - ⚠ The .deb's postinst never starts, stops or enables anything. `packaging/linux/lgr-server.service`

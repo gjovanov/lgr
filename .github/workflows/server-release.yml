@@ -308,6 +308,10 @@ jobs:
           foreach ($f in 'installer\lgr-server.exe', 'installer\lgr-server-bundle.zip', "versions\$v1\lgr-server.exe", "versions\$v1\HOME.json", "versions\$v1\bin\bun.exe", "versions\$v1\bin\mongod.exe", "versions\$v1\bin\vcruntime140.dll", "versions\$v1\package\server-manifest.json", "versions\$v1\chrome\chrome-headless-shell.exe", "versions\$v1\licences\mongodb\LICENSE-Community.txt") {
             if (-not (Test-Path "$root\$f")) { Fail "not installed: $f" }
           }
+          # The preflight finds mongod's runtime in the version's bin\: this runner also has it in
+          # System32, which a clean Windows does not. Asked of the installer's copy, as an operator asks.
+          $vc = & $exe preflight --json | ConvertFrom-Json | Where-Object { $_.name -eq 'vc-runtime' }
+          if (-not $vc.ok -or $vc.detail -notlike "*ships with the server*\versions\$v1\bin*") { Fail "the preflight's runtime check: $($vc | ConvertTo-Json -Compress)" }
           $svc = Get-CimInstance Win32_Service -Filter "Name='LGRServer'"
           if (-not $svc) { Fail 'no LGRServer service' }
           if ($svc.StartName -ne 'NT SERVICE\LGRServer') { Fail "the service runs as $($svc.StartName)" }

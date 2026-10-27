@@ -238,7 +238,7 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
         };
         tracing::info!(home = %paths.home.display(), package = %paths.package.display(), data = %paths.data.display(), "starting");
         // FR-20.13: a machine that cannot run a master is told why, before anything starts.
-        let failed: Vec<_> = preflight::run(&paths.data).into_iter().filter(|c| !c.ok).collect();
+        let failed: Vec<_> = preflight::run(&paths.data, &install::runtime_bin(&paths.home)).into_iter().filter(|c| !c.ok).collect();
         if !failed.is_empty() {
             for c in &failed {
                 tracing::error!(check = c.name, "{}", c.detail);
@@ -821,7 +821,7 @@ fn real_main(cli: Cli) -> Result<i32> {
                 "manifest": std::fs::read_to_string(paths.package.join("server-manifest.json")).ok()
                     .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
                     .map(|m| serde_json::json!({ "commit": m["commit"], "commitDate": m["commitDate"], "dirty": m["dirty"], "bun": m["bun"] })),
-                "preflight": preflight::run(&paths.data),
+                "preflight": preflight::run(&paths.data, &install::runtime_bin(&paths.home)),
                 "running": status.is_some(),
                 "status": status,
             });
@@ -830,7 +830,7 @@ fn real_main(cli: Cli) -> Result<i32> {
         }
         Command::Preflight { json } => {
             let paths = config::Paths::resolve()?;
-            let checks = preflight::run(&paths.data);
+            let checks = preflight::run(&paths.data, &install::runtime_bin(&paths.home));
             if json {
                 println!("{}", serde_json::to_string_pretty(&checks)?);
             } else {

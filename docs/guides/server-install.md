@@ -131,7 +131,8 @@ The packages install a version beside the others and point the service at it (FR
 how many files and bytes it holds, which is how an install knows it is complete.
 - `lgr-server`: the supervisor (Rust).
 - `bin/`: Bun and `mongod`, each pinned by its vendor's sha256 in `packages/server/runtime.lock.json`.
-  On Windows, also the VC++ runtime `mongod` links.
+  On Windows, also the VC++ runtime `mongod` links. No redistributable is installed system-wide,
+  and the preflight's `vc-runtime` check looks here before System32.
 - `chrome/`: `chrome-headless-shell`, pinned by `packages/server/pdf-browser.lock.json`.
 - `package/`: the API and its apps (`bun run build:server`).
 - `licences/`: MongoDB Community Server's SSPL, its notices, and `SOURCE.txt` (the binaries are
