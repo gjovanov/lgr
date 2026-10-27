@@ -3111,6 +3111,15 @@
       "confirmRelease": "{org} freigeben? Der eigene Eintrag von lgrai.app gilt, und es schreibt die Organisation wieder, wenn dieser Eintrag es als Heimat nennt.",
       "afterRestore": "Nach Wiederherstellung anhalten",
       "confirmAfterRestore": "Nach einer Notfall-Wiederherstellung von lgrai.app: die {n} Organisationen anhalten, die einen Server haben oder hatten? lgrai.app schreibt nichts davon, bis sich jeder Server mit dem Eintrag meldet, den lgrai.app hält, oder ein Systemadministrator sie freigibt. Direkt nach der Wiederherstellung ausführen."
+    },
+    "addresses": {
+      "title": "Adressen im Internet",
+      "approve": "Genehmigen",
+      "refuse": "Ablehnen",
+      "retire": "Stilllegen",
+      "reason": "Begründung",
+      "refuseTitle": "{url} ablehnen?",
+      "confirmRetire": "{url} stilllegen? Dort erscheint 12 Monate lang ein Hinweis, und der Name wird nie wieder vergeben."
     }
   },
   "adminLicences": {
@@ -3466,6 +3475,28 @@
       "clock_skew": "Uhr geht um {age} falsch",
       "supto_waiting": "SUPTO-Version {version} wartet auf ihre Anmeldung",
       "home_hold": "Angehaltene Organisationen: {n}"
+    },
+    "address": {
+      "title": "Adresse im Internet",
+      "intro": "Solange die Organisation auf ihrem eigenen Server geschrieben wird, erreichen ihre Leute sie von überall unter dieser Adresse, über lgrai.app. lgrai.app genehmigt jede Adresse; ein Name wird nie zweimal vergeben.",
+      "state": {
+        "requested": "Beantragt",
+        "active": "Aktiv",
+        "refused": "Abgelehnt",
+        "retired": "Stillgelegt"
+      },
+      "request": "{url} beantragen",
+      "requested": "Beantragt: ein Systemadministrator genehmigt sie",
+      "noticeUntil": "Dort erscheint bis {when} ein Hinweis",
+      "why": {
+        "invalid": "„{label}“ kann kein Adressname sein: nur Kleinbuchstaben, Ziffern und Bindestriche.",
+        "too_long": "„{label}“ ist länger, als eine Adresse sein darf (63 Zeichen).",
+        "punycode": "„{label}“ kann kein Adressname sein.",
+        "reserved": "„{label}“ ist für lgrai.app selbst reserviert.",
+        "no_licence": "Die Lizenz der Organisation umfasst keinen eigenen Server.",
+        "label_taken": "„{label}“ wurde schon vergeben und wird nie wieder vergeben.",
+        "already": "Die Organisation hat bereits eine Adresse."
+      }
     }
   },
   "serverStatus": {

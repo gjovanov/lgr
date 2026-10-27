@@ -356,6 +356,13 @@ Updates that come by themselves (plan step P1-8c, `updates.rs`, `helper.rs`, `si
   and once it has the bytes it checks that the bundle is the version the offer named. A build within
   the version that runs is not a new SUPTO version and updates as usual. lgrai.app's own deploys wait
   the same way (`deploy-prod.sh`).
+- **An org's address on the internet** (P3-4a, FR-20.72): `<label>.lgrai.app`, where the people of an
+  org written on its own server reach it from anywhere, through lgrai.app (the tunnel, P3-4c). The org's
+  admin asks for it on the Servers page; a sys-admin approves it on the Nodes page. The label is the
+  org's name in its address (its slug) when it is asked for, a rename does not move it, and a label is
+  issued only once: a retired address shows a notice for a year and is never anyone else's. Only an org
+  whose licence includes its own server can have one, and not for a reserved name or one the zone
+  already serves.
 - **An org on hold on lgrai.app** (P3-8d, FR-20.3). Each minute a master tells lgrai.app which home
   record it holds for each org it writes. A newer one than lgrai.app's means lgrai.app's database
   is older than the org's last move (a disaster-recovery restore), so lgrai.app stops writing the org
