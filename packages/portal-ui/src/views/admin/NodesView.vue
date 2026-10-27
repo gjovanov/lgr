@@ -28,6 +28,13 @@
         </v-chip>
       </template>
       <template #item.health="{ item }">{{ healthText(item.health) }}</template>
+      <template #item.backup="{ item }">{{ item.health?.lastBackupAt ? t('adminNodes.backupAgo', { age: duration((Date.now() - new Date(item.health.lastBackupAt).getTime()) / 1000) }) : '—' }}</template>
+      <!-- FR-20.99/101 (P3-8): what needs a sys-admin's eye. -->
+      <template #item.alarms="{ item }">
+        <div class="d-flex flex-wrap ga-1" data-test="node-alarms">
+          <v-chip v-for="a in item.alarms ?? []" :key="a.kind + (a.orgId ?? '')" size="x-small" color="warning" variant="tonal">{{ alarmText(a) }}</v-chip>
+        </div>
+      </template>
       <template #item.lastSeenAt="{ item }">{{ item.lastSeenAt ? new Date(item.lastSeenAt).toLocaleString() : '—' }}</template>
     </v-data-table>
   </v-container>
@@ -38,10 +45,11 @@ import { computed, defineComponent, h, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { VChip } from 'vuetify/components'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { useNodeAlarms } from 'ui-shared/composables/useNodeAlarms'
 
 /**
  * The sys-admin Nodes page (FR-20 plan step P2-3a): every master registered with global, across
- * every org. Read-only.
+ * every org. Read-only. Since P3-8 (FR-20.99, FR-20.101): its link, its last backup, its alarms.
  *
  * ⚠ Gated SERVER-SIDE by the backup allow-list (`BACKUP_SYS_ADMINS`). The nav entry is shown only
  * to an admitted caller, which secures nothing: the server answers 403 to everyone else, and the
@@ -49,6 +57,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
  */
 
 const { t } = useI18n()
+const { alarmText, duration } = useNodeAlarms()
 const items = ref<any[]>([])
 const loading = ref(false)
 const forbidden = ref(false)
@@ -60,6 +69,9 @@ const headers = computed(() => [
   { title: t('servers.connected'), key: 'connected', sortable: false },
   { title: t('servers.status'), key: 'status' },
   { title: t('servers.health'), key: 'health', sortable: false },
+  { title: t('adminNodes.link'), key: 'linkLevel' },
+  { title: t('adminNodes.backup'), key: 'backup', sortable: false },
+  { title: t('adminNodes.alarms'), key: 'alarms', sortable: false },
   { title: t('servers.lastSeen'), key: 'lastSeenAt' },
 ])
 

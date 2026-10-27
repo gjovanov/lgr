@@ -252,6 +252,49 @@ fn is_going_down(e: &mongodb::error::Error) -> bool {
     }
 }
 
+/// FR-20.101: how far back the oplog reaches. A capture stopped longer than that loses its history
+/// (FR-20.61) and the mirror is reconciled from scratch, so a window under seven days is an alarm.
+/// Read as the administrator: the API's own user cannot read `local`. The client is made once and
+/// kept; `None` while it cannot be read (no secrets yet, mongod down), and ⚠ while the oplog is not
+/// yet full: until it wraps, its first entry is only the server's first day, and a new install
+/// would read as a short window for a week.
+pub struct OplogWindow {
+    plan: Plan,
+    client: tokio::sync::OnceCell<mongodb::Client>,
+}
+
+impl OplogWindow {
+    pub fn new(plan: Plan) -> Self {
+        Self { plan, client: tokio::sync::OnceCell::new() }
+    }
+
+    pub async fn secs(&self) -> Option<u64> {
+        let c = self
+            .client
+            .get_or_try_init(|| async {
+                // Only ever read the secrets here: `secrets` writes them when they are missing.
+                let env = parse_env(&std::fs::read_to_string(&self.plan.secrets)?);
+                let admin = env.get("MONGO_ADMIN_PASSWORD").ok_or_else(|| anyhow!("no administrator password yet"))?;
+                client(&self.plan, Some((ADMIN_USER, admin))).await
+            })
+            .await
+            .ok()?;
+        let oplog = c.database("local").collection::<Document>("oplog.rs");
+        // Not wrapping yet: nothing is lost however long a capture stops, whatever the first entry says.
+        let mut stats = oplog.aggregate(vec![doc! { "$collStats": { "storageStats": {} } }]).await.ok()?;
+        let storage = futures_util::StreamExt::next(&mut stats).await?.ok()?.get_document("storageStats").ok()?.clone();
+        let size = storage.get("size").and_then(|v| v.as_i64().or(v.as_i32().map(i64::from)).or(v.as_f64().map(|f| f as i64)))?;
+        let max = storage.get("maxSize").and_then(|v| v.as_i64().or(v.as_i32().map(i64::from)).or(v.as_f64().map(|f| f as i64)))?;
+        if max <= 0 || (size as f64) < (max as f64) * 0.9 {
+            return None;
+        }
+        let ts = |d: Option<Document>| d.and_then(|d| d.get_timestamp("ts").ok());
+        let first = ts(oplog.find_one(doc! {}).sort(doc! { "$natural": 1 }).projection(doc! { "ts": 1 }).await.ok()?)?;
+        let last = ts(oplog.find_one(doc! {}).sort(doc! { "$natural": -1 }).projection(doc! { "ts": 1 }).await.ok()?)?;
+        Some(u64::from(last.time.saturating_sub(first.time)))
+    }
+}
+
 /// The API's URI as `keys/mongo.env` gives it, without touching the database: what `run-script`
 /// hands a script, so it reaches the database the API does.
 pub fn known_app_uri(plan: &Plan) -> Option<String> {
@@ -561,5 +604,61 @@ mod tests {
         assert!(second.stop(&after_loss.stop, Duration::from_secs(10)).await.is_some());
         assert!(started.elapsed() < Duration::from_secs(8), "took {:?}", started.elapsed());
         assert_eq!(by_command(), 1, "the refused command must not have stopped it");
+    }
+
+    #[tokio::test]
+    async fn the_oplog_window_is_read_only_once_the_oplog_wraps() {
+        let Some(binary) = std::env::var_os("LGR_SERVER_TEST_MONGOD").filter(|v| !v.is_empty()).map(PathBuf::from) else {
+            eprintln!("LGR_SERVER_TEST_MONGOD not set: skipped");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+        let plan = Plan {
+            binary,
+            port,
+            dbpath: dir.path().join("db"),
+            keyfile: dir.path().join("keys").join("mongo.keyfile"),
+            secrets: dir.path().join("keys").join("mongo.env"),
+            log: dir.path().join("logs").join("mongod.log"),
+            cache_gb: 0.25,
+            oplog_mb: 64,
+        };
+        let spec = spec(&plan).unwrap();
+        let child = crate::child::spawn(&spec).unwrap();
+        let uri = bootstrap(&plan).await.unwrap();
+        let window = OplogWindow::new(plan.clone());
+        // A new server: its oplog does not wrap yet, so nothing is lost however long a capture stops.
+        assert_eq!(window.secs().await, None);
+        // Filled past nine tenths of what it may hold, it reaches back only so far.
+        let app = mongodb::Client::with_uri_str(&uri).await.unwrap();
+        let blob = mongodb::bson::Binary { subtype: mongodb::bson::spec::BinarySubtype::Generic, bytes: vec![7u8; 512 * 1024] };
+        let admin = client(&plan, Some((ADMIN_USER, &secrets(&plan).unwrap().admin))).await.unwrap();
+        let max_size = || async {
+            let mut s = admin.database("local").collection::<Document>("oplog.rs").aggregate(vec![doc! { "$collStats": { "storageStats": {} } }]).await.unwrap();
+            let d = futures_util::StreamExt::next(&mut s).await.unwrap().unwrap();
+            let st = d.get_document("storageStats").unwrap().clone();
+            let n = |k: &str| st.get(k).and_then(|v| v.as_i64().or(v.as_i32().map(i64::from)).or(v.as_f64().map(|f| f as i64))).unwrap();
+            (n("size"), n("maxSize"))
+        };
+        let (_, max) = max_size().await;
+        if max > 256 * 1024 * 1024 {
+            eprintln!("mongod keeps an oplog of {max} bytes whatever it is asked: the full case is not filled here");
+        } else {
+            for i in 0..(2 * max / (512 * 1024) + 8) {
+                app.database("lgr").collection::<Document>("fill").insert_one(doc! { "i": i, "b": blob.clone() }).await.unwrap();
+                if i % 16 == 0 && max_size().await.0 as f64 >= max as f64 * 0.95 {
+                    break;
+                }
+            }
+            let secs = window.secs().await.expect("a full oplog has a window");
+            assert!(secs < 600, "{secs}");
+        }
+        drop(app);
+        drop(admin);
+        child.stop(&spec.stop, Duration::from_secs(10)).await;
     }
 }

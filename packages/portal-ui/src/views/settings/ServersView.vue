@@ -227,6 +227,8 @@
             <v-chip v-if="item.cloneAlarm" size="x-small" color="error" variant="flat" data-test="clone-alarm">{{ $t('servers.cloneAlarm') }}</v-chip>
             <!-- FR-20.51 (P3-7): what the server says of this org: its database went back, its numbering is locked. -->
             <v-chip v-if="item.orgState?.wentBack" size="x-small" color="error" variant="tonal" :title="$t('servers.wentBackHint')" data-test="went-back">{{ $t('servers.wentBack') }}</v-chip>
+            <!-- FR-20.101 (P3-8): what the server's health and its mirror say needs a person. -->
+            <v-chip v-for="a in item.alarms ?? []" :key="a.kind + (a.orgId ?? '')" size="x-small" color="warning" variant="tonal" :data-test="'alarm-' + a.kind">{{ alarmText(a) }}</v-chip>
             <v-chip
               v-if="item.orgState?.numbering"
               size="x-small"
@@ -563,6 +565,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useNodeAlarms } from 'ui-shared/composables/useNodeAlarms'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { announceHomeChanged } from 'ui-shared/composables/useHomeChanged'
@@ -605,6 +608,7 @@ interface ServerRow {
 }
 
 const { t, te } = useI18n()
+const { alarmText } = useNodeAlarms()
 const appStore = useAppStore()
 const { showSnackbar } = useSnackbar()
 

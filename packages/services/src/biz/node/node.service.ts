@@ -539,6 +539,12 @@ export async function reapEphemeralNodes(now = new Date()): Promise<number> {
 const num = (v: unknown, max: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(v, max)) : undefined)
 const str = (v: unknown, max = 40) => (typeof v === 'string' ? v.slice(0, max) : undefined)
 const bool = (v: unknown) => (typeof v === 'boolean' ? v : undefined)
+/** The master's clock less global's as its frame arrived, in whole seconds; nothing when it sent none. */
+const skewOf = (v: unknown, at: Date) => {
+  const d = typeof v === 'string' ? new Date(v) : null
+  if (!d || !Number.isFinite(d.getTime())) return undefined
+  return Math.max(-1e7, Math.min(1e7, Math.round((d.getTime() - at.getTime()) / 1000)))
+}
 /** A version as a release names it, or nothing: never free text a master chose. */
 const ver = (v: unknown) => (typeof v === 'string' && /^\d{1,6}\.\d{1,6}\.\d{1,6}(-[0-9A-Za-z.-]{1,40})?$/.test(v) ? v : undefined)
 const UPDATE_STATES = ['up-to-date', 'installing', 'deferred', 'not-versioned'] as const
@@ -577,12 +583,19 @@ export function sanitizeHealth(frame: any, at = new Date()): Record<string, unkn
     versions: { app: str(frame?.versions?.app), protocol: num(frame?.versions?.protocol, 1e6) },
     uptimeSecs: num(frame?.uptimeSecs, 1e10),
     children,
-    disk: { freeBytes: num(frame?.disk?.freeBytes, 1e16) },
+    disk: { freeBytes: num(frame?.disk?.freeBytes, 1e16), totalBytes: num(frame?.disk?.totalBytes, 1e16) },
+    // FR-20.101 (P3-8): what the alarms read (`node-alarms.ts`). The oplog's reach only once it wraps;
+    // the clock as the skew between the master's and global's when the frame arrived.
+    oplogWindowSecs: num(frame?.oplogWindowSecs, 1e10),
+    clockSkewSecs: skewOf(frame?.clock, at),
     api: {
       ok: bool(frame?.api?.ok),
       posOpen: num(frame?.api?.posOpen, 1e6),
       fiscalInFlight: num(frame?.api?.fiscalInFlight, 1e6),
       clockTrusted: bool(frame?.api?.clockTrusted),
+      lastBackupAt: when(frame?.api?.lastBackupAt, at),
+      fenced: num(frame?.api?.fenced, 1e4),
+      outboxQueued: num(frame?.api?.outboxQueued, 1e9),
     },
     update: sanitizeUpdate(frame?.update),
     // FR-20.82 (P3-6b): where its LAN ingress answers, and the pin of its CA: what a re-point names
@@ -666,6 +679,10 @@ export function nodeToWire(n: any) {
           appVersion: n.health.versions?.app,
           uptimeSecs: n.health.uptimeSecs,
           diskFreeBytes: n.health.disk?.freeBytes,
+          diskTotalBytes: n.health.disk?.totalBytes,
+          oplogWindowSecs: n.health.oplogWindowSecs,
+          lastBackupAt: n.health.api?.lastBackupAt,
+          outboxQueued: n.health.api?.outboxQueued,
           apiOk: n.health.api?.ok,
           posOpen: n.health.api?.posOpen,
           clockTrusted: n.health.api?.clockTrusted,

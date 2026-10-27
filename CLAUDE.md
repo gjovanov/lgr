@@ -2548,6 +2548,21 @@ Operator page: `docs/architecture/nodes.md#moving-an-org-to-its-master-fr-2079`.
 After a move to a master, global tells each of the org's desktops where the master answers and which
 CA to pin there; the desktop keeps its id and its key (its registry row moved with the org, FR-20.63),
 so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.ts#movedFor`.
+- **Alarms (FR-20.101, P3-8a; `services/biz/node/node-alarms.ts`).** The health frame also carries
+  `disk.totalBytes`, `oplogWindowSecs` (the supervisor reads `local.oplog.rs` as the
+  administrator, `mongod::OplogWindow`: the API's user cannot; ⚠ ONLY once the oplog is 90 % of its
+  max size: until it wraps its first entry is just the server's first day, and a new install would
+  read as a short window for a week), `clock` (global keeps `clockSkewSecs`, master minus global at
+  receipt) and the API's `lastBackupAt` / `fenced` / `outboxQueued`
+  (`services/biz/node/master-health.ts`, through the control socket's status). `nodeAlarms`: the
+  mirror over an hour behind while bulk is up (the master's reported head past the watermark AND
+  no page for an hour; caught up is never lag), a backup over 26 h (none at all only a day after
+  enrolment, and only for a server that writes an org), disk under 10 %, oplog under 7 days, fenced,
+  clock over ±2 min. ⚠ A health frame older than ten minutes raises nothing: away is the
+  connection's to say. `alarmsOfNodes` batches presence, homes and mirrors; the org's Servers
+  list carries `alarms` (a lag only that org's) and `/admin/nodes` everyone's, with link and last
+  backup (`useNodeAlarms` formats both, durations through `Intl`, ×4). Not yet (P3-8b/c): the
+  master's own status page, the digest's on-prem lines, the Прил. 32 fields, the SUPTO alarm.
 - **Where the master answers**: the supervisor's health frame carries `lan {url, caFingerprint}` from
   `state/lan.json` (only while the LAN ingress is on); `sanitizeHealth` keeps it only in the shape a
   desktop takes (`LAN_URL`, `CA_PIN` in `repoint-token.ts`).

@@ -237,6 +237,14 @@ and `…?ch=bulk` (`portal-api/src/websocket/uplink.ts`, mounted on global only)
   - A master older than `NODE_MIN_MASTER_VERSION`, or naming no version, gets `master_outdated`.
     It stays connected for its update, and `isTrusted` is false.
   - `/admin/nodes` lists every master across orgs, for the `BACKUP_SYS_ADMINS` allow-list.
+- **Alarms (P3-8, FR-20.101).** The health frame also says the volume's size, how far back the
+  oplog reaches (once it wraps: until then nothing is lost however long a capture stops), the
+  server's clock (lgrai.app keeps the skew), its newest backup, the orgs it is fenced for, and what
+  waits for the internet. From that and the mirror, lgrai.app raises: the mirror over an hour behind
+  while the uplink is up, a backup older than 26 hours (or none, a day into serving its orgs), disk
+  under 10 % free, an oplog under seven days, a fenced server, a clock over two minutes off. A
+  frame older than ten minutes raises nothing. The Servers page shows a server's alarms (a lag only
+  its own org's), and the Nodes page every master's, with its link and last backup.
 
 ## Desktop updates through the master (FR-20.56)
 

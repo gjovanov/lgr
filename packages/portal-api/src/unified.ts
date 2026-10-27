@@ -201,6 +201,8 @@ if (config.front.controlSocket && config.front.secret) {
           const trust = clockTrusted()
           return { trusted: trust.ok, reason: trust.ok ? undefined : trust.reason, last: lastClockVerification() ?? null }
         })(),
+        // FR-20.98–20.101 (P3-8): the last backup, the orgs fenced here, what waits for the internet.
+        ...((await (await import('services/biz/node/master-health')).masterHealth().catch(() => null)) ?? {}),
       }
     },
     stop: stopNow,

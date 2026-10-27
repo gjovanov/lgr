@@ -3090,7 +3090,11 @@
     "intro": "Every shop server registered with lgrai.app, across organizations.",
     "orgs": "Organizations",
     "none": "No server is registered.",
-    "forbidden": "This page is for system administrators."
+    "forbidden": "This page is for system administrators.",
+    "link": "Link",
+    "backup": "Last backup",
+    "alarms": "Alarms",
+    "backupAgo": "{age} ago"
   },
   "adminLicences": {
     "title": "Licences",
@@ -3434,6 +3438,15 @@
         "foreign_collision": "{coll} {id}: its id or a unique value belongs to another organization on lgrai.app",
         "write_error": "{coll} {id}: the database refused it"
       }
+    },
+    "alarm": {
+      "mirror_lag": "lgrai.app's copy {age} behind",
+      "backup_stale": "Last backup {age} ago",
+      "backup_none": "No backup yet",
+      "disk_low": "Disk {pct}% free",
+      "oplog_short": "Database history reaches back only {age}",
+      "fenced": "Fenced for {n} organizations",
+      "clock_skew": "Clock {age} off"
     }
   },
   "desktops": {
