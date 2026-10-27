@@ -2530,6 +2530,7 @@
     "step3": "Result",
     "warehouse": "Warehouse",
     "warehouseHint": "Stock from imported documents is received here",
+    "warehouseHintSale": "The day's sales leave this warehouse",
     "order": "Supplier order (ORDO-)",
     "orderHint": "Match lines against this order and split per its warehouse allocations",
     "selectFile": "Select a file",

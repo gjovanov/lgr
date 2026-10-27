@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
+import ExcelJS from 'exceljs'
 import { loginForApp } from './helpers/login'
+import { apiLogin } from './helpers/api'
 import { openImportDialog, uploadAndExtract, cleanupImportedDoc } from './helpers/doc-import'
 
 /**
@@ -49,6 +51,64 @@ test.describe('Document import — batch', () => {
 
     // Leave the tenant as we found it, so the next run starts clean too.
     await cleanupImportedDoc(page)
+  })
+
+  // #324: from the cash-sales list the dialog sent no warehouse and dropped the spreadsheet's parse,
+  // so a till day never imported through it. A spreadsheet needs no OCR stub.
+  test('imports a till day (salesAnalysis XLSX) from the Cash Sales list, from the chosen warehouse', async ({ page }) => {
+    const API = process.env.BASE_URL || 'http://localhost:4001'
+    const admin = await apiLogin()
+    const get = async (path: string) => {
+      const res = await fetch(`${API}/api/org/${admin.orgId}${path}`, { headers: { Authorization: `Bearer ${admin.token}` } })
+      expect(res.ok, `GET ${path} → ${res.status}`).toBe(true)
+      return res.json()
+    }
+    // The warehouse the dialog preselects (the default one), and an article with stock there.
+    const { warehouses } = await get('/warehouse/warehouse?size=1000')
+    const wh = warehouses.find((w: any) => w.isDefault) || warehouses[0]
+    const whId = String(wh._id || wh.id)
+    const { products } = await get(`/trade/pos/catalog?warehouseId=${whId}&type=goods&size=100`)
+    const product = products.find((p: any) => (p.stockAvailable ?? 0) >= 1 && p.unitPrice > 0)
+    expect(product, 'no article with stock in the default warehouse — is the DB seeded?').toBeTruthy()
+
+    // A day of its own each run: the day is the cash sale's identity (`salesAnalysis:<date>`).
+    const d = new Date(Date.UTC(2024, 0, 1) + Math.floor(Math.random() * 365) * 86400_000)
+    const iso = d.toISOString().slice(0, 10)
+    const [y, m, dd] = iso.split('-')
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Sheet1')
+    ws.getRow(1).getCell(1).value = 'АРТИКУЛИ'
+    ws.getRow(3).getCell(1).value = `Период: ${dd}.${m}.${y} - ${dd}.${m}.${y}`
+    ws.getRow(9).values = ['Артикул', 'Количество', 'Стойност']
+    ws.getRow(10).values = [product.productName, 1, product.unitPrice]
+    ws.getRow(11).values = ['Общо', 1, product.unitPrice]
+    const filename = `salesAnalysis_${y}${m}${dd}_180000.xlsx`
+
+    await loginForApp(page)
+    await page.goto('/invoicing/cash-sales')
+    const dialog = await openImportDialog(page)
+    // The dialog asks where the day's goods leave from, and starts on the default warehouse.
+    await expect(dialog.getByText(/the day's sales leave this warehouse/i)).toBeVisible()
+    await dialog.locator('input[type="file"]').setInputFiles({
+      name: filename,
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: Buffer.from(await wb.xlsx.writeBuffer()),
+    })
+    await dialog.getByRole('button', { name: /extract text/i }).click()
+    await expect(dialog.locator('.v-expansion-panel-title').filter({ hasText: filename })).toBeVisible({ timeout: 30000 })
+
+    await dialog.getByRole('button', { name: /analyze/i }).click()
+    const row = dialog.locator('tr', { hasText: filename })
+    await expect(row).toBeVisible({ timeout: 60000 })
+    await expect(row).toContainText(`salesAnalysis:${iso}`)
+    await dialog.getByRole('button', { name: /^import 1$/i }).click()
+    await expect(dialog.getByText(/document\(s\) created/i)).toBeVisible({ timeout: 60000 })
+
+    // One cash sale for that day, its line in the chosen warehouse.
+    const { invoices } = await get('/invoices?type=cash_sale&size=500')
+    const day = invoices.filter((i: any) => i.reference === `salesAnalysis:${iso}`)
+    expect(day).toHaveLength(1)
+    expect(day[0].lines.map((l: any) => String(l.warehouseId))).toEqual([whId])
   })
 
   test('shows the Import button on every surface that accepts documents', async ({ page }) => {

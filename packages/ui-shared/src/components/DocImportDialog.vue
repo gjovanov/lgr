@@ -21,7 +21,7 @@
                   item-title="name"
                   item-value="_id"
                   :label="$t('docImport.warehouse')"
-                  :hint="$t('docImport.warehouseHint')"
+                  :hint="$t(target === 'cash_sale' ? 'docImport.warehouseHintSale' : 'docImport.warehouseHint')"
                   persistent-hint
                   density="comfortable"
                   variant="outlined"
@@ -438,8 +438,12 @@ const stepLabels = computed(() => [
   t('docImport.step3'),
 ])
 
-/** Movements and bills receive stock, so they need a warehouse; sales documents don't. */
-const needsWarehouse = computed(() => props.target === 'bill' || props.target === 'movement')
+/**
+ * Movements and bills receive stock into a warehouse, and a cash sale (a till day) dispatches it
+ * from one: its lines take their warehouse from here, and without one the day cannot book (#324).
+ * A sales invoice takes the form's warehouse when it is issued.
+ */
+const needsWarehouse = computed(() => props.target === 'bill' || props.target === 'movement' || props.target === 'cash_sale')
 const acceptedTypes = computed(() =>
   props.target === 'cash_sale' || props.target === 'movement'
     ? 'application/pdf,.xlsx'
@@ -561,7 +565,9 @@ async function doAnalyze() {
   try {
     const docs = await analyze(
       props.target,
-      extractedOk.value.map(e => ({ fileId: e.fileId, filename: e.filename, text: e.text })),
+      // A spreadsheet is analyzed from its parse, never its text (`analyze.ts#analyzeOne`): without
+      // `parsed` a till day or a delivery export fell through to the PDF path (#324).
+      extractedOk.value.map(e => ({ fileId: e.fileId, filename: e.filename, text: e.text, ...(e.parsed ? { parsed: e.parsed } : {}) })),
       {
         ...(warehouseId.value ? { warehouseId: warehouseId.value } : {}),
         ...(orderId.value ? { orderId: orderId.value } : {}),
