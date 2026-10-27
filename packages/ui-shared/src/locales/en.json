@@ -3111,6 +3111,15 @@
       "confirmRelease": "Release {org}? lgrai.app's own record stands, and it writes the organization again if that record says it is home.",
       "afterRestore": "Hold after a restore",
       "confirmAfterRestore": "After a disaster-recovery restore of lgrai.app: hold the {n} organizations that have a server, or had one? lgrai.app writes nothing of them until each server reconnects with the record lgrai.app holds, or a sys-admin releases it. Do this right after the restore."
+    },
+    "addresses": {
+      "title": "Addresses on the internet",
+      "approve": "Approve",
+      "refuse": "Refuse",
+      "retire": "Retire",
+      "reason": "Why",
+      "refuseTitle": "Refuse {url}?",
+      "confirmRetire": "Retire {url}? A notice answers there for 12 months, and the name is never issued again."
     }
   },
   "adminLicences": {
@@ -3466,6 +3475,28 @@
       "clock_skew": "Clock {age} off",
       "supto_waiting": "SUPTO version {version} waits for its declaration",
       "home_hold": "Organizations on hold: {n}"
+    },
+    "address": {
+      "title": "Address on the internet",
+      "intro": "While the organization is written on its own server, its people reach it from anywhere at this address, through lgrai.app. lgrai.app approves each address; a label is never issued twice.",
+      "state": {
+        "requested": "Requested",
+        "active": "Active",
+        "refused": "Refused",
+        "retired": "Retired"
+      },
+      "request": "Ask for {url}",
+      "requested": "Asked for: a system administrator approves it",
+      "noticeUntil": "A notice answers there until {when}",
+      "why": {
+        "invalid": "\"{label}\" is not a name an address can have: only lowercase letters, digits and dashes.",
+        "too_long": "\"{label}\" is longer than an address can be (63 characters).",
+        "punycode": "\"{label}\" is not a name an address can have.",
+        "reserved": "\"{label}\" is reserved for lgrai.app itself.",
+        "no_licence": "The organization's licence does not include its own server.",
+        "label_taken": "\"{label}\" was issued before, and is never issued again.",
+        "already": "The organization has an address already."
+      }
     }
   },
   "serverStatus": {

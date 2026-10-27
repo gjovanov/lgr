@@ -101,6 +101,7 @@ import { numberingController } from './controllers/numbering.controller.js'
 import { serverStatusController } from './controllers/server-status.controller.js'
 import { homeController } from './controllers/home.controller.js'
 import { adminNodesController } from './controllers/admin-nodes.controller.js'
+import { addressController, adminAddressesController } from './controllers/address.controller.js'
 import { adminLicencesController } from './controllers/admin-licences.controller.js'
 import { licenceController } from './controllers/licence.controller.js'
 import { idpController, idpSignInController } from './controllers/idp.controller.js'
@@ -289,6 +290,9 @@ export function createApiApp() {
     .use(homeController)
     // The sys-admin Nodes page (P2-3a): every master, across orgs. BACKUP_SYS_ADMINS only.
     .use(adminNodesController)
+    // FR-20.72 (P3-4a): an org's address on lgrai.app, and its approval.
+    .use(addressController)
+    .use(adminAddressesController)
     // FR-20.55 (P2-3b): this server's licence for an org (the banner; `{applies: false}` on global),
     // and the sys-admins' pilots and air-gapped licence files (global only).
     .use(licenceController)

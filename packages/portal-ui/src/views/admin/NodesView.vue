@@ -10,6 +10,45 @@
 
     <v-alert v-if="forbidden" type="warning" variant="tonal" data-test="nodes-forbidden">{{ $t('adminNodes.forbidden') }}</v-alert>
 
+    <!-- FR-20.72 (P3-4a): the orgs' addresses on the internet, and the requests to approve. -->
+    <v-card v-if="!forbidden && addresses.length" variant="outlined" class="mb-4" data-test="nodes-addresses">
+      <v-card-title class="text-subtitle-1">{{ $t('adminNodes.addresses.title') }}</v-card-title>
+      <v-card-text>
+        <div v-for="a in addresses" :key="a.id" class="d-flex align-center flex-wrap ga-2 py-1" :data-test="`address-${a.label}`">
+          <code>{{ a.url }}</code>
+          <v-chip size="x-small" variant="outlined">{{ a.org.slug ?? a.org.id }}</v-chip>
+          <v-chip size="x-small" variant="tonal" :color="a.state === 'active' ? 'success' : a.state === 'requested' ? 'info' : undefined">{{ $t(`servers.address.state.${a.state}`) }}</v-chip>
+          <v-spacer />
+          <template v-if="a.state === 'requested'">
+            <v-btn size="small" color="primary" variant="tonal" :loading="addressBusy === a.id" data-test="address-approve" @click="decide(a, 'approve')">{{ $t('adminNodes.addresses.approve') }}</v-btn>
+            <v-btn size="small" variant="text" :loading="addressBusy === a.id" data-test="address-refuse" @click="refusing = { a, reason: '' }">{{ $t('adminNodes.addresses.refuse') }}</v-btn>
+          </template>
+          <v-btn v-else-if="a.state === 'active'" size="small" variant="text" color="warning" :loading="addressBusy === a.id" data-test="address-retire" @click="retiring = a">{{ $t('adminNodes.addresses.retire') }}</v-btn>
+        </div>
+      </v-card-text>
+    </v-card>
+    <v-dialog :model-value="!!refusing" max-width="520" @update:model-value="v => { if (!v) refusing = null }">
+      <v-card v-if="refusing">
+        <v-card-title class="text-wrap">{{ $t('adminNodes.addresses.refuseTitle', { url: refusing.a.url }) }}</v-card-title>
+        <v-card-text><v-text-field v-model="refusing.reason" :label="$t('adminNodes.addresses.reason')" maxlength="300" autofocus /></v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="refusing = null">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="warning" variant="flat" :disabled="!refusing.reason.trim()" @click="decide(refusing.a, 'refuse', refusing.reason)">{{ $t('adminNodes.addresses.refuse') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+    <v-dialog :model-value="!!retiring" max-width="520" @update:model-value="v => { if (!v) retiring = null }">
+      <v-card v-if="retiring">
+        <v-card-text class="text-body-2 pt-5">{{ $t('adminNodes.addresses.confirmRetire', { url: retiring.url }) }}</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="retiring = null">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="warning" variant="flat" @click="retire(retiring)">{{ $t('adminNodes.addresses.retire') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- FR-20.3 (P3-8d): the orgs lgrai.app holds, and settling them. -->
     <v-card v-if="!forbidden && held.length" variant="outlined" color="warning" class="mb-4" data-test="nodes-held">
       <v-card-title class="text-subtitle-1">{{ $t('adminNodes.held.title', { n: held.length }) }}</v-card-title>
@@ -89,6 +128,31 @@ const items = ref<any[]>([])
 const loading = ref(false)
 const forbidden = ref(false)
 const includeRevoked = ref(false)
+/** FR-20.72 (P3-4a): the orgs' addresses and requests. */
+const addresses = ref<any[]>([])
+const addressBusy = ref<string | null>(null)
+const refusing = ref<{ a: any; reason: string } | null>(null)
+const retiring = ref<any | null>(null)
+async function decide(a: any, decision: 'approve' | 'refuse', reason?: string) {
+  refusing.value = null
+  addressBusy.value = a.id
+  try {
+    await httpClient.post(`/admin/addresses/${a.id}/${decision}`, decision === 'refuse' ? { reason } : {})
+    await load()
+  } finally {
+    addressBusy.value = null
+  }
+}
+async function retire(a: any) {
+  retiring.value = null
+  addressBusy.value = a.id
+  try {
+    await httpClient.post(`/admin/addresses/${a.id}/retire`)
+    await load()
+  } finally {
+    addressBusy.value = null
+  }
+}
 /** FR-20.3 (P3-8d): orgs on hold, and the one being settled. */
 const held = ref<any[]>([])
 const settling = ref<string | null>(null)
@@ -173,6 +237,7 @@ async function load() {
     const { data } = await httpClient.get('/admin/nodes', { params: includeRevoked.value ? { includeRevoked: 'true' } : {} })
     items.value = data.nodes ?? []
     held.value = (await httpClient.get('/admin/nodes/held')).data.held ?? []
+    addresses.value = (await httpClient.get('/admin/addresses')).data.addresses ?? []
   } catch (e: any) {
     if (e?.response?.status === 403 || e?.response?.status === 404) forbidden.value = true
   } finally {

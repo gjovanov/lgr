@@ -62,6 +62,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   OperationType: { collection: 'operationtypes', class: 'R', orgPath: 'orgId' },
   Order: { collection: 'orders', class: 'R', orgPath: 'orgId' },
   Org: { collection: 'orgs', class: 'S', orgPath: '_id', home: ['addresses','bankDetails','createdAt','description','email','logo','name','ownerId','phone','settings','taxNumber','updatedAt','vatNumber','website'], global: ['homeEpochHighWater','settings.integrations','settings.node','slug','subscription'], node: [] },
+  OrgAddress: { collection: 'org_addresses', class: 'N', orgPath: 'orgId' },
   OrgApp: { collection: 'orgapps', class: 'R', orgPath: 'orgId' },
   OrgHome: { collection: 'org_homes', class: 'N', orgPath: 'orgId' },
   OrgLicence: { collection: 'org_licences', class: 'N', orgPath: 'orgId' },

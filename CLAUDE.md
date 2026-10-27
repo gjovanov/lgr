@@ -2600,6 +2600,27 @@ so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.
     `:orgId`: the tenant guard and the home gate key on that name and would refuse a sys-admin
     settling an org on hold. Global's audit log cannot take it (the org is on hold): the row keeps
     `released`, and the log line says who. The Nodes page raises `home_hold` per server.
+- **An org's address on the internet (FR-20.72, P3-4a; `services/biz/address/org-address.service.ts`).**
+  `OrgAddress {label, orgId, state: requested | active | refused | retired}`, global's record about the
+  org: node state, never in a bundle, no `tenantPlugin` (so the write guard does not see it).
+  - **The label is the org's slug WHEN REQUESTED**; a rename does not move it. It must be a DNS label of
+    at most 63 characters, with no punycode, and not reserved (the built-in list plus
+    `ORG_ADDRESS_RESERVED`).
+  - At approval the label must also have **no record of its own in the zone**: no CNAME, MX or TXT,
+    and no A record that differs from a random label's (that one is the wildcard).
+  - **The org's licence must include on-prem** (`entitlementsOf`).
+  - **The flow.** The org admin asks on the Servers page (`POST /org/:orgId/address`). That route is
+    in `GLOBAL_STATE_WRITES`, because the org is usually homed on its server. A sys-admin then
+    approves, refuses or retires it on the Nodes page (`/admin/addresses/:id/…`, `:id` never
+    `:orgId`). A refusal needs a reason and frees the label.
+  - ⚠ **A label is issued once.** The unique index covers requested, active and retired. A retired
+    address answers with a notice for 12 months and is never issued again.
+  - **"Sign in with LGR"** now returns a person only to an ACTIVE address of the server's orgs
+    (`activeLabelsOf`), no longer to any slug.
+  - **Next:** the router and edge filter (P3-4b), then the tunnel (P3-4c).
+  - **The edge** (mars' Docker nginx, `gjovanov/nginx`) already holds a ZeroSSL certificate for
+    `*.lgrai.app`. P3-4e adds the wildcard DNS record at Cloudflare and the nginx server block.
+    ⚠ The zone already serves `harvex` and `qa`.
 - **A master's own status page (FR-20.98, FR-20.50, P3-8b; `/settings/server`).** The supervisor
   writes its status every 30 s to `state/status.json` (`status_file.rs`: atomic, with the volume and
   the oplog's reach beside it; nothing secret is in a supervisor status), beside the node token, so

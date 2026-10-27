@@ -4,6 +4,7 @@ import { Identity, IdpCode, Org, ServerNode, User } from 'db/models'
 import { logger } from '../../logger/logger.js'
 import { ephemeralSigningKey, signingKeyFrom, type SigningKey } from '../crypto/ed-jws.js'
 import { BUILT_IN_IDP_KEYS, allowIdpKeyInDevelopment, signAssertion } from './idp-token.js'
+import { activeLabelsOf } from '../address/org-address.service.js'
 
 /**
  * FR-20.39 (plan step P2-4) — "Sign in with LGR", global's side: an authorization-code flow with
@@ -105,7 +106,9 @@ export interface IdpClientView {
 export async function idpClient(input: { clientId: string; redirectUri: string; identityId: string }): Promise<IdpClientView> {
   const node = await loadNode(input.clientId)
   const orgs: any[] = await Org.find({ _id: { $in: node.orgIds } }).select('name slug').lean()
-  if (!redirectAllowed(input.redirectUri, orgs.map(o => o.slug))) throw new IdpError(400, 'bad_redirect_uri', 'This server cannot be signed in to from there.')
+  // FR-20.72 (P3-4a): back to an org's ADDRESS, as issued: a rename does not move it, and an org
+  // without one has nowhere on lgrai.app to be sent back to.
+  if (!redirectAllowed(input.redirectUri, await activeLabelsOf(node.orgIds ?? []))) throw new IdpError(400, 'bad_redirect_uri', 'This server cannot be signed in to from there.')
   const members: any[] = await User.find({ identityId: input.identityId, orgId: { $in: node.orgIds }, isActive: true }).select('orgId').lean()
   const mine = new Set(members.map(m => String(m.orgId)))
   return {

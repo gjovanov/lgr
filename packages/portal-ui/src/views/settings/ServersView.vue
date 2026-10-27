@@ -161,6 +161,23 @@
           </template>
         </v-card-text>
       </v-card>
+      <!-- FR-20.72 (P3-4a): the org's address on the internet, through lgrai.app. -->
+      <v-card v-if="address" variant="outlined" class="mb-3" data-test="org-address">
+        <v-card-title class="text-subtitle-1">{{ $t('servers.address.title') }}</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-2">{{ $t('servers.address.intro') }}</p>
+          <div v-if="address.address" class="d-flex align-center flex-wrap ga-2" data-test="org-address-current">
+            <code>{{ address.address.url }}</code>
+            <v-chip size="small" variant="tonal" :color="address.address.state === 'active' ? 'success' : address.address.state === 'requested' ? 'info' : undefined">{{ $t(`servers.address.state.${address.address.state}`) }}</v-chip>
+            <span v-if="address.address.state === 'refused' && address.address.reason" class="text-body-2 text-medium-emphasis">{{ address.address.reason }}</span>
+            <span v-if="address.address.state === 'retired' && address.address.noticeUntil" class="text-body-2 text-medium-emphasis">{{ $t('servers.address.noticeUntil', { when: new Date(address.address.noticeUntil).toLocaleDateString() }) }}</span>
+          </div>
+          <div v-if="!address.address || ['refused', 'retired'].includes(address.address.state)" class="d-flex align-center flex-wrap ga-2 mt-2">
+            <v-btn v-if="address.request.ok" size="small" color="primary" variant="tonal" :loading="addressBusy" data-test="org-address-request" @click="requestAddress">{{ $t('servers.address.request', { url: address.request.url }) }}</v-btn>
+            <span v-else-if="address.request.reason && address.request.reason !== 'already'" class="text-body-2 text-medium-emphasis" data-test="org-address-why-not">{{ $t(`servers.address.why.${address.request.reason}`, { label: address.request.label }) }}</span>
+          </div>
+        </v-card-text>
+      </v-card>
       <!-- FR-20.69 (P3-3): while one of the org's servers is its home, its files on lgrai.app. -->
       <v-card v-if="mirror && mirror.home !== 'global'" variant="outlined" class="mb-3" data-test="mirror-files">
         <v-card-title class="text-subtitle-1">{{ $t('servers.files.title') }}</v-card-title>
@@ -685,9 +702,30 @@ async function setMirrorFiles(on: boolean) {
   }
 }
 
+// ── FR-20.72 (P3-4a): the org's address ──────────────────────────────────────────────────────
+const address = ref<any | null>(null)
+const addressBusy = ref(false)
+async function loadAddress() {
+  try {
+    address.value = (await httpClient.get(`${appStore.orgUrl()}/address`)).data
+  } catch {
+    address.value = null
+  }
+}
+async function requestAddress() {
+  addressBusy.value = true
+  try {
+    address.value = (await httpClient.post(`${appStore.orgUrl()}/address`)).data
+    showSnackbar(t('servers.address.requested'), 'success')
+  } finally {
+    addressBusy.value = false
+  }
+}
+
 async function load() {
   void loadMove()
   void loadMirror()
+  void loadAddress()
   void loadLastNumbers()
   void loadFencedExports()
   loading.value = true

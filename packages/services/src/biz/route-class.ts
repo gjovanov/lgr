@@ -62,6 +62,9 @@ export const GLOBAL_STATE_WRITES: ReadonlySet<string> = new Set([
   // FR-20.71 (P3-7): re-seeding the org's server from the mirror: global's record of the re-seed,
   // for an org whose home is that server (always: it is the case the route exists for).
   'POST /api/org/:orgId/moves/reseed',
+  // FR-20.72 (P3-4a): asking for the org's address on lgrai.app, global's record: an org homed on its
+  // server is exactly the one that needs it.
+  'POST /api/org/:orgId/address/',
 ])
 
 /**
