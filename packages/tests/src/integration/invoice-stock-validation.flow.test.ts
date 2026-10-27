@@ -480,6 +480,55 @@ describe('Reverse Stock Movement — Void Validation', () => {
     expect(await StockMovement.countDocuments({ orgId: org._id, invoiceId: draft._id })).toBe(0)
   })
 
+  // #322: an ISSUED document that booked nothing reverses nothing either. A cash sale imported with
+  // `skipStockMovement` keeps no trace of the flag, and the migration's documents never moved stock.
+  it('voiding an issued cash sale that booked no stock puts nothing back (#322)', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const contact = await createTestContact(org._id)
+    const product = await createTestProduct(org._id)
+    const warehouse = await createTestWarehouse(org._id)
+    await createTestStockLevel(org._id, product._id, warehouse._id, { quantity: 10, availableQuantity: 10, avgCost: 10 })
+
+    const day = await createTestInvoice(org._id, contact._id, {
+      direction: 'outgoing', type: 'cash_sale', status: 'paid', reference: 'salesAnalysis:2026-07-15',
+      lines: [{
+        productId: String(product._id), warehouseId: String(warehouse._id), description: 'Sold at the till, already in the baseline',
+        quantity: 4, unit: 'pcs', unitPrice: 15, discount: 0, taxRate: 20, taxAmount: 12, lineTotal: 72,
+      }],
+    } as any)
+
+    await reverseInvoiceStockMovement(day, String(user._id))
+
+    const level = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: warehouse._id })
+    expect(level!.quantity).toBe(10)
+    expect(await StockMovement.countDocuments({ orgId: org._id, invoiceId: day._id })).toBe(0)
+  })
+
+  it('voiding an issued bill that booked no stock takes nothing out (#322)', async () => {
+    const org = await createTestOrg()
+    const user = await createTestUser(org._id)
+    const contact = await createTestContact(org._id)
+    const product = await createTestProduct(org._id)
+    const warehouse = await createTestWarehouse(org._id)
+    await createTestStockLevel(org._id, product._id, warehouse._id, { quantity: 3, availableQuantity: 3, avgCost: 10 })
+
+    const bill = await createTestInvoice(org._id, contact._id, {
+      direction: 'incoming', type: 'invoice', status: 'paid',
+      lines: [{
+        productId: String(product._id), warehouseId: String(warehouse._id), description: 'Never received through LGR',
+        quantity: 50, unit: 'pcs', unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 100, lineTotal: 600,
+      }],
+    })
+
+    // Before #322 this dispatched 50 and was refused for want of stock; now there is nothing to undo.
+    await reverseInvoiceStockMovement(bill, String(user._id))
+
+    const level = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: warehouse._id })
+    expect(level!.quantity).toBe(3)
+    expect(await StockMovement.countDocuments({ orgId: org._id, invoiceId: bill._id })).toBe(0)
+  })
+
   it('should validate stock when voiding credit note (return → dispatch reversal)', async () => {
     const org = await createTestOrg()
     const user = await createTestUser(org._id)

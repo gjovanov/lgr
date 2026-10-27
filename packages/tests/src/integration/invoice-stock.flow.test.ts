@@ -390,20 +390,22 @@ describe('a line with a quantity but no product', () => {
     const warehouse = await createTestWarehouse(org._id)
     await createTestStockLevel(org._id, product._id, warehouse._id, { quantity: 100, availableQuantity: 100, avgCost: 5 })
 
-    // Issued: those documents went out. A draft has booked nothing, so it reverses nothing.
+    // Issued, as those documents were: their product lines dispatched (stock 100 → 90) before the
+    // guard existed. A document reverses only a booking it carries (#322), so the booking comes first.
     const invoice = await createTestInvoice(org._id, contact._id, {
       direction: 'outgoing',
       status: 'sent',
       invoiceNumber: 'INV-FREETEXT-4',
-      lines: [
-        line({ productId: product._id, quantity: 10, warehouseId: warehouse._id }),
-        line({ quantity: 200, description: 'never matched', sourceText: 'never matched' }),
-      ],
+      lines: [line({ productId: product._id, quantity: 10, warehouseId: warehouse._id })],
     })
+    await createInvoiceStockMovement(invoice as any, String(user._id))
+    await Invoice.updateOne({ _id: invoice._id }, { $push: { lines: line({ quantity: 200, description: 'never matched', sourceText: 'never matched' }) } })
+    const carrying: any = await Invoice.findById(invoice._id).lean()
+    carrying.id = String(carrying._id)
 
-    await reverseInvoiceStockMovement(invoice as any, String(user._id))
+    await reverseInvoiceStockMovement(carrying, String(user._id))
     const sl: any = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: warehouse._id }).lean()
-    expect(sl.quantity).toBe(110)   // the 10 came back; the product-less line is simply not reversed
+    expect(sl.quantity).toBe(100)   // the 10 came back; the product-less line is simply not reversed
   })
 
   it('does NOT refuse a product-less line that was typed, not imported', async () => {

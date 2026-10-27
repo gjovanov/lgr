@@ -482,11 +482,14 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
   const r = repos ?? getRepos()
   if (movesNoStock(invoice, 'reverse')) return
   const originalMovements = await r.stockMovements.findMany({ orgId: invoice.orgId, invoiceId: invoice.id } as any)
-  // A draft has booked nothing: a document moves stock when it is issued. Reversing a draft's
-  // lines put goods that never left back on the shelf. Found 2026-10-26: one draft void had added
-  // 1,257 units in the `regal` org. A draft reverses only a booking it does carry.
-  if (invoice.status === 'draft' && !originalMovements.some((m: any) => m.status === 'completed')) {
-    logger.info({ invoiceId: invoice.id }, 'reverseInvoiceStockMovement: a draft booked no stock — nothing to reverse')
+  // A document reverses only a booking it carries: every booking writes its movements with the
+  // document's `invoiceId`. Without one, reversing the LINES put goods that never left back on the
+  // shelf (or took out goods that never came in):
+  //   - a draft, which books nothing until issued (2026-10-26: one draft void added 1,257 units in `regal`);
+  //   - a cash sale imported with `skipStockMovement`, a create-time flag the document does not keep (#322);
+  //   - the documents of the July 2026 migration, issued before the stock baseline, which never moved stock.
+  if (!originalMovements.some((m: any) => m.status === 'completed')) {
+    logger.info({ invoiceId: invoice.id, status: invoice.status }, 'reverseInvoiceStockMovement: the document booked no stock — nothing to reverse')
     return
   }
   // Symmetric with the booking above: what never moved must not be restocked on a void.
