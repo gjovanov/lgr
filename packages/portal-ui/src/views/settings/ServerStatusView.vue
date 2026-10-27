@@ -91,16 +91,58 @@
                   <dt>{{ row.label }}</dt><dd>{{ row.value }}</dd>
                 </template>
               </dl>
+              <!-- FR-20.47 (P3-8e): where an inspector reaches this server (Н-18 чл. 52и(1)). -->
+              <v-alert v-if="inspectionAlert" :type="inspectionAlert.type" variant="tonal" density="compact" class="mt-3" data-test="inspection-alert">
+                {{ inspectionAlert.text }}
+              </v-alert>
+              <div class="mt-2">
+                <v-btn size="small" variant="tonal" prepend-icon="mdi-shield-search" data-test="inspection-edit" @click="openInspection">{{ $t('serverStatus.inspection.edit') }}</v-btn>
+              </div>
             </v-card-text>
           </v-card>
         </v-col>
       </v-row>
     </template>
+
+    <v-dialog v-model="inspectionDialog" max-width="560">
+      <v-card data-test="inspection-dialog">
+        <v-card-title>{{ $t('serverStatus.inspection.title') }}</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-3">{{ $t('serverStatus.inspection.intro') }}</p>
+          <v-radio-group v-model="form.premises" :label="$t('serverStatus.inspection.premises')" data-test="inspection-premises">
+            <v-radio value="shop" :label="$t('serverStatus.inspection.shop')" />
+            <v-radio value="offsite" :label="$t('serverStatus.inspection.offsite')" />
+          </v-radio-group>
+          <template v-if="form.premises === 'offsite'">
+            <v-radio-group v-model="form.path" :label="$t('serverStatus.inspection.path')" data-test="inspection-path">
+              <v-radio value="tunnel" :disabled="!!tunnelBlocked" :label="tunnelLabel" />
+              <v-radio value="overlay" :label="$t('serverStatus.inspection.overlay')" />
+              <v-radio value="vpn" :label="$t('serverStatus.inspection.vpn')" />
+            </v-radio-group>
+            <v-text-field
+              v-if="form.path === 'overlay' || form.path === 'vpn'"
+              v-model="form.detail"
+              :label="$t('serverStatus.inspection.detail')"
+              :hint="$t('serverStatus.inspection.detailHint')"
+              persistent-hint
+              maxlength="200"
+              data-test="inspection-detail"
+            />
+          </template>
+          <v-alert v-if="inspectionError" type="error" variant="tonal" density="compact" class="mt-3">{{ inspectionError }}</v-alert>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="inspectionDialog = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="primary" variant="flat" :loading="savingInspection" :disabled="!formReady" data-test="inspection-save" @click="saveInspection">{{ $t('common.save') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useNodeAlarms } from 'ui-shared/composables/useNodeAlarms'
@@ -174,8 +216,66 @@ const pril32Rows = computed(() => {
     { label: t('serverStatus.p32.protocol'), value: t('serverStatus.p32.protocolValue') },
     { label: t('serverStatus.p32.supto'), value: p.supto ?? '—' },
     { label: t('serverStatus.p32.topology'), value: t('serverStatus.p32.topologyValue', { desktops: p.desktops, mirror: p.mirror ?? 'lgrai.app', link: linkText.value, version: p.version ?? '?' }) },
+    { label: t('serverStatus.p32.inspection'), value: inspectionText.value },
   ]
 })
+
+// FR-20.47 (P3-8e): where an inspector reaches this server, as the trader declares it in Прил. 32.
+const inspection = computed(() => s.value?.pril32?.inspection ?? null)
+const inspectionText = computed(() => {
+  const i = inspection.value
+  if (!i?.declared) return t('serverStatus.inspection.undeclaredShort')
+  if (i.premises === 'shop') return t('serverStatus.inspection.shopValue')
+  if (i.path === 'tunnel') return t('serverStatus.inspection.tunnelValue', { address: i.address ?? '—' })
+  if (i.path === 'overlay') return t('serverStatus.inspection.overlayValue', { detail: i.detail ?? '—' })
+  if (i.path === 'vpn') return t('serverStatus.inspection.vpnValue', { detail: i.detail ?? '—' })
+  return t('serverStatus.inspection.pathMissingShort')
+})
+const inspectionAlert = computed(() => {
+  const problem = inspection.value?.problem
+  if (!problem) return null
+  if (problem === 'undeclared') return { type: 'info' as const, text: t('serverStatus.inspection.undeclared') }
+  return { type: 'warning' as const, text: t(`serverStatus.inspection.problem.${problem}`) }
+})
+const tunnelBlocked = computed(() => inspection.value?.tunnel?.problem ?? 'link_not_full')
+const tunnelLabel = computed(() => (tunnelBlocked.value
+  ? `${t('serverStatus.inspection.tunnel')} (${t(`serverStatus.inspection.problem.${tunnelBlocked.value}`)})`
+  : t('serverStatus.inspection.tunnelAt', { address: inspection.value?.tunnel?.address ?? '' })))
+const inspectionDialog = ref(false)
+const savingInspection = ref(false)
+const inspectionError = ref('')
+const form = reactive<{ premises: string | null; path: string | null; detail: string }>({ premises: null, path: null, detail: '' })
+const formReady = computed(() => form.premises === 'shop'
+  || (form.premises === 'offsite' && (form.path === 'tunnel' || ((form.path === 'overlay' || form.path === 'vpn') && form.detail.trim().length > 0))))
+function openInspection() {
+  const i = inspection.value
+  form.premises = i?.premises ?? null
+  form.path = i?.path ?? null
+  form.detail = i?.detail ?? ''
+  inspectionError.value = ''
+  inspectionDialog.value = true
+}
+async function saveInspection() {
+  const orgId = appStore.currentOrg?.id
+  if (!orgId) return
+  savingInspection.value = true
+  inspectionError.value = ''
+  try {
+    await httpClient.put(`/org/${orgId}/server/inspection`, {
+      premises: form.premises,
+      path: form.premises === 'offsite' ? form.path : null,
+      detail: form.premises === 'offsite' && form.path !== 'tunnel' ? form.detail.trim() : null,
+    })
+    inspectionDialog.value = false
+    showSnackbar(t('serverStatus.inspection.saved'), 'success')
+    await load()
+  } catch (e: any) {
+    const code = e?.response?.data?.code
+    inspectionError.value = code && te(`serverStatus.inspection.problem.${code}`) ? t(`serverStatus.inspection.problem.${code}`) : (e?.response?.data?.message ?? t('serverStatus.inspection.failed'))
+  } finally {
+    savingInspection.value = false
+  }
+}
 
 async function copyPril32() {
   const text = pril32Rows.value.map(r => `${r.label}: ${r.value}`).join('\n')

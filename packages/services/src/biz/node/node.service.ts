@@ -8,6 +8,7 @@ import {
   MirrorState,
   NodePresence,
   Org,
+  OrgAddress,
   ServerNode,
   type IServerNode,
   type NodeLinkLevel,
@@ -469,6 +470,9 @@ const WENT_BACK: ReadonlySet<string> = new Set(['instance_changed', 'stale_journ
 /** What a node may know about itself: its registration and the orgs on it, by name. */
 export async function nodeSelf(node: IServerNode) {
   const orgs = await Org.find({ _id: { $in: node.orgIds } }).select('name slug').lean()
+  // FR-20.47 (P3-8e): each org's address on lgrai.app, which the server can declare as its inspection path.
+  const addresses = new Map(((await OrgAddress.find({ orgId: { $in: node.orgIds }, state: 'active' }, { orgId: 1, label: 1 }).lean()) as any[])
+    .map(a => [String(a.orgId), `https://${a.label}.${config.idp.addressApex}`]))
   // FR-20.51 (P3-7): what makes the master lock its legal series: a clone alarm, its pages refused as
   // a history that went back when that refusal is the newest thing the mirror heard, and how far the
   // mirror holds each org's journal (a master whose journal is below that went back).
@@ -480,7 +484,7 @@ export async function nodeSelf(node: IServerNode) {
     status: node.status,
     keyEpoch: node.keyEpoch ?? 1,
     ephemeral: !!node.ephemeral,
-    orgs: orgs.map((o: any) => ({ id: String(o._id), slug: o.slug, name: o.name })),
+    orgs: orgs.map((o: any) => ({ id: String(o._id), slug: o.slug, name: o.name, address: addresses.get(String(o._id)) ?? null })),
     cloneAlarm: (node as any).cloneAlarm?.at ? { at: (node as any).cloneAlarm.at } : null,
     wentBack: states
       .filter(s => WENT_BACK.has(s.lastRefusal?.reason) && s.lastRefusal.at && (!s.lastPageAt || new Date(s.lastRefusal.at) > new Date(s.lastPageAt)))

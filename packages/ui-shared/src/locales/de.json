@@ -3571,7 +3571,41 @@
       "protocolValue": "HTTPS (TLS) zwischen den Desktops und dem Server; TLS zu lgrai.app",
       "supto": "SUPTO-Version",
       "topology": "Topologie",
-      "topologyValue": "{desktops} Desktops → Server (LGR Server {version}) → Kopie auf {mirror}, Verbindungsstufe {link}"
+      "topologyValue": "{desktops} Desktops → Server (LGR Server {version}) → Kopie auf {mirror}, Verbindungsstufe {link}",
+      "inspection": "Fernprüfung (Н-18 Art. 52и)"
+    },
+    "inspection": {
+      "edit": "Wie ein Prüfer diesen Server erreicht",
+      "title": "Fernprüfung",
+      "intro": "Ein Steuerprüfer muss jedes Gerät des Systems unverzüglich erreichen können, auch die Server (Н-18 Art. 52и Abs. 1). Ein Server im Geschäft wird vor Ort geprüft. Ein Server außerhalb des Geschäfts braucht einen erklärten Fernzugang, den Sie auch in Anlage 32 angeben.",
+      "premises": "Wo der Server steht",
+      "shop": "Im Geschäft",
+      "offsite": "Außerhalb (ein Serverraum, ein Rechenzentrum)",
+      "path": "Wie ein Prüfer ihn erreicht",
+      "tunnel": "Über die Adresse der Organisation auf lgrai.app",
+      "tunnelAt": "Über die Adresse der Organisation: {address}",
+      "overlay": "Über das roomler-Overlay",
+      "vpn": "Über das eigene VPN des Unternehmens",
+      "detail": "Die Adresse, die ein Prüfer verwendet",
+      "detailHint": "Zum Beispiel die Adresse des Servers im Overlay oder im VPN.",
+      "shopValue": "Im Geschäft: Prüfung vor Ort",
+      "tunnelValue": "Außerhalb, über {address}",
+      "overlayValue": "Außerhalb, über das roomler-Overlay: {detail}",
+      "vpnValue": "Außerhalb, über das VPN des Unternehmens: {detail}",
+      "undeclaredShort": "Nicht angegeben",
+      "pathMissingShort": "Außerhalb, ohne Fernzugang",
+      "undeclared": "Geben Sie an, wo dieser Server steht. Ein Server außerhalb des Geschäfts braucht einen erklärten Zugang für einen Steuerprüfer.",
+      "saved": "Gespeichert. Melden Sie die Änderung binnen 7 Tagen in Anlage 32.",
+      "failed": "Es konnte nicht gespeichert werden.",
+      "problem": {
+        "undeclared": "Nicht angegeben",
+        "path_missing": "Dieser Server steht außerhalb und hat keinen erklärten Prüfzugang.",
+        "link_not_full": "Der Tunnel braucht die volle Verbindung zu lgrai.app",
+        "no_address": "Der Tunnel braucht die Adresse der Organisation auf lgrai.app",
+        "premises_required": "Geben Sie an, wo der Server steht.",
+        "path_required": "Ein Server außerhalb braucht einen Prüfzugang.",
+        "detail_required": "Geben Sie an, wie ein Prüfer den Server auf diesem Weg erreicht."
+      }
     }
   },
   "desktops": {
