@@ -3332,9 +3332,9 @@
         "received": "Arrived {when}",
         "refused": "Refused: it is not what the server said it sent. It is kept here and on the server."
       },
-      "counts": "{documents} documents, {deleted} deleted, {files} files",
+      "counts": "Documents: {documents} · deleted: {deleted} · files: {files}",
       "missingFiles": "{n} files the server could not send",
-      "collisions": "{n} of its numbers were given to other documents here. Each is resolved by a credit note and a new number, never by an edit.",
+      "collisions": "Numbers lgrai.app has since given to other documents: {n}. Each is resolved by a credit note and a new number, never by an edit.",
       "legalTitle": "Sales and invoices",
       "noLegal": "No sales or invoices in it",
       "number": "Number",
@@ -3347,7 +3347,35 @@
         "same_id": "Already here, changed after the cutoff",
         "collision": "Number taken by another document"
       },
-      "truncated": "Only the first 5,000 are listed here."
+      "truncated": "Only the first 5,000 are listed here.",
+      "import": {
+        "action": "Bring into the books",
+        "title": "Bring what {name} did after the cutoff into the books",
+        "intro": "lgrai.app goes through the export, document by document:",
+        "kept": "a sale or document new here is kept exactly as the server wrote it, with its number and its times, and where it came from;",
+        "booked": "lgrai.app books it as it would have: its stock, below zero if need be, its journal entry and its payments' entries;",
+        "left": "what lgrai.app already holds, a number it has since given to another document, a deletion, and anything it cannot book are left for a person, each with why.",
+        "confirm": "Bring it in",
+        "started": "lgrai.app is bringing it into the books",
+        "running": "Bringing it into the books…",
+        "done": "In the books {when}",
+        "counts": "In the books: {imported} · left for a person: {skipped} · not booked: {failed}",
+        "label": "Import"
+      },
+      "outcome": {
+        "imported": "In the books",
+        "skipped": "Left for a person",
+        "failed": "Not booked"
+      },
+      "reason": {
+        "number_taken": "its number is taken here",
+        "same_id": "changed here as well",
+        "missing_reference": "it names what lgrai.app does not hold",
+        "booking_failed": "it could not be booked",
+        "unique_conflict": "it clashes with something here",
+        "not_imported_kind": "brought in by a person",
+        "deletion": "a deletion is never applied"
+      }
     }
   },
   "desktops": {

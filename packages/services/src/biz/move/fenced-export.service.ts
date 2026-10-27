@@ -30,7 +30,7 @@ import zlib from 'node:zlib'
 import type { mongo } from 'mongoose'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
-import { FencedExport, Invoice, OrgMove, type FencedLegalDoc } from 'db/models'
+import { FencedExport, FencedImportItem, Invoice, OrgMove, ServerNode, type FencedLegalDoc } from 'db/models'
 import { logger } from '../../logger/logger.js'
 import { splitLines } from '../backup/backup-files.service.js'
 import { normalizeStored, resolveStored, validateStored } from '../files/stored-path.js'
@@ -464,6 +464,8 @@ export interface FencedLegalView extends FencedLegalDoc {
   /** `absent`: new to global. `same_id`: global has this document (made before the cutoff, changed after). `collision`: global gave its number to another document. */
   onGlobal: 'absent' | 'same_id' | 'collision'
   collidesWith?: { id: string; number: string; type?: string; issueDate?: Date; total?: number }
+  /** What the audited import did with it, once it ran (P3-6e). */
+  imported?: { outcome: string; reason?: string; detail?: string }
 }
 
 /** An org's fenced exports, newest first, each sale checked against what global holds now. */
@@ -479,15 +481,23 @@ export async function fencedExportsOf(orgId: string) {
       numbers.length ? Invoice.find({ orgId, invoiceNumber: { $in: numbers } }, { invoiceNumber: 1, type: 1, issueDate: 1, total: 1 }).lean() : [],
     ])
     const has = new Set(present.map(p => String(p._id)))
+    // What the import did with each sale, once it ran.
+    const outcomes = new Map(((await FencedImportItem.find({ exportId: r._id, coll: 'invoices' }, { docKey: 1, outcome: 1, reason: 1, detail: 1 }).lean()) as any[])
+      .map(i => [i.docKey, { outcome: i.outcome, ...(i.reason ? { reason: i.reason } : {}), ...(i.detail ? { detail: i.detail } : {}) }]))
+    // The server's name, even once it is removed: the list of active servers would not have it.
+    const node: any = await ServerNode.findById(r.nodeId, { name: 1 }).lean()
     const byNumber = new Map<string, any[]>()
     for (const g of sameNumber) byNumber.set(g.invoiceNumber, [...(byNumber.get(g.invoiceNumber) ?? []), g])
     const view: FencedLegalView[] = legal.map(l => {
+      const done = outcomes.get(l.id)
       const other = (l.number ? byNumber.get(l.number) ?? [] : []).find(g => String(g._id) !== l.id)
-      if (other) return { ...l, onGlobal: 'collision', collidesWith: { id: String(other._id), number: other.invoiceNumber, type: other.type, issueDate: other.issueDate, total: other.total } }
-      return { ...l, onGlobal: has.has(l.id) ? 'same_id' : 'absent' }
+      if (other) return { ...l, onGlobal: 'collision', collidesWith: { id: String(other._id), number: other.invoiceNumber, type: other.type, issueDate: other.issueDate, total: other.total }, ...(done ? { imported: done } : {}) }
+      // Once imported, the sale IS lgrai.app's own: say so, not "already here".
+      return { ...l, onGlobal: has.has(l.id) && done?.outcome !== 'imported' ? 'same_id' : 'absent', ...(done ? { imported: done } : {}) }
     })
     out.push({
-      id: String(r._id), moveId: String(r.moveId), nodeId: r.nodeId, state: r.state, size: r.size, received: r.received,
+      id: String(r._id), moveId: String(r.moveId), nodeId: r.nodeId, nodeName: node?.name ?? null, state: r.state, size: r.size, received: r.received,
+      import: r.import ? { state: r.import.state, requestedAt: r.import.requestedAt ?? null, doneAt: r.import.doneAt ?? null, counts: r.import.counts ?? null, error: r.import.error ?? null } : null,
       receivedAt: r.receivedAt ?? null, exportedAt: r.exportedAt ?? null, cutoff: r.cutoff ?? null, head: r.head ?? null, error: r.error ?? null,
       summary: r.summary ? { documents: r.summary.documents, deleted: r.summary.deleted, files: r.summary.files, missingFiles: r.summary.missingFiles, byColl: r.summary.byColl, legalTruncated: !!r.summary.legalTruncated } : null,
       legal: view,

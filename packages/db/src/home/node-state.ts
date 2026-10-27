@@ -33,6 +33,8 @@
  * - `FencedExport`: what a fenced master did after the cutoff, as it reached global (FR-20.84,
  *   P3-6e). Its bytes live under the org's `docs/`, which the org's backups carry; the row is
  *   global's record of their arrival.
+ * - `FencedImportItem`: what the audited import did with each document of a fenced export (P3-6e):
+ *   the import's progress. The documents it brought in carry their own `importedFrom`.
  * - `OnpremCredential`: a person's local password or PIN for an org's master, as global keeps it to
  *   deliver (FR-20.40, P2-4c). FR-20.21: no backup holds a local credential.
  *
@@ -60,4 +62,5 @@ export const NODE_STATE_MODELS: ReadonlySet<string> = new Set([
   'MirrorBlob',
   'OrgMove',
   'FencedExport',
+  'FencedImportItem',
 ])

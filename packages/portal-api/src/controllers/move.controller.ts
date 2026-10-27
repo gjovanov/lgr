@@ -6,6 +6,7 @@ import { MoveError, abortMove, currentMove, preflightMove, startMove } from 'ser
 import { preflightMoveBack, startMoveBack } from 'services/biz/move/move-back.service'
 import { legalSeriesOf, preflightPromote, promote, recordLastNumbers } from 'services/biz/move/promote.service'
 import { fencedExportsOf } from 'services/biz/move/fenced-export.service'
+import { requestFencedImport } from 'services/biz/move/fenced-import.service'
 import { OrgHome } from 'db/models'
 import { rewelcomeNode } from '../websocket/uplink.js'
 
@@ -148,6 +149,25 @@ export const moveController = new Elysia({ prefix: '/org/:orgId/moves' })
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
       return { exports: await fencedExportsOf(orgId) }
+    },
+    { isSignIn: true },
+  )
+
+  /**
+   * FR-20.84 (P3-6e): bring a received export into the books, through the audited import. Asked once;
+   * global's tick runs it in batches, and the review shows what became of each document.
+   */
+  .post(
+    '/fenced-exports/:exportId/import',
+    async ({ params: { orgId, exportId }, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
+      try {
+        await requestFencedImport(orgId, exportId, { id: user.id, operatorCode: user.operatorCode })
+        return { exports: await fencedExportsOf(orgId) }
+      } catch (e) {
+        return fail(status, e)
+      }
     },
     { isSignIn: true },
   )

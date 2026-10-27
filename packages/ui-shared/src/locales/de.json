@@ -3332,9 +3332,9 @@
         "received": "Eingetroffen {when}",
         "refused": "Abgelehnt: Es ist nicht, was der Server zu senden angab. Es wird hier und auf dem Server aufbewahrt."
       },
-      "counts": "{documents} Dokumente, {deleted} gelöscht, {files} Dateien",
+      "counts": "Dokumente: {documents} · gelöscht: {deleted} · Dateien: {files}",
       "missingFiles": "{n} Dateien, die der Server nicht senden konnte",
-      "collisions": "{n} seiner Nummern wurden hier an andere Dokumente vergeben. Jede wird durch eine Gutschrift und eine neue Nummer gelöst, nie durch eine Änderung.",
+      "collisions": "Nummern, die lgrai.app inzwischen anderen Dokumenten gegeben hat: {n}. Jede wird durch eine Gutschrift und eine neue Nummer gelöst, nie durch eine Änderung.",
       "legalTitle": "Verkäufe und Rechnungen",
       "noLegal": "Keine Verkäufe oder Rechnungen darin",
       "number": "Nummer",
@@ -3347,7 +3347,35 @@
         "same_id": "Schon hier, nach der Grenze geändert",
         "collision": "Nummer von einem anderen Dokument belegt"
       },
-      "truncated": "Hier sind nur die ersten 5.000 aufgeführt."
+      "truncated": "Hier sind nur die ersten 5.000 aufgeführt.",
+      "import": {
+        "action": "In die Buchhaltung übernehmen",
+        "title": "Was {name} nach der Grenze getan hat, in die Buchhaltung übernehmen",
+        "intro": "lgrai.app geht den Export Dokument für Dokument durch:",
+        "kept": "ein hier neuer Verkauf oder ein neues Dokument wird genau so aufbewahrt, wie der Server es geschrieben hat, mit Nummer, Zeiten und Herkunft;",
+        "booked": "lgrai.app bucht es, wie es selbst gebucht hätte: den Bestand, notfalls unter null, die Buchung und die Buchungen der Zahlungen;",
+        "left": "was lgrai.app schon hat, eine inzwischen anders vergebene Nummer, eine Löschung und was es nicht buchen kann, bleiben für einen Menschen, jeweils mit Grund.",
+        "confirm": "Übernehmen",
+        "started": "lgrai.app übernimmt es in die Buchhaltung",
+        "running": "Wird in die Buchhaltung übernommen…",
+        "done": "In der Buchhaltung seit {when}",
+        "counts": "In der Buchhaltung: {imported} · für einen Menschen: {skipped} · nicht gebucht: {failed}",
+        "label": "Übernahme"
+      },
+      "outcome": {
+        "imported": "In der Buchhaltung",
+        "skipped": "Für einen Menschen",
+        "failed": "Nicht gebucht"
+      },
+      "reason": {
+        "number_taken": "seine Nummer ist hier vergeben",
+        "same_id": "auch hier geändert",
+        "missing_reference": "es nennt, was lgrai.app nicht hat",
+        "booking_failed": "es ließ sich nicht buchen",
+        "unique_conflict": "es kollidiert mit etwas hier",
+        "not_imported_kind": "wird von einem Menschen übernommen",
+        "deletion": "eine Löschung wird nie angewendet"
+      }
     }
   },
   "desktops": {

@@ -28,6 +28,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   Employee: { collection: 'employees', class: 'R', orgPath: 'orgId' },
   ExchangeRate: { collection: 'exchangerates', class: 'R', orgPath: 'orgId' },
   FencedExport: { collection: 'fenced_exports', class: 'N', orgPath: 'orgId' },
+  FencedImportItem: { collection: 'fenced_import_items', class: 'N', orgPath: 'orgId' },
   File: { collection: 'files', class: 'R', orgPath: 'orgId' },
   FiscalDevice: { collection: 'fiscaldevices', class: 'S', orgPath: 'orgId', home: ['connectionParams','connectionType','createdAt','deactivatedAt','deviceNumber','firmwareVersion','isActive','manufacturer','name','updatedAt','warehouseId','workstationId'], global: [], node: ['lastCommunicationAt','status'] },
   FiscalPeriod: { collection: 'fiscalperiods', class: 'R', orgPath: 'orgId' },
