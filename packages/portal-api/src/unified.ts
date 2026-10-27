@@ -378,7 +378,12 @@ setTimeout(async () => {
     // Any of them locks legal numbering. From the start: a reverted disk is caught by the last one.
     {
       name: 'series-lock-tick', intervalMs: config.node.role === 'master' ? 60_000 : 0, immediate: true,
-      ...lazy(() => import('services/biz/home/series-lock.service'), async m => (await m.journalHwmTick()) + (await m.linkAlarmsTick())),
+      // Then what it says of each org goes to lgrai.app, for the Servers page there.
+      ...lazy(() => import('services/biz/home/series-lock.service'), async m => {
+        const locked = (await m.journalHwmTick()) + (await m.linkAlarmsTick())
+        await m.reportOrgState()
+        return locked
+      }),
     },
     // FR-20.84 (P3-6e) — the audited import of a fenced export a person asked for: one batch a tick,
     // under a lease, so a crash or another pod repeats nothing.

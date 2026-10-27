@@ -197,7 +197,15 @@ export interface BuildOptions {
 export type Built =
   | { page: Page; bytes: Uint8Array }
   | { empty: true }
-  | { refused: 'not_home' | 'not_ready' | 'chain_unknown'; detail: string }
+  /**
+   * `wentBack`: global holds pages of the org past the newest this database ever built, so its
+   * history went back under the mirror (FR-20.51): a restore, a reverted disk. Otherwise an unknown
+   * chain is global's to explain (its own restore), and nothing here is concluded from it.
+   */
+  | { refused: 'not_home' | 'not_ready' | 'chain_unknown'; detail: string; wentBack?: true }
+
+/** A `repl_orgs` row as the chain records see it. */
+type ReplOrgPages = { orgId: ObjectId; pages: Array<{ toSeq: number; hash: string; at: Date }> }
 
 const asObjectId = (v: unknown): ObjectId => ((v as any)?._bsontype === 'ObjectId' ? (v as ObjectId) : new mongoose.Types.ObjectId(String(v)) as unknown as ObjectId)
 
@@ -222,10 +230,19 @@ export async function buildPage(client: MongoClient, db: Db, orgId: unknown, o: 
   if (!repl?.enabled || !repl.seededAt || repl.seededEpoch !== journalEpoch) {
     return { refused: 'not_ready', detail: `the org's journal is not whole at journal epoch ${journalEpoch} yet` }
   }
+  const kept = (repl.pages ?? []) as Array<{ toSeq: number; hash: string; at: Date }>
   let prevHash = ''
+  let anchor: { toSeq: number; hash: string; at: Date } | undefined
   if (o.after !== 0 || o.afterHash !== '') {
-    const mine = ((repl.pages ?? []) as Array<{ toSeq: number; hash: string }>).some(p => num(p.toSeq) === o.after && p.hash === o.afterHash)
-    if (!mine) return { refused: 'chain_unknown', detail: `this master built no page ending at ${o.after} with the hash global holds` }
+    anchor = kept.find(p => num(p.toSeq) === o.after && p.hash === o.afterHash)
+    if (!anchor) {
+      const built = kept.reduce((m, p) => Math.max(m, num(p.toSeq)), 0)
+      // ⚠ Only past the newest page built here: below it, global may be the one that went back.
+      if (o.after > built) {
+        return { refused: 'chain_unknown', detail: `lgrai.app holds pages of this organisation up to ${o.after}, and this database built them only up to ${built}: it went back`, wentBack: true }
+      }
+      return { refused: 'chain_unknown', detail: `this master built no page ending at ${o.after} with the hash global holds` }
+    }
     prevHash = o.afterHash
   }
 
@@ -285,10 +302,21 @@ export async function buildPage(client: MongoClient, db: Db, orgId: unknown, o: 
   }
   page.chainHash = chainHash(page, rows)
   // ⚠ Recorded before it can be sent: a page global applies is one this master can continue from.
-  await db.collection<{ orgId: ObjectId; pages: Array<{ toSeq: number; hash: string; at: Date }> }>(ORGS).updateOne(
-    { orgId: org },
+  // The same rows make the same page, so one built again is recorded once.
+  await db.collection<ReplOrgPages>(ORGS).updateOne(
+    { orgId: org, pages: { $not: { $elemMatch: { toSeq: page.toSeq, hash: page.chainHash } } } },
     { $push: { pages: { $each: [{ toSeq: page.toSeq, hash: page.chainHash, at: page.builtAt }], $slice: -KEPT_PAGES } } },
   )
+  // ⚠ Never lose the page global stands on. While global cannot apply (it errs, it is down), every
+  // retry builds a page, and the 32 newest would push the anchor out: global's next ask would then
+  // find no chain to continue, and the org would stop for good (and look like a database gone back).
+  if (anchor) {
+    // Put back first, as the oldest it is: the newest stays last, where the status reads it.
+    await db.collection<ReplOrgPages>(ORGS).updateOne(
+      { orgId: org, pages: { $not: { $elemMatch: { toSeq: anchor.toSeq, hash: anchor.hash } } } },
+      { $push: { pages: { $each: [{ toSeq: anchor.toSeq, hash: anchor.hash, at: anchor.at }], $position: 0 } } },
+    )
+  }
   return { page, bytes: encodePage(page) }
 }
 

@@ -74,6 +74,18 @@ export interface IServerNode extends Omit<Document, '_id'> {
    */
   sealKey?: string
   sealKeyAt?: Date
+  /**
+   * FR-20.51 (P3-7): what the master says of each org it writes, every minute: where its journal
+   * stands, whether its database went back underneath the mirror, whether legal numbering is locked.
+   * The master's word, for the org's admin to see; nothing here decides on it.
+   */
+  orgState?: Array<{
+    orgId: Types.ObjectId
+    head?: number
+    wentBack?: { at?: Date; reason: string; detail?: string }
+    numbering?: { since?: Date; reason: string; detail?: string }
+    at: Date
+  }>
   createdAt: Date
   updatedAt: Date
 }
@@ -112,6 +124,16 @@ const serverNodeSchema = new Schema<IServerNode>(
     relays: { type: [new Schema({ orgId: { type: Schema.Types.ObjectId, required: true }, mail: Boolean, documents: Boolean, setBy: Schema.Types.ObjectId, setAt: Date }, { _id: false })], default: undefined },
     sealKey: String,
     sealKeyAt: Date,
+    orgState: {
+      type: [new Schema({
+        orgId: { type: Schema.Types.ObjectId, required: true },
+        head: Number,
+        wentBack: { type: new Schema({ at: Date, reason: String, detail: String }, { _id: false }), default: undefined },
+        numbering: { type: new Schema({ since: Date, reason: String, detail: String }, { _id: false }), default: undefined },
+        at: Date,
+      }, { _id: false })],
+      default: undefined,
+    },
   },
   { timestamps: true, collection: 'nodes' },
 )

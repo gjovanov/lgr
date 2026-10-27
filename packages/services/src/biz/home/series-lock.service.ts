@@ -16,19 +16,24 @@
  *   API's start, before it serves, and every minute.
  * - **The journal behind lgrai.app's watermark**: the other mark kept outside, by global. A healthy
  *   master is never behind the pages it sent. ⚠ This is what catches a reverted VM snapshot, whose
- *   own mark went back with the disk, and a restored database whose chain the master can no longer
- *   continue: its pump stops that org (`chain_unknown`) without a word to global.
+ *   own mark went back with the disk.
+ * - **lgrai.app holding pages of the org past the newest this database ever built** (`buildPage`,
+ *   when the pump asks): a restored database whose chain the master can no longer continue. Its pump
+ *   stops that org (`chain_unknown`) without a word to global, so this is the master's own finding.
  * - **lgrai.app refusing its pages as a history that went back** (`instance_changed`,
  *   `stale_journal`, `diverged`): a reverted VM snapshot written to, when linked.
  * - **A clone alarm**: another machine connected as this server (FR-20.8).
  *
- * ⚠ **A signal from before the last unlock does not lock again.** A person who recorded the last
- * numbers made numbering safe; replication may stay refused until the org is re-seeded, and the
- * journal may stay below the old mark for a while. So the unlock is remembered (`seriesUnlockedAt`)
- * and resets the mark, and only a newer signal locks.
+ * ⚠ **A sign seen again does not lock again.** A person who recorded the last numbers made numbering
+ * safe, while replication stays refused until the org is re-seeded, the journal may stay below its
+ * marks a while, and lgrai.app dates every refusal of the same history anew. So a history that went
+ * back underneath the mirror is RECORDED once (`noteWentBack`, `repl_orgs.wentBack`, cleared by the
+ * re-seed), the unlock resets this server's own mark, and a clone alarm counts only when it is newer
+ * than the unlock (`seriesUnlockedAt`).
  *
- * Not yet: the fiscal device as a witness (its last receipt ahead of the database), the clone seen
- * on the LAN, and the re-seed from the mirror.
+ * Every minute the master also tells lgrai.app what it found, per org (`reportOrgState`), for the
+ * Servers page there. Not yet: the fiscal device as a witness (its last receipt ahead of the
+ * database), the clone seen on the LAN, and the re-seed from the mirror.
  */
 import { readFileSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
@@ -61,6 +66,25 @@ export async function lockLegalSeries(orgId: string, reason: SeriesLockReason, d
   )
   if (r.modifiedCount) logger.error({ orgId, reason, detail }, 'Legal numbering is LOCKED here until a person records the last numbers issued at the site')
   return r.modifiedCount > 0
+}
+
+/**
+ * This database cannot continue lgrai.app's copy of `orgId`: it went back underneath it (FR-20.51,
+ * FR-20.71). Recorded ONCE on the org's journal row (`repl_orgs.wentBack`), and legal numbering locks
+ * with it. ⚠ The record, not the sign, decides: the pump sends the refused history again on every new
+ * session, and lgrai.app dates each refusal anew, so a sign seen again after a person recorded the
+ * numbers must find the record and change nothing. A re-seed from the mirror clears it. True when this
+ * was the first sign.
+ */
+export async function noteWentBack(orgId: string, reason: string, detail: string, now = new Date()): Promise<boolean> {
+  if (nodeRole() !== 'master') return false
+  const org = oid(orgId)
+  if (!(await OrgHome.exists({ orgId: org, home: thisNode() }))) return false
+  const r = await ReplOrg.collection.updateOne({ orgId: org, wentBack: { $exists: false } }, { $set: { wentBack: { at: now, reason: reason.slice(0, 40), detail: detail.slice(0, 500) } } })
+  if (!r.modifiedCount) return false
+  logger.error({ orgId, reason, detail }, 'Replication: this database cannot continue lgrai.app\'s copy of the organisation; it went back underneath it')
+  await lockLegalSeries(orgId, 'went_back', detail, now)
+  return true
 }
 
 // ── A restore on a master ────────────────────────────────────────────────────────────────────────
@@ -189,21 +213,48 @@ export async function linkAlarmsTick(fetchImpl: typeof fetch = fetch, now = new 
       if (await lockLegalSeries(key, 'clone', 'another machine is connected to lgrai.app as this server', now)) locked++
       continue
     }
+    // A history that went back is recorded once (`noteWentBack`): seen again, it changes nothing.
     const back = (self.wentBack ?? []).find((w: any) => w.orgId === key)
-    if (back?.at && new Date(back.at).getTime() > since) {
-      if (await lockLegalSeries(key, 'went_back', `lgrai.app refuses this server's pages: ${back.reason}`, now)) locked++
+    if (back?.reason) {
+      if (await noteWentBack(key, String(back.reason), `lgrai.app refuses this server's pages: ${back.reason}`, now)) locked++
       continue
     }
-    // ⚠ Dated by the last page lgrai.app applied: a database still behind after a person recorded the
-    // numbers (no re-seed yet) is the same event, and never locks again.
     const mirror = (self.mirrors ?? []).find((m: any) => m.orgId === key)
     const head = heads.get(key)
     const watermark = Number(mirror?.watermark ?? 0)
-    if (head !== undefined && head < watermark && (mirror?.lastPageAt ? new Date(mirror.lastPageAt).getTime() : 0) > since) {
-      if (await lockLegalSeries(key, 'went_back', `lgrai.app holds this server's journal of the organisation up to ${watermark}, and it is at ${head} here: the database went back`, now)) locked++
+    if (head !== undefined && head < watermark) {
+      if (await noteWentBack(key, 'mirror_ahead', `lgrai.app holds this server's journal of the organisation up to ${watermark}, and it is at ${head} here: the database went back`, now)) locked++
     }
   }
   return locked
+}
+
+/**
+ * What this server tells lgrai.app of each org written here (P3-7), every minute: where its journal
+ * stands, whether its database went back underneath the mirror, and whether legal numbering is locked
+ * and why. lgrai.app's Servers page shows it to the org's admin. False when lgrai.app cannot be told.
+ */
+export async function reportOrgState(fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  if (nodeRole() !== 'master') return false
+  const token = readNodeToken()
+  if (!token) return false
+  const homes: any[] = await OrgHome.find({ home: thisNode() }, { orgId: 1, seriesFrozen: 1 }).lean()
+  const repl = new Map(((await ReplOrg.find({ orgId: { $in: homes.map(h => h.orgId) } }, { orgId: 1, seq: 1, wentBack: 1 }).lean()) as any[]).map(r => [String(r.orgId), r]))
+  const orgs = homes.map(h => {
+    const r: any = repl.get(String(h.orgId))
+    return {
+      orgId: String(h.orgId),
+      head: Number(r?.seq ?? 0),
+      ...(r?.wentBack?.at ? { wentBack: { at: r.wentBack.at, reason: r.wentBack.reason, detail: r.wentBack.detail } } : {}),
+      ...(h.seriesFrozen?.since ? { numbering: { since: h.seriesFrozen.since, reason: h.seriesFrozen.reason, detail: h.seriesFrozen.detail } } : {}),
+    }
+  })
+  const res = await fetchWithTimeout(
+    new URL('/api/node/v1/org-state', token.server),
+    { method: 'POST', headers: { authorization: `Bearer ${token.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ orgs }) },
+    { timeoutMs: 15_000, fetchImpl },
+  )
+  return res.ok
 }
 
 /**

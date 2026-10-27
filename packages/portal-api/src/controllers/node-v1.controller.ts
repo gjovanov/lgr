@@ -4,7 +4,7 @@ import { NODE_LINK_LEVELS, ServerNode } from 'db/models'
 import { NodeAuth } from '../auth/node-auth.service.js'
 import { clientIp } from '../auth/client-ip.js'
 import { acceptableTokenAudiences, configuredRelease } from './desktop-v1.controller.js'
-import { NodeError, enrollNode, issueNodeToken, nodeSelf } from 'services/biz/node/node.service'
+import { NodeError, enrollNode, issueNodeToken, nodeSelf, recordOrgState } from 'services/biz/node/node.service'
 import { relayMail } from 'services/biz/relay/mail-relay.service'
 import { documentJob, startDocumentJob } from 'services/biz/relay/documents-relay.service'
 import { ServerReleaseError, openServerBundle, serverReleaseOffer } from 'services/biz/node/server-release.service'
@@ -399,6 +399,17 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
     if (!OBJECT_ID.test(orgId) || !(node.orgIds ?? []).some((id: unknown) => String(id) === orgId)) return status(404, { code: 'not_found' })
     return { series: await legalSeriesOf(orgId) }
   })
+
+  /**
+   * FR-20.51 (P3-7): the master's account of the orgs it writes, every minute: its journal's head, a
+   * database gone back underneath the mirror, a legal numbering lock and why. Kept for the Servers
+   * page, for the orgs it is registered for only (`recordOrgState`).
+   */
+  .post(
+    '/org-state',
+    async ({ node, body }: any) => ({ ok: true, orgs: await recordOrgState(node, body) }),
+    { body: t.Object({ orgs: t.Array(t.Object({ orgId: t.String({ maxLength: 24 }) }, { additionalProperties: true }), { maxItems: 100 }) }) },
+  )
 
   /** The master's registration as global sees it: which orgs it serves, at which link level. */
   .get('/self', async ({ node }: any) => nodeSelf(node))

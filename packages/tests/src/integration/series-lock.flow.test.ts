@@ -9,10 +9,10 @@ import { config } from 'config'
 import { mongoose } from 'db/connection'
 import { BackupRun, MirrorState, OrgHome, ReplOrg, Sequence, ServerNode } from 'db/models'
 import { forgetAllHomes } from 'db/home/home'
-import { REPLACE_REFUSED, hwmFile, journalHwmTick, linkAlarmsTick, lockLegalSeries, mirrorLegalSeries } from 'services/biz/home/series-lock.service'
+import { REPLACE_REFUSED, hwmFile, journalHwmTick, linkAlarmsTick, lockLegalSeries, mirrorLegalSeries, reportOrgState } from 'services/biz/home/series-lock.service'
 import { recordLastNumbers, legalSeriesOf } from 'services/biz/move/promote.service'
 import { getNextNumber } from 'services/biz/sequence.service'
-import { nodeSelf } from 'services/biz/node/node.service'
+import { nodeSelf, orgStateFor, recordOrgState } from 'services/biz/node/node.service'
 import { runBackupForOrg } from 'services/biz/backup/backup-runner.service'
 import { applyRestore, inspectBundle } from 'services/biz/backup/backup-restore.service'
 
@@ -123,12 +123,19 @@ describe('the restore lock (FR-20.51)', () => {
     expect(await getNextNumber(s.orgId, 'SALES_DOC')).toBe(`SALES_DOC-${year}-00141`)
     // The same alarm, still standing: it does not lock again.
     expect(await linkAlarmsTick(fetchImpl)).toBe(0)
-    // A newer refusal of its history does.
+    // A refusal of its history does: the first sign that it went back, recorded.
     self = { wentBack: [{ orgId: s.orgId, reason: 'diverged', at: new Date(Date.now() + 1000) }] }
     expect(await linkAlarmsTick(fetchImpl)).toBe(1)
     expect(await frozen(s.oid)).toMatchObject({ reason: 'went_back', detail: expect.stringContaining('diverged') })
+    expect(((await ReplOrg.findOne({ orgId: s.oid }).lean()) as any).wentBack).toMatchObject({ reason: 'diverged' })
     // Locked once: a second signal changes nothing.
     expect(await lockLegalSeries(s.orgId, 'clone')).toBe(false)
+    // Unlocked; the pump's next session sends the refused history again and lgrai.app dates its
+    // refusal anew. The record decides, not the date: nothing locks again until a re-seed.
+    await recordLastNumbers(s.orgId, s.by, await all(s.orgId, 150))
+    self = { wentBack: [{ orgId: s.orgId, reason: 'diverged', at: new Date(Date.now() + 60_000) }] }
+    expect(await linkAlarmsTick(fetchImpl)).toBe(0)
+    expect(await frozen(s.oid)).toBeUndefined()
   }, 60_000)
 
   it('locks when lgrai.app holds more of the journal than the database has: a reverted disk took its own mark back with it', async () => {
@@ -148,13 +155,61 @@ describe('the restore lock (FR-20.51)', () => {
     expect(await journalHwmTick()).toBe(0)
     expect(await linkAlarmsTick(fetchImpl)).toBe(1)
     expect(await frozen(s.oid)).toMatchObject({ reason: 'went_back', detail: expect.stringMatching(/up to 64.*at 40 here/) })
+    expect(((await ReplOrg.findOne({ orgId: s.oid }).lean()) as any).wentBack).toMatchObject({ reason: 'mirror_ahead' })
     // A person records the numbers; the database is still behind (no re-seed yet): the same event.
     await recordLastNumbers(s.orgId, s.by, await all(s.orgId, 121))
     expect(await linkAlarmsTick(fetchImpl)).toBe(0)
     expect(await getNextNumber(s.orgId, 'SALES_DOC')).toBe(`SALES_DOC-${year}-00122`)
-    // Pages lgrai.app applied after the unlock, and the database behind them again: a new event.
-    self = { mirrors: [{ orgId: s.orgId, watermark: 90, lastPageAt: new Date(Date.now() + 1000) }] }
+    // Once a re-seed has cleared the record, a database behind the mirror again is a new event.
+    await ReplOrg.collection.updateOne({ orgId: s.oid }, { $unset: { wentBack: '' } })
+    self = { mirrors: [{ orgId: s.orgId, watermark: 90, lastPageAt: new Date() }] }
     expect(await linkAlarmsTick(fetchImpl)).toBe(1)
+  }, 60_000)
+
+  it('the master tells lgrai.app what it found, and lgrai.app keeps only what it may: its orgs, known reasons, bounded text', async () => {
+    const s = await homeHere(70)
+    writeFileSync(config.outbox.tokenFile, JSON.stringify({ server: 'https://lgrai.test', token: 'node-token', expiresAt: Math.floor(Date.now() / 1000) + 3600 }))
+    await ReplOrg.collection.updateOne({ orgId: s.oid }, { $set: { wentBack: { at: new Date(), reason: 'mirror_ahead', detail: 'lgrai.app holds more' } } })
+    await lockLegalSeries(s.orgId, 'went_back', 'lgrai.app holds more')
+    let sent: any = null
+    const fetchImpl = (async (input: any, init: any) => {
+      if (new URL(String(input)).pathname !== '/api/node/v1/org-state' || init?.method !== 'POST') return new Response('{}', { status: 404 })
+      sent = JSON.parse(String(init.body))
+      return Response.json({ ok: true, orgs: 1 })
+    }) as unknown as typeof fetch
+    expect(await reportOrgState(fetchImpl)).toBe(true)
+    expect(sent.orgs).toEqual([{
+      orgId: s.orgId,
+      head: 70,
+      wentBack: { at: expect.any(String), reason: 'mirror_ahead', detail: 'lgrai.app holds more' },
+      numbering: { since: expect.any(String), reason: 'went_back', detail: 'lgrai.app holds more' },
+    }])
+
+    // On lgrai.app: kept for the orgs the server is registered for, and nothing it should not say.
+    ;(config.node as any).role = 'global'
+    const other = await createTestOrg({ slug: `series-lock-other-${n}` } as any)
+    const stranger = await createTestOrg({ slug: `series-lock-stranger-${n}` } as any)
+    await ServerNode.collection.insertOne({ _id: NODE, name: 'Shop', orgIds: [s.oid, other._id], linkLevel: 'full', status: 'active', keyEpoch: 1 } as any)
+    const node: any = await ServerNode.findById(NODE).lean()
+    const kept = await recordOrgState(node, {
+      orgs: [
+        { ...sent.orgs[0], numbering: { ...sent.orgs[0].numbering, since: new Date(Date.now() + 86_400_000).toISOString(), detail: 'x'.repeat(2000) } },
+        { orgId: String(other._id), head: 3, wentBack: { at: new Date().toISOString(), reason: 'made_up' }, numbering: { reason: 'because' } },
+        // Another org's, which the server is not registered for: never kept.
+        { orgId: String(stranger._id), head: 9, numbering: { since: new Date().toISOString(), reason: 'clone' } },
+        { orgId: s.orgId, head: 1 },
+      ],
+    })
+    expect(kept).toBe(2)
+    const row: any = await ServerNode.findById(NODE).lean()
+    const mine = orgStateFor(row, s.orgId) as any
+    expect(mine.wentBack).toMatchObject({ reason: 'mirror_ahead', detail: 'lgrai.app holds more' })
+    expect(mine.numbering.reason).toBe('went_back')
+    expect(mine.numbering.detail).toHaveLength(300)
+    expect(new Date(mine.numbering.since).getTime()).toBeLessThanOrEqual(Date.now())
+    // An unknown reason is dropped, and the account of one org never shows another's.
+    expect(orgStateFor(row, String(other._id))).toEqual({ at: expect.any(Date) })
+    expect(orgStateFor(row, String(stranger._id))).toBeNull()
   }, 60_000)
 
   it('global tells a master what it holds against it: a clone alarm, and a refusal newer than its last page', async () => {

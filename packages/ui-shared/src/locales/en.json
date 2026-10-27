@@ -3186,6 +3186,9 @@
     "updateWaits": "{version} waits: {reason}",
     "updateAlarm": "kept out by open tills for {n} nights",
     "cloneAlarm": "Clone alarm",
+    "wentBack": "Database went back",
+    "wentBackHint": "lgrai.app's copy holds changes this server's database no longer has. Its legal numbering is locked.",
+    "numberingLocked": "Numbering locked",
     "relays": "Through lgrai.app",
     "relayMail": "Mail",
     "relayDocuments": "Documents",
@@ -3326,7 +3329,7 @@
       "reason": {
         "promoted": "lgrai.app's copy became the organization's home when its server was lost.",
         "restored": "This server's database went back in time (restored from a backup): it may have numbers the site already issued.",
-        "went_back": "lgrai.app refuses this server's history as one that went back in time (a snapshot reverted): it may have numbers the site already issued.",
+        "went_back": "This server's database went back in time underneath lgrai.app's copy (restored, or a snapshot reverted): it may have numbers the site already issued.",
         "clone": "Another machine is connected to lgrai.app as this server: until the real one is registered again, neither may issue a legal number."
       },
       "mirror": "lgrai.app's copy has {n}"

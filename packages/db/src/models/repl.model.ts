@@ -65,9 +65,19 @@ export interface IReplOrg {
    * The pages this master built (FR-20.64), newest last: where each ends and the chain hash after it.
    * ⚠ Only ever its own. Global tells the master its watermark and hash, and the master continues
    * only from a page it finds here: a restored, reverted or cloned master does not have the page
-   * global holds, so it cannot continue that chain (FR-20.51). The newest 32 are kept.
+   * global holds, so it cannot continue that chain (FR-20.51). The newest 32 are kept, and always
+   * the one global last said it stands on (P3-7): retries while global cannot apply must not push it out.
    */
   pages: Array<{ toSeq: number; hash: string; at: Date }>
+  /**
+   * FR-20.51, FR-20.71 (P3-7): this database cannot continue lgrai.app's copy of the org: the mirror
+   * holds pages it never built (`mirror_ahead`), or refuses its history (`instance_changed`,
+   * `stale_journal`, `diverged`). Set ONCE, at the first sign, and legal numbering locks with it;
+   * kept until the org is re-seeded from the mirror, so a sign seen again after a person recorded the
+   * numbers never locks again. ⚠ A database restored with an older copy of this row has none: the
+   * restore is then seen afresh, which is what it is.
+   */
+  wentBack?: { at: Date; reason: string; detail?: string }
   updatedAt: Date
 }
 
@@ -79,6 +89,7 @@ const orgSchema = new Schema<IReplOrg>(
     seededAt: Date,
     seededEpoch: Number,
     pages: { type: [{ _id: false, toSeq: Number, hash: String, at: Date }], default: [] },
+    wentBack: { type: new Schema({ at: Date, reason: String, detail: String }, { _id: false }), default: undefined },
   },
   { timestamps: { createdAt: false, updatedAt: true }, collection: 'repl_orgs' },
 )

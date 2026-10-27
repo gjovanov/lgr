@@ -13,6 +13,7 @@ import { captureTick, stopCapture } from 'services/biz/replication/engine'
 import { BSON, buildPage, chainHash, decodeDoc, decodePage, idKey, rejournal, type Page } from 'services/biz/replication/pages'
 import { applyPage, type ApplyResult } from 'services/biz/replication/apply'
 import { homePart } from 'services/biz/replication/project'
+import { pageFor } from 'services/biz/replication/control'
 
 /**
  * FR-20.64–20.66 (plan step P3-2a, AC 30–33): a master's journal leaves as pages, and global's mirror
@@ -283,6 +284,55 @@ describe('the chain (FR-20.64, FR-20.71)', () => {
     expect((await mirror.collection<any>('contacts').findOne({ _id: c._id }))!.companyName).toBe('Changed Ltd')
     const st: any = await mirror.collection('mirror_state').findOne({ orgId })
     expect(st.alarms.map((a: any) => a.kind)).toEqual(['diverged', 'forged'])
+  }, 60_000)
+
+  it('the page global stands on is kept through any number of rebuilds; a mirror past every page built here means the database went back', async () => {
+    const orgId = await homedOrg()
+    await createTestContact(orgId as any)
+    await journal(orgId)
+    await sync(orgId)
+    const at = await where(orgId)
+    // Global cannot apply for a while (it errs, it is down): the pump builds again and again from there.
+    const waiting = []
+    for (let i = 0; i < 40; i++) waiting.push((await createTestContact(orgId as any, { companyName: `Waiting ${i}` }))._id)
+    await rejournal(client, master, orgId, 'contacts', waiting)
+    for (let k = 1; k <= 40; k++) expect('page' in (await buildPage(client, master, orgId, { ...at, nodeId: NODE, maxDocs: k }))).toBe(true)
+    const pagesOf = async () => ((await master.collection('repl_orgs').findOne({ orgId })) as any).pages as Array<{ toSeq: number; hash: string }>
+    const kept = await pagesOf()
+    expect(kept.length).toBeLessThanOrEqual(33)
+    expect(kept.some(p => p.toSeq === at.after && p.hash === at.afterHash)).toBe(true)
+    // The same rows make the same page: built again, it is recorded once.
+    await buildPage(client, master, orgId, { ...at, nodeId: NODE, maxDocs: 40 })
+    expect((await pagesOf()).length).toBe(kept.length)
+    // Global takes a page at last: the chain goes on from where it stood.
+    expect((await sync(orgId)).every(r => r.ok)).toBe(true)
+    expect(await digest(mirror, orgId)).toEqual(await digest(master, orgId))
+
+    // A mirror past every page this database ever built: it went back underneath it (FR-20.51).
+    const top = Math.max(...(await pagesOf()).map(p => p.toSeq))
+    expect(await buildPage(client, master, orgId, { after: top + 50, afterHash: 'e'.repeat(64), nodeId: NODE })).toMatchObject({ refused: 'chain_unknown', wentBack: true })
+    // Below it, a chain it does not know concludes nothing here: global may be the one restored.
+    const below: any = await buildPage(client, master, orgId, { after: at.after, afterHash: 'e'.repeat(64), nodeId: NODE })
+    expect(below.refused).toBe('chain_unknown')
+    expect(below.wentBack).toBeUndefined()
+  }, 90_000)
+
+  it('asked to continue past every page it built, the master records that its database went back and locks legal numbering, once', async () => {
+    const orgId = await homedOrg()
+    await createTestContact(orgId as any)
+    await journal(orgId)
+    await sync(orgId)
+    ;(config.replication as any).capture = true
+    const ask = { orgId: String(orgId), after: (await where(orgId)).after + 500, afterHash: 'e'.repeat(64) }
+    expect(await pageFor(ask)).toMatchObject({ status: 409, refused: 'chain_unknown' })
+    const first: any = ((await master.collection('repl_orgs').findOne({ orgId })) as any).wentBack
+    expect(first).toMatchObject({ reason: 'mirror_ahead', at: expect.any(Date), detail: expect.stringContaining('went back') })
+    expect(((await master.collection('org_homes').findOne({ orgId })) as any).seriesFrozen).toMatchObject({ reason: 'went_back' })
+    // A person records the numbers; the pump asks again on its next session, and nothing locks again.
+    await master.collection('org_homes').updateOne({ orgId }, { $unset: { seriesFrozen: '' }, $set: { seriesUnlockedAt: new Date() } })
+    expect(await pageFor(ask)).toMatchObject({ status: 409, refused: 'chain_unknown' })
+    expect(((await master.collection('org_homes').findOne({ orgId })) as any).seriesFrozen).toBeUndefined()
+    expect(((await master.collection('repl_orgs').findOne({ orgId })) as any).wentBack.at).toEqual(first.at)
   }, 60_000)
 
   it('a newer journal epoch waits for a reconcile, and another instance of the master is refused', async () => {
