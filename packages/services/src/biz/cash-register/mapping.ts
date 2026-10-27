@@ -242,6 +242,9 @@ export function toPosTransaction(doc: any): Record<string, any> {
     changeDue: reg.changeDue || 0,
     movementId: reg.movementId,
     unpNumber: reg.unp,
+    // #323: the operator, for SUPTO 18.1. Stored on the document; a sale without it (a copied POS
+    // row) still names one in its УНП. A non-fiscal sale has no УНП, only the stored code.
+    operatorCode: reg.operatorCode || operatorCodeOfUnp(reg.unp),
     fiscalReceiptNumber: reg.fiscalReceiptNumber,
     fiscalDeviceNumber: reg.fiscalDeviceNumber,
     printedAt: reg.printedAt,
