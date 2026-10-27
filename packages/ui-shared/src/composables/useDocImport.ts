@@ -19,6 +19,8 @@ export interface ExtractedFile {
   pages?: number
   chars: number
   text: string
+  /** A spreadsheet's parse (salesAnalysis / storeOperations), which `analyze` reads instead of the text. */
+  parsed?: unknown
   error?: string
 }
 

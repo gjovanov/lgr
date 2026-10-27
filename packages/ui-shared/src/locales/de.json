@@ -2546,6 +2546,7 @@
     "step3": "Ergebnis",
     "warehouse": "Lager",
     "warehouseHint": "Bestand aus importierten Dokumenten wird hier eingebucht",
+    "warehouseHintSale": "Die Tagesverkäufe werden aus diesem Lager ausgebucht",
     "order": "Lieferantenbestellung (ORDO-)",
     "orderHint": "Positionen gegen diese Bestellung abgleichen und auf ihre Lager aufteilen",
     "selectFile": "Datei auswählen",
