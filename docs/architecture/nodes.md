@@ -254,6 +254,9 @@ and `…?ch=bulk` (`portal-api/src/websocket/uplink.ts`, mounted on global only)
   Прил. 32 fields (installation type, data location, database address, protocol, topology), ready to
   copy, with the reminder that the trader re-files them within seven days of a change. A status older
   than two minutes is shown as such. lgrai.app has no such page: its Servers page says what it hears.
+- **The daily digest (P3-8b, FR-20.100).** An org written on its own server gets its digest from
+  that server, and the digest says how far lgrai.app's copy holds the org, the last backup on the
+  server, and what waits for the internet, each line red past the threshold the Servers page uses.
 
 ## Desktop updates through the master (FR-20.56)
 
