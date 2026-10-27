@@ -683,6 +683,11 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         }
 
         if (session.status === 'closed') return status(400, { message: 'Session is closed' })
+        // FR-21 R5 (owner, 2026-10-27): a cashier rings into their OWN session — its drawer is theirs,
+        // and D-13 joins their back-office sales to it. A retry of a sale already made is answered above.
+        if (String(session.cashierId) !== String(user.id)) {
+          return status(403, { code: 'session_not_yours', message: 'This session belongs to another cashier. Open your own session to sell.' })
+        }
         // A return or an exchange has no cash-register document (FR-21 §6 edge 7): the terminal never
         // sends one, and a sale is reversed by its storno.
         if (body.type !== 'sale') {

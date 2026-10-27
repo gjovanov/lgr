@@ -76,10 +76,19 @@ export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
     ownRecordsModules: [],
   })
 
-  async function call(method: string, path: string, body?: any, key?: string) {
+  // A back-office clerk with no session of their own: their cash sales stay sessionless (FR-21.31).
+  const clerk = await createTestUser(org._id, { operatorCode: '0002', role } as any)
+  const clerkToken = await (signer as any).decorator.jwt.sign({
+    id: String(clerk._id), orgId, role, email: 'clerk@test.com', username: 'clerk',
+    firstName: 'Мария', lastName: 'Иванова', operatorCode: '0002',
+    permissions: DEFAULT_ROLE_PERMISSIONS[role as keyof typeof DEFAULT_ROLE_PERMISSIONS] || DEFAULT_ROLE_PERMISSIONS.admin,
+    ownRecordsModules: [],
+  })
+
+  async function call(method: string, path: string, body?: any, key?: string, as = token) {
     const res = await app.handle(new Request(`http://localhost/org/${orgId}${path}`, {
       method,
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, ...(key ? { 'idempotency-key': key } : {}) },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${as}`, ...(key ? { 'idempotency-key': key } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     }))
     return { status: res.status, json: await res.json().catch(() => null) as any }
@@ -107,8 +116,7 @@ export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
   const storno = (saleId: string, key?: string, body: Record<string, unknown> = {}) =>
     call('POST', `/trade/pos/session/${sessionId}/storno`, { originalTransactionId: saleId, reason: 'customer_return', ...body }, key)
 
-  /** A back-office cash sale, through `POST /invoices`. */
-  const backOfficeSale = (quantity = 2, extra: Record<string, unknown> = {}) => call('POST', '/invoices', {
+  const cashSaleBody = (quantity: number, extra: Record<string, unknown>) => ({
     type: 'cash_sale', direction: 'outgoing', issueDate: '2026-10-26', currency: 'EUR',
     lines: [{
       productId: String(product._id), warehouseId: String(warehouse._id), description: 'Болт DIN 933 М8Х25',
@@ -117,6 +125,12 @@ export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
     subtotal: 10 * quantity, taxTotal: 2 * quantity, total: 12 * quantity, paymentMethod: 'cash',
     ...extra,
   })
+  /** A back-office cash sale through `POST /invoices`, by the clerk, who has no session: sessionless. */
+  const backOfficeSale = (quantity = 2, extra: Record<string, unknown> = {}, key?: string) =>
+    call('POST', '/invoices', cashSaleBody(quantity, extra), key, clerkToken)
+  /** The same, by the till's cashier, whose open session it joins (FR-21.31, D-13). */
+  const cashierBackOfficeSale = (quantity = 2, extra: Record<string, unknown> = {}, key?: string) =>
+    call('POST', '/invoices', cashSaleBody(quantity, extra), key, token)
 
   const stock = async () => {
     const level: any = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: warehouse._id }).lean().exec()
@@ -124,8 +138,8 @@ export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
   }
 
   return {
-    org, orgId, warehouse, user, product, sim, token, session, sessionId,
-    call, saleBody, sell, storno, backOfficeSale, stock,
+    org, orgId, warehouse, user, product, sim, token, session, sessionId, clerk, clerkToken,
+    call, saleBody, sell, storno, backOfficeSale, cashierBackOfficeSale, stock,
     oid: org._id as Types.ObjectId,
   }
 }

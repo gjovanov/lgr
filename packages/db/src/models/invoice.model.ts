@@ -103,6 +103,11 @@ export interface IInvoicePayment {
 export interface IInvoiceRegister {
   /** `pos` the till, `backoffice` the form or the API, `import` a PlusMinus day (Files, CLI). */
   origin?: 'pos' | 'backoffice' | 'import'
+  /**
+   * FR-21.31 (D-13): entered in the back office by a cashier with an open session, which it joined.
+   * Its `origin` is then `pos`: it is that drawer's sale, in its totals, its close JE and SUPTO.
+   */
+  joinedFrom?: 'backoffice'
   sessionId?: Types.ObjectId
   warehouseId?: Types.ObjectId
   cashierId?: Types.ObjectId
@@ -497,6 +502,7 @@ const invoiceSchema = new Schema<IInvoice>(
       type: new Schema(
         {
           origin: { type: String, enum: ['pos', 'backoffice', 'import'] },
+          joinedFrom: { type: String, enum: ['backoffice'] },
           sessionId: { type: Schema.Types.ObjectId, ref: 'POSSession' },
           warehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse' },
           cashierId: { type: Schema.Types.ObjectId, ref: 'User' },

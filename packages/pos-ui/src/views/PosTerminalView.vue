@@ -276,6 +276,7 @@ import { createIdempotentAction, isOutcomeUnknown } from 'ui-shared/composables/
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { registerSwitchGuard } from 'ui-shared/session/switch-guards'
+import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import PriceSelectButton from 'ui-shared/components/PriceSelectButton.vue'
 import { fetchPriceOptions, priceOptionLabel, type PriceOption } from 'ui-shared/composables/usePriceOptions'
@@ -560,9 +561,17 @@ async function cancelDeviceChoice() {
   await fiscalBridge.disconnect() // release the port that was opened for it
 }
 
+/**
+ * FR-21 R5 (owner, 2026-10-27): the terminal rings into the signed-in user's OWN session. It used to
+ * take the first open session in the org, so cashier B sold into cashier A's drawer; the server now
+ * refuses that (`session_not_yours`).
+ */
 async function fetchSessions() {
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/session`, { params: { size: 10, sortBy: 'openedAt', sortOrder: 'desc' } })
+    const cashierId = appStore.user?.id || jwtUserId()
+    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/session`, {
+      params: { size: 10, sortBy: 'openedAt', sortOrder: 'desc', ...(cashierId ? { cashierId } : {}) },
+    })
     sessions.value = data.sessions || []
   } catch { sessions.value = [] }
 }
