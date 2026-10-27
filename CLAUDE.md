@@ -2707,7 +2707,18 @@ gave a customer. So, on a master, for an org written there, the legal series LOC
   - what lgrai.app says of the master (`linkAlarmsTick`, every minute): a clone alarm, or its pages
     refused as a history that went back (`instance_changed`, `stale_journal`, `diverged`) more
     recently than its last applied page. `GET /api/node/v1/self` carries `cloneAlarm`, `wentBack`
-    and `mirrors` (per org with a chain: `watermark`, `lastPageAt`).
+    and `mirrors` (per org with a chain: `watermark`, `lastPageAt`);
+  - **a clone on the shop's network** (AC 50; `packages/server/src/lan_clone.rs` →
+    `state/clone.json` → `lanCloneTick`, at the API's start and every minute). The LAN advert
+    carries this start's nonce (`boot`, the uplink's `bootNonce`); every 5 minutes the supervisor
+    browses `_lgr-server._tcp` for this node from ANOTHER start at ANOTHER address, and PROBES it: a
+    TLS handshake with its LAN ingress that trusts only this server's own LAN CA and checks no name.
+    ⚠ The probe is what makes it evidence: an advert is anyone's to send, and a crash leaves this
+    machine's own TXT record in caches for up to 75 minutes (RFC 6762), after a DHCP change at another
+    address; only a copy of this disk completes that handshake (a clone re-issues its certificate for
+    its own address, under the same CA). The record's `at` is renewed at every sighting, so a clone
+    still answering after the unlock locks again. Only while the LAN ingress is on (nothing advertises
+    otherwise).
 - ⚠ **A history that went back is RECORDED once** (`noteWentBack`, `repl_orgs.wentBack {at, reason,
   detail}`; reason `mirror_ahead` or the mirror's refusal), and numbering locks with the record,
   never with the sign. The pump sends the refused history again on every new session and lgrai.app
@@ -2741,13 +2752,17 @@ gave a customer. So, on a master, for an org written there, the legal series LOC
     alarm counts only when it is newer than `seriesUnlockedAt`.
 - ⚠ An org arriving by a move resets the mark (`activate`): an org that left and came back starts a
   new journal, which its old mark would read as a rewind.
-- Not yet: the fiscal device as a witness (its last receipt ahead of the database), a clone seen on
-  the LAN (DNS-SD `bootNonce`), and bringing a re-seed's kept sales into the books (below).
+- Not yet: the fiscal device as a witness (its last receipt ahead of the database: what the
+  device's counter counts, and whether it moves when the device sells on its own, wants the device),
+  and bringing a re-seed's kept sales into the books (below).
 - Tests: `series-lock.flow` (7: the mark and the unlock; global's alarms, the mirror's floor, no
   re-lock, a refusal dated anew after the unlock locking nothing; the journal below global's
   watermark, no re-lock until the record is cleared; `nodeSelf`; a Replace locking before its first
   write where lgrai.app never knew the server, a refused one or a Merge locking nothing; a Replace
-  refused where it knows the server; the report and what lgrai.app keeps of it);
+  refused where it knows the server; the report and what lgrai.app keeps of it; a clone on the LAN
+  locking, not again after the unlock, again while it goes on answering); `lan_clone.rs` (4: what is a
+  candidate; what is recorded; a real handshake: a copy of this disk completes it with a certificate
+  re-issued for its own address, another CA and nothing listening do not);
   `replication-pages.flow` (+2: the anchor through 40 rebuilds and the chain going on from it, a
   mirror past every page built here; `pageFor` recording and locking once).
 

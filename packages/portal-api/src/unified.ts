@@ -48,8 +48,10 @@ registerEventHandlers()
 
 // FR-20.51 (P3-7): a master whose database went back in time locks its legal series BEFORE it serves.
 if (config.node.role === 'master') {
-  const { journalHwmTick } = await import('services/biz/home/series-lock.service')
+  const { journalHwmTick, lanCloneTick } = await import('services/biz/home/series-lock.service')
   await journalHwmTick().catch(e => logger.error({ err: e?.message ?? String(e) }, 'Series lock: the journal\'s high-water mark could not be checked'))
+  // A clone the supervisor saw on the shop's network before this start (AC 50).
+  await lanCloneTick().catch(e => logger.error({ err: e?.message ?? String(e) }, 'Series lock: the clone record could not be read'))
 }
 
 /**
@@ -380,7 +382,7 @@ setTimeout(async () => {
       name: 'series-lock-tick', intervalMs: config.node.role === 'master' ? 60_000 : 0, immediate: true,
       // Then what it says of each org goes to lgrai.app, for the Servers page there.
       ...lazy(() => import('services/biz/home/series-lock.service'), async m => {
-        const locked = (await m.journalHwmTick()) + (await m.linkAlarmsTick())
+        const locked = (await m.journalHwmTick()) + (await m.lanCloneTick()) + (await m.linkAlarmsTick())
         await m.reportOrgState()
         return locked
       }),

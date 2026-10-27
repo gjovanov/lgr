@@ -176,6 +176,44 @@ export async function journalHwmTick(now = new Date()): Promise<number> {
   return locked
 }
 
+// ── A clone on the shop's network (AC 50) ────────────────────────────────────────────────────────
+
+/** `state/clone.json`, beside the node token: where the supervisor records a clone it saw on the LAN. */
+export function cloneFile(): string | null {
+  const token = config.outbox.tokenFile
+  return token ? join(dirname(token), 'clone.json') : null
+}
+
+/**
+ * Another machine on this server's network answering as it, holding its keys, as the supervisor
+ * recorded it (`packages/server/src/lan_clone.rs`: an advert of this node from another start, at
+ * another address, whose LAN ingress completes a handshake with this server's CA). Locks legal numbering
+ * where an org is written, if seen since the last unlock: the record's `at` is renewed at every
+ * sighting, so a clone still answering after a person recorded the numbers locks it again. Returns how
+ * many orgs it locked.
+ */
+export async function lanCloneTick(now = new Date()): Promise<number> {
+  if (nodeRole() !== 'master') return 0
+  const file = cloneFile()
+  if (!file) return 0
+  let seen: any
+  try {
+    seen = JSON.parse(await readFile(file, 'utf8'))
+  } catch {
+    return 0
+  }
+  const at = seen?.at ? new Date(seen.at).getTime() : Number.NaN
+  if (!Number.isFinite(at)) return 0
+  const homes: any[] = await OrgHome.find({ home: thisNode() }, { orgId: 1, seriesUnlockedAt: 1 }).lean()
+  let locked = 0
+  for (const h of homes) {
+    if (at <= (h.seriesUnlockedAt ? new Date(h.seriesUnlockedAt).getTime() : 0)) continue
+    const detail = `another machine on this server's network answers as it, with its keys (${String(seen.otherIp ?? 'unknown')}), since ${String(seen.firstSeen ?? seen.at)}`
+    if (await lockLegalSeries(String(h.orgId), 'clone', detail, now)) locked++
+  }
+  return locked
+}
+
 /** After a person recorded the last numbers: the mark starts again from where the journal is. */
 export async function resetJournalHwm(orgId: string, now = new Date()): Promise<void> {
   const file = hwmFile()

@@ -3364,7 +3364,7 @@
         "promoted": "lgrai.app's copy became the organization's home when its server was lost.",
         "restored": "This server's database went back in time (restored from a backup): it may have numbers the site already issued.",
         "went_back": "This server's database went back in time underneath lgrai.app's copy (restored, or a snapshot reverted): it may have numbers the site already issued.",
-        "clone": "Another machine is connected to lgrai.app as this server: until the real one is registered again, neither may issue a legal number."
+        "clone": "Another machine answers as this server, with its keys (on the shop's network, or connected to lgrai.app): until a person decides which machine is real, and the other is installed again as a new server, neither may issue a legal number."
       },
       "mirror": "lgrai.app's copy has {n}"
     },

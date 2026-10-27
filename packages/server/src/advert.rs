@@ -9,12 +9,18 @@
 //! - `ip`: the address the pairing code names. The SRV record points at the machine's own name, which
 //!   is the only name Windows answers for, and which it answers with any interface's address.
 //! - `node`: the node id (`state/node.json`); `name`: the machine, as a person knows it; `v`: 1.
+//! - `boot`: this start's nonce, the one the uplink says hello with (FR-20.51, P3-7): another machine
+//!   advertising this node with another nonce is a clone candidate (`lan_clone.rs`).
+//!
+//! It is also BROWSED here (`browse`), for the clone watch: on Windows through the OS's DNS-SD
+//! (`DnsServiceBrowse`, `DnsServiceResolve`), elsewhere `mdns-sd`, as the desktop finds its master.
 //!
 //! On Windows it goes through the OS's own mDNS (`DnsServiceRegister`), which already has the
 //! firewall's leave to answer the LAN; a responder of our own would need a rule nothing installs yet
 //! (P1-7). Elsewhere it is `mdns-sd`, a pure-Rust responder.
 
 use std::net::Ipv4Addr;
+use std::time::Duration;
 
 /// The service type.
 pub const SERVICE: &str = "_lgr-server._tcp";
@@ -29,6 +35,8 @@ pub struct Advert {
     pub port: u16,
     pub node: String,
     pub fingerprint: String,
+    /// This start's nonce (FR-20.51): what tells this machine's advert from a clone's.
+    pub boot: String,
 }
 
 impl Advert {
@@ -38,6 +46,7 @@ impl Advert {
         vec![
             ("v".into(), "1".into()),
             ("node".into(), self.node.clone()),
+            ("boot".into(), self.boot.clone()),
             ("fp".into(), self.fingerprint.clone()),
             ("name".into(), self.instance.clone()),
             ("ip".into(), self.ip.to_string()),
@@ -53,6 +62,22 @@ pub struct Registration {
 /// Put `advert` on the network. Blocking: it waits for the OS (or the responder) to take it.
 pub fn register(advert: &Advert) -> anyhow::Result<Registration> {
     imp::register(advert).map(|inner| Registration { _inner: inner })
+}
+
+/// An advert heard on the network, before anything is concluded from it: anyone can send one.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Heard {
+    pub instance: String,
+    /// The address the name resolved to; the TXT record's `ip` is preferred where it says one.
+    pub ip: Option<Ipv4Addr>,
+    pub port: u16,
+    pub txt: Vec<(String, String)>,
+}
+
+/// Listen for `window` and say what answered as `_lgr-server._tcp`, this machine's own advert included.
+/// Blocking. Nothing found means nothing heard: multicast is often blocked.
+pub fn browse(window: Duration) -> Vec<Heard> {
+    imp::browse(window)
 }
 
 /// A DNS-SD instance label: what a person reads, within the 63 bytes a label may hold, and without
@@ -202,12 +227,185 @@ mod imp {
             }
         }
     }
+
+    // ── Browsing (FR-20.51, P3-7: the clone watch), as the desktop finds its master ──────────────
+
+    use super::Heard;
+    use std::net::Ipv4Addr;
+    use windows_sys::Win32::NetworkManagement::Dns::{
+        DnsFree, DnsFreeRecordList, DnsServiceBrowse, DnsServiceBrowseCancel, DnsServiceResolve, DnsServiceResolveCancel,
+        DNS_RECORDW, DNS_SERVICE_BROWSE_REQUEST, DNS_SERVICE_BROWSE_REQUEST_0, DNS_SERVICE_CANCEL, DNS_SERVICE_RESOLVE_REQUEST,
+        DNS_TYPE_PTR,
+    };
+
+    /// # Safety
+    /// `p` is null or a NUL-terminated UTF-16 string.
+    unsafe fn from_wide(p: *const u16) -> String {
+        if p.is_null() {
+            return String::new();
+        }
+        let mut len = 0;
+        // SAFETY: NUL-terminated, per the contract.
+        while unsafe { *p.add(len) } != 0 {
+            len += 1;
+        }
+        // SAFETY: `len` units were just read.
+        String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(p, len) })
+    }
+
+    #[derive(Default)]
+    struct Browsing {
+        names: Mutex<Vec<String>>,
+    }
+
+    unsafe extern "system" fn browsed(_status: u32, context: *const c_void, record: *const DNS_RECORDW) {
+        // SAFETY: `context` is a `Browsing` that is never freed while the OS may call (see `leak`).
+        let ctx = unsafe { &*(context as *const Browsing) };
+        let mut r = record;
+        while !r.is_null() {
+            // SAFETY: a record list the OS handed us, walked to its end.
+            let rec = unsafe { &*r };
+            if rec.wType == DNS_TYPE_PTR {
+                // SAFETY: a PTR record's data is a PTR.
+                let name = unsafe { from_wide(rec.Data.PTR.pNameHost) };
+                if !name.is_empty() {
+                    let mut names = ctx.names.lock().unwrap_or_else(|p| p.into_inner());
+                    if !names.contains(&name) {
+                        names.push(name);
+                    }
+                }
+            }
+            r = rec.pNext;
+        }
+        if !record.is_null() {
+            // SAFETY: the callback owns the list it is handed.
+            unsafe { DnsFree(record as *const c_void, DnsFreeRecordList) };
+        }
+    }
+
+    #[derive(Default)]
+    struct Resolving {
+        done: Mutex<Option<Option<Heard>>>,
+        ready: Condvar,
+    }
+
+    /// # Safety
+    /// `i` is an instance the OS handed us.
+    unsafe fn read(i: &DNS_SERVICE_INSTANCE) -> Heard {
+        let mut txt = Vec::new();
+        for n in 0..i.dwPropertyCount as usize {
+            // SAFETY: `dwPropertyCount` entries in each array.
+            let (k, v) = unsafe { (*i.keys.add(n), *i.values.add(n)) };
+            // SAFETY: NUL-terminated strings from the OS.
+            txt.push(unsafe { (from_wide(k), from_wide(v)) });
+        }
+        // SAFETY: as above.
+        let instance = unsafe { from_wide(i.pszInstanceName) };
+        let ip = (!i.ip4Address.is_null()).then(|| {
+            // SAFETY: non-null, and an IP4_ADDRESS is the address's bytes in network order.
+            Ipv4Addr::from(unsafe { *i.ip4Address }.to_ne_bytes())
+        });
+        Heard { instance: instance.split('.').next().unwrap_or_default().to_string(), ip, port: i.wPort, txt }
+    }
+
+    unsafe extern "system" fn resolved(status: u32, context: *const c_void, instance: *const DNS_SERVICE_INSTANCE) {
+        // SAFETY: `context` is a `Resolving` kept alive while the OS may call (see `leak`).
+        let ctx = unsafe { &*(context as *const Resolving) };
+        // SAFETY: an instance the OS handed us, or null.
+        let answer = (status == 0 && !instance.is_null()).then(|| unsafe { read(&*instance) });
+        *ctx.done.lock().unwrap_or_else(|p| p.into_inner()) = Some(answer);
+        ctx.ready.notify_all();
+        if !instance.is_null() {
+            // SAFETY: the callback frees the instance it is handed.
+            unsafe { DnsServiceFreeInstance(instance) };
+        }
+    }
+
+    fn resolve(name: &str) -> Option<Heard> {
+        let ctx = Arc::new(Resolving::default());
+        let mut query = wide(name);
+        let request = DNS_SERVICE_RESOLVE_REQUEST {
+            Version: DNS_QUERY_REQUEST_VERSION1,
+            InterfaceIndex: 0,
+            QueryName: query.as_mut_ptr(),
+            pResolveCompletionCallback: Some(resolved),
+            pQueryContext: Arc::as_ptr(&ctx) as *mut c_void,
+        };
+        let mut cancel = DNS_SERVICE_CANCEL { reserved: std::ptr::null_mut() };
+        // SAFETY: the request and its context outlive the call (the context is leaked if it may not).
+        if unsafe { DnsServiceResolve(&request, &mut cancel) } != DNS_REQUEST_PENDING {
+            return None;
+        }
+        let guard = ctx.done.lock().unwrap_or_else(|p| p.into_inner());
+        let (mut guard, timeout) = ctx.ready.wait_timeout_while(guard, Duration::from_secs(3), |d| d.is_none()).unwrap_or_else(|p| p.into_inner());
+        if timeout.timed_out() {
+            drop(guard);
+            // SAFETY: the handle the resolve gave us.
+            unsafe { DnsServiceResolveCancel(&cancel) };
+            std::mem::forget(ctx.clone());
+            return None;
+        }
+        guard.take().flatten()
+    }
+
+    pub fn browse(window: Duration) -> Vec<Heard> {
+        let ctx = Arc::new(Browsing::default());
+        let query = wide(&format!("{SERVICE}.local"));
+        let request = DNS_SERVICE_BROWSE_REQUEST {
+            Version: DNS_QUERY_REQUEST_VERSION1,
+            InterfaceIndex: 0,
+            QueryName: query.as_ptr(),
+            Anonymous: DNS_SERVICE_BROWSE_REQUEST_0 { pBrowseCallback: Some(browsed) },
+            pQueryContext: Arc::as_ptr(&ctx) as *mut c_void,
+        };
+        let mut cancel = DNS_SERVICE_CANCEL { reserved: std::ptr::null_mut() };
+        // SAFETY: the request and its context outlive the browse (the context is leaked below).
+        if unsafe { DnsServiceBrowse(&request, &mut cancel) } != DNS_REQUEST_PENDING {
+            return Vec::new();
+        }
+        std::thread::sleep(window);
+        // SAFETY: the handle the browse gave us.
+        unsafe { DnsServiceBrowseCancel(&cancel) };
+        // ⚠ After a cancel the OS may still call back once: its context must outlive us.
+        std::mem::forget(ctx.clone());
+        let names = ctx.names.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        names.iter().filter_map(|n| resolve(n)).collect()
+    }
 }
 
 #[cfg(not(windows))]
 mod imp {
-    use super::{Advert, SERVICE};
+    use super::{Advert, Heard, SERVICE};
     use anyhow::{Context, Result};
+    use std::time::{Duration, Instant};
+
+    pub fn browse(window: Duration) -> Vec<Heard> {
+        let Ok(daemon) = mdns_sd::ServiceDaemon::new() else { return Vec::new() };
+        let Ok(events) = daemon.browse(&format!("{SERVICE}.local.")) else {
+            let _ = daemon.shutdown();
+            return Vec::new();
+        };
+        let deadline = Instant::now() + window;
+        let mut out = Vec::new();
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match events.recv_timeout(left) {
+                Ok(mdns_sd::ServiceEvent::ServiceResolved(info)) => {
+                    let txt: Vec<(String, String)> = ["v", "node", "boot", "fp", "name", "ip"]
+                        .iter()
+                        .filter_map(|k| info.get_property_val_str(k).map(|v| (k.to_string(), v.to_string())))
+                        .collect();
+                    let instance = info.get_fullname().split('.').next().unwrap_or_default().to_string();
+                    for ip in info.get_addresses_v4() {
+                        out.push(Heard { instance: instance.clone(), ip: Some(*ip), port: info.get_port(), txt: txt.clone() });
+                    }
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        let _ = daemon.shutdown();
+        out
+    }
 
     pub struct Registration {
         daemon: mdns_sd::ServiceDaemon,
@@ -255,11 +453,13 @@ mod tests {
             port: 4443,
             node: "master-abcdefghijklmnop".into(),
             fingerprint: "sha256:J4_WvnqzMeCTJR5MsUknM6BG3BhVB2WJ7UdM0ERAY5k".into(),
+            boot: "0123456789abcdef0123456789abcdef".into(),
         };
         let txt = a.txt();
         let get = |k: &str| txt.iter().find(|(key, _)| key == k).map(|(_, v)| v.as_str());
         assert_eq!(get("v"), Some("1"));
         assert_eq!(get("node"), Some("master-abcdefghijklmnop"));
+        assert_eq!(get("boot"), Some("0123456789abcdef0123456789abcdef"), "this start: what tells it from a clone");
         assert_eq!(get("fp"), Some("sha256:J4_WvnqzMeCTJR5MsUknM6BG3BhVB2WJ7UdM0ERAY5k"));
         assert_eq!(get("name"), Some("KASA-1"));
         assert_eq!(get("ip"), Some("192.168.1.10"), "the address the pairing code names");
