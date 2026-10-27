@@ -6,9 +6,11 @@
 import { useI18n } from 'vue-i18n'
 
 export interface NodeAlarm {
-  kind: 'mirror_lag' | 'backup_stale' | 'disk_low' | 'oplog_short' | 'fenced' | 'clock_skew'
+  kind: 'mirror_lag' | 'backup_stale' | 'disk_low' | 'oplog_short' | 'fenced' | 'clock_skew' | 'supto_waiting'
   value: number | null
   orgId?: string
+  /** The SUPTO version an update waits for (`supto_waiting`). */
+  detail?: string
 }
 
 export function useNodeAlarms() {
@@ -23,6 +25,7 @@ export function useNodeAlarms() {
     if (a.kind === 'backup_stale' && a.value === null) return t('servers.alarm.backup_none')
     if (a.kind === 'disk_low') return t('servers.alarm.disk_low', { pct: a.value })
     if (a.kind === 'fenced') return t('servers.alarm.fenced', { n: a.value })
+    if (a.kind === 'supto_waiting') return t('servers.alarm.supto_waiting', { version: a.detail ?? '?' })
     return t(`servers.alarm.${a.kind}`, { age: duration(a.value ?? 0) })
   }
   return { alarmText, duration }

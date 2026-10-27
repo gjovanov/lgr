@@ -6,7 +6,7 @@ import { createTestOrg, createTestUser } from '../helpers/factories'
 import { makeNodeStub, nodeEnrollBody } from '../helpers/node-stub'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { enrollNode, issueNodeToken, mintNodeEnrollmentCode } from 'services/biz/node/node.service'
-import { resetServerReleaseCache } from 'services/biz/node/server-release.service'
+import { resetServerReleaseCache, serverReleaseOffer } from 'services/biz/node/server-release.service'
 
 /**
  * What lgrai.app offers its masters to update to (FR-20.20, plan step P1-8): the promoted version's
@@ -29,6 +29,8 @@ const FILES: Record<string, string> = {
   // The Linux bundle is published without its .asc: not offered.
   [LINUX]: 'LINUX-BUNDLE', [`${LINUX}.sig`]: SIG, [`${LINUX}.sha256`]: `${'b'.repeat(64)}  ${LINUX}\n`,
   [`lgr-server-${V}-x86_64-pc-windows-msvc.msi`]: 'MSI',
+  // FR-20.50 (P3-8c): the release's SUPTO version.
+  [`lgr-server-${V}.supto`]: '1\n',
 }
 let calls: Array<{ url: string; auth: string | null }> = []
 
@@ -92,6 +94,25 @@ describe('the server release lgrai.app offers', () => {
     expect(offer.targets['linux-x64']).toBeUndefined()
     // A prerelease is served (the promoted version is the gate), and GitHub is asked anonymously.
     expect(calls.every(c => c.auth === null)).toBe(true)
+    // FR-20.50: its SUPTO version; nothing is declared yet, so nothing waits.
+    expect(offer.supto).toEqual({ version: '1', declared: false, enforced: false })
+  })
+
+  it("marks the release's SUPTO version declared or not against this build's list; one that names none is null (P3-8c)", async () => {
+    fakeGitHub()
+    expect((await serverReleaseOffer(V, { declared: ['1'] }))!.supto).toEqual({ version: '1', declared: true, enforced: true })
+    // From the cache, against another list: a declaration needs no new release.
+    expect((await serverReleaseOffer(V, { declared: ['0', '2'] }))!.supto).toEqual({ version: '1', declared: false, enforced: true })
+    resetServerReleaseCache()
+    const without = { ...FILES }
+    delete FILES[`lgr-server-${V}.supto`]
+    // A release published without one: not among its assets.
+    fakeGitHub()
+    try {
+      expect((await serverReleaseOffer(V, { declared: ['1'] }))!.supto).toEqual({ version: null, declared: false, enforced: true })
+    } finally {
+      Object.assign(FILES, without)
+    }
   })
 
   it('offers nothing when no version is promoted, or the release does not exist; GitHub trouble is 502, not cached', async () => {

@@ -132,6 +132,9 @@ pub struct HomeManifest {
     pub target: String,
     #[serde(default)]
     pub commit: Option<String>,
+    /// FR-20.50 (P3-8c): the SUPTO version the home implements; none in a home from before it.
+    #[serde(default)]
+    pub supto: Option<String>,
     pub files: u64,
     pub bytes: u64,
 }
@@ -722,7 +725,7 @@ mod tests {
             std::fs::write(p, body).unwrap();
         }
         let bytes: u64 = files.iter().map(|(_, b)| b.len() as u64).sum();
-        let m = HomeManifest { name: "lgr-server".into(), version: version.into(), target: this_target().into(), commit: None, files: files.len() as u64 + 1, bytes };
+        let m = HomeManifest { name: "lgr-server".into(), version: version.into(), target: this_target().into(), commit: None, supto: None, files: files.len() as u64 + 1, bytes };
         std::fs::write(dir.join(MANIFEST), serde_json::to_string(&m).unwrap()).unwrap();
     }
 

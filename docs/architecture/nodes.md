@@ -347,6 +347,15 @@ Updates that come by themselves (plan step P1-8c, `updates.rs`, `helper.rs`, `si
   copy made in `update/staging/`, switched now and watched.
 - **Seven windows kept by open sessions** raise the alarm: the status's `update.alarm` and the
   health frame's `update`, and a logged error. Nothing is ever forced.
+- **A SUPTO version waits for its declaration** (FR-20.50, plan step P3-8c). A change to Прил. 29
+  functionality or to the database structure is a new SUPTO version, which the producer declares to
+  НАП. Each release says which version it is (`lgr-server-<v>.supto` beside the bundles, `supto` in
+  the home's `HOME.json`), and lgrai.app's offer says whether it is declared. Once anything is
+  declared, an undeclared new version is not installed: the supervisor does not wake the helper (the
+  status says which version waits, and lgrai.app raises `supto_waiting`), the helper refuses it too,
+  and once it has the bytes it checks that the bundle is the version the offer named. A build within
+  the version that runs is not a new SUPTO version and updates as usual. lgrai.app's own deploys wait
+  the same way (`deploy-prod.sh`).
 - ⚠ Nothing the supervisor says is trusted for WHAT is installed: a compromised service can only wake
   the helper early, or make it wait.
 - **A backup first** (plan step P1-8d, FR-20.20's order: backup, migrations, health check). After the

@@ -76,7 +76,7 @@ export async function serverStatus(orgId: string, now = new Date()): Promise<Rec
   const licence = held ? { plan: held.plan ?? null, paidThrough: held.paidThrough ?? null, graceDays: held.graceDays ?? null, error: held.error ?? null } : null
   const u = sup?.update
   const update = u && typeof u === 'object'
-    ? { state: u.state ?? null, running: u.running ?? null, available: u.available ?? null, reason: u.reason ?? null, blockedWindows: u.blockedWindows ?? 0, alarm: !!u.alarm }
+    ? { state: u.state ?? null, running: u.running ?? null, available: u.available ?? null, reason: u.reason ?? null, blockedWindows: u.blockedWindows ?? 0, alarm: !!u.alarm, supto: u.supto ?? null, suptoWaiting: u.suptoWaiting ?? null }
     : null
   // Where desktops reach it, as the supervisor publishes it (FR-20.30): what pairing codes name.
   const lanUrl = currentLan().url ?? null
@@ -122,6 +122,8 @@ export async function serverStatus(orgId: string, now = new Date()): Promise<Rec
       linkLevel: sup?.registration?.linkLevel ?? null,
       desktops: desktops.length,
       version: sup?.version ?? null,
+      // FR-20.50: the SUPTO version that runs, as the supervisor says it.
+      supto: u?.supto ?? null,
     },
   }
 }

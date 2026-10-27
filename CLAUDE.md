@@ -2561,8 +2561,25 @@ so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.
   clock over ±2 min. ⚠ A health frame older than ten minutes raises nothing: away is the
   connection's to say. `alarmsOfNodes` batches presence, homes and mirrors; the org's Servers
   list carries `alarms` (a lag only that org's) and `/admin/nodes` everyone's, with link and last
-  backup (`useNodeAlarms` formats both, durations through `Intl`, ×4). Not yet (P3-8c): the
-  SUPTO alarm.
+  backup (`useNodeAlarms` formats both, durations through `Intl`, ×4), and `supto_waiting` (P3-8c, below).
+- **A SUPTO version travels only once declared (FR-20.50, P3-8c).** `packages/config/src/supto.json`
+  holds this source's SUPTO version and the versions declared to НАП (a JSON file so the build host
+  reads it with `jq` and the supervisor with `include_str!`; `config/supto` is its reading for the
+  code). ⚠ Bump `version` by hand in the commit that changes Прил. 29 functionality or the database
+  structure (чл. 52в(3), (3а)); add to `declared` in the commit that records the declaration.
+  - **Not enforced while `declared` is empty** — LGR is not on НАП's list yet, and nothing waits.
+    Once it is not: a declared version travels, so does a build within the running version, and
+    anything else waits. A release naming no version waits too (it cannot be shown declared).
+  - **Masters:** the release publishes `lgr-server-<v>.supto` and the home's `HOME.json` carries
+    `supto`; global's offer adds `supto {version, declared, enforced}`, declared-ness computed at
+    read time against global's own build (a declaration needs no new release). The supervisor does not
+    wake the helper for a waiting one (`update.suptoWaiting`, the `supto_waiting` alarm); the
+    helper asks the same rule, and after the download checks the bundle's `HOME.json` against the
+    offer's claim — the signed bytes, not the offer, decide.
+  - **lgrai.app's own deploys:** `deploy-prod.sh`'s `supto_gate` reads the checkout's file and the
+    pod's own copy (`kubectl exec … cat`; `SUPTO_RUNNING=<v>` when the pod cannot say) and refuses a
+    build of an undeclared new version. A `--tag` redeploy builds nothing and is not gated.
+  - The master's status page shows the SUPTO version that runs, and Прил. 32 lists it.
 - **A master's own status page (FR-20.98, FR-20.50, P3-8b; `/settings/server`).** The supervisor
   writes its status every 30 s to `state/status.json` (`status_file.rs`: atomic, with the volume and
   the oplog's reach beside it; nothing secret is in a supervisor status), beside the node token, so

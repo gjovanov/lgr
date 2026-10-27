@@ -26,6 +26,10 @@
 #   ./scripts/deploy-prod.sh --build-only        # build+push, no gitops bump
 #   ./scripts/deploy-prod.sh --dry-run           # print every mutating step, run none
 #   ./scripts/deploy-prod.sh --no-pull           # deploy the host checkout as-is
+#   SUPTO_RUNNING=<v> ./scripts/deploy-prod.sh   # the SUPTO version prod runs, when the pod cannot say
+#
+# FR-20.50: a build whose SUPTO version (packages/config/src/supto.json) is new and not declared to
+# НАП is refused, once anything is declared. See `supto_gate` below.
 #
 # Long runs (a cold build is 15–30 min) must be backgrounded and polled by log
 # file, never by tmux scrollback — see .claude/skills/deploy-prod/SKILL.md.
@@ -69,7 +73,7 @@ done
 [[ -n "$OCR_TAG" && -z "$APP_TAG" ]] && DO_APP=0   # --ocr-tag alone = OCR redeploy
 
 # ── preflight ────────────────────────────────────────────────────────────────
-for bin in docker kubectl git awk; do command -v "$bin" >/dev/null || die "$bin not found — are you on master-node?"; done
+for bin in docker kubectl git awk jq; do command -v "$bin" >/dev/null || die "$bin not found — are you on master-node?"; done
 [[ -d "$SRC/.git" ]]         || die "source checkout missing: $SRC"
 [[ -f "$KUSTOMIZATION" ]]    || die "gitops checkout missing: $KUSTOMIZATION"
 docker info >/dev/null 2>&1  || die "docker daemon unreachable"
@@ -85,6 +89,33 @@ SHA="$(git -C "$SRC" rev-parse --short HEAD)"
 log "Source at $SHA — $(git -C "$SRC" log -1 --pretty=%s)"
 
 df -h "$(docker info -f '{{.DockerRootDir}}' 2>/dev/null || echo /)" | tail -1
+
+# ── FR-20.50 (P3-8c): a SUPTO version travels only once declared ─────────────
+# lgrai.app serves the cloud orgs' SUPTO and the mirrors' auditor access, so its deploys wait for a
+# declaration the way a master's updates do. Read with jq (there is no Bun here): the supto.json of
+# what is about to be built, and the pod's own copy of what runs. Not enforced while nothing is
+# declared (LGR is not on НАП's list yet); then a declared version goes, and so does a build within
+# the version that runs. A --tag redeploy builds nothing: its image passed this at its build.
+supto_gate() {
+  local file="$SRC/packages/config/src/supto.json" new running
+  [[ -f "$file" ]] || { warn "no $file: the SUPTO gate has nothing to read"; return 0; }
+  new="$(jq -er '.version' "$file")" || die "packages/config/src/supto.json names no SUPTO version"
+  if [[ "$(jq -r '.declared | length > 0' "$file")" != true ]]; then
+    log "SUPTO version $new: nothing is declared yet, so nothing waits"
+    return 0
+  fi
+  if [[ "$(jq -r --arg v "$new" 'any(.declared[]; . == $v)' "$file")" == true ]]; then
+    log "SUPTO version $new: declared"
+    return 0
+  fi
+  running="${SUPTO_RUNNING:-$(kubectl -n "$NS" exec deploy/lgr -c lgr -- cat /app/packages/config/src/supto.json 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)}"
+  if [[ -n "$running" && "$running" == "$new" ]]; then
+    log "SUPTO version $new: a build within the version lgrai.app runs"
+    return 0
+  fi
+  die "SUPTO version $new is not declared (lgrai.app runs ${running:-a version it cannot say}). Declare it to НАП, record it in packages/config/src/supto.json (\"declared\"), then deploy. FR-20.50"
+}
+if [[ $DO_BUILD == 1 && $DO_APP == 1 ]]; then supto_gate; fi
 
 # ── build + push ─────────────────────────────────────────────────────────────
 # `prune-docker-tags.sh --apply` keeps only the 2 newest local tags and clears the

@@ -587,6 +587,18 @@ jobs:
             minisign -V -p "$RUNNER_TEMP/updater.pub" -m "$f" -x "$RUNNER_TEMP/bundle.minisig"
           done
 
+      # FR-20.50 (P3-8c): the release's SUPTO version beside its bundles, for lgrai.app's update offer:
+      # a master holds an undeclared one once anything is declared. The bundles' HOME.json carries it
+      # too, and that, inside the signed bytes, is what the master checks the offer against.
+      - name: The release's SUPTO version
+        run: |
+          set -euo pipefail
+          v='${{ needs.version.outputs.version }}'
+          supto="$(jq -er '.version' packages/config/src/supto.json)"
+          [[ "$supto" =~ ^[0-9A-Za-z][0-9A-Za-z.-]{0,19}$ ]] || { echo "::error::packages/config/src/supto.json names no SUPTO version"; exit 1; }
+          printf '%s\n' "$supto" > "release/lgr-server-$v.supto"
+          echo "SUPTO version $supto"
+
       - name: Sign every asset with roomler's release key
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}

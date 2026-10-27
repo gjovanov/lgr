@@ -3446,7 +3446,8 @@
       "disk_low": "Свободно място на диска: {pct}%",
       "oplog_short": "Историята на базата данни стига само {age} назад",
       "fenced": "Блокиран за {n} организации",
-      "clock_skew": "Часовникът се разминава с {age}"
+      "clock_skew": "Часовникът се разминава с {age}",
+      "supto_waiting": "Версия {version} на СУПТО чака деклариране"
     }
   },
   "serverStatus": {
@@ -3457,6 +3458,7 @@
     "noSupervisor": "LGR Server още не се е отчел. Не работи или не може да запише състоянието си.",
     "machine": "Машината",
     "version": "Версия",
+    "supto": "Версия на СУПТО",
     "uptime": "Работи от",
     "processes": "Процеси",
     "disk": "Диск с данни",
@@ -3466,6 +3468,7 @@
     "update": "Обновявания",
     "updateUpToDate": "{running}, актуална",
     "updateNotVersioned": "Обновява се с пакета си",
+    "updateSuptoWaits": "{version} чака: версия {supto} на СУПТО още не е декларирана пред НАП",
     "link": "Връзка с lgrai.app",
     "linkLevel": "Ниво на връзката",
     "notRegistered": "Не е регистриран",
@@ -3510,6 +3513,7 @@
       "databaseValue": "{db} на {address}",
       "protocol": "Протокол",
       "protocolValue": "HTTPS (TLS) между работните станции и сървъра; TLS до lgrai.app",
+      "supto": "Версия на СУПТО",
       "topology": "Топология",
       "topologyValue": "{desktops} работни станции → сървър (LGR Server {version}) → копие в {mirror}, ниво на връзката {link}"
     }
