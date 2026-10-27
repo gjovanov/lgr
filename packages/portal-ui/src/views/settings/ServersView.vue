@@ -34,6 +34,34 @@
           <v-btn size="small" variant="text" color="error" :loading="moveBusy" data-test="abort-move" @click="abortMove">{{ $t('servers.move.abort') }}</v-btn>
         </template>
       </v-alert>
+      <!-- FR-20.69 (P3-3): while one of the org's servers is its home, its files on lgrai.app. -->
+      <v-card v-if="mirror && mirror.home !== 'global'" variant="outlined" class="mb-3" data-test="mirror-files">
+        <v-card-title class="text-subtitle-1">{{ $t('servers.files.title') }}</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-2">{{ $t('servers.files.intro', { name: nodeName(mirror.home) }) }}</p>
+          <v-switch
+            :model-value="mirror.files"
+            :label="$t('servers.files.switch')"
+            :hint="mirror.files ? '' : $t('servers.files.metadataOnly')"
+            :persistent-hint="!mirror.files"
+            :loading="mirrorBusy"
+            :disabled="mirrorBusy"
+            color="primary"
+            density="compact"
+            data-test="mirror-files-switch"
+            @update:model-value="v => setMirrorFiles(!!v)"
+          />
+          <div class="text-body-2 mt-2" data-test="mirror-files-status">
+            <template v-if="!mirror.referenced">{{ $t('servers.files.none') }}</template>
+            <template v-else-if="mirror.complete">{{ $t('servers.files.complete', { count: mirror.referenced }) }}</template>
+            <template v-else>{{ $t('servers.files.progress', { held: mirror.held, count: mirror.referenced }) }}</template>
+            <span v-if="mirror.arriving"> {{ $t('servers.files.arriving', { count: mirror.arriving }) }}</span>
+            <span v-if="mirror.files && mirror.waiting"> {{ $t('servers.files.waiting', { count: mirror.waiting }) }}</span>
+          </div>
+          <div v-if="mirror.missingOnMaster" class="text-body-2 text-warning mt-1">{{ $t('servers.files.missing', { count: mirror.missingOnMaster }) }}</div>
+          <div v-if="mirror.failing" class="text-caption text-medium-emphasis mt-1">{{ $t('servers.files.failing', { count: mirror.failing }) }}</div>
+        </v-card-text>
+      </v-card>
       <v-switch
         v-model="includeRevoked"
         :label="$t('servers.includeRevoked')"
@@ -324,8 +352,43 @@ async function setRelay(item: any, kind: (typeof RELAY_KINDS)[number], on: boole
   }
 }
 
+/**
+ * FR-20.69 (P3-3): the org's files on lgrai.app's mirror while one of its servers is its home, and
+ * the org's choice to keep them there too or its records only.
+ */
+interface MirrorFiles {
+  home: string
+  files: boolean
+  referenced: number
+  held: number
+  arriving: number
+  waiting: number
+  missingOnMaster: number
+  failing: number
+  complete: boolean
+}
+const mirror = ref<MirrorFiles | null>(null)
+const mirrorBusy = ref(false)
+async function loadMirror() {
+  try {
+    mirror.value = (await httpClient.get(`${base()}/mirror`)).data.mirror
+  } catch {
+    mirror.value = null
+  }
+}
+async function setMirrorFiles(on: boolean) {
+  mirrorBusy.value = true
+  try {
+    mirror.value = (await httpClient.put(`${base()}/mirror`, { files: on })).data.mirror
+    showSnackbar(t('servers.files.saved'), 'success')
+  } finally {
+    mirrorBusy.value = false
+  }
+}
+
 async function load() {
   void loadMove()
+  void loadMirror()
   loading.value = true
   try {
     const { data } = await httpClient.get(base(), { params: { size: 100, ...(includeRevoked.value ? { includeRevoked: 'true' } : {}) } })

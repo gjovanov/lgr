@@ -1,4 +1,5 @@
-//! The mirror's sender, the supervisor's side (FR-20.64, FR-20.67, plan step P3-2b, Part A.6.4).
+//! The mirror's sender, the supervisor's side (FR-20.64, FR-20.67, FR-20.69, plan steps P3-2b and
+//! P3-3, Part A.6.4).
 //!
 //! On the bulk socket, a registered master linked at Full sends every org it is home of to
 //! lgrai.app's mirror, page by page:
@@ -14,8 +15,22 @@
 //!   never built: that org stops, loudly, because a re-seed or a reconcile (P3-7) is a person's call.
 //!   Anything else waits ten minutes.
 //! - Nothing to send: look again in two seconds.
+//!
+//! **The files** (FR-20.69, P3-3) travel behind the documents, on the same socket, for an org whose
+//! welcome says `files: all` (an org that chose metadata only says `metadata`):
+//! - When an org's pages are caught up, the supervisor asks `blob-sync`. Global answers `blob-want`:
+//!   the files ITS rows of that org name and it does not hold, with where each one resumes. It never
+//!   answers from anything the master lists, so an answer cannot say what another org holds.
+//! - Each wanted file goes out in 1 MB chunks the API reads and frames (`POST /replication/blob`), one
+//!   in flight per org, each answered `blob-ack` (where global stands, `ok` once the file is whole and
+//!   hashes to its name) or `blob-refused` (with where to resume, or why not). A file this server
+//!   cannot send is said so (`blob-unavailable`) and global asks again hours later.
+//! - Pages first: a page is always asked for before a chunk, and while files wait every other turn is
+//!   theirs, so neither starves the other. Asked again after pages bring new rows (at most every 10 s),
+//!   and every 10 minutes regardless.
 
 use anyhow::{anyhow, Result};
+use std::collections::VecDeque;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -36,17 +51,44 @@ pub enum Built {
     Refused { reason: String, detail: String },
 }
 
-/// Where pages come from and resends go: the API, over its control socket.
+/// What the API answers for a chunk of a file global asked for (FR-20.69).
+#[derive(Debug, PartialEq, Eq)]
+pub enum Chunk {
+    /// The frame, sent as it is; `len` of the file's bytes are in it.
+    Frame { bytes: Vec<u8>, len: u64 },
+    /// This server cannot send it: no row of the org names those bytes here, the bytes are not what
+    /// their row says, or global holds more of it than the file has. Global is told.
+    Unavailable { reason: String },
+    /// The API sends no files now (not linked at Full, not the org's home): the org's files wait.
+    Refused { reason: String, detail: String },
+}
+
+/// Where pages and chunks come from and resends go: the API, over its control socket.
 pub trait PageSource: Send + Sync {
     fn page<'a>(&'a self, org: &'a str, after: u64, after_hash: &'a str) -> BoxFut<'a, Result<Built>>;
     /// Global's resend, passed through as it came: the ids are EJSON, typed, and stay unread here.
     fn resend<'a>(&'a self, ask: serde_json::Value) -> BoxFut<'a, Result<()>>;
+    /// The chunk of `sha256` of `org` at global's `offset`, framed by the API.
+    fn chunk<'a>(&'a self, _org: &'a str, _sha256: &'a str, _offset: u64) -> BoxFut<'a, Result<Chunk>> {
+        Box::pin(async { Err(anyhow!("this source sends no files")) })
+    }
+}
+
+/// A frame for the bulk socket: a page or a chunk (binary), or a word to global (text).
+#[derive(Debug, PartialEq, Eq)]
+pub enum Out {
+    Binary(Vec<u8>),
+    Text(String),
 }
 
 /// A page decodes to at most 20 MB, and is smaller on the wire.
 const PAGE_MAX: usize = 24 << 20;
 /// A page of 1,000 documents is read in one snapshot; the API allows a minute for it.
 const PAGE_WAIT: Duration = Duration::from_secs(75);
+/// A chunk is at most 1 MB of the file, behind a header of at most 1 KB.
+const CHUNK_MAX: usize = (1 << 20) + 4096;
+/// The first chunk of a file is read after the whole file is hashed: an archive unit may be large.
+const CHUNK_WAIT: Duration = Duration::from_secs(75);
 
 /// The API's control socket.
 pub struct ApiPages {
@@ -91,18 +133,45 @@ impl PageSource for ApiPages {
             }
         })
     }
+
+    fn chunk<'a>(&'a self, org: &'a str, sha256: &'a str, offset: u64) -> BoxFut<'a, Result<Chunk>> {
+        Box::pin(async move {
+            let ask = serde_json::json!({ "orgId": org, "sha256": sha256, "offset": offset }).to_string();
+            let r = control::call_with(&self.socket, &self.secret, "POST", "/replication/blob", Some(ask.as_bytes()), CHUNK_WAIT, CHUNK_MAX).await?;
+            match r.code {
+                200 => {
+                    let len = r.header("x-lgr-blob-length").and_then(|v| v.parse::<u64>().ok()).ok_or_else(|| anyhow!("the API sent a chunk without its length"))?;
+                    Ok(Chunk::Frame { bytes: r.body, len })
+                }
+                404 => Ok(Chunk::Unavailable { reason: "missing".into() }),
+                409 => {
+                    let v: serde_json::Value = serde_json::from_slice(&r.body).unwrap_or_default();
+                    let reason = v["refused"].as_str().unwrap_or("refused").to_string();
+                    if matches!(reason.as_str(), "hash_mismatch" | "offset_beyond") {
+                        Ok(Chunk::Unavailable { reason })
+                    } else {
+                        Ok(Chunk::Refused { reason, detail: v["detail"].as_str().unwrap_or("").into() })
+                    }
+                }
+                code => Err(anyhow!("the API answered {code} for a chunk: {}", String::from_utf8_lossy(&r.body).chars().take(200).collect::<String>())),
+            }
+        })
+    }
 }
 
-/// Where one org starts: global's watermark and the chain hash it holds there.
+/// Where one org starts: global's watermark and the chain hash it holds there, and whether its
+/// files travel too.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Start {
     pub org: String,
     pub after: u64,
     pub after_hash: String,
+    pub files: bool,
 }
 
 /// The orgs this master sends, from global's bulk `welcome`: those it is home of, linked at Full, in
-/// a state its home still writes in, from where each mirror stands (FR-20.67).
+/// a state its home still writes in, from where each mirror stands (FR-20.67). Files only where the
+/// welcome says `files: all`: a global that does not say so takes none.
 pub fn starts(orgs: &serde_json::Value, node_id: &str) -> Vec<Start> {
     orgs.as_array()
         .into_iter()
@@ -114,7 +183,8 @@ pub fn starts(orgs: &serde_json::Value, node_id: &str) -> Vec<Start> {
             let hash = o["mirror"]["chainHash"].as_str().unwrap_or("").to_string();
             // A watermark without its hash cannot be continued: from the start, and global will say.
             let after = if hash.is_empty() { 0 } else { o["mirror"]["watermark"].as_u64().unwrap_or(0) };
-            Some(Start { org, after, after_hash: if after == 0 { String::new() } else { hash } })
+            let files = o["files"].as_str() == Some("all");
+            Some(Start { org, after, after_hash: if after == 0 { String::new() } else { hash }, files })
         })
         .collect()
 }
@@ -129,8 +199,12 @@ pub struct PumpTiming {
     pub not_ready: Duration,
     /// Refused for a reason that a resend will not change.
     pub pause: Duration,
-    /// No answer for a page: built again from the last acknowledged point.
+    /// No answer for a page, a chunk or an ask: again from the last acknowledged point.
     pub ack_timeout: Duration,
+    /// After pages brought new rows, the files are asked about again, at most this often.
+    pub files_resync: Duration,
+    /// And this often regardless (files global waits on, a transfer it gave up on for now).
+    pub files_idle: Duration,
 }
 
 impl Default for PumpTiming {
@@ -141,6 +215,8 @@ impl Default for PumpTiming {
             not_ready: Duration::from_secs(10),
             pause: Duration::from_secs(600),
             ack_timeout: Duration::from_secs(60),
+            files_resync: Duration::from_secs(10),
+            files_idle: Duration::from_secs(600),
         }
     }
 }
@@ -148,16 +224,92 @@ impl Default for PumpTiming {
 /// Refusals a resend will never change: another history or epoch. The org waits for a person (P3-7).
 const STOPPING: &[&str] = &["diverged", "instance_changed", "stale_journal", "reconcile_required", "epoch_changed", "chain_unknown"];
 
+/// Refusals of the API's own that pass by themselves within seconds: the org's seeding runs, or the
+/// API has not yet seen what global's welcome says. ⚠ The API reads the link level and the home
+/// through five-second caches, so right after a registration at Full it may still say `not_full`:
+/// waiting the ten minutes of other refusals there stalled the mirror's first pages.
+const LAGGING: &[&str] = &["not_ready", "not_full", "not_home"];
+
+/// What an org has on the socket and waits an answer for: one thing at a time.
+#[derive(Debug, Clone)]
+enum InFlight {
+    Page { to_seq: u64, sent: Instant },
+    /// `blob-sync`: which of the org's files does the mirror lack?
+    Sync { sent: Instant },
+    Chunk { sha: String, sent: Instant },
+}
+
+impl InFlight {
+    fn sent(&self) -> Instant {
+        match self {
+            InFlight::Page { sent, .. } | InFlight::Sync { sent } | InFlight::Chunk { sent, .. } => *sent,
+        }
+    }
+}
+
+/// A file global asked for, and where it resumes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Want {
+    sha: String,
+    offset: u64,
+}
+
+/// An org's files on this session.
+#[derive(Debug, Default)]
+struct Files {
+    on: bool,
+    queue: VecDeque<Want>,
+    /// Global named some of what it lacks, not all: ask again once the queue is done.
+    more: bool,
+    synced: Option<Instant>,
+    /// Pages brought rows since the last ask: they may name files.
+    dirty: bool,
+    /// The next turn is the files': pages arriving all the time cannot starve them.
+    turn: bool,
+    /// Nothing to send files with until then (the API or global said no for now).
+    paused_until: Option<Instant>,
+    chunks: u64,
+    held: u64,
+    unavailable: u64,
+    last_sync_at: Option<String>,
+    last_refusal: Option<String>,
+}
+
+impl Files {
+    /// Whether this org has file work now: a queued file, or an ask that is due.
+    fn due(&self, now: Instant, t: PumpTiming) -> bool {
+        if !self.on || self.paused_until.is_some_and(|p| now < p) {
+            return false;
+        }
+        if !self.queue.is_empty() {
+            return true;
+        }
+        match self.synced {
+            None => true,
+            Some(at) => (self.more && now >= at + t.idle) || (self.dirty && now >= at + t.files_resync) || now >= at + t.files_idle,
+        }
+    }
+
+    fn front(&mut self, sha: &str) -> Option<&mut Want> {
+        self.queue.front_mut().filter(|w| w.sha == sha)
+    }
+}
+
+fn sha_shaped(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
 struct Org {
     id: String,
     after: u64,
     hash: String,
-    in_flight: Option<(u64, Instant)>,
+    in_flight: Option<InFlight>,
     next: Instant,
     stopped: Option<String>,
     sent: u64,
     acked_at: Option<String>,
     last_refusal: Option<String>,
+    files: Files,
 }
 
 fn stop(o: &mut Org, reason: &str, detail: &str) {
@@ -172,21 +324,32 @@ fn report(orgs: &[Org], status: &Status) {
         .map(|o| {
             (o.id.clone(), serde_json::json!({
                 "watermark": o.after,
-                "inFlight": o.in_flight.map(|(s, _)| s),
+                "inFlight": match &o.in_flight { Some(InFlight::Page { to_seq, .. }) => serde_json::json!(to_seq), _ => serde_json::Value::Null },
                 "sent": o.sent,
                 "lastAckAt": o.acked_at,
                 "lastRefusal": o.last_refusal,
                 "stopped": o.stopped,
+                "files": {
+                    "on": o.files.on,
+                    "queued": o.files.queue.len(),
+                    "more": o.files.more,
+                    "sending": match &o.in_flight { Some(InFlight::Chunk { sha, .. }) => serde_json::json!(sha), _ => serde_json::Value::Null },
+                    "chunks": o.files.chunks,
+                    "held": o.files.held,
+                    "unavailable": o.files.unavailable,
+                    "lastSyncAt": o.files.last_sync_at,
+                    "lastRefusal": o.files.last_refusal,
+                },
             }))
         })
         .collect();
     crate::uplink::patch(status, "bulk", "replication", serde_json::Value::Object(v));
 }
 
-/// What global answered for a page: the watermarks move, or the org waits.
+/// What global answered: the watermarks move, the files go on, or the org waits.
 async fn answer(orgs: &mut [Org], v: &serde_json::Value, source: &dyn PageSource, t: PumpTiming) {
     let Some(id) = v["orgId"].as_str() else {
-        tracing::warn!(detail = v["detail"].as_str().unwrap_or(""), "global could not read a page");
+        tracing::warn!(t = v["t"].as_str().unwrap_or(""), detail = v["detail"].as_str().unwrap_or(""), "global could not read a frame");
         return;
     };
     let Some(o) = orgs.iter_mut().find(|o| o.id == id) else { return };
@@ -201,6 +364,9 @@ async fn answer(orgs: &mut [Org], v: &serde_json::Value, source: &dyn PageSource
             o.next = now;
             o.acked_at = Some(now_iso());
             o.last_refusal = None;
+            // New rows may name files; and files waiting get the next turn.
+            o.files.dirty = true;
+            o.files.turn = !o.files.queue.is_empty();
             for r in v["resend"].as_array().into_iter().flatten() {
                 let ask = serde_json::json!({ "orgId": id, "coll": r["coll"], "ids": r["ids"] });
                 if let Err(e) = source.resend(ask).await {
@@ -232,16 +398,158 @@ async fn answer(orgs: &mut [Org], v: &serde_json::Value, source: &dyn PageSource
             o.in_flight = None;
             o.next = now + t.retry;
         }
+        Some("blob-want") => {
+            if matches!(o.in_flight, Some(InFlight::Sync { .. })) {
+                o.in_flight = None;
+            }
+            o.files.synced = Some(now);
+            o.files.last_sync_at = Some(now_iso());
+            o.files.dirty = false;
+            o.files.last_refusal = None;
+            if v["files"].as_str() == Some("metadata") {
+                // The org chose metadata only since this socket was welcomed.
+                o.files.on = false;
+                o.files.queue.clear();
+            } else {
+                o.files.queue = v["want"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|w| {
+                        let sha = w["sha256"].as_str().filter(|s| sha_shaped(s))?;
+                        Some(Want { sha: sha.to_string(), offset: w["offset"].as_u64().unwrap_or(0) })
+                    })
+                    .collect();
+                o.files.more = v["more"].as_bool().unwrap_or(false);
+            }
+            o.next = now;
+        }
+        Some("blob-ack") => {
+            let sha = v["sha256"].as_str().unwrap_or("");
+            if matches!(&o.in_flight, Some(InFlight::Chunk { sha: s, .. }) if s == sha) {
+                o.in_flight = None;
+            }
+            if v["state"].as_str() == Some("ok") {
+                if o.files.front(sha).is_some() {
+                    o.files.queue.pop_front();
+                    o.files.held += 1;
+                }
+            } else if let (Some(w), Some(off)) = (o.files.front(sha), v["offset"].as_u64()) {
+                w.offset = off;
+            }
+            o.next = now;
+        }
+        Some("blob-refused") => {
+            let sha = v["sha256"].as_str();
+            let reason = v["reason"].as_str().unwrap_or("refused");
+            match (&o.in_flight, sha) {
+                (Some(InFlight::Chunk { sha: s, .. }), Some(x)) if s == x => o.in_flight = None,
+                (Some(InFlight::Sync { .. }), None) => o.in_flight = None,
+                _ => {}
+            }
+            o.files.last_refusal = Some(reason.to_string());
+            match reason {
+                // Not where global stands: from where it says.
+                "offset" => {
+                    if let (Some(w), Some(off)) = (sha.and_then(|s| o.files.front(s)), v["offset"].as_u64()) {
+                        w.offset = off;
+                    }
+                }
+                "metadata_only" => {
+                    o.files.on = false;
+                    o.files.queue.clear();
+                }
+                // That file, not now: global asks for it again when it wants it.
+                "not_wanted" | "hash_mismatch" | "size_changed" | "quota" => {
+                    if sha.and_then(|s| o.files.front(s)).is_some() {
+                        o.files.queue.pop_front();
+                    }
+                }
+                // This socket or this node: no file goes until that changes.
+                r => {
+                    tracing::warn!(org = id, reason = r, detail = v["detail"].as_str().unwrap_or(""), "global takes no files from this server for this org now; they wait {} s", t.pause.as_secs());
+                    o.files.queue.clear();
+                    o.files.paused_until = Some(now + t.pause);
+                    // Asked afresh once the wait is over.
+                    o.files.synced = None;
+                }
+            }
+            o.next = now;
+        }
+        Some("blob-error") => {
+            if matches!(o.in_flight, Some(InFlight::Sync { .. } | InFlight::Chunk { .. })) {
+                o.in_flight = None;
+            }
+            o.next = now + t.retry;
+        }
         _ => {}
     }
 }
 
-/// Send the orgs' pages until the socket ends: `out` is the session's, `answers` global's frames.
-pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Sender<Vec<u8>>, mut answers: mpsc::UnboundedReceiver<serde_json::Value>, status: Status, t: PumpTiming) {
+/// One step of an org's files: the next chunk of the file at the front, or the ask for what global
+/// lacks. False when the socket is gone.
+async fn files_step(o: &mut Org, source: &dyn PageSource, out: &mpsc::Sender<Out>, t: PumpTiming) -> bool {
+    let now = Instant::now();
+    let Some(w) = o.files.queue.front().cloned() else {
+        let ask = serde_json::json!({ "t": "blob-sync", "orgId": o.id }).to_string();
+        if out.send(Out::Text(ask)).await.is_err() {
+            return false;
+        }
+        o.in_flight = Some(InFlight::Sync { sent: Instant::now() });
+        return true;
+    };
+    match source.chunk(&o.id, &w.sha, w.offset).await {
+        Ok(Chunk::Frame { bytes, .. }) => {
+            if out.send(Out::Binary(bytes)).await.is_err() {
+                return false;
+            }
+            o.in_flight = Some(InFlight::Chunk { sha: w.sha, sent: Instant::now() });
+            o.files.chunks += 1;
+        }
+        Ok(Chunk::Unavailable { reason }) => {
+            tracing::warn!(org = %o.id, sha256 = %w.sha, reason, "global asked for a file this server cannot send; it is told");
+            let word = serde_json::json!({ "t": "blob-unavailable", "orgId": o.id, "sha256": w.sha, "reason": reason }).to_string();
+            if out.send(Out::Text(word)).await.is_err() {
+                return false;
+            }
+            o.files.queue.pop_front();
+            o.files.unavailable += 1;
+            o.next = Instant::now();
+        }
+        Ok(Chunk::Refused { reason, detail }) => {
+            let wait = if LAGGING.contains(&reason.as_str()) { t.not_ready } else { t.pause };
+            tracing::warn!(org = %o.id, reason, detail, "the API sends no files now; this org's files wait {} s", wait.as_secs());
+            o.files.queue.clear();
+            o.files.last_refusal = Some(reason);
+            o.files.paused_until = Some(now + wait);
+            o.files.synced = None;
+            o.next = now;
+        }
+        Err(e) => {
+            tracing::warn!(org = %o.id, error = %format!("{e:#}"), "no chunk from the API; again in {} s", t.retry.as_secs());
+            o.next = now + t.retry;
+        }
+    }
+    true
+}
+
+/// Send the orgs' pages and files until the socket ends: `out` is the session's, `answers` global's frames.
+pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Sender<Out>, mut answers: mpsc::UnboundedReceiver<serde_json::Value>, status: Status, t: PumpTiming) {
     let now = Instant::now();
     let mut orgs: Vec<Org> = starts
         .into_iter()
-        .map(|s| Org { id: s.org, after: s.after, hash: s.after_hash, in_flight: None, next: now, stopped: None, sent: 0, acked_at: None, last_refusal: None })
+        .map(|s| Org {
+            id: s.org,
+            after: s.after,
+            hash: s.after_hash,
+            in_flight: None,
+            next: now,
+            stopped: None,
+            sent: 0,
+            acked_at: None,
+            last_refusal: None,
+            files: Files { on: s.files, ..Files::default() },
+        })
         .collect();
     loop {
         // Global's answers move the watermarks before anything is built from them.
@@ -254,9 +562,13 @@ pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Se
         }
         let now = Instant::now();
         for o in orgs.iter_mut() {
-            if let Some((to, sent)) = o.in_flight {
-                if now.duration_since(sent) >= t.ack_timeout {
-                    tracing::warn!(org = %o.id, to_seq = to, "no answer for a page within {} s; it is built again", t.ack_timeout.as_secs());
+            if let Some(f) = &o.in_flight {
+                if now.duration_since(f.sent()) >= t.ack_timeout {
+                    match f {
+                        InFlight::Page { to_seq, .. } => tracing::warn!(org = %o.id, to_seq, "no answer for a page within {} s; it is built again", t.ack_timeout.as_secs()),
+                        InFlight::Sync { .. } => tracing::warn!(org = %o.id, "global did not say which files it lacks within {} s; it is asked again", t.ack_timeout.as_secs()),
+                        InFlight::Chunk { sha, .. } => tracing::warn!(org = %o.id, sha256 = %sha, "no answer for a chunk within {} s; it is sent again from where global stands", t.ack_timeout.as_secs()),
+                    }
                     o.in_flight = None;
                     o.next = now;
                 }
@@ -265,22 +577,39 @@ pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Se
         report(&orgs, &status);
 
         if let Some(i) = orgs.iter().position(|o| o.stopped.is_none() && o.in_flight.is_none() && o.next <= now) {
+            // While files wait, every other turn is theirs.
+            if orgs[i].files.turn && orgs[i].files.due(now, t) && !orgs[i].files.queue.is_empty() {
+                orgs[i].files.turn = false;
+                if !files_step(&mut orgs[i], &*source, &out, t).await {
+                    return;
+                }
+                continue;
+            }
             let (id, after, hash) = (orgs[i].id.clone(), orgs[i].after, orgs[i].hash.clone());
             match source.page(&id, after, &hash).await {
                 Ok(Built::Page { bytes, to_seq }) => {
-                    if out.send(bytes).await.is_err() {
+                    if out.send(Out::Binary(bytes)).await.is_err() {
                         return; // the socket is gone; the next session starts from what global says
                     }
-                    orgs[i].in_flight = Some((to_seq, Instant::now()));
+                    orgs[i].in_flight = Some(InFlight::Page { to_seq, sent: Instant::now() });
                     orgs[i].sent += 1;
                 }
-                Ok(Built::Empty) => orgs[i].next = Instant::now() + t.idle,
+                // Caught up: the files' turn, if they have one.
+                Ok(Built::Empty) => {
+                    if orgs[i].files.due(Instant::now(), t) {
+                        if !files_step(&mut orgs[i], &*source, &out, t).await {
+                            return;
+                        }
+                    } else {
+                        orgs[i].next = Instant::now() + t.idle;
+                    }
+                }
                 Ok(Built::Refused { reason, detail }) => {
                     if STOPPING.contains(&reason.as_str()) {
                         stop(&mut orgs[i], &reason, &detail);
                     } else {
-                        let wait = if reason == "not_ready" { t.not_ready } else { t.pause };
-                        if reason != "not_ready" {
+                        let wait = if LAGGING.contains(&reason.as_str()) { t.not_ready } else { t.pause };
+                        if wait == t.pause {
                             tracing::warn!(org = %id, reason, detail, "the API built no page; this org waits {} s", wait.as_secs());
                         }
                         orgs[i].next = Instant::now() + wait;
@@ -298,8 +627,8 @@ pub async fn pump(starts: Vec<Start>, source: Arc<dyn PageSource>, out: mpsc::Se
         let wake = orgs
             .iter()
             .filter(|o| o.stopped.is_none())
-            .map(|o| match o.in_flight {
-                Some((_, sent)) => sent + t.ack_timeout,
+            .map(|o| match &o.in_flight {
+                Some(f) => f.sent() + t.ack_timeout,
                 None => o.next,
             })
             .min();
@@ -332,11 +661,22 @@ mod tests {
         answers: Mutex<Vec<Built>>,
         asked: Mutex<Vec<(String, u64, String)>>,
         resent: Mutex<Vec<serde_json::Value>>,
+        chunks: Mutex<Vec<Chunk>>,
+        chunk_asked: Mutex<Vec<(String, String, u64)>>,
     }
 
     impl Script {
         fn new(answers: Vec<Built>) -> Arc<Self> {
-            Arc::new(Self { answers: Mutex::new(answers.into_iter().rev().collect()), asked: Mutex::new(vec![]), resent: Mutex::new(vec![]) })
+            Self::with_chunks(answers, vec![])
+        }
+        fn with_chunks(answers: Vec<Built>, chunks: Vec<Chunk>) -> Arc<Self> {
+            Arc::new(Self {
+                answers: Mutex::new(answers.into_iter().rev().collect()),
+                asked: Mutex::new(vec![]),
+                resent: Mutex::new(vec![]),
+                chunks: Mutex::new(chunks.into_iter().rev().collect()),
+                chunk_asked: Mutex::new(vec![]),
+            })
         }
     }
 
@@ -353,10 +693,24 @@ mod tests {
                 Ok(())
             })
         }
+        fn chunk<'a>(&'a self, org: &'a str, sha256: &'a str, offset: u64) -> BoxFut<'a, Result<Chunk>> {
+            Box::pin(async move {
+                self.chunk_asked.lock().unwrap().push((org.to_string(), sha256.to_string(), offset));
+                self.chunks.lock().unwrap().pop().ok_or_else(|| anyhow!("no chunk scripted"))
+            })
+        }
     }
 
     fn quick() -> PumpTiming {
-        PumpTiming { idle: Duration::from_millis(30), retry: Duration::from_millis(30), not_ready: Duration::from_millis(30), pause: Duration::from_secs(600), ack_timeout: Duration::from_millis(400) }
+        PumpTiming {
+            idle: Duration::from_millis(30),
+            retry: Duration::from_millis(30),
+            not_ready: Duration::from_millis(30),
+            pause: Duration::from_secs(600),
+            ack_timeout: Duration::from_millis(400),
+            files_resync: Duration::from_secs(600),
+            files_idle: Duration::from_secs(600),
+        }
     }
 
     fn page(bytes: &[u8], to_seq: u64) -> Built {
@@ -368,7 +722,7 @@ mod tests {
     }
 
     struct Harness {
-        out: mpsc::Receiver<Vec<u8>>,
+        out: mpsc::Receiver<Out>,
         answers: mpsc::UnboundedSender<serde_json::Value>,
         task: tokio::task::JoinHandle<()>,
         status: Status,
@@ -382,29 +736,58 @@ mod tests {
         Harness { out, answers, task, status }
     }
 
+    async fn frame(h: &mut Harness) -> Out {
+        tokio::time::timeout(Duration::from_secs(3), h.out.recv()).await.expect("a frame in time").expect("the pump is running")
+    }
+
     async fn sent(h: &mut Harness) -> Vec<u8> {
-        tokio::time::timeout(Duration::from_secs(3), h.out.recv()).await.expect("a page in time").expect("the pump is running")
+        match frame(h).await {
+            Out::Binary(b) => b,
+            Out::Text(t) => panic!("a binary frame was expected, not {t}"),
+        }
+    }
+
+    /// A word to global, read as JSON.
+    async fn said(h: &mut Harness) -> serde_json::Value {
+        match frame(h).await {
+            Out::Text(t) => serde_json::from_str(&t).unwrap(),
+            Out::Binary(b) => panic!("a word to global was expected, not {} bytes", b.len()),
+        }
     }
 
     fn org(id: &str) -> Start {
-        Start { org: id.into(), after: 0, after_hash: String::new() }
+        Start { org: id.into(), after: 0, after_hash: String::new(), files: false }
     }
+
+    fn with_files(id: &str) -> Start {
+        Start { files: true, ..org(id) }
+    }
+
+    fn chunk(bytes: &[u8]) -> Chunk {
+        Chunk::Frame { bytes: bytes.to_vec(), len: bytes.len() as u64 }
+    }
+
+    const X: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+    const Y: &str = "2222222222222222222222222222222222222222222222222222222222222222";
 
     #[test]
     fn only_orgs_homed_here_and_linked_at_full_are_sent_from_where_the_mirror_stands() {
         let welcome = serde_json::json!([
-            { "orgId": "a", "home": "master-me", "linkLevel": "full", "state": "active", "mirror": { "watermark": 12, "chainHash": "h12" } },
+            { "orgId": "a", "home": "master-me", "linkLevel": "full", "state": "active", "mirror": { "watermark": 12, "chainHash": "h12" }, "files": "all" },
             { "orgId": "b", "home": "master-me", "linkLevel": "control", "state": "active", "mirror": { "watermark": 0, "chainHash": "" } },
             { "orgId": "c", "home": "global", "linkLevel": "full", "state": "active" },
             { "orgId": "d", "home": "master-me", "linkLevel": "full", "state": "fenced" },
-            { "orgId": "e", "home": "master-me", "linkLevel": "full", "state": "frozen", "mirror": { "watermark": 7, "chainHash": "" } },
+            { "orgId": "e", "home": "master-me", "linkLevel": "full", "state": "frozen", "mirror": { "watermark": 7, "chainHash": "" }, "files": "metadata" },
+            // A global that predates the files says nothing of them: none are sent.
+            { "orgId": "f", "home": "master-me", "linkLevel": "full", "state": "active" },
         ]);
         assert_eq!(
             starts(&welcome, "master-me"),
             vec![
-                Start { org: "a".into(), after: 12, after_hash: "h12".into() },
+                Start { org: "a".into(), after: 12, after_hash: "h12".into(), files: true },
                 // Its watermark came without a hash: from the start, and global says where it is.
-                Start { org: "e".into(), after: 0, after_hash: String::new() },
+                Start { org: "e".into(), after: 0, after_hash: String::new(), files: false },
+                Start { org: "f".into(), after: 0, after_hash: String::new(), files: false },
             ]
         );
     }
@@ -488,6 +871,119 @@ mod tests {
         assert_eq!(script.asked.lock().unwrap().len(), 1);
         drop(h.answers);
         tokio::time::timeout(Duration::from_secs(2), h.task).await.expect("the pump ends with its socket").unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_api_that_has_not_yet_seen_the_link_at_full_is_asked_again_soon_not_in_ten_minutes() {
+        let script = Script::new(vec![Built::Refused { reason: "not_full".into(), detail: "this master is not linked at Full".into() }, page(b"p1", 2)]);
+        let mut h = start(vec![org("a")], script.clone());
+        // `not_ready` is 30 ms in these timings, `pause` ten minutes.
+        assert_eq!(sent(&mut h).await, b"p1");
+        h.task.abort();
+    }
+
+    #[tokio::test]
+    async fn files_go_behind_the_pages_chunk_by_chunk_from_where_global_stands() {
+        let script = Script::with_chunks(vec![page(b"p1", 5)], vec![chunk(b"x-first"), chunk(b"x-rest")]);
+        let mut h = start(vec![with_files("a")], script.clone());
+        assert_eq!(sent(&mut h).await, b"p1");
+        h.answers.send(serde_json::json!({ "t": "page-ack", "orgId": "a", "watermark": 5, "chainHash": "h5" })).unwrap();
+        // Caught up: which files does the mirror lack?
+        assert_eq!(said(&mut h).await, serde_json::json!({ "t": "blob-sync", "orgId": "a" }));
+        h.answers.send(serde_json::json!({ "t": "blob-want", "orgId": "a", "files": "all", "want": [{ "sha256": X, "offset": 0 }], "more": false })).unwrap();
+        assert_eq!(sent(&mut h).await, b"x-first");
+        h.answers.send(serde_json::json!({ "t": "blob-ack", "orgId": "a", "sha256": X, "offset": 7, "state": "partial" })).unwrap();
+        assert_eq!(sent(&mut h).await, b"x-rest");
+        h.answers.send(serde_json::json!({ "t": "blob-ack", "orgId": "a", "sha256": X, "offset": 13, "state": "ok" })).unwrap();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(script.chunk_asked.lock().unwrap().clone(), vec![("a".into(), X.into(), 0), ("a".into(), X.into(), 7)]);
+        // A page was asked for before each chunk: pages first.
+        assert!(script.asked.lock().unwrap().len() >= 3);
+        let f = h.status.lock().unwrap()["bulk"]["replication"]["a"]["files"].clone();
+        assert_eq!((f["held"].as_u64(), f["chunks"].as_u64(), f["queued"].as_u64()), (Some(1), Some(2), Some(0)), "{f}");
+        // Nothing more to ask until pages bring rows or ten minutes pass.
+        assert!(h.out.try_recv().is_err());
+        h.task.abort();
+    }
+
+    #[tokio::test]
+    async fn a_file_this_server_cannot_send_is_said_so_and_the_next_one_goes() {
+        let script = Script::with_chunks(vec![], vec![Chunk::Unavailable { reason: "missing".into() }, chunk(b"y")]);
+        let mut h = start(vec![with_files("a")], script.clone());
+        assert_eq!(said(&mut h).await["t"], "blob-sync");
+        h.answers.send(serde_json::json!({ "t": "blob-want", "orgId": "a", "files": "all", "want": [{ "sha256": X, "offset": 0 }, { "sha256": Y, "offset": 0 }], "more": false })).unwrap();
+        assert_eq!(said(&mut h).await, serde_json::json!({ "t": "blob-unavailable", "orgId": "a", "sha256": X, "reason": "missing" }));
+        assert_eq!(sent(&mut h).await, b"y");
+        assert_eq!(h.status.lock().unwrap()["bulk"]["replication"]["a"]["files"]["unavailable"].as_u64(), Some(1));
+        h.task.abort();
+    }
+
+    #[tokio::test]
+    async fn a_refused_chunk_resumes_where_global_says_and_a_bad_file_is_left_to_global() {
+        let script = Script::with_chunks(vec![], vec![chunk(b"x0"), chunk(b"x42"), chunk(b"y0")]);
+        let mut h = start(vec![with_files("a")], script.clone());
+        assert_eq!(said(&mut h).await["t"], "blob-sync");
+        h.answers.send(serde_json::json!({ "t": "blob-want", "orgId": "a", "files": "all", "want": [{ "sha256": X, "offset": 0 }, { "sha256": Y, "offset": 0 }] })).unwrap();
+        assert_eq!(sent(&mut h).await, b"x0");
+        // Global already holds more of it (another pod, a crash): from there.
+        h.answers.send(serde_json::json!({ "t": "blob-refused", "orgId": "a", "sha256": X, "reason": "offset", "offset": 42 })).unwrap();
+        assert_eq!(sent(&mut h).await, b"x42");
+        // Whole, it did not hash to its name: global drops it and asks again later; the next file goes.
+        h.answers.send(serde_json::json!({ "t": "blob-refused", "orgId": "a", "sha256": X, "reason": "hash_mismatch", "offset": 0 })).unwrap();
+        assert_eq!(sent(&mut h).await, b"y0");
+        let asked: Vec<(String, u64)> = script.chunk_asked.lock().unwrap().iter().map(|(_, s, o)| (s[..1].to_string(), *o)).collect();
+        assert_eq!(asked, vec![("1".to_string(), 0), ("1".to_string(), 42), ("2".to_string(), 0)]);
+        h.task.abort();
+    }
+
+    #[tokio::test]
+    async fn while_files_wait_every_other_turn_is_theirs_so_busy_pages_cannot_starve_them() {
+        let script = Script::with_chunks(vec![Built::Empty, page(b"p1", 3), page(b"p2", 6)], vec![chunk(b"c1"), chunk(b"c2")]);
+        let mut h = start(vec![with_files("a")], script.clone());
+        assert_eq!(said(&mut h).await["t"], "blob-sync");
+        h.answers.send(serde_json::json!({ "t": "blob-want", "orgId": "a", "files": "all", "want": [{ "sha256": X, "offset": 0 }] })).unwrap();
+        // A page was ready by then: pages first.
+        assert_eq!(sent(&mut h).await, b"p1");
+        h.answers.send(serde_json::json!({ "t": "page-ack", "orgId": "a", "watermark": 3, "chainHash": "h3" })).unwrap();
+        // p2 is ready too, but this turn is the file's.
+        assert_eq!(sent(&mut h).await, b"c1");
+        h.answers.send(serde_json::json!({ "t": "blob-ack", "orgId": "a", "sha256": X, "offset": 2, "state": "partial" })).unwrap();
+        assert_eq!(sent(&mut h).await, b"p2");
+        h.answers.send(serde_json::json!({ "t": "page-ack", "orgId": "a", "watermark": 6, "chainHash": "h6" })).unwrap();
+        assert_eq!(sent(&mut h).await, b"c2");
+        h.task.abort();
+    }
+
+    #[tokio::test]
+    async fn an_org_that_mirrors_its_records_only_sends_no_files() {
+        // Not in its welcome: never asked.
+        let script = Script::with_chunks(vec![], vec![chunk(b"never")]);
+        let h = start(vec![org("a")], script.clone());
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(script.chunk_asked.lock().unwrap().is_empty());
+        h.task.abort();
+        // Chosen while connected: global says so, and the files stop.
+        let script = Script::with_chunks(vec![], vec![chunk(b"never")]);
+        let mut h = start(vec![with_files("a")], script.clone());
+        assert_eq!(said(&mut h).await["t"], "blob-sync");
+        h.answers.send(serde_json::json!({ "t": "blob-want", "orgId": "a", "files": "metadata", "want": [], "more": false })).unwrap();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(h.out.try_recv().is_err());
+        assert!(script.chunk_asked.lock().unwrap().is_empty());
+        assert_eq!(h.status.lock().unwrap()["bulk"]["replication"]["a"]["files"]["on"], false);
+        h.task.abort();
+    }
+
+    #[tokio::test]
+    async fn global_refusing_this_node_files_pauses_them_and_the_pages_go_on() {
+        let script = Script::with_chunks(vec![Built::Empty, page(b"p1", 2)], vec![]);
+        let mut h = start(vec![with_files("a")], script.clone());
+        assert_eq!(said(&mut h).await["t"], "blob-sync");
+        h.answers.send(serde_json::json!({ "t": "blob-refused", "orgId": "a", "reason": "not_home" })).unwrap();
+        assert_eq!(sent(&mut h).await, b"p1");
+        let f = h.status.lock().unwrap()["bulk"]["replication"]["a"]["files"].clone();
+        assert_eq!(f["lastRefusal"].as_str(), Some("not_home"), "{f}");
+        h.task.abort();
     }
 
 }

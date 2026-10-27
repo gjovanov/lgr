@@ -120,6 +120,8 @@ docFileSchema.plugin(loweredFieldsPlugin, { fields: { docNumber: 'docNumberLower
 docFileSchema.index({ orgId: 1, docType: 1, docNumber: 1 }, { unique: true })
 docFileSchema.index({ orgId: 1, docDate: 1, docType: 1 })
 docFileSchema.index({ orgId: 1, status: 1 })
+// FR-20.69 (P3-3): a master finds the file global asks for by its content.
+docFileSchema.index({ orgId: 1, currentChecksum: 1 })
 
 replicate(docFileSchema, { class: 'R' })
 

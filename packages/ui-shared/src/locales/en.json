@@ -3192,6 +3192,20 @@
     "relayDefault": "the link level's default",
     "relayWhat": "Mail through lgrai.app: invoices, digests and other mail from a server are sent by lgrai.app on its behalf. Each mail's recipient, subject, text and attachments pass through lgrai.app to SendGrid. Off by default at the Control link level.",
     "relayDocumentsWhat": "Documents through lgrai.app: a server has no reader of its own, so the PDFs you import there are sent to lgrai.app, which takes their text out and, for a document its parser cannot read, has an AI model draft it. The PDF and its text pass through lgrai.app (the text to the model); only the answer is kept, for two days. Off by default at the Control link level.",
+    "files": {
+      "title": "Files on lgrai.app",
+      "intro": "While {name} is the organization's home, lgrai.app keeps a copy of its records. With the files too, every document also opens here while the server is offline, and a move back to lgrai.app has nothing left to send.",
+      "switch": "Copy the files too",
+      "metadataOnly": "Records only: the files stay on the server and open only there. Files already on lgrai.app keep opening.",
+      "complete": "All {count} files are on lgrai.app.",
+      "progress": "{held} of {count} files are on lgrai.app.",
+      "arriving": "{count} arriving now.",
+      "waiting": "{count} waiting their turn.",
+      "missing": "{count} are not on the server either: they may be lost there.",
+      "failing": "{count} arrived damaged and will be sent again later.",
+      "none": "No files yet.",
+      "saved": "Saved. The server follows within a minute."
+    },
     "move": {
       "action": "Move here",
       "title": "Move {org} to {name}",
@@ -3418,5 +3432,9 @@
     "joinAs": "Join {org} as {email}",
     "joinFailed": "Could not join the organization.",
     "openOrg": "Open {org}"
+  },
+  "mirror": {
+    "file_not_mirrored": "This file has not reached lgrai.app from the organization's server yet. It opens there now, and here once it arrives.",
+    "files_not_mirrored": "This organization keeps its files on its server only: the file opens there."
   }
 }

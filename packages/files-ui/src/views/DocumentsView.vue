@@ -497,7 +497,10 @@ async function download(path: string) {
   try {
     await downloadAsSession(path)
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    // FR-20.69: on lgrai.app, a file of an org homed on its own server that has not arrived here yet,
+    // or an org that keeps its files there only.
+    const code = e?.response?.data?.code
+    showError(code === 'file_not_mirrored' || code === 'files_not_mirrored' ? t(`mirror.${code}`) : e?.response?.data?.message || t('common.operationFailed'))
   }
 }
 const filterParams = () => ({ search: search.value || undefined, docType: docType.value || undefined, status: statusFilter.value || undefined })

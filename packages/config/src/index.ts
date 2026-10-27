@@ -293,6 +293,14 @@ export const config = {
     intervalMs: process.env.IDENTITY_FEED_INTERVAL_MS !== undefined ? Number(process.env.IDENTITY_FEED_INTERVAL_MS) : 30_000,
   },
   /**
+   * FR-20.69 (plan step P3-3) — the files global's mirror takes from a master: at most this many
+   * bytes per org (`MIRROR_FILES_MAX_GB`, 50 by default). Past it the mirror stops asking for more
+   * and says so; a master could otherwise fill the disk every org's mirror shares.
+   */
+  mirror: {
+    filesMaxBytes: Math.round((Number(process.env.MIRROR_FILES_MAX_GB) || 50) * 1024 ** 3),
+  },
+  /**
    * FR-20.79 (plan step P3-6a) — moving an org's home: global's tick (a frozen move's copy) and a
    * master's worker (its moves on global). 0 disables either.
    */

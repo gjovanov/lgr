@@ -207,6 +207,11 @@ if (config.front.controlSocket && config.front.secret) {
         const c = await import('services/biz/replication/control')
         return c.resendFor(c.readResendAsk(text))
       },
+      // FR-20.69 (P3-3): a chunk of a file global's mirror asked for.
+      blob: async body => {
+        const b = await import('services/biz/replication/blob-source')
+        return b.blobFor(b.readBlobAsk(body))
+      },
     },
     // FR-20.20: what the update helper asks for before it switches versions.
     backup: async () => {

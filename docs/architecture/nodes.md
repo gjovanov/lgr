@@ -543,8 +543,21 @@ offline (Q2). Only the master writes the org, and the copy follows it one way:
   `lgr-server` (its own mongod, the built package's API) linked at Full to a local global behind T-1's
   TLS front and chaos proxy, cuts and throttles the link while the master writes, and ends with the
   mirror equal to the master document for document (about four minutes, by hand).
-- **Not yet:** dead letters (P3-2c), the files (P3-3), the reconcile after a new journal epoch, and the
-  re-seed of a restored master (P3-7).
+- **The files** (P3-3, FR-20.69): behind the documents, on the same socket. Once an org's pages are
+  caught up, the supervisor asks which files the mirror lacks (`blob-sync`). Global answers from ITS
+  OWN rows of that org, never from anything the master lists, so an answer cannot say what another org
+  holds (FR-20.66). Each file goes up in 1 MB chunks the master's API reads by content and hashes
+  before the first byte leaves. Global appends each chunk at its own offset, so a transfer resumes
+  wherever it stopped. It names the file `<UPLOAD_DIR>/<orgId>/blobs/<sha256>` only once the file
+  hashes to its name.
+  - On lgrai.app, a mirrored org's documents, their earlier versions and its archived documents open
+    from there, read by content and never where a row says.
+  - Global's own copies from before a move are taken by their hash, never sent again.
+  - An org may keep its files on its server only ("Files on lgrai.app" on the Servers page, the
+    metadata-only option): its records are mirrored, and its files open only on the server.
+  - A file the master cannot read is reported as missing there.
+- **Not yet:** dead letters (P3-2c), the reconcile after a new journal epoch, and the re-seed of a
+  restored master (P3-7).
 
 ## Moving an org to its master (FR-20.79)
 

@@ -53,6 +53,8 @@ const fileSchema = new Schema<IFile>(
 fileSchema.plugin(tenantPlugin)
 fileSchema.index({ orgId: 1, module: 1 })
 fileSchema.index({ orgId: 1, entityType: 1, entityId: 1 })
+// FR-20.69 (P3-3): a master finds the file global asks for by its content.
+fileSchema.index({ orgId: 1, sha256: 1 }, { partialFilterExpression: { sha256: { $type: 'string' } } })
 
 replicate(fileSchema, { class: 'R' })
 

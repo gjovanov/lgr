@@ -1,9 +1,10 @@
 /**
- * The mirror end to end (FR-20.61–20.67, plan steps P3-1 and P3-2), with real processes: a real
+ * The mirror end to end (FR-20.61–20.69, plan steps P3-1, P3-2 and P3-3), with real processes: a real
  * `lgr-server` (its own `mongod`, the API from the built package) linked at Full to a local global
  * (the API in role global, behind T-1's TLS front and chaos proxy), home of one org. Its writes reach
- * global's mirror as they are; the link is cut, then throttled, while the master keeps writing; the
- * mirror ends equal to the master, document for document.
+ * global's mirror as they are; its files follow by content and open on global; the link is cut, then
+ * throttled, while the master keeps writing; the mirror ends equal to the master, document for
+ * document.
  *
  *   bun packages/tests/src/two-node/mirror-e2e.script.ts
  *
@@ -23,6 +24,9 @@ import { createTestOrg, createTestUser } from '../helpers/factories'
 import { mintNodeEnrollmentCode } from 'services/biz/node/node.service'
 import { homePart } from 'services/biz/replication/project'
 import { BSON, idKey } from 'services/biz/replication/pages'
+import { Elysia } from 'elysia'
+import jwt from '@elysiajs/jwt'
+import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 
 const REPO = resolve(import.meta.dir, '..', '..', '..', '..')
 const EXE = join(REPO, 'packages', 'server', 'target', 'debug', process.platform === 'win32' ? 'lgr-server.exe' : 'lgr-server')
@@ -182,6 +186,63 @@ try {
   check('global kept its own fields of the org', g?.slug === 'mirror-e2e' && !!g?.subscription, JSON.stringify({ slug: g?.slug }))
   const rep = (await supStatus())?.uplink?.bulk?.replication?.[String(orgId)]
   check('`lgr-server status` shows the org\'s mirror position', rep?.watermark === (await headOf()) && !rep?.stopped, JSON.stringify(rep))
+
+  // ── FR-20.69 (P3-3): the files, behind the documents, by content ─────────────────────────────────
+  const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex')
+  const GLOBAL_UPLOADS = join(SCRATCH, 'global-uploads')
+  /** A document the shop uploads on the master: its row, and its bytes where the row says. */
+  const putFile = async (name: string, bytes: Uint8Array) => {
+    const rel = `${String(orgId)}/docs/2026-10-01/${name}`
+    mkdirSync(join(DATA, 'uploads', String(orgId), 'docs', '2026-10-01'), { recursive: true })
+    writeFileSync(join(DATA, 'uploads', ...rel.split('/')), bytes)
+    const _id = new mongoose.Types.ObjectId()
+    await mdb.collection('docfiles').insertOne({ _id, orgId, docType: 'invoice', docNumber: name, docDate: '2026-10-01', originalName: name, currentPath: rel, currentChecksum: sha(bytes), version: 1, mimeType: 'application/pdf', size: bytes.length, status: 'uploaded', uploadedAt: new Date() })
+    return _id
+  }
+  const heldOnGlobal = async (b: Uint8Array) => {
+    const row: any = await mongoose.connection.db!.collection('mirror_blobs').findOne({ orgId, sha256: sha(b) })
+    if (row?.state !== 'ok') return false
+    try {
+      return Buffer.compare(readFileSync(join(GLOBAL_UPLOADS, String(orgId), 'blobs', sha(b))), Buffer.from(b)) === 0
+    } catch {
+      return false
+    }
+  }
+  const signer = new Elysia().use(jwt({ name: 'jwt', secret: globalEnv.JWT_SECRET }))
+  const bearer = await (signer as any).decorator.jwt.sign({
+    id: String(admin._id), orgId: String(orgId), role: 'admin', email: admin.email, username: admin.username,
+    firstName: 'Ana', lastName: 'Shop', permissions: DEFAULT_ROLE_PERMISSIONS.admin, ownRecordsModules: [],
+  })
+  const onGlobal = (path: string, init: RequestInit = {}) =>
+    fetch(`${SERVER}/api/org/${orgId}${path}`, { ...init, headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json', ...(init.headers ?? {}) }, tls: { ca: ca.ca } } as any)
+  const download = async (id: unknown) => {
+    const r = await onGlobal(`/files/${id}/download`)
+    return { status: r.status, bytes: new Uint8Array(await r.arrayBuffer()) }
+  }
+
+  const small = randomBytes(20_000)
+  const large = randomBytes(2_600_000) // three chunks
+  await putFile('small.pdf', small)
+  const largeId = await putFile('large.pdf', large)
+  const arrived = await until(async () => (await heldOnGlobal(small)) && (await heldOnGlobal(large)), 120_000, 1500)
+  check('a file written on the master reaches the mirror by its content, a 2.6 MB one in chunks', !!arrived,
+    JSON.stringify(await mongoose.connection.db!.collection('mirror_blobs').find({ orgId }).project({ _id: 0, sha256: 1, state: 1, offset: 1, size: 1 }).toArray()))
+  const got = await download(largeId)
+  check('…and opens on global, read by its content', got.status === 200 && Buffer.compare(Buffer.from(got.bytes), Buffer.from(large)) === 0, `${got.status}, ${got.bytes.length} bytes`)
+  const files = (await supStatus())?.uplink?.bulk?.replication?.[String(orgId)]?.files
+  check('`lgr-server status` shows the org\'s files', files?.on === true && files?.held >= 2, JSON.stringify(files))
+
+  // Records only: the master is welcomed again, and sends no new file.
+  const off = await onGlobal('/nodes/mirror', { method: 'PUT', body: JSON.stringify({ files: false }) })
+  check('the org admin chooses records only', off.status === 200, String(off.status))
+  const later = randomBytes(30_000)
+  const laterId = await putFile('later.pdf', later)
+  await caughtUp('…its records still arrive')
+  await Bun.sleep(8000)
+  const notYet = await onGlobal(`/files/${laterId}/download`)
+  check('…but not its new file, and global says why', !(await heldOnGlobal(later)) && notYet.status === 404 && (await notYet.json() as any)?.code === 'files_not_mirrored', String(notYet.status))
+  await onGlobal('/nodes/mirror', { method: 'PUT', body: JSON.stringify({ files: true }) })
+  check('files again: the one written meanwhile follows', !!(await until(() => heldOnGlobal(later), 120_000, 1500)))
 
   // ── a cut: the link goes down, the shop keeps writing, the link comes back ────────────────────
   chaos.drop()

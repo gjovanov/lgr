@@ -18,6 +18,7 @@ import { queryAuditLogs } from 'services/biz/audit-log.service'
 import { startJob, updateProgress, completeJob, failJob } from 'services/background/task.service'
 import { taskStore } from 'services/background/task.store'
 import { BackgroundTask, ArchiveUnit } from 'db/models'
+import { MirrorFileMissing } from 'services/biz/replication/mirror-blobs'
 import { t } from 'elysia'
 
 /**
@@ -274,12 +275,22 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
     '/:id/download',
     async ({ params: { orgId, id }, query, user, status, set }) => {
       const denied = gate(user, status); if (denied) return denied
-      const hit = await resolveDownload(orgId, id, query.version)
+      let hit: Awaited<ReturnType<typeof resolveDownload>>
+      try {
+        hit = await resolveDownload(orgId, id, query.version)
+      } catch (e) {
+        // FR-20.69 (P3-3): on lgrai.app, a file of an org homed on its own server that has not
+        // arrived, or one of an org that mirrors its records only. Said so, never a 500.
+        if (e instanceof MirrorFileMissing) return status(404, { code: e.code, message: e.message })
+        throw e
+      }
       if (!hit) return status(404, { message: 'Not found' })
-      const file = Bun.file(hit.path)
-      if (!(await file.exists())) return status(404, { message: 'File missing on disk' })
       set.headers['content-disposition'] = `attachment; filename="${encodeURIComponent(hit.name)}"`
       set.headers['content-type'] = hit.mime || 'application/octet-stream'
+      // A document a mirror read out of its archive unit: the bytes, never written back.
+      if (hit.bytes) return new Response(hit.bytes as Uint8Array<ArrayBuffer>, { headers: { 'content-type': hit.mime || 'application/octet-stream', 'content-disposition': `attachment; filename="${encodeURIComponent(hit.name)}"` } })
+      const file = Bun.file(hit.path!)
+      if (!(await file.exists())) return status(404, { message: 'File missing on disk' })
       return file
     },
     { isSignIn: true },
