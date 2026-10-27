@@ -3427,7 +3427,20 @@
         "went_back": "This server's database went back in time underneath lgrai.app's copy (restored, or a snapshot reverted): it may have numbers the site already issued.",
         "clone": "Another machine answers as this server, with its keys (on the shop's network, or connected to lgrai.app): until a person decides which machine is real, and the other is installed again as a new server, neither may issue a legal number."
       },
-      "mirror": "lgrai.app's copy has {n}"
+      "mirror": "lgrai.app's copy has {n}",
+      "devices": {
+        "title": "What the fiscal devices say",
+        "intro": "A device counts every document it prints: receipts, stornos, non-fiscal receipts and reports, including those printed from its keyboard. That count is none of the numbers above. Use it to find the documents to read: the last receipt's УНП gives the device's series.",
+        "read": "Its last document: {n} (read {at})",
+        "not_connected": "Not connected to this server: read its last receipt off its paper.",
+        "unsupported": "This device does not report its last document: read it off its paper.",
+        "error": "It did not answer: {error}",
+        "recorded": "The last receipt this database recorded on it: {receipt}, {number}, УНП {unp}, {at}",
+        "none": "This database recorded no receipt on it.",
+        "ahead": "Documents printed after that receipt: {n}. Read them off its paper. A fiscal receipt among them is one this database does not have, and its УНП must resume above it.",
+        "same": "Nothing printed since.",
+        "behind": "Its count is below this database's: check that it is the same device."
+      }
     },
     "fenced": {
       "title": "What {name} did after it was replaced",

@@ -31,6 +31,7 @@ import { mirrorFilesStatus, type MirrorFilesStatus } from '../replication/mirror
 import { LEGAL_SERIES, ensureSequenceAtLeast, isLegalSeries } from '../sequence.service.js'
 import { MoveError, type PreflightCheck } from './move.service.js'
 import { resetJournalHwm } from '../home/series-lock.service.js'
+import { evidenceChanges, type DeviceEvidence } from '../home/device-witness.service.js'
 
 type ObjectId = mongo.ObjectId
 
@@ -156,6 +157,8 @@ export async function recordLastNumbers(
   series: Array<{ prefix: string; year: number; last: number }>,
   /** FR-20.51: the mirror's numbers when linked (P3-7): each series resumes above them too. */
   floor: Array<{ prefix: string; year: number; last: number }> | null = null,
+  /** AC 49: what the fiscal devices said as the person recorded them. Kept in the audit, never applied. */
+  devices: DeviceEvidence[] = [],
 ) {
   const home: any = await OrgHome.findOne({ orgId }, { seriesFrozen: 1 }).lean()
   if (!home?.seriesFrozen?.since) throw new MoveError(409, 'not_frozen', 'Numbering is not waiting for the site\'s last numbers.')
@@ -184,7 +187,10 @@ export async function recordLastNumbers(
   await recordAuditEntry({
     orgId, userId: by.id, operatorCode: by.operatorCode, action: 'update', module: 'admin',
     entityType: 'sequence', entityId: String(home.seriesFrozen.moveId ?? orgId), entityName: 'last numbers issued at the site',
-    changes: series.map(s => ({ field: `${s.prefix} ${s.year}`, oldValue: was.get(`${s.prefix}|${s.year}`) ?? null, newValue: s.last })),
+    changes: [
+      ...series.map(s => ({ field: `${s.prefix} ${s.year}`, oldValue: was.get(`${s.prefix}|${s.year}`) ?? null, newValue: s.last })),
+      ...evidenceChanges(devices),
+    ],
   })
   logger.info({ orgId, series: series.length }, 'Promotion: the site\'s last numbers are recorded; legal numbering resumes above them')
   return legalSeriesOf(orgId)

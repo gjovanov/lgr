@@ -694,7 +694,13 @@ numbers locks nothing more, and it tells lgrai.app every minute: the Servers pag
 
 The page says why numbering waits, and a person records the last numbers off the last printed
 documents and the fiscal device's report. Numbering resumes above them, and above lgrai.app's copy
-when the server can ask it. Not yet: the fiscal device checked on its own.
+when the server can ask it.
+
+The page also asks each fiscal device for its last document and shows it beside the last receipt
+the database recorded on that device, with how many documents the device printed since. The audit
+keeps that with the person's numbers. It never locks or opens numbering by itself: a device counts
+its reports and text receipts too, so being ahead after a Z-report is normal. It shows the person
+which documents to read.
 
 ### Re-seeding a server from lgrai.app's copy (FR-20.71)
 

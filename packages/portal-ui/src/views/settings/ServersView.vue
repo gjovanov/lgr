@@ -84,6 +84,19 @@
               <v-text-field v-model.number="siteNumbers[s.prefix + '|' + s.year]" type="number" :min="0" density="compact" hide-details :data-test="'last-' + s.prefix" />
             </v-col>
           </v-row>
+          <!-- AC 49: what each fiscal device says, beside the last receipt this database recorded on it. -->
+          <template v-if="lastNumbers.devices?.length">
+            <div class="text-subtitle-2 mt-4 mb-1">{{ $t('servers.lastNumbers.devices.title') }}</div>
+            <p class="text-caption text-medium-emphasis mb-2">{{ $t('servers.lastNumbers.devices.intro') }}</p>
+            <div v-for="d in lastNumbers.devices" :key="d.id" class="text-body-2 mb-2" data-test="last-numbers-device">
+              <span class="font-weight-medium">{{ d.name || d.deviceNumber }}</span> <span class="text-medium-emphasis">({{ d.deviceNumber }})</span>
+              <div class="text-caption" data-test="last-numbers-device-reading">{{ deviceReading(d) }}</div>
+              <div class="text-caption">{{ d.recorded ? $t('servers.lastNumbers.devices.recorded', { receipt: d.recorded.receiptNo, number: d.recorded.number || '—', unp: d.recorded.unp || '—', at: fmtDate(d.recorded.printedAt) }) : $t('servers.lastNumbers.devices.none') }}</div>
+              <div v-if="d.since !== null" class="text-caption" :class="d.since > 0 ? 'text-warning font-weight-medium' : d.since < 0 ? 'text-error' : ''" data-test="last-numbers-device-since">
+                {{ d.since > 0 ? $t('servers.lastNumbers.devices.ahead', { n: d.since }) : d.since < 0 ? $t('servers.lastNumbers.devices.behind') : $t('servers.lastNumbers.devices.same') }}
+              </div>
+            </div>
+          </template>
           <v-checkbox v-model="lastNumbersConfirmed" :label="$t('servers.lastNumbers.confirm')" density="compact" hide-details class="mt-2" data-test="last-numbers-confirm" />
         </v-card-text>
         <v-card-actions>
@@ -956,7 +969,21 @@ async function startReseed() {
 
 // ── The site's last numbers, after a promotion (FR-20.81) ───────────────────────────────────
 interface SeriesRow { prefix: string; year: number; last: number }
-const lastNumbers = ref<{ frozen: boolean; reason: string | null; series: SeriesRow[]; mirror: SeriesRow[] | null } | null>(null)
+/** AC 49: one fiscal device's word, beside the last receipt this database recorded on it. */
+interface DeviceWitness {
+  id: string
+  name: string
+  deviceNumber: string
+  reading: { state: 'read' | 'not_connected' | 'unsupported' | 'error'; lastDocument?: number; readAt?: string; error?: string }
+  recorded: { receiptNo: string; unp: string | null; number: string; printedAt: string | null } | null
+  since: number | null
+}
+const lastNumbers = ref<{ frozen: boolean; reason: string | null; series: SeriesRow[]; mirror: SeriesRow[] | null; devices?: DeviceWitness[] } | null>(null)
+const deviceReading = (d: DeviceWitness) => d.reading.state === 'read'
+  ? t('servers.lastNumbers.devices.read', { n: d.reading.lastDocument, at: fmtDate(d.reading.readAt) })
+  : d.reading.state === 'error'
+    ? t('servers.lastNumbers.devices.error', { error: d.reading.error ?? '' })
+    : t(`servers.lastNumbers.devices.${d.reading.state}`)
 /** On a master, what lgrai.app's mirror holds of a series: numbering resumes above it too. */
 const mirrorOf = (s: SeriesRow) => lastNumbers.value?.mirror?.find(m => m.prefix === s.prefix && m.year === s.year)?.last ?? null
 const siteNumbers = ref<Record<string, number>>({})

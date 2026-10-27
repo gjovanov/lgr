@@ -36,8 +36,8 @@
  * Every minute the master also tells lgrai.app what it found, per org (`reportOrgState`), for the
  * Servers page there. A master that went back is re-seeded from lgrai.app's copy (P3-7d,
  * `reseed.service.ts`); one that only lost the record of its changes is not locked at all, and its
- * copy there is reconciled instead (P3-7f, `replication/reconcile.ts`). Not yet: the fiscal device
- * as a witness (its last receipt ahead of the database).
+ * copy there is reconciled instead (P3-7f, `replication/reconcile.ts`). The fiscal device is a
+ * witness for the person who records the numbers, never a trigger (`device-witness.service.ts`).
  */
 import { readFileSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'

@@ -2999,9 +2999,20 @@ gave a customer. So, on a master, for an org written there, the legal series LOC
     alarm counts only when it is newer than `seriesUnlockedAt`.
 - ⚠ An org arriving by a move resets the mark (`activate`): an org that left and came back starts a
   new journal, which its old mark would read as a rewind.
-- Not yet: the fiscal device as a witness (its last receipt ahead of the database: what the
-  device's counter counts, and whether it moves when the device sells on its own, wants the device).
-  Bringing a re-seed's kept sales into the books is P3-7g (below).
+- **The fiscal device as a witness** (AC 49; `home/device-witness.service.ts`). While numbering
+  waits, `GET /numbering/last-numbers` asks each active device of the org for its last document
+  (`getLastReceiptNumber`, 5 s). Beside it is the last fiscal receipt this database recorded on the
+  device (`register.fiscalReceiptNumber` by `register.fiscalDeviceNumber`), and how many documents
+  the device printed since. The `POST` reads them again and keeps them in its audit entry
+  (`fiscal device <number>: last document`, the database's receipt → the device's word).
+  - ⚠ **Evidence, never a lock or a floor.** An Eltrade's 71h counts every document: receipts,
+    stornos, text receipts, X and Z reports, and the keyboard's. So a device ahead is normal after a
+    Z-report, and no LGR series steps with it. Locking on it wants the device: what its counter
+    counts, and whether it moves when the device sells on its own.
+  - States: `read`; `unsupported` (Tremol); `not_connected` (no bridge here: another pod or
+    process); `error` (including no answer in 5 s). Nothing asks a device while numbering is open.
+  - Tests: `device-witness.flow` (3).
+- Bringing a re-seed's kept sales into the books is P3-7g (below).
 - Tests: `series-lock.flow` (7: the mark and the unlock; global's alarms, the mirror's floor, no
   re-lock, a refusal dated anew after the unlock locking nothing; the journal below global's
   watermark, no re-lock until the record is cleared; `nodeSelf`; a Replace locking before its first
