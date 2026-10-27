@@ -2688,16 +2688,30 @@ gave a customer. So, on a master, for an org written there, the legal series LOC
 `services/biz/home/series-lock.service.ts`; `assertSeriesOpen` and the issuing paths' early refusals
 (P3-6d) enforce it.
 - **What locks them** (reason `restored` | `went_back` | `clone`, with a detail):
-  - an in-app restore (`applyRestore`), right before its first write: a restore refused by a check
-    locks nothing, one that fails mid-way stays locked;
+  - an in-app **Replace** restore (`applyRestore`), right before its first write, and only on a
+    server lgrai.app never knew (below): a restore refused by a check locks nothing, one that fails
+    mid-way stays locked. A **Merge** locks nothing: it only inserts what is missing and clamps every
+    counter upwards;
   - the journal below its own high-water mark (`journalHwmTick`): the per-org `repl_orgs.seq` only
     grows in a database never rewound, and the mark lives OUTSIDE it, in `journal-hwm.json` beside
     the node token. Checked at the API's start, BEFORE it serves, and every minute
-    (`series-lock-tick`, masters);
+    (`series-lock-tick`, masters, its first run at start);
+  - the journal below **lgrai.app's watermark** (`linkAlarmsTick`; `/self`'s `mirrors`): the other
+    mark kept outside, by global. A healthy master is never behind the pages it sent. ⚠ This is the
+    one that catches a reverted VM snapshot (its own mark went back with the disk) and a restored
+    database whose chain the master can no longer continue: its pump stops that org on
+    `chain_unknown` WITHOUT telling global, so no refusal is ever recorded there. Dated by the
+    mirror's `lastPageAt`, so a database still behind after the unlock does not lock again;
   - what lgrai.app says of the master (`linkAlarmsTick`, every minute): a clone alarm, or its pages
     refused as a history that went back (`instance_changed`, `stale_journal`, `diverged`) more
-    recently than its last applied page. `GET /api/node/v1/self` now carries `cloneAlarm` and
-    `wentBack`.
+    recently than its last applied page. `GET /api/node/v1/self` carries `cloneAlarm`, `wentBack`
+    and `mirrors` (per org with a chain: `watermark`, `lastPageAt`).
+- ⚠ **A Replace restore is REFUSED on a master lgrai.app knows** (`replaceRefusedHere`, before
+  anything is read or written, no `RestoreRun` row): registered at any link level, capturing, or with
+  pages of the org built. Its deletes and rewrites are journaled like any other write, so its pages
+  would carry the backup's state to the mirror and delete there what the backup lacks (AC 36's "cannot
+  overwrite the mirror"). The way back to a backup is a move to lgrai.app and a restore there; Merge
+  stays available.
 - **The unlock** (`numbering.controller.ts`, `GET`/`POST /api/org/:orgId/numbering/last-numbers`,
   admin, every node; the card on the Servers page, with the reason):
   - each series resumes above the person's reading and, on a master that can ask, the mirror's
@@ -2712,8 +2726,10 @@ gave a customer. So, on a master, for an org written there, the legal series LOC
 - Not yet: the fiscal device as a witness (its last receipt ahead of the database), a clone seen on
   the LAN (DNS-SD `bootNonce`), and the re-seed from the mirror (FR-20.71, AC 36), which needs the
   mirror's reconcile (FR-20.70).
-- Tests: `series-lock.flow` (4: the mark and the unlock; global's alarms, the mirror's floor, no
-  re-lock; `nodeSelf`; a restore locking before its first write, a refused one locking nothing).
+- Tests: `series-lock.flow` (6: the mark and the unlock; global's alarms, the mirror's floor, no
+  re-lock; the journal below global's watermark, no re-lock after the unlock; `nodeSelf`; a Replace
+  locking before its first write where lgrai.app never knew the server, a refused one or a Merge
+  locking nothing; a Replace refused where it knows the server).
 
 ## What a fenced server did after the cutoff (2026-10-27, FR-20.84, plan step P3-6e)
 

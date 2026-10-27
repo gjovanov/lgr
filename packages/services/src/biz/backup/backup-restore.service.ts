@@ -39,7 +39,7 @@ import { stat } from 'node:fs/promises'
 import { config, nodeRole } from 'config'
 import { mongoose } from 'db/connection'
 import { assertHomeIsHere } from 'db/home/home'
-import { lockLegalSeries } from '../home/series-lock.service.js'
+import { lockLegalSeries, replaceRefusedHere } from '../home/series-lock.service.js'
 import { BackupRun, FiscalDevice, FiscalYear, Identity, Org, RestoreRun } from 'db/models'
 import { logger } from '../../logger/logger.js'
 import { createAuditEntry } from '../audit-log.service.js'
@@ -803,6 +803,10 @@ export async function applyRestore(
   // FR-20.4: a restore rewrites the org's collections with raw driver writes, which the Mongoose
   // write guard cannot see — so it asks first. Restoring an org happens at its home, or nowhere.
   await assertHomeIsHere(orgId)
+  // FR-20.51, FR-20.71 (P3-7): on a master that lgrai.app knows, a Replace would be journaled and sent
+  // to the mirror, deleting there what the backup lacks. Refused before anything is read or written.
+  const refusedHere = await replaceRefusedHere(orgId, opts.mode)
+  if (refusedHere) throw new Error(refusedHere)
   const started = Date.now()
   const resolved = await resolveSource(orgId, src)
 
@@ -892,10 +896,11 @@ export async function applyRestore(
       },
     }).exec()
 
-    // FR-20.51 (P3-7): on a master, a restore takes the database back in time. Its legal series lock
+    // FR-20.51 (P3-7): on a master, a Replace takes the database back in time. Its legal series lock
     // before the first write (a restore refused by a check above locks nothing), and stay locked until
-    // a person records the site's last numbers, even if the restore then fails and rolls back.
-    if (nodeRole() === 'master') await lockLegalSeries(orgId, 'restored', 'restored from a backup')
+    // a person records the site's last numbers, even if the restore then fails and rolls back. A Merge
+    // only inserts what is missing and clamps every counter upwards: it never goes back.
+    if (nodeRole() === 'master' && opts.mode === 'replace') await lockLegalSeries(orgId, 'restored', 'restored from a backup')
 
     // ── Write ──────────────────────────────────────────────────────────────────
     // FR-13.32 — built once, across every collection, before a single document is rewritten.
