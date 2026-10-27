@@ -177,6 +177,7 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
 
   ['apps', { member: 'the app hub, filtered by what the caller may open' }],
   ['licence', { member: "this server's licence for the org, for the banner and the till (FR-20.55); nothing in it is secret" }],
+  ['home', { member: 'where the org lives and whether it is written here, for the read-only banner (FR-20.75); nothing in it is secret' }],
   ['notification', { member: "the caller's own notifications only (filtered on userId)" }],
   ['tags', { member: 'the tag vocabulary products and contacts share' }],
   ['logo', { member: "the org's logo in the app shell" }],
@@ -285,7 +286,7 @@ export function readRefusal(
  * another org from a PIN session.
  */
 export const PIN_SCOPE_ORG: readonly string[] = [
-  '', 'apps', 'notification', 'logo', 'licence', 'trade/pos', 'pos', 'fiscal', 'pricing', 'tags',
+  '', 'apps', 'notification', 'logo', 'licence', 'home', 'trade/pos', 'pos', 'fiscal', 'pricing', 'tags',
   'warehouse/product-category', 'warehouse/warehouse',
   // FR-21.12: the till's own journal (/pos/orders), and its storno (FR-21.18): a manager's PIN
   // reverses a sale there as it does at the till, the role still checked by the route.

@@ -5,6 +5,16 @@ import { portalHref } from '../nav/navigate'
 import { currentReturnPath, signInPath } from '../nav/return-path'
 
 /**
+ * FR-20.75 (P3-5): the app shell's words for a refusal the server names by code. The client has no
+ * i18n of its own, and every view shows `data.message`: the shell registers this once, and a
+ * refusal it knows reaches every view in the reader's language.
+ */
+let translateRefusal: ((code: string) => string | null) | null = null
+export function setRefusalTranslator(fn: ((code: string) => string | null) | null): void {
+  translateRefusal = fn
+}
+
+/**
  * Factory function to create a configured HTTP client with auth interceptors.
  * Each app can call this with its own baseURL (e.g., 'http://localhost:4010/api').
  * The default baseURL is '/api' for backward compatibility.
@@ -33,6 +43,11 @@ export function createHttpClient(baseURL = '/api'): AxiosInstance {
   client.interceptors.response.use(
     (response) => response,
     (error) => {
+      const data = error.response?.data
+      if (error.response?.status === 409 && translateRefusal && typeof data?.code === 'string') {
+        const said = translateRefusal(data.code)
+        if (said) error.response.data = { ...data, message: said }
+      }
       if (error.response?.status === 401) {
         const sent = String(error.config?.headers?.Authorization ?? '').replace(/^Bearer\s+/i, '')
         if (recoverFrom401(sent)) {

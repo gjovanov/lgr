@@ -68,6 +68,8 @@
       <slot v-if="layout === 'topmenu' && mobile" name="menu-bar" />
       <!-- FR-20.55: an on-prem server's licence, when it needs saying. Nothing on lgrai.app. -->
       <LicenceBanner :org-id="org?.id" />
+      <!-- FR-20.75: an org not written here (a mirror, a read-only copy, a move under way). -->
+      <HomeBanner :org-id="org?.id" />
       <slot />
     </v-main>
 
@@ -93,6 +95,7 @@ import ThemeToggle from './ThemeToggle.vue'
 import LocaleSwitcher from './LocaleSwitcher.vue'
 import PendingChangesLeaveDialog from './PendingChangesLeaveDialog.vue'
 import LicenceBanner from './LicenceBanner.vue'
+import HomeBanner from './HomeBanner.vue'
 
 withDefaults(defineProps<{
   org: ShellOrg | null
