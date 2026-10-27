@@ -5,6 +5,7 @@ import { createTestFiscalDevice, createTestOrg } from '../helpers/factories'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
 import { numberingController } from '../../../portal-api/src/controllers/numbering.controller'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
+import { fiscalInFlight } from 'fiscal/in-flight'
 import { AuditLog, Invoice, OrgHome } from 'db/models'
 
 /**
@@ -89,7 +90,11 @@ describe('the fiscal device as a witness (FR-20.51, AC 49)', () => {
     await device(w, 'TR000001', { getStatus: async () => ({ connected: true }) })
     await device(w, 'DT000002')
     await device(w, 'ED000003', { getLastReceiptNumber: async () => { throw new Error('paper out') } })
-    await device(w, 'ED000004', { getLastReceiptNumber: () => new Promise(() => {}) })
+    // One that does not answer, until the test lets it: a read counts as in flight while it runs
+    // (FR-20.23), so a device left hanging would hold the process's count up for every later test.
+    let answer!: (n: number | undefined) => void
+    const hanging = new Promise<number | undefined>(r => { answer = r })
+    await device(w, 'ED000004', { getLastReceiptNumber: () => hanging })
     await device(w, 'ED000005', { getLastReceiptNumber: async () => 7 }, { isActive: false, deactivatedAt: new Date() })
     await freeze(w)
 
@@ -104,6 +109,12 @@ describe('the fiscal device as a witness (FR-20.51, AC 49)', () => {
     expect(byNumber.ED000004.reading.error).toContain('no answer')
     // Nothing printed on the till's own device yet: what it says stands alone.
     expect(byNumber.ED123456).toMatchObject({ reading: { state: 'read', lastDocument: 100 }, recorded: null, since: null })
+
+    // The timed-out read is still in flight until the device answers, and then it is not.
+    expect(fiscalInFlight()).toBeGreaterThan(0)
+    answer(undefined)
+    for (let i = 0; i < 50 && fiscalInFlight() > 0; i++) await new Promise(r => setTimeout(r, 20))
+    expect(fiscalInFlight()).toBe(0)
   }, 20_000)
 
   it('recording the last numbers keeps what the devices said in its audit entry, and opens numbering', async () => {
