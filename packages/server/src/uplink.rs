@@ -7,6 +7,9 @@
 //!   machine's proxy rules and the OS trust store (`Https::connect`), then `hello`, with this boot's
 //!   nonce. The URL carries no credential.
 //! - **Connected:** a ping every 30 s; a socket that hears nothing for 75 s is dead, and is replaced.
+//!   While the bulk socket has work, the interactive one pings every 2 s, one at a time, and each
+//!   round trip goes to the bulk socket's pacer (FR-20.52, `pacing.rs`): what queues in front of a
+//!   click on the shop's line is what the mirror holds back for.
 //! - **Refused:** 4403 (revoked) stops the uplink until the master is registered again: it never
 //!   stops the shop. 4401 makes it authenticate again. Anything else is retried with full jitter,
 //!   1 s to 5 minutes.
@@ -52,6 +55,8 @@ pub struct Hooks {
     pub licence: Option<LicenceFn>,
     /// Only on the bulk channel: where the mirror's pages come from, and this master's node id.
     pub pages: Option<PagesHook>,
+    /// FR-20.52: the bulk socket's pacer, fed by the interactive socket's round trips.
+    pub pacer: Option<Arc<crate::pacing::Pacer>>,
 }
 
 #[derive(Clone)]
@@ -65,6 +70,7 @@ pub struct PagesHook {
 struct Wants {
     health: Option<HealthFn>,
     pages: Option<Arc<dyn crate::replication::PageSource>>,
+    pacer: Option<Arc<crate::pacing::Pacer>>,
 }
 
 /// The pump of one session: it ends with the session, at whichever of its returns.
@@ -183,6 +189,9 @@ pub fn read_lan(file: Option<&std::path::Path>) -> Option<serde_json::Value> {
     serde_json::from_str(&std::fs::read_to_string(file?).ok()?).ok()
 }
 
+/// An interactive ping unanswered this long while measuring: a sample of at least that, and the next goes out.
+const PING_GIVE_UP: Duration = Duration::from_secs(10);
+
 /// One connection on an open stream: `hello`, `welcome`, then pings and frames until it ends.
 pub async fn session<S>(url: &str, stream: S, hello: serde_json::Value, ch: &str, timing: Timing, status: &Status, hooks: Hooks) -> Ended
 where
@@ -261,22 +270,53 @@ where
                 None
             } else {
                 pumping = true;
-                Some(AbortOnDrop(tokio::spawn(crate::replication::pump(starts, p.source.clone(), page_tx, answer_rx, status.clone(), crate::replication::PumpTiming::default()))))
+                Some(AbortOnDrop(tokio::spawn(crate::replication::pump(starts, p.source.clone(), page_tx, answer_rx, status.clone(), crate::replication::PumpTiming::default(), hooks.pacer.clone()))))
             }
         }
         _ => None,
     };
 
-    let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + timing.ping, timing.ping);
+    // FR-20.52: the interactive socket times its pings for the bulk socket's pacer. Numbered, so a
+    // late pong is still timed for its own ping (a global that does not echo the number: only a
+    // ping alone in flight is timed).
+    let pacer = if ch == "interactive" { hooks.pacer.clone() } else { None };
+    let mut ping_n: u64 = 0;
+    let mut in_flight: std::collections::VecDeque<(u64, Instant)> = std::collections::VecDeque::new();
+    let mut last_ping = Instant::now();
     // The first health soon after welcome, then once a minute.
     let mut health_tick = tokio::time::interval_at(tokio::time::Instant::now() + Duration::from_secs(2).min(timing.health), timing.health);
     let mut last = Instant::now();
     loop {
+        let now = Instant::now();
+        let measuring = pacer.as_ref().is_some_and(|p| p.wants_samples(now));
+        let every = if measuring { crate::pacing::SAMPLE_EVERY.min(timing.ping) } else { timing.ping };
+        // While measuring, one ping at a time: a second behind the first would time the queue twice.
+        // One unanswered for ten seconds is a ten-second sample already, and the next goes out.
+        let oldest = in_flight.front().map(|(_, at)| *at);
+        let waiting = measuring && oldest.is_some_and(|at| now.duration_since(at) < PING_GIVE_UP);
+        let due = if waiting { oldest.expect("waiting") + PING_GIVE_UP } else { last_ping + every };
+        // Woken at least every second: bulk may start while a slow ping is due.
+        let wake = due.min(now + Duration::from_secs(1));
         tokio::select! {
-            _ = ping.tick() => {
-                if let Err(e) = ws.send(Message::text(r#"{"t":"ping"}"#)).await {
+            _ = tokio::time::sleep_until(wake.into()) => {
+                let now = Instant::now();
+                if now < due {
+                    continue;
+                }
+                if let (Some(p), Some(at)) = (&pacer, oldest) {
+                    if measuring && now.duration_since(at) >= PING_GIVE_UP {
+                        p.sample(now.duration_since(at), now);
+                    }
+                }
+                ping_n += 1;
+                if let Err(e) = ws.send(Message::text(format!(r#"{{"t":"ping","n":{ping_n}}}"#))).await {
                     return Ended::Closed(format!("a ping was not sent: {e}"));
                 }
+                in_flight.push_back((ping_n, Instant::now()));
+                while in_flight.len() > 8 {
+                    in_flight.pop_front();
+                }
+                last_ping = Instant::now();
             }
             _ = health_tick.tick(), if hooks.health.is_some() => {
                 let frame = (hooks.health.as_ref().expect("guarded"))().await;
@@ -306,7 +346,23 @@ where
                     Some(Ok(Message::Text(t))) => {
                         let v: serde_json::Value = serde_json::from_str(t.as_str()).unwrap_or_default();
                         match v["t"].as_str() {
-                            Some("pong") => patch(status, ch, "lastPongAt", now_iso().into()),
+                            Some("pong") => {
+                                patch(status, ch, "lastPongAt", now_iso().into());
+                                let sent = match v["n"].as_u64() {
+                                    Some(n) => in_flight.iter().position(|(k, _)| *k == n).and_then(|i| in_flight.remove(i)).map(|(_, at)| at),
+                                    // A global that echoes no number: only a ping alone in flight is timed.
+                                    None if in_flight.len() == 1 => in_flight.pop_front().map(|(_, at)| at),
+                                    None => {
+                                        in_flight.clear();
+                                        None
+                                    }
+                                };
+                                if let (Some(p), Some(at)) = (&pacer, sent) {
+                                    let now = Instant::now();
+                                    p.sample(now.duration_since(at), now);
+                                    patch(status, "bulk", "pacing", p.snapshot());
+                                }
+                            }
                             Some("clone-alarm") => {
                                 patch(status, ch, "suspended", true.into());
                                 tracing::error!(ch, "CLONE ALARM: another machine is connected as this server; global trusts neither until an administrator registers the real one again");
@@ -359,6 +415,7 @@ async fn once(registrar: &Registrar, reg: &register::Registration, ch: &str, boo
         health: wants.health,
         licence: Some(licence_hook(registrar.data.clone(), reg.node_id.clone())),
         pages: wants.pages.map(|source| PagesHook { source, node_id: reg.node_id.clone() }),
+        pacer: wants.pacer,
     };
     Ok(session(&url, stream, hello, ch, timing, status, hooks).await)
 }
@@ -374,9 +431,10 @@ fn licence_hook(data: std::path::PathBuf, node: String) -> LicenceFn {
 }
 
 /// One channel, for as long as the supervisor runs. `health` only on the interactive channel, `pages`
-/// only on the bulk one.
-pub async fn run(registrar: Arc<Registrar>, ch: &'static str, boot_nonce: String, status: Status, timing: Timing, health: Option<HealthFn>, pages: Option<Arc<dyn crate::replication::PageSource>>) {
-    let wants = Wants { health, pages };
+/// only on the bulk one; `pacer` on both (the interactive one feeds it, the bulk one is paced by it).
+#[allow(clippy::too_many_arguments)]
+pub async fn run(registrar: Arc<Registrar>, ch: &'static str, boot_nonce: String, status: Status, timing: Timing, health: Option<HealthFn>, pages: Option<Arc<dyn crate::replication::PageSource>>, pacer: Option<Arc<crate::pacing::Pacer>>) {
+    let wants = Wants { health, pages, pacer };
     let mut attempt: u32 = 0;
     // The registration a 4403 ended: the uplink waits for a newer one.
     let mut revoked: Option<i64> = None;
@@ -562,7 +620,7 @@ mod tests {
         });
         let mut t = quick();
         t.health = Duration::from_millis(50);
-        let ended = session(&url, tcp, hello(), "interactive", t, &status, Hooks { health: Some(health), licence: None, pages: None }).await;
+        let ended = session(&url, tcp, hello(), "interactive", t, &status, Hooks { health: Some(health), licence: None, pages: None, pacer: None }).await;
         assert!(matches!(ended, Ended::Closed(_)));
         let s = status.lock().unwrap()["interactive"].clone();
         assert_eq!((s["outdated"].as_bool(), s["minMasterVersion"].as_str()), (Some(true), Some("9.0.0")));
@@ -599,7 +657,7 @@ mod tests {
         let status: Status = Arc::new(Mutex::new(serde_json::json!({})));
         let got: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
         let sink = got.clone();
-        let hooks = Hooks { health: None, licence: Some(Arc::new(move |j: &str| sink.lock().unwrap().push(j.to_string()))), pages: None };
+        let hooks = Hooks { health: None, licence: Some(Arc::new(move |j: &str| sink.lock().unwrap().push(j.to_string()))), pages: None, pacer: None };
         let addr = url.trim_start_matches("ws://").split('/').next().unwrap().to_string();
         let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
         let _ = session(&url, tcp, hello(), "interactive", quick(), &status, hooks).await;
@@ -676,6 +734,82 @@ mod tests {
         assert_eq!(source.0.lock().unwrap()[..2], [(0, String::new()), (4, "h4".to_string())]);
         let s = status.lock().unwrap()["bulk"]["replication"].clone();
         assert!(s["o1"].is_object() && s["o2"].is_null(), "{s}");
+    }
+
+    /// A fake global for the pacer: welcomes, then answers each ping with its number, `delay` later
+    /// (the queue on the line). Returns the pings it heard.
+    async fn echoing_global(delay: Duration) -> (String, Arc<Mutex<Vec<serde_json::Value>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let pings = Arc::new(Mutex::new(vec![]));
+        let heard = pings.clone();
+        tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+            let (mut tx, mut rx) = ws.split();
+            let _hello = rx.next().await;
+            let (pong_tx, mut pong_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+            let _ = pong_tx.send(serde_json::json!({ "t": "welcome", "suspended": false, "orgs": [] }).to_string());
+            tokio::spawn(async move {
+                while let Some(m) = pong_rx.recv().await {
+                    if tx.send(Message::text(m)).await.is_err() {
+                        break;
+                    }
+                }
+            });
+            while let Some(Ok(Message::Text(t))) = rx.next().await {
+                let v: serde_json::Value = serde_json::from_str(t.as_str()).unwrap_or_default();
+                if v["t"] == "ping" {
+                    heard.lock().unwrap().push(v.clone());
+                    let tx = pong_tx.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(delay).await;
+                        let _ = tx.send(serde_json::json!({ "t": "pong", "n": v["n"] }).to_string());
+                    });
+                }
+            }
+        });
+        (format!("ws://{addr}/api/node/v1/uplink?ch=interactive"), pings)
+    }
+
+    /// An interactive session that pings every 3 s unless the pacer wants samples, for `for_`.
+    async fn measured_session(url: &str, pacer: Arc<crate::pacing::Pacer>, for_: Duration) -> Status {
+        let addr = url.trim_start_matches("ws://").split('/').next().unwrap().to_string();
+        let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+        // The bulk channel's own session made its status object; the pacing goes into it.
+        let status: Status = Arc::new(Mutex::new(serde_json::json!({ "bulk": {} })));
+        let t = Timing { ping: Duration::from_secs(3), silent: Duration::from_secs(60), welcome: Duration::from_secs(2), max_backoff: Duration::from_secs(1), idle_check: Duration::from_millis(100), health: Duration::from_secs(60) };
+        let hooks = Hooks { pacer: Some(pacer), ..Default::default() };
+        let _ = tokio::time::timeout(for_, session(url, tcp, hello(), "interactive", t, &status, hooks)).await;
+        status
+    }
+
+    #[tokio::test]
+    async fn while_bulk_has_work_the_interactive_socket_times_its_pings_for_the_pacer() {
+        let (url, pings) = echoing_global(Duration::from_millis(300)).await;
+        let pacer = Arc::new(crate::pacing::Pacer::new(Instant::now()));
+        // Bulk sends: the pacer wants the line measured.
+        let _ = pacer.reserve(crate::pacing::PIECE_MIN, Instant::now());
+        let status = measured_session(&url, pacer.clone(), Duration::from_millis(4_700)).await;
+        let heard = pings.lock().unwrap().clone();
+        // Every two seconds, not the session's three, each with its number.
+        assert_eq!(heard.iter().map(|p| p["n"].as_u64()).collect::<Vec<_>>(), vec![Some(1), Some(2)], "{heard:?}");
+        let rtt = pacer.snapshot()["lastRttMs"].as_u64().unwrap();
+        assert!((250..1_500).contains(&rtt), "{rtt}");
+        // And `lgr-server status` says it.
+        assert_eq!(status.lock().unwrap()["bulk"]["pacing"]["lastRttMs"].as_u64(), Some(rtt));
+    }
+
+    #[tokio::test]
+    async fn while_measuring_one_ping_at_a_time_a_queued_one_is_not_timed_twice() {
+        // The line's queue holds each pong three seconds: the second ping waits for the first's.
+        let (url, pings) = echoing_global(Duration::from_secs(3)).await;
+        let pacer = Arc::new(crate::pacing::Pacer::new(Instant::now()));
+        let _ = pacer.reserve(crate::pacing::PIECE_MIN, Instant::now());
+        measured_session(&url, pacer.clone(), Duration::from_millis(4_700)).await;
+        // The first went at two seconds; the second was due at four, and waits for the first's pong.
+        assert_eq!(pings.lock().unwrap().len(), 1);
+        assert!(pacer.snapshot()["lastRttMs"].is_null());
     }
 
     #[test]

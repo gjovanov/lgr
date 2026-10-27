@@ -58,6 +58,36 @@ describe('the chaos proxy', () => {
     expect(performance.now() - t1).toBeLessThan(400)
   })
 
+  it('uplink(Bps) is ONE line toward the server: a small request waits behind another connection\'s upload', async () => {
+    const sink = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: async req => new Response(String((await req.arrayBuffer()).byteLength)) })
+    const p = await chaosProxy({ hostname: '127.0.0.1', port: sink.port })
+    const at = `http://127.0.0.1:${p.port}/`
+    // Unshared, per connection: the small request does not wait for the big one.
+    p.throttle(40_000)
+    const big0 = fetch(at, { method: 'POST', body: new Uint8Array(80_000), keepalive: false })
+    await Bun.sleep(50)
+    const t0 = performance.now()
+    expect(await (await fetch(at, { method: 'POST', body: 'tiny', keepalive: false })).text()).toBe('4')
+    const alone = performance.now() - t0
+    await big0
+    p.throttle(null)
+    // Shared: 80 KB at 40 KB/s is two seconds of queue in front of it.
+    p.uplink(40_000)
+    const big = fetch(at, { method: 'POST', body: new Uint8Array(80_000), keepalive: false })
+    await Bun.sleep(50)
+    expect(p.queuedMs()).toBeGreaterThan(1_500)
+    const t1 = performance.now()
+    expect(await (await fetch(at, { method: 'POST', body: 'tiny', keepalive: false })).text()).toBe('4')
+    const behind = performance.now() - t1
+    expect(await (await big).text()).toBe('80000')
+    expect(alone).toBeLessThan(1_000)
+    expect(behind).toBeGreaterThan(1_500)
+    p.uplink(null)
+    expect(p.queuedMs()).toBe(0)
+    await p.close()
+    sink.stop(true)
+  }, 15_000)
+
   it('blackhole() accepts and never answers; lifting it brings the link back', async () => {
     proxy.blackhole()
     expect(await get(500)).toBe('TimeoutError')

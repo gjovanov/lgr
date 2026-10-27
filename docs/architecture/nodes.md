@@ -562,7 +562,13 @@ offline (Q2). Only the master writes the org, and the copy follows it one way:
   of the page applies. lgrai.app asks the server for it again, less often each time, and the page
   that finally writes it clears it. The Servers page lists what is set aside, and a move back waits
   for it.
-- **Not yet:** pacing the bulk socket against the shop's upstream (FR-20.52).
+- **Paced on the shop's line** (FR-20.52, P3-2c): a shop's upstream sits behind a router with a deep
+  buffer, where a click waits behind every byte the mirror sent before it. While the mirror has work,
+  the server measures that queue every two seconds on its interactive socket and holds the mirror
+  back so it stays short, sending in pieces a quarter of a second long; it lets the mirror go faster
+  again as soon as the line shows room. On a 512 kbit/s line with a catch-up under way, a click went
+  from seconds (often timing out) to about a quarter of a second, and the catch-up took a fifth
+  longer. `LGR_BULK_PACING=off` turns it off, for a line nothing else uses.
 
 ## Read-only where the org is not written (FR-20.75)
 
@@ -764,7 +770,7 @@ FR-20's P1 to P3:
   invitations to an on-prem org (plan A.6.8, with the move), off-site backups, reference data;
 - reading documents without the internet on Windows: the package carrying poppler and tesseract
   (P2-6c did Linux, where the .deb depends on the distribution's);
-- the tunnel, and pacing the mirror on the shop's upstream (P3-2c); its transport, files, dead letters, re-seed and reconcile are above;
+- the tunnel; the mirror's transport, pacing, files, dead letters, re-seed and reconcile are above;
 - the rest of the moves: a legal number a fenced server and lgrai.app both issued, resolved by a
   credit note and a re-issue (FR-20.51; everything else of the moves is above);
 - setting a local credential on the master itself, right after a Sign in with LGR, and sending it up

@@ -23,6 +23,7 @@ mod licence;
 mod mongod;
 mod node_key;
 mod node_token;
+mod pacing;
 mod pgp;
 mod pointer;
 mod preflight;
@@ -340,11 +341,17 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                                 Box::pin(async move { uplink::health_frame(&sup.status_with_api().await, preflight::free_disk(&data), uplink::read_lan(lan.as_deref()).as_ref()) })
                             })
                         };
+                        // FR-20.52: the bulk socket paced on the shop's upstream, by what the interactive
+                        // socket's round trips say is queued in front of a click.
+                        let pacer = pacing::Pacer::from_env();
+                        if pacer.is_none() {
+                            tracing::warn!("LGR_BULK_PACING=off: the mirror sends as fast as the line takes it, in front of every click");
+                        }
                         for ch in uplink::CHANNELS {
                             let h = (ch == "interactive").then(|| health.clone());
                             // FR-20.64: the bulk socket carries the mirror's pages, which the API builds.
-                            let p = (ch == "bulk").then(|| std::sync::Arc::new(replication::ApiPages::new(front.socket.clone(), front.secret.clone())) as std::sync::Arc<dyn replication::PageSource>);
-                            sup.add_service(tokio::spawn(uplink::run(r.clone(), ch, nonce.clone(), sup.uplink_status(), uplink::Timing::default(), h, p)));
+                            let p = (ch == "bulk").then(|| std::sync::Arc::new(replication::ApiPages::new(front.socket.clone(), front.secret.clone(), pacer.clone())) as std::sync::Arc<dyn replication::PageSource>);
+                            sup.add_service(tokio::spawn(uplink::run(r.clone(), ch, nonce.clone(), sup.uplink_status(), uplink::Timing::default(), h, p, pacer.clone())));
                         }
                         // FR-20.56: the tills' desktop release, kept here so they update offline.
                         sup.add_service(tokio::spawn(desktop_releases::run(r.clone(), sup.releases_status(), desktop_releases::EVERY)));

@@ -2466,6 +2466,24 @@ A master journals its own writes and sends them to lgrai.app's mirror of the org
   - ⚠ A page is read at the snapshot (majority-committed) point, which can trail a `local` read by
     the batch that just committed: "nothing to send" then is not "caught up". The pump looks again
     after 2 s; a test waits for the journal's head (`replication-pages.flow`'s end-to-end case).
+  - **Paced on the shop's upstream** (FR-20.52, FR-20.68, P3-2c; `packages/server/src/pacing.rs`). Two
+    sockets keep a catch-up from queueing in front of a click inside the supervisor, not on the LINE:
+    behind a router with a deep buffer every bulk byte waits in front of the interactive socket's. So:
+    while bulk has work the interactive socket pings every 2 s, one at a time, NUMBERED (global echoes
+    `n` in its pong; an older global's unnumbered pong times only a ping alone in flight; one
+    unanswered for 10 s is a 10 s sample already); its round trip less the least of ten minutes is the
+    line's queue. Over 150 ms the bulk rate falls by a fifth (by half past 600 ms), at most once a
+    round trip or two; under it, it grows by a quarter only if bulk used two fifths of what the rate
+    allowed (an idle line is no evidence); floor 8 KB/s (the mirror never stops). At the floor two
+    minutes with the delay unmoved, the queue is a slower route, not ours: the base starts again from
+    the last minute. Pages (`maxBytes`) and chunks (`length`) are asked for in a quarter of a second
+    of the rate (16 KB to 1 MB; an older API ignores both), spaced by a token bucket in the pump's own
+    task (the socket loop never waits on it). `lgr-server status` shows `bulk.pacing`;
+    `LGR_BULK_PACING=off` turns it off. ⚠ The real-process proof is `mirror-e2e`'s shared-uplink
+    section, the chaos proxy's `uplink(Bps)` (ONE unbounded FIFO for every connection, a bloated
+    router): a click through the same 64 KB/s line during a 3,000-document + 2 MB catch-up went from
+    p50 4.7 s / p95 over 60 s (timeouts) unpaced to p50 223 ms / p95 559 ms, the catch-up 50 → 59 s.
+    A per-connection `throttle` cannot show it: nothing queues behind anything there.
 - `mirror_state` (global) and `node_instance` (master) are node state, never in a bundle.
 - Tests: `replication-capture.flow`, `replication-pages.flow` (two databases on one replica set: the
   master's and the mirror), `replication-transport.flow` (the control socket, the bulk socket),

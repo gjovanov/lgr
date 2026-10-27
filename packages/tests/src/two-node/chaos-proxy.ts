@@ -10,6 +10,10 @@ import type { Socket, TCPSocketListener } from 'bun'
  *   down()/up()    new connections refused; open ones closed (the uplink unplugged, and back)
  *   delay(ms)      every chunk held `ms` before it goes on, each way
  *   throttle(Bps)  each way a link of that many bytes per second (`null` lifts it)
+ *   uplink(Bps)    ONE upstream for every connection, a FIFO of that many bytes per second with no
+ *                  limit to what it queues (`null` lifts it): a shop's ADSL or 4G line behind a router
+ *                  with a deep buffer, where a click waits behind every byte queued before it
+ *                  (bufferbloat, FR-20.52). `queuedMs()` says how long a byte sent now would wait.
  *   flapAt([...])  down and up again at those offsets in ms, from now
  *
  * In-process and dependency-free: it runs anywhere the tests do, with no `tc` or root.
@@ -22,6 +26,8 @@ export interface ChaosProxy {
   up(): void
   delay(ms: number): void
   throttle(bytesPerSecond: number | null): void
+  uplink(bytesPerSecond: number | null): void
+  queuedMs(): number
   flapAt(points: number[]): void
   stats(): { open: number; accepted: number; refused: number; bytesUp: number; bytesDown: number }
   close(): Promise<void>
@@ -53,6 +59,9 @@ export async function chaosProxy(target: { hostname: string; port: number }): Pr
   let mode: 'up' | 'down' | 'blackhole' = 'up'
   let delayMs = 0
   let bytesPerSecond: number | null = null
+  /** The shared upstream: its rate, and when it is next free (ms since the epoch). */
+  let uplinkRate: number | null = null
+  let uplinkFree = 0
   const pairs = new Set<Pair>()
   const flaps = new Set<ReturnType<typeof setTimeout>>()
   const counters = { accepted: 0, refused: 0, bytesUp: 0, bytesDown: 0 }
@@ -95,6 +104,12 @@ export async function chaosProxy(target: { hostname: string; port: number }): Pr
       const start = Math.max(at, to.nextFree)
       to.nextFree = start + (copy.length / bytesPerSecond) * 1000
       at = to.nextFree
+    }
+    // Toward global, every connection shares the one line, in the order the bytes reached it.
+    if (uplinkRate && to === pair.upstream) {
+      const start = Math.max(at, uplinkFree)
+      uplinkFree = start + (copy.length / uplinkRate) * 1000
+      at = uplinkFree
     }
     if (at <= now) return write(to, copy)
     const t = setTimeout(() => {
@@ -172,6 +187,11 @@ export async function chaosProxy(target: { hostname: string; port: number }): Pr
     up() { mode = 'up' },
     delay(ms) { delayMs = Math.max(0, ms) },
     throttle(bps) { bytesPerSecond = bps && bps > 0 ? bps : null },
+    uplink(bps) {
+      uplinkRate = bps && bps > 0 ? bps : null
+      uplinkFree = 0
+    },
+    queuedMs: () => Math.max(0, uplinkFree - Date.now()),
     flapAt(points) {
       points.forEach((offset, i) => {
         const t = setTimeout(() => {

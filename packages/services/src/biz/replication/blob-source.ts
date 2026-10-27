@@ -34,6 +34,11 @@ export interface BlobAsk {
   orgId: string
   sha256: string
   offset: number
+  /**
+   * FR-20.52 (P3-2c): at most this many of the file's bytes, `BLOB_CHUNK` when absent. A paced
+   * supervisor asks for a piece its line sends in a moment; global appends any chunk at its offset.
+   */
+  length?: number
 }
 
 export type BlobAnswer =
@@ -48,7 +53,9 @@ export function readBlobAsk(body: any): BlobAsk {
   if (!OBJECT_ID.test(orgId)) throw new ControlAskError('orgId is not an org id')
   if (!SHA256_HEX.test(sha256)) throw new ControlAskError('sha256 is not a lower-case hex SHA-256')
   if (!Number.isSafeInteger(offset) || offset < 0) throw new ControlAskError('offset is not a position in a file')
-  return { orgId, sha256, offset }
+  const length = body?.length === undefined ? undefined : Number(body.length)
+  if (length !== undefined && (!Number.isSafeInteger(length) || length < 1 || length > BLOB_CHUNK)) throw new ControlAskError(`length is 1..${BLOB_CHUNK}`)
+  return { orgId, sha256, offset, ...(length !== undefined ? { length } : {}) }
 }
 
 /** Where the bytes of `sha256` are for `orgId` on this server, if any row of the org names them. */
@@ -118,7 +125,7 @@ export async function blobFor(ask: BlobAsk): Promise<BlobAnswer> {
   if (ask.offset > hit.size || (ask.offset === hit.size && hit.size > 0)) {
     return { status: 409, refused: 'offset_beyond', detail: `global holds ${ask.offset} bytes of a file of ${hit.size}` }
   }
-  const end = Math.min(hit.size, ask.offset + BLOB_CHUNK)
+  const end = Math.min(hit.size, ask.offset + (ask.length ?? BLOB_CHUNK))
   const bytes = new Uint8Array(await Bun.file(hit.path).slice(ask.offset, end).arrayBuffer())
   if (bytes.length !== end - ask.offset) {
     // Shorter than it was a moment ago: the file changed. Global's check at the end would catch it;
