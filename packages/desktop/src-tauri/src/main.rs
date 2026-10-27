@@ -1430,8 +1430,20 @@ fn follow_repoint(app: &AppHandle, instruction: &str, name: &str) {
         // The corrected clock, as every assertion this desktop makes.
         let now = identity::ClockOffset { millis: stored.clock_offset_ms }.now_sec(chrono::Utc::now().timestamp_millis());
         let r = repoint::verify(instruction, &stored.desktop_id, &stored.org_id, cfg.home_epoch, now).map_err(|e| (None, e.to_string()))?;
-        let pin = trust::confirm(&r.server, &r.fingerprint).map_err(|e| (Some(r.server.clone()), e))?;
         let mut cfg = cfg;
+        // FR-20.80 (P3-6c): back to lgrai.app. No pin: the machine's store vouches for the cloud, and
+        // `verify` took the instruction only for the cloud built into this binary.
+        let Some(fingerprint) = r.fingerprint.clone() else {
+            let left = cfg.master.take();
+            cfg.server_url = r.server.clone();
+            cfg.home_epoch = r.epoch;
+            settings::save(app, &cfg).map_err(|e| (Some(r.server.clone()), format!("settings_not_saved: {e}")))?;
+            if let Some(old) = left {
+                trust::set_pin(&old.origin, None);
+            }
+            return Ok(r);
+        };
+        let pin = trust::confirm(&r.server, &fingerprint).map_err(|e| (Some(r.server.clone()), e))?;
         let left = cfg.master.take();
         cfg.server_url = r.server.clone();
         cfg.master = Some(settings::MasterSetting {
@@ -1452,10 +1464,16 @@ fn follow_repoint(app: &AppHandle, instruction: &str, name: &str) {
     })();
     match outcome {
         Ok(r) => {
-            st.logger.info(&format!(
-                "re-pointed: the organisation now lives on {name} at {} (its CA {} is pinned, epoch {}); restarting to follow it",
-                r.server, r.fingerprint, r.epoch
-            ));
+            match &r.fingerprint {
+                Some(fp) => st.logger.info(&format!(
+                    "re-pointed: the organisation now lives on {name} at {} (its CA {fp} is pinned, epoch {}); restarting to follow it",
+                    r.server, r.epoch
+                )),
+                None => st.logger.info(&format!(
+                    "re-pointed: the organisation lives on {} again (epoch {}); the server's pin is dropped; restarting to follow it",
+                    r.server, r.epoch
+                )),
+            }
             prepare_exit(app);
             app.restart();
         }

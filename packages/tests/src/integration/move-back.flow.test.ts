@@ -19,6 +19,7 @@ import { abortMove, movesForNode } from 'services/biz/move/move.service'
 import { DRAIN_AFTER_MS, moveWorkerTick } from 'services/biz/move/move-worker.service'
 import { blobPath, filesMirrored } from 'services/biz/replication/mirror-blobs'
 import { movedFor } from 'services/biz/desktop/repoint.service'
+import { acceptedRepointKeys, verifyRepoint } from 'services/biz/desktop/repoint-token'
 import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../portal-api/src/websocket/uplink'
 
 /**
@@ -32,7 +33,7 @@ import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../
 
 const ENROLL = 'https://lgrai.app/api/node/v1/enroll'
 const TOKEN = 'https://lgrai.app/api/node/v1/token'
-const saved = { role: config.node.role, id: (config.node as any).id, tokenFile: config.outbox.tokenFile, upload: config.upload.dir }
+const saved = { role: config.node.role, id: (config.node as any).id, tokenFile: config.outbox.tokenFile, upload: config.upload.dir, baseUrl: config.oauth.baseUrl }
 const sockets: any[] = []
 let root = ''
 let n = 0
@@ -57,6 +58,7 @@ afterEach(async () => {
   ;(config.node as any).id = saved.id
   ;(config.outbox as any).tokenFile = saved.tokenFile
   ;(config.upload as any).dir = saved.upload
+  ;(config.oauth as any).baseUrl = saved.baseUrl
   forgetAllHomes()
   rmSync(root, { recursive: true, force: true })
   await clearCollections()
@@ -209,8 +211,29 @@ describe("global's side (FR-20.80)", () => {
     const done: any = await OrgMove.findById(id).lean()
     expect(done).toMatchObject({ state: 'done', placed: { placed: 2, present: 0, missing: 0 } })
     // The master is told so, as often as it asks.
-    expect(await drained(m.nodeId, id, { head: 14 })).toEqual({ ok: true, epoch: 2, orgId: String(m.orgId) })
+    expect(await drained(m.nodeId, id, { head: 14 })).toEqual({ ok: true, epoch: 2, orgId: String(m.orgId), repoints: [] })
     expect(await moveBackTick()).toBe(0)
+  }, 60_000)
+
+  it("with the flip's answer comes one signed cloud re-point per desktop of the org (FR-20.82)", async () => {
+    const m = await mirrored()
+    ;(config.oauth as any).baseUrl = 'https://lgrai.test/'
+    const till = new mongoose.Types.ObjectId()
+    const gone = new mongoose.Types.ObjectId()
+    await db().collection('desktops').insertMany([
+      { _id: till, orgId: m.oid, name: 'Till 1', status: 'active' },
+      { _id: gone, orgId: m.oid, name: 'Old till', status: 'revoked' },
+    ])
+    const move: any = await startMoveBack(String(m.orgId), { id: String(m.admin._id) })
+    await db().collection('mirror_state').updateOne({ orgId: m.oid }, { $set: { watermark: 20 } })
+    await drained(m.nodeId, String(move._id), { head: 20, digests: await homeDigests(db(), m.oid) })
+    await moveBackTick()
+    const done: any = await drained(m.nodeId, String(move._id), { head: 20 })
+    expect(done).toMatchObject({ ok: true, epoch: 2 })
+    expect(done.repoints.map((r: any) => r.desktopId)).toEqual([String(till)])
+    const v = verifyRepoint(done.repoints[0].instruction, acceptedRepointKeys())
+    expect(v).toMatchObject({ ok: true, claims: { sub: String(till), org: String(m.orgId), node: 'global', epoch: 2, server: 'https://lgrai.test' } })
+    expect((v as any).claims.fp).toBeUndefined()
   }, 60_000)
 
   it("a file already where its row says stays; one with other bytes there is replaced", async () => {
@@ -288,7 +311,8 @@ describe("the master's side (FR-20.80)", () => {
   }
 
   it('freezes the org, reports its journal head once the last writes are captured, its digests when asked, and leaves on done', async () => {
-    const m = await onTheMaster({ answers: [{ need: 'digests' }, { wait: 'placing' }, { wait: 'placing' }] })
+    const till = String(new mongoose.Types.ObjectId())
+    const m = await onTheMaster({ answers: [{ need: 'digests' }, { wait: 'placing' }, { ok: true, epoch: 2, repoints: [{ desktopId: till, instruction: 'signed.by.global' }, { desktopId: 'nope', instruction: 'x' }] }] })
     const t0 = Date.now()
     expect(await moveWorkerTick(new Date(t0), m.fetchImpl)).toBe(1)
     forgetAllHomes()
@@ -307,13 +331,14 @@ describe("the master's side (FR-20.80)", () => {
     expect(reports[1].body.digests).toEqual(await homeDigests(db(), m.orgId))
     expect(await m.phase()).toMatchObject({ phase: 'draining', waiting: 'placing' })
 
-    // Done on lgrai.app: the org lives there, this server keeps a read-only copy.
+    // Done on lgrai.app, with the desktops' re-points: the org lives there, this server keeps a read-only copy.
     m.lgrai.move.state = 'done'
     expect(await moveWorkerTick(new Date(t0 + DRAIN_AFTER_MS + 20_000), m.fetchImpl)).toBe(1)
     forgetAllHomes()
     expect(await homeOf(m.orgId, { fresh: true })).toMatchObject({ home: 'global', epoch: 2, state: 'active' })
     expect(await m.phase()).toMatchObject({ phase: 'left' })
-    // Its desktops are told the org moved.
+    // Each desktop is handed its own; one global signed nothing for is told the org moved.
+    expect(await movedFor(till, String(m.orgId))).toEqual({ kind: 'repoint', instruction: 'signed.by.global', node: 'global', name: 'lgrai.app' })
     expect(await movedFor(String(new mongoose.Types.ObjectId()), String(m.orgId))).toEqual({ kind: 'moved', node: 'global', name: 'lgrai.app' })
     expect(await moveWorkerTick(new Date(t0 + DRAIN_AFTER_MS + 40_000), m.fetchImpl)).toBe(0)
   }, 60_000)

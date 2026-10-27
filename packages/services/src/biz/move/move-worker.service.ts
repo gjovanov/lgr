@@ -26,7 +26,8 @@
  *   journaled: the journal head goes to global (`drained`), again on every tick, and this server's
  *   digests of the org once global asks for them (`need: 'digests'`, at most once a minute).
  * - **Done**: the org's home here becomes lgrai.app, at the move's epoch. This server keeps a
- *   read-only copy; its desktops are told the org moved.
+ *   read-only copy, and the cloud re-points global signed for the org's desktops (FR-20.82): each
+ *   desktop that connects here is handed its own, and follows the org back.
  * - **Aborted**: unfrozen, the org stays home here.
  */
 import { join } from 'node:path'
@@ -46,6 +47,7 @@ import { applyCredentialChanges } from '../identity/onprem-credentials.service.j
 import { masterSealKey } from '../node/node-seal-key.js'
 import { discardMoveImport, fileSha256, importMoveBundle, orgHasData } from './move-bundle.js'
 import { homeDigests } from './home-digest.js'
+import { cloudRepointsKept, keepCloudRepoints } from '../desktop/repoint.service.js'
 
 type ObjectId = mongo.ObjectId
 
@@ -255,8 +257,16 @@ async function journalHead(orgId: ObjectId): Promise<{ head: number; journalEpoc
   return { head: org?.seq ?? 0, ...(engine?.journalEpoch ? { journalEpoch: engine.journalEpoch } : {}) }
 }
 
-/** The move is done: the org lives on lgrai.app, and this server keeps a read-only copy. */
-async function leave(m: MoveView): Promise<void> {
+/**
+ * The move is done: the org lives on lgrai.app, and this server keeps a read-only copy. `repoints`,
+ * global's signed instructions for the org's desktops, are kept first: from the switch on, this
+ * server's desktop socket hands each desktop its own.
+ */
+async function leave(m: MoveView, repoints?: unknown): Promise<void> {
+  if (repoints !== undefined) {
+    const n = await keepCloudRepoints(m.orgId, m.epochTo, repoints)
+    logger.info({ orgId: m.orgId, desktops: n }, 'Move back: the re-points for the organisation\'s desktops are kept')
+  }
   const orgId = oid(m.orgId)
   const r = await OrgHome.updateOne({ orgId, home: thisNode(), state: 'freezing', epoch: m.epochFrom }, { $set: { home: 'global', epoch: m.epochTo, state: 'active', since: new Date() } })
   forgetHome(orgId)
@@ -280,7 +290,13 @@ async function moveBack(call: Call, m: MoveView, at: Phase | null, now: Date, fi
   const frozenHere = home?.home === thisNode() && home.state === 'freezing' && home.epoch === m.epochFrom
   if (m.state === 'done') {
     if (!frozenHere || at?.phase === 'left') return false
-    await leave(m)
+    // The answer that said so was lost: global signs the desktops' re-points again when asked.
+    let repoints: unknown
+    if (!(await cloudRepointsKept(m.orgId, m.epochTo))) {
+      const answer: any = await report(call, m.id, 'drained', { head: (await journalHead(orgId)).head }).catch(() => null)
+      repoints = answer?.ok === true ? answer.repoints : undefined
+    }
+    await leave(m, repoints)
     return true
   }
   if (m.state === 'aborted') {
@@ -326,7 +342,7 @@ async function moveBack(call: Call, m: MoveView, at: Phase | null, now: Date, fi
     answer = await report(call, m.id, 'drained', { head, ...(journalEpoch ? { journalEpoch } : {}), digests })
   }
   if (answer?.ok === true) {
-    await leave(m)
+    await leave(m, answer.repoints)
   } else if (answer?.ok === false) {
     await unfreezeHere(m)
   } else {

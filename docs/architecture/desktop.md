@@ -151,6 +151,10 @@ enrollment, tokens, `/self`, the update manifest and download, presence, and the
   - When it cannot follow (the master does not answer from here, its CA does not match), the
     Overview says so and offers to pair; lgrai.app sends the instruction again at the next
     connection. When lgrai.app cannot say where the master answers, it only says the org moved.
+  - **Back to lgrai.app (FR-20.80).** When the org moves back, its master hands each desktop an
+    instruction lgrai.app signed for it, with no pin. The shell follows it only to the cloud built
+    into it: the machine's trust store vouches for lgrai.app, and no instruction can name another
+    server. It drops the master's pin, keeps its id and key, and restarts into lgrai.app.
 
 ### Native fiscal bridge (FR-14.26, FR-14.27)
 

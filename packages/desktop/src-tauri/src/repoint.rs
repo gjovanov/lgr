@@ -13,6 +13,12 @@
 //! claims: this desktop and its org, a master id, an epoch above the last one followed (a replayed
 //! instruction cannot send it back), a LAN address a pin may apply to (`trust::may_pin`), a pin in
 //! the shape `trust` computes, and the dates (a till's clock may be a day out either way).
+//!
+//! FR-20.80 (P3-6c): when the org goes back to lgrai.app, its master hands on the same kind of
+//! instruction, signed by global, with `node: "global"`, the cloud's origin and NO pin (the machine's
+//! store vouches for a public name). ⚠ It is believed only for the cloud built into this binary
+//! (`CLOUD`): a pinless instruction to any other server would send the till wherever its signer said,
+//! trusted through the OS store.
 
 use base64::Engine;
 use ed25519_dalek::{Signature, VerifyingKey};
@@ -25,6 +31,11 @@ const MAX_JWS: usize = 8192;
 const SPKI_PREFIX: [u8; 12] = [0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00];
 /// How far ahead of this machine's clock an instruction may have been issued.
 const ISSUED_AHEAD_SEC: i64 = 24 * 3600;
+/// The cloud this build belongs to: the only server a re-point without a pin may send it to.
+pub const CLOUD: &str = match option_env!("LGR_CLOUD_URL") {
+    Some(v) => v,
+    None => "https://lgrai.app",
+};
 const B64URL: base64::engine::GeneralPurpose = base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
 /// What a verified instruction says.
@@ -33,10 +44,17 @@ pub struct Repoint {
     pub org: String,
     pub node: String,
     pub epoch: i64,
-    /// `https://<LAN host>[:port]`, where the master's LAN ingress answers.
+    /// `https://<LAN host>[:port]`, where the master's LAN ingress answers; or the cloud.
     pub server: String,
-    /// `sha256:<base64url>`, the pin of the master's LAN CA.
-    pub fingerprint: String,
+    /// `sha256:<base64url>`, the pin of the master's LAN CA. `None` back to the cloud.
+    pub fingerprint: Option<String>,
+}
+
+impl Repoint {
+    /// Back to lgrai.app (FR-20.80), rather than on to a master.
+    pub fn to_cloud(&self) -> bool {
+        self.fingerprint.is_none()
+    }
 }
 
 /// A key's id: the first 16 characters of the base64url SHA-256 of its SPKI DER, as global computes it.
@@ -109,10 +127,20 @@ pub fn verify_with(jws: &str, keys: &[(String, VerifyingKey)], desktop_id: &str,
 
     let c: serde_json::Value = B64URL.decode(parts[1]).ok().and_then(|b| serde_json::from_slice(&b).ok()).ok_or("bad_claims")?;
     let text = |k: &str| c[k].as_str().unwrap_or_default().to_string();
-    let r = Repoint { org: text("org"), node: text("node"), epoch: c["epoch"].as_i64().unwrap_or(0), server: text("server"), fingerprint: text("fp") };
-    if c["v"] != 1 || c["iss"] != "lgrai.app" || !hex24(&text("sub")) || !hex24(&r.org) || !node_id(&r.node) || r.epoch <= 0
-        || !bare_origin(&r.server) || !pin_shaped(&r.fingerprint)
-    {
+    // Back to the cloud: `node: "global"` and no `fp` at all. Anything else is a move to a master.
+    let cloud = c["node"] == "global" && c.get("fp").is_none();
+    let r = Repoint {
+        org: text("org"),
+        node: text("node"),
+        epoch: c["epoch"].as_i64().unwrap_or(0),
+        server: text("server"),
+        fingerprint: if cloud { None } else { Some(text("fp")) },
+    };
+    let shaped = match &r.fingerprint {
+        Some(fp) => node_id(&r.node) && pin_shaped(fp),
+        None => true,
+    };
+    if c["v"] != 1 || c["iss"] != "lgrai.app" || !hex24(&text("sub")) || !hex24(&r.org) || r.epoch <= 0 || !bare_origin(&r.server) || !shaped {
         return Err("bad_claims");
     }
     if text("sub") != desktop_id {
@@ -121,8 +149,13 @@ pub fn verify_with(jws: &str, keys: &[(String, VerifyingKey)], desktop_id: &str,
     if r.org != org_id {
         return Err("not_this_org");
     }
-    // ⚠ A pin may only be taken for a name no public CA can certify: the same rule a pairing keeps.
-    if !crate::trust::may_pin(&r.server) {
+    if r.to_cloud() {
+        // ⚠ No pin: only the cloud this build belongs to, never a server the instruction names.
+        if r.server != CLOUD {
+            return Err("not_our_cloud");
+        }
+    } else if !crate::trust::may_pin(&r.server) {
+        // ⚠ A pin may only be taken for a name no public CA can certify: the same rule a pairing keeps.
         return Err("pin_not_allowed");
     }
     let (iat, exp) = (c["iat"].as_i64().unwrap_or(0), c["exp"].as_i64().unwrap_or(0));
@@ -151,6 +184,8 @@ mod tests {
         // Stored as its three parts, so no scanner takes the file for a leaked token.
         let jws = v["jwsParts"].as_array().unwrap().iter().map(|p| p.as_str().unwrap()).collect::<Vec<_>>().join(".");
         v["jws"] = jws.into();
+        let cloud = v["cloudJwsParts"].as_array().unwrap().iter().map(|p| p.as_str().unwrap()).collect::<Vec<_>>().join(".");
+        v["cloudJws"] = cloud.into();
         let keys = keys_from(&serde_json::json!({ "keys": [{ "spki": v["spki"] }] }).to_string());
         (v, keys)
     }
@@ -172,9 +207,29 @@ mod tests {
                 node: "master-repointtestaaaaa".into(),
                 epoch: 3,
                 server: "https://192.168.8.115:4443".into(),
-                fingerprint: v["claims"]["fp"].as_str().unwrap().into(),
+                fingerprint: Some(v["claims"]["fp"].as_str().unwrap().into()),
             }
         );
+    }
+
+    #[test]
+    fn back_to_the_cloud_is_believed_only_for_the_cloud_built_in() {
+        let (v, keys) = vector();
+        let (jws, d, o, now) = (v["cloudJws"].as_str().unwrap(), v["desktopId"].as_str().unwrap(), v["orgId"].as_str().unwrap(), v["nowSec"].as_i64().unwrap());
+        let got = verify_with(jws, &keys, d, o, 3, now).unwrap();
+        assert_eq!(got, Repoint { org: o.into(), node: "global".into(), epoch: 4, server: "https://lgrai.app".into(), fingerprint: None });
+        assert!(got.to_cloud());
+        // A replay of the move there is older than the move back.
+        assert_eq!(verify_with(jws, &keys, d, o, 4, now), Err("stale"));
+        // Signed alike, but naming another server, or carrying a pin: not believed.
+        let parts: Vec<&str> = jws.split('.').collect();
+        let mut claims: serde_json::Value = serde_json::from_slice(&B64URL.decode(parts[1]).unwrap()).unwrap();
+        claims["server"] = "https://lgrai.evil".into();
+        assert_eq!(verify_with(&format!("{}.{}.{}", parts[0], B64URL.encode(claims.to_string()), parts[2]), &keys, d, o, 3, now), Err("bad_signature"));
+        let other = v["cloudOtherJwsParts"].as_array().unwrap().iter().map(|p| p.as_str().unwrap()).collect::<Vec<_>>().join(".");
+        assert_eq!(verify_with(&other, &keys, d, o, 3, now), Err("not_our_cloud"));
+        let pinned = v["cloudPinnedJwsParts"].as_array().unwrap().iter().map(|p| p.as_str().unwrap()).collect::<Vec<_>>().join(".");
+        assert_eq!(verify_with(&pinned, &keys, d, o, 3, now), Err("bad_claims"));
     }
 
     #[test]
