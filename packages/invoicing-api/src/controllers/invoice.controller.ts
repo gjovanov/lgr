@@ -154,6 +154,7 @@ import {
   resolveDisplayPrefix,
   getNextInvoiceNumber,
   getNextDraftInvoiceNumber,
+  issuableRefusal,
 } from 'services/biz/invoice-numbering.service'
 
 // Order/reservation back-references a line may carry (all optional: bills carry the
@@ -1145,6 +1146,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (replayed) return replayed
     }
     if (invoice.status !== 'draft') return status(400, { message: 'Invoice is not in draft status' })
+
+    // FR-20.81 (P3-6d): no issued number while the series waits for a lost site's last numbers.
+    // Refused here, before the claim and the dispatch, never at the allocation after them.
+    const frozen = await issuableRefusal(orgId, invoice.direction as string, invoice.type as string)
+    if (frozen) return status(409, { code: frozen.code, message: frozen.message })
 
     /**
      * ⚠ CLAIM the draft before anything moves. Two Issue clicks (or a retry) used to both pass

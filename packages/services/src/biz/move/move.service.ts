@@ -277,12 +277,16 @@ export async function movesForNode(nodeId: string) {
   const since = new Date(Date.now() - 30 * 24 * 3600_000)
   const rows: any[] = await OrgMove.find({
     $and: [
-      { $or: [{ to: nodeId }, { from: nodeId, kind: 'to_global' }] },
-      { $or: [{ state: { $in: [...LIVE_MOVE_STATES] } }, { endedAt: { $gte: since } }] },
+      // A promotion (P3-6d) of an org this server was home of: it fences itself on learning it.
+      { $or: [{ to: nodeId }, { from: nodeId, kind: { $in: ['to_global', 'promote'] } }] },
+      // ⚠ A promotion is listed however long ago it ended: a server that comes back after a month
+      // must still learn it is fenced, or it goes on issuing numbers lgrai.app issues too.
+      { $or: [{ state: { $in: [...LIVE_MOVE_STATES] } }, { endedAt: { $gte: since } }, { kind: 'promote', state: 'done' }] },
     ],
   }).sort({ startedAt: 1 }).lean()
   return rows.map(m => ({
     id: String(m._id), orgId: String(m.orgId), kind: m.kind, state: m.state, epochFrom: m.epochFrom, epochTo: m.epochTo, startedBy: String(m.startedBy),
+    ...(m.kind === 'promote' ? { fenceCutoff: m.fenceCutoff ?? 0 } : {}),
     ...(m.bundle && m.state === 'copying' ? { bundle: { sha256: m.bundle.sha256, bytes: m.bundle.bytes }, files: { sha256: m.files.sha256, bytes: m.files.bytes } } : {}),
   }))
 }

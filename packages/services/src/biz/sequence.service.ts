@@ -1,4 +1,35 @@
-import { Sequence, User } from 'db/models'
+import { OrgHome, Sequence, User } from 'db/models'
+
+/**
+ * FR-20.51, FR-20.81 (plan step P3-6d): the LEGAL series, whose numbers a customer or the tax
+ * authority holds: sales documents (invoices and their notes), cash sales, and each fiscal device's
+ * УНП. After a promotion they stay frozen until a person records the last numbers the lost master
+ * issued (`OrgHome.seriesFrozen`): global must never give a second customer a number the site may
+ * already have issued.
+ */
+export const LEGAL_SERIES: ReadonlySet<string> = new Set(['SALES_DOC', 'CASH_SALE'])
+export const isLegalSeries = (prefix: string) => LEGAL_SERIES.has(prefix) || prefix.startsWith('UNP-')
+
+export class SeriesFrozenError extends Error {
+  readonly statusCode = 409
+  readonly code = 'series_frozen'
+  constructor(readonly orgId: string, readonly since?: Date) {
+    super('Legal numbering waits until the last numbers issued at the site are recorded.')
+    this.name = 'SeriesFrozenError'
+  }
+}
+
+/** Since when the org's legal series are frozen, or null. Read fresh: a promotion freezes them at once. */
+export async function seriesFrozenSince(orgId: string): Promise<Date | null> {
+  const home: any = await OrgHome.findOne({ orgId }, { seriesFrozen: 1 }).lean().exec()
+  return home?.seriesFrozen?.since ?? null
+}
+
+/** Throws while the org's legal series are frozen. */
+export async function assertSeriesOpen(orgId: string): Promise<void> {
+  const since = await seriesFrozenSince(orgId)
+  if (since) throw new SeriesFrozenError(String(orgId), since)
+}
 
 /**
  * Atomic sequence number generator using MongoDB findOneAndUpdate with $inc.
@@ -15,6 +46,7 @@ export async function getNextNumber(
   year?: number,
 ): Promise<string> {
   const yr = year ?? new Date().getFullYear()
+  if (isLegalSeries(prefix)) await assertSeriesOpen(orgId)
 
   const doc = await Sequence.findOneAndUpdate(
     { orgId, prefix, year: yr },
@@ -88,6 +120,7 @@ export async function generateUNP(
   }
 
   const prefix = `UNP-${fiscalDeviceNumber}`
+  await assertSeriesOpen(orgId)
   const legacy = { orgId, year: 0, prefix: { $regex: `^${prefix}-\\d{4}$` } }
 
   // Upserting would create the counter at 1 — exactly the re-issue the migration prevents.

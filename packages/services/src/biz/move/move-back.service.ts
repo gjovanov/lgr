@@ -29,6 +29,7 @@ import { mongoose } from 'db/connection'
 import { LIVE_MOVE_STATES, MirrorState, Org, OrgHome, OrgMove, POSSession, ServerNode } from 'db/models'
 import { forgetHome, homeOf } from 'db/home/home'
 import { logger } from '../../logger/logger.js'
+import { recordAuditEntry } from '../audit-log.service.js'
 import { presenceOfNodes } from '../node/node.service.js'
 import { cloudRepointsFor } from '../desktop/repoint.service.js'
 import { dropMirrorBlobs, mirrorFilesStatus, placeFilesBack, type MirrorFilesStatus } from '../replication/mirror-blobs.js'
@@ -182,9 +183,10 @@ export async function moveBackTick(now = new Date(), hooks: { flippedBack?: (nod
     }
   }
   for (;;) {
-    // A placement that died half-way is taken again after ten minutes; it is idempotent.
+    // A placement that died half-way is taken again after ten minutes; it is idempotent. A promotion
+    // (FR-20.81, `promote.service.ts`) comes here verified, and flips the same way.
     const m: any = await OrgMove.findOneAndUpdate(
-      { kind: 'to_global', state: 'verifying', $or: [{ placingAt: { $exists: false } }, { placingAt: { $lt: new Date(now.getTime() - 10 * 60_000) } }] },
+      { kind: { $in: ['to_global', 'promote'] }, state: 'verifying', $or: [{ placingAt: { $exists: false } }, { placingAt: { $lt: new Date(now.getTime() - 10 * 60_000) } }] },
       { $set: { placingAt: now } },
       { new: true },
     ).lean()
@@ -198,7 +200,21 @@ export async function moveBackTick(now = new Date(), hooks: { flippedBack?: (nod
         hooks.flippedBack?.(m.from, String(m.orgId))
         // Every file is where its row says now: the content store has done its work.
         const dropped = await dropMirrorBlobs(String(m.orgId)).catch(() => 0)
-        logger.info({ orgId: String(m.orgId), nodeId: m.from, epoch: m.epochTo, blobs: dropped }, 'Move back: lgrai.app is the organisation\'s home again')
+        // A promotion has no other side to write it down: the org's trail is here from now on.
+        if (m.kind === 'promote') {
+          await recordAuditEntry({
+            orgId: String(m.orgId), userId: String(m.startedBy), action: 'update', module: 'admin',
+            entityType: 'org_move', entityId: String(m._id), entityName: 'promotion of lgrai.app\'s copy',
+            changes: [
+              { field: 'home', oldValue: m.from, newValue: 'global' },
+              { field: 'evidence', oldValue: null, newValue: `${m.evidence?.hardware}, tills disconnected, silent since ${m.evidence?.silenceSince ? new Date(m.evidence.silenceSince).toISOString() : 'never seen'}` },
+              { field: 'lossFrom', oldValue: null, newValue: m.lossFrom ? new Date(m.lossFrom).toISOString() : null },
+            ],
+          })
+        }
+        logger.info({ orgId: String(m.orgId), nodeId: m.from, epoch: m.epochTo, blobs: dropped }, m.kind === 'promote'
+          ? 'Promotion: lgrai.app\'s copy is the organisation\'s home; legal numbering waits for the site\'s last numbers'
+          : 'Move back: lgrai.app is the organisation\'s home again')
       }
     } catch (e: any) {
       logger.error({ moveId: String(m._id), err: e?.message ?? String(e) }, 'Move back: the files could not be put back')
@@ -219,9 +235,13 @@ async function flipBack(m: any): Promise<boolean> {
     await session.withTransaction(async () => {
       flipped = false
       const now = new Date()
-      const claimed = await OrgMove.updateOne({ _id: m._id, state: 'verifying' }, { $set: { state: 'done', endedAt: now }, $push: { steps: { $each: [step('flip', true, `epoch ${m.epochTo}, home lgrai.app`), step('done')] } } }, { session })
+      const promoted = m.kind === 'promote'
+      const claimed = await OrgMove.updateOne({ _id: m._id, state: 'verifying' }, { $set: { state: 'done', endedAt: now }, $push: { steps: { $each: [step('flip', true, `epoch ${m.epochTo}, home lgrai.app${promoted ? ', legal series frozen' : ''}`), step('done')] } } }, { session })
       if (!claimed.modifiedCount) return
-      await OrgHome.updateOne({ orgId: m.orgId }, { $set: { home: 'global', epoch: m.epochTo, state: 'active', since: now, changedBy: String(m.startedBy) } }, { session, upsert: true })
+      // ⚠ A promotion freezes the legal series in the same write: from the flip on, global could
+      // otherwise issue a number the lost site already gave another customer (FR-20.81).
+      const frozen = promoted ? { seriesFrozen: { since: now, reason: 'promoted', moveId: String(m._id) } } : {}
+      await OrgHome.updateOne({ orgId: m.orgId }, { $set: { home: 'global', epoch: m.epochTo, state: 'active', since: now, changedBy: String(m.startedBy), ...frozen } }, { session, upsert: true })
       await Org.collection.updateOne({ _id: m.orgId }, { $set: { homeEpochHighWater: m.epochTo } }, { session })
       // No more pages: the org is written here again.
       await mongoose.connection.db!.collection('mirror_state').deleteOne({ orgId: m.orgId }, { session })

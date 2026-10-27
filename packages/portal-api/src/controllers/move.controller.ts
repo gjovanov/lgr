@@ -4,6 +4,8 @@ import { AuthService } from '../auth/auth.service.js'
 import { fiscalInFlight } from 'fiscal/in-flight'
 import { MoveError, abortMove, currentMove, preflightMove, startMove } from 'services/biz/move/move.service'
 import { preflightMoveBack, startMoveBack } from 'services/biz/move/move-back.service'
+import { legalSeriesOf, preflightPromote, promote, recordLastNumbers } from 'services/biz/move/promote.service'
+import { OrgHome } from 'db/models'
 import { rewelcomeNode } from '../websocket/uplink.js'
 
 /**
@@ -54,6 +56,9 @@ function toWire(m: any) {
     // A move back: what it waits for now, and what putting the files back found.
     waiting: m.waiting ? { on: m.waiting.on, since: m.waiting.since, detail: m.waiting.detail ?? null } : null,
     placed: m.placed ?? null,
+    // A promotion: what was attested, and from when the mirror's copy is all there is.
+    evidence: m.evidence ? { hardware: m.evidence.hardware, silenceSince: m.evidence.silenceSince ?? null } : null,
+    lossFrom: m.lossFrom ?? null,
     steps: (m.steps ?? []).map((s: any) => ({ name: s.name, at: s.at, ok: s.ok, detail: s.detail ?? null })),
   }
 }
@@ -97,6 +102,68 @@ export const moveController = new Elysia({ prefix: '/org/:orgId/moves' })
       }
     },
     { isSignIn: true, body: MOVE_BODY },
+  )
+
+  /**
+   * FR-20.81 (P3-6d): promoting lgrai.app's mirror when the org's server is lost for good. What stands
+   * in the way, the loss window, and whether the server's silence is long enough. Writes nothing.
+   */
+  .post(
+    '/promote/preflight',
+    async ({ params: { orgId }, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
+      return preflightPromote(orgId)
+    },
+    { isSignIn: true },
+  )
+
+  /** Promote it, on the admin's attestation; the legal series freeze until the site's last numbers are in. */
+  .post(
+    '/promote',
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
+      try {
+        return { move: toWire(await promote(orgId, { id: user.id }, body)) }
+      } catch (e) {
+        return fail(status, e)
+      }
+    },
+    {
+      isSignIn: true,
+      body: t.Object({ hardware: t.Union([t.Literal('off'), t.Literal('destroyed')]), tillsDisconnected: t.Boolean(), slug: t.String({ maxLength: 200 }) }),
+    },
+  )
+
+  /** Whether legal numbering waits for the site's last numbers, and the series a person must give. */
+  .get(
+    '/last-numbers',
+    async ({ params: { orgId }, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
+      const home: any = await OrgHome.findOne({ orgId }, { seriesFrozen: 1 }).lean()
+      return { frozen: !!home?.seriesFrozen?.since, since: home?.seriesFrozen?.since ?? null, series: await legalSeriesOf(orgId) }
+    },
+    { isSignIn: true },
+  )
+
+  /** The last numbers issued at the site: each legal series resumes above them, and numbering opens. */
+  .post(
+    '/last-numbers',
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
+      try {
+        return { series: await recordLastNumbers(orgId, { id: user.id, operatorCode: user.operatorCode }, body.series) }
+      } catch (e) {
+        return fail(status, e)
+      }
+    },
+    {
+      isSignIn: true,
+      body: t.Object({ series: t.Array(t.Object({ prefix: t.String({ maxLength: 40 }), year: t.Integer({ minimum: 0 }), last: t.Integer({ minimum: 0 }) }), { maxItems: 200 }) }),
+    },
   )
 
   /** The org's live move, or its last one. */

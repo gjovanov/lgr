@@ -4,7 +4,7 @@ import { Invoice, Contact, StockMovement } from 'db/models'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 import { createAuditEntry } from './audit-log.service.js'
-import { getNextInvoiceNumber, getNextDraftInvoiceNumber } from './invoice-numbering.service.js'
+import { getNextInvoiceNumber, getNextDraftInvoiceNumber, issuableRefusal } from './invoice-numbering.service.js'
 import { LEASE_MS, assertSameRequest, isDuplicateKey, takeLease, waitForCompletion } from './hot-path-key.js'
 import { CASH_SALE_REF_ID } from './sale-counting.js'
 import { upsertAmountInWords } from 'config/amount-in-words'
@@ -617,6 +617,12 @@ export async function createInvoiceForCashSale(
   if (why) {
     if (resumed) await dropOwn(resumed)
     throw new CashSaleInvoiceError(why.statusCode, why.code, why.message)
+  }
+  // FR-20.81 (P3-6d): an issued invoice waits with its series, refused before its placeholder.
+  const frozen = issue ? await issuableRefusal(orgId, 'outgoing', 'invoice') : null
+  if (frozen) {
+    if (resumed) await dropOwn(resumed)
+    throw new CashSaleInvoiceError(409, frozen.code, frozen.message)
   }
 
   let own: any = resumed

@@ -3281,6 +3281,48 @@
       "desktopsNote": "Die Desktops im Geschäft melden, dass die Organisation umgezogen ist: Koppeln Sie sie wieder mit lgrai.app.",
       "live": "Ein Umzug zurück zu lgrai.app läuft: {state}",
       "done": "lgrai.app ist wieder das Zuhause der Organisation"
+    },
+    "promote": {
+      "action": "Kopie auf lgrai.app hochstufen",
+      "title": "Die Kopie auf lgrai.app zum Zuhause von {org} machen",
+      "intro": "Nur wenn der Server endgültig verloren ist. Die Kopie auf lgrai.app wird zum Zuhause der Organisation, und ihre gesetzliche Nummerierung bleibt eingefroren, bis Sie die letzten am Standort vergebenen Nummern erfassen.",
+      "loss": "Änderungen, die nach {when} auf dem Server gemacht wurden, sind nicht auf lgrai.app. Läuft dieser Server noch, kann er Rechnungsnummern vergeben, die lgrai.app erneut vergibt.",
+      "lossUnknown": "lgrai.app hat keine Änderung von diesem Server.",
+      "files": "{missing} der Dateien der Organisation sind nicht auf lgrai.app.",
+      "hardware": "Was mit dem Server geschehen ist",
+      "hardwareOff": "Er ist ausgeschaltet",
+      "hardwareDestroyed": "Er ist zerstört oder endgültig verloren",
+      "silence": "Der Server schweigt seit {since}: Für einen ausgeschalteten Server braucht das Hochstufen 24 Stunden Schweigen.",
+      "tills": "Seine Kassen sind von ihm getrennt",
+      "slug": "Geben Sie zur Bestätigung {slug} ein",
+      "start": "Kopie hochstufen",
+      "started": "Die Kopie auf lgrai.app wird zum Zuhause der Organisation",
+      "check": {
+        "home_master": "Die Organisation lebt auf einem ihrer Server",
+        "no_move": "Kein anderer Umzug läuft",
+        "disconnected": "Der Server ist nicht verbunden",
+        "mirror": "lgrai.app hält eine Kopie der Organisation"
+      },
+      "state": {
+        "verifying": "Die Dateien werden an ihren Platz gelegt",
+        "done": "Fertig: Die Kopie auf lgrai.app ist das Zuhause der Organisation",
+        "aborted": "Abgebrochen"
+      },
+      "live": "Die Kopie auf lgrai.app wird zum Zuhause der Organisation: {state}",
+      "done": "Die Kopie auf lgrai.app ist jetzt das Zuhause der Organisation"
+    },
+    "lastNumbers": {
+      "title": "Die letzten am Standort vergebenen Nummern erfassen",
+      "intro": "Die gesetzliche Nummerierung ist eingefroren: lgrai.app darf keine Nummer vergeben, die der verlorene Server schon einem Kunden gegeben hat. Lesen Sie die letzte Nummer jeder Reihe von den zuletzt gedruckten Belegen und dem Tagesbericht des Fiskalgeräts ab.",
+      "series": {
+        "SALES_DOC": "Verkaufsbelege {year}",
+        "CASH_SALE": "Barverkäufe {year}",
+        "UNP": "УНП des Fiskalgeräts {device}"
+      },
+      "here": "lgrai.app hat {n}",
+      "confirm": "Das sind die letzten am Standort vergebenen Nummern",
+      "save": "Nummerierung fortsetzen",
+      "saved": "Die Nummerierung geht über den letzten Nummern des Standorts weiter"
     }
   },
   "desktops": {
@@ -3480,6 +3522,8 @@
     "livesOnCloud": "Diese Organisation lebt jetzt auf lgrai.app: Dieser Server behält eine schreibgeschützte Kopie.",
     "moving": "Diese Organisation zieht um: Bis der Umzug endet, kann nichts geschrieben werden.",
     "writeRefused": "Hier nur lesbar: Diese Organisation wird auf ihrem Server geschrieben.",
-    "unknown": "unbekannt"
+    "unknown": "unbekannt",
+    "seriesFrozen": "Die gesetzliche Nummerierung wartet: Erfassen Sie die letzten am Standort vergebenen Nummern auf der Seite Server.",
+    "fenced": "Dieser Server ist nicht mehr das Zuhause der Organisation: Er schreibt nichts mehr von ihr."
   }
 }

@@ -28,7 +28,7 @@ import { getRepos } from '../../context.js'
 import { logger } from '../../logger/logger.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { generateUNP } from '../sequence.service.js'
-import { getNextInvoiceNumber } from '../invoice-numbering.service.js'
+import { getNextInvoiceNumber, issuableRefusal } from '../invoice-numbering.service.js'
 import { createInvoiceStockMovement, createNumberedMovement } from '../invoicing.service.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { IdempotencyError, LEASE_MS, assertSameRequest, takeLease, waitForCompletion } from '../hot-path-key.js'
@@ -499,6 +499,10 @@ export async function insertRegisterDocument(
   document: Record<string, any>,
   keyed?: { key: string; hash: string },
 ): Promise<InsertOutcome> {
+  // FR-20.81: refused before the insert, never at the number after it (a storno's caller gives its
+  // claim back on any throw from here).
+  const frozen = await issuableRefusal(orgId, 'outgoing', document.type)
+  if (frozen) throw new RegisterRefusal(409, { code: frozen.code, message: frozen.message })
   let lastErr: any
   for (let attempt = 0; attempt < 3; attempt++) {
     const number = keyed ? `${PENDING_NUMBER}${keyed.key}` : await getNextInvoiceNumber(orgId, 'outgoing', document.type)

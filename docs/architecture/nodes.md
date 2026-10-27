@@ -567,6 +567,8 @@ Every page of every app carries a banner while the org is not written where it i
   Reads, reports and exports work; a write is refused, and says why in the reader's language.
 - **On a server, for an org that went back to lgrai.app:** the copy the server keeps is read-only.
 - **Anywhere, while a move is under way:** nothing can be written until it ends.
+- **After a promotion (FR-20.81):** on lgrai.app, until the site's last numbers are recorded, that
+  legal numbering waits; on the server it replaced, that the server writes nothing more of the org.
 
 ## Moving an org back to lgrai.app (FR-20.80)
 
@@ -590,6 +592,32 @@ copy travels: lgrai.app's mirror already holds the org, and the move waits until
    org moved, and is paired again by hand).
 
 Until the switch, an abort leaves the org on its server, which unfreezes it.
+
+## Promoting lgrai.app's copy (FR-20.81)
+
+When an org's server is lost for good, an org admin makes lgrai.app's copy the org's home on the
+Servers page ("Promote lgrai.app's copy", on the home server while it is not connected). The danger is
+not the changes lost: it is a server that is only cut off, still issuing invoice numbers in the shop
+that lgrai.app would then issue again. So a promotion takes evidence:
+1. **The server is gone:** connected on neither socket, and silent for 24 hours unless the admin
+   attests the hardware is destroyed.
+2. **The admin attests** that it is off or destroyed and that its tills are disconnected, and types
+   the org's address name. The dialog says from when lgrai.app's copy is all there is, and that a
+   server still running may issue numbers lgrai.app will issue again.
+3. **The switch:** whatever files lgrai.app holds go where their rows say, and lgrai.app becomes the
+   org's home, one epoch up.
+4. **Legal numbering waits** (sales documents, cash sales, each fiscal device's УНП) until a person
+   records the last number the site issued in each series, from its last printed documents and the
+   fiscal device's daily report. Each series resumes above the higher of that and lgrai.app's own. A
+   document that would take a legal number is refused before it moves anything; drafts, proformas
+   and bills go on.
+5. **If the old server comes back,** however late, it learns of the promotion and fences itself: it
+   writes nothing more of the org, never resumes on its own, and keeps what it wrote after the cutoff
+   for the export (FR-20.84, not built yet). A server that was revoked cannot be told, so revoke one
+   that was stolen, not one that may come back.
+
+Replacing a dead server is a promotion followed by a move to the new machine, whose desktops are
+paired again.
 
 ## Moving an org to its master (FR-20.79)
 
@@ -642,7 +670,8 @@ a server linked at Full). lgrai.app runs the move (`services/biz/move/move.servi
   its registry row moved with the org, so nothing is enrolled again. The server's health reports say
   where its LAN ingress answers; when lgrai.app does not know, the desktop is only told that its org
   moved, and offers to pair. Nothing of a moved org's desktop is written on lgrai.app.
-- **Not yet**: the move back to the cloud, promotion, and the fenced export and import (P3-6c to e).
+- The move back to the cloud and promotion are above. **Not yet**: the fenced export and import
+  (P3-6e).
 
 ## Not built yet
 
@@ -654,8 +683,8 @@ FR-20's P1 to P3:
 - reading documents without the internet on Windows: the package carrying poppler and tesseract
   (P2-6c did Linux, where the .deb depends on the distribution's);
 - the mirror's transport, its files and the reconcile (above), and the tunnel;
-- the rest of the moves: re-pointing the desktops, the move back to the cloud, promotion, and the
-  fenced export and import (FR-20.80–20.84; the move to a master is above);
+- the rest of the moves: the fenced export and import of what a fenced server wrote after its
+  cutoff (FR-20.84; the move to a master, the move back and promotion are above);
 - setting a local credential on the master itself, right after a Sign in with LGR, and sending it up
   for a replacement master (FR-20.40).
 
