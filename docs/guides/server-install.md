@@ -13,6 +13,25 @@ updater and the field lanes have run it.
 
 Each asset has a `.sha256` and a `.asc`, and the release carries SLSA build provenance.
 
+## What the machine needs (FR-20.13)
+
+- **CPU:** x86-64 with **AVX**, or ARMv8.2-A: MongoDB 5.0 and later will not start without it. Old
+  Celeron and Atom shop PCs, and the Raspberry Pi 4, do not have it.
+- **Memory:** a machine with at least **4 GB** of RAM. The OS never reports all of it (firmware, an
+  integrated GPU and the kernel keep some), so the check asks for 3.25 GB usable.
+- **Disk:** **20 GB** free where the data goes, on a **local, fixed disk**: never a network share,
+  a removable drive, a RAM disk or tmpfs.
+
+**The MSI and the .deb check before they install anything**, and on a machine that falls short they
+install nothing and say why: the MSI in a message box (and in its log, `msiexec /l*v`), the .deb on
+apt's output. Only on a first install: an upgrade is never refused. The tarball does not check;
+`lgr-server preflight` says what the machine has.
+
+The service checks again at every start. It refuses to start only without AVX, without the VC++
+runtime `mongod` links (Windows) or with its data on a share or tmpfs. Below the memory or disk floor
+it starts, and warns: a master that has run for months is not stopped at a reboot because its disk
+has 19 GB free.
+
 ## Check what you downloaded
 
 - **Windows:** the MSI and `lgr-server.exe` inside it are signed by **G ROX LTD** (roomler's

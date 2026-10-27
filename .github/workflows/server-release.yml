@@ -139,27 +139,33 @@ jobs:
         env:
           RUSTFLAGS: -C target-feature=+crt-static
         run: cargo build --release --locked --manifest-path packages/server/Cargo.toml
-      - name: The supervisor needs no C runtime
+      - name: The supervisor and the MSI's check need no C runtime
         shell: pwsh
         run: |
           # The IMPORT TABLE, never a scan for DLL names: the binary also names vcruntime140.dll and
           # msvcp140.dll as data (the runtime files it carries for mongod), which a scan cannot tell
-          # from an import.
-          $exe = 'packages/server/target/release/lgr-server.exe'
+          # from an import. The custom action DLL (FR-20.13) runs inside msiexec on the same clean
+          # machine, before anything is installed.
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
           $dumpbin = & $vswhere -latest -products * -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
           if (-not $dumpbin) { Write-Error 'no dumpbin on this runner'; exit 1 }
-          $deps = (& $dumpbin /nologo /dependents $exe) -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '\.dll$' }
-          "lgr-server.exe imports: $($deps -join ', ')"
-          $crt = $deps | Where-Object { $_ -match '^(?i)(vcruntime140(_1)?|msvcp140(_\d)?|ucrtbase|api-ms-win-crt-.+)\.dll$' }
-          if ($crt) { Write-Error "lgr-server.exe imports the C runtime, which a clean Windows does not have: $($crt -join ', ')"; exit 1 }
-          'lgr-server.exe imports no C runtime'
+          foreach ($bin in 'lgr-server.exe', 'lgr_server_msi.dll') {
+            $deps = (& $dumpbin /nologo /dependents "packages/server/target/release/$bin") -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '\.dll$' }
+            "$bin imports: $($deps -join ', ')"
+            $crt = $deps | Where-Object { $_ -match '^(?i)(vcruntime140(_1)?|msvcp140(_\d)?|ucrtbase|api-ms-win-crt-.+)\.dll$' }
+            if ($crt) { Write-Error "$bin imports the C runtime, which a clean Windows does not have: $($crt -join ', ')"; exit 1 }
+            "$bin imports no C runtime"
+          }
+          # The installer calls it by this name (DllEntry="Preflight").
+          $exports = (& $dumpbin /nologo /exports packages/server/target/release/lgr_server_msi.dll) -join "`n"
+          if ($exports -notmatch '(?m)\sPreflight\s*$') { Write-Error "lgr_server_msi.dll does not export Preflight:`n$exports"; exit 1 }
+          'lgr_server_msi.dll exports Preflight'
 
       # ⚠ Signed BEFORE the MSI is built, and no step after this one runs cargo.
       - name: Sign the supervisor
         uses: gjovanov/roomler-ai/.github/actions/sign-windows@855b9279ae54e8c0985fc8572b4b15c11f94ed54
         with:
-          files: packages/server/target/release/lgr-server.exe
+          files: packages/server/target/release/lgr-server.exe,packages/server/target/release/lgr_server_msi.dll
           mode: ${{ needs.version.outputs.sign == 'true' && 'azure' || 'off' }}
           require: ${{ needs.version.outputs.sign }}
           expect-subject-contains:  ${{ vars.AZURE_SIGNING_EXPECT_SUBJECT }}
@@ -227,8 +233,10 @@ jobs:
           }
           $exe = (Resolve-Path dist/home/lgr-server.exe).Path
           $bundle = (Resolve-Path '${{ steps.bundle.outputs.path }}').Path
+          # FR-20.13: the machine check, signed with the supervisor above.
+          $preflight = (Resolve-Path packages/server/target/release/lgr_server_msi.dll).Path
           New-Item -ItemType Directory -Force wixobj | Out-Null
-          & "$wix\candle.exe" -nologo -arch x64 "-dVersion=$env:VERSION" "-dServerExe=$exe" "-dBundle=$bundle" -out wixobj\ packages/server/wix/main.wxs
+          & "$wix\candle.exe" -nologo -arch x64 "-dVersion=$env:VERSION" "-dServerExe=$exe" "-dBundle=$bundle" "-dPreflightDll=$preflight" -out wixobj\ packages/server/wix/main.wxs
           if ($LASTEXITCODE) { throw 'candle failed' }
           $msi = "out\lgr-server-$env:VERSION-x86_64-pc-windows-msvc.msi"
           & "$wix\light.exe" -nologo -spdb -out $msi (Get-ChildItem wixobj\*.wixobj).FullName
@@ -305,6 +313,12 @@ jobs:
           # 1. Install.
           $p = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/qn', '/norestart', '/l*v', 'install.log' -Wait -PassThru
           if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 120; throw "install failed: $($p.ExitCode)" }
+          # FR-20.13: the machine check ran before anything was installed, and wrote every verdict to
+          # the log. (Its refusals are proven on machines below the floor: vmtest's `refused` lanes.)
+          # Get-Content: it reads the log's BOM, whichever encoding msiexec chose.
+          $checked = @(Get-Content install.log | ForEach-Object { if ($_ -match 'LGR Server preflight: (ok|FAIL) (\S+)') { "$($Matches[1]) $($Matches[2])" } })
+          $missing = @('cpu', 'memory', 'disk', 'location' | Where-Object { "ok $_" -notin $checked })
+          if ($missing.Count) { Fail "the install log's machine check lacks a passing $($missing -join ', '): $($checked -join '; ')" }
           foreach ($f in 'installer\lgr-server.exe', 'installer\lgr-server-bundle.zip', "versions\$v1\lgr-server.exe", "versions\$v1\HOME.json", "versions\$v1\bin\bun.exe", "versions\$v1\bin\mongod.exe", "versions\$v1\bin\vcruntime140.dll", "versions\$v1\package\server-manifest.json", "versions\$v1\chrome\chrome-headless-shell.exe", "versions\$v1\licences\mongodb\LICENSE-Community.txt") {
             if (-not (Test-Path "$root\$f")) { Fail "not installed: $f" }
           }

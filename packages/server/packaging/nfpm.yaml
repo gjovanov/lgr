@@ -87,6 +87,8 @@ contents:
     dst: /usr/bin/lgr-server
     type: symlink
 scripts:
+  # FR-20.13, AC 14: a machine that cannot run a master is refused before anything is unpacked.
+  preinstall: packages/server/packaging/linux/preinst
   postinstall: packages/server/packaging/linux/postinst
   preremove: packages/server/packaging/linux/prerm
   postremove: packages/server/packaging/linux/postrm
