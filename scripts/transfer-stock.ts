@@ -40,7 +40,7 @@
  *   --items <path>    (required) transfers JSON as above
  *   --org <slug>      org slug (default: regal-pz)
  *   --api <url>       API base (default: https://lgrai.app)
- *   --warehouse <c>   source warehouse code (default: org default = Pazardzhik)
+ *   --warehouse <c>   source warehouse code (default: org default = Пазарджик)
  *   --max-date <ISO>  only process transfers dated <= this (inclusive) — e.g. to
  *                     book only the pre-snapshot backlog
  *   --skip-unmatched  proceed without lines whose product has no catalog match

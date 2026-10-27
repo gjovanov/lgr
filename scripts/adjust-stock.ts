@@ -36,7 +36,7 @@
  *   --items <path>    (required) adjustments JSON as above
  *   --org <slug>      org slug (default: regal-pz)
  *   --api <url>       API base (default: https://lgrai.app)
- *   --warehouse <c>   warehouse code (default: org default = Pazardzhik)
+ *   --warehouse <c>   warehouse code (default: org default = Пазарджик)
  *   --max-date <ISO>  only process docs dated <= this (inclusive)
  *   --skip-unmatched  proceed without lines whose product has no catalog match
  *                     (default: unmatched aborts --execute — a skipped write-off
