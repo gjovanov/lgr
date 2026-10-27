@@ -11,6 +11,9 @@ import { loadActiveNode, NodeError, sanitizeHealth, verifyNodeToken, type NodeTo
 import { meetsMinimum } from 'services/biz/desktop/version'
 import { issueLicences, licenceTerms } from 'services/biz/licence/licence-issue.service'
 import { logger } from 'services/logger'
+import { isTunFrame } from 'services/biz/tunnel/tunnel-frame'
+import { setTunnelSocketLookup } from '../tunnel/sockets.js'
+import { onTunnelControl, onTunnelData, onTunnelSocketClosed } from '../tunnel/streams.js'
 
 /**
  * The uplink, global's side (FR-20.52, plan step P2-2a): a registered master's two sockets,
@@ -87,6 +90,14 @@ const conns = new WeakMap<any, Conn>()
 /** Live sockets on this process, by node id: what a revocation tells at once. */
 const byNode = new Map<string, Set<any>>()
 
+// FR-20.73 (P3-4b): the tunnel to an org's address rides the node's interactive socket, when it may.
+setTunnelSocketLookup(nodeId => {
+  for (const ws of byNode.get(nodeId) ?? []) {
+    if (conns.get(key(ws))?.ch === 'interactive' && isTrusted(ws)) return ws
+  }
+  return null
+})
+
 function send(ws: any, msg: unknown): void {
   try {
     ws.send(JSON.stringify(msg))
@@ -152,6 +163,11 @@ export async function handleUplinkMessage(ws: any, raw: any): Promise<void> {
   // FR-20.64 (P3-2b): a mirror page is a binary frame, zstd from its first byte. FR-20.69 (P3-3): a
   // file's chunk is one too, behind its own magic.
   const bytes = raw instanceof Uint8Array ? raw : raw instanceof ArrayBuffer ? new Uint8Array(raw) : null
+  // FR-20.73 (P3-4b): the tunnel's data, on the interactive socket of a node that may carry it.
+  if (bytes && isTunFrame(bytes)) {
+    if (conn.nodeId && conn.ch === 'interactive' && isTrusted(ws)) onTunnelData(ws, bytes)
+    return
+  }
   if (bytes && (isPage(bytes) || isBlobFrame(bytes))) {
     if (!conn.nodeId) {
       send(ws, { t: 'error', code: 'unauthenticated', message: 'Say hello first.' })
@@ -190,6 +206,10 @@ export async function handleUplinkMessage(ws: any, raw: any): Promise<void> {
     if (conn.ch !== 'interactive' || conn.suspended || Date.now() - conn.lastHealthAt < HEALTH_EVERY_MS) return
     conn.lastHealthAt = Date.now()
     await ServerNode.updateOne({ _id: conn.nodeId, status: 'active' }, { $set: { health: sanitizeHealth(msg) } })
+    return
+  }
+  if (msg.t.startsWith('tun-')) {
+    if (conn.ch === 'interactive' && isTrusted(ws)) onTunnelControl(ws, msg)
     return
   }
   if (msg.t === 'blob-sync' || msg.t === 'blob-unavailable') {
@@ -563,6 +583,8 @@ export async function notifyEntitlementsChanged(orgId: string): Promise<number> 
 /** Suspend this socket and tell it, once; `raise` also records the alarm on the node. */
 async function alarm(ws: any, conn: Conn, raise: boolean): Promise<void> {
   conn.suspended = true
+  // A socket under a clone alarm carries no tunnel traffic: what it carried ends now.
+  onTunnelSocketClosed(ws)
   if (raise) await raiseCloneAlarm(conn)
   if (conn.alarmed) return
   conn.alarmed = true
@@ -570,6 +592,7 @@ async function alarm(ws: any, conn: Conn, raise: boolean): Promise<void> {
 }
 
 export async function handleUplinkClose(ws: any): Promise<void> {
+  onTunnelSocketClosed(ws)
   const conn = conns.get(key(ws))
   if (!conn) return
   conns.delete(key(ws))
