@@ -375,6 +375,12 @@ Updates that come by themselves (plan step P1-8c, `updates.rs`, `helper.rs`, `si
 - **Where an audit entry came from** (FR-20.48). On the org's own server, every entry in the audit log
   says where it came from: a till, by its name; the org's address on lgrai.app; or the server itself.
   An auditor can tell a sale rung at the counter from a change made remotely.
+- **Where an inspector reaches the server** (P3-8e, FR-20.47). A tax inspector must be able to reach
+  every device without delay, servers included. On the server's status page the org's admin says
+  where the server stands. In the shop, it is inspected there. Off the premises, the admin also says
+  how an inspector gets in: through the org's address on lgrai.app (at the Full link), the roomler
+  overlay, or the company's own VPN. The Прил. 32 panel carries it, ready to copy, and says when it is
+  missing or no longer holds.
 - **An org on hold on lgrai.app** (P3-8d, FR-20.3). Each minute a master tells lgrai.app which home
   record it holds for each org it writes. A newer one than lgrai.app's means lgrai.app's database
   is older than the org's last move (a disaster-recovery restore), so lgrai.app stops writing the org

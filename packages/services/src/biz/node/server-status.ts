@@ -9,7 +9,8 @@
  *   holds it (as lgrai.app last said, `/self`), its last backup, what waits for the internet, its
  *   fiscal devices and its desktops;
  * - **the Прил. 32 fields** (FR-20.50, т. 5, 7, 10–13), ready to copy: the trader re-files them within
- *   seven days of a change of topology (чл. 52з(1)).
+ *   seven days of a change of topology (чл. 52з(1)). With them, where an inspector reaches the server
+ *   (FR-20.47, P3-8e: `inspection.service.ts`).
  *
  * ⚠ One server may hold several orgs: an org's admin sees this org's licence, backups and devices,
  * never another's.
@@ -24,6 +25,7 @@ import { thisNode } from 'db/home/home'
 import { currentLan } from '../desktop/desktop.service.js'
 import { lastSelfAnswer } from '../home/series-lock.service.js'
 import { captureOn } from '../replication/engine.js'
+import { inspectionOf, inspectionView, type TunnelReach } from './inspection.service.js'
 
 /** A status file older than this: the supervisor is not writing it. */
 const STALE_MS = 2 * 60_000
@@ -47,24 +49,39 @@ function databaseAddress(): string | null {
   }
 }
 
+/** What the supervisor last wrote of itself, or null. */
+async function readSupervisor(): Promise<any> {
+  const file = statusFile()
+  try {
+    return file ? JSON.parse(await readFile(file, 'utf8')) : null
+  } catch {
+    return null
+  }
+}
+
+function reachOf(sup: any, orgId: string): TunnelReach {
+  const org = (lastSelfAnswer()?.body?.orgs ?? []).find((o: any) => o?.id === orgId)
+  return { linkLevel: sup?.registration?.linkLevel ?? null, address: typeof org?.address === 'string' ? org.address : null }
+}
+
+/** FR-20.47 (P3-8e): what the server offers for the tunnel now: its link, and the org's address. */
+export async function tunnelReach(orgId: string): Promise<TunnelReach> {
+  return reachOf(await readSupervisor(), orgId)
+}
+
 export async function serverStatus(orgId: string, now = new Date()): Promise<Record<string, unknown> | null> {
   if (nodeRole() !== 'master' || !/^[0-9a-f]{24}$/.test(orgId)) return null
-  const file = statusFile()
-  let sup: any = null
-  try {
-    if (file) sup = JSON.parse(await readFile(file, 'utf8'))
-  } catch {
-    sup = null
-  }
+  const sup = await readSupervisor()
   const writtenAt = sup?.writtenAt ? new Date(sup.writtenAt) : null
   const org = oid(orgId)
-  const [home, repl, backup, outboxQueued, devices, desktops]: [any, any, any, number, any[], any[]] = await Promise.all([
+  const [home, repl, backup, outboxQueued, devices, desktops, inspection]: [any, any, any, number, any[], any[], Awaited<ReturnType<typeof inspectionOf>>] = await Promise.all([
     OrgHome.findOne({ orgId: org }, { home: 1, epoch: 1, state: 1, seriesFrozen: 1 }).lean(),
     ReplOrg.findOne({ orgId: org }, { seq: 1, reconciledEpoch: 1 }).lean(),
     BackupRun.findOne({ orgId: org, status: 'completed', completedAt: { $exists: true } }, { completedAt: 1 }).sort({ completedAt: -1 }).lean(),
     Outbox.countDocuments({ orgId: org, state: { $in: ['queued', 'sending'] } }),
     FiscalDevice.find({ orgId: org, isActive: { $ne: false } }, { name: 1, deviceNumber: 1, manufacturer: 1, connectionType: 1, status: 1 }).lean(),
     Desktop.find({ orgId: org, status: 'active' }, { name: 1, lastSeenAt: 1 }).lean(),
+    inspectionOf(orgId),
   ])
   const self = lastSelfAnswer()
   const mirror = (self?.body?.mirrors ?? []).find((m: any) => m.orgId === orgId) ?? null
@@ -124,6 +141,8 @@ export async function serverStatus(orgId: string, now = new Date()): Promise<Rec
       version: sup?.version ?? null,
       // FR-20.50: the SUPTO version that runs, as the supervisor says it.
       supto: u?.supto ?? null,
+      // FR-20.47 (P3-8e): where an inspector reaches this server (Н-18 чл. 52и(1)).
+      inspection: inspectionView(inspection, reachOf(sup, orgId)),
     },
   }
 }

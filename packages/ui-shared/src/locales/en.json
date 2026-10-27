@@ -3571,7 +3571,41 @@
       "protocolValue": "HTTPS (TLS) between the desktops and the server; TLS to lgrai.app",
       "supto": "SUPTO version",
       "topology": "Topology",
-      "topologyValue": "{desktops} desktops → server (LGR Server {version}) → copy at {mirror}, link level {link}"
+      "topologyValue": "{desktops} desktops → server (LGR Server {version}) → copy at {mirror}, link level {link}",
+      "inspection": "Remote inspection (Н-18 Art. 52и)"
+    },
+    "inspection": {
+      "edit": "Where an inspector reaches this server",
+      "title": "Remote inspection",
+      "intro": "A tax inspector must be able to reach every device of the system without delay, servers included (Н-18 Art. 52и(1)). A server in the shop is inspected there. A server outside the shop needs a declared remote path, which you also declare in Appendix 32.",
+      "premises": "Where the server stands",
+      "shop": "In the shop",
+      "offsite": "Off the premises (a server room, a data centre)",
+      "path": "How an inspector reaches it",
+      "tunnel": "Through the organization's address on lgrai.app",
+      "tunnelAt": "Through the organization's address: {address}",
+      "overlay": "Through the roomler overlay",
+      "vpn": "Through the company's own VPN",
+      "detail": "The address an inspector uses",
+      "detailHint": "For example the server's address on the overlay or in the VPN.",
+      "shopValue": "In the shop: inspected on site",
+      "tunnelValue": "Off the premises, through {address}",
+      "overlayValue": "Off the premises, through the roomler overlay: {detail}",
+      "vpnValue": "Off the premises, through the company's VPN: {detail}",
+      "undeclaredShort": "Not declared",
+      "pathMissingShort": "Off the premises, with no path",
+      "undeclared": "Say where this server stands. A server outside the shop needs a declared path for a tax inspector.",
+      "saved": "Saved. Declare the change in Appendix 32 within 7 days.",
+      "failed": "It could not be saved.",
+      "problem": {
+        "undeclared": "Not declared",
+        "path_missing": "This server is off the premises and has no declared inspection path.",
+        "link_not_full": "The tunnel needs the Full link to lgrai.app",
+        "no_address": "The tunnel needs the organization's address on lgrai.app",
+        "premises_required": "Say where the server stands.",
+        "path_required": "A server off the premises needs an inspection path.",
+        "detail_required": "Say how an inspector reaches the server that way."
+      }
     }
   },
   "desktops": {

@@ -2711,6 +2711,23 @@ so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.
   the nav entry, 200 either way. ⚠ One server may hold several orgs: the licence is projected to
   THIS org's (plan, paid through, grace, error), never the supervisor's whole list. A file older than
   two minutes says the supervisor is not writing.
+- **Where an inspector reaches the server (FR-20.47, P3-8e; `node/inspection.service.ts`).** Н-18
+  чл. 52и(1): every device of the СУПТО, servers included, reachable "незабавно".
+  - **The declaration**, per org (`NodeState` `inspection:<orgId>`, node state, never mirrored or
+    bundled): the server stands in the shop (inspected there, no path asked), or off the premises.
+    Off the premises it needs a path:
+    - `tunnel`, the org's address, refused (409) without the Full link (`link_not_full`) or without
+      an issued address (`no_address`);
+    - `overlay`, the roomler overlay, with the address an inspector uses;
+    - `vpn`, the company's VPN, with the address an inspector uses.
+  - `PUT /org/:orgId/server/inspection`: admin or `admin.settings`, on the server only (404 on
+    lgrai.app, and the home gate's 409 before that for an org written on a server). The change is
+    audited (`entityType: 'server'`).
+  - **lgrai.app's `/self` now names each org's address** (`orgs[].address`), which is how the server
+    knows the tunnel's.
+  - **The status page's Прил. 32 panel** shows the path, and a hint while it is undeclared, missing,
+    or broken (e.g. the link went down to Control). An admin declares it there.
+  - `docs/supto/FUNCTIONAL-DESCRIPTION.md` §13 is the on-prem variant the spec asks for.
 - **The digest's on-prem lines (FR-20.100, P3-8b; `buildServerSection`).** An org's digest is built
   on its home (FR-20.85), so on a master it gains a `server` section: lgrai.app's copy (behind by how
   much, the last page's age, from `lastSelfAnswer`), the last backup there, and what waits in the

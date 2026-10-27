@@ -9,7 +9,9 @@
  * Then the org's address (FR-20.72–20.74, plan step P3-4c): `move-e2e.lgrai.app`, sent to global's
  * port, reaches the master's API over the master's own link. Its session, its writes, its pages and
  * its WebSockets, and never a stamp the client wrote. And through a second pod of lgrai.app, which
- * holds no socket of the master and forwards to the one that does (P3-4d).
+ * holds no socket of the master and forwards to the one that does (P3-4d). Then the server, off the
+ * premises, declares that address as the path an inspector uses (FR-20.47, P3-8e), once lgrai.app
+ * names it.
  *
  * Then back (FR-20.80, plan step P3-6c): the shop makes a document with a file on the master, the
  * admin moves the org back to lgrai.app, the master freezes it and drains, global puts the file
@@ -386,6 +388,19 @@ try {
     podB.kill()
     await podB.exited
   }
+
+  // FR-20.47 (P3-8e): off the premises, the server declares where an inspector reaches it. The tunnel,
+  // once lgrai.app's /self names the org's address to it (its link tick runs every minute).
+  const declared: any = await until(async () => {
+    const r = await viaAddress(`/api/org/${orgId}/server/inspection`, { method: 'PUT', headers: { ...bearer, 'content-type': 'application/json' }, body: JSON.stringify({ premises: 'offsite', path: 'tunnel' }) })
+    const b: any = await r.json().catch(() => null)
+    return r.status === 200 ? b : false
+  }, 150_000, 5000)
+  check('off the premises, the server declares the org\'s address as its inspection path, once lgrai.app names it',
+    declared?.inspection?.path === 'tunnel' && declared.inspection.address === 'https://move-e2e.lgrai.app' && declared.inspection.problem === null,
+    JSON.stringify(declared?.inspection ?? null))
+  const statusPage: any = await (await viaAddress(`/api/org/${orgId}/server/status`, { headers: bearer })).json().catch(() => null)
+  check('…and its status page carries it for Прил. 32', statusPage?.status?.pril32?.inspection?.path === 'tunnel', JSON.stringify(statusPage?.status?.pril32?.inspection ?? null))
 
   if (PROMOTE) {
     // ── FR-20.81 (P3-6d): the server is lost, and lgrai.app's copy is promoted ─────────────────────
