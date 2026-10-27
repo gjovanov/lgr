@@ -2498,8 +2498,9 @@ Operator page: `docs/architecture/nodes.md#moving-an-org-to-its-master-fr-2079`.
 - A flip is claimed INSIDE its transaction: a report sent again after a crash between `verifying` and
   the flip finishes it, one after the flip is answered done, and a late second flip changes nothing
   (it would otherwise delete the mirror's new chain).
-- The desktops follow (P3-6b, below), the org can move back (P3-6c, below), and a lost server's
-  copy can be promoted (P3-6d, below). Not yet: fenced export/import (P3-6e).
+- The desktops follow (P3-6b, below), the org can move back (P3-6c, below), a lost server's copy
+  can be promoted (P3-6d, below), and a fenced server's work reaches lgrai.app for review (P3-6e,
+  below). Not yet: its audited import.
   - ⚠ `collectionDigests` hashes canonical EJSON in STORED field order, and the mirror's apply
     reorders a split document (`$mergeObjects: [home, kept]` puts global's fields last). So the move
     back compares with `homeDigests` instead, which is order-insensitive.
@@ -2662,8 +2663,8 @@ lgrai.app's copy" on the Servers page, on the home server's row while it is not 
   promotion of an org it was home of) and FENCES itself (`move-worker.service.ts#fenceHere`): home
   global at the new epoch, `state: 'fenced'`, `fenceCutoff` = the mirror's watermark at the
   promotion. It writes nothing more of the org and never resumes on its own; what it captured above
-  the cutoff waits for the export (FR-20.84, P3-6e). Global's welcome names the org `home: 'global'`,
-  so the pump sends nothing of it.
+  the cutoff is exported to lgrai.app for review (FR-20.84, P3-6e, below). Global's welcome names the
+  org `home: 'global'`, so the pump sends nothing of it.
   - ⚠ A done promotion stays in `movesForNode` however old (the others drop out after 30 days): a
     server back after a month must still fence.
   - ⚠ A REVOKED server is never told: its token is refused, and it goes on selling at the site. Revoke
@@ -2678,6 +2679,53 @@ lgrai.app's copy" on the Servers page, on the home server's row while it is not 
   `bun packages/tests/src/two-node/move-e2e.script.ts --promote` (real processes, 32 checks: the move
   to a real `lgr-server`, a file the shop made, the supervisor stopped, the promotion, numbering frozen
   then resumed above the site's number, and the restarted server fenced at exactly the cutoff).
+
+## What a fenced server did after the cutoff (2026-10-27, FR-20.84, plan step P3-6e, first half)
+
+A server that comes back after a promotion fences itself (above), then EXPORTS everything its
+journal captured above the cutoff and sends it to lgrai.app, where a person reviews it. Bringing its
+sales into the books is the audited import, not built yet: nothing of the export is written into
+the org. `services/biz/move/fenced-export.service.ts`; the master's half is
+`move-worker.service.ts#exportFenced`.
+- **What it holds** (`lgr-fenced/1`, one zstd stream):
+  - every document behind a `repl_journal` row above `fenceCutoff`, as a move carries it
+    (`moveProjection`);
+  - ⚠ also every row of another journal epoch than the cutoff's (`OrgMove.fenceJournalEpoch`, from
+    the mirror at the promotion): a lost history journaled them again, and whether global saw them
+    is unknown;
+  - a document gone since, as a deletion;
+  - the bytes of the files those rows name (`DocFile.currentPath`, a local `File.storagePath`),
+    inline, so the evidence is one artifact; a file not on disk is counted (`missingFiles`);
+  - a header (org, node, promotion, cutoff, epoch, journal head) and a trailer with every section's
+    count and sha256.
+- **Built once and kept** under the org's `docs/fenced/fenced-<moveId>.ndjson.zst`, on the master and
+  on global alike, so both sides' backups carry it. ⚠ Never discarded, whatever its state: it is the
+  evidence the audited import keeps (Прил. 42: full, unchanged, with source and time).
+- **Sent in chunks** of at most 4 MB (`PUT /api/node/v1/moves/:id/fenced-export?offset=&size=&sha256=`,
+  `GET` the same for where global stands), 16 a tick. A chunk anywhere but where global stands is
+  answered 409 `offset` with that offset, so a cut link resumes.
+  - The first chunk fixes size and sha256 for good: another is 409 `export_changed`.
+  - Global writes at the offset and NEVER truncates: a slow retry of an earlier chunk must not cut off
+    the ones after it.
+- **Checked when whole**: the sha256 against the announced one, then `readFencedExport`, every section
+  against the trailer. Either failing makes it `refused`, kept on both sides (`fenced_exports`, node
+  state, records its arrival).
+  - ⚠ One org's (AC 38): a document of another org, a collection a move does not carry, or a file path
+    outside the org's tree refuses the bundle.
+- **The review** (`GET /api/org/:orgId/moves/fenced-exports`, admin; a card per export on the Servers
+  page): counts per collection, deletions, files, and the sales and invoices by number, each checked
+  against lgrai.app NOW:
+  - `absent`: new here;
+  - `same_id`: made before the cutoff, changed after;
+  - `collision`: lgrai.app gave its number to another document, which the import will resolve by a
+    credit note and a re-issue (FR-20.51), never by an edit.
+- Tests:
+  - `fenced-export.flow` (6): what it holds, AC 38, the chunked receipt, refused and kept, the
+    review's three cases, and the worker exporting once and sending until global has it, across a
+    cut link;
+  - `move-e2e.script.ts --promote` (37): the shop's link CUT by the chaos proxy, a sale made while cut,
+    the promotion, and on the link's return the fence, the export with exactly that sale and its
+    customer, the same bytes on both sides, and the review naming the collision.
 
 ## Read-only where the org is not written (2026-10-27, FR-20.75, plan step P3-5, first half)
 

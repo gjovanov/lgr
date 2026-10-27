@@ -13,6 +13,7 @@ import { identityChangesFor } from 'services/biz/identity/identity-feed.service'
 import { OnpremCredentialError, credentialChangesFor } from 'services/biz/identity/onprem-credentials.service'
 import { MoveError, copied, copyFailed, copyFor, movesForNode } from 'services/biz/move/move.service'
 import { drained } from 'services/biz/move/move-back.service'
+import { FENCED_CHUNK, fencedExportStatus, receiveFencedChunk } from 'services/biz/move/fenced-export.service'
 import { rewelcomeNode } from '../websocket/uplink.js'
 import { repointOrgDesktops } from '../websocket/desktop.js'
 import {
@@ -271,6 +272,36 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
    * month. The master acts on each one in the state global gives it, and on nothing else.
    */
   .get('/moves', async ({ node }: any) => ({ moves: await movesForNode(node._id) }))
+
+  /**
+   * FR-20.84 (plan step P3-6e): a fenced master's export of what it did after a promotion's cutoff.
+   * Where lgrai.app stands with it, and its chunks, each at that offset. Received, it waits for a
+   * person: nothing of it is written into the org here.
+   */
+  .get('/moves/:id/fenced-export', async ({ node, params, status }: any) => {
+    if (!OBJECT_ID.test(params.id)) return status(404, { code: 'not_found' })
+    try {
+      return await fencedExportStatus(node._id, params.id)
+    } catch (e) {
+      return failMove(status, e)
+    }
+  })
+  .put(
+    '/moves/:id/fenced-export',
+    async ({ node, params, query, request, status }: any) => {
+      if (!OBJECT_ID.test(params.id)) return status(404, { code: 'not_found' })
+      if (Number(request.headers.get('content-length') ?? 0) > FENCED_CHUNK) return status(413, { code: 'chunk_too_large', message: `A chunk is at most ${FENCED_CHUNK} bytes.` })
+      try {
+        const bytes = new Uint8Array(await request.arrayBuffer())
+        const r = await receiveFencedChunk(node._id, params.id, { offset: Number(query.offset), size: Number(query.size), sha256: String(query.sha256 ?? '') }, bytes)
+        if (r.offsetMismatch) return status(409, { code: 'offset', message: 'Send from where lgrai.app stands.', received: r.received })
+        return r
+      } catch (e) {
+        return failMove(status, e)
+      }
+    },
+    { parse: 'none' },
+  )
 
   /** The copy of a move to this server, and its files: only while the move waits for them. */
   .get('/moves/:id/:part', async ({ node, params, status }: any) => {

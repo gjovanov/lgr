@@ -31,7 +31,7 @@
  * - **Aborted**: unfrozen, the org stays home here.
  */
 import { join } from 'node:path'
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdir, open, rm } from 'node:fs/promises'
 import type { mongo } from 'mongoose'
 import { config, nodeRole } from 'config'
 import { mongoose } from 'db/connection'
@@ -48,6 +48,7 @@ import { masterSealKey } from '../node/node-seal-key.js'
 import { discardMoveImport, fileSha256, importMoveBundle, orgHasData } from './move-bundle.js'
 import { homeDigests } from './home-digest.js'
 import { cloudRepointsKept, keepCloudRepoints } from '../desktop/repoint.service.js'
+import { FENCED_CHUNK, fencedExportPath, writeFencedExport } from './fenced-export.service.js'
 
 type ObjectId = mongo.ObjectId
 
@@ -61,6 +62,8 @@ interface MoveView {
   epochTo: number
   /** `promote`: the watermark global held when it took the org over; what this server captured above it waits for the export. */
   fenceCutoff?: number
+  /** `promote`: the journal epoch the cutoff counts in. */
+  fenceJournalEpoch?: number
   startedBy?: string
   bundle?: { sha256: string; bytes: number }
   files?: { sha256: string; bytes: number }
@@ -373,6 +376,65 @@ async function fenceHere(m: MoveView): Promise<boolean> {
   return true
 }
 
+const exportKey = (moveId: string) => `fenced-export:${moveId}`
+/** At most this many chunks of an export a tick: the link is the shop's, and other work waits. */
+const CHUNKS_PER_TICK = 16
+
+/**
+ * FR-20.84 (P3-6e): once fenced, everything this server captured above the cutoff, exported for
+ * lgrai.app, where a person reviews it and brings it in through the audited import. Built once and
+ * kept here for good (under the org's `docs/`, so its backups carry it); sent in chunks at the offset
+ * global holds, so a cut link resumes. Global never imports it on its own.
+ */
+async function exportFenced(call: Call, m: MoveView, at: Phase | null): Promise<boolean> {
+  if (m.state !== 'done' || at?.phase === 'uploaded' || at?.phase === 'refused_by_global') return false
+  const orgId = oid(m.orgId)
+  const home: any = await OrgHome.findOne({ orgId }).lean()
+  // Fenced for THIS promotion: a later move of the org here is another story.
+  if (home?.state !== 'fenced' || home.epoch !== m.epochTo) return false
+  const path = fencedExportPath(m.orgId, m.id)
+  const kept: any = ((await NodeState.findById(exportKey(m.id)).lean()) as any)?.value
+  if (!kept?.sha256) {
+    const w = await writeFencedExport(mongoose.connection.db as any, { orgId, nodeId: thisNode(), moveId: m.id, cutoff: m.fenceCutoff ?? 0, journalEpoch: m.fenceJournalEpoch }, path)
+    const value = { sha256: w.sha256, size: w.size, documents: w.documents, deleted: w.deleted, files: w.files, missingFiles: w.missingFiles, at: new Date() }
+    await NodeState.updateOne({ _id: exportKey(m.id) }, { $set: { value } }, { upsert: true })
+    await setPhase(m.id, 'exported')
+    logger.warn({ orgId: m.orgId, moveId: m.id, cutoff: m.fenceCutoff, ...value }, 'Fenced export: what this server did after the cutoff is exported for lgrai.app, and kept here')
+    return true
+  }
+  const base = `/api/node/v1/moves/${m.id}/fenced-export`
+  const res = await call(base)
+  if (!res.ok) throw new Error(`global answered ${res.status} to the export's status`)
+  let st: any = await res.json()
+  const fh = await open(path, 'r')
+  try {
+    for (let n = 0; n < CHUNKS_PER_TICK && st.state !== 'received' && st.state !== 'refused'; n++) {
+      const offset = Number(st.received) || 0
+      const len = Math.min(FENCED_CHUNK, kept.size - offset)
+      if (len <= 0) break
+      const chunk = Buffer.alloc(len)
+      await fh.read(chunk, 0, len, offset)
+      const put = await call(`${base}?offset=${offset}&size=${kept.size}&sha256=${kept.sha256}`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body: chunk }, 120_000)
+      const body: any = await put.json().catch(() => ({}))
+      // Global holds another offset (a lost answer, another pod): go on from there.
+      if (put.status === 409 && body?.code === 'offset') st = { state: 'receiving', received: body.received }
+      else if (!put.ok) throw new Error(`global answered ${put.status} (${body?.code ?? ''}) to a chunk of the export`)
+      else st = body
+    }
+  } finally {
+    await fh.close()
+  }
+  if (st.state === 'received') {
+    await setPhase(m.id, 'uploaded')
+    logger.warn({ orgId: m.orgId, moveId: m.id }, 'Fenced export: lgrai.app has it, for a person to review')
+  } else if (st.state === 'refused') {
+    // Kept here as well: a person brings it in by hand once they know why.
+    await setPhase(m.id, 'refused_by_global', { error: st.error })
+    logger.error({ orgId: m.orgId, moveId: m.id, error: st.error }, 'Fenced export: lgrai.app refused it; it stays here')
+  }
+  return true
+}
+
 /** The master's scheduler tick. One pass at a time; a failure is retried on the next. */
 export async function moveWorkerTick(now = new Date(), fetchImpl: Fetch = fetch, fiscalBusy: () => number = () => 0): Promise<number> {
   if (nodeRole() !== 'master' || running) return 0
@@ -389,6 +451,10 @@ export async function moveWorkerTick(now = new Date(), fetchImpl: Fetch = fetch,
       const at = await phaseOf(m.id)
       if (m.kind === 'promote') {
         if (await fenceHere(m)) acted++
+        else if (await exportFenced(call, m, at).catch(e => {
+          logger.warn({ moveId: m.id, err: e?.message ?? String(e) }, 'Fenced export: not sent this time; again on the next tick')
+          return false
+        })) acted++
         continue
       }
       // ⚠ First: a move back is left from here, never imported or discarded.

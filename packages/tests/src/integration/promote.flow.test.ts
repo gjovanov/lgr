@@ -197,8 +197,11 @@ describe('promoting the mirror (FR-20.81)', () => {
     expect(await OrgHome.findOne({ orgId: s.oid }).lean()).toMatchObject({ home: 'global', epoch: 2, state: 'fenced', fenceCutoff: 41 })
     expect(await homeOf(s.oid, { fresh: true })).toMatchObject({ home: 'global', state: 'fenced' })
     expect(((await NodeState.findById(`move:${view.id}`).lean()) as any).value.phase).toBe('fenced')
-    // Never resumes on its own: the next round changes nothing.
-    expect(await moveWorkerTick(new Date(), fetchImpl)).toBe(0)
+    // Never resumes on its own: the next round exports what it captured above the cutoff (P3-6e),
+    // and the home stays fenced.
+    expect(await moveWorkerTick(new Date(), fetchImpl)).toBe(1)
+    expect(((await NodeState.findById(`move:${view.id}`).lean()) as any).value.phase).toBe('exported')
+    expect(await OrgHome.findOne({ orgId: s.oid }).lean()).toMatchObject({ home: 'global', epoch: 2, state: 'fenced' })
     // Its banner says replaced, not moving.
     expect(await homeStatus(s.orgId)).toMatchObject({ home: 'global', state: 'fenced', moving: false })
   }, 60_000)

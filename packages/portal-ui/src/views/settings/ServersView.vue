@@ -75,6 +75,53 @@
           <v-btn color="primary" :disabled="!lastNumbersConfirmed" :loading="lastNumbersBusy" data-test="last-numbers-save" @click="saveLastNumbers">{{ $t('servers.lastNumbers.save') }}</v-btn>
         </v-card-actions>
       </v-card>
+      <!-- FR-20.84 (P3-6e): what a replaced server did after the cutoff, as it reached lgrai.app, for review. -->
+      <v-card v-for="ex in fencedExports" :key="ex.id" variant="outlined" class="mb-3" data-test="fenced-export">
+        <v-card-title class="text-subtitle-1 text-wrap">{{ $t('servers.fenced.title', { name: nodeName(ex.nodeId) }) }}</v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-2">{{ $t('servers.fenced.intro') }}</p>
+          <v-chip size="small" :color="ex.state === 'received' ? 'success' : ex.state === 'refused' ? 'error' : 'info'" variant="tonal" class="mb-2" data-test="fenced-state">
+            <template v-if="ex.state === 'received'">{{ $t('servers.fenced.state.received', { when: fmtDate(ex.receivedAt) }) }}</template>
+            <template v-else-if="ex.state === 'refused'">{{ $t('servers.fenced.state.refused') }}</template>
+            <template v-else>{{ $t('servers.fenced.state.receiving', { pct: Math.floor((100 * ex.received) / Math.max(1, ex.size)) }) }}</template>
+          </v-chip>
+          <div v-if="ex.error" class="text-caption text-error mb-2">{{ ex.error }}</div>
+          <template v-if="ex.summary">
+            <div class="text-body-2">{{ $t('servers.fenced.counts', { documents: ex.summary.documents, deleted: ex.summary.deleted, files: ex.summary.files }) }}</div>
+            <div v-if="ex.summary.missingFiles" class="text-caption text-warning">{{ $t('servers.fenced.missingFiles', { n: ex.summary.missingFiles }) }}</div>
+            <v-alert v-if="ex.collisions" type="warning" variant="tonal" density="compact" class="my-2" data-test="fenced-collisions">
+              {{ $t('servers.fenced.collisions', { n: ex.collisions }) }}
+            </v-alert>
+            <div class="text-subtitle-2 mt-3">{{ $t('servers.fenced.legalTitle') }}</div>
+            <div v-if="!ex.legal.length" class="text-body-2 text-medium-emphasis">{{ $t('servers.fenced.noLegal') }}</div>
+            <v-table v-else density="compact" class="mt-1" data-test="fenced-legal">
+              <thead>
+                <tr>
+                  <th>{{ $t('servers.fenced.number') }}</th>
+                  <th>{{ $t('servers.fenced.type') }}</th>
+                  <th>{{ $t('servers.fenced.date') }}</th>
+                  <th class="text-end">{{ $t('servers.fenced.total') }}</th>
+                  <th>{{ $t('servers.fenced.onGlobalLabel') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="l in ex.legal" :key="l.id" :data-test="'fenced-' + l.onGlobal">
+                  <td>{{ l.number || '—' }}</td>
+                  <td>{{ docTypeLabel(l.type) }}</td>
+                  <td>{{ fmtDate(l.issueDate, true) }}</td>
+                  <td class="text-end">{{ l.total ?? '' }} {{ l.currency ?? '' }}</td>
+                  <td>
+                    <v-chip size="x-small" :color="l.onGlobal === 'collision' ? 'error' : l.onGlobal === 'same_id' ? 'info' : 'success'" variant="tonal">
+                      {{ $t(`servers.fenced.onGlobal.${l.onGlobal}`, { number: l.collidesWith?.number ?? '' }) }}
+                    </v-chip>
+                  </td>
+                </tr>
+              </tbody>
+            </v-table>
+            <div v-if="ex.summary.legalTruncated" class="text-caption text-medium-emphasis mt-1">{{ $t('servers.fenced.truncated') }}</div>
+          </template>
+        </v-card-text>
+      </v-card>
       <!-- FR-20.69 (P3-3): while one of the org's servers is its home, its files on lgrai.app. -->
       <v-card v-if="mirror && mirror.home !== 'global'" variant="outlined" class="mb-3" data-test="mirror-files">
         <v-card-title class="text-subtitle-1">{{ $t('servers.files.title') }}</v-card-title>
@@ -428,7 +475,7 @@ interface ServerRow {
   } | null
 }
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const appStore = useAppStore()
 const { showSnackbar } = useSnackbar()
 
@@ -505,6 +552,7 @@ async function load() {
   void loadMove()
   void loadMirror()
   void loadLastNumbers()
+  void loadFencedExports()
   loading.value = true
   try {
     const { data } = await httpClient.get(base(), { params: { size: 100, ...(includeRevoked.value ? { includeRevoked: 'true' } : {}) } })
@@ -709,6 +757,32 @@ async function saveLastNumbers() {
     showSnackbar(e?.response?.data?.message ?? t('common.operationFailed'), 'error')
   } finally {
     lastNumbersBusy.value = false
+  }
+}
+
+// ── What a replaced server did after the cutoff (FR-20.84, P3-6e) ────────────────────────────
+interface FencedLegal { id: string; number?: string; type?: string; issueDate?: string; total?: number; currency?: string; onGlobal: 'absent' | 'same_id' | 'collision'; collidesWith?: { number: string } }
+interface FencedExportRow {
+  id: string
+  nodeId: string
+  state: 'receiving' | 'received' | 'refused'
+  size: number
+  received: number
+  receivedAt: string | null
+  error: string | null
+  summary: { documents: number; deleted: number; files: number; missingFiles: number; legalTruncated: boolean } | null
+  legal: FencedLegal[]
+  collisions: number
+}
+const fencedExports = ref<FencedExportRow[]>([])
+const fmtDate = (v?: string | null, day = false) => (v ? (day ? new Date(v).toLocaleDateString() : new Date(v).toLocaleString()) : '—')
+const docTypeLabel = (type?: string) => (type && te(`invoicing.docType.${type}`) ? t(`invoicing.docType.${type}`) : (type ?? ''))
+
+async function loadFencedExports() {
+  try {
+    fencedExports.value = (await httpClient.get(`${moveBase()}/fenced-exports`)).data.exports ?? []
+  } catch {
+    fencedExports.value = []
   }
 }
 

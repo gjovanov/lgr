@@ -97,7 +97,7 @@ export async function promote(orgId: string, by: { id: string }, evidence: Promo
     throw new MoveError(409, 'not_silent_long_enough', 'The server has been silent for less than 24 hours: wait, or attest that it is destroyed.', { silenceSince: pre.silenceSince })
   }
   const home = await homeOf(orgId, { fresh: true })
-  const mirror: any = await MirrorState.findOne({ orgId }, { watermark: 1 }).lean()
+  const mirror: any = await MirrorState.findOne({ orgId }, { watermark: 1, journalEpoch: 1 }).lean()
   try {
     const move = await OrgMove.create({
       orgId: oid(orgId), kind: 'promote', state: 'verifying', from: pre.nodeId, to: 'global', epochFrom: home.epoch, epochTo: home.epoch + 1,
@@ -107,6 +107,7 @@ export async function promote(orgId: string, by: { id: string }, evidence: Promo
       evidence: { hardware: evidence.hardware, tillsDisconnected: true, ...(pre.silenceSince ? { silenceSince: new Date(pre.silenceSince) } : {}), attestedAt: now },
       ...(pre.lossFrom ? { lossFrom: new Date(pre.lossFrom) } : {}),
       fenceCutoff: mirror?.watermark ?? 0,
+      ...(typeof mirror?.journalEpoch === 'number' ? { fenceJournalEpoch: mirror.journalEpoch } : {}),
       steps: [step('preflight', true, `${pre.checks.length} checks`), step('attested', true, `${evidence.hardware}, tills disconnected, silent since ${pre.silenceSince ?? 'never seen'}`)],
     })
     logger.warn({ orgId, nodeId: pre.nodeId, moveId: String(move._id), hardware: evidence.hardware, lossFrom: pre.lossFrom }, 'Promotion: the mirror becomes the home; legal numbering freezes until the site\'s last numbers are recorded')

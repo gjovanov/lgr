@@ -5,6 +5,7 @@ import { fiscalInFlight } from 'fiscal/in-flight'
 import { MoveError, abortMove, currentMove, preflightMove, startMove } from 'services/biz/move/move.service'
 import { preflightMoveBack, startMoveBack } from 'services/biz/move/move-back.service'
 import { legalSeriesOf, preflightPromote, promote, recordLastNumbers } from 'services/biz/move/promote.service'
+import { fencedExportsOf } from 'services/biz/move/fenced-export.service'
 import { OrgHome } from 'db/models'
 import { rewelcomeNode } from '../websocket/uplink.js'
 
@@ -134,6 +135,21 @@ export const moveController = new Elysia({ prefix: '/org/:orgId/moves' })
       isSignIn: true,
       body: t.Object({ hardware: t.Union([t.Literal('off'), t.Literal('destroyed')]), tillsDisconnected: t.Boolean(), slug: t.String({ maxLength: 200 }) }),
     },
+  )
+
+  /**
+   * FR-20.84 (P3-6e): what a replaced server did after the cutoff, as its exports reached lgrai.app,
+   * each sale checked against what lgrai.app holds now: new here, already here, or its number given
+   * to another document. For a person to review; nothing is imported.
+   */
+  .get(
+    '/fenced-exports',
+    async ({ params: { orgId }, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
+      return { exports: await fencedExportsOf(orgId) }
+    },
+    { isSignIn: true },
   )
 
   /** Whether legal numbering waits for the site's last numbers, and the series a person must give. */
