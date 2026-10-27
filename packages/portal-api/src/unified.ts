@@ -21,6 +21,7 @@ import { setupUplinkWS } from './websocket/uplink.js'
 
 // The master's front, control socket and stop (FR-20.16, FR-20.23)
 import { frontRefusal } from './front/front-guard.js'
+import { tunnelRouter } from './tunnel/router.js'
 import { startControlSocket } from './front/control-socket.js'
 import { gracefulStop, isStopping } from './front/graceful-stop.js'
 
@@ -76,6 +77,9 @@ for (const mod of UI_MODULES) {
 if (indexHtmlMap.portal) indexHtmlMap.portal = portalShellFor(indexHtmlMap.portal, nodeRole())
 
 const app = new Elysia()
+  // FR-20.72–20.74 (P3-4b): an org's address, `<label>.lgrai.app`, is its server's: tunnelled before
+  // anything of lgrai.app's own app, headers or cookies runs. Global only; nothing for other hosts.
+  .onRequest(tunnelRouter())
   // FR-20.16: behind the master's supervisor, before routing and for WebSocket upgrades too. Off
   // where no front secret is set; its master-only refusals hold on every master.
   .onRequest(async ({ request }) => {

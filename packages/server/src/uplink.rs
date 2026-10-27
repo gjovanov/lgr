@@ -57,6 +57,8 @@ pub struct Hooks {
     pub pages: Option<PagesHook>,
     /// FR-20.52: the bulk socket's pacer, fed by the interactive socket's round trips.
     pub pacer: Option<Arc<crate::pacing::Pacer>>,
+    /// FR-20.73 (P3-4c): only on the interactive channel, the API the tunnel's streams go to.
+    pub tunnel: Option<Arc<crate::ingress::Upstream>>,
 }
 
 #[derive(Clone)]
@@ -71,6 +73,7 @@ struct Wants {
     health: Option<HealthFn>,
     pages: Option<Arc<dyn crate::replication::PageSource>>,
     pacer: Option<Arc<crate::pacing::Pacer>>,
+    tunnel: Option<Arc<crate::ingress::Upstream>>,
 }
 
 /// The pump of one session: it ends with the session, at whichever of its returns.
@@ -294,6 +297,14 @@ where
         _ => None,
     };
 
+    // FR-20.73 (P3-4c): the tunnel to the orgs' addresses, on the interactive socket of a server global
+    // trusts. Its frames go out through `tun_rx`, below; a clone alarm ends it with every stream it carries.
+    let (tun_tx, mut tun_rx) = tokio::sync::mpsc::channel::<Message>(64);
+    let mut tunnel = match &hooks.tunnel {
+        Some(up) if ch == "interactive" && !suspended && !outdated => Some(crate::tunnel::Tunnel::new(up.clone(), tun_tx)),
+        _ => None,
+    };
+
     // FR-20.52: the interactive socket times its pings for the bulk socket's pacer. Numbered, so a
     // late pong is still timed for its own ping (a global that does not echo the number: only a
     // ping alone in flight is timed).
@@ -343,6 +354,11 @@ where
                 }
                 patch(status, ch, "lastHealthAt", now_iso().into());
             }
+            Some(frame) = tun_rx.recv(), if tunnel.is_some() => {
+                if let Err(e) = ws.send(frame).await {
+                    return Ended::Closed(format!("a tunnel frame was not sent: {e}"));
+                }
+            }
             Some(frame) = page_rx.recv(), if pumping => {
                 let sent = match frame {
                     crate::replication::Out::Binary(bytes) => ws.send(Message::binary(bytes)).await,
@@ -383,6 +399,8 @@ where
                             }
                             Some("clone-alarm") => {
                                 patch(status, ch, "suspended", true.into());
+                                // Global carries nothing more for a socket it does not trust.
+                                tunnel = None;
                                 tracing::error!(ch, "CLONE ALARM: another machine is connected as this server; global trusts neither until an administrator registers the real one again");
                             }
                             Some("revoked") => return Ended::Revoked(v["message"].as_str().unwrap_or("revoked").into()),
@@ -399,8 +417,18 @@ where
                             Some("page-ack" | "page-refused" | "page-error" | "blob-want" | "blob-ack" | "blob-refused" | "blob-error") => {
                                 let _ = answer_tx.send(v);
                             }
+                            Some(t) if t.starts_with("tun-") => {
+                                if let Some(tn) = tunnel.as_mut() {
+                                    tn.control(&v);
+                                }
+                            }
                             Some("error") => tracing::warn!(ch, code = v["code"].as_str().unwrap_or(""), "global: {}", v["message"].as_str().unwrap_or("")),
                             _ => {}
+                        }
+                    }
+                    Some(Ok(Message::Binary(b))) if crate::tunnel::is_frame(&b) => {
+                        if let Some(tn) = tunnel.as_mut() {
+                            tn.data(&b);
                         }
                     }
                     Some(Ok(Message::Close(f))) => return f.map(|f| close_ended(u16::from(f.code), f.reason.as_str())).unwrap_or(Ended::Closed("closed".into())),
@@ -434,6 +462,7 @@ async fn once(registrar: &Registrar, reg: &register::Registration, ch: &str, boo
         licence: Some(licence_hook(registrar.data.clone(), reg.node_id.clone())),
         pages: wants.pages.map(|source| PagesHook { source, node_id: reg.node_id.clone() }),
         pacer: wants.pacer,
+        tunnel: wants.tunnel,
     };
     Ok(session(&url, stream, hello, ch, timing, status, hooks).await)
 }
@@ -448,11 +477,12 @@ fn licence_hook(data: std::path::PathBuf, node: String) -> LicenceFn {
     })
 }
 
-/// One channel, for as long as the supervisor runs. `health` only on the interactive channel, `pages`
-/// only on the bulk one; `pacer` on both (the interactive one feeds it, the bulk one is paced by it).
+/// One channel, for as long as the supervisor runs. `health` and `tunnel` only on the interactive
+/// channel, `pages` only on the bulk one; `pacer` on both (the interactive one feeds it, the bulk one
+/// is paced by it).
 #[allow(clippy::too_many_arguments)]
-pub async fn run(registrar: Arc<Registrar>, ch: &'static str, boot_nonce: String, status: Status, timing: Timing, health: Option<HealthFn>, pages: Option<Arc<dyn crate::replication::PageSource>>, pacer: Option<Arc<crate::pacing::Pacer>>) {
-    let wants = Wants { health, pages, pacer };
+pub async fn run(registrar: Arc<Registrar>, ch: &'static str, boot_nonce: String, status: Status, timing: Timing, health: Option<HealthFn>, pages: Option<Arc<dyn crate::replication::PageSource>>, pacer: Option<Arc<crate::pacing::Pacer>>, tunnel: Option<Arc<crate::ingress::Upstream>>) {
+    let wants = Wants { health, pages, pacer, tunnel };
     let mut attempt: u32 = 0;
     // The registration a 4403 ended: the uplink waits for a newer one.
     let mut revoked: Option<i64> = None;
@@ -639,7 +669,7 @@ mod tests {
         });
         let mut t = quick();
         t.health = Duration::from_millis(50);
-        let ended = session(&url, tcp, hello(), "interactive", t, &status, Hooks { health: Some(health), licence: None, pages: None, pacer: None }).await;
+        let ended = session(&url, tcp, hello(), "interactive", t, &status, Hooks { health: Some(health), ..Default::default() }).await;
         assert!(matches!(ended, Ended::Closed(_)));
         let s = status.lock().unwrap()["interactive"].clone();
         assert_eq!((s["outdated"].as_bool(), s["minMasterVersion"].as_str()), (Some(true), Some("9.0.0")));
@@ -680,7 +710,7 @@ mod tests {
         let status: Status = Arc::new(Mutex::new(serde_json::json!({})));
         let got: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
         let sink = got.clone();
-        let hooks = Hooks { health: None, licence: Some(Arc::new(move |j: &str| sink.lock().unwrap().push(j.to_string()))), pages: None, pacer: None };
+        let hooks = Hooks { licence: Some(Arc::new(move |j: &str| sink.lock().unwrap().push(j.to_string()))), ..Default::default() };
         let addr = url.trim_start_matches("ws://").split('/').next().unwrap().to_string();
         let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
         let _ = session(&url, tcp, hello(), "interactive", quick(), &status, hooks).await;

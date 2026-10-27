@@ -2617,10 +2617,61 @@ so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.
     address answers with a notice for 12 months and is never issued again.
   - **"Sign in with LGR"** now returns a person only to an ACTIVE address of the server's orgs
     (`activeLabelsOf`), no longer to any slug.
-  - **Next:** the router and edge filter (P3-4b), then the tunnel (P3-4c).
+  - **Next:** forwarding between global's pods (P3-4d), then the DNS record and the edge's server
+    block (P3-4e).
   - **The edge** (mars' Docker nginx, `gjovanov/nginx`) already holds a ZeroSSL certificate for
     `*.lgrai.app`. P3-4e adds the wildcard DNS record at Cloudflare and the nginx server block.
     ⚠ The zone already serves `harvex` and `qa`.
+- **The tunnel, lgrai.app's side (FR-20.72–20.74, FR-20.78, P3-4b; `portal-api/src/tunnel/`).** A
+  global-only `onRequest`, registered FIRST in `unified.ts`, handles every `Host` of the form
+  `<label>.<ORG_ADDRESS_APEX>` whose label is not reserved. Such a request belongs to the org's
+  server, never to lgrai.app: once a hook returns a `Response`, none of lgrai.app's later hooks,
+  headers or cookies run (measured).
+  - **Routing** (cached 10 s):
+    - an ACTIVE address of an org homed on a master REGISTERED for it tunnels;
+    - a requested or refused address, no address, or an org homed on lgrai.app answers exactly like
+      an unknown label: 404 (a page, or JSON for an API client);
+    - a retired address answers 410 for its 12 months;
+    - a server that is not connected gets a 503 static notice, never a sign-in page (FR-20.75).
+  - **The edge** (FR-20.78). A credential is a non-empty bearer token or a non-empty `__Host-`
+    cookie; global checks only that one is present, and the master validates it. Without one, only
+    these pass: GETs outside `/api/`, `/api/auth/idp/*`, and WebSocket upgrades. Anything else is
+    401. Anonymous requests are limited per address (600/min) and per client (120/min), counted per pod.
+  - **The wire** (`services/biz/tunnel/tunnel-frame.ts`; the supervisor mirrors it). It runs on the
+    INTERACTIVE uplink, and only over a socket `isTrusted` accepts.
+    - Frames: JSON control frames `tun-open`, `tun-credit`, `tun-cancel`, `tun-head`, `tun-error`,
+      `tun-ws-open` and `tun-ws-close`; binary `LGRT` data frames of at most 64 KB.
+    - Each stream gets a 256 KB credit window in each direction, used whole and never exceeded.
+    - An HTTP stream idle for 120 s is closed (504); WebSockets are not timed.
+    - A link drop fails its streams. A GET or HEAD with no answer yet is retried once, on the server's
+      next socket.
+    - Headers: request headers cross without hop-by-hop headers, `X-LGR-*`, forwarding headers or
+      the WebSocket handshake's own. A response's `Set-Cookie` loses any `Domain`.
+  - ⚠ **Elysia's WebSocket wrapper turns anything but a Buffer into text.** Binary goes out through
+    `raw.sendBinary`.
+  - ⚠ **The browser's WebSocket is upgraded inside `onRequest`**, with `server.upgrade(req, {data:
+    handlers})` (Elysia dispatches to `ws.data.*`), and the hook returns a 101.
+  - **Not yet:** forwarding to the pod that holds the uplink is P3-4d. Until then, a server connected
+    to another pod reads as offline here.
+- **The tunnel, the server's side (FR-20.73, P3-4c; `packages/server/src/tunnel.rs`).** The supervisor
+  carries the streams on its INTERACTIVE uplink only, and not while that socket is suspended or
+  outdated. A clone alarm ends the tunnel along with every stream in it.
+  - **One task per stream.** An HTTP stream goes to the API's loopback port. The request body is
+    passed on as global sends it, and credit goes back as the API takes each chunk. The answer goes
+    out only within the credit global grants. A WebSocket stream opens its own socket to the API and
+    carries whole messages, up to 1 MB each.
+  - **Stamped exactly like a LAN request** (`ingress::stamp`, `Source::Tunnel`):
+    - the client's `X-LGR-*` and forwarding headers are dropped (global drops them too);
+    - the front secret, the source and the client's address are stamped;
+    - the org's address is the `Host`.
+  - ⚠ **The API answers `<label>.<ORG_ADDRESS_APEX>` ONLY for the `tunnel` source**
+    (`front-guard.ts#isOrgAddressHost`). The same name from the LAN is 403 `host_not_allowed`. The
+    tunnel source is never held to the LAN's desktop-credential rule, and creating an org stays the
+    console's.
+  - ⚠ The session loop drains the socket's outbound channel, so nothing in it may wait on that
+    channel. An immediate answer goes out through a spawned send.
+  - Proven end to end in `two-node/move-e2e.script.ts`: a master-signed session, a write, a bundle
+    larger than one window, a WebSocket, a forged stamp dropped, and a 404 once the org has moved back.
 - **A master's own status page (FR-20.98, FR-20.50, P3-8b; `/settings/server`).** The supervisor
   writes its status every 30 s to `state/status.json` (`status_file.rs`: atomic, with the volume and
   the oplog's reach beside it; nothing secret is in a supervisor status), beside the node token, so
@@ -3117,8 +3168,8 @@ any member of the org may, nothing in it is secret, and it is in the PIN scope t
     shows. The client itself has no i18n.
   - `org_home_elsewhere` → `home.writeRefused`, `series_frozen` → `home.seriesFrozen`. Strings:
     `home.*`, ×4.
-- Not yet (P3-4, the tunnel): the org's own address, which shows only a static notice while its server
-  is offline and never a sign-in.
+- The org's own address (P3-4) shows a static notice while its server is offline, never a sign-in
+  (`portal-api/src/tunnel/notice.ts`).
 - Tests: `home-status.flow` (4).
 
 ## The mirror's files (2026-10-27, FR-20.66, FR-20.69, plan step P3-3)

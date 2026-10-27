@@ -6,9 +6,14 @@
  * it through the supervisor's egress, and the flip makes the master its home. The mirror then
  * starts again from the move, and ends equal to the master, document for document.
  *
+ * Then the org's address (FR-20.72–20.74, plan step P3-4c): `move-e2e.lgrai.app`, sent to global's
+ * port, reaches the master's API over the master's own link. Its session, its writes, its pages and
+ * its WebSockets, and never a stamp the client wrote.
+ *
  * Then back (FR-20.80, plan step P3-6c): the shop makes a document with a file on the master, the
  * admin moves the org back to lgrai.app, the master freezes it and drains, global puts the file
- * where its row says and flips, and the master keeps a read-only copy.
+ * where its row says and flips, and the master keeps a read-only copy. The address then answers like
+ * an unknown one: an org that lives on lgrai.app has none.
  *
  * Or, with `--promote` (FR-20.81 and FR-20.84, plan steps P3-6d and P3-6e): the shop makes a
  * document with a file, then its link is CUT, and it goes on selling (a sale numbered past what the
@@ -44,7 +49,7 @@
  */
 import { MongoBinary, MongoMemoryReplSet } from 'mongodb-memory-server'
 import { createHash, randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import zlib from 'node:zlib'
 import { Elysia } from 'elysia'
@@ -54,7 +59,7 @@ import { chaosProxy } from './chaos-proxy'
 import { PERMISSIONS } from 'config/constants'
 import { mongoose } from 'db/connection'
 import { REPLICATION_META } from 'db/replication/meta.generated'
-import { Identity, OnpremCredential, User } from 'db/models'
+import { Identity, OnpremCredential, OrgAddress, User } from 'db/models'
 import { createTestContact, createTestOrg } from '../helpers/factories'
 import { mintNodeEnrollmentCode } from 'services/biz/node/node.service'
 import { collectionDigests } from 'services/biz/move/move-bundle'
@@ -287,6 +292,55 @@ try {
   check('global raised no alarm', !(st?.alarms ?? []).length, JSON.stringify(st?.alarms ?? []))
   const audit = await mdb.collection('auditlogs').findOne({ orgId, entityType: 'org_move', entityName: 'from lgrai.app' })
   check('the master recorded the arrival in the org\'s own trail', !!audit)
+
+  // ── FR-20.72–20.74 (P3-4c): the org's address reaches the master over the master's own link ──────
+  // The address is issued here directly: requesting and approving it is org-address.flow's.
+  await OrgAddress.create({ label: 'move-e2e', orgId, state: 'active', requestedBy: String(admin._id), requestedAt: new Date(), decidedBy: 'move-e2e', decidedAt: new Date() } as any)
+  // Straight to global's port with the address as the Host, the way lgrai.app's proxy hands it on.
+  const viaAddress = (path: string, init: RequestInit = {}, host = 'move-e2e.lgrai.app') =>
+    fetch(`http://127.0.0.1:${globalPort}${path}`, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), host } })
+  // A session the MASTER signed: global never holds that key, so only the master can accept it.
+  const apiSecrets = Object.fromEntries(readFileSync(join(DATA, 'keys', 'api-secrets.env'), 'utf8').split(/\r?\n/).filter(Boolean).map(l => l.split(/=(.*)/s).slice(0, 2)))
+  const masterSigner = (new Elysia().use(jwt({ name: 'jwt', secret: apiSecrets.JWT_SECRET })) as any).decorator.jwt
+  const shopToken = await masterSigner.sign({ id: String(admin._id), email: admin.email, username: 'ana', firstName: 'Ana', lastName: 'Shop', role: 'admin', orgId: String(orgId), permissions: [...PERMISSIONS] })
+  const bearer = { authorization: `Bearer ${shopToken}` }
+
+  const nobody = await viaAddress('/', { headers: { accept: 'text/html' } }, 'nobody-here.lgrai.app')
+  check('an address nobody has answers 404, from lgrai.app', nobody.status === 404, `${nobody.status}`)
+  const anon = await viaAddress(`/api/org/${orgId}/invoicing/contact`)
+  check('…and the org\'s API without a sign-in is refused at the edge', anon.status === 401 && (await anon.json().catch(() => null))?.code === 'unauthenticated', `${anon.status}`)
+  const listed = await viaAddress(`/api/org/${orgId}/invoicing/contact?size=200`, { headers: bearer })
+  const listedBody: any = await listed.json().catch(() => null)
+  const notHere = await fetch(`http://127.0.0.1:${globalPort}/api/org/${orgId}/invoicing/contact?size=200`, { headers: bearer })
+  check('a session the master signed reads the org through its address: the master answers', listed.status === 200 && (listedBody?.contacts ?? []).some((c: any) => c.companyName === 'Written at the shop 0') && notHere.status === 401, `${listed.status}, on global itself ${notHere.status}`)
+  const posted = await viaAddress(`/api/org/${orgId}/invoicing/contact`, { method: 'POST', headers: { ...bearer, 'content-type': 'application/json' }, body: JSON.stringify({ type: 'customer', companyName: 'Written through the address', notes: 'n'.repeat(5000) }) })
+  check('…and writes it: the body crosses, and the document is the master\'s', posted.status === 200 && !!(await mdb.collection('contacts').findOne({ orgId, companyName: 'Written through the address' })), `${posted.status}`)
+  // What the client stamps never crosses: the master sees the tunnel, which may not create an org.
+  const stamped = await viaAddress('/api/auth/register', { method: 'POST', headers: { ...bearer, 'x-lgr-source': 'console', 'x-lgr-front': 'forged', 'content-type': 'application/json' }, body: '{}' })
+  check('…while a stamp the client writes is dropped: org creation stays the console\'s', stamped.status === 404, `${stamped.status}`)
+  // The app itself, anonymously: its largest bundle, well past one stream's 256 KB window, byte for byte.
+  const page = await viaAddress('/', { headers: { accept: 'text/html' } })
+  const pageOk = page.status === 200 && (page.headers.get('content-type') ?? '').includes('text/html') && (await page.text()).includes('/assets/')
+  const assets = join(REPO, 'packages', 'portal-ui', 'dist', 'assets')
+  const bundle = readdirSync(assets).filter(f => f.endsWith('.js')).map(f => ({ f, size: statSync(join(assets, f)).size })).sort((a, b) => b.size - a.size)[0]
+  const tunnelled = Buffer.from(await (await viaAddress(`/assets/${bundle.f}`)).arrayBuffer())
+  check('the app\'s own pages come through the address, its largest bundle whole', pageOk && bundle.size > 256 * 1024 && tunnelled.equals(readFileSync(join(assets, bundle.f))), `${page.status} ${bundle.f}: ${tunnelled.length} of ${bundle.size} B`)
+  // A WebSocket: it signs in with its first message, and the master's socket answers.
+  const said = await new Promise<string[]>(res => {
+    const got: string[] = []
+    const ws = new WebSocket(`ws://127.0.0.1:${globalPort}/ws/tasks`, { headers: { host: 'move-e2e.lgrai.app' } } as any)
+    const done = () => { try { ws.close() } catch { /* closed */ } ; res(got) }
+    const timer = setTimeout(done, 15_000)
+    ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', token: shopToken }))
+    ws.onmessage = e => {
+      const m = JSON.parse(String(e.data))
+      got.push(m.type)
+      if (m.type === 'authenticated') ws.send(JSON.stringify({ type: 'ping' }))
+      if (m.type === 'pong') { clearTimeout(timer); done() }
+    }
+    ws.onclose = () => { clearTimeout(timer); res(got) }
+  })
+  check('a WebSocket through the address signs in on the master and is answered', said.join(',') === 'authenticated,pong', said.join(','))
 
   if (PROMOTE) {
     // ── FR-20.81 (P3-6d): the server is lost, and lgrai.app's copy is promoted ─────────────────────
@@ -578,6 +632,9 @@ try {
     const writeBack = await asAdmin('POST', `/org/${orgId}/invoicing/contact`, { type: 'customer', companyName: 'Written on lgrai.app again' })
     check('global writes the org again', writeBack.status === 200, `${writeBack.status} ${writeBack.body?.code ?? ''}`)
     check('…and keeps no mirror state or content store for it', (await gdb.collection('mirror_state').countDocuments({ orgId })) === 0 && (await gdb.collection('mirror_blobs').countDocuments({ orgId })) === 0)
+    // An org that lives on lgrai.app has no address there: its label answers like an unknown one.
+    const unrouted = await until(async () => (await viaAddress('/', { headers: { accept: 'text/html' } })).status === 404, 30_000, 2000)
+    check('its address stops reaching the server once the org is home on lgrai.app', !!unrouted)
     const leftAudit = await until(() => gdb.collection('auditlogs').findOne({ orgId, entityType: 'org_move', entityName: 'to lgrai.app' }), 10_000)
     check('the org\'s trail, written on the master before the freeze, came back with it', !!leftAudit)
   }

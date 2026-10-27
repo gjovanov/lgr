@@ -228,6 +228,15 @@ export async function retireAddress(id: string, by: string, now = new Date()) {
   return wire(row)
 }
 
+/**
+ * What an address label is now, for the router (P3-4b): an active address and its org, a retired one
+ * and until when it answers a notice, or nothing (a request, a refusal, no such label).
+ */
+export async function addressRoute(label: string): Promise<{ state: 'active' | 'retired'; orgId: string; noticeUntil: Date | null } | null> {
+  const row: any = await OrgAddress.findOne({ label, state: { $in: ['active', 'retired'] } }, { state: 1, orgId: 1, noticeUntil: 1 }).lean()
+  return row ? { state: row.state, orgId: String(row.orgId), noticeUntil: row.noticeUntil ?? null } : null
+}
+
 /** The active address labels of these orgs: where "Sign in with LGR" may send a person back (FR-20.78). */
 export async function activeLabelsOf(orgIds: readonly unknown[]): Promise<string[]> {
   if (!orgIds.length) return []
