@@ -195,6 +195,13 @@
               {{ $t('servers.reconcile.kept', { count: mirror.reconcile.kept.length, numbers: mirror.reconcile.kept.slice(0, 10).map(k => k.number).join(', ') }) }}
             </div>
           </div>
+          <!-- FR-20.65 (P3-2c): documents of the server lgrai.app could not write into its copy. -->
+          <div v-if="mirror.deadLetters?.open" class="text-body-2 text-warning mt-3" data-test="mirror-dead-letters">
+            {{ $t('servers.deadLetters.intro', { count: mirror.deadLetters.open }) }}
+            <ul class="text-caption mt-1 ml-4">
+              <li v-for="d in mirror.deadLetters.items" :key="`${d.coll}|${d.id}`">{{ $t(`servers.deadLetters.reason.${d.reason}`, { coll: d.coll, id: d.id }) }}</li>
+            </ul>
+          </div>
         </v-card-text>
       </v-card>
       <v-switch
@@ -652,6 +659,8 @@ interface MirrorFiles {
   complete: boolean
   /** FR-20.70 (P3-7f): the last reconcile of the copy, after the server lost the record of its changes. */
   reconcile: { since: string; doneAt: string | null; deleted: number; kept: Array<{ number: string; at: string }>; asked: number | null } | null
+  /** FR-20.65 (P3-2c): the server's documents lgrai.app set aside instead of writing. */
+  deadLetters: { open: number; items: Array<{ coll: string; id: string; reason: string; detail: string | null; at: string; attempts: number }> }
 }
 const mirror = ref<MirrorFiles | null>(null)
 const mirrorBusy = ref(false)

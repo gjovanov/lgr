@@ -33,7 +33,9 @@
  * lgrai.app takes the epoch's pages because they continue its chain, and the master's tick asks for
  * every id lgrai.app's copy holds and journals each again. The copy loses what the master deleted,
  * keeps the issued sale with an alarm, and is the master's again, document for document. Numbering
- * stays open: the master lost a record, not its data.
+ * stays open: the master lost a record, not its data. Then (FR-20.65, plan step P3-2c) a document
+ * whose id another org holds on lgrai.app is set aside: what the shop writes next still reaches the
+ * copy, the Servers page lists it, and a move back waits for it.
  *
  *   bun packages/tests/src/two-node/move-e2e.script.ts [--promote | --reseed | --reconcile]
  *
@@ -503,6 +505,24 @@ try {
     await mdb.collection('contacts').insertOne({ _id: new mongoose.Types.ObjectId(), orgId, companyName: 'Written after the reconcile', type: 'customer', isActive: true })
     const after = await until(async () => (await mirrorAt()) >= (await headOf()) && (await sameButTheSale()), 120_000, 1500)
     check('what the shop writes next reaches the copy', !!after, `journal head ${await headOf()}, mirror ${await mirrorAt()}`)
+
+    // ── FR-20.65 (P3-2c): a document lgrai.app cannot write is set aside, and the org goes on ────────
+    // Another org on lgrai.app holds the id the shop's next contact gets (an org copied under another id).
+    const clash = new mongoose.Types.ObjectId()
+    const otherOrg = new mongoose.Types.ObjectId()
+    await gdb.collection('contacts').insertOne({ _id: clash, orgId: otherOrg, companyName: 'Another org\'s', type: 'customer', isActive: true })
+    await mdb.collection('contacts').insertOne({ _id: clash, orgId, companyName: 'The shop\'s', type: 'customer', isActive: true })
+    const afterClash = new mongoose.Types.ObjectId()
+    await mdb.collection('contacts').insertOne({ _id: afterClash, orgId, companyName: 'Written after the clash', type: 'customer', isActive: true })
+    const through = await until(async () => (await mirrorAt()) >= (await headOf()) && !!(await gdb.collection('contacts').findOne({ _id: afterClash })), 120_000, 1500)
+    check('a document whose id another org holds on lgrai.app does not stop the org: what follows reaches the copy', !!through, `journal head ${await headOf()}, mirror ${await mirrorAt()}`)
+    const letter: any = await gdb.collection('mirror_dead_letters').findOne({ orgId, docId: clash })
+    check('…it is set aside, and the other org\'s document is untouched', letter?.status === 'open' && letter.reason === 'foreign_collision' && ((await gdb.collection('contacts').findOne({ _id: clash })) as any)?.orgId?.equals(otherOrg), JSON.stringify(letter && { status: letter.status, reason: letter.reason, attempts: letter.attempts }))
+    const back = await asAdmin('POST', `/org/${orgId}/moves/preflight`, { to: 'global' })
+    const whole = (back.body?.checks ?? []).find((c: any) => c.name === 'mirror_whole')
+    check('…and a move back waits for it', whole?.ok === false, JSON.stringify(whole))
+    const shown = await asAdmin('GET', `/org/${orgId}/nodes/mirror`)
+    check('…which the Servers page lists', shown.body?.mirror?.deadLetters?.open === 1 && shown.body.mirror.deadLetters.items?.[0]?.reason === 'foreign_collision', JSON.stringify(shown.body?.mirror?.deadLetters))
   }
 
   if (!PROMOTE && !RESEED && !RECONCILE) {

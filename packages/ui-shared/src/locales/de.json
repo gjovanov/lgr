@@ -3263,6 +3263,7 @@
         "no_till_open": "Keine Kassensitzung ist offen",
         "no_fiscal_command": "Kein Fiskalgerät druckt",
         "mirror_live": "lgrai.app hält einen Spiegel der Organisation",
+        "mirror_whole": "Jedes Dokument ist in der Kopie auf lgrai.app",
         "files": "Jede Datei ist auf lgrai.app oder unterwegs"
       },
       "allowMissingFiles": "Ohne die Dateien zurückziehen, die der Server nicht senden kann",
@@ -3426,6 +3427,13 @@
       "running": "{name} hat am {since} die Aufzeichnung seiner Änderungen verloren. Die Kopie der Datensätze auf lgrai.app wird wieder mit ihm abgeglichen: was er inzwischen gelöscht hat, wird auch hier entfernt.",
       "done": "Die Kopie der Datensätze auf lgrai.app wurde am {when} wieder mit {name} abgeglichen, nachdem der Server die Aufzeichnung seiner Änderungen verloren hatte. {count} Dokumente, die er nicht mehr hatte, wurden hier entfernt.",
       "kept": "{count} ausgestellte Verkäufe auf lgrai.app sind auf dem Server nicht mehr vorhanden und wurden hier behalten: {numbers}. Ein Server, der einen ausgestellten Verkauf verliert, ist in der Zeit zurückgegangen: prüfen Sie ihn, bevor er weitere ausstellt."
+    },
+    "deadLetters": {
+      "intro": "{count} Dokumente des Servers konnten nicht in die Kopie auf lgrai.app geschrieben werden. lgrai.app fordert sie beim Server erneut an, jedes Mal seltener: Sobald die Ursache behoben ist, kommen sie von selbst. Bis dahin wartet ein Umzug zurück.",
+      "reason": {
+        "foreign_collision": "{coll} {id}: Seine ID oder ein eindeutiger Wert gehört einer anderen Organisation auf lgrai.app",
+        "write_error": "{coll} {id}: Die Datenbank hat es abgelehnt"
+      }
     }
   },
   "desktops": {

@@ -8,6 +8,7 @@ import { paginateQuery } from 'services/utils/pagination'
 import { notifyNodeRevoked, rewelcomeNode } from '../websocket/uplink.js'
 import { mirrorFilesStatus } from 'services/biz/replication/mirror-blobs'
 import { mirrorReconcileStatus } from 'services/biz/replication/reconcile'
+import { mirrorDeadLetterStatus } from 'services/biz/replication/dead-letters'
 import {
   NodeError,
   mintNodeEnrollmentCode,
@@ -87,7 +88,7 @@ export const nodeController = new Elysia({ prefix: '/org/:orgId/nodes' })
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
       const home = await homeOf(orgId)
-      return { mirror: { home: home.home, ...(await mirrorFilesStatus(orgId)), reconcile: await mirrorReconcileStatus(orgId) } }
+      return { mirror: { home: home.home, ...(await mirrorFilesStatus(orgId)), reconcile: await mirrorReconcileStatus(orgId), deadLetters: await mirrorDeadLetterStatus(orgId) } }
     },
     { isSignIn: true },
   )
@@ -122,7 +123,7 @@ export const nodeController = new Elysia({ prefix: '/org/:orgId/nodes' })
         }
       }
       const home = await homeOf(orgId)
-      return { mirror: { home: home.home, ...(await mirrorFilesStatus(orgId)), reconcile: await mirrorReconcileStatus(orgId) } }
+      return { mirror: { home: home.home, ...(await mirrorFilesStatus(orgId)), reconcile: await mirrorReconcileStatus(orgId), deadLetters: await mirrorDeadLetterStatus(orgId) } }
     },
     { isSignIn: true, body: t.Object({ files: t.Boolean() }) },
   )

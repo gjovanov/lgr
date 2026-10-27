@@ -163,6 +163,10 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
     count: 3,
     why: 'the reconcile on global (FR-20.70): the mirror_state row that follows it (where the master stood, and when the copy got there)',
   },
+  'services/src/biz/replication/dead-letters.ts': {
+    count: 3,
+    why: 'global\'s node state (FR-20.65, P3-2c): the mirror\'s set-aside documents, recorded and resolved in the apply\'s transaction, and re-asked for',
+  },
   'services/src/biz/replication/apply.ts': {
     count: 1,
     why: 'THE mirror applier on global (FR-20.65): writes a master-homed org\'s documents past the home guard by design, only after the isolation checks (FR-20.66); this one is mirror_state (a refusal; P3-7f took out the reconcile_required write)',

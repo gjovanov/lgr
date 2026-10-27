@@ -46,6 +46,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   LocalCredential: { collection: 'local_credentials', class: 'N', orgPath: null },
   LoginThrottle: { collection: 'login_throttles', class: 'N', orgPath: null },
   MirrorBlob: { collection: 'mirror_blobs', class: 'N', orgPath: 'orgId' },
+  MirrorDeadLetter: { collection: 'mirror_dead_letters', class: 'N', orgPath: 'orgId' },
   MirrorState: { collection: 'mirror_state', class: 'N', orgPath: 'orgId' },
   NodeAssertion: { collection: 'node_assertions', class: 'N', orgPath: null },
   NodeEnrollmentCode: { collection: 'node_enrollment_codes', class: 'N', orgPath: 'orgId' },

@@ -3263,6 +3263,7 @@
         "no_till_open": "No till session is open",
         "no_fiscal_command": "No fiscal device is printing",
         "mirror_live": "lgrai.app keeps a mirror of it",
+        "mirror_whole": "Every document is on lgrai.app's copy",
         "files": "Every file is on lgrai.app, or on its way"
       },
       "allowMissingFiles": "Move back without the files the server cannot send",
@@ -3426,6 +3427,13 @@
       "running": "{name} lost the record of its changes on {since}. lgrai.app's copy of its records is being made equal to it again: what it deleted meanwhile is removed here too.",
       "done": "lgrai.app's copy of the records was made equal to {name}'s again on {when}, after the server lost the record of its changes. {count} documents it no longer had were removed here.",
       "kept": "{count} issued sales lgrai.app holds are no longer on the server, and were kept here: {numbers}. A server that loses an issued sale went back in time: check it before it issues more."
+    },
+    "deadLetters": {
+      "intro": "{count} documents from the server could not be written to lgrai.app's copy. lgrai.app asks the server for them again, less often each time: once what stops them is resolved, they arrive by themselves. Until then a move back waits.",
+      "reason": {
+        "foreign_collision": "{coll} {id}: its id or a unique value belongs to another organization on lgrai.app",
+        "write_error": "{coll} {id}: the database refused it"
+      }
     }
   },
   "desktops": {

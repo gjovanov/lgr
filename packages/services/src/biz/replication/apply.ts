@@ -21,7 +21,12 @@
  *   the same org with that key (two documents swapped it, and arrived in different pages): it is
  *   deleted in the same transaction, the page's document written, and the master asked to resend the
  *   stale one. A stale split document is parked under a placeholder key instead, because its global
- *   and node fields travel in no page. A key another org holds is refused, never deleted.
+ *   and node fields travel in no page. A key another org holds is never deleted: that document is
+ *   SET ASIDE (below).
+ * - **One document the mirror cannot write never stops the org** (FR-20.65, P3-2c): one whose id or
+ *   unique key another org holds, or that the database refuses, is set aside (`mirror_dead_letters`,
+ *   `dead-letters.ts`) with an alarm, and the rest of the page applies. The master is asked for it
+ *   again with the org's acknowledgements, ever less often, until a page writes it.
  * - **A membership's link to a person is global's to sanction** (FR-20.63). A `User` naming a person
  *   the mirror's copy does not already name is applied without the link, inert, with an alarm.
  * - **A newer journal epoch is the master's lost history, and starts a reconcile** (FR-20.61,
@@ -38,6 +43,7 @@ import type { MetaEntry } from 'db/replication/generate'
 import { homeOf, type OrgHomeInfo } from 'db/home/home'
 import { logger } from '../../logger/logger.js'
 import { validateStored } from '../files/stored-path.js'
+import { DEAD_MAX, dueForResend, recordSetAside, resolveWritten, type SetAside } from './dead-letters.js'
 import { ISSUED_SALE_FIELDS, issuedSale } from './issued-sales.js'
 import { mirrorPipeline } from './project.js'
 import { PAGE_DOCS, chainHash, decodeDoc, decodePage, idKey, metaOf, type Page, type PageRow } from './pages.js'
@@ -69,8 +75,6 @@ export type Refusal =
   | 'not_full'
   /** A row of another org, of a collection that does not replicate, a file path outside the org, an org tombstone. */
   | 'foreign'
-  /** A document id, or a unique key, another org holds. */
-  | 'foreign_collision'
   /** The mirror has no such org to write. */
   | 'org_missing'
   /** A different copy of the master's data (a restore): refused until a re-seed (FR-20.71, P3-7). */
@@ -87,7 +91,7 @@ export type Refusal =
   | 'gap'
 
 /** Refusals that need a person, not a resend. */
-const ALARMING: ReadonlySet<Refusal> = new Set(['forged', 'not_home', 'not_registered', 'clone_alarm', 'foreign', 'foreign_collision', 'org_missing', 'instance_changed', 'stale_journal', 'diverged'])
+const ALARMING: ReadonlySet<Refusal> = new Set(['forged', 'not_home', 'not_registered', 'clone_alarm', 'foreign', 'org_missing', 'instance_changed', 'stale_journal', 'diverged'])
 
 export type ApplyResult =
   | {
@@ -98,7 +102,9 @@ export type ApplyResult =
       chainHash: string
       applied: number
       deleted: number
-      /** Stale documents a collision removed: the master sends them again (`rejournal`). */
+      /** Documents set aside: not written, recorded, asked for again later (P3-2c). */
+      setAside: number
+      /** Stale documents a collision removed, and set-aside ones whose time has come: the master sends them again (`rejournal`). */
       resend: Array<{ coll: string; ids: unknown[] }>
       alarms: string[]
     }
@@ -269,6 +275,15 @@ async function refuse(db: Db, page: Page, r: Refused, now: Date): Promise<ApplyR
   return { ok: false, refused: r.reason, ...(r.detail ? { detail: r.detail } : {}), ...(await where(db, page.orgId)) }
 }
 
+/** Server codes that say nothing about the document: the database's moment, tried again as a whole. */
+const TRANSIENT_CODES: ReadonlySet<number> = new Set([6, 7, 24, 50, 89, 91, 112, 189, 244, 251, 262, 290, 9001, 10107, 11600, 11602, 13435, 13436])
+
+/** Whether a row's write failed for something about the document itself (FR-20.65: set it aside). */
+function documentsOwnError(e: any): boolean {
+  if (typeof e?.code !== 'number' || e.code === 11000 || TRANSIENT_CODES.has(e.code)) return false
+  return !['TransientTransactionError', 'UnknownTransactionCommitResult', 'RetryableWriteError'].some(l => e.hasErrorLabel?.(l) || (e.errorLabels ?? []).includes?.(l))
+}
+
 /** The collision a failed attempt hit, if that is what it was. */
 function collisionOf(e: any): { p: Prepared; keyPattern: Record<string, unknown>; keyValue: Record<string, unknown> } | null {
   if (e?.code !== 11000 || !e.lgrRow) return null
@@ -310,6 +325,22 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
     const stale: Array<{ coll: string; id: unknown; park?: Record<string, string> }> = []
     const resend = new Map<string, Map<string, unknown>>()
     const inPage = new Set(prepared.filter(p => p.doc).map(p => `${p.row.coll}|${idKey(p.doc!._id)}`))
+    /** Rows the mirror cannot write (P3-2c): left out of the next attempt, and recorded. */
+    const setAside = new Map<string, SetAside>()
+    const rowKey = (p: Prepared) => `${p.row.coll}|${idKey(p.row.id)}`
+    const putAside = (p: Prepared, reason: SetAside['reason'], detail: string) => {
+      setAside.set(rowKey(p), { coll: p.row.coll, id: p.row.id, reason, detail })
+      if (setAside.size > DEAD_MAX) throw new Error(`more than ${DEAD_MAX} documents of the page cannot be written`)
+    }
+    // Ids another org holds, found before the first attempt: one query a collection, where a collision
+    // would cost a retry of the whole page for each (an org copied under another id has them all).
+    const byColl = new Map<string, Prepared[]>()
+    for (const p of prepared) if (p.doc && p.entry.orgPath === 'orgId') byColl.set(p.row.coll, [...(byColl.get(p.row.coll) ?? []), p])
+    for (const [coll, rows] of byColl) {
+      const theirs = await db.collection<any>(coll).find({ _id: { $in: rows.map(p => p.doc!._id) }, orgId: { $ne: page.orgId } }, { projection: { _id: 1 } }).toArray()
+      const held = new Set(theirs.map(t => idKey(t._id)))
+      for (const p of rows) if (held.has(idKey(p.doc!._id))) putAside(p, 'foreign_collision', '["_id"] is another org\'s')
+    }
     let raced = 0
     for (let collisions = 0; ; ) {
       let duplicate = false
@@ -317,6 +348,7 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
       let deleted = 0
       let alarms: string[] = []
       let kept: Array<{ coll: string; id: string; number: string }> = []
+      let freshAside: SetAside[] = []
       // Set inside the transaction's callback: the assertion keeps the compiler from narrowing it to null.
       let reconciling = null as 'started' | 'done' | null
       const session = client.startSession()
@@ -328,6 +360,7 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
             deleted = 0
             alarms = []
             kept = []
+            freshAside = []
             reconciling = null
             const mirror = db.collection<any>(MIRROR)
             const st = await mirror.findOne({ orgId: page.orgId }, { session })
@@ -341,7 +374,9 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
               if (s.park) await coll.updateOne({ _id: s.id, orgId: page.orgId }, { $set: s.park }, { session })
               else await coll.deleteOne({ _id: s.id, orgId: page.orgId }, { session })
             }
+            const keptKeys = new Set<string>()
             for (const p of prepared) {
+              if (setAside.has(rowKey(p))) continue
               try {
                 const coll = db.collection<any>(p.row.coll)
                 if (!p.doc) {
@@ -353,6 +388,7 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
                     const number = issuedSale(p.row.coll, held)
                     if (number !== null) {
                       kept.push({ coll: p.row.coll, id: String(p.row.id), number })
+                      keptKeys.add(rowKey(p))
                       continue
                     }
                   }
@@ -378,9 +414,13 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
                 }
               } catch (e: any) {
                 if (e && typeof e === 'object' && e.code === 11000) e.lgrRow = p
+                else if (e && typeof e === 'object' && !(e instanceof Refused) && documentsOwnError(e)) e.lgrSetAside = p
                 throw e
               }
             }
+            // P3-2c: what this page sets aside, and what it wrote that had been.
+            if (setAside.size) freshAside = await recordSetAside(db, session, page.orgId, page.nodeId, { fromSeq: page.fromSeq, toSeq: page.toSeq, journalEpoch: page.journalEpoch }, [...setAside.values()], now)
+            await resolveWritten(db, session, page.orgId, prepared.filter(p => !setAside.has(rowKey(p)) && !keptKeys.has(rowKey(p))).map(p => ({ coll: p.row.coll, id: p.row.id })), now)
             // The watermark and the chain, last (FR-20.65).
             const set: Record<string, unknown> = {
               nodeId: page.nodeId,
@@ -397,6 +437,7 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
             const raised = [
               ...alarms.map(detail => ({ kind: 'membership_unsanctioned', at: now, detail: detail.slice(0, 500) })),
               ...kept.map(k => ({ kind: 'sale_kept', at: now, detail: `${k.coll} ${k.id} (${k.number}): the home no longer has this issued sale, and lgrai.app keeps it`.slice(0, 500) })),
+              ...freshAside.map(a => ({ kind: 'dead_letter', at: now, detail: `${a.coll} ${String(a.id)} (${a.reason}): ${a.detail}`.slice(0, 500) })),
             ]
             if (raised.length) update.$push = { alarms: { $each: raised, $slice: -ALARMS_KEPT } }
             // FR-20.70 (P3-7f): the reconcile this page starts, or goes on with.
@@ -429,6 +470,11 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
         )
       } catch (e: any) {
         if (e instanceof Refused) return refuse(db, page, e, now)
+        if (e?.lgrSetAside) {
+          // The database refuses this document, whatever the page: the rest of it goes on (P3-2c).
+          putAside(e.lgrSetAside, 'write_error', `${e.codeName ?? e.code}: ${String(e.message ?? '').slice(0, 300)}`)
+          continue
+        }
         const c = collisionOf(e)
         if (!c) {
           // Another apply of this org took the chain first, or the genesis row appeared under us.
@@ -441,7 +487,10 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
         if (!holder) continue // gone meanwhile: the next attempt meets no collision
         const holderOrg = c.p.entry.orgPath === '_id' ? holder._id : holder.orgId
         if (String(holderOrg) !== String(page.orgId)) {
-          return refuse(db, page, new Refused('foreign_collision', `${c.p.row.coll} ${String(id)}: ${JSON.stringify(Object.keys(c.keyPattern))} is another org's`), now)
+          // ⚠ Never written over, never deleted: that document is another org's (FR-20.66). This one
+          // is set aside instead, and the rest of the page goes on (P3-2c).
+          putAside(c.p, 'foreign_collision', `${JSON.stringify(Object.keys(c.keyPattern))} is another org's`)
+          continue
         }
         // ⚠ A split document is parked, never deleted: global's own fields and the node's (a
         // membership's person, its sanctioned link) are not in any page, so the resend could not
@@ -459,9 +508,15 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
       } finally {
         await session.endSession()
       }
-      if (duplicate) return { ok: true, duplicate: true, ...(await where(db, page.orgId)), applied: 0, deleted: 0, resend: [], alarms: [] }
+      if (duplicate) return { ok: true, duplicate: true, ...(await where(db, page.orgId)), applied: 0, deleted: 0, setAside: 0, resend: [], alarms: [] }
       for (const a of alarms) logger.warn({ orgId: String(page.orgId), nodeId: page.nodeId }, `Mirror: ${a}`)
       for (const k of kept) logger.warn({ orgId: String(page.orgId), nodeId: page.nodeId, ...k }, 'Mirror: the home no longer has an issued sale; lgrai.app keeps it (FR-20.51)')
+      for (const a of setAside.values()) logger.warn({ orgId: String(page.orgId), nodeId: page.nodeId, coll: a.coll, id: String(a.id), reason: a.reason, detail: a.detail }, 'Mirror: a document is set aside; the rest of the page applied')
+      // The org's set-aside documents whose time has come: the master journals them again.
+      for (const d of await dueForResend(db, page.orgId, now, new Set([...inPage, ...setAside.keys()]))) {
+        if (!resend.has(d.coll)) resend.set(d.coll, new Map())
+        resend.get(d.coll)!.set(idKey(d.id), d.id)
+      }
       if (reconciling === 'started') logger.warn({ orgId: String(page.orgId), nodeId: page.nodeId, journalEpoch: page.journalEpoch }, 'Mirror: the master lost the record of its changes; its copy here is made equal to it again (FR-20.70)')
       if (reconciling === 'done') logger.info({ orgId: String(page.orgId), nodeId: page.nodeId, journalEpoch: page.journalEpoch }, 'Mirror: the reconcile is done; the copy is its home\'s again')
       return {
@@ -470,6 +525,7 @@ export async function applyPage(client: MongoClient, db: Db, input: Uint8Array |
         chainHash: page.chainHash,
         applied,
         deleted,
+        setAside: setAside.size,
         resend: [...resend].map(([coll, ids]) => ({ coll, ids: [...ids.values()] })),
         alarms,
       }

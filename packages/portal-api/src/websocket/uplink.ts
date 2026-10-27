@@ -232,7 +232,7 @@ async function pageFrame(ws: any, conn: Conn, bytes: Uint8Array): Promise<void> 
     if (r.ok) {
       send(ws, {
         t: 'page-ack', ...base,
-        watermark: r.watermark, chainHash: r.chainHash, applied: r.applied, deleted: r.deleted,
+        watermark: r.watermark, chainHash: r.chainHash, applied: r.applied, deleted: r.deleted, setAside: r.setAside,
         ...(r.duplicate ? { duplicate: true } : {}),
         // EJSON: the master journals these ids again, and they must keep their BSON types.
         resend: r.resend.map(x => ({ coll: x.coll, ids: BSON.EJSON.serialize(x.ids, { relaxed: false }) })),
