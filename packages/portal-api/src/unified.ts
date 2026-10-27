@@ -46,6 +46,12 @@ initServiceContext(repos)
 import { registerEventHandlers } from 'services/events/handlers'
 registerEventHandlers()
 
+// FR-20.51 (P3-7): a master whose database went back in time locks its legal series BEFORE it serves.
+if (config.node.role === 'master') {
+  const { journalHwmTick } = await import('services/biz/home/series-lock.service')
+  await journalHwmTick().catch(e => logger.error({ err: e?.message ?? String(e) }, 'Series lock: the journal\'s high-water mark could not be checked'))
+}
+
 /**
  * Where a module's built SPA is. From the repository: `packages/<module>-ui/dist`, beside this
  * package (the server runs in `packages/portal-api`). A server package sets `LGR_UI_ROOT` to its
@@ -366,6 +372,12 @@ setTimeout(async () => {
         async () => ({ back: await import('services/biz/move/move-back.service'), uplink: await import('./websocket/uplink.js') }),
         m => m.back.moveBackTick(new Date(), { flippedBack: nodeId => m.uplink.rewelcomeNode(nodeId) }),
       ),
+    },
+    // FR-20.51 (P3-7) — on a master: the journal against its mark, and what lgrai.app says of this
+    // server (a clone alarm, pages refused as a history that went back). Either locks legal numbering.
+    {
+      name: 'series-lock-tick', intervalMs: config.node.role === 'master' ? 60_000 : 0, immediate: false,
+      ...lazy(() => import('services/biz/home/series-lock.service'), async m => (await m.journalHwmTick()) + (await m.linkAlarmsTick())),
     },
     // FR-20.84 (P3-6e) — the audited import of a fenced export a person asked for: one batch a tick,
     // under a lease, so a crash or another pod repeats nothing.

@@ -97,6 +97,7 @@ import { desktopDownloadController } from './controllers/desktop-download.contro
 import { nodeController } from './controllers/node.controller.js'
 import { nodeV1Controller } from './controllers/node-v1.controller.js'
 import { moveController } from './controllers/move.controller.js'
+import { numberingController } from './controllers/numbering.controller.js'
 import { homeController } from './controllers/home.controller.js'
 import { adminNodesController } from './controllers/admin-nodes.controller.js'
 import { adminLicencesController } from './controllers/admin-licences.controller.js'
@@ -281,6 +282,7 @@ export function createApiApp() {
     .use(nodeV1Controller)
     // FR-20.79 (P3-6a): moving an org to its master, under /org/:orgId/moves. 404 on a master.
     .use(moveController)
+    .use(numberingController)
     .use(homeController)
     // The sys-admin Nodes page (P2-3a): every master, across orgs. BACKUP_SYS_ADMINS only.
     .use(adminNodesController)

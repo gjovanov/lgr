@@ -13,6 +13,7 @@ import { identityChangesFor } from 'services/biz/identity/identity-feed.service'
 import { OnpremCredentialError, credentialChangesFor } from 'services/biz/identity/onprem-credentials.service'
 import { MoveError, copied, copyFailed, copyFor, movesForNode } from 'services/biz/move/move.service'
 import { drained } from 'services/biz/move/move-back.service'
+import { legalSeriesOf } from 'services/biz/move/promote.service'
 import { FENCED_CHUNK, fencedExportStatus, receiveFencedChunk } from 'services/biz/move/fenced-export.service'
 import { rewelcomeNode } from '../websocket/uplink.js'
 import { repointOrgDesktops } from '../websocket/desktop.js'
@@ -386,6 +387,18 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
     },
     { body: t.Object({ reason: t.String({ maxLength: 500 }) }) },
   )
+
+  /**
+   * FR-20.51 (P3-7): the legal series of one of this master's orgs as lgrai.app's mirror holds them:
+   * the floor its numbering resumes above, once a person records the site's last numbers.
+   * ⚠ The org is a query parameter, never `:orgId` in the path: a path with `:orgId` is a USER's org
+   * route (the tenant guard and its reachability test say so), and this one takes a node token.
+   */
+  .get('/legal-series', async ({ node, query, status }: any) => {
+    const orgId = String(query.orgId ?? '')
+    if (!OBJECT_ID.test(orgId) || !(node.orgIds ?? []).some((id: unknown) => String(id) === orgId)) return status(404, { code: 'not_found' })
+    return { series: await legalSeriesOf(orgId) }
+  })
 
   /** The master's registration as global sees it: which orgs it serves, at which link level. */
   .get('/self', async ({ node }: any) => nodeSelf(node))

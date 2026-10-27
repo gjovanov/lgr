@@ -30,6 +30,7 @@ import { presenceOfNodes } from '../node/node.service.js'
 import { mirrorFilesStatus, type MirrorFilesStatus } from '../replication/mirror-blobs.js'
 import { LEGAL_SERIES, ensureSequenceAtLeast, isLegalSeries } from '../sequence.service.js'
 import { MoveError, type PreflightCheck } from './move.service.js'
+import { resetJournalHwm } from '../home/series-lock.service.js'
 
 type ObjectId = mongo.ObjectId
 
@@ -149,7 +150,13 @@ export async function legalSeriesOf(orgId: string, now = new Date()): Promise<Le
  * higher of that and lgrai.app's own, and numbering opens again. Every series lgrai.app knows must be
  * given, so none is opened by omission.
  */
-export async function recordLastNumbers(orgId: string, by: { id: string; operatorCode?: string }, series: Array<{ prefix: string; year: number; last: number }>) {
+export async function recordLastNumbers(
+  orgId: string,
+  by: { id: string; operatorCode?: string },
+  series: Array<{ prefix: string; year: number; last: number }>,
+  /** FR-20.51: the mirror's numbers when linked (P3-7): each series resumes above them too. */
+  floor: Array<{ prefix: string; year: number; last: number }> | null = null,
+) {
   const home: any = await OrgHome.findOne({ orgId }, { seriesFrozen: 1 }).lean()
   if (!home?.seriesFrozen?.since) throw new MoveError(409, 'not_frozen', 'Numbering is not waiting for the site\'s last numbers.')
   for (const s of series) {
@@ -162,7 +169,13 @@ export async function recordLastNumbers(orgId: string, by: { id: string; operato
   const missing = known.filter(s => !given.has(`${s.prefix}|${s.year}`))
   if (missing.length) throw new MoveError(422, 'series_missing', 'Give the last number of every series.', { missing })
   for (const s of series) await ensureSequenceAtLeast(orgId, s.prefix, s.year, s.last)
-  await OrgHome.updateOne({ orgId }, { $unset: { seriesFrozen: '' } })
+  // Never below what lgrai.app's mirror holds, when it could be asked.
+  for (const f of floor ?? []) {
+    if (isLegalSeries(f.prefix) && Number.isSafeInteger(f.year) && Number.isSafeInteger(f.last) && f.last > 0) await ensureSequenceAtLeast(orgId, f.prefix, f.year, f.last)
+  }
+  await OrgHome.updateOne({ orgId }, { $unset: { seriesFrozen: '' }, $set: { seriesUnlockedAt: new Date() } })
+  // On a master, the journal's mark starts again from here (P3-7): the unlock settled what it showed.
+  await resetJournalHwm(orgId)
   if (home.seriesFrozen.moveId) {
     await OrgMove.updateOne({ _id: oid(home.seriesFrozen.moveId) }, { $push: { steps: step('last_numbers', true, series.map(s => `${s.prefix} ${s.year}: ${s.last}`).join(', ')) } })
   }

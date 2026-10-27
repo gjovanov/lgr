@@ -3322,7 +3322,14 @@
       "here": "lgrai.app hat {n}",
       "confirm": "Das sind die letzten am Standort vergebenen Nummern",
       "save": "Nummerierung fortsetzen",
-      "saved": "Die Nummerierung geht über den letzten Nummern des Standorts weiter"
+      "saved": "Die Nummerierung geht über den letzten Nummern des Standorts weiter",
+      "reason": {
+        "promoted": "Die Kopie auf lgrai.app wurde zum Zuhause der Organisation, als ihr Server verloren ging.",
+        "restored": "Die Datenbank dieses Servers ging in der Zeit zurück (aus einer Sicherung wiederhergestellt): Sie kann Nummern enthalten, die der Standort schon vergeben hat.",
+        "went_back": "lgrai.app lehnt den Verlauf dieses Servers als zurückgesetzt ab (ein Snapshot zurückgespielt): Er kann Nummern enthalten, die der Standort schon vergeben hat.",
+        "clone": "Eine andere Maschine ist als dieser Server mit lgrai.app verbunden: Bis der echte neu registriert ist, darf keiner von beiden eine gesetzliche Nummer vergeben."
+      },
+      "mirror": "Die Kopie auf lgrai.app hat {n}"
     },
     "fenced": {
       "title": "Was {name} getan hat, nachdem er ersetzt wurde",
@@ -3375,7 +3382,8 @@
         "unique_conflict": "es kollidiert mit etwas hier",
         "not_imported_kind": "wird von einem Menschen übernommen",
         "deletion": "eine Löschung wird nie angewendet"
-      }
+      },
+      "introImported": "Der Server kam zurück, nachdem die Kopie auf lgrai.app das Zuhause der Organisation wurde. Alles, was er nach der Grenze geschrieben hat, ist hier unverändert eingetroffen; was ging, wurde in die Buchhaltung übernommen, der Rest ist für einen Menschen aufgeführt."
     }
   },
   "desktops": {

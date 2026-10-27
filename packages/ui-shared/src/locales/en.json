@@ -3322,7 +3322,14 @@
       "here": "lgrai.app has {n}",
       "confirm": "These are the last numbers issued at the site",
       "save": "Resume numbering",
-      "saved": "Numbering resumes above the site's last numbers"
+      "saved": "Numbering resumes above the site's last numbers",
+      "reason": {
+        "promoted": "lgrai.app's copy became the organization's home when its server was lost.",
+        "restored": "This server's database went back in time (restored from a backup): it may have numbers the site already issued.",
+        "went_back": "lgrai.app refuses this server's history as one that went back in time (a snapshot reverted): it may have numbers the site already issued.",
+        "clone": "Another machine is connected to lgrai.app as this server: until the real one is registered again, neither may issue a legal number."
+      },
+      "mirror": "lgrai.app's copy has {n}"
     },
     "fenced": {
       "title": "What {name} did after it was replaced",
@@ -3375,7 +3382,8 @@
         "unique_conflict": "it clashes with something here",
         "not_imported_kind": "brought in by a person",
         "deletion": "a deletion is never applied"
-      }
+      },
+      "introImported": "The server came back after lgrai.app's copy became the organization's home. Everything it wrote after the cutoff arrived here unchanged; what could be was brought into the books, and the rest is listed for a person."
     }
   },
   "desktops": {

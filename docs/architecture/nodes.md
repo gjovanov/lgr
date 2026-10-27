@@ -593,6 +593,21 @@ copy travels: lgrai.app's mirror already holds the org, and the move waits until
 
 Until the switch, an abort leaves the org on its server, which unfreezes it.
 
+## A server whose database went back (FR-20.51)
+
+A server restored from a backup, rolled back to a VM snapshot, or cloned onto another machine could
+issue an invoice number the shop already gave a customer. So it locks legal numbering (sales
+documents, cash sales, the fiscal devices' УНП) when:
+- an organization is restored from a backup on it;
+- its journal of changes is behind a mark it keeps outside the database, which only a database that
+  went back in time can be: checked before it starts serving, and every minute;
+- lgrai.app reports another machine connected as it, or refuses its history as one that went back.
+
+The page says why, and a person records the last numbers off the last printed documents and the
+fiscal device's report. Numbering resumes above them, and above lgrai.app's copy when the server can
+ask it. Not yet: the fiscal device checked on its own, a clone seen on the shop's network, and
+re-seeding the server from lgrai.app's copy.
+
 ## Promoting lgrai.app's copy (FR-20.81)
 
 When an org's server is lost for good, an org admin makes lgrai.app's copy the org's home on the

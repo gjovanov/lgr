@@ -5,6 +5,7 @@ import {
   NodeEnrollmentCode,
   NodeEnrollmentKey,
   NodeEnrollmentKeyUse,
+  MirrorState,
   NodePresence,
   Org,
   ServerNode,
@@ -463,6 +464,9 @@ export async function loadActiveNode(claims: NodeTokenClaims): Promise<IServerNo
 /** What a node may know about itself: its registration and the orgs on it, by name. */
 export async function nodeSelf(node: IServerNode) {
   const orgs = await Org.find({ _id: { $in: node.orgIds } }).select('name slug').lean()
+  // FR-20.51 (P3-7): what makes the master lock its legal series: a clone alarm, and its pages
+  // refused as a history that went back, when that refusal is the newest thing the mirror heard.
+  const states: any[] = await MirrorState.find({ orgId: { $in: node.orgIds }, nodeId: node._id, 'lastRefusal.reason': { $in: ['instance_changed', 'stale_journal', 'diverged'] } }, { orgId: 1, lastRefusal: 1, lastPageAt: 1 }).lean()
   return {
     nodeId: node._id,
     name: node.name,
@@ -471,6 +475,10 @@ export async function nodeSelf(node: IServerNode) {
     keyEpoch: node.keyEpoch ?? 1,
     ephemeral: !!node.ephemeral,
     orgs: orgs.map((o: any) => ({ id: String(o._id), slug: o.slug, name: o.name })),
+    cloneAlarm: (node as any).cloneAlarm?.at ? { at: (node as any).cloneAlarm.at } : null,
+    wentBack: states
+      .filter(s => !s.lastPageAt || new Date(s.lastRefusal.at) > new Date(s.lastPageAt))
+      .map(s => ({ orgId: String(s.orgId), reason: s.lastRefusal.reason, at: s.lastRefusal.at })),
   }
 }
 

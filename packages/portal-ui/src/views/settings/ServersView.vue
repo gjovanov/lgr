@@ -58,11 +58,15 @@
       <v-card v-if="lastNumbers?.frozen" variant="outlined" color="warning" class="mb-3" data-test="last-numbers">
         <v-card-title class="text-subtitle-1 text-wrap">{{ $t('servers.lastNumbers.title') }}</v-card-title>
         <v-card-text>
-          <p class="text-body-2 mb-3">{{ $t('servers.lastNumbers.intro') }}</p>
+          <p class="text-body-2 mb-1">{{ $t('servers.lastNumbers.intro') }}</p>
+          <p v-if="lastNumbers.reason" class="text-body-2 mb-3 font-weight-medium" data-test="last-numbers-reason">
+            {{ te(`servers.lastNumbers.reason.${lastNumbers.reason}`) ? $t(`servers.lastNumbers.reason.${lastNumbers.reason}`) : lastNumbers.reason }}
+          </p>
           <v-row v-for="s in lastNumbers.series" :key="s.prefix + s.year" dense align="center">
             <v-col cols="12" sm="6" class="text-body-2">
               {{ seriesLabel(s) }}
               <div class="text-caption text-medium-emphasis">{{ $t('servers.lastNumbers.here', { n: s.last }) }}</div>
+              <div v-if="mirrorOf(s) !== null" class="text-caption text-medium-emphasis" data-test="last-numbers-mirror">{{ $t('servers.lastNumbers.mirror', { n: mirrorOf(s) }) }}</div>
             </v-col>
             <v-col cols="12" sm="6">
               <v-text-field v-model.number="siteNumbers[s.prefix + '|' + s.year]" type="number" :min="0" density="compact" hide-details :data-test="'last-' + s.prefix" />
@@ -79,7 +83,7 @@
       <v-card v-for="ex in fencedExports" :key="ex.id" variant="outlined" class="mb-3" data-test="fenced-export">
         <v-card-title class="text-subtitle-1 text-wrap">{{ $t('servers.fenced.title', { name: ex.nodeName || nodeName(ex.nodeId) }) }}</v-card-title>
         <v-card-text>
-          <p class="text-body-2 mb-2">{{ $t('servers.fenced.intro') }}</p>
+          <p class="text-body-2 mb-2">{{ ex.import?.state === 'done' ? $t('servers.fenced.introImported') : $t('servers.fenced.intro') }}</p>
           <v-chip size="small" :color="ex.state === 'received' ? 'success' : ex.state === 'refused' ? 'error' : 'info'" variant="tonal" class="mb-2" data-test="fenced-state">
             <template v-if="ex.state === 'received'">{{ $t('servers.fenced.state.received', { when: fmtDate(ex.receivedAt) }) }}</template>
             <template v-else-if="ex.state === 'refused'">{{ $t('servers.fenced.state.refused') }}</template>
@@ -767,7 +771,9 @@ async function startPromote() {
 
 // ── The site's last numbers, after a promotion (FR-20.81) ───────────────────────────────────
 interface SeriesRow { prefix: string; year: number; last: number }
-const lastNumbers = ref<{ frozen: boolean; series: SeriesRow[] } | null>(null)
+const lastNumbers = ref<{ frozen: boolean; reason: string | null; series: SeriesRow[]; mirror: SeriesRow[] | null } | null>(null)
+/** On a master, what lgrai.app's mirror holds of a series: numbering resumes above it too. */
+const mirrorOf = (s: SeriesRow) => lastNumbers.value?.mirror?.find(m => m.prefix === s.prefix && m.year === s.year)?.last ?? null
 const siteNumbers = ref<Record<string, number>>({})
 const lastNumbersConfirmed = ref(false)
 const lastNumbersBusy = ref(false)
@@ -777,10 +783,13 @@ const seriesLabel = (s: SeriesRow) => s.prefix.startsWith('UNP-')
 
 async function loadLastNumbers() {
   try {
-    const { data } = await httpClient.get(`${moveBase()}/last-numbers`)
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/numbering/last-numbers`)
     lastNumbers.value = data
     // Offered at lgrai.app's own: a person reads the site's off its last documents and corrects them.
-    siteNumbers.value = Object.fromEntries((data.series ?? []).map((s: SeriesRow) => [`${s.prefix}|${s.year}`, s.last]))
+    siteNumbers.value = Object.fromEntries((data.series ?? []).map((s: SeriesRow) => {
+      const mirror = (data.mirror ?? []).find((m: SeriesRow) => m.prefix === s.prefix && m.year === s.year)?.last ?? 0
+      return [`${s.prefix}|${s.year}`, Math.max(s.last, mirror)]
+    }))
   } catch {
     lastNumbers.value = null
   }
@@ -791,7 +800,7 @@ async function saveLastNumbers() {
   lastNumbersBusy.value = true
   try {
     const series = lastNumbers.value.series.map(s => ({ prefix: s.prefix, year: s.year, last: Math.max(0, Math.floor(Number(siteNumbers.value[`${s.prefix}|${s.year}`] ?? s.last))) }))
-    await httpClient.post(`${moveBase()}/last-numbers`, { series })
+    await httpClient.post(`${appStore.orgUrl()}/numbering/last-numbers`, { series })
     showSnackbar(t('servers.lastNumbers.saved'), 'success')
     announceHomeChanged()
     lastNumbersConfirmed.value = false

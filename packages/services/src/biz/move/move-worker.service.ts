@@ -49,6 +49,7 @@ import { discardMoveImport, fileSha256, importMoveBundle, orgHasData } from './m
 import { homeDigests } from './home-digest.js'
 import { cloudRepointsKept, keepCloudRepoints } from '../desktop/repoint.service.js'
 import { FENCED_CHUNK, fencedExportPath, writeFencedExport } from './fenced-export.service.js'
+import { resetJournalHwm } from '../home/series-lock.service.js'
 
 type ObjectId = mongo.ObjectId
 
@@ -224,6 +225,8 @@ async function activate(m: MoveView, at: Phase) {
       await recordAuditEntry({ orgId: m.orgId, userId: m.startedBy, action: 'update', module: 'admin', entityType: 'org_move', entityId: m.id, entityName: 'from lgrai.app', changes: [{ field: 'home', oldValue: 'global', newValue: thisNode() }] })
     }
     logger.info({ orgId: m.orgId, epoch: m.epochTo }, 'Move: the org is home here now')
+    // P3-7: an org that left and came back starts a new journal; its old mark would read as a rewind.
+    await resetJournalHwm(m.orgId).catch(() => {})
   }
   await setPhase(m.id, 'active', { people: at.people ?? [] })
 }

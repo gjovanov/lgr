@@ -2645,7 +2645,7 @@ lgrai.app's copy" on the Servers page, on the home server's row while it is not 
 - **The legal series** (`LEGAL_SERIES`: `SALES_DOC`, `CASH_SALE`, and every `UNP-<device>`, in
   `sequence.service.ts`) stay frozen until a person records the last number the site issued in each,
   read off the last printed documents and the fiscal device's daily report (`GET`/`POST
-  /moves/last-numbers`, the Servers page's card).
+  /api/org/:orgId/numbering/last-numbers`, on every node since P3-7; the Servers page's card).
   - Every series lgrai.app knows must be given, so none opens by omission (`series_missing`).
   - Each resumes above the higher of the site's number and the mirror's (`ensureSequenceAtLeast`,
     never lowered). Then `seriesFrozen` is unset, and the change audited.
@@ -2679,6 +2679,41 @@ lgrai.app's copy" on the Servers page, on the home server's row while it is not 
   `bun packages/tests/src/two-node/move-e2e.script.ts --promote` (real processes, 32 checks: the move
   to a real `lgr-server`, a file the shop made, the supervisor stopped, the promotion, numbering frozen
   then resumed above the site's number, and the restarted server fenced at exactly the cutoff).
+
+## A master whose database went back locks its legal series (2026-10-27, FR-20.51, plan step P3-7, first slice)
+
+A restore, a reverted snapshot or a clone can make a master issue a legal number the site already
+gave a customer. So, on a master, for an org written there, the legal series LOCK
+(`OrgHome.seriesFrozen`, the lock a promotion sets) until a person records the last numbers.
+`services/biz/home/series-lock.service.ts`; `assertSeriesOpen` and the issuing paths' early refusals
+(P3-6d) enforce it.
+- **What locks them** (reason `restored` | `went_back` | `clone`, with a detail):
+  - an in-app restore (`applyRestore`), right before its first write: a restore refused by a check
+    locks nothing, one that fails mid-way stays locked;
+  - the journal below its own high-water mark (`journalHwmTick`): the per-org `repl_orgs.seq` only
+    grows in a database never rewound, and the mark lives OUTSIDE it, in `journal-hwm.json` beside
+    the node token. Checked at the API's start, BEFORE it serves, and every minute
+    (`series-lock-tick`, masters);
+  - what lgrai.app says of the master (`linkAlarmsTick`, every minute): a clone alarm, or its pages
+    refused as a history that went back (`instance_changed`, `stale_journal`, `diverged`) more
+    recently than its last applied page. `GET /api/node/v1/self` now carries `cloneAlarm` and
+    `wentBack`.
+- **The unlock** (`numbering.controller.ts`, `GET`/`POST /api/org/:orgId/numbering/last-numbers`,
+  admin, every node; the card on the Servers page, with the reason):
+  - each series resumes above the person's reading and, on a master that can ask, the mirror's
+    numbers (`GET /api/node/v1/legal-series?orgId=`, `mirrorLegalSeries`; ⚠ a query parameter: a
+    path with `:orgId` is a user's org route to the tenant guard); with the link down,
+    the person's reading stands alone;
+  - it records `seriesUnlockedAt` and resets the mark.
+  - ⚠ A signal from BEFORE the last unlock does not lock again: replication stays refused until a
+    re-seed, and the journal may stay below its old mark a while.
+- ⚠ An org arriving by a move resets the mark (`activate`): an org that left and came back starts a
+  new journal, which its old mark would read as a rewind.
+- Not yet: the fiscal device as a witness (its last receipt ahead of the database), a clone seen on
+  the LAN (DNS-SD `bootNonce`), and the re-seed from the mirror (FR-20.71, AC 36), which needs the
+  mirror's reconcile (FR-20.70).
+- Tests: `series-lock.flow` (4: the mark and the unlock; global's alarms, the mirror's floor, no
+  re-lock; `nodeSelf`; a restore locking before its first write, a refused one locking nothing).
 
 ## What a fenced server did after the cutoff (2026-10-27, FR-20.84, plan step P3-6e)
 

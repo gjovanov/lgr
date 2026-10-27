@@ -90,6 +90,7 @@ export const PREFIX_WRITE_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['desktops', { self: 'admin role, or admin.settings' }],
   ['nodes', { self: 'admin role, or admin.settings (FR-20.2; global only, 404 on a master)' }],
   ['moves', { self: 'admin role, or admin.settings (FR-20.79; global only, 404 on a master)' }],
+  ['numbering', { self: 'admin role, or admin.settings (FR-20.51: the last numbers issued at a site; every node)' }],
   ['integration', { self: 'admin role' }],
   ['logo', { self: 'admin role' }],
 ]
@@ -171,6 +172,7 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['desktops', { self: 'admin role, or admin.settings' }],
   ['nodes', { self: 'admin role, or admin.settings (FR-20.2; global only, 404 on a master)' }],
   ['moves', { self: 'admin role, or admin.settings (FR-20.79; global only, 404 on a master)' }],
+  ['numbering', { self: 'admin role, or admin.settings (FR-20.51: whether legal numbering waits, and the series; every node)' }],
   ['integration', { self: 'admin role' }],
   ['invite', { self: 'admin role' }],
   ['permission-sets', { self: 'admin role, or admin.settings' }],
