@@ -80,7 +80,7 @@ test('P4-open: open the till for the day', async ({ page }, testInfo) => {
   // Ready to sell: the session bar, the search and the catalog cards.
   const search = page.getByRole('textbox', { name: 'Търси продукти...' })
   await expect(search).toBeVisible()
-  await expect(page.locator('.v-card.cursor-pointer').first()).toBeVisible()
+  await expect(page.getByTestId('register-card').first()).toBeVisible()
   await page.waitForLoadState('networkidle')
   await walk.shot('ready')
 

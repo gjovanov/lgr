@@ -188,7 +188,9 @@ export interface RegisterCatalogProduct {
   stockAvailable: number | null
 }
 
-const props = defineProps<{
+// ⚠ A boolean prop that is not passed is `false`, not `undefined` (Vue's boolean casting): without
+// the default, a door that never passes `active` (the back office) never loaded its catalog.
+const props = withDefaults(defineProps<{
   orgUrl: string
   currency: string
   /** The warehouse whose stock and prices the catalog shows: the session's, or the document's. */
@@ -210,7 +212,7 @@ const props = defineProps<{
    */
   totals: { subtotal: number; taxTotal: number; total: number }
   lineGross: (line: RegisterLine) => number
-}>()
+}>(), { active: true, readonly: false })
 
 const emit = defineEmits<{
   (e: 'add', product: RegisterCatalogProduct): void

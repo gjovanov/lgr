@@ -14,11 +14,11 @@ test.describe('Stock Validation on Invoicing', () => {
     // `CashSaleTerminal.vue` — product CARDS on the left, a cart on the right — so there is no
     // `.v-table` line row, no ProductLineDescription and no per-line warehouse select on this
     // screen any more. The old flow waited 10s for an input that no longer exists.
-    const card = page.locator('.terminal-card').first()
+    const card = page.getByTestId('register-card').first()
     test.skip(!(await card.isVisible({ timeout: 10000 }).catch(() => false)), 'no products seeded')
     await card.click()
 
-    const cartRow = page.locator('.terminal-cart-row').first()
+    const cartRow = page.locator('[data-testid^="cart-line-"]').first()
     await expect(cartRow).toBeVisible()
 
     // Ask for far more than anyone has in stock.
@@ -165,10 +165,10 @@ test.describe('Stock Validation on Invoicing', () => {
     await page.getByRole('textbox', { name: /search/i }).first().fill(stocked.productName ?? '')
     await page.waitForTimeout(800)
 
-    const card = page.locator('.terminal-card').first()
+    const card = page.getByTestId('register-card').first()
     test.skip(!(await card.isVisible({ timeout: 10000 }).catch(() => false)), 'product not in catalog')
     await card.click()
-    await expect(page.locator('.terminal-cart-row').first()).toBeVisible()
+    await expect(page.locator('[data-testid^="cart-line-"]').first()).toBeVisible()
 
     await page.getByRole('button', { name: /^save$/i }).first().click()
 
