@@ -187,6 +187,14 @@
           </div>
           <div v-if="mirror.missingOnMaster" class="text-body-2 text-warning mt-1">{{ $t('servers.files.missing', { count: mirror.missingOnMaster }) }}</div>
           <div v-if="mirror.failing" class="text-caption text-medium-emphasis mt-1">{{ $t('servers.files.failing', { count: mirror.failing }) }}</div>
+          <!-- FR-20.70 (P3-7f): the copy made equal to the server again, after it lost the record of its changes. -->
+          <div v-if="mirror.reconcile" class="text-body-2 mt-3" data-test="mirror-reconcile">
+            <template v-if="mirror.reconcile.doneAt">{{ $t('servers.reconcile.done', { name: nodeName(mirror.home), when: fmtDate(mirror.reconcile.doneAt), count: mirror.reconcile.deleted }) }}</template>
+            <template v-else>{{ $t('servers.reconcile.running', { name: nodeName(mirror.home), since: fmtDate(mirror.reconcile.since) }) }}</template>
+            <div v-if="mirror.reconcile.kept.length" class="text-warning mt-1" data-test="mirror-reconcile-kept">
+              {{ $t('servers.reconcile.kept', { count: mirror.reconcile.kept.length, numbers: mirror.reconcile.kept.slice(0, 10).map(k => k.number).join(', ') }) }}
+            </div>
+          </div>
         </v-card-text>
       </v-card>
       <v-switch
@@ -642,6 +650,8 @@ interface MirrorFiles {
   missingOnMaster: number
   failing: number
   complete: boolean
+  /** FR-20.70 (P3-7f): the last reconcile of the copy, after the server lost the record of its changes. */
+  reconcile: { since: string; doneAt: string | null; deleted: number; kept: Array<{ number: string; at: string }>; asked: number | null } | null
 }
 const mirror = ref<MirrorFiles | null>(null)
 const mirrorBusy = ref(false)

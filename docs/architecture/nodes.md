@@ -536,9 +536,10 @@ offline (Q2). Only the master writes the org, and the copy follows it one way:
 - **The transport** (P3-2b): the supervisor asks the master's API for each page over its control
   socket and sends it on the bulk socket, one page in flight per org, without reading it. Global
   answers with where the mirror stands, and the bulk `welcome` says it on every connection
-  (FR-20.67). A page from behind or ahead starts again from there; another history, epoch or chain
-  stops that org until a re-seed or a reconcile (P3-7). Its state is in `lgr-server status`
-  (`bulk.replication`).
+  (FR-20.67). A page from behind or ahead starts again from there; another history, an older epoch
+  or a chain this master never built stops that org until a re-seed (P3-7). A newer journal epoch
+  that continues the chain is taken, and lgrai.app's copy reconciled (below). Its state is in
+  `lgr-server status` (`bulk.replication`).
 - **End to end, with real processes:** `packages/tests/src/two-node/mirror-e2e.script.ts` runs a real
   `lgr-server` (its own mongod, the built package's API) linked at Full to a local global behind T-1's
   TLS front and chaos proxy, cuts and throttles the link while the master writes, and ends with the
@@ -556,8 +557,7 @@ offline (Q2). Only the master writes the org, and the copy follows it one way:
   - An org may keep its files on its server only ("Files on lgrai.app" on the Servers page, the
     metadata-only option): its records are mirrored, and its files open only on the server.
   - A file the master cannot read is reported as missing there.
-- **Not yet:** dead letters (P3-2c), the reconcile after a new journal epoch, and the re-seed of a
-  restored master (P3-7).
+- **Not yet:** dead letters (P3-2c).
 
 ## Read-only where the org is not written (FR-20.75)
 
@@ -643,6 +643,25 @@ copy", on the server's row while it is connected and says its database went back
    issued after the last change lgrai.app received is on paper and in the fiscal device only.
 
 An abort puts back what the server held. Bringing the kept sales into the books is not done yet.
+
+### Reconciling lgrai.app's copy (FR-20.70)
+
+A server can lose the record of its changes without losing any data: its database's change history
+no longer reaches back to where it stopped reading (it was down long, its database was upgraded), or
+someone dropped a collection. It then starts a new journal epoch and sends every document it has
+again. What it deleted meanwhile is in nothing it sends, so lgrai.app's copy is made equal to it:
+1. **lgrai.app takes the new epoch** only if it continues the copy's history: the server still holds
+   what lgrai.app last received, so its database did not go back (that is the re-seed's, above).
+2. **The server asks lgrai.app for every document its copy holds**, a thousand at a time, and sends
+   each again as it is on the server, or as gone. It keeps where it stands, so a cut goes on from
+   there, and says when it asked them all.
+3. **The copy is reconciled** once it has everything the server sent until then. The server wins,
+   with one exception: an issued sale the server no longer has stays on lgrai.app, with an alarm,
+   because nothing on a server deletes one, and a server without it lost it.
+
+The server's numbering is not locked: it lost a record of its changes, not its data. The Servers
+page says while the copy is made equal to the server again, and then when, how many documents went,
+and which issued sales lgrai.app kept. A move back waits for it to end.
 
 ## Promoting lgrai.app's copy (FR-20.81)
 
@@ -740,7 +759,7 @@ FR-20's P1 to P3:
   invitations to an on-prem org (plan A.6.8, with the move), off-site backups, reference data;
 - reading documents without the internet on Windows: the package carrying poppler and tesseract
   (P2-6c did Linux, where the .deb depends on the distribution's);
-- the mirror's transport, its files and the reconcile (above), and the tunnel;
+- the tunnel, and the mirror's dead letters (P3-2c); its transport, files, re-seed and reconcile are above;
 - the rest of the moves: a legal number a fenced server and lgrai.app both issued, resolved by a
   credit note and a re-issue (FR-20.51; everything else of the moves is above);
 - setting a local credential on the master itself, right after a Sign in with LGR, and sending it up

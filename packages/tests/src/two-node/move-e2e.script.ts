@@ -27,7 +27,15 @@
  * deleted, nothing on the mirror is deleted, what the master held is kept, and the mirror's chain
  * starts again from the master, numbering still locked until the site's last numbers are recorded.
  *
- *   bun packages/tests/src/two-node/move-e2e.script.ts [--promote | --reseed]
+ * Or, with `--reconcile` (FR-20.70, plan step P3-7f): the master loses the record of its changes. A
+ * captured collection is dropped there, as a `mongosh` slip would, and an issued sale went where the
+ * capture did not see it. Its tailer starts a new journal epoch and journals every document again;
+ * lgrai.app takes the epoch's pages because they continue its chain, and the master's tick asks for
+ * every id lgrai.app's copy holds and journals each again. The copy loses what the master deleted,
+ * keeps the issued sale with an alarm, and is the master's again, document for document. Numbering
+ * stays open: the master lost a record, not its data.
+ *
+ *   bun packages/tests/src/two-node/move-e2e.script.ts [--promote | --reseed | --reconcile]
  *
  * Needs: `cargo build` (packages/server), `bun run build` + `bun run build:server` (dist/lgr-server).
  * About three minutes. Passwords and keys are read, never printed. Exit 0 when every check passed.
@@ -62,6 +70,7 @@ const MONGOD_PORT = 27237
 const LOCAL_PASSWORD = randomBytes(12).toString('base64url')
 const PROMOTE = process.argv.includes('--promote')
 const RESEED = process.argv.includes('--reseed')
+const RECONCILE = process.argv.includes('--reconcile')
 
 let failed = 0
 const check = (label: string, ok: boolean, detail = '') => {
@@ -443,7 +452,60 @@ try {
     check('global raised no alarm on the new chain', !(stAfter?.alarms ?? []).length, JSON.stringify(stAfter?.alarms ?? []))
   }
 
-  if (!PROMOTE && !RESEED) {
+  if (RECONCILE) {
+    // ── FR-20.70 (P3-7f): the master loses the record of its changes; the copy is made equal to it ──
+    // Tags the shop made, and an issued sale, reach the mirror.
+    const tagIds = [0, 1, 2].map(() => new mongoose.Types.ObjectId())
+    await mdb.collection('tags').insertMany(tagIds.map((_id, i) => ({ _id, orgId, type: 'contact', value: `dropped-${i}`, createdAt: new Date(), updatedAt: new Date() })))
+    const saleId = new mongoose.Types.ObjectId()
+    await mdb.collection('invoices').insertOne({ _id: saleId, orgId, invoiceNumber: 'INV-2026-00077', status: 'sent', type: 'invoice', direction: 'outgoing', currency: 'EUR', lines: [], subtotal: 1, taxTotal: 0, total: 1, issueDate: new Date(), dueDate: new Date(), createdAt: new Date(), updatedAt: new Date() })
+    await caughtUp('the tags and the issued sale reach the mirror')
+    const epochBefore = Number(((await mdb.collection('repl_engine').findOne({ _id: 'engine' as any })) as any)?.journalEpoch ?? 1)
+    // The sale goes on the master where the capture does not see it: the org out of the capture, as for the disk above.
+    await mdb.collection('repl_orgs').updateOne({ orgId }, { $set: { enabled: false } })
+    await Bun.sleep(2_000)
+    await mdb.collection('invoices').deleteOne({ _id: saleId })
+    await Bun.sleep(3_000)
+    await mdb.collection('repl_orgs').updateOne({ orgId }, { $set: { enabled: true } })
+    // Then a captured collection is dropped there: a change stream says nothing of what went with it,
+    // so the tailer starts a new journal epoch and journals every document again.
+    await mdb.collection('tags').drop()
+    const epoch = await until(async () => {
+      const e: any = await mdb.collection('repl_engine').findOne({ _id: 'engine' as any })
+      return Number(e?.journalEpoch ?? 1) > epochBefore ? Number(e.journalEpoch) : false
+    }, 60_000)
+    check('a captured collection dropped on the master starts a new journal epoch there', !!epoch, `epoch ${epochBefore} → ${epoch}`)
+    const started = await until(async () => {
+      const st: any = await gdb.collection('mirror_state').findOne({ orgId })
+      return st?.journalEpoch === epoch && st?.reconcile?.journalEpoch === epoch ? st.reconcile : false
+    }, 120_000, 2000)
+    check('lgrai.app takes the new epoch\'s pages, which continue its chain, and starts reconciling its copy', !!started, JSON.stringify(started))
+    const done: any = await until(async () => {
+      const st: any = await gdb.collection('mirror_state').findOne({ orgId })
+      return st?.reconcile?.doneAt ? st.reconcile : false
+    }, 240_000, 2000)
+    check('the reconcile ends done: the master journaled every id of the copy again, and the copy got there', !!done, JSON.stringify(done && { head: done.head, asked: done.asked, deleted: done.deleted, kept: done.kept?.length }))
+    check('the dropped tags are gone from the copy', (await gdb.collection('tags').countDocuments({ orgId })) === 0)
+    check('the issued sale the master no longer has stays on the copy, named, with an alarm', !!(await gdb.collection('invoices').findOne({ _id: saleId })) && (done?.kept ?? []).some((k: any) => k.number === 'INV-2026-00077') && (((await gdb.collection('mirror_state').findOne({ orgId })) as any)?.alarms ?? []).some((a: any) => a.kind === 'sale_kept'))
+    const repl: any = await mdb.collection('repl_orgs').findOne({ orgId })
+    check('the master marks the epoch reconciled', repl?.reconciledEpoch === epoch && !repl?.reconcile, JSON.stringify({ reconciledEpoch: repl?.reconciledEpoch, reconcile: repl?.reconcile }))
+    // Apart from the sale it keeps, the copy is the master's again, document for document.
+    const sorted = (d: Record<string, Record<string, string>>) => JSON.stringify(Object.fromEntries(Object.keys(d).sort().map(c => [c, Object.fromEntries(Object.entries(d[c]).sort(([a], [b]) => a.localeCompare(b)))])))
+    const sameButTheSale = async () => {
+      const g = await digest(gdb)
+      if (g.invoices) delete g.invoices[idKey(saleId)]
+      if (g.invoices && !Object.keys(g.invoices).length) delete g.invoices
+      return sorted(await digest(mdb)) === sorted(g)
+    }
+    check('apart from that sale, the copy is the master\'s again, document for document', await sameButTheSale())
+    const open: any = await mdb.collection('org_homes').findOne({ orgId })
+    check('the master\'s legal numbering stays open: it lost a record of its changes, not its data', !open?.seriesFrozen, JSON.stringify(open?.seriesFrozen ?? null))
+    await mdb.collection('contacts').insertOne({ _id: new mongoose.Types.ObjectId(), orgId, companyName: 'Written after the reconcile', type: 'customer', isActive: true })
+    const after = await until(async () => (await mirrorAt()) >= (await headOf()) && (await sameButTheSale()), 120_000, 1500)
+    check('what the shop writes next reaches the copy', !!after, `journal head ${await headOf()}, mirror ${await mirrorAt()}`)
+  }
+
+  if (!PROMOTE && !RESEED && !RECONCILE) {
     // ── FR-20.51 (P3-7): a master that never went back keeps its numbering open ─────────────────────
     // Its boot check and its minute tick (the journal's mark, lgrai.app's alarms) have run by now.
     await Bun.sleep(65_000)

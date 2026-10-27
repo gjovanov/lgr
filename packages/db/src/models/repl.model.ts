@@ -78,6 +78,18 @@ export interface IReplOrg {
    * restore is then seen afresh, which is what it is.
    */
   wentBack?: { at: Date; reason: string; detail?: string }
+  /**
+   * FR-20.70 (P3-7): the journal epoch at which lgrai.app's copy was last made equal to this one. Set
+   * at the org's first seeding; after lost history the epoch moves past it, and the reconcile runs
+   * until it catches up. Absent means 1, the epoch every master starts at.
+   */
+  reconciledEpoch?: number
+  /**
+   * The reconcile under way: lgrai.app's ids of the org, asked for page by page and journaled again
+   * here, each as it is now or as gone. `after` is where the next page starts (absent: from the
+   * beginning), so a restart goes on from there.
+   */
+  reconcile?: { journalEpoch: number; coll?: string; after?: unknown; asked: number; startedAt: Date }
   updatedAt: Date
 }
 
@@ -90,6 +102,11 @@ const orgSchema = new Schema<IReplOrg>(
     seededEpoch: Number,
     pages: { type: [{ _id: false, toSeq: Number, hash: String, at: Date }], default: [] },
     wentBack: { type: new Schema({ at: Date, reason: String, detail: String }, { _id: false }), default: undefined },
+    reconciledEpoch: Number,
+    reconcile: {
+      type: new Schema({ journalEpoch: Number, coll: String, after: Schema.Types.Mixed, asked: Number, startedAt: Date }, { _id: false }),
+      default: undefined,
+    },
   },
   { timestamps: { createdAt: false, updatedAt: true }, collection: 'repl_orgs' },
 )

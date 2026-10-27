@@ -15,6 +15,8 @@ import { MoveError, copied, copyFailed, copyFor, movesForNode } from 'services/b
 import { drained } from 'services/biz/move/move-back.service'
 import { legalSeriesOf } from 'services/biz/move/promote.service'
 import { FENCED_CHUNK, fencedExportStatus, receiveFencedChunk } from 'services/biz/move/fenced-export.service'
+import { ReconcileRefused, mirrorIdsFor, reconcileReported } from 'services/biz/replication/reconcile'
+import { BSON } from 'services/biz/replication/pages'
 import { rewelcomeNode } from '../websocket/uplink.js'
 import { repointOrgDesktops } from '../websocket/desktop.js'
 import {
@@ -418,6 +420,42 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
     '/org-state',
     async ({ node, body }: any) => ({ ok: true, orgs: await recordOrgState(node, body) }),
     { body: t.Object({ orgs: t.Array(t.Object({ orgId: t.String({ maxLength: 24 }) }, { additionalProperties: true }), { maxItems: 100 }) }) },
+  )
+
+  /**
+   * FR-20.70 (P3-7f): the ids lgrai.app's copy of an org holds, a page at a time, for the org's home to
+   * journal again after it lost the record of its changes (`reconcile.ts`). EJSON both ways: the ids
+   * keep their BSON types. The org is a query parameter, as for `/legal-series`.
+   */
+  .get('/reconcile/ids', async ({ node, query, status, set }: any) => {
+    let after: unknown
+    try {
+      after = query.after === undefined ? undefined : BSON.EJSON.parse(String(query.after), { relaxed: false })
+    } catch {
+      return status(400, { code: 'bad_request', message: 'after is not EJSON' })
+    }
+    try {
+      const page = await mirrorIdsFor(node, String(query.orgId ?? ''), { ...(query.coll !== undefined ? { coll: String(query.coll) } : {}), ...(after !== undefined ? { after } : {}) })
+      set.headers['content-type'] = 'application/json'
+      return BSON.EJSON.stringify(page as any, { relaxed: false })
+    } catch (e) {
+      if (e instanceof ReconcileRefused) return status(e.status, { code: e.code, message: e.message })
+      throw e
+    }
+  })
+
+  /** The home journaled every id again; its journal stood at `head`. The copy is reconciled once its watermark gets there. */
+  .post(
+    '/reconcile/done',
+    async ({ node, body, status }: any) => {
+      try {
+        return await reconcileReported(node, body.orgId, { journalEpoch: body.journalEpoch, head: body.head, asked: body.asked })
+      } catch (e) {
+        if (e instanceof ReconcileRefused) return status(e.status, { code: e.code, message: e.message })
+        throw e
+      }
+    },
+    { body: t.Object({ orgId: t.String({ maxLength: 24 }), journalEpoch: t.Integer({ minimum: 1 }), head: t.Integer({ minimum: 0 }), asked: t.Integer({ minimum: 0 }) }) },
   )
 
   /** The master's registration as global sees it: which orgs it serves, at which link level. */

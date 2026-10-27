@@ -2445,8 +2445,9 @@ A master journals its own writes and sends them to lgrai.app's mirror of the org
   afterHash}` → the bytes, 204, or 409 with the reason) and sends it as ONE binary frame on the bulk
   socket. Global answers `page-ack` / `page-refused` / `page-error`; a `resend`'s ids travel as EJSON
   to `POST /replication/resend`. The bulk `welcome` says where each mirror stands (FR-20.67). One page
-  in flight per org; `behind`/`gap` start again from global's watermark; another history, epoch or an
-  unknown chain STOPS that org (a re-seed is P3-7's, and a person's call); the rest waits 10 minutes.
+  in flight per org; `behind`/`gap` start again from global's watermark; another history, an older
+  epoch or an unknown chain STOPS that org (a re-seed is P3-7's, and a person's call); the rest waits
+  10 minutes. A NEWER journal epoch that continues the chain is applied and reconciled (P3-7f, below).
   - ⚠ The supervisor never reads a page, and global takes the node from the token, never the page.
   - ⚠ A page is read at the snapshot (majority-committed) point, which can trail a `local` read by
     the batch that just committed: "nothing to send" then is not "caught up". The pump looks again
@@ -2561,7 +2562,7 @@ mirror holds ALL of it. Global: `services/biz/move/move-back.service.ts`; the ma
     connected on both sockets and healthy;
   - no till open and no fiscal command in flight there (its health frame's `posOpen` and
     `fiscalInFlight`; unknown is not 0) and no open session among the mirrored rows;
-  - a live mirror (no `reconcileRequired`);
+  - a live mirror (no reconcile running: `mirror_state.reconcile` done, or none);
   - every file the mirror's rows name is on lgrai.app or on its way. A file the server cannot send
     blocks the move unless the admin leaves it behind (`allowMissingFiles`).
 - **Asked** (`freezing`): global records the move and re-welcomes the master, so a records-only
@@ -2819,6 +2820,46 @@ the server: `move-worker.service.ts#reseedHere`.
   outside mark taken back to a snapshot, the mirror ahead: found by the master itself, recorded,
   locked, told; re-seeded; what was made since back, what was deleted since gone, the mirror
   untouched, a new chain caught up).
+
+## Reconciling lgrai.app's copy after a master lost the record of its changes (2026-10-27, FR-20.70, plan step P3-7f)
+
+Lost history (FR-20.61: the oplog no longer reaches the saved resume token, a token that no longer
+parses, an invalidate, a captured collection DROPPED) raises the master's journal epoch, and the
+tailer journals every document it HAS again (`seedOrg(…, 'upsert')`). What it DELETED in the gap is
+in no row. Until P3-7f global refused the new epoch (`reconcile_required`) and the pump stopped the
+org: the mirror stalled for good. Now (`services/biz/replication/reconcile.ts`, `apply.ts`):
+- **Global applies the epoch's first page if it continues the chain** from the watermark
+  (`decide` → `reconcile`): the master still holds the page global stands on, so its database did
+  not go back under the mirror (that is the re-seed's, above). `mirror_state.reconcile
+  {journalEpoch, since, deleted, kept[], head?, doneAt?}` follows it.
+- **The master drives the id pass** (`mirrorReconcileTick`, every minute, master only, at Full): for
+  an org written there whose journal is whole at an epoch above `repl_orgs.reconciledEpoch` (set at
+  the FIRST seeding; absent means 1), it asks `GET /api/node/v1/reconcile/ids?orgId=&coll=&after=`
+  (EJSON, the ids keep their types; 1,000 a page, 50 pages a tick) and journals each id again
+  (`rejournal`: as it is here, or as GONE). Where it stands is `repl_orgs.reconcile`, so a cut tick
+  goes on from there. With every id asked it reports `POST /reconcile/done {orgId, journalEpoch,
+  head, asked}` and marks the epoch reconciled; global sets `doneAt` once its watermark reaches
+  `head` (checked against the watermark as it is NOW: a page applied meanwhile read no head).
+- ⚠ Global answers only the org's home, registered for it at Full, with no clone alarm, and only the
+  ids of ITS copy of that org (FR-20.66). The org's own document is never asked.
+- ⚠ **No page deletes an issued sale** (FR-20.51; `issued-sales.ts`: an invoice with a number that
+  is not a draft, any till transaction): a tombstone for one the copy holds is not applied, the copy
+  keeps it, with a `sale_kept` alarm and on the reconcile's `kept` list. Nothing on a home deletes
+  one (a draft only), so a home without it lost it, and the copy may be its only record.
+- Numbering is NOT locked: the master lost a record of its changes, not its data. The move back
+  waits while a reconcile runs (`mirror_live`). The Servers page's "Files on lgrai.app" card says
+  the copy is being made equal to the server again, then when it was, how many documents went, and
+  the issued sales it kept (×4).
+- Not yet: the reconcile on demand, and after the journal's tombstones are pruned (nothing prunes them).
+  ⚠ A kept sale also holds a move back (the copy then differs from the server, and P3-6c waits on a
+  mismatch): bringing it back onto the server is the same audited import the re-seed's kept sales
+  wait for.
+- Tests: `mirror-reconcile.flow` (7: the copy made equal, what the gap deleted gone, what it changed
+  come, an issued sale kept; only a chain-continuing page raises the epoch; the master's word before
+  the first page; no page deletes an issued sale; the ids to the org's home only, page by page; a
+  first seeding needs none; a cut tick goes on); real-process `two-node/move-e2e.script.ts --reconcile`
+  (a captured collection dropped on a real master and an issued sale deleted unseen: a new epoch,
+  taken by lgrai.app, the copy made equal but for the sale it keeps, numbering open).
 
 ## What a fenced server did after the cutoff (2026-10-27, FR-20.84, plan step P3-6e)
 

@@ -23,6 +23,8 @@
  * - **lgrai.app refusing its pages as a history that went back** (`instance_changed`,
  *   `stale_journal`, `diverged`): a reverted VM snapshot written to, when linked.
  * - **A clone alarm**: another machine connected as this server (FR-20.8).
+ * - **A clone on the shop's network** (AC 50): another machine answering as this server with its
+ *   keys, which the supervisor found and recorded in `state/clone.json` (`lanCloneTick`).
  *
  * ⚠ **A sign seen again does not lock again.** A person who recorded the last numbers made numbering
  * safe, while replication stays refused until the org is re-seeded, the journal may stay below its
@@ -32,8 +34,10 @@
  * than the unlock (`seriesUnlockedAt`).
  *
  * Every minute the master also tells lgrai.app what it found, per org (`reportOrgState`), for the
- * Servers page there. Not yet: the fiscal device as a witness (its last receipt ahead of the
- * database), the clone seen on the LAN, and the re-seed from the mirror.
+ * Servers page there. A master that went back is re-seeded from lgrai.app's copy (P3-7d,
+ * `reseed.service.ts`); one that only lost the record of its changes is not locked at all, and its
+ * copy there is reconciled instead (P3-7f, `replication/reconcile.ts`). Not yet: the fiscal device
+ * as a witness (its last receipt ahead of the database).
  */
 import { readFileSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'

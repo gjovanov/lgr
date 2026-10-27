@@ -3421,6 +3421,11 @@
         "deletion": "a deletion is never applied"
       },
       "introImported": "The server came back after lgrai.app's copy became the organization's home. Everything it wrote after the cutoff arrived here unchanged; what could be was brought into the books, and the rest is listed for a person."
+    },
+    "reconcile": {
+      "running": "{name} lost the record of its changes on {since}. lgrai.app's copy of its records is being made equal to it again: what it deleted meanwhile is removed here too.",
+      "done": "lgrai.app's copy of the records was made equal to {name}'s again on {when}, after the server lost the record of its changes. {count} documents it no longer had were removed here.",
+      "kept": "{count} issued sales lgrai.app holds are no longer on the server, and were kept here: {numbers}. A server that loses an issued sale went back in time: check it before it issues more."
     }
   },
   "desktops": {

@@ -3421,6 +3421,11 @@
         "deletion": "eine Löschung wird nie angewendet"
       },
       "introImported": "Der Server kam zurück, nachdem die Kopie auf lgrai.app das Zuhause der Organisation wurde. Alles, was er nach der Grenze geschrieben hat, ist hier unverändert eingetroffen; was ging, wurde in die Buchhaltung übernommen, der Rest ist für einen Menschen aufgeführt."
+    },
+    "reconcile": {
+      "running": "{name} hat am {since} die Aufzeichnung seiner Änderungen verloren. Die Kopie der Datensätze auf lgrai.app wird wieder mit ihm abgeglichen: was er inzwischen gelöscht hat, wird auch hier entfernt.",
+      "done": "Die Kopie der Datensätze auf lgrai.app wurde am {when} wieder mit {name} abgeglichen, nachdem der Server die Aufzeichnung seiner Änderungen verloren hatte. {count} Dokumente, die er nicht mehr hatte, wurden hier entfernt.",
+      "kept": "{count} ausgestellte Verkäufe auf lgrai.app sind auf dem Server nicht mehr vorhanden und wurden hier behalten: {numbers}. Ein Server, der einen ausgestellten Verkauf verliert, ist in der Zeit zurückgegangen: prüfen Sie ihn, bevor er weitere ausstellt."
     }
   },
   "desktops": {

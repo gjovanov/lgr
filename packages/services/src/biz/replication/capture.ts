@@ -18,8 +18,9 @@
  *   resume token the server no longer knows, or an invalidate, the journal epoch goes up by one, the
  *   stream restarts at now, and every document of every captured org is journaled again by UPSERT,
  *   with a fresh seq: `$setOnInsert` would keep stale rows at or below the watermark, and the changes
- *   made in the gap would never be sent. Global refuses the new epoch's pages until a reconcile
- *   (FR-20.70, P3-2).
+ *   made in the gap would never be sent. What was DELETED in the gap is in no row: the reconcile
+ *   (FR-20.70, `reconcile.ts`) journals again every id lgrai.app's copy holds, so each comes as it is
+ *   here or as gone.
  * - **A document with no org is never journaled** (an `ExchangeRate` with `orgId: null`), nor one of
  *   an org that is not captured here.
  */
@@ -278,7 +279,10 @@ export async function seedOrg(db: Db, orgId: unknown, mode: 'insert-only' | 'ups
       after = page[page.length - 1]._id
     }
   }
-  await db.collection<any>(ORGS).updateOne({ orgId }, { $set: { seededAt: new Date(), seededEpoch: journalEpoch } })
+  // FR-20.70 (P3-7f): a first seeding starts a copy from nothing, so there is nothing on lgrai.app to
+  // reconcile at this epoch. After lost history (`upsert`) the epoch has moved past it, and it waits.
+  const reconciled = mode === 'insert-only' ? { reconciledEpoch: journalEpoch } : {}
+  await db.collection<any>(ORGS).updateOne({ orgId }, { $set: { seededAt: new Date(), seededEpoch: journalEpoch, ...reconciled } })
   return total
 }
 
