@@ -1,16 +1,28 @@
-# FR-21 — handover (2026-10-25, updated 2026-10-26)
+# FR-21 — handover (2026-10-25, updated 2026-10-27)
 
 **To:** Atanas (@lazarovski) · **Tracking:** #171 · **Spec:** [FR-21](FR-21-cash-register-pos-and-cash-sales.md)
 
-R1, the read side, is merged and on production since 2026-10-26. It shipped in image
-`v20261026-ee6cc3b78103` (master `ddfd167f`). Prod now runs `v20261026-a9dae7528a8c` (master
-`f89e22eb`), which adds FR-21.14's cleanup script. R1's two migrations ran there, and the field
-checks matched the baseline taken before the release. FR-21.14 ran on the owner's go the same day.
-R2, the write side, is merged into master since 2026-10-26 (#271, then #272 → #273 → #274), and none
-of it is deployed: the next deploy of master ships it. This is what is done, what is left, and what
+**Every release is on production (2026-10-27).** R1 shipped in `v20261026-ee6cc3b78103`, R2 (with
+#278's fixes) in `v20261026-91340a8573f1`, then R3 (#284) and R4 (#286), R5a (#315) in
+`v20261027-81b088ce53ca` and R5b (#316) in `v20261027-61d64b243f9f` (master `2aedabac`). Migrations
+`0006`–`0009` are recorded, and `postransactions` is frozen and empty. Each field check matched the one
+before it; after R3 only the day's imports had moved. This is what was done, what is left, and what
 turned up on the way that the spec does not say.
 
-## 0. Start here (2026-10-26)
+## 0. What is left (2026-10-27)
+
+- **FR-21.32 (SHOULD):** `pos.write` on the till's write routes. First a read-only query on prod for
+  the users who used the till in the last 90 days without that permission (its output stays on the
+  build host); switch it on once that list is empty.
+- **The R2 device test in `acme-corp`**, including the fiscal print of a back-office line with a
+  discount (§5, R5b).
+- **#279** (a gap in the CS series), **#280** (transfers stay confirmed after a rollback), **#281**
+  (a storno of a fiscal sale while the device is offline).
+- **Watch the daily cash-sale imports.** Since R5b `POST /invoices` checks a cash sale's total with
+  `computePosTotals` (422 `cash_sale_total_mismatch`); an imported day is exempt, and none was refused
+  on the first evening.
+
+## 0a. Start here (2026-10-26, kept as the record)
 
 Atanas takes FR-21 over from here. In order:
 
@@ -48,13 +60,13 @@ totals, a day's cash, SUPTO sums. The field check's output stays on the build ho
 | **R1b** — every reader counts a till sale once, whichever store holds it | FR-21.7 – FR-21.12 | #247, merged and deployed 2026-10-26 |
 | **R1c** — one journal page in both apps | FR-21.13 (B-6) | #248, merged and deployed 2026-10-26 |
 | Before R2 — the `regal` test sales | FR-21.14 | **Done 2026-10-26** (#269, owner's go): 74 test sales removed, see §5. |
-| R2a — `pendingTransferIds` | FR-21.24 | #271, merged 2026-10-26, not deployed (prod runs `f89e22eb`) |
-| R2b — the till writes cash-register documents | FR-21.15 – FR-21.20 (the till's door) | #272, merged 2026-10-26, not deployed |
-| R2c — the copy migration and the restore | FR-21.21 – FR-21.22 | #273, merged 2026-10-26, not deployed |
-| R2d — the back office and the import; `docs/supto`; the field-check script | FR-21.15 (the other doors), FR-21.23 | #274, merged 2026-10-26, not deployed |
-| R3 — freeze | FR-21.25 – FR-21.26 | in review (`0009-cash-register-freeze`, the frozen model) |
-| R4 — contract | FR-21.27 – FR-21.28 | in review, stacked on R3 (#284) |
-| R5 — one terminal | FR-21.29 – FR-21.32 | R5a (the session join, FR-21.31) in review; R5b (the one terminal, FR-21.29/.30/.32) to do |
+| R2a — `pendingTransferIds` | FR-21.24 | #271, deployed 2026-10-26 (`v20261026-91340a8573f1`) |
+| R2b — the till writes cash-register documents | FR-21.15 – FR-21.20 (the till's door) | #272 + #278's fixes, deployed 2026-10-26 |
+| R2c — the copy migration and the restore | FR-21.21 – FR-21.22 | #273, deployed 2026-10-26, `0008` applied |
+| R2d — the back office and the import; `docs/supto`; the field-check script | FR-21.15 (the other doors), FR-21.23 | #274, deployed 2026-10-26. Left: the device test in `acme-corp` |
+| R3 — freeze | FR-21.25 – FR-21.26 | #284, deployed 2026-10-27, `0009` applied |
+| R4 — contract | FR-21.27 – FR-21.28 | #286, deployed 2026-10-27 |
+| R5 — one terminal | FR-21.29 – FR-21.32 | R5a (#315, FR-21.31) and R5b (#316, FR-21.29/.30) deployed 2026-10-27. FR-21.32 (SHOULD) open |
 
 ⚠ **Merging a stack: retarget the next PR before deleting the merged branch.** GitHub CLOSED #247 when
 #244's head branch was deleted with `gh pr merge --delete-branch`, instead of retargeting it. A closed
@@ -377,7 +389,7 @@ that series its own line only from R2c, §3.23.)
    <branch>` on the build host. It does what step 3 did.
 
 ### R3 (FR-21.25 – FR-21.26)
-In review as #284 (`feat/fr-21-r3-freeze`):
+#284, deployed 2026-10-27; `0009` applied, no POS rows were left to copy:
 - **FR-21.25:** `0009-cash-register-freeze` runs `copy-org.ts` over every org with POS rows. It copies the rows written since 0008 (a rollback to R1 between the two), then re-runs parity over the whole history, and throws naming the orgs that disagree.
 - **FR-21.26:** `POSTransaction` carries `db/plugins/frozen.plugin.ts`. Every write through the model throws `FrozenCollectionError` ("postransactions is frozen (FR-21)"): save, insertMany, every query write, document writes and bulkWrite. Raw `Model.collection.*` writes pass, as they pass the home guard. Those are the restore, the move and the mirror, already listed in `home-write-guard.flow.test.ts`.
 - **What still wrote through the model:**
@@ -388,7 +400,7 @@ In review as #284 (`feat/fr-21-r3-freeze`):
 **The deploy:** as R2's. Take the field check, deploy, `bun run migrate` (0009), and diff the field check. Prod has no POS rows, so 0009 finds nothing to copy and only proves parity. Rolling back to R2 is safe, because R2 never writes `POSTransaction`.
 
 ### R4 (FR-21.27 – FR-21.28)
-In review on `feat/fr-21-r4-contract`, stacked on #284. It merges and deploys only after R3 is on prod.
+#286, deployed 2026-10-27 after R3.
 - **FR-21.27, no runtime reader asks `postransactions`:**
   - `pos-union.ts` (`loadPosRows`, `findPosRow`) and the journal (`journal.service.ts`) read the till's documents only;
   - the till's keyed lookup and `POST /invoices` find a key on the documents, where 0008/0009 carried it;
@@ -408,7 +420,7 @@ In review on `feat/fr-21-r4-contract`, stacked on #284. It merges and deploys on
 ### R5 (FR-21.29 – FR-21.32)
 Split in two.
 
-**R5a, the server (in review, `feat/fr-21-r5a-session-join`):**
+**R5a, the server (#315, deployed 2026-10-27, `v20261027-81b088ce53ca`):**
 - **The terminal rings into the user's own session** (owner, 2026-10-27).
   - `PosTerminalView.vue#fetchSessions` passes `cashierId`.
   - `POST /session/:id/transaction` answers 403 `session_not_yours` for another cashier's session. A keyed retry of a sale already made is answered first.
@@ -423,7 +435,7 @@ Split in two.
   - `cash-register-session-join.flow`: 7 tests;
   - `till-world`'s `backOfficeSale` now posts as a clerk with no session, so the existing back-office cases mean what they meant; `cashierBackOfficeSale` joins.
 
-**R5b, the UI (in review, `feat/fr-21-r5b-terminal`, stacked on R5a):**
+**R5b, the UI (#316, deployed 2026-10-27, `v20261027-61d64b243f9f`):**
 - **FR-21.29: `ui-shared/components/cash-register/RegisterTerminal.vue`.** It is the catalog, the cart and the totals of both `/pos/terminal` and `/invoicing/cash-sales/new`.
   - **The catalog:** search, category, and type and tags on the till; cards and paging; the scanner's Enter lookup with its queue and stale-answer guard.
   - **The cart:** −, a typed quantity, +, the price, remove, and each line's gross.
@@ -431,6 +443,7 @@ Split in two.
     - the till: the session bar, the fiscal bridge, the last sale, the document-wide price, and the payment and Complete;
     - the form: its header, its customer-aware `PriceCombobox`, notes, tags, the receipt, and Save.
   - **Found on the way:** the till's category filter sent the category's id, and the catalog filters by name, so it matched nothing. The one component sends the name.
+  - ⚠ **Found by the e2e run, not the unit tests:** Vue casts an absent `boolean` prop to `false`, not `undefined`. `active?: boolean` left the back-office form's catalog empty, since the form never passes it. `active` and `readonly` now have defaults (`withDefaults`). The specs find the terminal by `.register-catalog`, `register-card` and `cart-line-N`.
 - **FR-21.30: one totals function.** A cash sale's form totals and payload come from `computePosTotals` (`document-payload.ts#computeTotals`), as the till's do.
   - The form rounded net and VAT first, which can be a cent away: a valve at 17.8952 net and 20 % was 21.48 there, against 21.47 at the till and on the device.
   - `POST /invoices` now checks a back-office cash sale with the till's function and tolerance (0.02, 422 `cash_sale_total_mismatch`) and stores the server's figures. An imported day keeps the totals of its file.
