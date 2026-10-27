@@ -363,9 +363,10 @@ Updates that come by themselves (plan step P1-8c, `updates.rs`, `helper.rs`, `si
   issued only once: a retired address shows a notice for a year and is never anyone else's. Only an org
   whose licence includes its own server can have one, and not for a reserved name or one the zone
   already serves.
-- **Reaching an org through its address** (P3-4b, FR-20.73, FR-20.78). lgrai.app hands everything on
-  the address to the org's server, over the server's own connection to lgrai.app, and adds nothing of
-  its own: the server's sign-in, the server's app, the server's cookies. Without a sign-in, only what
+- **Reaching an org through its address** (P3-4b and P3-4c, FR-20.73, FR-20.78). lgrai.app hands
+  everything on the address to the org's server, over the server's own connection to lgrai.app, and
+  adds nothing of its own: the server's sign-in, the server's app, the server's cookies. The server
+  answers its address only for what came that way, under the same rules as the shop's own network. Without a sign-in, only what
   signing in needs gets through (the app's pages, "Sign in with LGR", and WebSockets that sign in
   first), and strangers are limited per minute. While the server is not connected, the address shows
   a short notice instead.

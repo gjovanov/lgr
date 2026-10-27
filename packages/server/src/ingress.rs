@@ -36,8 +36,7 @@ pub type Body = BoxBody<Bytes, hyper::Error>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
     Lan,
-    /// Stamped by the uplink's ingress (P3); the API already knows it.
-    #[allow(dead_code)]
+    /// FR-20.73 (P3-4c): what reaches an org's address through the uplink (`tunnel.rs`).
     Tunnel,
     Console,
 }

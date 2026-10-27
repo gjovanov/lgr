@@ -10,6 +10,7 @@ import {
   frontRefusal,
   frontSource,
   hostAllowed,
+  isOrgAddressHost,
   normalizedPath,
   refusedOnHttp,
   secretMatches,
@@ -50,6 +51,30 @@ describe('hostAllowed', () => {
       expect([h, hostAllowed(h, ['kasa-1.local'])]).toEqual([h, false])
     }
     expect(hostAllowed(undefined, ['kasa-1.local'])).toBe(false)
+  })
+})
+
+describe("an org's address, through the tunnel (FR-20.72, P3-4c)", () => {
+  test('a label under the apex is an org address; nothing else is', () => {
+    for (const h of ['shop-a.lgrai.app', 'SHOP-A.lgrai.app:443', 'shop-a.lgrai.app.']) expect([h, isOrgAddressHost(h)]).toEqual([h, true])
+    for (const h of ['lgrai.app', 'a.b.lgrai.app', '-x.lgrai.app', 'shop_a.lgrai.app', 'shop-a.lgrai.app.evil.example', 'evil-lgrai.app', `${'a'.repeat(64)}.lgrai.app`, '']) {
+      expect([h, isOrgAddressHost(h)]).toEqual([h, false])
+    }
+    expect(isOrgAddressHost(undefined)).toBe(false)
+  })
+
+  test('the address is answered for the tunnel source only: a LAN request under that name is refused', async () => {
+    behindFront()
+    const at = (source: string) => new Request('http://shop-a.lgrai.app/api/things', { headers: { 'x-lgr-front': SECRET, 'x-lgr-source': source, host: 'shop-a.lgrai.app' } })
+    expect(await frontRefusal(at('tunnel'))).toBeUndefined()
+    const lan = await frontRefusal(at('lan'))
+    expect([lan?.status, (await lan?.json())?.code]).toEqual([403, 'host_not_allowed'])
+    // Without the front secret nothing is answered, whatever it claims.
+    const forged = await frontRefusal(new Request('http://shop-a.lgrai.app/', { headers: { 'x-lgr-source': 'tunnel', host: 'shop-a.lgrai.app' } }))
+    expect(forged?.status).toBe(403)
+    // Another name, even through the tunnel: refused.
+    const other = await frontRefusal(new Request('http://attacker.example/', { headers: { 'x-lgr-front': SECRET, 'x-lgr-source': 'tunnel', host: 'attacker.example' } }))
+    expect((await other?.json())?.code).toBe('host_not_allowed')
   })
 })
 

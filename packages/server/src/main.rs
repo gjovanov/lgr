@@ -34,6 +34,7 @@ mod signatures;
 mod status_file;
 mod supervisor;
 mod supto;
+mod tunnel;
 mod updates;
 mod uplink;
 mod version;
@@ -359,11 +360,14 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                         if pacer.is_none() {
                             tracing::warn!("LGR_BULK_PACING=off: the mirror sends as fast as the line takes it, in front of every click");
                         }
+                        // FR-20.73 (P3-4c): the tunnel's streams reach the API as every ingress's do.
+                        let tunnel_up = std::sync::Arc::new(ingress::Upstream { port: front.port, secret: front.secret.clone() });
                         for ch in uplink::CHANNELS {
                             let h = (ch == "interactive").then(|| health.clone());
+                            let t = (ch == "interactive").then(|| tunnel_up.clone());
                             // FR-20.64: the bulk socket carries the mirror's pages, which the API builds.
                             let p = (ch == "bulk").then(|| std::sync::Arc::new(replication::ApiPages::new(front.socket.clone(), front.secret.clone(), pacer.clone())) as std::sync::Arc<dyn replication::PageSource>);
-                            sup.add_service(tokio::spawn(uplink::run(r.clone(), ch, nonce.clone(), sup.uplink_status(), uplink::Timing::default(), h, p, pacer.clone())));
+                            sup.add_service(tokio::spawn(uplink::run(r.clone(), ch, nonce.clone(), sup.uplink_status(), uplink::Timing::default(), h, p, pacer.clone(), t)));
                         }
                         // FR-20.56: the tills' desktop release, kept here so they update offline.
                         sup.add_service(tokio::spawn(desktop_releases::run(r.clone(), sup.releases_status(), desktop_releases::EVERY)));

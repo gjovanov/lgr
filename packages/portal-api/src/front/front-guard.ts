@@ -95,6 +95,19 @@ export function hostAllowed(host: string | null | undefined, names: readonly str
   return names.some(n => hostName(n) === name)
 }
 
+/**
+ * FR-20.72 (P3-4c): an org's address on lgrai.app, `<label>.<ORG_ADDRESS_APEX>`, as the tunnel brings
+ * it. Allowed for the `tunnel` source only: global routes an address to the org's home alone, over
+ * this server's authenticated uplink, so the name is lgrai.app's, never a rebinding attacker's.
+ */
+export function isOrgAddressHost(host: string | null | undefined, apex = config.idp.addressApex): boolean {
+  if (!host) return false
+  const name = hostName(host)
+  if (!name.endsWith(`.${apex}`)) return false
+  const label = name.slice(0, -(apex.length + 1))
+  return label.length <= 63 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(label)
+}
+
 /** The path as a router might read it, for the refusals: decoded, lowercase, single slashes. */
 export function normalizedPath(pathname: string): string {
   let p = pathname
@@ -157,10 +170,12 @@ export async function frontRefusal(request: Request): Promise<Response | undefin
     if (!secretMatches(request.headers.get(FRONT_HEADER), secret)) {
       return refuse(403, 'front_required', 'This listener answers the LGR Server supervisor only.')
     }
-    if (!hostAllowed(request.headers.get('host'), config.front.hosts)) {
+    const s = request.headers.get(SOURCE_HEADER)
+    const host = request.headers.get('host')
+    // Only the supervisor can stamp `tunnel` (the front secret says it is the supervisor).
+    if (!hostAllowed(host, config.front.hosts) && !(s === 'tunnel' && isOrgAddressHost(host))) {
       return refuse(403, 'host_not_allowed', 'This server does not answer to that name.')
     }
-    const s = request.headers.get(SOURCE_HEADER)
     if (!s || !SOURCES.has(s)) return refuse(403, 'source_required', 'The request carries no source stamp.')
     source = s as FrontSource
   }
