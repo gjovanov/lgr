@@ -5,8 +5,14 @@
  * Import-pure: the POS and invoicing journals, and a unit test, read it.
  */
 
-/** The roles the storno route accepts ("H4: Storno requires manager or admin role"). */
-export const STORNO_ROLES = ['admin', 'manager', 'warehouse_manager'] as const
+/**
+ * The roles the storno route accepts ("H4: Storno requires manager or admin role"). The server's
+ * list (`invoicing-api/src/lib/cash-register-till.ts`) is the same.
+ *
+ * ⚠ Not `warehouse_manager` (owner, 2026-10-27): its permissions hold neither `pos.write` nor
+ * `invoicing.write`, so it reached no storno door, and the list promised what it could not do.
+ */
+export const STORNO_ROLES = ['admin', 'manager'] as const
 
 /**
  * A completed SALE (a POS row), by someone allowed to reverse it. A storno is not itself

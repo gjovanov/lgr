@@ -133,6 +133,45 @@ describe('a storno of a till sale', () => {
     expect((await w.storno(saleId)).status).toBe(400)
   }, 60_000)
 
+  // #281 (owner, 2026-10-27): a fiscally printed sale is reversed by a storno receipt on the device.
+  it('a fiscal sale is not reversed while its device is offline: refused, and nothing moves', async () => {
+    const w = await tillWorld(app)
+    const sale = await w.sell(1)
+    expect(sale.status).toBe(200)
+    const saleId = sale.json.transaction.id
+    const before = { stock: await w.stock(), session: await POSSession.findById(w.sessionId).lean() as any }
+    forgetDevices() // the device goes offline: its record stays, no bridge holds it
+
+    for (const res of [
+      await w.storno(saleId),
+      await w.call('POST', `/cash-register/documents/${saleId}/storno`, { reason: 'operator_error', sessionId: w.sessionId }),
+    ]) {
+      expect(res.status).toBe(503)
+      expect(res.json.code).toBe('fiscal_device_unavailable')
+    }
+
+    const original: any = await Invoice.findById(saleId).lean()
+    // Never claimed: the refusal comes before the claim.
+    expect(original.register.stornoState).toBe('none')
+    expect(original.register.stornoedBy || []).toHaveLength(0)
+    expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_storno' })).toBe(0)
+    expect(await w.stock()).toEqual(before.stock)
+    const session: any = await POSSession.findById(w.sessionId).lean()
+    expect([session.totalReturns, session.totalCash]).toEqual([before.session.totalReturns, before.session.totalCash])
+  }, 60_000)
+
+  it('a text-receipt sale is still reversed with its device offline: it printed nothing fiscal', async () => {
+    const w = await tillWorld(app)
+    const sale = await w.sell(1, { nonFiscal: true })
+    expect(sale.status).toBe(200)
+    forgetDevices()
+
+    const res = await w.storno(sale.json.transaction.id)
+
+    expect(res.status).toBe(200)
+    expect((await Invoice.findById(sale.json.transaction.id).lean() as any).register.stornoState).toBe('full')
+  }, 60_000)
+
   it('a cashier may not reverse a sale', async () => {
     const w = await tillWorld(app, { device: false, role: 'sales' })
     const sale = await w.sell(1)

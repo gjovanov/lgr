@@ -26,8 +26,12 @@ import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
 import { fiscalOperation } from 'fiscal/in-flight'
 import { roundCents } from 'config/pos-totals'
 
-/** Who may reverse a sale (H4, #145). */
-export const STORNO_ROLES = ['admin', 'manager', 'warehouse_manager']
+/**
+ * Who may reverse a sale (H4, #145), on top of the route's permission (`pos.write`, or the journal's
+ * `pos.write`/`invoicing.write`). The UI's list (`ui-shared/cash-register/storno.ts`) is the same.
+ * Not `warehouse_manager` (owner, 2026-10-27): its permissions reach no storno door.
+ */
+export const STORNO_ROLES = ['admin', 'manager']
 
 export type FiscalCtx = { deviceId: string; deviceNumber: string; printer: IFiscalPrinter } | null
 
@@ -340,6 +344,17 @@ export async function stornoDoor(input: StornoDoorInput): Promise<{ status: numb
     }
 
     const c = tillSale ? await tillContext(orgId, user, session, { needsOperator: printedFiscally(original) }) : backOffice()
+    // #281 (owner, 2026-10-27): a sale that printed a FISCAL receipt is reversed by a storno receipt
+    // on the device (Н-18). With no device connected it went through printing nothing: the cash left
+    // the drawer, the goods came back, and the device's records and the books disagreed. It is
+    // refused now, before the claim, so nothing is left behind; a storno whose print FAILS was
+    // already refused and voided (#145).
+    if (printedFiscally(original) && !c.printer) {
+      throw new RegisterRefusal(503, {
+        code: 'fiscal_device_unavailable',
+        message: 'This sale printed a fiscal receipt: its storno prints a storno receipt on the fiscal device, which is not connected. Connect the device and try again.',
+      })
+    }
     const printsReceipt = !!c.printer && printedFiscally(original)
 
     const stornoId = newDocumentId()
