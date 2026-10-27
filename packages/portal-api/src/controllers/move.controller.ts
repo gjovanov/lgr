@@ -3,10 +3,12 @@ import { nodeRole } from 'config'
 import { AuthService } from '../auth/auth.service.js'
 import { fiscalInFlight } from 'fiscal/in-flight'
 import { MoveError, abortMove, currentMove, preflightMove, startMove } from 'services/biz/move/move.service'
+import { preflightMoveBack, startMoveBack } from 'services/biz/move/move-back.service'
+import { rewelcomeNode } from '../websocket/uplink.js'
 
 /**
- * Moving an org to its master (FR-20.79, plan step P3-6a): the org admin's side, on lgrai.app.
- * Global only: 404 on a master.
+ * Moving an org to its master (FR-20.79, plan step P3-6a), and back (FR-20.80, P3-6c, `to: 'global'`):
+ * the org admin's side, on lgrai.app. Global only: 404 on a master.
  *
  * - **`admin.settings`**, as the Servers page: the move names one of the org's registered servers.
  * - ⚠ **The home gate lets these through** (`GLOBAL_STATE_WRITES`): they write global's record of the
@@ -16,6 +18,14 @@ import { MoveError, abortMove, currentMove, preflightMove, startMove } from 'ser
 const NOT_FOUND = { message: 'Not found' }
 const NODE_ID = '^master-[a-z2-7]{16}$'
 const OBJECT_ID = '^[0-9a-f]{24}$'
+
+/** A move to one of the org's servers (`nodeId`), or back to lgrai.app (`to: 'global'`). */
+const MOVE_BODY = t.Object({
+  nodeId: t.Optional(t.String({ pattern: NODE_ID })),
+  to: t.Optional(t.Literal('global')),
+  allowMissing: t.Optional(t.Array(t.String({ pattern: OBJECT_ID }), { maxItems: 1000 })),
+  allowMissingFiles: t.Optional(t.Boolean()),
+})
 
 function canAdmin(user: any): boolean {
   return user?.role === 'admin' || !!user?.permissions?.includes('admin.settings')
@@ -41,6 +51,9 @@ function toWire(m: any) {
     endedAt: m.endedAt ?? null,
     error: m.error ?? null,
     copy: m.bundle ? { documents: m.bundle.documents, bytes: m.bundle.bytes, files: m.files?.count ?? 0 } : null,
+    // A move back: what it waits for now, and what putting the files back found.
+    waiting: m.waiting ? { on: m.waiting.on, since: m.waiting.since, detail: m.waiting.detail ?? null } : null,
+    placed: m.placed ?? null,
     steps: (m.steps ?? []).map((s: any) => ({ name: s.name, at: s.at, ok: s.ok, detail: s.detail ?? null })),
   }
 }
@@ -57,9 +70,11 @@ export const moveController = new Elysia({ prefix: '/org/:orgId/moves' })
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
+      if (body.to === 'global') return preflightMoveBack(orgId, !!body.allowMissingFiles)
+      if (!body.nodeId) return status(422, { code: 'node_required', message: 'A move to a server names the server.' })
       return preflightMove(orgId, body.nodeId, body.allowMissing ?? [], fiscalInFlight())
     },
-    { isSignIn: true, body: t.Object({ nodeId: t.String({ pattern: NODE_ID }), allowMissing: t.Optional(t.Array(t.String({ pattern: OBJECT_ID }), { maxItems: 1000 })) }) },
+    { isSignIn: true, body: MOVE_BODY },
   )
 
   /** Start the move: the org freezes on lgrai.app at once (FR-20.79 step 2). */
@@ -69,12 +84,19 @@ export const moveController = new Elysia({ prefix: '/org/:orgId/moves' })
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
       try {
+        if (body.to === 'global') {
+          const move: any = await startMoveBack(orgId, { id: user.id }, { allowMissingFiles: !!body.allowMissingFiles })
+          // Welcomed again, its pump learns the files travel now, even for an org that chose records only.
+          rewelcomeNode(move.from)
+          return { move: toWire(move) }
+        }
+        if (!body.nodeId) return status(422, { code: 'node_required', message: 'A move to a server names the server.' })
         return { move: toWire(await startMove(orgId, body.nodeId, { id: user.id, operatorCode: user.operatorCode }, body.allowMissing ?? [], fiscalInFlight())) }
       } catch (e) {
         return fail(status, e)
       }
     },
-    { isSignIn: true, body: t.Object({ nodeId: t.String({ pattern: NODE_ID }), allowMissing: t.Optional(t.Array(t.String({ pattern: OBJECT_ID }), { maxItems: 1000 })) }) },
+    { isSignIn: true, body: MOVE_BODY },
   )
 
   /** The org's live move, or its last one. */

@@ -3244,6 +3244,43 @@
       "aborted": "Der Umzug wurde abgebrochen",
       "done": "{name} ist jetzt das Zuhause der Organisation",
       "live": "Ein Umzug auf {name} läuft: {state}"
+    },
+    "moveBack": {
+      "action": "Zurück zu lgrai.app",
+      "title": "{org} zurück zu lgrai.app umziehen",
+      "intro": "Der Server friert die Organisation ein und sendet lgrai.app alles, was es noch nicht hat, Dokumente und Dateien; dann ist lgrai.app wieder ihr Zuhause, und der Server behält eine schreibgeschützte Kopie. Während des Umzugs wird nichts geschrieben, schließen Sie also zuerst die Kassen.",
+      "check": {
+        "home_master": "Die Organisation lebt auf einem ihrer Server",
+        "no_move": "Kein anderer Umzug läuft",
+        "registered": "Der Server ist für diese Organisation registriert",
+        "full": "Der Server ist auf Stufe Full verbunden",
+        "no_clone_alarm": "Kein Klon-Alarm",
+        "connected": "Der Server ist verbunden",
+        "healthy": "Der Server meldet sich gesund",
+        "no_till_open": "Keine Kassensitzung ist offen",
+        "no_fiscal_command": "Kein Fiskalgerät druckt",
+        "mirror_live": "lgrai.app hält einen Spiegel der Organisation",
+        "files": "Jede Datei ist auf lgrai.app oder unterwegs"
+      },
+      "allowMissingFiles": "Ohne die Dateien zurückziehen, die der Server nicht senden kann",
+      "filesNote": "Diese Organisation behält ihre Dateien auf ihrem Server: Sie werden zuerst an lgrai.app gesendet.",
+      "start": "Umzug zurück starten",
+      "state": {
+        "freezing": "Der Server friert die Organisation ein",
+        "copying": "lgrai.app holt auf",
+        "verifying": "Die Dateien werden an ihren Platz zurückgelegt",
+        "done": "Fertig: lgrai.app ist wieder das Zuhause der Organisation",
+        "aborted": "Abgebrochen: Die Organisation bleibt auf ihrem Server"
+      },
+      "waiting": {
+        "pages": "ihre Dokumente",
+        "files": "ihre Dateien",
+        "digests": "einen letzten Vergleich"
+      },
+      "waitingFor": "wartet auf {what}",
+      "desktopsNote": "Die Desktops im Geschäft melden, dass die Organisation umgezogen ist: Koppeln Sie sie wieder mit lgrai.app.",
+      "live": "Ein Umzug zurück zu lgrai.app läuft: {state}",
+      "done": "lgrai.app ist wieder das Zuhause der Organisation"
     }
   },
   "desktops": {

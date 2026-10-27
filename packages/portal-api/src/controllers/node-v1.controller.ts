@@ -12,6 +12,7 @@ import { IdpError, redeem as redeemIdpCode } from 'services/biz/idp/idp.service'
 import { identityChangesFor } from 'services/biz/identity/identity-feed.service'
 import { OnpremCredentialError, credentialChangesFor } from 'services/biz/identity/onprem-credentials.service'
 import { MoveError, copied, copyFailed, copyFor, movesForNode } from 'services/biz/move/move.service'
+import { drained } from 'services/biz/move/move-back.service'
 import { rewelcomeNode } from '../websocket/uplink.js'
 import { repointOrgDesktops } from '../websocket/desktop.js'
 import {
@@ -313,6 +314,29 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
         digests: t.Record(t.String(), t.Object({ count: t.Integer({ minimum: 0 }), sha256: t.String({ pattern: '^[0-9a-f]{64}$' }) }), { maxProperties: 500 }),
         people: t.Integer({ minimum: 0 }),
         credentials: t.Integer({ minimum: 0 }),
+      }),
+    },
+  )
+
+  /**
+   * FR-20.80 (plan step P3-6c): a move back. The master froze the org and captured its last writes;
+   * global answers what it still waits for (pages, files, the master's digests), or the outcome.
+   */
+  .post(
+    '/moves/:id/drained',
+    async ({ node, params, body, status }: any) => {
+      if (!OBJECT_ID.test(params.id)) return status(404, { code: 'not_found' })
+      try {
+        return await drained(node._id, params.id, body)
+      } catch (e) {
+        return failMove(status, e)
+      }
+    },
+    {
+      body: t.Object({
+        head: t.Integer({ minimum: 0 }),
+        journalEpoch: t.Optional(t.Integer({ minimum: 0 })),
+        digests: t.Optional(t.Record(t.String(), t.Object({ count: t.Integer({ minimum: 0 }), sha256: t.String({ pattern: '^[0-9a-f]{64}$' }) }), { maxProperties: 500 })),
       }),
     },
   )

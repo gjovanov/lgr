@@ -186,6 +186,12 @@ export async function abortMove(moveId: string, reason: string, by?: { id: strin
     { new: true },
   ).lean()
   if (!move) throw new MoveError(409, 'not_abortable', 'The move is past its flip, or already over.')
+  // FR-20.80 (P3-6c): a move back froze the org on its master, which unfreezes it on its next report;
+  // global froze nothing, built no copy, and does not hold the org's audit trail (the master does).
+  if (move.kind === 'to_global') {
+    logger.warn({ orgId: String(move.orgId), moveId, reason }, 'Move back: aborted; the server unfreezes the organisation')
+    return move
+  }
   await unfreeze(move.orgId, move.epochFrom)
   await rm(join(moveDir(move.orgId), `move-${moveId}.ndjson.zst`), { force: true }).catch(() => {})
   await rm(join(moveDir(move.orgId), `move-${moveId}.files.ndjson.zst`), { force: true }).catch(() => {})
@@ -206,7 +212,8 @@ export async function moveTick(now = new Date()): Promise<number> {
   const stale = new Date(now.getTime() - BUILD_LEASE_MS)
   for (;;) {
     const move: any = await OrgMove.findOneAndUpdate(
-      { $or: [{ state: 'freezing', frozenAt: { $lte: due } }, { state: 'copying', bundle: { $exists: false }, buildingAt: { $lt: stale } }] },
+      // A move back (P3-6c) builds no copy: its master freezes, and the mirror drains.
+      { kind: { $ne: 'to_global' }, $or: [{ state: 'freezing', frozenAt: { $lte: due } }, { state: 'copying', bundle: { $exists: false }, buildingAt: { $lt: stale } }] },
       { $set: { state: 'copying', buildingAt: now } },
       { new: true },
     ).lean()
@@ -261,13 +268,21 @@ async function buildCopy(move: any, now: Date) {
   logger.info({ moveId: String(move._id), documents: bundle.documents, files: files.count }, 'Move: the copy is ready for the master')
 }
 
-/** What a node is told of its moves: the live ones, and those that ended in the last month. */
+/**
+ * What a node is told of its moves: the live ones, and those that ended in the last month. Those TO it
+ * (P3-6a), and those of its orgs back to lgrai.app (P3-6c), which it freezes and leaves.
+ */
 export async function movesForNode(nodeId: string) {
   // A month: a master off the network for days after its copy still learns its move ended.
   const since = new Date(Date.now() - 30 * 24 * 3600_000)
-  const rows: any[] = await OrgMove.find({ to: nodeId, $or: [{ state: { $in: [...LIVE_MOVE_STATES] } }, { endedAt: { $gte: since } }] }).sort({ startedAt: 1 }).lean()
+  const rows: any[] = await OrgMove.find({
+    $and: [
+      { $or: [{ to: nodeId }, { from: nodeId, kind: 'to_global' }] },
+      { $or: [{ state: { $in: [...LIVE_MOVE_STATES] } }, { endedAt: { $gte: since } }] },
+    ],
+  }).sort({ startedAt: 1 }).lean()
   return rows.map(m => ({
-    id: String(m._id), orgId: String(m.orgId), state: m.state, epochTo: m.epochTo, startedBy: String(m.startedBy),
+    id: String(m._id), orgId: String(m.orgId), kind: m.kind, state: m.state, epochFrom: m.epochFrom, epochTo: m.epochTo, startedBy: String(m.startedBy),
     ...(m.bundle && m.state === 'copying' ? { bundle: { sha256: m.bundle.sha256, bytes: m.bundle.bytes }, files: { sha256: m.files.sha256, bytes: m.files.bytes } } : {}),
   }))
 }
@@ -351,9 +366,16 @@ async function flip(m: any): Promise<boolean> {
   return true
 }
 
-/** The master could not take the copy: the move ends, and global unfreezes. */
+/**
+ * The master could not take the copy: the move ends, and global unfreezes. Or, for a move back
+ * (P3-6c), the master would not freeze the org (a till open, a print running): the move ends, and the
+ * org stays home there.
+ */
 export async function copyFailed(nodeId: string, moveId: string, reason: string) {
-  const m = await OrgMove.exists({ _id: oid(moveId), to: nodeId, state: { $in: ['copying', 'verifying'] } })
+  const m: any = await OrgMove.findOne({
+    _id: oid(moveId),
+    $or: [{ to: nodeId, state: { $in: ['copying', 'verifying'] } }, { from: nodeId, kind: 'to_global', state: { $in: ['freezing', 'copying'] } }],
+  }, { kind: 1 }).lean()
   if (!m) throw new MoveError(409, 'not_copying', 'The move is not waiting for this server.')
-  return abortMove(moveId, `the server could not take the copy: ${reason}`)
+  return abortMove(moveId, m.kind === 'to_global' ? `the server would not leave the organisation: ${reason}` : `the server could not take the copy: ${reason}`)
 }

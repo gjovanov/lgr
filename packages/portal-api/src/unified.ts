@@ -358,9 +358,22 @@ setTimeout(async () => {
       name: 'move-tick', intervalMs: config.node.role === 'global' ? config.move.tickMs : 0, immediate: true,
       ...lazy(() => import('services/biz/move/move.service'), m => m.moveTick()),
     },
+    // FR-20.80 (P3-6c) — a move back: on global, a verified one's files put back in place and its
+    // flip, after which the master's bulk socket is welcomed again (it pages the org no more).
+    {
+      name: 'move-back-tick', intervalMs: config.node.role === 'global' ? config.move.tickMs : 0, immediate: true,
+      ...lazy(
+        async () => ({ back: await import('services/biz/move/move-back.service'), uplink: await import('./websocket/uplink.js') }),
+        m => m.back.moveBackTick(new Date(), { flippedBack: nodeId => m.uplink.rewelcomeNode(nodeId) }),
+      ),
+    },
     {
       name: 'move-worker', intervalMs: config.node.role === 'master' ? config.move.workerMs : 0, immediate: true,
-      ...lazy(() => import('services/biz/move/move-worker.service'), m => m.moveWorkerTick()),
+      ...lazy(
+        async () => ({ worker: await import('services/biz/move/move-worker.service'), fiscal: await import('fiscal/in-flight') }),
+        // A move back is refused while a fiscal device of this process prints.
+        m => m.worker.moveWorkerTick(new Date(), fetch, m.fiscal.fiscalInFlight),
+      ),
     },
     // FR-20.86 (P2-6) — on a master, the outbox: mail global sends on its behalf. 0 disables it.
     {

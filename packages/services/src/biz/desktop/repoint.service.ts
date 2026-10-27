@@ -66,6 +66,12 @@ export function resetRepointIssuerKey(): void {
  * (`hold`): there is nowhere to send it yet.
  */
 export async function movedFor(desktopId: string, orgId: string): Promise<Moved | null> {
+  if (nodeRole() === 'master') {
+    // FR-20.80 (P3-6c): the org went back to lgrai.app, and this server keeps a read-only copy. Its
+    // desktops are told so; following on their own is P3-6c's second step (a signed instruction).
+    const home = await homeOf(orgId)
+    return home.home === 'global' && home.state === 'active' && home.epoch > 0 ? { kind: 'moved', node: 'global', name: 'lgrai.app' } : null
+  }
   if (nodeRole() !== 'global') return null
   const home = await homeOf(orgId)
   if (home.home === 'global' || home.state !== 'active') return null

@@ -24,12 +24,26 @@
         class="mb-3"
         data-test="move-banner"
       >
-        <div v-if="LIVE.includes(move.state)">{{ $t('servers.move.live', { name: nodeName(move.to), state: $t(`servers.move.state.${move.state}`) }) }}</div>
-        <div v-else-if="move.state === 'done'">
-          {{ $t('servers.move.done', { name: nodeName(move.to) }) }}
-          <div class="text-caption mt-1">{{ $t('servers.move.desktopsNote') }}</div>
-        </div>
-        <div v-else>{{ $t('servers.move.state.aborted') }}<span v-if="move.error"> · {{ move.error }}</span></div>
+        <template v-if="move.kind === 'to_global'">
+          <!-- FR-20.80 (P3-6c): back to lgrai.app. -->
+          <div v-if="LIVE.includes(move.state)">
+            {{ $t('servers.moveBack.live', { state: $t(`servers.moveBack.state.${move.state}`) }) }}
+            <span v-if="move.state === 'copying' && move.waiting" data-test="move-back-waiting"> · {{ $t('servers.moveBack.waitingFor', { what: $t(`servers.moveBack.waiting.${move.waiting.on}`) }) }}</span>
+          </div>
+          <div v-else-if="move.state === 'done'">
+            {{ $t('servers.moveBack.done') }}
+            <div class="text-caption mt-1">{{ $t('servers.moveBack.desktopsNote') }}</div>
+          </div>
+          <div v-else>{{ $t('servers.moveBack.state.aborted') }}<span v-if="move.error"> · {{ move.error }}</span></div>
+        </template>
+        <template v-else>
+          <div v-if="LIVE.includes(move.state)">{{ $t('servers.move.live', { name: nodeName(move.to), state: $t(`servers.move.state.${move.state}`) }) }}</div>
+          <div v-else-if="move.state === 'done'">
+            {{ $t('servers.move.done', { name: nodeName(move.to) }) }}
+            <div class="text-caption mt-1">{{ $t('servers.move.desktopsNote') }}</div>
+          </div>
+          <div v-else>{{ $t('servers.move.state.aborted') }}<span v-if="move.error"> · {{ move.error }}</span></div>
+        </template>
         <template v-if="ABORTABLE.includes(move.state)" #append>
           <v-btn size="small" variant="text" color="error" :loading="moveBusy" data-test="abort-move" @click="abortMove">{{ $t('servers.move.abort') }}</v-btn>
         </template>
@@ -142,7 +156,7 @@
         </template>
         <template #item.actions="{ item }">
           <v-btn
-            v-if="item.status === 'active' && item.linkLevel === 'full' && !(move && LIVE.includes(move.state)) && move?.state !== 'done'"
+            v-if="item.status === 'active' && item.linkLevel === 'full' && !(move && LIVE.includes(move.state)) && (!mirror || mirror.home === 'global')"
             size="small"
             variant="text"
             color="primary"
@@ -150,6 +164,16 @@
             @click="openMove(item)"
           >
             {{ $t('servers.move.action') }}
+          </v-btn>
+          <v-btn
+            v-if="item.status === 'active' && mirror?.home === item.id && !(move && LIVE.includes(move.state))"
+            size="small"
+            variant="text"
+            color="primary"
+            data-test="move-back"
+            @click="openMoveBack(item)"
+          >
+            {{ $t('servers.moveBack.action') }}
           </v-btn>
           <v-btn
             v-if="item.status === 'active'"
@@ -206,9 +230,9 @@
     <!-- ── Move the org here (FR-20.79): every check at once, then the move ───────────────── -->
     <v-dialog v-model="moveOpen" max-width="620">
       <v-card>
-        <v-card-title class="text-wrap">{{ $t('servers.move.title', { org: appStore.currentOrg?.name ?? '', name: moveTarget?.name }) }}</v-card-title>
+        <v-card-title class="text-wrap">{{ moveBack ? $t('servers.moveBack.title', { org: appStore.currentOrg?.name ?? '' }) : $t('servers.move.title', { org: appStore.currentOrg?.name ?? '', name: moveTarget?.name }) }}</v-card-title>
         <v-card-text>
-          <p class="text-body-2 mb-3">{{ $t('servers.move.intro') }}</p>
+          <p class="text-body-2 mb-3">{{ moveBack ? $t('servers.moveBack.intro') : $t('servers.move.intro') }}</p>
           <div v-if="!preflight" class="text-center py-4">
             <v-progress-circular indeterminate color="primary" />
             <div class="text-caption mt-2">{{ $t('servers.move.checking') }}</div>
@@ -220,11 +244,23 @@
                 <template #prepend>
                   <v-icon :color="c.ok ? 'success' : 'error'" size="small">{{ c.ok ? 'mdi-check-circle' : 'mdi-close-circle' }}</v-icon>
                 </template>
-                <v-list-item-title class="text-body-2 text-wrap">{{ $t(`servers.move.check.${c.name}`) }}</v-list-item-title>
+                <v-list-item-title class="text-body-2 text-wrap">{{ $t(`servers.${moveBack ? 'moveBack' : 'move'}.check.${c.name}`) }}</v-list-item-title>
                 <v-list-item-subtitle v-if="!c.ok && c.detail" class="text-wrap">{{ c.detail }}</v-list-item-subtitle>
               </v-list-item>
             </v-list>
-            <template v-if="preflight.missingCredentials.length">
+            <!-- A move back: files the server cannot send stop it, unless the admin leaves them behind. -->
+            <template v-if="moveBack">
+              <p v-if="mirror && !mirror.files" class="text-caption text-medium-emphasis mt-2">{{ $t('servers.moveBack.filesNote') }}</p>
+              <v-checkbox
+                v-if="filesBlocking"
+                v-model="allowMissingFiles"
+                :label="$t('servers.moveBack.allowMissingFiles')"
+                density="compact"
+                hide-details
+                data-test="allow-missing-files"
+              />
+            </template>
+            <template v-if="preflight.missingCredentials?.length">
               <div class="text-subtitle-2 mt-3">{{ $t('servers.move.missingTitle') }}</div>
               <p class="text-caption text-medium-emphasis mb-1">{{ $t('servers.move.missingHint') }}</p>
               <v-checkbox
@@ -243,7 +279,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="moveOpen = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :disabled="!canStart" :loading="moveBusy" data-test="start-move" @click="startMove">{{ $t('servers.move.start') }}</v-btn>
+          <v-btn color="primary" :disabled="!canStart" :loading="moveBusy" data-test="start-move" @click="startMove">{{ moveBack ? $t('servers.moveBack.start') : $t('servers.move.start') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -456,8 +492,8 @@ onUnmounted(() => {
 })
 
 // ── Move here (FR-20.79) ────────────────────────────────────────────────────────────────────
-interface MoveRow { id: string; state: string; to: string; endedAt?: string | null; error?: string | null }
-interface Preflight { ok: boolean; checks: Array<{ name: string; ok: boolean; detail?: string }>; missingCredentials: Array<{ identityId: string; name: string; email?: string }> }
+interface MoveRow { id: string; kind?: string; state: string; to: string; endedAt?: string | null; error?: string | null; waiting?: { on: string } | null }
+interface Preflight { ok: boolean; checks: Array<{ name: string; ok: boolean; detail?: string }>; missingCredentials?: Array<{ identityId: string; name: string; email?: string }> }
 
 const LIVE = ['freezing', 'copying', 'verifying', 'flipped']
 const ABORTABLE = ['freezing', 'copying', 'verifying']
@@ -467,6 +503,9 @@ const moveOpen = ref(false)
 const moveTarget = ref<ServerRow | null>(null)
 const preflight = ref<Preflight | null>(null)
 const allowMissing = ref<string[]>([])
+/** FR-20.80 (P3-6c): the dialog is a move back to lgrai.app, and files may be left behind. */
+const moveBack = ref(false)
+const allowMissingFiles = ref(false)
 const moveBusy = ref(false)
 let moveTimer: ReturnType<typeof setInterval> | null = null
 
@@ -474,7 +513,13 @@ const nodeName = (id: string) => items.value.find(i => i.id === id)?.name ?? id
 /** A live move, or one that ended within a day. */
 const moveShown = computed(() => !!move.value && (LIVE.includes(move.value.state) || (!!move.value.endedAt && Date.now() - new Date(move.value.endedAt).getTime() < 24 * 3600_000)))
 /** The credentials check is the admin's to settle here: every person listed, ticked. */
-const shownChecks = computed(() => (preflight.value?.checks ?? []).map(c => (c.name === 'credentials' ? { ...c, ok: credentialsSettled.value } : c)))
+const shownChecks = computed(() => (preflight.value?.checks ?? []).map(c => (
+  c.name === 'credentials' ? { ...c, ok: credentialsSettled.value }
+    : c.name === 'files' && moveBack.value ? { ...c, ok: c.ok || allowMissingFiles.value }
+      : c
+)))
+/** A move back that files the server cannot send stand in the way of. */
+const filesBlocking = computed(() => !!preflight.value?.checks.find(c => c.name === 'files' && !c.ok))
 const credentialsSettled = computed(() => (preflight.value?.missingCredentials ?? []).every(p => allowMissing.value.includes(p.identityId)))
 const canStart = computed(() => !!preflight.value && shownChecks.value.every(c => c.ok))
 
@@ -488,12 +533,31 @@ async function loadMove() {
   if (!live && moveTimer) {
     clearInterval(moveTimer)
     moveTimer = null
-    if (move.value?.state === 'done') showSnackbar(t('servers.move.done', { name: nodeName(move.value.to) }), 'success', 6000)
+    if (move.value?.state === 'done') {
+      showSnackbar(move.value.kind === 'to_global' ? t('servers.moveBack.done') : t('servers.move.done', { name: nodeName(move.value.to) }), 'success', 6000)
+      // Where the org lives changed: the files card and the actions follow.
+      void loadMirror()
+    }
+  }
+}
+
+async function openMoveBack(item: ServerRow) {
+  moveTarget.value = item
+  moveBack.value = true
+  preflight.value = null
+  allowMissing.value = []
+  allowMissingFiles.value = false
+  moveOpen.value = true
+  try {
+    preflight.value = (await httpClient.post(`${moveBase()}/preflight`, { to: 'global' })).data
+  } catch {
+    moveOpen.value = false
   }
 }
 
 async function openMove(item: ServerRow) {
   moveTarget.value = item
+  moveBack.value = false
   preflight.value = null
   allowMissing.value = []
   moveOpen.value = true
@@ -508,7 +572,9 @@ async function startMove() {
   if (!moveTarget.value) return
   moveBusy.value = true
   try {
-    const { data } = await httpClient.post(`${moveBase()}/`, { nodeId: moveTarget.value.id, allowMissing: allowMissing.value })
+    const { data } = await httpClient.post(`${moveBase()}/`, moveBack.value
+      ? { to: 'global', allowMissingFiles: allowMissingFiles.value }
+      : { nodeId: moveTarget.value.id, allowMissing: allowMissing.value })
     move.value = data.move
     moveOpen.value = false
     showSnackbar(t('servers.move.started'), 'success')

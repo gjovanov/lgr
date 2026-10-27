@@ -2498,11 +2498,11 @@ Operator page: `docs/architecture/nodes.md#moving-an-org-to-its-master-fr-2079`.
 - A flip is claimed INSIDE its transaction: a report sent again after a crash between `verifying` and
   the flip finishes it, one after the flip is answered done, and a late second flip changes nothing
   (it would otherwise delete the mirror's new chain).
-- The desktops follow (P3-6b, below). Not yet: master → cloud (P3-6c), promotion (P3-6d), fenced
-  export/import (P3-6e).
-  - ⚠ For P3-6c: `collectionDigests` hashes canonical EJSON in STORED field order, and the mirror's
-    apply reorders a split document (`$mergeObjects: [home, kept]` puts global's fields last). A move
-    back cannot compare the master with the mirror that way: it needs an order-insensitive digest.
+- The desktops follow (P3-6b, below), and the org can move back (P3-6c, below). Not yet: promotion
+  (P3-6d), fenced export/import (P3-6e).
+  - ⚠ `collectionDigests` hashes canonical EJSON in STORED field order, and the mirror's apply
+    reorders a split document (`$mergeObjects: [home, kept]` puts global's fields last). So the move
+    back compares with `homeDigests` instead, which is order-insensitive.
 - Tests: `move.flow` (12: the copy's types and contents, tampering and a forged password refused,
   preflight, freeze → copy → flip with the bulk re-welcome, mismatch and abort, a flip cut short, the
   master's import, activation, a lost report, the abort's people rule, the refusals, and the routes) and
@@ -2547,6 +2547,61 @@ so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.
 - Tests: `desktop-repoint.flow` (9), Rust `repoint::tests` + `presence::tests`, `uplink::tests`
   (the lan in health). ⚠ Not yet walked with a real shell: this PC holds a real enrolled desktop
   (a second shell hands off to it), so the walk is owed to the VM lane before the next desktop release.
+
+## Moving an org back to lgrai.app (2026-10-27, FR-20.80, plan step P3-6c)
+
+The org admin starts it on lgrai.app's Servers page ("Move back to lgrai.app" on the org's home
+server; `POST /api/org/:orgId/moves/preflight` and `POST /moves/` with `{ to: 'global' }`). The
+org's data never travels as a copy: global's mirror already holds it, and the move waits until the
+mirror holds ALL of it. Global: `services/biz/move/move-back.service.ts`; the master:
+`move-worker.service.ts#moveBack`. `org_moves` with `kind: 'to_global'`, `from` the master.
+- **Preflight**, every check at once:
+  - the org's home is one of its servers, which is registered, at Full, with no clone alarm,
+    connected on both sockets and healthy;
+  - no till open and no fiscal command in flight there (its health frame's `posOpen` and
+    `fiscalInFlight`; unknown is not 0) and no open session among the mirrored rows;
+  - a live mirror (no `reconcileRequired`);
+  - every file the mirror's rows name is on lgrai.app or on its way. A file the server cannot send
+    blocks the move unless the admin leaves it behind (`allowMissingFiles`).
+- **Asked** (`freezing`): global records the move and re-welcomes the master, so a records-only
+  org's files travel now (`movingBack`). The master's worker (every 10 s) refuses while a till is
+  open, a fiscal command prints or a job runs (`failed`). Otherwise it writes the move into the
+  org's audit trail (here, the org's home) and freezes the org: `OrgHome.state: 'freezing'` at the
+  same epoch. ⚠ The capture never disables an org, so a frozen org's last pages and files still go.
+- **Drained** (`copying`). From `DRAIN_AFTER_MS` after the freeze (twice the home cache, plus a
+  capture round), the master reports its journal head (`POST /api/node/v1/moves/:id/drained`) on
+  every tick. Global answers what it still waits for:
+  - `pages`: the mirror's watermark below the head;
+  - `files`: `mirrorFilesStatus` not complete;
+  - then `need: 'digests'`: the master sends `homeDigests` (at most once a minute);
+  - `wait: 'digests'` with the collections that differ, until they are equal.
+  - ⚠ A mismatch WAITS (a page may still be on its way); only the timeouts abort: 30 min to freeze,
+    6 h to drain.
+- **Verified** (`verifying`). Global's move-back tick puts every file back where its row says
+  (`placeFilesBack`: from the content store, a file already there with the right bytes stays, one
+  with other bytes is replaced; idempotent), because global reads an org homed here BY PATH. Then
+  the flip.
+- **The flip**, in one transaction that first claims the move:
+  - the epoch up by one, the home global, `homeEpochHighWater`;
+  - the org's `mirror_state` deleted.
+
+  After it, the content store (`dropMirrorBlobs`) goes, and the master is re-welcomed.
+- **The master** hears `done` (from `drained` or its moves) and sets its home record to
+  `{home: 'global', epoch}`. It keeps a read-only copy (its home gate refuses writes). Its desktops
+  get `desktop:moved {node: 'global', name: 'lgrai.app'}` (`movedFor` on a master), and re-pair by
+  hand until P3-6c's second step signs them a re-point. ⚠ A later move to that master needs the copy
+  removed first: the import refuses an org with data.
+- **An abort** (the admin, a refusal, a timeout) leaves the home where it was; the master unfreezes on
+  its next report. Global writes no audit entry for it: the org's trail lives on its master.
+- `homeDigests` (`move/home-digest.ts`): per collection, over `homePart` (what pages carry, never
+  global's or a node's own parts), canonical EJSON with keys sorted at every level (arrays keep their
+  order), type-exact (`promoteValues: false`).
+- Tests:
+  - `move-back.flow` (7): the digest, the preflight, the drain from pages to files to digests, the
+    placement and flip, a wrong file replaced, abort and timeouts, and the master's freeze, report,
+    leave, refusals and unfreeze;
+  - `two-node/move-e2e.script.ts`: the forward move, then BACK with a real `lgr-server` (a file the
+    shop made comes home by content and lands at its stored path; global writes the org again).
 
 ## The mirror's files (2026-10-27, FR-20.66, FR-20.69, plan step P3-3)
 
