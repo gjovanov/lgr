@@ -35,7 +35,7 @@ Atanas takes FR-21 over from here. In order:
      integration tests run printing on the Eltrade simulator, and the device test covers the real
      connection.
    - **SUPTO 18.4/18.5 and back-office stornos** (§4.16). This is the accountant's question.
-   - **The terminal shows any open session** (§4.1). Settle it before R5.
+   - **The terminal shows any open session** (§4.1). Settled 2026-10-27: the user's own (R5a).
 
 ⚠ **This repository is public.** Business figures never go into it, its issues or its PRs: sales
 totals, a day's cash, SUPTO sums. The field check's output stays on the build host.
