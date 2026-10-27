@@ -13,7 +13,7 @@ import { signInForUx, startWalk, uxApi, closeOpenTillSessions } from '../helpers
  */
 
 const MAIN_WAREHOUSE = 'Main Warehouse'
-const CARD = '.v-card.cursor-pointer'
+const CARD = '[data-testid="register-card"]'
 const NOTHING_PRINTED = 'Нищо не е отпечатано: към касата няма свързано фискално устройство'
 
 /** Visible text nodes under `sel` (runs in the page). */

@@ -1962,6 +1962,16 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
   till. Its lines keep their warehouses. It prints on the session's device only when the request
   says `receipt: 'fiscal' | 'text'`. An imported day never joins. Test fixtures: `till-world`'s
   `backOfficeSale` posts as a clerk with no session, `cashierBackOfficeSale` as the till's cashier.
+- **One selling surface** (FR-21.29): `ui-shared/components/cash-register/RegisterTerminal.vue` is
+  the catalog, the cart and the totals of `/pos/terminal` AND `/invoicing/cash-sales/new`; each app
+  hands in its own parts through slots (the till: session, bridge, last sale, payment; the form:
+  header, `PriceCombobox`, notes, receipt, Save). It takes `totals`/`lineGross` as props: ui-shared
+  does not depend on `config`.
+- ⚠ **One totals function** (FR-21.30): a cash sale is totalled with `config/pos-totals#computePosTotals`
+  everywhere — the till, the form (`document-payload.ts#computeTotals` branches on `cash_sale`), and
+  `POST /invoices`, which refuses a back-office cash sale off by more than 0.02 (422
+  `cash_sale_total_mismatch`) and stores its own figures. Other document types keep their
+  components-first rounding. An imported till day keeps its file's totals.
 - ⚠ **Since R2 the till writes cash-register documents, never `POSTransaction`.** The steps live
   in `services/biz/cash-register/register.service.ts` (insert → number → УНП → print once →
   session totals → stock → complete → audit), on the `Invoice` row's `register` block. `services`

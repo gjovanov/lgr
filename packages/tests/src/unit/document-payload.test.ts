@@ -473,6 +473,20 @@ describe('buildPayload — cash sale', () => {
     const p2 = wire(buildPayload({ ...state, contactId: 'cx' }, DOCUMENT_CONFIGS.cash_sale))
     expect(p2.contactId).toBe('cx')
   })
+
+  // FR-21.30: one totals function for every cash-register document (`config/pos-totals`). The
+  // valve of pos-totals.ts: 17.8952 net at 20 % is 21.47 at the till and on the device, and 21.48
+  // when net and VAT are rounded first, which is how the cash-sale form totalled it.
+  it('is totalled as the till totals it: the gross rounded once per VAT rate (FR-21.30)', () => {
+    const valve = { ...state, lines: [{ productId: 'p7', description: 'Valve', quantity: 1, unit: 'pcs', unitPrice: 17.8952, taxRate: 20, warehouseId: 'w4' }] }
+    const t = computeTotals(valve.lines, DOCUMENT_CONFIGS.cash_sale)
+    expect(t.total).toBe(21.47)
+    expect(t.taxTotal).toBe(3.58)
+    expect(t.subtotal).toBe(17.89)
+    expect(wire(buildPayload(valve, DOCUMENT_CONFIGS.cash_sale)).total).toBe(21.47)
+    // A sales invoice keeps its own rule.
+    expect(computeTotals(valve.lines, DOCUMENT_CONFIGS.invoice).total).toBeCloseTo(21.48, 2)
+  })
 })
 
 describe('filledLines — free-text lines count', () => {

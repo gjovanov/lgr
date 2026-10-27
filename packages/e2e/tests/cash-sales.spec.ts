@@ -46,7 +46,7 @@ test.describe('Cash Register Sales', () => {
 
     // FR-03: the detail page is a terminal — product catalog left, cart right.
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
-    await expect(page.locator('.terminal-catalog')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.register-catalog')).toBeVisible({ timeout: 10000 })
     await expect(page.getByRole('button', { name: /^save$/i }).first()).toBeVisible()
   })
 
@@ -57,14 +57,14 @@ test.describe('Cash Register Sales', () => {
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
 
     // FR-03: lines are added by clicking product cards — there is no free-text line editor.
-    const card = page.locator('.terminal-card').first()
+    const card = page.getByTestId('register-card').first()
     const hasProducts = await card.isVisible({ timeout: 10000 }).catch(() => false)
     test.skip(!hasProducts, 'no products seeded — nothing to sell')
 
     await card.click()
 
     // The cart shows the line with its qty stepper; Save becomes enabled.
-    await expect(page.locator('.terminal-cart-row').first()).toBeVisible()
+    await expect(page.locator('[data-testid^="cart-line-"]').first()).toBeVisible()
     const saveBtn = page.getByRole('button', { name: /^save$/i }).first()
     await expect(saveBtn).toBeEnabled()
     await saveBtn.click()
@@ -92,11 +92,11 @@ test.describe('Cash Register Sales', () => {
 
     await loginForApp(page)
     await page.goto('/invoicing/cash-sales/new')
-    await expect(page.locator('.terminal-catalog')).toBeVisible({ timeout: 10000 })
-    await page.locator('.terminal-catalog input').first().fill(sku)
-    await page.locator('.terminal-card', { hasText: sku }).click()
+    await expect(page.locator('.register-catalog')).toBeVisible({ timeout: 10000 })
+    await page.locator('.register-catalog input').first().fill(sku)
+    await page.getByTestId('register-card').filter({ hasText: sku }).click()
 
-    const row = page.locator('.terminal-cart-row', { hasText: sku })
+    const row = page.locator('[data-testid^="cart-line-"]', { hasText: sku })
     const price = row.getByTestId('price-combobox')
     await expect(price).toBeVisible()
     // The selling price applies until the cashier picks another.

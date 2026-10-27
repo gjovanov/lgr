@@ -106,6 +106,38 @@ describe('FR-21.31 — a back-office sale joins its author\'s open session', () 
   }, 60_000)
 })
 
+describe('FR-21.30 — a back-office cash sale is totalled as the till totals one', () => {
+  const valve = (total: number) => ({
+    lines: [{ productId: undefined as any, description: 'Valve', quantity: 1, unit: 'pcs', unitPrice: 17.8952, taxRate: 20 }],
+    subtotal: 17.9, taxTotal: 3.58, total,
+  })
+
+  it('stores the server\'s figures: 17.8952 net at 20 % is 21.47, as the device totals it', async () => {
+    const w = await tillWorld(app, { device: false })
+    const body = valve(21.48) // a client still rounding net and VAT first
+    body.lines[0].productId = String(w.product._id)
+    ;(body.lines[0] as any).warehouseId = String(w.warehouse._id)
+    const res = await w.backOfficeSale(1, body)
+    expect(res.status).toBe(200)
+    const doc: any = await Invoice.findById(res.json.invoice.id).lean()
+    expect(doc.total).toBe(21.47)
+    expect(doc.taxTotal).toBe(3.58)
+    expect(doc.subtotal).toBe(17.89)
+    expect(doc.amountPaid).toBe(21.47)
+  }, 60_000)
+
+  it('refuses a total off by more than the till\'s tolerance, and writes nothing', async () => {
+    const w = await tillWorld(app, { device: false })
+    const body = valve(21.6)
+    body.lines[0].productId = String(w.product._id)
+    ;(body.lines[0] as any).warehouseId = String(w.warehouse._id)
+    const res = await w.backOfficeSale(1, body)
+    expect(res.status).toBe(422)
+    expect(res.json.code).toBe('cash_sale_total_mismatch')
+    expect(await Invoice.countDocuments({ orgId: w.oid })).toBe(0)
+  }, 60_000)
+})
+
 describe('the terminal rings into the user\'s own session (owner, 2026-10-27)', () => {
   it('a sale into another cashier\'s session is refused, and nothing is written', async () => {
     const w = await tillWorld(app)

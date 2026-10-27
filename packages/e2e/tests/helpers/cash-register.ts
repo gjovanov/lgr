@@ -5,12 +5,11 @@
  * that needs the till's side of the journal rings a sale here, as a cashier would, in the
  * cashier's own open session (one is opened at the store if they have none).
  *
- * ⚠ CLOSE WHAT YOU OPEN. The POS terminal shows ANY open session in the org, not only its user's
- * (`PosTerminalView.vue#fetchSessions`), so a cashier session left open here hides the "Open
- * Session" button `pos-terminal.spec.ts` expects. Sales are rung as `sales` (never `admin`, whose
- * session that spec opens itself), and every spec closes its session when done
- * (`closeTillSession`). While a spec holds one open, a parallel `pos-terminal.spec.ts` can still
- * see it: run these with `--workers=1` when one of them fails.
+ * ⚠ CLOSE WHAT YOU OPEN. Since R5a the POS terminal shows the user's OWN open session, so a `sales`
+ * session no longer hides `pos-terminal.spec.ts`'s "Open Session" button (the admin's). Sales are
+ * still rung as `sales` (never `admin`, whose session that spec opens itself), and every spec closes
+ * its session when done (`closeTillSession`). And an open session matters to back-office sales now:
+ * one by a user with an open session joins it (FR-21.31), see `createBackOfficeCashSale`.
  *
  * Native `fetch`, like `helpers/api.ts` (Set-Cookie breaks Playwright's request context in v1.58).
  */
@@ -132,9 +131,15 @@ export async function stockOf(session: ApiSession, sale: TillSale): Promise<numb
 /**
  * A back-office cash sale (`POST /invoices`, as the invoicing terminal saves one), of one item
  * from the main warehouse, paid in cash. An invoice line's `lineTotal` is gross (FR-21.5).
+ *
+ * ⚠ FR-21.31 (D-13): a back-office sale by someone with an open till session JOINS it and reads as
+ * the till's. `pos-terminal.spec.ts` opens the admin's session, so the sale is entered by the
+ * accountant, who never works a till; the admin only looks the product up (the POS catalog is
+ * `pos.read`). Pass `session` to enter it as someone else.
  */
 export async function createBackOfficeCashSale(session?: ApiSession): Promise<{ id: string; number: string }> {
-  const admin = session || await apiLogin()
+  const admin = await apiLogin()
+  const author = session || await apiLogin('acme-corp', 'accountant', 'test123')
   const { warehouses } = await call(admin, 'GET', '/warehouse/warehouse?size=50')
   const main = warehouses.find((w: any) => w.code === 'WH-01') || warehouses[0]
   const warehouseId = main.id || main._id
@@ -145,7 +150,7 @@ export async function createBackOfficeCashSale(session?: ApiSession): Promise<{ 
   const rate = product.taxRate || 0
   const net = cents(product.unitPrice)
   const tax = cents((net * rate) / 100)
-  const { invoice } = await call(admin, 'POST', '/invoices', {
+  const { invoice } = await call(author, 'POST', '/invoices', {
     type: 'cash_sale', direction: 'outgoing', issueDate: new Date().toISOString().slice(0, 10), currency: 'EUR',
     lines: [{
       productId: product.productId, description: product.productName, quantity: 1, unit: product.unit || 'pcs',
@@ -166,7 +171,7 @@ export async function ensureJournalRows(): Promise<void> {
     const sale = await ringTillSale()
     await closeTillSession(sale.sessionId)
   }
-  if (!(await journal(admin, 'origin=backoffice&size=1')).total) await createBackOfficeCashSale(admin)
+  if (!(await journal(admin, 'origin=backoffice&size=1')).total) await createBackOfficeCashSale()
 }
 
 /** One page of the journal, as the API answers it. */

@@ -57,6 +57,11 @@ export interface UseDocumentFormOptions {
    * document, and the form may still be issuing or printing it.
    */
   onCreated?: (id: string) => void
+  /**
+   * Fields the view adds to a NEW document's payload, on every create path (FR-21.31: the cash
+   * sale's `receipt`, when it joins its author's open session and is to print on its device).
+   */
+  extraPayload?: () => Record<string, any>
 }
 
 export type { PrintSettings }
@@ -1318,7 +1323,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   async function onSave() {
     const ok = await validate()
     if (!ok) return
-    const payload = buildPayload()
+    const payload = { ...buildPayload(), ...(!isEdit.value && opts.extraPayload ? opts.extraPayload() : {}) }
     if (!isEdit.value && opts.onBeforeCreate) {
       loading.value = true
       let res: BeforeCreateResult
@@ -1337,7 +1342,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   /** Low-level create used by hooks after a suspended `onBeforeCreate` (e.g. transfer confirm). */
   async function submitCreate(extra?: Record<string, any>) {
-    const payload = { ...buildPayload(), ...(extra || {}) }
+    const payload = { ...buildPayload(), ...(opts.extraPayload ? opts.extraPayload() : {}), ...(extra || {}) }
     await persist(payload)
   }
 

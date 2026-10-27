@@ -1422,6 +1422,13 @@
     "voucher": "Voucher",
     "connectPrinter": "Connect Printer",
     "nonFiscalMode": "Non-fiscal",
+    "joinSession": {
+      "receipt": "Receipt on the session's device",
+      "hint": "Joins your open session {session}: its drawer takes the money.",
+      "noReceipt": "No receipt",
+      "fiscal": "Fiscal receipt",
+      "text": "Non-fiscal (text) receipt"
+    },
     "printerError": "Printer Error",
     "printerConnected": "Fiscal printer connected",
     "noFiscalDevice": "No browser fiscal device configured. Ask admin to create one.",
