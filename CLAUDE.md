@@ -2580,6 +2580,26 @@ so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.
     pod's own copy (`kubectl exec … cat`; `SUPTO_RUNNING=<v>` when the pod cannot say) and refuses a
     build of an undeclared new version. A `--tag` redeploy builds nothing and is not gated.
   - The master's status page shows the SUPTO version that runs, and Прил. 32 lists it.
+- **Home records fail closed on lgrai.app (FR-20.3, AC 55, P3-8d; `services/biz/home/home-hold.service.ts`).**
+  `homeOf` already DERIVES a hold from the record (a missing row after a move, a row that disagrees
+  with `homeEpochHighWater`); these are the holds global TAKES, stored as `OrgHome.hold {reason,
+  since, from, claim?}`:
+  - **`higher_epoch`**: a master registered for the org reports, in its minute org-state report
+    (now with `epoch` + `state` per org), a newer home record than global's — global's database is
+    older than the org's last move. ⚠ Only an `active` row is a claim: during a move the master
+    writes its row at the NEW epoch as `frozen` before global flips (move-worker), and holding then
+    would break the move's own flip precondition. Not from a revoked server, nor for an org it is not
+    registered for.
+  - **`dr_restore`**: the runbook's step right after a Layer-1 restore (lgr-deploy
+    `docs/BACKUP-RUNBOOK.md` §4 step 2b): every org with a server, or a high-water mark, or a row.
+    Released by its home server reporting the SAME record; an org homed on global, or a newer record,
+    waits for a sys-admin.
+  - Settled on the sys-admin Nodes page ("Organizations on hold", `/admin/nodes/held`): **release**
+    (global's record stands; the high-water mark is made to agree) or **adopt** (the server's claimed
+    record becomes global's, only from a server still registered). ⚠ The routes take `:id`, never
+    `:orgId`: the tenant guard and the home gate key on that name and would refuse a sys-admin
+    settling an org on hold. Global's audit log cannot take it (the org is on hold): the row keeps
+    `released`, and the log line says who. The Nodes page raises `home_hold` per server.
 - **A master's own status page (FR-20.98, FR-20.50, P3-8b; `/settings/server`).** The supervisor
   writes its status every 30 s to `state/status.json` (`status_file.rs`: atomic, with the volume and
   the oplog's reach beside it; nothing secret is in a supervisor status), beside the node token, so

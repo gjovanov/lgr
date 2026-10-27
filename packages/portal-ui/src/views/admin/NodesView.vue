@@ -3,13 +3,40 @@
     <div class="d-flex align-center mb-2 flex-wrap ga-2">
       <h1 class="text-h5">{{ $t('adminNodes.title') }}</h1>
       <v-spacer />
+      <v-btn v-if="!forbidden" size="small" variant="text" color="warning" prepend-icon="mdi-pause-octagon-outline" data-test="held-after-restore" @click="askRestoreHold">{{ $t('adminNodes.held.afterRestore') }}</v-btn>
       <v-switch v-model="includeRevoked" :label="$t('servers.includeRevoked')" density="compact" hide-details color="primary" />
     </div>
     <p class="text-body-2 text-medium-emphasis mb-4">{{ $t('adminNodes.intro') }}</p>
 
     <v-alert v-if="forbidden" type="warning" variant="tonal" data-test="nodes-forbidden">{{ $t('adminNodes.forbidden') }}</v-alert>
 
-    <v-data-table v-else :headers="headers" :items="items" :loading="loading" item-value="id" density="comfortable" :no-data-text="$t('adminNodes.none')">
+    <!-- FR-20.3 (P3-8d): the orgs lgrai.app holds, and settling them. -->
+    <v-card v-if="!forbidden && held.length" variant="outlined" color="warning" class="mb-4" data-test="nodes-held">
+      <v-card-title class="text-subtitle-1">{{ $t('adminNodes.held.title', { n: held.length }) }}</v-card-title>
+      <v-card-text>
+        <p class="text-body-2 mb-2">{{ $t('adminNodes.held.intro') }}</p>
+        <div v-for="o in held" :key="o.orgId" class="d-flex align-center flex-wrap ga-2 py-1" :data-test="`held-${o.orgId}`">
+          <v-chip size="small" variant="outlined">{{ o.slug ?? o.orgId }}</v-chip>
+          <span class="text-body-2">{{ heldText(o) }}</span>
+          <v-spacer />
+          <v-btn v-if="o.claim" size="small" variant="tonal" color="warning" :loading="settling === o.orgId" data-test="held-adopt" @click="asking = { o, adopt: true }">{{ $t('adminNodes.held.adopt', { node: o.claim.nodeId, epoch: o.claim.epoch }) }}</v-btn>
+          <v-btn size="small" variant="text" :loading="settling === o.orgId" data-test="held-release" @click="asking = { o, adopt: false }">{{ $t('adminNodes.held.release') }}</v-btn>
+        </div>
+      </v-card-text>
+    </v-card>
+    <v-dialog :model-value="!!asking" max-width="560" @update:model-value="v => { if (!v) asking = null }">
+      <v-card v-if="asking" data-test="held-confirm">
+        <v-card-text class="text-body-2 pt-5">{{ askingText }}</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="asking = null">{{ $t('common.cancel') }}</v-btn>
+          <v-btn v-if="asking.restore" color="warning" variant="flat" data-test="held-confirm-go" @click="holdAll">{{ $t('adminNodes.held.afterRestore') }}</v-btn>
+          <v-btn v-else color="warning" variant="flat" data-test="held-confirm-go" @click="settle(asking.o, asking.adopt)">{{ asking.adopt ? $t('adminNodes.held.adopt', { node: asking.o.claim?.nodeId, epoch: asking.o.claim?.epoch }) : $t('adminNodes.held.release') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-data-table v-if="!forbidden" :headers="headers" :items="items" :loading="loading" item-value="id" density="comfortable" :no-data-text="$t('adminNodes.none')">
       <template #item.name="{ item }">
         <div class="d-flex align-center ga-2">
           <span>{{ item.name }}</span>
@@ -62,6 +89,17 @@ const items = ref<any[]>([])
 const loading = ref(false)
 const forbidden = ref(false)
 const includeRevoked = ref(false)
+/** FR-20.3 (P3-8d): orgs on hold, and the one being settled. */
+const held = ref<any[]>([])
+const settling = ref<string | null>(null)
+const asking = ref<{ o: any; adopt: boolean; restore?: number } | null>(null)
+const askingText = computed(() => {
+  const a = asking.value
+  if (!a) return ''
+  if (a.restore !== undefined) return t('adminNodes.held.confirmAfterRestore', { n: a.restore })
+  const org = a.o.slug ?? a.o.orgId
+  return a.adopt ? t('adminNodes.held.confirmAdopt', { org, node: a.o.claim?.nodeId, epoch: a.o.claim?.epoch }) : t('adminNodes.held.confirmRelease', { org })
+})
 
 const headers = computed(() => [
   { title: t('servers.name'), key: 'name' },
@@ -100,11 +138,41 @@ function healthText(health: any): string {
   return parts.filter(Boolean).join(' · ') || '—'
 }
 
+function heldText(o: any): string {
+  const home = o.home === 'global' ? 'lgrai.app' : o.home
+  const why = t(`adminNodes.held.reason.${o.reason}`, { node: o.claim?.nodeId ?? '', epoch: o.claim?.epoch ?? '' })
+  return `${why} · ${t('adminNodes.held.record', { home, epoch: o.epoch })}`
+}
+
+/** The runbook's step after a disaster-recovery restore: how many it would hold, then hold them. */
+async function askRestoreHold() {
+  const { data } = await httpClient.get('/admin/nodes/held/after-restore')
+  asking.value = { o: null, adopt: false, restore: Number(data.held ?? 0) }
+}
+async function holdAll() {
+  asking.value = null
+  await httpClient.post('/admin/nodes/held/after-restore')
+  await load()
+}
+
+/** Release (lgrai.app's record stands) or adopt the server's newer record, once asked. */
+async function settle(o: any, adopt: boolean) {
+  asking.value = null
+  settling.value = o.orgId
+  try {
+    await httpClient.post(`/admin/nodes/held/${o.orgId}/release`, { adopt })
+    await load()
+  } finally {
+    settling.value = null
+  }
+}
+
 async function load() {
   loading.value = true
   try {
     const { data } = await httpClient.get('/admin/nodes', { params: includeRevoked.value ? { includeRevoked: 'true' } : {} })
     items.value = data.nodes ?? []
+    held.value = (await httpClient.get('/admin/nodes/held')).data.held ?? []
   } catch (e: any) {
     if (e?.response?.status === 403 || e?.response?.status === 404) forbidden.value = true
   } finally {

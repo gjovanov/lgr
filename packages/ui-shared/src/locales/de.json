@@ -3094,7 +3094,24 @@
     "link": "Verbindung",
     "backup": "Letzte Sicherung",
     "alarms": "Alarme",
-    "backupAgo": "{age} her"
+    "backupAgo": "{age} her",
+    "held": {
+      "title": "Angehaltene Organisationen ({n})",
+      "intro": "lgrai.app schreibt nichts dieser Organisationen, bis ihr Heimat-Eintrag geklärt ist. Prüfen Sie zuerst: Freigeben behält den Eintrag von lgrai.app, Übernehmen den des Servers.",
+      "record": "Eintrag von lgrai.app: {home}, Epoche {epoch}",
+      "reason": {
+        "higher_epoch": "{node} meldet Epoche {epoch}, neuer als diese Datenbank",
+        "dr_restore": "angehalten nach einer Notfall-Wiederherstellung",
+        "row_missing_after_move": "der Heimat-Eintrag fehlt, und die Organisation ist schon umgezogen",
+        "epoch_disagrees": "der Heimat-Eintrag stimmt nicht mit der höchsten bekannten Epoche der Organisation überein"
+      },
+      "adopt": "Eintrag von {node} übernehmen (Epoche {epoch})",
+      "release": "Freigeben",
+      "confirmAdopt": "{node} mit Epoche {epoch} zur Heimat von {org} machen? lgrai.app schreibt dann nichts mehr davon, und seine Kopie muss womöglich neu befüllt werden.",
+      "confirmRelease": "{org} freigeben? Der eigene Eintrag von lgrai.app gilt, und es schreibt die Organisation wieder, wenn dieser Eintrag es als Heimat nennt.",
+      "afterRestore": "Nach Wiederherstellung anhalten",
+      "confirmAfterRestore": "Nach einer Notfall-Wiederherstellung von lgrai.app: die {n} Organisationen anhalten, die einen Server haben oder hatten? lgrai.app schreibt nichts davon, bis sich jeder Server mit dem Eintrag meldet, den lgrai.app hält, oder ein Systemadministrator sie freigibt. Direkt nach der Wiederherstellung ausführen."
+    }
   },
   "adminLicences": {
     "title": "Lizenzen",
@@ -3447,7 +3464,8 @@
       "oplog_short": "Der Datenbankverlauf reicht nur {age} zurück",
       "fenced": "Für {n} Organisationen gesperrt",
       "clock_skew": "Uhr geht um {age} falsch",
-      "supto_waiting": "SUPTO-Version {version} wartet auf ihre Anmeldung"
+      "supto_waiting": "SUPTO-Version {version} wartet auf ihre Anmeldung",
+      "home_hold": "Angehaltene Organisationen: {n}"
     }
   },
   "serverStatus": {

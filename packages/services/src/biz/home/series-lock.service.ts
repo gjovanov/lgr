@@ -287,13 +287,16 @@ export async function reportOrgState(fetchImpl: typeof fetch = fetch): Promise<b
   if (nodeRole() !== 'master') return false
   const token = readNodeToken()
   if (!token) return false
-  const homes: any[] = await OrgHome.find({ home: thisNode() }, { orgId: 1, seriesFrozen: 1 }).lean()
+  const homes: any[] = await OrgHome.find({ home: thisNode() }, { orgId: 1, seriesFrozen: 1, epoch: 1, state: 1 }).lean()
   const repl = new Map(((await ReplOrg.find({ orgId: { $in: homes.map(h => h.orgId) } }, { orgId: 1, seq: 1, wentBack: 1 }).lean()) as any[]).map(r => [String(r.orgId), r]))
   const orgs = homes.map(h => {
     const r: any = repl.get(String(h.orgId))
     return {
       orgId: String(h.orgId),
       head: Number(r?.seq ?? 0),
+      // FR-20.3 (P3-8d): its home record, which lgrai.app holds against its own (`noteReportedHomes`).
+      epoch: Number(h.epoch ?? 0),
+      state: h.state,
       ...(r?.wentBack?.at ? { wentBack: { at: r.wentBack.at, reason: r.wentBack.reason, detail: r.wentBack.detail } } : {}),
       ...(h.seriesFrozen?.since ? { numbering: { since: h.seriesFrozen.since, reason: h.seriesFrozen.reason, detail: h.seriesFrozen.detail } } : {}),
     }

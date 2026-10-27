@@ -356,6 +356,13 @@ Updates that come by themselves (plan step P1-8c, `updates.rs`, `helper.rs`, `si
   and once it has the bytes it checks that the bundle is the version the offer named. A build within
   the version that runs is not a new SUPTO version and updates as usual. lgrai.app's own deploys wait
   the same way (`deploy-prod.sh`).
+- **An org on hold on lgrai.app** (P3-8d, FR-20.3). Each minute a master tells lgrai.app which home
+  record it holds for each org it writes. A newer one than lgrai.app's means lgrai.app's database
+  is older than the org's last move (a disaster-recovery restore), so lgrai.app stops writing the org
+  and the Nodes page shows it on hold, with the server's record. After a restore of lgrai.app the
+  runbook holds every org that has a server; a server that reconnects with the same record releases
+  its orgs. Anything else is settled by a sys-admin: release (lgrai.app's record stands) or adopt
+  (the server's).
 - ⚠ Nothing the supervisor says is trusted for WHAT is installed: a compromised service can only wake
   the helper early, or make it wait.
 - **A backup first** (plan step P1-8d, FR-20.20's order: backup, migrations, health check). After the

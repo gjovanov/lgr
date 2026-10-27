@@ -3094,7 +3094,24 @@
     "link": "Link",
     "backup": "Last backup",
     "alarms": "Alarms",
-    "backupAgo": "{age} ago"
+    "backupAgo": "{age} ago",
+    "held": {
+      "title": "Organizations on hold ({n})",
+      "intro": "lgrai.app writes nothing of these organizations until their home record is settled. Look before you settle one: releasing keeps lgrai.app's record, adopting takes the server's.",
+      "record": "lgrai.app's record: {home}, epoch {epoch}",
+      "reason": {
+        "higher_epoch": "{node} reports epoch {epoch}, newer than this database",
+        "dr_restore": "held after a disaster-recovery restore",
+        "row_missing_after_move": "the home record is missing, and the organization has moved before",
+        "epoch_disagrees": "the home record disagrees with the organization's high-water mark"
+      },
+      "adopt": "Adopt {node}'s record (epoch {epoch})",
+      "release": "Release",
+      "confirmAdopt": "Make {node} the home of {org} at epoch {epoch}? lgrai.app will then write nothing of it, and its copy may need re-seeding.",
+      "confirmRelease": "Release {org}? lgrai.app's own record stands, and it writes the organization again if that record says it is home.",
+      "afterRestore": "Hold after a restore",
+      "confirmAfterRestore": "After a disaster-recovery restore of lgrai.app: hold the {n} organizations that have a server, or had one? lgrai.app writes nothing of them until each server reconnects with the record lgrai.app holds, or a sys-admin releases it. Do this right after the restore."
+    }
   },
   "adminLicences": {
     "title": "Licences",
@@ -3447,7 +3464,8 @@
       "oplog_short": "Database history reaches back only {age}",
       "fenced": "Fenced for {n} organizations",
       "clock_skew": "Clock {age} off",
-      "supto_waiting": "SUPTO version {version} waits for its declaration"
+      "supto_waiting": "SUPTO version {version} waits for its declaration",
+      "home_hold": "Organizations on hold: {n}"
     }
   },
   "serverStatus": {

@@ -203,6 +203,9 @@ describe('the restore lock (FR-20.51)', () => {
     expect(sent.orgs).toEqual([{
       orgId: s.orgId,
       head: 70,
+      // FR-20.3 (P3-8d): its home record, which lgrai.app holds against its own.
+      epoch: 1,
+      state: 'active',
       wentBack: { at: expect.any(String), reason: 'mirror_ahead', detail: 'lgrai.app holds more' },
       numbering: { since: expect.any(String), reason: 'went_back', detail: 'lgrai.app holds more' },
     }])
