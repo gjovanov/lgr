@@ -70,6 +70,12 @@ export interface IOrgMove {
   evidence?: { hardware: 'off' | 'destroyed'; tillsDisconnected: boolean; silenceSince?: Date; attestedAt: Date }
   lossFrom?: Date
   fenceCutoff?: number
+  /**
+   * `promote`: the master's journal epoch the cutoff counts in, from the mirror. A row of another
+   * epoch was journaled again after a lost history, so whether global saw it is unknown: the fenced
+   * export carries it (P3-6e).
+   */
+  fenceJournalEpoch?: number
   placed?: { placed: number; present: number; missing: number }
   steps: IOrgMoveStep[]
   error?: string
@@ -106,6 +112,7 @@ const orgMoveSchema = new Schema<IOrgMove>(
     evidence: { hardware: { type: String, enum: ['off', 'destroyed'] }, tillsDisconnected: Boolean, silenceSince: Date, attestedAt: Date },
     lossFrom: Date,
     fenceCutoff: Number,
+    fenceJournalEpoch: Number,
     placed: { placed: Number, present: Number, missing: Number },
     steps: { type: [stepSchema], default: [] },
     error: { type: String, maxlength: 2000 },

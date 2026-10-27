@@ -30,6 +30,9 @@
  *   would claim a freeze or a flip that is not happening.
  * - `MirrorBlob`: which files of an org homed on a master global's mirror holds (FR-20.69, P3-3).
  *   Restored from an old bundle it would claim bytes the mirror no longer has, or forget ones it has.
+ * - `FencedExport`: what a fenced master did after the cutoff, as it reached global (FR-20.84,
+ *   P3-6e). Its bytes live under the org's `docs/`, which the org's backups carry; the row is
+ *   global's record of their arrival.
  * - `OnpremCredential`: a person's local password or PIN for an org's master, as global keeps it to
  *   deliver (FR-20.40, P2-4c). FR-20.21: no backup holds a local credential.
  *
@@ -56,4 +59,5 @@ export const NODE_STATE_MODELS: ReadonlySet<string> = new Set([
   'MirrorState',
   'MirrorBlob',
   'OrgMove',
+  'FencedExport',
 ])

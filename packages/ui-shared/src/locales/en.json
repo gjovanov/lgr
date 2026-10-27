@@ -3323,6 +3323,31 @@
       "confirm": "These are the last numbers issued at the site",
       "save": "Resume numbering",
       "saved": "Numbering resumes above the site's last numbers"
+    },
+    "fenced": {
+      "title": "What {name} did after it was replaced",
+      "intro": "The server came back after lgrai.app's copy became the organization's home. Everything it wrote after the cutoff arrived here, unchanged, for review. None of it is written into the organization.",
+      "state": {
+        "receiving": "Arriving: {pct}%",
+        "received": "Arrived {when}",
+        "refused": "Refused: it is not what the server said it sent. It is kept here and on the server."
+      },
+      "counts": "{documents} documents, {deleted} deleted, {files} files",
+      "missingFiles": "{n} files the server could not send",
+      "collisions": "{n} of its numbers were given to other documents here. Each is resolved by a credit note and a new number, never by an edit.",
+      "legalTitle": "Sales and invoices",
+      "noLegal": "No sales or invoices in it",
+      "number": "Number",
+      "type": "Type",
+      "date": "Date",
+      "total": "Total",
+      "onGlobalLabel": "On lgrai.app",
+      "onGlobal": {
+        "absent": "New",
+        "same_id": "Already here, changed after the cutoff",
+        "collision": "Number taken by another document"
+      },
+      "truncated": "Only the first 5,000 are listed here."
     }
   },
   "desktops": {

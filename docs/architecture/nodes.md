@@ -612,9 +612,13 @@ that lgrai.app would then issue again. So a promotion takes evidence:
    document that would take a legal number is refused before it moves anything; drafts, proformas
    and bills go on.
 5. **If the old server comes back,** however late, it learns of the promotion and fences itself: it
-   writes nothing more of the org, never resumes on its own, and keeps what it wrote after the cutoff
-   for the export (FR-20.84, not built yet). A server that was revoked cannot be told, so revoke one
-   that was stolen, not one that may come back.
+   writes nothing more of the org and never resumes on its own. A server that was revoked cannot be
+   told, so revoke one that was stolen, not one that may come back.
+6. **What it did after the cutoff** is exported, unchanged, kept on the server and sent to lgrai.app
+   (FR-20.84). The Servers page lists it for review: its sales and invoices by number, each new to
+   lgrai.app, already there, or carrying a number lgrai.app has since given to another document.
+   Nothing of it is written into the organization: bringing it into the books is the audited import,
+   not built yet.
 
 Replacing a dead server is a promotion followed by a move to the new machine, whose desktops are
 paired again.
@@ -670,8 +674,8 @@ a server linked at Full). lgrai.app runs the move (`services/biz/move/move.servi
   its registry row moved with the org, so nothing is enrolled again. The server's health reports say
   where its LAN ingress answers; when lgrai.app does not know, the desktop is only told that its org
   moved, and offers to pair. Nothing of a moved org's desktop is written on lgrai.app.
-- The move back to the cloud and promotion are above. **Not yet**: the fenced export and import
-  (P3-6e).
+- The move back to the cloud, promotion and the fenced export are above. **Not yet**: the audited
+  import of a fenced export (P3-6e).
 
 ## Not built yet
 
@@ -683,8 +687,8 @@ FR-20's P1 to P3:
 - reading documents without the internet on Windows: the package carrying poppler and tesseract
   (P2-6c did Linux, where the .deb depends on the distribution's);
 - the mirror's transport, its files and the reconcile (above), and the tunnel;
-- the rest of the moves: the fenced export and import of what a fenced server wrote after its
-  cutoff (FR-20.84; the move to a master, the move back and promotion are above);
+- the rest of the moves: the audited import of what a fenced server wrote after its cutoff
+  (FR-20.84; the move to a master, the move back, promotion and the export are above);
 - setting a local credential on the master itself, right after a Sign in with LGR, and sending it up
   for a replacement master (FR-20.40).
 

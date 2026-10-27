@@ -286,7 +286,7 @@ export async function movesForNode(nodeId: string) {
   }).sort({ startedAt: 1 }).lean()
   return rows.map(m => ({
     id: String(m._id), orgId: String(m.orgId), kind: m.kind, state: m.state, epochFrom: m.epochFrom, epochTo: m.epochTo, startedBy: String(m.startedBy),
-    ...(m.kind === 'promote' ? { fenceCutoff: m.fenceCutoff ?? 0 } : {}),
+    ...(m.kind === 'promote' ? { fenceCutoff: m.fenceCutoff ?? 0, ...(typeof m.fenceJournalEpoch === 'number' ? { fenceJournalEpoch: m.fenceJournalEpoch } : {}) } : {}),
     ...(m.bundle && m.state === 'copying' ? { bundle: { sha256: m.bundle.sha256, bytes: m.bundle.bytes }, files: { sha256: m.files.sha256, bytes: m.files.bytes } } : {}),
   }))
 }

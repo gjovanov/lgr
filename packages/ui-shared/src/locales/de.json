@@ -3323,6 +3323,31 @@
       "confirm": "Das sind die letzten am Standort vergebenen Nummern",
       "save": "Nummerierung fortsetzen",
       "saved": "Die Nummerierung geht über den letzten Nummern des Standorts weiter"
+    },
+    "fenced": {
+      "title": "Was {name} getan hat, nachdem er ersetzt wurde",
+      "intro": "Der Server kam zurück, nachdem die Kopie auf lgrai.app das Zuhause der Organisation wurde. Alles, was er nach der Grenze geschrieben hat, ist hier unverändert zur Prüfung eingetroffen. Nichts davon ist in die Organisation geschrieben.",
+      "state": {
+        "receiving": "Trifft ein: {pct} %",
+        "received": "Eingetroffen {when}",
+        "refused": "Abgelehnt: Es ist nicht, was der Server zu senden angab. Es wird hier und auf dem Server aufbewahrt."
+      },
+      "counts": "{documents} Dokumente, {deleted} gelöscht, {files} Dateien",
+      "missingFiles": "{n} Dateien, die der Server nicht senden konnte",
+      "collisions": "{n} seiner Nummern wurden hier an andere Dokumente vergeben. Jede wird durch eine Gutschrift und eine neue Nummer gelöst, nie durch eine Änderung.",
+      "legalTitle": "Verkäufe und Rechnungen",
+      "noLegal": "Keine Verkäufe oder Rechnungen darin",
+      "number": "Nummer",
+      "type": "Art",
+      "date": "Datum",
+      "total": "Summe",
+      "onGlobalLabel": "Auf lgrai.app",
+      "onGlobal": {
+        "absent": "Neu",
+        "same_id": "Schon hier, nach der Grenze geändert",
+        "collision": "Nummer von einem anderen Dokument belegt"
+      },
+      "truncated": "Hier sind nur die ersten 5.000 aufgeführt."
     }
   },
   "desktops": {

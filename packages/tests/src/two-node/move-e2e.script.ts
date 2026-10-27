@@ -10,10 +10,13 @@
  * admin moves the org back to lgrai.app, the master freezes it and drains, global puts the file
  * where its row says and flips, and the master keeps a read-only copy.
  *
- * Or, with `--promote` (FR-20.81, plan step P3-6d): the shop makes a document with a file, and the
- * server is LOST (the supervisor stops). The admin promotes lgrai.app's copy on evidence; global puts
- * the file where its row says and flips with the legal series frozen; numbering resumes above the
- * site's last numbers once recorded. Then the server comes back, learns of it, and fences itself.
+ * Or, with `--promote` (FR-20.81 and FR-20.84, plan steps P3-6d and P3-6e): the shop makes a
+ * document with a file, then its link is CUT, and it goes on selling (a sale numbered past what the
+ * site will read off its paper). The admin promotes lgrai.app's copy on evidence; global puts the file
+ * where its row says and flips with the legal series frozen; numbering resumes above the site's last
+ * numbers once recorded, and gives the sale's number to another. The link comes back: the server
+ * learns of it, fences itself, and exports everything above the cutoff, which reaches global for
+ * review with that collision named.
  *
  *   bun packages/tests/src/two-node/move-e2e.script.ts [--promote]
  *
@@ -127,7 +130,8 @@ const supStatus = async () => { try { return JSON.parse((await cli('status', '--
 
 const signer = (new Elysia().use(jwt({ name: 'jwt', secret: JWT_SECRET })) as any).decorator.jwt
 const api = (token: string) => async (method: string, path: string, body?: unknown) => {
-  const res = await fetch(`${SERVER}/api${path}`, {
+  // The admin is on lgrai.app, not in the shop: straight to global's front, never through the shop's link.
+  const res = await fetch(`https://localhost:${front.port}/api${path}`, {
     method,
     headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -262,11 +266,15 @@ try {
     const held = await until(() => gdb.collection('mirror_blobs').findOne({ orgId, sha256: madeSha, state: 'ok' }), 180_000, 2000)
     check('the shop\'s new file reaches lgrai.app by content', !!held)
     const watermark = await mirrorAt()
-    // The server is lost: its supervisor stops, and both sockets close.
-    await cli('stop')
-    await Promise.race([sup!.exited, Bun.sleep(30_000)])
-    sup!.kill()
-    await master!.close().catch(() => {})
+    // The link is cut: the server goes on, and lgrai.app hears nothing more of it.
+    chaos.down()
+    // It goes on selling: a sale numbered past what the site's paper will say (500), so lgrai.app
+    // will give its number to another sale once numbering resumes.
+    const lateSale = new mongoose.Types.ObjectId()
+    await mdb.collection('contacts').insertOne({ _id: new mongoose.Types.ObjectId(), orgId, companyName: 'Sold to while the link was down', type: 'customer', isActive: true })
+    await mdb.collection('invoices').insertOne({ _id: lateSale, orgId, type: 'invoice', direction: 'outgoing', invoiceNumber: 'INV-2026-00501', status: 'sent', issueDate: new Date(), total: 99, currency: 'EUR', lines: [] })
+    const journaled = await until(async () => (await headOf()) > watermark + 1, 60_000, 500)
+    check('the cut-off server goes on, and journals what it does', !!journaled, `head ${await headOf()}, cutoff ${watermark}`)
     const gone = await until(async () => {
       const r = await asAdmin('POST', `/org/${orgId}/moves/promote/preflight`, {})
       return r.status === 200 && r.body?.ok ? r.body : false
@@ -298,18 +306,29 @@ try {
     const issued = await asAdmin('POST', `/org/${orgId}/invoices/${draft.body?.invoice?.id}/send`, {})
     check('the site\'s last numbers recorded, numbering resumes above them', recorded.status === 200 && issued.status === 200 && /-00501$/.test(issued.body?.invoice?.invoiceNumber ?? ''), `${recorded.status} ${issued.status} ${issued.body?.invoice?.invoiceNumber}`)
 
-    // The server comes back: it learns of the promotion from its moves, and fences itself.
-    sup = Bun.spawn([EXE, 'run'], { env: supEnv, stdout: 'ignore', stderr: 'pipe' })
-    void (async () => { for await (const c of sup!.stderr as ReadableStream<Uint8Array>) supLog = (supLog + new TextDecoder().decode(c)).slice(-60_000) })()
-    const again = await until(async () => ((await supStatus())?.children ?? []).some((c: any) => c.name === 'api' && c.state === 'running'), 180_000)
-    check('the server comes back', !!again)
-    master = await mongoose.mongo.MongoClient.connect(`mongodb://lgr-admin:${encodeURIComponent(secrets.MONGO_ADMIN_PASSWORD)}@127.0.0.1:${MONGOD_PORT}/?directConnection=true&authSource=admin`)
-    const back = master.db('lgr')
+    // The link comes back: the server learns of the promotion from its moves, and fences itself.
+    chaos.up()
     const fenced: any = await until(async () => {
-      const h: any = await back.collection('org_homes').findOne({ orgId })
+      const h: any = await mdb.collection('org_homes').findOne({ orgId })
       return h?.state === 'fenced' ? h : false
     }, 120_000, 2000)
     check('…and fences itself: lgrai.app the home at epoch 2, at the cutoff', !!fenced && fenced.home === 'global' && fenced.epoch === 2 && fenced.fenceCutoff === cutoff, JSON.stringify(fenced && { home: fenced.home, epoch: fenced.epoch, state: fenced.state, fenceCutoff: fenced.fenceCutoff }))
+    // FR-20.84 (P3-6e): everything it did above the cutoff, exported, kept, and sent for review.
+    const moveId = String(((await gdb.collection('org_moves').findOne({ orgId, kind: 'promote' })) as any)?._id)
+    const arrived: any = await until(async () => {
+      const r: any = await gdb.collection('fenced_exports').findOne({ orgId })
+      return r && r.state !== 'receiving' ? r : false
+    }, 120_000, 2000)
+    check('its export reaches lgrai.app, whole and checked', arrived?.state === 'received' && arrived.cutoff === cutoff, JSON.stringify(arrived && { state: arrived.state, error: arrived.error, cutoff: arrived.cutoff, summary: arrived.summary && { documents: arrived.summary.documents, byColl: arrived.summary.byColl } }))
+    check('…holding the sale and the customer it made with the link down', arrived?.summary?.byColl?.invoices >= 1 && arrived?.summary?.byColl?.contacts >= 1 && (arrived?.summary?.legal ?? []).some((l: any) => l.id === String(lateSale) && l.number === 'INV-2026-00501'))
+    const here = join(DATA, 'uploads', String(orgId), 'docs', 'fenced', `fenced-${moveId}.ndjson.zst`)
+    const there = join(GLOBAL_UPLOADS, String(orgId), 'docs', 'fenced', `fenced-${moveId}.ndjson.zst`)
+    const shaOf = (p: string) => createHash('sha256').update(readFileSync(p)).digest('hex')
+    check('…kept on both sides, the same bytes', existsSync(here) && existsSync(there) && shaOf(here) === arrived?.sha256 && shaOf(there) === arrived?.sha256)
+    const review = await asAdmin('GET', `/org/${orgId}/moves/fenced-exports`)
+    const listed = review.body?.exports?.[0]?.legal?.find((l: any) => l.id === String(lateSale))
+    check('the review names the sale whose number lgrai.app gave to another', review.status === 200 && listed?.onGlobal === 'collision' && listed?.collidesWith?.id === String(issued.body?.invoice?.id ?? issued.body?.invoice?._id), JSON.stringify(listed))
+    check('…and writes none of it into the org', !(await gdb.collection('invoices').findOne({ _id: lateSale })))
     await Bun.sleep(15_000)
     check('its pump sends nothing more of the org: lgrai.app keeps no mirror of it', (await gdb.collection('mirror_state').countDocuments({ orgId })) === 0)
   }
