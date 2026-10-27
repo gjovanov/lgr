@@ -34,6 +34,8 @@
  * re-seeds it from lgrai.app's copy: what was made since comes back, what was deleted since stays
  * deleted, nothing on the mirror is deleted, what the master held is kept, and the mirror's chain
  * starts again from the master, numbering still locked until the site's last numbers are recorded.
+ * A sale the server issued after its disk went back is only in what it kept: the admin brings it into
+ * the books there (FR-20.71, P3-7g), and it reaches the mirror; what nothing names stays out.
  *
  * Or, with `--reconcile` (FR-20.70, plan step P3-7f): the master loses the record of its changes. A
  * captured collection is dropped there, as a `mongosh` slip would, and an issued sale went where the
@@ -532,6 +534,10 @@ try {
     await mdb.collection('repl_orgs').replaceOne({ orgId }, snapRepl)
     if (snapHwm) writeFileSync(hwm, snapHwm)
     check('the master\'s database is back where the snapshot left it', !(await mdb.collection('contacts').findOne({ _id: madeAfter })) && !!(await mdb.collection('contacts').findOne({ _id: deletedAfter._id })) && (await headOf()) < watermark, `head ${await headOf()}, mirror ${watermark}`)
+    // P3-7g: before the server finds out, the till sells once more on the database gone back: a legal
+    // number that lgrai.app's copy will never hold, so only the re-seed's kept copy has the sale.
+    const soldBack = new mongoose.Types.ObjectId()
+    await mdb.collection('invoices').insertOne({ _id: soldBack, orgId, type: 'invoice', direction: 'outgoing', invoiceNumber: 'INV-2026-00701', status: 'sent', issueDate: new Date(), total: 7, subtotal: 7, taxTotal: 0, currency: 'EUR', lines: [], payments: [] })
 
     // The master finds out on its own (its own mark went back with the disk), locks, and says so.
     const record: any = await until(async () => ((await mdb.collection('repl_orgs').findOne({ orgId })) as any)?.wentBack, 120_000, 1000)
@@ -568,6 +574,20 @@ try {
     check('what was deleted since stays deleted', !(await mdb.collection('contacts').findOne({ _id: deletedAfter._id })))
     const keptFile = join(DATA, 'uploads', String(orgId), 'docs', 'reseed', `${rDone?.id}.ndjson.zst`)
     check('what the master held is kept, for good, under the org\'s documents', existsSync(keptFile) && zlib.zstdDecompressSync(readFileSync(keptFile)).toString('utf8').includes('Written at the shop 3'))
+    // ── FR-20.71 (P3-7g): the sale only the kept copy holds, brought into the books on the server ──
+    check('the sale made after the disk went back is gone with the re-seed, kept only in the file', !(await mdb.collection('invoices').findOne({ _id: soldBack })))
+    const keptList: any = await (await viaAddress(`/api/org/${orgId}/server/kept`, { headers: bearer })).json().catch(() => null)
+    const run = (keptList?.kept ?? []).find((k: any) => k.moveId === rDone?.id)
+    check('the server\'s page lists what the re-seed kept, the sale among it', run?.done === true && (run?.kept?.salesNumbers ?? []).includes('INV-2026-00701') && run.import === null, JSON.stringify(run && { done: run.done, kept: run.kept, import: run.import }))
+    const askedKept = await viaAddress(`/api/org/${orgId}/server/kept/${rDone?.id}/import`, { method: 'POST', headers: bearer })
+    check('the admin asks for the kept sales to be brought into the books', askedKept.status === 200, String(askedKept.status))
+    const keptDone: any = await until(async () => {
+      const st: any = await mdb.collection('node_state').findOne({ _id: `kept-import:${rDone?.id}` as any })
+      return st?.value?.state === 'done' ? st.value : false
+    }, 120_000, 2000)
+    const back: any = await mdb.collection('invoices').findOne({ _id: soldBack })
+    check('…the server does: the sale is in its books as the till issued it, with where it came from', !!keptDone && back?.invoiceNumber === 'INV-2026-00701' && back?.importedFrom?.kind === 'reseed_kept' && String(back.importedFrom.moveId) === String(rDone?.id), JSON.stringify(keptDone && { counts: keptDone.counts, keptOnly: keptDone.keptOnly, error: keptDone.error }))
+    check('…and nothing a sale does not name comes back with it: the contact deleted since stays deleted', !(await mdb.collection('contacts').findOne({ _id: deletedAfter._id })) && (keptDone?.keptOnly?.contacts ?? 0) >= 1, JSON.stringify(keptDone?.keptOnly ?? null))
     check('…and its went-back record is cleared', !((await mdb.collection('repl_orgs').findOne({ orgId })) as any)?.wentBack)
     const still: any = await mdb.collection('org_homes').findOne({ orgId })
     check('legal numbering stays locked until the site\'s last numbers are recorded', !!still?.seriesFrozen?.since, JSON.stringify(still?.seriesFrozen ?? null))

@@ -84,14 +84,36 @@ const imported = (reason?: string, number?: string, detail?: string): Outcome =>
 const skipped = (reason: string, detail?: string, number?: string): Outcome => ({ outcome: 'skipped', reason, ...(detail ? { detail: detail.slice(0, 2000) } : {}), ...(number ? { number } : {}) })
 const failed = (detail: string, number?: string): Outcome => ({ outcome: 'failed', reason: 'booking_failed', detail: detail.slice(0, 2000), ...(number ? { number } : {}) })
 
-interface Ctx {
+/**
+ * One import run. `runId` is what its rows carry (`fenced_import_items.exportId`): the export's id, or
+ * the re-seed's (P3-7g, `kept-import.service.ts`). `source` is what the documents it brings in say they
+ * came from (`importedFrom`, with when and who).
+ */
+export interface Ctx {
   orgId: string
   org: ObjectId
-  exportId: ObjectId
-  moveId: ObjectId
-  nodeId: string
+  runId: ObjectId
+  source: { kind: 'fenced_export'; exportId: ObjectId; moveId: ObjectId; nodeId: string } | { kind: 'reseed_kept'; moveId: ObjectId; nodeId: string }
   by: string
   at: Date
+}
+
+/** A document this run brought in, on an earlier tick or before a crash. */
+function isOurs(from: any, ctx: Ctx): boolean {
+  if (from?.kind !== ctx.source.kind) return false
+  return ctx.source.kind === 'fenced_export' ? String(from.exportId) === String(ctx.source.exportId) : String(from.moveId) === String(ctx.source.moveId)
+}
+/** The filter that matches only what this run brought in: an undo never takes anything else. */
+function oursFilter(ctx: Ctx): Record<string, unknown> {
+  return ctx.source.kind === 'fenced_export'
+    ? { 'importedFrom.exportId': ctx.source.exportId }
+    : { 'importedFrom.kind': 'reseed_kept', 'importedFrom.moveId': ctx.source.moveId }
+}
+/** Where the documents came from, as the audit trail says it. */
+function sourceText(ctx: Ctx): string {
+  return ctx.source.kind === 'fenced_export'
+    ? `fenced export of ${ctx.source.nodeId} (promotion ${String(ctx.source.moveId)})`
+    : `kept by the re-seed ${String(ctx.source.moveId)} on ${ctx.source.nodeId}`
 }
 
 // ── What is imported, and what stays for a person ──────────────────────────────────────────────
@@ -149,13 +171,13 @@ function asKept(doc: Doc, ctx: Ctx, number?: string): Doc {
     out.issue = { ...out.issue }
     delete out.issue.leaseUntil
   }
-  out.importedFrom = { kind: 'fenced_export', exportId: ctx.exportId, moveId: ctx.moveId, nodeId: ctx.nodeId, at: ctx.at, by: oid(ctx.by), ...(number ? { number } : {}) }
+  out.importedFrom = { ...ctx.source, at: ctx.at, by: oid(ctx.by), ...(number ? { number } : {}) }
   return out
 }
 
 // ── One document each ─────────────────────────────────────────────────────────────────────────
 
-async function importPlain(ctx: Ctx, coll: string, doc: Doc): Promise<Outcome> {
+export async function importPlain(ctx: Ctx, coll: string, doc: Doc): Promise<Outcome> {
   const there = await db().collection(coll).findOne({ _id: doc._id }, { promoteValues: false })
   // Ours from an earlier tick, or the same document all along.
   if (there) return same(there, doc) ? imported('already_here') : skipped('same_id', 'lgrai.app holds this document, changed since the cutoff')
@@ -196,10 +218,10 @@ async function bookSale(ctx: Ctx, doc: Doc): Promise<void> {
   }
 }
 
-async function importSale(ctx: Ctx, doc: Doc): Promise<Outcome> {
+export async function importSale(ctx: Ctx, doc: Doc): Promise<Outcome> {
   const number = String(doc.invoiceNumber ?? '')
   const there: any = await Invoice.collection.findOne({ _id: doc._id } as any, { projection: { importedFrom: 1, invoiceNumber: 1 } })
-  if (there && String(there.importedFrom?.exportId) !== String(ctx.exportId)) return skipped('same_id', 'lgrai.app holds this document, changed since the cutoff', number)
+  if (there && !isOurs(there.importedFrom, ctx)) return skipped('same_id', 'lgrai.app holds this document, changed since the cutoff', number)
   if (!there) {
     const missing = await missingFor(ctx.org, doc)
     if (missing) return skipped('missing_reference', `it names ${missing}, which lgrai.app does not hold`, number)
@@ -221,7 +243,7 @@ async function importSale(ctx: Ctx, doc: Doc): Promise<Outcome> {
     await continueSeries(ctx.orgId, kept)
     createAuditEntry({
       orgId: ctx.orgId, userId: ctx.by, action: 'import', module: 'invoicing', entityType: 'invoice', entityId: String(doc._id), entityName: String(kept.invoiceNumber),
-      changes: [{ field: 'source', oldValue: null, newValue: `fenced export of ${ctx.nodeId} (promotion ${String(ctx.moveId)})` }],
+      changes: [{ field: 'source', oldValue: null, newValue: sourceText(ctx) }],
     })
   }
   try {
@@ -229,14 +251,14 @@ async function importSale(ctx: Ctx, doc: Doc): Promise<Outcome> {
   } catch (e: any) {
     // All or nothing: a sale that cannot be booked goes back to the export, and is listed.
     if (!(await StockMovement.exists({ orgId: ctx.org, invoiceId: doc._id }).exec())) {
-      await Invoice.collection.deleteOne({ _id: doc._id, 'importedFrom.exportId': ctx.exportId } as any)
+      await Invoice.collection.deleteOne({ _id: doc._id, ...oursFilter(ctx) } as any)
     }
     return failed(e?.message ?? String(e), number)
   }
   return imported(undefined, number)
 }
 
-async function importSession(ctx: Ctx, doc: Doc): Promise<Outcome> {
+export async function importSession(ctx: Ctx, doc: Doc): Promise<Outcome> {
   const kept = { ...doc }
   // Posted here at its close, from the sales imported with it.
   delete kept.journalEntryId
@@ -246,15 +268,15 @@ async function importSession(ctx: Ctx, doc: Doc): Promise<Outcome> {
   return imported(undefined, undefined, doc.status === 'closed' ? 'closed' : undefined)
 }
 
-async function importMovement(ctx: Ctx, doc: Doc): Promise<Outcome> {
+export async function importMovement(ctx: Ctx, doc: Doc): Promise<Outcome> {
   // Made by a sale: the sale's import books it again here, or the sale stayed behind with it.
   if (doc.invoiceId) return skipped('made_by_its_sale', `the stock of ${keyOf(doc.invoiceId)}`, String(doc.movementNumber ?? ''))
   const there: any = await StockMovement.collection.findOne({ _id: doc._id } as any, { projection: { importedFrom: 1, status: 1 } })
-  if (there && String(there.importedFrom?.exportId) !== String(ctx.exportId)) return skipped('same_id', 'lgrai.app holds this movement, changed since the cutoff')
+  if (there && !isOurs(there.importedFrom, ctx)) return skipped('same_id', 'lgrai.app holds this movement, changed since the cutoff')
   // Applied on the site, so applied here: inserted as a draft, then confirmed against lgrai.app's stock.
   const confirm = APPLIED.has(String(doc.status))
   if (!there) {
-    const kept: Doc = { ...doc, status: confirm ? 'draft' : doc.status, importedFrom: { kind: 'fenced_export', exportId: ctx.exportId, moveId: ctx.moveId, nodeId: ctx.nodeId, at: ctx.at, by: oid(ctx.by) } }
+    const kept: Doc = { ...doc, status: confirm ? 'draft' : doc.status, importedFrom: { ...ctx.source, at: ctx.at, by: oid(ctx.by) } }
     delete kept.journalEntryId
     const taken = await StockMovement.collection.findOne({ orgId: ctx.org, movementNumber: doc.movementNumber, _id: { $ne: doc._id } } as any, { projection: { _id: 1 } })
     // A movement number is no legal number: one lgrai.app has since used is given the next.
@@ -268,7 +290,7 @@ async function importMovement(ctx: Ctx, doc: Doc): Promise<Outcome> {
     try {
       await confirmMovement(String(doc._id), getRepos())
     } catch (e: any) {
-      await StockMovement.collection.deleteOne({ _id: doc._id, status: 'draft', 'importedFrom.exportId': ctx.exportId } as any)
+      await StockMovement.collection.deleteOne({ _id: doc._id, status: 'draft', ...oursFilter(ctx) } as any)
       return failed(e?.message ?? String(e), String(doc.movementNumber ?? ''))
     }
   }
@@ -299,9 +321,9 @@ async function importDocument(ctx: Ctx, coll: string, doc: Doc, bytes: Map<strin
 
 // ── The run ──────────────────────────────────────────────────────────────────────────────────
 
-async function record(ctx: Ctx, coll: string, docKey: string, o: Outcome, sessionKey?: string): Promise<void> {
+export async function record(ctx: Ctx, coll: string, docKey: string, o: Outcome, sessionKey?: string): Promise<void> {
   await FencedImportItem.updateOne(
-    { exportId: ctx.exportId, coll, docKey },
+    { exportId: ctx.runId, coll, docKey },
     {
       $setOnInsert: {
         orgId: ctx.org, outcome: o.outcome, ...(o.reason ? { reason: o.reason } : {}), ...(o.detail ? { detail: o.detail } : {}), ...(o.number ? { number: o.number } : {}),
@@ -326,7 +348,11 @@ export async function runImportBatch(row: any, budget = IMPORT_BATCH): Promise<{
   // ⚠ The writes below are raw: they hold only while the org is written HERE. The request was
   // home-gated, but the org may have moved since; then nothing is written, and the error says why.
   await assertHomeIsHere(row.orgId, { fresh: true })
-  const ctx: Ctx = { orgId: String(row.orgId), org: row.orgId, exportId: row._id, moveId: row.moveId, nodeId: row.nodeId, by: String(row.import.requestedBy), at: new Date() }
+  const ctx: Ctx = {
+    orgId: String(row.orgId), org: row.orgId, runId: row._id,
+    source: { kind: 'fenced_export', exportId: row._id, moveId: row.moveId, nodeId: row.nodeId },
+    by: String(row.import.requestedBy), at: new Date(),
+  }
   const done = new Set((await FencedImportItem.find({ exportId: row._id }, { coll: 1, docKey: 1 }).lean()).map((i: any) => `${i.coll}|${i.docKey}`))
   let processed = 0
   const handle = async (coll: string, docKey: string, run: () => Promise<Outcome>, sessionKey?: string) => {
@@ -377,23 +403,32 @@ export async function runImportBatch(row: any, budget = IMPORT_BATCH): Promise<{
   return { processed, finished: true }
 }
 
-/** The import's end: the till sessions journaled from the sales imported with them, the counts, the trail. */
-async function finishImport(row: any): Promise<Record<string, number>> {
-  const by = String(row.import.requestedBy)
-  const sessions = await FencedImportItem.find({ exportId: row._id, coll: 'possessions', outcome: 'imported', detail: 'closed' }, { docKey: 1 }).lean()
+/**
+ * A run's end: the till sessions journaled from the sales imported with them, and the counts. Shared
+ * with the re-seed's kept import (P3-7g).
+ */
+export async function finishRun(orgId: string, runId: ObjectId, by: string): Promise<Record<string, number>> {
+  const sessions = await FencedImportItem.find({ exportId: runId, coll: 'possessions', outcome: 'imported', detail: 'closed' }, { docKey: 1 }).lean()
   for (const s of sessions as any[]) {
     // Only once every sale of it is here: an entry over part of a day would be wrong for good.
-    const behind = await FencedImportItem.exists({ exportId: row._id, coll: 'invoices', outcome: { $ne: 'imported' }, sessionKey: s.docKey })
+    const behind = await FencedImportItem.exists({ exportId: runId, coll: 'invoices', outcome: { $ne: 'imported' }, sessionKey: s.docKey })
     if (behind) {
       await FencedImportItem.updateOne({ _id: s._id }, { $set: { reason: 'session_not_journaled', detail: 'closed; some of its sales stayed behind, so its journal entry waits for a person' } })
       continue
     }
-    await postPosSessionJournal({ orgId: String(row.orgId), sessionId: s.docKey, userId: by })
+    await postPosSessionJournal({ orgId, sessionId: s.docKey, userId: by })
   }
   const counts: Record<string, number> = {}
-  for (const c of await FencedImportItem.aggregate([{ $match: { exportId: row._id } }, { $group: { _id: { o: '$outcome', r: '$reason' }, n: { $sum: 1 } } }])) {
+  for (const c of await FencedImportItem.aggregate([{ $match: { exportId: runId } }, { $group: { _id: { o: '$outcome', r: '$reason' }, n: { $sum: 1 } } }])) {
     counts[`${c._id.o}${c._id.r ? `:${c._id.r}` : ''}`] = c.n
   }
+  return counts
+}
+
+/** The import's end: the sessions and counts (`finishRun`), and the trail. */
+async function finishImport(row: any): Promise<Record<string, number>> {
+  const by = String(row.import.requestedBy)
+  const counts = await finishRun(String(row.orgId), row._id, by)
   await recordAuditEntry({
     orgId: String(row.orgId), userId: by, action: 'import', module: 'admin', entityType: 'fenced_export', entityId: String(row._id), entityName: `from ${row.nodeId}`,
     changes: Object.entries(counts).map(([field, n]) => ({ field, oldValue: null, newValue: n })),

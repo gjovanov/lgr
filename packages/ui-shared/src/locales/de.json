@@ -3606,6 +3606,34 @@
         "path_required": "Ein Server außerhalb braucht einen Prüfzugang.",
         "detail_required": "Geben Sie an, wie ein Prüfer den Server auf diesem Weg erreicht."
       }
+    },
+    "kept": {
+      "title": "Beim Neuaufbau vom {when} aufbewahrt",
+      "summary": "{documents} Dokumente aufbewahrt. {onlyThere} waren nicht in der Kopie auf lgrai.app, {sales} davon ausgestellte Verkäufe.",
+      "salesNumbers": "Ausgestellte Verkäufe nur in der aufbewahrten Kopie: {numbers}",
+      "action": "Die aufbewahrten Verkäufe verbuchen",
+      "intro": "Dieser Server geht das Aufbewahrte Dokument für Dokument durch:",
+      "ruleIn": "ein ausgestellter Verkauf, der nur in der aufbewahrten Kopie steht, bleibt genau wie er war, mit seiner Nummer, und wird hier verbucht: sein Bestand, notfalls unter null, sein Buchungssatz und die seiner Zahlungen. Was er nennt, kommt mit;",
+      "ruleLeft": "eine Nummer, die die Kopie auf lgrai.app einem anderen Dokument gab, ein Entwurf und alles, was sich nicht verbuchen lässt, bleiben für einen Menschen, jeweils mit Grund;",
+      "ruleNever": "nichts aus der Kopie auf lgrai.app wird angefasst.",
+      "confirm": "Verbuchen",
+      "requested": "Dieser Server verbucht sie",
+      "running": "Wird verbucht…",
+      "done": "Verbucht {when}",
+      "counts": "Übernommen: {imported} · für einen Menschen: {skipped} · nicht verbucht: {failed}",
+      "keptOnly": "Nur in der aufbewahrten Kopie und nicht übernommen: {list}",
+      "notDone": "Dieser Neuaufbau wurde nicht abgeschlossen; seine aufbewahrte Kopie enthält nichts zu übernehmen.",
+      "error": "Der letzte Versuch ist fehlgeschlagen: {error}. Es geht von selbst weiter.",
+      "failed": "Es konnte nicht angefordert werden.",
+      "leftTitle": "Für einen Menschen",
+      "reasonHeader": "Grund",
+      "reason": {
+        "number_taken": "die Kopie auf lgrai.app gab diese Nummer einem anderen Dokument: eine Gutschrift und eine Neuausstellung lösen das",
+        "missing_reference": "es nennt etwas, das keine der Kopien hat",
+        "kept_draft": "ein Entwurf: ein Mensch entscheidet",
+        "booking_failed": "es konnte nicht verbucht werden",
+        "session_not_journaled": "der Buchungssatz der Schicht wartet auf ihre anderen Verkäufe"
+      }
     }
   },
   "desktops": {
