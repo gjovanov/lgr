@@ -130,7 +130,23 @@ jobs:
         with:
           workspaces: packages/server
       - name: Build the supervisor
+        # ⚠ Static CRT. The MSI's InstallVersion runs the installer's own lgr-server.exe before any
+        # version is unpacked, so it must not need the MSVC runtime (vcruntime140.dll): a clean Windows
+        # has none. server-v0.1.0 linked it dynamically, and the first field lane (vmtest T-3, a clean
+        # Win11) failed the install with 1603, STATUS_DLL_NOT_FOUND. This runner HAS the runtime, so the
+        # install below passed regardless; the next step is what catches it here. roomler's standalone
+        # EXEs do the same (field report 2026-07-28).
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
         run: cargo build --release --locked --manifest-path packages/server/Cargo.toml
+      - name: The supervisor needs no C runtime
+        shell: pwsh
+        run: |
+          $exe = 'packages/server/target/release/lgr-server.exe'
+          $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe))
+          $hits = [regex]::Matches($text, '(?i)(vcruntime140(_1)?|msvcp140|ucrtbase|api-ms-win-crt-[a-z0-9-]+)\.dll') | ForEach-Object Value | Sort-Object -Unique
+          if ($hits) { Write-Error "lgr-server.exe imports the C runtime, which a clean Windows does not have: $($hits -join ', ')"; exit 1 }
+          'lgr-server.exe imports no C runtime'
 
       # ⚠ Signed BEFORE the MSI is built, and no step after this one runs cargo.
       - name: Sign the supervisor
