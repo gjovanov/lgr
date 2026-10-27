@@ -423,10 +423,20 @@ Split in two.
   - `cash-register-session-join.flow`: 7 tests;
   - `till-world`'s `backOfficeSale` now posts as a clerk with no session, so the existing back-office cases mean what they meant; `cashierBackOfficeSale` joins.
 
-**R5b, the UI (to do):**
-- **FR-21.29:** one `RegisterTerminal` (ui-shared) for `/pos/terminal` and `/invoicing/cash-sales/new`. It sends the receipt choice.
-- **FR-21.30:** `computePosTotals` for every cash-register document.
-- **FR-21.32 (SHOULD):** `pos.write` on the till's write routes, once the preflight's list of affected users is empty.
+**R5b, the UI (in review, `feat/fr-21-r5b-terminal`, stacked on R5a):**
+- **FR-21.29: `ui-shared/components/cash-register/RegisterTerminal.vue`.** It is the catalog, the cart and the totals of both `/pos/terminal` and `/invoicing/cash-sales/new`.
+  - **The catalog:** search, category, and type and tags on the till; cards and paging; the scanner's Enter lookup with its queue and stale-answer guard.
+  - **The cart:** −, a typed quantity, +, the price, remove, and each line's gross.
+  - **What each app keeps, through slots:**
+    - the till: the session bar, the fiscal bridge, the last sale, the document-wide price, and the payment and Complete;
+    - the form: its header, its customer-aware `PriceCombobox`, notes, tags, the receipt, and Save.
+  - **Found on the way:** the till's category filter sent the category's id, and the catalog filters by name, so it matched nothing. The one component sends the name.
+- **FR-21.30: one totals function.** A cash sale's form totals and payload come from `computePosTotals` (`document-payload.ts#computeTotals`), as the till's do.
+  - The form rounded net and VAT first, which can be a cent away: a valve at 17.8952 net and 20 % was 21.48 there, against 21.47 at the till and on the device.
+  - `POST /invoices` now checks a back-office cash sale with the till's function and tolerance (0.02, 422 `cash_sale_total_mismatch`) and stores the server's figures. An imported day keeps the totals of its file.
+  - `RegisterTerminal` takes the totals as props, because ui-shared does not depend on `config`.
+- **The receipt choice (FR-21.31's last piece).** The form shows „Бон на устройството на сесията" (none / fiscal / text) only when its user has an open session, and sends it as `receipt` (`useDocumentForm`'s new `extraPayload`).
+- **FR-21.32 (SHOULD), not done:** `pos.write` on the till's write routes. It needs the preflight's list of users who used the till in the last 90 days without that permission, and stays a follow-up.
 
 ⚠ **Check on hardware:** the fiscal print of a back-office line with a **discount**. Till lines and form lines carry `discount` alike, but only the till's has been printed on a device.
 

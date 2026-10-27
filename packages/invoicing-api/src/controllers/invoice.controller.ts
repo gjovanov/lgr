@@ -12,6 +12,7 @@ import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
 import { Invoice, POSSession, Reservation, StockMovement } from 'db/models'
 import { tillContext } from '../lib/cash-register-till.js'
+import { computePosTotals } from 'config/pos-totals'
 import { assertHomeIsHere } from 'db/home/home'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
@@ -688,6 +689,21 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // sequence, where every losing duplicate of a racing retry would otherwise burn a number.
       if (isCashSale) {
         const origin = originOf(body)
+        // FR-21.30: a cash sale entered here is totalled as the till totals one — the same function,
+        // the same tolerance — and stored with the server's figures, so a joined sale's receipt
+        // and its document agree to the cent. An imported day keeps the totals of its file.
+        const pos = origin === 'import'
+          ? null
+          : computePosTotals(lines.map((l: any) => ({
+              quantity: Number(l.quantity) || 0, unitPrice: Number(l.unitPrice) || 0,
+              taxRate: Number(l.taxRate) || 0, discount: Number(l.discount) || 0,
+            })))
+        if (pos && Math.abs(pos.total - Number(body.total)) > 0.02) {
+          return status(422, {
+            code: 'cash_sale_total_mismatch',
+            message: `Total mismatch: calculated ${pos.total.toFixed(2)}, received ${Number(body.total).toFixed(2)}`,
+          })
+        }
         // FR-21.31 (D-13): a sale entered here by someone with an open session joins it. An imported
         // till day never does: it is a day's takings, not one drawer's sale.
         createCtx.joined = origin === 'backoffice' ? await openSessionOf(orgId, user.id) : null
@@ -709,10 +725,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           direction: 'outgoing',
           status: 'paid',
           statusHistory: [statusEntry('paid', undefined, user.id, 'cash_sale_created')],
-          taxTotal,
-          totalBase: body.totalBase ?? +(body.total * exchangeRate).toFixed(2),
+          taxTotal: pos ? pos.taxTotal : taxTotal,
+          ...(pos ? { subtotal: pos.subtotal, discountTotal: pos.discountTotal, total: pos.total } : {}),
+          totalBase: pos ? +(pos.total * exchangeRate).toFixed(2) : body.totalBase ?? +(body.total * exchangeRate).toFixed(2),
           billingAddress: body.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
-          amountPaid: body.total,
+          amountPaid: pos ? pos.total : body.total,
           amountDue: 0,
           paidAt: new Date(),
           createdBy: user.id,
@@ -737,7 +754,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
             : { origin },
           // The drawer counts payments: a joined sale sent with its header method only gets its row.
           ...(joined && !(body as any).payments?.length
-            ? { payments: [{ date: new Date(), method: (body as any).paymentMethod || 'cash', amount: body.total }] }
+            ? { payments: [{ date: new Date(), method: (body as any).paymentMethod || 'cash', amount: pos ? pos.total : body.total }] }
             : {}),
         }
         return cashSaleAnswer(createCtx, async () => {

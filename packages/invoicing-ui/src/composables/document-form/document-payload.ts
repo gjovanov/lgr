@@ -18,6 +18,7 @@
 
 import type { DocumentTypeConfig } from './types'
 import { MAX_PRICE_TIERS } from 'config/constants'
+import { computePosTotals } from 'config/pos-totals'
 
 /**
  * Price-tier slots a product can hold. The number lives in config, where the Product model and
@@ -164,6 +165,15 @@ export function computeTotals(
   config: DocumentTypeConfig,
 ): DocumentTotals {
   const hasDiscount = config.line.hasDiscount
+  // FR-21.30: a cash sale is a cash-register document, totalled as the till, the server's check and
+  // the fiscal device total one: the gross rounded once per VAT rate, VAT taken back out of it. The
+  // components-first rounding below can be a cent away, and a joined sale prints on the device.
+  if (config.docType === 'cash_sale') {
+    const t = computePosTotals(filledLines(lines).map((l) => ({
+      quantity: num(l.quantity), unitPrice: num(l.unitPrice), taxRate: num(l.taxRate), discount: hasDiscount ? num(l.discount) : 0,
+    })))
+    return { subtotal: t.subtotal, discountTotal: t.discountTotal, taxTotal: t.taxTotal, total: t.total }
+  }
   let subtotal = 0
   let discountTotal = 0
   let taxTotal = 0

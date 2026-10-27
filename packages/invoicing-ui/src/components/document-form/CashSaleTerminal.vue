@@ -184,183 +184,86 @@
           </v-col>
         </v-row>
 
-        <v-row dense>
-          <!-- ── Left: product catalog (create mode only) ── -->
-          <v-col v-if="!readonly" cols="12" md="7">
-            <v-card variant="outlined" class="pa-3 terminal-catalog">
-              <div class="d-flex ga-2 mb-3 flex-wrap">
-                <v-text-field
-                  ref="searchField"
-                  v-model="catalogSearch"
-                  :label="$t('common.search')"
-                  prepend-inner-icon="mdi-magnify"
-                  hide-details
-                  clearable
-                  autofocus
-                  style="min-width: 200px; flex: 2 1 220px"
-                  @keydown.enter.prevent="onSearchEnter"
-                />
-                <v-select
-                  v-model="categoryFilter"
-                  :items="categories"
-                  item-title="name"
-                  item-value="name"
-                  :label="$t('warehouse.category')"
-                  hide-details
-                  clearable
-                  style="min-width: 160px; flex: 1 1 160px"
-                />
-              </div>
-
-              <div v-if="catalogLoading" class="d-flex justify-center py-8">
-                <v-progress-circular indeterminate color="primary" />
-              </div>
-              <v-row v-else dense>
-                <v-col v-for="p in products" :key="p.productId" cols="6" sm="4" lg="3">
-                  <v-card
-                    class="pa-2 terminal-card"
-                    variant="tonal"
-                    :color="p.stockAvailable !== null && p.stockAvailable <= 0 ? 'error' : undefined"
-                    @click="addToCart(p)"
-                  >
-                    <div class="text-body-2 font-weight-medium terminal-card-name">{{ p.productName }}</div>
-                    <div class="text-caption text-medium-emphasis text-truncate">{{ p.sku }}</div>
-                    <div class="d-flex align-center justify-space-between mt-1">
-                      <span class="text-body-2 font-weight-bold">{{ fmtCurrency(p.unitPrice || 0, form.currency) }}</span>
-                      <v-chip v-if="p.stockAvailable !== null" size="x-small" label :color="p.stockAvailable > 0 ? 'success' : 'error'">
-                        {{ p.stockAvailable }}
-                      </v-chip>
-                    </div>
-                  </v-card>
-                </v-col>
-                <v-col v-if="!products.length" cols="12" class="text-center text-medium-emphasis py-8">
-                  {{ $t('list.noMatches') }}
-                </v-col>
-              </v-row>
-
-              <v-pagination
-                v-if="totalPages > 1"
-                v-model="catalogPage"
-                :length="totalPages"
-                density="compact"
-                class="mt-2"
-              />
-            </v-card>
-          </v-col>
-
-          <!-- ── Right: cart + totals ── -->
-          <v-col cols="12" :md="readonly ? 12 : 5">
-            <v-card variant="outlined" class="pa-3">
-              <div class="d-flex align-center justify-space-between mb-2">
-                <span class="text-subtitle-1 font-weight-bold">
-                  {{ $t('pos.cart') }} ({{ cartLines.length }})
-                </span>
-              </div>
-
-              <div v-if="!cartLines.length" class="text-center text-medium-emphasis py-6">
-                {{ $t('pos.cartEmpty') }}
-              </div>
-
-              <div
-                v-for="{ line, idx } in cartLines"
-                :key="idx"
-                class="terminal-cart-row py-2"
-              >
-                <div class="d-flex align-center justify-space-between ga-2">
-                  <span class="text-body-2 flex-grow-1 terminal-cart-name">{{ line.description }}</span>
-                  <v-btn
-                    v-if="!readonly"
-                    icon="mdi-close"
-                    size="x-small"
-                    variant="text"
-                    color="error"
-                    :aria-label="$t('common.delete')"
-                    @click="removeLine(idx)"
-                  />
-                </div>
-                <div class="d-flex align-center ga-2 mt-1 flex-wrap">
-                  <template v-if="!readonly">
-                    <v-btn icon="mdi-minus" size="x-small" variant="tonal" :aria-label="$t('pos.decreaseQty')" @click="decrementQty(idx)" />
-                    <v-text-field
-                      v-model.number="line.quantity"
-                      type="number"
-                      min="0"
-                      hide-details
-                      density="compact"
-                      style="max-width: 76px"
-                      @change="onQtyChange(idx)"
-                    />
-                    <v-btn icon="mdi-plus" size="x-small" variant="tonal" :aria-label="$t('pos.increaseQty')" @click="line.quantity = Number(line.quantity || 0) + 1" />
-                    <span class="text-caption">×</span>
-                    <!-- The same price dropdown as an invoice line, but listing EVERY named
-                         price (`all`), the „Цена N" slots included: at the till the cashier picks
-                         the price from the list rather than typing it. A typed value still works. -->
-                    <PriceCombobox
-                      :model-value="line.unitPrice"
-                      :product-id="line.productId"
-                      :contact-id="form.contactId || undefined"
-                      :quantity="line.quantity"
-                      :org-url="orgUrl()"
-                      :currency="form.currency"
-                      :resolved-price="line.resolvedPrice"
-                      :price-explanation="line.priceExplanation"
-                      :auto-apply-resolved="!line.loaded && !line.pricePinned"
-                      all
-                      style="max-width: 160px"
-                      @update:model-value="onLinePriceChange(idx, $event)"
-                      @update:price-explanation="line.priceExplanation = $event"
-                    />
-                    <PriceSelectButton
-                      :product-id="line.productId"
-                      :contact-id="form.contactId || undefined"
-                      :quantity="line.quantity"
-                      :org-url="orgUrl()"
-                      :currency="form.currency"
-                      @select="onLinePriceSelected(idx, $event)"
-                    />
-                  </template>
-                  <template v-else>
-                    <span class="text-body-2">{{ line.quantity }} × {{ fmtCurrency(line.unitPrice || 0, form.currency) }}</span>
-                  </template>
-                  <v-spacer />
-                  <span class="text-body-2 font-weight-bold">{{ fmtCurrency(computeLineTotal(line), form.currency) }}</span>
-                </div>
-              </div>
-
-              <v-divider class="my-3" />
-              <div class="d-flex justify-space-between text-body-2">
-                <span>{{ $t('common.subtotal') }}</span>
-                <span>{{ fmtCurrency(subtotal, form.currency) }}</span>
-              </div>
-              <div class="d-flex justify-space-between text-body-2 mt-1">
-                <span>{{ uniformTaxRate !== null ? $t('invoicing.taxTotalWithRate', { rate: uniformTaxRate }) : $t('invoicing.tax') }}</span>
-                <span>{{ fmtCurrency(taxTotal, form.currency) }}</span>
-              </div>
-              <div class="d-flex justify-space-between text-h6 font-weight-bold mt-2">
-                <span>{{ $t('common.total') }}</span>
-                <span>{{ fmtCurrency(documentTotal, form.currency) }}</span>
-              </div>
-
-              <v-textarea v-model="notesModel" :label="$t(config.notesFieldLabelKey)" rows="2" auto-grow class="mt-3" />
-              <TagInput v-model="form.tags" type="invoice" :org-url="orgUrl()" class="mt-1" />
-
-              <v-btn
-                v-if="!readonly"
-                color="primary"
-                variant="flat"
-                block
-                size="large"
-                prepend-icon="mdi-cash-register"
-                class="mt-3"
-                :loading="loading"
-                :disabled="!cartLines.length"
-                @click="onSave"
-              >
-                {{ $t('common.save') }}
-              </v-btn>
-            </v-card>
-          </v-col>
-        </v-row>
+        <!-- FR-21.29: the catalog, the cart and the totals are the till's own RegisterTerminal; this
+             form hands in its customer-aware price, its notes and tags, the receipt and Save. -->
+        <RegisterTerminal
+          ref="terminal"
+          :org-url="orgUrl()"
+          :currency="form.currency"
+          :warehouse-id="docWarehouseId"
+          :lines="cartRows"
+          :totals="registerTotals"
+          :line-gross="lineGross"
+          :readonly="readonly"
+          :search-label="$t('common.search')"
+          :contact-id="form.contactId || undefined"
+          @add="addToCart"
+          @quantity="onCartQuantity"
+          @remove="(i: number) => removeLine(cartLines[i].idx)"
+          @price="(i: number, opt: any) => onLinePriceSelected(cartLines[i].idx, opt)"
+        >
+          <template #line-price="{ line, idx: i }">
+            <span class="text-caption">×</span>
+            <!-- The same price dropdown as an invoice line, but listing EVERY named price (`all`),
+                 the „Цена N" slots included: at the till the cashier picks the price from the list
+                 rather than typing it. A typed value still works. -->
+            <PriceCombobox
+              :model-value="line.unitPrice"
+              :product-id="line.productId"
+              :contact-id="form.contactId || undefined"
+              :quantity="line.quantity"
+              :org-url="orgUrl()"
+              :currency="form.currency"
+              :resolved-price="line.resolvedPrice"
+              :price-explanation="line.priceExplanation"
+              :auto-apply-resolved="!line.loaded && !line.pricePinned"
+              all
+              style="max-width: 160px"
+              @update:model-value="onLinePriceChange(cartLines[i].idx, $event)"
+              @update:price-explanation="line.priceExplanation = $event"
+            />
+            <PriceSelectButton
+              :product-id="line.productId"
+              :contact-id="form.contactId || undefined"
+              :quantity="line.quantity"
+              :org-url="orgUrl()"
+              :currency="form.currency"
+              @select="onLinePriceSelected(cartLines[i].idx, $event)"
+            />
+          </template>
+          <template #cart-actions>
+            <v-textarea v-model="notesModel" :label="$t(config.notesFieldLabelKey)" rows="2" auto-grow />
+            <TagInput v-model="form.tags" type="invoice" :org-url="orgUrl()" class="mt-1" />
+            <!-- FR-21.31 (D-13): the author's open session takes this sale; it prints on that
+                 session's device only when asked, as the till's „Нефискален" switch asks. -->
+            <v-select
+              v-if="!readonly && openSession"
+              v-model="receipt"
+              :items="receiptOptions"
+              item-title="title"
+              item-value="value"
+              :label="$t('pos.joinSession.receipt')"
+              :hint="$t('pos.joinSession.hint', { session: openSession.sessionNumber })"
+              persistent-hint
+              class="mt-2"
+              data-testid="cash-sale-receipt"
+            />
+            <v-btn
+              v-if="!readonly"
+              color="primary"
+              variant="flat"
+              block
+              size="large"
+              prepend-icon="mdi-cash-register"
+              class="mt-3"
+              :loading="loading"
+              :disabled="!cartLines.length"
+              @click="onSave"
+            >
+              {{ $t('common.save') }}
+            </v-btn>
+          </template>
+        </RegisterTerminal>
 
         <v-divider class="my-4" />
         <BankInfoRow :org="appStore.currentOrg" />
@@ -385,7 +288,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import ExportDialog from 'ui-shared/components/ExportDialog'
@@ -395,8 +298,11 @@ import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import DateField from 'ui-shared/components/DateField.vue'
 import PriceSelectButton from 'ui-shared/components/PriceSelectButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
-import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import RegisterTerminal, { type RegisterCatalogProduct } from 'ui-shared/components/cash-register/RegisterTerminal.vue'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
+import { computePosTotals } from 'config/pos-totals'
+import { useI18n } from 'vue-i18n'
 import BankInfoRow from '../BankInfoRow.vue'
 import SignatureFooter from '../SignatureFooter.vue'
 import ContactAutocompleteWithCreate from 'ui-shared/components/ContactAutocompleteWithCreate.vue'
@@ -410,13 +316,20 @@ import type { DocumentTypeConfig } from '../../composables/document-form/types'
  * `useDocumentForm` stays the engine (payload/pricing/save/stock-check contract is frozen:
  * the import-cash-register-sales skill posts the exact same POST /invoices body), so this
  * component is purely a different skin over the same state as DocumentForm.
+ *
+ * FR-21.29: the catalog, the cart and the totals are `ui-shared`'s RegisterTerminal, the one the till
+ * sells through. This form keeps its document header, its customer-aware prices and its Save.
  */
 const props = defineProps<{
   config: DocumentTypeConfig
   onBeforeCreate?: UseDocumentFormOptions['onBeforeCreate']
 }>()
 
-const doc = useDocumentForm(props.config, { onBeforeCreate: props.onBeforeCreate })
+const doc = useDocumentForm(props.config, {
+  onBeforeCreate: props.onBeforeCreate,
+  // FR-21.31: a joined sale prints on its session's device only when asked.
+  extraPayload: () => (openSession.value && receipt.value ? { receipt: receipt.value } : {}),
+})
 const {
   config, isEdit, route, invoiceNumber, documentNumber, statusDef, formActions,
   formRef, loading, form, contacts, loadingContacts, rules,
@@ -463,107 +376,32 @@ const companionDocs = computed(() => [
 const cartLines = computed(() =>
   form.lines.map((line: any, idx: number) => ({ line, idx })).filter((x: any) => x.line.productId),
 )
+/** What RegisterTerminal shows; its events name a cart position, mapped back through `cartLines`. */
+const cartRows = computed(() => cartLines.value.map((x: any) => x.line))
 
-function decrementQty(idx: number) {
+// FR-21.30: the form's totals are `computePosTotals` for a cash sale (`computeTotals`), the till's.
+const registerTotals = computed(() => ({ subtotal: subtotal.value, taxTotal: taxTotal.value, total: documentTotal.value }))
+const lineGross = (l: any) => computePosTotals([{ quantity: Number(l.quantity) || 0, unitPrice: Number(l.unitPrice) || 0, taxRate: Number(l.taxRate) || 0 }]).total
+
+/** A quantity RegisterTerminal settled (zero removes the line there). */
+function onCartQuantity(i: number, quantity: number) {
+  const idx = cartLines.value[i]?.idx
+  if (idx === undefined) return
   const line = form.lines[idx]
-  if (!line) return
-  const next = Number(line.quantity || 0) - 1
-  if (next <= 0) removeLine(idx)
-  else line.quantity = next
+  line.quantity = quantity
+  // Quantity can move the resolved tier (minQuantity prices) — re-resolve unless the price was
+  // manually overridden.
+  if (line.resolvedPrice !== undefined && line.unitPrice === line.resolvedPrice) resolvePriceForLine(idx)
 }
 
-function onQtyChange(idx: number) {
-  const line = form.lines[idx]
-  if (!line) return
-  if (!Number(line.quantity) || Number(line.quantity) <= 0) removeLine(idx)
-  // Quantity can move the resolved tier (minQuantity prices) — re-resolve unless the
-  // price was manually overridden.
-  else if (line.resolvedPrice !== undefined && line.unitPrice === line.resolvedPrice) resolvePriceForLine(idx)
-}
-
-// ── product catalog (server-side, same endpoint the POS terminal uses) ──
-interface CatalogProduct {
-  productId: string
-  productName: string
-  sku?: string
-  barcode?: string
-  unitPrice: number
-  taxRate: number
-  unit?: string
-  stockAvailable: number | null
-}
-
-const { search: catalogSearch, debouncedSearch } = useSearchDebounce()
-const searchField = ref<{ focus: () => void } | null>(null)
-const categoryFilter = ref<string | null>(null)
-const categories = ref<Array<{ _id: string; name: string }>>([])
-const products = ref<CatalogProduct[]>([])
-const catalogPage = ref(1)
-const totalPages = ref(1)
-const catalogLoading = ref(false)
-
-/** The grid's own parameters, besides the search: a code looked up on Enter is counted with them. */
-function gridParams(): Record<string, any> {
-  const params: Record<string, any> = {}
-  if (docWarehouseId.value) params.warehouseId = docWarehouseId.value
-  if (categoryFilter.value) params.category = categoryFilter.value
-  return params
-}
-
-/** Catalog requests made, and the newest of them whose answer is on screen. */
-let catalogSeq = 0
-let catalogShown = 0
-async function fetchCatalog() {
-  if (readonly.value) return
-  const seq = ++catalogSeq
-  catalogLoading.value = true
-  try {
-    const params: Record<string, any> = { page: catalogPage.value - 1, size: 24, ...gridParams() }
-    if (debouncedSearch.value) params.search = debouncedSearch.value
-    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/catalog`, { params })
-    // An answer older than the one on screen (a debounced search answering after Enter has
-    // added the article and cleared the search) must not put back a grid the user has left.
-    if (seq < catalogShown) return
-    catalogShown = seq
-    products.value = data.products || []
-    totalPages.value = data.totalPages || 1
-  } catch {
-    /* keep the previous page on transient errors */
-  } finally {
-    if (seq >= catalogShown) catalogLoading.value = false
-  }
-}
-
-async function fetchCategories() {
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/warehouse/product-category`, { params: { size: 0 } })
-    categories.value = data.categories || []
-  } catch {
-    /* optional filter — ignore */
-  }
-}
-
-watch([debouncedSearch, categoryFilter, docWarehouseId], () => {
-  catalogPage.value = 1
-  fetchCatalog()
-})
-watch(catalogPage, fetchCatalog)
-
-onMounted(() => {
-  if (!readonly.value) {
-    fetchCatalog()
-    fetchCategories()
-  }
-})
-
-/** Click on a card: increment an existing cart line or fill/append a new one. */
-async function addToCart(p: CatalogProduct) {
+/** A card or a scan: increment an existing cart line or fill/append a new one. */
+async function addToCart(p: RegisterCatalogProduct) {
   if (readonly.value) return
   const lines = form.lines as any[]
   const existing = lines.findIndex((l) => l.productId === p.productId)
   if (existing >= 0) {
-    lines[existing].quantity = Number(lines[existing].quantity || 0) + 1
-    onQtyChange(existing)
+    const i = cartLines.value.findIndex((x: any) => x.idx === existing)
+    onCartQuantity(i, Number(lines[existing].quantity || 0) + 1)
     return
   }
   let idx = lines.findIndex((l) => !l.productId)
@@ -583,44 +421,28 @@ async function addToCart(p: CatalogProduct) {
   await resolvePriceForLine(idx)
 }
 
-/**
- * FR-22.55: Enter adds the article whose barcode or SKU was scanned or typed — or, without one,
- * the only article the search finds. This used to add a card only when the grid showed exactly
- * one, and a scanner's Enter lands before the 300 ms debounce has filtered the grid, so a scan
- * added nothing. The server resolves the code instead (`/trade/pos/catalog/lookup`, the same
- * rule as the till). Nothing unambiguous: nothing is added, the grid shows the search.
- *
- * Enters run in turn. A second scan typed while the first is still being looked up lands behind
- * it in the search; the first takes only its own text out, so the second finds just its code.
- */
-let enterQueue: Promise<void> = Promise.resolve()
-function onSearchEnter() {
-  enterQueue = enterQueue.then(addTypedCode, addTypedCode)
-}
-
-async function addTypedCode() {
+// ── FR-21.31 (D-13): the author's open session, which this sale joins ──
+const { t } = useI18n()
+const openSession = ref<{ _id: string; sessionNumber: string } | null>(null)
+/** How the joined sale prints on the session's device: nothing (''), a fiscal receipt, or text. */
+const receipt = ref<'' | 'fiscal' | 'text'>('')
+const receiptOptions = computed(() => [
+  { title: t('pos.joinSession.noReceipt'), value: '' },
+  { title: t('pos.joinSession.fiscal'), value: 'fiscal' },
+  { title: t('pos.joinSession.text'), value: 'text' },
+])
+async function loadOpenSession() {
   if (readonly.value) return
-  const typed = catalogSearch.value || ''
-  const code = typed.trim()
-  if (!code) return
-  let product: CatalogProduct | null = null
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/catalog/lookup`, { params: { ...gridParams(), code } })
-    product = data?.product ?? null
+    const cashierId = (appStore.user as any)?.id || jwtUserId()
+    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/session`, { params: { status: 'open', size: 1, ...(cashierId ? { cashierId } : {}) } })
+    openSession.value = (data.sessions || [])[0] || null
   } catch {
-    /* the grid is the answer */
+    openSession.value = null // no till access: the sale stays sessionless, as the server decides too
   }
-  if (!product) {
-    // Show the search now rather than after the debounce.
-    if ((catalogSearch.value || '') === typed) debouncedSearch.value = typed
-    return
-  }
-  const adding = addToCart(product)
-  const now = catalogSearch.value || ''
-  catalogSearch.value = now.startsWith(typed) ? now.slice(typed.length) : now
-  searchField.value?.focus()
-  await adding
 }
+onMounted(loadOpenSession)
+
 
 defineExpose({ submitCreate, doc })
 </script>
@@ -635,30 +457,5 @@ defineExpose({ submitCreate, doc })
     rgba(var(--v-theme-primary), 0.06),
     rgba(var(--v-theme-primary), 0.01)
   );
-}
-.terminal-card {
-  cursor: pointer;
-  user-select: none;
-  transition: transform 0.05s ease;
-}
-.terminal-card:active {
-  transform: scale(0.97);
-}
-.terminal-card-name {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  min-height: 2.6em;
-  line-height: 1.3em;
-}
-.terminal-cart-row + .terminal-cart-row {
-  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-}
-.terminal-cart-name {
-  word-break: break-word;
-}
-.terminal-catalog {
-  min-height: 420px;
 }
 </style>

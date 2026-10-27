@@ -759,6 +759,13 @@
     "voucher": "Gutschein",
     "connectPrinter": "Drucker verbinden",
     "nonFiscalMode": "Nicht-fiskalisch",
+    "joinSession": {
+      "receipt": "Beleg auf dem Gerät der Sitzung",
+      "hint": "Gehört zu Ihrer offenen Sitzung {session}: ihre Kasse nimmt das Geld.",
+      "noReceipt": "Kein Beleg",
+      "fiscal": "Fiskalbeleg",
+      "text": "Nicht-fiskaler Textbeleg"
+    },
     "printerError": "Druckerfehler",
     "printerConnected": "Fiskaldrucker verbunden",
     "printerDisconnected": "Getrennt",

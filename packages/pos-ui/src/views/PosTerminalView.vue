@@ -66,52 +66,24 @@
         </div>
       </div>
 
-      <v-row>
-        <!-- Product Catalog -->
-        <v-col cols="12" md="7">
-          <v-card>
-            <v-card-text class="pb-2">
-              <v-row dense>
-                <v-col cols="12" sm="4">
-                  <v-text-field ref="searchField" v-model="productSearch" prepend-inner-icon="mdi-magnify" :label="$t('pos.searchProducts')" single-line hide-details clearable autofocus @update:model-value="onSearchChange" @keydown.enter.prevent="onSearchEnter" />
-                </v-col>
-                <v-col cols="6" sm="2">
-                  <v-select v-model="categoryFilter" :items="categoryOptions" :label="$t('warehouse.category')" clearable hide-details density="compact" @update:model-value="fetchCatalog(0)" />
-                </v-col>
-                <v-col cols="6" sm="2">
-                  <v-select v-model="typeFilter" :items="typeOptions" :label="$t('common.type')" clearable hide-details density="compact" @update:model-value="fetchCatalog(0)" />
-                </v-col>
-                <v-col cols="12" sm="4">
-                  <TagInput v-model="tagFilter" type="product" :org-url="appStore.orgUrl()" :label="$t('pos.filterByTags')" @update:model-value="fetchCatalog(0)" />
-                </v-col>
-              </v-row>
-            </v-card-text>
-            <v-card-text class="pt-0">
-              <v-row>
-                <v-col v-for="product in catalogProducts" :key="product.productId" cols="6" sm="4" md="3">
-                  <v-card variant="outlined" class="text-center pa-2 cursor-pointer" hover @click="addToCart(product)">
-                    <v-icon size="32" class="mb-1">mdi-package-variant</v-icon>
-                    <div class="text-caption">{{ product.productName }}</div>
-                    <div class="text-body-2 font-weight-bold">{{ fmt(product.unitPrice, 4) }}</div>
-                    <div v-if="product.stockAvailable !== null" class="text-caption text-medium-emphasis">{{ $t('pos.stock') }}: {{ product.stockAvailable }}</div>
-                  </v-card>
-                </v-col>
-                <v-col v-if="catalogProducts.length === 0 && !catalogLoading" cols="12">
-                  <div class="text-center text-disabled pa-8">{{ $t('common.noData') }}</div>
-                </v-col>
-              </v-row>
-              <div v-if="catalogTotalPages > 1" class="d-flex justify-center mt-4">
-                <v-pagination v-model="catalogPage" :length="catalogTotalPages" :total-visible="5" density="compact" @update:model-value="(p: number) => fetchCatalog(p - 1)" />
-              </div>
-            </v-card-text>
-          </v-card>
-        </v-col>
-
-        <!-- Cart -->
-        <v-col cols="12" md="5">
-          <v-card>
-            <v-card-title>{{ $t('pos.cart') }} ({{ cart.length }})</v-card-title>
-            <v-card-text>
+      <!-- FR-21.29: the catalog, the cart and the totals are the one RegisterTerminal the back
+           office sells through too; the till hands in its last sale and its payment. -->
+      <RegisterTerminal
+        ref="terminal"
+        :org-url="orgUrl()"
+        :currency="currency"
+        :warehouse-id="activeSession.warehouseId"
+        :active="!!activeSession"
+        :lines="cart"
+        :totals="totals"
+        :line-gross="lineGross"
+        :filters="{ type: true, tags: true }"
+        @add="addToCart"
+        @quantity="(idx: number, q: number) => { cart[idx].quantity = q }"
+        @remove="(idx: number) => cart.splice(idx, 1)"
+        @price="onLinePriceSelected"
+      >
+        <template #cart-top>
               <!-- FR-22.54: the sale just made stays on screen until the next article goes into
                    the cart: its number, what was paid, and what printed — or that nothing did. -->
               <v-alert
@@ -131,59 +103,9 @@
                 <div v-if="lastSale.receipt" class="text-body-2" data-testid="last-sale-receipt">{{ lastSale.receipt }}</div>
                 <div v-for="w in lastSale.warnings" :key="w" class="text-body-2 font-weight-medium">{{ w }}</div>
               </v-alert>
-              <v-list v-if="cart.length > 0" density="compact">
-                <v-list-item v-for="(item, idx) in cart" :key="idx" :data-testid="`cart-line-${idx}`">
-                  <v-list-item-title>{{ item.name }}</v-list-item-title>
-                  <v-list-item-subtitle class="d-flex align-center ga-1">
-                    <span>{{ item.quantity }} x {{ fmt(item.unitPrice, 4) }}</span>
-                    <span v-if="item.priceName" class="text-caption">({{ item.priceName }})</span>
-                    <!-- #145: the same price dropdown as a sales-invoice line — every named price
-                         of the product (selling price + the „Цена N" tiers). -->
-                    <PriceSelectButton
-                      :product-id="item.productId"
-                      :quantity="item.quantity"
-                      :org-url="orgUrl()"
-                      :currency="currency"
-                      @select="onLinePriceSelected(idx, $event)"
-                    />
-                  </v-list-item-subtitle>
-                  <template #prepend>
-                    <div class="d-flex align-center mr-2">
-                      <v-btn icon="mdi-minus" size="x-small" variant="text" :aria-label="$t('pos.decreaseQty')" @click="decrementQty(idx)" />
-                      <!-- #145: a large quantity is typed, not clicked. -->
-                      <v-text-field
-                        v-model.number="item.quantity"
-                        type="number"
-                        inputmode="decimal"
-                        min="0"
-                        hide-details
-                        density="compact"
-                        variant="outlined"
-                        class="pos-qty mx-1"
-                        :aria-label="$t('pos.quantity')"
-                        data-testid="cart-qty"
-                        @change="onQtyChange(idx)"
-                        @focus="($event.target as HTMLInputElement)?.select()"
-                      />
-                      <v-btn icon="mdi-plus" size="x-small" variant="text" :aria-label="$t('pos.increaseQty')" @click="item.quantity = Number(item.quantity || 0) + 1" />
-                    </div>
-                  </template>
-                  <template #append>
-                    <span class="text-body-2 font-weight-bold mr-2">{{ fmt(item.quantity * item.unitPrice, 4) }}</span>
-                    <v-btn icon="mdi-close" size="x-small" variant="text" color="error" :aria-label="$t('common.delete')" @click="cart.splice(idx, 1)" />
-                  </template>
-                </v-list-item>
-              </v-list>
-              <div v-else-if="!lastSale" class="text-center text-disabled pa-8">{{ $t('pos.emptyCart') }}</div>
-            </v-card-text>
-            <v-divider />
-            <v-card-text>
-              <div class="d-flex justify-space-between mb-1"><span>{{ $t('pos.subtotal') }}</span><span>{{ fmt(subtotal) }}</span></div>
-              <div class="d-flex justify-space-between mb-1"><span>{{ $t('pos.tax') }}</span><span>{{ fmt(taxAmount) }}</span></div>
-              <v-divider class="my-2" />
-              <div class="d-flex justify-space-between text-h6"><span>{{ $t('pos.total') }}</span><span>{{ fmt(total) }}</span></div>
-            </v-card-text>
-            <v-card-text>
+              <div v-else-if="!cart.length" class="text-center text-disabled pa-8">{{ $t('pos.emptyCart') }}</div>
+        </template>
+        <template #cart-actions>
               <!-- #145: one price for the whole document — the named price every line switches
                    to (and every line added after). A product without that price keeps its own. -->
               <v-select
@@ -205,10 +127,8 @@
               <v-btn color="success" size="large" block :disabled="cart.length === 0" :loading="loading" @click="completeSale">
                 {{ $t('pos.completeSale') }}
               </v-btn>
-            </v-card-text>
-          </v-card>
-        </v-col>
-      </v-row>
+        </template>
+      </RegisterTerminal>
     </template>
 
     <!-- Open Session Dialog -->
@@ -277,8 +197,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { registerSwitchGuard } from 'ui-shared/session/switch-guards'
 import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
-import TagInput from 'ui-shared/components/TagInput.vue'
-import PriceSelectButton from 'ui-shared/components/PriceSelectButton.vue'
+import RegisterTerminal from 'ui-shared/components/cash-register/RegisterTerminal.vue'
 import { fetchPriceOptions, priceOptionLabel, type PriceOption } from 'ui-shared/composables/usePriceOptions'
 import CloseSessionDialog from '../components/CloseSessionDialog.vue'
 import { useFiscalBridgeAlerts } from '../composables/useFiscalBridgeAlerts'
@@ -299,19 +218,8 @@ useFiscalBridgeAlerts()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const loading = ref(false)
-const productSearch = ref('')
-const searchField = ref<{ focus: () => void } | null>(null)
-const categoryFilter = ref<string | null>(null)
-const typeFilter = ref<string | null>(null)
-const tagFilter = ref<string[]>([])
-const categoryOptions = ref<{ title: string; value: string }[]>([])
-const typeOptions = [
-  { title: t('warehouse.goods'), value: 'goods' },
-  { title: t('warehouse.service'), value: 'service' },
-]
-const catalogPage = ref(1)
-const catalogTotalPages = ref(1)
-const catalogLoading = ref(false)
+/** FR-21.29: the catalog, the cart and the totals (`ui-shared`), which the back office sells through too. */
+const terminal = ref<{ reset: () => Promise<void>; refresh: () => Promise<void> } | null>(null)
 const cart = ref<CartItem[]>([])
 const paymentMethod = ref('cash')
 const lastSale = ref<LastSale | null>(null)
@@ -321,7 +229,6 @@ const openingBalance = ref(0)
 // FR-9.6: bypassing a configured fiscal device is a privileged decision. The server
 // enforces it too; this only decides whether to offer the checkbox.
 const canSkipFiscal = computed(() => ['admin', 'manager'].includes(appStore.user?.role || ''))
-const catalogProducts = ref<CatalogProduct[]>([])
 const warehouses = ref<Warehouse[]>([])
 const sessionWarehouseId = ref('')
 const sessions = ref<Session[]>([])
@@ -347,8 +254,6 @@ watch(() => fiscalBridge.status.value, async (val) => {
     } catch {}
   }
 })
-let searchTimer: ReturnType<typeof setTimeout> | null = null
-
 // #145: cash and card only. Mobile and voucher are no longer offered at the till; the server
 // still accepts them, so transactions recorded with them before stay readable and reportable.
 const paymentMethods = [
@@ -361,17 +266,14 @@ function fmt(n: number, decimals = 2) { return new Intl.NumberFormat(undefined, 
 
 const activeSession = computed<Session | null>(() => sessions.value.find(s => s.status === 'open') || null)
 
-function onSearchChange() {
-  if (searchTimer) clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => fetchCatalog(0), 300)
-}
-
 // The server validates with this same function and the receipt prints its numbers. Rounding
 // VAT per line here once asked for 21.48 while the receipt said 21.47 with 0.01 change.
 const totals = computed(() => computePosTotals(cart.value))
 const subtotal = computed(() => totals.value.subtotal)
 const taxAmount = computed(() => totals.value.taxTotal)
 const total = computed(() => totals.value.total)
+/** A line's gross, as the device prints it (FR-21.30). */
+const lineGross = (l: { quantity: number; unitPrice: number; taxRate?: number }) => computePosTotals([l]).total
 
 function addToCart(p: CatalogProduct) {
   // The next customer's first article: the last sale's result has been seen.
@@ -382,24 +284,6 @@ function addToCart(p: CatalogProduct) {
     // A document-wide price applies to lines added after it was chosen, too.
     if (docPriceName.value) void applyNamedPrice(cart.value.length - 1, docPriceName.value)
   }
-}
-
-function decrementQty(idx: number) {
-  if (cart.value[idx].quantity > 1) cart.value[idx].quantity--
-  else cart.value.splice(idx, 1)
-}
-
-/**
- * #145: a typed quantity. Decimals are allowed (metres, kilograms); an empty, negative or
- * non-numeric entry goes back to 1 rather than leaving a line the server would refuse — zero
- * removes the line, which is what the minus button does at 1.
- */
-function onQtyChange(idx: number) {
-  const line = cart.value[idx]
-  if (!line) return
-  const q = Number(line.quantity)
-  if (q === 0) { cart.value.splice(idx, 1); return }
-  line.quantity = Number.isFinite(q) && q > 0 ? Math.round(q * 1000) / 1000 : 1
 }
 
 // ── #145: choosing a price, per line or for the whole document ────────────────────────────
@@ -576,86 +460,6 @@ async function fetchSessions() {
   } catch { sessions.value = [] }
 }
 
-/** The grid's own parameters, besides the search: a code looked up on Enter is counted with them. */
-function gridParams(): Record<string, any> {
-  const params: Record<string, any> = {}
-  if (activeSession.value?.warehouseId) params.warehouseId = activeSession.value.warehouseId
-  if (categoryFilter.value) params.category = categoryFilter.value
-  if (typeFilter.value) params.type = typeFilter.value
-  if (tagFilter.value.length) params.tags = tagFilter.value.join(',')
-  return params
-}
-
-/** Catalog requests made, and the newest of them whose answer is on screen. */
-let catalogSeq = 0
-let catalogShown = 0
-/** The search text of the grid on screen, or of the request about to replace it. */
-let gridSearch = ''
-
-async function fetchCatalog(page = 0) {
-  const seq = ++catalogSeq
-  const search = productSearch.value || ''
-  gridSearch = search
-  catalogLoading.value = true
-  try {
-    const params: Record<string, any> = { page, size: 24, ...gridParams() }
-    if (search) params.search = search
-    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/catalog`, { params })
-    // An answer older than the one on screen (a debounced search answering after Enter has
-    // added the article and cleared the search) must not put back a grid the cashier has left.
-    if (seq < catalogShown) return
-    catalogShown = seq
-    catalogProducts.value = data.products || []
-    catalogTotalPages.value = data.totalPages || 1
-    catalogPage.value = (data.page || 0) + 1
-  } catch {
-    if (seq >= catalogShown) { catalogShown = seq; catalogProducts.value = [] }
-  } finally {
-    if (seq >= catalogShown) catalogLoading.value = false
-  }
-}
-
-// ── FR-22.55: Enter adds the article the search names ─────────────────────────────────────────
-//
-// A barcode scanner types the code and presses Enter within milliseconds, before the 300 ms
-// debounce has even filtered the grid, so the grid cannot say what was scanned: the server
-// resolves the code (`/catalog/lookup`: the exact barcode, else the exact SKU, else the only
-// article the search finds). Nothing unambiguous: nothing is added, the grid shows the search.
-//
-// Enters run in turn. A second scan typed while the first is still being looked up lands behind
-// it in the search; the first takes only its own text out, so the second finds just its code.
-let enterQueue: Promise<void> = Promise.resolve()
-function onSearchEnter() {
-  enterQueue = enterQueue.then(addTypedCode, addTypedCode)
-}
-
-async function addTypedCode() {
-  const typed = productSearch.value || ''
-  const code = typed.trim()
-  if (!code || !activeSession.value) return
-  if (searchTimer) { clearTimeout(searchTimer); searchTimer = null }
-  let product: CatalogProduct | null = null
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/catalog/lookup`, { params: { ...gridParams(), code } })
-    product = data?.product ?? null
-  } catch { /* the grid is the answer */ }
-  if (product) {
-    addToCart(product)
-    const now = productSearch.value || ''
-    productSearch.value = now.startsWith(typed) ? now.slice(typed.length) : now
-    searchField.value?.focus()
-  }
-  if ((productSearch.value || '') !== gridSearch) await fetchCatalog(0)
-}
-
-async function fetchCategories() {
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/warehouse/product-category`, { params: { size: 0 } })
-    const cats = data.productCategories || data.categories || []
-    categoryOptions.value = cats.map((c: any) => ({ title: c.name, value: c.id || c._id }))
-  } catch { categoryOptions.value = [] }
-}
-
 async function fetchWarehouses() {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`, { params: { size: 0 } })
@@ -682,7 +486,7 @@ async function doOpenSession() {
     sessions.value.unshift(data.session)
     openSessionDialog.value = false
     showSuccess(t('common.savedSuccessfully'))
-    await fetchCatalog(0)
+    // The terminal appears with the session and loads its catalog itself.
   } catch (e: any) {
     openAttempt.settle(e)
     showError(e?.response?.data?.message || t('common.operationFailed'))
@@ -750,8 +554,8 @@ async function completeSale() {
     // FR-22.54 (B-18): and on cash, with the cursor in an empty search — the method used to stay
     // on „card", so the next cash customer was booked as card, and the scanner typed into nowhere.
     paymentMethod.value = 'cash'
-    productSearch.value = ''
-    searchField.value?.focus()
+    // An empty search, the cursor in it, and the catalog's stock figures after the sale.
+    void terminal.value?.reset()
     // The sale is recorded either way; a receipt that did not print, or stock that did not
     // move, must not look like success.
     const warnings = [
@@ -772,7 +576,6 @@ async function completeSale() {
     }
     if (warnings.length) showSnackbar(warnings.join(' · '), 'warning', 15000)
     else showSuccess(t('pos.saleCompleted'))
-    await fetchCatalog(0)
   } catch (e: any) {
     const refused = e?.response?.data
     // FR-20.49 — Прил. 29 т. 8: in the till's own language, saying what to check.
@@ -790,8 +593,7 @@ onMounted(async () => {
   unregisterSwitchGuard = registerSwitchGuard(() => (cart.value.length > 0 || loading.value ? 'orgSwitcher.blockedSale' : null))
   document.addEventListener('visibilitychange', onVisibilityChange)
   connectedElsewhereTimer = setInterval(refreshConnectedElsewhere, 15000)
-  await Promise.all([fetchSessions(), fetchWarehouses(), fetchCategories()])
-  if (activeSession.value) await fetchCatalog()
+  await Promise.all([fetchSessions(), fetchWarehouses()])
 })
 
 onUnmounted(() => {
@@ -800,14 +602,3 @@ onUnmounted(() => {
   clearInterval(connectedElsewhereTimer)
 })
 </script>
-
-<style scoped>
-/* #145: wide enough for a 5-digit quantity with decimals, narrow enough to keep the line on one row. */
-.pos-qty {
-  width: 84px;
-  flex: 0 0 84px;
-}
-.pos-qty :deep(input) {
-  text-align: center;
-}
-</style>
