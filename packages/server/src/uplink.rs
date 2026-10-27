@@ -158,7 +158,16 @@ fn close_ended(code: u16, reason: &str) -> Ended {
 /// `status_with_api` gives it), the data volume's free space, and where the LAN ingress answers
 /// (`state/lan.json`, when it is on): FR-20.82's re-point names that address, and pins that CA, for
 /// an org's desktops when the org moves here. Global keeps known fields only.
-pub fn health_frame(status: &serde_json::Value, free_bytes: Option<u64>, lan: Option<&serde_json::Value>) -> serde_json::Value {
+/// What the machine says of itself beside the supervisor's status (FR-20.101's alarms need it).
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Machine {
+    /// The data volume's free and total bytes.
+    pub disk: Option<(u64, u64)>,
+    /// How far back the oplog reaches, in seconds (`mongod::OplogWindow`).
+    pub oplog_window_secs: Option<u64>,
+}
+
+pub fn health_frame(status: &serde_json::Value, machine: Machine, lan: Option<&serde_json::Value>) -> serde_json::Value {
     let children: Vec<serde_json::Value> = status["children"]
         .as_array()
         .map(|cs| cs.iter().map(|c| serde_json::json!({ "name": c["name"], "state": c["state"], "failures": c["failures"] })).collect())
@@ -168,12 +177,21 @@ pub fn health_frame(status: &serde_json::Value, free_bytes: Option<u64>, lan: Op
         "versions": { "app": env!("CARGO_PKG_VERSION"), "protocol": 1 },
         "uptimeSecs": status["uptimeSecs"],
         "children": children,
-        "disk": { "freeBytes": free_bytes },
+        "disk": { "freeBytes": machine.disk.map(|d| d.0), "totalBytes": machine.disk.map(|d| d.1) },
+        // FR-20.101 (P3-8): a history lost past this is a reconcile; under seven days, an alarm.
+        "oplogWindowSecs": machine.oplog_window_secs,
+        // This machine's clock as the frame leaves: global reads the skew off it.
+        "clock": now_iso(),
         "api": {
             "ok": status["api"]["ok"],
             "posOpen": status["api"]["posOpen"],
             "fiscalInFlight": status["api"]["fiscalInFlight"],
             "clockTrusted": status["api"]["clock"]["trusted"],
+            // FR-20.100/101: the last backup of the orgs written here, the orgs fenced here, and
+            // what waits to go to the internet.
+            "lastBackupAt": status["api"]["lastBackupAt"],
+            "fenced": status["api"]["fenced"],
+            "outboxQueued": status["api"]["outboxQueued"],
         },
         // FR-20.20: what runs, what is available, and an update kept out by open tills (the alarm).
         "update": status["update"],
@@ -616,7 +634,8 @@ mod tests {
         let lan = serde_json::json!({ "url": "https://192.168.8.115:4443", "caFingerprint": "sha256:J4_Wvnqz" });
         let health: HealthFn = Arc::new(move || {
             let lan = lan.clone();
-            Box::pin(async move { health_frame(&serde_json::json!({ "uptimeSecs": 5, "children": [{ "name": "api", "state": "running", "failures": 0 }], "api": { "ok": true, "posOpen": 2, "clock": { "trusted": true } } }), Some(123), Some(&lan)) })
+            let api = serde_json::json!({ "ok": true, "posOpen": 2, "clock": { "trusted": true }, "lastBackupAt": "2026-10-27T02:00:00Z", "fenced": 0, "outboxQueued": 3 });
+            Box::pin(async move { health_frame(&serde_json::json!({ "uptimeSecs": 5, "children": [{ "name": "api", "state": "running", "failures": 0 }], "api": api }), Machine { disk: Some((123, 1000)), oplog_window_secs: Some(9 * 86_400) }, Some(&lan)) })
         });
         let mut t = quick();
         t.health = Duration::from_millis(50);
@@ -627,6 +646,10 @@ mod tests {
         let heard = server.await.unwrap();
         let h: serde_json::Value = heard.iter().filter_map(|f| serde_json::from_str::<serde_json::Value>(f).ok()).find(|v| v["t"] == "health").expect("a health frame");
         assert_eq!((h["disk"]["freeBytes"].as_u64(), h["api"]["posOpen"].as_u64(), h["api"]["clockTrusted"].as_bool()), (Some(123), Some(2), Some(true)));
+        // P3-8: what the alarms are read from.
+        assert_eq!((h["disk"]["totalBytes"].as_u64(), h["oplogWindowSecs"].as_u64()), (Some(1000), Some(9 * 86_400)));
+        assert_eq!((h["api"]["lastBackupAt"].as_str(), h["api"]["fenced"].as_u64(), h["api"]["outboxQueued"].as_u64()), (Some("2026-10-27T02:00:00Z"), Some(0), Some(3)));
+        assert!(h["clock"].as_str().is_some_and(|c| c.starts_with("20")));
         assert_eq!(h["children"][0]["name"], "api");
         assert_eq!((h["lan"]["url"].as_str(), h["lan"]["caFingerprint"].as_str()), (Some("https://192.168.8.115:4443"), Some("sha256:J4_Wvnqz")));
     }
@@ -634,14 +657,14 @@ mod tests {
     #[test]
     fn the_lan_rides_in_health_only_when_the_ingress_names_an_address() {
         let st = serde_json::json!({});
-        assert!(health_frame(&st, None, None).get("lan").is_none());
+        assert!(health_frame(&st, Machine::default(), None).get("lan").is_none());
         // No address yet (no default route): nothing to re-point a desktop to.
-        assert!(health_frame(&st, None, Some(&serde_json::json!({ "url": null, "caFingerprint": "sha256:x" }))).get("lan").is_none());
+        assert!(health_frame(&st, Machine::default(), Some(&serde_json::json!({ "url": null, "caFingerprint": "sha256:x" }))).get("lan").is_none());
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("lan.json");
         assert!(read_lan(Some(&file)).is_none());
         std::fs::write(&file, r#"{"url":"https://10.0.0.5:4443","caFingerprint":"sha256:abc","extra":1}"#).unwrap();
-        let f = health_frame(&st, None, read_lan(Some(&file)).as_ref());
+        let f = health_frame(&st, Machine::default(), read_lan(Some(&file)).as_ref());
         assert_eq!(f["lan"], serde_json::json!({ "url": "https://10.0.0.5:4443", "caFingerprint": "sha256:abc" }));
     }
 

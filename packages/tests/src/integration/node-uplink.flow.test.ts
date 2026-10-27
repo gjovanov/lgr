@@ -404,6 +404,12 @@ describe('control (P2-3a)', () => {
       expect(ok.body.nodes.map((n: any) => n.id).sort()).toEqual([a.stub.nodeId, b.stub.nodeId].sort())
       expect(ok.body.nodes.find((n: any) => n.id === b.stub.nodeId).orgs[0].id).toBe(b.orgId)
       expect(Object.keys(ok.body.nodes[0])).not.toContain('publicKey')
+      // FR-20.99/101 (P3-8): each with its alarms, read off its last health frame.
+      expect(ok.body.nodes.every((n: any) => Array.isArray(n.alarms))).toBe(true)
+      await ServerNode.updateOne({ _id: b.stub.nodeId }, { $set: { health: { at: new Date(), disk: { freeBytes: 5, totalBytes: 100 }, api: { fenced: 1 } } } })
+      const alarmed = (await call(await sign(orgAdmin, a.orgId))).body.nodes.find((n: any) => n.id === b.stub.nodeId)
+      expect(alarmed.alarms.map((x: any) => x.kind).sort()).toEqual(['disk_low', 'fenced'])
+      expect(alarmed.health.diskTotalBytes).toBe(100)
       ;(config.node as any).role = 'master'
       expect((await call(await sign(orgAdmin, a.orgId))).status).toBe(404)
     } finally {

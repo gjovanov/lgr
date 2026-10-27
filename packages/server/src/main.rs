@@ -334,11 +334,20 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                 match boot.clone() {
                     Some(nonce) => {
                         // FR-20.57: health from the supervisor's status, the API's and the data volume.
+                        // FR-20.101 (P3-8): the oplog's reach, read as the administrator.
+                        let oplog = plan.clone().map(|p| std::sync::Arc::new(mongod::OplogWindow::new(p)));
                         let health: uplink::HealthFn = {
                             let (sup, data, lan) = (sup.clone(), r.data.clone(), front.lan_state.clone());
                             std::sync::Arc::new(move || {
-                                let (sup, data, lan) = (sup.clone(), data.clone(), lan.clone());
-                                Box::pin(async move { uplink::health_frame(&sup.status_with_api().await, preflight::free_disk(&data), uplink::read_lan(lan.as_deref()).as_ref()) })
+                                let (sup, data, lan, oplog) = (sup.clone(), data.clone(), lan.clone(), oplog.clone());
+                                Box::pin(async move {
+                                    let oplog_window_secs = match &oplog {
+                                        Some(o) => o.secs().await,
+                                        None => None,
+                                    };
+                                    let machine = uplink::Machine { disk: preflight::disk_space(&data), oplog_window_secs };
+                                    uplink::health_frame(&sup.status_with_api().await, machine, uplink::read_lan(lan.as_deref()).as_ref())
+                                })
                             })
                         };
                         // FR-20.52: the bulk socket paced on the shop's upstream, by what the interactive

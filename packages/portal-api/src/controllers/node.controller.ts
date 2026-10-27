@@ -8,6 +8,7 @@ import { paginateQuery } from 'services/utils/pagination'
 import { notifyNodeRevoked, rewelcomeNode } from '../websocket/uplink.js'
 import { mirrorFilesStatus } from 'services/biz/replication/mirror-blobs'
 import { mirrorReconcileStatus } from 'services/biz/replication/reconcile'
+import { alarmsOfNodes } from 'services/biz/node/node-alarms'
 import { mirrorDeadLetterStatus } from 'services/biz/replication/dead-letters'
 import {
   NodeError,
@@ -70,8 +71,16 @@ export const nodeController = new Elysia({ prefix: '/org/:orgId/nodes' })
       if (query.includeRevoked !== 'true') filter.status = 'active'
       const result = await paginateQuery(ServerNode as any, filter, query, { sortBy: 'lastSeenAt', size: 25 })
       const connected = await presenceOfNodes(result.items.map((n: any) => String(n._id)))
+      // FR-20.101 (P3-8): each server's alarms; a mirror's lag only this org's.
+      const alarms = await alarmsOfNodes(result.items)
       return {
-        nodes: result.items.map((n: any) => ({ ...nodeToWire(n), connected: connected.get(String(n._id)), relays: relaysFor(n, orgId), orgState: orgStateFor(n, orgId) })),
+        nodes: result.items.map((n: any) => ({
+          ...nodeToWire(n),
+          connected: connected.get(String(n._id)),
+          relays: relaysFor(n, orgId),
+          orgState: orgStateFor(n, orgId),
+          alarms: (alarms.get(String(n._id)) ?? []).filter(a => a.kind !== 'mirror_lag' || a.orgId === orgId),
+        })),
         total: result.total, page: result.page, pageSize: result.size,
       }
     },

@@ -98,20 +98,26 @@ fn existing(path: &Path) -> &Path {
 
 /// Free bytes on the volume holding `path`.
 pub fn free_disk(path: &Path) -> Option<u64> {
+    disk_space(path).map(|(free, _)| free)
+}
+
+/// The bytes free to this process on the volume holding `path`, and the volume's size: FR-20.101's
+/// "disk below 10 %" needs both.
+pub fn disk_space(path: &Path) -> Option<(u64, u64)> {
     let path = existing(path);
     #[cfg(windows)]
     unsafe {
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
         let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
-        let mut free: u64 = 0;
-        (GetDiskFreeSpaceExW(wide.as_ptr(), &mut free, std::ptr::null_mut(), std::ptr::null_mut()) != 0).then_some(free)
+        let (mut free, mut total): (u64, u64) = (0, 0);
+        (GetDiskFreeSpaceExW(wide.as_ptr(), &mut free, &mut total, std::ptr::null_mut()) != 0).then_some((free, total))
     }
     #[cfg(unix)]
     unsafe {
         let c = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).ok()?;
         let mut st: libc::statvfs = std::mem::zeroed();
-        (libc::statvfs(c.as_ptr(), &mut st) == 0).then(|| st.f_bavail as u64 * st.f_frsize as u64)
+        (libc::statvfs(c.as_ptr(), &mut st) == 0).then(|| (st.f_bavail as u64 * st.f_frsize as u64, st.f_blocks as u64 * st.f_frsize as u64))
     }
 }
 

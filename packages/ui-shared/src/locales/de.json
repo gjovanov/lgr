@@ -3090,7 +3090,11 @@
     "intro": "Jeder bei lgrai.app registrierte Geschäftsserver, über alle Organisationen.",
     "orgs": "Organisationen",
     "none": "Kein Server ist registriert.",
-    "forbidden": "Diese Seite ist für Systemadministratoren."
+    "forbidden": "Diese Seite ist für Systemadministratoren.",
+    "link": "Verbindung",
+    "backup": "Letzte Sicherung",
+    "alarms": "Alarme",
+    "backupAgo": "{age} her"
   },
   "adminLicences": {
     "title": "Lizenzen",
@@ -3434,6 +3438,15 @@
         "foreign_collision": "{coll} {id}: Seine ID oder ein eindeutiger Wert gehört einer anderen Organisation auf lgrai.app",
         "write_error": "{coll} {id}: Die Datenbank hat es abgelehnt"
       }
+    },
+    "alarm": {
+      "mirror_lag": "Kopie auf lgrai.app hinkt {age} hinterher",
+      "backup_stale": "Letzte Sicherung ist {age} her",
+      "backup_none": "Noch keine Sicherung",
+      "disk_low": "Datenträger {pct}% frei",
+      "oplog_short": "Der Datenbankverlauf reicht nur {age} zurück",
+      "fenced": "Für {n} Organisationen gesperrt",
+      "clock_skew": "Uhr geht um {age} falsch"
     }
   },
   "desktops": {

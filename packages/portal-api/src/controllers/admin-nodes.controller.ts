@@ -4,6 +4,7 @@ import { Org, ServerNode } from 'db/models'
 import { AuthService } from '../auth/auth.service.js'
 import { nodeToWire, presenceOfNodes } from 'services/biz/node/node.service'
 import { isSysAdmin } from 'services/biz/sys-admin'
+import { alarmsOfNodes } from 'services/biz/node/node-alarms'
 
 /**
  * The sys-admin Nodes page's API (FR-20 plan step P2-3a): every master registered with global,
@@ -30,6 +31,8 @@ export const adminNodesController = new Elysia({ prefix: '/admin/nodes' })
         .lean()
       const ids = nodes.map((n: any) => String(n._id))
       const connected = await presenceOfNodes(ids)
+      // FR-20.99/101 (P3-8): each master's alarms.
+      const alarms = await alarmsOfNodes(nodes)
       const orgIds = [...new Set(nodes.flatMap((n: any) => (n.orgIds ?? []).map(String)))]
       const orgs = new Map((await Org.find({ _id: { $in: orgIds } }).select('name slug').lean()).map((o: any) => [String(o._id), { id: String(o._id), slug: o.slug, name: o.name }]))
       return {
@@ -38,6 +41,7 @@ export const adminNodesController = new Elysia({ prefix: '/admin/nodes' })
           orgs: (n.orgIds ?? []).map((id: any) => orgs.get(String(id)) ?? { id: String(id) }),
           connected: connected.get(String(n._id)),
           cloneAlarmAt: n.cloneAlarm?.at ?? null,
+          alarms: alarms.get(String(n._id)) ?? [],
         })),
       }
     },
