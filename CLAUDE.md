@@ -2669,7 +2669,9 @@ lgrai.app's copy" on the Servers page, on the home server's row while it is not 
   - ⚠ A REVOKED server is never told: its token is refused, and it goes on selling at the site. Revoke
     a server that was stolen, never one that may come back on its own.
 - **Replacing a dead server** is a promotion followed by a move to the new machine (FR-20.79): a new
-  node with new keys, its desktops paired again (a dead server re-points nothing).
+  node with new keys, its desktops paired again (a dead server re-points nothing). ⚠ A till session
+  the lost server left open is in the copy, and the move's `no_till_open` refuses until it is closed
+  (an admin closes it without the fiscal device: `closeWithoutFiscal`).
 - Banners (P3-5): `home.seriesFrozen` on lgrai.app while frozen, `home.fenced` on the old server.
 - Tests: `promote.flow` (4: the evidence; the flip, the freeze and the last numbers; the old
   server fencing itself; every issuing path refused before it moves anything) and
