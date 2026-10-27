@@ -3364,7 +3364,7 @@
         "promoted": "Die Kopie auf lgrai.app wurde zum Zuhause der Organisation, als ihr Server verloren ging.",
         "restored": "Die Datenbank dieses Servers ging in der Zeit zurück (aus einer Sicherung wiederhergestellt): Sie kann Nummern enthalten, die der Standort schon vergeben hat.",
         "went_back": "Die Datenbank dieses Servers ist gegenüber der Kopie auf lgrai.app in der Zeit zurückgegangen (wiederhergestellt oder ein Snapshot zurückgespielt): Er kann Nummern enthalten, die der Standort schon vergeben hat.",
-        "clone": "Eine andere Maschine ist als dieser Server mit lgrai.app verbunden: Bis der echte neu registriert ist, darf keiner von beiden eine gesetzliche Nummer vergeben."
+        "clone": "Eine andere Maschine antwortet als dieser Server, mit seinen Schlüsseln (im Netz des Standorts oder mit lgrai.app verbunden): Bis eine Person entscheidet, welche Maschine die echte ist, und die andere als neuer Server neu installiert ist, darf keine von beiden eine gesetzliche Nummer vergeben."
       },
       "mirror": "Die Kopie auf lgrai.app hat {n}"
     },

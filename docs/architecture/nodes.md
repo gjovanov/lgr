@@ -606,7 +606,10 @@ documents, cash sales, the fiscal devices' УНП) when:
   catches a VM rolled back to a snapshot, whose own mark went back with the disk;
 - lgrai.app holds changes of it that this database never sent: a database restored from a backup,
   which can no longer continue the copy;
-- lgrai.app reports another machine connected as it, or refuses its history as one that went back.
+- lgrai.app reports another machine connected as it, or refuses its history as one that went back;
+- another machine on the shop's network answers as it, with its keys: a copy of its disk. The server
+  looks every five minutes, and only a machine holding its keys can answer, so a stale or forged
+  announcement on the network locks nothing.
 
 On a server registered with lgrai.app, a restore by Replace is refused outright: it would take the
 server back in time underneath lgrai.app's copy and then send that older history to it, deleting
@@ -619,8 +622,7 @@ numbers locks nothing more, and it tells lgrai.app every minute: the Servers pag
 
 The page says why numbering waits, and a person records the last numbers off the last printed
 documents and the fiscal device's report. Numbering resumes above them, and above lgrai.app's copy
-when the server can ask it. Not yet: the fiscal device checked on its own, and a clone seen on the
-shop's network.
+when the server can ask it. Not yet: the fiscal device checked on its own.
 
 ### Re-seeding a server from lgrai.app's copy (FR-20.71)
 

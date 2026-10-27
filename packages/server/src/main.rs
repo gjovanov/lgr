@@ -16,6 +16,7 @@ mod front;
 mod helper;
 mod https;
 mod ingress;
+mod lan_clone;
 mod install;
 mod ipc;
 mod licence;
@@ -316,12 +317,21 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
         let update_settings = updates::Settings::from_operator(&operator);
         let running = updates::running_version(&paths);
         supervisor::run(ipc::default_endpoint(), backoff::Policy::default(), shutdown, move |sup| async move {
+            // This start's nonce: the uplink says hello with it, and the LAN advert carries it, which is
+            // how a clone of this server is told from this server (FR-20.51).
+            let boot = match uplink::boot_nonce() {
+                Ok(nonce) => Some(nonce),
+                Err(e) => {
+                    tracing::error!(error = %format!("{e:#}"), "no boot nonce this start: no uplink, and no clone watch");
+                    None
+                }
+            };
             if let Some(r) = registrar {
                 sup.set_registrar(r.clone());
                 // FR-20.52: the uplink, one task per channel, for as long as the supervisor runs. It
                 // waits while the master is not registered, and never stops the shop when refused.
-                match uplink::boot_nonce() {
-                    Ok(nonce) => {
+                match boot.clone() {
+                    Some(nonce) => {
                         // FR-20.57: health from the supervisor's status, the API's and the data volume.
                         let health: uplink::HealthFn = {
                             let (sup, data, lan) = (sup.clone(), r.data.clone(), front.lan_state.clone());
@@ -351,7 +361,7 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                             Err(e) => tracing::error!(error = %format!("{e:#}"), "no automatic updates: the update settings are wrong"),
                         }
                     }
-                    Err(e) => tracing::error!(error = %format!("{e:#}"), "no uplink this start"),
+                    None => tracing::error!("no uplink this start"),
                 }
             }
             // The egress first: the API is given its address, and a CONNECT may come at once.
@@ -441,7 +451,12 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                                 Err(e) => tracing::error!(error = %format!("{e:#}"), "no DNS-SD advert: the node id cannot be read"),
                                 Ok(node) => {
                                     let machine = front::hostname().unwrap_or_else(|| "lgr-server".into());
-                                    sup.add_ingress(tokio::spawn(advertise(machine, node, identity.clone(), port)));
+                                    sup.add_ingress(tokio::spawn(advertise(machine, node.clone(), identity.clone(), port, boot.clone().unwrap_or_default())));
+                                    // FR-20.51 (P3-7, AC 50): another machine answering as this one, with its keys.
+                                    if let Some(boot) = boot.clone() {
+                                        let file = paths.data.join("state").join("clone.json");
+                                        sup.add_ingress(tokio::spawn(lan_clone::run(node, boot, identity.clone(), file)));
+                                    }
                                 }
                             }
                             // A new address (DHCP) means a new certificate, served from the next handshake.
@@ -495,7 +510,7 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
 /// code names (`certs::lan_ip`), and moved when DHCP moves it. A failed registration is tried again
 /// a minute later, and is never fatal: an address can always be typed in. Withdrawn when the task
 /// ends, with the ingresses (FR-20.23).
-async fn advertise(machine: String, node: String, lan: std::sync::Arc<std::sync::Mutex<certs::LanIdentity>>, port: u16) {
+async fn advertise(machine: String, node: String, lan: std::sync::Arc<std::sync::Mutex<certs::LanIdentity>>, port: u16, boot: String) {
     let mut current: Option<(std::net::Ipv4Addr, String, advert::Registration)> = None;
     loop {
         let ip = certs::lan_ip(&certs::lan_addresses(), certs::default_route_v4());
@@ -520,6 +535,7 @@ async fn advertise(machine: String, node: String, lan: std::sync::Arc<std::sync:
                     port,
                     node: node.clone(),
                     fingerprint: fingerprint.clone(),
+                    boot: boot.clone(),
                 };
                 match tokio::task::spawn_blocking(move || advert::register(&a)).await {
                     Ok(Ok(registration)) => {

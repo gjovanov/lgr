@@ -9,7 +9,7 @@ import { config } from 'config'
 import { mongoose } from 'db/connection'
 import { BackupRun, MirrorState, OrgHome, ReplOrg, Sequence, ServerNode } from 'db/models'
 import { forgetAllHomes } from 'db/home/home'
-import { REPLACE_REFUSED, hwmFile, journalHwmTick, linkAlarmsTick, lockLegalSeries, mirrorLegalSeries, reportOrgState } from 'services/biz/home/series-lock.service'
+import { REPLACE_REFUSED, cloneFile, hwmFile, journalHwmTick, lanCloneTick, linkAlarmsTick, lockLegalSeries, mirrorLegalSeries, reportOrgState } from 'services/biz/home/series-lock.service'
 import { recordLastNumbers, legalSeriesOf } from 'services/biz/move/promote.service'
 import { getNextNumber } from 'services/biz/sequence.service'
 import { nodeSelf, orgStateFor, recordOrgState } from 'services/biz/node/node.service'
@@ -164,6 +164,28 @@ describe('the restore lock (FR-20.51)', () => {
     await ReplOrg.collection.updateOne({ orgId: s.oid }, { $unset: { wentBack: '' } })
     self = { mirrors: [{ orgId: s.orgId, watermark: 90, lastPageAt: new Date() }] }
     expect(await linkAlarmsTick(fetchImpl)).toBe(1)
+  }, 60_000)
+
+  it('a clone the supervisor saw on the shop\'s network locks numbering, and again while it goes on answering (AC 50)', async () => {
+    const s = await homeHere()
+    // Nothing recorded: nothing locks.
+    expect(await lanCloneTick()).toBe(0)
+    const first = new Date(Date.now() - 600_000)
+    const seen = (at: Date) => writeFileSync(cloneFile()!, JSON.stringify({ at: at.toISOString(), firstSeen: first.toISOString(), otherIp: '192.168.1.20', otherPort: 4443, otherBoot: 'dddd' }))
+    seen(new Date(Date.now() - 1000))
+    expect(await lanCloneTick()).toBe(1)
+    expect(await frozen(s.oid)).toMatchObject({ reason: 'clone', detail: expect.stringContaining('192.168.1.20') })
+    expect((await captureRejection(getNextNumber(s.orgId, 'SALES_DOC')))?.code).toBe('series_frozen')
+    // A person records the numbers; the record is from before: it does not lock again.
+    await recordLastNumbers(s.orgId, s.by, await all(s.orgId, 130))
+    expect(await lanCloneTick()).toBe(0)
+    // The clone still answers, seen anew: it does.
+    seen(new Date(Date.now() + 1000))
+    expect(await lanCloneTick()).toBe(1)
+    // A record that is not one is nothing.
+    writeFileSync(cloneFile()!, '{"at":"not a date"}')
+    await recordLastNumbers(s.orgId, s.by, await all(s.orgId, 131))
+    expect(await lanCloneTick()).toBe(0)
   }, 60_000)
 
   it('the master tells lgrai.app what it found, and lgrai.app keeps only what it may: its orgs, known reasons, bounded text', async () => {

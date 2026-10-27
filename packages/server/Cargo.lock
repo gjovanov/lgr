@@ -848,6 +848,7 @@ dependencies = [
  "ring",
  "rustls",
  "rustls-native-certs",
+ "rustls-webpki",
  "serde",
  "serde_json",
  "tempfile",
