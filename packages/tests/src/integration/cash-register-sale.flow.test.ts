@@ -420,11 +420,37 @@ describe('FR-21.15 — the back office and the import go through the same servic
   it('a back-office sale the warehouse cannot cover is taken back whole: no document, no stock, no number', async () => {
     const w = await tillWorld(app, { device: false, stock: 1 })
     const res = await w.backOfficeSale(3)
+    // #279: keyed too — it waits under its key and is numbered after its stock, like an unkeyed one.
+    const keyed = await w.backOfficeSale(3, {}, 'bo-refused-279')
 
-    expect(res.status).toBe(400)
-    expect(res.json.message).toMatch(/Insufficient stock/)
+    for (const r of [res, keyed]) {
+      expect(r.status).toBe(400)
+      expect(r.json.message).toMatch(/Insufficient stock/)
+      expect(r.json.message).not.toContain('~pending')
+    }
     expect(await Invoice.countDocuments({ orgId: w.oid })).toBe(0)
     expect((await w.stock()).quantity).toBe(1)
+
+    // #279: no CS number was drawn for either refusal, so the next sale is the series' first.
+    const sold = await w.backOfficeSale(1)
+    expect(sold.status).toBe(200)
+    expect(sold.json.invoice.invoiceNumber).toMatch(/^CS-\d{4}-00001$/)
+    expect((await Sequence.findOne({ orgId: w.oid, prefix: 'CASH_SALE' }).lean() as any).lastNumber).toBe(1)
+  }, 60_000)
+
+  it('a sessionless sale is numbered after its stock; a till sale before it (#279)', async () => {
+    const w = await tillWorld(app, { device: false })
+    // The till's sale rings into a session: its receipt needs the number, so it is drawn first.
+    const till = await w.sell(1, { nonFiscal: true })
+    const backOffice = await w.backOfficeSale(1)
+    expect([till.status, backOffice.status]).toEqual([200, 200])
+
+    const numbers = [till.json.transaction.transactionNumber, backOffice.json.invoice.invoiceNumber]
+    expect(numbers.map((n: string) => n.slice(-5))).toEqual(['00001', '00002'])
+    const doc: any = await Invoice.findById(backOffice.json.invoice.id).lean()
+    expect(doc.invoiceNumber).toBe(numbers[1])
+    expect(doc.numberHistory.map((h: any) => h.number)).toEqual([numbers[1]])
+    expect(String(doc.register.movementId)).toBeTruthy()
   }, 60_000)
 
   it('a Files import (persistCashSale): origin import, numbered from CASH_SALE, dispatched below zero if need be', async () => {
