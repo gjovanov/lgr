@@ -2,13 +2,15 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { Desktop } from 'db/models'
-import { signDesktopToken } from 'services/biz/desktop/desktop.service'
+import { signDesktopToken, PRESENCE_ONLINE_MS } from 'services/biz/desktop/desktop.service'
 import {
   handleDesktopOpen,
   handleDesktopMessage,
   handleDesktopClose,
   isDesktopOnline,
   AUTH_DEADLINE_MS,
+  DESKTOP_TICK_MS,
+  tickDesktops,
 } from '../../../portal-api/src/websocket/desktop'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
@@ -269,5 +271,33 @@ describe('a revoked desktop is told at once (FR-14.22)', () => {
     expect(ws.closed.length).toBe(1)
     handleDesktopClose(ws)
     expect(isDesktopOnline(String(desktop._id))).toBe(false)
+  })
+})
+
+describe('the tick wakes a shell blocked on its read (FR-14.21)', () => {
+  it('reaches every authenticated socket, and never one that has not authenticated', async () => {
+    // ⚠ A shell up to desktop-v0.1.6 sends its heartbeat only when its blocking read returns. On
+    // lgrai.app a connected desktop's `lastSeenAt` went from 51 s to 91 s old with no heartbeat in
+    // between, so with the 75 s window a connected till read stale or offline.
+    const { token } = await seedDesktop()
+    const authed = fakeWs()
+    handleDesktopOpen(authed)
+    await handleDesktopMessage(authed, JSON.stringify({ type: 'desktop:auth', token }))
+    const anonymous = fakeWs()
+    handleDesktopOpen(anonymous)
+
+    const told = tickDesktops()
+    expect(told).toBeGreaterThanOrEqual(1)
+    expect(typeof authed.last('desktop:tick')?.serverTime).toBe('string')
+    expect(anonymous.has('desktop:tick')).toBe(false)
+
+    handleDesktopClose(authed)
+    handleDesktopClose(anonymous)
+    expect(tickDesktops()).toBe(told - 1)
+  })
+
+  it('comes often enough that a heartbeat due every 30 s is never later than the online window', () => {
+    // The worst case for a shell that only wakes on the tick: its 30 s became due just after one.
+    expect(30_000 + DESKTOP_TICK_MS).toBeLessThan(PRESENCE_ONLINE_MS)
   })
 })
