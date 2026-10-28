@@ -237,12 +237,20 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
             Err(e) => return config_error(e),
         };
         tracing::info!(home = %paths.home.display(), package = %paths.package.display(), data = %paths.data.display(), "starting");
-        // FR-20.13: a machine that cannot run a master is told why, before anything starts.
-        let failed: Vec<_> = preflight::run(&paths.data, &install::runtime_bin(&paths.home)).into_iter().filter(|c| !c.ok).collect();
-        if !failed.is_empty() {
-            for c in &failed {
+        // FR-20.13: a machine that cannot run a master is told why, before anything starts. Only what
+        // makes running impossible or unsafe refuses (`preflight::blocks_start`): memory and disk are
+        // the installers' floor, and a master that has run for months is never stopped at its next
+        // reboot because its disk has 19 GB free. It says so, loudly, and FR-20.101's alarm carries it.
+        let mut refused = false;
+        for c in preflight::run(&paths.data, &install::runtime_bin(&paths.home)).into_iter().filter(|c| !c.ok) {
+            if preflight::blocks_start(&c) {
                 tracing::error!(check = c.name, "{}", c.detail);
+                refused = true;
+            } else {
+                tracing::warn!(check = c.name, "{} (an installer would refuse this machine; the server starts)", c.detail);
             }
+        }
+        if refused {
             return backoff::EXIT_CONFIG;
         }
         let operator = match config::operator_env(&paths) {

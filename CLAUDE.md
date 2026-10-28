@@ -2442,6 +2442,21 @@ a pull request touching it builds unsigned and installs.
   control blocks were destroyed") while all three DLLs sat in `bin\`. Found by the same lane, on
   0.1.1's first build. `install::runtime_bin` answers for `installer\lgr-server.exe`, which has no
   `bin\`.
+- **The installers refuse a machine below FR-20.13's floor, and install nothing** (AC 14, 0.1.2). The
+  MSI runs `Preflight` from `lgr_server_msi.dll` (`src/msi.rs`, the package's `[lib]` cdylib, which
+  compiles `preflight.rs` in as it is) as an IMMEDIATE action before InstallInitialize: the reason
+  goes through `MsiProcessMessage` (a message box with a UI, the log either way). The .deb's
+  `packaging/linux/preinst` mirrors the checks in shell, held equal by
+  `preflight::tests::the_preinst_mirrors_the_checks`. A first install only, never an upgrade.
+  - ⚠ `preflight.rs` must stay a LEAF (no `crate::`): `msi.rs` compiles it on its own.
+  - ⚠ An EXE custom action could not say why: its failure is the installer's generic "a program run
+    as part of the setup did not finish as expected".
+- ⚠ **Memory is measured against `MIN_USABLE_RAM` (3.25 GiB), never 4 GiB.** A 4096 MB VM reads
+  3.8 GB, so the old `>= 4 GiB` refused every 4 GB machine; the `master-ubuntu-4gb` lane found it.
+- ⚠ **At start, the supervisor refuses only what makes running impossible or unsafe**
+  (`preflight::blocks_start`: cpu, location, vc-runtime). Below the memory or disk floor it starts and
+  warns. It used to refuse any failed check, so a master whose disk dropped under 20 GB free would
+  have stopped at its next reboot.
 - ⚠ The MSI creates the service with a deferred custom action, `service install --no-start`, and
   starts it with ServiceControl. `install` is idempotent (an upgrade runs it again).
 - ⚠ The .deb's postinst never starts, stops or enables anything. `packaging/linux/lgr-server.service`

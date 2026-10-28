@@ -1,21 +1,51 @@
-//! Can this machine run a master? (FR-20.13, plan step P1-2)
+//! Can this machine run a master? (FR-20.13, plan step P1-2; the installers, AC 14)
 //!
-//! The installer runs it before it installs anything, `lgr-server preflight` runs it on demand, and
-//! the supervisor runs it before it starts anything: a machine that fails is told why in words,
-//! instead of a `mongod` that dies of SIGILL on its first instruction.
+//! The installers run it before they install anything (the MSI through `msi.rs`, a custom action
+//! that compiles this file into a DLL as it is; the .deb through `packaging/linux/preinst`, which
+//! mirrors it in shell), `lgr-server preflight` runs it on demand, and the supervisor runs it before
+//! it starts anything: a machine that fails is told why in words, instead of a `mongod` that dies of
+//! SIGILL on its first instruction.
+//!
+//! ⚠ This file is a LEAF: nothing in it names `crate::`, because `msi.rs` compiles it on its own.
 //!
 //! - **CPU:** x86-64 with AVX, or ARMv8.2-A. MongoDB 5.0 and later will not start without it.
-//! - **Memory and disk:** at least 4 GB of RAM, and 20 GB free on the data volume.
+//! - **Memory and disk:** a machine with at least 4 GB of RAM (`MIN_USABLE_RAM` says what that reads
+//!   as), and 20 GB free on the data volume. The installers' floor: the supervisor starts below it,
+//!   and warns (`blocks_start`).
 //! - **Where the data goes:** a local, fixed disk. Not a network share, a redirected path or a
 //!   roaming profile: a database on any of those is lost, corrupted, or slow beyond use.
 //! - **Windows only:** the VC++ runtime `mongod` links is where Windows loads it from: the package's
 //!   `bin\`, which carries it app-local, or System32.
 
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+/// A machine with 4 GB of RAM installed (FR-20.13).
 pub const MIN_RAM: u64 = 4 << 30;
+/// What the OS reports as usable on such a machine, at worst: firmware, an integrated GPU's shared
+/// memory and the kernel keep some. ⚠ Never `MIN_RAM` itself: a 4 GB VM reads 3.8 GB, so measuring
+/// against 4 GiB refused every 4 GB machine (the vmtest `master-ubuntu-4gb` lane, 2026-10-28), while
+/// a 3 GB one still reads under this.
+pub const MIN_USABLE_RAM: u64 = 13 << 28; // 3.25 GiB
 pub const MIN_FREE_DISK: u64 = 20 << 30;
+
+/// Where a master's data lives (FR-20.14), unless `LGR_SERVER_DATA` says otherwise: here, because the
+/// installers measure it before anything else exists.
+pub fn default_data_dir() -> PathBuf {
+    #[cfg(windows)]
+    {
+        let base = std::env::var_os("ProgramData").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+        base.join("LGR")
+    }
+    #[cfg(target_os = "macos")]
+    {
+        PathBuf::from("/Library/Application Support/LGR")
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        PathBuf::from("/var/lib/lgr")
+    }
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Check {
@@ -80,9 +110,14 @@ pub fn total_ram() -> Option<u64> {
 
 pub fn memory() -> Check {
     match total_ram() {
-        Some(ram) => check("memory", ram >= MIN_RAM, format!("{} of RAM (at least {} needed)", gb(ram), gb(MIN_RAM))),
+        Some(ram) => memory_of(ram),
         None => check("memory", false, "could not read the amount of RAM"),
     }
+}
+
+/// `ram` is what the OS reports as usable, which on a machine with 4 GB installed is never 4 GiB.
+fn memory_of(ram: u64) -> Check {
+    check("memory", ram >= MIN_USABLE_RAM, format!("{} of RAM usable (a machine with {} is the least)", gb(ram), gb(MIN_RAM)))
 }
 
 /// The nearest existing ancestor of `path`: the data directory may not exist yet on a first install.
@@ -231,14 +266,26 @@ pub fn vc_runtime(bin: &Path) -> Check {
 
 /// Every check, in the order they are shown. `bin` holds the `mongod` that will run
 /// (`install::runtime_bin`).
-///
-/// ⚠ Nothing here names `crate::`: this file must stay a leaf, the checks and nothing they lean on.
 pub fn run(data: &Path, #[allow(unused_variables)] bin: &Path) -> Vec<Check> {
     #[allow(unused_mut)]
-    let mut checks = vec![cpu(), memory(), disk(data), location(data)];
+    let mut checks = machine(data);
     #[cfg(windows)]
     checks.push(vc_runtime(bin));
     checks
+}
+
+/// Whether a failed check stops the supervisor from starting: only what makes running impossible
+/// (`mongod` dies of SIGILL without AVX, or cannot load its runtime) or unsafe (a database on a share
+/// or on tmpfs). Memory and disk are the installers' floor: a master already running on the machine
+/// starts below it, and says so.
+pub fn blocks_start(c: &Check) -> bool {
+    !c.ok && matches!(c.name, "cpu" | "location" | "vc-runtime")
+}
+
+/// What an installer checks, before anything of the package exists: the machine itself. Not the VC++
+/// runtime, which the package carries.
+pub fn machine(data: &Path) -> Vec<Check> {
+    vec![cpu(), memory(), disk(data), location(data)]
 }
 
 #[cfg(test)]
@@ -291,6 +338,52 @@ mod tests {
     fn a_network_path_is_refused() {
         assert!(not_local(Path::new(r"\\fileserver\share\lgr")).is_some());
         assert!(not_local(Path::new("//fileserver/share/lgr")).is_some());
+    }
+
+    /// A machine with 4 GB installed reads under 4 GiB (a 4096 MB VM: 3.8 GB) and must pass; a 3 GB
+    /// one must not.
+    #[test]
+    fn a_4_gb_machine_has_enough_memory_and_a_3_gb_one_does_not() {
+        let gib = |g: f64| (g * (1u64 << 30) as f64) as u64;
+        assert!(memory_of(gib(3.8)).ok);
+        assert!(memory_of(gib(3.3)).ok, "a 4 GB machine whose integrated GPU keeps 512 MB");
+        let small = memory_of(gib(2.9));
+        assert!(!small.ok);
+        assert_eq!(small.detail, "2.9 GB of RAM usable (a machine with 4.0 GB is the least)");
+    }
+
+    /// The supervisor refuses to start only where running is impossible or unsafe. A master that has
+    /// run for months is not stopped at a reboot for its free disk or its RAM.
+    #[test]
+    fn only_cpu_location_and_runtime_stop_a_start() {
+        for (name, blocks) in [("cpu", true), ("location", true), ("vc-runtime", true), ("memory", false), ("disk", false)] {
+            assert_eq!(blocks_start(&check(name, false, "x")), blocks, "{name}");
+            assert!(!blocks_start(&check(name, true, "x")), "a passing {name} blocks nothing");
+        }
+    }
+
+    /// The .deb's preinst refuses what the installers' floor refuses: the same numbers, the same file
+    /// systems, the same CPU features, on a first install only.
+    #[test]
+    fn the_preinst_mirrors_the_checks() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("packaging").join("linux").join("preinst");
+        let preinst = std::fs::read_to_string(&path).unwrap();
+        let line = |want: String| assert!(preinst.lines().any(|l| l.trim() == want), "{} has no line `{want}`", path.display());
+        line(format!("MIN_RAM_KIB={}", MIN_USABLE_RAM >> 10));
+        line(format!("MIN_FREE_KIB={}", MIN_FREE_DISK >> 10));
+        line("[ \"$1\" = install ] || exit 0".into());
+        for needle in [
+            "grep -qw avx /proc/cpuinfo",
+            "grep -qw dcpop /proc/cpuinfo",
+            "6969)",
+            "517b | ff534d42 | fe534d42)",
+            "65735546)",
+            "1021994)",
+            "cannot run on this machine, so nothing was installed",
+            "(a machine with 4.0 GB is the least)",
+        ] {
+            assert!(preinst.contains(needle), "{} lost `{needle}`", path.display());
+        }
     }
 
     fn with_dlls(dir: &Path, dlls: &[&str]) {

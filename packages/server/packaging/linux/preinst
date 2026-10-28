@@ -1,0 +1,61 @@
+#!/bin/sh
+# LGR Server (FR-20.13, AC 14): before anything of the package is unpacked.
+#
+# A machine that cannot run a master is refused here, with the reason, and dpkg unpacks nothing when
+# this exits non-zero. The supervisor runs the same checks at every start
+# (`packages/server/src/preflight.rs`); this mirrors them in shell, because the package's own binary
+# is not on the disk yet. A Rust test (`preflight::tests::the_preinst_mirrors_the_checks`) holds the
+# numbers and the file system types equal.
+#
+# ⚠ Only on a first install (`install`): an upgrade of a machine that runs a master today is never
+# refused for having, say, less free disk than a new install needs. The supervisor still says so.
+set -e
+
+# preflight.rs MIN_USABLE_RAM (3.25 GiB: a machine with 4 GB installed reads about 3.8) and MIN_FREE_DISK.
+MIN_RAM_KIB=3407872
+MIN_FREE_KIB=20971520
+DATA=/var/lib/lgr
+
+[ "$1" = install ] || exit 0
+
+failed=""
+refuse() {
+  failed="$failed
+  - $1"
+}
+
+# CPU: what MongoDB 5.0 and later are built for. Linux names ARMv8.2's DC CVAP `dcpop`.
+case "$(uname -m)" in
+  x86_64) grep -qw avx /proc/cpuinfo || refuse "this x86-64 CPU has no AVX, which MongoDB 5.0 and later need" ;;
+  aarch64) grep -qw dcpop /proc/cpuinfo || refuse "this ARM CPU is older than ARMv8.2-A, which MongoDB 5.0 and later need" ;;
+  *) refuse "$(uname -m) is not a CPU MongoDB supports" ;;
+esac
+
+# Memory, as the kernel reports it (MemTotal, KiB).
+ram=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)
+if [ "${ram:-0}" -lt "$MIN_RAM_KIB" ]; then
+  refuse "$(awk -v k="${ram:-0}" 'BEGIN { printf "%.1f", k / 1048576 }') GB of RAM usable (a machine with 4.0 GB is the least)"
+fi
+
+# The data directory may not exist yet: it is measured where it will be.
+where=$DATA
+while [ ! -e "$where" ]; do where=$(dirname "$where"); done
+
+free=$(df -Pk "$where" | awk 'NR == 2 { print $4 }')
+if [ "${free:-0}" -lt "$MIN_FREE_KIB" ]; then
+  refuse "$(awk -v k="${free:-0}" 'BEGIN { printf "%.1f", k / 1048576 }') GB free for $DATA (at least 20.0 GB needed)"
+fi
+
+# A local disk: never NFS, SMB, FUSE or tmpfs (statfs magic numbers, as preflight.rs reads them).
+case "$(stat -f -c %t "$where")" in
+  6969) refuse "$DATA is on NFS" ;;
+  517b | ff534d42 | fe534d42) refuse "$DATA is on an SMB share" ;;
+  65735546) refuse "$DATA is on a FUSE file system" ;;
+  1021994) refuse "$DATA is on tmpfs, which does not survive a restart" ;;
+esac
+
+if [ -n "$failed" ]; then
+  echo "LGR Server cannot run on this machine, so nothing was installed:$failed" >&2
+  exit 1
+fi
+exit 0

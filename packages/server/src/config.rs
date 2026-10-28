@@ -43,22 +43,6 @@ pub fn packaged_chrome(home: &Path) -> Option<PathBuf> {
     exe.exists().then_some(exe)
 }
 
-fn default_data_dir() -> PathBuf {
-    #[cfg(windows)]
-    {
-        let base = std::env::var_os("ProgramData").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
-        base.join("LGR")
-    }
-    #[cfg(target_os = "macos")]
-    {
-        PathBuf::from("/Library/Application Support/LGR")
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        PathBuf::from("/var/lib/lgr")
-    }
-}
-
 impl Paths {
     pub fn resolve() -> Result<Self> {
         let home = match std::env::var_os("LGR_SERVER_HOME") {
@@ -70,7 +54,7 @@ impl Paths {
                 .context("lgr-server has no directory")?,
         };
         let package = std::env::var_os("LGR_SERVER_PACKAGE").map(PathBuf::from).unwrap_or_else(|| home.join("package"));
-        let data = std::env::var_os("LGR_SERVER_DATA").map(PathBuf::from).unwrap_or_else(default_data_dir);
+        let data = std::env::var_os("LGR_SERVER_DATA").map(PathBuf::from).unwrap_or_else(crate::preflight::default_data_dir);
         let bun = match std::env::var_os("LGR_SERVER_BUN") {
             Some(b) => PathBuf::from(b),
             None => {

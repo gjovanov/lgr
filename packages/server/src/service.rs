@@ -200,6 +200,33 @@ pub mod platform {
         Ok(())
     }
 
+    /// What the service reports when it stops, which the event log renders.
+    ///
+    /// ⚠ A service-specific code is shown with the SYSTEM message of the same number: exit 7 read
+    /// "The storage control blocks were destroyed" (Win32 error 7) on the first clean Windows a master
+    /// met (vmtest, 2026-10-28). The two deliberate refusals carry a Win32 error whose text is true;
+    /// `logs\lgr-server.log` says the rest.
+    fn exit_code(code: u32) -> ServiceExitCode {
+        use windows_sys::Win32::Foundation::{ERROR_BAD_ENVIRONMENT, ERROR_INVALID_STATE};
+        match code as i32 {
+            0 => ServiceExitCode::Win32(0),
+            // "The environment is incorrect."
+            crate::backoff::EXIT_CONFIG => ServiceExitCode::Win32(ERROR_BAD_ENVIRONMENT),
+            // "The group or resource is not in the correct state to perform the requested operation."
+            crate::backoff::EXIT_REFUSED => ServiceExitCode::Win32(ERROR_INVALID_STATE),
+            _ => ServiceExitCode::ServiceSpecific(code),
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn a_refusal_reads_true_in_the_event_log() {
+        assert_eq!(exit_code(0), ServiceExitCode::Win32(0));
+        assert_eq!(exit_code(7), ServiceExitCode::Win32(10));
+        assert_eq!(exit_code(8), ServiceExitCode::Win32(5023));
+        assert_eq!(exit_code(3), ServiceExitCode::ServiceSpecific(3));
+    }
+
     define_windows_service!(ffi_service_main, service_main);
 
     /// What the SCM starts (`lgr-server service run`).
@@ -231,7 +258,7 @@ pub mod platform {
             service_type: ServiceType::OWN_PROCESS,
             current_state: state,
             controls_accepted: if state == ServiceState::Running { ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN } else { ServiceControlAccept::empty() },
-            exit_code: if code == 0 { ServiceExitCode::Win32(0) } else { ServiceExitCode::ServiceSpecific(code) },
+            exit_code: exit_code(code),
             checkpoint: 0,
             wait_hint: wait,
             process_id: None,

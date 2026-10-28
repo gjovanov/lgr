@@ -1,6 +1,6 @@
 [package]
 name = "lgr-server"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "LGR Server: the supervisor an on-premises master runs (FR-20, plan step P1-1)"
 publish = false
@@ -8,6 +8,13 @@ publish = false
 [[bin]]
 name = "lgr-server"
 path = "src/main.rs"
+
+# FR-20.13, AC 14 — the MSI's machine check, a custom action DLL (`lgr_server_msi.dll`) that refuses
+# a machine before anything is installed. Windows only: elsewhere it compiles to nothing.
+[lib]
+name = "lgr_server_msi"
+path = "src/msi.rs"
+crate-type = ["cdylib"]
 
 [dependencies]
 anyhow = "1"
@@ -72,6 +79,8 @@ windows-sys = { version = "0.59", features = [
   # FR-20.28 — the master's DNS-SD advert through Windows' own mDNS (`advert.rs`), which already has
   # the firewall's leave to answer the LAN; a socket of our own would not.
   "Win32_NetworkManagement_Dns",
+  # FR-20.13, AC 14 — the MSI's machine check speaks through the installer (`msi.rs`).
+  "Win32_System_ApplicationInstallationAndServicing",
 ] }
 
 [target.'cfg(unix)'.dependencies]
