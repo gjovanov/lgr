@@ -2,44 +2,44 @@ import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
 
 /**
- * The product combobox must fire a server search and support native keyboard
- * navigation (↓/Enter) on BOTH the invoice line table (grid-nav wrapped) and the
- * order form (plain table). Regression for: grid-nav stealing arrow keys, and the
- * order form's field reportedly not firing any search request.
+ * The product search on both order forms — the supplier order's line table and the customer
+ * order's — asks the server and keeps the keyboard: ↓ moves through the results without closing
+ * them, and Enter takes the highlighted one. Regression for the order form's field reportedly not
+ * searching at all. The invoice form has the same check in invoicing-product-autocomplete.spec.ts.
+ *
+ * ⚠ Taller viewport: the results are `position: fixed` under the input, so on a short page they
+ * can land below the fold (see that spec's header).
  */
+test.use({ viewport: { width: 1280, height: 1200 } })
+
 for (const target of [
-  { name: 'invoice form', path: '/invoicing/invoices/new', heading: /new invoice/i },
-  { name: 'order form', path: '/invoicing/orders/new', heading: /new supplier order/i },
+  { name: 'supplier order', path: '/invoicing/orders/new', heading: /new supplier order/i },
+  { name: 'customer order', path: '/invoicing/internal-orders/new', heading: /new customer order/i },
 ]) {
-  test(`product search fires ajax + arrows/Enter select on the ${target.name}`, async ({ page }) => {
+  test(`the ${target.name} form searches products on the server; arrows move, Enter picks`, async ({ page }) => {
     await loginForApp(page)
     await page.goto(target.path)
     await expect(page.getByRole('heading', { name: target.heading }).first()).toBeVisible({ timeout: 15000 })
 
-    const lineRow = page.locator('.v-table tbody tr').first()
-    await expect(lineRow).toBeVisible({ timeout: 10000 })
-    // By what it asks for: the invoice line opens with its number (td.line-no), the order line
-    // does not, and both hold the same ProductLineDescription.
-    const descInput = lineRow.getByPlaceholder(/search products/i)
+    // The first line's product field; the seed's articles are PRD-0001…PRD-0050.
+    const search = page.getByPlaceholder(/search products/i).first()
+    await expect(search).toBeVisible({ timeout: 10000 })
+    const asked = page.waitForRequest((r) => r.url().includes('/warehouse/product') && r.url().includes('search='), { timeout: 8000 })
+    await search.click()
+    await page.keyboard.type('PRD-001', { delay: 60 })
+    expect((await asked).url()).toContain('search=')
 
-    const reqPromise = page.waitForRequest(
-      (r) => r.url().includes('/warehouse/product') && r.url().includes('search='),
-      { timeout: 6000 },
-    )
-    await descInput.click()
-    await descInput.pressSequentially('Te', { delay: 100 })
-    const req = await reqPromise
-    expect(req.url()).toContain('search=')
-
-    // Results open — in ProductLineDescription's own overlay, teleported to <body> (not a v-menu)…
-    const menuItem = page.locator('.pld-overlay .pld-item').first()
-    await expect(menuItem).toBeVisible({ timeout: 5000 })
-
-    // …and ↓ + Enter selects (menu must NOT close on arrows).
-    await page.keyboard.press('ArrowDown')
-    await page.waitForTimeout(150)
-    await expect(menuItem).toBeVisible()
+    const items = page.locator('.pld-overlay .pld-item')
+    await expect(items.first()).toBeVisible({ timeout: 8000 })
+    for (let n = 0; n < 2; n++) {
+      await page.keyboard.press('ArrowDown')
+      await page.waitForTimeout(150)
+      await expect(items.first(), `the results closed after ArrowDown #${n + 1}`).toBeVisible()
+    }
+    await expect(page.locator('.pld-overlay .pld-item--active')).toBeVisible()
     await page.keyboard.press('Enter')
-    await expect(lineRow.locator('.v-chip').first()).toBeVisible({ timeout: 4000 })
+    await expect(items.first()).not.toBeVisible({ timeout: 3000 })
+    // The pick shows as the line's product chip.
+    await expect(page.locator('.v-table tbody tr').first().locator('.v-chip').filter({ hasText: /PRD-001|Product 1/ }).first()).toBeVisible({ timeout: 4000 })
   })
 }
