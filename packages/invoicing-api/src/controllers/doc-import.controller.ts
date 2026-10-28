@@ -206,6 +206,10 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
           text: t.Optional(t.String()),
           parsed: t.Optional(t.Any()),
           profile: t.Optional(t.String()),
+          // Pre-built extraction, skipping OCR/AI entirely (analyzeOne: `item.draft ?? ocrDraft(...)`).
+          // Already supported by AnalyzeItem/analyzeOne — this just exposes it over the API, for
+          // sources whose own structured data already IS the extraction (e.g. a direct ERP API pull).
+          draft: t.Optional(t.Any()),
         })),
         context: t.Optional(t.Object({
           warehouseId: t.Optional(t.String()),
