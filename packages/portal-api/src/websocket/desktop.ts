@@ -19,6 +19,9 @@ import { logger } from 'services/logger'
  *     { type: 'desktop:error', code, message }
  *     { type: 'desktop:update' }                   an admin asked it to update (FR-14.22)
  *     { type: 'desktop:revoked', message }         stop the bridge, delete the key
+ *     { type: 'desktop:tick', serverTime }         every 15 s, so a shell blocked on its read
+ *                                                  sends the heartbeat that is due
+ *                                                  (`DESKTOP_TICK_MS`); a shell ignores it
  *     { type: 'desktop:repoint', instruction, node, name }   the org moved to its master (FR-20.82)
  *     { type: 'desktop:moved', node, name }        the same, when global cannot say where it answers
  *
@@ -43,6 +46,19 @@ import { logger } from 'services/logger'
  * must not be able to sit there — so it is asserted, not assumed.
  */
 export const AUTH_DEADLINE_MS = 10_000
+
+/**
+ * How often an authenticated desktop is woken (`desktop:tick`).
+ *
+ * ⚠ A shell up to desktop-v0.1.6 BLOCKS on its socket's read, and sends its 30 s heartbeat only
+ * when something arrives - and between the acks to its own heartbeats nothing did, so its
+ * heartbeats came at Bun's idle-ping cadence. Measured on lgrai.app: a connected desktop's
+ * `lastSeenAt` went from 51 s to 91 s old with no heartbeat in between. With FR-14.21's 75 s
+ * window that is a connected till read stale or offline. The tick wakes the read; an old shell
+ * ignores its type (`classify` → None) and sends the heartbeat that was due. A shell that keeps
+ * its own clock (#328) needs no tick, and ignores it the same way.
+ */
+export const DESKTOP_TICK_MS = 15_000
 
 /** desktopId → the live sockets for it. A desktop could reconnect before its old socket closes. */
 const sockets = new Map<string, Set<any>>()
@@ -180,12 +196,36 @@ export function handleDesktopClose(ws: any): void {
   logger.info({ desktopId: st.desktopId }, 'Desktop socket closed')
 }
 
+/**
+ * Wake every authenticated desktop on this process (`DESKTOP_TICK_MS`). Returns how many sockets
+ * were told. Never an unauthenticated one: before `desktop:auth` a socket hears nothing it did not
+ * ask for.
+ */
+export function tickDesktops(): number {
+  let told = 0
+  const serverTime = new Date().toISOString()
+  for (const set of sockets.values()) {
+    for (const ws of set) {
+      send(ws, { type: 'desktop:tick', serverTime })
+      told++
+    }
+  }
+  return told
+}
+
+let ticker: ReturnType<typeof setInterval> | null = null
+
 export function setupDesktopWS(app: any): void {
   app.ws('/ws/desktop', {
     open(ws: any) { handleDesktopOpen(ws) },
     message(ws: any, message: any) { void handleDesktopMessage(ws, message) },
     close(ws: any) { handleDesktopClose(ws) },
   })
+  if (!ticker) {
+    ticker = setInterval(tickDesktops, DESKTOP_TICK_MS)
+    // It must never be what keeps a process alive (a test run, a graceful stop).
+    ;(ticker as any).unref?.()
+  }
   logger.info('Desktop WebSocket endpoint registered at /ws/desktop')
 }
 
