@@ -194,8 +194,10 @@ pub fn parse_deep_link(raw: &str) -> Option<DeepLink> {
     match action.as_str() {
         "enroll" => {
             let server = normalize_server_url(q.get("server")?)?;
-            let code = q.get("code")?.trim().to_string();
-            if !is_plausible_code(&code) {
+            // #328: an enrollment KEY rides in `key`, or in `code` by its shape (FR-14.19). It is
+            // carried as it is: a key is case-sensitive, and only `enroll` decides what it is.
+            let code = q.get("key").or_else(|| q.get("code"))?.trim().to_string();
+            if !is_plausible_code(&code) && !crate::enroll::is_enrollment_key(&code) {
                 return None;
             }
             // ⚠ A malformed `fp` refuses the link rather than dropping the pin: a link that meant to
@@ -408,5 +410,23 @@ mod tests {
         // Depending on the OS, the action arrives as the host or as the path.
         assert!(parse_deep_link("lgr://open?path=/pos/").is_some());
         assert!(parse_deep_link("lgr:open?path=/pos/").is_some());
+    }
+
+    /// #328 — an enrollment KEY (43 base64url characters) pre-fills as it is, in `key` or in `code`.
+    #[test]
+    fn an_enroll_link_carries_a_key_as_it_is() {
+        let key = "Ab0_-cdEFghijklmnopqrstuvwxyz0123456789ABCD";
+        assert_eq!(key.len(), 43);
+        for link in [
+            format!("lgr://enroll?server=https://lgrai.app&key={key}"),
+            format!("lgr://enroll?server=https://lgrai.app&code={key}"),
+        ] {
+            match parse_deep_link(&link) {
+                Some(DeepLink::Enroll { code, .. }) => assert_eq!(code, key, "case and `-`/`_` kept: {link}"),
+                other => panic!("{link} parsed as {other:?}"),
+            }
+        }
+        // One character short is neither a key nor a code.
+        assert_eq!(parse_deep_link(&format!("lgr://enroll?server=https://lgrai.app&key={}", &key[1..])), None);
     }
 }

@@ -209,7 +209,10 @@ export async function rotateDesktopKey(): Promise<void> {
 export interface EnrollRequest {
   serverUrl: string
   name: string
-  /** `XXXX-XXXX`, as minted on the Desktops page. */
+  /**
+   * `XXXX-XXXX`, as minted on the Desktops page, or an enrollment KEY (43 base64url characters, sent
+   * as it is: #328), which makes an ephemeral desktop.
+   */
   code: string
   /**
    * FR-20.29 — for a master, the fingerprint that was confirmed. ⚠ Only the fingerprint: Rust

@@ -36,7 +36,11 @@ impl From<reqwest::Error> for EnrollError {
 }
 
 fn client(server_url: &str) -> Result<reqwest::blocking::Client, EnrollError> {
-    crate::trust::client_for(server_url, Duration::from_secs(20)).map_err(EnrollError)
+    client_within(server_url, Duration::from_secs(20))
+}
+
+fn client_within(server_url: &str, timeout: Duration) -> Result<reqwest::blocking::Client, EnrollError> {
+    crate::trust::client_for(server_url, timeout).map_err(EnrollError)
 }
 
 fn now_ms() -> i64 {
@@ -60,6 +64,9 @@ struct EnrollResponse {
     org_name: String,
     #[serde(default)]
     assignment: AssignmentResponse,
+    /// #328 — enrolled with a key: unregister on a clean shutdown (FR-14.19).
+    #[serde(default)]
+    ephemeral: bool,
     #[serde(default)]
     server_time: String,
 }
@@ -105,7 +112,29 @@ pub fn normalize_code(input: &str) -> String {
         .collect()
 }
 
-/// Exchange a code for this desktop's identity (FR-14.19).
+/// An enrollment KEY's length: 32 random bytes in base64url (`generateEnrollmentKey`).
+pub const ENROLLMENT_KEY_LENGTH: usize = 43;
+
+/// Is this an enrollment KEY rather than an admin's one-time code (FR-14.19, #328)?
+///
+/// A key is exactly 43 characters of base64url, case-sensitive; a code is `XXXX-XXXX`. ⚠ A key never
+/// goes through `normalize_code`, which would uppercase it, fold `O`→`0` and `I`/`L`→`1`, and drop its
+/// `-` and `_`: the server would hash something else, and the shell could never redeem one.
+pub fn is_enrollment_key(input: &str) -> bool {
+    let key = input.trim();
+    key.len() == ENROLLMENT_KEY_LENGTH && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// The field a credential goes in, and its value as the server hashes it.
+fn credential_field(input: &str) -> (&'static str, String) {
+    if is_enrollment_key(input) {
+        ("enrollmentKey", input.trim().to_string())
+    } else {
+        ("code", normalize_code(input))
+    }
+}
+
+/// Exchange a code (or an enrollment key) for this desktop's identity (FR-14.19).
 ///
 /// Order matters: the keypair is generated and the server is called FIRST, and only a successful
 /// response causes anything to be written. A key stored before the exchange would leave a
@@ -130,8 +159,8 @@ pub fn enroll(
     let platform = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
 
-    let body = serde_json::json!({
-        "code": normalize_code(code),
+    let (field, credential) = credential_field(code);
+    let mut body = serde_json::json!({
         "installationId": stored.installation_id,
         "machineId": identity::machine_id(&hostname, platform, arch),
         "name": name,
@@ -142,6 +171,7 @@ pub fn enroll(
         // OS-sealed file below, which is what makes a copied config worthless (AC 10).
         "publicKey": id.public_key_b64(),
     });
+    body[field] = serde_json::Value::String(credential);
 
     let url = format!("{}/api/desktop/v1/enroll", server_url.trim_end_matches('/'));
     let res = client(server_url)?.post(&url).json(&body).send()?;
@@ -158,6 +188,8 @@ pub fn enroll(
     stored.org_name = parsed.org_name;
     stored.start_path = parsed.assignment.start_path;
     stored.fiscal_device_ids = parsed.assignment.fiscal_device_ids;
+    // A hub from before #328 does not say; it makes every key-enrolled desktop ephemeral all the same.
+    stored.ephemeral = parsed.ephemeral || field == "enrollmentKey";
     stored.revoked = false;
     if let Some(server_ms) = parse_server_time(&parsed.server_time) {
         stored.clock_offset_ms = ClockOffset::learn(server_ms, now_ms()).millis;
@@ -177,6 +209,11 @@ pub fn enroll(
 /// ⚠ `aud` is the token URL itself — the server computes the same string from the request and
 /// compares. That is what stops an assertion minted for this endpoint being replayed at another.
 pub fn mint_token(server_url: &str) -> Result<String, EnrollError> {
+    mint_token_within(server_url, Duration::from_secs(20))
+}
+
+/// `mint_token` on a deadline of the caller's: a machine shutting down has seconds, not twenty.
+pub fn mint_token_within(server_url: &str, timeout: Duration) -> Result<String, EnrollError> {
     let dir = keystore::secure_dir().map_err(|_| EnrollError("no_secure_storage".into()))?;
     let mut stored = keystore::load(&dir);
     if stored.desktop_id.is_empty() {
@@ -198,7 +235,7 @@ pub fn mint_token(server_url: &str) -> Result<String, EnrollError> {
         &identity::new_jti(),
     );
 
-    let res = client(server_url)?
+    let res = client_within(server_url, timeout)?
         .post(&audience)
         .json(&serde_json::json!({ "assertion": assertion }))
         .send()?;
@@ -250,7 +287,11 @@ pub fn mint_token(server_url: &str) -> Result<String, EnrollError> {
 /// ⚠ `appVersion` is the field `DESKTOP_MIN_VERSION` is enforced against (FR-14.29), so a
 /// desktop that never reports one cannot satisfy a configured floor. That makes this call part
 /// of staying connected, not telemetry.
-pub fn report_self(server_url: &str, app_version: &str, serial_ports: &[String]) -> Result<(), EnrollError> {
+///
+/// ⚠ #328: and the answer carries what an admin has assigned to this desktop NOW, which it used to
+/// learn only at enrollment (a one-time code carries no start path at all). Returns the new start
+/// path when it moved (`""`: none, Open LGR goes to `/`).
+pub fn report_self(server_url: &str, app_version: &str, serial_ports: &[String]) -> Result<Option<String>, EnrollError> {
     let token = mint_token(server_url)?;
     let url = format!("{}/api/desktop/v1/self", server_url.trim_end_matches('/'));
 
@@ -277,7 +318,64 @@ pub fn report_self(server_url: &str, app_version: &str, serial_ports: &[String])
     if !res.status().is_success() {
         return Err(EnrollError("report_failed".into()));
     }
+
+    // A hub from before #328 sends no assignment, and the record is left as it is.
+    let Some(assignment) = res.json::<SelfResponse>().ok().and_then(|r| r.assignment) else {
+        return Ok(None);
+    };
+    let dir = keystore::secure_dir().map_err(|_| EnrollError("no_secure_storage".into()))?;
+    let mut stored = keystore::load(&dir);
+    let (changed, moved) = refresh_assignment(&mut stored, assignment);
+    if changed {
+        keystore::save(&dir, &stored).map_err(|_| EnrollError("cannot_store_record".into()))?;
+    }
+    Ok(moved)
+}
+
+/// What `PUT /self` answers (#328).
+#[derive(serde::Deserialize)]
+struct SelfResponse {
+    #[serde(default)]
+    assignment: Option<AssignmentResponse>,
+}
+
+/// The hub's assignment into the record: whether anything changed, and the new start path if that
+/// is what moved. The fiscal device ids are what the Overview lists; the bridge reads the devices
+/// themselves from the hub on every connection.
+fn refresh_assignment(stored: &mut Stored, assignment: AssignmentResponse) -> (bool, Option<String>) {
+    let moved = stored.start_path != assignment.start_path;
+    let changed = moved || stored.fiscal_device_ids != assignment.fiscal_device_ids;
+    stored.start_path = assignment.start_path;
+    stored.fiscal_device_ids = assignment.fiscal_device_ids;
+    (changed, moved.then(|| stored.start_path.clone()))
+}
+
+/// An ephemeral desktop leaving on a clean shutdown (FR-14.19, #328): `DELETE /self`, then the record
+/// and the key go, so the next start is a fresh machine rather than one minting tokens for a row
+/// that no longer exists.
+///
+/// ⚠ On a deadline: Windows gives an app a few seconds once the session ends. A desktop that cannot
+/// reach its hub in time keeps its registration, and the hub's reaper removes the row after
+/// `ephemeralTtlSec` (FR-14.19's backstop).
+pub fn unregister_self(server_url: &str, timeout: Duration) -> Result<(), EnrollError> {
+    let token = mint_token_within(server_url, timeout)?;
+    let url = format!("{}/api/desktop/v1/self", server_url.trim_end_matches('/'));
+    let res = crate::trust::desktop_headers(client_within(server_url, timeout)?.delete(&url), server_url, &token).send()?;
+    if !res.status().is_success() {
+        let code = res.json::<ErrorResponse>().map(|e| e.code).unwrap_or_default();
+        return Err(EnrollError(if code.is_empty() { "unregister_failed".into() } else { code }));
+    }
+    let dir = keystore::secure_dir().map_err(|_| EnrollError("no_secure_storage".into()))?;
+    forget(&dir);
     Ok(())
+}
+
+/// The registration gone from this machine: no desktop and no key. The installation id stays, so
+/// the hub can still tell a reinstalled machine from a new one (C06).
+fn forget(dir: &std::path::Path) {
+    let installation_id = keystore::load(dir).installation_id;
+    let _ = keystore::save(dir, &Stored { installation_id, ..Stored::default() });
+    let _ = keystore::delete_secret(dir);
 }
 
 /// The hub's update manifest for this desktop (FR-14.28).
@@ -396,5 +494,52 @@ mod tests {
         let stored = Stored { clock_offset_ms: off.millis, ..Default::default() };
         let back = ClockOffset { millis: stored.clock_offset_ms };
         assert_eq!(back.now_sec(local), server / 1000);
+    }
+
+    /// #328 — a key went through `normalize_code` (uppercased, `O`→`0`, `-`/`_` dropped), so the
+    /// server hashed something else and no shell could redeem one.
+    #[test]
+    fn an_enrollment_key_is_sent_as_it_is_and_a_code_is_normalised() {
+        let key = "Ab0_-cdEFghijklmnopqrstuvwxyz0123456789ABCD";
+        assert_eq!(key.len(), ENROLLMENT_KEY_LENGTH);
+        assert!(is_enrollment_key(key));
+        assert!(is_enrollment_key(&format!("  {key}\n")), "pasted with whitespace around it");
+        assert_eq!(credential_field(&format!(" {key} ")), ("enrollmentKey", key.to_string()));
+
+        assert!(!is_enrollment_key("ABCD-EF12"));
+        assert!(!is_enrollment_key(&key[1..]), "42 characters is not a key");
+        assert!(!is_enrollment_key(&format!("{}+", &key[1..])), "base64 is not base64url");
+        assert_eq!(credential_field("abcd-ef1o"), ("code", "ABCDEF10".to_string()));
+    }
+
+    /// #328 — the start path was learned only at enrollment; an admin's later assignment, and any
+    /// assignment at all for a desktop enrolled with a code, never reached the till.
+    #[test]
+    fn the_hubs_assignment_replaces_the_one_from_enrollment() {
+        let mut stored = Stored { start_path: "/".into(), fiscal_device_ids: vec!["a".into()], ..Default::default() };
+        let same = AssignmentResponse { start_path: "/".into(), fiscal_device_ids: vec!["a".into()] };
+        assert_eq!(refresh_assignment(&mut stored, same), (false, None), "nothing to save");
+
+        let pos = AssignmentResponse { start_path: "/pos/terminal".into(), fiscal_device_ids: vec!["a".into()] };
+        assert_eq!(refresh_assignment(&mut stored, pos), (true, Some("/pos/terminal".into())));
+        assert_eq!(stored.start_path, "/pos/terminal");
+
+        let devices = AssignmentResponse { start_path: "/pos/terminal".into(), fiscal_device_ids: vec![] };
+        assert_eq!(refresh_assignment(&mut stored, devices), (true, None), "devices moved, the start path did not");
+        assert!(stored.fiscal_device_ids.is_empty());
+
+        // An admin clearing it is a change too: Open LGR goes back to `/`.
+        let cleared = AssignmentResponse::default();
+        assert_eq!(refresh_assignment(&mut stored, cleared), (true, Some(String::new())));
+    }
+
+    #[test]
+    fn a_hub_from_before_328_sends_no_assignment_and_nothing_moves() {
+        let old: SelfResponse = serde_json::from_str(r#"{"ok":true,"serverTime":"x"}"#).unwrap();
+        assert!(old.assignment.is_none());
+        let new: SelfResponse =
+            serde_json::from_str(r#"{"ok":true,"assignment":{"fiscalDeviceIds":["d1"],"startPath":"/pos"}}"#).unwrap();
+        let a = new.assignment.unwrap();
+        assert_eq!((a.start_path.as_str(), a.fiscal_device_ids), ("/pos", vec!["d1".to_string()]));
     }
 }

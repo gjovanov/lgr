@@ -97,6 +97,16 @@
               data-field="code"
             />
             <v-alert
+              v-if="enrollmentKey"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="mb-4"
+              data-banner="code-is-key"
+            >
+              {{ $t('shell.onboarding.codeIsKey') }}
+            </v-alert>
+            <v-alert
               v-if="registerError"
               type="error"
               variant="tonal"
@@ -344,7 +354,16 @@ const stepLabels = computed(() => [
 /** A code is `XXXX-XXXX`; the dash is optional on input because people type it both ways. */
 const normalisedCode = computed(() =>
   codeInput.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, ''))
-const codeLooksRight = computed(() => /^[A-Z0-9]{8}$/.test(normalisedCode.value))
+/**
+ * #328 — or an enrollment KEY (FR-14.19): 43 base64url characters, which make an ephemeral desktop.
+ * ⚠ Sent exactly as pasted: case, `-` and `_` are part of it, and the code's normalising would turn
+ * it into something the server never issued.
+ */
+const enrollmentKey = computed(() => {
+  const key = codeInput.value.trim()
+  return /^[A-Za-z0-9_-]{43}$/.test(key) ? key : ''
+})
+const codeLooksRight = computed(() => !!enrollmentKey.value || /^[A-Z0-9]{8}$/.test(normalisedCode.value))
 
 function applyServer() {
   const { url, upgraded } = normaliseServerUrl(serverInput.value)
@@ -377,7 +396,7 @@ async function onNext() {
     await enrollDesktop({
       serverUrl: serverInput.value,
       name: nameInput.value.trim(),
-      code: `${normalisedCode.value.slice(0, 4)}-${normalisedCode.value.slice(4)}`,
+      code: enrollmentKey.value || `${normalisedCode.value.slice(0, 4)}-${normalisedCode.value.slice(4)}`,
       // Only the fingerprint: Rust fetches the CA itself and checks it against this.
       ...(masterProbe.value ? { fingerprint: masterProbe.value.fingerprint } : {}),
     })
@@ -436,7 +455,8 @@ onMounted(async () => {
     const u = new URL(link)
     if (u.host !== 'enroll' && u.pathname.replace(/\//g, '') !== 'enroll') return
     const server = u.searchParams.get('server')
-    const code = u.searchParams.get('code')
+    // #328: an enrollment key rides in `key` (Rust accepted the link only with a plausible one).
+    const code = u.searchParams.get('key') ?? u.searchParams.get('code')
     const fp = u.searchParams.get('fp')
     if (server) {
       const { url } = normaliseServerUrl(server)

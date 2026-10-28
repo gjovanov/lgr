@@ -46,6 +46,10 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt;
 
+/// Set before the process restarts into an update or a re-point: the same desktop coming straight
+/// back, which an ephemeral desktop must never unregister for (`should_unregister`).
+pub(crate) static RESTARTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Everything the shell knows about itself at runtime.
 pub struct AppState {
     logger: logs::Logger,
@@ -724,7 +728,8 @@ fn enroll_desktop_blocking(app: &AppHandle, req: EnrollRequest) -> Result<(), St
     // ⚠ Shape first, network second. A typo in the address or the code must say so immediately
     // rather than after a 20-second timeout against something that was never a server.
     let server = validate::normalize_server_url(&req.server_url).ok_or("invalid_server_url")?;
-    if !is_enrollment_code(&req.code) {
+    // A one-time code (`XXXX-XXXX`), or an enrollment KEY (#328: an ephemeral desktop, FR-14.19).
+    if !is_enrollment_code(&req.code) && !enroll::is_enrollment_key(&req.code) {
         return Err("invalid_code".into());
     }
 
@@ -877,6 +882,7 @@ impl Default for RegistrationSnapshot {
                 state: "not_registered".into(),
                 desktop_id: None,
                 org_slug: None,
+                ephemeral: false,
             },
             key_storage: keystore::KeyStorage::None,
             devices: vec![],
@@ -918,6 +924,7 @@ fn registration_status() -> RegistrationSnapshot {
             state: state.into(),
             desktop_id: (!stored.desktop_id.is_empty()).then(|| stored.desktop_id.clone()),
             org_slug: (!stored.org_name.is_empty()).then(|| stored.org_name.clone()),
+            ephemeral: stored.ephemeral,
         },
         key_storage: storage,
         devices: stored.fiscal_device_ids.clone(),
@@ -1021,7 +1028,13 @@ fn start_presence(app: &AppHandle) {
                     // list on the Desktops page instead of typing it from memory.
                     let ports = bridge::visible_ports();
                     match enroll::report_self(&url, &version, &ports) {
-                        Ok(()) => reporter.state::<AppState>().logger.info("presence: self reported"),
+                        Ok(None) => reporter.state::<AppState>().logger.info("presence: self reported"),
+                        // #328: an admin's assignment since the last report. Open LGR lands there
+                        // from now on; a window already open is left where its user is.
+                        Ok(Some(path)) => reporter.state::<AppState>().logger.info(&format!(
+                            "presence: self reported; the start path is now {}",
+                            if path.is_empty() { "/ (none assigned)" } else { path.as_str() }
+                        )),
                         Err(e) => reporter
                             .state::<AppState>()
                             .logger
@@ -1089,6 +1102,10 @@ fn start_presence(app: &AppHandle) {
                         presence::DisconnectReason::Unreachable => st
                             .logger
                             .warn("presence: the server did not answer; retrying with backoff"),
+                        // #328: the line the first field lane looked for and never found.
+                        presence::DisconnectReason::Silent => st.logger.warn(
+                            "presence: the server said nothing for 75 s; the link is dead, reconnecting",
+                        ),
                         presence::DisconnectReason::Closed => {
                             st.logger.info("presence: socket closed, reconnecting")
                         }
@@ -1109,7 +1126,8 @@ fn start_presence(app: &AppHandle) {
 
                 // FR-20.28 — a paired master that no longer answers where it was is looked for by
                 // its CA, after three tries in a row (seconds, on presence's backoff).
-                if reason == presence::DisconnectReason::Unreachable {
+                // A link that went silent counts too: a master that moved address goes quiet first.
+                if matches!(reason, presence::DisconnectReason::Unreachable | presence::DisconnectReason::Silent) {
                     unreachable_in_a_row += 1;
                     if unreachable_in_a_row >= 3 {
                         maybe_refind_master(&handle);
@@ -1475,6 +1493,7 @@ fn follow_repoint(app: &AppHandle, instruction: &str, name: &str) {
                 )),
             }
             prepare_exit(app);
+            RESTARTING.store(true, std::sync::atomic::Ordering::SeqCst);
             app.restart();
         }
         Err((server, reason)) => {
@@ -1518,6 +1537,39 @@ fn quit(app: &AppHandle) {
     prepare_exit(app);
     app.state::<AppState>().logger.info("quitting");
     app.exit(0);
+}
+
+/// FR-14.19, #328 — an ephemeral desktop removes its own row on a clean shutdown: a Quit, or the OS
+/// ending the session (tao turns `WM_ENDSESSION` into the loop's end, and so `RunEvent::Exit`,
+/// before the process goes). A machine that cannot reach its hub in time leaves the row to the
+/// hub's reaper.
+fn leave_if_ephemeral(app: &AppHandle) {
+    let Some(st) = app.try_state::<AppState>() else { return };
+    let Ok(dir) = keystore::secure_dir() else { return };
+    let stored = keystore::load(&dir);
+    let registered = !stored.desktop_id.is_empty() && !stored.revoked;
+    let started = st.started.load(std::sync::atomic::Ordering::SeqCst);
+    if !should_unregister(stored.ephemeral, registered, started, RESTARTING.load(std::sync::atomic::Ordering::SeqCst)) {
+        return;
+    }
+    let server = settings::load(app).server_url;
+    match enroll::unregister_self(&server, std::time::Duration::from_secs(2)) {
+        Ok(()) => st.logger.info("ephemeral: unregistered from the hub on a clean shutdown"),
+        Err(e) => st
+            .logger
+            .warn(&format!("ephemeral: could not unregister ({e}); the hub's reaper removes the row")),
+    }
+}
+
+/// Whether this exit is an ephemeral desktop leaving. Pure, so the whole rule is one table test.
+///
+/// ⚠ Never on a RESTART (an update, a re-point): the same desktop comes straight back, and roomler
+/// learned that an unregister there turns an update into a re-enrollment (FR-51,
+/// `should_self_unenroll`). ⚠ And only from a process that started this registration's services:
+/// a second instance, told to hand over to the first and exit, must not take the first one's row
+/// with it.
+fn should_unregister(ephemeral: bool, registered: bool, started: bool, restarting: bool) -> bool {
+    ephemeral && registered && started && !restarting
 }
 
 fn main() {
@@ -1698,7 +1750,14 @@ fn main() {
                 api.prevent_close();
             }
         })
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!())
+        .map(|app| {
+            app.run(|handle, event| {
+                if let tauri::RunEvent::Exit = event {
+                    leave_if_ephemeral(handle);
+                }
+            })
+        });
 
     if let Err(e) = result {
         let msg = format!("Application failed to start: {e}");
@@ -1908,5 +1967,30 @@ fn windows_message_box(msg: &str) {
             ) -> i32;
         }
         MessageBoxA(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), 0x10);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// FR-14.19, #328 — the whole rule, as roomler tests `should_self_unenroll`.
+    #[test]
+    fn an_ephemeral_desktop_leaves_only_on_a_real_shutdown() {
+        // (ephemeral, registered, started, restarting) → unregister?
+        let cases = [
+            ((true, true, true, false), true),
+            ((false, true, true, false), false), // a permanent till never removes itself
+            ((true, false, true, false), false), // nothing registered to remove
+            ((true, true, false, false), false), // a second instance handing over to the first
+            ((true, true, true, true), false),   // restarting into an update or a re-point
+        ];
+        for ((ephemeral, registered, started, restarting), leaves) in cases {
+            assert_eq!(
+                should_unregister(ephemeral, registered, started, restarting),
+                leaves,
+                "ephemeral={ephemeral} registered={registered} started={started} restarting={restarting}"
+            );
+        }
     }
 }

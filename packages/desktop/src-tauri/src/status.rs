@@ -83,6 +83,8 @@ pub struct Registration {
     pub state: String,
     pub desktop_id: Option<String>,
     pub org_slug: Option<String>,
+    /// FR-14.19, #328 — enrolled with a key: it unregisters itself on a clean shutdown. Additive.
+    pub ephemeral: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -146,7 +148,7 @@ mod tests {
             os: OsInfo::current(),
             server_url: "https://lgrai.app".into(),
             desktop_name: "TILL-1".into(),
-            registration: Registration { state: "not_registered".into(), desktop_id: None, org_slug: None },
+            registration: Registration { state: "not_registered".into(), desktop_id: None, org_slug: None, ephemeral: false },
             bridge: Bridge { supported: true, devices: vec![], fiscal: vec![] },
             autostart: false,
             open_lgr_on_launch: false,

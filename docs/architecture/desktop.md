@@ -107,6 +107,24 @@ and that site could send back a code for its own account (a login CSRF).
   - ⚠ A socket alone proves nothing. A till whose cable is pulled leaves its socket open on the hub
     until the edge times it out (300 s): the first field lane watched a cut desktop read online for
     four minutes. Now it is offline within 90 s of the cut.
+  - The hub sends every authenticated socket a `desktop:tick` every 15 s. A shell up to 0.1.6 sends
+    its heartbeat only when its blocking read returns, so without the tick its heartbeats came at
+    Bun's idle-ping cadence and a connected till read stale (#339).
+  - **The shell keeps its own clock** (#328): reads wait at most 5 s, the heartbeat goes every 30 s
+    whatever arrives, and a link that has said nothing for 75 s is dead (`presence::next`). It logs
+    "the server said nothing for 75 s" and reconnects on the backoff. A dead TCP connection never
+    errors by itself: before this the shell sat in `read()` through a four-minute cut, silent.
+- **The assignment follows the desktop** (#328). `PUT /self`, which the shell sends after every
+  reconnect, answers with the start path and fiscal device ids an admin has assigned NOW. The shell
+  learned them only at enrollment before, so a desktop enrolled with a one-time code always opened
+  `/`.
+- **Ephemeral desktops** (FR-14.19, #328). An enrollment KEY (43 base64url characters, pasted in
+  the code field or in `lgr://enroll?key=`) is sent as `enrollmentKey`, never normalised as a code.
+  - The desktop is ephemeral, and on a clean shutdown (a Quit, or Windows ending the session) it
+    sends `DELETE /self` and forgets the registration.
+  - ⚠ Never on a restart into an update or a re-point (`RESTARTING`), and never from a second
+    instance (`should_unregister`).
+  - The hub's reaper removes a row a desktop could not delete in time.
 - **The Desktops page** lists, revokes, rotates and updates desktops (`desktop.controller.ts`).
   Revoking or rotating a key drops that desktop's fiscal bridge from the server side.
 - **The version floor.** Below `DESKTOP_MIN_VERSION`, the token exchange answers 426

@@ -180,6 +180,7 @@
       "codePlaceholder": "XXXX-XXXX",
       "codeInvalid": "A code looks like XXXX-XXXX.",
       "codeFromLink": "This code came from a link. Check it is the one you were given before continuing.",
+      "codeIsKey": "An enrollment key: this desktop is temporary, and removes itself from the organization when it shuts down.",
       "optionsIntro": "You can change any of this later in Settings.",
       "register": "Register",
       "registering": "Registering…",
