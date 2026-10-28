@@ -20,6 +20,12 @@ interface DefaultAccounts {
   expenseAccountId?: string
   inventoryAccountId?: string
   cogsAccountId?: string
+  /**
+   * #362: where VAT goes — output VAT (sales) and input VAT (purchases). Unset, the tax line falls
+   * back to the revenue / expense account, as every entry did before these existed.
+   */
+  outputVatAccountId?: string
+  inputVatAccountId?: string
 }
 
 interface JournalRef {
@@ -104,6 +110,8 @@ export async function createInvoiceJournalEntry(
     return null
   }
 
+  const taxAccountId = (isOutgoing ? accounts.outputVatAccountId : accounts.inputVatAccountId) || revenueAccountId
+
   const currency = invoice.currency || 'EUR'
   const rate = invoice.exchangeRate || 1
   const lines: JELine[] = []
@@ -125,13 +133,13 @@ export async function createInvoiceJournalEntry(
     lines.push(buildLine(counterpartAccountId, `Receivable: ${invoice.invoiceNumber}`, sign * invoice.total, 0, currency, rate, invoice.contactId))
     lines.push(buildLine(revenueAccountId, `Revenue: ${invoice.invoiceNumber}`, 0, sign * totalRevenue, currency, rate))
     if (totalTax > 0) {
-      lines.push(buildLine(revenueAccountId, `Tax: ${invoice.invoiceNumber}`, 0, sign * totalTax, currency, rate))
+      lines.push(buildLine(taxAccountId, `Tax: ${invoice.invoiceNumber}`, 0, sign * totalTax, currency, rate))
     }
   } else {
     // Incoming: DR Expense / CR Payable + DR Tax
     lines.push(buildLine(revenueAccountId, `Expense: ${invoice.invoiceNumber}`, sign * totalRevenue, 0, currency, rate))
     if (totalTax > 0) {
-      lines.push(buildLine(revenueAccountId, `Tax: ${invoice.invoiceNumber}`, sign * totalTax, 0, currency, rate))
+      lines.push(buildLine(taxAccountId, `Tax: ${invoice.invoiceNumber}`, sign * totalTax, 0, currency, rate))
     }
     lines.push(buildLine(counterpartAccountId, `Payable: ${invoice.invoiceNumber}`, 0, sign * invoice.total, currency, rate, invoice.contactId))
   }
@@ -329,7 +337,8 @@ export async function createMovementValuationEntry(
  * The session's one journal entry (FR-21.2): everything its sales and stornos took and gave back.
  *
  * Built from each row's own figures, so it balances by construction:
- * - revenue is `total − taxTotal` and VAT is `taxTotal`, with the sign of FR-21.1;
+ * - revenue is `total − taxTotal` and VAT is `taxTotal`, with the sign of FR-21.1; the VAT goes to
+ *   `outputVatAccountId` (#362), else to the revenue account as before;
  * - the money is what each row left in the drawer per method (`keptByMethod`): card and other as
  *   paid, cash as the rest of the total. Σ money = Σ total = revenue + VAT, line for line.
  *
@@ -404,7 +413,7 @@ export async function createPOSSessionJournalEntry(
   signed(accounts.receivableAccountId, `POS Card: ${session.sessionNumber}`, money.card, 'debit')
   signed(accounts.receivableAccountId, `POS Other: ${session.sessionNumber}`, money.other, 'debit')
   signed(accounts.revenueAccountId, `POS Revenue: ${session.sessionNumber}`, revenue, 'credit')
-  signed(accounts.revenueAccountId, `POS Tax: ${session.sessionNumber}`, tax, 'credit')
+  signed(accounts.outputVatAccountId || accounts.revenueAccountId, `POS Tax: ${session.sessionNumber}`, tax, 'credit')
 
   // Counted minus expected cash: an overage is money the drawer has and the sales do not explain.
   const difference = round(Number(session.difference) || 0)

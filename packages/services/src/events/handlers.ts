@@ -48,6 +48,8 @@ export async function postInvoiceJournal(payload: { orgId: string; invoiceId: st
       payableAccountId: accountingSettings.defaultPayableAccountId,
       revenueAccountId: accountingSettings.defaultRevenueAccountId,
       expenseAccountId: accountingSettings.defaultExpenseAccountId,
+      outputVatAccountId: accountingSettings.defaultOutputVatAccountId,
+      inputVatAccountId: accountingSettings.defaultInputVatAccountId,
     },
     { journalId },
     accountingSettings.autoPostInvoiceEntries ?? false,
@@ -107,6 +109,7 @@ export async function postPosSessionJournal(payload: { orgId: string; sessionId:
     {
       receivableAccountId: accountingSettings.defaultReceivableAccountId,
       revenueAccountId: accountingSettings.defaultRevenueAccountId,
+      outputVatAccountId: accountingSettings.defaultOutputVatAccountId,
       cashOverShortAccountId: accountingSettings.cashOverShortAccountId,
     },
     { journalId: accountingSettings.defaultSaleJournalId },
