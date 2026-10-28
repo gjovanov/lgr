@@ -111,18 +111,24 @@ test.describe('Stock Validation on Invoicing', () => {
     // Pick a product that genuinely HAS stock, rather than whichever card happens to be first:
     // the point of this test is the sufficient-stock path, and a short product would take the
     // shortfall dialog instead.
+    //
+    // ⚠ By what the form's OWN warehouse can sell (`stockAvailable`, reservations taken off), never
+    // by a stock level's quantity anywhere: in a full run that picked an article the reservation
+    // specs hold (on hand 10, free 0), and the form rightly offered a transfer instead of saving.
     const session = await apiLogin()
-    const levels = await apiGet(session, '/warehouse/stock-level/?size=50')
-    const stocked = (levels.stockLevels ?? levels.items ?? []).find((l: any) => (l.quantity ?? 0) > 5)
-    test.skip(!stocked, 'no stock levels with spare quantity to sell')
+    const { warehouses } = await apiGet(session, '/warehouse/warehouse?size=1000')
+    const wh = warehouses.find((w: any) => w.isDefault) || warehouses[0]
+    const { products } = await apiGet(session, `/trade/pos/catalog?warehouseId=${wh.id || wh._id}&type=goods&size=100`)
+    const stocked = (products || []).find((p: any) => (p.stockAvailable ?? 0) > 5 && p.unitPrice > 0)
+    test.skip(!stocked, 'no article with spare stock in the default warehouse')
 
     await page.goto('/invoicing/cash-sales/new')
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
 
-    await page.getByRole('textbox', { name: /search/i }).first().fill(stocked.productName ?? '')
+    await page.getByRole('textbox', { name: /search/i }).first().fill(stocked.sku || stocked.productName)
     await page.waitForTimeout(800)
 
-    const card = page.getByTestId('register-card').first()
+    const card = page.getByTestId('register-card').filter({ hasText: stocked.productName }).first()
     test.skip(!(await card.isVisible({ timeout: 10000 }).catch(() => false)), 'product not in catalog')
     await card.click()
     await expect(page.locator('[data-testid^="cart-line-"]').first()).toBeVisible()
