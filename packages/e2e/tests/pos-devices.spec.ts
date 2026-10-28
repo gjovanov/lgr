@@ -121,13 +121,16 @@ test.describe('POS Devices', () => {
           // Click Reports tab
           await page.getByRole('tab', { name: /Reports/i }).click()
 
-          // Verify report cards are visible
-          await expect(page.getByText('Daily X-Report')).toBeVisible({ timeout: 5000 })
-          await expect(page.getByText('Daily Z-Report')).toBeVisible()
-          await expect(page.getByText('Operator Report')).toBeVisible()
-          await expect(page.getByText('FM Report by Date')).toBeVisible()
-          await expect(page.getByText('FM Report by Number')).toBeVisible()
-          await expect(page.getByText('Electronic Journal (KLEN)')).toBeVisible()
+          // Verify report cards are visible. ⚠ `exact`: by default getByText matches any substring,
+          // case-insensitively, so „Daily X-Report" also found the card's description („Print daily
+          // X-report …") and failed strict mode. The seed has no device, so this branch never ran
+          // until a spec (cash-register-fiscal) left one behind.
+          await expect(page.getByText('Daily X-Report', { exact: true })).toBeVisible({ timeout: 5000 })
+          await expect(page.getByText('Daily Z-Report', { exact: true })).toBeVisible()
+          await expect(page.getByText('Operator Report', { exact: true })).toBeVisible()
+          await expect(page.getByText('FM Report by Date', { exact: true })).toBeVisible()
+          await expect(page.getByText('FM Report by Number', { exact: true })).toBeVisible()
+          await expect(page.getByText('Electronic Journal (KLEN)', { exact: true })).toBeVisible()
         }
       }
     }
