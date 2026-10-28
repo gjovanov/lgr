@@ -40,6 +40,20 @@ export function localDayStart(date: string, timeZone: string = BULGARIAN_TIME_ZO
   return new Date(t)
 }
 
+/**
+ * The calendar day (`YYYY-MM-DD`) an instant falls on in `timeZone`. Right for both ways a document
+ * keeps its date: a date-only value stored as 00:00 UTC is 02:00/03:00 of the same day in Sofia, and
+ * a till sale's moment of sale is the day the shop rang it — which, from 00:00 to 02:00/03:00 Sofia
+ * time, the UTC date (`toISOString`) names as the day before.
+ */
+export function localDayOf(at: Date | string | number, timeZone: string = BULGARIAN_TIME_ZONE): string {
+  const d = new Date(at)
+  if (Number.isNaN(d.getTime())) return ''
+  const p = new Intl.DateTimeFormat('en-GB', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d)
+  const get = (t: string) => p.find(x => x.type === t)?.value || ''
+  return `${get('year')}-${get('month')}-${get('day')}`
+}
+
 /** The last millisecond of `date` (`YYYY-MM-DD`) in `timeZone`. */
 export function localDayEnd(date: string, timeZone: string = BULGARIAN_TIME_ZONE): Date {
   const m = DATE_ONLY.exec(date)
