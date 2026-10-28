@@ -1078,6 +1078,26 @@ only in a comment is one nobody remembers a month later.
 
 ### Releases
 
-*(Nothing yet — no signed release has been cut. `desktop-v0.1.3` from 2026-03-14 is the
-prototype: unsigned, built before C05's pipeline, and not a release this log covers.)*
+*(`desktop-v0.1.3` from 2026-03-14 is the prototype: unsigned, built before C05's pipeline, and not
+a release this log covers. `desktop-v0.1.5` and `-v0.1.6` were signed and published by a dispatch
+before the field lanes had ever run, so they have no entry. 0.1.7 is the first release with one.)*
+
+#### desktop-v0.1.7 (2026-10-28), against the hub's v20261028-d357f0255e6d
+
+**Lanes:** the FR-14 field lanes (lgr-deploy `vmtest/`, `win11/nsis/user` on zeus, org `lgr-fieldtest` on lgrai.app). They ran against the signed **draft** release's own bytes, before anything was offered to the fleet. Each finding comes from vmtest T-0 on 0.1.6 (#328), or from #332's deploy.
+
+| # | Finding | Baseline (red) | Fixed | Evidence |
+|---|---|---|---|---|
+| 1 | **The shell never noticed a dead link** (FR-14.21). The presence socket had no read timeout: the loop sat in `read()` until the server spoke, the 30 s heartbeat went out only when a message arrived, and a cut was never seen. | 0.1.6, `base016-code` (2026-10-28): with the guest's link cut, *"the app never noticed the link was gone: no reconnect, and no 'did not answer' or 'socket closed' line, within 360 s of the cut"*. T-0 run 5 saw the same in a four-minute cut, and the dead socket simply resumed. | 0.1.7, `v017-code` and `v017-key`: *"noticed the cut, and authenticated again after it"*. | `presence.rs` `next()`: 5 s reads; the 30 s heartbeat on its own clock; 75 s of silence is dead (`silent`). #340 |
+| 2 | **Connected tills read stale or offline once #332 was deployed** (hub). A 0.1.6 shell heartbeats only when its blocking read returns. | lgrai.app, right before the deploy: a connected desktop's `lastSeenAt` went from 51 s to 91 s old with no heartbeat between. | After #339, the same 0.1.6 desktop, sampled every 10 s for 2 min: at most 35 s. With a cut, the hub shows `online@0s stale@66–71s offline@81–86s` (*"offline 81 s after the cut"*). Before #332 it read online for four minutes. | #339: the hub's `desktop:tick` every 15 s wakes the read. #332: `online` needs a heartbeat. |
+| 3 | **The start path was learned only at enrollment** (FR-14.12). | 0.1.6, `base016-code2`: the hub assigned `/pos/` after enrollment, and `open-lgr` *"opened https://lgrai.app/, and the shell never learned the start path the hub assigned after its enrollment (/pos/)"*. Every T-0 run had `open-lgr` NA (never assigned). | 0.1.7, `v017-code` and `v017-key`: the hub assigned `/pos/` after enrollment; after the reconnect, `open-lgr` *"opened https://lgrai.app/pos/"*. | `PUT /self` answers with the assignment; the shell refreshes it after every reconnect. #340 |
+| 4 | **No ephemeral enrollment key** (FR-14.19). The shell sent only `code`, normalised (uppercase, O→0, `-`/`_` dropped). | 0.1.6, `base016-key`: *"onboarding did not reach step 4"* with a one-use key. | 0.1.7, `v017-key`: `register` PASS with `ephemeral=True`. **`ephemeral-cleanup` PASS:** *"the row went with the guest"* on a clean guest shutdown (Windows ending the session → `RunEvent::Exit` → `DELETE /self`). | `enroll::is_enrollment_key`; `should_unregister`. #340 |
+
+**Also on 0.1.7:**
+- `install`, `signature` (G ROX LTD, timestamped), `local-storage`, `no-ipc`, `print`, `unreachable` and `revoke`: PASS.
+- `ubuntu/deb/user`: install and the `.asc` PASS; the rest NA (WebKitGTK has no CDP), as on 0.1.6.
+- `desktop-walk` **failed in the first two 0.1.7 runs** (*"settings is pixel-identical to overview"*, then *"onboarding … to settings"*), with every 0.1.6 run passing. The cause was the **harness**: the walk captured the whole screen, where the Start menu and `lgr-web` sat in front (the screen captures of two views were byte-identical). 0.1.7 learned the assigned start path, so `lgr-web` showed a static `/pos/`; 0.1.6 still showed `/`, whose frames happened to differ. Captured from the shell's own window (`PrintWindow`, `v017-walk`), all five views are distinct, and its Settings view shows *"Start page /pos/ · Set by your administrator"*. The harness fix is lgr-deploy `feat/vmtest-328`.
+- `win11/msi/admin`: install, signature and local storage PASS. Every window-driven cell fails with no CDP endpoint, **on 0.1.6 too** (`base016-msi`): the harness's elevated path, not the build (#341).
+
+Published 2026-10-28 11:31 UTC from the draft the lanes ran against. The rebuild its tag triggered was cancelled, so the published assets are the tested bytes. Offered to the fleet by lgr-deploy `ec4ed81` (`DESKTOP_RELEASE_VERSION` 0.1.7).
 
