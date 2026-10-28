@@ -122,6 +122,21 @@ impl Root {
     }
 }
 
+/// The `bin` whose `mongod` a home runs, for the preflight's runtime check. Run from the installer's
+/// copy (`installer/`, which has no `bin/`: how an operator runs `lgr-server preflight`), that is
+/// the newest version installed beside it.
+pub fn runtime_bin(home: &Path) -> PathBuf {
+    let bin = home.join("bin");
+    if !bin.is_dir() && home.file_name().is_some_and(|n| n == INSTALLER_DIR) {
+        if let Some(root) = home.parent().map(|p| Root(p.to_path_buf())) {
+            if let Some(newest) = root.installed().first() {
+                return root.version_dir(newest).join("bin");
+            }
+        }
+    }
+    bin
+}
+
 /// `HOME.json`: what a home is (`scripts/assemble-server-home.ts`). Its `files` counts itself; its
 /// `bytes` are everything else's.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -624,6 +639,22 @@ mod tests {
 
     fn state(current: &str, lkg: &str) -> UpdateState {
         UpdateState { current: current.into(), last_known_good: lkg.into(), ..Default::default() }
+    }
+
+    /// `installer/lgr-server preflight`: the installer's copy has no `bin/`, the version that runs
+    /// mongod does.
+    #[test]
+    fn the_installers_copy_answers_for_the_newest_installed_version() {
+        let t = tempfile::tempdir().unwrap();
+        let installer = t.path().join(INSTALLER_DIR);
+        std::fs::create_dir_all(&installer).unwrap();
+        for v in ["0.1.0", "0.1.1"] {
+            std::fs::create_dir_all(t.path().join(VERSIONS_DIR).join(v).join("bin")).unwrap();
+        }
+        assert_eq!(runtime_bin(&installer), t.path().join(VERSIONS_DIR).join("0.1.1").join("bin"));
+        // A version's own home answers for itself, whatever else is installed.
+        let old = t.path().join(VERSIONS_DIR).join("0.1.0");
+        assert_eq!(runtime_bin(&old), old.join("bin"));
     }
 
     #[test]

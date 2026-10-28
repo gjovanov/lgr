@@ -130,7 +130,30 @@ jobs:
         with:
           workspaces: packages/server
       - name: Build the supervisor
+        # ⚠ Static CRT. The MSI's InstallVersion runs the installer's own lgr-server.exe before any
+        # version is unpacked, so it must not need the MSVC runtime (vcruntime140.dll): a clean Windows
+        # has none. server-v0.1.0 linked it dynamically, and the first field lane (vmtest T-3, a clean
+        # Win11) failed the install with 1603, STATUS_DLL_NOT_FOUND. This runner HAS the runtime, so the
+        # install below passed regardless; the next step is what catches it here. roomler's standalone
+        # EXEs do the same (field report 2026-07-28).
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
         run: cargo build --release --locked --manifest-path packages/server/Cargo.toml
+      - name: The supervisor needs no C runtime
+        shell: pwsh
+        run: |
+          # The IMPORT TABLE, never a scan for DLL names: the binary also names vcruntime140.dll and
+          # msvcp140.dll as data (the runtime files it carries for mongod), which a scan cannot tell
+          # from an import.
+          $exe = 'packages/server/target/release/lgr-server.exe'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $dumpbin = & $vswhere -latest -products * -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
+          if (-not $dumpbin) { Write-Error 'no dumpbin on this runner'; exit 1 }
+          $deps = (& $dumpbin /nologo /dependents $exe) -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '\.dll$' }
+          "lgr-server.exe imports: $($deps -join ', ')"
+          $crt = $deps | Where-Object { $_ -match '^(?i)(vcruntime140(_1)?|msvcp140(_\d)?|ucrtbase|api-ms-win-crt-.+)\.dll$' }
+          if ($crt) { Write-Error "lgr-server.exe imports the C runtime, which a clean Windows does not have: $($crt -join ', ')"; exit 1 }
+          'lgr-server.exe imports no C runtime'
 
       # ⚠ Signed BEFORE the MSI is built, and no step after this one runs cargo.
       - name: Sign the supervisor
@@ -285,6 +308,10 @@ jobs:
           foreach ($f in 'installer\lgr-server.exe', 'installer\lgr-server-bundle.zip', "versions\$v1\lgr-server.exe", "versions\$v1\HOME.json", "versions\$v1\bin\bun.exe", "versions\$v1\bin\mongod.exe", "versions\$v1\bin\vcruntime140.dll", "versions\$v1\package\server-manifest.json", "versions\$v1\chrome\chrome-headless-shell.exe", "versions\$v1\licences\mongodb\LICENSE-Community.txt") {
             if (-not (Test-Path "$root\$f")) { Fail "not installed: $f" }
           }
+          # The preflight finds mongod's runtime in the version's bin\: this runner also has it in
+          # System32, which a clean Windows does not. Asked of the installer's copy, as an operator asks.
+          $vc = & $exe preflight --json | ConvertFrom-Json | Where-Object { $_.name -eq 'vc-runtime' }
+          if (-not $vc.ok -or $vc.detail -notlike "*ships with the server*\versions\$v1\bin*") { Fail "the preflight's runtime check: $($vc | ConvertTo-Json -Compress)" }
           $svc = Get-CimInstance Win32_Service -Filter "Name='LGRServer'"
           if (-not $svc) { Fail 'no LGRServer service' }
           if ($svc.StartName -ne 'NT SERVICE\LGRServer') { Fail "the service runs as $($svc.StartName)" }

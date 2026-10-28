@@ -2429,7 +2429,19 @@ a signed per-machine **MSI** (`packages/server/wix/main.wxs`), a **.deb** (`pack
 release GPG key on every asset; SLSA provenance. A `server-v*` tag publishes (a prerelease for now);
 a pull request touching it builds unsigned and installs.
 - Bun and `mongod` are pinned by their vendors' sha256 (`packages/server/runtime.lock.json`, mongod =
-  global's 7.0.30); Chrome by `pdf-browser.lock.json`. On Windows the VC++ runtime ships app-local.
+  global's 7.0.30); Chrome by `pdf-browser.lock.json`. On Windows the VC++ runtime ships app-local,
+  for `mongod`, inside the version.
+- ⚠ **`lgr-server.exe` is built with a static CRT** (`RUSTFLAGS=-C target-feature=+crt-static`), and a
+  release step refuses an EXE that names the C runtime. The MSI runs the installer's own copy
+  (`update install-bundle`) BEFORE any version, with its app-local runtime, is unpacked. server-v0.1.0
+  linked it dynamically: the first field lane (vmtest T-3, a clean Win11) failed the install with 1603,
+  STATUS_DLL_NOT_FOUND. The release runner has the runtime installed, so CI's own MSI install passed.
+- ⚠ **The preflight looks for that runtime where `mongod` loads it** (`preflight::vc_runtime_in`): the
+  version's `bin\` first, then System32, DLL by DLL. It used to look in System32 alone, so on a clean
+  Windows the supervisor refused every start (exit 7, which the event log renders as "The storage
+  control blocks were destroyed") while all three DLLs sat in `bin\`. Found by the same lane, on
+  0.1.1's first build. `install::runtime_bin` answers for `installer\lgr-server.exe`, which has no
+  `bin\`.
 - ⚠ The MSI creates the service with a deferred custom action, `service install --no-start`, and
   starts it with ServiceControl. `install` is idempotent (an upgrade runs it again).
 - ⚠ The .deb's postinst never starts, stops or enables anything. `packaging/linux/lgr-server.service`
