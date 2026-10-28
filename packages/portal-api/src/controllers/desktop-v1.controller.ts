@@ -364,12 +364,27 @@ export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
     }
   })
 
-  /** Report version, OS, capabilities and visible serial ports (FR-14.21). */
+  /**
+   * Report version, OS, capabilities and visible serial ports (FR-14.21), and answer with what an
+   * admin has assigned to this desktop now.
+   *
+   * ⚠ #328: the shell learned its start path only at enrollment, so an admin's later assignment
+   * (`PUT /org/:orgId/desktops/:id {startPath}`) never reached a running till, and a desktop
+   * enrolled with a one-time code (which carries none) always opened `/`. The shell reports itself
+   * after every reconnect, so this is where it catches up. An older shell ignores the field.
+   */
   .put(
     '/self',
     async ({ body, desktop, headers }: any) => {
       await reportSelf(desktop, { ...body, ip: clientIp(headers) })
-      return { ok: true, serverTime: new Date().toISOString() }
+      return {
+        ok: true,
+        serverTime: new Date().toISOString(),
+        assignment: {
+          fiscalDeviceIds: (desktop.fiscalDeviceIds ?? []).map(String),
+          startPath: desktop.startPath ?? '',
+        },
+      }
     },
     {
       body: t.Object({

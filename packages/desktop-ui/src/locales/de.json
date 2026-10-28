@@ -180,6 +180,7 @@
       "codePlaceholder": "XXXX-XXXX",
       "codeInvalid": "Ein Code sieht aus wie XXXX-XXXX.",
       "codeFromLink": "Dieser Code kam aus einem Link. Prüfen Sie vor dem Fortfahren, dass es der Ihnen genannte ist.",
+      "codeIsKey": "Ein Registrierungsschlüssel: Dieser Desktop ist vorübergehend und entfernt sich beim Herunterfahren aus der Organisation.",
       "optionsIntro": "All das lässt sich später in den Einstellungen ändern.",
       "register": "Registrieren",
       "registering": "Registrierung läuft…",

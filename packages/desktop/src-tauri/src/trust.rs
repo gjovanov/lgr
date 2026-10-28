@@ -361,8 +361,9 @@ pub fn desktop_headers(
 /// A WebSocket to `url` (`wss://…`) with the same trust as [`client_for`]: pinned to the master's CA,
 /// straight to it and carrying its desktop credential, or through the OS store for anything else.
 ///
-/// ⚠ The socket comes back with NO read timeout, as `tungstenite::connect`'s does: presence blocks on
-/// its reads, and a timeout left over from the handshake would end its connection every few seconds.
+/// ⚠ The socket comes back with NO read timeout, as `tungstenite::connect`'s does. Its user sets its
+/// own and treats running out of time as "nothing yet" (`presence.rs`, #328): one left over from the
+/// handshake, read anywhere else as a failure, would end the connection every few seconds.
 pub fn ws_connect(url: &str, token: &str) -> Result<Socket, String> {
     use tungstenite::client::IntoClientRequest;
     let Some(pin) = pin_for(url) else {

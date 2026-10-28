@@ -439,7 +439,13 @@ pub fn install(app: &tauri::AppHandle, server_url: &str, version: &str) -> Resul
         .logger
         .info(&format!("auto-update: {version} verified (minisign + {proven})"));
 
-    update.install(bytes).map_err(|e| format!("install_failed: {e}"))?;
+    // ⚠ Before the install: on Windows the plugin exits the process from inside it, and an ephemeral
+    // desktop restarting into its update must not unregister on the way (`should_unregister`).
+    crate::RESTARTING.store(true, std::sync::atomic::Ordering::SeqCst);
+    update.install(bytes).map_err(|e| {
+        crate::RESTARTING.store(false, std::sync::atomic::Ordering::SeqCst);
+        format!("install_failed: {e}")
+    })?;
 
     // Only reached where the plugin does not exit for us (macOS). The new bundle is in place; the
     // running process is still the old one until it restarts.

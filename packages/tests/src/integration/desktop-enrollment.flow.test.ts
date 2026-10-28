@@ -51,6 +51,8 @@ describe('enrollment codes', () => {
     expect((row as any).status).toBe('active')
     expect((row as any).ephemeral).toBe(false)
     expect((row as any).keyEpoch).toBe(1)
+    // #328: the shell is told, not left to infer it from what it sent.
+    expect(res.ephemeral).toBe(false)
   })
 
   it('never stores the code in plain text', async () => {
@@ -232,6 +234,8 @@ describe('ephemeral enrollment keys', () => {
     const row: any = await Desktop.findById(res.desktopId).lean()
     expect(row.ephemeral).toBe(true)
     expect(row.ephemeralTtlSec).toBe(900)
+    // #328: the shell is told, so it can unregister itself on a clean shutdown (FR-14.19).
+    expect(res.ephemeral).toBe(true)
 
     const uses = await DesktopEnrollmentKeyUse.find({ orgId }).lean()
     expect(uses).toHaveLength(1)

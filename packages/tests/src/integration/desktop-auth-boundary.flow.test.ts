@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { config } from 'config'
+import { Desktop } from 'db/models'
+import { mongoose } from 'db/connection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { makeDesktopStub, enrollBody } from '../helpers/desktop-stub'
@@ -126,6 +128,24 @@ describe('the desktop guard is deny-by-default', () => {
     })
     expect(res.status).toBe(200)
     expect((await res.json()).ok).toBe(true)
+  })
+
+  it('answers PUT /self with what an admin has assigned now (#328)', async () => {
+    // ⚠ The shell learned its start path only at enrollment, so an admin's later assignment never
+    // reached a running till. It reports itself after every reconnect: this is where it catches up.
+    const { desktopId, desktopToken } = await seedAll()
+    const put = async () =>
+      (await call('/api/desktop/v1/self', {
+        method: 'PUT',
+        headers: { ...auth(desktopToken), 'content-type': 'application/json' },
+        body: JSON.stringify({ appVersion: '0.2.0' }),
+      })).json()
+
+    expect((await put()).assignment).toEqual({ fiscalDeviceIds: [], startPath: '' })
+
+    const deviceId = new mongoose.Types.ObjectId()
+    await Desktop.updateOne({ _id: desktopId }, { $set: { startPath: '/pos/terminal', fiscalDeviceIds: [deviceId] } })
+    expect((await put()).assignment).toEqual({ fiscalDeviceIds: [String(deviceId)], startPath: '/pos/terminal' })
   })
 
   it('refuses a desktop token forged with the USER secret', async () => {

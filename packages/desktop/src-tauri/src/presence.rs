@@ -8,6 +8,12 @@
 //! ⚠ **One background thread, blocking.** The shell has no async runtime since local mode was
 //! retired, and adding one for a single socket that sends a message every 30 s would be a
 //! dependency and a scheduler for nothing.
+//!
+//! ⚠ **The shell keeps its own clock** (#328). Its reads used to block until the server said
+//! something, so the 30 s heartbeat went out only when a message happened to arrive, and a dead
+//! link was never noticed: the first field lane cut a till's link for four minutes and this loop
+//! sat in `read()` the whole time, logging nothing. Reads now wait at most `READ_SLICE`, the
+//! heartbeat keeps its own time, and a link silent for `SILENT_AFTER` is dead (`next`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -105,6 +111,57 @@ pub fn backoff_secs(attempt: u32) -> u64 {
     1u64.checked_shl(attempt.min(10)).unwrap_or(MAX).min(MAX)
 }
 
+/// FR-14.21 — the heartbeat, on the shell's own clock.
+pub const HEARTBEAT: Duration = Duration::from_secs(30);
+/// How long one read waits before the loop looks at its clock again.
+const READ_SLICE: Duration = Duration::from_secs(5);
+/// A link that has said NOTHING for this long is dead: two heartbeats gone unanswered, and the
+/// hub's own tick (every 15 s) missed five times over.
+pub const SILENT_AFTER: Duration = Duration::from_secs(75);
+
+/// What the presence loop does next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Next {
+    /// Wait for the server (one `READ_SLICE` at most).
+    Listen,
+    /// Send the heartbeat that is due.
+    Beat,
+    /// The link went silent: end the session, and the backoff reconnects.
+    Dead,
+}
+
+/// The loop's decision, from how long ago the server was last heard and the last heartbeat went.
+///
+/// ⚠ Pure and tested, like `backoff_secs`. Dead wins over a heartbeat: a beat into a link that has
+/// said nothing for 75 s goes nowhere, and only a new connection can tell whether the hub is back.
+pub fn next(since_heard: Duration, since_beat: Duration) -> Next {
+    if since_heard >= SILENT_AFTER {
+        Next::Dead
+    } else if since_beat >= HEARTBEAT {
+        Next::Beat
+    } else {
+        Next::Listen
+    }
+}
+
+/// A read that only ran out of time. ⚠ Unix says `WouldBlock`, Windows `TimedOut`, for the same
+/// read deadline: both mean "nothing yet", never "the link failed".
+fn timed_out(e: &tungstenite::Error) -> bool {
+    matches!(e, tungstenite::Error::Io(io) if matches!(io.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut))
+}
+
+/// The read deadline on the socket's TCP stream, whichever TLS it runs over: the OS store's
+/// (native-tls) for lgrai.app, a master's pin (rustls), or none on a dev hub.
+fn set_read_timeout(socket: &crate::trust::Socket, t: Option<Duration>) -> std::io::Result<()> {
+    use tungstenite::stream::MaybeTlsStream;
+    match socket.get_ref() {
+        MaybeTlsStream::Plain(s) => s.set_read_timeout(t),
+        MaybeTlsStream::NativeTls(s) => s.get_ref().set_read_timeout(t),
+        MaybeTlsStream::Rustls(s) => s.get_ref().set_read_timeout(t),
+        _ => Ok(()),
+    }
+}
+
 /// Is the server answering? A cheap, unauthenticated probe.
 ///
 /// ⚠ Any HTTP answer counts, including 401 and 404. The question is "is there a server there",
@@ -150,6 +207,10 @@ pub enum DisconnectReason {
     Closed,
     /// The server did not answer at all.
     Unreachable,
+    /// #328 — the socket was up and the server stopped saying anything for `SILENT_AFTER`: a dead
+    /// link (a pulled cable, a NAT that forgot the connection, a VPN rerouting under it). A dead TCP
+    /// connection never errors by itself, which is why this has to be noticed rather than awaited.
+    Silent,
     /// The server answered and refused the credential. Backs off hard - see `Outcome::Refused`.
     Refused,
     /// ⚠ **This machine never got as far as asking.** Minting the socket's credential fails
@@ -165,6 +226,7 @@ impl DisconnectReason {
         match self {
             DisconnectReason::Closed => "closed",
             DisconnectReason::Unreachable => "unreachable",
+            DisconnectReason::Silent => "silent",
             DisconnectReason::Refused => "refused",
             DisconnectReason::NotConfigured => "not_configured",
         }
@@ -193,6 +255,12 @@ pub fn run(
             Outcome::Unreachable => {
                 state.set(Link::Unreachable);
                 on_event(Event::Disconnected(DisconnectReason::Unreachable));
+                attempt = attempt.saturating_add(1);
+            }
+            Outcome::Silent => {
+                // The Overview and the bridge stop showing a link that is not there.
+                state.set(Link::Unreachable);
+                on_event(Event::Disconnected(DisconnectReason::Silent));
                 attempt = attempt.saturating_add(1);
             }
             Outcome::Refused => {
@@ -225,6 +293,7 @@ pub fn run(
 enum Outcome {
     Closed,
     Unreachable,
+    Silent,
     Refused,
     NotConfigured,
 }
@@ -298,30 +367,49 @@ fn connect_once(
         return Outcome::Unreachable;
     }
 
+    // #328: a read never waits longer than READ_SLICE, so the clock below is the loop's own.
+    if set_read_timeout(&socket, Some(READ_SLICE)).is_err() {
+        return Outcome::Unreachable;
+    }
+
     let mut last_beat = Instant::now();
+    let mut last_heard = Instant::now();
     loop {
         if stop.load(Ordering::SeqCst) {
             let _ = socket.close(None);
             return Outcome::Closed;
         }
 
-        // FR-14.21 — a 30 s heartbeat carrying this machine's wall clock, so the hub can record
-        // `clockSkewMs` and an admin can SEE a till whose clock is wrong.
-        if last_beat.elapsed() >= Duration::from_secs(30) {
-            let now = chrono::Utc::now().to_rfc3339();
-            if socket
-                .send(Message::Text(
-                    serde_json::json!({ "type": "desktop:heartbeat", "clientTime": now }).to_string(),
-                ))
-                .is_err()
-            {
-                return Outcome::Unreachable;
+        match next(last_heard.elapsed(), last_beat.elapsed()) {
+            Next::Dead => return Outcome::Silent,
+            // FR-14.21 — a 30 s heartbeat carrying this machine's wall clock, so the hub can record
+            // `clockSkewMs` and an admin can SEE a till whose clock is wrong.
+            Next::Beat => {
+                let now = chrono::Utc::now().to_rfc3339();
+                if socket
+                    .send(Message::Text(
+                        serde_json::json!({ "type": "desktop:heartbeat", "clientTime": now }).to_string(),
+                    ))
+                    .is_err()
+                {
+                    return Outcome::Unreachable;
+                }
+                last_beat = Instant::now();
             }
-            last_beat = Instant::now();
+            Next::Listen => {}
         }
 
-        match socket.read() {
-            Ok(Message::Text(text)) => {
+        let message = match socket.read() {
+            Ok(m) => {
+                // Anything at all is the link alive: an ack, the hub's tick, a ping.
+                last_heard = Instant::now();
+                m
+            }
+            Err(e) if timed_out(&e) => continue,
+            Err(_) => return Outcome::Unreachable,
+        };
+        match message {
+            Message::Text(text) => {
                 match classify(&text) {
                     Some(Incoming::Authenticated) => {
                         state.set(Link::Connected);
@@ -340,12 +428,13 @@ fn connect_once(
                         let _ = socket.close(None);
                         return Outcome::Refused;
                     }
+                    // The ack, the hub's `desktop:tick` and anything newer than this build: the
+                    // link is alive, which `last_heard` already recorded.
                     Some(Incoming::HeartbeatAck) | None => {}
                 }
             }
-            Ok(Message::Close(_)) => return Outcome::Closed,
-            Ok(_) => {}
-            Err(_) => return Outcome::Unreachable,
+            Message::Close(_) => return Outcome::Closed,
+            _ => {}
         }
     }
 }
@@ -487,6 +576,7 @@ mod tests {
         let all = [
             DisconnectReason::Closed,
             DisconnectReason::Unreachable,
+            DisconnectReason::Silent,
             DisconnectReason::Refused,
             DisconnectReason::NotConfigured,
         ];
@@ -496,6 +586,35 @@ mod tests {
         uniq.dedup();
         assert_eq!(uniq.len(), labels.len(), "duplicate label in {labels:?}");
         assert!(labels.iter().all(|l| !l.is_empty()));
+    }
+
+    /// #328 — the first field lane cut a till's link for four minutes and the shell never noticed.
+    #[test]
+    fn a_link_that_says_nothing_for_75_seconds_is_dead() {
+        let s = Duration::from_secs;
+        assert_eq!(next(s(0), s(0)), Next::Listen);
+        assert_eq!(next(s(29), s(29)), Next::Listen);
+        assert_eq!(next(s(5), s(30)), Next::Beat, "the heartbeat keeps its own time, whatever arrives");
+        assert_eq!(next(s(74), s(10)), Next::Listen, "a missed ack is not yet a dead link");
+        assert_eq!(next(s(75), s(10)), Next::Dead);
+        assert_eq!(next(s(90), s(30)), Next::Dead, "dead wins over a beat that would go nowhere");
+    }
+
+    #[test]
+    fn the_clock_allows_two_unanswered_heartbeats_and_reads_often_enough_to_keep_it() {
+        assert!(SILENT_AFTER > HEARTBEAT * 2, "one lost ack must never end a session");
+        assert!(READ_SLICE < HEARTBEAT, "a read must not outwait the heartbeat");
+        assert!(READ_SLICE <= Duration::from_secs(5), "a quitting app waits for at most one read");
+    }
+
+    #[test]
+    fn a_read_that_ran_out_of_time_is_not_a_failed_link() {
+        use std::io::{Error, ErrorKind};
+        // Unix reports a read deadline as WouldBlock, Windows as TimedOut: both are "nothing yet".
+        assert!(timed_out(&tungstenite::Error::Io(Error::from(ErrorKind::WouldBlock))));
+        assert!(timed_out(&tungstenite::Error::Io(Error::from(ErrorKind::TimedOut))));
+        assert!(!timed_out(&tungstenite::Error::Io(Error::from(ErrorKind::ConnectionReset))));
+        assert!(!timed_out(&tungstenite::Error::ConnectionClosed));
     }
 
     #[test]
