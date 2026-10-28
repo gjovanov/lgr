@@ -14,8 +14,8 @@ turned up on the way that the spec does not say.
 **Every acceptance criterion in the spec's §9 is ticked**, each with its evidence. #171 is closed.
 
 - **The whole e2e suite passes:** every project, the OCR and Eltrade stubs up, a fresh seeded
-  database, master `eb002d50` plus #356: 401 passed, 0 failed, 17 skipped by their own conditions.
-  The last four failures were wrong specs, not product bugs (#356):
+  database, master `eb002d50` plus #357: 401 passed, 0 failed, 17 skipped by their own conditions.
+  The last four failures were wrong specs, not product bugs (#357):
   - `desktops-security.spec` named `POST /desktops/codes`, a route that never existed. The code is
     minted at `/enrollment-codes`. It now covers all 13 of the controller's routes.
   - `backup.spec:69` expected the restore section, which since 2026-09-10 renders only for a backup
