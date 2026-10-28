@@ -51,11 +51,7 @@ impl NodeKey {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 let pkcs8 = Ed25519KeyPair::generate_pkcs8(&SystemRandom::new()).map_err(|_| anyhow::anyhow!("no randomness for a node key"))?;
                 let (protection, stored) = seal(pkcs8.as_ref())?;
-                std::fs::create_dir_all(file.parent().expect("keys/ has a parent"))?;
-                let tmp = file.with_extension("tmp");
-                let _ = std::fs::remove_file(&tmp);
-                crate::config::write_private(&tmp, &serde_json::json!({ "v": 1, "protection": protection, "key": B64.encode(stored) }).to_string())?;
-                std::fs::rename(&tmp, &file).with_context(|| format!("writing {}", file.display()))?;
+                crate::config::write_private(&file, &serde_json::json!({ "v": 1, "protection": protection, "key": B64.encode(stored) }).to_string())?;
                 let pair = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).map_err(|e| anyhow::anyhow!("a fresh node key does not load: {e}"))?;
                 tracing::info!(protection, "this master's node key was made");
                 Ok(Self { pair })

@@ -12,7 +12,7 @@
 //! changes, and it is the API that restricts a till (`master-licence.service.ts`); this check is
 //! for the operator, who learns at import that a file is wrong, and for global's bugs.
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 use base64::Engine;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -145,10 +145,7 @@ pub fn keep_with(data: &Path, jws: &str, this_node: &str, keys: &[(String, Vec<u
             }
         }
     }
-    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    let tmp = dir.join(format!("{}.{:08x}.tmp", licence.org_id, rand::random::<u32>()));
-    std::fs::write(&tmp, jws).with_context(|| format!("writing {}", tmp.display()))?;
-    std::fs::rename(&tmp, &file).with_context(|| format!("writing {}", file.display()))?;
+    crate::config::write_durable(&file, jws.as_bytes(), 0o644)?;
     Ok(Kept { licence, changed: true })
 }
 

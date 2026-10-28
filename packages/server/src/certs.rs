@@ -222,13 +222,10 @@ fn read_next(f: &Files) -> Option<NextCa> {
     Some(NextCa { pem, rotation })
 }
 
-/// Replace `file` with `text`: written beside it, then renamed over it, so a power cut leaves the
-/// old file or the new one. Readable by its owner only on Unix; on Windows, the data directory's ACL.
+/// Replace `file` with `text`, so a power cut leaves the old file or the new one
+/// (`config::write_durable`). Readable by its owner only on Unix; on Windows, the data directory's ACL.
 fn replace_private(file: &Path, text: &str) -> Result<()> {
-    let tmp = file.with_extension("tmp");
-    let _ = std::fs::remove_file(&tmp);
-    crate::config::write_private(&tmp, text)?;
-    std::fs::rename(&tmp, file).with_context(|| format!("writing {}", file.display()))
+    crate::config::write_private(file, text)
 }
 
 /// Whether the server certificate in `keys` must be (re-)issued for `names`.

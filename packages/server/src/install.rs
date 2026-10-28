@@ -473,19 +473,12 @@ impl UpdateState {
         }
     }
 
-    /// Written beside the file and renamed over it: a crash leaves the old state or the new one.
+    /// Written beside the file, flushed and renamed over it: a crash or a power cut leaves the old
+    /// state or the new one (`config::write_durable`), never a renamed file the next start finds
+    /// "damaged" in the middle of a switch.
     pub fn save(&self, root: &Root) -> Result<()> {
-        let dir = root.update();
-        readable_dir(&dir)?;
-        let tmp = dir.join(format!("{STATE_FILE}.tmp"));
-        std::fs::write(&tmp, serde_json::to_string_pretty(self)? + "\n")?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644))?;
-        }
-        std::fs::rename(&tmp, root.state_file())?;
-        Ok(())
+        readable_dir(&root.update())?;
+        crate::config::write_durable(&root.state_file(), (serde_json::to_string_pretty(self)? + "\n").as_bytes(), 0o644)
     }
 
     #[cfg(test)]

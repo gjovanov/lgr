@@ -275,7 +275,8 @@ mod unix {
         let _ = std::fs::remove_file(&tmp);
         std::os::unix::fs::symlink(Path::new(crate::install::VERSIONS_DIR).join(version), &tmp).with_context(|| format!("linking {}", tmp.display()))?;
         std::fs::rename(&tmp, &link).with_context(|| format!("pointing {} at {version}", link.display()))?;
-        Ok(())
+        // The switch is the rename: flushed, a power cut after it cannot point back.
+        crate::config::sync_dir(&root.0)
     }
 
     pub fn point_service(root: &Root, version: &str, _data: &Path, _first: bool) -> Result<()> {

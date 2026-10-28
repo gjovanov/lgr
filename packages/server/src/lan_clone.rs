@@ -161,13 +161,7 @@ pub fn record(file: &Path, c: &Candidate, now: SystemTime) -> Result<()> {
         .and_then(|v| v["firstSeen"].as_str().map(str::to_string))
         .unwrap_or_else(|| at.clone());
     let text = serde_json::json!({ "at": at, "firstSeen": first, "otherIp": c.ip.to_string(), "otherPort": c.port, "otherBoot": c.boot }).to_string();
-    if let Some(dir) = file.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let tmp = file.with_extension("tmp");
-    std::fs::write(&tmp, &text).with_context(|| format!("writing {}", tmp.display()))?;
-    std::fs::rename(&tmp, file).with_context(|| format!("renaming over {}", file.display()))?;
-    Ok(())
+    crate::config::write_durable(file, text.as_bytes(), 0o644)
 }
 
 /// The watch, for as long as the supervisor runs: browse, probe, record.

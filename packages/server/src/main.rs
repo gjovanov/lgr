@@ -592,13 +592,7 @@ fn publish_lan(file: &std::path::Path, url: Option<&str>, fingerprint: &str) -> 
     if std::fs::read_to_string(file).ok().as_deref() == Some(text.as_str()) {
         return Ok(());
     }
-    if let Some(dir) = file.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let tmp = file.with_extension("tmp");
-    std::fs::write(&tmp, &text)?;
-    std::fs::rename(&tmp, file)?;
-    Ok(())
+    config::write_durable(file, text.as_bytes(), 0o644)
 }
 
 /// `LAN_INGRESS=on` (and `LAN_PORT`, 4443): the port the LAN ingress opens, or `None` while it is off.
