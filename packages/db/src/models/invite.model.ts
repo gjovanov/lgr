@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 export type InviteStatus = 'active' | 'expired' | 'revoked' | 'exhausted'
 
@@ -37,5 +38,7 @@ const inviteSchema = new Schema<IInvite>(
 )
 
 inviteSchema.index({ orgId: 1, status: 1 })
+
+replicate(inviteSchema, { class: 'G' })
 
 export const Invite = model<IInvite>('Invite', inviteSchema)

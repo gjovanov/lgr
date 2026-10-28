@@ -75,7 +75,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
       if (!['draft', 'calculated'].includes(existing.status))
         return status(400, { message: 'Can only edit draft or calculated payroll runs' })
 
-      const updated = await r.payrollRuns.update(id, body as any)
+      const updated = await r.payrollRuns.updateInOrg(id, orgId, body as any)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: (updated as any).name, changes: diffChanges(existing as any, updated as any) })
 
@@ -103,7 +103,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
     if (!run) return status(404, { message: 'Payroll run not found' })
     if (run.status !== 'draft') return status(400, { message: 'Can only delete draft payroll runs' })
 
-    await r.payrollRuns.delete(id)
+    await r.payrollRuns.deleteInOrg(id, orgId)
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: (run as any).name })
 
@@ -159,7 +159,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
       employeeCount: items.length,
     }
 
-    const updatedRun = await r.payrollRuns.update(id, {
+    const updatedRun = await r.payrollRuns.updateInOrg(id, orgId, {
       items,
       totals,
       status: 'calculated',
@@ -180,7 +180,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
     if (run.status !== 'calculated')
       return status(400, { message: 'Payroll run must be calculated first' })
 
-    const updatedRun = await r.payrollRuns.update(id, {
+    const updatedRun = await r.payrollRuns.updateInOrg(id, orgId, {
       status: 'approved',
       approvedBy: user.id,
       approvedAt: new Date(),

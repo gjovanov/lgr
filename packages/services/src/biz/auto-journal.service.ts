@@ -4,11 +4,12 @@
  * - Invoice posting → revenue/receivable entries
  * - Payment recording → cash/bank entries
  * - Stock movement confirmation → inventory/COGS entries
- * - POS session close → batch revenue + inventory entries
+ * - POS session close → the session's revenue, VAT and money (FR-21.2)
  */
 import { getRepos } from '../context.js'
 import { ensureFiscalPeriod } from './accounting.service.js'
 import { getNextNumber } from './sequence.service.js'
+import { keptByMethod, posRowSign, type MethodTotals } from './cash-register/counting.js'
 import { logger } from '../logger/logger.js'
 import type { RepositoryRegistry } from 'dal'
 
@@ -322,17 +323,42 @@ export async function createMovementValuationEntry(
   }
 }
 
-// ── POS Session Close (Batch) ──
+// ── POS Session Close ──
 
+/**
+ * The session's one journal entry (FR-21.2): everything its sales and stornos took and gave back.
+ *
+ * Built from each row's own figures, so it balances by construction:
+ * - revenue is `total − taxTotal` and VAT is `taxTotal`, with the sign of FR-21.1;
+ * - the money is what each row left in the drawer per method (`keptByMethod`): card and other as
+ *   paid, cash as the rest of the total. Σ money = Σ total = revenue + VAT, line for line.
+ *
+ * Until FR-21 this entry had four defects, none of them ever under test:
+ * - a stornoed sale was skipped as `cancelled` AND its storno was subtracted, so the sale went out
+ *   twice (B-1, now `posRowSign`);
+ * - revenue was `subtotal + discountTotal`, but a POS subtotal is already before the discount, so
+ *   a discount was added twice;
+ * - the money was the amount TENDERED, so change the till handed back was debited as cash;
+ * - the cash over/short line had no other side.
+ *
+ * Over/short posts only against `cashOverShortAccountId`, as a balanced pair. Without that account
+ * nothing is posted for it, and the difference stays on the session (`difference`), where the
+ * close screen recorded it.
+ *
+ * ⚠ It no longer creates the `POS-OUT` batch dispatch (FR-21.4). Every sale already took its goods
+ * out with its own movement; the batch, written `completed` without `confirmMovement`, moved no
+ * stock and only made SUPTO 18.8, FR-07 and FR-11.7c count every POS sale twice. `batchMovement`
+ * stays in the result, always null, for callers that read it.
+ */
 export async function createPOSSessionJournalEntry(
   orgId: string,
   session: any,
   transactions: any[],
-  accounts: DefaultAccounts,
+  accounts: DefaultAccounts & { cashOverShortAccountId?: string },
   journal: JournalRef,
   autoPost: boolean,
   r?: RepositoryRegistry,
-): Promise<{ journalEntry: any; batchMovement: any } | null> {
+): Promise<{ journalEntry: any; batchMovement: null } | null> {
   const repos = r ?? getRepos()
 
   if (!accounts.revenueAccountId || !accounts.receivableAccountId) {
@@ -346,115 +372,45 @@ export async function createPOSSessionJournalEntry(
     return null
   }
 
-  // Aggregate product lines across all transactions for batch movement
-  const productAgg = new Map<string, { productId: string; name: string; totalQty: number; totalCost: number }>()
-  let totalRevenue = 0
-  let totalTax = 0
-
-  // Aggregate payment amounts by method type
-  const paymentsByType = new Map<string, number>()
-
+  let revenue = 0
+  let tax = 0
+  const money: MethodTotals = { cash: 0, card: 0, other: 0 }
   for (const tx of transactions) {
-    if (tx.status === 'cancelled') continue
-
-    const sign = tx.type === 'return' || tx.type === 'storno' ? -1 : 1
-    totalRevenue += sign * ((tx.subtotal || 0) + (tx.discountTotal || 0))
-    totalTax += sign * (tx.taxTotal || 0)
-
-    for (const line of (tx.lines || [])) {
-      const key = line.productId
-      const existing = productAgg.get(key)
-      if (existing) {
-        existing.totalQty += sign * (line.quantity || 0)
-        existing.totalCost += sign * (line.unitPrice || 0) * (line.quantity || 0)
-      } else {
-        productAgg.set(key, {
-          productId: line.productId,
-          name: line.name || line.productId,
-          totalQty: sign * (line.quantity || 0),
-          totalCost: sign * (line.unitPrice || 0) * (line.quantity || 0),
-        })
-      }
-    }
-
-    for (const pay of (tx.payments || [])) {
-      const method = pay.method || 'cash'
-      paymentsByType.set(method, (paymentsByType.get(method) || 0) + sign * (pay.amount || 0))
-    }
+    const sign = posRowSign(tx)
+    if (!sign) continue
+    const total = Number(tx.total) || 0
+    const taxTotal = Number(tx.taxTotal) || 0
+    revenue += sign * (total - taxTotal)
+    tax += sign * taxTotal
+    const kept = keptByMethod(tx)
+    money.cash += sign * kept.cash
+    money.card += sign * kept.card
+    money.other += sign * kept.other
   }
 
-  let batchMovement: any = null
-
-  // Create batch dispatch movement (if inventory accounts exist)
-  if (accounts.inventoryAccountId && productAgg.size > 0) {
-    try {
-      const movementNumber = await getNextNumber(orgId, 'POS-OUT', 6)
-      const movementLines = Array.from(productAgg.values())
-        .filter(p => p.totalQty > 0)
-        .map(p => ({
-          productId: p.productId,
-          quantity: p.totalQty,
-          unitCost: Math.round((p.totalCost / p.totalQty) * 100) / 100,
-          totalCost: Math.round(p.totalCost * 100) / 100,
-        }))
-
-      if (movementLines.length > 0) {
-        batchMovement = await repos.stockMovements.create({
-          orgId,
-          movementNumber,
-          type: 'dispatch',
-          status: 'completed',
-          date: new Date(),
-          fromWarehouseId: session.warehouseId,
-          lines: movementLines,
-          totalAmount: movementLines.reduce((s, l) => s + l.totalCost, 0),
-          notes: `POS session ${session.sessionNumber} batch dispatch`,
-          createdBy: session.cashierId,
-        } as any)
-      }
-    } catch (err: any) {
-      logger.warn({ orgId, sessionId: session.id, error: err.message }, 'POS batch movement creation failed')
-    }
-  }
-
-  // Create journal entry
   const currency = session.currency || 'EUR'
   const jeLines: JELine[] = []
-
-  // DR Cash (from cash payments)
-  const cashAmount = paymentsByType.get('cash') || 0
-  const cardAmount = paymentsByType.get('card') || 0
-  const otherAmount = Array.from(paymentsByType.entries())
-    .filter(([k]) => k !== 'cash' && k !== 'card')
-    .reduce((s, [, v]) => s + v, 0)
-
-  // Use receivable account as catch-all for payment DR lines
-  if (cashAmount > 0) {
-    jeLines.push(buildLine(accounts.receivableAccountId!, `POS Cash: ${session.sessionNumber}`, cashAmount, 0, currency, 1))
-  }
-  if (cardAmount > 0) {
-    jeLines.push(buildLine(accounts.receivableAccountId!, `POS Card: ${session.sessionNumber}`, cardAmount, 0, currency, 1))
-  }
-  if (otherAmount > 0) {
-    jeLines.push(buildLine(accounts.receivableAccountId!, `POS Other: ${session.sessionNumber}`, otherAmount, 0, currency, 1))
+  const round = (n: number) => Math.round(n * 100) / 100
+  /** A line on its natural side, or on the other one when a session gave back more than it took. */
+  const signed = (accountId: string, description: string, amount: number, side: 'debit' | 'credit') => {
+    const value = round(amount)
+    if (!value) return
+    const debit = (side === 'debit') === (value > 0)
+    jeLines.push(buildLine(accountId, description, debit ? Math.abs(value) : 0, debit ? 0 : Math.abs(value), currency, 1))
   }
 
-  // Cash count difference adjustment
-  if (session.difference && session.difference !== 0) {
-    const absDiff = Math.abs(session.difference)
-    if (session.difference > 0) {
-      jeLines.push(buildLine(accounts.receivableAccountId!, `Cash overage: ${session.sessionNumber}`, absDiff, 0, currency, 1))
-    } else {
-      jeLines.push(buildLine(accounts.receivableAccountId!, `Cash shortage: ${session.sessionNumber}`, 0, absDiff, currency, 1))
-    }
-  }
+  // The receivable account stays the catch-all for what the drawer took, as it always was.
+  signed(accounts.receivableAccountId, `POS Cash: ${session.sessionNumber}`, money.cash, 'debit')
+  signed(accounts.receivableAccountId, `POS Card: ${session.sessionNumber}`, money.card, 'debit')
+  signed(accounts.receivableAccountId, `POS Other: ${session.sessionNumber}`, money.other, 'debit')
+  signed(accounts.revenueAccountId, `POS Revenue: ${session.sessionNumber}`, revenue, 'credit')
+  signed(accounts.revenueAccountId, `POS Tax: ${session.sessionNumber}`, tax, 'credit')
 
-  // CR Revenue
-  if (totalRevenue > 0) {
-    jeLines.push(buildLine(accounts.revenueAccountId!, `POS Revenue: ${session.sessionNumber}`, 0, totalRevenue, currency, 1))
-  }
-  if (totalTax > 0) {
-    jeLines.push(buildLine(accounts.revenueAccountId!, `POS Tax: ${session.sessionNumber}`, 0, totalTax, currency, 1))
+  // Counted minus expected cash: an overage is money the drawer has and the sales do not explain.
+  const difference = round(Number(session.difference) || 0)
+  if (difference && accounts.cashOverShortAccountId) {
+    signed(accounts.receivableAccountId, `Cash over/short: ${session.sessionNumber}`, difference, 'debit')
+    signed(accounts.cashOverShortAccountId, `Cash over/short: ${session.sessionNumber}`, difference, 'credit')
   }
 
   if (jeLines.length === 0) {
@@ -487,12 +443,9 @@ export async function createPOSSessionJournalEntry(
     } as any)
 
     // Update session with references
-    await repos.posSessions.update(session.id, {
-      journalEntryId: je.id,
-      ...(batchMovement ? { batchMovementId: batchMovement.id } : {}),
-    } as any)
+    await repos.posSessions.update(session.id, { journalEntryId: je.id } as any)
 
-    return { journalEntry: je, batchMovement }
+    return { journalEntry: je, batchMovement: null }
   } catch (err: any) {
     logger.error({ orgId, sessionId: session.id, error: err.message }, 'Failed to create POS session journal entry')
     return null

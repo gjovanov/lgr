@@ -2,6 +2,7 @@ import { markdownToPdf } from './base.pdf.js'
 import { logoImgTag, LOGO_CSS } from './logo.js'
 import { productCredit } from '../product-credit.js'
 import { companionDocI18n, type CompanionDocKind } from '../companion-doc.i18n.js'
+import { unitLabel } from '../unit.i18n.js'
 
 export interface CompanionParty {
   name: string
@@ -97,8 +98,9 @@ const CSS = `
   table.lines tbody td { padding: 3px 6px; vertical-align: top; }
   table.lines tbody tr:last-child td { border-bottom: 1px solid #000; }
   table.lines .c-no { width: 6%; }
-  table.lines .c-unit { width: 10%; text-align: center; }
-  table.lines .c-qty { width: 14%; text-align: right; }
+  /* Wide enough for the spelled-out „Мярка" / „Количество" headings (#127) without wrapping. */
+  table.lines .c-unit { width: 11%; text-align: center; }
+  table.lines .c-qty { width: 15%; text-align: right; }
   table.lines .c-note { width: 18%; }
   /* Boxed document total, in the visual language of the printed invoice's totals block. */
   table.totals { margin-top: 10px; font-size: 9pt; page-break-inside: avoid; }
@@ -149,8 +151,8 @@ export function buildCompanionHtml(data: CompanionDocData): { html: string; css:
   const H = i18n.header
   const isCertificate = data.kind === 'certificate'
 
-  const qtyHeader = isCertificate ? H.quantityShort : H.quantity
-  const unitHeader = isCertificate ? H.unitShort : H.unit
+  // Both kinds spell the unit and quantity headings out (#127); only the last column and the
+  // quantity precision still differ between them.
   const noteHeader = isCertificate ? H.certificate : H.remark
   const qtyDecimals = isCertificate ? 0 : 3
 
@@ -179,7 +181,7 @@ export function buildCompanionHtml(data: CompanionDocData): { html: string; css:
       <tr>
         <td class="c-no">${i + 1}</td>
         <td>${esc(l.name)}</td>
-        <td class="c-unit">${esc(l.unit || '')}</td>
+        <td class="c-unit">${esc(unitLabel(l.unit, data.locale))}</td>
         <td class="c-qty">${fmtQty(l.quantity, qtyDecimals)}</td>
         <td class="c-note">${esc(l.note || '')}</td>
       </tr>`).join('')
@@ -190,8 +192,8 @@ export function buildCompanionHtml(data: CompanionDocData): { html: string; css:
         <tr>
           <th class="c-no">${esc(H.lineNo)}</th>
           <th>${esc(H.name)}</th>
-          <th class="c-unit">${esc(unitHeader)}</th>
-          <th class="c-qty">${esc(qtyHeader)}</th>
+          <th class="c-unit">${esc(H.unit)}</th>
+          <th class="c-qty">${esc(H.quantity)}</th>
           <th class="c-note">${esc(noteHeader)}</th>
         </tr>
       </thead>

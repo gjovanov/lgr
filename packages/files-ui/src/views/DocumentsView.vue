@@ -73,7 +73,7 @@
       <template #item.actions="{ item }">
         <v-btn size="x-small" variant="text" icon="mdi-clipboard-text-search-outline" :title="$t('files.batch.review')" @click="reviewOne(item)" />
         <v-btn v-if="canReconcile(item)" size="x-small" variant="text" color="deep-purple" icon="mdi-sync-alert" :title="$t('files.reconcile.action')" @click="reconcileOne(item)" />
-        <v-btn size="x-small" variant="text" icon="mdi-download" :href="downloadUrl(item)" target="_blank" />
+        <v-btn size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(item))" />
       </template>
     </v-data-table-server>
 
@@ -123,7 +123,7 @@
                   <td class="text-no-wrap">
                     <v-btn size="x-small" variant="text" icon="mdi-clipboard-text-search-outline" :title="$t('files.batch.review')" @click="reviewOne(doc)" />
                     <v-btn v-if="canReconcile(doc)" size="x-small" variant="text" color="deep-purple" icon="mdi-sync-alert" :title="$t('files.reconcile.action')" @click="reconcileOne(doc)" />
-                    <v-btn size="x-small" variant="text" icon="mdi-download" :href="downloadUrl(doc)" target="_blank" />
+                    <v-btn size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(doc))" />
                   </td>
                 </tr>
               </tbody>
@@ -264,8 +264,8 @@
           <span class="text-caption text-grey ml-2">{{ diff.fileName }}</span>
           <v-spacer />
           <v-btn variant="text" @click="diffOpen = false">{{ $t('common.close') }}</v-btn>
-          <v-btn variant="tonal" prepend-icon="mdi-download" :href="diffUrl('txt')" target="_blank">.txt</v-btn>
-          <v-btn color="primary" variant="tonal" prepend-icon="mdi-download" :href="diffUrl('csv')" target="_blank">.csv</v-btn>
+          <v-btn variant="tonal" prepend-icon="mdi-download" @click="download(diffUrl('txt'))">.txt</v-btn>
+          <v-btn color="primary" variant="tonal" prepend-icon="mdi-download" @click="download(diffUrl('csv'))">.csv</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -359,11 +359,11 @@
         <v-card-title class="text-subtitle-1">{{ $t('files.versions') }} — {{ activeDoc?.originalName }}</v-card-title>
         <v-list density="compact">
           <v-list-item v-if="versionData?.current" :title="`v${versionData.current.version} · ${versionData.current.name}`" :subtitle="$t('files.currentVersion')">
-            <template #append><v-btn size="x-small" variant="text" icon="mdi-download" :href="downloadUrl(activeDoc)" target="_blank" /></template>
+            <template #append><v-btn size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(activeDoc))" /></template>
           </v-list-item>
           <v-divider />
           <v-list-item v-for="v in versionData?.versions || []" :key="v.name" :title="v.name" :subtitle="new Date(v.archivedAt).toLocaleString()">
-            <template #append><v-btn size="x-small" variant="text" icon="mdi-download" :href="downloadUrl(activeDoc, v.name)" target="_blank" /></template>
+            <template #append><v-btn size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(activeDoc, v.name))" /></template>
           </v-list-item>
           <v-list-item v-if="!(versionData?.versions || []).length" :title="$t('files.noVersions')" />
         </v-list>
@@ -434,6 +434,7 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { downloadAsSession } from 'ui-shared/composables/useSessionDownload'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import HubPageHeader from 'ui-shell/components/HubPageHeader'
 import { useAppStore } from '../store/app.store'
@@ -480,13 +481,27 @@ function changeColor(c: string) {
 function statusColor(s: string) {
   return { uploaded: 'grey', extracted: 'info', analyzed: 'warning', committed: 'success', superseded: 'error' }[s] || 'grey'
 }
+/** The files API, relative to the API base like every `httpClient` call. */
 function base() {
-  const dev = window.location.hostname === 'localhost' ? 'http://localhost:4001/api' : '/api'
-  return `${dev}${appStore.orgUrl()}/files`
+  return `${appStore.orgUrl()}/files`
 }
 function downloadUrl(item: any, version?: string) {
   const v = version ? `?version=${encodeURIComponent(version)}` : ''
   return `${base()}/${item.docFileId || item._id}/download${v}`
+}
+/**
+ * ⚠ Downloads go through this tab's session, never a plain link: a link carries only the `auth`
+ * cookie, which names whichever org this browser entered last (each tab has its own org).
+ */
+async function download(path: string) {
+  try {
+    await downloadAsSession(path)
+  } catch (e: any) {
+    // FR-20.69: on lgrai.app, a file of an org homed on its own server that has not arrived here yet,
+    // or an org that keeps its files there only.
+    const code = e?.response?.data?.code
+    showError(code === 'file_not_mirrored' || code === 'files_not_mirrored' ? t(`mirror.${code}`) : e?.response?.data?.message || t('common.operationFailed'))
+  }
 }
 const filterParams = () => ({ search: search.value || undefined, docType: docType.value || undefined, status: statusFilter.value || undefined })
 
@@ -568,7 +583,7 @@ async function runJob(url: string, body: any): Promise<any> {
     if (stamp !== seen) { seen = stamp; lastChange = Date.now() }
     if (task.status === 'completed') return task.result
     if (task.status === 'failed') throw new Error(task.error || t('common.operationFailed'))
-    if (Date.now() - lastChange > STALL_MS) throw new Error(t('files.batch.stalled', { s: Math.round(STALL_MS / 1000) }))
+    if (Date.now() - lastChange > STALL_MS) throw new Error(t('common.stalled', { s: Math.round(STALL_MS / 1000) }))
   }
 }
 

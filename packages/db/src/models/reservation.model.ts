@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 /**
  * Reservation (RES-) — a numbered hold linking one client demand to one supply source.
@@ -70,6 +71,12 @@ export interface IReservation extends Document {
     at: Date
   }
   notes?: string
+  /**
+   * The cancelled reservation this one repeats (#203: „Резервирай отново"). Unique: a cancelled
+   * reservation is repeated once — a double click, or two people, cannot hold the goods twice.
+   * To repeat again after cancelling the repeat, repeat the repeat.
+   */
+  repeatOf?: Types.ObjectId
   createdBy?: Types.ObjectId
   createdAt: Date
   updatedAt: Date
@@ -126,6 +133,7 @@ const reservationSchema = new Schema<IReservation>(
       required: false,
     },
     notes: String,
+    repeatOf: { type: Schema.Types.ObjectId, ref: 'Reservation' },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true },
@@ -137,5 +145,11 @@ reservationSchema.index({ orgId: 1, status: 1, productId: 1, warehouseId: 1 })
 reservationSchema.index({ orgId: 1, internalOrderId: 1 })
 reservationSchema.index({ orgId: 1, orderId: 1 })
 reservationSchema.index({ orgId: 1, contactId: 1 })
+reservationSchema.index(
+  { orgId: 1, repeatOf: 1 },
+  { unique: true, partialFilterExpression: { repeatOf: { $exists: true } } },
+)
+
+replicate(reservationSchema, { class: 'R' })
 
 export const Reservation = model<IReservation>('Reservation', reservationSchema)

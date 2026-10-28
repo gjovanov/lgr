@@ -43,6 +43,7 @@ const mimeFor = (n: string) => /\.pdf$/i.test(n) ? 'application/pdf'
   await mongoose.connect(process.env.MONGODB_URI)
   const org: any = await Org.findOne({ slug: ORGSLUG }).lean()
   if (!org) { console.log(`org ${ORGSLUG} not found`); process.exit(1) }
+  await require('./src/home/home').assertHomeIsHere(String(org._id), { fresh: true })  // FR-20.4: only on its home
   const orgId = String(org._id)
   const admin: any = await User.findOne({ orgId, role: 'admin' }).lean() || await User.findOne({ orgId }).lean()
   const uploadDir = process.env.UPLOAD_DIR || '/app/uploads'
@@ -73,7 +74,7 @@ const mimeFor = (n: string) => /\.pdf$/i.test(n) ? 'application/pdf'
       registered++
       if (EXECUTE) {
         const doc = await DocFile.create({
-          orgId, docType, docNumber, docDate: dateDir, originalName: name, currentPath: full,
+          orgId, docType, docNumber, docDate: dateDir, originalName: name, currentPath: `${orgId}/docs/${dateDir}/${name}`, // FR-20.24: relative to UPLOAD_DIR
           currentChecksum: checksum, version: 1, mimeType: mimeFor(name), size: buf.length,
           status: 'uploaded', uploadedBy: admin?._id, uploadedAt: new Date(),
         })

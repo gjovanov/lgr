@@ -692,9 +692,14 @@ literally (FR-06 lesson).
 - **`ci.yml`** runs on every pull request and push to master, on `ubuntu-latest`:
   `bun install --frozen-lockfile`, `bun run test`, `bun run build` (which includes `desktop-ui`),
   and `cargo clippy -p lgr-desktop` with the webkit dependencies installed.
-- **A `macos-latest` job** runs `cargo check`.
-- **`desktop-ci.yml`** runs on changes under `packages/desktop*` and `packages/fiscal`: it builds
-  the unsigned app on Windows, macOS and Linux, and runs the Windows smoke (FR-14.37).
+- **A `macos-latest` job** runs `cargo check`, on demand and at a `desktop-v*` tag.
+- **`desktop-ci.yml`** runs on demand (dispatch it for a PR touching `packages/desktop*`,
+  `packages/fiscal` or `packages/e2e`) and at every `desktop-v*` tag. It builds the unsigned app
+  on Linux and Windows, plus macOS at a tag, and the dispatch runs the Windows smoke (FR-14.37).
+- ⚠ **Neither runs per PR or per merge any more (October 2026).** Hosted macOS bills at 10x and
+  Windows at 2x. Running them per PR and per merge spent the account's free monthly allowance by
+  2026-10-07, and GitHub then refused every job in this private repository for the rest of the
+  month. The desktop dry build moved from weekly to monthly for the same reason.
 - **The gate starts green.** Anything red on master when it is switched on is fixed first, or
   quarantined with a linked issue.
 - **Heavy runs go to mars** (nightly e2e in the pinned Playwright container), not paid Actions
@@ -803,6 +808,14 @@ A cell that cannot exist is recorded **NA, with the reason**, never skipped.
   - there is a field-verification log entry.
 
   The release PR carries this as a checklist.
+
+  ⚠ **Changed 2026-10-13: the gate is opt-in.** `desktop-release.yml` now PUBLISHES by default,
+  on a tag and on a dispatch, and itself sets `DESKTOP_RELEASE_VERSION`/`_URL` in lgr-deploy
+  (needs the `LGR_DEPLOY_TOKEN` secret) once the release exists. The three conditions above are
+  enforced only for a release dispatched with `draft: true` and promoted by
+  `desktop-promote.yml`. Reason: the gate never worked for a dispatched draft — a draft creates
+  no git tag (`untagged-…`), and promote starts by checking out the tag. A dispatch builds
+  `windows-linux` by default; macOS only with `all` or a tag.
 - **The field-verification log.** This FR keeps one, in roomler's convention (`roomler-ai` →
   `docs/fr/FR-27-…md`): per release and per finding, the **baseline run showing the failure**, the
   fixed run, run links and versions. A check never seen failing is not evidence.
@@ -881,6 +894,12 @@ A cell that cannot exist is recorded **NA, with the reason**, never skipped.
 | P1 | **The two live web fixes** (FR-14.24–14.25) first; pipeline + roomler signing (FR-14.2–14.4); the shell, Overview and Open LGR incl. OAuth (FR-14.5–14.17, .30–.33); registration + the Desktops page (FR-14.18–14.23); the updater (FR-14.28–14.29); the prototype retired (FR-14.34); CI + integration + e2e (FR-14.35–14.37); Win11 + Ubuntu lanes | Unpublish the draft release; the updater never downgrades, so a bad build is fixed forward by a new tag |
 | P2 | The native fiscal bridge (FR-14.26–14.27); the `fiscal-bridge` check and the corporate lane | Per device: set `connectionType` back to `browser` |
 | P3 | The macOS lane, budgets enforced, the release gate enforced, fleet check + `lgr-vmtest` skill (FR-14.38–14.39) | — |
+
+⚠ **P3 changes P1's release behaviour.** FR-14.2–14.4's pipeline published a `desktop-v*` tag
+directly; the gate makes that tag publish a **draft**, promoted only by `desktop-promote.yml`
+re-checking CI green for the tagged commit, lane cells green-or-expected-with-an-issue, and a
+field-log entry. `desktop-release.yml`'s `draft=` was changed in place rather than a second
+workflow being added, so there is one publish path and not two.
 
 ---
 
@@ -972,3 +991,113 @@ production (`https://lgrai.app`, org `lgr-fieldtest`, then regal-pz's till) goes
 ## Field-verification log
 
 *(Filled per release, in roomler's convention: a failing baseline before the passing run.)*
+
+### Convention (C20 §4)
+
+One entry per release and per finding. Each records **the baseline run showing the failure**
+beside the fixed run, with links and versions.
+
+⚠ **A check never seen failing is not evidence.** If a check has only ever passed, it may be
+asserting nothing — so the convention is to break the behaviour once, record the red run, and
+only then record the green one. That is the single most useful idea here, and it is why the
+baseline column is not optional.
+
+⚠ `desktop-promote.yml` reads this section at the **tagged commit** and refuses to promote a
+release with no entry naming its version. It also warns when an entry records no baseline.
+
+---
+
+### Pre-release — the C15 CDP walk (2026-10-02)
+
+Not a release entry: these four findings predate the first signed tag, and they are recorded
+because each one *is* a baseline-red/fixed pair, produced by arming a check that had never run.
+They are the evidence that the walk asserts something.
+
+⚠ All four had **shipped**. The common cause is worth naming: every one was invisible to the
+tests that existed because those tests asserted that something *started*, never that it
+*worked*.
+
+| # | Finding | Baseline (red) | Fixed | Evidence |
+|---|---|---|---|---|
+| 1 | The five shell views rendered **empty** under C08's CSP — `script-src 'self'` forbids `new Function`, which is how vue-i18n compiles every message, so every `$t()` threw an `EvalError` and the nav items and all five view bodies rendered as nothing | first run of `desktop-app.spec.ts` against the built shell: `the shell window › comes up on the Overview` failed, `[data-card="this-desktop"]` **element(s) not found**, with the a11y snapshot showing only `navigation / separator / list / text: v0.1.3` | `__INTLIFY_JIT_COMPILATION__` in `packages/desktop-ui/vite.config.ts` | After: 11 `data-*` markers and 5 nav hrefs present, **0 console errors**. ⚠ C08 believed `shell_ready` had proven the CSP; that line only shows the module executed |
+| 2 | **Open LGR deadlocked the app** — a synchronous Tauri command runs on the main thread and `WebviewWindowBuilder::build()` needs the event loop, so it never returned and every later `invoke` hung too | over CDP: `get_status` → `OK {…}`, `open_lgr` → `TIMEOUT-8s`, `get_status` again → `TIMEOUT-8s`, with a half-created `about:blank` page present | `open_lgr`/`print_lgr` are `async` + `spawn_blocking`; the tray item spawns a thread; `setup`'s call stays direct | After: `lgr-web: opened url=http://127.0.0.1:4099/pos/`. ⚠ Nobody had hit it because the tray item and `openLgrOnLaunch` do not run inside a command handler |
+| 3 | The bundled **unreachable page went to the system browser** — on Windows the bundle is served over plain `http` on `tauri.localhost`, so `decide_navigation` called the shell's own page a different site | app log: `lgr-web: external-navigation url=http://tauri.localhost/unreachable.html?wait=1&lang=en`, and the `lgr-web` window stayed `about:blank` | `is_bundled_host` in `web.rs`, matching `tauri.localhost`/`asset.localhost` by **exact** host | After: the bundled page appears and `lgr-web: server-returned url=` follows unattended. 2 new Rust tests cover both directions |
+| 4 | **`--status-json` reported `not_registered` on a registered machine** — it hardcoded the value while `registration_status()` needs no `AppHandle` at all | a registered machine with `identity/desktop.key` and `identity/registration.json` on disk: `"registration":{"state":"not_registered"}`, `"keyStorage":"none"` | `print_status_without_app` calls `registration_status()` | After: `state: registered`, `desktopId: stub-desktop-1`, `keyStorage: keystore`, `assignment.startPath: /pos/`. ⚠ This would have poisoned C17 directly — its drivers read `--status-json` instead of scraping screens, so a lane's `register` cell would have read `not_registered` from a till that had just enrolled |
+
+**Also pre-release, in the harness rather than the product:**
+
+| Finding | Baseline (red) | Fixed |
+|---|---|---|
+| `desktop-ci.yml`'s "Collect the app log" step could not parse — the file was committed through a cp1252 round trip, so its em dashes are stored as `â€”`, and `”` **closes** a PowerShell string | `ParserError: Unexpected token 'it' in expression or statement` at the line after an em dash. ⚠ Broken since C16 and never noticed, because the step only runs `if: failure()` — the first time the job it guards failed, the step meant to explain why failed too | encoding repaired; the inline block is ASCII-only; `packages/tests/src/unit/workflow-powershell-ascii.test.ts` guards it, **verified by reintroducing the em dash and watching it fail** |
+| The harness hid why the app was not running — `launchShell` ignored both the spawn error and the exit | CI reported `no CDP endpoint on 9222 after 60000 ms`, which names the debugging port: the one thing that was working | the binary's existence is checked before spawning, `error`/`exit` are recorded, and `connect` reports a dead child as a dead child. ⚠ It paid for itself immediately: the next failure said *"the app is still running, so it started but never opened the port"* and quoted the app's own log |
+
+**Open, with no fix yet:** master's `windows smoke (CDP)` fails on `windows-2025-vs2026` with the
+app up (`ui ready`) and no debugging port. Ruled out by experiment, not by reasoning: the
+**build** (the exact CI artifact passes all 13 cases locally), `additionalBrowserArgs` (absent),
+and the **WebView2 version** (runner Edge `153.0.4234.48` vs local `154.0.4258.53`). A
+`portDiagnostics()` helper now prints the browser args, the runtime version and any listener on
+the port, so the next CI failure names the cause instead of inviting another guess.
+
+**2026-10-07 — the version theory is dead, and two more with it.** The runner was updated to
+`154.0.4258.62`, which is *newer* than the local runtime that passes, and the port still never
+opened. Two hypotheses were then tested against the installed 0.1.4 on **the same
+`154.0.4258.62`**, and both are false — recorded so nobody pays for them again:
+
+| Hypothesis | Why it was plausible | What the experiment showed |
+|---|---|---|
+| wry's `AdditionalBrowserArguments` **overrides** `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, so the harness's switch never arrives | that is what the WebView2 docs say about the option, and wry does set it (`--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`) | the browser process came up carrying **both**: the variable is APPENDED. `--remote-debugging-port=9222` present, `/json/version` answered `Edg/154.0.4258.62` |
+| Chromium refuses remote debugging on the **default** user data directory (the 136 cookie-theft mitigation), and `WEBVIEW2_USER_DATA_FOLDER` is unset | it would be silent, version-independent and exactly this shape | the port opened with `--user-data-dir` on the app's own default `…\com.lgr.desktop\EBWebView`. Setting the folder is not the fix it looks like |
+
+The local run of the whole spec against that binary: **14 passed, 1 skipped, 20.3 s.** So the
+harness is not the subject — the difference is the image.
+
+**Then the measurement arrived, and took two more with it.** The browser process's command line on
+the runner carries wry's `--disable-features=…` and **not** `--remote-debugging-port`, in the
+position where the runtime appends the variable locally. So the switch is dropped at
+environment-creation time by the runtime, on this image — not stripped by the harness, not
+refused after being accepted.
+
+| Also ruled out | What the experiment showed |
+|---|---|
+| **An Edge policy on the image** (`RemoteDebuggingAllowed`, `WebView2AdditionalBrowserArguments`) | `HKLM` and `HKCU\SOFTWARE\Policies\Microsoft\Edge` are both **absent** on the runner |
+| **The build / the artifact** | the failing run's own `lgr-desktop.exe` (0.1.3) downloaded and driven through the whole spec locally: **14 passed, 1 skipped, 24.3 s** |
+
+⚠ **Leading hypothesis now, untested: the app runs elevated** (`runneradmin`, UAC effectively
+off). Silent, machine-wide, version-independent, invisible on a developer machine — the shape
+fits. `portDiagnostics` prints the integrity level and the elevation flag, so the next dispatch
+answers it.
+
+⚠ **The job is `workflow_dispatch`-only as of 2026-10-07, which is a deliberate weakening**
+(gjovanov/lgr#116). It was a failing check on every commit, and promote condition 1 refuses any
+tagged commit carrying one — an unexplained CI-only failure was blocking the first signed release
+outright. The walk itself still passes; it is the automation on this image that does not. Every
+Desktop CI run prints a warning annotation saying so, because a coverage reduction that lives
+only in a comment is one nobody remembers a month later.
+
+---
+
+### Releases
+
+*(`desktop-v0.1.3` from 2026-03-14 is the prototype: unsigned, built before C05's pipeline, and not
+a release this log covers. `desktop-v0.1.5` and `-v0.1.6` were signed and published by a dispatch
+before the field lanes had ever run, so they have no entry. 0.1.7 is the first release with one.)*
+
+#### desktop-v0.1.7 (2026-10-28), against the hub's v20261028-d357f0255e6d
+
+**Lanes:** the FR-14 field lanes (lgr-deploy `vmtest/`, `win11/nsis/user` on zeus, org `lgr-fieldtest` on lgrai.app). They ran against the signed **draft** release's own bytes, before anything was offered to the fleet. Each finding comes from vmtest T-0 on 0.1.6 (#328), or from #332's deploy.
+
+| # | Finding | Baseline (red) | Fixed | Evidence |
+|---|---|---|---|---|
+| 1 | **The shell never noticed a dead link** (FR-14.21). The presence socket had no read timeout: the loop sat in `read()` until the server spoke, the 30 s heartbeat went out only when a message arrived, and a cut was never seen. | 0.1.6, `base016-code` (2026-10-28): with the guest's link cut, *"the app never noticed the link was gone: no reconnect, and no 'did not answer' or 'socket closed' line, within 360 s of the cut"*. T-0 run 5 saw the same in a four-minute cut, and the dead socket simply resumed. | 0.1.7, `v017-code` and `v017-key`: *"noticed the cut, and authenticated again after it"*. | `presence.rs` `next()`: 5 s reads; the 30 s heartbeat on its own clock; 75 s of silence is dead (`silent`). #340 |
+| 2 | **Connected tills read stale or offline once #332 was deployed** (hub). A 0.1.6 shell heartbeats only when its blocking read returns. | lgrai.app, right before the deploy: a connected desktop's `lastSeenAt` went from 51 s to 91 s old with no heartbeat between. | After #339, the same 0.1.6 desktop, sampled every 10 s for 2 min: at most 35 s. With a cut, the hub shows `online@0s stale@66–71s offline@81–86s` (*"offline 81 s after the cut"*). Before #332 it read online for four minutes. | #339: the hub's `desktop:tick` every 15 s wakes the read. #332: `online` needs a heartbeat. |
+| 3 | **The start path was learned only at enrollment** (FR-14.12). | 0.1.6, `base016-code2`: the hub assigned `/pos/` after enrollment, and `open-lgr` *"opened https://lgrai.app/, and the shell never learned the start path the hub assigned after its enrollment (/pos/)"*. Every T-0 run had `open-lgr` NA (never assigned). | 0.1.7, `v017-code` and `v017-key`: the hub assigned `/pos/` after enrollment; after the reconnect, `open-lgr` *"opened https://lgrai.app/pos/"*. | `PUT /self` answers with the assignment; the shell refreshes it after every reconnect. #340 |
+| 4 | **No ephemeral enrollment key** (FR-14.19). The shell sent only `code`, normalised (uppercase, O→0, `-`/`_` dropped). | 0.1.6, `base016-key`: *"onboarding did not reach step 4"* with a one-use key. | 0.1.7, `v017-key`: `register` PASS with `ephemeral=True`. **`ephemeral-cleanup` PASS:** *"the row went with the guest"* on a clean guest shutdown (Windows ending the session → `RunEvent::Exit` → `DELETE /self`). | `enroll::is_enrollment_key`; `should_unregister`. #340 |
+
+**Also on 0.1.7:**
+- `install`, `signature` (G ROX LTD, timestamped), `local-storage`, `no-ipc`, `print`, `unreachable` and `revoke`: PASS.
+- `ubuntu/deb/user`: install and the `.asc` PASS; the rest NA (WebKitGTK has no CDP), as on 0.1.6.
+- `desktop-walk` **failed in the first two 0.1.7 runs** (*"settings is pixel-identical to overview"*, then *"onboarding … to settings"*), with every 0.1.6 run passing. The cause was the **harness**: the walk captured the whole screen, where the Start menu and `lgr-web` sat in front (the screen captures of two views were byte-identical). 0.1.7 learned the assigned start path, so `lgr-web` showed a static `/pos/`; 0.1.6 still showed `/`, whose frames happened to differ. Captured from the shell's own window (`PrintWindow`, `v017-walk`), all five views are distinct, and its Settings view shows *"Start page /pos/ · Set by your administrator"*. The harness fix is lgr-deploy `feat/vmtest-328`.
+- `win11/msi/admin`: install, signature and local storage PASS. Every window-driven cell fails with no CDP endpoint, **on 0.1.6 too** (`base016-msi`): the harness's elevated path, not the build (#341).
+
+Published 2026-10-28 11:31 UTC from the draft the lanes ran against. The rebuild its tag triggered was cancelled, so the published assets are the tested bytes. Offered to the fleet by lgr-deploy `ec4ed81` (`DESKTOP_RELEASE_VERSION` 0.1.7).
+

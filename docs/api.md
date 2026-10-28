@@ -576,7 +576,7 @@ Prefix: `/api/org/:orgId/notification`
 
 | Path | Description |
 |------|-------------|
-| `/ws/tasks?userId={userId}` | Real-time task and notification updates. Ping/pong keepalive every 30s. |
+| `/ws/tasks` | Real-time task and notification updates for the signed-in user. The first message must be `{ type: 'auth', token }` (the session token) within 10 s, or the socket is closed with code 4401; the server answers `{ type: 'authenticated' }`. The subscription is for the token's user only — no user id is accepted from the client (#154). Ping/pong keepalive every 30s. |
 
 ### Health
 

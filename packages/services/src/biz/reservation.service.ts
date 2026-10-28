@@ -23,6 +23,10 @@ import { logger } from '../logger/logger.js'
  *     step with dispatch:  hold = min(Σ(qty − dispatched), received − Σdispatched), and only
  *     while the parent ORDO is in a holding status.
  *
+ * A reservation-backed invoice line skips the free-stock check for exactly what its hold holds,
+ * and Convert invoices no more than that (loadAllocationSupply): an order-source reservation
+ * whose goods have not arrived dispatches nothing on the strength of the reservation alone.
+ *
  * Only live OUTGOING invoices of type 'invoice' feed reservation consumption — bills and
  * converted proformas (status 'converted' is live!) must never count, or a proforma→invoice
  * conversion would double-book the same lines.
@@ -59,9 +63,21 @@ function dedupeKeys(keys: StockKey[]): StockKey[] {
 }
 
 /**
+ * What an order allocation has received and not yet dispatched against the RES documents
+ * attached to it. Dispatched quantity of cancelled reservations still counts — those goods
+ * really left the shelf.
+ */
+export function allocationPhysical(
+  alloc: { receivedQuantity?: number },
+  reservations: Array<{ dispatchedQuantity?: number }>,
+): number {
+  const dispatched = reservations.reduce((s, r) => s + (r.dispatchedQuantity || 0), 0)
+  return Math.max(0, (alloc.receivedQuantity || 0) - dispatched)
+}
+
+/**
  * Active (stock-holding) reserved quantity for one order allocation, given the RES
- * documents attached to it. Dispatched quantity of cancelled reservations still counts
- * against the physical term — those goods really left the shelf.
+ * documents attached to it: the open reservations, capped by what physically arrived.
  */
 export function activeReservedForAllocation(
   alloc: { receivedQuantity?: number },
@@ -71,9 +87,73 @@ export function activeReservedForAllocation(
     (s, r) => s + (r.status === 'cancelled' ? 0 : Math.max(0, (r.quantity || 0) - (r.dispatchedQuantity || 0))),
     0,
   )
-  const dispatched = reservations.reduce((s, r) => s + (r.dispatchedQuantity || 0), 0)
-  const physical = Math.max(0, (alloc.receivedQuantity || 0) - dispatched)
-  return Math.min(openHold, physical)
+  return Math.min(openHold, allocationPhysical(alloc, reservations))
+}
+
+export interface AllocationSupply {
+  orderId: string
+  orderNumber: string
+  /**
+   * Received and not yet dispatched (allocationPhysical) — 0 while the ORDO is not in a
+   * holding status, exactly when its reservations hold nothing.
+   */
+  physical: number
+  /** What live sales invoices already take of the allocation without having dispatched it (drafts). */
+  claimed: number
+}
+
+/**
+ * The supply behind order-source reservations, keyed by allocation id: what each allocation can
+ * actually hand out. Issue's exemption budget (loadReservationBudgets) and Convert
+ * (planConversion) both read it, so neither lets a reservation dispatch goods its supplier order
+ * has not delivered (FR-22.5) — the cap its stock hold already has.
+ */
+export async function loadAllocationSupply(
+  orgId: string,
+  reservations: Array<{ orderId?: any; allocationId?: any }>,
+): Promise<Map<string, AllocationSupply>> {
+  const supply = new Map<string, AllocationSupply>()
+  const allocIds = [...new Set(reservations.map((r) => idStr(r.allocationId)).filter(Boolean))]
+  const orderIds = [...new Set(reservations.map((r) => idStr(r.orderId)).filter(Boolean))]
+  if (!allocIds.length || !orderIds.length) return supply
+
+  // Every reservation on an allocation carries its order's id: query by that (indexed).
+  const [orders, onAllocations] = await Promise.all([
+    Order.find({ orgId, _id: { $in: orderIds } } as any, { orderNumber: 1, status: 1, supplierGroups: 1 }).lean().exec(),
+    Reservation.find(
+      { orgId, orderId: { $in: orderIds } } as any,
+      { allocationId: 1, invoicedQuantity: 1, dispatchedQuantity: 1, status: 1 },
+    ).lean().exec(),
+  ])
+  const byAlloc = new Map<string, any[]>()
+  for (const r of onAllocations) {
+    const k = idStr((r as any).allocationId)
+    if (!byAlloc.has(k)) byAlloc.set(k, [])
+    byAlloc.get(k)!.push(r)
+  }
+  const wanted = new Set(allocIds)
+  for (const order of orders as any[]) {
+    const holding = ORDER_HOLDING_STATUSES.includes(order.status)
+    for (const g of order.supplierGroups || []) {
+      for (const line of g.lines || []) {
+        for (const alloc of line.allocations || []) {
+          const k = idStr(alloc._id)
+          if (!wanted.has(k)) continue
+          const res = byAlloc.get(k) || []
+          supply.set(k, {
+            orderId: idStr(order._id),
+            orderNumber: order.orderNumber,
+            physical: holding ? allocationPhysical(alloc, res) : 0,
+            claimed: res.reduce(
+              (s, r) => s + (r.status === 'cancelled' ? 0 : Math.max(0, (r.invoicedQuantity || 0) - (r.dispatchedQuantity || 0))),
+              0,
+            ),
+          })
+        }
+      }
+    }
+  }
+  return supply
 }
 
 /** All (productId, warehouseId) pairs an order's allocations touch. */

@@ -7,6 +7,26 @@
 
 import type { RepositoryRegistry } from 'dal'
 import { getRepos } from '../context.js'
+import { isDateOnly, localDayEnd, localDayStart } from './local-day.js'
+import { loadPosRows } from './cash-register/pos-union.js'
+import { originOf } from './cash-register/register.service.js'
+import { User } from 'db/models'
+
+/**
+ * The period the tables cover, from the query's `dateFrom` / `dateTo` (FR-21 B-7).
+ *
+ * The UI sends calendar dates. They are Bulgarian days — the ordinance's, and the fiscal devices'
+ * — so a period runs from Bulgarian midnight on `dateFrom` to the last millisecond of `dateTo`.
+ * Read as `new Date('YYYY-MM-DD')` they were 00:00 UTC, which made `dateTo` the START of its day:
+ * the POS tables, windowed on `createdAt`, dropped the whole last day, and a one-day export of
+ * them was empty. A full timestamp is taken as it is, for an API caller that sends one.
+ */
+export function suptoPeriod(dateFrom?: string, dateTo?: string, now: Date = new Date()): { dateFrom: Date; dateTo: Date } {
+  return {
+    dateFrom: !dateFrom ? now : isDateOnly(dateFrom) ? localDayStart(dateFrom) : new Date(dateFrom),
+    dateTo: !dateTo ? now : isDateOnly(dateTo) ? localDayEnd(dateTo) : new Date(dateTo),
+  }
+}
 
 export interface SuptoExportFilters {
   orgId: string
@@ -18,78 +38,75 @@ export interface SuptoExportFilters {
   operatorCode?: string
 }
 
+/**
+ * The till rows of the period, from both stores, each once (FR-21.8): a till sale is a POS row
+ * until R2 and a cash-register document after it, and these tables list it either way. The
+ * device and operator filters apply here, after the union.
+ */
+async function tillRows(filters: SuptoExportFilters, keep: (t: any) => boolean, byDevice = true) {
+  const rows = await loadPosRows({ orgId: filters.orgId, from: filters.dateFrom, to: filters.dateTo })
+  return rows.filter(t =>
+    keep(t)
+    && (!byDevice || !filters.fiscalDeviceNumber || t.fiscalDeviceNumber === filters.fiscalDeviceNumber),
+  )
+}
+
+const SALE_TYPES = ['sale', 'return', 'exchange']
+
 /** 18.1 — Summarized sales (POS + cash sales) */
 export async function exportSummarizedSales(filters: SuptoExportFilters, repos?: RepositoryRegistry) {
   const r = repos ?? getRepos()
-  const query: any = {
-    orgId: filters.orgId,
-    createdAt: { $gte: filters.dateFrom, $lte: filters.dateTo },
-    type: { $in: ['sale', 'return', 'exchange'] },
-  }
-  if (filters.fiscalDeviceNumber) query.fiscalDeviceNumber = filters.fiscalDeviceNumber
-  if (filters.operatorCode) query.unpNumber = { $regex: `-${filters.operatorCode}-` }
+  const transactions = await tillRows(filters, t =>
+    SALE_TYPES.includes(t.type)
+    && (!filters.operatorCode || t.operatorCode === filters.operatorCode))
 
-  const transactions = await r.posTransactions.findMany(query, { createdAt: 1 })
-
-  // Also include cash_sale invoices
+  // Also include cash_sale invoices — but not the till's own documents, already listed above.
   const invoiceQuery: any = {
     orgId: filters.orgId,
     type: 'cash_sale',
     issueDate: { $gte: filters.dateFrom, $lte: filters.dateTo },
+    'register.origin': { $ne: 'pos' },
   }
-  const cashSales = await r.invoices.findMany(invoiceQuery, { issueDate: 1 })
+  const found = await r.invoices.findMany(invoiceQuery, { issueDate: 1 })
+
+  // #323: the operator of a back-office cash sale. A joined sale stores it (it is the till's, above);
+  // a sessionless one names its author, whose code it is. An imported day has none: its author is
+  // whoever ran the import, not who sold.
+  const authors = [...new Set(found.filter((d: any) => !d.register?.operatorCode && originOf(d) !== 'import' && d.createdBy).map((d: any) => String(d.createdBy)))]
+  const codeOf = new Map(authors.length
+    ? (await User.find({ _id: { $in: authors }, orgId: filters.orgId }, { operatorCode: 1 }).lean().exec()).map((u: any) => [String(u._id), u.operatorCode as string | undefined])
+    : [])
+  const cashSales = found
+    .map((d: any) => ({
+      ...d,
+      register: {
+        ...(d.register || {}),
+        operatorCode: d.register?.operatorCode || (originOf(d) === 'import' ? undefined : codeOf.get(String(d.createdBy))),
+      },
+    }))
+    .filter((d: any) => !filters.operatorCode || d.register.operatorCode === filters.operatorCode)
 
   return { transactions, cashSales }
 }
 
 /** 18.2 — Payment details */
-export async function exportPaymentDetails(filters: SuptoExportFilters, repos?: RepositoryRegistry) {
-  const r = repos ?? getRepos()
-  const query: any = {
-    orgId: filters.orgId,
-    createdAt: { $gte: filters.dateFrom, $lte: filters.dateTo },
-  }
-  if (filters.fiscalDeviceNumber) query.fiscalDeviceNumber = filters.fiscalDeviceNumber
-
-  return r.posTransactions.findMany(query, { createdAt: 1 })
+export async function exportPaymentDetails(filters: SuptoExportFilters, _repos?: RepositoryRegistry) {
+  return tillRows(filters, () => true)
 }
 
 /** 18.3 — Itemized sales (line-level detail) */
-export async function exportItemizedSales(filters: SuptoExportFilters, repos?: RepositoryRegistry) {
-  const r = repos ?? getRepos()
-  const query: any = {
-    orgId: filters.orgId,
-    createdAt: { $gte: filters.dateFrom, $lte: filters.dateTo },
-    type: { $in: ['sale', 'return', 'exchange'] },
-  }
-  if (filters.fiscalDeviceNumber) query.fiscalDeviceNumber = filters.fiscalDeviceNumber
-
-  return r.posTransactions.findMany(query, { createdAt: 1 })
+export async function exportItemizedSales(filters: SuptoExportFilters, _repos?: RepositoryRegistry) {
+  return tillRows(filters, t => SALE_TYPES.includes(t.type))
 }
 
 /** 18.4 — Reversed (storno) sales */
-export async function exportReversedSales(filters: SuptoExportFilters, repos?: RepositoryRegistry) {
-  const r = repos ?? getRepos()
-  const query: any = {
-    orgId: filters.orgId,
-    createdAt: { $gte: filters.dateFrom, $lte: filters.dateTo },
-    type: 'storno',
-  }
-  if (filters.fiscalDeviceNumber) query.fiscalDeviceNumber = filters.fiscalDeviceNumber
-
-  return r.posTransactions.findMany(query, { createdAt: 1 })
+export async function exportReversedSales(filters: SuptoExportFilters, _repos?: RepositoryRegistry) {
+  return tillRows(filters, t => t.type === 'storno')
 }
 
 /** 18.5 — Cancelled sales */
-export async function exportCancelledSales(filters: SuptoExportFilters, repos?: RepositoryRegistry) {
-  const r = repos ?? getRepos()
-  const query: any = {
-    orgId: filters.orgId,
-    createdAt: { $gte: filters.dateFrom, $lte: filters.dateTo },
-    status: 'cancelled',
-  }
-
-  return r.posTransactions.findMany(query, { createdAt: 1 })
+export async function exportCancelledSales(filters: SuptoExportFilters, _repos?: RepositoryRegistry) {
+  return tillRows(filters, t => t.status === 'cancelled', false)
 }
 
 /** 18.6 — Delivery summary (incoming stock movements) */
@@ -149,6 +166,8 @@ export async function exportStockMovementSummary(filters: SuptoExportFilters, re
   const mvFilter: any = {
     orgId: filters.orgId,
     date: { $gte: filters.dateFrom, $lte: filters.dateTo },
+    // A record-only movement repeats goods another movement moved (FR-21.4).
+    recordOnly: { $ne: true },
   }
   if (filters.warehouseId) {
     mvFilter.$or = [{ fromWarehouseId: filters.warehouseId }, { toWarehouseId: filters.warehouseId }]

@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 export interface IOrgAddress {
   type: string
@@ -25,6 +26,12 @@ export interface IOrg extends Document {
   slug: string
   description?: string
   logo?: string
+  /**
+   * FR-20.3 — global's own record of the highest home epoch it has seen for this org, beside the
+   * `org_homes` row. A row that disagrees with it (or a missing row once it is set) puts the org
+   * in `hold`: read-only until a sys-admin resolves it. Unset for every org that never moved.
+   */
+  homeEpochHighWater?: number
   ownerId: Types.ObjectId
   taxNumber?: string
   vatNumber?: string
@@ -59,6 +66,17 @@ export interface IOrg extends Document {
       defaultCOGSAccountId?: string
       useLocations?: boolean
     }
+    /** FR-21: the cash register (the till and every cash-register document). */
+    cashRegister?: {
+      /**
+       * Whether the till may sell what the warehouse does not hold (FR-21.16). Unset means YES,
+       * which is what the till always did: it never checked. `false` checks the stock before a
+       * receipt can print, and refuses the sale. Not `inventory.allowNegativeStock`, which
+       * defaults to false and which no code read: following it would have made every till that
+       * never touched it refuse sales.
+       */
+      allowNegativeStock?: boolean
+    }
     accounting?: {
       defaultReceivableAccountId?: string
       defaultPayableAccountId?: string
@@ -68,6 +86,11 @@ export interface IOrg extends Document {
       defaultPurchaseJournalId?: string
       defaultCashJournalId?: string
       defaultBankJournalId?: string
+      /**
+       * FR-21.2: where a POS session's counted-versus-expected cash difference is posted. Unset,
+       * the session journal entry posts no over/short line and the difference stays on the session.
+       */
+      cashOverShortAccountId?: string
       autoPostInvoiceEntries?: boolean
       autoPostPaymentEntries?: boolean
     }
@@ -105,6 +128,19 @@ export interface IOrg extends Document {
     desktop?: {
       ephemeralKeysEnabled?: boolean
     }
+    /**
+     * FR-20.2 (P2-1) — masters registered with global. `ephemeralKeysEnabled` is the desktops'
+     * rule again: off by default, checked on USE, for the field lanes' throwaway masters only.
+     */
+    node?: {
+      ephemeralKeysEnabled?: boolean
+      /**
+       * FR-20.69 (P3-3): whether this org's files travel to global's mirror while its home is a
+       * master. Unset is yes; `false` is the metadata-only option: the records are mirrored, the
+       * files stay on the master. Global's own, like the rest of `settings.node`.
+       */
+      mirrorFiles?: boolean
+    }
     modules: string[]
     integrations?: {
       googleDrive?: { accessToken: string; refreshToken: string; expiresAt: Date; email: string }
@@ -135,6 +171,7 @@ const orgSchema = new Schema<IOrg>(
     slug: { type: String, required: true, unique: true },
     description: String,
     logo: String,
+    homeEpochHighWater: Number,
     ownerId: { type: Schema.Types.ObjectId, ref: 'User' },
     taxNumber: String,
     vatNumber: String,
@@ -188,6 +225,10 @@ const orgSchema = new Schema<IOrg>(
         defaultCOGSAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
         useLocations: { type: Boolean, default: false },
       },
+      // No default: an org that never set it reads as "allowed" (see the interface).
+      cashRegister: {
+        allowNegativeStock: Boolean,
+      },
       accounting: {
         defaultReceivableAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
         defaultPayableAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
@@ -197,6 +238,7 @@ const orgSchema = new Schema<IOrg>(
         defaultPurchaseJournalId: { type: Schema.Types.ObjectId, ref: 'Journal' },
         defaultCashJournalId: { type: Schema.Types.ObjectId, ref: 'Journal' },
         defaultBankJournalId: { type: Schema.Types.ObjectId, ref: 'Journal' },
+        cashOverShortAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
         autoPostInvoiceEntries: { type: Boolean, default: false },
         autoPostPaymentEntries: { type: Boolean, default: false },
       },
@@ -221,6 +263,8 @@ const orgSchema = new Schema<IOrg>(
           // org sees the same cluster-wide figures. Turning it on is the deliberate act here,
           // and it is the last step of the Layer-1 install (docs/BACKUP-RUNBOOK.md §3).
           backups: { type: Boolean, default: false },
+          // FR-20.100 — the org's own server; built only there, so on lgrai.app it is never present.
+          server: { type: Boolean, default: true },
         },
         locale: String,
       },
@@ -234,6 +278,12 @@ const orgSchema = new Schema<IOrg>(
       // FR-14.19 — reusable enrollment keys for throwaway field-test VMs. Off unless asked for.
       desktop: {
         ephemeralKeysEnabled: { type: Boolean, default: false },
+      },
+      // FR-20.2 — reusable registration keys for the field lanes' throwaway masters. Off unless asked for.
+      node: {
+        ephemeralKeysEnabled: { type: Boolean, default: false },
+        // FR-20.69: unset means "mirror the files too". No default, so no org needs a backfill.
+        mirrorFiles: { type: Boolean },
       },
       modules: [{ type: String }],
       integrations: {
@@ -259,4 +309,39 @@ const orgSchema = new Schema<IOrg>(
   { timestamps: true },
 )
 
+replicate(orgSchema, {
+  class: 'S',
+  // The org is the document itself: no `orgId`, its `_id` is the org (applied by `{_id}`).
+  orgPath: '_id',
+  // The company's own data and its settings are the home's (FR-20.63).
+  home: ['name', 'description', 'logo', 'ownerId', 'taxNumber', 'vatNumber', 'email', 'phone', 'website', 'addresses', 'bankDetails', 'settings', 'createdAt', 'updatedAt'],
+  // ⚠ Global's: the address label, the billing, the cloud integrations' tokens, the masters' enrolment
+  // switch, and the second home record. A page never overwrites them (acceptance 33).
+  global: ['slug', 'subscription', 'settings.integrations', 'settings.node', 'homeEpochHighWater'],
+  node: [],
+})
+
 export const Org = model<IOrg>('Org', orgSchema)
+
+/**
+ * An org's settings as a client may see them (S-29). `settings.integrations` reserves an access and
+ * a refresh token per cloud provider. Nothing writes them today, but the routes that return the
+ * org answer every member of it, so a token stored there would reach every browser.
+ */
+export function settingsForClient<T>(settings: T): T {
+  if (!settings || typeof settings !== 'object') return settings
+  const s: any = typeof (settings as any).toObject === 'function' ? (settings as any).toObject() : { ...(settings as any) }
+  if (s.integrations && typeof s.integrations === 'object') {
+    s.integrations = Object.fromEntries(Object.entries(s.integrations).map(([provider, value]) => {
+      if (!value || typeof value !== 'object') return [provider, value]
+      const { accessToken: _a, refreshToken: _r, ...rest } = value as Record<string, unknown>
+      return [provider, rest]
+    }))
+  }
+  return s
+}
+
+/** `settingsForClient`, applied to a whole serialised org. */
+export function orgForClient<T extends { settings?: unknown }>(org: T): T {
+  return org?.settings ? { ...org, settings: settingsForClient(org.settings) } : org
+}

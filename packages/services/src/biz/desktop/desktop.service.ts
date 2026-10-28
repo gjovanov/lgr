@@ -1,4 +1,6 @@
 import { createHmac, timingSafeEqual } from 'crypto'
+import { readFileSync } from 'fs'
+import { homeScope } from 'db/home/home'
 import {
   Desktop,
   DesktopAssertion,
@@ -8,9 +10,11 @@ import {
   Org,
   type IDesktop,
 } from 'db/models'
-import { config } from 'config'
+import { HomeElsewhereError } from 'db/home/home'
+import { config, nodeRole } from 'config'
 import { logger } from '../../logger/logger.js'
 import { meetsMinimum } from './version.js'
+import { fingerprintWords } from './fingerprint-words.js'
 import {
   generateEnrollmentCode,
   generateEnrollmentKey,
@@ -52,11 +56,48 @@ const MAX_CODE_ATTEMPTS = 10
 
 // ── Minting (admin side) ─────────────────────────────────────────────────────────────────────
 
+/**
+ * The LAN address and CA fingerprint a pairing code names and pins, as the supervisor last
+ * published them (`state/lan.json`, FR-20.30). A CA rotation or a DHCP move changes both while the
+ * API runs; the environment holds what was true when it started, and is the fallback.
+ */
+export function currentLan(): { url?: string; caFingerprint?: string } {
+  const lan = config.front.lan
+  if (lan.stateFile) {
+    try {
+      const published = JSON.parse(readFileSync(lan.stateFile, 'utf8'))
+      if (typeof published?.caFingerprint === 'string' && published.caFingerprint) {
+        return { url: typeof published.url === 'string' && published.url ? published.url : lan.url, caFingerprint: published.caFingerprint }
+      }
+    } catch {
+      // Not there yet, or being replaced: the environment's.
+    }
+  }
+  return { url: lan.url, caFingerprint: lan.caFingerprint }
+}
+
+/**
+ * Where a desktop enrolls, and how it knows the server is the right one (FR-20.29).
+ * - On lgrai.app: the origin the admin is on, and the OS trust store.
+ * - On a master with its LAN ingress open: the master's LAN address, whatever address the admin
+ *   happens to be using (the setup console is `127.0.0.1`, which no till can reach), and the
+ *   fingerprint of the master's own CA, which the desktop pins its first connection to. A code typed
+ *   by hand carries no fingerprint, so its six words are shown with it.
+ */
+export function enrollmentTarget(requestOrigin: string): { server: string; fingerprint?: string; words?: string[] } {
+  const lan = currentLan()
+  if (nodeRole() === 'master' && lan.url && lan.caFingerprint) {
+    const words = fingerprintWords(lan.caFingerprint)
+    if (words) return { server: lan.url, fingerprint: lan.caFingerprint, words }
+  }
+  return { server: requestOrigin }
+}
+
 export async function mintEnrollmentCode(
   orgId: string,
   userId: string,
   serverOrigin: string,
-): Promise<{ id: string; code: string; expiresAt: Date; deepLink: string }> {
+): Promise<{ id: string; code: string; expiresAt: Date; deepLink: string; server: string; fingerprint?: string; words?: string[] }> {
   const { display, raw, prefix } = generateEnrollmentCode()
   const expiresAt = new Date(Date.now() + CODE_TTL_MS)
   const row = await DesktopEnrollmentCode.create({
@@ -66,13 +107,16 @@ export async function mintEnrollmentCode(
     createdBy: userId,
     expiresAt,
   })
+  const target = enrollmentTarget(serverOrigin)
+  const fp = target.fingerprint ? `&fp=${encodeURIComponent(target.fingerprint)}` : ''
   return {
     id: String(row._id),
     // ⚠ The only time the code exists in plain text. It is not stored, and it cannot be shown
     // again — minting another is the recovery, which is also what makes single use meaningful.
     code: display,
     expiresAt,
-    deepLink: `lgr://enroll?server=${encodeURIComponent(serverOrigin)}&code=${encodeURIComponent(display)}`,
+    deepLink: `lgr://enroll?server=${encodeURIComponent(target.server)}&code=${encodeURIComponent(display)}${fp}`,
+    ...target,
   }
 }
 
@@ -132,10 +176,28 @@ export interface EnrollResult {
   orgName: string
   assignment: { fiscalDeviceIds: string[]; startPath?: string }
   name: string
+  /**
+   * #328: an enrollment KEY makes an ephemeral desktop, which unregisters itself on a clean
+   * shutdown (FR-14.19). Said here so the shell does not have to infer it from what it sent.
+   */
+  ephemeral: boolean
   serverTime: string
 }
 
 export async function enrollDesktop(input: EnrollInput): Promise<EnrollResult> {
+  try {
+    return await enrollDesktopHere(input)
+  } catch (e) {
+    // FR-20.5: an org whose home is another server enrolls its desktops there. The write guard
+    // refused the code's redemption before it was used, so nothing was consumed.
+    if (e instanceof HomeElsewhereError) {
+      throw new DesktopError(409, 'org_home_elsewhere', 'This organization is managed on its own server. Enroll the desktop there.')
+    }
+    throw e
+  }
+}
+
+async function enrollDesktopHere(input: EnrollInput): Promise<EnrollResult> {
   if (!isValidDesktopPublicKey(input.publicKey)) {
     throw new DesktopError(400, 'bad_public_key', 'The public key must be a base64 Ed25519 SPKI key.')
   }
@@ -147,15 +209,22 @@ export async function enrollDesktop(input: EnrollInput): Promise<EnrollResult> {
     ? await redeemCode(input.code)
     : await redeemKey(input.enrollmentKey)
 
-  const desktop = await upsertDesktop(credential, input)
+  let desktop: IDesktop
+  try {
+    desktop = await upsertDesktop(credential, input)
+  } catch (e) {
+    // The claim is given back: a refusal after it must not burn the admin's code or a key's use.
+    if (credential.kind === 'code') {
+      await DesktopEnrollmentCode.updateOne({ _id: credential.codeId, usedAt: credential.claimedAt }, { $unset: { usedAt: 1 } })
+    } else {
+      await DesktopEnrollmentKey.updateOne({ _id: credential.keyId, uses: { $gt: 0 } }, { $inc: { uses: -1 } })
+    }
+    throw e
+  }
 
   if (credential.kind === 'code') {
-    await DesktopEnrollmentCode.updateOne(
-      { _id: credential.codeId },
-      { $set: { usedAt: new Date(), usedByDesktopId: desktop._id } },
-    )
+    await DesktopEnrollmentCode.updateOne({ _id: credential.codeId }, { $set: { usedByDesktopId: desktop._id } })
   } else {
-    await DesktopEnrollmentKey.updateOne({ _id: credential.keyId }, { $inc: { uses: 1 } })
     await DesktopEnrollmentKeyUse.create({
       orgId: credential.orgId,
       keyId: credential.keyId,
@@ -176,6 +245,7 @@ export async function enrollDesktop(input: EnrollInput): Promise<EnrollResult> {
       startPath: desktop.startPath,
     },
     name: desktop.name,
+    ephemeral: !!desktop.ephemeral,
     // ⚠ So the desktop can correct its own clock before signing its first assertion. The Win11
     // golden image the field lanes use runs ~+3 h off until `w32time` resyncs.
     serverTime: new Date().toISOString(),
@@ -183,7 +253,7 @@ export async function enrollDesktop(input: EnrollInput): Promise<EnrollResult> {
 }
 
 type Credential =
-  | { kind: 'code'; orgId: any; codeId: any; createdBy: any }
+  | { kind: 'code'; orgId: any; codeId: any; createdBy: any; claimedAt: Date }
   | { kind: 'key'; orgId: any; keyId: any; ephemeralTtlSec: number }
 
 async function redeemCode(code: string): Promise<Credential> {
@@ -198,11 +268,20 @@ async function redeemCode(code: string): Promise<Credential> {
   if (row.attempts >= MAX_CODE_ATTEMPTS) {
     throw new DesktopError(429, 'enroll_refused', ENROLL_REFUSED)
   }
-  if (row.usedAt || row.expiresAt.getTime() < Date.now()) {
+  // ⚠ The claim IS the conditional update. Checking `usedAt` here and marking it after the
+  // enrollment let three tills sending one code at the same moment all enroll; of masters or tills
+  // racing for a code now, one matches.
+  const claimedAt = new Date()
+  const claimed = await DesktopEnrollmentCode.findOneAndUpdate(
+    { _id: row._id, usedAt: null, expiresAt: { $gt: claimedAt }, attempts: { $lt: MAX_CODE_ATTEMPTS } },
+    { $set: { usedAt: claimedAt } },
+    { new: true },
+  )
+  if (!claimed) {
     await DesktopEnrollmentCode.updateOne({ _id: row._id }, { $inc: { attempts: 1 } })
     throw new DesktopError(400, 'enroll_refused', ENROLL_REFUSED)
   }
-  return { kind: 'code', orgId: row.orgId, codeId: row._id, createdBy: row.createdBy }
+  return { kind: 'code', orgId: claimed.orgId, codeId: claimed._id, createdBy: claimed.createdBy, claimedAt }
 }
 
 async function redeemKey(secret: unknown): Promise<Credential> {
@@ -218,6 +297,14 @@ async function redeemKey(secret: unknown): Promise<Credential> {
   }
   // The org-level switch, re-checked on use.
   await assertEphemeralKeysEnabled(String(row.orgId))
+  // ⚠ The use is claimed by a conditional increment, like a code: of desktops racing for a key's
+  // last use, one gets it.
+  const claimed = await DesktopEnrollmentKey.findOneAndUpdate(
+    { _id: row._id, revokedAt: null, ...(row.maxUses > 0 ? { uses: { $lt: row.maxUses } } : {}) },
+    { $inc: { uses: 1 } },
+    { new: true },
+  )
+  if (!claimed) throw new DesktopError(400, 'enroll_refused', ENROLL_REFUSED)
   return { kind: 'key', orgId: row.orgId, keyId: row._id, ephemeralTtlSec: row.ephemeralTtlSec }
 }
 
@@ -366,7 +453,7 @@ export function verifyDesktopToken(token: unknown): DesktopTokenClaims | null {
 /** The token endpoint. Verifies the assertion against the stored key, then mints. */
 export async function issueDesktopToken(
   assertion: unknown,
-  audience: string,
+  audience: string | string[],
 ): Promise<{ token: string; expiresAt: Date; serverTime: string; desktop: IDesktop }> {
   // ⚠ `sub` is read from the assertion to find the row, and then the assertion is verified with
   // THAT row's key. An unverified `sub` selects which key to try; it grants nothing by itself, and
@@ -466,13 +553,22 @@ export async function loadActiveDesktop(claims: DesktopTokenClaims): Promise<IDe
 
 export type Presence = 'online' | 'stale' | 'offline'
 
-/** Seen within this window but with no live socket = `stale` (FR-14.21). */
+/** Seen within this window but not online = `stale` (FR-14.21). */
 export const PRESENCE_STALE_MS = 90 * 1000
+/**
+ * Online = a socket AND a heartbeat within this window: two missed 30 s heartbeats and some slack.
+ *
+ * ⚠ A socket alone proves nothing. A till whose cable is pulled leaves its socket open on the hub
+ * until something times it out (the edge's 300 s), and the first field lane (vmtest T-0,
+ * 2026-10-27) watched a cut desktop read `online` for four minutes. The heartbeat is what says it
+ * is still there: it stops with the link.
+ */
+export const PRESENCE_ONLINE_MS = 75 * 1000
 
-export function presenceOf(desktop: Pick<IDesktop, 'lastSeenAt'>, hasSocket: boolean): Presence {
-  if (hasSocket) return 'online'
+export function presenceOf(desktop: Pick<IDesktop, 'lastSeenAt'>, hasSocket: boolean, now = Date.now()): Presence {
   const seen = desktop.lastSeenAt?.getTime() ?? 0
-  return Date.now() - seen <= PRESENCE_STALE_MS ? 'stale' : 'offline'
+  if (hasSocket && now - seen <= PRESENCE_ONLINE_MS) return 'online'
+  return now - seen <= PRESENCE_STALE_MS ? 'stale' : 'offline'
 }
 
 export async function reportSelf(
@@ -573,7 +669,9 @@ export async function updateDesktop(
  * till because the shop's internet was down, so the negative case is the one the tests assert.
  */
 export async function reapEphemeralDesktops(now = new Date()): Promise<number> {
-  const candidates = await Desktop.find({ ephemeral: true }).select('_id lastSeenAt ephemeralTtlSec orgId').lean()
+  // FR-20.85: only desktops of orgs whose home is here; a till whose org lives on a master reports
+  // to that master, so its silence here proves nothing.
+  const candidates = await Desktop.find({ ephemeral: true, ...(await homeScope()) }).select('_id lastSeenAt ephemeralTtlSec orgId').lean()
   const doomed = candidates
     .filter(d => {
       const ttlMs = ((d as any).ephemeralTtlSec ?? 900) * 1000

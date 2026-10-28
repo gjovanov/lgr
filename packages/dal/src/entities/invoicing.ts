@@ -75,6 +75,16 @@ export interface IInvoiceLine {
   accountId?: string
   warehouseId?: string
   priceExplanation?: IPriceStep[]
+  /** On an invoice for a cash sale: the cash-sale line it invoices (#171). */
+  cashSaleLineId?: string
+}
+
+/** The cash sale an invoice was issued for (#171): see `db/models/invoice.model.ts`. */
+export interface IInvoiceCashSaleRef {
+  cashSaleId: string
+  number: string
+  issueDate: Date
+  contactId?: string
 }
 
 export interface IInvoicePayment {
@@ -85,6 +95,8 @@ export interface IInvoicePayment {
   reference?: string
   bankAccountId?: string
   journalEntryId?: string
+  /** Set when the system, not a person, recorded it: `cash_on_issue`, `card_on_issue` or `cash_register`. */
+  origin?: string
 }
 
 export interface IInvoiceAddress {
@@ -130,6 +142,8 @@ export interface IInvoice extends TenantEntity {
   relatedInvoiceId?: string
   convertedInvoiceId?: string
   proformaId?: string
+  cashSaleRef?: IInvoiceCashSaleRef
+  taxEventDate?: Date
   journalEntryId?: string
   recurringConfig?: IInvoiceRecurringConfig
   attachments: string[]

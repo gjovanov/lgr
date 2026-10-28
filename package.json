@@ -2,6 +2,7 @@
   "name": "lgr",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "bun@1.4.4",
   "scripts": {
     "start": "cd packages/portal-api && bun run start",
     "build": "bun run build:portal-ui && bun run build:accounting-ui && bun run build:inventory-ui && bun run build:invoicing-ui && bun run build:pos-ui && bun run build:payroll-ui && bun run build:reports-ui && bun run build:files-ui && bun run build:desktop-ui",
@@ -9,6 +10,8 @@
     "test": "bun test packages/tests --env-file=.env.test --timeout 120000",
     "test:e2e": "cd packages/e2e && bunx playwright test",
     "seed": "bun run packages/tests/src/helpers/seed.ts",
+    "gen:replication-meta": "bun scripts/gen-replication-meta.ts",
+    "migrate": "bun run packages/migrations/src/cli.ts",
     "dev:portal-ui": "cd packages/portal-ui && bun run dev",
     "build:portal-ui": "cd packages/portal-ui && bun run build",
     "dev:accounting-ui": "cd packages/accounting-ui && bun run dev",
@@ -27,12 +30,16 @@
     "build:files-ui": "cd packages/files-ui && bun run build",
     "dev:desktop-ui": "cd packages/desktop-ui && bun run dev",
     "build:desktop-ui": "cd packages/desktop-ui && bun run build",
+    "build:server": "bun run scripts/build-server.ts",
+    "check:package": "bun run scripts/check-package.ts",
     "build:desktop": "bun run build:desktop-ui && cd packages/desktop/src-tauri && cargo build --release",
     "tauri:dev": "cd packages/desktop && cargo tauri dev",
     "tauri:build": "bun run build:desktop-ui && cd packages/desktop && cargo tauri build"
   },
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "devDependencies": {
     "exceljs": "^4.4.0"
   },

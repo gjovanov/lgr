@@ -24,6 +24,8 @@ export interface FilterOperator<V> {
   $in?: V[]
   $nin?: V[]
   $regex?: string
+  /** Regex flags for `$regex` (e.g. 'i'). */
+  $options?: string
   $exists?: boolean
   $text?: { $search: string }
 }

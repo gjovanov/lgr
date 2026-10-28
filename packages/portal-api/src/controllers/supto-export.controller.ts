@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
+import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import {
   exportSummarizedSales,
   exportPaymentDetails,
@@ -10,6 +11,7 @@ import {
   exportDeliveryDetails,
   exportStockMovementSummary,
   exportNomenclature,
+  suptoPeriod,
 } from 'services/biz/supto-export.service'
 import {
   generateTable181,
@@ -37,8 +39,18 @@ const TABLE_DESCRIPTIONS: Record<string, string> = {
   '18.9': 'Nomenclature Tables',
 }
 
+/** The tables that read the till's sales and stornos (`loadPosRows`). */
+const TILL_TABLES = new Set(['18.1', '18.2', '18.3', '18.4', '18.5'])
+
 export const suptoExportController = new Elysia({ prefix: '/org/:orgId/supto/export' })
   .use(AuthService)
+  // FR-21.28: a table built from the till's history is refused, with the reason, until that history
+  // may be read from documents only. An inspector must never be handed a table missing sales.
+  .onBeforeHandle(async ({ params, status }) => {
+    if (!TILL_TABLES.has(String((params as any)?.tableId ?? ''))) return
+    const refusal = await cashRegisterRefusal()
+    if (refusal) return status(503, refusal)
+  })
   // List available tables
   .get('/tables', async ({ user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
@@ -64,8 +76,8 @@ export const suptoExportController = new Elysia({ prefix: '/org/:orgId/supto/exp
 
     const filters = {
       orgId,
-      dateFrom: query.dateFrom ? new Date(query.dateFrom as string) : new Date(),
-      dateTo: query.dateTo ? new Date(query.dateTo as string) : new Date(),
+      // Bulgarian calendar days, start to end (FR-21 B-7).
+      ...suptoPeriod(query.dateFrom as string | undefined, query.dateTo as string | undefined),
       warehouseId: query.warehouseId as string | undefined,
       fiscalDeviceNumber: query.fiscalDeviceNumber as string | undefined,
       workstationId: query.workstationId as string | undefined,

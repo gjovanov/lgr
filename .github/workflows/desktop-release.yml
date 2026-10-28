@@ -10,11 +10,35 @@ on:
         description: 'Version to release (e.g., 0.1.0)'
         required: true
         type: string
+      # ⚠ A TAG always builds everything, whatever is selected here — a tag is the real release
+      # path and must not be able to publish a platform-shaped subset by accident. This input
+      # exists for a DISPATCHED release that deliberately covers one platform, which is how the
+      # first signed Windows build was cut: a hosted macOS minute bills at 10x and this
+      # repository's free allowance ran out on 2026-10-07, so paying for three platforms to prove
+      # one is a cost with no answer attached.
+      #
+      # ⚠ A subset release is INCOMPLETE by construction. The notes say so, and the artifact
+      # completeness gate below is narrowed to exactly what was asked for — never switched off.
+      #
+      # `windows-linux` is the default because those are the platforms tills run today; macOS bills
+      # at 10x and is built only when `all` is chosen (or by a tag).
+      platforms:
+        description: 'Which platforms to build (a tag always builds all)'
+        required: false
+        type: choice
+        default: windows-linux
+        options:
+          - windows-linux
+          - all
+          - windows
+          - linux
+      # ⚠ Off by default: a release is published, and the fleet is told about it, in this run.
+      # A draft is never seen by the fleet and has to go through `desktop-promote.yml`.
       draft:
-        description: 'Create as draft release'
+        description: 'Create as draft release (not offered to the fleet)'
         required: false
         type: boolean
-        default: true
+        default: false
 
 # ⚠ Least privilege per job instead of a blanket write. The Windows job needs `id-token: write`
 # for azure/login's OIDC exchange inside roomler's sign-windows action, and the provenance
@@ -23,37 +47,74 @@ on:
 permissions: {}
 
 env:
-  # Matches the Dockerfile's runtime (oven/bun:1.3.10-slim) and `ci.yml`.
-  BUN_VERSION: '1.3.10'
   TAURI_CLI_VERSION: '2.10.1'
   # ⚠ Pinned, and the same version as `rust-toolchain.toml` and `ci.yml`. It was `@stable`, so the
   # compiler changed under the release build without a commit.
   RUST_VERSION: '1.98'
 
 jobs:
+  # ⚠ The matrix lives here rather than in `build.strategy` because a static matrix cannot be
+  # filtered by an input: a job-level `if` applies to every leg, and a step-level skip still
+  # starts — and bills — the runner. One cheap Linux job emits the legs that will actually run.
+  setup:
+    name: resolve the platforms
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+      platforms: ${{ steps.pick.outputs.platforms }}
+    steps:
+      - name: Pick the matrix
+        id: pick
+        env:
+          # ⚠ Through the environment, not interpolated into the script. `inputs.platforms` is a
+          # `choice`, so it cannot carry anything else today — but a `${{ }}` inside a `run:` is
+          # how that stops being true the day it becomes a string.
+          SELECTED: ${{ inputs.platforms }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          # `bun_target` was in these rows too — it only ever fed the sidecar's `bun build
+          # --compile --target`, which is gone with local mode (FR-14.34).
+          LINUX='{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","label":"linux-amd64","bundles":"deb,rpm"}'
+          # `app` as well as `dmg` (FR-14.28): the bundler deletes the `.app` once the DMG is built
+          # unless `app` was asked for, and the updater's archive is made from that `.app`.
+          MAC_ARM='{"platform":"macos-latest","target":"aarch64-apple-darwin","label":"macos-arm64","bundles":"app,dmg"}'
+          MAC_X64='{"platform":"macos-latest","target":"x86_64-apple-darwin","label":"macos-x64","bundles":"app,dmg"}'
+          WINDOWS='{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","label":"windows-x64","bundles":"nsis,msi"}'
+
+          # ⚠ A tag is the real release path: it builds every platform regardless.
+          SEL="${SELECTED:-all}"
+          if [ "$EVENT" != "workflow_dispatch" ]; then
+            SEL=all
+          fi
+
+          case "$SEL" in
+            all)           INCLUDE="$LINUX,$MAC_ARM,$MAC_X64,$WINDOWS" ;;
+            windows-linux) INCLUDE="$WINDOWS,$LINUX" ;;
+            windows)       INCLUDE="$WINDOWS" ;;
+            linux)         INCLUDE="$LINUX" ;;
+            *) echo "::error::unknown platforms selection '$SEL'"; exit 1 ;;
+          esac
+
+          echo "matrix={\"include\":[$INCLUDE]}" >> "$GITHUB_OUTPUT"
+          echo "platforms=$SEL" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Building \`$SEL\`"
+            echo
+            if [ "$SEL" != all ]; then
+              echo ":warning: This is a **partial** release: only \`$SEL\` artifacts will exist."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build:
+    needs: setup
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          # `bun_target` was here too — it only ever fed the sidecar's `bun build --compile
-          # --target`, which is gone with local mode (FR-14.34).
-          - platform: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            label: linux-amd64
-            bundles: deb,rpm
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-            label: macos-arm64
-            bundles: dmg
-          - platform: macos-latest
-            target: x86_64-apple-darwin
-            label: macos-x64
-            bundles: dmg
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            label: windows-x64
-            bundles: nsis,msi
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
 
     runs-on: ${{ matrix.platform }}
     # ⚠ Required. The Entra federated credential is bound to this ENVIRONMENT — roomler's tenant
@@ -61,6 +122,10 @@ jobs:
     # that reads like a signing outage rather than a missing line (FR-14.3, trap 3). The Apple and
     # GPG secrets live in this environment too.
     environment: release
+    # ⚠ Without this a job runs until GitHub's 6-hour cap. On 2026-10-07 the Linux leg hung and
+    # billed 361 minutes against a normal 15-24 (Windows is the slowest leg at ~39). 90 keeps more
+    # than twice the slowest leg's headroom and caps a hang at a quarter of what that one cost.
+    timeout-minutes: 90
     permissions:
       contents: read
       id-token: write      # azure/login OIDC inside sign-windows, and provenance attestation
@@ -72,7 +137,15 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: ${{ env.BUN_VERSION }}
+          bun-version-file: .bun-version
+
+      # Same key as `ci.yml` and `desktop-ci.yml`, so a release restores what CI saved on master.
+      - name: Cache Bun install
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
@@ -80,10 +153,21 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ matrix.target }}
 
+      # ⚠ `key` matches `desktop-ci.yml` (same job id `build`, same `key: <target>`), so both
+      # workflows read and write ONE cache per target. With no `key` this was `v0-rust-build-…` and
+      # never matched CI's `v0-rust-<target>-build-…`, so the first Windows release ran cold and
+      # rebuilt `tauri-cli` from source for ~7 min. The target is in the key because the two macOS
+      # legs share a runner and would otherwise collide.
+      #
+      # ⚠ Saved from master only. A cache saved by a tag run is scoped to that tag and no later run
+      # can restore it (1.45 GB of `desktop-v0.1.4` saves sat unusable in the 10 GB pool). A tag
+      # restores from master, which is why master is the only ref worth saving from.
       - name: Rust cache
         uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           workspaces: packages/desktop/src-tauri
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       # ⚠ `--locked` is THE fix for the failure that killed this pipeline. Without it,
       # `cargo install tauri-cli@2.10.1` resolves fresh dependency versions at install time, and
@@ -155,18 +239,74 @@ jobs:
       #
       # Tauri's own `bundle.windows.signCommand` would be the tidy way to do this, but roomler's
       # signer is a COMPOSITE ACTION, not a CLI: it cannot be invoked from inside the bundler. So
-      # the build is split, the action signs between the halves, and the second half is asserted
-      # not to have undone it.
+      # the build is split, the action signs between the halves, and the result is asserted —
+      # inside the installers, where it counts.
       - name: Build the app binary (no bundle)
         if: runner.os == 'Windows'
         run: cd packages/desktop && cargo tauri build --target ${{ matrix.target }} --no-bundle
+
+      # ⚠ **The bundler EDITS the exe before it packages it, and that is what broke 0.1.5.**
+      # tauri-bundler 2.8.1 (the one tauri-cli 2.10.1 pins), `bundle.rs#patch_binary`: for each
+      # bundle type it reads the main binary, overwrites the FIRST occurrence of the 27-byte
+      # string `__TAURI_BUNDLE_TYPE_VAR_UNK` with `..._NSS` (nsis) or `..._MSI` (msi), writes the
+      # file back in place, packages it, and then RESTORES the copy it took before the loop. So
+      # the installers got a patched exe whose Authenticode hash no longer matched its signature
+      # (the installed 0.1.5 reads `HashMismatch`), while the on-disk exe — restored — still read
+      # `Valid`, which is all the old assertion looked at.
+      #
+      # There is no config or env to turn the patch off. But it is a no-op when the token is
+      # absent: `index_of` fails, the bundler logs "Failed to add bundler type to the binary" as
+      # a WARNING and packages the file untouched. So the patch is done HERE, before signing —
+      # one copy per bundle type, because the two markers differ — and the bundler finds nothing
+      # left to patch. Same bytes the bundler would have produced, signed.
+      #
+      # ⚠ Exactly ONE token, or fail. The bundler patches only the first match; with two, this
+      # step would stamp the first, the bundler would find the second, and the signature would
+      # break again exactly as before.
+      #
+      # What the marker is for: `tauri_utils::platform::bundle_type()`, which tauri-plugin-updater
+      # uses to look for a `windows-x86_64-nsis` entry before `windows-x86_64` in a static
+      # manifest, and for `{{bundle_type}}` in an endpoint URL. Our hub answers in the dynamic
+      # shape (one url, no platform map) and the endpoint carries no `{{bundle_type}}`, so today
+      # nothing depends on it — it is stamped correctly anyway, so the installed exe says what
+      # tauri would have made it say.
+      - name: Stamp the bundle type into one copy of the exe per installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $release = "packages/desktop/src-tauri/target/${{ matrix.target }}/release"
+          $exe = (Resolve-Path "$release/lgr-desktop.exe").Path
+          $bytes = [IO.File]::ReadAllBytes($exe)
+          # Latin-1 maps every byte to one char, so a string search is a byte search.
+          $latin1 = [Text.Encoding]::GetEncoding(28591)
+          $text = $latin1.GetString($bytes)
+          $token = '__TAURI_BUNDLE_TYPE_VAR_UNK'
+          $hits = @()
+          $at = $text.IndexOf($token, [StringComparison]::Ordinal)
+          while ($at -ge 0) { $hits += $at; $at = $text.IndexOf($token, $at + 1, [StringComparison]::Ordinal) }
+          "bundle-type token offsets: $($hits -join ', ')"
+          if ($hits.Count -ne 1) {
+            throw "Expected exactly one $token in lgr-desktop.exe, found $($hits.Count). tauri-bundler's patch_binary would not be a no-op, so the packaged exe would not keep its signature."
+          }
+          $markers = @{ nsis = '__TAURI_BUNDLE_TYPE_VAR_NSS'; msi = '__TAURI_BUNDLE_TYPE_VAR_MSI' }
+          foreach ($type in '${{ matrix.bundles }}' -split ',') {
+            if (-not $markers.ContainsKey($type)) { throw "No bundle-type marker for '$type'" }
+            $copy = [byte[]]$bytes.Clone()
+            $marker = $latin1.GetBytes($markers[$type])
+            [Array]::Copy($marker, 0, $copy, $hits[0], $marker.Length)
+            $dir = New-Item -ItemType Directory -Force "$release/stamped/$type"
+            [IO.File]::WriteAllBytes((Join-Path $dir.FullName 'lgr-desktop.exe'), $copy)
+            "stamped $type -> $($markers[$type])"
+          }
 
       - name: Sign the app executable
         if: runner.os == 'Windows'
         id: sign-exe
         uses: gjovanov/roomler-ai/.github/actions/sign-windows@855b9279ae54e8c0985fc8572b4b15c11f94ed54
         with:
-          files: packages/desktop/src-tauri/target/${{ matrix.target }}/release/lgr-desktop.exe
+          files: |
+            packages/desktop/src-tauri/target/${{ matrix.target }}/release/stamped/nsis/lgr-desktop.exe
+            packages/desktop/src-tauri/target/${{ matrix.target }}/release/stamped/msi/lgr-desktop.exe
           mode: azure
           require: 'true'
           expect-subject-contains:  ${{ vars.AZURE_SIGNING_EXPECT_SUBJECT }}
@@ -179,25 +319,52 @@ jobs:
           description: LGR Desktop
           description-url: https://lgrai.app/
 
-      - name: Bundle the installers
-        if: runner.os == 'Windows'
-        run: cd packages/desktop && cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
-
-      # ⚠ This is the assertion the two-pass design rests on. Cargo fingerprints its INPUTS, so an
-      # unchanged second invocation reports the binary fresh and leaves it alone — signature and
-      # all. If that ever stops holding, cargo relinks, the signature is silently gone, and the
-      # installers would ship an unsigned exe while every later check still passed. Fail here
-      # instead.
-      - name: Assert the signed exe survived bundling
+      # ⚠ **`bundle`, never `build`.** `cargo tauri bundle` runs the BUNDLER ONLY — "already
+      # built by `tauri build`" — so cargo is never invoked and there is nothing that can relink
+      # the signed exe. The config has no `beforeBundleCommand`, so this step runs the packagers
+      # and nothing else.
+      #
+      # Two attempts failed here first, and both are worth not repeating:
+      #   1. `--no-bundle` then `build --bundles` — `inner exe status: NotSigned`. The merged
+      #      config differs between the two (`--bundles` *is* `bundle.targets`), and
+      #      `tauri-build` declares `cargo:rerun-if-env-changed=TAURI_CONFIG`.
+      #   2. the SAME `build --bundles` on both passes, to make the config identical — still
+      #      `NotSigned`. The log shows tauri-build's `STATIC_VCRUNTIME` warning twice (a line
+      #      only a build-script RUN can print) with pass two taking ~2.5 min: the script re-ran
+      #      and the crate was relinked, without a full recompile. Locally, with a warm target
+      #      directory, the same pair is a 0.6 s no-op.
+      #
+      # ⚠ One `bundle` per type, each around ITS stamped copy: the bundler packages whatever is
+      # at `release/lgr-desktop.exe`. nsis goes last so the exe left on disk is the NSIS one,
+      # which is what "Verify the update exactly as a till will" runs. The expected warning in
+      # each pass is "Failed to add bundler type to the binary ... variable not found" — that is
+      # the no-op working, not a problem.
+      #
+      # ⚠ `tauri bundle --bundles` accepts only `msi` and `nsis`, which is what the Windows
+      # matrix leg passes. A macOS or Linux value here would be rejected.
+      - name: Bundle each installer around its signed exe
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $exe = "packages/desktop/src-tauri/target/${{ matrix.target }}/release/lgr-desktop.exe"
-          $sig = Get-AuthenticodeSignature $exe
-          "inner exe status: $($sig.Status)"
-          "inner exe signer: $($sig.SignerCertificate.Subject)"
-          if ($sig.Status -ne 'Valid') {
-            throw "The app executable is no longer signed after bundling ($($sig.Status)). Cargo relinked it, so the installers contain an UNSIGNED exe."
+          $release = "packages/desktop/src-tauri/target/${{ matrix.target }}/release"
+          $types = @('${{ matrix.bundles }}' -split ',')
+          $types = @($types | Where-Object { $_ -ne 'nsis' }) + @($types | Where-Object { $_ -eq 'nsis' })
+          foreach ($type in $types) {
+            $stamped = "$release/stamped/$type/lgr-desktop.exe"
+            $sig = Get-AuthenticodeSignature $stamped
+            "$type exe before bundling: $($sig.Status) / $($sig.SignerCertificate.Subject)"
+            if ($sig.Status -ne 'Valid') { throw "The stamped $type exe is not validly signed ($($sig.Status)); refusing to package it." }
+            Copy-Item $stamped "$release/lgr-desktop.exe" -Force
+            Push-Location packages/desktop
+            cargo tauri bundle --target ${{ matrix.target }} --bundles $type
+            $code = $LASTEXITCODE
+            Pop-Location
+            if ($code -ne 0) { throw "cargo tauri bundle --bundles $type failed ($code)" }
+            # The bundler restores the file it started from, so any difference here means it (or
+            # cargo) wrote to the exe in a way this design does not expect.
+            $before = (Get-FileHash $stamped).Hash
+            $after = (Get-FileHash "$release/lgr-desktop.exe").Hash
+            if ($before -ne $after) { throw "release/lgr-desktop.exe changed while bundling $type ($before -> $after)" }
           }
 
       - name: Sign the installers
@@ -218,6 +385,116 @@ jobs:
           azure-subscription-id:    ${{ vars.AZURE_SUBSCRIPTION_ID }}
           description: LGR Desktop installer
           description-url: https://lgrai.app/
+
+      # ⚠ **The assertion the two-pass design rests on, aimed at the file that ships.** It used to
+      # check `release/lgr-desktop.exe` on disk — which the bundler RESTORES after packaging, so
+      # it read `Valid` on 0.1.5 while the exe inside both installers was `HashMismatch`. A check
+      # on a neighbouring file proves nothing about the one a till installs, so this opens each
+      # installer and asks Windows about the exe it actually carries:
+      #   - NSIS: 7-Zip reads NSIS installers (preinstalled on GitHub's Windows runners);
+      #   - MSI: an administrative install (`msiexec /a`) unpacks the payload to a folder without
+      #     installing, registering or touching the machine.
+      # After "Sign the installers" on purpose: signing the outer file must not disturb the inner.
+      # ⚠ The CN is matched as an exact X.500 component, the same rule as
+      # `install.rs#EXPECTED_PUBLISHER` — never a substring of the whole subject.
+      - name: Assert the exe INSIDE each installer is validly signed
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          EXPECTED_CN: G ROX LTD
+        run: |
+          $bundle = (Resolve-Path "packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle").Path
+          $work = Join-Path $env:RUNNER_TEMP 'inner-exe'
+          if (Test-Path $work) { Remove-Item -Recurse -Force $work }
+          $failures = @()
+          foreach ($type in '${{ matrix.bundles }}' -split ',') {
+            $out = Join-Path $work $type
+            New-Item -ItemType Directory -Force $out | Out-Null
+            if ($type -eq 'nsis') {
+              $pkg = @(Get-ChildItem "$bundle/nsis/*-setup.exe")
+              if ($pkg.Count -ne 1) { throw "expected exactly one NSIS installer, found $($pkg.Count)" }
+              & 7z x $pkg[0].FullName "-o$out" -y | Out-Null
+              if ($LASTEXITCODE -ne 0) { throw "7z could not extract $($pkg[0].Name) ($LASTEXITCODE)" }
+            } elseif ($type -eq 'msi') {
+              $pkg = @(Get-ChildItem "$bundle/msi/*.msi")
+              if ($pkg.Count -ne 1) { throw "expected exactly one MSI, found $($pkg.Count)" }
+              $log = Join-Path $work 'msi-admin.log'
+              $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/a `"$($pkg[0].FullName)`" /qn TARGETDIR=`"$out`" /L*v `"$log`""
+              if ($p.ExitCode -ne 0) { Get-Content $log -Tail 40; throw "msiexec /a could not unpack $($pkg[0].Name) ($($p.ExitCode))" }
+            } else {
+              throw "No extraction rule for bundle type '$type'"
+            }
+            $inner = @(Get-ChildItem $out -Recurse -Filter 'lgr-desktop.exe')
+            if ($inner.Count -ne 1) { throw "expected exactly one lgr-desktop.exe inside the $type installer, found $($inner.Count)" }
+            $sig = Get-AuthenticodeSignature $inner[0].FullName
+            $subject = "$($sig.SignerCertificate.Subject)"
+            "$type inner exe status: $($sig.Status)"
+            "$type inner exe signer: $subject"
+            $cnOk = $subject -match ('(^|,\s*)CN="?' + [regex]::Escape($env:EXPECTED_CN) + '"?\s*(,|$)')
+            if ($sig.Status -ne 'Valid' -or -not $cnOk) {
+              $failures += "$type ($($pkg[0].Name)): $($sig.Status), signer '$subject'"
+            }
+          }
+          if ($failures.Count -gt 0) {
+            throw ("The app executable INSIDE an installer is not validly signed by CN=$($env:EXPECTED_CN): " + ($failures -join '; ') + ". HashMismatch means the bytes changed after signing (the bundler patched it).")
+          }
+
+      # ── Windows: the updater's signature, over the FINAL bytes (FR-14.28) ────────────────
+      #
+      # ⚠ **After Authenticode, never before.** minisign signs the exact bytes, and Authenticode
+      # signing rewrites the file. That is why this is NOT the bundler's `createUpdaterArtifacts`:
+      # the bundler signs as it builds, before "Sign the installers" above, so every `.sig` it made
+      # would describe a file no till ever downloads, and every update would be refused.
+      #
+      # ⚠ Only the per-user NSIS installer. The MSI is per-machine and never self-installs.
+      #
+      # ⚠ A missing key FAILS the release (FR-14.3 item 5: a missing signature fails a tag). Shipped
+      # without a `.sig`, a release reads as "nothing to install" on every till, forever.
+      - name: Sign the per-user installer for the updater (minisign)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+            throw "TAURI_SIGNING_PRIVATE_KEY is empty in the release environment. See docs/guides/desktop-updater-key.md."
+          }
+          $setup = @(Get-ChildItem "packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*_x64-setup.exe")
+          if ($setup.Count -ne 1) { throw "expected exactly one *_x64-setup.exe, found $($setup.Count)" }
+          cargo tauri signer sign $setup[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw "tauri signer sign failed ($LASTEXITCODE)" }
+          Get-Item "$($setup[0].FullName).sig" | Select-Object Name, Length
+
+      # ⚠ The check that the KEY PAIR matches. The release binary verifies its own installer with
+      # the public key compiled into it (`updater.pub`), the version binding and the Authenticode
+      # publisher — `install::verify_installer`, the exact function a till runs. If `updater.pub`
+      # and the secret ever drift apart, this fails here instead of on every till in the field.
+      - name: Verify the update exactly as a till will
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          $version = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $env:INPUT_VERSION } else { $env:GITHUB_REF_NAME -replace '^desktop-v', '' }
+          $exe = (Resolve-Path "packages/desktop/src-tauri/target/${{ matrix.target }}/release/lgr-desktop.exe").Path
+          $setup = (Get-ChildItem "packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*_x64-setup.exe").FullName
+          # NOTE: `Start-Process -Wait`, never `& $exe`. The release build is a GUI-subsystem program
+          # (`windows_subsystem = "windows"`), and PowerShell does not wait for those: `& $exe`
+          # returned at once with NO output and a stale exit code, closing the pipe under the
+          # binary (0.1.6's first run: "failed printing to stdout: The pipe is being closed").
+          # Locally the same call reported exit 0 with nothing verified - so the JSON verdict is
+          # required too, never the exit code alone.
+          $outFile = Join-Path $env:RUNNER_TEMP "verify-update.json"
+          $p = Start-Process -FilePath $exe -Wait -PassThru -NoNewWindow -RedirectStandardOutput $outFile `
+                 -ArgumentList @('--verify-update', "`"$setup`"", "`"$setup.sig`"", $version)
+          $out = if (Test-Path $outFile) { (Get-Content $outFile -Raw).Trim() } else { '' }
+          "verify-update (exit $($p.ExitCode)): $out"
+          $verdict = $null
+          try { $verdict = $out | ConvertFrom-Json } catch { }
+          if ($p.ExitCode -ne 0 -or -not $verdict -or $verdict.ok -ne $true) {
+            throw "A till would REFUSE this update (exit $($p.ExitCode): $out). Nothing is published."
+          }
 
       # ── macOS: Tauri's bundler, fed roomler's Developer ID ───────────────────────────────
       #
@@ -260,12 +537,37 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
           APPLE_API_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
 
+      # ⚠ **Checked INSIDE the DMG, because the `.app` is gone by now.** Tauri deletes it once the
+      # DMG is built, in its own words:
+      #
+      #     Signing …/bundle/dmg/LGR Desktop_0.1.4_aarch64.dmg
+      #     Cleaning …/bundle/macos/LGR Desktop.app
+      #     Finished 1 bundle at: …/bundle/dmg/LGR Desktop_0.1.4_aarch64.dmg
+      #
+      # This step used to point at `bundle/macos/LGR Desktop.app` and failed `No such file or
+      # directory` on both macOS legs of the FIRST tag that reached it — after a successful build,
+      # a successful notarisation ("Accepted") and a successful DMG. Mounting is also the better
+      # check: it verifies the artifact a customer actually receives, not an intermediate.
+      # (Since FR-14.28 the matrix asks for `app` too, so the `.app` now survives — the updater's
+      # archive is made from it below. The DMG stays what this step checks.)
       - name: Verify the macOS signature as Gatekeeper will
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
-          APP="packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/LGR Desktop.app"
+          BUNDLE="packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle"
+          DMG="$(ls "$BUNDLE"/dmg/*.dmg)"
+          echo "verifying what the DMG contains: $DMG"
+
+          MNT="$(mktemp -d)"
+          # ⚠ `-nobrowse` keeps it out of Finder, and the trap detaches it even when a check below
+          # fails — a left-behind mount makes the next step's `ls` ambiguous.
+          hdiutil attach "$DMG" -mountpoint "$MNT" -nobrowse -quiet
+          trap 'hdiutil detach "$MNT" -quiet || true' EXIT
+
+          APP="$(ls -d "$MNT"/*.app)"
           codesign --verify --deep --strict --verbose=2 "$APP"
+          # ⚠ Stapled INSIDE the image: a DMG whose outer signature is fine can still carry an
+          # un-stapled app, and that failure only shows on a machine that is offline.
           xcrun stapler validate "$APP"
           # ⚠ The check that matters. `codesign --verify` passes on a signed-but-NOT-notarised app,
           # and such an app is refused on every customer Mac with a dialog that offers no way
@@ -277,6 +579,66 @@ jobs:
       - name: Remove the App Store Connect key
         if: ${{ always() && runner.os == 'macOS' }}
         run: rm -rf "$RUNNER_TEMP/asc"
+
+      # ── macOS: the updater's archive, from the signed, notarised, stapled .app (FR-14.28) ──
+      #
+      # ⚠ Made HERE, after notarisation and stapling, for the same reason Windows signs after
+      # Authenticode: minisign covers the exact bytes, and an archive of the app as it was before
+      # stapling would install an app that fails Gatekeeper offline.
+      #
+      # ⚠ The archive's root is `LGR Desktop.app/` — the plugin strips the first path component
+      # when it unpacks. `COPYFILE_DISABLE` + `--no-xattrs` keep macOS's AppleDouble `._*` files and
+      # extended attributes out, so what unpacks on the till is exactly the signed bundle.
+      - name: Pack and sign the macOS update (minisign)
+        if: runner.os == 'macOS'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          INPUT_VERSION: ${{ inputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ] || { echo "::error::TAURI_SIGNING_PRIVATE_KEY is empty in the release environment. See docs/guides/desktop-updater-key.md."; exit 1; }
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then VERSION="$INPUT_VERSION"; else VERSION="${GITHUB_REF_NAME#desktop-v}"; fi
+          case "$TARGET" in
+            aarch64-apple-darwin) ARCH=aarch64 ;;
+            x86_64-apple-darwin)  ARCH=x64 ;;
+            *) echo "::error::unknown macOS target $TARGET"; exit 1 ;;
+          esac
+          MACOS="packages/desktop/src-tauri/target/$TARGET/release/bundle/macos"
+          APP="$MACOS/LGR Desktop.app"
+          [ -d "$APP" ] || { echo "::error::$APP is missing - the matrix's bundles must include 'app'"; exit 1; }
+          # ⚠ The bundle that ships must be the stapled one.
+          xcrun stapler validate "$APP"
+          OUT="$MACOS/LGR Desktop_${VERSION}_${ARCH}.app.tar.gz"
+          COPYFILE_DISABLE=1 tar --no-xattrs -czf "$OUT" -C "$MACOS" "LGR Desktop.app"
+          cargo tauri signer sign "$OUT"
+          ls -l "$OUT" "$OUT.sig"
+
+      # ⚠ The same proof as Windows: the binary just built checks its own archive with the key
+      # compiled into it, the version binding, codesign, Team ID 4TG7586MY5 and notarisation —
+      # `install::verify_installer`, exactly what a Mac runs before installing.
+      - name: Verify the macOS update exactly as a Mac will
+        if: runner.os == 'macOS'
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then VERSION="$INPUT_VERSION"; else VERSION="${GITHUB_REF_NAME#desktop-v}"; fi
+          case "$TARGET" in aarch64-apple-darwin) ARCH=aarch64 ;; x86_64-apple-darwin) ARCH=x64 ;; esac
+          OUT="packages/desktop/src-tauri/target/$TARGET/release/bundle/macos/LGR Desktop_${VERSION}_${ARCH}.app.tar.gz"
+          BIN="packages/desktop/src-tauri/target/$TARGET/release/lgr-desktop"
+          # The Intel build is cross-compiled on an Apple Silicon runner; running it needs Rosetta.
+          if [ "$ARCH" = x64 ] && [ "$(uname -m)" = arm64 ] && ! /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+          result="$("$BIN" --verify-update "$OUT" "$OUT.sig" "$VERSION")" || {
+            echo "::error::A Mac would REFUSE this update: $result. Nothing is published."; exit 1; }
+          echo "verify-update: $result"
+          # The verdict itself, not only the exit code (see the Windows step for why).
+          printf '%s' "$result" | grep -q '"ok":true' || {
+            echo "::error::verify-update gave no positive verdict: '$result'. Nothing is published."; exit 1; }
 
       # ── Linux: a detached .asc beside every package ──────────────────────────────────────
       - name: Build (Linux)
@@ -326,7 +688,21 @@ jobs:
 
       # ⚠ After signing, so the attestation describes the bytes that ship. Attesting the unsigned
       # build would bind a provenance statement to a digest no user ever sees.
+      #
+      # ⚠ **It cannot succeed on this repository, and it must not fail the release.** The first
+      # tag to get this far answered:
+      #
+      #     Failed to persist attestation: Feature not available for user-owned private
+      #     repositories. To enable this feature, please make this repository public.
+      #
+      # `gjovanov/lgr` is a user-owned private repository, so the attestations API is closed to
+      # it — nothing in the workflow can change that. The alternatives are to move the repo into
+      # an organisation or make it public, neither of which is a release-pipeline decision. So
+      # the step is allowed to fail and the next one says so out loud: signing is what protects
+      # a user here, and every artifact is signed and verified above whatever this does.
       - name: Attest build provenance
+        id: attest
+        continue-on-error: true
         uses: actions/attest-build-provenance@8beda2b7ed98355c0e97c0a63bec38ae472e66c4 # v4
         with:
           subject-path: |
@@ -335,6 +711,13 @@ jobs:
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
+
+      # Loud, once per leg, rather than a silently missing attestation. ⚠ If this warning ever
+      # stops appearing the release notes' `gh attestation verify` line becomes true again.
+      - name: Say that provenance was not attested
+        if: steps.attest.outcome == 'failure'
+        run: |
+          echo "::warning title=No build provenance::attest-build-provenance failed on ${{ matrix.label }} - the attestations API is not available for user-owned private repositories. The artifacts are still Authenticode-signed / notarised / GPG-signed and verified in this job; only 'gh attestation verify' is unavailable."
 
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -346,7 +729,10 @@ jobs:
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/rpm/*.rpm
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/rpm/*.rpm.asc
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+            packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+            packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe.sig
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
           # ⚠ `error`, not `ignore`. Each platform matches only its own bundle globs, and
           # upload-artifact complains only when NOTHING in the set matched — which is exactly the
@@ -354,12 +740,12 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: build
+    needs: [setup, build]
     # ⚠ This was `if: always() && !cancelled()`, so a platform whose build FAILED still got a
     # release published — with that platform's installer silently missing and no error anywhere.
     # Together with the old `if-no-files-found: ignore`, a release could be published containing
-    # nothing at all. A release now requires every matrix leg to have succeeded. FR-14.39 tightens
-    # this further, into a draft gated on the field-lane results.
+    # nothing at all. A release now requires every matrix leg to have succeeded. A release dispatched
+    # with `draft: true` is held for `desktop-promote.yml` (FR-14.39); otherwise it is published.
     runs-on: ubuntu-latest
     permissions:
       contents: write   # creating the release
@@ -372,25 +758,60 @@ jobs:
 
       - name: Determine version
         id: version
+        env:
+          # Through the environment, not interpolated into the script (`version` is a free string).
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_DRAFT: ${{ inputs.draft }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
-            echo "tag=desktop-v${{ inputs.version }}" >> $GITHUB_OUTPUT
-            echo "draft=${{ inputs.draft }}" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="$INPUT_VERSION"
+            if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+              echo "::error::invalid version '$VERSION' (expected N.N.N)"; exit 1
+            fi
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "tag=desktop-v$VERSION" >> "$GITHUB_OUTPUT"
+            echo "draft=$INPUT_DRAFT" >> "$GITHUB_OUTPUT"
+            # A dispatch creates its tag at the commit it BUILT. Left unset, the tag would be cut
+            # at whatever master is when the release job runs, which may be a later commit.
+            echo "target=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           else
             TAG="${GITHUB_REF#refs/tags/}"
             VERSION="${TAG#desktop-v}"
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
-            echo "tag=$TAG" >> $GITHUB_OUTPUT
-            echo "draft=false" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+            # ⚠ A tag publishes too (October 2026). This was `true` under FR-14.39, so that a
+            # release reached the fleet only through `desktop-promote.yml`'s three checks. That gate
+            # is now opt-in: dispatch with `draft: true` and promote. And it could never promote a
+            # DISPATCHED draft at all: a draft creates no git tag (the release is `untagged-…`),
+            # and promote starts by checking out the tag.
+            echo "draft=false" >> "$GITHUB_OUTPUT"
+            echo "target=" >> "$GITHUB_OUTPUT"
           fi
+
+      # ⚠ A dispatch must not reuse a version that already shipped. The tag would keep pointing at
+      # the old commit, and the release named after it would carry new bytes that commit never
+      # built. Bump the version instead.
+      - name: Refuse a version that already exists
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if at="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq .object.sha 2>/dev/null)"; then
+            echo "::error::tag ${TAG} already exists (at ${at}). Dispatch the next version."
+            exit 1
+          fi
+          echo "${TAG} is new"
 
       - name: Collect release files
         run: |
           set -euo pipefail
           mkdir -p release
           find artifacts -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.dmg" \
-            -o -name "*.exe" -o -name "*.msi" -o -name "*.asc" \) -exec cp {} release/ \;
+            -o -name "*.exe" -o -name "*.msi" -o -name "*.asc" -o -name "*.sig" \
+            -o -name "*.app.tar.gz" \) -exec cp {} release/ \;
           # Publish the key the `.asc` files verify against, so "check the signature" does not
           # begin with "first find the right public key in another repository".
           curl -fsSL -o release/roomler-release-pubkey.asc \
@@ -402,24 +823,187 @@ jobs:
       # Each matrix leg already refuses to finish unsigned, but this catches the case those checks
       # cannot see — a platform's artifact never arriving at all, which would otherwise publish a
       # release quietly missing an installer.
-      - name: Assert every platform's signed artifacts are present
+      #
+      # ⚠ Narrowed by the SELECTION, never switched off. A partial release still has to carry
+      # every artifact of every platform it claims to cover; what changes is the claim, and the
+      # claim comes from the same output the matrix was built from — not from "whatever turned up
+      # in `release/`", which would make the gate agree with any outcome.
+      - name: Assert every requested platform's signed artifacts are present
+        env:
+          PLATFORMS: ${{ needs.setup.outputs.platforms }}
         run: |
           set -euo pipefail
           missing=()
           need() { compgen -G "release/$1" > /dev/null || missing+=("$1"); }
-          need '*_x64-setup.exe'          # Windows, per-user NSIS
-          need '*_x64_en-US.msi'          # Windows, per-machine MSI
-          need '*aarch64.dmg'             # macOS arm64
-          need '*x64.dmg'                 # macOS x64
-          need '*amd64.deb'               # Linux deb
-          need '*amd64.deb.asc'           #   … and its detached signature
-          need '*.x86_64.rpm'             # Linux rpm
-          need '*.x86_64.rpm.asc'         #   … and its detached signature
+
+          case "$PLATFORMS" in
+            all)           WIN=1 LIN=1 MAC=1 ;;
+            windows-linux) WIN=1 LIN=1 MAC=0 ;;
+            windows)       WIN=1 LIN=0 MAC=0 ;;
+            linux)         WIN=0 LIN=1 MAC=0 ;;
+            *) echo "::error::unknown platforms '$PLATFORMS'"; exit 1 ;;
+          esac
+
+          if [ "$WIN" = 1 ]; then
+            need '*_x64-setup.exe'          # Windows, per-user NSIS
+            need '*_x64-setup.exe.sig'      #   … and the updater's signature (FR-14.28)
+            need '*_x64_en-US.msi'          # Windows, per-machine MSI
+          fi
+          if [ "$MAC" = 1 ]; then
+            need '*aarch64.dmg'             # macOS arm64
+            need '*x64.dmg'                 # macOS x64
+            need '*_aarch64.app.tar.gz'     #   … and each architecture's updater archive (FR-14.28)
+            need '*_aarch64.app.tar.gz.sig'
+            need '*_x64.app.tar.gz'
+            need '*_x64.app.tar.gz.sig'
+          fi
+          if [ "$LIN" = 1 ]; then
+            need '*amd64.deb'               # Linux deb
+            need '*amd64.deb.asc'           #   … and its detached signature
+            need '*.x86_64.rpm'             # Linux rpm
+            need '*.x86_64.rpm.asc'         #   … and its detached signature
+          fi
+
           if [ ${#missing[@]} -gt 0 ]; then
             printf '::error::missing release artifact: %s\n' "${missing[@]}"
             exit 1
           fi
-          echo "all expected artifacts present"
+          echo "all expected artifacts present for platforms=$PLATFORMS"
+
+      #
+      # ⚠ Written to a file instead of living in the action's `body:`, because a partial release
+      # must not advertise downloads it does not carry. A table naming four `.dmg`/`.deb`/`.rpm`
+      # files that 404 is worse than a short table: it reads as a broken release rather than a
+      # deliberate one.
+      #
+      # ⚠ `notes/`, not `release/` — `files: release/*` uploads everything in that directory, and
+      # the notes are not an asset.
+      - name: Write the release notes
+        env:
+          PLATFORMS: ${{ needs.setup.outputs.platforms }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p notes
+          N=notes/NOTES.md
+          # Same selection → platform mapping as the gate above.
+          case "$PLATFORMS" in
+            all)           WIN=1 LIN=1 MAC=1 ;;
+            windows-linux) WIN=1 LIN=1 MAC=0 ;;
+            windows)       WIN=1 LIN=0 MAC=0 ;;
+            linux)         WIN=0 LIN=1 MAC=0 ;;
+          esac
+
+          cat > "$N" <<EOF
+          ## LGR Desktop ${VERSION}
+
+          A desktop client for LGR. It opens your LGR cloud app in its own window, and adds a tray, autostart and a diagnostics bundle.
+
+          There is no local mode, no local data and no sync: the desktop needs your LGR server to be reachable.
+          EOF
+
+          if [ "$PLATFORMS" != all ]; then
+            cat >> "$N" <<EOF
+
+          > [!WARNING]
+          > **This release covers \`${PLATFORMS}\` only.** The other platforms were not built for
+          > this version — there is nothing to download for them here, and the newest release that
+          > carries them is an earlier one.
+          EOF
+          fi
+
+          cat >> "$N" <<EOF
+
+          ### Downloads
+
+          | Platform | File | Install scope |
+          |----------|------|---------------|
+          EOF
+
+          if [ "$WIN" = 1 ]; then
+            cat >> "$N" <<EOF
+          | Windows | \`LGR-Desktop_${VERSION}_x64-setup.exe\` | **per-user** — no admin rights needed, updates itself |
+          | Windows (managed) | \`LGR-Desktop_${VERSION}_x64_en-US.msi\` | **per-machine** — for AppLocker/WDAC machines, deployed by IT; updates are IT-managed |
+          EOF
+          fi
+          if [ "$MAC" = 1 ]; then
+            cat >> "$N" <<EOF
+          | macOS (Apple Silicon) | \`LGR-Desktop_${VERSION}_aarch64.dmg\` | per-user |
+          | macOS (Intel) | \`LGR-Desktop_${VERSION}_x64.dmg\` | per-user |
+          EOF
+          fi
+          if [ "$LIN" = 1 ]; then
+            cat >> "$N" <<EOF
+          | Linux (Debian/Ubuntu) | \`lgr-desktop_${VERSION}_amd64.deb\` | per-machine |
+          | Linux (Fedora/RHEL) | \`lgr-desktop-${VERSION}-1.x86_64.rpm\` | per-machine |
+          EOF
+          fi
+
+          if [ "$WIN" = 1 ]; then
+            cat >> "$N" <<'EOF'
+
+          ⚠ On a machine with AppLocker's default rules, executables under `%LOCALAPPDATA%` are
+          blocked, so the **per-user** installer is refused *by policy*. That is expected — use
+          the MSI there.
+          EOF
+          fi
+
+          cat >> "$N" <<'EOF'
+
+          ### Verifying what you downloaded
+
+          Everything here is signed. Nothing about LGR Desktop requires you to trust this page.
+
+          EOF
+
+          if [ "$WIN" = 1 ]; then
+            cat >> "$N" <<'EOF'
+          - **Windows** — the installer and the application executable inside it are both
+            Authenticode-signed. SmartScreen shows the publisher **G ROX LTD**; to check by hand:
+            `signtool verify /pa /all <file>`
+          EOF
+          fi
+          if [ "$MAC" = 1 ]; then
+            cat >> "$N" <<'EOF'
+          - **macOS** — signed with a Developer ID, notarised by Apple and stapled, so it opens
+            with no warning and without being online:
+            `spctl -a -vvv "/Applications/LGR Desktop.app"` → `source=Notarized Developer ID`
+          EOF
+          fi
+          if [ "$LIN" = 1 ]; then
+            cat >> "$N" <<'EOF'
+          - **Linux** — each package has a detached `.asc` beside it, signed with the same release
+            key `roomler-release-pubkey.asc` published in this release:
+            ```
+            gpg --import roomler-release-pubkey.asc
+            gpg --verify lgr-desktop_*.deb.asc lgr-desktop_*.deb
+            ```
+          EOF
+          fi
+
+          cat >> "$N" <<'EOF'
+          - **All platforms** — the signatures above are the guarantee. ⚠ SLSA build provenance
+            is *attempted* but cannot be published from this repository (GitHub's attestations
+            API is closed to user-owned private repositories), so `gh attestation verify` will
+            not find a statement for these files. Each build's own run log records the commit
+            and the workflow run that produced it.
+
+          ### First Launch
+
+          1. Open LGR Desktop
+          2. Enter your LGR server address
+          3. Open LGR and sign in with your normal LGR account
+
+          ⚠ Earlier releases shipped a built-in `admin` account with a published password, for
+          the local database that no longer exists. There is no default credential: the desktop
+          has no accounts of its own, and you sign in to your LGR server as you do in a browser.
+          EOF
+
+          # ⚠ Printed into the run log. The notes are the one artifact of this job nobody can
+          # check afterwards without editing the release: a draft's body is not in the repository
+          # and not in an artifact, so if it comes out wrong the log is where the evidence is.
+          echo '--- notes/NOTES.md ---'
+          cat "$N"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
@@ -428,54 +1012,77 @@ jobs:
           name: LGR Desktop ${{ steps.version.outputs.version }}
           draft: ${{ steps.version.outputs.draft }}
           prerelease: false
+          # Empty on a tag push (the tag already pins the commit); the built SHA on a dispatch.
+          target_commitish: ${{ steps.version.outputs.target }}
           files: release/*
-          body: |
-            ## LGR Desktop ${{ steps.version.outputs.version }}
+          body_path: notes/NOTES.md
 
-            A desktop client for LGR. It opens your LGR cloud app in its own window, and adds a tray, autostart and a diagnostics bundle.
+      # ⚠ **Last, and only once the release is published** — the same step, and the same order, as
+      # `desktop-promote.yml`. `DESKTOP_RELEASE_VERSION` is how the hub learns which desktop build is
+      # current (#93); naming a version before its release exists points every till at a dead link.
+      # A draft is skipped: it goes through promote, which does this itself.
+      - name: Tell the fleet (set DESKTOP_RELEASE_VERSION in lgr-deploy)
+        if: steps.version.outputs.draft != 'true'
+        env:
+          # A fine-grained PAT with `contents: write` on gjovanov/lgr-deploy ONLY. Absent is fine.
+          DEPLOY_TOKEN: ${{ secrets.LGR_DEPLOY_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
 
-            There is no local mode, no local data and no sync: the desktop needs your LGR server to be reachable.
+          # ⚠ A missing token does NOT fail the job: the release is already published, and failing
+          # here would report a successful release as a failure.
+          if [ -z "${DEPLOY_TOKEN:-}" ]; then
+            echo "::warning title=Fleet not notified::LGR_DEPLOY_TOKEN is not set, so DESKTOP_RELEASE_VERSION was left alone. Tills keep being told they are up to date until it is set in lgr-deploy by hand (#93)."
+            exit 0
+          fi
 
-            ### Downloads
+          # A tag push's version comes from the tag name, unchecked so far; it goes into a sed below.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::refusing to offer a version the fleet cannot compare: '$VERSION' (from tag '$TAG')"
+            exit 1
+          fi
 
-            | Platform | File | Install scope |
-            |----------|------|---------------|
-            | Windows | `LGR-Desktop_${{ steps.version.outputs.version }}_x64-setup.exe` | **per-user** — no admin rights needed, updates itself |
-            | Windows (managed) | `LGR-Desktop_${{ steps.version.outputs.version }}_x64_en-US.msi` | **per-machine** — for AppLocker/WDAC machines, deployed by IT; updates are IT-managed |
-            | macOS (Apple Silicon) | `LGR-Desktop_${{ steps.version.outputs.version }}_aarch64.dmg` | per-user |
-            | macOS (Intel) | `LGR-Desktop_${{ steps.version.outputs.version }}_x64.dmg` | per-user |
-            | Linux (Debian/Ubuntu) | `lgr-desktop_${{ steps.version.outputs.version }}_amd64.deb` | per-machine |
-            | Linux (Fedora/RHEL) | `lgr-desktop-${{ steps.version.outputs.version }}-1.x86_64.rpm` | per-machine |
+          git clone --depth 1 "https://x-access-token:${DEPLOY_TOKEN}@github.com/gjovanov/lgr-deploy.git" deploy
+          cd deploy
+          CM=k8s/base/configmap-lgr-config.yaml
+          test -f "$CM"
 
-            ⚠ On a machine with AppLocker's default rules, executables under `%LOCALAPPDATA%` are
-            blocked, so the **per-user** installer is refused *by policy*. That is expected — use
-            the MSI there.
+          # ⚠ Surgical, anchored replacement of ONE line each — never a blanket sed over the file.
+          if ! grep -Eq '^  DESKTOP_RELEASE_VERSION:' "$CM"; then
+            echo "::warning title=Key absent::$CM has no DESKTOP_RELEASE_VERSION line, so nothing was changed."
+            exit 0
+          fi
+          sed -i -E "s|^(  DESKTOP_RELEASE_VERSION:).*|\1 '${VERSION}'|" "$CM"
+          # ⚠ EMPTY, not a GitHub link: the releases are in a private repository, so a link 404s for
+          # every till operator. Empty makes the hub link its own `/api/desktop/download/<version>`.
+          if grep -Eq '^  DESKTOP_RELEASE_URL:' "$CM"; then
+            sed -i -E "s|^(  DESKTOP_RELEASE_URL:).*|\1 ''|" "$CM"
+          fi
 
-            ### Verifying what you downloaded
+          # ⚠ The configmap alone changes nothing: `envFrom` is read when a pod STARTS, and editing a
+          # configmap restarts nothing. Bumping this pod-template annotation in the same commit is
+          # what rolls the pods, so they start with the new value (ArgoCD applies the configmap
+          # before the Deployment).
+          DEP=k8s/base/deployment-lgr.yaml
+          if ! grep -Eq '^        lgr\.app/desktop-release:' "$DEP"; then
+            echo "::error::$DEP has no lgr.app/desktop-release annotation, so the pods would keep the old value. Add it once under spec.template.metadata.annotations."
+            exit 1
+          fi
+          sed -i -E "s|^(        lgr\.app/desktop-release:).*|\1 '${VERSION}'|" "$DEP"
 
-            Everything here is signed. Nothing about LGR Desktop requires you to trust this page.
+          # A sed that matched nothing leaves the file looking fine, so verify before committing.
+          grep -E "^  DESKTOP_RELEASE_(VERSION|URL):" "$CM"
+          grep -Fq "DESKTOP_RELEASE_VERSION: '${VERSION}'" "$CM" || { echo "::error::the edit did not take"; exit 1; }
+          grep -Fq "lgr.app/desktop-release: '${VERSION}'" "$DEP" || { echo "::error::the annotation edit did not take"; exit 1; }
 
-            - **Windows** — the installer and the application executable inside it are both
-              Authenticode-signed. SmartScreen shows the publisher **G ROX LTD**; to check by hand:
-              `signtool verify /pa /all <file>`
-            - **macOS** — signed with a Developer ID, notarised by Apple and stapled, so it opens
-              with no warning and without being online:
-              `spctl -a -vvv "/Applications/LGR Desktop.app"` → `source=Notarized Developer ID`
-            - **Linux** — each package has a detached `.asc` beside it, signed with the same release
-              key `roomler-release-pubkey.asc` published in this release:
-              ```
-              gpg --import roomler-release-pubkey.asc
-              gpg --verify lgr-desktop_*.deb.asc lgr-desktop_*.deb
-              ```
-            - **All platforms** — build provenance is attested, so you can confirm which workflow
-              run and which commit produced a file: `gh attestation verify <file> -R gjovanov/lgr`
+          if git diff --quiet; then
+            echo "::notice title=Already current::DESKTOP_RELEASE_VERSION was already ${VERSION}."
+            exit 0
+          fi
 
-            ### First Launch
-
-            1. Open LGR Desktop
-            2. Enter your LGR server address
-            3. Open LGR and sign in with your normal LGR account
-
-            ⚠ Earlier releases shipped a built-in `admin` account with a published password, for
-            the local database that no longer exists. There is no default credential: the desktop
-            has no accounts of its own, and you sign in to your LGR server as you do in a browser.
+          git -c user.name='lgr-ci' -c user.email='ci@lgrai.app' \
+            commit -am "chore(desktop): offer ${VERSION} to the fleet (released ${TAG})"
+          git push origin HEAD:master
+          echo "::notice title=Fleet notified::DESKTOP_RELEASE_VERSION=${VERSION}; the lgr pods roll within ~60s (ArgoCD), which is when tills are offered it."

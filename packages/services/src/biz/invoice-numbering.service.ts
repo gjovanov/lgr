@@ -8,7 +8,7 @@
  * existing importers keep working unchanged.
  */
 import { Invoice } from 'db/models'
-import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix } from './sequence.service.js'
+import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, isLegalSeries, seriesFrozenSince, SeriesFrozenError } from './sequence.service.js'
 import {
   INVOICING_SEQUENCE_KEYS,
   LEGACY_DISPLAY_ALIASES,
@@ -37,6 +37,19 @@ export const SALES_DOC_PREFIXES: string[] = INVOICING_SEQUENCE_KEYS
  */
 export function sequenceKeyFor(type: string, direction: string): string {
   return sequenceDefFor(sequenceGroupFor(type, direction), 'issued')?.prefix || 'SALES_DOC'
+}
+
+/**
+ * FR-20.81 (P3-6d): the refusal a document gets BEFORE it moves anything, while the series it would
+ * be issued in waits for a lost site's last numbers. `getNextNumber` refuses too, but only at the
+ * allocation, and the issuing paths reach it after their claim, their stock movement or their
+ * placeholder insert: refused there, a draft keeps a dispatch it has no number for, and a storno's
+ * claim outlives the request.
+ */
+export async function issuableRefusal(orgId: string, direction: string, type?: string): Promise<SeriesFrozenError | null> {
+  if (!isLegalSeries(sequenceKeyFor(type || 'invoice', direction))) return null
+  const since = await seriesFrozenSince(orgId)
+  return since ? new SeriesFrozenError(String(orgId), since) : null
 }
 
 /** DEFAULT display prefix for a type. Prefer `resolveDocPrefix()` — it honours org overrides. */

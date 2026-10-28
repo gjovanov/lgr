@@ -50,6 +50,7 @@ import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import type { IFiscalPrinter, FiscalExchangeOptions } from 'fiscal/types'
 import { createAuditEntry } from 'services/biz/audit-log.service'
+import { requestVia } from '../front/front-guard.js'
 import { logger } from 'services/logger'
 import { randomUUID } from 'crypto'
 import { verifyToken } from '../auth/verify-token.js'
@@ -59,6 +60,7 @@ import {
   verifyDesktopToken,
   type DesktopTokenClaims,
 } from 'services/biz/desktop/desktop.service'
+import { movedFor } from 'services/biz/desktop/repoint.service'
 import type { IDesktop } from 'db/models'
 
 const COMMAND_TIMEOUT_MS = 60000 // 60s — device may be physically printing (step-by-step mode)
@@ -130,6 +132,8 @@ type UserPrincipal = {
   operatorCode?: string
   firstName?: string
   lastName?: string
+  /** FR-20.48: where its socket came from, for the audit entry of a takeover (no request is current then). */
+  via?: string
 }
 
 /** A registered LGR Desktop relaying its till's own serial port (FR-14.26). */
@@ -285,6 +289,7 @@ async function authenticateBridge(ws: any, msg: any): Promise<BridgePrincipal | 
     operatorCode: payload.operatorCode,
     firstName: payload.firstName,
     lastName: payload.lastName,
+    via: requestVia(ws?.data?.request),
   }
 
   // Authenticated: the deadline no longer applies.
@@ -314,6 +319,15 @@ async function authenticateDesktopBridge(
     const message = e instanceof DesktopError ? e.message : 'A desktop credential is required.'
     refuse(ws, message, code)
     closeSocket(ws, code)
+    return null
+  }
+
+  // FR-20.82 (P3-6b): the org moved to its master, which holds the till's port now. Refused before
+  // anything of the org is written here (a bridge marks its device online), and said why.
+  const moved = await movedFor(String(desktop._id), String(desktop.orgId))
+  if (moved) {
+    refuse(ws, `This organisation is now on its own server (${moved.name}).`, 'org_moved')
+    closeSocket(ws, 'org_moved')
     return null
   }
 
@@ -382,6 +396,7 @@ function evict(held: any, taker: UserPrincipal, device: any, holder: BridgePrinc
     entityType: 'fiscalDevice',
     entityId: String(device._id),
     entityName: String(device.deviceNumber),
+    via: taker.via,
     // ⚠ `changes`, not a free-text note: `AuditEntry` has no `notes` field and Mongoose drops
     // unknown keys silently, so a note would have read fine here and recorded nothing.
     changes: [{ field: 'bridge', oldValue: holder?.label ?? null, newValue: taker.label }],

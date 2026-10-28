@@ -7,6 +7,11 @@
     :loading="loading"
     back-to="/products"
   >
+    <!-- FR-22.47: what the article leads to, read from the article as stored. -->
+    <template #header-actions>
+      <ProductDocActions v-if="isEdit" :product="storedProduct" />
+    </template>
+
     <v-form ref="formRef" @submit.prevent="handleSubmit">
       <ProductTabBar :active-tab="urlTab" :is-new="!isEdit" :product-id="(route.params.id as string) || ''" />
 
@@ -21,11 +26,12 @@
                   <v-text-field v-model="form.name" :label="$t('common.name')" :rules="[rules.required]" />
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-select v-model="form.type" :label="$t('common.type')" :items="['goods', 'service', 'raw_material', 'finished_product']" :rules="[rules.required]" />
+                  <v-select v-model="form.type" :label="$t('common.type')" :items="productTypeItems()" :rules="[rules.required]" />
                 </v-col>
               </v-row>
               <v-row>
                 <v-col cols="12" md="4">
+                  <!-- A category name no category carries is shown as the placeholder, and kept. -->
                   <v-autocomplete
                     v-model="form.categoryId"
                     :label="$t('warehouse.category')"
@@ -33,6 +39,8 @@
                     item-title="name"
                     item-value="_id"
                     :loading="loadingCategories"
+                    :placeholder="unlinkedCategory || undefined"
+                    :persistent-placeholder="!!unlinkedCategory"
                     clearable
                   />
                 </v-col>
@@ -157,18 +165,21 @@
                       />
                     </td>
                     <td v-if="visibleFilters.contact">
+                      <!-- Searched on the server (FR-22.6): every contact can be reached, and the
+                           ones a tier already names are fetched so their chips show names. -->
                       <v-autocomplete
                         v-model="tier.contactIds"
-                        :items="contacts"
-                        item-title="companyName"
+                        :items="tierContacts.contacts.value"
+                        :item-title="contactTitle"
                         item-value="_id"
-                        :loading="loadingContacts"
+                        :loading="tierContacts.loading.value"
                         density="compact"
                         hide-details
                         variant="plain"
                         multiple
                         chips
                         closable-chips
+                        @update:search="tierContacts.onSearch"
                       />
                     </td>
                     <td v-if="visibleFilters.tags">
@@ -220,7 +231,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
@@ -228,21 +239,20 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
+import { useContactSearch, contactTitle } from 'ui-shared/composables/useContactSearch'
+import { useProductTypes } from 'ui-shared/composables/useProductTypes'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import ProductTabBar from '../components/ProductTabBar.vue'
+import ProductDocActions from '../components/ProductDocActions.vue'
+import type { ProductForActions } from '../composables/product-doc-actions'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
-
-interface Contact {
-  _id: string
-  companyName: string
-}
 
 interface PriceEntry {
   name: string
@@ -277,9 +287,7 @@ interface Category {
 
 const formRef = ref()
 const loading = ref(false)
-const loadingContacts = ref(false)
 const loadingCategories = ref(false)
-const contacts = ref<Contact[]>([])
 const categories = ref<Category[]>([])
 const tab = ref('basic')
 const isEdit = computed(() => !!route.params.id)
@@ -300,6 +308,20 @@ const form = reactive({
   tags: [] as string[],
 })
 
+/**
+ * FR-22.47: the article as stored, which its „Продай" / „Резервирай" read — not the form, whose
+ * „Активен" switch means nothing until it is saved. Null until the article has loaded.
+ */
+const storedProduct = ref<ProductForActions | null>(null)
+function keepStored(p: { _id?: string; id?: string; isActive?: boolean; trackInventory?: boolean } | null | undefined) {
+  if (!p) return
+  storedProduct.value = {
+    _id: String(p._id || p.id || route.params.id),
+    isActive: p.isActive !== false,
+    trackInventory: p.trackInventory !== false,
+  }
+}
+
 const costingMethodItems = [
   { title: t('warehouse.costingWAC'), value: 'wac' },
   { title: 'FIFO', value: 'fifo' },
@@ -309,10 +331,21 @@ const costingMethodItems = [
 ]
 
 const { uomOptions } = useProductUnits()
+const { productTypeItems } = useProductTypes()
 
 const priceEntries = ref<PriceEntry[]>([])
 const priceTiers = ref<PriceTier[]>([])
 const visibleFilters = reactive<Record<FilterKey, boolean>>({ contact: false, tags: false, minQty: false, validity: false })
+
+/**
+ * The contacts a tier can be limited to. Loaded unpaged until FR-22.6 — the API's 10 newest
+ * contacts — so an older one could not be chosen, and a tier that already named one showed its
+ * id. One list serves every tier row; the contacts any tier names stay in it.
+ */
+const tierContacts = useContactSearch({
+  orgUrl: () => orgUrl(),
+  selected: () => priceTiers.value.flatMap(t => t.contactIds || []),
+})
 const sellingPricePercent = ref(0)
 let updatingFromPercent = false
 
@@ -356,7 +389,35 @@ function onTierFinalPriceChange(i: number) {
 const rules = { required: (v: string) => !!v || t('validation.required') }
 const margin = computed(() => form.purchasePrice > 0 ? (((form.sellingPrice - form.purchasePrice) / form.purchasePrice) * 100).toFixed(1) : '0.0')
 
-const { markSaved, tryRestore } = usePendingChanges({
+/**
+ * A category is stored twice: `categoryId`, which the field edits, and the `category` name that
+ * lists, reports and imports read. Some articles carry only the name (on 2026-10-26: every
+ * product of the `regal` org, and the acme seed), and the field cannot show it. Saving
+ * such an article used to write `category: ''`, erasing it. Now:
+ *   - on load, a name exactly one category carries is linked to that category;
+ *   - any other name is the field's placeholder, and saving keeps it;
+ *   - the name changes only when the user changes the field: a pick takes the category's name,
+ *     a clear drops it.
+ */
+const unlinkedCategory = computed(() => (form.categoryId ? '' : form.category))
+
+function linkCategoryByName() {
+  if (form.categoryId || !form.category) return
+  const key = (s: string) => (s || '').trim().toLocaleLowerCase('bg')
+  const hits = categories.value.filter(c => key(c.name) === key(form.category))
+  if (hits.length === 1) form.categoryId = hits[0]._id
+}
+
+watch(() => form.categoryId, (id, old) => {
+  if (id) {
+    const cat = categories.value.find(c => c._id === id)
+    if (cat) form.category = cat.name
+  } else if (old) {
+    form.category = ''
+  }
+})
+
+const { markSaved, tryRestore, snapshot } = usePendingChanges({
   appId: 'inventory',
   entityType: 'product',
   icon: 'mdi-package-variant',
@@ -536,16 +597,6 @@ function mergePriceEntries(customPrices: any[], tagPrices: any[]): PriceEntry[] 
 
 // ── API ──
 
-async function fetchContacts() {
-  loadingContacts.value = true
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`)
-    contacts.value = data.contacts || []
-  } finally {
-    loadingContacts.value = false
-  }
-}
-
 async function fetchCategories() {
   loadingCategories.value = true
   try {
@@ -561,12 +612,11 @@ async function handleSubmit() {
   if (!valid) return
   loading.value = true
   try {
-    // Set category name from selected category for backward compat
+    // Set category name from selected category for backward compat. No category selected leaves
+    // the name alone: clearing the field already dropped it, and a name no category carries is kept.
     if (form.categoryId) {
       const cat = categories.value.find(c => c._id === form.categoryId)
       if (cat) form.category = cat.name
-    } else {
-      form.category = ''
     }
 
     // Legacy customPrices/tagPrices UI was retired in Phase 7 (2026-04-21).
@@ -585,8 +635,9 @@ async function handleSubmit() {
     const payload = { ...form, priceTiers: tiersPayload }
 
     if (isEdit.value) {
-      await httpClient.put(`${orgUrl()}/warehouse/product/${route.params.id}`, payload)
+      const { data } = await httpClient.put(`${orgUrl()}/warehouse/product/${route.params.id}`, payload)
       markSaved()
+      keepStored(data?.product)
       showSuccess(t('common.savedSuccessfully'))
       // Stay on the current tab.
     } else {
@@ -603,8 +654,16 @@ async function handleSubmit() {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchContacts(), fetchCategories()])
-  if (tryRestore()) return
+  await Promise.all([tierContacts.search(), fetchCategories()])
+  if (tryRestore()) {
+    // The form holds the restored edits; the header's actions still read the article as stored.
+    if (isEdit.value) {
+      httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
+        .then(({ data }) => keepStored(data?.product))
+        .catch(() => { /* no actions until it can be read */ })
+    }
+    return
+  }
   if (isEdit.value) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
@@ -620,6 +679,8 @@ onMounted(async () => {
         standardCost: p.standardCost || 0,
         tags: p.tags || [],
       })
+      keepStored(p)
+      linkCategoryByName()
       sellingPricePercent.value = calcPercent(form.sellingPrice)
       priceEntries.value = mergePriceEntries(p.customPrices || [], p.tagPrices || [])
       // Load existing priceTiers; pad to 13 slots with base-price defaults if fewer exist.
@@ -635,6 +696,7 @@ onMounted(async () => {
         validTo: t.validTo ? String(t.validTo).split('T')[0] : '',
       }))
       ensureTierSlots()
+      void tierContacts.ensureSelected()
       // Turn on filter columns if any tier has a value in that filter, for nicer reveal UX.
       for (const t of priceTiers.value) {
         if (t.contactIds.length) visibleFilters.contact = true
@@ -644,8 +706,26 @@ onMounted(async () => {
       }
     } catch { /* handle */ }
   } else {
-    // New product: seed 13 default slots client-side so the table is always full.
-    ensureTenTiers()
+    // New product: seed the default slots client-side so the table is always full. (This called
+    // `ensureTenTiers`, gone since the 10 → 13 rename, and threw on every new article — FR-22 B-2.)
+    ensureTierSlots()
+    await applyOrgDefaultVat()
   }
+  // The clean state is the loaded article, taken once the field watchers have run (FR-22.13).
+  // The default snapshot fires 500 ms after mount: a slower load left an untouched form dirty.
+  await nextTick()
+  snapshot()
 })
+
+/**
+ * A new article starts at the org's default VAT rate, the one documents preselect, instead of
+ * 0 % (FR-22 B-3). A rate the user has already typed is kept; a failed fetch keeps the field as is.
+ */
+async function applyOrgDefaultVat() {
+  try {
+    const { data } = await httpClient.get(orgUrl())
+    const rate = (data?.org?.settings || data?.settings)?.taxConfig?.defaultVatRate
+    if (typeof rate === 'number' && form.taxRate === 0) form.taxRate = rate
+  } catch { /* keep the field as is */ }
+}
 </script>

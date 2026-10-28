@@ -3,9 +3,12 @@ import { AuthService } from '../auth/auth.service.js'
 import { inviteDao } from 'services/dao/invite.dao'
 import { orgDao } from 'services/dao/org.dao'
 import { userDao } from 'services/dao/user.dao'
-import { Invite } from 'db/models'
+import { Identity, Invite } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
 import { createAuditEntry } from 'services/biz/audit-log.service'
+import { IdentityError } from 'services/biz/identity/identity.service'
+import { joinOrgByInvite } from 'services/biz/identity/account.service'
+import { BEARER_REQUIRED, NOT_A_PERSON, bearerPresent, callerOf, enterOrg } from '../auth/session-answer.js'
 
 export const inviteController = new Elysia()
   .use(AuthService)
@@ -36,6 +39,25 @@ export const inviteController = new Elysia()
       }
     },
   )
+  /**
+   * Accept an invitation as the signed-in person (multi-org Phase 4): a membership in the invite's
+   * org with the invite's role, then a session in it. The invite must still be valid, a pinned one
+   * must name the person's address, and rule 3 holds (a credential the person owns). The invite is
+   * consumed before the membership exists, so a single-use one cannot admit two. ⚠ Bearer only.
+   */
+  .post('/invite/:code/accept', async ({ params: { code }, jwt, user, person, headers, cookie, status }) => {
+    if (!bearerPresent(headers.authorization)) return status(401, BEARER_REQUIRED)
+    const caller = callerOf(user, person)
+    if (!caller?.iid) return status(403, NOT_A_PERSON)
+    try {
+      const { member } = await joinOrgByInvite(caller.iid, code)
+      const identity = await Identity.findById(caller.iid, { tokenVersion: 1 }).exec()
+      return await enterOrg({ jwt, cookie }, member, identity!, caller.exp, 'join')
+    } catch (err) {
+      if (err instanceof IdentityError) return status(err.status, { message: err.message, code: err.code })
+      throw err
+    }
+  })
   // Admin: list org invites
   .get(
     '/org/:orgId/invite',

@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { assertHomeIsHere, HomeElsewhereError } from 'db/home/home'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { Invoice, Contact, Org, Product } from 'db/models'
 import { generateInvoicingListXLSX, type InvoiceExportRow } from 'reporting/excel/invoicing-list.excel'
@@ -11,7 +12,7 @@ import { generateCompanionDocPDF, type CompanionDocData } from 'reporting/pdf/co
 import { generateCompanionDocXLSX } from 'reporting/excel/companion-doc.excel'
 import { docTitleFor, exportI18n } from 'reporting/i18n'
 import { sourceDocLabel } from 'reporting/companion-doc.i18n'
-import { getNextCompanionNumber, companionNumberField, buildPaymentMethodFilter, type CompanionDocKind } from './invoice.controller.js'
+import { getNextCompanionNumber, companionNumberField, buildPaymentMethodFilter, invoiceSortField, type CompanionDocKind } from './invoice.controller.js'
 import { canExport, canWrite } from '../lib/export-access.js'
 import { emailRequestBlock, isValidRecipient, RESEND_WINDOW_MS } from '../lib/email-guards.js'
 import { getOrgLogoDataUri } from 'services/biz/org-logo.service'
@@ -113,6 +114,9 @@ function buildFilter(orgId: string, q: Record<string, any>): Record<string, any>
   if (docType === 'bill') {
     f.type = 'invoice'
     f.direction = 'incoming'
+  } else if (docType === 'cash_sale') {
+    // The cash register: its sales and their stornos, which count against them (FR-21.9).
+    f.type = { $in: ['cash_sale', 'cash_storno'] }
   } else {
     f.type = docType
     if (docType === 'invoice') f.direction = q.direction || 'outgoing'
@@ -145,6 +149,21 @@ function buildFilter(orgId: string, q: Record<string, any>): Record<string, any>
   return f
 }
 
+/** A storno's amounts with its sign: what it takes back, as a negative row. */
+function negatedStorno(inv: any): any {
+  const neg = (n: unknown) => (Number(n) ? -Number(n) : 0)
+  return {
+    ...inv,
+    subtotal: neg(inv.subtotal),
+    taxTotal: neg(inv.taxTotal),
+    total: neg(inv.total),
+    amountPaid: neg(inv.amountPaid),
+    amountDue: neg(inv.amountDue),
+    payments: (inv.payments || []).map((p: any) => ({ ...p, amount: neg(p.amount) })),
+    lines: (inv.lines || []).map((l: any) => ({ ...l, quantity: neg(l.quantity), lineTotal: neg(l.lineTotal) })),
+  }
+}
+
 async function toExportRows(invoices: any[]): Promise<InvoiceExportRow[]> {
   // Batch-load contacts
   const contactIds = new Set<string>()
@@ -154,7 +173,9 @@ async function toExportRows(invoices: any[]): Promise<InvoiceExportRow[]> {
     : []
   const cmap = new Map(contacts.map((c: any) => [String(c._id), c]))
 
-  return invoices.map((inv: any) => {
+  return invoices.map((raw: any) => {
+    // A cash-sale storno is stored positive and gives its sale back: it exports negative (FR-21.9).
+    const inv = raw.type === 'cash_storno' ? negatedStorno(raw) : raw
     const c = inv.contactId ? cmap.get(String(inv.contactId)) : null
     const contactName = c
       ? ((c as any).companyName || [(c as any).firstName, (c as any).lastName].filter(Boolean).join(' '))
@@ -232,12 +253,14 @@ function round2(n: number): number {
  * ProductId-less legacy lines group by description+unit.
  */
 export async function aggregateCashSales(filter: Record<string, any>): Promise<{ sections: CashAggSection[]; docCount: number }> {
-  const docs: any[] = await Invoice.find(filter, { lines: 1, currency: 1 }).limit(CASH_AGG_DOC_CAP).lean()
+  const docs: any[] = await Invoice.find(filter, { lines: 1, currency: 1, type: 1 }).limit(CASH_AGG_DOC_CAP).lean()
 
   type Acc = CashAggRow & { productId?: string }
   const byCurrency = new Map<string, Map<string, Acc>>()
   for (const doc of docs) {
     const currency = doc.currency || ''
+    // A storno takes its goods and money back (FR-21.9); it is stored positive.
+    const sign = doc.type === 'cash_storno' ? -1 : 1
     let group = byCurrency.get(currency)
     if (!group) { group = new Map(); byCurrency.set(currency, group) }
     for (const l of doc.lines || []) {
@@ -252,9 +275,9 @@ export async function aggregateCashSales(filter: Record<string, any>): Promise<{
         }
         group.set(key, acc)
       }
-      const gross = Number(l.lineTotal) || 0
-      const tax = Number(l.taxAmount) || 0
-      acc.totalQuantity += Number(l.quantity) || 0
+      const gross = sign * (Number(l.lineTotal) || 0)
+      const tax = sign * (Number(l.taxAmount) || 0)
+      acc.totalQuantity += sign * (Number(l.quantity) || 0)
       acc.grossTotal += gross
       acc.taxTotal += tax
       acc.netTotal += gross - tax
@@ -365,6 +388,9 @@ async function ensureCompanionNumber(orgId: string, invoice: any, kind: Companio
   const existing = invoice[field]
   if (existing) return existing
 
+  // FR-20.6: a number is allocated only at the org's home — printing on a mirror must never make
+  // it a second allocator. Fresh, not cached: a move freezes the org first.
+  await assertHomeIsHere(orgId, { fresh: true })
   const allocated = await getNextCompanionNumber(orgId, kind)
   const claimed = await Invoice.findOneAndUpdate(
     { _id: invoice._id, orgId, $or: [{ [field]: { $exists: false } }, { [field]: null }, { [field]: '' }] },
@@ -473,7 +499,8 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
 
       // Default sort matches usePaginatedTable defaults → createdAt desc. Accept explicit
       // overrides from the caller so the export row order mirrors what the user sees on screen.
-      const sortBy = ((body as any).sortBy as string) || 'createdAt'
+      // The grid's sort, № included (`number` is the column, `invoiceNumber` the field).
+      const sortBy = invoiceSortField((body as any).sortBy)
       const sortOrder = ((body as any).sortOrder as string) === 'asc' ? 1 : -1
       if (!isAllowedSortField(sortBy)) return status(400, { message: `Invalid sortBy: ${sortBy}` })
       const invoices = await Invoice.find(filter).sort({ [sortBy]: sortOrder }).limit(MAX_ROWS).lean()
@@ -586,7 +613,8 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         filter.direction = 'incoming'
         title = i18n.docTitle.bill
       } else if (kind === 'cash_register') {
-        filter.type = 'cash_sale'
+        // Its sales and their stornos, which count against them (FR-21.9).
+        filter.type = { $in: ['cash_sale', 'cash_storno'] }
         title = i18n.docTitle.cash_sale
       } else {
         return status(400, { message: `Unknown kind: ${kind}` })
@@ -627,7 +655,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         return status(res.error.code, { message: res.error.message, ...(res.error.detail ? { detail: res.error.detail } : {}) })
       }
 
-      const sortBy = (b.sortBy as string) || 'createdAt'
+      const sortBy = invoiceSortField(b.sortBy)
       const sortOrder = (b.sortOrder as string) === 'asc' ? 1 : -1
       if (!isAllowedSortField(sortBy)) return status(400, { message: `Invalid sortBy: ${sortBy}` })
 
@@ -735,7 +763,15 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
           return status(403, { message: 'Issuing a new companion document number requires write permission' })
         }
 
-        const number = await ensureCompanionNumber(orgId, invoice, kind)
+        let number: string
+        try {
+          number = await ensureCompanionNumber(orgId, invoice, kind)
+        } catch (e) {
+          if (e instanceof HomeElsewhereError) {
+            return status(409, { code: 'org_home_elsewhere', message: 'This document has no companion number yet, and numbers are issued only on the server that is this organization\'s home.' })
+          }
+          throw e
+        }
         const data = await buildCompanionData(orgId, invoice, kind, locale, number)
         const companionFilename = `${(invoice as any).invoiceNumber}-${kind}.${format}`
 
@@ -813,10 +849,11 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         : null
 
       // FR-10.6 — double-click insurance, not a rate limiter. A FAILED previous attempt is
-      // not a block: the failure is why the user is clicking again.
+      // not a block: the failure is why the user is clicking again. One still QUEUED on a master
+      // (FR-20.86) is a block: a second click would queue a second mail.
       const recent = invoice
         ? await EmailLog.findOne({
-          orgId, entityType: 'invoice', entityId: id, to, status: 'sent',
+          orgId, entityType: 'invoice', entityId: id, to, status: { $in: ['sent', 'queued'] },
           createdAt: { $gte: new Date(Date.now() - RESEND_WINDOW_MS) },
         }).lean()
         : null
@@ -865,6 +902,21 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
           return status(503, { message: 'Email is not configured on this server' })
         }
         return status(502, { message: 'The mail provider rejected the message', detail: result.detail?.slice(0, 300) })
+      }
+
+      // FR-20.86: on a master the mail is queued for global to send. Its send history is updated
+      // when it has gone (`relay/outbox-worker.ts`), and the user is told "queued", never "sent".
+      if (result.queued) {
+        createAuditEntry({
+          orgId,
+          userId: user.id,
+          action: 'email',
+          module: 'invoicing',
+          entityType: 'invoice',
+          entityId: id,
+          entityName: inv.invoiceNumber,
+        })
+        return status(202, { sent: false, queued: true, to })
       }
 
       // Only a delivered mail updates the document's send history.

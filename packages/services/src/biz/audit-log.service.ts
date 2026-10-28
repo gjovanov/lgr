@@ -1,5 +1,7 @@
-import { AuditLog, User } from 'db/models'
+import { nodeRole } from 'config'
+import { AuditLog, Desktop, User } from 'db/models'
 import { mongoose } from 'db/connection'
+import { currentRequest } from 'db/home/request-context'
 import { getRepos } from '../context.js'
 const { Types } = mongoose
 
@@ -19,6 +21,8 @@ export interface AuditEntry {
   changes?: { field: string; oldValue: any; newValue: any }[]
   ipAddress?: string
   userAgent?: string
+  /** FR-20.48: where it came from, when the request context cannot say (a socket's own event). */
+  via?: string
 }
 
 export interface AuditQueryOptions {
@@ -50,27 +54,73 @@ function idOrString(v: unknown): Types.ObjectId | string | undefined {
  */
 export function createAuditEntry(entry: AuditEntry): void {
   try {
-    AuditLog.create({
-      orgId: new Types.ObjectId(entry.orgId),
-      userId: new Types.ObjectId(entry.userId),
-      operatorCode: entry.operatorCode,
-      action: entry.action,
-      module: entry.module,
-      entityType: entry.entityType,
-      entityId: idOrString(entry.entityId),
-      entityName: entry.entityName,
-      unpNumber: entry.unpNumber,
-      correlationId: entry.correlationId ? idOrString(entry.correlationId) : undefined,
-      changes: entry.changes,
-      ipAddress: entry.ipAddress,
-      userAgent: entry.userAgent,
-      timestamp: new Date(),
-    }).catch((err) => {
+    AuditLog.create(auditDoc(entry)).catch((err) => {
       console.warn('Audit log write failed:', err.message)
     })
   } catch (err: any) {
     console.warn('Audit log write failed:', err?.message)
   }
+}
+
+/**
+ * `createAuditEntry`, awaited: for an entry that must be written before what follows changes the
+ * org's home (FR-20.79's freeze), after which this node refuses the org's writes. Never throws either.
+ */
+export async function recordAuditEntry(entry: AuditEntry): Promise<boolean> {
+  try {
+    await AuditLog.create(auditDoc(entry))
+    return true
+  } catch (err: any) {
+    console.warn('Audit log write failed:', err?.message)
+    return false
+  }
+}
+
+function auditDoc(entry: AuditEntry) {
+  return {
+    orgId: new Types.ObjectId(entry.orgId),
+    userId: new Types.ObjectId(entry.userId),
+    operatorCode: entry.operatorCode,
+    action: entry.action,
+    module: entry.module,
+    entityType: entry.entityType,
+    entityId: idOrString(entry.entityId),
+    entityName: entry.entityName,
+    unpNumber: entry.unpNumber,
+    correlationId: entry.correlationId ? idOrString(entry.correlationId) : undefined,
+    changes: entry.changes,
+    ipAddress: entry.ipAddress,
+    userAgent: entry.userAgent,
+    via: viaOf(entry),
+    timestamp: new Date(),
+  }
+}
+
+/**
+ * FR-20.48: on a master, every entry says where it came from: the request's `via` (a till, the
+ * org's address, the console), and `loopback` for the server's own work (a tick, a job outside any
+ * request). Nothing on lgrai.app, which has no shop network or tunnel of its own.
+ */
+function viaOf(entry: AuditEntry): string | undefined {
+  if (entry.via) return entry.via
+  const via = currentRequest()?.via
+  if (via) return via
+  return nodeRole() === 'master' ? 'loopback' : undefined
+}
+
+/** The desktops a page of entries names (`lan:<desktopId>`), by id, with their names. */
+async function viaDesktops(orgId: string, docs: any[]): Promise<Map<string, string>> {
+  const ids = [...new Set(docs.map(d => (typeof d.via === 'string' && d.via.startsWith('lan:') ? d.via.slice(4) : '')).filter(id => /^[0-9a-f]{24}$/.test(id)))]
+  if (!ids.length) return new Map()
+  const rows: any[] = await Desktop.find({ orgId: new Types.ObjectId(orgId), _id: { $in: ids.map(id => new Types.ObjectId(id)) } }, { name: 1 }).lean().exec()
+  return new Map(rows.map(r => [String(r._id), String(r.name ?? '')]))
+}
+
+/** The entry's origin as the audit page shows it: the code, and the desktop's name for a till. */
+function viaWire(d: any, desktops: Map<string, string>) {
+  if (!d.via) return {}
+  const desktop = typeof d.via === 'string' && d.via.startsWith('lan:') ? desktops.get(d.via.slice(4)) : undefined
+  return { via: d.via, ...(desktop ? { viaDesktop: desktop } : {}) }
 }
 
 /**
@@ -130,9 +180,9 @@ export async function queryAuditLogs(orgId: string, options: AuditQueryOptions =
   if (userIds) filter.userId = userIds.length === 1 ? new Types.ObjectId(userIds[0]) : { $in: userIds.map(id => new Types.ObjectId(id)) }
 
   if (options.entityIds?.length) {
-    filter.entityId = options.entityIds.length === 1
-      ? new Types.ObjectId(options.entityIds[0])
-      : { $in: options.entityIds.map(id => new Types.ObjectId(id)) }
+    // `entityId` is Mixed: an id is stored as an ObjectId, a sequence prefix as its string
+    // (`idOrString`). Casting every value, as this did, threw on a prefix.
+    filter.entityId = { $in: options.entityIds.flatMap(id => [idOrString(id), String(id)]) }
   }
 
   if (options.dateFrom || options.dateTo) {
@@ -155,6 +205,7 @@ export async function queryAuditLogs(orgId: string, options: AuditQueryOptions =
       .exec(),
     AuditLog.countDocuments(filter).exec(),
   ])
+  const desktops = await viaDesktops(orgId, docs)
 
   const logs = docs.map((d: any) => ({
     _id: String(d._id),
@@ -173,6 +224,7 @@ export async function queryAuditLogs(orgId: string, options: AuditQueryOptions =
     changes: d.changes || [],
     ipAddress: d.ipAddress,
     userAgent: d.userAgent,
+    ...viaWire(d, desktops),
     timestamp: d.timestamp?.toISOString(),
   }))
 

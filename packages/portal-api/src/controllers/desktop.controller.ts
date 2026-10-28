@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { paginateQuery } from 'services/utils/pagination'
-import { Desktop, DesktopEnrollmentCode, DesktopEnrollmentKey, DesktopEnrollmentKeyUse } from 'db/models'
+import { Desktop, DesktopEnrollmentCode, DesktopEnrollmentKey, DesktopEnrollmentKeyUse, Org } from 'db/models'
 import {
   DesktopError,
   mintEnrollmentCode,
@@ -13,7 +13,7 @@ import {
   updateDesktop,
 } from 'services/biz/desktop/desktop.service'
 import { START_PATH_PATTERN } from 'services/biz/desktop/desktop-crypto'
-import { isDesktopOnline, requestDesktopUpdate } from '../websocket/desktop.js'
+import { isDesktopOnline, notifyDesktopRevoked, requestDesktopUpdate } from '../websocket/desktop.js'
 import { stopDesktopBridges } from '../websocket/fiscal-bridge.js'
 
 /**
@@ -169,9 +169,10 @@ export const desktopController = new Elysia({ prefix: '/org/:orgId/desktops' })
           entityId: id, entityName: d.name,
           changes: [{ field: 'status', oldValue: 'active', newValue: d.ephemeral ? 'deleted' : 'revoked' }],
         })
-        // ⚠ Nothing is pushed to the desktop here on purpose. Revocation takes effect because every
-        // desktop request re-reads the row; the socket notice (FR-14.21) is a courtesy that makes it
-        // visible within one heartbeat, not the mechanism.
+        // ⚠ Revocation takes effect because every desktop request re-reads the row; the socket
+        // notice below (FR-14.22) is a courtesy that makes it visible at once, not the mechanism.
+        // It was written and never called: the first field lane (vmtest T-0) revoked a desktop and
+        // its shell still did not know two minutes later, waiting for its next token.
         //
         // ⚠ The fiscal bridge is the ONE exception, and it is not a courtesy (FR-14.26, C18). A
         // bridge is a socket that is already authenticated and holding a serial port: it re-reads
@@ -179,6 +180,8 @@ export const desktopController = new Elysia({ prefix: '/org/:orgId/desktops' })
         // shell stops its own bridge when it learns it was revoked, but it may be offline or
         // mid-print, and revocation must not depend on the till cooperating.
         const bridges = await stopDesktopBridges(id)
+        const org: any = await Org.findById(orgId).select('name').lean()
+        notifyDesktopRevoked(id, org?.name ?? 'the organization')
         return { ok: true, status: d.ephemeral ? 'deleted' : 'revoked', bridgesStopped: bridges }
       } catch (e) {
         return fail(status, e)

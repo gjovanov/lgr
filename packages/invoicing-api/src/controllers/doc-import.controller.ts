@@ -13,20 +13,22 @@
  * fallback.
  */
 import { Elysia, t } from 'elysia'
+import { createHash } from 'node:crypto'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { config } from 'config'
 import { startJob, updateProgress, completeJob, failJob } from 'services/background/task.service'
 import { taskStore } from 'services/background/task.store'
 import { BackgroundTask, File as FileModel } from 'db/models'
 import { ocrExtract, mapWithConcurrency } from 'services/biz/doc-import/ocr-client'
+import { toStored } from 'services/biz/files/stored-path'
 import { parseSpreadsheet } from 'services/biz/doc-import/xlsx'
 import { analyzeDocuments, type AnalyzeItem } from 'services/biz/doc-import/analyze'
 import { commitDocuments, type CommitItem } from 'services/biz/doc-import/commit'
 import { convertDraftInvoice } from 'services/biz/doc-import/persist'
 import { confirmMovement } from 'services/biz/warehouse.service'
 import type { ImportTarget } from 'services/biz/doc-import/types'
+import { containedJoin, stampedUploadPath } from 'services/biz/files/safe-path'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 
 /** Uploading and analysing is a write on the surface being imported into. */
 const PERMISSION_BY_TARGET: Record<ImportTarget, string> = {
@@ -87,13 +89,14 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
       }
       const forceOcr = String((body as any)?.forceOcr ?? '') === 'true'
 
-      const dir = join(config.upload.dir, orgId, 'doc-import')
+      const dir = containedJoin(config.upload.dir, orgId, 'doc-import')
       mkdirSync(dir, { recursive: true })
 
       const results = await mapWithConcurrency(files, EXTRACT_CONCURRENCY, async (f) => {
         const kind = fileKind(f.name)
         const buf = Buffer.from(await f.arrayBuffer())
-        const storagePath = join(dir, `${Date.now()}-${f.name}`.replace(/[^\w.\-\/\\]/g, '_'))
+        // ⚠ `f.name` is the caller's: a path in it must never reach the filesystem.
+        const storagePath = stampedUploadPath(dir, f.name)
         writeFileSync(storagePath, buf)
 
         let text = ''
@@ -104,7 +107,7 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
 
         if (kind === 'pdf') {
           try {
-            const extract = await ocrExtract(buf, f.name, { forceOcr })
+            const extract = await ocrExtract(buf, f.name, { forceOcr, orgId })
             text = extract.text
             method = extract.method
             pages = extract.pages
@@ -129,10 +132,11 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
           orgId,
           uploadedBy: user.id,
           originalName: f.name,
-          storagePath,
+          storagePath: toStored(storagePath), // FR-20.24: relative to the upload root
           storageProvider: 'local',
           mimeType: kind === 'pdf' ? 'application/pdf' : f.type || 'application/octet-stream',
           size: buf.length,
+          sha256: createHash('sha256').update(buf).digest('hex'),
           module: 'doc-import',
           aiRecognition: error
             ? { status: 'failed' }
@@ -202,6 +206,10 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
           text: t.Optional(t.String()),
           parsed: t.Optional(t.Any()),
           profile: t.Optional(t.String()),
+          // Pre-built extraction, skipping OCR/AI entirely (analyzeOne: `item.draft ?? ocrDraft(...)`).
+          // Already supported by AnalyzeItem/analyzeOne — this just exposes it over the API, for
+          // sources whose own structured data already IS the extraction (e.g. a direct ERP API pull).
+          draft: t.Optional(t.Any()),
         })),
         context: t.Optional(t.Object({
           warehouseId: t.Optional(t.String()),

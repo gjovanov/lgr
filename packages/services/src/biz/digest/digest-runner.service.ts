@@ -8,7 +8,9 @@
  * restarts and across pods, which a module-level flag would not be.
  */
 
+import { createHash } from 'node:crypto'
 import { DigestRun, Org, User } from 'db/models'
+import { homeScope } from 'db/home/home'
 import { logger } from '../../logger/logger.js'
 import { sendEmail } from '../email.service.js'
 import { buildDailyDigest } from './daily-digest.service.js'
@@ -20,7 +22,7 @@ import type { IDigestRunRecipient } from 'db/models'
 export const STALE_CLAIM_MS = 30 * 60 * 1000
 
 export interface DigestRunOutcome {
-  status: 'sent' | 'partial' | 'failed' | 'skipped'
+  status: 'sent' | 'queued' | 'partial' | 'failed' | 'skipped'
   reason?: string
   recipients: IDigestRunRecipient[]
 }
@@ -71,6 +73,7 @@ export async function sendDigestTo(
   orgId: string,
   localDate: string,
   recipients: { userId?: string; email: string }[],
+  { test = false }: { test?: boolean } = {},
 ): Promise<DigestRunOutcome> {
   const data = await buildDailyDigest(orgId, localDate)
   const html = renderDigestHtml(data)
@@ -87,10 +90,13 @@ export async function sendDigestTo(
       html,
       orgId,
       entityType: 'digest',
+      // FR-20.86: on a master the day's digest has one outbox id per recipient, so a re-run (the
+      // stale-claim takeover) queues nothing twice. A test send is its own mail.
+      outboxId: test ? undefined : `digest:${orgId}:${localDate}:${r.userId ?? createHash('sha256').update(r.email).digest('hex').slice(0, 24)}`,
     })
     if (res.ok) {
       anyOk = true
-      results.push({ email: r.email, userId: r.userId as any, ok: true })
+      results.push({ email: r.email, userId: r.userId as any, ok: true, ...(res.queued ? { queued: true } : {}) })
     } else {
       if (res.reason === 'not_configured') notConfigured = true
       results.push({ email: r.email, userId: r.userId as any, ok: false, error: res.detail || res.reason })
@@ -104,6 +110,8 @@ export async function sendDigestTo(
   }
   if (!anyOk) return { status: 'failed', reason: 'all_sends_failed', recipients: results }
   if (results.some(r => !r.ok)) return { status: 'partial', recipients: results }
+  // FR-20.86: on a master the mail is queued for global to send. Never "sent" before it has gone.
+  if (results.some(r => r.queued)) return { status: 'queued', recipients: results }
   return { status: 'sent', recipients: results }
 }
 
@@ -183,8 +191,10 @@ async function claimDay(orgId: string, date: string): Promise<{ _id: any } | nul
  *   - no multi-day backfill — an outage skips those days rather than flooding an inbox.
  */
 export async function digestTick(now = new Date()): Promise<{ checked: number; ran: number }> {
+  // FR-20.85: only the orgs whose home is this node. A digest run is a write (the claim), and an
+  // org homed elsewhere gets its digest from its own home.
   const orgs: any[] = await Org.find(
-    { 'settings.dailyDigest.enabled': true },
+    { 'settings.dailyDigest.enabled': true, ...(await homeScope('_id')) },
     { name: 1, settings: 1 },
   ).lean().exec()
 

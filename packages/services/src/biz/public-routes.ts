@@ -66,6 +66,26 @@ const PUBLIC_ROUTES = new Set<string>([
   // OAuth handshake — tokenless by definition (the token is what it produces).
   'GET /api/oauth/:provider',
   'GET /api/oauth/callback/:provider',
+  // Which sign-in buttons to show, asked before anyone has signed in. Provider names only.
+  'GET /api/oauth/providers',
+
+  // A forgotten password, by definition asked by someone who cannot sign in. The request answers
+  // the same for any address (and is throttled); the reset is authorised by the emailed token.
+  'POST /api/auth/password/forgot',
+  'POST /api/auth/password/reset',
+
+  // FR-20.40: the till PIN, asked by the next operator at a paired desktop. Both answer 404 off a
+  // master and to anything but the LAN (with a paired desktop's token) or the console; the PIN is
+  // the credential, it backs off rather than locks, and the session it makes reaches the till only.
+  'GET /api/auth/local/methods',
+  'POST /api/auth/local/pin',
+
+  // FR-20.39 (P2-4): "Sign in with LGR" on a master: whether the button shows, and the redemption
+  // of the code the browser came back with. Both are what make the session, so they cannot need
+  // one; both answer 404 on global. The credential is the code, worth nothing without this
+  // server's node key and the browser's PKCE verifier.
+  'GET /api/auth/idp/config',
+  'POST /api/auth/idp/redeem',
 
   // The OAuth SIGN-UP handoff (security review S-19), tokenless for the same reason: completing
   // it is what produces the token. The credential is the `oauth_pending` cookie the callback set,
@@ -103,6 +123,13 @@ const PUBLIC_ROUTES = new Set<string>([
   'POST /api/desktop/v1/enroll',
   'POST /api/desktop/v1/token',
 
+  // A master's registration with global (FR-20.2, plan step P2-1), and tokenless for the desktops'
+  // reasons: `enroll` is authenticated by a single-use code an org admin minted (or a field lane's
+  // reusable key) AND a signature by the key it registers; `token` by an Ed25519 assertion from
+  // that key, never replayable (`node_assertions`). Both are 404 on a master.
+  'POST /api/node/v1/enroll',
+  'POST /api/node/v1/token',
+
   // FR-14.14 — the desktop's half of an OAuth sign-in, and tokenless for the same reason as its
   // browser twin above: it is what PRODUCES the token.
   //
@@ -111,6 +138,15 @@ const PUBLIC_ROUTES = new Set<string>([
   // also needs the PKCE verifier, which never left the shell until it went into a URL fragment
   // that no server and no log sees. A program that hijacks the deep link holds half a credential.
   'POST /api/auth/desktop-code/redeem',
+
+  // LGR Desktop downloads (#93 follow-up): the link the hub offers with an update. Public because
+  // the operator who clicks it is in the system browser, not signed in — often on the very machine
+  // that needs the installer before it can sign in at all. What it serves is the signed installers
+  // of a PUBLISHED `desktop-v*` release, and nothing else: a strict version shape, an allow-list of
+  // installer file names, and the file must belong to that release (`release-download.ts`). The
+  // GitHub token behind it never leaves the server and never follows the storage redirect.
+  'GET /api/desktop/download/:version',
+  'GET /api/desktop/download/:version/:file',
 ])
 
 /**

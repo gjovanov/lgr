@@ -77,6 +77,11 @@ export interface DigestDocumentFamily {
   total: number
   count: number
   sequence?: DigestSequenceLine
+  /**
+   * FR-21.17: numbers of a closed series among the family's documents — the cash register's `TXN-…`
+   * copies — each series on its own line, so they never read as gaps in the live one.
+   */
+  closedSequences?: DigestSequenceLine[]
 }
 
 export interface DigestDocuments {
@@ -328,6 +333,37 @@ export interface DigestBackupDestination {
   ageHours?: number
 }
 
+// ── FR-20.100 an org written on its own server ──────────────────────────────
+
+/**
+ * What crossed a FR-20.101 threshold for an org written on its own server:
+ * - `unheard`: lgrai.app has not answered the server for an hour (or ever, by a server up that long);
+ * - `mirror_lag`: lgrai.app's copy is behind and has received nothing for an hour;
+ * - `backup_stale` / `backup_none`: the newest backup on the server is over 26 h old, or there is
+ *   none once the org has been written there that long;
+ * - `queued_old`: something has waited for the internet for over an hour.
+ */
+export type DigestServerAlarm = 'unheard' | 'mirror_lag' | 'backup_stale' | 'backup_none' | 'queued_old'
+
+/**
+ * FR-20.100 (plan step P3-8b): an org written on a server in the shop, as the morning should hear of
+ * it: how far lgrai.app's copy holds it, its last backup there, and what waits for the internet.
+ * Built only on that server: an org's digest is built on its home (FR-20.85). Whole hours.
+ */
+export interface DigestServer {
+  /** Since lgrai.app last answered the server; absent when it has not since the server started. */
+  heardHours?: number
+  /** lgrai.app's copy of the org, as lgrai.app last said; absent when it holds none or is unheard. */
+  mirror?: { behind: number; lastPageHours?: number }
+  /** Since the org's newest completed backup on the server; absent when there is none. */
+  backupHours?: number
+  /** What waits for the internet (mail, documents to deliver), and the oldest's age. */
+  queued: number
+  oldestQueuedHours?: number
+  /** Empty: nothing to report about the server. */
+  alarms: DigestServerAlarm[]
+}
+
 export interface DigestOps {
   tasks: { type: string; completed: number; failed: number; created: number; failedRows: number }[]
   failedEmails: { to: string; subject: string; error: string }[]
@@ -354,17 +390,19 @@ export interface DailyDigestData {
   editedAfterIssue?: Section<DigestEdited>
   ops?: Section<DigestOps>
   backups?: Section<DigestBackups>
+  /** FR-20.100: only in a digest built on the org's own server. */
+  server?: Section<DigestServer>
   /** True when every enabled section came back empty — the „всичко е наред" day. */
   allClear: boolean
 }
 
 export type DigestSectionKey =
   | 'kpis' | 'documents' | 'materials' | 'stock' | 'corrections'
-  | 'undocumentedSales' | 'duplicates' | 'editedAfterIssue' | 'ops' | 'backups'
+  | 'undocumentedSales' | 'duplicates' | 'editedAfterIssue' | 'ops' | 'backups' | 'server'
 
 export const DIGEST_SECTION_KEYS: DigestSectionKey[] = [
   'kpis', 'documents', 'materials', 'stock', 'corrections',
-  'undocumentedSales', 'duplicates', 'editedAfterIssue', 'ops', 'backups',
+  'undocumentedSales', 'duplicates', 'editedAfterIssue', 'ops', 'backups', 'server',
 ]
 
 /**

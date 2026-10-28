@@ -8,9 +8,10 @@
       <v-card-text>
         <v-row dense>
           <v-col cols="12" md="6">
-            <v-radio-group v-model="format" :label="$t ? $t('common.format') : 'Format'" density="compact" inline hide-details>
-              <v-radio label="Excel (.xlsx)" value="xlsx" />
+            <v-radio-group v-model="format" :label="$t ? $t('common.format') : 'Format'" density="compact" inline hide-details data-testid="export-format">
+              <!-- PDF first: it is the default (#146). -->
               <v-radio label="PDF" value="pdf" />
+              <v-radio label="Excel (.xlsx)" value="xlsx" />
             </v-radio-group>
           </v-col>
           <!-- Modes are meaningless for the per-product pivot — hidden while aggregating. -->
@@ -98,7 +99,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   filterColumns,
@@ -121,6 +122,8 @@ const props = defineProps<{
   modelValue: boolean
   docType?: DocType
   defaultMode?: ExportMode
+  /** #146: PDF unless a caller asks for Excel — printing a document is the common case, and a
+   * missing prop used to mean xlsx, so the Print dialog of every document form opened on Excel. */
   defaultFormat?: 'xlsx' | 'pdf'
   loading?: boolean
   /** Override the default "Export" title — invoice form views pass "Print" so the dialog
@@ -134,6 +137,11 @@ const props = defineProps<{
   showAggregate?: boolean
   /** Initial state of the aggregate checkbox when the dialog opens. */
   defaultAggregate?: boolean
+  /**
+   * The columns to open with instead of the mode's defaults — the user's last print (FR-22.20).
+   * Keys the mode does not offer are ignored; none left means the defaults.
+   */
+  initialColumns?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -148,7 +156,8 @@ const show = computed({
   set: (v) => emit('update:modelValue', v),
 })
 
-const format = ref<'xlsx' | 'pdf'>(props.defaultFormat || 'xlsx')
+const DEFAULT_FORMAT = 'pdf' as const
+const format = ref<'xlsx' | 'pdf'>(props.defaultFormat || DEFAULT_FORMAT)
 const mode = ref<ExportMode>(props.defaultMode || 'compact')
 const selectedColumns = ref<string[]>([])
 const selectedSet = computed(() => new Set(selectedColumns.value))
@@ -172,12 +181,20 @@ function resetSelection() {
 
 watch(() => props.modelValue, (open) => {
   if (open) {
-    format.value = props.defaultFormat || 'xlsx'
+    format.value = props.defaultFormat || DEFAULT_FORMAT
     mode.value = props.defaultMode || 'compact'
     aggregated.value = props.showAggregate ? (props.defaultAggregate ?? false) : false
     resetSelection()
     // Companion documents are opt-in on every print — never carried over from the last one.
     selectedCompanions.value = []
+    if (props.initialColumns?.length) {
+      const wanted = new Set(props.initialColumns)
+      // After the mode watcher below has reset the selection for the mode just set.
+      nextTick(() => {
+        const cols = availableColumns.value.filter(c => wanted.has(c.key)).map(c => c.key)
+        if (cols.length) selectedColumns.value = cols
+      })
+    }
   }
 })
 watch(mode, resetSelection)

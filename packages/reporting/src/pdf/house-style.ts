@@ -44,13 +44,26 @@ export const HOUSE_CSS = `
   table.meta td.v { text-align: right; font-weight: 700; }
   table.lines { font-size: 8.5pt; table-layout: fixed; }
   table.lines thead { display: table-header-group; }
+  /* Headings wrap at SPACES only. A word-break of break-word chopped „Платени" into „Платен"
+     + „и" and „Остатък" into „Остатъ" + „к" as soon as a column got narrow — a heading split
+     mid-word is unreadable, where a heading on three short lines is merely tall. The callers'
+     width logic keeps each heading's longest word inside its column; overflow:hidden is the
+     backstop for a heading nothing anticipated, so it clips instead of printing over its
+     neighbour. NB this is a template literal: no backticks in these comments. */
   table.lines thead th { border-top: 1px solid #000; border-bottom: 1px solid #000;
     padding: 4px 5px; font-weight: 700; background: #ebebeb;
-    overflow-wrap: break-word; word-break: break-word; }
+    overflow-wrap: normal; word-break: normal; hyphens: none; overflow: hidden; }
   table.lines tbody td { padding: 2.5px 5px; vertical-align: top;
     overflow-wrap: break-word; word-break: break-word; }
   /* A value wider than its (fixed) column is clipped rather than printed over its neighbour. */
   table.lines td.nowrap, table.lines th.nowrap { overflow: hidden; text-overflow: ellipsis; }
+  /* A wide column set — a register with a dozen-plus columns — on A4 landscape. The HEADING
+     is the widest thing in a money column (an amount is ~7 digits, „Платени с наложен платеж"
+     is not), so the head is what has to give: smaller type and tighter gutters buy every
+     column roughly a character and a half, which is the difference between three tidy lines
+     and a heading that will not fit at all. The body keeps its 8.5pt. */
+  table.lines.dense thead th { font-size: 7pt; padding: 4px 3px; line-height: 1.15; }
+  table.lines.dense tbody td { padding: 2.5px 3px; }
   table.lines tbody tr:nth-child(even) td { background: #f6f6f6; }
   table.lines tbody tr:last-child td { border-bottom: 1px solid #000; }
   table.lines tbody tr.grand-row td { background: #ebebeb; font-weight: 700;

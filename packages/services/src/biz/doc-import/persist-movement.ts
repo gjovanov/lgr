@@ -17,15 +17,16 @@ import { getRepos } from '../../context.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { buildTiers, repriceTiers, PROTECTED_TIERS } from './map-movement.js'
+import { findSeparatorTwins } from './matching.js'
 import type { MappedMovement, NewProductDraft } from './types.js'
 
 /** Default markup when a разписка carries a cost but no sale price. */
 const DEFAULT_MARKUP = 1.1
 /** Where catalog-new import products land until `assign-din-tags` recategorises them. */
-const DEFAULT_CATEGORY = 'Общи'
+export const DEFAULT_CATEGORY = 'Общи'
 
 /** Next SKU continuing the org's numeric sequence (max `<PREFIX>-NNNNN` + 1). */
-async function nextSkuBase(orgId: string, orgSlug?: string): Promise<{ prefix: string; next: number; pad: number }> {
+export async function nextSkuBase(orgId: string, orgSlug?: string): Promise<{ prefix: string; next: number; pad: number }> {
   const rows: any[] = await Product.find({ orgId } as any, { sku: 1 }).sort({ sku: -1 }).limit(10).lean()
   for (const p of rows) {
     const m = String(p.sku || '').match(/^(.*)-(\d+)$/)
@@ -35,11 +36,43 @@ async function nextSkuBase(orgId: string, orgSlug?: string): Promise<{ prefix: s
   return { prefix, next: 1, pad: 5 }
 }
 
+/**
+ * A catalog-new product as an import creates it: priced at the document's cost, its sale price
+ * the document's (or the cost plus the default markup), its tiers the org's tier template with the
+ * tier-name tags that make tag-based pricing pick a slot. Shared with the inline „+ Нов продукт"
+ * of a receipt or bill line (FR-22.30), so there is one way a new article is born.
+ */
+export function newProductDoc(
+  orgId: string,
+  d: NewProductDraft,
+  o: { sku: string; categoryName: string; categoryId?: unknown; currency: string; taxRate: number },
+): Record<string, any> {
+  const selling = d.selling ?? (d.cost > 0 ? +(d.cost * DEFAULT_MARKUP).toFixed(4) : 0)
+  return {
+    orgId,
+    sku: o.sku,
+    name: d.name,
+    category: o.categoryName,
+    ...(o.categoryId ? { categoryId: o.categoryId } : {}),
+    type: 'goods',
+    unit: d.unit || 'pcs',
+    purchasePrice: d.cost,
+    sellingPrice: selling,
+    currency: o.currency,
+    taxRate: o.taxRate,
+    trackInventory: true,
+    isActive: true,
+    priceTiers: buildTiers(d.cost, d.tiers),
+  }
+}
+
 export interface CreatedProduct {
   productId: string
   sku: string
   name: string
   created: boolean
+  /** The name the DOCUMENT used. Differs from `name` when a separator twin was reused. */
+  requestedName: string
 }
 
 /**
@@ -65,7 +98,24 @@ export async function createMissingProducts(
 
   for (const d of drafts) {
     const lower = d.name.toLocaleLowerCase('bg')
-    const existing: any = await Product.findOne({ orgId, nameLower: lower } as any).lean()
+    let existing: any = await Product.findOne({ orgId, nameLower: lower } as any).lean()
+    if (!existing) {
+      // No row spells it this way. Before adding one, check for a row that differs only in
+      // separators: the matcher refuses an AMBIGUOUS name (several such twins) and reports the
+      // same `null` as a genuine miss, so without this the refusal would land here and fork the
+      // group a third time. ⚠ Several twins is refused outright rather than guessed or dropped —
+      // dropping loses the quantity silently, which for a receipt is permanent stock drift.
+      const twins = await findSeparatorTwins(orgId, d.name)
+      if (twins.length > 1) {
+        throw new Error(
+          `"${d.name}" matches ${twins.length} catalog products that differ from it only in separators `
+          + `(${twins.map(t => `${t.sku} ${JSON.stringify(t.name)}`).join(', ')}). `
+          + 'Point the line at one of them, or merge the duplicates — booking it would either pick one '
+          + 'at random or add a third copy.',
+        )
+      }
+      if (twins.length === 1) existing = await Product.findOne({ _id: twins[0]._id } as any).lean()
+    }
     if (existing) {
       // Already there (created by a concurrent line, or matched loosely): refresh the SALE prices
       // only — the buying price stays put. `selling` is the разписка's „Прод. цена" and is absent
@@ -78,30 +128,17 @@ export async function createMissingProducts(
           priceTiers: repriceTiers(existing.priceTiers, d.tiers, Number(existing.purchasePrice) || 0),
         },
       })
-      out.push({ productId: String(existing._id), sku: existing.sku, name: existing.name, created: false })
+      out.push({ productId: String(existing._id), sku: existing.sku, name: existing.name, created: false, requestedName: d.name })
       continue
     }
 
     const sku = `${prefix}-${String(next).padStart(pad, '0')}`
     next++
-    const selling = d.selling ?? (d.cost > 0 ? +(d.cost * DEFAULT_MARKUP).toFixed(4) : 0)
-    const created: any = await Product.create({
-      orgId,
-      sku,
-      name: d.name,
-      category: categoryName,
-      ...(category ? { categoryId: category._id } : {}),
-      type: 'goods',
-      unit: d.unit || 'pcs',
-      purchasePrice: d.cost,
-      sellingPrice: selling,
-      currency: 'BGN',
-      taxRate: 20,
-      trackInventory: true,
-      isActive: true,
-      priceTiers: buildTiers(d.cost, d.tiers),
-    })
-    out.push({ productId: String(created._id), sku, name: d.name, created: true })
+    // The import's own defaults (regal's currency and VAT) are unchanged by the extraction.
+    const created: any = await Product.create(newProductDoc(orgId, d, {
+      sku, categoryName, categoryId: category?._id, currency: 'BGN', taxRate: 20,
+    }))
+    out.push({ productId: String(created._id), sku, name: d.name, created: true, requestedName: d.name })
   }
 
   return out
@@ -130,6 +167,57 @@ export interface PersistMovementResult {
   droppedLines: string[]
 }
 
+/**
+ * Write the SALE prices a разписка delivered onto the product master.
+ *
+ * Shared by two callers, deliberately: the ordinary receipt path below, and the price-only
+ * разписка, which has no movement at all. PlusMinus issues those (empty „Кол" throughout, zero
+ * footer) for exactly one purpose — to restate prices — and until 2026-10-08 it committed as a
+ * total no-op: the mapper computed every `productUpdate` and tier and then dropped the lines on
+ * the floor because they could not enter a movement. Four pz documents and two sf ones went by
+ * that way, 43 priced lines that never reached the catalog.
+ *
+ * Receipt-side documents only. A transfer or a write-off out of the warehouse must not reprice
+ * anything, which is why the caller checks the family rather than this function assuming it.
+ *
+ * Returns how many products were written, so a caller with nothing else to report can say it.
+ */
+export async function applyDeliveredPrices(orgId: string, lines: MappedMovement['lines']): Promise<number> {
+  let repriced = 0
+  for (const l of lines) {
+    if (!l.productId) continue
+    const set: Record<string, any> = { ...(l.productUpdate || {}) }
+    // purchasePrice is never written from a разписка — guard the staged payload too, so an
+    // analysis produced before this rule (or an API client) cannot reintroduce it.
+    delete set.purchasePrice
+    if (l.priceTiers?.length) {
+      // Overlay by NAME onto what the product holds now. Assigning the staged array outright
+      // would carry that array's cost slots over the product's, and a stale analysis would put
+      // the разписка's Цена back into Доставна цена — the exact write this rule removes.
+      const prod: any = await Product.findOne({ orgId, _id: l.productId } as any, { priceTiers: 1 }).lean()
+      const slots = (prod?.priceTiers?.length ? prod.priceTiers : buildTiers(0, {})).map((t: any) => ({ ...t }))
+      for (const staged of l.priceTiers as any[]) {
+        if (!staged?.name || PROTECTED_TIERS.has(staged.name)) continue
+        const t = slots.find((x: any) => x.name === staged.name)
+        if (!t || !(Number(staged.finalPrice) > 0)) continue
+        Object.assign(t, {
+          finalPrice: Number(staged.finalPrice),
+          percent: Number(staged.percent) || 0,
+          manualOverride: true,
+          tags: t.tags?.length ? t.tags : [staged.name],
+          contactIds: t.contactIds || [],
+        })
+      }
+      set.priceTiers = slots
+    }
+    if (Object.keys(set).length) {
+      await Product.updateOne({ orgId, _id: l.productId } as any, { $set: set })
+      repriced++
+    }
+  }
+  return repriced
+}
+
 export async function persistMovement(
   orgId: string,
   userId: string,
@@ -141,8 +229,11 @@ export async function persistMovement(
   let createdProducts: CreatedProduct[] = []
   if (opts.createMissingProducts && mapped.newProducts?.length) {
     createdProducts = await createMissingProducts(orgId, mapped.newProducts, { orgSlug: opts.orgSlug })
-    // Attach the freshly created products to the lines that asked for them.
-    const byName = new Map(createdProducts.map(p => [p.name.toLocaleLowerCase('bg'), p]))
+    // Attach the resolved products to the lines that asked for them. Keyed on the name the
+    // DOCUMENT used, not the product's: a reused separator twin is spelled differently by
+    // definition, so keying on the product's name would leave that line without a productId —
+    // and a movement line with no product is dropped, which for a receipt is silent stock drift.
+    const byName = new Map(createdProducts.map(p => [p.requestedName.toLocaleLowerCase('bg'), p]))
     for (const line of mapped.lines) {
       if (line.productId) continue
       const hit = byName.get((line.sourceText || line.productName || '').toLocaleLowerCase('bg'))
@@ -154,36 +245,7 @@ export async function persistMovement(
   // the /movement/with-update endpoint ever consumed them — through this path they were dropped,
   // so a receipt booked its quantities while the catalog kept stale costs and empty tiers.
   // Receipts only: a transfer or write-off out of the warehouse must not reprice anything.
-  if (mapped.type === 'receipt') {
-    for (const l of mapped.lines) {
-      if (!l.productId) continue
-      const set: Record<string, any> = { ...(l.productUpdate || {}) }
-      // purchasePrice is never written from a разписка — guard the staged payload too, so an
-      // analysis produced before this rule (or an API client) cannot reintroduce it.
-      delete set.purchasePrice
-      if (l.priceTiers?.length) {
-        // Overlay by NAME onto what the product holds now. Assigning the staged array outright
-        // would carry that array's cost slots over the product's, and a stale analysis would put
-        // the разписка's Цена back into Доставна цена — the exact write this rule removes.
-        const prod: any = await Product.findOne({ orgId, _id: l.productId } as any, { priceTiers: 1 }).lean()
-        const slots = (prod?.priceTiers?.length ? prod.priceTiers : buildTiers(0, {})).map((t: any) => ({ ...t }))
-        for (const staged of l.priceTiers as any[]) {
-          if (!staged?.name || PROTECTED_TIERS.has(staged.name)) continue
-          const t = slots.find((x: any) => x.name === staged.name)
-          if (!t || !(Number(staged.finalPrice) > 0)) continue
-          Object.assign(t, {
-            finalPrice: Number(staged.finalPrice),
-            percent: Number(staged.percent) || 0,
-            manualOverride: true,
-            tags: t.tags?.length ? t.tags : [staged.name],
-            contactIds: t.contactIds || [],
-          })
-        }
-        set.priceTiers = slots
-      }
-      if (Object.keys(set).length) await Product.updateOne({ orgId, _id: l.productId } as any, { $set: set })
-    }
-  }
+  if (mapped.type === 'receipt') await applyDeliveredPrices(orgId, mapped.lines)
 
   const usable = mapped.lines.filter(l => l.productId)
   const droppedLines = mapped.lines.filter(l => !l.productId).map(l => l.productName || l.sourceText || '')

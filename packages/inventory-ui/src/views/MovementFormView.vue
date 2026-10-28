@@ -2,7 +2,7 @@
   <EntityFormShell
     :title="isEdit ? $t('warehouse.viewMovement') : $t('common.create') + ' ' + $t('warehouse.movementDoc')"
     :subtitle="isEdit ? (movement.number || '') : ''"
-    :status="isEdit ? { steps: ['draft', 'confirmed', 'completed'], current: movement.status } : undefined"
+    :status="isEdit ? statusDef : undefined"
     :actions="formActions"
     :loading="loading"
     back-to="/movements"
@@ -16,27 +16,52 @@
       </router-link>
     </v-alert>
 
+    <!-- FR-22.31: the supplier's bill that pays for this receipt — a link into invoicing. -->
+    <v-alert v-if="movement.bill" type="success" variant="tonal" density="compact" class="mb-3" icon="mdi-receipt-text-check-outline" data-testid="receipt-bill">
+      {{ $t('warehouse.billedBy') }}
+      <a :href="billHref(movement.bill.id)" class="font-weight-medium" data-testid="receipt-bill-link">{{ movement.bill.number }}</a>
+    </v-alert>
+
     <v-form ref="formRef" @submit.prevent="handleSubmit">
       <v-row>
         <v-col cols="12" md="3">
-          <v-select v-model="form.type" :label="$t('common.type')" :items="['receipt', 'dispatch', 'transfer', 'adjustment']" :rules="[rules.required]" :disabled="isEdit" density="compact" />
+          <v-select v-model="form.type" :label="`${$t('common.type')} *`" :items="movementTypeItems" :rules="[rules.required]" :disabled="isEdit" density="compact" />
+        </v-col>
+        <!-- Empty is `null`, never '': Vuetify treats '' as a selected value, which floated the
+             label away and left a blank "selection" — the field read as nothing at all. -->
+        <v-col cols="12" md="3">
+          <v-select v-model="form.fromWarehouseId" :label="$t('warehouse.fromWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" data-testid="from-warehouse" />
         </v-col>
         <v-col cols="12" md="3">
-          <v-select v-model="form.fromWarehouseId" :label="$t('warehouse.fromWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" />
-        </v-col>
-        <v-col cols="12" md="3">
-          <v-select v-model="form.toWarehouseId" :label="$t('warehouse.toWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" />
+          <v-select v-model="form.toWarehouseId" :label="$t('warehouse.toWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" data-testid="to-warehouse" />
         </v-col>
         <v-col cols="12" md="3">
           <DateField v-model="form.date" :label="$t('common.date')" :rules="[rules.required]" :disabled="readonly" density="compact" />
         </v-col>
       </v-row>
-      <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" />
+      <!-- FR-22.6 (B-8): searched on the server, so every supplier can be reached; on a receipt
+           it lists suppliers only and is called „Доставчик". -->
+      <v-defaults-provider :defaults="{ VAutocomplete: { density: 'compact' } }">
+        <ContactAutocompleteWithCreate
+          v-model="form.contactId"
+          :contacts="partners.contacts.value"
+          :loading="partners.loading.value"
+          :label="partnerLabel"
+          :org-url="appStore.orgUrl()"
+          :new-contact-type="isReceipt ? 'supplier' : undefined"
+          :disabled="readonly"
+          data-testid="movement-partner"
+          @update:search="partners.onSearch"
+          @contact-created="partners.add"
+        />
+      </v-defaults-provider>
 
       <div class="d-flex align-center mt-4 mb-2">
         <span class="text-subtitle-2">{{ $t('invoicing.lineItems') }}</span>
         <v-chip v-if="form.type === 'receipt' && !readonly" class="ml-3" size="small" :color="grWithUpdate ? 'primary' : undefined" :variant="grWithUpdate ? 'flat' : 'outlined'">
-          <v-switch v-model="grWithUpdate" density="compact" hide-details class="mr-2" color="white" style="width: 36px" />
+          <!-- FR-22.28: remembered per user and org, so a receipt that carries prices every day
+               does not cost a click every day. -->
+          <v-switch :model-value="grWithUpdate" density="compact" hide-details class="mr-2" color="white" style="width: 36px" @update:model-value="onGrSwitch" />
           {{ $t(grWithUpdate ? 'warehouse.withProductUpdate' : 'warehouse.withoutProductUpdate') }}
         </v-chip>
         <v-btn v-if="grWithUpdate && !readonly" class="ml-2" size="small" variant="outlined" prepend-icon="mdi-view-column-outline" @click="columnPickerOpen = true">
@@ -45,19 +70,23 @@
         <v-spacer />
         <v-btn v-if="!readonly" variant="outlined" size="small" prepend-icon="mdi-plus" @click="addLine">{{ $t('invoicing.addLine') }}</v-btn>
       </div>
-      <div class="overflow-x-auto">
-        <v-table density="compact">
+      <!-- FR-22.28: the grid takes the keyboard the way the invoice lines do (Tab / Enter / arrows,
+           a new line past the last one), and fits a 1366 px laptop: the article column takes what
+           the fixed columns leave instead of half the viewport. -->
+      <div ref="lineTableRef" class="overflow-x-auto" @keydown.capture="onGridKeydown">
+        <v-table density="compact" class="line-table">
           <thead>
             <tr>
-              <th style="width:50%;min-width:50vw">{{ $t('warehouse.product') }}</th>
-              <th style="width:90px;min-width:80px">{{ $t('warehouse.stock') }}</th>
-              <th class="text-end" style="width:100px;min-width:90px">{{ $t('warehouse.quantity') }}</th>
-              <th class="text-end" style="width:120px;min-width:110px">{{ $t('warehouse.unitCost') }}</th>
-              <th class="text-end" style="width:120px;min-width:110px">{{ $t('common.total') }}</th>
-              <th v-for="col in (grWithUpdate ? activeColumns : [])" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''" style="min-width: 110px">
+              <th style="min-width:220px">{{ $t('warehouse.product') }}</th>
+              <th style="width:76px">{{ $t('warehouse.stock') }}</th>
+              <th class="text-end" style="width:90px;min-width:80px">{{ $t('warehouse.quantity') }}</th>
+              <th class="text-end" style="width:104px;min-width:96px">{{ $t('warehouse.unitCost') }}</th>
+              <th class="text-end" style="width:96px">{{ $t('common.total') }}</th>
+              <!-- A fixed width: the room they leave goes to the article's name, which is what a line is read by. -->
+              <th v-for="col in (grWithUpdate ? activeColumns : [])" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''" style="width: 88px; min-width: 80px">
                 {{ $t(col.i18n) }}
               </th>
-              <th v-if="!readonly" style="width:40px"></th>
+              <th v-if="!readonly" style="width:32px"></th>
             </tr>
           </thead>
           <tbody>
@@ -67,11 +96,13 @@
                   <ProductSearch
                     :org-url="appStore.orgUrl()"
                     :initial-product="line.productId ? { _id: line.productId, name: line.productName || '' } : null"
+                    :allow-create="isReceipt"
                     class="flex-grow-1"
                     @product-selected="onLineProductSelected(idx, $event)"
                     @product-cleared="onLineProductCleared(idx)"
+                    @create-product="openQuickProduct(idx, $event)"
                   />
-                  <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" :title="$t('invoicing.browseProducts')" @click="openProductPicker(idx)" />
+                  <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.browseProducts')" @click="openProductPicker(idx)" />
                 </div>
                 <span v-else>{{ line.productName || line.productId }}</span>
               </td>
@@ -92,14 +123,14 @@
                   @update:model-value="onUnitCostChange(idx)"
                 />
               </td>
-              <td class="text-end">{{ fmtCurrency(line.quantity * (line.unitCost || 0)) }}</td>
+              <td class="text-end text-no-wrap">{{ fmtCurrency(line.quantity * (line.unitCost || 0)) }}</td>
 
               <!-- Extra product-update columns (only when grWithUpdate is ON) -->
               <td v-for="col in (grWithUpdate ? activeColumns : [])" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''">
                 <v-select
                   v-if="col.key === 'type'"
                   :model-value="productUpdateFor(line).type"
-                  :items="['goods', 'service', 'raw_material', 'finished_product']"
+                  :items="productTypeItems()"
                   density="compact"
                   hide-details
                   variant="underlined"
@@ -150,13 +181,13 @@
                 />
               </td>
 
-              <td v-if="!readonly"><v-btn icon="mdi-close" size="x-small" variant="text" @click="form.lines.splice(idx, 1)" /></td>
+              <td v-if="!readonly"><v-btn icon="mdi-close" size="x-small" variant="text" tabindex="-1" :title="$t('common.remove')" @click="form.lines.splice(idx, 1)" /></td>
             </tr>
           </tbody>
           <tfoot>
             <tr>
               <td :colspan="4" class="text-end text-subtitle-2">{{ $t('common.total') }}</td>
-              <td class="text-end text-subtitle-2">{{ fmtCurrency(computedTotal) }}</td>
+              <td class="text-end text-subtitle-2 text-no-wrap">{{ fmtCurrency(computedTotal) }}</td>
               <td v-if="grWithUpdate" :colspan="activeColumns.length"></td>
               <td v-if="!readonly"></td>
             </tr>
@@ -174,6 +205,34 @@
     </template>
 
     <ProductPickerDialog v-model="productPickerOpen" :org-url="appStore.orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
+
+    <!-- FR-22.30: the article the line's search did not find, created without leaving the receipt. -->
+    <QuickProductDialog
+      v-model="quickOpen"
+      :org-url="appStore.orgUrl()"
+      :initial-name="quickName"
+      @created="onQuickProductCreated"
+    />
+
+    <!-- Neither warehouse set: the movement would change no stock. Asked, not refused. -->
+    <v-dialog v-model="noWarehouseDialog" max-width="520">
+      <v-card data-testid="no-warehouse-dialog">
+        <v-card-title class="d-flex align-center ga-2">
+          <v-icon color="warning">mdi-alert-outline</v-icon>
+          {{ $t('warehouse.noWarehouseConfirm.title') }}
+        </v-card-title>
+        <v-card-text>
+          {{ noWarehouseAction === 'confirm' ? $t('warehouse.noWarehouseConfirm.confirmText') : $t('warehouse.noWarehouseConfirm.saveText') }}
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="answerNoWarehouse(false)">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="warning" variant="flat" @click="answerNoWarehouse(true)">
+            {{ noWarehouseAction === 'confirm' ? $t('warehouse.noWarehouseConfirm.confirmAnyway') : $t('warehouse.noWarehouseConfirm.saveAnyway') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Single-document import: OCR one разписка and merge it into THIS movement.
          Nothing is booked — the user still has to save and confirm. -->
@@ -197,24 +256,35 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useGridNavigation } from 'ui-shared/composables/useGridNavigation'
+import { pinnedWarehouseId, rememberedFlag } from 'ui-shared/composables/useUserDefaults'
+import { appHref } from 'ui-shared/nav/navigate'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import DateField from 'ui-shared/components/DateField.vue'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
+import QuickProductDialog from 'ui-shared/components/QuickProductDialog.vue'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
-import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
+import ContactAutocompleteWithCreate from 'ui-shared/components/ContactAutocompleteWithCreate.vue'
+import { useContactSearch } from 'ui-shared/composables/useContactSearch'
+import { useProductTypes } from 'ui-shared/composables/useProductTypes'
+import type { FormAction, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import GRColumnPicker from '../components/GRColumnPicker.vue'
 import { useGRColumns } from '../composables/useGRColumns'
 
-/**
- * Price-tier slots a product can hold: Доставна цена, Цена на едро, and Цена 0..Цена 10.
- * Must match the Product model's validator — truncating lower silently dropped the highest
- * tiers whenever a goods receipt wrote prices.
- */
-const MAX_PRICE_TIERS = 13
+// The one tier-slot limit the model and `sanitizeProductUpdates` also read (FR-22 B-1).
+import { MAX_PRICE_TIERS } from 'config/constants'
 
-interface Warehouse { _id: string; name: string }
-interface Contact { _id: string; name: string }
+interface Warehouse { _id: string; name: string; isDefault?: boolean }
+interface MovementState {
+  number?: string
+  status: string
+  inventoryCountId?: string
+  /** FR-22.31: a supplier bill may be made from it (a completed receipt nobody has billed). */
+  billable?: boolean
+  /** FR-22.31: the live bill that holds it. */
+  bill?: { id: string; number: string }
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -226,12 +296,22 @@ const { formatCurrency } = useCurrency()
 const isEdit = computed(() => !!route.params.id)
 const loading = ref(false)
 const saving = ref(false)
+const billing = ref(false)
 const formRef = ref()
 const warehouses = ref<Warehouse[]>([])
-const contacts = ref<Contact[]>([])
-const movement = ref<{ number?: string; status: string }>({ status: 'draft' })
+const movement = ref<MovementState>({ status: 'draft' })
 // Draft movements stay editable; confirmed/completed are read-only (stock already applied).
 const readonly = computed(() => isEdit.value && movement.value.status !== 'draft')
+
+/**
+ * The status pipeline. EntityFormShell translates each step as an i18n KEY, so the bare
+ * 'draft' / 'confirmed' / 'completed' it used to get rendered as English in every language
+ * (FR-22.11). Same words as the movements list's status chips.
+ */
+const statusDef = computed<StatusDef>(() => ({
+  steps: ['draft', 'confirmed', 'completed'].map(s => `invoicing.status.${s}`),
+  current: `invoicing.status.${movement.value.status}`,
+}))
 
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -245,18 +325,79 @@ const emptyLine = () => ({
   priceTiers: [] as Array<{ name: string; percent: number; finalPrice: number; manualOverride: boolean; contactIds?: string[]; tags?: string[] }>,
 })
 const form = ref({
-  type: 'receipt', fromWarehouseId: '', toWarehouseId: '', contactId: '' as string | undefined,
+  type: 'receipt', fromWarehouseId: null as string | null, toWarehouseId: null as string | null, contactId: '' as string | undefined,
   date: new Date().toISOString().split('T')[0], notes: '',
   lines: [emptyLine()] as any[],
 })
+
+const movementTypeItems = computed(() =>
+  ['receipt', 'dispatch', 'transfer', 'adjustment'].map(value => ({ title: t(`warehouse.movementTypes.${value}`), value })),
+)
+
+// ── the partner: the supplier on a receipt, any contact otherwise ──
+/**
+ * FR-22.6 (B-8). The field used to load `GET /invoicing/contact` with no size: the API's 10
+ * newest contacts of every type, filtered in the browser, so an older supplier could not be
+ * picked at all and customers filled the list. It now searches the server; on a receipt it
+ * asks for suppliers (and `both`) only.
+ */
+const isReceipt = computed(() => form.value.type === 'receipt')
+const partnerLabel = computed(() => t(isReceipt.value ? 'invoicing.supplier' : 'invoicing.contact'))
+const partners = useContactSearch({
+  orgUrl: () => appStore.orgUrl(),
+  type: () => (isReceipt.value ? 'supplier' : undefined),
+  selected: () => [form.value.contactId],
+})
+watch(() => form.value.type, () => { void partners.search() })
+// A loaded, restored or imported movement names its contact by id: fetch it so it shows by name.
+watch(() => form.value.contactId, () => { void partners.ensureSelected() })
+
+// ── neither warehouse set ──
+/**
+ * A movement with no "from" and no "to" warehouse moves nothing: `confirmMovement` adjusts only
+ * the warehouses that are set, so confirming it marks it completed and changes no stock at all.
+ * Users asked for the warehouse to be required; it is occasionally intended (a note kept for the
+ * record), so it is a question before saving or confirming rather than a refusal.
+ */
+const noWarehouseDialog = ref(false)
+const noWarehouseAction = ref<'save' | 'confirm'>('save')
+let noWarehouseAnswer: ((proceed: boolean) => void) | null = null
+
+function hasNoWarehouse() {
+  return !form.value.fromWarehouseId && !form.value.toWarehouseId
+}
+
+function askNoWarehouse(action: 'save' | 'confirm'): Promise<boolean> {
+  noWarehouseAction.value = action
+  noWarehouseDialog.value = true
+  return new Promise(resolve => { noWarehouseAnswer = resolve })
+}
+
+function answerNoWarehouse(proceed: boolean) {
+  const answer = noWarehouseAnswer
+  noWarehouseAnswer = null
+  noWarehouseDialog.value = false
+  answer?.(proceed)
+}
+
+// Escape or a click outside closes the dialog: that is a "no".
+watch(noWarehouseDialog, (open) => { if (!open && noWarehouseAnswer) answerNoWarehouse(false) })
 
 // ── GR-with-update state ──
 const grWithUpdate = ref(false)
 const columnPickerOpen = ref(false)
 const { activeColumns } = useGRColumns()
 const categories = ref<Array<{ _id: string; name: string }>>([])
+const { productTypeItems } = useProductTypes()
 const uomCodes = ['pcs', 'pair', 'set', 'box', 'pack', 'dozen', 'g', 'kg', 'ton', 'lb', 'oz', 'ml', 'L', 'm3', 'gal', 'mm', 'cm', 'm', 'km', 'in', 'ft', 'm2', 'ha', 'hr', 'day', 'month']
 const uomOptions = computed(() => uomCodes.map(code => ({ title: `${t(`warehouse.uom.${code}`, code)} (${code})`, value: code })))
+
+/** FR-22.28: the switch is remembered per user and org (`lgr:gr-with-update:<user>:<org>`). */
+const grSwitchMemory = rememberedFlag('gr-with-update')
+function onGrSwitch(on: boolean | null) {
+  grWithUpdate.value = !!on
+  grSwitchMemory.write(!!on)
+}
 
 // Auto-disable the toggle when type changes away from receipt.
 watch(() => form.value.type, (t) => { if (t !== 'receipt') grWithUpdate.value = false })
@@ -268,21 +409,33 @@ const { markSaved, tryRestore } = usePendingChanges({
   entityType: 'stockMovement',
   icon: 'mdi-swap-horizontal',
   getFormData: () => ({ ...form.value }),
+  // The pending-changes panel shows the values: the type by its name, not as „receipt".
   getPreviewFields: () => [
-    { label: 'Type', value: form.value.type },
+    { label: 'Type', value: t(`warehouse.movementTypes.${form.value.type}`) },
     { label: 'Date', value: form.value.date },
   ],
-  setFormData: (data) => { form.value = { ...form.value, ...data } },
+  // A draft saved before the warehouses became `null` when empty may carry ''.
+  setFormData: (data) => {
+    form.value = { ...form.value, ...data, fromWarehouseId: data.fromWarehouseId || null, toWarehouseId: data.toWarehouseId || null }
+  },
   isEdit: () => isEdit.value,
   entityId: () => route.params.id as string,
 })
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
 
+/**
+ * FR-22.29: an editable movement's primary action books it — „Запази и потвърди" saves and
+ * confirms in one go (it was Save, then a separate „Потвърди" on the draft it left). Plain Save
+ * keeps a draft. FR-22.52: Ctrl+Enter runs „Запази и потвърди", Ctrl+S the plain Save. FR-22.31: a
+ * completed receipt that names a supplier and is not billed yet offers „Входяща фактура" — its
+ * supplier's bill, made from it.
+ */
 const formActions = computed<FormAction[]>(() => {
   const actions: FormAction[] = []
   if (!readonly.value) {
-    actions.push({ label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, loading: saving.value })
+    actions.push({ label: t('warehouse.saveAndConfirm'), color: 'primary', icon: 'mdi-check-all', handler: saveAndConfirm, loading: saving.value, primary: true })
+    actions.push({ label: t('common.save'), color: 'primary', variant: 'outlined', icon: 'mdi-content-save', handler: handleSubmit, loading: saving.value })
     // Importing onto a confirmed movement would be pointless — its stock is already applied.
     actions.push({
       label: t('docImport.importFile'),
@@ -291,9 +444,8 @@ const formActions = computed<FormAction[]>(() => {
       icon: 'mdi-file-upload-outline',
       handler: () => { importDialogOpen.value = true },
     })
-  }
-  if (isEdit.value && movement.value.status === 'draft') {
-    actions.push({ label: t('warehouse.confirm'), color: 'success', icon: 'mdi-check', handler: confirmMovement, loading: saving.value })
+  } else if (movement.value.billable) {
+    actions.push({ label: t('warehouse.incomingInvoice'), color: 'primary', icon: 'mdi-receipt-text-plus-outline', handler: createBill, loading: billing.value })
   }
   return actions
 })
@@ -352,9 +504,17 @@ async function fetchItem() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/movement/${route.params.id}`)
     const detail = data.stockMovement || data
-    movement.value = { number: detail.number, status: detail.status || 'draft' }
+    // The page names the movement by its SM- number (FR-22.29): the API sends `movementNumber`,
+    // which this read as `number` and so never showed.
+    movement.value = {
+      number: detail.number || detail.movementNumber,
+      status: detail.status || 'draft',
+      inventoryCountId: detail.inventoryCountId || undefined,
+      billable: !!detail.billable,
+      bill: detail.bill || undefined,
+    }
     form.value = {
-      type: detail.type, fromWarehouseId: detail.fromWarehouseId || '', toWarehouseId: detail.toWarehouseId || '',
+      type: detail.type, fromWarehouseId: detail.fromWarehouseId || null, toWarehouseId: detail.toWarehouseId || null,
       contactId: detail.contactId || undefined, date: detail.date?.split('T')[0] || '', notes: detail.notes || '',
       lines: (detail.lines || []).map((l: any) => ({ productId: l.productId, productName: l.productName || '', quantity: l.quantity, unitCost: l.unitCost, stockQty: null, productUpdate: l.productUpdate || {}, priceTiers: l.priceTiers || [] })),
     }
@@ -395,52 +555,66 @@ function buildProductUpdates(): Array<Record<string, any>> {
   return updates
 }
 
+/**
+ * Save the movement; the id it has afterwards, or null when it was not saved. The blank line the
+ * grid keeps at the bottom is not part of it.
+ */
+async function save(): Promise<string | null> {
+  const basePayload: Record<string, any> = {
+    type: form.value.type,
+    date: form.value.date,
+    fromWarehouseId: form.value.fromWarehouseId || undefined,
+    toWarehouseId: form.value.toWarehouseId || undefined,
+    contactId: form.value.contactId || undefined,
+    notes: form.value.notes || undefined,
+    totalAmount: computedTotal.value,
+    lines: form.value.lines.filter((l: any) => l.productId).map((l: any) => ({
+      productId: l.productId,
+      quantity: l.quantity,
+      unitCost: l.unitCost || 0,
+      totalCost: l.quantity * (l.unitCost || 0),
+    })),
+  }
+
+  if (grWithUpdate.value && form.value.type === 'receipt') {
+    basePayload.productUpdates = buildProductUpdates()
+  }
+
+  if (isEdit.value) {
+    // Draft edit: type is immutable after create — PUT does not accept it.
+    const { type: _type, ...updateBody } = basePayload
+    await httpClient.put(`${appStore.orgUrl()}/warehouse/movement/${route.params.id}`, updateBody)
+    markSaved()
+    return route.params.id as string
+  }
+  const endpoint = grWithUpdate.value && form.value.type === 'receipt'
+    ? `${appStore.orgUrl()}/warehouse/movement/with-update`
+    : `${appStore.orgUrl()}/warehouse/movement`
+  const { data } = await httpClient.post(endpoint, basePayload)
+  markSaved()
+  return data.stockMovement?._id || data.stockMovement?.id || data._id || null
+}
+
+/** After a create, the page becomes the movement's own: its route, its number, its status. */
+async function showSaved(id: string | null) {
+  if (!id) {
+    router.push('/movements')
+    return
+  }
+  if (route.params.id !== id) await router.replace({ name: 'inventory.movements.view', params: { id } })
+  // The same view instance stays mounted across that navigation, so load what it now shows.
+  await fetchItem()
+}
+
 async function handleSubmit() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
+  if (hasNoWarehouse() && !(await askNoWarehouse('save'))) return
   saving.value = true
   try {
-    const basePayload: Record<string, any> = {
-      type: form.value.type,
-      date: form.value.date,
-      fromWarehouseId: form.value.fromWarehouseId || undefined,
-      toWarehouseId: form.value.toWarehouseId || undefined,
-      contactId: form.value.contactId || undefined,
-      notes: form.value.notes || undefined,
-      totalAmount: computedTotal.value,
-      lines: form.value.lines.map(l => ({
-        productId: l.productId,
-        quantity: l.quantity,
-        unitCost: l.unitCost || 0,
-        totalCost: l.quantity * (l.unitCost || 0),
-      })),
-    }
-
-    if (grWithUpdate.value && form.value.type === 'receipt') {
-      basePayload.productUpdates = buildProductUpdates()
-    }
-
-    if (isEdit.value) {
-      // Draft edit: type is immutable after create — PUT does not accept it.
-      const { type: _type, ...updateBody } = basePayload
-      await httpClient.put(`${appStore.orgUrl()}/warehouse/movement/${route.params.id}`, updateBody)
-      markSaved()
-      showSuccess(t('common.savedSuccessfully'))
-      await fetchItem()
-    } else {
-      const endpoint = grWithUpdate.value && form.value.type === 'receipt'
-        ? `${appStore.orgUrl()}/warehouse/movement/with-update`
-        : `${appStore.orgUrl()}/warehouse/movement`
-      const { data } = await httpClient.post(endpoint, basePayload)
-      const newId = data.stockMovement?._id || data._id
-      markSaved()
-      showSuccess(t('common.savedSuccessfully'))
-      if (newId) {
-        router.replace({ name: 'inventory.movements.view', params: { id: newId } })
-      } else {
-        router.push('/movements')
-      }
-    }
+    const id = await save()
+    showSuccess(t('common.savedSuccessfully'))
+    await showSaved(id)
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
@@ -448,27 +622,71 @@ async function handleSubmit() {
   }
 }
 
-async function confirmMovement() {
+/** FR-22.29: save and book in one action. A refused confirm leaves the saved draft on screen. */
+async function saveAndConfirm() {
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
+  if (hasNoWarehouse() && !(await askNoWarehouse('confirm'))) return
   saving.value = true
+  let id: string | null = null
   try {
+    id = await save()
+    if (!id) throw new Error(t('common.operationFailed'))
     // FR-04 (#11): confirming a manual adjustment auto-creates its completed inventory
     // count server-side (createCount is UI-only — imports/skills stay count-free).
-    const { data } = await httpClient.post(
-      `${appStore.orgUrl()}/warehouse/movement/${route.params.id}/confirm`,
+    await httpClient.post(
+      `${appStore.orgUrl()}/warehouse/movement/${id}/confirm`,
       form.value.type === 'adjustment' ? { createCount: true } : {},
     )
-    // confirmMovement leaves the document 'completed', not 'confirmed'.
-    movement.value.status = data?.stockMovement?.status || 'completed'
-    if (data?.stockMovement?.inventoryCountId) movement.value.inventoryCountId = data.stockMovement.inventoryCountId
     showSuccess(t('common.completedSuccessfully'))
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(e?.response?.data?.message || e?.message || t('common.operationFailed'))
   } finally {
-    saving.value = false
+    try {
+      if (id) await showSaved(id)
+    } finally {
+      saving.value = false
+    }
   }
+}
+
+/**
+ * FR-22.31 (#168): the supplier's bill for this receipt. The server makes it — a draft, linked,
+ * so it will move no stock — and the user continues on it in invoicing: the supplier's invoice
+ * number, then „Запази и получи".
+ */
+async function createBill() {
+  billing.value = true
+  try {
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/bills/from-receipt`, { movementIds: [route.params.id] })
+    window.location.href = billHref(data.invoice.id || data.invoice._id)
+  } catch (e: any) {
+    const res = e?.response?.data
+    // Billed meanwhile (a second click, another tab): go to that bill rather than refuse.
+    if (res?.code === 'receipt_already_billed' && res.invoiceId) {
+      window.location.href = billHref(res.invoiceId)
+      return
+    }
+    showError(res?.message || t('common.operationFailed'))
+    billing.value = false
+  }
+}
+
+function billHref(id: string) {
+  return appHref('invoicing', `/invoicing/bills/${id}/edit`)
 }
 
 function addLine() { form.value.lines.push(emptyLine()) }
+
+/** FR-22.28: keyboard across the line grid, as on the invoice forms. */
+const { onGridKeydown } = useGridNavigation({ addLine, getLines: () => form.value.lines })
+
+/**
+ * The warehouse a line's „Наличност" reads: where the goods arrive on a receipt (FR-22.28 — it
+ * read the „От склад" a receipt does not have, so a receipt line always showed —), where they
+ * leave from on everything else.
+ */
+const stockWarehouseId = computed(() => (isReceipt.value ? form.value.toWarehouseId : form.value.fromWarehouseId))
 
 /**
  * What the warehouse currently holds for a line — CONTEXT, shown as the „stock" chip.
@@ -479,23 +697,25 @@ function addLine() { form.value.lines.push(emptyLine()) }
  * 5.5/6.3х145" and the page showed 251, the stock level, priced at today's avgCost. Confirmed
  * movements are read-only so nothing was ever saved back, but every quantity on screen was wrong.
  *
- * `prefill` is the one deliberate exception: picking a product onto an EMPTY line fills in what is
- * on hand as a starting point. It never overwrites a quantity that is already there.
+ * `prefill` is the one deliberate exception: picking a product onto an EMPTY line of a movement
+ * that takes goods OUT fills in what is on hand as a starting point. It never overwrites a
+ * quantity that is already there, and never on a receipt: what arrives is not what is on hand.
  */
 async function fetchLineStock(idx: number, opts: { prefill?: boolean } = {}) {
   const line = form.value.lines[idx]
-  if (!line?.productId || !form.value.fromWarehouseId) {
+  const warehouseId = stockWarehouseId.value
+  if (!line?.productId || !warehouseId) {
     if (line) line.stockQty = null
     return
   }
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/stock-level`, {
-      params: { productId: line.productId, warehouseId: form.value.fromWarehouseId, size: 1 },
+      params: { productId: line.productId, warehouseId, size: 1 },
     })
     const sl = data.stockLevels?.[0]
     if (!sl) { line.stockQty = 0; return }
     line.stockQty = sl.availableQuantity ?? sl.quantity ?? 0
-    if (opts.prefill && !Number(line.quantity)) {
+    if (opts.prefill && !isReceipt.value && !Number(line.quantity)) {
       line.quantity = line.stockQty
       line.unitCost = sl.avgCost || line.unitCost
     }
@@ -513,10 +733,29 @@ async function onLineProductSelected(idx: number, product: any) {
   line.stockQty = null
   line.productUpdate = {}
   line.priceTiers = []
+  // FR-22.28: an article on the last line opens the next one, as on the invoice forms.
+  if (idx === form.value.lines.length - 1) form.value.lines.push(emptyLine())
+  focusQuantity(idx)
   await fetchLineStock(idx, { prefill: true })
 
   // When grWithUpdate is ON, load the full product so we can show/edit its fields.
   if (grWithUpdate.value) await seedLineProductUpdate(idx)
+}
+
+/**
+ * The quantity is what a line needs next, so the caret goes there once the article is chosen —
+ * by click, by Enter or from the new-article dialog. Deferred past the search's own close and a
+ * dialog's focus return, which would otherwise take it back.
+ */
+const lineTableRef = ref<HTMLElement>()
+function focusQuantity(idx: number) {
+  setTimeout(() => {
+    const row = lineTableRef.value?.querySelectorAll('tbody > tr')[idx]
+    const input = row?.querySelectorAll('td')[2]?.querySelector('input') as HTMLInputElement | null
+    if (!input || input.disabled) return
+    input.focus()
+    try { input.select() } catch { /* number inputs may refuse select() */ }
+  }, 200)
 }
 
 /** Load the full product and stage its current fields + tiers on the line (padded to 10 slots). */
@@ -583,17 +822,34 @@ async function onProductPicked(product: any) {
   await onLineProductSelected(idx, product)
 }
 
-// Refreshes the „stock" chip when the source warehouse changes. Info only — see fetchLineStock.
-watch(() => form.value.fromWarehouseId, () => {
+// ── FR-22.30: „+ Нов продукт „…"" on a receipt line ──
+const quickOpen = ref(false)
+const quickName = ref('')
+let quickLine = -1
+
+function openQuickProduct(idx: number, name: string) {
+  quickLine = idx
+  quickName.value = name
+  quickOpen.value = true
+}
+
+/** The new article (or the catalog's own, when it had it) goes on the line it was asked from. */
+async function onQuickProductCreated(product: any) {
+  if (quickLine < 0 || !product) return
+  await onLineProductSelected(quickLine, { ...product, _id: product._id || product.id })
+}
+
+// Refreshes the „stock" chips when the warehouse they read changes. Info only — see fetchLineStock.
+watch(stockWarehouseId, () => {
   form.value.lines.forEach((_line: any, idx: number) => {
     if (_line.productId) fetchLineStock(idx)
   })
 })
 
-function contactDisplayName(c: any): string {
-  if (c.companyName) return c.companyName
-  return [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email || c._id
-}
+// Navigating from one movement to another reuses this view: load the one now shown.
+watch(() => route.params.id, (id, was) => {
+  if (id && id !== was && !saving.value) void fetchItem()
+})
 
 async function fetchWarehouses() {
   try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } }); warehouses.value = data.warehouses || [] } catch { /* */ }
@@ -647,16 +903,56 @@ function onUnitCostChange(idx: number) {
   setUpdate(line, 'purchasePrice', purchase)
 }
 
-async function fetchContacts() {
+/**
+ * FR-22.28: a new receipt starts where the user's documents start — the warehouse they pinned on
+ * a document form, else the org's default — and with the product-update switch as they left it.
+ */
+function applyNewReceiptDefaults() {
+  if (form.value.type !== 'receipt') return
+  const pinned = pinnedWarehouseId()
+  const candidate = (pinned && warehouses.value.some(w => w._id === pinned) ? pinned : '')
+    || warehouses.value.find(w => w.isDefault)?._id
+    || null
+  if (candidate && !form.value.toWarehouseId) form.value.toWarehouseId = candidate
+  if (grSwitchMemory.read()) grWithUpdate.value = true
+}
+
+/**
+ * FR-22.47 — „Заприходи" on an article (`?productId=`): the new receipt starts with that article
+ * on its first line, filled exactly as picking it there fills it (`onLineProductSelected`): the
+ * cost the receipt uses (its purchase price), what the destination holds of it, its staged product
+ * update when that switch is on, and the next blank line, with the cursor in the quantity. It
+ * runs after the receipt's defaults, so the stock shown is the chosen destination's. An article
+ * that cannot be read leaves the blank receipt „Нова стокова разписка" opens.
+ */
+async function prefillFromProduct(id: string) {
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`)
-    contacts.value = (data.contacts || []).map((c: any) => ({ ...c, name: contactDisplayName(c) }))
-  } catch { /* */ }
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${encodeURIComponent(id)}`)
+    const product = data?.product
+    if (!product) return
+    await onLineProductSelected(0, { ...product, _id: String(product._id || product.id) })
+  } catch { /* the blank receipt */ }
 }
 
 onMounted(async () => {
-  await Promise.all([fetchWarehouses(), fetchContacts(), fetchCategories()])
+  await Promise.all([fetchWarehouses(), partners.search(), fetchCategories()])
   if (tryRestore()) return
-  fetchItem()
+  if (isEdit.value) {
+    await fetchItem()
+    return
+  }
+  applyNewReceiptDefaults()
+  const productId = typeof route.query.productId === 'string' ? route.query.productId : ''
+  if (productId) await prefillFromProduct(productId)
 })
 </script>
+
+<style scoped>
+/* v-table's 16px cell gutters cost 32px per column: with the product-update columns on, that is
+   most of what kept the receipt from fitting a 1366 px screen (FR-22.28). */
+.line-table :deep(th),
+.line-table :deep(td) {
+  padding-left: 6px !important;
+  padding-right: 6px !important;
+}
+</style>

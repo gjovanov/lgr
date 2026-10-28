@@ -1,5 +1,6 @@
 import { LoginThrottle } from 'db/models'
-import { config } from 'config'
+import { config, nodeRole } from 'config'
+import { BACKOFF } from './identity/local-credentials.service.js'
 
 /**
  * S-08 — the failed-sign-in throttle for `POST /auth/login`.
@@ -13,7 +14,9 @@ import { config } from 'config'
  *                        that stops a botnet from getting `perAccountAndIp` tries per address.
  *   ip:<ip>              one address spraying many accounts.
  *
- * `<account>` is `orgSlug|username`, lowercased: the throttle must not be sidestepped by casing.
+ * `<account>` is `orgSlug|username`, lowercased: the throttle must not be sidestepped by casing. An
+ * org-less sign-in (multi-org, Phase 2) has no slug and counts as `|username`: a name several people
+ * share is one target, which is what it is to a guesser.
  *
  * Only FAILURES count. A till, an import script or the e2e suite signs in hundreds of times a day
  * and must never trip it. A success clears that account's counters, but not the address's. The
@@ -25,7 +28,8 @@ import { config } from 'config'
  */
 
 export interface ThrottleInput {
-  orgSlug: string
+  /** Absent on an org-less sign-in. */
+  orgSlug?: string
   username: string
   /** From `clientIp()`; absent behind no proxy (local dev), and then only `acct:` applies. */
   ip?: string
@@ -37,7 +41,7 @@ interface Keyed {
 }
 
 function accountOf(input: ThrottleInput): string {
-  return `${input.orgSlug.trim().toLowerCase()}|${input.username.trim().toLowerCase()}`
+  return `${(input.orgSlug ?? '').trim().toLowerCase()}|${input.username.trim().toLowerCase()}`
 }
 
 function keysFor(input: ThrottleInput): { all: Keyed[]; account: string[] } {
@@ -63,8 +67,49 @@ export function loginThrottleEnabled(): boolean {
  */
 export async function loginRetryAfterSeconds(input: ThrottleInput): Promise<number> {
   if (!loginThrottleEnabled()) return 0
+  return lockedFor(keysFor(input).all.map(k => k.key))
+}
+
+/** Count one failed sign-in against every counter it belongs to. */
+export async function recordLoginFailure(input: ThrottleInput): Promise<void> {
+  if (!loginThrottleEnabled()) return
+  // A master backs off rather than locks (FR-20.40, trap 32).
+  await bump(keysFor(input).all, { backoff: nodeRole() === 'master' })
+}
+
+// ── Password-reset requests (multi-org Phase 4) ──────────────────────────────────────────────
+//
+// A reset request mails a link, so it is limited too: per address (no inbox gets flooded, and a
+// person cannot be spammed with reset mail), and per IP (no one sprays every address). Its keys
+// are its own (`reset-acct:`, `reset-ip:`): a burst of reset requests must never lock anyone out
+// of SIGNING IN, and sign-in failures must never block a reset (that is how you recover).
+
+/** Reset links one address may be sent within the window. */
+const RESETS_PER_ADDRESS = 3
+
+function resetKeys(email: string, ip?: string): Keyed[] {
+  const keys: Keyed[] = [{ key: `reset-acct:${email.trim().toLowerCase()}`, max: RESETS_PER_ADDRESS }]
+  if (ip) keys.push({ key: `reset-ip:${ip}`, max: config.loginThrottle.perIp })
+  return keys
+}
+
+export async function passwordResetRetryAfterSeconds(email: string, ip?: string): Promise<number> {
+  if (!loginThrottleEnabled()) return 0
+  return lockedFor(resetKeys(email, ip).map(k => k.key))
+}
+
+/** Count a reset request, whether or not the address has an account (the answer is the same). */
+export async function recordPasswordResetRequest(email: string, ip?: string): Promise<void> {
+  if (!loginThrottleEnabled()) return
+  // Locked everywhere: a lock here locks nobody out of signing in, it only stops a mail flood.
+  await bump(resetKeys(email, ip), { backoff: false })
+}
+
+// ── The counters ────────────────────────────────────────────────────────────────────────────
+
+/** Seconds until every one of `keys` is unlocked; `0` when none is locked. */
+async function lockedFor(keys: string[]): Promise<number> {
   const now = new Date()
-  const keys = keysFor(input).all.map(k => k.key)
   const locked = await LoginThrottle.find({ key: { $in: keys }, lockedUntil: { $gt: now } })
     .select({ lockedUntil: 1 })
     .lean()
@@ -74,18 +119,17 @@ export async function loginRetryAfterSeconds(input: ThrottleInput): Promise<numb
   return Math.max(1, Math.ceil((until - now.getTime()) / 1000))
 }
 
-/** Count one failed sign-in against every counter it belongs to. */
-export async function recordLoginFailure(input: ThrottleInput): Promise<void> {
-  if (!loginThrottleEnabled()) return
+/** One event against each counter; a counter reaching its `max` locks its key, or backs it off. */
+async function bump(keyed: Keyed[], opts: { backoff: boolean }): Promise<void> {
   const { windowMs, lockMs } = config.loginThrottle
   const now = new Date()
   const windowCutoff = new Date(now.getTime() - windowMs)
   const lockUntil = new Date(now.getTime() + lockMs)
 
   await Promise.all(
-    keysFor(input).all.map(async ({ key, max }) => {
+    keyed.map(async ({ key, max }) => {
       const lapsed = { $or: [{ $eq: [{ $ifNull: ['$windowStart', null] }, null] }, { $lt: ['$windowStart', windowCutoff] }] }
-      const bump = () => LoginThrottle.collection.updateOne(
+      const apply = () => LoginThrottle.collection.updateOne(
         { key },
         [
           {
@@ -96,28 +140,47 @@ export async function recordLoginFailure(input: ThrottleInput): Promise<void> {
               updatedAt: now,
             },
           },
-          // Reaching the limit locks the key; a lock already running is left as it is.
-          {
-            $set: {
-              lockedUntil: {
-                $cond: [
-                  { $and: [{ $gte: ['$failures', max] }, { $not: [{ $gt: [{ $ifNull: ['$lockedUntil', null] }, now] }] }] },
-                  lockUntil,
-                  { $ifNull: ['$lockedUntil', null] },
-                ],
+          opts.backoff
+            // FR-20.40, trap 32: on a master the password is the person's LOCAL credential, and a
+            // lock lets anyone at a till lock the shop's admin out for the length of an outage. So
+            // a counter at its limit backs off instead: the PIN's curve, 1 s doubling to 60 s.
+            ? {
+              $set: {
+                lockedUntil: {
+                  $cond: [
+                    { $gte: ['$failures', max] },
+                    {
+                      $add: [now, {
+                        $min: [BACKOFF.maxMs, { $multiply: [BACKOFF.firstMs, { $pow: [2, { $subtract: ['$failures', max] }] }] }],
+                      }],
+                    },
+                    { $ifNull: ['$lockedUntil', null] },
+                  ],
+                },
+              },
+            }
+            // Reaching the limit locks the key; a lock already running is left as it is.
+            : {
+              $set: {
+                lockedUntil: {
+                  $cond: [
+                    { $and: [{ $gte: ['$failures', max] }, { $not: [{ $gt: [{ $ifNull: ['$lockedUntil', null] }, now] }] }] },
+                    lockUntil,
+                    { $ifNull: ['$lockedUntil', null] },
+                  ],
+                },
               },
             },
-          },
         ],
         { upsert: true },
       )
       try {
-        await bump()
+        await apply()
       } catch (err: any) {
         // Two first failures for the same new key can both try to INSERT it; one loses on the
         // unique index. The document exists now, so the retry takes the update path.
         if (err?.code !== 11000) throw err
-        await bump()
+        await apply()
       }
     }),
   )

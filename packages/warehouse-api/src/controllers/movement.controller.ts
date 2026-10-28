@@ -5,6 +5,7 @@ import { confirmMovement } from 'services/biz/warehouse.service'
 import { createMovementWithProductUpdates, updateMovementWithProductUpdates, GRValidationError } from 'services/biz/movement-with-update.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
+import { billingByMovement, receiptBillingFor } from 'services/biz/receipt-bill.service'
 
 async function getNextMovementNumber(orgId: string): Promise<string> {
   const r = getRepos()
@@ -88,6 +89,9 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
     const warehouseMap = new Map(warehouses.map(w => [w.id, w]))
     const contactMap = new Map(contacts.map(c => [c.id, c]))
+    // FR-22.31: a receipt names the live bill that holds it (the list's „Фактурирана" marker).
+    const receipts = result.items.filter((m: any) => m.type === 'receipt' && m.invoiceId)
+    const billing = receipts.length ? await billingByMovement(orgId, receipts) : new Map()
 
     const stockMovements = result.items.map(m => {
       const fromWh = m.fromWarehouseId ? warehouseMap.get(m.fromWarehouseId) : null
@@ -115,6 +119,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
       // Strip lines from list response (not needed for table, reduces payload)
       const { lines, ...rest } = m as any
+      const bill = billing.get(String(m.id))?.invoice
       return {
         ...rest,
         lineCount: lines?.length || 0,
@@ -124,6 +129,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         toWarehouseName: toWh?.name || '',
         contactName,
         ...(productQuantity !== undefined ? { productQuantity } : {}),
+        ...(bill && !['voided', 'cancelled'].includes(bill.status) ? { bill: { id: bill.id, number: bill.number } } : {}),
       }
     })
 
@@ -260,7 +266,12 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       productSku: productMap.get(l.productId)?.sku || '',
     }))
 
-    return { stockMovement: { ...movement, lines } }
+    // FR-22.31: the bill that holds this receipt, or whether one may be made from it.
+    const billing = movement.type === 'receipt'
+      ? await receiptBillingFor(orgId, { ...movement, _id: movement.id })
+      : { billable: false }
+
+    return { stockMovement: { ...movement, number: movement.movementNumber, lines, ...billing } }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -297,7 +308,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
           })
         }
       } else {
-        updated = await r.stockMovements.update(id, body as any)
+        updated = await r.stockMovements.updateInOrg(id, orgId, body as any)
       }
       return { stockMovement: updated }
     },
@@ -391,7 +402,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
           completedBy: user.id,
           createdBy: user.id,
         } as any)
-        await r.stockMovements.update(id, { inventoryCountId: count.id } as any)
+        await r.stockMovements.updateInOrg(id, orgId, { inventoryCountId: count.id } as any)
         inventoryCountId = count.id
         createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'inventory_count', entityId: count.id, entityName: countNumber, correlationId: id })
       }

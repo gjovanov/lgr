@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface ICostAllocation {
   costLayerId: Types.ObjectId
@@ -45,6 +46,13 @@ export interface IStockMovement extends Document {
   journalEntryId?: Types.ObjectId
   /** FR-04: bidirectional link to the InventoryCount this adjustment belongs to. */
   inventoryCountId?: Types.ObjectId
+  /**
+   * FR-21.4: a record of goods some other movement already moved, kept for the history only. The
+   * `POS-OUT` session batch dispatches were these: written `completed` without `confirmMovement`,
+   * so they never changed stock, while every POS sale had already moved its goods with its own
+   * dispatch. Readers that sum movements (SUPTO 18.8, FR-07, FR-11.7c) skip a record-only one.
+   */
+  recordOnly?: boolean
   createdBy: Types.ObjectId
   createdAt: Date
   updatedAt: Date
@@ -98,6 +106,7 @@ const stockMovementSchema = new Schema<IStockMovement>(
     // FR-04: set on adjustments born from an inventory count AND on counts auto-created
     // from a manual adjustment — the pair is always linked both ways.
     inventoryCountId: { type: Schema.Types.ObjectId, ref: 'InventoryCount' },
+    recordOnly: Boolean,
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true },
@@ -115,5 +124,7 @@ stockMovementSchema.index({ orgId: 1, 'lines.productId': 1, date: -1 })
 stockMovementSchema.index({ orgId: 1, invoiceId: 1 })
 stockMovementSchema.index({ orgId: 1, reference: 1 })
 stockMovementSchema.index({ movementNumber: 'text', notes: 'text' })
+
+replicate(stockMovementSchema, { class: 'R' })
 
 export const StockMovement = model<IStockMovement>('StockMovement', stockMovementSchema)

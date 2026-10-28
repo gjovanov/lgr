@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IAuditLog extends Document {
   _id: Types.ObjectId
@@ -16,6 +17,11 @@ export interface IAuditLog extends Document {
   changes?: { field: string; oldValue: any; newValue: any }[]
   ipAddress?: string
   userAgent?: string
+  /**
+   * FR-20.48: where the entry came from on a master: `lan:<desktopId>` (a till), `lan`, `tunnel`
+   * (the org's address) or `loopback` (the server's console, or its own work). Absent on lgrai.app.
+   */
+  via?: string
   timestamp: Date
 }
 
@@ -38,6 +44,7 @@ const auditLogSchema = new Schema<IAuditLog>({
   }],
   ipAddress: String,
   userAgent: String,
+  via: String,
   timestamp: { type: Date, default: Date.now },
 })
 
@@ -49,5 +56,7 @@ auditLogSchema.index({ orgId: 1, action: 1, timestamp: -1 })
 auditLogSchema.index({ orgId: 1, userId: 1, timestamp: -1 })
 auditLogSchema.index({ orgId: 1, correlationId: 1 })
 auditLogSchema.index({ orgId: 1, operatorCode: 1, timestamp: -1 })
+
+replicate(auditLogSchema, { class: 'R' })
 
 export const AuditLog = model<IAuditLog>('AuditLog', auditLogSchema)

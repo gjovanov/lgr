@@ -66,7 +66,7 @@ describe('Cash Sale with Cross-Warehouse Transfer', () => {
     expect(transferIds).toHaveLength(1)
 
     // Step 3: Confirm transfers (stock moves from Depot to Store)
-    await confirmTransferMovements(transferIds)
+    await confirmTransferMovements(String(org._id), transferIds)
 
     // Verify stock levels after transfer
     const storeLevel = await StockLevel.findOne({ productId: product._id, warehouseId: whStore._id }).lean()

@@ -3,12 +3,40 @@ import { mongoose } from 'db/connection'
 import {
   Org, User, Account, FiscalYear, FiscalPeriod, JournalEntry,
   Contact, Invoice, Product, Warehouse, StockLevel,
-  Employee, PayrollRun, Payslip, OrgApp,
+  Employee, PayrollRun, Payslip, OrgApp, Identity,
 } from 'db/models'
 import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS } from 'config/constants'
 import ExcelJS from 'exceljs'
 import path from 'path'
 import { existsSync } from 'node:fs'
+
+/**
+ * One person per seeded address (multi-org sign-in): an identity linked to every user that carries
+ * the address. They chose the seed's password themselves (`passwordSetBy: 'self'`) and their address
+ * is verified, so a seeded person can join or found another org without a reset first.
+ */
+async function seedIdentities(password: string): Promise<number> {
+  const users = await User.find({}, { email: 1, firstName: 1, lastName: 1 }).lean()
+  const byEmail = new Map<string, typeof users>()
+  for (const u of users) {
+    const address = u.email.trim().toLowerCase()
+    byEmail.set(address, [...(byEmail.get(address) ?? []), u])
+  }
+  for (const [email, members] of byEmail) {
+    const identity = await Identity.create({
+      email,
+      password,
+      passwordSetBy: 'self',
+      emailVerified: true,
+      emailVerifiedAt: new Date(),
+      isActive: true,
+      firstName: members[0].firstName,
+      lastName: members[0].lastName,
+    })
+    await User.updateMany({ _id: { $in: members.map(m => m._id) } }, { $set: { identityId: identity._id } })
+  }
+  return byEmail.size
+}
 
 async function readRegalProducts(filePath: string) {
   // The storeAvailability export is gitignored business data — skip gracefully if absent.
@@ -43,7 +71,7 @@ export async function seed() {
   const models = [
     Org, User, Account, FiscalYear, FiscalPeriod, JournalEntry,
     Contact, Invoice, Product, Warehouse, StockLevel,
-    Employee, PayrollRun, Payslip, OrgApp,
+    Employee, PayrollRun, Payslip, OrgApp, Identity,
   ]
   await Promise.all(models.map(m => m.deleteMany({})))
 
@@ -257,8 +285,11 @@ export async function seed() {
           productId: products[i]._id,
           warehouseId: wh._id,
           quantity: qty,
-          reservedQuantity: Math.floor(qty * 0.1),
-          availableQuantity: Math.floor(qty * 0.9),
+          // Nothing is held: a hold is a Reservation, and the seed makes none. The 10 % it used to
+          // invent showed on the Products list as „Резервирано" with no reservation behind it, so the
+          // list never reconciled with the Reservations list (FR-22.45).
+          reservedQuantity: 0,
+          availableQuantity: qty,
           avgCost: products[i].purchasePrice,
         }),
       )
@@ -552,11 +583,12 @@ export async function seed() {
     subscription: { plan: 'professional', maxUsers: 50 },
   })
 
-  const regalPassword = await Bun.password.hash('Rd123456')
+  // The dev seed's one password (`test123`, above), like every other seeded user. These two used
+  // to carry passwords shaped like real people's, removed from the repo on 2026-10-05.
   const regalUser = await User.create({
     email: 'rdodova@gmail.com',
     username: 'rdodova',
-    password: regalPassword,
+    password,
     firstName: 'Rozalina',
     lastName: 'Dodova',
     role: 'admin',
@@ -565,11 +597,10 @@ export async function seed() {
     permissions: DEFAULT_ROLE_PERMISSIONS.admin,
   })
 
-  const ddodovaPassword = await Bun.password.hash('Dd12345!!')
   await User.create({
     email: 'ddodova@gmail.com',
     username: 'ddodova',
-    password: ddodovaPassword,
+    password,
     firstName: 'Daniela',
     lastName: 'Dodova',
     role: 'admin',
@@ -634,10 +665,18 @@ export async function seed() {
 
   await StockLevel.insertMany(stockDocs)
 
+  // ── People (multi-org sign-in) ──
+  // One person works in BOTH demo orgs, which is what the org switcher is exercised with. Every
+  // other seeded user is a person of their own.
+  await User.create({ email: 'multi@lgr.test', username: 'multi', password, firstName: 'Mila', lastName: 'Multi', role: 'manager', orgId: org1._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.manager })
+  await User.create({ email: 'multi@lgr.test', username: 'multi', password, firstName: 'Mila', lastName: 'Multi', role: 'accountant', orgId: org2._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.accountant })
+  const people = await seedIdentities(password)
+
   console.log('Seed completed successfully!')
   console.log(`  Acme Corp (acme-corp): admin/test123`)
   console.log(`  Beta Inc (beta-inc): admin/test123`)
-  console.log(`  Regal (regal): rdodova/Rd123456, ddodova/Dd12345!!`)
+  console.log(`  Regal (regal): rdodova/test123, ddodova/test123`)
+  console.log(`  ${people} people; multi@lgr.test/test123 works in both acme-corp (manager) and beta-inc (accountant)`)
   console.log(`  ${accounts.length} accounts, ${contacts.length} contacts, ${products.length} Acme products`)
   console.log(`  ${regalProducts.length} Regal products (from Excel)`)
   console.log(`  ${employees.length} employees, ${invoices.length} invoices, 30 journal entries`)

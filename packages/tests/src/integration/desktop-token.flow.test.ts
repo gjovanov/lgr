@@ -17,6 +17,7 @@ import {
   verifyDesktopToken,
 } from 'services/biz/desktop/desktop.service'
 import { ASSERTION_CLOCK_SKEW_SEC } from 'services/biz/desktop/desktop-crypto'
+import { acceptableTokenAudiences } from '../../../portal-api/src/controllers/desktop-v1.controller.js'
 
 /**
  * Desktop access tokens (FR-14.20).
@@ -242,5 +243,86 @@ describe('presence', () => {
     expect(presenceOf({ lastSeenAt: new Date(now - 30_000) } as any, false)).toBe('stale')
     expect(presenceOf({ lastSeenAt: new Date(now - 10 * 60_000) } as any, false)).toBe('offline')
     expect(presenceOf({ lastSeenAt: undefined } as any, false)).toBe('offline')
+  })
+
+  it('needs a heartbeat as well as a socket: a cut link leaves the socket open, and the heartbeat stops', () => {
+    const now = Date.now()
+    // Heartbeats every 30 s: one missed is still online.
+    expect(presenceOf({ lastSeenAt: new Date(now - 45_000) } as any, true, now)).toBe('online')
+    // Two missed and more: the socket is still registered, the till is not there.
+    expect(presenceOf({ lastSeenAt: new Date(now - 80_000) } as any, true, now)).toBe('stale')
+    // Offline within 90 s of the last heartbeat, so within 90 s of the cut.
+    expect(presenceOf({ lastSeenAt: new Date(now - 91_000) } as any, true, now)).toBe('offline')
+    expect(presenceOf({ lastSeenAt: undefined } as any, true, now)).toBe('offline')
+  })
+})
+
+describe('the audience, behind a proxy', () => {
+  /**
+   * The bug these cover shipped and was invisible.
+   *
+   * A till signs its assertion for the server URL its operator typed. The hub used to rebuild the
+   * expected audience with `new URL(request.url).origin`, which behind a TLS-terminating ingress is
+   * `http://host` while the till signed `https://host`. Exact compare, no match, `bad_assertion`
+   * on every authenticated call: presence never authenticates, `lastSeenAt` never moves and the
+   * Desktops page shows a healthy till as permanently **offline**.
+   *
+   * ⚠ It was undetectable in production because no desktop is enrolled there. It showed up
+   * locally instead, where Vite's `changeOrigin: true` proxy produces the same mismatch
+   * (`localhost:4000` signed, `127.0.0.1:4001` seen) and a fresh enrollment died with
+   * `enrolled_but_token_failed:bad_assertion`.
+   */
+  it('accepts the origin the till signed when a proxy terminated the TLS', async () => {
+    const { desktopId, stub } = await enrolled()
+    // Exactly the production shape: signed for https, arriving as http.
+    const seenByThePod = 'http://lgrai.app/api/desktop/v1/token'
+    const { token } = await issueDesktopToken(
+      stub.assertion({ sub: desktopId, audience: AUD }),
+      [seenByThePod, AUD],
+    )
+    expect(verifyDesktopToken(token)).not.toBeNull()
+  })
+
+  it('still refuses an assertion minted for another server', async () => {
+    const { desktopId, stub } = await enrolled()
+    // ⚠ The set must not become "any audience". Every member is an origin THIS server answers
+    // on; nothing in it comes from the assertion.
+    const err = await captureRejection(
+      issueDesktopToken(
+        stub.assertion({ sub: desktopId, audience: 'https://evil.example/api/desktop/v1/token' }),
+        ['http://lgrai.app/api/desktop/v1/token', AUD],
+      ),
+    )
+    expect((err as DesktopError).code).toBe('bad_assertion')
+  })
+
+  it('offers the forwarded scheme and the configured base, and never a forwarded HOST', () => {
+    const auds = acceptableTokenAudiences(
+      new Request('http://10.244.1.7:4001/api/desktop/v1/token', {
+        method: 'POST',
+        headers: {
+          'x-forwarded-proto': 'https',
+          // ⚠ Deliberately ignored. The scheme comes from the proxy; the host does not, or a
+          // caller could nominate the audience its own assertion is checked against.
+          'x-forwarded-host': 'attacker.example',
+        },
+      }),
+    )
+    expect(auds).toContain('http://10.244.1.7:4001/api/desktop/v1/token')
+    expect(auds).toContain('https://10.244.1.7:4001/api/desktop/v1/token')
+    expect(auds.some(a => a.includes('attacker.example'))).toBe(false)
+    // The configured canonical base is always offered - it is what the enrollment deep link
+    // advertises, so a till enrolled from a deep link matches by construction.
+    expect(auds.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('takes only the first hop of a comma-joined x-forwarded-proto', () => {
+    const auds = acceptableTokenAudiences(
+      new Request('http://host.example/api/desktop/v1/token', {
+        method: 'POST',
+        headers: { 'x-forwarded-proto': 'https, http' },
+      }),
+    )
+    expect(auds).toContain('https://host.example/api/desktop/v1/token')
   })
 })

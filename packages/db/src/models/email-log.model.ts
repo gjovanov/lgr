@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 export interface IEmailLog extends Document {
   _id: Types.ObjectId
@@ -18,8 +19,14 @@ export interface IEmailLog extends Document {
    * Absent means "stripped by retention", not "never had one" — every writer sets it.
    */
   body?: string
-  /** FR-10.3: failures are logged too — a log with only successes hides the interesting half. */
-  status?: 'sent' | 'failed'
+  /**
+   * FR-10.3: failures are logged too — a log with only successes hides the interesting half.
+   * FR-20.86: on a master a mail is `queued` until global has sent it, and never said to be sent
+   * before (FR-10's honesty rule).
+   */
+  status?: 'queued' | 'sent' | 'failed'
+  /** On a master: the outbox item that carries it (FR-20.86). */
+  outboxId?: string
   error?: string
   /** What triggered the send, so a log row can be traced back to its document. */
   entityType?: string
@@ -38,7 +45,8 @@ const emailLogSchema = new Schema<IEmailLog>(
     to: { type: String, required: true },
     subject: { type: String, required: true },
     body: { type: String },
-    status: { type: String, enum: ['sent', 'failed'], default: 'sent' },
+    status: { type: String, enum: ['queued', 'sent', 'failed'], default: 'sent' },
+    outboxId: String,
     error: String,
     entityType: String,
     entityId: { type: Schema.Types.ObjectId },
@@ -60,5 +68,9 @@ emailLogSchema.index({ orgId: 1, status: 1, createdAt: -1 })
  * on the largest non-fiscal collection, every tick, forever.
  */
 emailLogSchema.index({ createdAt: 1 })
+/** FR-20.86: on a master, the outbox worker settles a mail's row by its outbox id. */
+emailLogSchema.index({ outboxId: 1 }, { sparse: true })
+
+replicate(emailLogSchema, { class: 'N' })
 
 export const EmailLog = model<IEmailLog>('EmailLog', emailLogSchema)

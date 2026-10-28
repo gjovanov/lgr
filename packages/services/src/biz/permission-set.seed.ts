@@ -1,5 +1,5 @@
 import type { RepositoryRegistry } from 'dal'
-import { PERMISSIONS } from 'config/constants'
+import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } from 'config/constants'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 
@@ -29,23 +29,20 @@ const DEFAULT_PERMISSION_SETS: PermissionSetDef[] = [
     isAdmin: false,
     isDefault: false,
   },
+  // These two follow their roles' defaults. They granted the legacy `trade.*`, which expanded
+  // to more than the role has: an accountant got stock and point-of-sale writes.
   {
     name: 'Accountant',
-    description: 'Accounting, trade, and reporting access',
-    permissions: [
-      'accounting.read', 'accounting.write', 'accounting.post',
-      'trade.read', 'trade.write', 'trade.send',
-    ],
+    description: 'Accounting, invoicing and reporting access',
+    permissions: [...DEFAULT_ROLE_PERMISSIONS.accountant],
     ownRecordsOnly: {},
     isAdmin: false,
     isDefault: false,
   },
   {
     name: 'Warehouse Manager',
-    description: 'Trade operations management',
-    permissions: [
-      'trade.read', 'trade.write', 'trade.adjust',
-    ],
+    description: 'Stock operations and reporting',
+    permissions: [...DEFAULT_ROLE_PERMISSIONS.warehouse_manager],
     ownRecordsOnly: {},
     isAdmin: false,
     isDefault: false,

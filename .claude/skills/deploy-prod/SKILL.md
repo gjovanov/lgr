@@ -132,9 +132,25 @@ git -C ~/lgr-deploy log --oneline -8 -- k8s/overlays/prod/kustomization.yaml   #
 ./scripts/deploy-prod.sh --tag v20260727-5a653b935392
 ```
 
-The registry keeps old tags even though the build host's local images get pruned, so any tag
-in that history is redeployable. Reverting the commit in `lgr-deploy` works equally well —
-auto-sync picks it up either way.
+⚠ **An old tag in that history is usually gone from the registry.** A weekly cron on the build
+host (`~/.local/bin/registry-retention.sh 1`, Sundays 04:00) keeps only `latest`, the single
+newest tag per repo, and whatever the cluster is currently running — so after a Sunday the
+previous release is deleted. `--tag` does not check, and rolling back to a deleted tag leaves
+the new pod in `ImagePullBackOff` (the old pod keeps serving, so it reads as a stuck rollout).
+Check first — `200` means redeployable:
+
+```bash
+PW=$(sudo cat /gjovanov/registry/auth/.password.gjovanov)
+curl -s -o /dev/null -w '%{http_code}\n' -I -u "gjovanov:$PW" \
+  -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+  http://127.0.0.1:5000/v2/lgr/manifests/v20260727-5a653b935392
+```
+
+A deleted tag's layers stay on disk until the script's garbage-collect runs; while they do, the
+exact image can be restored by re-pushing its manifest from a node that still has it cached
+(`sudo ctr -n k8s.io content get <manifest digest>` on the worker → `PUT /v2/lgr/manifests/<tag>`;
+how `lgr-qa` was restored on 2026-09-25). Otherwise rebuild. Reverting the commit in
+`lgr-deploy` works as well as `--tag` — auto-sync picks it up either way — with the same caveat.
 
 ## Verify
 

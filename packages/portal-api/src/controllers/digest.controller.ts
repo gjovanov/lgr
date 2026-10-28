@@ -40,7 +40,7 @@ export const digestController = new Elysia({ prefix: '/org/:orgId/digest' })
       const { date } = await reportDateFor(orgId)
       const reportDate = b.date || date
 
-      const outcome = await sendDigestTo(orgId, reportDate, [{ userId: user.id, email: user.email }])
+      const outcome = await sendDigestTo(orgId, reportDate, [{ userId: user.id, email: user.email }], { test: true })
 
       // FR-10 doctrine: an unconfigured provider is an ops problem the operator must see,
       // never a silent success.
@@ -72,6 +72,8 @@ export const digestController = new Elysia({ prefix: '/org/:orgId/digest' })
   /** Last run, for the settings card's status line. */
   .get('/last-run', async ({ params: { orgId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    // S-29: admin-only like its two siblings. It was the one route of the three without the guard.
+    if (user.role !== 'admin') return status(403, { message: 'Admin only' })
     const run = await DigestRun.findOne({ orgId }).sort({ startedAt: -1 }).lean().exec()
     return { run: run || null }
   }, { isSignIn: true })

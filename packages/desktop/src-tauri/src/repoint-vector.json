@@ -1,0 +1,42 @@
+{
+  "about": "FR-20.82: instructions global's signer (repoint-token.ts) made with a throwaway key; the shell (repoint.rs) and global (desktop-repoint.flow) both verify them, so the two cannot drift apart. Valid at nowSec. Kept as their three parts, joined by the tests with dots, so none is stored as a token a scanner flags. `jwsParts`: on to a master (P3-6b). `cloudJwsParts`: back to lgrai.app (P3-6c), no pin. `cloudOtherJwsParts`: the same to another cloud, which no build of lgrai.app follows. `cloudPinnedJwsParts`: a cloud instruction carrying a pin, which is no shape at all.",
+  "spki": "MCowBQYDK2VwAyEAaoYeDqU8oaxuditr2QiczjmFxOf+P+1QYnqJZTbzCbY=",
+  "jwsParts": [
+    "eyJhbGciOiJFZERTQSIsInR5cCI6Imxnci1yZXBvaW50K2p3cyIsImtpZCI6IlhoSGtsZnl6SmhMMFNpdVUifQ",
+    "eyJ2IjoxLCJpc3MiOiJsZ3JhaS5hcHAiLCJzdWIiOiI2YWRmYzg4MTJmMWYzOTYwNTUyZGFhNzUiLCJvcmciOiI2YWRmYzg4MTJmMWYzOTYwNTUyZGFhNzAiLCJub2RlIjoibWFzdGVyLXJlcG9pbnR0ZXN0YWFhYWEiLCJlcG9jaCI6Mywic2VydmVyIjoiaHR0cHM6Ly8xOTIuMTY4LjguMTE1OjQ0NDMiLCJmcCI6InNoYTI1NjpKNF9Xdm5xejh2WGNXc1Ixbk0wYUIyY0QzZUY0Z0g1aUo2a0w3bU44b1A5IiwiaWF0IjoxNzkzMDE2MDAwLCJleHAiOjE3OTU2MDgwMDAsImp0aSI6Im5vUXhZQV9veWowMmh5VTUifQ",
+    "6NYJDFm0xQoPeQWpO5rX2dAjD02VKgL93oPmVpOaOvhVEi0HIJKM0bK1km8HTiLOBjQsI59LQh716g7fRDxYDw"
+  ],
+  "cloudJwsParts": [
+    "eyJhbGciOiJFZERTQSIsInR5cCI6Imxnci1yZXBvaW50K2p3cyIsImtpZCI6IlhoSGtsZnl6SmhMMFNpdVUifQ",
+    "eyJ2IjoxLCJpc3MiOiJsZ3JhaS5hcHAiLCJzdWIiOiI2YWRmYzg4MTJmMWYzOTYwNTUyZGFhNzUiLCJvcmciOiI2YWRmYzg4MTJmMWYzOTYwNTUyZGFhNzAiLCJub2RlIjoiZ2xvYmFsIiwiZXBvY2giOjQsInNlcnZlciI6Imh0dHBzOi8vbGdyYWkuYXBwIiwiaWF0IjoxNzkzMDE2MDAwLCJleHAiOjE3OTU2MDgwMDAsImp0aSI6Im1BUjY3RDZES3lJNUt2UjEifQ",
+    "8pVmZMabebnsk9HEPxMAWwZDS-Q5Qtb_ot7Z2h3VYoDLVIlj7evE5iL2sZtksGAJnpE-RrUUIourT_LSWzEMDQ"
+  ],
+  "cloudOtherJwsParts": [
+    "eyJhbGciOiJFZERTQSIsInR5cCI6Imxnci1yZXBvaW50K2p3cyIsImtpZCI6IlhoSGtsZnl6SmhMMFNpdVUifQ",
+    "eyJ2IjoxLCJpc3MiOiJsZ3JhaS5hcHAiLCJzdWIiOiI2YWRmYzg4MTJmMWYzOTYwNTUyZGFhNzUiLCJvcmciOiI2YWRmYzg4MTJmMWYzOTYwNTUyZGFhNzAiLCJub2RlIjoiZ2xvYmFsIiwiZXBvY2giOjQsInNlcnZlciI6Imh0dHBzOi8vbGdyYWkuZXhhbXBsZSIsImlhdCI6MTc5MzAxNjAwMCwiZXhwIjoxNzk1NjA4MDAwLCJqdGkiOiJoQThUNld6NmcxdTZ0MHFWIn0",
+    "ZytVouemv4j-IA6dj19-pv8gQP6ZarqX7R0zBW6PyIisSJ9kSY98N7YtoH1FnsALRr8rjTpQHHVjZQ0vuLl9BA"
+  ],
+  "cloudPinnedJwsParts": [
+    "eyJhbGciOiJFZERTQSIsInR5cCI6Imxnci1yZXBvaW50K2p3cyIsImtpZCI6IlhoSGtsZnl6SmhMMFNpdVUifQ",
+    "eyJ2IjoxLCJpc3MiOiJsZ3JhaS5hcHAiLCJzdWIiOiI2YWRmYzg4MTJmMWYzOTYwNTUyZGFhNzUiLCJvcmciOiI2YWRmYzg4MTJmMWYzOTYwNTUyZGFhNzAiLCJub2RlIjoiZ2xvYmFsIiwiZXBvY2giOjQsInNlcnZlciI6Imh0dHBzOi8vbGdyYWkuYXBwIiwiZnAiOiJzaGEyNTY6SjRfV3ZucXo4dlhjV3NSMW5NMGFCMmNEM2VGNGdINWlKNmtMN21OOG9QOSIsImlhdCI6MTc5MzAxNjAwMCwiZXhwIjoxNzk1NjA4MDAwLCJqdGkiOiJ2S2dtNjctdFIxR2xQU1dJIn0",
+    "g3Y4XHwc07CmoxquV4VVolVLKtUs6dVBmj_CkjyIwFm15FuCAZIF8S8GhNicaaHknmNcGeEIisu_Q0au5Gl2CA"
+  ],
+  "desktopId": "6adfc8812f1f3960552daa75",
+  "orgId": "6adfc8812f1f3960552daa70",
+  "nowSec": 1793016060,
+  "claims": {
+    "sub": "6adfc8812f1f3960552daa75",
+    "org": "6adfc8812f1f3960552daa70",
+    "node": "master-repointtestaaaaa",
+    "epoch": 3,
+    "server": "https://192.168.8.115:4443",
+    "fp": "sha256:J4_Wvnqz8vXcWsR1nM0aB2cD3eF4gH5iJ6kL7mN8oP9"
+  },
+  "cloudClaims": {
+    "sub": "6adfc8812f1f3960552daa75",
+    "org": "6adfc8812f1f3960552daa70",
+    "node": "global",
+    "epoch": 4,
+    "server": "https://lgrai.app"
+  }
+}

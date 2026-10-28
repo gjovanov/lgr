@@ -1,13 +1,19 @@
 //! C11 — the presence socket (FR-14.21) and the server link state C10's Overview reads.
 //!
 //! ⚠ **The credential is the FIRST MESSAGE, never the URL.** A URL ends up in ingress logs,
-//! proxy logs and crash reports — that is what S-05 was, and `/ws/tasks` still does it with a
-//! `?userId=` parameter, which this endpoint exists not to copy. The server closes a socket
-//! that has not authenticated within 10 s.
+//! proxy logs and crash reports — that is what S-05 was. `/ws/tasks` carried a `?userId=` until
+//! #158 moved it to this same first-message pattern. The server closes a socket that has not
+//! authenticated within 10 s.
 //!
 //! ⚠ **One background thread, blocking.** The shell has no async runtime since local mode was
 //! retired, and adding one for a single socket that sends a message every 30 s would be a
 //! dependency and a scheduler for nothing.
+//!
+//! ⚠ **The shell keeps its own clock** (#328). Its reads used to block until the server said
+//! something, so the 30 s heartbeat went out only when a message happened to arrive, and a dead
+//! link was never noticed: the first field lane cut a till's link for four minutes and this loop
+//! sat in `read()` the whole time, logging nothing. Reads now wait at most `READ_SLICE`, the
+//! heartbeat keeps its own time, and a link silent for `SILENT_AFTER` is dead (`next`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -105,21 +111,68 @@ pub fn backoff_secs(attempt: u32) -> u64 {
     1u64.checked_shl(attempt.min(10)).unwrap_or(MAX).min(MAX)
 }
 
+/// FR-14.21 — the heartbeat, on the shell's own clock.
+pub const HEARTBEAT: Duration = Duration::from_secs(30);
+/// How long one read waits before the loop looks at its clock again.
+const READ_SLICE: Duration = Duration::from_secs(5);
+/// A link that has said NOTHING for this long is dead: two heartbeats gone unanswered, and the
+/// hub's own tick (every 15 s) missed five times over.
+pub const SILENT_AFTER: Duration = Duration::from_secs(75);
+
+/// What the presence loop does next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Next {
+    /// Wait for the server (one `READ_SLICE` at most).
+    Listen,
+    /// Send the heartbeat that is due.
+    Beat,
+    /// The link went silent: end the session, and the backoff reconnects.
+    Dead,
+}
+
+/// The loop's decision, from how long ago the server was last heard and the last heartbeat went.
+///
+/// ⚠ Pure and tested, like `backoff_secs`. Dead wins over a heartbeat: a beat into a link that has
+/// said nothing for 75 s goes nowhere, and only a new connection can tell whether the hub is back.
+pub fn next(since_heard: Duration, since_beat: Duration) -> Next {
+    if since_heard >= SILENT_AFTER {
+        Next::Dead
+    } else if since_beat >= HEARTBEAT {
+        Next::Beat
+    } else {
+        Next::Listen
+    }
+}
+
+/// A read that only ran out of time. ⚠ Unix says `WouldBlock`, Windows `TimedOut`, for the same
+/// read deadline: both mean "nothing yet", never "the link failed".
+fn timed_out(e: &tungstenite::Error) -> bool {
+    matches!(e, tungstenite::Error::Io(io) if matches!(io.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut))
+}
+
+/// The read deadline on the socket's TCP stream, whichever TLS it runs over: the OS store's
+/// (native-tls) for lgrai.app, a master's pin (rustls), or none on a dev hub.
+fn set_read_timeout(socket: &crate::trust::Socket, t: Option<Duration>) -> std::io::Result<()> {
+    use tungstenite::stream::MaybeTlsStream;
+    match socket.get_ref() {
+        MaybeTlsStream::Plain(s) => s.set_read_timeout(t),
+        MaybeTlsStream::NativeTls(s) => s.get_ref().set_read_timeout(t),
+        MaybeTlsStream::Rustls(s) => s.get_ref().set_read_timeout(t),
+        _ => Ok(()),
+    }
+}
+
 /// Is the server answering? A cheap, unauthenticated probe.
 ///
 /// ⚠ Any HTTP answer counts, including 401 and 404. The question is "is there a server there",
 /// not "does it like us" — a login page that returns 401 is a reachable server, and treating it
 /// as down would strand a till behind a perfectly healthy hub.
+///
+/// ⚠ Through `trust.rs` like every other call (FR-20.31). With a client of its own it trusted the OS
+/// store only, so a till paired with a master would have called a perfectly healthy master down.
 pub fn probe(server_url: &str) -> bool {
     let url = format!("{}/api/health", server_url.trim_end_matches('/'));
-    let client = match reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .user_agent(concat!("lgr-desktop/", env!("CARGO_PKG_VERSION")))
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
+    let Ok(client) = crate::trust::client_for(server_url, Duration::from_secs(5)) else { return false };
     match client.get(&url).send() {
         Ok(_) => true,
         // Fall back to the origin itself: a deployment without /api/health still serves `/`.
@@ -134,7 +187,50 @@ pub enum Event {
     Revoked(String),
     /// FR-14.28 — an admin asked this desktop to update. C13 acts on it.
     UpdateRequested,
-    Disconnected,
+    /// FR-20.82 — the org moved to its own server: the signed instruction, and the server's name.
+    /// Only `repoint::verify` decides whether it is believed.
+    Repoint { instruction: String, name: String },
+    /// FR-20.82 — the org moved, and lgrai.app cannot say where it answers.
+    Moved { name: String },
+    /// ⚠ **Carries WHY.** It used to be a bare variant, so the three outcomes below all arrived
+    /// at the handler indistinguishable - and the handler logged nothing at all, which made a
+    /// desktop that could not reach its hub completely silent: app running, hub showing it
+    /// offline, log empty. "The server is down" and "the server refused my credential" need
+    /// different actions from whoever is reading that log.
+    Disconnected(DisconnectReason),
+}
+
+/// Why the presence socket is not up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisconnectReason {
+    /// Connected, then the socket closed. Normal; reconnects immediately.
+    Closed,
+    /// The server did not answer at all.
+    Unreachable,
+    /// #328 — the socket was up and the server stopped saying anything for `SILENT_AFTER`: a dead
+    /// link (a pulled cable, a NAT that forgot the connection, a VPN rerouting under it). A dead TCP
+    /// connection never errors by itself, which is why this has to be noticed rather than awaited.
+    Silent,
+    /// The server answered and refused the credential. Backs off hard - see `Outcome::Refused`.
+    Refused,
+    /// ⚠ **This machine never got as far as asking.** Minting the socket's credential fails
+    /// locally - not registered, no secure storage, no key, a key that will not parse - and that
+    /// is neither "the server is down" nor "the server refused me". It used to report `Refused`,
+    /// whose own doc comment says *the server answered*, so the log claimed a conversation that
+    /// never happened and pointed support at the hub instead of at the till.
+    NotConfigured,
+}
+
+impl DisconnectReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DisconnectReason::Closed => "closed",
+            DisconnectReason::Unreachable => "unreachable",
+            DisconnectReason::Silent => "silent",
+            DisconnectReason::Refused => "refused",
+            DisconnectReason::NotConfigured => "not_configured",
+        }
+    }
 }
 
 /// Run the presence socket until `stop` is set. Intended for a dedicated thread.
@@ -154,19 +250,32 @@ pub fn run(
         match connect_once(&server_url, &state, &stop, &mut on_event) {
             Outcome::Closed => {
                 attempt = 0;
-                on_event(Event::Disconnected);
+                on_event(Event::Disconnected(DisconnectReason::Closed));
             }
             Outcome::Unreachable => {
                 state.set(Link::Unreachable);
-                on_event(Event::Disconnected);
+                on_event(Event::Disconnected(DisconnectReason::Unreachable));
+                attempt = attempt.saturating_add(1);
+            }
+            Outcome::Silent => {
+                // The Overview and the bridge stop showing a link that is not there.
+                state.set(Link::Unreachable);
+                on_event(Event::Disconnected(DisconnectReason::Silent));
                 attempt = attempt.saturating_add(1);
             }
             Outcome::Refused => {
                 // ⚠ Do NOT retry in a tight loop with a credential the server refused. The row
                 // is the revocation list; hammering it is noise in the audit log and nothing else.
                 state.set(Link::SignedOut);
-                on_event(Event::Disconnected);
+                on_event(Event::Disconnected(DisconnectReason::Refused));
                 attempt = 6; // ~60 s between attempts from here on
+            }
+            Outcome::NotConfigured => {
+                // Same chip and same slow retry as `Refused` - re-enrolment is the remedy for
+                // both, and a locked keystore may well come back - but the REASON is the truth.
+                state.set(Link::SignedOut);
+                on_event(Event::Disconnected(DisconnectReason::NotConfigured));
+                attempt = 6;
             }
         }
 
@@ -180,10 +289,37 @@ pub fn run(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Outcome {
     Closed,
     Unreachable,
+    Silent,
     Refused,
+    NotConfigured,
+}
+
+/// What a failure to mint the socket's credential means, from `enroll`'s error code.
+///
+/// ⚠ **Pure, and tested as such.** The mapping used to live inline in `connect_once`, where the
+/// only way to exercise it was to run the loop against a dead server - which reads the real
+/// machine's keystore, so the test passed on a developer's enrolled laptop and failed on a clean
+/// CI runner, for the same reason the mapping itself was wrong.
+///
+/// ⚠ **The default is `NotConfigured`, not `Refused`.** Everything `mint_token` can fail with
+/// before it has an HTTP response is local; only a code the server itself returned means refused.
+fn classify_mint_error(msg: &str) -> Outcome {
+    match msg {
+        // Reached the server, and it answered.
+        "desktop_revoked" | "desktop_outdated" | "token_failed" | "bad_response" => Outcome::Refused,
+        // Never left the machine.
+        "server_unreachable" | "server_timeout" => Outcome::Unreachable,
+        "not_registered" | "no_secure_storage" | "no_key" | "bad_key" | "client_build_failed" => {
+            Outcome::NotConfigured
+        }
+        // An unrecognised code is a code the SERVER sent (`mint_token` forwards `e.code`
+        // verbatim), so it belongs with the answers, not with the local failures.
+        _ => Outcome::Refused,
+    }
 }
 
 fn ws_url(server_url: &str) -> Option<String> {
@@ -209,17 +345,15 @@ fn connect_once(
                 on_event(Event::Revoked(msg));
                 return Outcome::Refused;
             }
-            return if msg == "server_unreachable" || msg == "server_timeout" {
-                Outcome::Unreachable
-            } else {
-                Outcome::Refused
-            };
+            return classify_mint_error(&msg);
         }
     };
 
     let Some(url) = ws_url(server_url) else { return Outcome::Refused };
-    let (mut socket, _) = match tungstenite::connect(&url) {
-        Ok(pair) => pair,
+    // A master's LAN ingress also wants the credential on the upgrade itself (FR-20.32): `ws_connect`
+    // adds it there as a header, which never lands in a URL or a log line.
+    let mut socket = match crate::trust::ws_connect(&url, &token) {
+        Ok(socket) => socket,
         Err(_) => return Outcome::Unreachable,
     };
 
@@ -233,30 +367,49 @@ fn connect_once(
         return Outcome::Unreachable;
     }
 
+    // #328: a read never waits longer than READ_SLICE, so the clock below is the loop's own.
+    if set_read_timeout(&socket, Some(READ_SLICE)).is_err() {
+        return Outcome::Unreachable;
+    }
+
     let mut last_beat = Instant::now();
+    let mut last_heard = Instant::now();
     loop {
         if stop.load(Ordering::SeqCst) {
             let _ = socket.close(None);
             return Outcome::Closed;
         }
 
-        // FR-14.21 — a 30 s heartbeat carrying this machine's wall clock, so the hub can record
-        // `clockSkewMs` and an admin can SEE a till whose clock is wrong.
-        if last_beat.elapsed() >= Duration::from_secs(30) {
-            let now = chrono::Utc::now().to_rfc3339();
-            if socket
-                .send(Message::Text(
-                    serde_json::json!({ "type": "desktop:heartbeat", "clientTime": now }).to_string(),
-                ))
-                .is_err()
-            {
-                return Outcome::Unreachable;
+        match next(last_heard.elapsed(), last_beat.elapsed()) {
+            Next::Dead => return Outcome::Silent,
+            // FR-14.21 — a 30 s heartbeat carrying this machine's wall clock, so the hub can record
+            // `clockSkewMs` and an admin can SEE a till whose clock is wrong.
+            Next::Beat => {
+                let now = chrono::Utc::now().to_rfc3339();
+                if socket
+                    .send(Message::Text(
+                        serde_json::json!({ "type": "desktop:heartbeat", "clientTime": now }).to_string(),
+                    ))
+                    .is_err()
+                {
+                    return Outcome::Unreachable;
+                }
+                last_beat = Instant::now();
             }
-            last_beat = Instant::now();
+            Next::Listen => {}
         }
 
-        match socket.read() {
-            Ok(Message::Text(text)) => {
+        let message = match socket.read() {
+            Ok(m) => {
+                // Anything at all is the link alive: an ack, the hub's tick, a ping.
+                last_heard = Instant::now();
+                m
+            }
+            Err(e) if timed_out(&e) => continue,
+            Err(_) => return Outcome::Unreachable,
+        };
+        match message {
+            Message::Text(text) => {
                 match classify(&text) {
                     Some(Incoming::Authenticated) => {
                         state.set(Link::Connected);
@@ -268,16 +421,20 @@ fn connect_once(
                         return Outcome::Refused;
                     }
                     Some(Incoming::Update) => on_event(Event::UpdateRequested),
+                    // FR-20.82: the refusal (`org_moved`) and the close follow; the loop ends there.
+                    Some(Incoming::Repoint { instruction, name }) => on_event(Event::Repoint { instruction, name }),
+                    Some(Incoming::Moved { name }) => on_event(Event::Moved { name }),
                     Some(Incoming::Refused) => {
                         let _ = socket.close(None);
                         return Outcome::Refused;
                     }
+                    // The ack, the hub's `desktop:tick` and anything newer than this build: the
+                    // link is alive, which `last_heard` already recorded.
                     Some(Incoming::HeartbeatAck) | None => {}
                 }
             }
-            Ok(Message::Close(_)) => return Outcome::Closed,
-            Ok(_) => {}
-            Err(_) => return Outcome::Unreachable,
+            Message::Close(_) => return Outcome::Closed,
+            _ => {}
         }
     }
 }
@@ -290,6 +447,8 @@ pub enum Incoming {
     Revoked(String),
     Update,
     Refused,
+    Repoint { instruction: String, name: String },
+    Moved { name: String },
 }
 
 pub fn classify(text: &str) -> Option<Incoming> {
@@ -301,6 +460,13 @@ pub fn classify(text: &str) -> Option<Incoming> {
             v.get("message").and_then(|m| m.as_str()).unwrap_or_default().to_string(),
         )),
         "desktop:update" => Some(Incoming::Update),
+        "desktop:repoint" => Some(Incoming::Repoint {
+            instruction: v.get("instruction")?.as_str()?.to_string(),
+            name: v.get("name").and_then(|m| m.as_str()).unwrap_or_default().to_string(),
+        }),
+        "desktop:moved" => Some(Incoming::Moved {
+            name: v.get("name").and_then(|m| m.as_str()).unwrap_or_default().to_string(),
+        }),
         // ⚠ `desktop:error` with `unauthenticated` is the revocation path's quieter sibling: the
         // credential was refused, so retrying with it is pointless.
         "desktop:error" => Some(Incoming::Refused),
@@ -311,6 +477,145 @@ pub fn classify(text: &str) -> Option<Incoming> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failure_to_mint_says_which_failure_it_was() {
+        // ⚠ **The REASON.** `Event::Disconnected` used to be a bare variant, so a handler could
+        // not tell a server that never answered from one that refused the credential - and the
+        // handler logged nothing, which is why a till that could not reach its hub was completely
+        // silent. This pins the mapping from `enroll`'s error code to what the shell is told.
+        //
+        // ⚠ This assertion used to live inside the dead-server test below, which could only reach
+        // the mapping on a machine that was already enrolled: `mint_token` returns
+        // `not_registered` before it opens a socket, so on a clean runner the loop never contacted
+        // 127.0.0.1:1 at all. It passed on a developer's laptop and failed in CI - and the thing
+        // it failed on was a real bug, not the environment.
+        for code in ["server_unreachable", "server_timeout"] {
+            assert_eq!(classify_mint_error(code), Outcome::Unreachable, "{code}");
+        }
+        for code in ["not_registered", "no_secure_storage", "no_key", "bad_key", "client_build_failed"] {
+            assert_eq!(
+                classify_mint_error(code),
+                Outcome::NotConfigured,
+                "{code} happens before any request, so it can never mean the server refused us",
+            );
+        }
+        for code in ["desktop_revoked", "desktop_outdated", "token_failed", "bad_response", "whatever_the_hub_sent"] {
+            assert_eq!(classify_mint_error(code), Outcome::Refused, "{code}");
+        }
+    }
+
+    #[test]
+    fn the_stop_flag_ends_the_run() {
+        // ⚠ **The STOP.** `restart_presence` works by setting this run's own flag and nudging
+        // the loop awake. If the loop did not exit promptly on it, a re-pointed desktop would end
+        // up with two presence threads - exactly what the `started` latch exists to prevent.
+        //
+        // ⚠ It does NOT assert which reason arrives: `run` reads this machine's real keystore
+        // (`secure_dir()` is driven by `LOCALAPPDATA`/`HOME`), so an enrolled machine gets as far
+        // as the socket and a clean one does not. The mapping is the test above's job.
+        use std::sync::atomic::AtomicBool;
+
+        // Port 1 is privileged and nothing listens: the connect fails without a timeout wait.
+        let state = Arc::new(LinkState::default());
+        let stop = Arc::new(AtomicBool::new(false));
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        let stop_cb = stop.clone();
+        let seen_cb = seen.clone();
+        let state_cb = state.clone();
+        let handle = std::thread::spawn(move || {
+            run(
+                "http://127.0.0.1:1".to_string(),
+                state_cb,
+                stop_cb.clone(),
+                move |event| {
+                    if let Event::Disconnected(reason) = event {
+                        seen_cb.lock().unwrap().push(reason);
+                        // End the run from inside the callback, the way a restart does.
+                        stop_cb.store(true, Ordering::SeqCst);
+                    }
+                },
+            );
+        });
+
+        // ⚠ A JOIN, not a sleep: a test that merely slept would pass against a loop that never
+        // stops, which is the failure mode worth catching here.
+        let joined = {
+            let deadline = std::time::Instant::now() + Duration::from_secs(20);
+            loop {
+                if handle.is_finished() {
+                    break true;
+                }
+                if std::time::Instant::now() > deadline {
+                    break false;
+                }
+                state.nudge();
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        };
+        assert!(joined, "the run did not exit after its stop flag was set");
+        handle.join().unwrap();
+
+        let reasons = seen.lock().unwrap().clone();
+        assert!(
+            !reasons.is_empty(),
+            "the run must report WHY it is not up, whatever the reason is on this machine",
+        );
+        assert_ne!(
+            state.get(),
+            Link::Unknown,
+            "`unknown` means nothing has tried yet and must never survive an attempt",
+        );
+    }
+
+    #[test]
+    fn every_disconnect_reason_has_a_distinct_label() {
+        // The labels go into the log a support call is read from, so a duplicate would make two
+        // different situations indistinguishable there - the very bug this set was added to fix.
+        let all = [
+            DisconnectReason::Closed,
+            DisconnectReason::Unreachable,
+            DisconnectReason::Silent,
+            DisconnectReason::Refused,
+            DisconnectReason::NotConfigured,
+        ];
+        let labels: Vec<&str> = all.iter().map(|r| r.as_str()).collect();
+        let mut uniq = labels.clone();
+        uniq.sort_unstable();
+        uniq.dedup();
+        assert_eq!(uniq.len(), labels.len(), "duplicate label in {labels:?}");
+        assert!(labels.iter().all(|l| !l.is_empty()));
+    }
+
+    /// #328 — the first field lane cut a till's link for four minutes and the shell never noticed.
+    #[test]
+    fn a_link_that_says_nothing_for_75_seconds_is_dead() {
+        let s = Duration::from_secs;
+        assert_eq!(next(s(0), s(0)), Next::Listen);
+        assert_eq!(next(s(29), s(29)), Next::Listen);
+        assert_eq!(next(s(5), s(30)), Next::Beat, "the heartbeat keeps its own time, whatever arrives");
+        assert_eq!(next(s(74), s(10)), Next::Listen, "a missed ack is not yet a dead link");
+        assert_eq!(next(s(75), s(10)), Next::Dead);
+        assert_eq!(next(s(90), s(30)), Next::Dead, "dead wins over a beat that would go nowhere");
+    }
+
+    #[test]
+    fn the_clock_allows_two_unanswered_heartbeats_and_reads_often_enough_to_keep_it() {
+        assert!(SILENT_AFTER > HEARTBEAT * 2, "one lost ack must never end a session");
+        assert!(READ_SLICE < HEARTBEAT, "a read must not outwait the heartbeat");
+        assert!(READ_SLICE <= Duration::from_secs(5), "a quitting app waits for at most one read");
+    }
+
+    #[test]
+    fn a_read_that_ran_out_of_time_is_not_a_failed_link() {
+        use std::io::{Error, ErrorKind};
+        // Unix reports a read deadline as WouldBlock, Windows as TimedOut: both are "nothing yet".
+        assert!(timed_out(&tungstenite::Error::Io(Error::from(ErrorKind::WouldBlock))));
+        assert!(timed_out(&tungstenite::Error::Io(Error::from(ErrorKind::TimedOut))));
+        assert!(!timed_out(&tungstenite::Error::Io(Error::from(ErrorKind::ConnectionReset))));
+        assert!(!timed_out(&tungstenite::Error::ConnectionClosed));
+    }
 
     #[test]
     fn backoff_starts_at_one_second_and_stops_at_sixty() {
@@ -361,6 +666,13 @@ mod tests {
             Some(Incoming::Revoked("removed".into()))
         );
         assert_eq!(classify(r#"{"type":"desktop:update"}"#), Some(Incoming::Update));
+        assert_eq!(
+            classify(r#"{"type":"desktop:repoint","instruction":"a.b.c","node":"master-x","name":"Kasa"}"#),
+            Some(Incoming::Repoint { instruction: "a.b.c".into(), name: "Kasa".into() })
+        );
+        assert_eq!(classify(r#"{"type":"desktop:moved","node":"master-x","name":"Kasa"}"#), Some(Incoming::Moved { name: "Kasa".into() }));
+        // A re-point with no instruction is nothing to follow.
+        assert_eq!(classify(r#"{"type":"desktop:repoint","name":"Kasa"}"#), None);
         assert_eq!(
             classify(r#"{"type":"desktop:error","code":"unauthenticated"}"#),
             Some(Incoming::Refused)

@@ -66,14 +66,29 @@
               density="comfortable"
               data-field="open-on-launch"
             />
+            <!-- FR-20.32 — a shop server opens in LGR Desktop's own window, whatever this says: a
+                 browser cannot trust its certificate, and the window's way in stays in the window. -->
             <v-switch
               v-model="form.openInSystemBrowser"
               :label="$t('shell.settings.openInSystemBrowser')"
+              :disabled="!!status?.serverPin"
+              :hint="status?.serverPin ? $t('shell.settings.systemBrowserMaster') : undefined"
+              :persistent-hint="!!status?.serverPin"
+              :hide-details="!status?.serverPin"
               color="primary"
               density="comfortable"
-              hide-details
               class="mt-2"
               data-field="system-browser"
+            />
+            <v-switch
+              v-model="form.autoUpdate"
+              :label="$t('shell.settings.autoUpdate')"
+              :hint="$t('shell.settings.autoUpdateHint')"
+              persistent-hint
+              color="primary"
+              density="comfortable"
+              class="mt-2"
+              data-field="auto-update"
             />
           </v-card-text>
         </v-card>

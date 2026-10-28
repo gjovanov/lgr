@@ -36,7 +36,7 @@
  *   --items <path>    (required) adjustments JSON as above
  *   --org <slug>      org slug (default: regal-pz)
  *   --api <url>       API base (default: https://lgrai.app)
- *   --warehouse <c>   warehouse code (default: org default = Pazardzhik)
+ *   --warehouse <c>   warehouse code (default: org default = Пазарджик)
  *   --max-date <ISO>  only process docs dated <= this (inclusive)
  *   --skip-unmatched  proceed without lines whose product has no catalog match
  *                     (default: unmatched aborts --execute — a skipped write-off
@@ -44,6 +44,7 @@
  *   --execute         create + confirm the movements (default: dry-run)
  */
 import { readFileSync } from 'node:fs'
+import { assertTokenOrg } from './lib/token-org.js'
 
 function parseArgs(argv: string[]) {
   const o: Record<string, string | boolean> = {}
@@ -102,6 +103,7 @@ async function login() {
   const password = process.env.LGR_PASSWORD
   if (TOKEN) {
     const me = await http('GET', '/api/auth/me')
+    assertTokenOrg(me, orgSlug) // a token from a tab switched to another org must not write there
     ORG_ID = me.user?.orgId || me.orgId
   } else {
     if (!username || !password) { console.error('Set LGR_TOKEN, or LGR_USERNAME + LGR_PASSWORD.'); process.exit(2) }

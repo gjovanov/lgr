@@ -9,7 +9,16 @@ import {
 } from 'services/biz/desktop/desktop.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { Desktop, FiscalDevice } from 'db/models'
-import { config } from 'config'
+import { config, nodeRole } from 'config'
+import { cachedRelease } from 'services/biz/desktop/release-cache'
+import { currentLan } from 'services/biz/desktop/desktop.service'
+import { logger } from 'services/logger'
+import { parseVersion } from 'services/biz/desktop/version'
+import {
+  desktopDownloadPageUrl,
+  DesktopDownloadError,
+  updaterManifest,
+} from 'services/biz/desktop/release-download'
 
 /**
  * The routes whose caller is a **desktop** (FR-14.20, FR-14.23).
@@ -36,15 +45,100 @@ function fail(status: any, e: unknown) {
  */
 async function fetchLatestRelease(channel: string, _desktop: any): Promise<unknown | null> {
   const base = config.desktop.releaseFeedUrl
-  if (!base) return null
-  try {
-    const url = `${base.replace(/\/$/, '')}/${encodeURIComponent(channel)}.json`
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
-    if (!res.ok) return null
-    return await res.json()
-  } catch {
+  if (base) {
+    try {
+      const url = `${base.replace(/\/$/, '')}/${encodeURIComponent(channel)}.json`
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+      if (!res.ok) return null
+      return await res.json()
+    } catch {
+      return null
+    }
+  }
+  return configuredRelease(channel)
+}
+
+/**
+ * The release this hub offers from its own configuration (#93).
+ *
+ * ⚠ **An external feed wins.** This is the fallback for a deployment that has nowhere to host
+ * one — which was every deployment, which is why no till has ever been offered an update.
+ *
+ * ⚠ **The version is PARSED, and a bad one offers nothing.** `DESKTOP_RELEASE_VERSION` is typed
+ * by a human into a configmap at promotion time, and `is_upgrade` on the shell side refuses a
+ * version it cannot read — so a typo would be silently inert on every till with no sign of why.
+ * It is better to refuse here, where the log line is attributable to the configuration change
+ * that caused it.
+ *
+ * ⚠ Only the `stable` channel is served from configuration. A deployment running beta tills
+ * needs a real feed, and asking for one here gets `null` rather than stable-pretending-to-be-beta.
+ */
+export function configuredRelease(channel: string): { version: string; url?: string; notes?: string } | null {
+  const version = config.desktop.releaseVersion
+  if (!version) return null
+  if (channel !== 'stable') return null
+  if (!parseVersion(version)) {
+    logger.warn(
+      { version },
+      'DESKTOP_RELEASE_VERSION is not a version this fleet can compare; offering no update',
+    )
     return null
   }
+  // No configured URL: this server's own download page, when it can serve one. The releases are
+  // in a private repository, so a GitHub link would 404 for every till operator.
+  const url = config.desktop.releaseUrl || desktopDownloadPageUrl(version)
+  return {
+    version,
+    ...(url ? { url } : {}),
+    ...(config.desktop.releaseNotes ? { notes: config.desktop.releaseNotes } : {}),
+  }
+}
+
+/**
+ * Every origin this server legitimately answers on, as the audience of a token request.
+ *
+ * ⚠ **`new URL(request.url).origin` alone is wrong behind a proxy**, and that was a production
+ * outage waiting to happen. The shell signs its assertion for the server URL its operator typed -
+ * `https://lgrai.app/api/desktop/v1/token` - while the pod, behind the TLS-terminating ingress,
+ * sees plain http and reconstructs `http://lgrai.app/...`. Exact compare, no match,
+ * `bad_assertion` for every till. It went unnoticed only because no desktop is enrolled in
+ * production yet; locally the same mismatch (`localhost:4000` through Vite's `changeOrigin: true`
+ * proxy versus `127.0.0.1:4001`) made a freshly enrolled desktop fail with
+ * `enrolled_but_token_failed:bad_assertion` and sit permanently "offline" on the Desktops page.
+ *
+ * What is accepted, and why each is safe - none of it comes from the assertion:
+ *   1. the origin as this process sees it;
+ *   2. the same origin with the scheme the proxy says the CLIENT used (`x-forwarded-proto`) - the
+ *      host is deliberately NOT taken from a forwarded header, only the scheme;
+ *   3. the configured canonical base (`OAUTH_BASE_URL`), which is also the origin the enrollment
+ *      deep link advertises, so a till enrolled from a deep link matches by construction.
+ */
+export function acceptableTokenAudiences(request: Request, path = '/api/desktop/v1/token'): string[] {
+  const out: string[] = []
+  const add = (origin: string | undefined) => {
+    if (!origin) return
+    const a = origin.replace(/\/$/, '') + path
+    if (!out.includes(a)) out.push(a)
+  }
+
+  let url: URL | undefined
+  try {
+    url = new URL(request.url)
+  } catch {
+    /* an unparseable request URL leaves only the configured base, which is the safe direction */
+  }
+  if (url) {
+    add(url.origin)
+    const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+    if (proto === 'https' || proto === 'http') add(`${proto}://${url.host}`)
+  }
+
+  try {
+    add(new URL(config.oauth.baseUrl).origin)
+  } catch {
+    /* a misconfigured base must not take the endpoint down */
+  }
+  return out
 }
 
 export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
@@ -97,7 +191,7 @@ export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
     '/token',
     async ({ body, status, request }) => {
       try {
-        const audience = new URL(request.url).origin + '/api/desktop/v1/token'
+        const audience = acceptableTokenAudiences(request)
         const { token, expiresAt, serverTime } = await issueDesktopToken(body.assertion, audience)
         return {
           accessToken: token,
@@ -131,6 +225,17 @@ export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
     '/latest-release',
     async ({ desktop, query }: any) => {
       const channel = query?.channel === 'beta' ? 'beta' : 'stable'
+      // FR-20.56: a master answers from the release it keeps, linked on its own LAN address.
+      if (nodeRole() === 'master') {
+        const cached = channel === 'stable' ? cachedRelease() : null
+        const lan = currentLan().url
+        return {
+          minVersion: cached?.minVersion ?? config.desktop.minVersion ?? null,
+          channel,
+          release: cached ? { version: cached.version, ...(lan ? { url: `${lan}/api/desktop/download/${cached.version}` } : {}), ...(cached.notes ? { notes: cached.notes } : {}) } : null,
+          serverTime: new Date().toISOString(),
+        }
+      }
       return {
         // The floor travels with every manifest so the Overview can raise its banner without a
         // second round trip, and so a desktop learns it even while its token still works.
@@ -143,6 +248,64 @@ export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
         serverTime: new Date().toISOString(),
       }
     },
+  )
+
+  /**
+   * FR-14.28 — what the Tauri updater plugin downloads and installs, for one platform.
+   *
+   * ⚠ A sibling of `/latest-release`, not a replacement: that route says WHETHER a version exists
+   * (every desktop, every platform, managed installs included); this one says WHAT to install,
+   * in the plugin's own manifest shape, and only where a self-install is possible at all.
+   *
+   * ⚠ **204 means "nothing to install"**, which is how the plugin reads it — no configured version,
+   * a platform the updater does not cover, or a release built before it carried a `.sig`. The
+   * shell decides whether the version is newer (`is_upgrade`, its version comparator): one place
+   * owns that rule, and it is the place that would act on a wrong answer.
+   *
+   * ⚠ Only the configured stable release (#93). An external feed's JSON says nothing about the
+   * signature, so it cannot feed an installer.
+   */
+  .get(
+    '/update',
+    async ({ query, set, status }) => {
+      // FR-20.56: a master serves its tills the release it keeps, from its own LAN address; the
+      // signature is the release pipeline's, verified by each till against its pinned key.
+      if (nodeRole() === 'master') {
+        const cached = cachedRelease()
+        const u = cached?.updater[query.platform]
+        const lan = currentLan().url
+        if (!cached || !u || !lan) {
+          set.status = 204
+          return ''
+        }
+        return {
+          version: cached.version,
+          url: `${lan}/api/desktop/download/${cached.version}/${encodeURIComponent(u.file)}`,
+          signature: u.signature,
+          ...(cached.notes ? { notes: cached.notes } : {}),
+        }
+      }
+      const release = configuredRelease('stable')
+      if (!release) {
+        set.status = 204
+        return ''
+      }
+      try {
+        const manifest = await updaterManifest(release.version, query.platform)
+        if (!manifest) {
+          set.status = 204
+          return ''
+        }
+        return { ...manifest, ...(release.notes ? { notes: release.notes } : {}) }
+      } catch (e) {
+        if (e instanceof DesktopDownloadError) {
+          logger.warn({ version: release.version, platform: query.platform, code: e.code, err: e.message }, 'desktop updater manifest failed')
+          return status(e.statusCode === 404 ? 502 : e.statusCode, { code: e.code })
+        }
+        throw e
+      }
+    },
+    { query: t.Object({ platform: t.String({ maxLength: 40 }), current: t.Optional(t.String({ maxLength: 40 })) }) },
   )
 
   /**
@@ -201,12 +364,27 @@ export const desktopV1Controller = new Elysia({ prefix: '/desktop/v1' })
     }
   })
 
-  /** Report version, OS, capabilities and visible serial ports (FR-14.21). */
+  /**
+   * Report version, OS, capabilities and visible serial ports (FR-14.21), and answer with what an
+   * admin has assigned to this desktop now.
+   *
+   * ⚠ #328: the shell learned its start path only at enrollment, so an admin's later assignment
+   * (`PUT /org/:orgId/desktops/:id {startPath}`) never reached a running till, and a desktop
+   * enrolled with a one-time code (which carries none) always opened `/`. The shell reports itself
+   * after every reconnect, so this is where it catches up. An older shell ignores the field.
+   */
   .put(
     '/self',
     async ({ body, desktop, headers }: any) => {
       await reportSelf(desktop, { ...body, ip: clientIp(headers) })
-      return { ok: true, serverTime: new Date().toISOString() }
+      return {
+        ok: true,
+        serverTime: new Date().toISOString(),
+        assignment: {
+          fiscalDeviceIds: (desktop.fiscalDeviceIds ?? []).map(String),
+          startPath: desktop.startPath ?? '',
+        },
+      }
     },
     {
       body: t.Object({

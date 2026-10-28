@@ -60,7 +60,7 @@ export const productCategoryController = new Elysia({ prefix: '/org/:orgId/wareh
       const r = getRepos()
       const existing = await r.productCategories.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Category not found' })
-      const productCategory = await r.productCategories.update(id, body as any)
+      const productCategory = await r.productCategories.updateInOrg(id, orgId, body as any)
       return { productCategory }
     },
     {
@@ -86,7 +86,7 @@ export const productCategoryController = new Elysia({ prefix: '/org/:orgId/wareh
     const count = await r.products.count({ orgId, categoryId: id } as any)
     if (count > 0) return status(400, { message: `Cannot delete: ${count} products use this category` })
 
-    await r.productCategories.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+    await r.productCategories.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'warehouse', entityType: 'product_category', entityId: id, entityName: existing.name })
 

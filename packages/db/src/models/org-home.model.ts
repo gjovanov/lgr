@@ -1,0 +1,84 @@
+import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
+
+/**
+ * Where an org's data is written: its HOME (FR-20.3, plan step P0b-2).
+ *
+ * Every org has exactly one home, the node that writes its data and allocates its numbers:
+ * `global` (the cloud) or an on-prem master, by its node id. **No row means `global`, epoch 0** —
+ * every org today. Nothing is backfilled.
+ *
+ * ⚠ What this is NOT:
+ * - not `Org.settings` (FR-20 trap 16): settings are edited by org admins and restored by bundles;
+ * - not in a backup bundle: `backup-bundle.service.ts` excludes it, so a Replace restore can never
+ *   rewrite who is home;
+ * - not tenant data: no `tenantPlugin`. It is node state about an org.
+ *
+ * The row changes only through a move (FR-20 §5.9, plan P3), and every change increments `epoch`.
+ */
+export type OrgHomeState = 'active' | 'freezing' | 'frozen' | 'fenced' | 'hold'
+
+export interface IOrgHome extends Document {
+  orgId: Types.ObjectId
+  /** `global`, or the node id of the master that is home. */
+  home: string
+  epoch: number
+  state: OrgHomeState
+  since: Date
+  changedBy?: string
+  /**
+   * FR-20.81 (P3-6d): the org's LEGAL series (sales documents, cash sales, УНП) are frozen here until a
+   * person records the last numbers its lost master issued: after a promotion, global must not issue
+   * a number the site may already have given another customer. Set by the promotion's flip, cleared
+   * only by `recordLastNumbers`.
+   */
+  seriesFrozen?: { since: Date; reason: string; moveId?: string; detail?: string }
+  /**
+   * FR-20.51 (P3-7): when a person last recorded the site's last numbers here. A lock signal from
+   * before it (a refusal still standing, the journal still below its old mark) does not lock again.
+   */
+  seriesUnlockedAt?: Date
+  /**
+   * FR-20.8 (P3-6d): on a master that is no longer the org's home, the watermark global held when it
+   * was replaced. Everything this master captured above it waits to be exported (FR-20.84).
+   */
+  fenceCutoff?: number
+  /**
+   * FR-20.3 (P3-8d): why global holds the org, when it took the hold itself (`home-hold.service.ts`):
+   * `higher_epoch` (a server registered for the org reported a newer home record: this database is
+   * older than its last move; `claim` is that record) or `dr_restore` (the runbook's step after a
+   * disaster-recovery restore). `from` is the state a release goes back to. Holds `homeOf` derives
+   * from the record are not stored.
+   */
+  hold?: { reason: 'higher_epoch' | 'dr_restore'; since: Date; from: string; detail?: string; claim?: { nodeId: string; epoch: number; at: Date } }
+  /** The last hold settled: by the home's own report (`reconnected`), or by a sys-admin. */
+  released?: { at: Date; by: string; how: 'reconnected' | 'released' | 'adopted'; reason: string }
+}
+
+const orgHomeSchema = new Schema<IOrgHome>(
+  {
+    orgId: { type: Schema.Types.ObjectId, ref: 'Org', required: true },
+    home: { type: String, required: true },
+    epoch: { type: Number, required: true, default: 0 },
+    state: { type: String, required: true, default: 'active', enum: ['active', 'freezing', 'frozen', 'fenced', 'hold'] },
+    since: { type: Date, required: true, default: Date.now },
+    changedBy: String,
+    seriesFrozen: { since: Date, reason: String, moveId: String, detail: String },
+    seriesUnlockedAt: Date,
+    fenceCutoff: Number,
+    hold: {
+      type: new Schema(
+        { reason: { type: String, enum: ['higher_epoch', 'dr_restore'] }, since: Date, from: String, detail: String, claim: { nodeId: String, epoch: Number, at: Date } },
+        { _id: false },
+      ),
+      default: undefined,
+    },
+    released: { type: new Schema({ at: Date, by: String, how: String, reason: String }, { _id: false }), default: undefined },
+  },
+  { collection: 'org_homes' },
+)
+orgHomeSchema.index({ orgId: 1 }, { unique: true })
+
+replicate(orgHomeSchema, { class: 'N' })
+
+export const OrgHome = model<IOrgHome>('OrgHome', orgHomeSchema)

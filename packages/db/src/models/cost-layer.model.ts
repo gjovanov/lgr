@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface ICostLayer extends Document {
   _id: Types.ObjectId
@@ -51,5 +52,7 @@ costLayerSchema.index({ orgId: 1, productId: 1, warehouseId: 1, isExhausted: 1, 
 costLayerSchema.index({ orgId: 1, productId: 1, warehouseId: 1, isExhausted: 1, expiryDate: 1 })
 // Lookup by source movement
 costLayerSchema.index({ orgId: 1, sourceMovementId: 1 })
+
+replicate(costLayerSchema, { class: 'R' })
 
 export const CostLayer = model<ICostLayer>('CostLayer', costLayerSchema)

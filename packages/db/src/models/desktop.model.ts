@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 /**
  * A registered LGR Desktop: one installation of the desktop client, belonging to one org
@@ -146,5 +147,13 @@ desktopSchema.index({ orgId: 1, status: 1 })
 desktopSchema.index({ orgId: 1, lastSeenAt: 1 })
 /** The reaper's query: ephemeral rows that have not been seen lately, across all orgs. */
 desktopSchema.index({ ephemeral: 1, lastSeenAt: 1 })
+
+replicate(desktopSchema, {
+  class: 'S',
+  // The registry moves with the org, so a till keeps its id; its presence is the node's it talks to.
+  home: ['name', 'nameAdminSet', 'machineId', 'installationId', 'os', 'hostname', 'publicKey', 'keyEpoch', 'keyRotatedAt', 'status', 'ephemeral', 'ephemeralTtlSec', 'enrollKeyId', 'enrolledBy', 'enrolledAt', 'revokedAt', 'revokedBy', 'revokeReason', 'appVersion', 'capabilities', 'fiscalDeviceIds', 'startPath', 'createdAt', 'updatedAt'],
+  global: [],
+  node: ['lastSeenAt', 'lastPresence'],
+})
 
 export const Desktop = model<IDesktop>('Desktop', desktopSchema)

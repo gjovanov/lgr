@@ -1,6 +1,6 @@
 # Entity Model Reference
 
-LGR has 48 entity types across 8 modules. Each entity has a TypeScript interface (`packages/dal/src/entities/`) and a MongoDB schema (`packages/db/src/models/`).
+LGR has 49 entity types across 8 modules. Each entity has a TypeScript interface (`packages/dal/src/entities/`) and a MongoDB schema (`packages/db/src/models/`).
 
 > ⚠ **The SQLite columns below and in the per-entity pages are historical.** `packages/dal-sqlite`
 > was the desktop's local-mode backend and was deleted on 2026-09-29 (FR-14.34). The per-entity
@@ -8,12 +8,13 @@ LGR has 48 entity types across 8 modules. Each entity has a TypeScript interface
 > `SQLite Type` columns are left in place because they still record how each entity was shaped, but
 > **nothing implements them**. There is one backend: MongoDB, through `packages/dal-mongo`.
 
-## Core (11 entities)
+## Core (12 entities)
 
 | Entity | Interface | SQLite Table | Description |
 |--------|-----------|-------------|-------------|
 | [Org](core/org.md) | `IOrg` | `orgs` | Organization/tenant |
-| [User](core/user.md) | `IUser` | `users` | User account |
+| [User](core/user.md) | `IUser` | `users` | A person's membership in one org |
+| [Identity](core/identity.md) | `IIdentity` | — | The person: email, password, sign-in providers (global) |
 | [Invite](core/invite.md) | `IInvite` | `invites` | Invitation code |
 | [Code](core/code.md) | `ICode` | `codes` | Activation/reset code |
 | [EmailLog](core/email-log.md) | `IEmailLog` | `email_logs` | Sent email record |

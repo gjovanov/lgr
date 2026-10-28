@@ -1,22 +1,18 @@
+import { claims, getOrg } from '../session/session'
+import type { PageViewer } from '../nav/page-registry'
+
 /**
- * Per-user / per-org identity derived from what the SPA already persists in localStorage,
- * with no Pinia/app-store coupling — safe to import from ui-shared AND ui-shell.
+ * Per-user / per-org identity derived from this tab's session, with no Pinia/app-store
+ * coupling — safe to import from ui-shared AND ui-shell.
  *
- * userId comes from the JWT payload in `lgr_token`; orgId from the persisted `lgr_org`.
+ * userId comes from the session token's payload; orgId from the session's org.
  * These are the discriminators for per-user UI preference keys of the form
  * `lgr:<feature>:<userId>:<orgId>[:<...>]` (grid columns, app favorites, default warehouse…).
  */
 
 export function jwtUserId(): string {
-  try {
-    const token = localStorage.getItem('lgr_token') || ''
-    const payload = token.split('.')[1]
-    if (!payload) return 'anon'
-    const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
-    return json.id || json._id || 'anon'
-  } catch {
-    return 'anon'
-  }
+  const c = claims()
+  return c?.id || c?._id || 'anon'
 }
 
 /**
@@ -28,21 +24,23 @@ export function jwtUserId(): string {
  * the server re-checks the role on every mutation regardless.
  */
 export function jwtRole(): string {
-  try {
-    const token = localStorage.getItem('lgr_token') || ''
-    const payload = token.split('.')[1]
-    if (!payload) return ''
-    const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
-    return json.role || ''
-  } catch {
-    return ''
-  }
+  return claims()?.role || ''
 }
 
 export function orgIdFromStorage(): string {
-  try {
-    return JSON.parse(localStorage.getItem('lgr_org') || 'null')?.id || 'no-org'
-  } catch {
-    return 'no-org'
+  return getOrg()?.id || 'no-org'
+}
+
+/**
+ * Who `canOpenPage` asks about: the role, permissions and sign-in method the token carries.
+ * Read from the token for the same reason as `jwtRole`. Null when signed out.
+ */
+export function sessionViewer(): PageViewer | null {
+  const c = claims()
+  if (!c) return null
+  return {
+    role: c.role,
+    permissions: Array.isArray(c.permissions) ? c.permissions : [],
+    amr: Array.isArray(c.amr) ? (c.amr as string[]) : undefined,
   }
 }

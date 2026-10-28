@@ -1,4 +1,5 @@
 import { ref, onUnmounted } from 'vue'
+import { getToken } from '../session/session'
 
 const isConnected = ref(false)
 let ws: WebSocket | null = null
@@ -11,15 +12,22 @@ type MessageHandler = (data: any) => void
 const handlers: MessageHandler[] = []
 
 export function useWebSocket() {
-  function connect(userId: string) {
+  /**
+   * Subscribe to the signed-in user's task updates. The server works out WHO from the token, sent
+   * as the first message (#154) — never in the URL, where it would land in proxy logs.
+   */
+  function connect() {
     if (ws?.readyState === WebSocket.OPEN) return
+    const token = getToken()
+    if (!token) return
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${protocol}//${window.location.host}/ws/tasks?userId=${userId}`
+    const url = `${protocol}//${window.location.host}/ws/tasks`
 
     ws = new WebSocket(url)
 
     ws.onopen = () => {
+      ws?.send(JSON.stringify({ type: 'auth', token }))
       isConnected.value = true
       reconnectAttempts = 0
       // Start heartbeat
@@ -40,16 +48,18 @@ export function useWebSocket() {
       }
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       isConnected.value = false
       if (pingTimer) clearInterval(pingTimer)
+      // 4401: the server refused the token. Retrying with the same one cannot succeed.
+      if (event.code === 4401) return
 
       // Exponential backoff reconnect
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000)
         reconnectTimer = setTimeout(() => {
           reconnectAttempts++
-          connect(userId)
+          connect()
         }, delay)
       }
     }

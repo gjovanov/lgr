@@ -33,6 +33,12 @@ export async function setupTestDB() {
   await connectingPromise
 }
 
+/** The running test database's URI, for a child process that has to use the same one. */
+export function testDbUri(): string {
+  if (!mongod) throw new Error('testDbUri() before setupTestDB()')
+  return mongod.getUri(mongoose.connection.name)
+}
+
 export async function teardownTestDB() {
   refCount--
   if (refCount > 0) return

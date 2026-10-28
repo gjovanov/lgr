@@ -14,7 +14,8 @@ import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { posController } from 'invoicing-api/src/controllers/pos.controller'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
-import { POSSession, POSTransaction } from 'db/models'
+import { POSSession } from 'db/models'
+import { tillRow } from '../helpers/till-row'
 import { getRepos } from 'services/context'
 import { getNextNumber } from 'services/biz/sequence.service'
 import { computePosTotals } from 'config/pos-totals'
@@ -147,7 +148,7 @@ describe('POS totals and cash', () => {
 
     expect(json.transaction.total).toBe(5.07)
     expect(json.transaction.changeDue).toBe(0)
-    const saved = await POSTransaction.findById(json.transaction.id || json.transaction._id).lean().exec() as any
+    const saved = await tillRow(json.transaction.id || json.transaction._id)
     expect(saved.changeDue).toBe(0)
     expect((await drawerOf(w.sessionId)).totalCash).toBe(5.06)
   })

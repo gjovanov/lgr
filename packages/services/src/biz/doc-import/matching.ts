@@ -5,6 +5,9 @@
  *   1. alias  — learned per-supplier wording (incoming documents only)
  *   2. exact  — nameLower / skuLower equality (indexed)
  *   3. ws     — whitespace-tolerant: same tokens, any run of spaces between them
+ *   3b. ws    — whitespace-STRIPPED: the space may be missing, not merely differently sized
+ *   3c. ws    — homoglyph-folded: Latin k vs Cyrillic к, indistinguishable on paper
+ *   3d. token — separator-stripped: a " - " field break dropped from the document
  *   4. ai     — constrained to a candidate set (an ORDO supplier group), never free-form
  *
  * Rung 3 subsumes the collapse/longest-token rungs the CLI scripts need: those exist only
@@ -19,11 +22,11 @@
  * ⚠ The whitespace regex is built at runtime from a string. A Cyrillic regex *literal*
  * would be transpiled by Bun to \uXXXX escapes and rejected by Mongo (PCRE2 51091).
  */
-import { config } from 'config'
 import { Contact, Product, SupplierProductAlias, normalizeAlias } from 'db/models'
 import { buildSearchFilter } from '../search.utils.js'
 import { clean, digits } from './detect.js'
 import type { MatchedBy, Party } from './types.js'
+import { ocrMatchLines } from './ocr-client.js'
 
 export interface ProductMatch {
   productId: string
@@ -148,7 +151,9 @@ export async function matchProduct(orgId: string, description: string): Promise<
 export async function matchProductsExact(orgId: string, descriptions: string[]): Promise<Array<ProductMatch | null>> {
   const out: Array<ProductMatch | null> = descriptions.map(() => null)
   const lowers = descriptions.map(d => clean(d).toLocaleLowerCase('bg'))
-  const wanted = [...new Set(lowers.filter(Boolean))]
+  // Each description, plus the same name with its TERMINAL period added or removed (see
+  // `terminalDotVariants`). Still ONE `$in` query for the whole document.
+  const wanted = [...new Set(lowers.flatMap(terminalDotVariants).filter(Boolean))]
   if (!wanted.length) return out
 
   const byName = new Map<string, any>()
@@ -161,6 +166,14 @@ export async function matchProductsExact(orgId: string, descriptions: string[]):
     const skuHits: any[] = await Product.find({ orgId, isActive: true, skuLower: { $in: stillWanted } } as any).lean()
     for (const p of skuHits) bySku.set(String(p.skuLower), p)
   }
+  /** The first of this name's terminal-dot variants that the two maps know. */
+  const lookup = (lower: string): any | undefined => {
+    for (const v of terminalDotVariants(lower)) {
+      const hit = byName.get(v) || bySku.get(v)
+      if (hit) return hit
+    }
+    return undefined
+  }
 
   // Rung 3: legacy exports keep multi-space padding ("НОЖ   ТЕХНИЧЕСКИ") that PDF text
   // collapses — still an exact match by content, only the run length of spaces differs.
@@ -168,7 +181,7 @@ export async function matchProductsExact(orgId: string, descriptions: string[]):
   for (let i = 0; i < descriptions.length; i++) {
     const lower = lowers[i]
     if (!lower) continue
-    const exact = byName.get(lower) || bySku.get(lower)
+    const exact = lookup(lower)
     if (exact) { out[i] = toMatch(exact, 'exact'); continue }
     if (!/\s/.test(lower)) continue
     if (!wsCache.has(lower)) {
@@ -225,7 +238,127 @@ export async function matchProductsExact(orgId: string, descriptions: string[]):
     const hit = (folded.get(key) || []).find((p: any) => foldHomoglyphs(despace(String(p.nameLower || ''))) === needle)
     if (hit) out[i] = toMatch(hit, 'ws')
   }
+
+  // Rung 3d: the separator itself is MISSING, not merely a space. The catalog writes a name's
+  // fields with " - " between them and a document may simply drop one:
+  //
+  //   doc      "ШАЙБА - КОНУСНА 22ММ - DIN 435 - 14% - HDG"
+  //   catalog  "ШАЙБА - КОНУСНА - 22ММ - DIN 435 - 14% - HDG"      (REGALPZ-20747)
+  //
+  // Rungs 3/3b cannot help: a hyphen is a real character, so both the token list and the
+  // whitespace-stripped form still differ. Compare with every separator removed — and ONLY
+  // separators. Dots, commas, slashes and percent signs stay, because they carry size:
+  // "13.5ММ" must never collapse onto "135ММ", and both exist in this catalog.
+  const sepCache = new Map<string, { rows: any[]; truncated: boolean }>()
+  for (let i = 0; i < descriptions.length; i++) {
+    if (out[i]) continue
+    const lower = lowers[i]
+    if (!lower) continue
+    const squashed = squashSeparators(lower)
+    const anchor = squashed.slice(0, SEP_ANCHOR_CHARS)
+    if (anchor.length < 3) continue
+    const key = foldHomoglyphs(anchor)
+    if (!sepCache.has(key)) sepCache.set(key, await fetchSepCandidates(orgId, anchor))
+    const bucket = sepCache.get(key)!
+    // A truncated candidate set cannot prove uniqueness: a second match may sit outside the
+    // window, so "exactly one hit" would be an artefact of the cap rather than a fact.
+    if (bucket.truncated) continue
+    const needle = foldHomoglyphs(squashed)
+    const hits = bucket.rows.filter(
+      (p: any) => foldHomoglyphs(squashSeparators(String(p.nameLower || ''))) === needle,
+    )
+    // ⚠ Refusing a multi-way hit is load-bearing, not caution. Measured 2026-10-08 with exactly
+    // this key: regal-sf holds 342 colliding groups (690 rows), regal-pz 16 (32 rows), and 31 of
+    // those groups carry stock on more than one row — 2,075 units sitting off the main row, one
+    // of them negative. Taking the first would book a sale against whichever row happened to
+    // sort first and look like a successful match.
+    if (hits.length === 1) out[i] = toMatch(hits[0], 'token')
+  }
   return out
+}
+
+/** How many leading characters of the squashed name anchor the candidate query. */
+const SEP_ANCHOR_CHARS = 6
+/** Above this many candidates the set is treated as unbounded (see rung 3d). */
+const SEP_CANDIDATE_CAP = 2000
+
+/** Candidate rows for rung 3d's anchor, in either script. Shared with `findSeparatorTwins`. */
+async function fetchSepCandidates(orgId: string, anchor: string): Promise<{ rows: any[]; truncated: boolean }> {
+  const rows: any[] = []
+  const seen = new Set<string>()
+  for (const v of [...new Set([anchor, foldHomoglyphs(anchor), latiniseHomoglyphs(anchor)])]) {
+    const found: any[] = await Product
+      .find({ orgId, isActive: true, nameLower: { $regex: sepTolerantPrefix(v) } } as any)
+      .limit(SEP_CANDIDATE_CAP + 1).lean()
+    for (const p of found) if (!seen.has(String(p._id))) { seen.add(String(p._id)); rows.push(p) }
+  }
+  return { rows, truncated: rows.length > SEP_CANDIDATE_CAP }
+}
+
+/**
+ * The catalog rows whose name differs from this one only in separators — rung 3d's comparison,
+ * exposed for ONE caller that must tell "none" from "several" where the rung reports only `null`.
+ *
+ * `createMissingProducts` is that caller. A name reaches it precisely because every rung missed,
+ * and after rung 3d shipped one of the ways to miss is **ambiguity**: the rung refuses a name that
+ * resolves to several twins. Left to its exact-`nameLower` check, it would then create a THIRD row
+ * in a group that already has two — growing the very duplication the refusal exists to protect.
+ */
+export async function findSeparatorTwins(orgId: string, name: string): Promise<Array<{ _id: any; sku: string; name: string }>> {
+  const lower = clean(name).toLocaleLowerCase('bg')
+  const squashed = squashSeparators(lower)
+  const anchor = squashed.slice(0, SEP_ANCHOR_CHARS)
+  if (anchor.length < 3) return []
+  const { rows, truncated } = await fetchSepCandidates(orgId, anchor)
+  if (truncated) return []     // cannot prove anything about a capped set — same rule as the rung
+  const needle = foldHomoglyphs(squashed)
+  return rows.filter(p => foldHomoglyphs(squashSeparators(String(p.nameLower || ''))) === needle) as any
+}
+
+/**
+ * Drop the characters this catalog uses purely to separate a name's fields.
+ *
+ * Deliberately narrow: whitespace, hyphen-minus, the Unicode dashes and the underscore.
+ * Everything else is content.
+ */
+export function squashSeparators(s: string): string {
+  return String(s).replace(/[\s\-‐-―_]+/g, '')
+}
+
+/**
+ * A name with its TERMINAL period both present and absent.
+ *
+ * ⚠ Dots are preserved everywhere else on purpose — `13.5ММ` must never collapse onto `135ММ`, so
+ * rung 3d keeps them. But a Bulgarian abbreviation carries a terminal stop that documents drop
+ * freely (`Ш.П.` / `ПОДЛ.` / `ОРАНЖ.`), and no quantity or dimension ever ENDS in one, which makes
+ * the final character the one place it is safe to ignore.
+ *
+ * Found 2026-10-23: regal-pz transfer note 0000012802 moved 1000 units of
+ * „ШАЙБА - ПОДЛ. - Ф6Х24 - Ш.П" while the catalog held „… - Ш.П." — identical but for that dot.
+ * No rung folded it, so the line read as a NEW article; on a transfer note the fork would have
+ * gone to −1000 while the real product kept its stock, drifting two rows from one character.
+ *
+ * Both directions are needed: the document may omit a dot the catalog has, or carry one it lacks.
+ */
+export function terminalDotVariants(lower: string): string[] {
+  const bare = lower.replace(/[.\s]+$/, '')
+  if (!bare) return [lower]
+  return [...new Set([lower, bare, bare + '.'])]
+}
+
+/**
+ * `^`-anchored pattern matching the given characters with any run of separators between them,
+ * so the anchor is invariant under the difference rung 3d exists to absorb — a catalog
+ * "ШАЙБА - КОНУСНА" and a document "ШАЙБАКОНУСНА" share it.
+ *
+ * ⚠ The separator class is ASCII-only on purpose. Mongo compiles this with PCRE2, which does
+ * not understand `\uXXXX`, and the exotic dashes cannot be written as literals here without
+ * Bun transpiling them into exactly that (the same trap as a Cyrillic regex literal — PCRE2
+ * 51091). They are still handled by `squashSeparators`, which runs in JS on both sides; this
+ * pattern only has to fetch candidates, and PlusMinus writes a plain hyphen.
+ */
+function sepTolerantPrefix(chars: string): string {
+  return '^' + [...chars].map(escapeRe).join('[\\s\\-_]*')
 }
 
 /** Latin letters whose lower-case glyph is indistinguishable from a Cyrillic one. */
@@ -247,23 +380,18 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-/** AI candidate-match through the ocr-server. Failure-tolerant: errors → all-null. */
+/**
+ * AI candidate-match through the ocr-server (on a master, through lgrai.app: `orgId`).
+ * Failure-tolerant: errors → all-null.
+ */
 export async function aiMatchLines(
   lines: string[],
   candidates: Array<{ id: string; name: string; sku?: string }>,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; orgId?: string } = {},
 ): Promise<(string | null)[]> {
   if (!lines.length || !candidates.length) return lines.map(() => null)
   try {
-    const res = await fetch(`${config.ocr.serverUrl}/match-lines`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ lines, candidates }),
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
-    })
-    if (!res.ok) return lines.map(() => null)
-    const data: any = await res.json()
-    const matches = Array.isArray(data?.matches) ? data.matches : []
+    const matches = await ocrMatchLines(lines, candidates, opts)
     const valid = new Set(candidates.map((c) => c.id))
     return lines.map((_, i) => (matches[i] && valid.has(String(matches[i])) ? String(matches[i]) : null))
   } catch {
@@ -327,7 +455,7 @@ export async function matchLines(
   if (opts.aiCandidates?.length) {
     const leftover = out.map((m, i) => (m ? -1 : i)).filter(i => i >= 0)
     if (leftover.length) {
-      const ai = await aiMatchLines(leftover.map(i => descriptions[i]), opts.aiCandidates)
+      const ai = await aiMatchLines(leftover.map(i => descriptions[i]), opts.aiCandidates, { orgId })
       const ids = ai.filter(Boolean) as string[]
       if (ids.length) {
         const prods: any[] = await Product.find({ orgId, _id: { $in: ids } } as any).lean()

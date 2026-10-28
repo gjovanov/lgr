@@ -11,6 +11,8 @@ import { logger } from '../../logger/logger.js'
 import { ocrExtract } from '../doc-import/ocr-client.js'
 import { detectDocKind } from '../doc-import/detect.js'
 import { runAndDumpCompare } from './compare-snapshot.service.js'
+import { resolveStored, toStored } from './stored-path.js'
+import { mirroredBlobFile, mirrorFileMissing, readsByContent } from '../replication/mirror-blobs.js'
 
 /**
  * Files app — the PV-backed, versioned, audited document store. Extends the (previously
@@ -178,19 +180,26 @@ export async function storeDocument(
       const ext = extname(prior)
       const stamp = (existing.updatedAt ?? existing.uploadedAt ?? new Date()).toISOString().replace(/[:.]/g, '-')
       const archived = containedJoin(vdir, `${prior.slice(0, prior.length - ext.length)}_${stamp}${ext}`)
-      await rename(existing.currentPath, archived).catch(() => {}) // tolerate a missing prior file
+      const moved = await rename(resolveStored(existing.currentPath, orgId), archived).then(() => true, () => false) // tolerate a missing prior file
+      // The previous upload's File row follows its bytes into versions/. Left alone it would name
+      // the canonical path, which the new bytes are about to take (#180).
+      if (moved && existing.fileId) {
+        await FileModel.updateOne({ orgId, _id: existing.fileId } as any, { $set: { storagePath: toStored(archived) } })
+      }
     } catch (e) { logger.warn({ orgId, err: (e as Error).message }, 'version-archive failed') }
   }
 
   await Bun.write(canonicalPath, buf)
 
-  const fileMeta = await FileModel.create({ orgId, uploadedBy: userId, originalName: safeName, storagePath: canonicalPath, storageProvider: 'local', mimeType: file.type, size: file.size, module: 'files' })
+  // FR-20.24 (P0b-8): rows store the path relative to the upload root.
+  const storedPath = toStored(canonicalPath)
+  const fileMeta = await FileModel.create({ orgId, uploadedBy: userId, originalName: safeName, storagePath: storedPath, storageProvider: 'local', mimeType: file.type, size: file.size, sha256: checksum, module: 'files' })
 
   let docFile: IDocFile
   if (existing) {
     existing.docDate = folder
     existing.originalName = safeName
-    existing.currentPath = canonicalPath
+    existing.currentPath = storedPath
     existing.currentChecksum = checksum
     existing.version += 1
     existing.mimeType = file.type
@@ -213,7 +222,7 @@ export async function storeDocument(
     docFile = await existing.save()
     createAuditEntry({ orgId, userId, action: 'overwrite', module: 'files', entityType: 'DocFile', entityId: String(docFile._id), entityName: safeName, correlationId: opts.correlationId, ipAddress: opts.ip, userAgent: opts.ua, changes: [{ field: 'version', oldValue: replacedVersion, newValue: docFile.version }, { field: 'checksum', oldValue: null, newValue: checksum.slice(0, 12) }] })
   } else {
-    docFile = await DocFile.create({ orgId, docType: meta.docType, docNumber: meta.docNumber, docDate: folder, originalName: safeName, currentPath: canonicalPath, currentChecksum: checksum, version: 1, mimeType: file.type, size: file.size, status: 'uploaded', fileId: fileMeta._id, uploadedBy: userId, uploadedAt: new Date() })
+    docFile = await DocFile.create({ orgId, docType: meta.docType, docNumber: meta.docNumber, docDate: folder, originalName: safeName, currentPath: storedPath, currentChecksum: checksum, version: 1, mimeType: file.type, size: file.size, status: 'uploaded', fileId: fileMeta._id, uploadedBy: userId, uploadedAt: new Date() })
     createAuditEntry({ orgId, userId, action: 'upload', module: 'files', entityType: 'DocFile', entityId: String(docFile._id), entityName: safeName, correlationId: opts.correlationId, ipAddress: opts.ip, userAgent: opts.ua, changes: [{ field: 'docType', oldValue: null, newValue: meta.docType }, { field: 'docNumber', oldValue: null, newValue: meta.docNumber }] })
   }
   return { docFile, isNew: !existing, replacedVersion, duplicate: false, updated: !!existing, staleBooking: isStaleBooking(docFile) }
@@ -308,7 +317,7 @@ export async function trashDocumentFile(orgId: string, doc: { docDate: string; o
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const dest = containedJoin(dir, `${name.slice(0, name.length - ext.length)}_${stamp}${ext}`)
   try {
-    await rename(doc.currentPath, dest)
+    await rename(resolveStored(doc.currentPath, orgId), dest)
     return dest
   } catch {
     return null // already gone, or on another device — the DocFile row still goes
@@ -319,6 +328,8 @@ export async function trashDocumentFile(orgId: string, doc: { docDate: string; o
 export async function getVersions(orgId: string, docFileId: string) {
   const doc = await DocFile.findOne({ orgId, _id: docFileId }).lean()
   if (!doc) return { current: null, versions: [] as any[] }
+  // FR-20.69 (P3-3): a mirror lists them from their rows; their bytes were never on this disk.
+  if (await readsByContent(orgId)) return { current: { name: doc.originalName, path: doc.currentPath, version: doc.version }, versions: await mirroredVersions(orgId, doc) }
   const vdir = containedJoin(dateDir(orgId, doc.docDate), 'versions')
   let files: string[] = []
   try { files = await readdir(vdir) } catch { /* none yet */ }
@@ -331,10 +342,58 @@ export async function getVersions(orgId: string, docFileId: string) {
   return { current: { name: doc.originalName, path: doc.currentPath, version: doc.version }, versions }
 }
 
-/** Resolve the on-disk path for a download (current canonical, or a named archived version). */
-export async function resolveDownload(orgId: string, docFileId: string, versionName?: string): Promise<{ path: string; name: string; mime: string } | null> {
+/** A document's earlier versions as a mirror knows them: the `File` rows that followed their bytes into `versions/`. */
+async function mirroredVersions(orgId: string, doc: any) {
+  const prefix = `${toStored(containedJoin(dateDir(orgId, doc.docDate), 'versions'))}/`
+  const base = doc.originalName.replace(/.[^.]+$/, '')
+  // A range, not a regex: the names are Cyrillic, and the prefix is a literal.
+  const rows: any[] = await FileModel.find({ orgId, storagePath: { $gte: prefix, $lt: `${prefix}￿` } }, { storagePath: 1, size: 1, updatedAt: 1 }).lean()
+  return rows
+    .map(r => ({ name: String(r.storagePath).slice(prefix.length), size: r.size, archivedAt: r.updatedAt }))
+    .filter(v => !v.name.includes('/') && v.name.startsWith(base + '_'))
+    .sort((a, b) => +new Date(b.archivedAt) - +new Date(a.archivedAt))
+}
+
+/**
+ * FR-20.69 (P3-3): a download on global of an org homed on a master. The bytes are read by content
+ * (the row's sha256), never where the row says: the row's path is the master's to choose. Global's
+ * own copy from before a move is taken into the content store on the way, checked by its hash; a
+ * document in an archive is read out of its unit, and nothing is written back.
+ */
+async function mirroredDownload(orgId: string, doc: any, versionName?: string): Promise<{ path?: string; bytes?: Uint8Array; name: string; mime: string }> {
+  if (versionName) {
+    const safe = safeFileName(versionName)
+    const stored = toStored(containedJoin(dateDir(orgId, doc.docDate), 'versions', safe))
+    const row: any = await FileModel.findOne({ orgId, storagePath: stored }, { sha256: 1 }).lean()
+    const path = row ? await mirroredBlobFile(orgId, row.sha256, [stored]) : null
+    if (!path) throw await mirrorFileMissing(orgId)
+    return { path, name: safe, mime: doc.mimeType }
+  }
+  const held = await mirroredBlobFile(orgId, doc.currentChecksum, [doc.currentPath])
+  if (held) return { path: held, name: doc.originalName, mime: doc.mimeType }
+  if (doc.archived && doc.archiveRef) {
+    const { ArchiveUnit } = await import('db/models')
+    const { memberPathOf, readUnitMember } = await import('../archive/archive.service.js')
+    const unit: any = await ArchiveUnit.findOne({ orgId, _id: doc.archiveRef }, { sha256: 1, path: 1 }).lean()
+    const unitFile = unit ? await mirroredBlobFile(orgId, unit.sha256, unit.path ? [unit.path] : []) : null
+    const bytes = unitFile ? await readUnitMember(unitFile, memberPathOf(doc)) : null
+    // ⚠ Exactly the content the row names, or nothing: the unit is checked against its own checksums.
+    if (bytes && createHash('sha256').update(bytes).digest('hex') === doc.currentChecksum) {
+      return { bytes: new Uint8Array(bytes), name: doc.originalName, mime: doc.mimeType }
+    }
+  }
+  throw await mirrorFileMissing(orgId)
+}
+
+/**
+ * Resolve the on-disk path for a download (current canonical, or a named archived version). On a
+ * mirror it may be the bytes themselves (a document read out of its archive unit), and an absent
+ * file throws `MirrorFileMissing`, which says why.
+ */
+export async function resolveDownload(orgId: string, docFileId: string, versionName?: string): Promise<{ path?: string; bytes?: Uint8Array; name: string; mime: string } | null> {
   const doc = await DocFile.findOne({ orgId, _id: docFileId }).lean()
   if (!doc) return null
+  if (await readsByContent(orgId)) return mirroredDownload(orgId, doc, versionName)
   if (versionName) {
     // ⚠ The previous `.replace(/[/\\]/g, '')` stripped separators but left `..` intact as a
     // whole segment, so the sanitiser passed the one input it existed to stop. `safeFileName`
@@ -358,7 +417,30 @@ export async function resolveDownload(orgId: string, docFileId: string, versionN
     const got = await rehydrateDocFile(orgId, docFileId)
     if (got) return { path: got.path, name: doc.originalName, mime: doc.mimeType }
   }
-  return { path: doc.currentPath, name: doc.originalName, mime: doc.mimeType }
+  return { path: resolveStored(doc.currentPath, orgId), name: doc.originalName, mime: doc.mimeType }
+}
+
+const exists = (p: string) => stat(p).then(() => true, () => false)
+
+/**
+ * Move a document's bytes to `dest`. True when they are there afterwards, including a retry that
+ * finds the move already done. A move that fails is LOGGED and the document keeps its path: it
+ * used to be swallowed, and the row then named a file that was never written (#180).
+ */
+async function moveToDateFolder(orgId: string, docFileId: string, currentPath: string, dest: string): Promise<boolean> {
+  let src: string
+  try { src = resolveStored(currentPath, orgId) } catch (e) {
+    logger.warn({ orgId, docFileId, currentPath, err: (e as Error).message }, 'document path does not resolve; it keeps its path')
+    return false
+  }
+  try {
+    await rename(src, dest)
+    return true
+  } catch (e) {
+    if (!(await exists(src)) && (await exists(dest))) return true // moved by an earlier attempt
+    logger.warn({ orgId, docFileId, from: currentPath, to: dest, err: (e as Error).message }, 'could not move the document to its date folder; it keeps its path')
+    return false
+  }
 }
 
 /** Phase 2 hook: after OCR resolves a PDF's real date, move it out of inbox into docs/<date>/. */
@@ -368,9 +450,13 @@ export async function assignDateAfterOcr(orgId: string, docFileId: string, docDa
   const dir = dateDir(orgId, docDate)
   await mkdir(dir, { recursive: true })
   const dest = containedJoin(dir, safeFileName(doc.originalName))
-  await rename(doc.currentPath, dest).catch(() => {})
+  if (await moveToDateFolder(orgId, docFileId, doc.currentPath, dest)) {
+    doc.currentPath = toStored(dest)
+    // The File row the document was uploaded as follows it. Before #180 it kept the inbox path,
+    // which no longer held anything.
+    if (doc.fileId) await FileModel.updateOne({ orgId, _id: doc.fileId } as any, { $set: { storagePath: doc.currentPath } })
+  }
   doc.docDate = docDate
-  doc.currentPath = dest
   if (docType) doc.docType = docType
   doc.status = 'extracted'
   return doc.save()
@@ -382,8 +468,8 @@ export async function ocrDocument(orgId: string, userId: string, docFileId: stri
   const doc = await DocFile.findOne({ orgId, _id: docFileId })
   if (!doc) throw new Error('DocFile not found')
   if (/\.xlsx?$/i.test(doc.originalName)) return { docFile: doc, skipped: true, method: 'xlsx', chars: 0 }
-  const buf = Buffer.from(await Bun.file(doc.currentPath).arrayBuffer())
-  const ext = await ocrExtract(buf, doc.originalName)
+  const buf = Buffer.from(await Bun.file(resolveStored(doc.currentPath, orgId)).arrayBuffer())
+  const ext = await ocrExtract(buf, doc.originalName, { orgId })
   const text = ext.text || ''
   const kind = detectDocKind(text)
   const dateM = text.match(/(\d{2})\.(\d{2})\.(20\d{2})/)
@@ -415,6 +501,9 @@ export async function resolveCompareDump(orgId: string, userId: string, docFileI
   const doc = await DocFile.findOne({ orgId, _id: docFileId }).lean()
   if (!doc) throw new Error('DocFile not found')
   if (doc.docType !== 'store_availability') throw new Error('Only a storeAvailability snapshot has a diff')
+  // FR-20.69 (P3-3): a diff is made, and kept, beside the snapshot where the org lives. A mirror
+  // has neither, and must write nothing.
+  if (await readsByContent(orgId)) throw new Error("The diff is made on the organisation's server: open it there.")
   const name = `compare-${doc.docNumber}.${format}`
   const path = containedJoin(dateDir(orgId, doc.docDate), safeFileName(name))
   try {
@@ -429,8 +518,9 @@ export async function runCompareForSnapshot(orgId: string, userId: string, docFi
   const doc = await DocFile.findOne({ orgId, _id: docFileId })
   if (!doc) throw new Error('DocFile not found')
   if (doc.docType !== 'store_availability') throw new Error('Not a storeAvailability document')
-  const buf = Buffer.from(await Bun.file(doc.currentPath).arrayBuffer())
-  const res = await runAndDumpCompare(orgId, doc.currentPath, buf, doc.docNumber)
+  const onDisk = resolveStored(doc.currentPath, orgId)
+  const buf = Buffer.from(await Bun.file(onDisk).arrayBuffer())
+  const res = await runAndDumpCompare(orgId, onDisk, buf, doc.docNumber)
   doc.compareSummary = res.summary
   doc.committedTarget = 'compare'
   doc.status = 'committed'

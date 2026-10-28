@@ -22,9 +22,10 @@
       <v-btn class="ml-2" variant="outlined" size="small" icon="mdi-cog" :title="$t('invoicing.linePicker.title')" :aria-label="$t('invoicing.linePicker.title')" @click="columnPickerOpen = true" />
     </div>
 
-    <!-- Doc-level single-value controls — visible while the per-line column is hidden.
-         Changing a value applies it to every line; new lines seed from it. -->
-    <div v-if="!isColActive('taxRate') || !isColActive('warehouse')" class="d-flex align-center ga-4 mb-2 flex-wrap">
+    <!-- Doc-level single-value controls — tax rate / warehouse while the per-line column is hidden,
+         and (outgoing documents) one price for every line. Changing a value applies it to every
+         line; new lines seed from it. -->
+    <div v-if="!isColActive('taxRate') || !isColActive('warehouse') || docPriceEnabled" class="d-flex align-center ga-4 mb-2 flex-wrap">
       <div v-if="!isColActive('taxRate')" style="width: 180px">
         <TaxRateCombobox
           :model-value="docTaxRate"
@@ -59,6 +60,45 @@
           @click="pinDefaultWarehouse"
         />
       </div>
+      <!-- One named price (Цена 1…N, selling price, …) for the whole document: each line takes its
+           own product's price of that name. The list is what the lines' price pickers offer. -->
+      <div v-if="docPriceEnabled" style="width: 280px">
+        <v-select
+          :model-value="docPriceKey ?? ''"
+          :items="docPriceItems"
+          item-title="title"
+          item-value="value"
+          :label="$t('invoicing.docPrice.label')"
+          :loading="docPriceLoading"
+          :disabled="!hasPricedLines"
+          :title="hasPricedLines ? undefined : $t('invoicing.docPrice.noProducts')"
+          prepend-inner-icon="mdi-tag-multiple-outline"
+          density="compact"
+          hide-details
+          variant="underlined"
+          data-testid="doc-price-select"
+          @update:menu="(open: boolean) => open && loadDocPriceChoices()"
+          @update:model-value="(key: string) => applyDocPrice(key || null)"
+        >
+          <template #item="{ item, props: ip }">
+            <v-list-item v-bind="ip" :subtitle="item.raw.subtitle" />
+          </template>
+        </v-select>
+      </div>
+      <!-- #145: each line at the price this customer was last charged for the product. -->
+      <v-checkbox
+        v-if="lastPriceEnabled"
+        :model-value="useLastPrice"
+        :label="$t('invoicing.lastPrice.label')"
+        :title="form.contactId ? $t('invoicing.lastPrice.hint') : $t('invoicing.lastPrice.noContact')"
+        :disabled="!form.contactId"
+        :loading="lastPriceLoading"
+        density="compact"
+        hide-details
+        color="primary"
+        data-testid="last-price-checkbox"
+        @update:model-value="onUseLastPriceChange"
+      />
     </div>
 
     <LineColumnPickerDialog
@@ -81,10 +121,14 @@
     />
 
     <div style="overflow-x: auto;" @keydown.capture="onGridKeydown">
-      <v-table density="compact">
+      <!-- The description takes whatever the fixed-width columns leave. It used to demand half the
+           viewport (min-width: 50vw), which pushed Price and Total off-screen on a laptop with the
+           side panel open — the row could not be read without scrolling sideways. -->
+      <v-table density="compact" class="line-table">
       <thead>
         <tr>
-          <th style="width:50%;min-width:50vw">{{ $t('common.description') }}</th>
+          <th class="line-no">{{ $t('invoicing.lineNoShort') }}</th>
+          <th style="min-width:220px">{{ $t('common.description') }}</th>
           <th
             v-for="col in activeLineColumns.filter((c) => c.key !== 'description')"
             :key="col.key"
@@ -97,29 +141,32 @@
             :class="col.align === 'end' ? 'text-end' : ''"
             style="min-width: 110px"
           >{{ $t(col.i18n) }}</th>
-          <th style="width:40px"></th>
+          <th style="width:32px"></th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="(line, idx) in form.lines" :key="idx">
-          <td style="min-width:160px">
+          <td class="line-no text-medium-emphasis">{{ idx + 1 }}</td>
+          <td>
             <div class="d-flex align-center ga-1">
               <ProductLineDescription
                 :description="line.description"
                 :product-id="line.productId"
                 :price-field="config.priceField"
+                :allow-create="!!config.allowCreateProduct"
                 class="flex-grow-1"
                 @update:description="line.description = $event"
                 @update:product-id="line.productId = $event"
                 @product-selected="onProductSelected(idx, $event)"
                 @product-cleared="onProductCleared(idx)"
+                @create-product="openQuickProduct(idx, $event)"
               />
               <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.browseProducts')" :aria-label="$t('invoicing.browseProducts')" @click="openProductPicker(idx)" />
             </div>
           </td>
           <td v-if="isColActive('qty')">
-            <!-- min-width fits 5-digit quantities plus the number-input spinner arrows -->
-            <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" style="min-width: 110px" />
+            <!-- the column width (catalog) fits 5-digit quantities plus the number-input spinner -->
+            <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" />
           </td>
           <td v-if="isColActive('unit')">
             <v-autocomplete v-model="line.unit" :items="uomOptions" item-title="title" item-value="value" density="compact" hide-details variant="underlined">
@@ -152,7 +199,7 @@
                 :currency="form.currency"
                 :resolved-price="line.resolvedPrice"
                 :price-explanation="line.priceExplanation"
-                :auto-apply-resolved="!line.loaded"
+                :auto-apply-resolved="!line.loaded && !line.pricePinned"
                 class="flex-grow-1"
                 @update:model-value="onLinePriceChange(idx, $event)"
                 @update:price-explanation="line.priceExplanation = $event"
@@ -169,21 +216,26 @@
                 @change="onLinePriceManualChange(idx)"
               />
             </div>
+            <!-- FR-22 D-2: the bill keeps the supplier's price; the cost it was received at is shown. -->
+            <div v-if="receiptCostOf && receiptCostOf(line)" class="text-caption text-warning text-no-wrap" data-testid="receipt-cost">
+              {{ $t('invoicing.linkDelivery.receiptCost', { price: fmtCurrency(receiptCostOf(line)!.cost) }) }}
+              ({{ receiptCostOf(line)!.diff > 0 ? '+' : '' }}{{ fmtCurrency(receiptCostOf(line)!.diff) }})
+            </div>
           </td>
           <td v-if="isColActive('discount')">
             <v-text-field v-model.number="line.discount" type="number" min="0" max="100" suffix="%" density="compact" hide-details variant="underlined" />
           </td>
-          <td v-if="isColActive('lineSubtotal')" class="text-end" style="white-space: nowrap; min-width: 110px;">
+          <td v-if="isColActive('lineSubtotal')" class="text-end" style="white-space: nowrap;">
             <PriceExplainButton v-if="!isColActive('lineTotal') && line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
             <span>{{ fmtCurrency(computeLineSubtotal(line)) }}</span>
           </td>
-          <td v-if="isColActive('taxRate')" style="min-width: 120px">
+          <td v-if="isColActive('taxRate')">
             <TaxRateCombobox v-model="line.taxRate" :rates="vatRates" :default-rate="defaultVatRate" :org-url="appStore.orgUrl()" />
           </td>
           <td v-if="isColActive('warehouse')">
             <v-autocomplete v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable />
           </td>
-          <td v-if="isColActive('lineTotal')" class="text-end" style="white-space: nowrap; min-width: 120px;">
+          <td v-if="isColActive('lineTotal')" class="text-end" style="white-space: nowrap;">
             <PriceExplainButton v-if="line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
             <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>
           </td>
@@ -206,6 +258,14 @@
       </tbody>
       </v-table>
     </div>
+
+    <!-- FR-22.30: the article the line's search did not find, created without leaving the document. -->
+    <QuickProductDialog
+      v-model="quickOpen"
+      :org-url="orgUrl()"
+      :initial-name="quickName"
+      @created="onQuickProductCreated"
+    />
   </div>
 </template>
 
@@ -218,9 +278,15 @@ import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
 import LineColumnPickerDialog from 'ui-shared/components/LineColumnPickerDialog.vue'
 import GRProductUpdateCell from 'ui-shared/components/GRProductUpdateCell.vue'
 import GRColumnPickerDialog from 'ui-shared/components/GRColumnPickerDialog.vue'
-import { useGridNavigation } from '../../composables/document-form/useGridNavigation'
+import QuickProductDialog from 'ui-shared/components/QuickProductDialog.vue'
+import { ref } from 'vue'
+import { useGridNavigation } from 'ui-shared/composables/useGridNavigation'
 
-const props = defineProps<{ doc: any }>()
+const props = defineProps<{
+  doc: any
+  /** A bill made from goods receipts: the cost a line's article was received at, when it differs. */
+  receiptCostOf?: (line: any) => { cost: number; diff: number } | null
+}>()
 
 const {
   config,
@@ -248,6 +314,17 @@ const {
   onLinePriceChange,
   onLinePriceManualChange,
   onLinePriceSelected,
+  docPriceEnabled,
+  docPriceKey,
+  docPriceItems,
+  docPriceLoading,
+  hasPricedLines,
+  loadDocPriceChoices,
+  applyDocPrice,
+  lastPriceEnabled,
+  useLastPrice,
+  lastPriceLoading,
+  onUseLastPriceChange,
   isColActive,
   columnPickerOpen,
   selectedCols,
@@ -275,4 +352,39 @@ const {
 
 // Spreadsheet-like Tab/Enter navigation across the line-item cells.
 const { onGridKeydown } = useGridNavigation({ addLine, getLines: () => form.lines })
+
+// ── FR-22.30: „+ Нов продукт „…"" on a line ──
+const quickOpen = ref(false)
+const quickName = ref('')
+let quickLine = -1
+
+function openQuickProduct(idx: number, name: string) {
+  quickLine = idx
+  quickName.value = name
+  quickOpen.value = true
+}
+
+/** The new article (or the catalog's own, when it had it) goes on the line it was asked from. */
+async function onQuickProductCreated(product: any) {
+  const line = form.lines[quickLine]
+  if (!line || !product) return
+  line.productId = product._id || product.id
+  line.description = product.name
+  await onProductSelected(quickLine, { ...product, _id: line.productId })
+}
 </script>
+
+<style scoped>
+/* v-table's 16px cell gutters cost 32px per column — on a grid of up to ten columns that is a
+   whole column's worth of width. */
+.line-table :deep(th),
+.line-table :deep(td) {
+  padding-left: 6px !important;
+  padding-right: 6px !important;
+}
+.line-no {
+  width: 36px;
+  text-align: end;
+  white-space: nowrap;
+}
+</style>

@@ -3,6 +3,7 @@ import type { IInvoice } from 'dal/entities'
 import { Reservation, Product } from 'db/models'
 import { getRepos } from '../context.js'
 import { confirmMovement } from './warehouse.service.js'
+import { loadAllocationSupply } from './reservation.service.js'
 import { restoreCostLayers } from './costing.service.js'
 import { logger } from '../logger/logger.js'
 
@@ -106,39 +107,92 @@ export function calculateInvoiceTotals(
   }
 }
 
-async function getNextMovementNumber(orgId: string, repos: RepositoryRegistry): Promise<string> {
+export async function getNextMovementNumber(orgId: string, repos: RepositoryRegistry): Promise<string> {
   const year = new Date().getFullYear()
   const prefix = `SM-${year}-`
-  const movements = await repos.stockMovements.findMany(
+  // The latest one only: listing every movement of the year to read the first was the cost of a
+  // number in an org with thousands of them.
+  const latest = await repos.stockMovements.findAll(
     { orgId, movementNumber: { $regex: `^${prefix}` } } as any,
-    { movementNumber: -1 },
+    { page: 0, size: 1, sort: { movementNumber: -1 } },
   )
-  if (!movements.length) {
-    return `${prefix}00001`
-  }
-  const currentNum = parseInt(movements[0].movementNumber.replace(prefix, ''), 10)
-  return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
+  const currentNum = parseInt(String(latest.items[0]?.movementNumber ?? '').slice(prefix.length), 10)
+  return `${prefix}${String((Number.isFinite(currentNum) ? currentNum : 0) + 1).padStart(5, '0')}`
 }
 
 /**
- * Per-reservation exemption budgets: each reservation exempts at most its OPEN
- * (undispatched, non-cancelled) quantity, computed once per validation call. The
- * dispatch movement runs before the reservation sync, so `dispatchedQuantity` excludes
- * the current document — which is exactly why the budget must be shared across all of
- * the document's lines instead of re-granted per line.
+ * Create a stock movement under the org's next `SM-<year>-NNNNN`: the latest number + 1, as every
+ * movement path numbers them.
+ *
+ * "Latest + 1" is read-then-write, so another till or an import booking at the same moment can
+ * take the number first. A duplicate is retried under a fresh number rather than failing the
+ * booking. (The till did this on its own until FR-21 moved it onto this path: two tills selling at
+ * once would otherwise lose one sale's stock to the unique index.)
  */
-export async function loadReservationBudgets(orgId: string, reservationIds: string[]): Promise<Map<string, number>> {
-  const budgets = new Map<string, number>()
-  if (!reservationIds.length) return budgets
-  const resDocs = await Reservation.find(
-    { orgId, _id: { $in: reservationIds } } as any,
-    { quantity: 1, dispatchedQuantity: 1, status: 1 },
-  ).lean().exec()
-  for (const res of resDocs) {
-    if ((res as any).status === 'cancelled') continue
-    budgets.set(String((res as any)._id), Math.max(0, ((res as any).quantity || 0) - ((res as any).dispatchedQuantity || 0)))
+export async function createNumberedMovement(repos: RepositoryRegistry, orgId: string, data: Record<string, any>): Promise<any> {
+  for (let attempt = 1; ; attempt++) {
+    const movementNumber = await getNextMovementNumber(orgId, repos)
+    try {
+      return await repos.stockMovements.create({ ...data, orgId, movementNumber } as any)
+    } catch (e: any) {
+      if (e?.code !== 'DUPLICATE' || attempt >= 5) throw e
+      logger.warn({ orgId, movementNumber, attempt }, 'Stock movement number already taken, retrying')
+    }
   }
-  return budgets
+}
+
+export interface ReservationBudgets {
+  /**
+   * Exempt up to `quantity` of a line dispatching against `reservationId` from the free-stock
+   * check, consuming the budget. Returns the exempt part; the rest competes for free stock.
+   */
+  take(reservationId: string, quantity: number): number
+}
+
+/**
+ * Per-reservation exemption budgets, computed once per validation call. The dispatch movement
+ * runs before the reservation sync, so `dispatchedQuantity` excludes the current document —
+ * which is exactly why the budget must be shared across all of the document's lines instead of
+ * re-granted per line.
+ *
+ * A line may skip the free-stock check only for goods its reservation's hold took OUT of free
+ * stock, so the budget is that hold: a stock reservation's open (undispatched, non-cancelled)
+ * quantity; an order reservation's open quantity capped by what its allocation has received and
+ * not dispatched, nothing while its ORDO holds nothing, one pool shared by the reservations on
+ * the same allocation. Granting the open quantity whatever the supply let an invoice dispatch the
+ * 10 units of a sent but unreceived ORDO: stock 404 → −10 (FR-22.5, B-7).
+ */
+export async function loadReservationBudgets(orgId: string, reservationIds: string[]): Promise<ReservationBudgets> {
+  const open = new Map<string, number>()
+  const allocationOf = new Map<string, string>()
+  const pool = new Map<string, number>()
+  if (reservationIds.length) {
+    const resDocs: any[] = await Reservation.find(
+      { orgId, _id: { $in: reservationIds } } as any,
+      { quantity: 1, dispatchedQuantity: 1, status: 1, source: 1, orderId: 1, allocationId: 1 },
+    ).lean().exec()
+    const live = resDocs.filter(r => r.status !== 'cancelled')
+    const supply = await loadAllocationSupply(orgId, live.filter(r => r.source === 'order'))
+    for (const res of live) {
+      const id = String(res._id)
+      open.set(id, Math.max(0, (res.quantity || 0) - (res.dispatchedQuantity || 0)))
+      if (res.source !== 'order') continue
+      const alloc = res.allocationId ? String(res.allocationId) : ''
+      allocationOf.set(id, alloc)
+      if (!pool.has(alloc)) pool.set(alloc, supply.get(alloc)?.physical ?? 0)
+    }
+  }
+  return {
+    take(reservationId, quantity) {
+      const id = String(reservationId)
+      const alloc = allocationOf.get(id)
+      const own = open.get(id) || 0
+      const exempt = Math.max(0, Math.min(quantity, own, alloc === undefined ? own : pool.get(alloc) || 0))
+      open.set(id, own - exempt)
+      if (alloc !== undefined) pool.set(alloc, (pool.get(alloc) || 0) - exempt)
+      return exempt
+    },
+  }
 }
 
 export async function validateStockAvailability(
@@ -152,8 +206,8 @@ export async function validateStockAvailability(
 
   // Lines dispatching against a reservation consume their own hold — the reserved stock
   // is excluded from the sellable quantity precisely so it stays theirs to take. The
-  // exemption is capped at the reservation's open quantity; any excess competes for
-  // free stock like everyone else. Missing/cancelled reservations grant no exemption.
+  // exemption is capped at what that hold holds (loadReservationBudgets); any excess
+  // competes for free stock like everyone else. Missing/cancelled reservations grant none.
   const resIds = [...new Set(withProduct
     .map(l => (l as any).orderRef?.reservationId)
     .filter(Boolean)
@@ -166,13 +220,10 @@ export async function validateStockAvailability(
   for (const line of withProduct) {
     const rid = (line as any).orderRef?.reservationId ? String((line as any).orderRef.reservationId) : ''
     let required = line.quantity
-    if (rid) {
-      const budget = budgets.get(rid) || 0
-      const exempt = Math.min(required, budget)
-      budgets.set(rid, budget - exempt)
-      required -= exempt
-    }
-    if (required > 0) {
+    if (rid) required -= budgets.take(rid, required)
+    // Tolerance as elsewhere in the reservation code: fractional units (kg, l) can leave a
+    // subtraction residue that must not read as a shortfall.
+    if (required > 1e-9) {
       productLines.push({
         productId: String(line.productId),
         warehouseId: String(line.warehouseId),
@@ -254,7 +305,22 @@ async function stockTrackedIds(orgId: string, lines: Array<{ productId?: string 
 }
 
 /**
- * An invoice converted from a складова разписка moves no stock, in either direction.
+ * Refuse a dispatch the warehouses cannot cover, before anything is written: the check
+ * `createInvoiceStockMovement` runs, on the lines it would book (products that hold stock, on a
+ * warehouse). The till runs it before a receipt can print, when its org does not let it sell below
+ * zero (FR-21.16).
+ */
+export async function assertDispatchAvailable(
+  orgId: string,
+  lines: { productId?: string; warehouseId?: string; quantity: number; description?: string }[],
+): Promise<void> {
+  const tracked = await stockTrackedIds(orgId, lines)
+  await validateStockAvailability(orgId, lines.filter(l => l.productId && l.warehouseId && tracked.has(String(l.productId))))
+}
+
+/**
+ * An invoice converted from a складова разписка moves no stock, in either direction — and
+ * neither does a proforma, which is an offer.
  *
  * The goods left on the разписка; the invoice is the paperwork that follows it. Booking its
  * dispatch takes them out twice, and reversing it on a void puts back goods that never left on
@@ -262,15 +328,80 @@ async function stockTrackedIds(orgId: string, lines: Array<{ productId?: string 
  * the Issue button and the Void button alike — see `doc-import/conversion.ts`.
  */
 function movesNoStock(invoice: IInvoice, direction: 'book' | 'reverse'): boolean {
+  // A proforma is an offer, not a sale (FR-22.22): issuing, voiding or converting one moves no
+  // stock. The invoice it is converted into dispatches when that invoice is issued.
+  if (invoice.type === 'proforma') return true
   const src = (invoice as any).stockSource
   if (!src?.marker) return false
   logger.info({ invoiceId: invoice.id, marker: src.marker, direction }, 'Invoice carries a stock source — no stock movement')
   return true
 }
 
+/**
+ * Lines that would be invoiced and never dispatched: a quantity, a description the document
+ * supplied, and no product to move. ONE definition, so the booking guard and the callers that
+ * must refuse BEFORE mutating anything cannot drift apart.
+ *
+ * ⚠ Sales invoices only; a cash sale is deliberately exempt (a till export is a whole day
+ * aggregated by name, so one unknown article must not block the day's revenue — `mapCashSaleExport`
+ * warns there instead). Quantity-0 lines are notes and headers and claim no goods.
+ */
+export function unbookableStockLines(invoice: IInvoice): any[] {
+  if (invoice.type !== 'invoice') return []
+  return (invoice.lines || []).filter(l => !l.productId && Number(l.quantity || 0) !== 0 && !!(l as any).sourceText)
+}
+
+export function unbookableStockMessage(invoice: IInvoice, unresolved: any[]): string {
+  const shown = unresolved.slice(0, 3).map(l => `${l.quantity} × ${JSON.stringify(String(l.description ?? '').slice(0, 40))}`).join('; ')
+  return `Refusing to book stock for ${invoice.invoiceNumber || invoice.id}: ${unresolved.length} line(s) carry a quantity but no product, `
+    + `so they would be invoiced and never dispatched — ${shown}${unresolved.length > 3 ? ` (+${unresolved.length - 3} more)` : ''}. `
+    + `Create the article, or point the line at an existing one, then book it again.`
+}
+
 export async function createInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
   const r = repos ?? getRepos()
   if (movesNoStock(invoice, 'book')) return
+
+  /**
+   * A line that claims a quantity but names no PRODUCT moves nothing, while its money still
+   * counts toward the document's total. That is the same failure as the warehouseId case below —
+   * the document is issued, the stock is not — and it is silent, which is what makes it worse.
+   *
+   * It has happened ten times across the two regal orgs for **3,413 units**: regal-pz
+   * INV-3000101246 alone invoiced 3,000 × „ГАЙКА М6 - DIN 985 - A2-Gleitmo" that never left,
+   * and regal-sf did 400 on 2026-10-06 and 4 more on 10-07.
+   *
+   * ⚠ But a product-less line is NOT always a mistake, and the test
+   * "should skip stock movement for lines without productId or warehouseId" says so: a
+   * service-only invoice — 10 hrs of „Consulting Service", no product at all — must book nothing
+   * and must not fail. So this cannot simply refuse every product-less line.
+   *
+   * What separates the two is **`sourceText`**: it is written only by the import mappers
+   * (`map-invoice`, `map-cash-sale`) to record the text a document actually carried, and the
+   * invoice form merely round-trips it. So a line with `sourceText` and no productId means "we
+   * read this off paper and could not resolve it to an article", which has no benign reading —
+   * the goods are named on a customer's invoice and nothing leaves the warehouse. A hand-typed
+   * line has no `sourceText` and keeps its existing behaviour exactly.
+   *
+   * All ten historical cases carry `sourceText`, so this catches every one of them and nothing
+   * else. (A service, for the record, is a product with `trackInventory: false` — the `tracked`
+   * set below is what exempts it — so a service line normally keeps its productId anyway.)
+   *
+   * ⚠ Sales invoices only, and a CASH SALE is deliberately exempt. A till export is a whole
+   * day's takings aggregated by article name, so one unrecognised name among a hundred would
+   * block the entire day's revenue; `mapCashSaleExport` warns there instead ("N item(s) have no
+   * catalog match — they import as free-text and will not move stock") and the operator creates
+   * the article and re-imports. An invoice is one named customer document, so the same silence is
+   * not a trade-off worth making. All ten real cases were `type: 'invoice'`.
+   *
+   * Quantity-0 lines are exempt: they are notes and headers and claim no goods.
+   *
+   * ⚠ Only on the BOOK path. `reverseInvoiceStockMovement` deliberately has no equivalent, so
+   * the ten documents already carrying such a line can still be voided and corrected.
+   */
+  const unresolved = unbookableStockLines(invoice)
+  if (unresolved.length) throw new Error(unbookableStockMessage(invoice, unresolved))
+
   const tracked = await stockTrackedIds(invoice.orgId, invoice.lines as any)
   const productLines = invoice.lines.filter(l => l.productId && l.warehouseId && tracked.has(String(l.productId)))
   if (!productLines.length) {
@@ -320,7 +451,6 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
   }
 
   for (const [warehouseId, lines] of byWarehouse) {
-    const movementNumber = await getNextMovementNumber(orgId, r)
     const movementLines = lines.map(l => ({
       productId: l.productId!,
       quantity: l.quantity,
@@ -329,9 +459,7 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
     }))
     const totalAmount = movementLines.reduce((s, l) => s + l.totalCost, 0)
 
-    const movement = await r.stockMovements.create({
-      orgId,
-      movementNumber,
+    const movement = await createNumberedMovement(r, orgId, {
       type: movementType,
       status: 'draft',
       date: new Date(),
@@ -350,9 +478,20 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
   logger.info({ invoiceId: invoice.id, movementType }, 'Invoice stock movement created')
 }
 
-export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
+export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean; note?: string }): Promise<void> {
   const r = repos ?? getRepos()
   if (movesNoStock(invoice, 'reverse')) return
+  const originalMovements = await r.stockMovements.findMany({ orgId: invoice.orgId, invoiceId: invoice.id } as any)
+  // A document reverses only a booking it carries: every booking writes its movements with the
+  // document's `invoiceId`. Without one, reversing the LINES put goods that never left back on the
+  // shelf (or took out goods that never came in):
+  //   - a draft, which books nothing until issued (2026-10-26: one draft void added 1,257 units in `regal`);
+  //   - a cash sale imported with `skipStockMovement`, a create-time flag the document does not keep (#322);
+  //   - the documents of the July 2026 migration, issued before the stock baseline, which never moved stock.
+  if (!originalMovements.some((m: any) => m.status === 'completed')) {
+    logger.info({ invoiceId: invoice.id, status: invoice.status }, 'reverseInvoiceStockMovement: the document booked no stock — nothing to reverse')
+    return
+  }
   // Symmetric with the booking above: what never moved must not be restocked on a void.
   const tracked = await stockTrackedIds(invoice.orgId, invoice.lines as any)
   const productLines = invoice.lines.filter(l => l.productId && l.warehouseId && tracked.has(String(l.productId)))
@@ -371,14 +510,23 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
     byWarehouse.get(whId)!.push(line)
   }
 
-  // Restore cost layers from original dispatch movements
-  const originalMovements = await r.stockMovements.findMany({ orgId, invoiceId: invoice.id } as any)
+  // Restore cost layers from original dispatch movements, and note what each unit cost when it
+  // left: goods that come back on a void come back at that cost, never at the document's price.
+  const layersRestored = new Set<string>()
+  const leftAt = new Map<string, { qty: number; cost: number }>()
   for (const mov of originalMovements) {
-    if (mov.status !== 'completed') continue
-    for (const line of mov.lines) {
-      if ((line as any).costAllocations?.length) {
-        await restoreCostLayers((line as any).costAllocations, r)
+    if (mov.status !== 'completed' || !mov.fromWarehouseId) continue
+    for (const line of mov.lines as any[]) {
+      const key = `${String(line.productId)}|${String(mov.fromWarehouseId)}`
+      if (line.costAllocations?.length) {
+        await restoreCostLayers(line.costAllocations, r)
+        layersRestored.add(key)
       }
+      const allocated = (line.costAllocations || []).reduce((s: number, a: any) => s + (Number(a.totalCost) || 0), 0)
+      const unit = line.costAllocations?.length && line.quantity ? allocated / line.quantity : Number(line.resolvedUnitCost)
+      if (!Number.isFinite(unit) || !line.quantity) continue
+      const acc = leftAt.get(key) ?? { qty: 0, cost: 0 }
+      leftAt.set(key, { qty: acc.qty + Number(line.quantity), cost: acc.cost + unit * Number(line.quantity) })
     }
   }
 
@@ -402,18 +550,25 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
   }
 
   for (const [warehouseId, lines] of byWarehouse) {
-    const movementNumber = await getNextMovementNumber(orgId, r)
-    const movementLines = lines.map(l => ({
-      productId: l.productId!,
-      quantity: l.quantity,
-      unitCost: l.unitPrice,
-      totalCost: l.quantity * l.unitPrice,
+    const movementLines = await Promise.all(lines.map(async l => {
+      // #276: a receipt's unitCost is folded into avgCost and becomes a layer. At the document's
+      // price, every void of a sale pulled avgCost towards the selling price. A reversal receipt
+      // carries what the goods left at; a dispatch out ignores its line cost (it consumes).
+      let unitCost = l.unitPrice
+      if (reverseType === 'receipt') {
+        const left = leftAt.get(`${String(l.productId)}|${warehouseId}`)
+        if (left?.qty) unitCost = left.cost / left.qty
+        else {
+          // No dispatch recorded what it cost: today's average, so a void moves no average.
+          const level = await r.stockLevels.findOne({ orgId, productId: String(l.productId), warehouseId } as any)
+          if (level) unitCost = Number((level as any).avgCost) || 0
+        }
+      }
+      return { productId: l.productId!, quantity: l.quantity, unitCost, totalCost: l.quantity * unitCost }
     }))
     const totalAmount = movementLines.reduce((s, l) => s + l.totalCost, 0)
 
-    const movement = await r.stockMovements.create({
-      orgId,
-      movementNumber,
+    const movement = await createNumberedMovement(r, orgId, {
       type: reverseType,
       status: 'draft',
       date: new Date(),
@@ -423,11 +578,14 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
       invoiceId: invoice.id,
       lines: movementLines,
       totalAmount,
-      notes: `Reversal for voided invoice ${invoice.invoiceNumber}`,
+      // Why it is reversed: a void, unless the caller says otherwise (an invoice attached to the cash
+      // sale whose till already moved its goods, FR-21 §11).
+      notes: opts?.note ?? `Reversal for voided invoice ${invoice.invoiceNumber}`,
       createdBy: userId,
     } as any)
 
-    await confirmMovement(movement.id, r)
+    // The layers the dispatch consumed are back already; the receipt must not add a second set.
+    await confirmMovement(movement.id, r, { layersRestored })
   }
 
   logger.info({ invoiceId: invoice.id, reverseType }, 'Invoice stock movement reversed')

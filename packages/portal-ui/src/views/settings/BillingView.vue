@@ -101,6 +101,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { getOrg } from 'ui-shared/session/session'
 
 const route = useRoute()
 
@@ -125,11 +126,7 @@ const plans = ref<Plan[]>([])
 const portalLoading = ref(false)
 const checkoutLoading = ref<string | null>(null)
 
-const org = computed(() => {
-  try {
-    return JSON.parse(localStorage.getItem('lgr_org') || '{}')
-  } catch { return {} }
-})
+const org = computed<Record<string, any>>(() => getOrg() ?? {})
 
 const subscription = computed(() => {
   return org.value?.subscription || {}

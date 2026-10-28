@@ -18,7 +18,7 @@
     @portal-navigate="handlePortalNavigate"
     @toggle-pending-changes="pendingChangesOpen = !pendingChangesOpen"
     @logout="appStore.logout()"
-    @profile="() => {}"
+    @profile="openAccount"
   >
     <template #menu-bar>
       <TopMenuBar :menu-items="menuItems" />
@@ -43,9 +43,11 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppShell from 'ui-shell/components/AppShell'
+import { appHomeHref, portalHref } from 'ui-shared/nav/navigate'
 import TopMenuBar from 'ui-shell/components/TopMenuBar'
 import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
 import { useAppStore } from '../store/app.store'
+import { pinOffered } from '../composables/useTillPin'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'
 import type { AppInfo } from 'ui-shell/components/types'
@@ -59,6 +61,8 @@ const pendingChangesStore = usePendingChangesStore()
 const router = useRouter()
 const apps = ref<AppInfo[]>([])
 const pendingChangesOpen = ref(false)
+const pinAtTill = ref(false)
+pinOffered().then(v => { pinAtTill.value = v })
 
 const menuItems = computed<TopMenuItem[]>(() => [
   {
@@ -66,13 +70,15 @@ const menuItems = computed<TopMenuItem[]>(() => [
     icon: 'mdi-point-of-sale',
     children: [
       { label: t('nav.terminal') || 'Terminal', icon: 'mdi-point-of-sale', to: '/terminal' },
+      // FR-20.40: the next operator signs in with a PIN, where the server offers one.
+      ...(pinAtTill.value ? [{ label: t('pos.pin.switchOperator'), icon: 'mdi-account-switch', to: '/pin' }] : []),
     ],
   },
   {
     label: t('nav.orders') || 'Orders',
     icon: 'mdi-receipt',
     children: [
-      { label: t('nav.transactions') || 'Transactions', icon: 'mdi-receipt', to: '/orders' },
+      { label: t('cashRegister.title') || 'Cash Register Sales', icon: 'mdi-receipt', to: '/orders' },
     ],
   },
   {
@@ -123,28 +129,16 @@ onMounted(async () => {
   }
 })
 
-function getTokenParams() {
-  const token = localStorage.getItem('lgr_token') || ''
-  const org = localStorage.getItem('lgr_org') || ''
-  return `?token=${encodeURIComponent(token)}&org=${encodeURIComponent(org)}`
-}
-
 function handleAppNavigate(app: AppInfo) {
-  const { hostname, port } = window.location
-  const isViteDev = hostname === 'localhost' && port === '4091'
-  if (isViteDev && app.devPort) {
-    window.location.href = `http://localhost:${app.devPort}${app.path}${getTokenParams()}`
-  } else {
-    window.location.href = app.path
-  }
+  window.location.href = appHomeHref(app)
 }
 
 function handlePortalNavigate() {
-  const { hostname } = window.location
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    window.location.href = `http://localhost:4001/apps${getTokenParams()}`
-  } else {
-    window.location.href = '/apps'
-  }
+  window.location.href = portalHref('/apps')
+}
+
+/** The person's account page lives on the portal. */
+function openAccount() {
+  window.location.href = portalHref('/account')
 }
 </script>

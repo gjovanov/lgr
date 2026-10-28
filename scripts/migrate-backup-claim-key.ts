@@ -33,6 +33,7 @@
  *   bun run scripts/migrate-backup-claim-key.ts --execute    # actually migrate
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { tenantHomeScope } from './lib/home-guard.js'
 import { BackupRun } from '../packages/db/src/models/index.js'
 
 const execute = process.argv.slice(2).includes('--execute')
@@ -50,8 +51,10 @@ function sameKey(a: Record<string, any>, b: Record<string, any>): boolean {
 async function main() {
   await connectDB()
   const coll = BackupRun.collection
+  // FR-20.4: backfill only the orgs homed here. The index work below is per database, not per org.
+  const home = await tenantHomeScope()
 
-  const missing = await BackupRun.countDocuments({ claimKey: { $exists: false } })
+  const missing = await BackupRun.countDocuments({ claimKey: { $exists: false }, ...home })
   console.log(`rows without claimKey: ${missing}`)
 
   const indexes = await coll.indexes()
@@ -68,7 +71,7 @@ async function main() {
 
   if (missing > 0) {
     const r = await BackupRun.updateMany(
-      { claimKey: { $exists: false } },
+      { claimKey: { $exists: false }, ...home },
       { $set: { claimKey: 'scheduled' } },
     ).exec()
     console.log(`backfilled claimKey on ${r.modifiedCount} rows`)

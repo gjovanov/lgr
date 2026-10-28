@@ -23,7 +23,69 @@
 | totalCard | Number | Общо с карта |
 | transactionCount | Number | Брой транзакции |
 
-### POSTransaction (POS транзакции)
+### Касов документ — `Invoice` с тип `cash_sale` / `cash_storno` (FR-21)
+
+Всяка продажба на касата е документ в колекция `invoices` с тип `cash_sale`, независимо дали е маркирана на касовия терминал, въведена в бек офиса или внесена като ден от PlusMinus. Сторнирането е отделен документ с тип `cash_storno`, който сочи продажбата (`relatedInvoiceId`). Сумите на сторното са положителни, а знакът се определя от типа. Сторнираната продажба остава с всички свои данни и статус `paid` и се отбелязва като сторнирана в `register.stornoState`.
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| orgId | ObjectId | Организация |
+| invoiceNumber | String | Номер: `CS-YYYY-NNNNN` (или префиксът, настроен за организацията, напр. `CSR`), общ за продажби и сторна. Копираните POS транзакции запазват своя номер `TXN-YYYY-NNNNNNN` |
+| type | String | `cash_sale` (продажба) / `cash_storno` (сторно) |
+| status | String | `paid`; `voided` — сторно, чийто фискален бон не е отпечатан и което не сторнира нищо |
+| contactId | ObjectId | Клиент (ref Contact) |
+| issueDate | Date | Дата и час на продажбата |
+| currency | String | Валута (на смяната за касовия терминал) |
+| exchangeRate | Number | Стойност на една единица от валутата в основната валута на организацията |
+| lines[] | Array | Редове на документа |
+| lines[].productId | ObjectId | Продукт |
+| lines[].description | String | Наименование |
+| lines[].quantity | Number | Количество |
+| lines[].unit | String | Мярка |
+| lines[].unitPrice | Number | Единична цена без ДДС |
+| lines[].discount | Number | Отстъпка (%) |
+| lines[].taxRate | Number | ДДС ставка (%) |
+| lines[].taxAmount | Number | ДДС сума |
+| lines[].lineTotal | Number | Сума на реда с ДДС |
+| lines[].warehouseId | ObjectId | Склад (за касовия терминал — складът на смяната) |
+| subtotal | Number | Сума без ДДС |
+| discountTotal | Number | Общо отстъпка |
+| taxTotal | Number | Общо ДДС |
+| total | Number | Обща сума |
+| payments[] | Array | Плащания |
+| payments[].method | String | cash / card / bank_transfer / other (mobile и voucher — само в стари записи) |
+| payments[].amount | Number | Задържана сума (сборът на плащанията е равен на общата сума) |
+| payments[].tendered | Number | Подадена сума, когато се различава (ресто) |
+| relatedInvoiceId | ObjectId | За сторно: сторнираната продажба |
+| register.origin | String | Произход: `pos` (касов терминал), `backoffice` (бек офис), `import` (внесен ден от PlusMinus) |
+| register.sessionId | ObjectId | Смяна (ref POSSession) |
+| register.warehouseId | ObjectId | Склад/обект |
+| register.cashierId | ObjectId | Касиер (ref User) |
+| register.fiscalDeviceNumber | String | Номер на фискално устройство |
+| register.operatorCode | String | Код на оператор |
+| register.unp | String | УНП (XXXXXXXX-ZZZZ-0000001) |
+| register.fiscalReceiptNumber | String | Номер на фискален бон |
+| register.printedAt | Date | Дата/час на отпечатване |
+| register.isFiscal | Boolean | Фискален бон |
+| register.fiscal | Object | Състояние на отпечатването (`state`: pending / printed / failed / unknown / none; `mode`: fiscal / text) и номерът на последния документ на устройството преди отпечатването. По него се установява дали прекъснат бон е отпечатан, така че един бон никога не се отпечатва два пъти |
+| register.changeDue | Number | Ресто |
+| register.movementId | ObjectId | Складово движение (ref StockMovement); движението сочи документа чрез `invoiceId` |
+| register.storno | Object | За сторно: оригинален документ, УНП, фискален бон, дата и причина |
+| register.stornoState | String | За продажба: `none` / `full` (сторнирана) |
+| register.stornoedBy[] | ObjectId[] | Сторната на продажбата |
+| register.cancelledAt | Date | Кога е сторнирана продажбата (за таблица 18.5) |
+| register.legacy | Object | За копирана POS транзакция: нейният тип и номер |
+| createdBy | ObjectId | Създател (ref User) |
+| createdAt | Date | Дата на създаване |
+
+Индекси: `{orgId, type, issueDate}`, `{orgId, register.sessionId}`, `{orgId, register.unp}`; уникални `{orgId, invoiceNumber}` и `{orgId, clientKey}`.
+
+Документите на касовия терминал (`register.origin: pos`) и всяко сторно не могат да бъдат редактирани, изтрити или анулирани (HTTP 409). Коригират се единствено със сторно.
+
+### POSTransaction (POS транзакции) — архив
+
+До версията с FR-21 касовият терминал записваше продажбите в колекция `postransactions`. Миграция `0008-cash-register-copy` копира всяка транзакция в касов документ със същия идентификатор (`_id`), номер, УНП, фискален бон и времена. Миграцията спира, преди да запише каквото и да е, ако открие несъответствие, и проверява, че отчетите (вкл. таблици 18.1–18.5) остават същите. Колекцията се пази и се чете за обратна съвместимост. В нея вече не се записва.
+
 | Поле | Тип | Описание |
 |------|-----|----------|
 | orgId | ObjectId | Организация |
@@ -111,11 +173,13 @@
 | Поле | Тип | Описание |
 |------|-----|----------|
 | orgId | ObjectId | Организация |
-| prefix | String | Префикс (UNP-{deviceNumber}-{operatorCode}) |
+| prefix | String | Префикс (UNP-{deviceNumber}) — един брояч за фискалното устройство, общ за всички оператори (Прил. 29, т. 9). Старите броячи `UNP-{deviceNumber}-{operatorCode}` се запазват една версия за обратна съвместимост и се поддържат не по-ниски от новия. |
 | year | Number | Година (0 за УНП — без годишно нулиране) |
 | lastNumber | Number | Последен пореден номер |
 
-Уникален индекс: `{orgId, prefix, year}`. Атомарно увеличаване чрез `findOneAndUpdate($inc)`.
+Уникален индекс: `{orgId, prefix, year}`. Атомарно увеличаване чрез `findOneAndUpdate($inc)`. Преходът към един брояч за устройство е миграция `0001-unp-per-device` (колекция `_migrations`).
+
+Номерата на касовите документи се водят в същата колекция: брояч `CASH_SALE` (по години), общ за продажбите и сторната от всички входове — касов терминал, бек офис и внасяне. Броячът `TXN` на старите POS транзакции е закрит: не издава нови номера, а историята му остава проверима. Номерата на смените са от брояча `POS` (`POS-YYYY-NNNNNN`).
 
 ### AuditLog (Одитен дневник)
 | Поле | Тип | Описание |
@@ -125,7 +189,7 @@
 | operatorCode | String | Код на оператор |
 | action | String | Действие (login/logout/create/update/deactivate/storno/z_report) |
 | module | String | Модул (auth/erp/warehouse/invoicing/fiscal) |
-| entityType | String | Тип обект |
+| entityType | String | Тип обект (`pos_transaction` за документ на касовия терминал, `invoice` за документ от бек офиса или от внасяне) |
 | entityId | ObjectId | Идентификатор на обект |
 | entityName | String | Наименование на обект |
 | unpNumber | String | УНП (за продажби) |

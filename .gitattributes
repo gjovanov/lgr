@@ -1,0 +1,3 @@
+packages/services/src/biz/desktop/fingerprint-words.txt text eol=lf
+# FR-20.10 (P1-7): shell scripts and units that end up on a Linux master, whatever checked them out.
+packages/server/packaging/** text eol=lf

@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface ICashOrder extends Document {
   _id: Types.ObjectId
@@ -40,5 +41,7 @@ const cashOrderSchema = new Schema<ICashOrder>(
 
 cashOrderSchema.plugin(tenantPlugin)
 cashOrderSchema.index({ orgId: 1, orderNumber: 1 }, { unique: true })
+
+replicate(cashOrderSchema, { class: 'R' })
 
 export const CashOrder = model<ICashOrder>('CashOrder', cashOrderSchema)

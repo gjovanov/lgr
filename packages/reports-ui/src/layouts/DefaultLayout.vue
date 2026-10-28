@@ -19,7 +19,7 @@
     @app-navigate="handleAppNavigate"
     @portal-navigate="handlePortalNavigate"
     @logout="appStore.logout()"
-    @profile="() => {}"
+    @profile="openAccount"
   >
     <router-view />
   </AppShell>
@@ -28,6 +28,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import AppShell from 'ui-shell/components/AppShell'
+import { appHomeHref, portalHref } from 'ui-shared/nav/navigate'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import type { AppInfo } from 'ui-shell/components/types'
@@ -35,9 +36,6 @@ import { APP_REGISTRY, type AppId } from 'config/constants'
 
 const appStore = useAppStore()
 const apps = ref<AppInfo[]>([])
-
-/** This app's own Vite dev port — how the shell tells "per-app dev" from "unified". */
-const DEV_PORT = '4101'
 
 onMounted(async () => {
   if (!appStore.user && appStore.token) {
@@ -59,28 +57,16 @@ onMounted(async () => {
   }
 })
 
-function getTokenParams() {
-  const token = localStorage.getItem('lgr_token') || ''
-  const org = localStorage.getItem('lgr_org') || ''
-  return `?token=${encodeURIComponent(token)}&org=${encodeURIComponent(org)}`
-}
-
 function handleAppNavigate(app: AppInfo) {
-  const { hostname, port } = window.location
-  const isViteDev = hostname === 'localhost' && port === DEV_PORT
-  if (isViteDev && app.devPort) {
-    window.location.href = `http://localhost:${app.devPort}${app.path}${getTokenParams()}`
-  } else {
-    window.location.href = app.path
-  }
+  window.location.href = appHomeHref(app)
 }
 
 function handlePortalNavigate() {
-  const { hostname } = window.location
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    window.location.href = `http://localhost:4001/apps${getTokenParams()}`
-  } else {
-    window.location.href = '/apps'
-  }
+  window.location.href = portalHref('/apps')
+}
+
+/** The person's account page lives on the portal. */
+function openAccount() {
+  window.location.href = portalHref('/account')
 }
 </script>

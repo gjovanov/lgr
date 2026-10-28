@@ -1,6 +1,6 @@
 name: Desktop CI
 
-# FR-14.35b — the per-PR gate for the DESKTOP APP.
+# FR-14.35b — the gate for the DESKTOP APP: on demand for a PR, and at every desktop tag.
 #
 # ⚠ `ci.yml` (C04) proves the repo builds on Linux: `bun run test`, `bun run build`, clippy on
 # ubuntu and `cargo check` on macOS. What it does NOT do is build the app on Windows or macOS, or
@@ -11,34 +11,36 @@ name: Desktop CI
 # They look similar and are not the same gate, so the difference is written down rather than
 # rediscovered:
 #
-#   · the dry build runs WEEKLY, on a schedule, with **no Rust cache on purpose** — a warm cache
+#   · the dry build runs MONTHLY, on a schedule, with **no Rust cache on purpose** — a warm cache
 #     would hide exactly the dependency-resolution drift it exists to catch (the 2026-07-20
 #     breakage that went unnoticed for two months);
-#   · this one runs on every PR that touches the desktop, **with** a cache, because without one
-#     three platform builds dominate the wait and people stop opening desktop PRs.
+#   · this one runs on demand for a desktop PR and at every desktop tag, **with** a cache,
+#     because without one the platform builds dominate the wait.
 #
 # Neither replaces the other. Delete the cache here and this becomes slow; add one there and it
 # stops doing its job.
 #
 # ⚠ It deliberately does NOT run `bun run test`. That is `ci.yml`'s job on every PR already, and
 # duplicating it would double the wait for every desktop change while proving nothing new.
+#
+# ⚠ **On demand, and at a desktop tag: no longer on every desktop PR (October 2026).** Hosted
+# macOS minutes bill at 10x and Windows at 2x. Three platform builds on every desktop PR and
+# merge, together with `ci.yml`'s macOS job, spent the account's whole free monthly allowance by
+# 2026-10-07. GitHub then refused every job in this PRIVATE repository, the Linux gate included,
+# for the rest of the month.
+#
+# So dispatch it for a PR that needs it, with `gh workflow run desktop-ci.yml --ref <branch>`.
+# That means any PR touching `packages/desktop*`, and also these two, which nobody thinks to
+# re-run it for:
+#   · `packages/fiscal`, because a fiscal driver change with NO desktop change can still break the
+#     bridge;
+#   · `packages/e2e`, because the smoke job runs that code.
+# A `desktop-v*` tag runs it by itself, so the release gate (FR-14.39) still finds it for the
+# tagged commit.
 
 on:
-  pull_request:
-    paths:
-      - 'packages/desktop/**'
-      - 'packages/desktop-ui/**'
-      # ⚠ The bridge's drivers. A fiscal driver change with NO desktop change can still break the
-      # bridge, and that is exactly the regression nobody would think to re-run this for.
-      - 'packages/fiscal/**'
-      - '.github/workflows/desktop-ci.yml'
   push:
-    branches: [master]
-    paths:
-      - 'packages/desktop/**'
-      - 'packages/desktop-ui/**'
-      - 'packages/fiscal/**'
-      - '.github/workflows/desktop-ci.yml'
+    tags: ['desktop-v*']
   workflow_dispatch:
 
 # Same rule as `ci.yml`: a second push makes the first run pointless, but master is never
@@ -51,7 +53,6 @@ permissions:
   contents: read
 
 env:
-  BUN_VERSION: '1.3.10'
   # ⚠ Pinned, like everywhere else. An unpinned toolchain is how a green pipeline turns red on a
   # morning nobody changed anything.
   RUST_VERSION: '1.98'
@@ -64,17 +65,27 @@ jobs:
       # ⚠ One platform failing must not hide the other two. A Windows-only break and a
       # macOS-only break are different bugs, and fail-fast would report only the first.
       fail-fast: false
+      # ⚠ **macOS is dropped from pull requests, for money.** A hosted macOS minute bills at
+      # **10x** and a Linux one at 1x, so this 4-minute job cost **40 billable minutes** - half of
+      # the 80 a full desktop run burned - on every push to every branch. Measured over 1-6 Oct this
+      # repository spent ~3,889 billable minutes against a personal account's 2,000 included, and
+      # Actions stopped scheduling jobs mid-afternoon: three PRs failed with zero steps executed and
+      # no logs, which reads like a broken pipeline rather than a bill.
+      #
+      # ⚠ This is a real reduction in coverage, and it is deliberate. A macOS-only compile error
+      # is caught at a `desktop-v*` tag, or by the monthly `desktop-dry-build.yml` sweep. The
+      # alternative was paying 10x on every push for a platform nobody ships to a till today.
+      #
+      # Since the workflow went on-demand (header), the cheap pair is what a DISPATCH builds,
+      # standing in for the pull request that used to trigger it. All three are built only at a
+      # tag, the commit the release gate reads.
+      #
+      # ⚠ `fromJSON` because a matrix leg cannot carry its own `if:` - there is no way to skip
+      # one combination, so the whole list is chosen up front.
       matrix:
-        include:
-          - platform: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            bundles: deb
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-            bundles: dmg
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            bundles: nsis
+        include: ${{ startsWith(github.ref, 'refs/tags/desktop-v')
+          && fromJSON('[{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"deb"},{"platform":"macos-latest","target":"aarch64-apple-darwin","bundles":"dmg"},{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","bundles":"nsis"}]')
+          || fromJSON('[{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"deb"},{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","bundles":"nsis"}]') }}
 
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 60
@@ -84,7 +95,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: ${{ env.BUN_VERSION }}
+          bun-version-file: .bun-version
 
       - name: Cache Bun install
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -101,11 +112,16 @@ jobs:
 
       # Keyed on `Cargo.lock` + the OS, so a dependency bump invalidates it and a source-only
       # change does not. Without this the three builds dominate PR time (C16).
+      #
+      # ⚠ `desktop-release.yml` uses the same job id and `key`, so the two share one cache per
+      # target — change both or neither. Saved from master only: a branch or tag save is scoped to
+      # that ref, no other run can restore it, and it only crowds the 10 GB pool.
       - name: Rust cache
         uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           workspaces: packages/desktop/src-tauri
           key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       # ⚠ Installed explicitly rather than trusted to the runner image — the image's contents are
       # not a contract. Same list as `ci.yml` and the dry build; they must not drift apart.
@@ -139,9 +155,9 @@ jobs:
       - name: Build Desktop UI
         run: bun run build:desktop-ui
 
-      # Unsigned on purpose: this runs on every relevant PR, and signing needs
+      # Unsigned on purpose: this runs on demand for a PR, and signing needs
       # `environment: release` plus the OIDC exchange (C05). Signing stays on tags and on the
-      # weekly dry build.
+      # monthly dry build.
       - name: Build Tauri app (unsigned)
         run: cd packages/desktop && cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
@@ -161,9 +177,32 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+      # One annotation per run, on one leg, so the gap announces itself. A coverage reduction that
+      # lives only in a comment is one nobody will remember a month from now.
+      - name: Say that the CDP walk did not gate this run
+        if: matrix.platform == 'ubuntu-22.04' && github.event_name != 'workflow_dispatch'
+        run: echo "::warning title=CDP smoke not gating::windows smoke (CDP) is dispatch-only while gjovanov/lgr#116 is open - the debugging port never opens on this image, though the same spec passes locally against this job's own artifact. Run packages/e2e/tests/desktop-app.spec.ts locally, or dispatch Desktop CI, before changing the shell."
+
   windows-smoke:
     name: windows smoke (CDP)
     needs: build
+    # ⚠ **DISPATCH-ONLY, and this is a deliberate weakening — gjovanov/lgr#116.** The port never
+    # opens on this image: the app starts, the webview renders, and nothing listens on 9222. The
+    # same spec passes on a developer machine **against the exact artifact this job built** (14
+    # pass, 1 skipped, 24 s), so the subject is the image, not the product and not the harness.
+    # Five hypotheses are ruled out by experiment in #116; the leading one left is that the
+    # runner is elevated.
+    #
+    # It was a failing check on every commit, and `desktop-promote.yml` condition 1 refuses to
+    # promote a release whose tagged commit carries ANY failing check — so an unexplained CI-only
+    # failure was blocking the first signed release outright.
+    #
+    # ⚠ The cost is real and must not be forgotten: this walk is the only thing that has ever
+    # caught four shipped bugs at once (empty views under the CSP, Open LGR deadlocking the app,
+    # the unreachable page escaping to the system browser, `--status-json` lying). Run it locally
+    # or dispatch it before changing the shell. The `build` jobs above run on demand and at every
+    # desktop tag, and the annotation below makes sure nobody discovers this gap by accident.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -198,7 +237,7 @@ jobs:
         if: steps.spec.outputs.present == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: ${{ env.BUN_VERSION }}
+          bun-version-file: .bun-version
 
       # ⚠ Node must be on PATH, and this is a CHECK rather than an install (C15 trap 1).
       #
@@ -236,6 +275,48 @@ jobs:
         if: steps.spec.outputs.present == 'true'
         working-directory: packages/e2e
         run: bunx playwright install --with-deps chromium
+
+      # ⚠ **The runtime, not the app, is what opens the debugging port** — and the job used to
+      # inherit whatever Microsoft baked into the image. That is how this gate was red for days:
+      # every build passed, the app logged `setup complete` and `ui ready (route=/)`, and nothing
+      # ever listened on 9222. The runner had WebView2 **153**.0.4234.48; the same spec passes on a
+      # developer box running **154**. An image-supplied dependency that decides whether the gate
+      # can pass at all has to be pinned or recorded, or the next failure is diagnosed from scratch.
+      #
+      # ⚠ A failed INSTALL does not fail the job, deliberately. The bootstrapper exits non-zero
+      # when the runtime is already current, and the spec is the real judge of whether CDP works.
+      # What this must never do is pass quietly after changing nothing, so it prints both versions
+      # and emits a notice when they are identical.
+      - name: Update the WebView2 Runtime, and record which one this is
+        if: steps.spec.outputs.present == 'true'
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          function Get-Wv2 { if (Test-Path $key) { (Get-ItemProperty $key).pv } else { '(not installed)' } }
+          $before = Get-Wv2
+          Write-Host "WebView2 before: $before"
+          $exe = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
+          try {
+            Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $exe -UseBasicParsing
+            # The bootstrapper is a STUB: it hands off to a background installer and returns at
+            # once. `& $exe` left $LASTEXITCODE empty and the registry read 0.37 s later still
+            # said 153, so the first version of this step proved nothing. Wait for the process,
+            # then poll, because even a completed bootstrapper finishes after its child does.
+            $proc = Start-Process -FilePath $exe -ArgumentList '/silent','/install' -Wait -PassThru
+            Write-Host "bootstrapper exit: $($proc.ExitCode)"
+          } catch {
+            Write-Host "::warning::WebView2 bootstrapper did not run: $($_.Exception.Message)"
+          }
+          $deadline = (Get-Date).AddSeconds(180)
+          while ((Get-Date) -lt $deadline) {
+            if ((Get-Wv2) -ne $before) { break }
+            Start-Sleep -Seconds 5
+          }
+          $after = Get-Wv2
+          Write-Host "WebView2 after: $after"
+          if ($before -eq $after) {
+            Write-Host "::notice title=WebView2 unchanged::Still $after after waiting 180 s. EdgeUpdate may be restricted on this image; if the CDP port does not open, the runtime is no longer the leading suspect."
+          }
 
       # ⚠ The HARNESS sets the debugging port, never the app (C15 trap 12). An app that opened a
       # debugging port on its own would ship one to customers.

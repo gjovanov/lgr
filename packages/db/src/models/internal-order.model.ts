@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 /**
  * InternalOrder (ORDI-) — a client's order for future delivery (the demand side).
@@ -132,5 +133,7 @@ internalOrderSchema.index({ orgId: 1, orderNumber: 1 }, { unique: true })
 internalOrderSchema.index({ orgId: 1, status: 1 })
 internalOrderSchema.index({ orgId: 1, contactId: 1 })
 internalOrderSchema.index({ orgId: 1, requestedDeliveryDate: 1 })
+
+replicate(internalOrderSchema, { class: 'R' })
 
 export const InternalOrder = model<IInternalOrder>('InternalOrder', internalOrderSchema)

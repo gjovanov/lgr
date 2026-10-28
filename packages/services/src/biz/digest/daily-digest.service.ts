@@ -15,21 +15,30 @@
  * trade-off FR-08 recorded rather than pretending to solve.
  */
 
+import { nodeRole } from 'config'
 import {
   Invoice,
   StockLevel,
   StockMovement,
   Sequence,
   BackgroundTask,
+  BackupRun,
   EmailLog,
   Org,
+  OrgHome,
+  Outbox,
+  ReplOrg,
 } from 'db/models'
+import { lastSelfAnswer } from '../home/series-lock.service.js'
+import { ALARM_AT } from '../node/node-alarms.js'
 import { queryAuditLogs } from '../audit-log.service.js'
 import {
   readArchiveTriggers, readBackupStatus, readOrgBackupRun, readOrgRestores,
 } from '../backup/backup-status.service.js'
 import { effectiveMethods, bucketFor } from '../reports/sales-history.report.js'
-import { INVOICING_SEQUENCE_KEYS, resolveDefPrefix } from '../sequence-registry.js'
+import { EFFECTIVE_DATE } from '../reports/warehouse-operations.report.js'
+import { INVOICING_SEQUENCE_KEYS, closedSeriesOf, resolveDefPrefix } from '../sequence-registry.js'
+import { NOT_INVOICE_FOR_CASH_SALE } from '../sale-counting.js'
 import {
   DIGEST_CAPS,
   DIGEST_OPT_IN_SECTIONS,
@@ -46,6 +55,8 @@ import {
   type DigestOps,
   type DigestSectionKey,
   type DigestSequenceLine,
+  type DigestServer,
+  type DigestServerAlarm,
   type DigestStock,
   type DigestUndocumented,
   type Section,
@@ -88,8 +99,9 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
   const org = oid(orgId)
 
   const docs: any[] = await Invoice.find(
-    { orgId: org, issueDate: { $gte: from, $lte: to }, status: ISSUED_STATUSES },
-    { type: 1, direction: 1, total: 1, currency: 1, paymentMethod: 1, payments: 1, amountPaid: 1 },
+    // An invoice issued for a cash sale is the same money as that cash sale (#171).
+    { orgId: org, issueDate: { $gte: from, $lte: to }, status: ISSUED_STATUSES, ...NOT_INVOICE_FOR_CASH_SALE },
+    { type: 1, direction: 1, status: 1, total: 1, currency: 1, paymentMethod: 1, payments: 1, amountPaid: 1 },
   ).lean().exec()
 
   const kpis: DigestKpis = {
@@ -105,12 +117,18 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
     if (d.currency) currencies.add(d.currency)
     const total = d.total || 0
 
+    // FR-21.9: a cash-register document counts when paid; a storno takes its sale back, and a
+    // voided one (a storno whose receipt failed, a Files rollback) took no money at all.
+    const isRegister = d.type === 'cash_sale' || d.type === 'cash_storno'
+    if (isRegister && d.status === 'voided') continue
+    const sign = d.type === 'cash_storno' ? -1 : 1
+
     if (d.direction === 'outgoing' && SALES_TYPES.includes(d.type)) {
       kpis.salesCount++
       kpis.salesTotal += total
-    } else if (d.type === 'cash_sale') {
-      kpis.cashCount++
-      kpis.cashTotal += total
+    } else if (isRegister) {
+      if (sign > 0) kpis.cashCount++
+      kpis.cashTotal += sign * total
     } else if (d.direction === 'incoming') {
       kpis.purchaseCount++
       kpis.purchaseTotal += total
@@ -122,7 +140,7 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
       for (const m of effectiveMethods(d)) {
         const bucket = bucketFor(m.method)
         const cur = methodTotals.get(bucket) || { amount: 0, count: 0 }
-        cur.amount += m.amount
+        cur.amount += sign * m.amount
         cur.count += 1
         methodTotals.set(bucket, cur)
       }
@@ -167,6 +185,7 @@ async function buildSequenceLine(
   orgId: string,
   counterKey: string,
   numbers: string[],
+  opts: { closed?: boolean } = {},
 ): Promise<DigestSequenceLine> {
   const def = INVOICING_SEQUENCE_KEYS.find(k => k.prefix === counterKey)!
   // Never hardcode a prefix — the org may have overridden the display (year-0 sentinel).
@@ -207,7 +226,8 @@ async function buildSequenceLine(
     }
   }
 
-  if (counter && typeof counter.lastNumber === 'number' && counter.lastNumber !== hi) {
+  // A closed series' counter stopped where it stopped: its last number says nothing about a day.
+  if (!opts.closed && counter && typeof counter.lastNumber === 'number' && counter.lastNumber !== hi) {
     line.lastNumberMismatch = { dayMax: hi, counter: counter.lastNumber }
   }
 
@@ -247,7 +267,8 @@ async function buildDocuments(orgId: string, date: string): Promise<DigestDocume
   ]).exec()
 
   const sales = rows.filter(r => r.direction === 'outgoing' && SALES_TYPES.includes(r.type))
-  const cash = rows.filter(r => r.type === 'cash_sale')
+  // The cash register's sales and stornos (FR-21.9) — one family, one number series.
+  const cash = rows.filter(r => r.type === 'cash_sale' || r.type === 'cash_storno')
   const purchases = rows.filter(r => r.direction === 'incoming')
 
   const pack = (list: any[], key: string, cap: number) => ({
@@ -263,16 +284,28 @@ async function buildDocuments(orgId: string, date: string): Promise<DigestDocume
   })
 
   const salesFamily = pack(sales, 'sales', DIGEST_CAPS.documents)
-  const cashFamily = pack(cash, 'cash', DIGEST_CAPS.documents)
+  const cashFamily = {
+    ...pack(cash, 'cash', DIGEST_CAPS.documents),
+    // A storno counts against its sale and a voided document counts nothing (FR-21.9); every
+    // document is still listed, with its number.
+    total: round2(cash.reduce((s, r) => s + (r.status === 'voided' ? 0 : (r.type === 'cash_storno' ? -1 : 1) * (r.total || 0)), 0)),
+  }
 
-  const [salesSeq, cashSeq] = await Promise.all([
+  // FR-21.17: a copied till receipt keeps its TXN number; that closed series gets its own line.
+  const closed = new Map<string, string[]>()
+  for (const r of cash) {
+    const def = closedSeriesOf(r.number)
+    if (def) closed.set(def.prefix, [...(closed.get(def.prefix) || []), r.number])
+  }
+  const [salesSeq, cashSeq, ...closedSeqs] = await Promise.all([
     buildSequenceLine(orgId, 'SALES_DOC', sales.map(r => r.number)),
-    buildSequenceLine(orgId, 'CASH_SALE', cash.map(r => r.number)),
+    buildSequenceLine(orgId, 'CASH_SALE', cash.filter(r => !closedSeriesOf(r.number)).map(r => r.number)),
+    ...[...closed].map(([key, numbers]) => buildSequenceLine(orgId, key, numbers, { closed: true })),
   ])
 
   return {
     sales: { ...salesFamily, sequence: salesSeq },
-    cash: { ...cashFamily, sequence: cashSeq },
+    cash: { ...cashFamily, sequence: cashSeq, ...(closedSeqs.length ? { closedSequences: closedSeqs } : {}) },
     purchases: { count: purchases.length, total: round2(purchases.reduce((s, r) => s + (r.total || 0), 0)) },
   }
 }
@@ -297,6 +330,8 @@ async function buildMaterials(orgId: string, date: string): Promise<DigestMateri
         orgId: org,
         status: { $in: LIVE_MOVEMENT_STATUSES },
         type: { $in: ['dispatch', 'receipt', 'transfer', 'return'] },
+        // A record-only movement repeats goods another movement moved (FR-21.4).
+        recordOnly: { $ne: true },
         // Cheap pre-filter; the real window is applied after the invoice lookup below.
         date: { $gte: new Date(from.getTime() - 45 * 864e5), $lte: new Date(to.getTime() + 45 * 864e5) },
       },
@@ -304,13 +339,14 @@ async function buildMaterials(orgId: string, date: string): Promise<DigestMateri
     {
       $lookup: {
         from: 'invoices', localField: 'invoiceId', foreignField: '_id', as: 'invoice',
-        pipeline: [{ $project: { issueDate: 1 } }],
+        pipeline: [{ $project: { issueDate: 1, 'stockSource.detectedBy': 1 } }],
       },
     },
     { $unwind: { path: '$invoice', preserveNullAndEmptyArrays: true } },
     // FR-07's rule: `createInvoiceStockMovement` stamps booking time, so the invoice's
-    // issueDate is the business date whenever there is one.
-    { $addFields: { effectiveDate: { $ifNull: ['$invoice.issueDate', '$date'] } } },
+    // issueDate is the business date whenever there is one — but a receipt a bill was made
+    // from keeps its own date (FR-22.31): it was loaded on that day, and counted then.
+    { $addFields: { effectiveDate: EFFECTIVE_DATE } },
     { $match: { effectiveDate: { $gte: from, $lte: to } } },
     { $unwind: '$lines' },
     {
@@ -480,6 +516,8 @@ async function buildUndocumented(orgId: string, date: string): Promise<DigestUnd
         type: { $in: ['invoice', 'cash_sale'] },
         status: ISSUED_STATUSES,
         issueDate: { $gte: dayStart(date), $lte: dayEnd(date) },
+        // An invoice for a cash sale moves nothing on purpose: its cash sale did (#171).
+        ...NOT_INVOICE_FOR_CASH_SALE,
         // A document whose lines move nothing is legitimately movement-free.
         'lines.productId': { $exists: true, $ne: null },
         'lines.warehouseId': { $exists: true, $ne: null },
@@ -527,6 +565,8 @@ async function buildDuplicates(orgId: string, date: string): Promise<DigestDupli
         type: { $in: ['invoice', 'cash_sale'] },
         status: ISSUED_STATUSES,
         issueDate: { $gte: dayStart(date), $lte: dayEnd(date) },
+        // An invoice for a cash sale repeats that sale's lines by design — it is no duplicate (#171).
+        ...NOT_INVOICE_FOR_CASH_SALE,
       },
     },
     { $unwind: '$lines' },
@@ -635,6 +675,76 @@ async function buildOps(orgId: string, date: string): Promise<DigestOps> {
   }
 }
 
+// ── FR-20.100 an org written on its own server ──────────────────────────────
+
+export interface ServerSectionInput {
+  now?: Date
+  /** How long this API process has run: a server just started has not been heard from yet. */
+  uptimeSecs?: number
+  /** What lgrai.app last said of this server (`/self`); by default as the link-alarm tick kept it. */
+  self?: { at: Date; body: any } | null
+}
+
+/**
+ * FR-20.100 (plan step P3-8b): the org on its own server, for the morning: lgrai.app's copy, the last
+ * backup there, what waits for the internet. The thresholds are FR-20.101's (`ALARM_AT`), the ones
+ * lgrai.app's Servers page raises; the server's machine (disk, oplog, clock) is its status page's.
+ */
+export async function buildServerSection(orgId: string, input: ServerSectionInput = {}): Promise<DigestServer> {
+  const now = input.now ?? new Date()
+  const uptimeSecs = input.uptimeSecs ?? process.uptime()
+  const self = input.self === undefined ? lastSelfAnswer() : input.self
+  const org = oid(orgId)
+  const open = { orgId: org, state: { $in: ['queued', 'sending'] } }
+  const [repl, home, backup, queued, oldest]: [any, any, any, number, any] = await Promise.all([
+    ReplOrg.findOne({ orgId: org }, { seq: 1 }).lean().exec(),
+    OrgHome.findOne({ orgId: org }, { since: 1 }).lean().exec(),
+    BackupRun.findOne({ orgId: org, status: 'completed', completedAt: { $exists: true } }, { completedAt: 1 })
+      .sort({ completedAt: -1 }).lean().exec(),
+    Outbox.countDocuments(open).exec(),
+    Outbox.findOne(open, { createdAt: 1 }).sort({ createdAt: 1 }).lean().exec(),
+  ])
+  const ms = (v: unknown) => {
+    const t = v ? new Date(v as any).getTime() : Number.NaN
+    return Number.isFinite(t) ? Math.max(0, now.getTime() - t) : undefined
+  }
+  const hours = (age: number | undefined) => (age === undefined ? undefined : Math.floor(age / 3_600_000))
+  const lagMs = ALARM_AT.lagSecs * 1000
+  const alarms: DigestServerAlarm[] = []
+
+  // Not heard for an hour; or never, by a server that has run that long.
+  const heard = self ? ms(self.at) : undefined
+  if (self ? (heard ?? 0) > lagMs : uptimeSecs > ALARM_AT.lagSecs) alarms.push('unheard')
+  let mirror: DigestServer['mirror']
+  const m = self && !alarms.includes('unheard') ? (self.body?.mirrors ?? []).find((x: any) => x?.orgId === orgId) : undefined
+  if (m) {
+    const behind = Math.max(0, Number(repl?.seq ?? 0) - Number(m.watermark ?? 0))
+    const sincePage = ms(m.lastPageAt)
+    mirror = { behind, ...(sincePage !== undefined ? { lastPageHours: hours(sincePage) } : {}) }
+    if (behind > 0 && (sincePage ?? Number.POSITIVE_INFINITY) > lagMs) alarms.push('mirror_lag')
+  }
+
+  const backupAge = ms(backup?.completedAt)
+  if (backupAge === undefined) {
+    // None at all, once the org has been written here that long (lgrai.app's rule, P3-8a).
+    if ((ms(home?.since) ?? 0) > ALARM_AT.backupSecs * 1000) alarms.push('backup_none')
+  } else if (backupAge > ALARM_AT.backupSecs * 1000) {
+    alarms.push('backup_stale')
+  }
+
+  const oldestAge = queued ? ms(oldest?.createdAt) : undefined
+  if ((oldestAge ?? 0) > lagMs) alarms.push('queued_old')
+
+  return {
+    ...(heard !== undefined ? { heardHours: hours(heard) } : {}),
+    ...(mirror ? { mirror } : {}),
+    ...(backupAge !== undefined ? { backupHours: hours(backupAge) } : {}),
+    queued,
+    ...(oldestAge !== undefined ? { oldestQueuedHours: hours(oldestAge) } : {}),
+    alarms,
+  }
+}
+
 // ── Assembly ────────────────────────────────────────────────────────────────
 
 /** True when a section carries nothing worth a reader's attention. */
@@ -671,6 +781,9 @@ function sectionIsEmpty(key: DigestSectionKey, value: any): boolean {
       return !value.sold.rowCount && !value.transferred.rowCount && !value.loaded.rowCount
     case 'ops':
       return !value.tasks.length && !value.failedEmailCount
+    // FR-20.100: a server that crossed no threshold is nothing to report.
+    case 'server':
+      return !value.alarms.length
     default:
       return !value.count
   }
@@ -712,7 +825,7 @@ export async function buildDailyDigest(
   }
 
   // Fan out like the dashboard: independent, each degrading on its own.
-  const [kpis, documents, materials, stock, corrections, undocumented, duplicates, edited, ops, backups] =
+  const [kpis, documents, materials, stock, corrections, undocumented, duplicates, edited, ops, backups, server] =
     await Promise.all([
       on('kpis') ? section('kpis', () => buildKpis(orgId, localDate)) : undefined,
       on('documents') ? section('documents', () => buildDocuments(orgId, localDate)) : undefined,
@@ -747,6 +860,9 @@ export async function buildDailyDigest(
           }
         })
         : undefined,
+      // FR-20.100 — only on the org's own server: lgrai.app builds no digest for an org it does not
+      // write, and an org it writes has no server to report.
+      on('server') && nodeRole() === 'master' ? section('server', () => buildServerSection(orgId)) : undefined,
     ])
 
   data.kpis = kpis
@@ -759,6 +875,7 @@ export async function buildDailyDigest(
   data.editedAfterIssue = edited
   data.ops = ops
   data.backups = backups
+  data.server = server
 
   data.allClear = DIGEST_SECTION_KEYS.every(k => {
     const v = (data as any)[k]

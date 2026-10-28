@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { consumeTokenHandoff } from 'ui-shared/nav/navigate'
+import { getToken, hasOrgSession } from 'ui-shared/session/session'
 
 const routes = [
   {
@@ -28,6 +29,8 @@ const routes = [
       { path: 'apps', name: 'apps', component: () => import('../views/AppHubView.vue') },
       { path: 'dashboard', name: 'dashboard', component: () => import('../views/dashboard/DashboardView.vue') },
       { path: 'invite/:code', name: 'invite', component: () => import('../views/invite/InviteLandingView.vue'), meta: { public: true } },
+      // The person's own account: password, sign-in methods (multi-org sign-in, Phase 4).
+      { path: 'account', name: 'account', component: () => import('../views/account/AccountView.vue') },
 
       // Settings
       { path: 'settings/organization', name: 'settings.organization', component: () => import('../views/settings/OrganizationView.vue') },
@@ -37,6 +40,9 @@ const routes = [
       { path: 'settings/permission-sets', name: 'settings.permissionSets', component: () => import('../views/settings/PermissionSetsView.vue') },
       // FR-14.23 (#57). Route name is load-bearing (Playwright navigation) - named once, never renamed.
       { path: 'settings/desktops', name: 'settings.desktops', component: () => import('../views/settings/DesktopsView.vue') },
+      { path: 'settings/servers', name: 'settings.servers', component: () => import('../views/settings/ServersView.vue') },
+      // FR-20.98 (P3-8b): a master's own status page; on lgrai.app it says where its servers are shown.
+      { path: 'settings/server', name: 'settings.server', component: () => import('../views/settings/ServerStatusView.vue') },
 
       // Admin
       { path: 'admin/audit-log', name: 'admin.audit-log', component: () => import('../views/admin/AuditLogView.vue') },
@@ -45,18 +51,37 @@ const routes = [
       // purpose — portal routes have none, and pretending otherwise would suggest the screen
       // is protected by something other than the server's allow-list. It is not.
       { path: 'admin/backup', name: 'admin.backup', component: () => import('../views/admin/BackupView.vue') },
+      { path: 'admin/nodes', name: 'admin.nodes', component: () => import('../views/admin/NodesView.vue') },
+      { path: 'admin/licences', name: 'admin.licences', component: () => import('../views/admin/LicencesView.vue') },
     ],
   },
+  // The person's orgs: where a sign-in that has not entered an org lands, and the "All
+  // organizations" page of the org menu. The one screen an identity-only session may use.
+  {
+    path: '/orgs',
+    component: () => import('../layouts/AuthLayout.vue'),
+    children: [{ path: '', name: 'orgs', component: () => import('../views/OrgPickerView.vue'), meta: { person: true } }],
+  },
+  // FR-20.39 (P2-4): lgrai.app's "Sign in with LGR" authorize page. Public: it finds this tab's
+  // session itself, and sends a signed-out person to sign in first and back.
+  { path: '/idp/authorize', name: 'idp.authorize', component: () => import('../views/idp/IdpAuthorizeView.vue'), meta: { public: true } },
   {
     path: '/auth',
     component: () => import('../layouts/AuthLayout.vue'),
     children: [
+      // FR-20.39 (P2-4): where lgrai.app sends the person back to on a master.
+      { path: 'idp/callback', name: 'auth.idp-callback', component: () => import('../views/auth/IdpCallbackView.vue'), meta: { public: true } },
+      // FR-20.39 (P2-4b): where the desktop shell finishes it, the code and verifier in the FRAGMENT.
+      { path: 'idp/desktop', name: 'auth.idp-desktop', component: () => import('../views/auth/IdpDesktopView.vue'), meta: { public: true } },
       { path: 'login', name: 'auth.login', component: () => import('../views/auth/LoginView.vue'), meta: { public: true } },
       { path: 'register', name: 'auth.register', component: () => import('../views/auth/RegisterView.vue'), meta: { public: true } },
       { path: 'oauth-callback', name: 'auth.oauth-callback', component: () => import('../views/auth/OAuthCallbackView.vue'), meta: { public: true } },
       // S-06 — where an activation email lands. Like `desktop-redeem` below, its code rides in the
       // URL FRAGMENT, so `consumeTokenHandoff` never sees it and no server log records it.
       { path: 'activate', name: 'auth.activate', component: () => import('../views/auth/ActivateView.vue'), meta: { public: true } },
+      // Phase 4 — forgot password. The reset link carries its token in the URL FRAGMENT, like activation.
+      { path: 'forgot-password', name: 'auth.forgot-password', component: () => import('../views/auth/ForgotPasswordView.vue'), meta: { public: true } },
+      { path: 'reset-password', name: 'auth.reset-password', component: () => import('../views/auth/ResetPasswordView.vue'), meta: { public: true } },
       // FR-14.14 — where `lgr-web` lands after an OAuth sign-in that ran in the system browser.
       // ⚠ Its credentials are in the URL FRAGMENT, which the router never sees and no log
       // records; `consumeTokenHandoff` below is unaffected because there is no `?token=` here.
@@ -77,7 +102,7 @@ export const router = createRouter({
 router.beforeEach((to, _from, next) => {
   // Accept a token from URL params ONLY on a local dev origin (FR-14.24) — on any other
   // origin it is stripped and ignored. A full reload follows either way so Pinia
-  // re-initializes from localStorage.
+  // re-initializes from the tab's session.
   //
   // ⚠ There is deliberately no exemption for the OAuth callback any more. It used to need one,
   // because it received the session JWT as `?token=` — which is exactly what made
@@ -88,16 +113,19 @@ router.beforeEach((to, _from, next) => {
 
   const isPublic = to.matched.some(r => r.meta.public)
   const isGuest = to.matched.some(r => r.meta.guest)
-  const token = localStorage.getItem('lgr_token')
-  if (!isPublic && !token) {
+  const forPerson = to.matched.some(r => r.meta.person)
+  const signedIn = !!getToken()
+  if (!isPublic && !signedIn) {
     next({ name: 'landing' })
-  } else if (isGuest && token) {
-    const pendingInvite = sessionStorage.getItem('pending_invite_code')
+  } else if (signedIn && !isPublic && !forPerson && !hasOrgSession()) {
+    // Signed in as a person who has not entered an org yet: every other screen needs one.
+    next({ name: 'orgs' })
+  } else if (isGuest && signedIn) {
+    const pendingInvite = sessionStorage.getItem('lgr_invite_code')
     if (pendingInvite) {
-      sessionStorage.removeItem('pending_invite_code')
       next({ name: 'invite', params: { code: pendingInvite } })
     } else {
-      next({ name: 'apps' })
+      next(hasOrgSession() ? { name: 'apps' } : { name: 'orgs' })
     }
   } else {
     next()

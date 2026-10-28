@@ -4,6 +4,7 @@ import {
   loadActiveDesktop,
   verifyDesktopToken,
 } from 'services/biz/desktop/desktop.service'
+import { movedFor, type Moved } from 'services/biz/desktop/repoint.service'
 import { logger } from 'services/logger'
 
 /**
@@ -18,13 +19,23 @@ import { logger } from 'services/logger'
  *     { type: 'desktop:error', code, message }
  *     { type: 'desktop:update' }                   an admin asked it to update (FR-14.22)
  *     { type: 'desktop:revoked', message }         stop the bridge, delete the key
+ *     { type: 'desktop:tick', serverTime }         every 15 s, so a shell blocked on its read
+ *                                                  sends the heartbeat that is due
+ *                                                  (`DESKTOP_TICK_MS`); a shell ignores it
+ *     { type: 'desktop:repoint', instruction, node, name }   the org moved to its master (FR-20.82)
+ *     { type: 'desktop:moved', node, name }        the same, when global cannot say where it answers
+ *
+ * ⚠ A desktop of an org that moved to its master is told so, at authentication, on its heartbeat,
+ * and at the flip itself (`repointOrgDesktops`), and then closed. Nothing of it is written here: the
+ * org's rows on global are the mirror now, which only the home writes. A shell older than P3-6b
+ * ignores the new types and takes the `org_moved` error that follows, as any refusal.
  *
  * ⚠ The upgrade carries NO credential, deliberately: a token in a URL lands in ingress and proxy
  * logs, which is exactly what S-05 was. The credential is the first message, and a socket that has
  * not authenticated within 10 s is closed — that deadline is what keeps a tokenless upgrade safe.
  *
- * ⚠ It deliberately does NOT copy `/ws/tasks`, which trusts a `?userId=` query parameter
- * (`ws.server.ts:32-45`) and is the pattern this endpoint exists to avoid repeating.
+ * `/ws/tasks` used to trust a `?userId=` query parameter instead, which is the pattern this
+ * endpoint was written to avoid; since #154 it authenticates the same way, with a user token.
  */
 
 /**
@@ -36,6 +47,19 @@ import { logger } from 'services/logger'
  */
 export const AUTH_DEADLINE_MS = 10_000
 
+/**
+ * How often an authenticated desktop is woken (`desktop:tick`).
+ *
+ * ⚠ A shell up to desktop-v0.1.6 BLOCKS on its socket's read, and sends its 30 s heartbeat only
+ * when something arrives - and between the acks to its own heartbeats nothing did, so its
+ * heartbeats came at Bun's idle-ping cadence. Measured on lgrai.app: a connected desktop's
+ * `lastSeenAt` went from 51 s to 91 s old with no heartbeat in between. With FR-14.21's 75 s
+ * window that is a connected till read stale or offline. The tick wakes the read; an old shell
+ * ignores its type (`classify` → None) and sends the heartbeat that was due. A shell that keeps
+ * its own clock (#328) needs no tick, and ignores it the same way.
+ */
+export const DESKTOP_TICK_MS = 15_000
+
 /** desktopId → the live sockets for it. A desktop could reconnect before its old socket closes. */
 const sockets = new Map<string, Set<any>>()
 
@@ -45,7 +69,7 @@ const sockets = new Map<string, Set<any>>()
  * — the bug that left fiscal printers registered after their browser went away.
  */
 const socketKey = (ws: any) => ws?.raw ?? ws
-const state = new WeakMap<any, { timer: ReturnType<typeof setTimeout> | null; desktopId: string | null }>()
+const state = new WeakMap<any, { timer: ReturnType<typeof setTimeout> | null; desktopId: string | null; orgId?: string }>()
 
 function send(ws: any, msg: unknown): void {
   try {
@@ -61,6 +85,14 @@ function closeSocket(ws: any, reason: string): void {
   } catch {
     try { ws.close() } catch { /* already gone */ }
   }
+}
+
+/** FR-20.82: where the desktop goes now, and the refusal an older shell understands; then closed. */
+function sendMoved(ws: any, moved: Moved): void {
+  if (moved.kind === 'repoint') send(ws, { type: 'desktop:repoint', instruction: moved.instruction, node: moved.node, name: moved.name })
+  else send(ws, { type: 'desktop:moved', node: moved.node, name: moved.name })
+  send(ws, { type: 'desktop:error', code: 'org_moved', message: `This organisation is now on its own server (${moved.name}).` })
+  closeSocket(ws, 'org_moved')
 }
 
 export function handleDesktopOpen(ws: any): void {
@@ -98,7 +130,15 @@ export async function handleDesktopMessage(ws: any, raw: any): Promise<void> {
       const desktop = await loadActiveDesktop(claims)
       const id = String(desktop._id)
       if (st?.timer) clearTimeout(st.timer)
-      state.set(socketKey(ws), { timer: null, desktopId: id })
+      const orgId = String(desktop.orgId)
+      const moved = await movedFor(id, orgId)
+      if (moved) {
+        state.set(socketKey(ws), { timer: null, desktopId: null })
+        logger.info({ desktopId: id, orgId, node: moved.node, kind: moved.kind }, 'Desktop of an org that moved: told where to go')
+        sendMoved(ws, moved)
+        return
+      }
+      state.set(socketKey(ws), { timer: null, desktopId: id, orgId })
       if (!sockets.has(id)) sockets.set(id, new Set())
       sockets.get(id)!.add(ws)
       await Desktop.updateOne({ _id: desktop._id }, { $set: { lastSeenAt: new Date() } })
@@ -119,6 +159,12 @@ export async function handleDesktopMessage(ws: any, raw: any): Promise<void> {
   }
 
   if (msg.type === 'desktop:heartbeat') {
+    // A move that flipped on another process: told on the next heartbeat (the home is cached 5 s).
+    const moved = st.orgId ? await movedFor(st.desktopId, st.orgId) : null
+    if (moved) {
+      sendMoved(ws, moved)
+      return
+    }
     await Desktop.updateOne(
       { _id: st.desktopId },
       {
@@ -150,12 +196,36 @@ export function handleDesktopClose(ws: any): void {
   logger.info({ desktopId: st.desktopId }, 'Desktop socket closed')
 }
 
+/**
+ * Wake every authenticated desktop on this process (`DESKTOP_TICK_MS`). Returns how many sockets
+ * were told. Never an unauthenticated one: before `desktop:auth` a socket hears nothing it did not
+ * ask for.
+ */
+export function tickDesktops(): number {
+  let told = 0
+  const serverTime = new Date().toISOString()
+  for (const set of sockets.values()) {
+    for (const ws of set) {
+      send(ws, { type: 'desktop:tick', serverTime })
+      told++
+    }
+  }
+  return told
+}
+
+let ticker: ReturnType<typeof setInterval> | null = null
+
 export function setupDesktopWS(app: any): void {
   app.ws('/ws/desktop', {
     open(ws: any) { handleDesktopOpen(ws) },
     message(ws: any, message: any) { void handleDesktopMessage(ws, message) },
     close(ws: any) { handleDesktopClose(ws) },
   })
+  if (!ticker) {
+    ticker = setInterval(tickDesktops, DESKTOP_TICK_MS)
+    // It must never be what keeps a process alive (a test run, a graceful stop).
+    ;(ticker as any).unref?.()
+  }
   logger.info('Desktop WebSocket endpoint registered at /ws/desktop')
 }
 
@@ -176,6 +246,24 @@ export function requestDesktopUpdate(desktopId: string): boolean {
   if (!set?.size) return false
   for (const ws of set) send(ws, { type: 'desktop:update' })
   return true
+}
+
+/**
+ * FR-20.82 (P3-6b): the org just moved to its master (the flip). Its desktops connected to this
+ * process are told at once; any other process tells its own on their next heartbeat. Returns how many.
+ */
+export async function repointOrgDesktops(orgId: string): Promise<number> {
+  let told = 0
+  for (const [desktopId, set] of [...sockets]) {
+    for (const ws of [...set]) {
+      if (state.get(socketKey(ws))?.orgId !== orgId) continue
+      const moved = await movedFor(desktopId, orgId)
+      if (!moved) continue
+      sendMoved(ws, moved)
+      told++
+    }
+  }
+  return told
 }
 
 /** Tell a revoked desktop why, so it can stop its bridge and delete its key (FR-14.22). */

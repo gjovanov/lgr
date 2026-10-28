@@ -36,21 +36,27 @@
 import { createHash } from 'node:crypto'
 import { join, resolve, sep } from 'node:path'
 import { stat } from 'node:fs/promises'
-import { config } from 'config'
+import { config, nodeRole } from 'config'
 import { mongoose } from 'db/connection'
-import { BackupRun, FiscalDevice, FiscalYear, Org, RestoreRun } from 'db/models'
+import { assertHomeIsHere } from 'db/home/home'
+import { lockLegalSeries, replaceRefusedHere } from '../home/series-lock.service.js'
+import { BackupRun, FiscalDevice, FiscalYear, Identity, Org, RestoreRun } from 'db/models'
 import { logger } from '../../logger/logger.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import {
+  PEOPLE_MODEL,
   buildBundle,
   bundleDir,
   iterateBundleLines,
   readBundlePlain,
   tenantCollections,
+  bundleExclusion,
   verifyBundle,
 } from './backup-bundle.service.js'
 import { BUNDLE_FORMAT, type BackupBundleManifest } from './backup-bundle.types.js'
 import { orgDocsDir, restoreFilesSidecar } from './backup-files.service.js'
+import { normalizeStored, resolveStored } from '../files/stored-path.js'
+import { copyCashRegisterOrg } from '../cash-register/copy-org.js'
 
 /** Documents per `insertMany`. Large enough to be worth batching, small enough to stay bounded. */
 const INSERT_BATCH = 500
@@ -244,6 +250,27 @@ async function liveHashes(modelName: string, orgId: string): Promise<Map<string,
   return out
 }
 
+/**
+ * The live people a bundle names, hashed by `_id` (see `PEOPLE_MODEL`).
+ *
+ * ⚠ Not `liveHashes`: an identity has no `orgId`, so `find({ orgId })` matches nothing (or, under
+ * a non-strict query, EVERY person in the database). The only live people that matter are the ones
+ * this bundle carries. Read through the driver so `select: false` does not hide the password,
+ * which would make every person look different from their bundled copy.
+ */
+async function livePeopleHashes(bundleDocs: any[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const ids = bundleDocs
+    .map(d => String(d?._id ?? ''))
+    .filter(id => mongoose.Types.ObjectId.isValid(id))
+    .map(id => new mongoose.Types.ObjectId(id))
+  if (!ids.length) return out
+  for await (const doc of Identity.collection.find({ _id: { $in: ids } }) as any) {
+    out.set(String(doc._id), hashDoc(doc))
+  }
+  return out
+}
+
 export interface RestoreOptions {
   mode: 'merge' | 'replace'
   /** FR-13.32 — rewrite `orgId` (and the paths that embed it) onto the target org. */
@@ -327,8 +354,12 @@ export async function inspectBundle(
 
     const collections: any[] = []
     for (const name of new Set([...byCollection.keys(), ...tenantCollections()])) {
+      // Never restored (see `applyRestore`): an older bundle may still carry them.
+      if (bundleExclusion(name)) continue
       const docs = byCollection.get(name) || []
-      const live = await liveHashes(name, orgId)
+      // For the people section, `inLive` counts only the bundle's own people that exist live:
+      // every other person in the database is outside this org's backup by design.
+      const live = name === PEOPLE_MODEL ? await livePeopleHashes(docs) : await liveHashes(name, orgId)
       if (!docs.length && !live.size) continue
 
       let missing = 0
@@ -423,7 +454,11 @@ async function shaOfFile(absolutePath: string): Promise<string> {
  */
 function buildIdMap(byCollection: Map<string, any[]>): Map<string, any> {
   const map = new Map<string, any>()
-  for (const docs of byCollection.values()) {
+  for (const [name, docs] of byCollection) {
+    // People keep their ids, and so every `User.identityId` that points at them keeps pointing at
+    // them: a copied membership stays the membership of the same person. A person is global, not
+    // a row of the origin org that needs a copy of its own.
+    if (name === PEOPLE_MODEL) continue
     for (const d of docs) {
       const id = String(d?._id ?? '')
       if (id && !map.has(id)) map.set(id, new mongoose.Types.ObjectId())
@@ -442,17 +477,18 @@ function buildIdMap(byCollection: Map<string, any[]>): Map<string, any> {
  * avoid on the write side. Matching on the value means only ids that are actually in this
  * bundle are touched; a 24-hex string that is not one is left exactly as it was.
  *
- * `DocFile.currentPath` is handled separately because it is a PATH, not a reference: it is
- * absolute under `<UPLOAD_DIR>/<orgId>/docs` (`doc-store.service.ts:28`) and would otherwise
- * keep pointing into another tenant's directory on the volume.
+ * `DocFile.currentPath` and `File.storagePath` are handled separately because they are PATHS,
+ * not references: they start with the org's id (`<orgId>/docs/…`, or under `<UPLOAD_DIR>` in a
+ * bundle an older release wrote), and would otherwise keep pointing into another tenant's
+ * directory on the volume. Both come out in the stored form (`storedPaths`).
  */
-function remapDoc(
+export function remapDoc(
   doc: any,
   targetOrgId: string | null,
   originOrgId: string,
   idMap?: Map<string, any>,
 ): any {
-  if (!targetOrgId) return doc
+  if (!targetOrgId) return storedPaths(doc)
 
   const rewrite = (value: any): any => {
     if (value === null || value === undefined) return value
@@ -471,10 +507,31 @@ function remapDoc(
 
   const out = rewrite(doc)
   out.orgId = new mongoose.Types.ObjectId(targetOrgId)
-  for (const key of ['currentPath', 'path', 'filePath']) {
+  for (const key of ['currentPath', 'storagePath', 'path', 'filePath']) {
+    if (key === 'storagePath' && out.storageProvider && out.storageProvider !== 'local') continue // a provider's key
     if (typeof out[key] === 'string' && out[key].includes(originOrgId)) {
       out[key] = out[key].split(originOrgId).join(targetOrgId)
     }
+  }
+  return storedPaths(out)
+}
+
+/**
+ * FR-20.24 (P0b-8): a restored file path is written in the stored form, relative to the upload
+ * root, whichever release wrote the bundle. A path under no known root is left as it is: the
+ * restore goes on, and the reader names the file when it is opened. Another provider's
+ * `storagePath` is a key, not a path, and is never touched.
+ */
+function storedPaths(doc: any): any {
+  let out = doc
+  for (const key of ['currentPath', 'storagePath'] as const) {
+    const value = doc?.[key]
+    if (typeof value !== 'string' || !value) continue
+    if (key === 'storagePath' && doc.storageProvider && doc.storageProvider !== 'local') continue
+    try {
+      const stored = normalizeStored(value)
+      if (stored !== value) { if (out === doc) out = { ...doc }; out[key] = stored }
+    } catch { /* under no known root: left as it is */ }
   }
   return out
 }
@@ -624,6 +681,44 @@ async function reconcileSequences(
 }
 
 /**
+ * The people a bundle carries (see `PEOPLE_MODEL`): the missing ones are inserted and the rest are
+ * left exactly as they are, in BOTH modes, and none is remapped.
+ *
+ * ⚠ A person is shared by every org they work in, so the live row is always the authority:
+ *  - Replace deleting one would sign them out of orgs this restore is not about;
+ *  - updating one would put back an old password (perhaps the very one they changed because it
+ *    leaked) and an old `tokenVersion`, which brings back sessions the change had ended.
+ * All a restore must guarantee is that every membership it brings back has its person.
+ *
+ * Returns the ids it inserted, so a rollback removes exactly those and nobody else.
+ */
+async function restorePeople(bundleDocs: any[]): Promise<{
+  inBundle: number
+  present: number
+  inserted: number
+  conflicts: number
+  insertedIds: any[]
+}> {
+  const live = await livePeopleHashes(bundleDocs)
+  // A restored person starts with no live sessions: with the bundle's `tokenVersion` unchanged, a
+  // token issued before they were lost would validate again the moment they reappear.
+  const absent = bundleDocs
+    .filter(d => !live.has(String(d?._id)))
+    .map(d => ({ ...d, tokenVersion: (Number(d?.tokenVersion) || 0) + 1 }))
+  const { inserted, conflicts } = await insertDocs(PEOPLE_MODEL, absent)
+  // Which of the absent ones exist NOW. One refused by the unique email index (the person exists
+  // under another record) did not land, and must not be rolled back either.
+  const landed = await livePeopleHashes(absent)
+  return {
+    inBundle: bundleDocs.length,
+    present: live.size,
+    inserted,
+    conflicts,
+    insertedIds: [...landed.keys()].map(id => new mongoose.Types.ObjectId(id)),
+  }
+}
+
+/**
  * FR-13.37 — `DocFile` rows whose bytes are not on the PV.
  *
  * A data-only restore reinstates the document index and not one document. Counting this is
@@ -642,8 +737,10 @@ async function countDangling(orgId: string): Promise<{ count: number; sample: st
     const p = (doc as any).currentPath
     if (!p) continue
     // Only the org's own tree is checked; a path pointing anywhere else is dangling by
-    // definition here, and saying so is more useful than following it.
-    const abs = resolve(String(p))
+    // definition here, and saying so is more useful than following it. Either form of stored
+    // path (FR-20.24); one that resolves nowhere is dangling too.
+    let abs: string
+    try { abs = resolve(resolveStored(String(p), orgId)) } catch { abs = '' }
     const inside = abs === root || abs.startsWith(root + sep)
     let exists = false
     if (inside) {
@@ -670,6 +767,7 @@ async function rollbackFromSafety(
   orgId: string,
   safetyPath: string,
   touched: string[],
+  insertedPeople: any[] = [],
 ): Promise<string> {
   const { byCollection } = await readBundle(safetyPath)
   const notes: string[] = []
@@ -680,6 +778,12 @@ async function rollbackFromSafety(
     await model.collection.deleteMany({ orgId: new mongoose.Types.ObjectId(String(orgId)) })
     const { inserted } = await insertDocs(name, docs)
     notes.push(`${name}: ${inserted}`)
+  }
+  // A restore never deletes or changes a person, so the safety copy has nothing to put back for
+  // them. What a rollback owes is removing the people THIS restore added, and nobody else.
+  if (insertedPeople.length) {
+    const removed: any = await Identity.collection.deleteMany({ _id: { $in: insertedPeople } })
+    notes.push(`${PEOPLE_MODEL}: ${removed?.deletedCount ?? 0} added by this restore removed`)
   }
   return `restored from the pre-restore safety bundle — ${notes.join(', ')}`
 }
@@ -696,6 +800,13 @@ export async function applyRestore(
   src: RestoreSourceRef,
   opts: RestoreOptions,
 ): Promise<any> {
+  // FR-20.4: a restore rewrites the org's collections with raw driver writes, which the Mongoose
+  // write guard cannot see — so it asks first. Restoring an org happens at its home, or nowhere.
+  await assertHomeIsHere(orgId)
+  // FR-20.51, FR-20.71 (P3-7): on a master that lgrai.app knows, a Replace would be journaled and sent
+  // to the mirror, deleting there what the backup lacks. Refused before anything is read or written.
+  const refusedHere = await replaceRefusedHere(orgId, opts.mode)
+  if (refusedHere) throw new Error(refusedHere)
   const started = Date.now()
   const resolved = await resolveSource(orgId, src)
 
@@ -732,6 +843,8 @@ export async function applyRestore(
 
   const warnings: string[] = []
   const touched: string[] = []
+  /** People this restore inserted: the only ones a rollback may remove. */
+  const insertedPeople: any[] = []
   let safety: Awaited<ReturnType<typeof takeSafetyBundle>> | null = null
 
   try {
@@ -783,6 +896,12 @@ export async function applyRestore(
       },
     }).exec()
 
+    // FR-20.51 (P3-7): on a master, a Replace takes the database back in time. Its legal series lock
+    // before the first write (a restore refused by a check above locks nothing), and stay locked until
+    // a person records the site's last numbers, even if the restore then fails and rolls back. A Merge
+    // only inserts what is missing and clamps every counter upwards: it never goes back.
+    if (nodeRole() === 'master' && opts.mode === 'replace') await lockLegalSeries(orgId, 'restored', 'restored from a backup')
+
     // ── Write ──────────────────────────────────────────────────────────────────
     // FR-13.32 — built once, across every collection, before a single document is rewritten.
     const idMap = remapTo ? buildIdMap(byCollection) : undefined
@@ -792,7 +911,40 @@ export async function applyRestore(
     let documentsDeleted = 0
     let sequenceClamps: any[] = []
 
+    // People first, so every membership written below has its person (see `restorePeople`).
+    const peopleDocs = byCollection.get(PEOPLE_MODEL) || []
+    if (peopleDocs.length) {
+      const people = await restorePeople(peopleDocs)
+      insertedPeople.push(...people.insertedIds)
+      documentsInserted += people.inserted
+      if (people.conflicts) {
+        warnings.push(
+          `${PEOPLE_MODEL}: ${people.conflicts} people in this bundle already exist under a different record ` +
+          `with the same email, so they were not inserted; restored memberships that point at them need relinking`,
+        )
+      }
+      results.push({
+        name: PEOPLE_MODEL,
+        inBundle: people.inBundle,
+        inLive: people.present,
+        missing: people.inBundle - people.present,
+        differing: 0,
+        inserted: people.inserted,
+        deleted: 0,
+        skipped: people.inBundle - people.inserted,
+      })
+    }
+
     for (const [name, rawDocs] of byCollection) {
+      if (name === PEOPLE_MODEL) continue
+      // ⚠ A section this deployment no longer bundles, from a bundle made before it stopped: node
+      // state (FR-20.3) or the scheduler's bookkeeping. Restoring it would rewrite who the org's
+      // home is, or revive a job owned by a process that is not here. Reported, never written.
+      const excluded = bundleExclusion(name)
+      if (excluded) {
+        if (rawDocs.length) warnings.push(`${name}: ${rawDocs.length} documents in the bundle are ${excluded === 'node_state' ? 'node state' : 'operational records'} and were not restored`)
+        continue
+      }
       const model = mongoose.models[name]
       if (!model) {
         // A collection this deployment no longer has. Reported, never silently dropped: the
@@ -856,25 +1008,52 @@ export async function applyRestore(
     }
     results.sort((a, b) => a.name.localeCompare(b.name))
 
+    // ── FR-21.22: a bundle taken before R2 brings back till rows without their documents ─────
+    //
+    // Since R2 a till sale is a cash-register document, and migration 0008 copied every POS row.
+    // A bundle older than that restores POS rows with no copy, so the same per-org copy runs here
+    // (it is idempotent: a row with its copy is left alone, and only fields that are missing are
+    // set). ⚠ A copy it cannot make is REPORTED, not fatal: the readers union both stores, so an
+    // uncopied row is still read, and a preflight blocker in a two-year-old bundle must not cost
+    // the operator the restore. `scripts/cash-register-preflight.ts` names what blocks it.
+    if ((byCollection.get('POSTransaction') || []).length) {
+      try {
+        // The preflight's warnings (a parallel run, a duplicate УНП, …) reach the operator.
+        const copy = await copyCashRegisterOrg(mongoose.connection.db as any, String(orgId), (message, extra) => {
+          if (extra?.code) warnings.push(`POSTransaction: ${message}`)
+        })
+        if (copy.copied) logger.info({ orgId, copied: copy.copied }, 'Restore: POS rows copied into cash-register documents')
+      } catch (e: any) {
+        // ⚠ The copy writes batch by batch before its parity check: some rows may be converted already.
+        warnings.push(`POSTransaction: the till's rows were restored, but converting them into cash-register documents did not finish (${e?.message || e}). Some may be converted; every row is still read, once. Run scripts/cash-register-preflight.ts and clear what it reports.`)
+      }
+    }
+
     // ── FR-13.29/13.37: the files, and the ones that are not there ─────────────
     let filesNote = ''
     if (opts.restoreFiles) {
       const sidecar = resolved.absolutePath.replace(/\.ndjson\.zst$/, '.files.ndjson.zst')
-      try {
-        await stat(sidecar)
-        const fr = await restoreFilesSidecar(sidecar, String(orgId))
-        filesNote = `${fr.written} files restored`
-        if (fr.checksumFailures.length) {
-          warnings.push(
-            `${fr.checksumFailures.length} restored files failed their checksum: ` +
-            fr.checksumFailures.slice(0, 10).join(', '),
-          )
-        }
-        if (fr.refused.length) {
-          warnings.push(`${fr.refused.length} entries in the files sidecar named a path outside this org and were refused`)
-        }
-      } catch {
+      // A sidecar that is missing and one that is there but will not read back are different
+      // problems, and one catch used to report both as "no files sidecar".
+      const present = await stat(sidecar).then(() => true, () => false)
+      if (!present) {
         warnings.push('this bundle has no files sidecar — the document rows were restored without their files')
+      } else {
+        try {
+          const fr = await restoreFilesSidecar(sidecar, String(orgId))
+          filesNote = `${fr.written} files restored`
+          if (fr.checksumFailures.length) {
+            warnings.push(
+              `${fr.checksumFailures.length} restored files failed their checksum: ` +
+              fr.checksumFailures.slice(0, 10).join(', '),
+            )
+          }
+          if (fr.refused.length) {
+            warnings.push(`${fr.refused.length} entries in the files sidecar named a path outside this org and were refused`)
+          }
+        } catch (e: any) {
+          warnings.push(`the files sidecar did not read back (${e?.message || e}) — some or all of the files were not restored`)
+        }
       }
     }
 
@@ -930,9 +1109,9 @@ export async function applyRestore(
     // ── FR-13.34: undo, then report what the undo did ──────────────────────────
     let rolledBack = false
     let rollbackDetail = ''
-    if (safety && touched.length) {
+    if (safety && (touched.length || insertedPeople.length)) {
       try {
-        rollbackDetail = await rollbackFromSafety(orgId, safety.absolutePath, touched)
+        rollbackDetail = await rollbackFromSafety(orgId, safety.absolutePath, touched, insertedPeople)
         rolledBack = true
       } catch (re: any) {
         // The worst case, and it must be stated in the loudest terms available rather than

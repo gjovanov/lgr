@@ -37,6 +37,8 @@ export default defineConfig({
         // FR-06 (#14): grouped with portal because it exercises the App Hub tile and the
         // cross-SPA redirects out of invoicing, not the invoicing grids themselves.
         'reports.spec.ts',
+        // Multi-org sign-in: the org menu, the picker and per-tab orgs.
+        'org-switcher.spec.ts',
       ],
     },
     {
@@ -79,7 +81,7 @@ export default defineConfig({
     {
       name: 'invoicing-inventory',
       use: { ...devices['Desktop Chrome'], baseURL },
-      testMatch: ['invoicing.spec.ts', 'invoicing-crud.spec.ts', 'invoicing-export.spec.ts', 'proforma-convert.spec.ts', 'credit-notes-fix.spec.ts', 'invoice-stock-adjustment.spec.ts', 'payment-orders.spec.ts', 'cash-orders.spec.ts', 'cash-sales.spec.ts', 'contact-inline-create.spec.ts', 'company-lookup.spec.ts', 'invoicing-product-autocomplete.spec.ts', 'tag-pricing.spec.ts', 'warehouse.spec.ts', 'warehouse-crud.spec.ts', 'tags.spec.ts', 'movements-product-filter.spec.ts', 'product-stock-page.spec.ts', 'stock-validation.spec.ts', 'pos-transactions.spec.ts', 'pos-devices.spec.ts', 'pos-terminal.spec.ts'],
+      testMatch: ['invoicing.spec.ts', 'invoicing-crud.spec.ts', 'invoicing-export.spec.ts', 'proforma-convert.spec.ts', 'credit-notes-fix.spec.ts', 'invoice-stock-adjustment.spec.ts', 'payment-orders.spec.ts', 'cash-orders.spec.ts', 'cash-sales.spec.ts', 'cash-sale-invoice.spec.ts', 'orders-reservations.spec.ts', 'orders-product-autocomplete.spec.ts', 'reservations-page.spec.ts', 'order-forms.spec.ts', 'contact-inline-create.spec.ts', 'company-lookup.spec.ts', 'invoicing-product-autocomplete.spec.ts', 'tag-pricing.spec.ts', 'warehouse.spec.ts', 'warehouse-crud.spec.ts', 'tags.spec.ts', 'movements-product-filter.spec.ts', 'product-stock-page.spec.ts', 'product-actions.spec.ts', 'stock-validation.spec.ts', 'pos-transactions.spec.ts', 'pos-devices.spec.ts', 'pos-terminal.spec.ts', 'grid-url-state.spec.ts', 'document-lists.spec.ts', 'cash-register.spec.ts'],
     },
     {
       // Needs a deterministic OCR sidecar — see the header of doc-import.spec.ts for how
@@ -89,6 +91,14 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: ['doc-import.spec.ts'],
       timeout: 180000,
+    },
+    {
+      // FR-21 §8.3: the till on a fiscal device. Needs `scripts/eltrade-tcp-stub.ts` and a server
+      // run with FISCAL_TCP_ALLOW_LOOPBACK=1 — see the header of the spec. Kept out of
+      // `invoicing-inventory` for the same reason doc-import is.
+      name: 'cash-register-fiscal',
+      use: { ...devices['Desktop Chrome'], baseURL },
+      testMatch: ['cash-register-fiscal.spec.ts'],
     },
     {
       name: 'payroll',
@@ -114,6 +124,18 @@ export default defineConfig({
       name: 'new-modules',
       use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: ['new-modules-smoke.spec.ts'],
+    },
+    {
+      /**
+       * FR-22 click budgets: each spec walks one of the staff's daily paths in the Bulgarian UI
+       * and records what it costs (clicks, typed fields, page loads). A laptop viewport, because
+       * that is where the regal staff work and where a row that fits at 1920 does not.
+       * `bun run ux:report` turns the results into the budgets table.
+       */
+      name: 'ux-budgets',
+      use: { ...devices['Desktop Chrome'], baseURL, viewport: { width: 1366, height: 768 } },
+      testMatch: ['ux-budgets/**/*.spec.ts'],
+      fullyParallel: false,
     },
     {
       name: 'full-walkthrough',

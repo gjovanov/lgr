@@ -58,6 +58,23 @@
               <v-switch v-model="device.isActive" label="Active" color="primary" density="compact" />
             </v-col>
           </v-row>
+          <!-- A TCP device is opened by the LGR server itself, so it needs an address the server can
+               reach: on lgrai.app a public one, on an on-prem LGR server one on the shop's network. -->
+          <v-row v-if="device.connectionType === 'tcp'">
+            <v-col cols="12" md="4">
+              <v-text-field
+                v-model="device.ip"
+                label="IP address or host"
+                :rules="[rules.required]"
+                hint="Reachable from the LGR server. A printer on the shop's own network is connected through the browser or LGR Desktop instead."
+                persistent-hint
+                density="compact"
+              />
+            </v-col>
+            <v-col cols="12" md="2">
+              <v-text-field v-model.number="device.tcpPort" label="Port" type="number" density="compact" />
+            </v-col>
+          </v-row>
         </v-tabs-window-item>
 
         <!-- Tab 2: Operators -->
@@ -304,7 +321,10 @@ const device = reactive({
   name: '',
   deviceNumber: '',
   manufacturer: 'datecs' as string,
-  connectionType: 'tcp' as string,
+  // A till's printer is opened from the POS page (Web Serial) — TCP needs an address the server reaches.
+  connectionType: 'browser' as string,
+  ip: '',
+  tcpPort: 4999 as number | null,
   warehouseId: null as string | null,
   isActive: true,
   status: '' as string,
@@ -466,7 +486,9 @@ async function fetchDevice() {
       name: d.name || '',
       deviceNumber: d.deviceNumber || '',
       manufacturer: d.manufacturer || 'datecs',
-      connectionType: d.connectionType || 'tcp',
+      connectionType: d.connectionType || 'browser',
+      ip: d.connectionParams?.ip || '',
+      tcpPort: d.connectionParams?.tcpPort || 4999,
       warehouseId: d.warehouseId || null,
       isActive: d.isActive !== false,
       status: d.status || '',
@@ -484,13 +506,17 @@ async function handleSave() {
 
   saving.value = true
   try {
-    const payload = {
+    const payload: Record<string, unknown> = {
       name: device.name,
       deviceNumber: device.deviceNumber,
       manufacturer: device.manufacturer,
       connectionType: device.connectionType,
       warehouseId: device.warehouseId,
       isActive: device.isActive,
+    }
+    // A TCP device is opened by the LGR server at this address.
+    if (device.connectionType === 'tcp') {
+      payload.connectionParams = { ip: device.ip.trim(), tcpPort: Number(device.tcpPort) || 4999 }
     }
 
     if (isNew.value) {

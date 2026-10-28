@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IDepreciationEntry {
   date: Date
@@ -85,5 +86,7 @@ const fixedAssetSchema = new Schema<IFixedAsset>(
 fixedAssetSchema.plugin(tenantPlugin)
 fixedAssetSchema.index({ orgId: 1, code: 1 }, { unique: true })
 fixedAssetSchema.index({ orgId: 1, category: 1 })
+
+replicate(fixedAssetSchema, { class: 'R' })
 
 export const FixedAsset = model<IFixedAsset>('FixedAsset', fixedAssetSchema)

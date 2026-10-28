@@ -16,6 +16,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { Organization } from '../store/app.store'
 
 const props = defineProps<{
@@ -27,10 +28,13 @@ const primaryAddress = computed(() => {
   return list.find(a => a.isDefault) || list[0] || null
 })
 
+const { t } = useI18n()
+
+// Labelled as on the printed invoice (ЕИК / ИН по ДДС).
 const taxLabel = computed(() => {
   const parts: string[] = []
-  if (props.org?.taxNumber) parts.push(`Tax ID: ${props.org.taxNumber}`)
-  if (props.org?.vatNumber) parts.push(`VAT: ${props.org.vatNumber}`)
+  if (props.org?.taxNumber) parts.push(`${t('invoicing.partyTaxId')}: ${props.org.taxNumber}`)
+  if (props.org?.vatNumber) parts.push(`${t('invoicing.partyVatId')}: ${props.org.vatNumber}`)
   return parts.join(' · ')
 })
 </script>

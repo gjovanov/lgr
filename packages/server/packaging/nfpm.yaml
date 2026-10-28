@@ -1,0 +1,94 @@
+# LGR Server for Linux (FR-20.10, plan step P1-7; versioned installs FR-20.20, P1-8b). Built by
+# .github/workflows/server-release.yml with nfpm:
+#   VERSION=0.1.0 ARCH=amd64 nfpm package -f packages/server/packaging/nfpm.yaml -p deb
+# from the repository root, with the bootstrap and the update bundle in dist/installer/. (nfpm expands
+# the environment in the header fields, never in a contents src.)
+#
+# The package carries the BOOTSTRAP and the server's update bundle in /opt/lgr-server/installer/, and
+# its postinst hands the bundle to `lgr-server update install-bundle`, the code the update helper uses
+# too: the version lands in /opt/lgr-server/versions/<v>/ and `current` points at it. dpkg never owns
+# a version, so an upgrade leaves the previous one on disk to go back to, offline.
+name: lgr-server
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: net
+priority: optional
+maintainer: "G ROX LTD <support@lgrai.app>"
+vendor: G ROX LTD
+homepage: https://lgrai.app
+license: Proprietary; MongoDB Community Server under SSPL-1.0 (see /opt/lgr-server/current/licences)
+description: |-
+  LGR Server, the on-premises master of LGR.
+  The API and its apps, its database (MongoDB), the PDF renderer and the link to lgrai.app,
+  supervised as one systemd service running as the lgr user.
+# mongod 7.0 (the ubuntu2204 build) links OpenSSL 3 and libcurl; chrome-headless-shell needs NSS and
+# friends. Each alternative is the 24.04 t64 rename. The release job installs this package in clean
+# 22.04 and 24.04 containers and fails on any library left unresolved.
+depends:
+  - libc6 (>= 2.35)
+  - libssl3 | libssl3t64
+  - libcurl4 | libcurl4t64
+  - libnss3
+  - libnspr4
+  - libatk1.0-0 | libatk1.0-0t64
+  - libatk-bridge2.0-0 | libatk-bridge2.0-0t64
+  - libcups2 | libcups2t64
+  - libdrm2
+  - libxkbcommon0
+  - libxcomposite1
+  - libxdamage1
+  - libxfixes3
+  - libxrandr2
+  - libgbm1
+  - libasound2 | libasound2t64
+  - libpango-1.0-0
+  - libcairo2
+  - libdbus-1-3
+  - libexpat1
+  - libglib2.0-0 | libglib2.0-0t64
+  - libx11-6
+  - libxcb1
+  - libxext6
+  - libnghttp2-14
+  # FR-20.88 (plan step P2-6c): a master reads its PDFs itself (`local-extract.ts`): the text layer
+  # with poppler, a scan with tesseract in Bulgarian. Only the model's steps go through lgrai.app.
+  - poppler-utils
+  - tesseract-ocr
+  - tesseract-ocr-bul
+recommends:
+  # Cyrillic in printed documents.
+  - fonts-dejavu-core
+  - fonts-liberation
+contents:
+  - src: dist/installer/lgr-server
+    dst: /opt/lgr-server/installer/lgr-server
+    file_info:
+      mode: 0755
+  - src: dist/installer/lgr-server-bundle.tar.gz
+    dst: /opt/lgr-server/installer/lgr-server-bundle.tar.gz
+    file_info:
+      mode: 0644
+  - src: packages/server/packaging/linux/lgr-server.service
+    dst: /usr/lib/systemd/system/lgr-server.service
+    file_info:
+      mode: 0644
+  - src: packages/server/packaging/linux/lgr-server-update.service
+    dst: /usr/lib/systemd/system/lgr-server-update.service
+    file_info:
+      mode: 0644
+  - src: packages/server/packaging/linux/lgr-server-update.path
+    dst: /usr/lib/systemd/system/lgr-server-update.path
+    file_info:
+      mode: 0644
+  # Dangling until the postinst installs the first version.
+  - src: /opt/lgr-server/current/lgr-server
+    dst: /usr/bin/lgr-server
+    type: symlink
+scripts:
+  # FR-20.13, AC 14: a machine that cannot run a master is refused before anything is unpacked.
+  preinstall: packages/server/packaging/linux/preinst
+  postinstall: packages/server/packaging/linux/postinst
+  preremove: packages/server/packaging/linux/prerm
+  postremove: packages/server/packaging/linux/postrm

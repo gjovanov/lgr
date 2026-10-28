@@ -16,50 +16,49 @@
  *   bun run scripts/reconcile-sequences.ts --org regal   # single org
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { keepHomeOrgs } from './lib/home-guard.js'
 import { Invoice, Org, Sequence } from '../packages/db/src/models/index.js'
 import { ensureSequenceAtLeast } from '../packages/services/src/biz/sequence.service.js'
+import { currentMaxSuffix } from '../packages/services/src/biz/invoice-numbering.service.js'
+import { INVOICING_SEQUENCE_KEYS } from '../packages/services/src/biz/sequence-registry.js'
 
-const PREFIX_GROUPS: { key: string; prefixes: string[] }[] = [
-  { key: 'SALES_DOC', prefixes: ['INV', 'CRN', 'DBN'] },
-  { key: 'PROFORMA', prefixes: ['PRF'] },
-  { key: 'CASH_SALE', prefixes: ['CS'] },
-  { key: 'BILL', prefixes: ['BILL'] },
-]
+/**
+ * The issued counters whose numbers live on invoicing documents, from the registry (#325). Their
+ * prefixes are the org's, resolved by `currentMaxSuffix` as every allocation does: the registry
+ * default, the org's override on the sequences page, and the legacy aliases (CRN/DBN). This list
+ * hard-coded INV/CRN/DBN/PRF/CS/BILL, so an org that renamed a prefix was never reconciled.
+ */
+const INVOICE_GROUPS = new Set(['invoice', 'proforma', 'bill', 'cash_sale'])
+const COUNTER_KEYS = [...new Set(INVOICING_SEQUENCE_KEYS
+  .filter(e => INVOICE_GROUPS.has(e.group) && e.variant === 'issued' && !e.closed && !e.unused)
+  .map(e => e.prefix))]
 
 const args = process.argv.slice(2)
 const execute = args.includes('--execute')
 const orgSlug = args.includes('--org') ? args[args.indexOf('--org') + 1] : null
-
-function extractSuffix(invoiceNumber: string, prefixes: string[], year: number): number | null {
-  const m = invoiceNumber.match(new RegExp(`^(?:${prefixes.join('|')})-${year}-(\\d+)$`))
-  return m ? Number(m[1]) : null
-}
 
 async function main() {
   await connectDB()
   console.log(`Mode: ${execute ? 'EXECUTE' : 'DRY-RUN'}`)
   console.log(`Org filter: ${orgSlug || '(all)'}`)
 
-  const orgs = await Org.find(orgSlug ? { slug: orgSlug } : {}).lean()
+  const orgs = await keepHomeOrgs(await Org.find(orgSlug ? { slug: orgSlug } : {}).lean() as any[], { named: !!orgSlug })
   console.log(`Orgs: ${orgs.length}`)
 
   let totalBumped = 0
   for (const org of orgs) {
     const invoices = await Invoice.find({ orgId: org._id }, { invoiceNumber: 1 }).lean()
-    // Group by (year, groupKey) and find max suffix.
-    const maxPerGroup = new Map<string, number>() // "year|key" → max
+    // The years any number names; per year and counter, the highest suffix in use.
+    const years = new Set<number>()
     for (const inv of invoices) {
-      const num = (inv as any).invoiceNumber as string
-      if (!num) continue
-      const yearMatch = num.match(/-(\d{4})-/)
-      if (!yearMatch) continue
-      const year = Number(yearMatch[1])
-      for (const g of PREFIX_GROUPS) {
-        const suf = extractSuffix(num, g.prefixes, year)
-        if (suf !== null) {
-          const key = `${year}|${g.key}`
-          maxPerGroup.set(key, Math.max(maxPerGroup.get(key) ?? 0, suf))
-        }
+      const m = String((inv as any).invoiceNumber || '').match(/-(\d{4})-\d+$/)
+      if (m) years.add(Number(m[1]))
+    }
+    const maxPerGroup = new Map<string, number>() // "year|key" → max
+    for (const year of years) {
+      for (const key of COUNTER_KEYS) {
+        const max = await currentMaxSuffix(String(org._id), key, year)
+        if (max > 0) maxPerGroup.set(`${year}|${key}`, max)
       }
     }
 

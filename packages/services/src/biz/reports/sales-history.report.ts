@@ -21,13 +21,17 @@
  * explicit precedence, and the money is attributed per method rather than per document.
  */
 
-import { Invoice, POSTransaction, POSSession, Contact, User, Warehouse } from 'db/models'
+import { Invoice, POSSession, Contact, User, Warehouse } from 'db/models'
 import { rowCapFor, type ReportHandlerContext, type ReportResult, type ReportColumn } from '../report-registry.types.js'
+import { saleScopeFilter } from '../sale-counting.js'
+import { invoicingByCashSale } from '../cash-sale-invoice.service.js'
+import { keptByMethod, posRowSign } from '../cash-register/counting.js'
+import { loadPosRows } from '../cash-register/pos-union.js'
 
 /** Methods the summary always reports, even at zero — an absent line reads as "not checked". */
 export const REPORTED_METHODS = ['cash', 'card'] as const
 
-/** Anything outside cash/card rolls up as „other" (mobile, voucher, bank_transfer, check). */
+/** Anything outside cash/card rolls up as „other" (mobile, voucher, bank_transfer, cash_on_delivery). */
 export function bucketFor(method: string | undefined | null): 'cash' | 'card' | 'other' {
   const m = (method || '').toLowerCase()
   if (m === 'cash') return 'cash'
@@ -66,7 +70,8 @@ export function effectiveMethods(doc: {
   }
   const total = Number(doc.total) || 0
   if (doc.paymentMethod) return [{ method: String(doc.paymentMethod), amount: total }]
-  if (doc.type === 'cash_sale' && Number(doc.amountPaid) > 0) return [{ method: 'cash', amount: total }]
+  // A cash sale with no payment row was paid in cash at the till; its storno refunds in cash.
+  if ((doc.type === 'cash_sale' || doc.type === 'cash_storno') && Number(doc.amountPaid) > 0) return [{ method: 'cash', amount: total }]
   return []
 }
 
@@ -133,9 +138,11 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
     const docMatch: Record<string, any> = {
       orgId: orgObjectId,
       direction: 'outgoing',
-      // Credit notes ride along as negatives so a refunded day nets out.
-      type: { $in: ['invoice', 'cash_sale', 'credit_note'] },
+      // Credit notes and cash-sale stornos ride along as negatives so a refunded day nets out.
+      type: { $in: ['invoice', 'cash_sale', 'credit_note', 'cash_storno'] },
       status: { $nin: EXCLUDED_STATUSES },
+      // A till document is a POS row; the POS branch below lists it (FR-21.8).
+      'register.origin': { $ne: 'pos' },
     }
     // The business day is the issue date — `createdAt` is when it was typed in.
     if (from || to) {
@@ -144,6 +151,9 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
       if (to) docMatch.issueDate.$lte = to
     }
     if (ctx.params.contactId) docMatch.contactId = oid(ctx.params.contactId)
+    // #171: a sale invoiced from a cash sale counts once — on the cash sale, or, for one customer,
+    // on the invoice issued to them.
+    Object.assign(docMatch, await saleScopeFilter(ctx.orgId, ctx.params.contactId))
     if (ctx.params.userId) docMatch.createdBy = oid(ctx.params.userId)
     if (ctx.params.warehouseId) docMatch['lines.warehouseId'] = oid(ctx.params.warehouseId)
 
@@ -153,6 +163,10 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
       'lines.warehouseId': 1,
     }).lean()
 
+    // The „-ФЕ №" of a cash sale is the invoice issued for it, when there is one.
+    const cashSaleIds = (docs as any[]).filter(d => d.type === 'cash_sale').map(d => String(d._id))
+    const invoicedAs = cashSaleIds.length ? await invoicingByCashSale(ctx.orgId, cashSaleIds) : new Map()
+
     for (const d of docs as any[]) {
       const methods = effectiveMethods(d)
       const buckets = methods.map(m => bucketFor(m.method))
@@ -161,8 +175,8 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
       const matches = buckets.some(b => wanted.includes(b)) || (includeNonRegister && methods.length > 0)
       if (!matches) continue
 
-      const sign = d.type === 'credit_note' ? -1 : 1
-      if (sign < 0) creditNoteCount++
+      const sign = d.type === 'credit_note' || d.type === 'cash_storno' ? -1 : 1
+      if (d.type === 'credit_note') creditNoteCount++
 
       // Imported day-aggregate cash sales have no true time — `createdAt` is the import run.
       const imported = Array.isArray(d.tags) && d.tags.includes(CSR_IMPORT_TAG)
@@ -170,6 +184,8 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
 
       rows.push({
         rowType: 'document',
+        // The drill-down opens a cash sale on its own page (FR-21.3).
+        docType: d.type,
         _sortAt: new Date(d.issueDate || d.createdAt).getTime(),
         invoiceId: String(d._id),
         date: isoDay(d.issueDate),
@@ -179,8 +195,10 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
         number: d.invoiceNumber,
         contactId: d.contactId ?? null,
         status: d.status,
-        // The legacy „-ФЕ №" column: only a real invoice carries one.
-        invoiceNumber: d.type === 'invoice' ? d.invoiceNumber : '',
+        // The legacy „-ФЕ №" column: an invoice's own number, or the invoices of a cash sale (#171).
+        invoiceNumber: d.type === 'invoice'
+          ? d.invoiceNumber
+          : d.type === 'cash_sale' ? (invoicedAs.get(String(d._id))?.invoices || []).map((i: any) => i.number).join(', ') : '',
         total: +((Number(d.total) || 0) * sign).toFixed(2),
         currency: d.currency || 'EUR',
         methods: methods.map(m => ({ method: m.method, amount: +(m.amount * sign).toFixed(2) })),
@@ -190,42 +208,39 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
 
   // ── POS rows ──────────────────────────────────────────────────────────────
   if (source === 'all' || source === 'pos') {
-    const posMatch: Record<string, any> = { orgId: orgObjectId, status: 'completed' }
-    // POS rows window on real wall-clock time — the asymmetry with issueDate is deliberate
-    // and stated in the meta.
-    if (from || to) {
-      posMatch.createdAt = {}
-      if (from) posMatch.createdAt.$gte = from
-      if (to) posMatch.createdAt.$lte = to
-    }
-    if (ctx.params.contactId) posMatch.customerId = oid(ctx.params.contactId)
-    if (ctx.params.userId) posMatch.createdBy = oid(ctx.params.userId)
+    // Every status: a stornoed sale is `cancelled` and still counts, its storno takes it back
+    // (FR-21.1). `posRowSign` decides, below. POS rows window on real wall-clock time — the
+    // asymmetry with issueDate is deliberate and stated in the meta. Both stores, each row once
+    // (FR-21.8): a till sale is a POS row until R2 and a cash-register document after it.
+    const txns = (await loadPosRows({ orgId: ctx.orgId, from, to })).filter(t =>
+      (!ctx.params.contactId || String(t.customerId) === String(ctx.params.contactId))
+      && (!ctx.params.userId || String(t.createdBy) === String(ctx.params.userId)))
 
-    const txns = await POSTransaction.find(posMatch, {
-      transactionNumber: 1, type: 1, status: 1, createdAt: 1, total: 1, currency: 1,
-      customerId: 1, createdBy: 1, payments: 1, fiscalDeviceNumber: 1, fiscalReceiptNumber: 1, sessionId: 1,
-    }).lean()
-
-    // Warehouse filter for POS goes through the session.
-    let allowedSessions: Set<string> | null = null
-    if (ctx.params.warehouseId) {
-      const sessions = await POSSession.find(
-        { orgId: orgObjectId, warehouseId: oid(ctx.params.warehouseId) },
-        { _id: 1 },
-      ).lean()
-      allowedSessions = new Set(sessions.map((s: any) => String(s._id)))
-    }
+    // A POS row has no currency of its own: it is the session's (FR-21.3). The warehouse filter
+    // goes through the session too.
+    const sessionIds = [...new Set((txns as any[]).map(t => String(t.sessionId)))]
+    const sessions: any[] = sessionIds.length
+      ? await POSSession.find({ _id: { $in: sessionIds.map(oid) } }, { currency: 1, warehouseId: 1 }).lean()
+      : []
+    const sessionById = new Map(sessions.map(s => [String(s._id), s]))
+    const wantedWarehouse = ctx.params.warehouseId ? String(ctx.params.warehouseId) : null
 
     for (const t of txns as any[]) {
-      if (allowedSessions && !allowedSessions.has(String(t.sessionId))) continue
+      const session = sessionById.get(String(t.sessionId))
+      if (wantedWarehouse && String(session?.warehouseId) !== wantedWarehouse) continue
 
-      const methods = (t.payments || [])
-        .filter((p: any) => Number(p?.amount))
-        .map((p: any) => ({ method: String(p.method || 'other'), amount: Number(p.amount) || 0 }))
+      const sign = posRowSign(t)
+      if (!sign) continue
+
+      // What the drawer kept, not what was tendered: change goes back out in cash.
+      const kept = keptByMethod(t)
+      const otherMethod = (t.payments || []).find((p: any) => p?.method !== 'cash' && p?.method !== 'card')?.method
+      const methods: MethodAmount[] = [
+        ...(kept.cash ? [{ method: 'cash', amount: kept.cash }] : []),
+        ...(kept.card ? [{ method: 'card', amount: kept.card }] : []),
+        ...(kept.other ? [{ method: String(otherMethod || 'other'), amount: kept.other }] : []),
+      ]
       if (!methods.some(m => wanted.includes(bucketFor(m.method))) && !includeNonRegister) continue
-
-      // Returns and stornos give money back.
-      const sign = t.type === 'return' || t.type === 'storno' ? -1 : 1
 
       rows.push({
         rowType: 'pos',
@@ -240,7 +255,7 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
         status: t.status,
         invoiceNumber: '', // no POS→invoice link exists today
         total: +((Number(t.total) || 0) * sign).toFixed(2),
-        currency: t.currency || 'EUR',
+        currency: session?.currency || 'EUR',
         methods: methods.map((m: MethodAmount) => ({ method: m.method, amount: +(m.amount * sign).toFixed(2) })),
       })
     }

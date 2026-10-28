@@ -36,3 +36,23 @@ export function lineUnitPrice(row: Locator): Locator {
 export function lineQuantity(row: Locator): Locator {
   return row.locator('input[type="number"]').first()
 }
+
+/**
+ * The description cell on a document line row — where the product search lives.
+ *
+ * ⚠ Not `row.locator('td').first()`, which is what the autocomplete specs used. Since
+ * 2026-10-08 every line opens with a `td.line-no` cell holding its number, so the first cell
+ * has no input and `fill()` waits out its timeout on a row that looks entirely normal.
+ */
+export function lineDescription(row: Locator): Locator {
+  return row.locator('td.line-no + td')
+}
+
+/**
+ * Each line of the open document form as one string — its text and its fields' values. A line with
+ * no product holds its description in a field, which a text match never sees.
+ */
+export async function lineValues(page: Page): Promise<string[]> {
+  return page.locator('.line-table tbody tr').evaluateAll((rows) => rows.map((r) =>
+    [r.textContent || '', ...Array.from(r.querySelectorAll('input, textarea')).map((i) => (i as HTMLInputElement).value)].join(' | ')))
+}

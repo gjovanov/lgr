@@ -1,8 +1,8 @@
 <template>
-  <div class="entity-form-shell">
+  <div ref="shellRoot" class="entity-form-shell">
     <!-- Header: Back + Title -->
     <div class="form-header-bar d-flex align-center px-3 py-2">
-      <v-btn icon variant="text" size="small" @click="goBack">
+      <v-btn icon variant="text" size="small" :aria-label="backLabel || $t('common.back')" data-testid="form-back" @click="goBack">
         <v-icon>mdi-arrow-left</v-icon>
         <v-tooltip activator="parent" location="bottom" content-class="tooltip-visible">{{ backLabel || $t('common.back') }}</v-tooltip>
       </v-btn>
@@ -21,6 +21,11 @@
         <h1 class="text-subtitle-1 font-weight-bold ml-1 mb-0">{{ title }}</h1>
         <span v-if="subtitle" class="text-body-2 text-medium-emphasis ml-1">{{ subtitle }}</span>
       </div>
+
+      <!-- What the record leads to, beside its title on every tab of it (FR-22.47: an article's
+           „Заприходи" / „Продай" / „Резервирай"). Small buttons: the bar keeps its height, which
+           `.form-content` subtracts. -->
+      <slot name="header-actions" />
     </div>
 
     <!-- Main content area: sheet (left) + sidebar (right) — full width, fixed height -->
@@ -37,10 +42,15 @@
                 :loading="action.loading"
                 :disabled="action.disabled"
                 :prepend-icon="action.icon"
+                :aria-keyshortcuts="ariaShortcuts(action)"
                 size="small"
                 @click="action.handler"
               >
                 {{ action.label }}
+                <!-- FR-22.52: the keys that run this action, named where the person looks for them. -->
+                <v-tooltip v-if="shortcutLabels(action).length" activator="parent" location="bottom" content-class="tooltip-visible">
+                  {{ shortcutLabels(action).join(' · ') }}
+                </v-tooltip>
               </v-btn>
             </template>
           </div>
@@ -71,6 +81,7 @@
             :value="btn.value"
             :icon="btn.icon"
             :to="btn.to"
+            :href="btn.href"
             :color="btn.color"
             @click="btn.click?.()"
           />
@@ -128,9 +139,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import SmartButton from './SmartButton.vue'
+import { focusFirstField, isMacPlatform, useFormShortcuts } from '../composables/form-shortcuts'
 
 export interface FormAction {
   label: string
@@ -141,13 +154,24 @@ export interface FormAction {
   loading?: boolean
   disabled?: boolean
   variant?: 'flat' | 'outlined' | 'text'
+  /** Ctrl+S runs it (FR-22.52). Unset on every action: the one labelled „Запази" (`common.save`). */
+  save?: boolean
+  /**
+   * Ctrl+Enter runs it: the action that finishes the job („Издай и печатай", „Запази и потвърди").
+   * Unset on every action: the save action. Never simply the first one shown — on a posted
+   * journal entry that is „Анулирай", and no shortcut should reach a step like that unasked.
+   */
+  primary?: boolean
 }
 
 export interface SmartButtonDef {
   label: string
   value: string | number
   icon: string
+  /** A route inside this app. */
   to?: string
+  /** A page in another app — build it with `appHref` (ui-shared/nav/navigate). */
+  href?: string
   click?: () => void
   color?: string
 }
@@ -158,7 +182,7 @@ export interface StatusDef {
   colors?: Record<string, string>
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   title: string
   subtitle?: string
   status?: StatusDef
@@ -168,9 +192,21 @@ const props = defineProps<{
   backTo?: string
   backLabel?: string
   entityId?: string
-}>()
+  /**
+   * Focus the first field once the form renders. Unset: on a new document, which is a route
+   * with a `new` segment (`/invoices/new`, `/products/new/edit`) and no `entityId`.
+   */
+  autofocus?: boolean
+}>(), {
+  // ⚠ An explicit undefined: a boolean prop left out is otherwise cast to `false`, which would
+  // read as "never" instead of "decide from the route".
+  autofocus: undefined,
+})
 
 const router = useRouter()
+const route = useRoute()
+const { t } = useI18n()
+const shellRoot = ref<HTMLElement | null>(null)
 
 // Right sidebar starts collapsed by default, persisted across pages so the user's
 // preference sticks for the session.
@@ -193,6 +229,46 @@ function toggleSidebar() {
 const visibleActions = computed(() =>
   (props.actions || []).filter(a => a.show !== false)
 )
+
+// ── FR-22.52: keyboard ──
+const saveAction = computed(() =>
+  visibleActions.value.find(a => a.save)
+    ?? visibleActions.value.find(a => a.label === t('common.save'))
+    ?? null,
+)
+const primaryAction = computed(() => visibleActions.value.find(a => a.primary) ?? saveAction.value)
+
+useFormShortcuts({ root: shellRoot, save: () => saveAction.value, primary: () => primaryAction.value })
+
+const mac = isMacPlatform()
+
+function shortcutLabels(action: FormAction): string[] {
+  const mod = mac ? '⌘' : `${t('keyboard.ctrl')}+`
+  const out: string[] = []
+  if (action === saveAction.value) out.push(`${mod}S`)
+  if (action === primaryAction.value) out.push(`${mod}Enter`)
+  return out
+}
+
+function ariaShortcuts(action: FormAction): string | undefined {
+  const mod = mac ? 'Meta' : 'Control'
+  const out: string[] = []
+  if (action === saveAction.value) out.push(`${mod}+S`)
+  if (action === primaryAction.value) out.push(`${mod}+Enter`)
+  return out.length ? out.join(' ') : undefined
+}
+
+const isNewDocument = computed(() =>
+  props.autofocus ?? (!props.entityId && /(^|\/)new(\/|$)/.test(route.path)),
+)
+
+let alive = true
+onMounted(() => {
+  if (isNewDocument.value) focusFirstField(() => shellRoot.value?.querySelector<HTMLElement>('.form-paper') ?? null, () => alive)
+})
+onBeforeUnmount(() => {
+  alive = false
+})
 
 const currentStepIndex = computed(() =>
   props.status ? props.status.steps.indexOf(props.status.current) : -1
@@ -291,8 +367,22 @@ function goBack() {
   --v-field-padding-end: 8px;
 }
 
-.form-paper :deep(.v-field--variant-outlined .v-field__outline) {
-  display: none;
+/* Hide the outlined box's border PIECES, never the outline itself: Vuetify renders an outlined
+   field's floating label inside `.v-field__outline` (in its notch). `display: none` on the
+   outline took that label with it, so every outlined field in every form lost its label the
+   moment it held a value or had focus — a "receipt" with no "Type", a "30" with no "Payment
+   terms", and From/To warehouse selects that showed nothing at all. */
+.form-paper :deep(.v-field--variant-outlined .v-field__outline__start),
+.form-paper :deep(.v-field--variant-outlined .v-field__outline__end),
+.form-paper :deep(.v-field--variant-outlined .v-field__outline__notch::before),
+.form-paper :deep(.v-field--variant-outlined .v-field__outline__notch::after) {
+  border-color: transparent;
+}
+
+/* Line the floating label up with the input text (padding-start 8px above) — Vuetify's start
+   segment is 12px wide, and the label adds its own 4px margin. */
+.form-paper :deep(.v-field--variant-outlined .v-field__outline__start) {
+  flex-basis: 4px;
 }
 
 .form-paper :deep(.v-field--variant-outlined) {

@@ -84,7 +84,7 @@ export interface ExportI18n {
     cash: string
     bank_transfer: string
     card: string
-    check: string
+    cash_on_delivery: string
     other: string
   }
   meta: {
@@ -170,7 +170,7 @@ const en: ExportI18n = {
     cash: 'Cash',
     bank_transfer: 'Bank',
     card: 'Card',
-    check: 'Check',
+    cash_on_delivery: 'Cash on delivery',
     other: 'Other',
   },
   meta: {
@@ -227,8 +227,9 @@ const bg: ExportI18n = {
     paymentMethod: 'Метод на плащане',
     lineNo: 'Ред #',
     description: 'Описание',
-    quantity: 'Кол.',
-    unit: 'Мерна ед.',
+    // Spelled out, not „Кол." (gjovanov/lgr#127) — a spreadsheet column has room for it.
+    quantity: 'Количество',
+    unit: 'Мярка',
     unitPrice: 'Ед. цена',
     discount: 'Отстъпка %',
     taxRate: 'ДДС %',
@@ -256,7 +257,7 @@ const bg: ExportI18n = {
     cash: 'В брой',
     bank_transfer: 'Банка',
     card: 'Карта',
-    check: 'Чек',
+    cash_on_delivery: 'Наложен платеж',
     other: 'Друго',
   },
   meta: {
@@ -342,7 +343,7 @@ const de: ExportI18n = {
     cash: 'Bar',
     bank_transfer: 'Bank',
     card: 'Karte',
-    check: 'Scheck',
+    cash_on_delivery: 'Nachnahme',
     other: 'Sonstige',
   },
   meta: {
@@ -399,7 +400,8 @@ const mk: ExportI18n = {
     paymentMethod: 'Начин на плаќање',
     lineNo: 'Ред #',
     description: 'Опис',
-    quantity: 'Кол.',
+    // Spelled out, matching bg and the companion documents (gjovanov/lgr#127).
+    quantity: 'Количество',
     unit: 'Мерка',
     unitPrice: 'Ед. цена',
     discount: 'Попуст %',
@@ -428,7 +430,7 @@ const mk: ExportI18n = {
     cash: 'Готово',
     bank_transfer: 'Банка',
     card: 'Картичка',
-    check: 'Чек',
+    cash_on_delivery: 'Плаќање при достава',
     other: 'Друго',
   },
   meta: {

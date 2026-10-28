@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface ITimesheet extends Document {
   _id: Types.ObjectId
@@ -43,5 +44,7 @@ const timesheetSchema = new Schema<ITimesheet>(
 
 timesheetSchema.plugin(tenantPlugin)
 timesheetSchema.index({ orgId: 1, employeeId: 1, date: -1 })
+
+replicate(timesheetSchema, { class: 'R' })
 
 export const Timesheet = model<ITimesheet>('Timesheet', timesheetSchema)

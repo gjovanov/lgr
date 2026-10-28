@@ -5,7 +5,21 @@ import { lookupCompany } from 'services/biz/company-lookup.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
+import { pickerContacts } from 'services/biz/contact-picker.service'
 import { Invoice, StockMovement } from 'db/models'
+
+/**
+ * Email is optional, and an empty box is how a form says "none". `format: 'email'` alone
+ * rejects `''`, so every contact saved without an email used to answer 422 — read by users as
+ * "email is required".
+ *
+ * The `error` text is what a rejected value is told: a union's own message is TypeBox's
+ * "Expected union value", which says nothing about email.
+ */
+const optionalEmail = t.Optional(t.Union(
+  [t.Literal(''), t.String({ format: 'email' })],
+  { error: 'Expected a valid email address (or leave it empty)' },
+))
 
 export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/contact' })
   .use(AppAuthService)
@@ -40,6 +54,15 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
+
+    // FR-22.25: a document's partner picker asks for its side first, by recent use. Opt-in, and
+    // never when the caller sorts: the contacts list keeps its own columns' sort.
+    const prefer = query.prefer === 'customer' || query.prefer === 'supplier' ? query.prefer : null
+    if (prefer && !query.sortBy && size > 0) {
+      const result = await pickerContacts(orgId, filter, prefer, page, size)
+      return { contacts: result.items, ...result }
+    }
+
     const sortBy = (query.sortBy as string) || 'createdAt'
     const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : ((query.sortOrder as string) === 'asc' ? 1 : -1)
 
@@ -52,7 +75,9 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
 
-      const contact = await r.contacts.create({ ...body, orgId } as any)
+      // An empty email means none: store nothing rather than ''.
+      const { email, ...rest } = body
+      const contact = await r.contacts.create({ ...rest, ...(email ? { email } : {}), orgId } as any)
       await upsertTags(orgId, 'contact', body.tags)
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'contact', entityId: contact.id, entityName: (contact as any).companyName || (contact as any).firstName })
@@ -70,7 +95,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         companyName: t.Optional(t.String()),
         firstName: t.Optional(t.String()),
         lastName: t.Optional(t.String()),
-        email: t.Optional(t.String({ format: 'email' })),
+        email: optionalEmail,
         phone: t.Optional(t.String()),
         mobile: t.Optional(t.String()),
         website: t.Optional(t.String()),
@@ -157,7 +182,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       const existing = await r.contacts.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Contact not found' })
 
-      const contact = await r.contacts.update(id, body as any)
+      const contact = await r.contacts.updateInOrg(id, orgId, body as any)
       await upsertTags(orgId, 'contact', body.tags)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'contact', entityId: id, entityName: (contact as any).companyName || (contact as any).firstName, changes: diffChanges(existing as any, contact as any) })
@@ -175,7 +200,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         companyName: t.Optional(t.String()),
         firstName: t.Optional(t.String()),
         lastName: t.Optional(t.String()),
-        email: t.Optional(t.String({ format: 'email' })),
+        email: optionalEmail,
         phone: t.Optional(t.String()),
         mobile: t.Optional(t.String()),
         website: t.Optional(t.String()),
@@ -214,6 +239,9 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
   .get('/lookup/:vatNumber', async ({ params: { vatNumber }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const company = await lookupCompany(vatNumber)
+    if (!company.isValid && company.unavailable) {
+      return status(503, { code: 'lookup_unavailable', message: 'EU VAT numbers cannot be checked on this server. A Bulgarian EIK still can be.' })
+    }
     if (!company.isValid) return status(404, { message: 'Company not found' })
     return { company }
   }, { isSignIn: true })
@@ -224,7 +252,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
     const existing = await r.contacts.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Contact not found' })
 
-    await r.contacts.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+    await r.contacts.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'invoicing', entityType: 'contact', entityId: id, entityName: (existing as any)?.companyName || (existing as any)?.firstName })
 

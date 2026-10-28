@@ -11,8 +11,11 @@
  *
  * Usage:
  *   bun run scripts/seed-user.ts --org <slug> --email <e> --username <u> --password <p> --first <F> --last <L>            # dry-run
- *   bun run scripts/seed-user.ts --org regal-pz --email rdodova@gmail.com --username rdodova --password 'Rd12345!!' \
- *       --first Rozalina --last Dodova --role admin --execute
+ *   bun run scripts/seed-user.ts --org regal-pz --email ann.doe@example.com --username anndoe --password "$INITIAL_PASSWORD" \
+ *       --first Ann --last Doe --role admin --execute
+ *
+ * ⚠ Never paste a real password into this header, a skill or a commit message; pass it from the
+ * environment. A real one sat in this example until 2026-10-05.
  *
  * Options:
  *   --org <slug>     (required) target org — must already exist
@@ -29,10 +32,12 @@
  *   --execute        perform writes (default: dry-run)
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { assertScriptHome } from './lib/home-guard.js'
 import { Org, User, PermissionSet } from '../packages/db/src/models/index.js'
 import { DEFAULT_ROLE_PERMISSIONS, ROLES } from '../packages/config/src/constants.js'
 import { seedDefaultPermissionSets, ROLE_TO_PERMISSION_SET } from '../packages/services/src/biz/permission-set.seed.js'
 import { allocateOperatorCode } from '../packages/services/src/biz/sequence.service.js'
+import { discardIdentity, identityForOperatorJoin } from '../packages/services/src/biz/identity/identity.service.js'
 import { createMongoRepositories } from '../packages/dal-mongo/src/index.js'
 
 function parseArgs(argv: string[]) {
@@ -79,6 +84,7 @@ async function main() {
 
   const org = await Org.findOne({ slug: orgSlug })
   if (!org) { console.error(`Org "${orgSlug}" not found.`); process.exit(1) }
+  await assertScriptHome(org._id, orgSlug)
 
   const repos = await createMongoRepositories({ backend: 'mongo' })
   await seedDefaultPermissionSets(String(org._id), repos)
@@ -96,17 +102,37 @@ async function main() {
     }
   } else {
     const hashedPassword = await Bun.password.hash(password)
+    // Multi-org: the person behind this membership. Someone who already has an account is linked as
+    // they are: their password is theirs, so --password goes unused. Before the identity migration,
+    // an address that still has unlinked users is left for the migration to group.
+    const person = await identityForOperatorJoin({
+      email,
+      password: hashedPassword, // an operator-set password: the helper records who and where
+      firstName, middleName, lastName, isActive,
+    }, org._id)
     const operatorCode = await allocateOperatorCode(String(org._id))
 
-    user = await User.create({
-      email, username, password: hashedPassword,
-      firstName, middleName, lastName, position,
-      role, operatorCode, orgId: org._id, isActive,
-      permissions: (DEFAULT_ROLE_PERMISSIONS as any)[role],
-      roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
-      permissionSetIds: permSet ? [permSet._id] : [],
-    })
+    try {
+      user = await User.create({
+        email: person ? person.identity.email : email,
+        username,
+        // The legacy copy matches the person's own hash, so a rollback signs them in as before.
+        password: person && !person.created ? person.identity.password : hashedPassword,
+        identityId: person?.identity._id,
+        firstName, middleName, lastName, position,
+        role, operatorCode, orgId: org._id, isActive,
+        permissions: (DEFAULT_ROLE_PERMISSIONS as any)[role],
+        roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
+        permissionSetIds: permSet ? [permSet._id] : [],
+      })
+    } catch (err) {
+      if (person?.created) await discardIdentity(person.identity._id)
+      throw err
+    }
     console.log(`User created: ${username} (operator ${operatorCode}, role ${role}, permission set ${permSet?.name || '(none)'})`)
+    if (!person) console.log('  Not linked to a person yet: this address still has users the identity migration has not linked. It will group them.')
+    else if (person.created) console.log(`  New person <${person.identity.email}>, password set by an operator (they change it before joining another org).`)
+    else console.log(`  Linked to the existing person <${person.identity.email}>. Their password is unchanged; --password was not used.`)
   }
 
   if (setOwner && !org.ownerId) {

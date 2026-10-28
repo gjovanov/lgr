@@ -13,6 +13,10 @@ on:
   pull_request:
   push:
     branches: [master]
+    # The desktop release gate (`desktop-promote.yml`) reads THIS workflow's checks for the tagged
+    # commit, `cargo check (macos)` among them. That job no longer runs on master pushes (below),
+    # so a desktop tag runs the workflow itself and the gate finds every check it names.
+    tags: ['desktop-v*']
   workflow_dispatch:
 
 # A second push to a branch makes the first run pointless. Master is never cancelled, because a
@@ -25,9 +29,8 @@ permissions:
   contents: read
 
 env:
-  # Matches the runtime the Dockerfile ships (oven/bun:1.3.10-slim), so CI cannot pass on a Bun
-  # that production never runs.
-  BUN_VERSION: '1.3.10'
+  # Bun's version is `.bun-version`, read by every setup-bun step: the same file the Dockerfile's
+  # base image is checked against (unit/bun-pin.test.ts), so CI runs the Bun production runs.
   # ⚠ Pinned, not `stable`. An unpinned toolchain is how a green pipeline turns red on a morning
   # nobody changed anything — the same class of drift as the unpinned `cargo install` below.
   # `packages/desktop/src-tauri/rust-toolchain.toml` carries the same version for local work.
@@ -36,15 +39,36 @@ env:
 jobs:
   test-and-build:
     name: test + build (ubuntu)
-    runs-on: ubuntu-latest
+    # ⚠ The repository variable LGR_LINUX_RUNNER picks the runner: `["self-hosted","lgr-mars"]` runs
+    # this on mars, which costs nothing; unset means GitHub-hosted `ubuntu-latest`, billed against the
+    # monthly allowance that ran out on 2026-10-07. Setup and the kill switch: infra/ci-runner/.
+    runs-on: ${{ fromJSON(vars.LGR_LINUX_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 30
     steps:
+      # ⚠ Self-hosted only. The runners' /tmp is a 3 GB tmpfs (infra/ci-runner/README.md), and a run
+      # that is cancelled or killed never stops its test mongod, so that mongod's data dir stays
+      # behind, up to ~300 MB of preallocated journal each. Enough of them and every later job dies
+      # with ENOSPC in places that look unrelated: a rustup download, a temp file in a test
+      # (2026-10-25: 456 of them on one runner, both Linux jobs of four PRs failed). A runner takes
+      # one job at a time, so a data dir no live mongod holds belongs to nobody.
+      - name: Clear test databases an interrupted run left in /tmp
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          inuse=$(ps -eo args | grep -o -- '--dbpath /tmp/mongo-mem-[^ ]*' | sed 's|--dbpath ||' | sort -u || true)
+          for d in /tmp/mongo-mem-*; do
+            [ -e "$d" ] || continue
+            printf '%s\n' "$inuse" | grep -qx -- "$d" || rm -rf -- "$d"
+          done
+          find /tmp -mindepth 1 -maxdepth 1 -name 'lgr-*' -mmin +60 -exec rm -rf {} + 2>/dev/null || true
+          df -h /tmp | tail -1
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: ${{ env.BUN_VERSION }}
+          bun-version-file: .bun-version
 
       - name: Cache Bun install
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -55,6 +79,13 @@ jobs:
 
       # `mongodb-memory-server` downloads a mongod on first use. Without this every run pays for
       # it, and a flaky download becomes a flaky test suite.
+      # ⚠ Its download directory is pinned to the cached path. Unpinned, it downloaded elsewhere on
+      # this runner, so the cache never had anything to save ("Path Validation Error … no cache is
+      # being saved", every run until 2026-10-24). On the self-hosted runner, which keeps its home
+      # between runs, the pin also makes the download a one-off.
+      - name: Pin mongodb-memory-server's download directory
+        run: echo "MONGOMS_DOWNLOAD_DIR=$HOME/.cache/mongodb-binaries" >> "$GITHUB_ENV"
+
       - name: Cache mongodb-memory-server binaries
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -66,17 +97,82 @@ jobs:
 
       - name: Test
         run: bun run test
+        env:
+          # The PDF renderer keeps Chrome's sandbox for a non-root process (FR-20.25). This
+          # runner is non-root on Ubuntu, whose AppArmor default refuses the user namespaces the
+          # sandbox needs, so Chrome would not start. Production keeps the sandbox: since #192 it
+          # runs as uid 1000 too, in a pod that allows it.
+          PDF_CHROME_NO_SANDBOX: '1'
 
       # Includes `desktop-ui` (FR-14.8) — that package was NOT built by anything until
       # FR-14.34, and bit-rotted unnoticed for four days in August because of it.
       - name: Build all UIs
         run: bun run build
 
+      # FR-20.26 (plan step P0b-9): the package a master runs, built from the UIs just built, then
+      # checked (AC 21, 66, 67), booted against a real database, and rebuilt to show that the same
+      # commit gives the same bytes.
+      - name: Build the server package
+        run: bun run build:server
+
+      - name: Check the server package
+        run: bun run check:package
+
+      # FR-20.25: the Chrome a master ships (`chrome-headless-shell`, pinned tree by tree in
+      # packages/server/pdf-browser.lock.json), so the invoice the boot prints is printed by it,
+      # not by puppeteer's own download.
+      - name: Fetch the master's PDF browser
+        run: bun scripts/fetch-pdf-browser.ts --platform linux --out dist/lgr-home
+
+      - name: Boot the server package
+        run: bun test packages/tests/src/integration/server-package.flow.test.ts --env-file=.env.test --timeout 300000
+        env:
+          LGR_SERVER_PACKAGE: dist/lgr-server
+          PDF_CHROME_NO_SANDBOX: '1'
+          PUPPETEER_EXECUTABLE_PATH: ${{ github.workspace }}/dist/lgr-home/chrome/chrome-headless-shell
+
+      - name: The server package is reproducible
+        run: |
+          bun run build:server --out dist/lgr-server-again
+          if ! cmp dist/lgr-server/server-manifest.json dist/lgr-server-again/server-manifest.json; then
+            # Say WHAT differs, so a flake can be chased rather than re-run.
+            bun scripts/explain-package-diff.ts dist/lgr-server dist/lgr-server-again
+            exit 1
+          fi
+
+      # FR-20 plan step T-1: a global and a master, each the package just built on its own replica
+      # set, with the chaos proxy and the TLS front between them.
+      - name: Two nodes
+        run: bun test packages/tests/src/two-node --env-file=.env.test --timeout 300000
+        env:
+          LGR_TWO_NODE: '1'
+          LGR_SERVER_PACKAGE: dist/lgr-server
+          PDF_CHROME_NO_SANDBOX: '1'
+
   clippy:
     name: clippy (ubuntu)
-    runs-on: ubuntu-latest
+    # The same switch as test-and-build above.
+    runs-on: ${{ fromJSON(vars.LGR_LINUX_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 30
     steps:
+      # ⚠ Self-hosted only. The runners' /tmp is a 3 GB tmpfs (infra/ci-runner/README.md), and a run
+      # that is cancelled or killed never stops its test mongod, so that mongod's data dir stays
+      # behind, up to ~300 MB of preallocated journal each. Enough of them and every later job dies
+      # with ENOSPC in places that look unrelated: a rustup download, a temp file in a test
+      # (2026-10-25: 456 of them on one runner, both Linux jobs of four PRs failed). A runner takes
+      # one job at a time, so a data dir no live mongod holds belongs to nobody.
+      - name: Clear test databases an interrupted run left in /tmp
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          inuse=$(ps -eo args | grep -o -- '--dbpath /tmp/mongo-mem-[^ ]*' | sed 's|--dbpath ||' | sort -u || true)
+          for d in /tmp/mongo-mem-*; do
+            [ -e "$d" ] || continue
+            printf '%s\n' "$inuse" | grep -qx -- "$d" || rm -rf -- "$d"
+          done
+          find /tmp -mindepth 1 -maxdepth 1 -name 'lgr-*' -mmin +60 -exec rm -rf {} + 2>/dev/null || true
+          df -h /tmp | tail -1
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # ⚠ The frontend must be BUILT before cargo runs, in every job that invokes cargo.
@@ -93,7 +189,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: ${{ env.BUN_VERSION }}
+          bun-version-file: .bun-version
 
       - name: Cache Bun install
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -114,10 +210,15 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy
 
+      # ⚠ Saved from master only. Pull requests restore master's cache but must not save their own:
+      # a PR save is scoped to that PR, and one PR's saves once took 3.2 GB of the 10 GB pool.
       - name: Rust cache
         uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
-          workspaces: packages/desktop/src-tauri
+          workspaces: |
+            packages/desktop/src-tauri
+            packages/server
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       # ⚠ Installed explicitly rather than trusted to the runner image. Tauri 2's Linux build
       # needs all of these, and the image's contents are not a contract.
@@ -141,9 +242,44 @@ jobs:
         working-directory: packages/desktop/src-tauri
         run: cargo clippy --all-targets -- -D warnings
 
+      # The mongod mongodb-memory-server downloads for the test job: the supervisor's bootstrap test
+      # (P1-2) runs against a real one. Restored only; the test job saves it.
+      - name: Restore mongodb-memory-server binaries
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}
+
+      # FR-20 plan steps P1-1 and P1-2: the supervisor a master runs. Its tests start and kill real
+      # child processes, talk over a real unix socket, and bootstrap a real mongod when one is here.
+      - name: Supervisor (lgr-server) clippy and tests
+        working-directory: packages/server
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          found="$(ls ~/.cache/mongodb-binaries/mongod-* 2>/dev/null | grep -v '\.mdmp$' | head -1)"
+          # Exported only when found: an exported empty value is not an unset one.
+          if [ -n "$found" ]; then export LGR_SERVER_TEST_MONGOD="$found"; fi
+          echo "mongod for the bootstrap test: ${found:-none, so it is skipped}"
+          cargo test
+
   macos-check:
     name: cargo check (macos)
     runs-on: macos-latest
+    # ⚠ Not on pull requests, for money - and this restores what the header above already
+    # claims this workflow is ("the cheap, always-on one ... on Linux only"). The macOS job
+    # arrived later and quietly broke that premise: a hosted macOS minute bills at **10x**, this
+    # workflow has NO path filter, so a README-only PR paid 10x to type-check Rust.
+    #
+    # ⚠ And, since October 2026, not on pushes to master either. A macOS run on every merge, with
+    # `desktop-ci.yml`'s per-PR builds, spent the account's whole free monthly allowance by
+    # 2026-10-07. GitHub then refused every job in this PRIVATE repository, the Linux gate included,
+    # for the rest of the month.
+    #
+    # It runs on demand (`gh workflow run ci.yml --ref <branch>`) and on a `desktop-v*` tag, because
+    # the release gate needs it green for the tagged commit. The trade is stated plainly: a
+    # macOS-only compile error now surfaces when someone asks, on the monthly
+    # `desktop-dry-build.yml`, or at the tag, not on the merge.
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/desktop-v')
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -153,7 +289,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: ${{ env.BUN_VERSION }}
+          bun-version-file: .bun-version
 
       - name: Cache Bun install
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -177,6 +313,8 @@ jobs:
         uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           workspaces: packages/desktop/src-tauri
+          # Same rule as clippy's: a tag or branch save here is one no later run can restore.
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       # ⚠ `check`, not `build`, and not clippy either. macOS minutes are the expensive ones; what
       # this job is for is the platform-conditional code that only compiles on a Mac — the

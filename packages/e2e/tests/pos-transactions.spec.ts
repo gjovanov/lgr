@@ -1,136 +1,107 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { openSelect } from './helpers/vuetify'
+import { ensureJournalRows } from './helpers/cash-register'
 
-test.describe('POS Transactions', () => {
-  test('should navigate to POS Transactions page and verify heading renders', async ({ page }) => {
-    await loginForApp(page)
-    await page.goto('/pos/orders')
-    await page.waitForLoadState('networkidle')
-
-    await expect(page.getByRole('heading', { name: /POS Transactions/i })).toBeVisible()
+/**
+ * FR-21.13: `/pos/orders` is the cash-register journal („Касови продажби"), the same page as
+ * `/invoicing/cash-sales`; the route names did not change. This file covers the page itself, and
+ * `cash-register.spec.ts` the two apps together.
+ *
+ * The seed has neither a till sale nor a cash sale: one of each is added when missing.
+ */
+test.describe('POS — the cash-register journal', () => {
+  test.beforeAll(async () => {
+    await ensureJournalRows()
   })
 
-  test('should verify filter controls are present (search, type, status)', async ({ page }) => {
+  test('renders under its new title', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/pos/orders')
-    await page.waitForLoadState('networkidle')
+    await expect(page.getByRole('heading', { name: 'Cash Register Sales' })).toBeVisible()
+  })
 
-    // Search input
+  test('offers the journal filters', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/pos/orders')
+
     await expect(page.getByLabel(/search/i).first()).toBeVisible()
-
-    // Type select (Vuetify v-select)
-    await expect(page.getByRole('combobox', { name: /Type/i })).toBeVisible()
-
-    // Status select (Vuetify v-select)
-    await expect(page.getByRole('combobox', { name: /Status/i })).toBeVisible()
-  })
-
-  test('should verify data table renders with correct column headers', async ({ page }) => {
-    await loginForApp(page)
-    await page.goto('/pos/orders')
-    await page.waitForLoadState('networkidle')
-
-    const table = page.locator('.v-data-table-server, .v-data-table')
-    await expect(table).toBeVisible({ timeout: 10000 })
-
-    // Verify column headers
-    await expect(table.locator('th', { hasText: /Transaction #/i })).toBeVisible()
-    await expect(table.locator('th', { hasText: /Type/i })).toBeVisible()
-    await expect(table.locator('th', { hasText: /Status/i })).toBeVisible()
-    await expect(table.locator('th', { hasText: /UNP/i })).toBeVisible()
-    await expect(table.locator('th', { hasText: /Total/i })).toBeVisible()
-    await expect(table.locator('th', { hasText: /Payment/i })).toBeVisible()
-    await expect(table.locator('th', { hasText: /Fiscal/i })).toBeVisible()
-  })
-
-  test('should verify pagination controls are present', async ({ page }) => {
-    await loginForApp(page)
-    await page.goto('/pos/orders')
-    await page.waitForLoadState('networkidle')
-
-    const table = page.locator('.v-data-table-server, .v-data-table')
-    await expect(table).toBeVisible({ timeout: 10000 })
-
-    // Vuetify server data table includes pagination footer
-    const footer = page.locator('.v-data-table-footer')
-    await expect(footer).toBeVisible()
-  })
-
-  test('should apply type filter "sale" and verify table updates without errors', async ({ page }) => {
-    await loginForApp(page)
-    await page.goto('/pos/orders')
-    await page.waitForLoadState('networkidle')
-
-    const table = page.locator('.v-data-table-server, .v-data-table')
-    await expect(table).toBeVisible({ timeout: 10000 })
-
-    // Click the Type combobox
-    const typeSelect = page.getByRole('combobox', { name: /Type/i })
-    await typeSelect.click({ force: true })
-
-    // Select "sale" option
-    const saleOption = page.getByRole('option', { name: /sale/i })
-    await saleOption.click()
-
-    // Wait for network to settle after filter change
-    await page.waitForLoadState('networkidle')
-
-    // Table should still be visible (no crash)
-    await expect(table).toBeVisible()
-  })
-
-  test('should apply search text and verify no crash', async ({ page }) => {
-    await loginForApp(page)
-    await page.goto('/pos/orders')
-    await page.waitForLoadState('networkidle')
-
-    const table = page.locator('.v-data-table-server, .v-data-table')
-    await expect(table).toBeVisible({ timeout: 10000 })
-
-    // Type in the search field
-    const searchField = page.getByLabel(/search/i).first()
-    await searchField.fill('test-search-query')
-
-    // Wait for debounced search to trigger
-    await page.waitForLoadState('networkidle')
-
-    // Table should still be visible (no crash)
-    await expect(table).toBeVisible()
-  })
-
-  test('should navigate to detail page if rows exist and verify back button', async ({ page }) => {
-    await loginForApp(page)
-    await page.goto('/pos/orders')
-    await page.waitForLoadState('networkidle')
-
-    const table = page.locator('.v-data-table-server, .v-data-table')
-    await expect(table).toBeVisible({ timeout: 10000 })
-
-    // Check if there are data rows
-    const rows = table.locator('tbody tr')
-    const rowCount = await rows.count()
-
-    if (rowCount > 0) {
-      const firstRow = rows.first()
-      const hasNoData = await firstRow.getByText(/No data/i).isVisible().catch(() => false)
-
-      if (!hasNoData) {
-        // Click the first row's eye icon (detail link)
-        const detailBtn = firstRow.locator('a[href*="orders"], .v-btn')
-        const hasLink = await detailBtn.first().isVisible({ timeout: 3000 }).catch(() => false)
-
-        if (hasLink) {
-          await detailBtn.first().click()
-          await page.waitForLoadState('networkidle')
-
-          // Should be on detail page
-          await expect(page).toHaveURL(/orders\//)
-
-          // Verify back button is present (mdi-arrow-left icon button)
-          const backButton = page.locator('button.v-btn', { has: page.locator('.mdi-arrow-left') })
-          await expect(backButton).toBeVisible()
-        }
-      }
+    for (const name of [/^Kind$/, /^Origin$/, /^Status$/, /^Receipt$/, /^Payment$/]) {
+      await expect(page.getByRole('combobox', { name })).toBeVisible()
     }
+  })
+
+  test('shows the default columns and keeps the others off until asked for', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/pos/orders')
+
+    const table = page.locator('.v-data-table-server, .v-data-table')
+    await expect(table).toBeVisible({ timeout: 10000 })
+    for (const name of ['Number', 'Date & time', 'Kind', 'Origin', 'Customer', 'Payment', 'Total', 'Receipt', 'Status']) {
+      await expect(table.getByRole('columnheader', { name, exact: true })).toBeVisible()
+    }
+    // FR-21 §3.4: off by default, turned on from the column picker.
+    for (const name of ['Session', 'Cashier', 'Warehouse', 'Device', 'Net', 'VAT', 'Stock', 'Reference']) {
+      await expect(table.getByRole('columnheader', { name, exact: true })).toHaveCount(0)
+    }
+  })
+
+  test('has a pagination footer', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/pos/orders')
+    await expect(page.locator('.v-data-table-footer')).toBeVisible({ timeout: 10000 })
+  })
+
+  test('a kind filter narrows the rows and lands in the URL', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/pos/orders')
+    await expect(page.locator('.v-data-table tbody tr').first()).toBeVisible({ timeout: 10000 })
+
+    // Read the rows only once the filtered page has arrived: the previous page may hold stornos.
+    const filtered = page.waitForResponse(r => r.url().includes('/cash-register/documents') && /[?&]kind=sale/.test(r.url()))
+    await openSelect(page, /^Kind$/)
+    await page.getByRole('option', { name: /^Sale$/ }).click()
+    await filtered
+
+    await expect(page).toHaveURL(/[?&]kind=sale/)
+    const chips = page.getByTestId('journal-kind-chip')
+    await expect(chips.first()).toBeVisible()
+    await expect(chips.filter({ hasNotText: /^\s*Sale\s*$/ })).toHaveCount(0)
+  })
+
+  test('an old link to the replaced list still reads as "all"', async ({ page }) => {
+    await loginForApp(page)
+    // The invoicing list this journal replaced wrote `status=draft,completed,paid`.
+    await page.goto('/pos/orders?status=draft,completed,paid')
+    await expect(page.locator('.v-data-table tbody tr').first()).toBeVisible({ timeout: 10000 })
+    await expect(page.getByTestId('journal-status-chip').first()).toBeVisible()
+  })
+
+  test('search does not break the page', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/pos/orders')
+    const table = page.locator('.v-data-table-server, .v-data-table')
+    await expect(table).toBeVisible({ timeout: 10000 })
+
+    await page.getByLabel(/search/i).first().fill('test-search-query')
+    await expect(page).toHaveURL(/[?&]q=test-search-query/)
+    await expect(page.getByRole('heading', { name: 'Cash Register Sales' })).toBeVisible()
+  })
+
+  test('a row opens its detail page, which leads back to the journal', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/pos/orders')
+    const first = page.locator('.v-data-table tbody tr').first()
+    await expect(first).toBeVisible({ timeout: 10000 })
+    const number = (await first.locator('td').first().textContent())?.trim() || ''
+    expect(number).not.toBe('')
+
+    await first.getByRole('link', { name: 'Open' }).click()
+    await expect(page).toHaveURL(/\/pos\/orders\/[0-9a-f]{24}/)
+    await expect(page.getByTestId('journal-document-title')).toHaveText(number)
+
+    await page.getByRole('link', { name: 'Back to cash sales' }).click()
+    await expect(page).toHaveURL(/\/pos\/orders(\?|$)/)
+    await expect(page.getByRole('heading', { name: 'Cash Register Sales' })).toBeVisible()
   })
 })

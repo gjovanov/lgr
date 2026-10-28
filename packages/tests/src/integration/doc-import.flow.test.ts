@@ -7,6 +7,8 @@ import { mapInvoiceExtraction } from 'services/biz/doc-import/map-invoice'
 import { findDuplicateInvoice } from 'services/biz/doc-import/dedupe'
 import { detectDocKind } from 'services/biz/doc-import/detect'
 import { matchProductsExact } from 'services/biz/doc-import/matching'
+import { createMissingProducts, applyDeliveredPrices } from 'services/biz/doc-import/persist-movement'
+import { captureRejection } from '../helpers/capture-rejection'
 import type { DraftResult, MappedInvoice, MappedMovement } from 'services/biz/doc-import/types'
 import { setDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
 import { Invoice, Contact, StockLevel, StockMovement, Product } from 'db/models'
@@ -69,6 +71,20 @@ describe('doc-import engine', () => {
     expect(await Contact.countDocuments({ orgId: org._id })).toBe(0)
     expect(doc.diagnostics.contactSuggestion?.name).toContain('МАРИЦА')
     expect(doc.diagnostics.contactSuggestion?.eik).toBe('040406418')
+  })
+
+  // INV-3000101474 on prod (2026-10-13) printed PlusMinus's own line, digit cents and all.
+  it('an outgoing import writes our amount-in-words line; a bill keeps the supplier\'s', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    await createTestUser(org._id)
+    const raw = 'ФАКТУРА\nСловом : деветнадесет евро и 76 цента                Данъчна основа          16.47 €\nОтстъпка: 0'
+    const lines = [{ description: 'Болт М12', quantity: 1, unit: 'бр', unit_price: 16.47, vat_rate: 20, total: 16.47 }]
+
+    const out = await mapInvoiceExtraction(String(org._id), draftResult(ORG_PARTY, CUSTOMER, lines), raw, { direction: 'outgoing' })
+    expect(out.mapped.notes).toBe('Словом : деветнадесет евро и седемдесет и шест цента, Данъчна основа 16.47 €')
+
+    const bill = await mapInvoiceExtraction(String(org._id), draftResult(SUPPLIER, ORG_PARTY, lines), raw, { direction: 'incoming' })
+    expect(bill.mapped.notes).toBe('Словом : деветнадесет евро и 76 цента Данъчна основа 16.47 €')
   })
 
   it('commit creates a draft, and convert issues it with the legacy number + stock', async () => {
@@ -1029,6 +1045,126 @@ describe('matching — a name written with a look-alike letter', () => {
   })
 })
 
+describe('matching — a dropped " - " field separator', () => {
+  /**
+   * INV-3000101340 (regal-pz, 2026-10-05) could not be booked: PlusMinus printed
+   * „ШАЙБА - КОНУСНА 22ММ - DIN 435 - 14% - HDG" while the catalog holds the same name with
+   * the separator after КОНУСНА. A hyphen is a real character, so neither the exact rung nor
+   * either whitespace rung could see past it, and the line stayed free-text.
+   */
+  it('finds the product when the document drops one separator', async () => {
+    const org = await createTestOrg()
+    const product = await createTestProduct(org._id, { name: 'ШАЙБА - КОНУСНА - 22ММ - DIN 435 - 14% - HDG', sku: 'RG-20747' })
+
+    const hits = await matchProductsExact(String(org._id), ['ШАЙБА - КОНУСНА 22ММ - DIN 435 - 14% - HDG'])
+
+    expect(hits[0]).not.toBeNull()
+    expect(String(hits[0]!.productId)).toBe(String(product._id))
+    expect(hits[0]!.matchedBy).toBe('token')
+  })
+
+  it('matches a name joined up entirely, and in the other direction', async () => {
+    const org = await createTestOrg()
+    const joined = await createTestProduct(org._id, { name: 'НОРД - ЛОК - М16', sku: 'RG-1' })
+
+    const [a, b] = await matchProductsExact(String(org._id), ['НОРДЛОКМ16', 'НОРД ЛОК М16'])
+
+    expect(String(a!.productId)).toBe(String(joined._id))
+    expect(String(b!.productId)).toBe(String(joined._id))
+  })
+
+  /**
+   * A dot is content, not a separator: this catalog carries both 13.5ММ and 135ММ-style sizes,
+   * and collapsing them would move stock between two real, different articles.
+   */
+  it('does not treat a dot as a separator', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'ШАЙБА - КОНУСНА - 13.5ММ - DIN 435 - 14%', sku: 'RG-2' })
+
+    const hits = await matchProductsExact(String(org._id), ['ШАЙБА - КОНУСНА - 135ММ - DIN 435 - 14%'])
+
+    expect(hits[0]).toBeNull()
+  })
+
+  /**
+   * ⚠ The refusal is the feature. regal-sf holds 342 groups of rows differing only by
+   * separators; picking the first would book a sale against an arbitrary twin.
+   */
+  it('refuses when more than one catalog row differs only by separators', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'БОЛТ - М12Х50 - DIN 933 - ZN', sku: 'RG-3' })
+    await createTestProduct(org._id, { name: 'БОЛТ - М12Х50 - DIN933 - ZN', sku: 'RG-4' })
+
+    const hits = await matchProductsExact(String(org._id), ['БОЛТ М12Х50 DIN 933 ZN'])
+
+    expect(hits[0]).toBeNull()
+  })
+
+  it('still refuses a genuinely different name', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'ШАЙБА - КОНУСНА - 22ММ - DIN 435 - 14% - HDG', sku: 'RG-5' })
+
+    // ZN is a different coating, i.e. a different article — not a separator difference.
+    const hits = await matchProductsExact(String(org._id), ['ШАЙБА - КОНУСНА - 22ММ - DIN 435 - 14% - ZN'])
+
+    expect(hits[0]).toBeNull()
+  })
+})
+
+describe('createMissingProducts — a name that differs only in separators', () => {
+  /**
+   * A name reaches product creation because every matching rung missed, and since rung 3d shipped
+   * one of the ways to miss is AMBIGUITY. Creating on an exact-nameLower check alone would then add
+   * a third row to a group that already has two — growing the duplication the refusal protects.
+   */
+  it('reuses the single separator twin instead of creating a duplicate', async () => {
+    const org = await createTestOrg()
+    const twin = await createTestProduct(org._id, { name: 'БОЛТ М16Х120 - DIN 7991 - K 8.8 - ZN', sku: 'RG-1' } as any)
+
+    const created = await createMissingProducts(String(org._id), [
+      { name: 'БОЛТ М16Х120 - DIN7991 - K 8.8 - ZN', cost: 1.5, selling: 2, unit: 'pcs', tiers: {} } as any,
+    ])
+
+    expect(created).toHaveLength(1)
+    expect(created[0].created).toBe(false)
+    expect(String(created[0].productId)).toBe(String(twin._id))
+    // The line asked by one spelling and got a product with another — the caller needs both.
+    expect(created[0].requestedName).toBe('БОЛТ М16Х120 - DIN7991 - K 8.8 - ZN')
+    expect(created[0].name).toBe('БОЛТ М16Х120 - DIN 7991 - K 8.8 - ZN')
+    expect(await Product.countDocuments({ orgId: org._id } as any)).toBe(1)
+  })
+
+  it('refuses when several catalog rows differ from it only in separators', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'БОЛТ М16Х120 - DIN 7991 - K 8.8 - ZN', sku: 'RG-1' } as any)
+    await createTestProduct(org._id, { name: 'БОЛТ М16Х120 - DIN7991 - K 8.8 - ZN', sku: 'RG-2' } as any)
+
+    const err = await captureRejection(createMissingProducts(String(org._id), [
+      { name: 'БОЛТ М16Х120-DIN 7991-K 8.8-ZN', cost: 1.5, selling: 2, unit: 'pcs', tiers: {} } as any,
+    ]))
+
+    expect(err).not.toBeNull()
+    expect(String(err!.message)).toContain('differ from it only in separators')
+    expect(String(err!.message)).toContain('RG-1')
+    expect(String(err!.message)).toContain('RG-2')
+    // Nothing was added: refusing is the point.
+    expect(await Product.countDocuments({ orgId: org._id } as any)).toBe(2)
+  })
+
+  it('still creates a genuinely new article', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'БОЛТ М16Х120 - DIN 7991 - K 8.8 - ZN', sku: 'RG-1' } as any)
+
+    const created = await createMissingProducts(String(org._id), [
+      { name: 'U - БОЛТ - М8 - ПО ЧЕРТЕЖ', cost: 1.092, selling: 1.092, unit: 'pcs', tiers: {} } as any,
+    ])
+
+    expect(created[0].created).toBe(true)
+    expect(created[0].requestedName).toBe('U - БОЛТ - М8 - ПО ЧЕРТЕЖ')
+    expect(await Product.countDocuments({ orgId: org._id } as any)).toBe(2)
+  })
+})
+
 describe('doc-import — a price-only разписка books nothing', () => {
   /**
    * PlusMinus issues стокови разписки with an EMPTY „Кол" column and „Крайна сума 0.00" purely to
@@ -1059,5 +1195,272 @@ describe('doc-import — a price-only разписка books nothing', () => {
     // and nothing moved
     const sl: any = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: wh._id }).lean()
     expect(sl.quantity).toBe(13)
+  })
+
+  /**
+   * …but it is NOT a no-op. Restating prices is the document's entire purpose, and until
+   * 2026-10-08 the commit wrote nothing at all: the mapper computed every `productUpdate` and
+   * tier, then dropped the lines because they could not enter a movement. Four regal-pz documents
+   * and two regal-sf ones committed that way — 43 priced lines that never reached the catalog.
+   */
+  it('carries its prices on the analysis and applies them on commit', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const product = await createTestProduct(org._id, {
+      name: 'ГАЙКА М6 - I 7042 - BN 205107 T1 - МЕТ.ПР.', purchasePrice: 0.3, sellingPrice: 0.4,
+    } as any)
+    await createTestStockLevel(org._id, product._id, wh._id, { quantity: 13, avgCost: 0.3 } as any)
+
+    const draft = stockDraft({ document_number: '3000016504', warehouse_from: 'СКЛАД - 1' }, [
+      {
+        description: 'ГАЙКА М6 - I 7042 - BN 205107 T1 - МЕТ.ПР.', quantity: 0, unit: 'бр',
+        // The real 3000016504's first line.
+        prices: { 'Цена': 0.4090, 'Прод. цена': 0.4600, 'Цена на едро': 0.5500, 'Цена 1': 0.5215, 'Цена 2': 0.3360 },
+      },
+    ])
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'movement',
+      [{ fileId: 'f1', filename: 'stokrazp_3000016504.pdf', text: 'СТОКОВА РАЗПИСКА за получаване на стоки', draft }],
+      { warehouseId: String(wh._id) },
+    )
+    expect(doc.nothingToMove).toBe(true)
+    expect(doc.priceOnly).toHaveLength(1)
+    expect((doc.diagnostics?.warnings || []).join(' ')).toContain('prices are applied to 1 product')
+
+    const repriced = await applyDeliveredPrices(String(org._id), doc.priceOnly as any)
+    expect(repriced).toBe(1)
+
+    const after: any = await Product.findOne({ _id: product._id }).lean()
+    expect(after.sellingPrice).toBe(0.46)                       // Прод. цена
+    expect(after.purchasePrice).toBe(0.3)                       // ⚠ never written by an import
+    const tier = (n: string) => (after.priceTiers || []).find((t: any) => t.name === n)
+    expect(tier('Цена 1')?.finalPrice).toBe(0.5215)
+    expect(tier('Цена 2')?.finalPrice).toBe(0.336)
+    // PROTECTED_TIERS: a разписка prices what we SELL, never the cost slots.
+    expect(tier('Цена на едро')?.finalPrice ?? 0).not.toBe(0.55)
+    expect(tier('Доставна цена')?.finalPrice ?? 0).not.toBe(0.409)
+
+    // and still nothing moved
+    const sl: any = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: wh._id }).lean()
+    expect(sl.quantity).toBe(13)
+    expect(await StockMovement.countDocuments({ orgId: org._id } as any)).toBe(0)
+    expect(String(user._id)).toBeTruthy()
+  })
+
+  /** A transfer or write-off OUT of the warehouse must never reprice, price column or not. */
+  it('does not reprice from a price-only transfer note', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const wh = await createTestWarehouse(org._id)
+    const product = await createTestProduct(org._id, { name: 'ГАЙКА М8 - DIN 934', sellingPrice: 0.4 } as any)
+    await createTestStockLevel(org._id, product._id, wh._id, { quantity: 10, avgCost: 1 } as any)
+
+    const draft = stockDraft({ document_number: '0000012770', warehouse_from: 'СКЛАД - 1' }, [
+      { description: 'ГАЙКА М8 - DIN 934', quantity: 0, unit: 'бр', prices: { 'Цена': 1.5, 'Прод. цена': 9.99 } },
+    ])
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'movement',
+      [{ fileId: 'f1', filename: 'sklrazp_0000012770.pdf', text: 'СКЛАДОВА РАЗПИСКА за прехвърляне на стоки', draft }],
+      { warehouseId: String(wh._id) },
+    )
+    expect(doc.nothingToMove).toBe(true)
+    expect(doc.priceOnly).toBeUndefined()
+    expect((doc.diagnostics?.warnings || []).join(' ')).toContain('restates no price we can apply')
+
+    const after: any = await Product.findOne({ _id: product._id }).lean()
+    expect(after.sellingPrice).toBe(0.4)
+  })
+})
+
+describe('doc-import — a till export that is a history dump, not a day', () => {
+  const sheet = (periodStart: string, rows = 2) => ({
+    kind: 'storeOperations' as const,
+    storeOperations: {
+      rows: Array.from({ length: rows }, (_, i) => ({ name: `Гайка М${i}`, unit: 'БР', qty: 10, price: 1, value: 10 })),
+      totalQty: 10 * rows,
+      warehouse: 'ОБЕКТИ:СКЛАД',
+      operation: 'Продажби',
+      books: 'sale' as const,
+      periodStart,
+    },
+    text: '',
+  })
+
+  it('refuses a two-year span and says why, instead of booking it as one day', async () => {
+    // The real file: exported 2026-10-05, „Период: 01.01.2025 - 31.12.2026", 5,287 articles,
+    // 1,145,236 units. Its rows summed to its own footer to the cent, so every arithmetic gate
+    // passed — only the span gives it away.
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const wh = await createTestWarehouse(org._id)
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'cash_sale',
+      [{ fileId: 'f1', filename: 'storeOperations_20261005_193203.xlsx', parsed: sheet('2025-01-01') }],
+      { warehouseId: String(wh._id) },
+    )
+    expect(doc.docKind).toBe('cash_register')
+    expect(doc.mapped).toBeUndefined()
+    expect(doc.error).toContain('history dump')
+    expect(doc.error).toContain('2025-01-01')
+  })
+
+  it('still accepts a day exported LATE, which is routine', async () => {
+    // salesAnalysis_20260907_ legitimately covering 2026-09-03: the filename records when the
+    // export was taken, not the business day.
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const wh = await createTestWarehouse(org._id)
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'cash_sale',
+      [{ fileId: 'f1', filename: 'storeOperations_20260907_120000.xlsx', parsed: sheet('2026-09-03') }],
+      { warehouseId: String(wh._id) },
+    )
+    expect(doc.error).toBeUndefined()
+    expect((doc.mapped as MappedInvoice).reference).toBe('salesAnalysis:2026-09-03')
+  })
+
+  it('books a history dump under the day the operator names, since then it is not inferred', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const wh = await createTestWarehouse(org._id)
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'cash_sale',
+      [{ fileId: 'f1', filename: 'storeOperations_20261005_193203.xlsx', parsed: sheet('2025-01-01') }],
+      { warehouseId: String(wh._id), date: '2026-10-05' },
+    )
+    expect(doc.error).toBeUndefined()
+    expect((doc.mapped as MappedInvoice).reference).toBe('salesAnalysis:2026-10-05')
+  })
+})
+
+describe('matching — a missing TERMINAL period', () => {
+  /**
+   * regal-pz transfer note 0000012802 (2026-10-23) moved 1000 units of
+   * „ШАЙБА - ПОДЛ. - Ф6Х24 - Ш.П" while the catalog holds „… - Ш.П." — identical but for the
+   * final dot. No rung folded it, because dots are preserved on purpose (`13.5ММ` must not
+   * collapse onto `135ММ`), so the line read as a NEW article. On a transfer note that fork
+   * would have gone to −1000 while the real product kept its stock: drift on two rows from one
+   * character. A TRAILING stop is the one place a dot is safe to ignore — no quantity or
+   * dimension ends in one.
+   */
+  it('finds the product when the document drops the trailing dot', async () => {
+    const org = await createTestOrg()
+    const product = await createTestProduct(org._id, { name: 'ШАЙБА - ПОДЛ. - Ф6Х24 - Ш.П.', sku: 'RG-21102' })
+
+    const hits = await matchProductsExact(String(org._id), ['ШАЙБА - ПОДЛ. - Ф6Х24 - Ш.П'])
+
+    expect(hits[0]).not.toBeNull()
+    expect(String(hits[0]!.productId)).toBe(String(product._id))
+  })
+
+  it('matches in the other direction — the document carrying a dot the catalog lacks', async () => {
+    const org = await createTestOrg()
+    const product = await createTestProduct(org._id, { name: 'ПОП-НИТ - 4Х10 - Ш.ПЕР', sku: 'RG-18349' })
+
+    const hits = await matchProductsExact(String(org._id), ['ПОП-НИТ - 4Х10 - Ш.ПЕР.'])
+
+    expect(hits[0]).not.toBeNull()
+    expect(String(hits[0]!.productId)).toBe(String(product._id))
+  })
+
+  it('⚠ still keeps INTERIOR dots apart — 13.5ММ must never match 135ММ', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'СВРЕДЛО - 135ММ - HSS', sku: 'RG-A' })
+
+    const hits = await matchProductsExact(String(org._id), ['СВРЕДЛО - 13.5ММ - HSS'])
+
+    expect(hits[0]).toBeNull()
+  })
+
+  it('does not match a name that differs by more than its terminal dot', async () => {
+    const org = await createTestOrg()
+    await createTestProduct(org._id, { name: 'ШАЙБА - ПОДЛ. - Ф6Х24 - Ш.П.', sku: 'RG-21102' })
+
+    const hits = await matchProductsExact(String(org._id), ['ШАЙБА - ПОДЛ. - Ф6Х30 - Ш.П'])
+
+    expect(hits[0]).toBeNull()
+  })
+})
+
+describe('an unmatchable line refuses BEFORE the invoice is issued', () => {
+  /**
+   * The booking guard inside `createInvoiceStockMovement` used to be the only check, and it runs
+   * AFTER the conversion has allocated the issued number and flipped the invoice to `sent`. A
+   * document with one unmatchable line therefore ended up persisted as `sent`, carrying its
+   * issued number and NO stock movement, while its DocFile still read `analyzed` — and a
+   * re-commit could not repair it, because `persist` creates invoices and never upserts by
+   * number, so the retry produced a SECOND row of the same number.
+   *
+   * Three times on regal-sf in two days (INV-2000129121, -151, -165), each needing a manual
+   * delete before the day could be booked.
+   */
+  async function draftWithOneFreeTextLine() {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const known = await createTestProduct(org._id, { name: 'Гайка М8' } as any)
+    await createTestStockLevel(org._id, known._id, wh._id, { quantity: 100 } as any)
+
+    const draft = draftResult(ORG_PARTY, CUSTOMER, [
+      { description: 'Гайка М8', quantity: 10, unit: 'бр', unit_price: 0.1, vat_rate: 20, total: 1 },
+      // Not in the catalog — a real article the delivery has not introduced yet.
+      { description: 'Болт М5х25 - ISO7380 10.9 Zn', quantity: 1000, unit: 'бр', unit_price: 0.023, vat_rate: 20, total: 23 },
+    ])
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'sales_invoice',
+      [{ fileId: 'f1', filename: 'invoicem_2000129121.pdf', text: 'ФАКТУРА Номер: 2000129121', draft }],
+      { warehouseId: String(wh._id) }, { batchId: 'b1' },
+    )
+    return { org, user, wh, doc }
+  }
+
+  it('refuses the conversion and leaves NO issued invoice behind', async () => {
+    const { org, user, doc } = await draftWithOneFreeTextLine()
+
+    const [res] = await commitDocuments(String(org._id), String(user._id), 'sales_invoice', [
+      { fileId: 'f1', mapped: doc.mapped!, options: { convert: true, adjustStock: true } },
+    ])
+
+    // The draft itself is kept on purpose (`commitDocuments` reports the reason and lets the
+    // operator retry from the list), so `ok` stays true — what must not happen is an ISSUE.
+    expect(res.issuedNumber).toBeUndefined()
+    expect(String(res.error)).toContain('carry a quantity but no product')
+
+    // The decisive assertion: nothing was issued. The document is still a draft, so a retry
+    // after the article is created cannot collide with a half-written row.
+    const issued = await Invoice.find({ orgId: org._id, status: { $in: ['sent', 'received'] } } as any).lean()
+    expect(issued).toHaveLength(0)
+    const drafts: any[] = await Invoice.find({ orgId: org._id } as any).lean()
+    for (const d of drafts) {
+      expect(d.status).toBe('draft')
+      expect(String(d.invoiceNumber)).toMatch(/^DRF-/)
+    }
+    expect(await StockMovement.countDocuments({ orgId: org._id })).toBe(0)
+  })
+
+  it('books normally once the article exists', async () => {
+    const { org, user, wh, doc } = await draftWithOneFreeTextLine()
+    // The разписка that introduces it has since been booked.
+    const created = await createTestProduct(org._id, { name: 'Болт М5х25 - ISO7380 10.9 Zn' } as any)
+    await createTestStockLevel(org._id, created._id, wh._id, { quantity: 1000 } as any)
+
+    const [res] = await commitDocuments(String(org._id), String(user._id), 'sales_invoice', [
+      { fileId: 'f1', mapped: doc.mapped!, options: { convert: true, adjustStock: true } },
+    ])
+
+    expect(res.ok).toBe(true)
+    // The canned draft carries document_number 2000122757, which is what the issued number reuses.
+    expect(res.issuedNumber).toBe('INV-2000122757')
+    expect(res.error).toBeUndefined()
+    const sl: any = await StockLevel.findOne({ orgId: org._id, productId: created._id, warehouseId: wh._id }).lean()
+    expect(sl.quantity).toBe(0)   // 1000 on hand, 1000 sold
+  })
+
+  it('a CASH SALE is still exempt — one unknown article must not block a whole till day', async () => {
+    const { org, user, doc } = await draftWithOneFreeTextLine()
+    const cash = { ...doc.mapped!, type: 'cash_sale' as const }
+
+    const [res] = await commitDocuments(String(org._id), String(user._id), 'cash_sale', [
+      { fileId: 'f1', mapped: cash, options: { convert: true, adjustStock: true } },
+    ])
+
+    expect(res.ok).toBe(true)
   })
 })

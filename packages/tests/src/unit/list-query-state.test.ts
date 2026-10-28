@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'bun:test'
 import {
   ALLOWED_PAGE_SIZES,
+  allOptionsParam,
+  sanitizeSelection,
   serializeQueryValue as ser,
   parseQueryValue as par,
 } from 'ui-shared/composables/useListQueryState'
@@ -44,5 +46,39 @@ describe('list query state codecs (FR-05)', () => {
 
   it('allowed page sizes match the ListScaffold items-per-page options (incl. All = -1)', () => {
     expect(ALLOWED_PAGE_SIZES).toEqual([10, 25, 50, 100, -1])
+  })
+})
+
+// FR-22.15: a status or type filter whose default is every option. Its default is declared, so a
+// bare URL stays bare, and what a URL brings is read in the list's terms.
+describe('a filter whose default is every option (FR-22.15)', () => {
+  const STATUSES = ['draft', 'sent', 'converted', 'voided']
+  const LEGACY_ALL = ['draft', 'sent', 'accepted', 'converted', 'expired']
+
+  it('declares every option as its default, so selecting all writes nothing to the URL', () => {
+    // A plain holder stands in for the Vue ref: `vue` resolves from ui-shared, not from here.
+    const def = allOptionsParam('status', { value: [...STATUSES] } as any, STATUSES, LEGACY_ALL)
+    expect(def).toMatchObject({ key: 'status', codec: 'csv', default: STATUSES })
+    expect(ser(def.ref.value, 'csv')).toBe(ser(def.default, 'csv'))
+  })
+
+  it('reads an old bookmark that listed every status the list then offered as "all"', () => {
+    expect(sanitizeSelection(['draft', 'sent', 'accepted', 'converted', 'expired'], STATUSES, LEGACY_ALL)).toEqual(STATUSES)
+    // in any order
+    expect(sanitizeSelection(['expired', 'converted', 'accepted', 'sent', 'draft'], STATUSES, LEGACY_ALL)).toEqual(STATUSES)
+  })
+
+  it('drops statuses the list does not offer and keeps the rest in the options\' order', () => {
+    expect(sanitizeSelection(['voided', 'accepted', 'draft'], STATUSES, LEGACY_ALL)).toEqual(['draft', 'voided'])
+  })
+
+  it('keeps the default when nothing the list offers is left', () => {
+    expect(sanitizeSelection(['accepted'], STATUSES, LEGACY_ALL)).toBeUndefined()
+    expect(sanitizeSelection([], STATUSES)).toBeUndefined()
+  })
+
+  it('a narrower selection is kept as it is', () => {
+    expect(sanitizeSelection(['sent'], STATUSES, LEGACY_ALL)).toEqual(['sent'])
+    expect(sanitizeSelection(['draft', 'sent', 'converted'], STATUSES, LEGACY_ALL)).toEqual(['draft', 'sent', 'converted'])
   })
 })

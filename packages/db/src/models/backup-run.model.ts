@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
+import { replicate } from '../replication/declare.js'
 
 /**
  * FR-13.11 (#24) — one row per org per kind per day the per-org backup ran.
@@ -221,5 +222,7 @@ const backupRunSchema = new Schema<IBackupRun>(
 backupRunSchema.index({ orgId: 1, kind: 1, date: 1, claimKey: 1 }, { unique: true })
 /** The history endpoint reads newest-first per org. */
 backupRunSchema.index({ orgId: 1, startedAt: -1 })
+
+replicate(backupRunSchema, { class: 'N' })
 
 export const BackupRun = model<IBackupRun>('BackupRun', backupRunSchema)

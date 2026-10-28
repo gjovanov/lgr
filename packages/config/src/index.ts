@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 export const PLANS = {
   free: {
     id: 'free',
@@ -104,6 +106,27 @@ function numEnv(raw: string | undefined, fallback: number): number {
 }
 
 /**
+ * #157, FR-20.17 — the SHA-256 of every secret value published in this repository's example and
+ * compose files, with where it is published. Each is long enough to pass the length check, and
+ * anyone can read it, so a deployment that copied a file unchanged would sign every session (and
+ * every desktop token) with a public key. Production refuses them all, and names the file.
+ *
+ * ⚠ Kept in step by `unit/published-secrets.test.ts`, which reads those files and fails when a
+ * value there is missing here — so a new example secret cannot slip past. Hashes, not the values:
+ * this module must not become one more place the values are published.
+ */
+export const PUBLISHED_EXAMPLE_SECRETS: Readonly<Record<string, string>> = {
+  e577b2e6a16174ca3a06717705bea918914ed1b576110f6d02ddd5d1c2d9d8ca: '.env.example and docker-compose.yml (JWT_SECRET)',
+  aef3fe10e2ed3af8c4aa8b28e8c5a32f45c7f08adeae409929e49fb755fd0290: '.env.example (DESKTOP_TOKEN_SECRET)',
+  eb277f44b5796b307029488f836857c5c42aaa8af6bf1f61adf7ccc4a0dcd30d: 'deploy/ocr/ocr-secret.example.yaml (CLAUDE_CODE_OAUTH_TOKEN)',
+}
+
+/** Where `value` is published as an example, or undefined. */
+export function publishedExampleSource(value: string): string | undefined {
+  return PUBLISHED_EXAMPLE_SECRETS[createHash('sha256').update(value.trim()).digest('hex')]
+}
+
+/**
  * A secret that MUST NOT fall back to a committed default in production.
  *
  * ⚠ `process.env.JWT_SECRET || 'lgr-dev-secret'` is not a default, it is a backdoor with a
@@ -135,6 +158,14 @@ function requiredSecret(name: string, raw: string | undefined, devFallback: stri
     if (value === devFallback) {
       throw new Error(`${name} is set to the committed development default. Refusing to start in production.`)
     }
+    // #157: the example values are long enough to pass the length check, and public.
+    const published = publishedExampleSource(value)
+    if (published) {
+      throw new Error(
+        `${name} is the example value published in ${published}. Refusing to start in production — ` +
+          'anyone who has read the repository could sign tokens with it. Generate one with `openssl rand -base64 48`.',
+      )
+    }
     if (value.length < minLength) {
       throw new Error(
         `${name} is ${value.length} characters; ${minLength} is the minimum in production ` +
@@ -146,13 +177,216 @@ function requiredSecret(name: string, raw: string | undefined, devFallback: stri
   return value || devFallback
 }
 
+/**
+ * FR-20.1 — which kind of server this is. `global` is today's cloud deployment, and the default;
+ * `master` is an on-prem server that is the home of its orgs. A local (LGR Desktop on a master) is
+ * not a server role. Read once, here: feature code asks `nodeRole()`, never a host name or another
+ * environment variable.
+ */
+export type NodeRole = 'global' | 'master'
+
+/**
+ * FR-20.55 — global's licence signing key: base64 PKCS#8 DER of an Ed25519 key, sealed in
+ * lgr-secret. Only global signs, so a master never has one.
+ *
+ * ⚠ Not fatal when missing, unlike the token secrets: nothing becomes forgeable without it, since a
+ * master verifies with the keys built into its package (`licence-keys.json`). Global just issues no
+ * licences, and says so (`licence-issue.service.ts`). Outside production the issuer uses a key made
+ * per process instead.
+ */
+function readLicenceSigningKey(raw: string | undefined, role: NodeRole): string {
+  // (Also global's identity key, FR-20.39: the same rule, a key only global signs with.)
+  return role === 'global' ? (raw ?? '').trim() : ''
+}
+
+function readNodeRole(raw: string | undefined): NodeRole {
+  const role = (raw ?? '').trim() || 'global'
+  if (role === 'global' || role === 'master') return role
+  // A typo must not quietly become `global`: on a master that would mean behaving as the cloud.
+  throw new Error(`LGR_NODE_ROLE must be "global" or "master", got "${role}".`)
+}
+
 const JWT_DEV_FALLBACK = 'lgr-dev-secret'
 /** ⚠ Distinct from the JWT fallback, so a dev environment cannot accidentally cross the two. */
 const DESKTOP_TOKEN_DEV_FALLBACK = 'lgr-dev-desktop-token-secret'
+/** ⚠ Distinct from both, for the same reason. */
+const NODE_TOKEN_DEV_FALLBACK = 'lgr-dev-node-token-secret'
+
+/**
+ * FR-20.16 — the supervisor's per-boot front secret. Unset means no supervisor stands in front of
+ * this API (global, a developer's machine, the tests), and the front checks are off.
+ */
+function readFrontSecret(raw: string | undefined): string | undefined {
+  const secret = (raw ?? '').trim()
+  if (!secret) return undefined
+  // The supervisor makes 43 characters. Anything short was typed by a person, and is guessable.
+  if (secret.length < 32) throw new Error('LGR_FRONT_SECRET must be at least 32 characters.')
+  return secret
+}
 
 export const config = {
+  node: {
+    role: readNodeRole(process.env.LGR_NODE_ROLE),
+    /** The node's identity once it is registered with global (P2). Unset on global itself. */
+    id: (process.env.LGR_NODE_ID || '').trim() || undefined,
+    /**
+     * FR-20.2 (plan step P2-1) — signs the node ACCESS TOKENS that `/api/node/v1/*` accepts.
+     *
+     * ⚠ Its own secret, for the desktops' reason: a node token is never a user or a desktop token,
+     * by construction. Only global issues them, so only global needs it: required in production on
+     * global on the S-02 terms, and empty on a master, where every node route is 404 (the
+     * supervisor makes a master's other keys and never needs this one).
+     */
+    tokenSecret: readNodeRole(process.env.LGR_NODE_ROLE) === 'global'
+      ? requiredSecret('NODE_TOKEN_SECRET', process.env.NODE_TOKEN_SECRET, NODE_TOKEN_DEV_FALLBACK)
+      : '',
+    /** 15 minutes: short, because every node request re-reads the node's row. */
+    tokenTtlSec: 15 * 60,
+    /**
+     * How often global reaps ephemeral nodes that stopped reporting. **0 disables it** (.env.test).
+     */
+    reaperIntervalMs: process.env.NODE_REAPER_INTERVAL_MS !== undefined
+      ? Number(process.env.NODE_REAPER_INTERVAL_MS)
+      : 15 * 60 * 1000,
+    /**
+     * ⚠ 24 h, not the desktops' 15 minutes: a field cell cuts a master's WAN on purpose, and a master
+     * reaped in the middle of the cut fails the cell for the wrong reason (FR-20.113).
+     */
+    ephemeralSilenceMs: 24 * 60 * 60 * 1000,
+    /**
+     * FR-20.58: the oldest master build global talks to. Below it the uplink answers
+     * `master_outdated`: replication and the tunnel stop, the interactive socket stays for updates.
+     */
+    minMasterVersion: (process.env.NODE_MIN_MASTER_VERSION || '').trim() || '0.1.0',
+    /**
+     * FR-20.40 (plan step P2-4c) — where a master's API puts the PUBLIC half of its seal key
+     * (`state/seal-pub.json`, set by the supervisor), which the supervisor then signs into its token
+     * assertions. Unset off a master.
+     */
+    sealPubFile: (process.env.LGR_NODE_SEAL_PUB_FILE || '').trim(),
+  },
+  /**
+   * FR-20.59 (plan step P2-6) — what global relays for a master, and the caps that keep a stolen or
+   * broken master from mailing the world through lgrai.app. Per server.
+   */
+  relay: {
+    mailPerHour: Number(process.env.RELAY_MAIL_PER_HOUR) || 100,
+    mailPerDay: Number(process.env.RELAY_MAIL_PER_DAY) || 500,
+    /** Decoded attachment bytes per mail. A master's outbox carries them base64 in one document. */
+    maxAttachmentBytes: 8 * 1024 * 1024,
+    maxHtmlBytes: 1024 * 1024,
+    /**
+     * P2-6b — documents a master asks global to read, per server and day: each draft and match runs
+     * a model on the subscription lgrai.app's own imports use, and its weekly limit is shared.
+     */
+    documentsPerDay: {
+      extract: Number(process.env.RELAY_EXTRACT_PER_DAY) || 500,
+      draft: Number(process.env.RELAY_DRAFT_PER_DAY) || 200,
+      'match-lines': Number(process.env.RELAY_MATCH_PER_DAY) || 300,
+    },
+    /** A PDF to read (decoded), and the text of one document to draft. */
+    maxDocumentBytes: 15 * 1024 * 1024,
+    maxDocumentText: 200_000,
+  },
+  /** FR-20.43 (plan step P2-5) — how often a master pulls its people's changes. **0 disables it** (.env.test). */
+  identityFeed: {
+    intervalMs: process.env.IDENTITY_FEED_INTERVAL_MS !== undefined ? Number(process.env.IDENTITY_FEED_INTERVAL_MS) : 30_000,
+  },
+  /**
+   * FR-20.69 (plan step P3-3) — the files global's mirror takes from a master: at most this many
+   * bytes per org (`MIRROR_FILES_MAX_GB`, 50 by default). Past it the mirror stops asking for more
+   * and says so; a master could otherwise fill the disk every org's mirror shares.
+   */
+  mirror: {
+    filesMaxBytes: Math.round((Number(process.env.MIRROR_FILES_MAX_GB) || 50) * 1024 ** 3),
+  },
+  /**
+   * FR-20.79 (plan step P3-6a) — moving an org's home: global's tick (a frozen move's copy) and a
+   * master's worker (its moves on global). 0 disables either.
+   */
+  move: {
+    tickMs: process.env.MOVE_TICK_MS !== undefined ? Number(process.env.MOVE_TICK_MS) : 5_000,
+    workerMs: process.env.MOVE_WORKER_MS !== undefined ? Number(process.env.MOVE_WORKER_MS) : 10_000,
+  },
+  /** FR-20.86 (plan step P2-6) — a master's outbox worker. */
+  outbox: {
+    /** How often it looks for due work. **0 disables it** (.env.test). */
+    intervalMs: process.env.OUTBOX_INTERVAL_MS !== undefined ? Number(process.env.OUTBOX_INTERVAL_MS) : 10_000,
+    /**
+     * Where the supervisor keeps a fresh node access token (`state/node-token.json`), which the
+     * worker presents to global's relay. Unset off a master.
+     */
+    tokenFile: (process.env.LGR_NODE_TOKEN_FILE || '').trim(),
+  },
+  /**
+   * FR-20.39 (plan step P2-4) — "Sign in with LGR": global's identity key, base64 PKCS#8 DER of an
+   * Ed25519 key, sealed in lgr-secret. Global signs the assertions a master redeems; a master verifies
+   * them with the keys built into its package (`idp-keys.json`). Not fatal when missing, for the
+   * licence key's reason: nothing becomes forgeable, global just signs nobody in to a master.
+   */
+  idp: {
+    signingKey: readLicenceSigningKey(process.env.IDP_SIGNING_KEY, readNodeRole(process.env.LGR_NODE_ROLE)),
+    /** The domain an org's own address sits under (`<slug>.lgrai.app`, D-13, plan step P3-4). */
+    addressApex: (process.env.ORG_ADDRESS_APEX || '').trim().toLowerCase() || 'lgrai.app',
+  },
+  /**
+   * FR-20.82 (plan step P3-6b) — global's re-point key, base64 PKCS#8 DER of an Ed25519 key, sealed
+   * in lgr-secret. When an org moves to its master, global tells each of its desktops where the master
+   * answers and which CA to pin, signed with it; a desktop verifies with the keys built into it
+   * (`repoint-keys.json`). Not fatal when missing: a desktop is then told only that its org moved.
+   */
+  repoint: {
+    signingKey: readLicenceSigningKey(process.env.REPOINT_SIGNING_KEY, readNodeRole(process.env.LGR_NODE_ROLE)),
+  },
+  /** FR-20.55 — the licence of an org whose home is a master (plan step P2-3b). */
+  licence: {
+    signingKey: readLicenceSigningKey(process.env.LICENCE_SIGNING_KEY, readNodeRole(process.env.LGR_NODE_ROLE)),
+    /**
+     * On a master: where the supervisor keeps its licences, one `<orgId>.jws` per org, as global
+     * sent them or an operator imported them. Unset elsewhere.
+     */
+    dir: (process.env.LGR_LICENCE_DIR || '').trim(),
+    /**
+     * On a master: when it was made (seconds since the epoch, from `state/node.json`). An org with
+     * no licence here is evaluated for 30 days from it.
+     */
+    nodeCreatedAt: Number(process.env.LGR_NODE_CREATED_AT) || undefined,
+  },
   host: process.env.HOST || '0.0.0.0',
   port: Number(process.env.PORT) || 4001,
+  /**
+   * FR-20.16 (plan step P1-3) — on a master the supervisor owns every way in, and this API answers
+   * it alone (`portal-api/src/front/`). It sets all three; none is set anywhere else.
+   */
+  front: {
+    secret: readFrontSecret(process.env.LGR_FRONT_SECRET),
+    /** The names a request may carry in `Host` (IP literals always may), against DNS rebinding. */
+    hosts: (process.env.LGR_FRONT_HOSTS || '').split(',').map(h => h.trim().toLowerCase()).filter(Boolean),
+    /** The control socket (AF_UNIX): status and stop, never a TCP port (FR-20.16). */
+    controlSocket: (process.env.LGR_CONTROL_SOCKET || '').trim() || undefined,
+    /**
+     * FR-20.29 — the LAN ingress, when the supervisor has opened one: the address a pairing code
+     * names (`https://192.168.1.10:4443`), and the fingerprint of the master's own CA
+     * (`sha256:<base64url>`) that the desktop pins its first connection to.
+     */
+    lan: {
+      url: (process.env.LGR_LAN_URL || '').trim().replace(/\/+$/, '') || undefined,
+      caFingerprint: (process.env.LGR_LAN_CA_FINGERPRINT || '').trim() || undefined,
+      /**
+       * FR-20.30: the same two, as the supervisor keeps them current (`state/lan.json`). A CA
+       * rotation or a DHCP move changes them while the API runs, and this file follows.
+       */
+      stateFile: (process.env.LGR_LAN_STATE_FILE || '').trim() || undefined,
+    },
+  },
+  stop: {
+    /**
+     * FR-20.23 — how long a graceful stop waits for an in-flight fiscal operation and for the
+     * requests already being served. Under Kubernetes' 30 s grace by default; the supervisor gives
+     * its own grace on top of whatever this is.
+     */
+    waitMs: Number(process.env.LGR_STOP_WAIT_MS) || 25_000,
+  },
   mongodb: {
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27018/lgr',
   },
@@ -183,8 +417,25 @@ export const config = {
   anthropic: {
     apiKey: process.env.ANTHROPIC_API_KEY || '',
   },
+  /**
+   * FR-20.61 (plan steps P3-1b, P3-2b): a master's capture of its own writes, the change-stream
+   * journal the mirror is sent from. It follows the link: on while the supervisor's registration says
+   * Full, off otherwise, since a master linked at Control sends no business data anywhere (FR-20.54).
+   * `LGR_REPLICATION=on|off` overrides that either way. Ignored off a master.
+   */
+  replication: {
+    /** `true`/`false` when `LGR_REPLICATION` says so; unset, the registration's link level decides. */
+    capture: ((v: string) => (v === 'on' ? true : v === 'off' ? false : undefined))((process.env.LGR_REPLICATION || '').trim().toLowerCase()) as boolean | undefined,
+    /** The supervisor's `state/registration.json`, whose `linkLevel` says Full or Control. */
+    registrationFile: (process.env.LGR_REGISTRATION_FILE || '').trim(),
+  },
   ocr: {
     serverUrl: process.env.OCR_SERVER_URL || 'http://localhost:8100',
+    /**
+     * Whether a sidecar was configured. A master's package carries none, so with none set it reads
+     * documents through lgrai.app (FR-20.59, P2-6b); an operator may still point it at their own.
+     */
+    configured: !!(process.env.OCR_SERVER_URL || '').trim(),
   },
   integrations: {
     google: {
@@ -250,6 +501,30 @@ export const config = {
     mode: (process.env.SUPTO_MODE || 'development') as 'production' | 'development',
     timeSyncIntervalMs: Number(process.env.SUPTO_TIME_SYNC_INTERVAL_MS) || 6 * 60 * 60 * 1000, // 6 hours
   },
+  migrations: {
+    /**
+     * FR-20.19 (P0b-7) — run pending versioned migrations (`packages/migrations`) before the
+     * server listens. Off by default, which is the kill switch: `bun run migrate` runs them by
+     * hand. Masters turn it on; global does after one release of the CLI in `deploy-prod.sh`.
+     */
+    auto: process.env.MIGRATIONS_AUTO === 'true',
+  },
+  pdf: {
+    /**
+     * FR-20.25 (P0a-2) — `chrome` renders in-process: the HTML goes to Chrome with `setContent`,
+     * Chrome is driven over a pipe, and nothing listens on a socket. `md-to-pdf` is the previous
+     * renderer, kept for ONE release as the kill switch should a document print differently.
+     */
+    renderer: (process.env.PDF_RENDERER === 'md-to-pdf' ? 'md-to-pdf' : 'chrome') as 'chrome' | 'md-to-pdf',
+    /** The Chrome to drive. Unset → Puppeteer's own (its cache), as before. */
+    chromePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+    /**
+     * How long one render attempt may take before it is abandoned and its Chrome killed.
+     * `markdownToPdf` then retries with a fresh browser. A healthy render takes 2–4 s, and
+     * `page.pdf` itself already gives up after 30 s.
+     */
+    renderTimeoutMs: Number(process.env.PDF_RENDER_TIMEOUT_MS) || 60_000,
+  },
   digest: {
     /**
      * FR-11.5 (#21) — how often the scheduler asks "is it any org's digest hour yet?".
@@ -314,6 +589,64 @@ export const config = {
      * the endpoint then says so rather than inventing a manifest.
      */
     releaseFeedUrl: (process.env.DESKTOP_RELEASE_FEED_URL || '').trim(),
+
+    /**
+     * FR-14.28 / #93 — the release this hub offers, when no external feed is configured.
+     *
+     * ⚠ **This exists because the feed never did.** `releaseFeedUrl` was the only source, it has
+     * never been set, and nothing publishes a `<channel>.json` anywhere — so
+     * `/api/desktop/v1/latest-release` always answered `release: null` and every till was told it
+     * was up to date, including one running a build seven months old. Quietly, in the direction
+     * nobody notices.
+     *
+     * Hosting a feed needs somewhere to host it; these three variables need a configmap line,
+     * which is how everything else in this deployment is already configured. `releaseFeedUrl`
+     * still WINS when set, so an external feed remains the path for a fleet that outgrows this.
+     *
+     * ⚠ **Empty means "offer nothing", which is the safe default and today's behaviour.** Never
+     * set a version that is not actually downloadable: a till told to update to a build it cannot
+     * get is worse off than one told nothing.
+     */
+    releaseVersion: (process.env.DESKTOP_RELEASE_VERSION || '').trim(),
+    /**
+     * Where a human downloads that release. Shown to the operator; nothing fetches it.
+     * Empty: this server's own download page (`/api/desktop/download/<version>`).
+     */
+    releaseUrl: (process.env.DESKTOP_RELEASE_URL || '').trim(),
+    /**
+     * The repository whose `desktop-v<version>` releases the download route serves. Public: the
+     * route reads it anonymously. The installers are still streamed through this server
+     * (`/api/desktop/download/*`), because corporate allow-lists trust this domain rather than
+     * github.com, the way roomler serves its own.
+     */
+    releaseRepo: (process.env.DESKTOP_RELEASE_REPO || 'gjovanov/lgr').trim(),
+    /**
+     * A read-only token for `releaseRepo` (fine-grained: Contents read). A secret, and OPTIONAL: the
+     * repository is public, so without it the route asks GitHub anonymously (60 API calls an hour
+     * per address, which the ten-minute release cache keeps it far below). Set, it raises that limit,
+     * and it is what a private repository would need.
+     */
+    releaseGithubToken: (process.env.DESKTOP_RELEASE_GITHUB_TOKEN || '').trim(),
+    /**
+     * FR-20.56 (plan step P2-7) — on a master, where the supervisor keeps the desktop release it
+     * fetched from lgrai.app; the tills' updates and downloads are served from it. Set by the
+     * supervisor. Empty on global.
+     */
+    releasesDir: (process.env.LGR_DESKTOP_RELEASES_DIR || '').trim(),
+    /** One line of release notes, shown with the offer. */
+    releaseNotes: (process.env.DESKTOP_RELEASE_NOTES || '').trim(),
+  },
+  /**
+   * FR-20.20 (plan step P1-8) — the server release lgrai.app offers its masters, read from GitHub
+   * the way the desktop's are (`github-release.ts`). The master verifies everything it downloads
+   * against keys built into its own package; this only says which version to fetch.
+   */
+  serverRelease: {
+    /** The version masters are offered (N.N.N). Empty: nothing is offered. A human promotes it. */
+    version: (process.env.SERVER_RELEASE_VERSION || '').trim(),
+    repo: (process.env.SERVER_RELEASE_REPO || process.env.DESKTOP_RELEASE_REPO || 'gjovanov/lgr').trim(),
+    /** Optional and read-only, shared with the desktop's: GitHub's higher API limit. */
+    githubToken: (process.env.DESKTOP_RELEASE_GITHUB_TOKEN || '').trim(),
   },
   backup: {
     /**
@@ -356,6 +689,16 @@ export const config = {
      * bundle.
      */
     keepPerOrg: Number(process.env.BACKUP_KEEP_PER_ORG) || 14,
+    /**
+     * FR-20.21 (plan step P1-9) — a local copy of every night's bundle: a second disk, a USB drive
+     * or a NAS path on the master's own network. Empty = no local copy. Its generations are pruned
+     * to `localKeep` (default `keepPerOrg`).
+     *
+     * ⚠ A path that is not there (the USB drive unplugged, the NAS down) is a recorded `failed`
+     * destination, never a failed run: the bundle is built, verified and kept on the master.
+     */
+    localPath: process.env.BACKUP_LOCAL_PATH || '',
+    localKeep: Number(process.env.BACKUP_LOCAL_KEEP) || 0,
     /**
      * FR-13.23 (#24) — whether the daily mail may carry the BUNDLE ITSELF.
      *
@@ -449,6 +792,12 @@ export const config = {
      * long-lived refresh token is the only shape Google permits.
      */
     googleDrive: {
+      /**
+       * FR-20.97 — the operator attests that this Drive keeps its data in the EU (a Google Workspace
+       * data region): a personal Drive's region cannot be chosen. A master sends nothing to a Drive
+       * without it.
+       */
+      euAttested: process.env.BACKUP_GOOGLE_DRIVE_EU === 'true',
       refreshToken: process.env.BACKUP_GOOGLE_DRIVE_REFRESH_TOKEN || '',
       /** Defaults to the existing Drive integration client — one OAuth app, not two. */
       clientId: process.env.BACKUP_GOOGLE_DRIVE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '',
@@ -501,6 +850,12 @@ export const config = {
       endpoint: process.env.BACKUP_S3_ENDPOINT || '',
       /** Part of the SigV4 credential scope. B2/R2/MinIO accept `us-east-1` when unsure. */
       region: process.env.BACKUP_S3_REGION || 'us-east-1',
+      /**
+       * FR-20.97 — the operator attests the bucket is in Bulgaria or the EU, for an endpoint whose
+       * name does not say so (a self-hosted MinIO in the shop's own country). Recognised EU
+       * endpoints need no attestation (`s3InEu`).
+       */
+      euAttested: process.env.BACKUP_S3_EU === 'true',
       bucket: process.env.BACKUP_S3_BUCKET || '',
       accessKeyId: process.env.BACKUP_S3_ACCESS_KEY_ID || '',
       secretAccessKey: process.env.BACKUP_S3_SECRET_ACCESS_KEY || '',
@@ -640,4 +995,9 @@ export const config = {
       enabled: process.env.PURESTAT_ENABLED === 'true',
     },
   },
+}
+
+/** FR-20.1 — the one place role-dependent behaviour is decided from. */
+export function nodeRole(): NodeRole {
+  return config.node.role
 }

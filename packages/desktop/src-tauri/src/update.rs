@@ -1,9 +1,9 @@
 //! C13 — the updater's rules (FR-14.28, FR-14.29).
 //!
 //! ⚠ This module is the DECISION layer: which version is newer, whether now is a safe moment,
-//! and what to roll back to. It deliberately performs no download and runs no installer — those
-//! belong to Tauri's updater plugin and are gated on signatures pinned in the binary (C05's
-//! minisign key and roomler's platform identity), which is material this chunk does not hold.
+//! and what to roll back to. It performs no download and runs no installer — `install.rs` does,
+//! gated on signatures pinned in the binary (the minisign key in `updater.pub` and roomler's
+//! Authenticode publisher).
 //!
 //! ⚠ **An updater that accepts an artifact it should not is worse than no updater — it is remote
 //! code execution on every machine in the fleet.** So every rule here fails closed, and the
@@ -29,6 +29,38 @@ pub const MAX_DEFERRALS: u32 = 7;
 /// last ran, and this is the window it measures against. It lives here, with `TillState`, so the
 /// bridge reports into one decided policy rather than inventing its own rule.
 pub const BUSY_WINDOW_SECS: i64 = 10 * 60;
+
+/// FR-14.28 — the background check's period when automatic updates are on.
+pub const CHECK_INTERVAL_SECS: u64 = 4 * 60 * 60;
+
+/// FR-14.28 — "checked at start (5-min cooldown)". The first automatic check waits this long after
+/// launch, so a till that is crash-looping or being restarted repeatedly does not hit the hub on
+/// every start, and the start itself (Open LGR, the bridge opening its port) has the machine first.
+pub const START_COOLDOWN_SECS: u64 = 5 * 60;
+
+/// After a deferral, look again once the busy window could have closed — not in four hours. A
+/// deferral that waited a full interval would take 28 h to reach `MAX_DEFERRALS`.
+pub const RETRY_AFTER_DEFER_SECS: u64 = BUSY_WINDOW_SECS as u64;
+// A retry slower than the normal period would make deferring pointless — checked at compile time.
+const _: () = assert!(RETRY_AFTER_DEFER_SECS < CHECK_INTERVAL_SECS);
+
+/// Is an automatic check due?
+///
+/// `secs_since_start` is the process's age; `secs_since_last` is `None` until the background loop
+/// has checked once. `deferred` is whether that last check ended in a deferral.
+///
+/// ⚠ `enabled` is read from the settings file on EVERY tick, not captured when the loop starts:
+/// switching automatic updates off has to stop the next attempt, not the next restart's.
+pub fn auto_check_due(enabled: bool, secs_since_start: u64, secs_since_last: Option<u64>, deferred: bool) -> bool {
+    if !enabled {
+        return false;
+    }
+    match secs_since_last {
+        None => secs_since_start >= START_COOLDOWN_SECS,
+        Some(s) if deferred => s >= RETRY_AFTER_DEFER_SECS,
+        Some(s) => s >= CHECK_INTERVAL_SECS,
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SemVer {
@@ -306,11 +338,48 @@ pub fn detect_install_kind(exe_path: &str) -> InstallKind {
         }
         return InstallKind::PerMachine;
     }
-    // macOS `/Applications` and Linux `/usr` are both machine-wide.
+    // Linux `/usr` and `/opt` are machine-wide (and macOS `/Applications`, for callers that only
+    // have a path; the running app asks `detect_install_kind_here`, which looks at permissions).
     if p.starts_with("/applications/") || p.starts_with("/usr/") || p.starts_with("/opt/") {
         InstallKind::PerMachine
     } else {
         InstallKind::PerUser
+    }
+}
+
+/// The running app's install kind — what `try_install` and `install` act on.
+///
+/// ⚠ **macOS decides by PERMISSION, not by path.** Almost every Mac install is a drag into
+/// `/Applications`, which an admin account can write without elevating — so "anything under
+/// `/Applications` is managed" would mean no Mac ever updates itself. What actually matters is
+/// whether the plugin can move the bundle without asking: when it cannot, its answer is an
+/// administrator password prompt (AppleScript `with administrator privileges`), the one thing the
+/// shell never does. So a Mac self-installs exactly when this user can write BOTH the folder the
+/// `.app` sits in and the `.app` itself (moving a directory needs both), and is `managed`
+/// otherwise — a standard account under an admin-installed app, or an app on a read-only volume.
+pub fn detect_install_kind_here() -> InstallKind {
+    let exe = std::env::current_exe().unwrap_or_default();
+    if cfg!(target_os = "macos") {
+        let Some(app) = exe.ancestors().find(|p| p.extension().is_some_and(|e| e == "app")) else {
+            // Not running from a bundle (a dev build): nothing an updater should replace.
+            return InstallKind::PerMachine;
+        };
+        let writable = app.parent().is_some_and(dir_writable) && dir_writable(app);
+        return if writable { InstallKind::PerUser } else { InstallKind::PerMachine };
+    }
+    detect_install_kind(&exe.to_string_lossy())
+}
+
+/// Can this user create a file in `dir`? Asked by trying, because permission bits do not tell the
+/// whole story (ACLs, a read-only volume, an app translocated by Gatekeeper).
+fn dir_writable(dir: &std::path::Path) -> bool {
+    let probe = dir.join(format!(".lgr-write-probe-{}", std::process::id()));
+    match std::fs::File::create(&probe) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
     }
 }
 
@@ -352,18 +421,15 @@ pub fn save_state(app: &tauri::AppHandle, state: &UpdateState) {
     }
 }
 
-/// Hand the artifact to the installer — the step this chunk deliberately stops short of.
+/// Hand the artifact to the installer: `install.rs`, which runs nothing until the minisign key
+/// pinned in `updater.pub` AND the platform signature (Authenticode `G ROX LTD`, or Developer ID
+/// team `4TG7586MY5` + notarisation) both accept the bytes.
 ///
-/// ⚠ **Not implemented, and refusing is the correct behaviour until C05's key material exists.**
-/// Installing requires verifying TWO signatures, both against anchors **pinned in this binary**:
-/// Tauri's updater minisign key, and roomler's platform identity (Authenticode subject
-/// `G ROX LTD`, Team ID `4TG7586MY5`, or the release GPG fingerprint). Neither is in the tree.
-///
-/// Wiring an updater that downloads and runs an artifact it cannot verify would be remote code
-/// execution on every machine in the fleet — precisely what C13's opening paragraph warns about
-/// — so this returns an error rather than a plausible-looking stub.
-fn hand_to_installer(_version: &str) -> Result<(), String> {
-    Err("updater_not_configured".into())
+/// ⚠ While `updater.pub` is empty this is still `updater_not_configured` — the honest answer
+/// until the one-time key generation has happened.
+fn hand_to_installer(app: &tauri::AppHandle, version: &str) -> Result<(), String> {
+    let server = crate::settings::load(app).server_url;
+    crate::install::install(app, &server, version)
 }
 
 /// The install decision and, if it is time, the attempt (FR-14.28).
@@ -382,11 +448,7 @@ pub fn try_install(
     // A different candidate starts its own deferral count.
     deferrals.target(candidate);
 
-    let kind = detect_install_kind(
-        &std::env::current_exe()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default(),
-    );
+    let kind = detect_install_kind_here();
     if !kind.may_self_install() {
         // ⚠ Managed. Check, notify, report — never elevate (decided 2026-09-29).
         return Err("managed".into());
@@ -403,7 +465,7 @@ pub fn try_install(
             state.begin_attempt(running, candidate);
             save_state(app, &state);
 
-            hand_to_installer(candidate)?;
+            hand_to_installer(app, candidate)?;
             Ok(UpdateAction::Install)
         }
     }
@@ -486,6 +548,35 @@ mod tests {
     fn a_prototype_cannot_meet_the_first_release() {
         // FR-14.29's stated purpose: a v0.1.x prototype never talks to the new endpoints.
         assert!(!meets_minimum("0.1.3", "1.0.0"));
+    }
+
+    #[test]
+    fn automatic_updates_off_never_checks() {
+        for last in [None, Some(0), Some(CHECK_INTERVAL_SECS * 10)] {
+            for deferred in [false, true] {
+                assert!(!auto_check_due(false, u64::MAX, last, deferred), "{last:?}/{deferred}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_first_automatic_check_waits_out_the_start_cooldown() {
+        assert!(!auto_check_due(true, 0, None, false));
+        assert!(!auto_check_due(true, START_COOLDOWN_SECS - 1, None, false));
+        assert!(auto_check_due(true, START_COOLDOWN_SECS, None, false));
+    }
+
+    #[test]
+    fn later_checks_run_every_interval() {
+        assert!(!auto_check_due(true, u64::MAX, Some(CHECK_INTERVAL_SECS - 1), false));
+        assert!(auto_check_due(true, u64::MAX, Some(CHECK_INTERVAL_SECS), false));
+    }
+
+    #[test]
+    fn a_deferral_is_retried_after_the_busy_window_not_the_interval() {
+        // Otherwise reaching MAX_DEFERRALS on a busy till takes over a day.
+        assert!(!auto_check_due(true, u64::MAX, Some(RETRY_AFTER_DEFER_SECS - 1), true));
+        assert!(auto_check_due(true, u64::MAX, Some(RETRY_AFTER_DEFER_SECS), true));
     }
 
     #[test]

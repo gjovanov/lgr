@@ -7,7 +7,10 @@ import {
   buildPayload,
   buildProductUpdates,
   computeTotals,
+  copyOfDocument,
+  linesFromRelatedInvoice,
   MAX_PRICE_TIERS,
+  resolvesSalesPrice,
   type DocumentFormState,
 } from '../../../invoicing-ui/src/composables/document-form/document-payload'
 import { DOCUMENT_CONFIGS } from '../../../invoicing-ui/src/composables/document-form/configs'
@@ -30,10 +33,11 @@ function wire(obj: Record<string, any>): Record<string, any> {
  *    no discountTotal/taxTotal/totalBase; due date is sent as-is (no fallback).
  *  - Credit/Debit/Cash persist BOTH `date` and `issueDate` (same value).
  *  - Cash sale drops empty `contactId` (omit-empty) and emits no due date.
- *  - Proforma emits `validUntil` (not dueDate); Purchase emits `supplierInvoiceNumber`,
- *    direction 'incoming', type 'invoice'.
- *  - Tax/line math: discount-aware for invoice+proforma, plain for the rest; every money
- *    figure rounded with +(x).toFixed(2). Totals: subtotal − discountTotal + taxTotal.
+ *  - Proforma emits its validity as `dueDate` (FR-22.9: the model has no `validUntil`);
+ *    Purchase emits `supplierInvoiceNumber`, direction 'incoming', type 'invoice'.
+ *  - Tax/line math: discount-aware for invoice, proforma and the credit/debit notes (FR-22.4),
+ *    plain for the purchase invoice and the cash sale; every money figure rounded with
+ *    +(x).toFixed(2). Totals: subtotal − discountTotal + taxTotal.
  */
 
 describe('buildPayload — sales invoice', () => {
@@ -173,13 +177,13 @@ describe('buildPayload — proforma', () => {
     ],
   }
 
-  it('produces the legacy proforma body (validUntil, discount line, no dueDate, empty paymentMethod kept)', () => {
+  it('produces the proforma body (validity as dueDate, discount line, empty paymentMethod kept)', () => {
     expect(wire(buildPayload(state, DOCUMENT_CONFIGS.proforma))).toEqual({
       contactId: 'c3',
       type: 'proforma',
       direction: 'outgoing',
       issueDate: '2026-06-03',
-      validUntil: '2026-07-03',
+      dueDate: '2026-07-03',
       paymentMethod: '',
       currency: 'EUR',
       exchangeRate: 1,
@@ -194,12 +198,21 @@ describe('buildPayload — proforma', () => {
     })
   })
 
-  it('has a discount line but never emits discountTotal/dueDate/date', () => {
+  it('has a discount line but never emits discountTotal/date', () => {
     const p = wire(buildPayload(state, DOCUMENT_CONFIGS.proforma))
     expect(p.lines[0].discount).toBe(25)
     expect(p).not.toHaveProperty('discountTotal')
-    expect(p).not.toHaveProperty('dueDate')
     expect(p).not.toHaveProperty('date')
+  })
+
+  // B-11: the validity was sent as `validUntil`, a field the Invoice model does not have — the
+  // server dropped it and stored the issue date, so the list's „Валидна до" showed the issue date.
+  it('sends the validity date where the model keeps it (dueDate), never as validUntil', () => {
+    const p = wire(buildPayload(state, DOCUMENT_CONFIGS.proforma))
+    expect(p.dueDate).toBe('2026-07-03')
+    expect(p).not.toHaveProperty('validUntil')
+    // A cleared date falls back to the issue date, as the server does for a missing due date.
+    expect(wire(buildPayload({ ...state, validUntil: '' }, DOCUMENT_CONFIGS.proforma)).dueDate).toBe('2026-06-03')
   })
 })
 
@@ -235,10 +248,24 @@ describe('buildPayload — credit note', () => {
         { productId: 'p5', description: 'Refund item', quantity: 1, unit: 'pcs', unitPrice: 80, taxRate: 20, taxAmount: 16, lineTotal: 96, warehouseId: 'w3' },
       ],
       subtotal: 80,
+      discountTotal: 0,
       total: 96,
       reason: 'Return',
       tags: [],
     })
+  })
+
+  // B-6: a note on a discounted sale credited the undiscounted price — the note's lines carried
+  // no discount and its totals ignored one (204.00 for the 183.60 the customer was charged).
+  it('credits a discounted line at what was charged, not at the list price', () => {
+    const p = wire(buildPayload({
+      ...state,
+      lines: [{ productId: 'p5', description: 'Кутия болтове', quantity: 3, unit: 'box', unitPrice: 68, discount: 10, taxRate: 20, warehouseId: 'w3' }],
+    }, DOCUMENT_CONFIGS.credit_note))
+    expect(p.lines[0]).toMatchObject({ unit: 'box', discount: 10, taxAmount: 36.72, lineTotal: 220.32 })
+    expect(p.subtotal).toBe(204)
+    expect(p.discountTotal).toBe(20.4)
+    expect(p.total).toBe(220.32) // 183.60 + 20 % — not 244.80
   })
 })
 
@@ -274,10 +301,134 @@ describe('buildPayload — debit note', () => {
         { productId: 'p7', description: 'Surcharge', quantity: 2, unit: 'pcs', unitPrice: 25, taxRate: 20, taxAmount: 10, lineTotal: 60 },
       ],
       subtotal: 50,
+      discountTotal: 0,
       total: 60,
       reason: 'Extra charge',
       tags: ['adj'],
     })
+  })
+
+  it('is discount-aware too, like every note (FR-22.4)', () => {
+    for (const key of ['credit_note', 'debit_note', 'purchase_credit_note', 'purchase_debit_note'] as const) {
+      const p = wire(buildPayload({
+        ...state,
+        lines: [{ productId: 'p7', description: 'Line', quantity: 1, unit: 'pcs', unitPrice: 100, discount: 25, taxRate: 0 }],
+      }, DOCUMENT_CONFIGS[key]))
+      expect({ key, total: p.total, discount: p.lines[0].discount }).toEqual({ key, total: 75, discount: 25 })
+    }
+  })
+})
+
+describe('linesFromRelatedInvoice — a note starts from what was sold (FR-22.4)', () => {
+  const invoiceLines = [
+    {
+      productId: { toString: () => 'p1' }, description: 'Кутия болтове', quantity: 3, unit: 'box', unitPrice: 68,
+      discount: 10, taxRate: 20, taxAmount: 36.72, lineTotal: 220.32, warehouseId: 'w1', accountId: 'a1',
+      priceExplanation: [{ type: 'base', label: 'Selling price', price: 68 }],
+      orderRef: { reservationId: 'r1', internalOrderId: 'o1' },
+    },
+    { description: 'Монтаж', quantity: 1, unitPrice: 50, taxRate: 20 },
+  ]
+
+  it("keeps each line's discount and unit — they used to become 0 and „бр.\" (B-6)", () => {
+    const lines = linesFromRelatedInvoice(invoiceLines)
+    expect(lines[0]).toMatchObject({ productId: 'p1', quantity: 3, unit: 'box', unitPrice: 68, discount: 10, taxRate: 20, warehouseId: 'w1' })
+    expect(lines[1]).toMatchObject({ description: 'Монтаж', unit: 'pcs', discount: 0 })
+    expect(lines[1].productId).toBeUndefined()
+  })
+
+  it("marks the price as the invoice's, so a price editor does not swap in today's", () => {
+    for (const l of linesFromRelatedInvoice(invoiceLines)) {
+      expect(l.loaded).toBe(true)
+      expect(l.resolvedPrice).toBe(l.unitPrice)
+    }
+  })
+
+  it('leaves the reservation references behind — only a sales invoice may consume one', () => {
+    const [line] = linesFromRelatedInvoice(invoiceLines)
+    expect(line).not.toHaveProperty('orderRef')
+    expect(line).not.toHaveProperty('accountId')
+  })
+
+  it('round-trips into a credit note that credits exactly what the invoice charged', () => {
+    const p = wire(buildPayload({
+      contactId: 'c1', relatedInvoiceId: 'inv1', issueDate: '2026-10-25', dueDate: '2026-11-24', currency: 'EUR', exchangeRate: 1,
+      reason: '', tags: [], lines: linesFromRelatedInvoice(invoiceLines.slice(0, 1)),
+    }, DOCUMENT_CONFIGS.credit_note))
+    expect(p.lines[0]).toMatchObject({ discount: 10, unit: 'box', lineTotal: 220.32 })
+    expect(p.total).toBe(220.32)
+    expect(p.lines[0]).not.toHaveProperty('loaded')
+  })
+})
+
+describe('copyOfDocument — „Копирай" starts a new draft as another document (FR-22.24)', () => {
+  const source = {
+    _id: 'inv-1',
+    invoiceNumber: 'INV-2026-00007',
+    draftNumber: 'DRF-INV-2026-00003',
+    status: 'sent',
+    issueDate: '2026-10-01T00:00:00.000Z',
+    dueDate: '2026-10-31T00:00:00.000Z',
+    reference: 'SUP-77',
+    contactId: { _id: 'c-1', companyName: 'Alpha' },
+    relatedInvoiceId: 'inv-0',
+    currency: 'USD',
+    exchangeRate: 0.92,
+    paymentMethod: 'card',
+    notes: 'n', terms: 't', footer: 'f', reason: 'r',
+    placeOfTransaction: 'София',
+    tags: ['vip'],
+    printNote: 'printed under the number',
+    companionNote: 'companion',
+    billingAddress: { street: '1 Main', city: 'Sofia', postalCode: '1000', country: 'BG' },
+    lines: [{
+      productId: 'p-1', description: 'Bolt', quantity: 3, unit: 'box', unitPrice: 12.5, discount: 10, taxRate: 20,
+      warehouseId: 'w-1', priceExplanation: [{ type: 'base', price: 12.5 }],
+      orderRef: { reservationId: 'res-1' }, sourceText: 'OCR', cashSaleLineId: 'csl-1',
+    }],
+  }
+
+  it('takes the partner, terms and lines as they were sold — the copied price stays the price', () => {
+    const c = copyOfDocument(source)
+    expect(c).toMatchObject({
+      contactId: 'c-1', relatedInvoiceId: 'inv-0', currency: 'USD', exchangeRate: 0.92, paymentMethod: 'card',
+      notes: 'n', terms: 't', footer: 'f', reason: 'r', placeOfTransaction: 'София', tags: ['vip'],
+      billingAddress: { street: '1 Main', city: 'Sofia', state: '', postalCode: '1000', country: 'BG' },
+    })
+    expect(c.lines).toEqual([{
+      productId: 'p-1', description: 'Bolt', quantity: 3, unit: 'box', unitPrice: 12.5, discount: 10, taxRate: 20,
+      warehouseId: 'w-1', priceExplanation: [{ type: 'base', price: 12.5 }], resolvedPrice: 12.5, loaded: true,
+    }])
+  })
+
+  it('leaves behind what belongs to the original alone', () => {
+    const c: any = copyOfDocument(source)
+    for (const k of ['invoiceNumber', 'draftNumber', 'status', 'issueDate', 'dueDate', 'reference', 'printNote', 'companionNote']) {
+      expect(c).not.toHaveProperty(k)
+    }
+    // A copy must not draw on the reservations the original consumed, nor carry its import wording.
+    for (const k of ['orderRef', 'sourceText', 'cashSaleLineId']) expect(c.lines[0]).not.toHaveProperty(k)
+  })
+
+  it('reads a contact given by id, and a document without the optional parts', () => {
+    const c = copyOfDocument({ contactId: 'c-9', lines: [] })
+    expect(c).toMatchObject({ contactId: 'c-9', relatedInvoiceId: '', exchangeRate: 1, tags: [], lines: [] })
+    expect(c).not.toHaveProperty('billingAddress')
+  })
+})
+
+describe('resolvesSalesPrice — B-10: a purchase document is priced from the purchase price', () => {
+  it('never resolves the sales chain on an incoming document', () => {
+    for (const config of Object.values(DOCUMENT_CONFIGS)) {
+      expect({ doc: config.docType, resolves: resolvesSalesPrice(config) })
+        .toEqual({ doc: config.docType, resolves: config.direction === 'outgoing' })
+    }
+  })
+
+  it("every incoming document pre-fills the article's purchase price", () => {
+    for (const config of Object.values(DOCUMENT_CONFIGS).filter((c) => c.direction === 'incoming')) {
+      expect({ doc: config.docType, field: config.priceField }).toEqual({ doc: config.docType, field: 'purchasePrice' })
+    }
   })
 })
 
@@ -321,6 +472,20 @@ describe('buildPayload — cash sale', () => {
     // a present contactId is kept
     const p2 = wire(buildPayload({ ...state, contactId: 'cx' }, DOCUMENT_CONFIGS.cash_sale))
     expect(p2.contactId).toBe('cx')
+  })
+
+  // FR-21.30: one totals function for every cash-register document (`config/pos-totals`). The
+  // valve of pos-totals.ts: 17.8952 net at 20 % is 21.47 at the till and on the device, and 21.48
+  // when net and VAT are rounded first, which is how the cash-sale form totalled it.
+  it('is totalled as the till totals it: the gross rounded once per VAT rate (FR-21.30)', () => {
+    const valve = { ...state, lines: [{ productId: 'p7', description: 'Valve', quantity: 1, unit: 'pcs', unitPrice: 17.8952, taxRate: 20, warehouseId: 'w4' }] }
+    const t = computeTotals(valve.lines, DOCUMENT_CONFIGS.cash_sale)
+    expect(t.total).toBe(21.47)
+    expect(t.taxTotal).toBe(3.58)
+    expect(t.subtotal).toBe(17.89)
+    expect(wire(buildPayload(valve, DOCUMENT_CONFIGS.cash_sale)).total).toBe(21.47)
+    // A sales invoice keeps its own rule.
+    expect(computeTotals(valve.lines, DOCUMENT_CONFIGS.invoice).total).toBeCloseTo(21.48, 2)
   })
 })
 

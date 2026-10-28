@@ -1,0 +1,20 @@
+{
+  "about": "FR-20.10 (plan step P1-7): the Bun and the mongod a server package carries in <home>/bin/, pinned by the archive's sha256 as its vendor publishes it. scripts/fetch-server-runtime.ts refuses anything else. mongod is pinned to global's version (lgrai.app runs 7.0.30); Bun to .bun-version, the baseline build on x64 so a shop PC without AVX2 runs it.",
+  "bun": {
+    "version": "1.4.4",
+    "targets": {
+      "windows-x64": { "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-windows-x64-baseline.zip", "sha256": "0f20ce6674d4f2dbcc8c5d59fdf99f7ba45f8c3b367e0f5781cbfa30a1c78d99", "path": "bun-windows-x64-baseline/bun.exe" },
+      "linux-x64": { "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64-baseline.zip", "sha256": "e0446eb55995772eb9894bebae9a6be368d985a8b9271ee124486f9946eedd76", "path": "bun-linux-x64-baseline/bun" },
+      "linux-arm64": { "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-aarch64.zip", "sha256": "baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e", "path": "bun-linux-aarch64/bun" }
+    }
+  },
+  "mongod": {
+    "version": "7.0.30",
+    "licence": "SSPL-1.0 (MongoDB Community Server). Unmodified; the corresponding source is the r7.0.30 tag of https://github.com/mongodb/mongo",
+    "targets": {
+      "windows-x64": { "url": "https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-7.0.30.zip", "sha256": "656050b5cc1739ebe7ed2ef5a60b5c983fb3d8791f1a4bcc4bb4686a5c007822", "path": "mongodb-win32-x86_64-windows-7.0.30/bin/mongod.exe", "licences": ["mongodb-win32-x86_64-windows-7.0.30/LICENSE-Community.txt", "mongodb-win32-x86_64-windows-7.0.30/MPL-2", "mongodb-win32-x86_64-windows-7.0.30/THIRD-PARTY-NOTICES"] },
+      "linux-x64": { "url": "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu2204-7.0.30.tgz", "sha256": "2a6eb856a481a8bca47601a1ad62d26a58adf1999f1a023595de42f94f900d2a", "path": "mongodb-linux-x86_64-ubuntu2204-7.0.30/bin/mongod", "licences": ["mongodb-linux-x86_64-ubuntu2204-7.0.30/LICENSE-Community.txt", "mongodb-linux-x86_64-ubuntu2204-7.0.30/MPL-2", "mongodb-linux-x86_64-ubuntu2204-7.0.30/THIRD-PARTY-NOTICES"] },
+      "linux-arm64": { "url": "https://fastdl.mongodb.org/linux/mongodb-linux-aarch64-ubuntu2204-7.0.30.tgz", "sha256": "f0fbf57ceeb0e5eb298efb089f4fb4758cc5a19ff5d8dec31f05d114aa15f72a", "path": "mongodb-linux-aarch64-ubuntu2204-7.0.30/bin/mongod", "licences": ["mongodb-linux-aarch64-ubuntu2204-7.0.30/LICENSE-Community.txt", "mongodb-linux-aarch64-ubuntu2204-7.0.30/MPL-2", "mongodb-linux-aarch64-ubuntu2204-7.0.30/THIRD-PARTY-NOTICES"] }
+    }
+  }
+}

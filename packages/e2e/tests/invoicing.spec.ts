@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { rowAction, rowsWithStatus } from './helpers/row-actions'
 import { lineUnitPrice, expectWarehouseSelector } from './helpers/document-form'
 
 test.describe('Invoicing', () => {
@@ -83,10 +84,10 @@ test.describe('Invoicing', () => {
     // Save the invoice
     await page.getByRole('button', { name: /^save$/i }).first().click()
 
-    // Verify redirect to sales list or form stays with validation errors
-    // (save may fail if contact is required and no contacts exist in the system)
+    // FR-22.16: a saved invoice stays open, on its own edit route; the form stays new when
+    // validation stops the save (a contact is required and the system may have none).
     await expect(
-      page.locator('.v-data-table').or(page.getByRole('heading', { name: 'New Invoice' }))
+      page.getByRole('heading', { name: 'Edit Invoice' }).or(page.getByRole('heading', { name: 'New Invoice' }))
     ).toBeVisible({ timeout: 10000 })
   })
 
@@ -108,13 +109,13 @@ test.describe('Invoicing', () => {
     await expect(page.getByRole('heading', { name: 'Purchase Documents' })).toBeVisible()
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
 
-    // Look for a draft purchase invoice with a receive button
-    const receiveBtn = page.locator('.v-data-table tbody tr').locator('button[title="Receive"], .v-btn:has(.mdi-package-down)').first()
-    const hasReceiveBtn = await receiveBtn.isVisible({ timeout: 3000 }).catch(() => false)
+    // Look for a draft purchase invoice — FR-22.23: its row menu offers „Receive"
+    const draftRow = rowsWithStatus(page, 'Draft').first()
+    const hasDraft = await draftRow.isVisible({ timeout: 3000 }).catch(() => false)
 
-    if (hasReceiveBtn) {
+    if (hasDraft) {
       // Click receive
-      await receiveBtn.click()
+      await (await rowAction(draftRow, 'receive')).click()
 
       // Wait for snackbar or table to reload
       await page.waitForTimeout(2000)

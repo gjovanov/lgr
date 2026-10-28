@@ -8,13 +8,16 @@ import { getRepos } from '../../context.js'
 import { Product, SupplierProductAlias, normalizeAlias, Warehouse } from 'db/models'
 import { matchProductsExact } from './matching.js'
 import { logger } from '../../logger/logger.js'
-import { createInvoiceStockMovement } from '../invoicing.service.js'
+import { createInvoiceStockMovement, unbookableStockLines, unbookableStockMessage } from '../invoicing.service.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { ensureSequenceAtLeast } from '../sequence.service.js'
 import { syncOrderForInvoice } from '../reservation.service.js'
+import { syncCashSettlement } from '../cash-settlement.service.js'
+import { RegisterRefusal, insertRegisterDocument, runSaleSteps } from '../cash-register/register.service.js'
 import {
   getNextDraftInvoiceNumber,
   getNextInvoiceNumber,
+  issuableRefusal,
   resolveDocPrefix,
   sequenceKeyFor,
 } from '../invoice-numbering.service.js'
@@ -155,18 +158,19 @@ export async function persistCashSale(
   mapped: MappedInvoice,
   opts: { adjustStock?: boolean } = {},
 ): Promise<any> {
-  const r = getRepos()
   // A cash sale has no draft step, so it needs the same late match the draft path gets.
   await matchLinesCreatedSinceAnalysis(orgId, mapped)
-  const invoiceNumber = await getNextInvoiceNumber(orgId, 'outgoing', 'cash_sale')
   const issueDate = mapped.issueDate ? new Date(mapped.issueDate) : new Date()
 
-  const invoice: any = await r.invoices.create({
+  // FR-21 (D-4): a till day is a cash-register document (origin `import`), written by the one
+  // service: numbered from CASH_SALE, its stock dispatched through the invoice path — below zero
+  // if need be, since the export can name goods the warehouse has not booked yet — and taken back
+  // whole if that dispatch fails.
+  const fields = {
     orgId,
     type: 'cash_sale',
     direction: 'outgoing',
     contactId: mapped.contactId,
-    invoiceNumber,
     reference: mapped.reference,
     issueDate,
     dueDate: issueDate,
@@ -188,21 +192,25 @@ export async function persistCashSale(
     billingAddress: mapped.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
     status: 'paid',
     statusHistory: [{ status: 'paid', changedAt: new Date(), changedBy: userId, reason: 'cash_register_import' }],
-    numberHistory: [{ number: invoiceNumber, allocatedAt: new Date(), status: 'paid' }],
     createdBy: userId,
     tags: mapped.tags,
-  } as any)
-
-  if (opts.adjustStock !== false) {
-    try {
-      // allowNegative — migration dispatches items the warehouse may not hold yet.
-      await createInvoiceStockMovement(invoice, userId, undefined, { allowNegative: true })
-    } catch (e) {
-      await r.invoices.delete(String(invoice.id || invoice._id))
-      throw e
-    }
+    register: { origin: 'import' },
   }
-  return invoice
+  try {
+    const outcome = await insertRegisterDocument(orgId, fields)
+    if (!('inserted' in outcome)) throw new Error('A keyless insert cannot meet an existing document')
+    return await runSaleSteps({
+      orgId,
+      user: { id: userId },
+      allowNegative: true,
+      skipStock: opts.adjustStock === false,
+      audit: { module: 'invoicing', entityType: 'invoice' },
+    }, String(outcome.inserted._id))
+  } catch (e: any) {
+    // The import reports a failed item by its message, as it did when it wrote the sale itself.
+    if (e instanceof RegisterRefusal) throw new Error(String(e.body.message ?? e.message))
+    throw e
+  }
 }
 
 /**
@@ -254,6 +262,31 @@ export async function convertDraftInvoice(
   if (!invoice) return { ok: false, error: 'not found' }
   if (invoice.status !== 'draft') return { ok: false, error: 'not in draft status' }
 
+  /**
+   * ⚠ Refuse BEFORE anything is mutated.
+   *
+   * The booking guard inside `createInvoiceStockMovement` used to be the only check, and it runs
+   * AFTER this function has allocated the issued number and flipped the invoice to sent/received.
+   * A document with an unmatchable line therefore ended up persisted as `sent`, carrying its
+   * issued number and NO stock movement, while its DocFile still read `analyzed` — and a
+   * re-commit could not fix it, because `persist` creates invoices and never upserts by number,
+   * so the retry produced a second row of the same number.
+   *
+   * It happened three times on regal-sf in two days (INV-2000129121, -151, -165), each needing a
+   * manual delete before the document could be booked. Same predicate as the booking guard, so
+   * the two cannot disagree about what is bookable.
+   */
+  if (opts?.adjustStock !== false) {
+    const unresolved = unbookableStockLines(invoice)
+    if (unresolved.length) return { ok: false, error: unbookableStockMessage(invoice, unresolved) }
+  }
+  // FR-20.81 (P3-6d): a document that needs a new legal number waits with its series; one that
+  // carries its own number allocates none.
+  if (!/^\d+$/.test(clean(invoice.reference))) {
+    const frozen = await issuableRefusal(orgId, invoice.direction, invoice.type)
+    if (frozen) return { ok: false, error: frozen.message }
+  }
+
   const direction = invoice.direction as string
   const type = invoice.type as string
   const draftNumber = invoice.invoiceNumber
@@ -288,6 +321,8 @@ export async function convertDraftInvoice(
     await learnSupplierAliases(orgId, updated || invoice)
   }
   await syncOrderForInvoice(orgId, updated || invoice, userId)
+  // A sales invoice paid in cash („Плащане: В брой") is paid as it is issued, like one from /send.
+  await syncCashSettlement(orgId, invoiceId, userId)
   createAuditEntry({
     orgId, userId, action: newStatus, module: 'invoicing', entityType: 'invoice',
     entityId: invoiceId, entityName: issuedNumber, changes: { invoiceNumber: { from: draftNumber, to: issuedNumber } },

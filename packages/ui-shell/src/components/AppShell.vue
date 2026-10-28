@@ -21,7 +21,11 @@
 
     <v-app-bar flat :border="0" class="app-bar-aligned">
       <v-app-bar-nav-icon v-if="layout === 'sidebar'" @click="mobile ? (mobileDrawerOpen = !mobileDrawerOpen) : $emit('toggle-drawer')" />
-      <v-toolbar-title v-if="!mobile" class="text-body-1 mr-2">{{ org?.name }}</v-toolbar-title>
+      <!-- The person's orgs: switching moves THIS tab only (multi-org sign-in). -->
+      <OrgSwitcher v-if="org" :org="org" :mobile="mobile" />
+
+      <!-- FR-22.49: a new daily document from any app, in one move. -->
+      <NewDocumentMenu v-if="org" :mobile="mobile" />
 
       <!-- Inline menu items for topmenu layout (desktop only) -->
       <slot v-if="layout === 'topmenu' && !mobile" name="menu-bar" />
@@ -54,12 +58,18 @@
         @mark-all-read="$emit('notification-read-all')"
       />
 
-      <UserMenu :user="user" :compact="mobile" @logout="$emit('logout')" @profile="$emit('profile')" />
+      <!-- Avatar only below 1920 px: at 1366 px the name cost the app's own menu its last groups,
+           and „+ Нов" needs that room. The name moves into the menu it opens. -->
+      <UserMenu :user="user" :compact="mobile || !xlAndUp" @logout="$emit('logout')" @profile="$emit('profile')" />
     </v-app-bar>
 
     <v-main>
       <!-- Mobile: menu bar below app bar since it needs full width -->
       <slot v-if="layout === 'topmenu' && mobile" name="menu-bar" />
+      <!-- FR-20.55: an on-prem server's licence, when it needs saying. Nothing on lgrai.app. -->
+      <LicenceBanner :org-id="org?.id" />
+      <!-- FR-20.75: an org not written here (a mirror, a read-only copy, a move under way). -->
+      <HomeBanner :org-id="org?.id" />
       <slot />
     </v-main>
 
@@ -76,12 +86,16 @@ import type { AppInfo, ShellUser, ShellOrg } from './types'
 import type { NotificationItem } from './NotificationBell.vue'
 import AppSwitcher from './AppSwitcher.vue'
 import NavFavoritesMenu from './NavFavoritesMenu.vue'
+import NewDocumentMenu from './NewDocumentMenu.vue'
 import OrgSelector from './OrgSelector.vue'
+import OrgSwitcher from './OrgSwitcher.vue'
 import UserMenu from './UserMenu.vue'
 import NotificationBell from './NotificationBell.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import LocaleSwitcher from './LocaleSwitcher.vue'
 import PendingChangesLeaveDialog from './PendingChangesLeaveDialog.vue'
+import LicenceBanner from './LicenceBanner.vue'
+import HomeBanner from './HomeBanner.vue'
 
 withDefaults(defineProps<{
   org: ShellOrg | null
@@ -113,7 +127,7 @@ const emit = defineEmits<{
   profile: []
 }>()
 
-const { mobile } = useDisplay()
+const { mobile, xlAndUp } = useDisplay()
 const rail = ref(true)
 const mobileDrawerOpen = ref(false)
 

@@ -104,6 +104,13 @@ export function documentReference(kind: DocKind, docNumber: string, filename?: s
 export interface MapMovementResult {
   /** Read fine, but the document delivers nothing (price-only разписка). */
   nothingToMove?: boolean
+  /**
+   * The zero-quantity lines of a price-only разписка, carrying the sale prices and tiers it
+   * restates. Set only when `nothingToMove` and only for receipt-side families — a transfer or
+   * write-off must not reprice. Without this the lines died here: they cannot enter a movement,
+   * so the whole document committed as a no-op and its prices were lost.
+   */
+  priceOnly?: MappedMovementLine[]
   /** One entry per booked movement — a correction yields two (the + and the − halves). */
   movements: MappedMovement[]
   perLine: LineDiagnostic[]
@@ -423,8 +430,17 @@ export async function mapMovementExtraction(
 
   // Say so rather than returning an empty result silently: a price-only разписка is a real
   // document that was read correctly and deliberately moves nothing.
+  // Receipt-side only: `MOVEMENT_RULES[kind].type` is 'receipt' for a разписка, a КОРЕКЦИЯ and a
+  // storeOperations delivery, and a transfer or write-off out of the warehouse never reprices.
+  const repricing = MOVEMENT_RULES[kind]?.type === 'receipt'
+  const priceOnly = zeroQty.filter(l => l.productId && (l.productUpdate || l.priceTiers?.length))
   if (zeroQty.length && !movements.length) {
-    warnings.push(`this document delivers nothing — ${zeroQty.length} line(s) carry prices with no quantity, so no stock movement is booked (its prices are not applied either)`)
+    warnings.push(
+      `this document delivers nothing — ${zeroQty.length} line(s) carry prices with no quantity, so no stock movement is booked`
+      + (repricing && priceOnly.length
+        ? `; its prices are applied to ${priceOnly.length} product(s)`
+        : ' and it restates no price we can apply'),
+    )
   } else if (zeroQty.length) {
     warnings.push(`${zeroQty.length} line(s) carry no quantity and were left out of the movement`)
   }
@@ -442,7 +458,11 @@ export async function mapMovementExtraction(
     warnings.push('no document number — the idempotency marker falls back to the date, so a re-import may double-book')
   }
 
-  return { movements, perLine, warnings, nothingToMove: !movements.length && zeroQty.length > 0 }
+  const nothingToMove = !movements.length && zeroQty.length > 0
+  return {
+    movements, perLine, warnings, nothingToMove,
+    ...(nothingToMove && repricing && priceOnly.length ? { priceOnly } : {}),
+  }
 }
 
 function labelFor(kind: DocKind): string {

@@ -106,6 +106,41 @@ async function analyzeCashRegister(
     }
   }
 
+  /**
+   * ⚠ Refuse a HISTORY DUMP. A cash sale is ONE day's takings, and this export can just as easily
+   * be the same report run over months.
+   *
+   * `storeOperations_20261005_193203.xlsx` was exported on 2026-10-05 with
+   * „Период: 01.01.2025 - 31.12.2026": 5,287 articles, 1,145,236 units, €140,251.77 — and its rows
+   * summed to its own printed „Всичко" to the cent, so every arithmetic gate passed and it would
+   * have booked as one cash sale dated 2025-01-01, dispatching twenty-one months of stock in a
+   * single document. It reached regal-pz by a misfiled upload on 2026-10-05 and was removed before
+   * commit; nothing but luck stood between it and the ledger.
+   *
+   * The printed period END cannot decide this — a daily export writes „01.10.2026 - 31.12.2026",
+   * i.e. the filter is open-ended to the year end, so start and end differ even for one day. What
+   * does decide it is the distance from the period START to when the export was TAKEN. A day
+   * exported late is routine and must keep working (the filename records the export, not the
+   * business day — `salesAnalysis_20260907_` legitimately covers 2026-09-03), so the allowance is
+   * generous at 31 days; twenty-one months is not a late export.
+   *
+   * An explicit `context.date` overrides this, because then the operator has named the day rather
+   * than leaving it to be inferred.
+   */
+  if (!context.date && src.periodStart) {
+    const taken = cashRegisterDate(item.filename)
+    const days = taken ? Math.round((Date.parse(taken) - Date.parse(src.periodStart)) / 86_400_000) : 0
+    if (Number.isFinite(days) && days > 31) {
+      return {
+        ...base,
+        docKind: 'cash_register',
+        error: `this export covers from ${src.periodStart} but was taken on ${taken} — ${days} days apart, `
+          + `so it is a history dump, not one day's takings (${src.rows.length} article(s)). `
+          + `A cash sale is a single day: re-export the day, or set the business day explicitly to book it as that day.`,
+      }
+    }
+  }
+
   const { mapped, perLine, warnings } = await mapCashSaleExport(orgId, src, {
     date,
     warehouseId: context.warehouseId,
@@ -132,12 +167,12 @@ async function analyzeStockDocument(
 ): Promise<AnalyzedDoc> {
   let draft: DraftResult
   try {
-    draft = item.draft ?? (await ocrDraft(item.text || '', item.profile ?? profileForKind(kind)))
+    draft = item.draft ?? (await ocrDraft(item.text || '', item.profile ?? profileForKind(kind), { orgId }))
   } catch (e: any) {
     return { ...base, error: String(e?.message || e) }
   }
 
-  const { movements, perLine, warnings, nothingToMove } = await mapMovementExtraction(orgId, draft.extraction, kind, {
+  const { movements, perLine, warnings, nothingToMove, priceOnly } = await mapMovementExtraction(orgId, draft.extraction, kind, {
     filename: item.filename,
     warehouseId: context.warehouseId,
     movementType: context.movementType as any,
@@ -147,7 +182,12 @@ async function analyzeStockDocument(
     // A price-only разписка read perfectly and books nothing — that is an outcome, not a failure,
     // so it must not sit in the review as an error for ever.
     return nothingToMove
-      ? { ...base, validation: draft.validation, diagnostics: { perLine, warnings }, nothingToMove: true }
+      ? {
+          ...base, validation: draft.validation, diagnostics: { perLine, warnings }, nothingToMove: true,
+          // The prices are the only thing such a document carries, so they must ride on the
+          // analysis — there is no movement for the commit to find them on.
+          ...(priceOnly?.length ? { priceOnly } : {}),
+        }
       : { ...base, validation: draft.validation, diagnostics: { perLine, warnings }, error: warnings[0] || 'nothing to import' }
   }
 
@@ -245,7 +285,7 @@ async function analyzeOne(
 
   let draft: DraftResult
   try {
-    draft = item.draft ?? (await ocrDraft(rawText, item.profile ?? profileForKind(base.docKind)))
+    draft = item.draft ?? (await ocrDraft(rawText, item.profile ?? profileForKind(base.docKind), { orgId }))
   } catch (e: any) {
     return { ...base, error: String(e?.message || e) }
   }

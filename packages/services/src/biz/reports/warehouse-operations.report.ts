@@ -15,6 +15,11 @@
  *    30.06 and booked 01.07 belongs to June. So the effective date is the linked invoice's
  *    `issueDate` when there is one, and the movement's own `date` otherwise — and the
  *    period filter must run AFTER the lookup, not before it.
+ *    ⚠ Except a receipt a bill was MADE FROM (FR-22.31, `stockSource.detectedBy: 'manual'`):
+ *    it was booked by hand on the day the goods came, days before the supplier's invoice, and
+ *    the bill only names it afterwards. Its own date is the business date; taking the bill's
+ *    would move a past day's delivery to the day the invoice arrived (and the digest, which
+ *    keeps this rule, would count it on both days).
  * 2. **`lines[].unitCost` is the SALE price on dispatches.** The same function assigns
  *    `unitCost = line.unitPrice`. It is the document price on both sides, which is exactly
  *    what the report's Цена/Стойност columns want — but it means `unitCost` must NEVER be
@@ -32,6 +37,20 @@ import {
 
 /** Movement statuses that count as real stock activity. Drafts never do. */
 const LIVE_STATUSES = ['confirmed', 'completed']
+
+/**
+ * A movement's business date, after the `$lookup` of its invoice into `invoice` (trap 1): the
+ * invoice's `issueDate` for a movement the invoice booked, the movement's own `date` otherwise —
+ * including a receipt a bill was made from, which the bill only names (FR-22.31). Shared with the
+ * digest (`daily-digest.service.ts`), whose numbers reconcile with this report's.
+ */
+export const EFFECTIVE_DATE = {
+  $cond: [
+    { $eq: ['$invoice.stockSource.detectedBy', 'manual'] },
+    '$date',
+    { $ifNull: ['$invoice.issueDate', '$date'] },
+  ],
+}
 
 /**
  * Operation families (FR-7.3). `transfer`, `adjustment` and `production_*` are excluded on
@@ -125,6 +144,8 @@ export async function runWarehouseOperations(ctx: ReportHandlerContext): Promise
     orgId: orgObjectId,
     status: { $in: LIVE_STATUSES },
     $or: typeClause,
+    // A record-only movement repeats goods another movement moved (FR-21.4).
+    recordOnly: { $ne: true },
   }
 
   if (ctx.params.warehouseId) {
@@ -166,13 +187,13 @@ export async function runWarehouseOperations(ctx: ReportHandlerContext): Promise
         localField: 'invoiceId',
         foreignField: '_id',
         as: 'invoice',
-        pipeline: [{ $project: { invoiceNumber: 1, type: 1, direction: 1, issueDate: 1, contactId: 1, currency: 1 } }],
+        pipeline: [{ $project: { invoiceNumber: 1, type: 1, direction: 1, issueDate: 1, contactId: 1, currency: 1, 'stockSource.detectedBy': 1 } }],
       },
     },
     { $unwind: { path: '$invoice', preserveNullAndEmptyArrays: true } },
     {
       $addFields: {
-        effectiveDate: { $ifNull: ['$invoice.issueDate', '$date'] },
+        effectiveDate: EFFECTIVE_DATE,
         docType: { $ifNull: ['$invoice.type', NO_INVOICE_DOC_TYPES[operation]] },
         documentNumber: { $ifNull: ['$invoice.invoiceNumber', '$movementNumber'] },
         effectiveContactId: { $ifNull: ['$contactId', '$invoice.contactId'] },

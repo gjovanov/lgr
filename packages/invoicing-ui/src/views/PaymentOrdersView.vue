@@ -13,7 +13,7 @@
   >
     <template #actions>
       <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" />
-      <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
+      <CreateButton :label="$t('invoicing.newPaymentOrder')" @click="openCreate" />
     </template>
 
     <template #filters>
@@ -25,7 +25,7 @@
     </template>
 
     <template #empty-actions>
-      <responsive-btn color="primary" icon="mdi-plus" @click="openCreate">{{ $t('common.create') }}</responsive-btn>
+      <CreateButton :label="$t('invoicing.newPaymentOrder')" @click="openCreate" />
     </template>
 
     <!-- Cell renderers -->
@@ -150,7 +150,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
-import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import CreateButton from 'ui-shared/components/CreateButton.vue'
 import DateField from 'ui-shared/components/DateField.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'

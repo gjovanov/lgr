@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IJournalEntryLine {
   accountId: Types.ObjectId
@@ -97,5 +98,7 @@ journalEntrySchema.index({ orgId: 1, date: -1 })
 journalEntrySchema.index({ orgId: 1, status: 1 })
 journalEntrySchema.index({ orgId: 1, 'lines.accountId': 1, date: -1 })
 journalEntrySchema.index({ orgId: 1, fiscalPeriodId: 1 })
+
+replicate(journalEntrySchema, { class: 'R' })
 
 export const JournalEntry = model<IJournalEntry>('JournalEntry', journalEntrySchema)

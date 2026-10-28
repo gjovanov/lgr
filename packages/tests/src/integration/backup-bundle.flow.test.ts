@@ -300,9 +300,13 @@ describe('the claim (FR-13.11)', () => {
     expect(await BackupRun.countDocuments({ orgId, kind: 'full', date: DAY })).toBe(1)
 
     // FR-13.25 — an operator's backup is an auditable act, and nothing tested that before.
-    const audit: any = await AuditLog.findOne({
-      orgId, entityType: 'backup', action: 'create',
-    }).lean().exec()
+    // ⚠ `createAuditEntry` is fire-and-forget, so the row lands a moment after the run returns.
+    // Reading it at once was a race that Bun 1.4.4's scheduling lost.
+    let audit: any = null
+    for (let i = 0; i < 50 && !audit; i++) {
+      audit = await AuditLog.findOne({ orgId, entityType: 'backup', action: 'create' }).lean().exec()
+      if (!audit) await new Promise(r => setTimeout(r, 100))
+    }
     expect(audit).toBeTruthy()
     expect(String(audit.userId)).toBe(String(actor._id))
     expect(audit.module).toBe('admin')

@@ -2,7 +2,7 @@
   <v-select
     v-if="col.key === 'type'"
     :model-value="productUpdate.type"
-    :items="['goods', 'service', 'raw_material', 'finished_product']"
+    :items="productTypeItems()"
     density="compact"
     hide-details
     variant="underlined"
@@ -55,9 +55,12 @@
 
 <script setup lang="ts">
 import type { GRColumn } from '../composables/useGRColumns'
+import { useProductTypes } from '../composables/useProductTypes'
 
 // Presentational cell for one goods-receipt product-update column.
 // Markup mirrors the inline cells in inventory-ui MovementFormView.
+
+const { productTypeItems } = useProductTypes()
 
 defineProps<{
   col: GRColumn

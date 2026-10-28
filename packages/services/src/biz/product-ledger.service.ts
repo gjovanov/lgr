@@ -1,4 +1,5 @@
 import { StockMovement, InventoryCount, Warehouse, Invoice } from 'db/models'
+import { saleScopeFilter } from './sale-counting.js'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
 
@@ -388,7 +389,8 @@ async function computeSalesSummary(
 
   const matchStage: Record<string, any> = {
     orgId: orgOid,
-    type: { $in: ['cash_sale', 'invoice'] },
+    // A cash-sale storno takes its sale back (FR-21.9).
+    type: { $in: ['cash_sale', 'cash_storno', 'invoice'] },
     direction: 'outgoing',
     status: { $nin: ['draft', 'cancelled', 'voided'] },
     'lines.productId': productOid,
@@ -397,6 +399,8 @@ async function computeSalesSummary(
   if (contactId) {
     matchStage.contactId = new Types.ObjectId(contactId)
   }
+  // #171: a sale invoiced from a cash sale counts once (`sale-counting.ts`).
+  Object.assign(matchStage, await saleScopeFilter(orgId, contactId))
   if (dateFrom || dateTo) {
     matchStage.issueDate = {} as any
     if (dateFrom) matchStage.issueDate.$gte = new Date(dateFrom)
@@ -425,7 +429,8 @@ async function computeSalesSummary(
     let totalCashRegisterSales = 0
     let totalInvoiceSales = 0
     for (const r of results) {
-      if (r._id === 'cash_sale') totalCashRegisterSales = r.total
+      if (r._id === 'cash_sale') totalCashRegisterSales += r.total
+      else if (r._id === 'cash_storno') totalCashRegisterSales -= r.total
       else if (r._id === 'invoice') totalInvoiceSales = r.total
     }
     return {

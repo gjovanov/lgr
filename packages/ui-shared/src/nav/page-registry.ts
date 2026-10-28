@@ -4,32 +4,43 @@
  * is the full app-prefixed URL (app base + `to`, e.g. "/invoicing/invoices") and doubles as the
  * globally-unique `id`, so favorites/usage span every app.
  *
- * ui-shared has no dependency on the `config` package, so the app base paths / dev ports below
- * intentionally duplicate `APP_REGISTRY` (packages/config/src/constants.ts) — keep them in sync.
+ * ui-shared has no dependency on the `config` package, so the app base paths, dev ports,
+ * permissions and colours below intentionally duplicate `APP_REGISTRY`
+ * (packages/config/src/constants.ts). `unit/page-registry.test.ts` fails when they drift.
  */
 
 export interface PageDef {
-  id: string // full app-prefixed path, e.g. "/invoicing/invoices"
+  id: string // full app-prefixed path, plus the query of a variant: "/invoicing/invoices/new?type=credit_note"
   appId: string
   labelKey: string // i18n key, e.g. "nav.salesInvoices"
   icon: string
   path: string // navigation target (same value as id)
+  /**
+   * Who may open it: any one of these permissions (an `admin` always may). Unset means the app's
+   * own permission, the one its App Hub tile is shown for. A new-document form names the WRITE
+   * permission its Save needs (`services/biz/route-permission.ts`), so nobody is offered a form
+   * the server would refuse to save (FR-22 §5.8).
+   */
+  need?: readonly string[]
 }
 
-export const APP_NAV_META: Record<string, { base: string; devPort: number; nameKey: string }> = {
-  invoicing: { base: '/invoicing', devPort: 4021, nameKey: 'apps.invoicing' },
-  inventory: { base: '/inventory', devPort: 4031, nameKey: 'apps.inventory' },
-  accounting: { base: '/accounting', devPort: 4011, nameKey: 'apps.accounting' },
-  pos: { base: '/pos', devPort: 4091, nameKey: 'apps.pos' },
-  payroll: { base: '/payroll', devPort: 4041, nameKey: 'apps.payroll' },
-  reports: { base: '/reports', devPort: 4101, nameKey: 'apps.reports' },
-  files: { base: '/files', devPort: 4111, nameKey: 'apps.files' },
+export const APP_NAV_META: Record<string, { base: string; devPort: number; nameKey: string; permission: string; color: string }> = {
+  invoicing: { base: '/invoicing', devPort: 4021, nameKey: 'apps.invoicing', permission: 'invoicing.read', color: '#2196f3' },
+  inventory: { base: '/inventory', devPort: 4031, nameKey: 'apps.inventory', permission: 'inventory.read', color: '#ff9800' },
+  accounting: { base: '/accounting', devPort: 4011, nameKey: 'apps.accounting', permission: 'accounting.read', color: '#4caf50' },
+  pos: { base: '/pos', devPort: 4091, nameKey: 'apps.pos', permission: 'pos.read', color: '#e91e63' },
+  payroll: { base: '/payroll', devPort: 4041, nameKey: 'apps.payroll', permission: 'payroll.read', color: '#9c27b0' },
+  reports: { base: '/reports', devPort: 4101, nameKey: 'apps.reports', permission: 'reports.read', color: '#8e24aa' },
+  files: { base: '/files', devPort: 4111, nameKey: 'apps.files', permission: 'admin.settings', color: '#607d8b' },
 }
 
-function page(appId: string, to: string, labelKey: string, icon: string): PageDef {
+function page(appId: string, to: string, labelKey: string, icon: string, need?: readonly string[]): PageDef {
   const path = APP_NAV_META[appId].base + to
-  return { id: path, appId, labelKey, icon, path }
+  return need ? { id: path, appId, labelKey, icon, path, need } : { id: path, appId, labelKey, icon, path }
 }
+
+const WRITE_INVOICING = ['invoicing.write'] as const
+const WRITE_INVENTORY = ['inventory.write'] as const
 
 export const PAGE_REGISTRY: PageDef[] = [
   // ── Invoicing ──
@@ -60,6 +71,21 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('inventory', '/opening-stock', 'nav.openingStock', 'mdi-database-import-outline'),
   page('inventory', '/price-lists', 'nav.priceLists', 'mdi-tag-multiple'),
   page('inventory', '/bulk-pricing', 'nav.bulkPricing', 'mdi-percent'),
+  // ── New documents (FR-22.49, FR-22.51) ──
+  // The daily forms, blank: ★ can pin one, and „+ Нов" lists them (NEW_DOCUMENT_MENU below).
+  // `matchPage` prefers these over their lists, so a pin made on /invoicing/invoices/new pins
+  // the form. A credit or debit note is the invoice form opened with `?type=`.
+  page('invoicing', '/invoices/new', 'nav.newDocPage.salesInvoice', 'mdi-receipt-text-plus-outline', WRITE_INVOICING),
+  page('invoicing', '/invoices/new?type=credit_note', 'nav.newDocPage.creditNote', 'mdi-receipt-text-minus-outline', WRITE_INVOICING),
+  page('invoicing', '/invoices/new?type=debit_note', 'nav.newDocPage.debitNote', 'mdi-receipt-text-arrow-right-outline', WRITE_INVOICING),
+  page('invoicing', '/proforma/new', 'nav.newDocPage.proforma', 'mdi-file-document-plus-outline', WRITE_INVOICING),
+  page('invoicing', '/cash-sales/new', 'nav.newDocPage.cashSale', 'mdi-cash-register', WRITE_INVOICING),
+  page('invoicing', '/bills/new', 'nav.newDocPage.bill', 'mdi-receipt-text-arrow-left-outline', WRITE_INVOICING),
+  page('inventory', '/movements/new', 'nav.newDocPage.goodsReceipt', 'mdi-truck-delivery-outline', WRITE_INVENTORY),
+  page('invoicing', '/internal-orders/new', 'nav.newDocPage.customerOrder', 'mdi-clipboard-account-outline', WRITE_INVOICING),
+  page('invoicing', '/orders/new', 'nav.newDocPage.supplierOrder', 'mdi-clipboard-arrow-right-outline', WRITE_INVOICING),
+  // FR-22.37: the Reservations list with its create dialog open (a redirect to `?new=1`).
+  page('invoicing', '/reservations/new', 'nav.newDocPage.reservation', 'mdi-lock-plus-outline', WRITE_INVOICING),
   // ── Accounting ──
   page('accounting', '/accounts', 'nav.accounts', 'mdi-chart-bar'),
   page('accounting', '/journal-entries', 'nav.journalEntries', 'mdi-book-open-variant'),
@@ -73,7 +99,7 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('accounting', '/fixed-assets', 'nav.fixedAssets', 'mdi-office-building'),
   // ── POS ──
   page('pos', '/terminal', 'nav.terminal', 'mdi-point-of-sale'),
-  page('pos', '/orders', 'nav.transactions', 'mdi-receipt'),
+  page('pos', '/orders', 'cashRegister.title', 'mdi-receipt'),
   page('pos', '/sessions', 'nav.sessions', 'mdi-clock-outline'),
   page('pos', '/devices', 'nav.devices', 'mdi-printer-pos'),
   // ── Payroll ──
@@ -128,19 +154,108 @@ export function pageById(id: string): PageDef | null {
   return byId.get(id) || null
 }
 
+function splitPath(path: string): { pathname: string; params: [string, string][] } {
+  const q = path.indexOf('?')
+  if (q < 0) return { pathname: path, params: [] }
+  return { pathname: path.slice(0, q), params: [...new URLSearchParams(path.slice(q + 1))] }
+}
+
+const split = new Map(PAGE_REGISTRY.map((p) => [p.id, splitPath(p.path)]))
+
 /**
  * Longest-prefix match of a full pathname against registry paths, so a detail/sub route
  * (e.g. /invoicing/invoices/123/edit) resolves to its list page (/invoicing/invoices).
  * A match needs an exact hit or a "/" boundary after the registry path — so
  * /invoicing/invoices never matches a hypothetical /invoicing/invoices-archive.
+ *
+ * A row with a query (the invoice form opened as a credit note) matches only its exact path
+ * carrying those parameters, and beats the same path without them. `search` is
+ * `location.search`; without it such rows never match.
  */
-export function matchPage(pathname: string): PageDef | null {
+export function matchPage(pathname: string, search = ''): PageDef | null {
   if (!pathname) return null
+  const query = new URLSearchParams(search)
   let best: PageDef | null = null
+  let bestLength = -1
+  let bestParams = -1
   for (const p of PAGE_REGISTRY) {
-    if (pathname === p.path || pathname.startsWith(p.path + '/')) {
-      if (!best || p.path.length > best.path.length) best = p
+    const { pathname: base, params } = split.get(p.id)!
+    if (params.length) {
+      if (pathname !== base || !params.every(([k, v]) => query.get(k) === v)) continue
+    } else if (pathname !== base && !pathname.startsWith(base + '/')) {
+      continue
+    }
+    if (base.length > bestLength || (base.length === bestLength && params.length > bestParams)) {
+      best = p
+      bestLength = base.length
+      bestParams = params.length
     }
   }
   return best
+}
+
+/** What `canOpenPage` needs to know about the person: the session token's claims. */
+export interface PageViewer {
+  role?: string
+  permissions?: readonly string[]
+  /** How the session was made; `['pin']` for a till's PIN sign-in. */
+  amr?: readonly string[]
+}
+
+/**
+ * May this person open the page? ★ and „+ Нов" list only what this answers yes to (FR-22 §5.8).
+ *
+ * It mirrors the server rather than deciding anything: the App Hub's rule for an app's pages, the
+ * write rule for a new-document form, an `admin` always (as `route-permission.ts#writeRefusal`),
+ * and a PIN session the till only, whatever its role (`pinScopeRefusal`). Hiding an entry is
+ * presentation — the server still answers every request on its own.
+ */
+export function canOpenPage(page: PageDef, who: PageViewer | null | undefined): boolean {
+  if (!who) return false
+  if (who.amr?.includes('pin') && page.appId !== 'pos') return false
+  if (who.role === 'admin') return true
+  const need = page.need ?? [APP_NAV_META[page.appId]?.permission]
+  const held = who.permissions ?? []
+  return need.some((p) => !!p && held.includes(p))
+}
+
+/**
+ * FR-22.49: what „+ Нов" offers, in the groups the menu separates with a divider: selling, the
+ * back-office till, buying, orders. Each entry names a PAGE_REGISTRY row, which carries the path,
+ * the icon and the permission the menu filters on. The label is the document alone ("Изходяща
+ * фактура"): the menu itself already says "new".
+ *
+ * Reservations join once FR-22.37 gives them a create form.
+ */
+export const NEW_DOCUMENT_MENU: ReadonlyArray<ReadonlyArray<{ pageId: string; labelKey: string }>> = [
+  [
+    { pageId: '/invoicing/invoices/new', labelKey: 'nav.newDoc.salesInvoice' },
+    { pageId: '/invoicing/invoices/new?type=credit_note', labelKey: 'nav.newDoc.creditNote' },
+    { pageId: '/invoicing/proforma/new', labelKey: 'nav.newDoc.proforma' },
+  ],
+  [{ pageId: '/invoicing/cash-sales/new', labelKey: 'nav.newDoc.cashSale' }],
+  [
+    { pageId: '/invoicing/bills/new', labelKey: 'nav.newDoc.bill' },
+    { pageId: '/inventory/movements/new', labelKey: 'nav.newDoc.goodsReceipt' },
+  ],
+  [
+    { pageId: '/invoicing/internal-orders/new', labelKey: 'nav.newDoc.customerOrder' },
+    { pageId: '/invoicing/orders/new', labelKey: 'nav.newDoc.supplierOrder' },
+    { pageId: '/invoicing/reservations/new', labelKey: 'nav.newDoc.reservation' },
+  ],
+]
+
+export interface NewDocumentItem {
+  page: PageDef
+  labelKey: string
+}
+
+/** „+ Нов" as this person sees it: entries they may not open are left out, and so are empty groups. */
+export function newDocumentMenu(who: PageViewer | null | undefined): NewDocumentItem[][] {
+  return NEW_DOCUMENT_MENU.map((group) =>
+    group.flatMap(({ pageId, labelKey }) => {
+      const p = pageById(pageId)
+      return p && canOpenPage(p, who) ? [{ page: p, labelKey }] : []
+    }),
+  ).filter((group) => group.length > 0)
 }

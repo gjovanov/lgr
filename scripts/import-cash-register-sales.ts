@@ -35,6 +35,7 @@
 import { readdirSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import ExcelJS from 'exceljs'
+import { assertTokenOrg } from './lib/token-org.js'
 
 const EXCHANGE_RATE_BGN = 1.95583
 const VAT_RATE = 20
@@ -84,6 +85,7 @@ async function login() {
   const password = process.env.LGR_PASSWORD
   if (TOKEN) {
     const me = await http('GET', '/api/auth/me')
+    assertTokenOrg(me, orgSlug) // a token from a tab switched to another org must not write there
     ORG_ID = me.user?.orgId || me.orgId
     USER_NAME = [me.user?.firstName, me.user?.lastName].filter(Boolean).join(' ')
   } else {
@@ -192,10 +194,12 @@ async function main() {
     const m = await matchProduct(r.name)
     if (m) matched++
     const unitPrice = r.qty !== 0 ? round4(r.value / r.qty) : r.value
+    const taxAmount = round2(r.value * VAT_RATE / 100)
     lines.push({
       productId: m?.id, description: r.name, quantity: r.qty,
       unit: m?.unit || 'pcs', unitPrice, discount: 0,
-      taxRate: VAT_RATE, taxAmount: round2(r.value * VAT_RATE / 100), lineTotal: round2(r.value),
+      // lineTotal is GROSS, as on every document the UI creates (FR-21.5).
+      taxRate: VAT_RATE, taxAmount, lineTotal: round2(r.value + taxAmount),
       warehouseId: m ? wh._id : undefined,
     })
   }
@@ -205,7 +209,8 @@ async function main() {
     for (const l of lines.filter(l => !l.productId).slice(0, 10)) console.log(`  ✗ unmatched: ${l.description}`)
   }
 
-  const subtotal = round2(lines.reduce((s, l) => s + l.lineTotal, 0))
+  // The net, from the export's values: the lines carry gross.
+  const subtotal = round2(rows.reduce((s, r) => s + r.value, 0))
   const taxTotal = round2(subtotal * VAT_RATE / 100)
   const total = round2(subtotal + taxTotal)
 

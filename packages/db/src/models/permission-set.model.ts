@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IOwnRecordsConfig {
   sales?: boolean
@@ -64,5 +65,7 @@ const permissionSetSchema = new Schema<IPermissionSet>(
 permissionSetSchema.plugin(tenantPlugin)
 permissionSetSchema.index({ orgId: 1, name: 1 }, { unique: true })
 permissionSetSchema.index({ orgId: 1, isDefault: 1 })
+
+replicate(permissionSetSchema, { class: 'R' })
 
 export const PermissionSet = model<IPermissionSet>('PermissionSet', permissionSetSchema)

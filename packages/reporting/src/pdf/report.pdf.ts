@@ -60,6 +60,11 @@ export interface ReportPdfOptions {
   summaryLines?: TotalsBoxLine[]
   /** Appended to the amounts in the derived box, when the report is single-currency. */
   currency?: string
+  /**
+   * The column whose total is the report's bottom line (`meta.grandTotalKey`). The derived box
+   * gives it the closing rule and ends on it. Unset, that is the last money column.
+   */
+  grandKey?: string
   /** Printed instead of the box when the rows span several currencies. */
   mixedCurrencyNote?: string
 }
@@ -111,12 +116,83 @@ function isNumeric(type: ReportCellType | undefined): boolean {
   return type === 'money' || type === 'quantity' || type === 'int' || type === 'percent'
 }
 
-/** Turn the columns' weights into percentages that always add up to 100. */
-function widths(cols: ReportPdfColumn[]): string[] {
-  const weights = cols.map(c => c.weight ?? (isNumeric(c.type) ? 10 : 18))
+/**
+ * Weight a heading's longest word needs per character.
+ *
+ * The weights are relative, and a numeric column's base of 10 comfortably holds a formatted
+ * amount of about seven digits — so one heading character is worth a little over one unit.
+ * 1.5 is that, rounded up: it leaves the short headings (ДДС, Общо, Дата) on their base and
+ * only widens the columns whose heading is the longest thing in them.
+ */
+const WEIGHT_PER_HEADER_CHAR = 1.5
+
+/** The same, for a VALUE: body type is larger than the dense head, but digits are narrower. */
+const WEIGHT_PER_VALUE_CHAR = 1.35
+
+/** Cell padding, in weight. Both floors add it so the text is not measured edge to edge. */
+const WEIGHT_PADDING = 1.5
+
+/**
+ * Rows sampled when measuring a column's widest value. Formatting every cell of a
+ * 5 000-row export twice to lay the table out is not worth it; a sample plus the totals row
+ * (which holds sums, so normally the widest figures of all) settles the width in practice,
+ * and the cost of being wrong is a clipped cell, not a broken page.
+ */
+const WIDTH_SAMPLE_ROWS = 400
+
+/** Longest unbreakable run in a heading — headings wrap at spaces, so this is what must fit. */
+function longestWord(header: string): number {
+  return header.split(/\s+/).reduce((m, w) => Math.max(m, w.length), 0)
+}
+
+/** Longest rendered value in a column, over a sample of the rows plus the totals row. */
+function longestValue(col: ReportPdfColumn, opts: ReportPdfOptions): number {
+  const rows = opts.rows
+  const step = Math.max(1, Math.ceil(rows.length / WIDTH_SAMPLE_ROWS))
+  let longest = 0
+  for (let i = 0; i < rows.length; i += step) {
+    const len = format(rows[i][col.key], col.type, opts.locale).length
+    if (len > longest) longest = len
+  }
+  const total = opts.totals?.[col.key]
+  if (total !== undefined) {
+    longest = Math.max(longest, format(total, col.type, opts.locale).length)
+  }
+  return longest
+}
+
+/**
+ * Turn the columns' weights into percentages that always add up to 100.
+ *
+ * A column is never narrower than the wider of (a) its heading's longest word and (b) its
+ * widest value. Under `table-layout: fixed` neither can reflow out of the way: a heading that
+ * does not fit used to be broken mid-word, and now that it is not, it would be clipped; a
+ * value that does not fit is clipped (`nowrap`) or wraps mid-number. Both were visible on the
+ * Bulgarian sales register — „Платени" is wider than any amount beneath it, while the grand
+ * total „12 451,36" is wider than the „Общо" above it.
+ */
+function widths(cols: ReportPdfColumn[], opts: ReportPdfOptions): string[] {
+  const weights = cols.map(c => {
+    if (c.weight !== undefined) return c.weight
+    // A date and a number are known-width values, so they take a floor from their content
+    // rather than the free-text default — in a wide register that default was crowding out
+    // the columns that actually needed the room.
+    const sized = isNumeric(c.type) || c.type === 'date'
+    const base = sized ? 10 : 18
+    const headerFloor = longestWord(c.header) * WEIGHT_PER_HEADER_CHAR + WEIGHT_PADDING
+    const valueFloor = sized ? longestValue(c, opts) * WEIGHT_PER_VALUE_CHAR + WEIGHT_PADDING : 0
+    return Math.max(base, headerFloor, valueFloor)
+  })
   const sum = weights.reduce((a, b) => a + b, 0) || 1
   return weights.map(w => `${((w / sum) * 100).toFixed(2)}%`)
 }
+
+/**
+ * Beyond this many columns the headings, not the values, decide how wide the table wants to
+ * be, and the head switches to the tighter `dense` treatment. Ten columns is where an A4
+ * landscape page stops having room for a two-word Bulgarian heading at 8.5pt.
+ */
+const DENSE_COLUMN_COUNT = 10
 
 /**
  * The closing box's lines.
@@ -139,15 +215,20 @@ function summaryFor(opts: ReportPdfOptions): TotalsBoxLine[] {
   const suffix = opts.currency ? ` ${opts.currency}` : ''
   const totalled = opts.columns.filter(c => totals[c.key] !== undefined)
 
-  // The last money column is the report's bottom line — it gets the closing rule.
-  const grandKey = [...totalled].reverse().find(c => c.type === 'money')?.key
+  // The report's bottom line gets the closing rule. A column the report names takes it, and
+  // closes the box wherever it sits in the table. Otherwise it is the last money column, which
+  // is right only while the table ends on its total: the document registers end on their
+  // method columns, and printed „Платени по банка" as their bottom line until they named `total`.
+  const named = opts.grandKey ? totalled.find(c => c.key === opts.grandKey) : undefined
+  const grandKey = named?.key ?? [...totalled].reverse().find(c => c.type === 'money')?.key
 
-  return totalled.map(c => ({
+  const lines = totalled.map(c => ({
     label: c.header,
     // Only money carries the currency; a quantity total is a count of things.
     value: format(totals[c.key], c.type, opts.locale) + (c.type === 'money' ? suffix : ''),
     grand: c.key === grandKey,
   }))
+  return named ? [...lines.filter(l => !l.grand), ...lines.filter(l => l.grand)] : lines
 }
 
 /**
@@ -156,7 +237,7 @@ function summaryFor(opts: ReportPdfOptions): TotalsBoxLine[] {
  */
 export function buildReportHtml(opts: ReportPdfOptions): { html: string; css: string; landscape: boolean } {
   const cols = opts.columns
-  const w = widths(cols)
+  const w = widths(cols, opts)
   const L = opts.labels || {}
 
   const metaRows = buildMetaRows([
@@ -191,7 +272,9 @@ export function buildReportHtml(opts: ReportPdfOptions): { html: string; css: st
   const totalsRow = opts.totals && Object.keys(opts.totals).length
     ? `<tr class="grand-row">${cols
         .map((c, i) => {
-          const cls = `a-${isNumeric(c.type) ? 'right' : 'left'}`
+          // `nowrap` as in the body: a sum is the widest figure in its column and was wrapping
+          // mid-number („12 451,3" / „6") when it outgrew a heading-sized column.
+          const cls = `a-${isNumeric(c.type) ? 'right' : 'left'}${isNumeric(c.type) ? ' nowrap' : ''}`
           if (i === 0) return `<td class="${cls}">${esc(opts.totalsLabel || 'Total')}</td>`
           const t = opts.totals![c.key]
           return `<td class="${cls}">${t === undefined ? '' : esc(format(t, c.type, opts.locale))}</td>`
@@ -199,8 +282,9 @@ export function buildReportHtml(opts: ReportPdfOptions): { html: string; css: st
         .join('')}</tr>`
     : ''
 
+  const dense = cols.length > DENSE_COLUMN_COUNT
   const table = opts.rows.length
-    ? `<table class="lines">${head}<tbody>${body}${totalsRow}</tbody></table>`
+    ? `<table class="lines${dense ? ' dense' : ''}">${head}<tbody>${body}${totalsRow}</tbody></table>`
     : `<p class="empty-note">${esc(L.noRows || 'No rows for the selected filters.')}</p>`
 
   const box = opts.rows.length ? buildTotalsBox(summaryFor(opts)) : ''

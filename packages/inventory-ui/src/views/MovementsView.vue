@@ -7,7 +7,8 @@
         <ViewSwitcher v-model="displayMode" :views="['list', 'kanban']" class="mr-2" />
         <export-menu @export="onExport" />
         <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
-        <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'inventory.movements.new' }">{{ $t('common.create') }}</responsive-btn>
+        <!-- FR-22.50: says what it creates — the form opens as a goods receipt. -->
+        <CreateButton :label="$t('nav.newDocPage.goodsReceipt')" :to="{ name: 'inventory.movements.new' }" />
       </div>
     </div>
 
@@ -19,11 +20,11 @@
             <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
-            <v-select v-model="typeFilter" :label="$t('common.type')" :items="['receipt', 'dispatch', 'transfer', 'adjustment', 'return', 'production_in', 'production_out']" clearable hide-details density="compact" />
+            <v-select v-model="typeFilter" :label="$t('common.type')" :items="movementTypeItems" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
             <!-- `completed` is what confirmMovement leaves behind, so it belongs here. -->
-            <v-select v-model="statusFilter" :label="$t('common.status')" :items="['draft', 'confirmed', 'completed', 'cancelled']" clearable hide-details density="compact" />
+            <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusItems" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
             <v-select v-model="warehouseIdFilter" :label="$t('warehouse.warehouse')" :items="warehouses" item-title="name" item-value="_id" clearable hide-details density="compact" />
@@ -81,7 +82,7 @@
         >
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
           <template #item.type="{ item }">
-            <v-chip size="small" label :color="typeColor(item.type)">{{ item.type }}</v-chip>
+            <v-chip size="small" label :color="typeColor(item.type)">{{ typeLabel(item.type) }}</v-chip>
           </template>
           <template #item.contactName="{ item }">
             <entity-link v-if="item.contactId" :label="item.contactName || ''" :href="`/invoicing/contacts/${item.contactId}/edit`" />
@@ -89,6 +90,20 @@
           </template>
           <template #item.status="{ item }">
             <StatusChip :status="item.status" :color-fn="statusColor" />
+            <!-- FR-22.31: a receipt its supplier's bill already pays for — the bill, one click away. -->
+            <v-chip
+              v-if="item.bill"
+              :href="appHref('invoicing', `/invoicing/bills/${item.bill.id}/edit`)"
+              size="x-small"
+              color="primary"
+              variant="tonal"
+              class="ml-1"
+              prepend-icon="mdi-receipt-text-check-outline"
+              :title="item.bill.number"
+              data-testid="movement-billed"
+            >
+              {{ $t('warehouse.billed') }}
+            </v-chip>
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total || 0) }}</template>
           <template #item.actions="{ item }">
@@ -109,7 +124,7 @@
       <template #card="{ item }">
         <div class="d-flex flex-column ga-1">
           <span class="font-weight-bold text-body-2">{{ item.number || item._id.slice(-6) }}</span>
-          <v-chip size="x-small" label :color="typeColor(item.type)">{{ item.type }}</v-chip>
+          <v-chip size="x-small" label :color="typeColor(item.type)">{{ typeLabel(item.type) }}</v-chip>
           <span v-if="item.contactName" class="text-caption">{{ item.contactName }}</span>
           <span class="text-caption text-medium-emphasis">{{ item.date?.split('T')[0] }}</span>
           <span class="text-body-2 font-weight-medium">{{ fmtCurrency(item.total || 0) }}</span>
@@ -157,7 +172,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ExportMenu from 'ui-shared/components/ExportMenu'
-import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
+import CreateButton from 'ui-shared/components/CreateButton.vue'
 import ProductLedgerTable from 'ui-shared/components/ProductLedgerTable.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import StatusChip from 'ui-shared/components/StatusChip'
@@ -165,8 +180,9 @@ import DateField from 'ui-shared/components/DateField.vue'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
+import { appHref } from 'ui-shared/nav/navigate'
 
-interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string }
+interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string; bill?: { id: string; number: string } }
 interface Warehouse { _id: string; name: string }
 interface Contact { _id: string; name: string; companyName?: string; firstName?: string; lastName?: string }
 const { t } = useI18n()
@@ -192,12 +208,17 @@ const displayMode = ref<'list' | 'kanban'>('list')
 const dateFrom = ref('')
 const dateTo = ref('')
 
-const kanbanColumns = [
-  { id: 'draft', title: 'Draft', color: 'grey' },
-  { id: 'confirmed', title: 'Confirmed', color: 'blue' },
-  { id: 'completed', title: 'Completed', color: 'green' },
-  { id: 'cancelled', title: 'Cancelled', color: 'red' },
-]
+// A movement's statuses, named as the list's status chips name them (FR-22.11: they were
+// English in every language, in the status filter and as the board's column titles).
+const MOVEMENT_STATUSES = ['draft', 'confirmed', 'completed', 'cancelled'] as const
+const statusItems = computed(() => MOVEMENT_STATUSES.map(value => ({ title: t(`invoicing.status.${value}`), value })))
+
+const kanbanColumns = computed(() => [
+  { id: 'draft', title: t('invoicing.status.draft'), color: 'grey' },
+  { id: 'confirmed', title: t('invoicing.status.confirmed'), color: 'blue' },
+  { id: 'completed', title: t('invoicing.status.completed'), color: 'green' },
+  { id: 'cancelled', title: t('invoicing.status.cancelled'), color: 'red' },
+])
 
 const kanbanItems = computed(() => {
   const grouped: Record<string, any[]> = { draft: [], confirmed: [], completed: [], cancelled: [] }
@@ -280,6 +301,9 @@ const headers = computed(() => [
 ])
 
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
+const MOVEMENT_TYPES = ['receipt', 'dispatch', 'transfer', 'adjustment', 'return', 'production_in', 'production_out']
+const movementTypeItems = computed(() => MOVEMENT_TYPES.map(value => ({ title: typeLabel(value), value })))
+function typeLabel(type: string) { return t(`warehouse.movementTypes.${type}`, type) }
 function typeColor(t: string) { return ({ receipt: 'success', dispatch: 'error', transfer: 'info', adjustment: 'warning' }[t] || 'grey') }
 function statusColor(s: string) { return ({ draft: 'grey', confirmed: 'info', completed: 'success', cancelled: 'error' } as Record<string, string>)[s] || 'grey' }
 watch(productSearchQuery, (q) => {

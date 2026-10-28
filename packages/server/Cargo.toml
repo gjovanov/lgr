@@ -1,0 +1,97 @@
+[package]
+name = "lgr-server"
+version = "0.1.2"
+edition = "2021"
+description = "LGR Server: the supervisor an on-premises master runs (FR-20, plan step P1-1)"
+publish = false
+
+[[bin]]
+name = "lgr-server"
+path = "src/main.rs"
+
+# FR-20.13, AC 14 — the MSI's machine check, a custom action DLL (`lgr_server_msi.dll`) that refuses
+# a machine before anything is installed. Windows only: elsewhere it compiles to nothing.
+[lib]
+name = "lgr_server_msi"
+path = "src/msi.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "sync", "signal", "io-util", "net", "fs"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+base64 = "0.22"
+rand = "0.8"
+# The few admin commands the first boot needs (replSetInitiate, createUser), over loopback only.
+# No SRV lookups. The driver will not build without a TLS backend; rustls needs no OpenSSL anywhere.
+mongodb = { version = "3", default-features = false, features = ["compat-3-0-0", "rustls-tls"] }
+# The ingresses (P1-3b): an HTTP/1.1 reverse proxy in front of the API, WebSocket upgrades included.
+hyper = { version = "1", features = ["server", "client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+# The LAN ingress's TLS (P1-3c, FR-20.30): the master's own CA and the server certificate it signs.
+# ring throughout, as the mongodb driver already uses: never a second crypto provider (aws-lc-rs
+# needs cmake and a C toolchain on every build host).
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+# FR-20.51 (P3-7) — the clone watch's probe checks a certificate's chain to this server's own LAN CA and
+# no name (`lan_clone.rs`): rustls's own path builder, already in the tree.
+rustls-webpki = { version = "0.103", default-features = false, features = ["std"] }
+ring = "0.17"
+time = { version = "0.3", features = ["formatting"] }
+if-addrs = "0.15"
+# The API's egress (P1-3d, FR-20.53): the OS trust store, exported for NODE_EXTRA_CA_CERTS.
+rustls-native-certs = "0.8"
+# The uplink (P2-2b, FR-20.52): WebSockets over the TLS stream `https.rs` makes. No TLS or connect
+# feature of its own: the stream is ours, through the machine's proxy rules and the OS trust store.
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+# FR-20.20 — the update signature (minisign, the desktop updater's key). No dependencies of its own.
+minisign-verify = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.7"
+# The API's control socket is AF_UNIX on every OS (Bun serves HTTP on one on Windows, not on a named
+# pipe), and tokio has no AF_UNIX client on Windows.
+uds_windows = "1"
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  # FR-20.2 — the node key, sealed with DPAPI at machine scope (`node_key.rs`).
+  "Win32_Security_Cryptography",
+  # FR-20.20 — who may start the update helper: its service DACL, written from SDDL (`pointer.rs`).
+  "Win32_Security_Authorization",
+  # FR-20.20 — an update's exe is signed by exactly G ROX LTD (`signatures.rs`).
+  "Win32_Security_WinTrust",
+  "Win32_System_Services",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+  "Win32_System_Console",
+  "Win32_System_SystemInformation",
+  "Win32_Storage_FileSystem",
+  "Win32_Networking_WinHttp",
+  # FR-20.28 — the master's DNS-SD advert through Windows' own mDNS (`advert.rs`), which already has
+  # the firewall's leave to answer the LAN; a socket of our own would not.
+  "Win32_NetworkManagement_Dns",
+  # FR-20.13, AC 14 — the MSI's machine check speaks through the installer (`msi.rs`).
+  "Win32_System_ApplicationInstallationAndServicing",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+# FR-20.28 — the DNS-SD advert off Windows: a pure-Rust mDNS responder.
+mdns-sd = "0.13"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

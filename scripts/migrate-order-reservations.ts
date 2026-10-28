@@ -31,6 +31,7 @@
  *   bun run scripts/migrate-order-reservations.ts --org regal-pz   # single org
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { keepHomeOrgs } from './lib/home-guard.js'
 import { Org, Order, Reservation, Sequence } from '../packages/db/src/models/index.js'
 import { getNextNumber } from '../packages/services/src/biz/sequence.service.js'
 import {
@@ -265,7 +266,7 @@ async function main() {
   console.log(`Mode: ${strip ? 'STRIP (upsert + verify + strip)' : execute ? 'EXECUTE (upsert)' : 'DRY-RUN'}`)
   console.log(`Org filter: ${orgSlug || '(all)'}`)
 
-  const orgs = await Org.find(orgSlug ? { slug: orgSlug } : {}).lean()
+  const orgs = await keepHomeOrgs(await Org.find(orgSlug ? { slug: orgSlug } : {}).lean() as any[], { named: !!orgSlug })
   for (const org of orgs as any[]) {
     const orgId = String(org._id)
     console.log(`\n── ${org.slug} ──`)

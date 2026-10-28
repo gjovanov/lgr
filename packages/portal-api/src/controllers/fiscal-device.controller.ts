@@ -9,9 +9,27 @@ import {
   buildConnectionConfig,
   isDeviceConnected,
 } from 'fiscal/fiscal-device.service'
+import { FiscalTargetError, fiscalTcpPolicy, resolveFiscalTcpTarget } from 'fiscal/tcp-target'
+import { nodeRole } from 'config'
 import { bridgeHolder, rebindBridgePrinter } from '../websocket/fiscal-bridge.js'
 
 const FISCAL_ADMIN_ROLES = ['admin', 'manager', 'warehouse_manager']
+
+/**
+ * A TCP device's address is checked when it is saved, so the admin hears about it at once — the
+ * same check `connectDevice` makes again before it opens a socket, which is what actually protects
+ * the server (it also covers any row saved without one). Returns an error body, or null.
+ */
+async function tcpTargetError(connectionType: string | undefined, params: { ip?: string } | undefined) {
+  if (connectionType !== 'tcp') return null
+  try {
+    await resolveFiscalTcpTarget(params?.ip, fiscalTcpPolicy(nodeRole()))
+    return null
+  } catch (e) {
+    if (e instanceof FiscalTargetError) return { message: e.message, code: e.code }
+    throw e
+  }
+}
 
 const ManufacturerSchema = t.Union([
   t.Literal('datecs'), t.Literal('daisy'), t.Literal('tremol'), t.Literal('eltrade'), t.Literal('incotex'),
@@ -66,13 +84,9 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       return status(400, { message: 'Device number must be exactly 8 characters' })
     }
 
-    // H6: Validate IP address if TCP connection
-    if (body.connectionType === 'tcp' && body.connectionParams?.ip) {
-      const ip = body.connectionParams.ip
-      if (ip.startsWith('127.') || ip.startsWith('169.254.') || ip === '::1' || ip === 'localhost') {
-        return status(400, { message: 'Invalid fiscal device IP address' })
-      }
-    }
+    // H6: a TCP device must name an address the server may connect to (see `tcpTargetError`).
+    const targetError = await tcpTargetError(body.connectionType, body.connectionParams)
+    if (targetError) return status(400, targetError)
 
     const device = await r.fiscalDevices.create({
       ...body,
@@ -120,7 +134,14 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     const existing = await r.fiscalDevices.findOne({ id, orgId } as any) as any
     if (!existing) return status(404, { message: 'Fiscal device not found' })
 
-    const updated = await r.fiscalDevices.update(id, body as any)
+    // The device as it will be after this save: `connectionParams` replaces the stored ones whole.
+    const targetError = await tcpTargetError(
+      body.connectionType ?? existing.connectionType,
+      body.connectionParams ?? existing.connectionParams,
+    )
+    if (targetError) return status(400, targetError)
+
+    const updated = await r.fiscalDevices.updateInOrg(id, orgId, body as any)
 
     // A live connection still runs the driver of the OLD manufacturer — replace it.
     if (body.manufacturer && body.manufacturer !== existing.manufacturer && isDeviceConnected(id)) {
@@ -169,7 +190,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     const existing = await r.fiscalDevices.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Fiscal device not found' })
 
-    await r.fiscalDevices.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+    await r.fiscalDevices.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
     await disconnectDevice(id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: existing.name })
@@ -205,10 +226,13 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     try {
       const config = buildConnectionConfig(device.connectionType, device.connectionParams || {})
       await connectDevice(id, device.manufacturer, config)
-      await r.fiscalDevices.update(id, { status: 'online', lastCommunicationAt: new Date() } as any)
+      await r.fiscalDevices.updateInOrg(id, orgId, { status: 'online', lastCommunicationAt: new Date() } as any)
       return { message: 'Connected', status: 'online' }
     } catch (e: any) {
-      await r.fiscalDevices.update(id, { status: 'error' } as any)
+      // A refused address is the device's configuration, not a broken printer: nothing was
+      // opened, and the device is NOT marked `error`, which would stop every sale on it.
+      if (e instanceof FiscalTargetError) return status(422, { message: e.message, code: e.code })
+      await r.fiscalDevices.updateInOrg(id, orgId, { status: 'error' } as any)
       return status(500, { message: `Connection failed: ${e.message}` })
     }
   }, { isSignIn: true })
@@ -221,7 +245,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
     await disconnectDevice(id)
-    await r.fiscalDevices.update(id, { status: 'offline' } as any)
+    await r.fiscalDevices.updateInOrg(id, orgId, { status: 'offline' } as any)
 
     return { message: 'Disconnected', status: 'offline' }
   }, { isSignIn: true })
@@ -234,9 +258,9 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
 
     const deviceStatus = await getDeviceStatus(id)
     if (deviceStatus.connected) {
-      await r.fiscalDevices.update(id, { status: 'online', lastCommunicationAt: new Date() } as any)
+      await r.fiscalDevices.updateInOrg(id, orgId, { status: 'online', lastCommunicationAt: new Date() } as any)
     } else {
-      await r.fiscalDevices.update(id, { status: 'offline' } as any)
+      await r.fiscalDevices.updateInOrg(id, orgId, { status: 'offline' } as any)
     }
 
     return { deviceStatus }
@@ -261,7 +285,13 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       return status(500, { message: `Z-Report failed: ${e.message}` })
     }
   }, { isSignIn: true })
-  .post('/:id/sync-time', async ({ params: { orgId, id }, user, status }) => {
+  /**
+   * A person sets a device's clock from the server's (FR-20.22): the confirmation the automatic sync
+   * waits for. ⚠ When the server's clock is not verified, or the device's would move by more than
+   * 2 minutes, it answers 409 with both times, and sets the clock only when asked again with
+   * `confirm: true`. A device writes this time into fiscal records that cannot be corrected.
+   */
+  .post('/:id/sync-time', async ({ params: { orgId, id }, user, status, body }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!['admin', 'manager'].includes(user.role)) return status(403, { message: 'Admin or manager required for time sync' })
     const r = getRepos()
@@ -270,14 +300,39 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
     const { getPrinter } = await import('fiscal/fiscal-device.service')
+    const { clockTrusted, formatStep, MAX_STEP_MS } = await import('fiscal/clock')
     try {
       const printer = getPrinter(id)
-      await printer.syncDateTime(new Date())
-      return { message: 'Time synchronized' }
+      const theirs = await printer.readDateTime().catch(() => null)
+      const now = new Date()
+      const stepMs = theirs ? now.getTime() - theirs.getTime() : null
+      const trust = clockTrusted()
+      const doubt = !trust.ok
+        ? trust.reason
+        : stepMs === null
+          ? 'the device\'s own clock could not be read'
+          : Math.abs(stepMs) > MAX_STEP_MS
+            ? `the device's clock would move by ${formatStep(stepMs)}`
+            : null
+      if (doubt && (body as any)?.confirm !== true) {
+        return status(409, {
+          code: 'clock_unconfirmed',
+          message: `Check the time before setting it: ${doubt}.`,
+          serverTime: now.toISOString(),
+          deviceTime: theirs?.toISOString() ?? null,
+        })
+      }
+      await printer.syncDateTime(now)
+      createAuditEntry({
+        orgId, userId: user.id, action: 'update', module: 'fiscal', entityType: 'fiscal_device', entityId: id,
+        entityName: (device as any).name,
+        changes: [{ field: 'clock', oldValue: theirs?.toISOString() ?? null, newValue: now.toISOString() }],
+      })
+      return { message: 'Time synchronized', serverTime: now.toISOString(), stepMs, verified: trust.ok }
     } catch (e: any) {
       return status(500, { message: `Time sync failed: ${e.message}` })
     }
-  }, { isSignIn: true })
+  }, { isSignIn: true, body: t.Optional(t.Object({ confirm: t.Optional(t.Boolean()) })) })
   // ── Report and operator endpoints ──
   .post('/:id/x-report', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
@@ -498,7 +553,7 @@ export const workstationController = new Elysia({ prefix: '/org/:orgId/fiscal/wo
     const existing = await r.workstations.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Workstation not found' })
 
-    const updated = await r.workstations.update(id, body as any)
+    const updated = await r.workstations.updateInOrg(id, orgId, body as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'fiscal', entityType: 'workstation', entityId: id, entityName: existing.name })
 
@@ -521,7 +576,7 @@ export const workstationController = new Elysia({ prefix: '/org/:orgId/fiscal/wo
     const existing = await r.workstations.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Workstation not found' })
 
-    await r.workstations.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+    await r.workstations.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'fiscal', entityType: 'workstation', entityId: id, entityName: existing.name })
 

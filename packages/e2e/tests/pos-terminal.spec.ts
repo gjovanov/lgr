@@ -79,8 +79,10 @@ test.describe('POS Terminal', () => {
       }
     }
 
-    // At this point we should have an active session — verify catalog filter controls
-    await expect(page.getByLabel(/Search Products/i)).toBeVisible({ timeout: 10000 })
+    // At this point we should have an active session — verify catalog filter controls.
+    // By role, not by label: the field opens with the cursor in it (FR-22.54), and a focused
+    // clearable field also renders its clear icon, labelled "Clear Search products...".
+    await expect(page.getByRole('textbox', { name: /Search Products/i })).toBeVisible({ timeout: 10000 })
     await expect(page.getByRole('combobox', { name: /Category/i })).toBeVisible()
     await expect(page.getByRole('combobox', { name: /Type/i })).toBeVisible()
   })

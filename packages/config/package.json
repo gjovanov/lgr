@@ -6,6 +6,12 @@
   "exports": {
     ".": "./src/index.ts",
     "./constants": "./src/constants.ts",
-    "./pos-totals": "./src/pos-totals.ts"
+    "./pos-totals": "./src/pos-totals.ts",
+    "./amount-in-words": "./src/amount-in-words.ts",
+    "./order-coverage": "./src/order-coverage.ts",
+    "./supto": "./src/supto.ts",
+    "./licence-keys": "./src/licence-keys.json",
+    "./idp-keys": "./src/idp-keys.json",
+    "./repoint-keys": "./src/repoint-keys.json"
   }
 }

@@ -22,12 +22,12 @@
             <h3 class="text-subtitle-2 font-weight-bold mb-2">{{ $t('invoicing.generalInfo') }}</h3>
             <v-row dense>
               <v-col cols="12" md="6">
-                <v-text-field v-model="form.companyName" :label="$t('invoicing.companyName')" :rules="[rules.required]" />
+                <v-text-field v-model="form.companyName" :label="`${$t('invoicing.companyName')} *`" :rules="[rules.required]" />
               </v-col>
               <v-col cols="12" md="6">
                 <v-select
                   v-model="form.type"
-                  :label="$t('common.type')"
+                  :label="`${$t('common.type')} *`"
                   :items="[
                     { title: $t('invoicing.customer'), value: 'customer' },
                     { title: $t('invoicing.supplier'), value: 'supplier' },
@@ -45,7 +45,7 @@
                 <v-text-field v-model="form.lastName" :label="$t('common.lastName')" />
               </v-col>
               <v-col cols="12" md="4">
-                <v-text-field v-model="form.email" :label="$t('invoicing.email')" type="email" />
+                <v-text-field v-model="form.email" :label="$t('invoicing.email')" type="email" :rules="[rules.email]" />
               </v-col>
             </v-row>
             <v-row dense>
@@ -96,6 +96,8 @@
             <AddressBankEditor v-model:addresses="form.addresses" v-model:bankDetails="form.bankDetails" />
 
             <TagInput v-model="form.tags" type="contact" :org-url="orgUrl()" class="mt-4" />
+
+            <p class="text-caption text-medium-emphasis mt-3 mb-0">{{ $t('common.requiredFieldsNote') }}</p>
           </v-defaults-provider>
         </v-form>
       </v-card-text>
@@ -127,6 +129,7 @@ import ContactMovementsDialog from '../components/ContactMovementsDialog.vue'
 import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityFormShell.vue'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
+import { buildContactPayload, isValidOptionalEmail } from 'ui-shared/composables/contact-payload'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -198,6 +201,8 @@ const lookingUp = ref(false)
 
 const rules = {
   required: (v: string) => !!v || t('validation.required'),
+  // Optional — but if one is typed it must be an address the API will accept.
+  email: (v: string) => isValidOptionalEmail(v) || t('validation.invalidEmail'),
 }
 
 const contactName = computed(() => {
@@ -303,9 +308,9 @@ async function handleSubmit() {
   loading.value = true
   try {
     if (isEdit.value) {
-      await httpClient.put(`${orgUrl()}/invoicing/contact/${route.params.id}`, form)
+      await httpClient.put(`${orgUrl()}/invoicing/contact/${route.params.id}`, buildContactPayload(form, 'update'))
     } else {
-      await httpClient.post(`${orgUrl()}/invoicing/contact`, form)
+      await httpClient.post(`${orgUrl()}/invoicing/contact`, buildContactPayload(form, 'create'))
     }
     markSaved()
     showSuccess(t('common.savedSuccessfully'))

@@ -5,6 +5,11 @@ export interface FakeIdentity {
   providerId: string
   email: string
   name: string
+  /**
+   * Google's `verified_email`. Defaults to true, as for nearly every real Google account. Set it
+   * false to test the refusals: an unverified address can neither link an account nor found one.
+   */
+  emailVerified?: boolean
 }
 
 /**
@@ -27,7 +32,12 @@ export async function withFakeGoogle(identity: FakeIdentity, run: () => Promise<
       return Response.json({ access_token: 'provider-access-token' })
     }
     if (url.startsWith('https://www.googleapis.com/userinfo/v2/me')) {
-      return Response.json({ id: identity.providerId, email: identity.email, name: identity.name })
+      return Response.json({
+        id: identity.providerId,
+        email: identity.email,
+        name: identity.name,
+        verified_email: identity.emailVerified ?? true,
+      })
     }
     throw new Error(`unstubbed fetch: ${url}`)
   }) as any
@@ -42,12 +52,12 @@ export async function withFakeGoogle(identity: FakeIdentity, run: () => Promise<
 
 /**
  * Google's redirect back to us, as sent by the browser that started a flow in `mode`: the state
- * carries a nonce, and the `oauth_state` cookie the start set holds the same one (S-04).
+ * carries a nonce, and the `__Host-oauth_state` cookie the start set holds the same one (S-04).
  */
 export function googleCallbackRequest(mode: 'login' | 'register'): Request {
   const nonce = randomUUID()
   const state = Buffer.from(JSON.stringify({ mode, nonce })).toString('base64url')
   return new Request(`http://localhost/api/oauth/callback/google?code=provider-code&state=${state}`, {
-    headers: { cookie: `oauth_state=${nonce}` },
+    headers: { cookie: `__Host-oauth_state=${nonce}` },
   })
 }

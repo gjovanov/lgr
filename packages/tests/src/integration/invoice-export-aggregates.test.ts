@@ -34,7 +34,7 @@ describe('Export aggregates', () => {
     expect(agg.byMethod.cash).toBe(150)
     expect(agg.byMethod.bank_transfer).toBe(200)
     expect(agg.byMethod.card).toBe(30)
-    expect(agg.byMethod.check).toBeUndefined()
+    expect(agg.byMethod.cash_on_delivery).toBeUndefined()
     expect(agg.mixedCurrency).toBe(false)
     expect(agg.currency).toBe('EUR')
   })
@@ -176,7 +176,7 @@ describe('Export aggregates', () => {
     const rows = [
       { ...row('INV-A', 120, { cash: 120 }), subtotal: 100, taxTotal: 20 },
       { ...row('INV-B', 60, { card: 60 }), subtotal: 50, taxTotal: 10 },
-      { ...row('INV-C', 240, { bank_transfer: 200, check: 40 }), subtotal: 200, taxTotal: 40 },
+      { ...row('INV-C', 240, { bank_transfer: 200, cash_on_delivery: 40 }), subtotal: 200, taxTotal: 40 },
     ]
     const { html } = buildListHtml({ title: 'Invoices', orgName: 'Test Org', mode: 'compact', rows })
     const box = html.slice(html.indexOf('totals-box'), html.indexOf('</table>', html.indexOf('totals-box')))
@@ -191,7 +191,7 @@ describe('Export aggregates', () => {
     expect(box).toContain('60.00 EUR')
     expect(box).toContain('200.00 EUR')
     // A method outside the reported three is listed only because it was actually used.
-    expect(box).toContain('Check')
+    expect(box).toContain('Cash on delivery')
     expect(box).toContain('40.00 EUR')
   })
 
@@ -205,7 +205,7 @@ describe('Export aggregates', () => {
     expect(box).toContain('>Bank<')
     expect(box).toContain('0.00 EUR')
     // Unused methods beyond those three stay out of the box.
-    expect(box).not.toContain('Check')
+    expect(box).not.toContain('Cash on delivery')
   })
 
   it('PDF: the report prints the letterhead logo above the title', async () => {

@@ -39,6 +39,7 @@
       "openLgr": "LGR öffnen",
       "openLgrHint": "Öffnet LGR in einem eigenen Fenster.",
       "openLgrBrowserHint": "Öffnet LGR im Browser.",
+      "serverPin": "Serverzertifikat",
       "fiscalDevices": "Fiskalgeräte",
       "fiscalDevicesNone": "Diesem Rechner sind keine Fiskalgeräte zugewiesen.",
       "devicePort": "Schnittstelle",
@@ -65,7 +66,9 @@
       "upToDate": "Dies ist die neueste Version.",
       "updatesManaged": "Updates für diesen Rechner installiert, wer ihn verwaltet.",
       "updateStarted": "Update wird installiert…",
-      "updateDeferred": "Die Kasse ist in Benutzung — das Update wird in Kürze installiert."
+      "updateDeferred": "Die Kasse ist in Benutzung — das Update wird in Kürze installiert.",
+      "autoUpdateOn": "Automatische Updates sind aktiviert.",
+      "autoUpdateOff": "Automatische Updates sind deaktiviert. Updates werden nur installiert, wenn Sie auf Installieren klicken."
     },
     "registration": {
       "label": "Registrierung",
@@ -107,6 +110,12 @@
         "body": "Ohne Verbindung funktioniert nichts. Prüfen Sie das Netzwerk und versuchen Sie es erneut.",
         "action": "Erneut versuchen",
         "diagnostics": "Diagnosepaket erstellen"
+      },
+      "orgMoved": {
+        "title": "Diese Organisation läuft jetzt auf ihrem eigenen Server ({name})",
+        "bodyUnknown": "lgrai.app konnte diesem Computer nicht sagen, wo dieser Server antwortet. Bitten Sie Ihre Administration um einen Kopplungscode und registrieren Sie diesen Desktop damit.",
+        "bodyNotFollowed": "Dieser Computer konnte noch nicht zu ihm wechseln ({reason}). Er versucht es selbst erneut; bleibt diese Meldung, bitten Sie Ihre Administration um einen Kopplungscode.",
+        "action": "Mit dem Server koppeln"
       }
     },
     "settings": {
@@ -124,6 +133,9 @@
       "openLgrOnLaunch": "LGR sofort beim Start öffnen",
       "openLgrOnLaunchHint": "Eine Kasse zeigt nach einem Neustart den Verkauf, ohne dass jemand sie berührt.",
       "openInSystemBrowser": "LGR im Browser statt im eigenen Fenster öffnen",
+      "systemBrowserMaster": "Ein Geschäftsserver öffnet sich immer im eigenen Fenster von LGR Desktop.",
+      "autoUpdate": "Updates automatisch installieren",
+      "autoUpdateHint": "Prüft alle 4 Stunden und installiert neue Versionen. Wartet, solange die Kasse einen Beleg druckt.",
       "proxy": "Proxy-Übersteuerung",
       "proxyHint": "Leer lassen, um den System-Proxy zu nutzen. Die Zertifikate des Systems werden in beiden Fällen verwendet.",
       "language": "Sprache",
@@ -150,12 +162,25 @@
       "serverIntro": "Wo findet dieser Rechner LGR?",
       "serverUpgraded": "Adressen werden über eine gesicherte Verbindung geöffnet, daher wurde dies auf {url} geändert.",
       "serverInvalid": "Das sieht nicht nach einer Serveradresse aus.",
+      "serverHintLan": "Ein Server im Geschäft: Geben Sie seine Adresse so ein, wie seine Seite „Rechner“ sie zeigt, zum Beispiel https://192.168.1.10:4443.",
+      "checkingServer": "Server wird geprüft…",
+      "probeFailed": "Der Server hat nicht geantwortet ({reason}).",
+      "compareWords": "Dies ist ein LGR-Server in Ihrem Netz. Prüfen Sie, dass seine Seite „Rechner“ diese sechs Wörter in dieser Reihenfolge zeigt:",
+      "wordsMatch": "Die Wörter stimmen überein",
+      "fingerprintVerified": "Das Zertifikat des Servers passt zum Registrierungslink:",
+      "fingerprintMismatch": "Das Zertifikat des Servers passt NICHT zum Registrierungslink. Fahren Sie nicht fort: Fordern Sie bei der Administration einen neuen Code an.",
+      "notAMaster": "Der Registrierungslink gilt einem LGR-Server, aber diese Adresse antwortet nicht als solcher.",
+      "onNetwork": "In diesem Netz",
+      "lookForServers": "Erneut suchen",
+      "noServersFound": "Kein LGR-Server hat geantwortet. Geben Sie seine Adresse ein: Viele Netze blockieren die Suchnachrichten.",
+      "advertMismatch": "Das Zertifikat dieses Servers ist nicht das angekündigte. Fahren Sie nicht fort: Prüfen Sie, ob Sie den richtigen Server gewählt haben, oder geben Sie seine Adresse ein.",
       "nameIntro": "Wie soll diese Maschine in der Rechnerliste heißen?",
       "codeIntro": "Fordern Sie bei einer Administratorin einen Code unter Einstellungen → Rechner an.",
       "codeLabel": "Registrierungscode",
       "codePlaceholder": "XXXX-XXXX",
       "codeInvalid": "Ein Code sieht aus wie XXXX-XXXX.",
       "codeFromLink": "Dieser Code kam aus einem Link. Prüfen Sie vor dem Fortfahren, dass es der Ihnen genannte ist.",
+      "codeIsKey": "Ein Registrierungsschlüssel: Dieser Desktop ist vorübergehend und entfernt sich beim Herunterfahren aus der Organisation.",
       "optionsIntro": "All das lässt sich später in den Einstellungen ändern.",
       "register": "Registrieren",
       "registering": "Registrierung läuft…",

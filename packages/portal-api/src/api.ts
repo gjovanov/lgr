@@ -1,7 +1,12 @@
 import { Elysia } from 'elysia'
+import { enterRequest, leaveRequest } from 'db/home/request-context'
+import { isReadOnlyRoute, isListedReadWriter, routeKey } from 'services/biz/route-class'
+import { requestVia } from './front/front-guard.js'
 
 // Portal controllers
 import { authController } from './controllers/auth.controller.js'
+import { localAuthController } from './controllers/local-auth.controller.js'
+import { onpremCredentialsController } from './controllers/onprem-credentials.controller.js'
 import { oauthController } from './controllers/oauth.controller.js'
 import { inviteController } from './controllers/invite.controller.js'
 import { stripeController } from './controllers/stripe.controller.js'
@@ -39,10 +44,13 @@ import { journalAnalysisController } from 'accounting-api/src/controllers/journa
 // Invoicing controllers
 import { contactController } from 'invoicing-api/src/controllers/contact.controller.js'
 import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller.js'
+import { numberClashController } from 'invoicing-api/src/controllers/number-clash.controller.js'
 import { orderController } from 'invoicing-api/src/controllers/order.controller.js'
 import { internalOrderController } from 'invoicing-api/src/controllers/internal-order.controller.js'
 import { reservationController } from 'invoicing-api/src/controllers/reservation.controller.js'
+import { productSupplyController } from 'invoicing-api/src/controllers/product-supply.controller.js'
 import { billImportController } from 'invoicing-api/src/controllers/bill-import.controller.js'
+import { receiptBillController } from 'invoicing-api/src/controllers/receipt-bill.controller.js'
 import { docImportController } from 'invoicing-api/src/controllers/doc-import.controller.js'
 import { paymentOrderController } from 'invoicing-api/src/controllers/payment-order.controller.js'
 import { cashOrderController } from 'invoicing-api/src/controllers/cash-order.controller.js'
@@ -53,6 +61,7 @@ import { agingReportController } from 'invoicing-api/src/controllers/aging-repor
 import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller.js'
 import { sequenceConfigController } from 'invoicing-api/src/controllers/sequence-config.controller.js'
 import { posController } from 'invoicing-api/src/controllers/pos.controller.js'
+import { cashRegisterController } from 'invoicing-api/src/controllers/cash-register.controller.js'
 
 // Warehouse controllers
 import { productController } from 'warehouse-api/src/controllers/product.controller.js'
@@ -86,6 +95,18 @@ import { fiscalDeviceController, workstationController } from './controllers/fis
 import { suptoExportController } from './controllers/supto-export.controller.js'
 import { desktopController } from './controllers/desktop.controller.js'
 import { desktopV1Controller } from './controllers/desktop-v1.controller.js'
+import { desktopDownloadController } from './controllers/desktop-download.controller.js'
+import { nodeController } from './controllers/node.controller.js'
+import { nodeV1Controller } from './controllers/node-v1.controller.js'
+import { moveController } from './controllers/move.controller.js'
+import { numberingController } from './controllers/numbering.controller.js'
+import { serverStatusController } from './controllers/server-status.controller.js'
+import { homeController } from './controllers/home.controller.js'
+import { adminNodesController } from './controllers/admin-nodes.controller.js'
+import { addressController, adminAddressesController } from './controllers/address.controller.js'
+import { adminLicencesController } from './controllers/admin-licences.controller.js'
+import { licenceController } from './controllers/licence.controller.js'
+import { idpController, idpSignInController } from './controllers/idp.controller.js'
 
 /**
  * The API route table — every controller the server mounts under `/api`, and nothing else.
@@ -102,6 +123,42 @@ import { desktopV1Controller } from './controllers/desktop-v1.controller.js'
  */
 export function createApiApp() {
   return new Elysia({ name: 'api-routes' })
+    /**
+     * FR-20.6 — the request context the write guard reads: is this route read-only, for which org,
+     * and is it a listed read that writes (`services/biz/route-class.ts`).
+     *
+     * ⚠ `onTransform` because it is SYNCHRONOUS. Under Bun an `AsyncLocalStorage` store entered
+     * after an `await` in a hook is not seen by the handler, and one entered synchronously outlives
+     * the request in its execution context, hence the reset after the response (#169).
+     */
+    .onTransform({ as: 'global' }, ({ request, route, params }) => {
+      enterRequest({
+        readOnly: isReadOnlyRoute(request.method, route),
+        route: routeKey(request.method, route),
+        orgId: (params as Record<string, string | undefined> | undefined)?.orgId,
+        listedWriter: isListedReadWriter(request.method, route),
+        via: requestVia(request),
+      })
+    })
+    .onAfterResponse({ as: 'global' }, () => { leaveRequest() })
+    /**
+     * A JSON answer keeps its content type when the response also sets two or more cookies.
+     *
+     * ⚠ Elysia 1.4.30 on Bun 1.3.10 (the production runtime; Bun 1.4 does not show it): with
+     * more than one cookie, `handleSet` replaces `set.headers` with a `Headers` instance, and the
+     * JSON branch then writes `set.headers["content-type"] = "application/json"` as a JS PROPERTY
+     * on it, which is no header at all. The body went out as text/plain: on 2026-10-23,
+     * `POST /auth/login` once P0a-8 began writing both session cookies, and every other sign-in
+     * and the sign-out with it. Named here, before the mapping, the type survives the copy into
+     * `Headers`. Only plain objects and arrays, which are exactly what Elysia labels JSON.
+     */
+    .onAfterHandle({ as: 'global' }, ({ response, set }) => {
+      if (response === null || typeof response !== 'object') return
+      const kind = (response as object).constructor?.name
+      if (kind !== 'Object' && kind !== 'Array') return
+      const headers = set.headers as Record<string, unknown>
+      if (!headers['content-type'] && !headers['Content-Type']) headers['content-type'] = 'application/json'
+    })
     .group('/api', (app) =>
       app
         /**
@@ -123,6 +180,8 @@ export function createApiApp() {
         .get('/health', () => ({ ok: true }))
         // Portal
         .use(authController)
+        .use(localAuthController)
+        .use(onpremCredentialsController)
         .use(oauthController)
         .use(inviteController)
         .use(stripeController)
@@ -162,10 +221,14 @@ export function createApiApp() {
         // Invoicing
         .use(contactController)
         .use(invoiceController)
+        .use(numberClashController)
         .use(orderController)
         .use(internalOrderController)
         .use(reservationController)
+        .use(productSupplyController)
         .use(billImportController)
+        // FR-22.31/32 (#168): the supplier's bill for goods a receipt already booked.
+        .use(receiptBillController)
         .use(docImportController)
         .use(paymentOrderController)
         .use(cashOrderController)
@@ -202,6 +265,8 @@ export function createApiApp() {
         // POS
         .use(posController)
         .use(posPaymentMethodController)
+        // FR-21.12: the cash-register journal, shared by the POS and invoicing apps
+        .use(cashRegisterController)
 
         // Reports
         .use(reportsController)
@@ -214,6 +279,30 @@ export function createApiApp() {
     // LGR Desktop (FR-14): the admin side under /org/:orgId/desktops, and the desktop's own
     // routes under /desktop/v1 behind their own deny-by-default DesktopAuth plugin.
     .use(desktopController)
-    .use(desktopV1Controller),
+    .use(desktopV1Controller)
+    // The installers, streamed from the private repo's releases (public: see public-routes.ts).
+    .use(desktopDownloadController)
+    // Masters registered with global (FR-20.2): the Servers page under /org/:orgId/nodes, and the
+    // master's own routes under /node/v1 behind their deny-by-default NodeAuth. 404 on a master.
+    .use(nodeController)
+    .use(nodeV1Controller)
+    // FR-20.79 (P3-6a): moving an org to its master, under /org/:orgId/moves. 404 on a master.
+    .use(moveController)
+    .use(numberingController)
+    // FR-20.98 (P3-8b): a master's own status page, under /org/:orgId/server. 404 on lgrai.app.
+    .use(serverStatusController)
+    .use(homeController)
+    // The sys-admin Nodes page (P2-3a): every master, across orgs. BACKUP_SYS_ADMINS only.
+    .use(adminNodesController)
+    // FR-20.72 (P3-4a): an org's address on lgrai.app, and its approval.
+    .use(addressController)
+    .use(adminAddressesController)
+    // FR-20.55 (P2-3b): this server's licence for an org (the banner; `{applies: false}` on global),
+    // and the sys-admins' pilots and air-gapped licence files (global only).
+    .use(licenceController)
+    .use(adminLicencesController)
+    // FR-20.39 (P2-4): "Sign in with LGR": lgrai.app's authorize side, and a master's sign-in side.
+    .use(idpController)
+    .use(idpSignInController),
     )
 }

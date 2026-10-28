@@ -10,14 +10,20 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extractPdf } from './extract.js'
-import { draftInvoice } from './draft.js'
+import { draftInvoice, credentialStatus } from './draft.js'
 import { matchLines } from './match.js'
 
 const PORT = Number(process.env.OCR_PORT || process.env.PORT) || 8100
 
 export const app = new Elysia()
   .use(cors())
-  .get('/health', () => ({ ok: true, service: 'ocr-server' }))
+  // ⚠ `drafts` reports whether a credential is actually present. Without it a credential-less
+  // sidecar looks perfectly healthy while every /draft returns 502 — which is how an EMPTY
+  // CLAUDE_CODE_OAUTH_TOKEN went unnoticed for eight days.
+  .get('/health', () => {
+    const cred = credentialStatus()
+    return { ok: true, service: 'ocr-server', drafts: cred.usable ? 'ready' : 'unavailable', credentials: cred.detail }
+  })
   .post(
     '/extract',
     async ({ body }) => {
@@ -80,4 +86,9 @@ export const app = new Elysia()
 if (import.meta.main) {
   app.listen({ port: PORT, hostname: process.env.HOST || '0.0.0.0' })
   console.log(`ocr-server listening on :${PORT}`)
+  // Say it once at startup. /extract still works without a credential, so refusing to boot would
+  // take away the half of the service that does not need one — but a silent start is what let an
+  // empty token go unnoticed for eight days.
+  const cred = credentialStatus()
+  console.log(`ocr-server ${cred.usable ? 'drafts ready' : 'DRAFTS UNAVAILABLE'} — ${cred.detail}`)
 }

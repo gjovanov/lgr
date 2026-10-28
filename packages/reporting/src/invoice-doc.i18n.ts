@@ -18,12 +18,19 @@ export interface InvoiceDocI18n {
     debit_note: string
     cash_sale: string
   }
-  /** Печатен маркер under the title. */
-  copyMark: { original: string; copy: string }
+  /**
+   * Печатен маркер under the title. `draft` marks a document printed before it is issued
+   * (FR-22.18): it has no number yet, and is not anybody's original.
+   */
+  copyMark: { original: string; copy: string; draft: string }
   label: {
     number: string
     date: string
     unp: string
+    /** The cash sale an invoice was issued for (#171). */
+    forCashSale: string
+    /** A fiscal receipt's number (FR-21 §3.9). */
+    receiptNo: string
     recipient: string
     supplier: string
     city: string
@@ -57,7 +64,7 @@ export interface InvoiceDocI18n {
     cash: string
     bank_transfer: string
     card: string
-    check: string
+    cash_on_delivery: string
     other: string
   }
   /** Statutory notices printed above and below the signature block. */
@@ -73,11 +80,13 @@ const bg: InvoiceDocI18n = {
     debit_note: 'ДЕБИТНО ИЗВЕСТИЕ',
     cash_sale: 'КАСОВА ПРОДАЖБА',
   },
-  copyMark: { original: 'ОРИГИНАЛ', copy: 'КОПИЕ' },
+  copyMark: { original: 'ОРИГИНАЛ', copy: 'КОПИЕ', draft: 'ЧЕРНОВА' },
   label: {
     number: 'Номер',
     date: 'Дата',
     unp: 'УНП',
+    forCashSale: 'Към касова продажба',
+    receiptNo: 'ФБ №',
     recipient: 'ПОЛУЧАТЕЛ',
     supplier: 'ДОСТАВЧИК',
     city: 'Град',
@@ -100,8 +109,9 @@ const bg: InvoiceDocI18n = {
   header: {
     lineNo: 'No',
     description: 'Име',
-    unit: 'Мяр',
-    quantity: 'Кол',
+    unit: 'Мярка',
+    // Spelled out, not the legacy form's „Кол" (gjovanov/lgr#127) — the column is wide enough.
+    quantity: 'Количество',
     unitPrice: 'Цена',
     discount: 'ТО',
     taxRate: 'ДДС %',
@@ -111,7 +121,7 @@ const bg: InvoiceDocI18n = {
     cash: 'В брой',
     bank_transfer: 'По сметка',
     card: 'С карта',
-    check: 'С чек',
+    cash_on_delivery: 'Наложен платеж',
     other: 'Друго',
   },
   notice: {
@@ -131,11 +141,13 @@ const en: InvoiceDocI18n = {
     debit_note: 'DEBIT NOTE',
     cash_sale: 'CASH SALE',
   },
-  copyMark: { original: 'ORIGINAL', copy: 'COPY' },
+  copyMark: { original: 'ORIGINAL', copy: 'COPY', draft: 'DRAFT' },
   label: {
     number: 'Number',
     date: 'Date',
     unp: 'USN',
+    forCashSale: 'For cash sale',
+    receiptNo: 'Receipt No.',
     recipient: 'RECIPIENT',
     supplier: 'SUPPLIER',
     city: 'City',
@@ -169,7 +181,7 @@ const en: InvoiceDocI18n = {
     cash: 'Cash',
     bank_transfer: 'Bank transfer',
     card: 'Card',
-    check: 'Cheque',
+    cash_on_delivery: 'Cash on delivery',
     other: 'Other',
   },
   notice: {
@@ -189,11 +201,13 @@ const de: InvoiceDocI18n = {
     debit_note: 'LASTSCHRIFT',
     cash_sale: 'BARVERKAUF',
   },
-  copyMark: { original: 'ORIGINAL', copy: 'KOPIE' },
+  copyMark: { original: 'ORIGINAL', copy: 'KOPIE', draft: 'ENTWURF' },
   label: {
     number: 'Nummer',
     date: 'Datum',
     unp: 'USN',
+    forCashSale: 'Zum Barverkauf',
+    receiptNo: 'Beleg-Nr.',
     recipient: 'EMPFÄNGER',
     supplier: 'LIEFERANT',
     city: 'Stadt',
@@ -227,7 +241,7 @@ const de: InvoiceDocI18n = {
     cash: 'Bar',
     bank_transfer: 'Überweisung',
     card: 'Karte',
-    check: 'Scheck',
+    cash_on_delivery: 'Nachnahme',
     other: 'Sonstige',
   },
   notice: {
@@ -247,11 +261,13 @@ const mk: InvoiceDocI18n = {
     debit_note: 'ДЕБИТНА БЕЛЕШКА',
     cash_sale: 'КАСОВА ПРОДАЖБА',
   },
-  copyMark: { original: 'ОРИГИНАЛ', copy: 'КОПИЈА' },
+  copyMark: { original: 'ОРИГИНАЛ', copy: 'КОПИЈА', draft: 'НАЦРТ' },
   label: {
     number: 'Број',
     date: 'Датум',
     unp: 'УНП',
+    forCashSale: 'Кон готовинска продажба',
+    receiptNo: 'Фиск. сметка бр.',
     recipient: 'ПРИМАЧ',
     supplier: 'ДОСТАВУВАЧ',
     city: 'Град',
@@ -274,8 +290,9 @@ const mk: InvoiceDocI18n = {
   header: {
     lineNo: 'Бр',
     description: 'Име',
-    unit: 'Мер',
-    quantity: 'Кол',
+    // Spelled out, matching bg and the companion documents (gjovanov/lgr#127).
+    unit: 'Мерка',
+    quantity: 'Количество',
     unitPrice: 'Цена',
     discount: 'Попуст',
     taxRate: 'ДДВ %',
@@ -285,7 +302,7 @@ const mk: InvoiceDocI18n = {
     cash: 'Во готово',
     bank_transfer: 'На сметка',
     card: 'Со картичка',
-    check: 'Со чек',
+    cash_on_delivery: 'Плаќање при достава',
     other: 'Друго',
   },
   notice: {
@@ -310,5 +327,5 @@ export function invoiceDocTitle(type: string | undefined, direction: string | un
   return (t as Record<string, string>)[type || 'invoice'] || t.invoice
 }
 
-/** Matches the "Словом :" prefix written into notes by `useAmountInWords`, in any locale. */
+/** Matches the "Словом :" prefix written into notes by `config/amount-in-words`, in any locale. */
 export const AMOUNT_IN_WORDS_RE = /^\s*(Словом|In words|In Worten|Со зборови)\s*:/i

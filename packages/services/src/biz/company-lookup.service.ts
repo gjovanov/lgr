@@ -1,5 +1,9 @@
 import { config } from 'config'
 import { logger } from '../logger/logger.js'
+import { fetchWithTimeout } from './outbound-fetch.js'
+
+/** FR-20.53: a registry lookup is a convenience; 10 s, then the form carries on without it. */
+const lookupFetch = (url: string, init?: RequestInit) => fetchWithTimeout(url, init, { timeoutMs: 10_000 })
 
 export interface CompanyInfo {
   companyName: string
@@ -14,6 +18,11 @@ export interface CompanyInfo {
   founders?: string[]
   owners?: string[]
   isValid: boolean
+  /**
+   * The EU check could not run here (no VerifyVAT key: an on-prem server has none, FR-20 D-12).
+   * Not found is then unknown, and the route says so rather than "Company not found".
+   */
+  unavailable?: boolean
 }
 
 const EMPTY: CompanyInfo = { companyName: '', taxNumber: '', vatNumber: '', isValid: false }
@@ -44,7 +53,7 @@ export async function lookupBulgaria(eik: string): Promise<CompanyInfo> {
   if (!cleaned || cleaned.length < 9 || cleaned.length > 13) return { ...EMPTY }
 
   try {
-    const resp = await fetch(`https://eik.bg/eik/${cleaned}`, {
+    const resp = await lookupFetch(`https://eik.bg/eik/${cleaned}`, {
       headers: { 'Accept': 'text/html,application/xhtml+xml', 'User-Agent': 'LGR-ERP/1.0' },
     })
     if (!resp.ok) return { ...EMPTY }
@@ -150,7 +159,7 @@ export async function lookupEU(vatNumber: string): Promise<CompanyInfo> {
   const token = config.companyLookup.verifyVatToken
   if (!token) {
     logger.warn('VERIFYVAT_TOKEN not configured')
-    return { ...EMPTY }
+    return { ...EMPTY, unavailable: true }
   }
 
   const cleaned = vatNumber.trim().toUpperCase().replace(/[\s.-]/g, '')
@@ -161,7 +170,7 @@ export async function lookupEU(vatNumber: string): Promise<CompanyInfo> {
   if (!vatType) return { ...EMPTY }
 
   try {
-    const resp = await fetch('https://api.verifyvat.com/v1/verify', {
+    const resp = await lookupFetch('https://api.verifyvat.com/v1/verify', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

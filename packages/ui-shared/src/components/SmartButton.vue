@@ -4,7 +4,8 @@
     color="default"
     class="smart-button text-none"
     :to="to"
-    @click="!to && $emit('click')"
+    :href="href"
+    @click="!to && !href && $emit('click')"
   >
     <div class="d-flex align-center ga-2">
       <v-icon size="small" :color="color">{{ icon }}</v-icon>
@@ -21,7 +22,10 @@ defineProps<{
   label: string
   value: string | number
   icon: string
+  /** A route inside this app. */
   to?: string
+  /** A page in another app (`appHref`) — each app is its own SPA, so a router `to` cannot reach it. */
+  href?: string
   color?: string
 }>()
 

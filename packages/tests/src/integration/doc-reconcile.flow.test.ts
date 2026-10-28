@@ -5,11 +5,12 @@ import { DocFile, Product, StockLevel, StockMovement } from 'db/models'
 import { analyzeDocFile, commitDocFile } from 'services/biz/files/doc-pipeline.service'
 import { reconcileDocFile } from 'services/biz/files/doc-reconcile.service'
 import ExcelJS from 'exceljs'
-import { tmpdir } from 'os'
+import { uploadPath, useTempUploadDir } from '../helpers/upload-path'
 import { join } from 'path'
 
-beforeAll(async () => { await setupTestDB() })
-afterAll(async () => { await teardownTestDB() })
+let restoreUploads: () => void
+beforeAll(async () => { await setupTestDB(); restoreUploads = useTempUploadDir() })
+afterAll(async () => { restoreUploads(); await teardownTestDB() })
 afterEach(async () => { await clearCollections() })
 
 /** A storeOperations „Доставки" export (receipt) — headers on row 9, warehouse/period/operation on 2-4.
@@ -34,7 +35,8 @@ async function storeOperationsBook(items: Array<[string, number]>, period = '24.
 
 /** Write a fresh version's bytes to disk and point the DocFile at it (mimics storeDocument versioning). */
 async function putVersion(docId: any, buffer: Buffer, version: number) {
-  const path = join(tmpdir(), `so-${docId}-v${version}.xlsx`)
+  const owner: any = await DocFile.findById(docId, { orgId: 1 }).lean()
+  const path = uploadPath(owner.orgId, `so-${docId}-v${version}.xlsx`)
   await Bun.write(path, buffer)
   await DocFile.updateOne({ _id: docId }, { $set: { currentPath: path, version, analysis: null, status: 'uploaded' } })
 }
@@ -55,7 +57,7 @@ describe('Files — doc-reconcile (movement create/update/delete)', () => {
 
     // ── v1: A=100, B=50 → analyze + commit books a receipt ────────────────────────────
     const v1 = await storeOperationsBook([['Гайка М8', 100], ['Болт М6', 50]])
-    const path1 = join(tmpdir(), `so-init.xlsx`); await Bun.write(path1, v1)
+    const path1 = uploadPath(org._id, `so-init.xlsx`); await Bun.write(path1, v1)
     const doc = await DocFile.create({
       orgId: org._id, docType: 'store_operations', docNumber: '20260724_120000', docDate: '2026-07-24',
       originalName: 'storeOperations_20260724_120000.xlsx', currentPath: path1, currentChecksum: 'c1',
@@ -198,7 +200,7 @@ describe('Files — an unmatched line must never become a stock reversal', () =>
 
     // v1 names the product in full, so it matches and books.
     const v1 = await storeOperationsBook([['СИЛИКОН - CERESIT - CS24 - УНИВЕРСАЛЕН', 40]])
-    const p1 = join(tmpdir(), 'so-unmatched-v1.xlsx'); await Bun.write(p1, v1)
+    const p1 = uploadPath(org._id, 'so-unmatched-v1.xlsx'); await Bun.write(p1, v1)
     const doc = await DocFile.create({
       orgId: org._id, docType: 'store_operations', docNumber: '20260902_090000', docDate: '2026-09-02',
       originalName: 'storeOperations_20260902_090000.xlsx', currentPath: p1, currentChecksum: 'c1',
@@ -232,7 +234,7 @@ describe('Files — an unmatched line must never become a stock reversal', () =>
     const orgId = String(org._id), uid = String(user._id)
 
     const v1 = await storeOperationsBook([['ТЕСТ ПРОДУКТ ПЪЛНО ИМЕ', 25]])
-    const p1 = join(tmpdir(), 'so-force-v1.xlsx'); await Bun.write(p1, v1)
+    const p1 = uploadPath(org._id, 'so-force-v1.xlsx'); await Bun.write(p1, v1)
     const doc = await DocFile.create({
       orgId: org._id, docType: 'store_operations', docNumber: '20260902_100000', docDate: '2026-09-02',
       originalName: 'storeOperations_20260902_100000.xlsx', currentPath: p1, currentChecksum: 'c1',
@@ -262,7 +264,7 @@ describe('Files — doc-reconcile dates its correction by the document', () => {
     const orgId = String(org._id), uid = String(user._id)
 
     const v1 = await storeOperationsBook([['Гайка М8', 100]], '02.09.2026 - 02.09.2026')
-    const p1 = join(tmpdir(), 'so-date-v1.xlsx'); await Bun.write(p1, v1)
+    const p1 = uploadPath(org._id, 'so-date-v1.xlsx'); await Bun.write(p1, v1)
     const doc = await DocFile.create({
       orgId: org._id, docType: 'store_operations', docNumber: '20260902_120000', docDate: '2026-09-02',
       originalName: 'storeOperations_20260902_120000.xlsx', currentPath: p1, currentChecksum: 'd1',

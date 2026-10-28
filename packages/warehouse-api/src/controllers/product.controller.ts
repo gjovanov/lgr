@@ -2,7 +2,8 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
-import { buildSearchFilter } from 'services/biz/search.utils'
+import { buildProductSearchFilter } from 'services/biz/search.utils'
+import { QuickProductError, createQuickProduct } from 'services/biz/quick-product.service'
 
 export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/product' })
   .use(AppAuthService)
@@ -14,21 +15,17 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     if (query.category) filter.category = query.category
     if (query.type) filter.type = query.type
     if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['name', 'sku', 'barcode', 'description', 'category'], {
-        lowered: {
-          name: 'nameLower',
-          sku: 'skuLower',
-          barcode: 'barcodeLower',
-          description: 'descriptionLower',
-          category: 'categoryLower',
-        },
-      })
-      Object.assign(filter, searchFilter)
+      Object.assign(filter, buildProductSearchFilter(query.search as string))
     }
     if (query.tags) {
       const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
       filter.tags = { $in: tagList }
     }
+    // FR-22.48: the Products list asks for active or deactivated articles; without the param every
+    // caller (the pickers, the API clients) still gets both. "Active" is `$ne: false`, not `true`:
+    // a product saved before the field existed has none, and has always been listed as active.
+    if (query.isActive === 'true') filter.isActive = { $ne: false }
+    else if (query.isActive === 'false') filter.isActive = false
     if (query.warehouseId) {
       // Restrict to products that currently hold stock in the selected warehouse.
       const stock = await r.stockLevels.findMany({ orgId, warehouseId: query.warehouseId, quantity: { $gt: 0 } } as any)
@@ -109,6 +106,32 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
       }),
     },
   )
+  // FR-22.30: „+ Нов продукт „…"" from a receipt or bill line — the next SKU, the org's tier
+  // template, „Общи" unless a category is chosen. 409 `product_exists` (with the article) for a
+  // name the catalog already has. See services/biz/quick-product.service.ts.
+  .post(
+    '/quick',
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      try {
+        return { product: await createQuickProduct(orgId, user, body) }
+      } catch (e: any) {
+        if (e instanceof QuickProductError) return status(e.statusCode, { code: e.code, message: e.message, ...(e.details || {}) })
+        throw e
+      }
+    },
+    {
+      isSignIn: true,
+      body: t.Object({
+        name: t.String({ minLength: 1, maxLength: 300 }),
+        unit: t.Optional(t.String({ minLength: 1 })),
+        categoryId: t.Optional(t.String()),
+        taxRate: t.Optional(t.Number({ minimum: 0, maximum: 100 })),
+        purchasePrice: t.Optional(t.Number({ minimum: 0 })),
+        sellingPrice: t.Optional(t.Number({ minimum: 0 })),
+      }),
+    },
+  )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
@@ -137,7 +160,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         }))
       }
 
-      const product = await r.products.update(id, body as any)
+      const product = await r.products.updateInOrg(id, orgId, body as any)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: id, entityName: (product as any).name, changes: diffChanges(existing as any, product as any) })
 
@@ -186,7 +209,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     const existing = await r.products.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Product not found' })
 
-    await r.products.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+    await r.products.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'warehouse', entityType: 'product', entityId: id, entityName: (existing as any).name })
 

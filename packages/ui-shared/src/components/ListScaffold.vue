@@ -2,7 +2,10 @@
   <v-container fluid>
     <!-- Header: title + actions -->
     <div class="d-flex align-center mb-4 ga-2 flex-wrap">
-      <h1 class="text-h5">{{ title }}</h1>
+      <div>
+        <h1 class="text-h5">{{ title }}</h1>
+        <div v-if="subtitle" class="text-body-2 text-medium-emphasis">{{ subtitle }}</div>
+      </div>
       <v-spacer />
       <div class="d-flex ga-2 align-center flex-wrap justify-end">
         <slot name="actions" />
@@ -35,7 +38,7 @@
 
     <!-- Body -->
     <template v-if="view === 'list'">
-      <v-card>
+      <v-card :class="{ 'list-fit': fit }">
         <v-card-text>
           <div class="d-flex align-center mb-2">
             <span v-if="showResultsCount" class="text-body-2 text-medium-emphasis">
@@ -129,6 +132,8 @@ interface EmptyDef {
 
 const props = withDefaults(defineProps<{
   title: string
+  /** A second line under the title, e.g. which way an order goes (FR-22 D-1). */
+  subtitle?: string
   headers: any[]
   items: any[]
   loading: boolean
@@ -145,6 +150,17 @@ const props = withDefaults(defineProps<{
   hasActiveFilters?: boolean
   empty?: EmptyDef
   emptyFiltered?: EmptyDef
+  /**
+   * FR-22.23: the list fits a 1366 px laptop — every row one line, tighter cell gutters. A cell
+   * that can run long (a partner's name) marks its content `cell-clip`: it is cut short with an
+   * ellipsis past 12em (`--cell-clip` sets another width), the full text in its `title`.
+   */
+  fit?: boolean
+  /**
+   * Where the column choices are kept. Defaults to the route name; a grid mounted in two apps
+   * (FR-21's cash-register journal) names itself, so both remember the same columns.
+   */
+  gridId?: string
 }>(), {
   view: 'list',
   itemValue: '_id',
@@ -178,7 +194,7 @@ const {
   customized: colsCustomized,
 } = useGridColumns({
   headers: toRef(props, 'headers'),
-  gridId: () => String(route?.name || route?.path || 'grid'),
+  gridId: () => props.gridId || String(route?.name || route?.path || 'grid'),
 })
 
 const slots = useSlots()
@@ -195,3 +211,22 @@ const resolvedEmpty = computed(() => {
   return { ...base, ...props.empty }
 })
 </script>
+
+<style scoped>
+/* FR-22.23 (`fit`): at 1366 px a document list's row of icons ran past the table's edge and its
+   rows wrapped to several lines. One line per row, an 8 px gutter instead of 16. */
+.list-fit :deep(.v-table > .v-table__wrapper > table > tbody > tr > td),
+.list-fit :deep(.v-table > .v-table__wrapper > table > thead > tr > th) {
+  padding-inline: 8px;
+}
+.list-fit :deep(.v-table > .v-table__wrapper > table > tbody > tr > td) {
+  white-space: nowrap;
+}
+.list-fit :deep(.cell-clip) {
+  display: inline-block;
+  max-width: var(--cell-clip, 12em);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+</style>

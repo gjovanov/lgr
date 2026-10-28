@@ -35,9 +35,10 @@ export const fiscalPositionController = new Elysia({ prefix: '/org/:orgId/accoun
     const result = await r.fiscalPositions.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { fiscalPositions: result.items, ...result }
   }, { isSignIn: true })
-  .get('/:id', async ({ params }) => {
+  .get('/:id', async ({ params, status }) => {
     const r = getRepos()
-    const item = await r.fiscalPositions.findById(params.id)
+    const item = await r.fiscalPositions.findByIdInOrg(params.id, params.orgId)
+    if (!item) return status(404, { message: 'Not found' })
     return { fiscalPosition: item }
   }, { isSignIn: true })
   .post(
@@ -54,10 +55,12 @@ export const fiscalPositionController = new Elysia({ prefix: '/org/:orgId/accoun
   )
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user }) => {
+    async ({ params: { orgId, id }, body, user, status }) => {
       const r = getRepos()
-      const existing = await r.fiscalPositions.findById(id)
-      const item = await r.fiscalPositions.update(id, body as any)
+      const existing = await r.fiscalPositions.findByIdInOrg(id, orgId)
+      if (!existing) return status(404, { message: 'Not found' })
+      const item = await r.fiscalPositions.updateInOrg(id, orgId, body as any)
+      if (!item) return status(404, { message: 'Not found' })
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'fiscal_position', entityId: id, entityName: (item as any).name, changes: existing ? diffChanges(existing as any, item as any) : undefined })
 
@@ -65,10 +68,11 @@ export const fiscalPositionController = new Elysia({ prefix: '/org/:orgId/accoun
     },
     { isSignIn: true, body: fiscalPositionBody },
   )
-  .delete('/:id', async ({ params: { orgId, id }, user }) => {
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     const r = getRepos()
-    const existing = await r.fiscalPositions.findById(id)
-    await r.fiscalPositions.update(id, { isActive: false, deactivatedAt: new Date() } as any)
+    const existing = await r.fiscalPositions.findByIdInOrg(id, orgId)
+    if (!existing) return status(404, { message: 'Not found' })
+    await r.fiscalPositions.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'accounting', entityType: 'fiscal_position', entityId: id, entityName: (existing as any)?.name })
 

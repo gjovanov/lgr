@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IPriceListItem {
   productId: Types.ObjectId
@@ -46,5 +47,7 @@ const priceListSchema = new Schema<IPriceList>(
 
 priceListSchema.plugin(tenantPlugin)
 priceListSchema.index({ orgId: 1, name: 1 }, { unique: true })
+
+replicate(priceListSchema, { class: 'R' })
 
 export const PriceList = model<IPriceList>('PriceList', priceListSchema)

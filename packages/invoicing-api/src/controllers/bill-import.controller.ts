@@ -10,14 +10,16 @@
  * this module is only the old envelope around it.
  */
 import { Elysia, t } from 'elysia'
+import { createHash } from 'node:crypto'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { config } from 'config'
 import { startJob, updateProgress, completeJob, failJob } from 'services/background/task.service'
 import { File as FileModel } from 'db/models'
 import { ocrExtract, ocrDraft } from 'services/biz/doc-import/ocr-client'
+import { toStored } from 'services/biz/files/stored-path'
 import { createDraftInvoice, convertDraftInvoice } from '../lib/bill-import.js'
+import { containedJoin, stampedUploadPath } from 'services/biz/files/safe-path'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 
 export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/import' })
   .use(AppAuthService)
@@ -38,18 +40,19 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
         } catch { /* body stream already consumed */ }
       }
       if (!files.length) return status(400, { message: 'No PDF files provided' })
-      const dir = join(config.upload.dir, orgId, 'bill-ocr')
+      const dir = containedJoin(config.upload.dir, orgId, 'bill-ocr')
       mkdirSync(dir, { recursive: true })
 
       const results: any[] = []
       for (const f of files) {
         const buf = Buffer.from(await f.arrayBuffer())
-        const storagePath = join(dir, `${Date.now()}-${f.name}`.replace(/[^\w.\-\/\\]/g, '_'))
+        // ⚠ `f.name` is the caller's: a path in it must never reach the filesystem.
+        const storagePath = stampedUploadPath(dir, f.name)
         writeFileSync(storagePath, buf)
         let extract: { text: string; method: string; pages: number } | undefined
         let error: string | undefined
         try {
-          extract = await ocrExtract(buf, f.name)
+          extract = await ocrExtract(buf, f.name, { orgId })
         } catch (e: any) {
           error = String(e?.message || e)
         }
@@ -57,10 +60,11 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
           orgId,
           uploadedBy: user.id,
           originalName: f.name,
-          storagePath,
+          storagePath: toStored(storagePath), // FR-20.24: relative to the upload root
           storageProvider: 'local',
           mimeType: 'application/pdf',
           size: buf.length,
+          sha256: createHash('sha256').update(buf).digest('hex'),
           module: 'bill-ocr',
           aiRecognition: extract
             ? { status: 'completed', extractedData: { text: extract.text, method: extract.method, pages: extract.pages }, processedAt: new Date() }
@@ -91,7 +95,7 @@ export const billImportController = new Elysia({ prefix: '/org/:orgId/bills/impo
             const it = items[i]
             await updateProgress(task.id, Math.round((i / items.length) * 100), `Drafting bill ${i + 1}/${items.length}`)
             try {
-              const draft = await ocrDraft(it.text)
+              const draft = await ocrDraft(it.text, undefined, { orgId })
               const { invoice, contact, perLine, direction, uncertain, orderGroupMatched } = await createDraftInvoice(orgId, uid, draft, warehouseId, batchId, it.text, { orderId: body.orderId })
               created.push({
                 fileId: it.fileId,

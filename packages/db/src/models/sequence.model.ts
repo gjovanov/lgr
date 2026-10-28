@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface ISequence extends Document {
   _id: Types.ObjectId
@@ -24,5 +25,7 @@ const sequenceSchema = new Schema<ISequence>(
 
 sequenceSchema.plugin(tenantPlugin)
 sequenceSchema.index({ orgId: 1, prefix: 1, year: 1 }, { unique: true })
+
+replicate(sequenceSchema, { class: 'R' })
 
 export const Sequence = model<ISequence>('Sequence', sequenceSchema)

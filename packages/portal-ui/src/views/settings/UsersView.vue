@@ -24,6 +24,16 @@
       item-value="_id"
       hover
     >
+      <!-- Multi-org sign-in: a person who also works in another org. Their name, email and
+           password are theirs, not this org's, so the edit dialog locks those fields. -->
+      <template #item.email="{ item }">
+        {{ item.email }}
+        <v-tooltip v-if="item.multiOrg" :text="$t('settings.multiOrgBadge')" location="top">
+          <template #activator="{ props: tip }">
+            <v-icon v-bind="tip" size="x-small" class="ml-1" color="primary">mdi-domain</v-icon>
+          </template>
+        </v-tooltip>
+      </template>
       <template #item.isActive="{ item }">
         <v-chip :color="item.isActive ? 'success' : 'grey'" size="small">
           {{ item.isActive ? $t('common.active') : $t('common.inactive') }}
@@ -54,14 +64,26 @@
       <v-card>
         <v-card-title>{{ editing ? $t('common.edit') : $t('common.create') }} {{ $t('settings.user') }}</v-card-title>
         <v-card-text>
+          <v-alert v-if="identityLocked" type="info" variant="tonal" density="compact" class="mb-4">
+            {{ $t('settings.multiOrgHint') }}
+          </v-alert>
           <v-row>
-            <v-col cols="4"><v-text-field v-model="form.firstName" :label="$t('common.firstName')" /></v-col>
-            <v-col cols="4"><v-text-field v-model="form.middleName" :label="$t('common.middleName')" /></v-col>
-            <v-col cols="4"><v-text-field v-model="form.lastName" :label="$t('common.lastName')" /></v-col>
+            <v-col cols="4"><v-text-field v-model="form.firstName" :label="$t('common.firstName')" :disabled="identityLocked" /></v-col>
+            <v-col cols="4"><v-text-field v-model="form.middleName" :label="$t('common.middleName')" :disabled="identityLocked" /></v-col>
+            <v-col cols="4"><v-text-field v-model="form.lastName" :label="$t('common.lastName')" :disabled="identityLocked" /></v-col>
           </v-row>
-          <v-text-field v-model="form.email" :label="$t('common.email')" type="email" class="mb-2" />
+          <v-text-field v-model="form.email" :label="$t('common.email')" type="email" class="mb-2" :disabled="identityLocked" />
           <v-text-field v-model="form.username" :label="$t('auth.username')" class="mb-2" />
           <v-text-field v-if="!editing" v-model="form.password" :label="$t('auth.password')" type="password" class="mb-2" />
+          <!-- The address already belongs to a person: an org admin never takes over their account (rule 2). -->
+          <v-alert v-if="existingPerson" type="info" variant="tonal" density="compact" class="mb-4">
+            {{ $t('settings.identityExists', { email: existingPerson }) }}
+            <div class="mt-2">
+              <v-btn size="small" color="primary" variant="tonal" :loading="inviting" @click="inviteInstead">
+                {{ $t('settings.inviteInstead') }}
+              </v-btn>
+            </div>
+          </v-alert>
 
           <!--
             The role IS the primary authorization control — `user.role` is what every admin
@@ -156,7 +178,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
-import { ROLES, type Role } from 'config/constants'
+import { PERMISSIONS, ROLES, type Role } from 'config/constants'
 
 const { t, te } = useI18n()
 const store = useSettingsStore()
@@ -175,6 +197,15 @@ const saving = ref(false)
 const inviting = ref(false)
 const inviteEmail = ref('')
 const inviteRole = ref<Role>('member')
+
+/**
+ * Multi-org sign-in, rule 2: the person being edited also works in another org, so their name,
+ * email and password belong to them and the server refuses an admin's change (`identity_shared`).
+ */
+const editingMultiOrg = ref(false)
+const identityLocked = computed(() => editing.value && editingMultiOrg.value)
+/** Set when creating a user whose address already has an account: invite that person instead. */
+const existingPerson = ref('')
 
 const permissionSets = ref<any[]>([])
 const effectivePermissions = ref<string[]>([])
@@ -212,16 +243,9 @@ const roleHint = computed(() => {
   // JWT already issued keeps the old set until the user signs in again.
   return t('settings.roleChangeHint')
 })
-const availablePermissions = [
-  'accounting.read', 'accounting.write',
-  'trade.read', 'trade.write', 'trade.adjust', 'trade.send',
-  'payroll.read', 'payroll.write',
-  'hr.read', 'hr.write',
-  'crm.read', 'crm.write',
-  'erp.read', 'erp.write',
-  'settings.read', 'settings.write',
-  'admin.read', 'admin.write',
-]
+// The permissions the server knows. The list this replaced offered `trade.*` and names nothing
+// checks any more (hr, crm, erp, settings, admin.read/write): granting one did nothing.
+const availablePermissions = PERMISSIONS
 
 const headers = [
   { title: t('common.name'), key: 'fullName' },
@@ -283,6 +307,8 @@ watch(() => form.permissionSetIds, () => {
 }, { deep: true })
 
 function openDialog(item?: any) {
+  existingPerson.value = ''
+  editingMultiOrg.value = !!item?.multiOrg
   if (item) {
     editing.value = true
     // Only the fields the form owns. The row also carries `roleHistory`, `operatorCode` and
@@ -311,6 +337,7 @@ function openDialog(item?: any) {
 
 async function save() {
   saving.value = true
+  existingPerson.value = ''
   try {
     const payload: Record<string, any> = {
       firstName: form.firstName,
@@ -336,9 +363,24 @@ async function save() {
     dialog.value = false
     await fetchItems()
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    if (!editing.value && e?.response?.data?.code === 'identity_exists') existingPerson.value = form.email
+    else showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     saving.value = false
+  }
+}
+
+/** Invite the person who already has this address, with the role chosen in the form. */
+async function inviteInstead() {
+  inviting.value = true
+  try {
+    await store.inviteUser(existingPerson.value, form.role)
+    showSuccess(t('settings.inviteSent'))
+    dialog.value = false
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    inviting.value = false
   }
 }
 

@@ -7,10 +7,10 @@ test.describe('Invite System', () => {
       await page.goto('/invite/invalid-code-that-does-not-exist')
       await page.waitForLoadState('networkidle')
 
-      // Should show error card with "Invite Not Found" title
-      await expect(page.locator('.v-card .text-h6')).toContainText('Invite Not Found', { timeout: 10000 })
-      // Should have a "Go to Login" link/button
-      await expect(page.getByRole('link', { name: /go to login/i })).toBeVisible()
+      // Should show error card with "Invitation not found" title
+      await expect(page.locator('.v-card .text-h6')).toContainText(/invitation not found/i, { timeout: 10000 })
+      // Should have a "Go to sign in" link/button
+      await expect(page.getByRole('link', { name: /go to sign in/i })).toBeVisible()
     })
 
     test('invite landing page renders card for any code', async ({ page }) => {

@@ -11,7 +11,8 @@
  */
 
 import { BackupRun, Org, User } from 'db/models'
-import { config } from 'config'
+import { homeScope } from 'db/home/home'
+import { config, nodeRole } from 'config'
 import { logger } from '../../logger/logger.js'
 import { sendEmail, MAX_ATTACHMENT_BYTES } from '../email.service.js'
 import { createAuditEntry } from '../audit-log.service.js'
@@ -46,6 +47,15 @@ export const SCHEDULED_CLAIM = 'scheduled'
  * rate, would start happening silently around month 20.
  */
 export const MAX_ATTACHMENT_BINARY_BYTES = Math.floor((MAX_ATTACHMENT_BYTES * 3) / 4)
+
+/**
+ * What this process's mail can carry. On a master it goes through lgrai.app's relay (FR-20.59,
+ * P2-6), which takes at most `config.relay.maxAttachmentBytes`: over it, the WHOLE manifest mail
+ * would be refused, not just its attachment.
+ */
+export function attachmentCeiling(): number {
+  return nodeRole() === 'master' ? Math.min(MAX_ATTACHMENT_BINARY_BYTES, config.relay.maxAttachmentBytes) : MAX_ATTACHMENT_BINARY_BYTES
+}
 
 export interface BackupRunOutcome {
   status: 'completed' | 'failed'
@@ -188,12 +198,19 @@ export async function runBackupForOrg(
      * never enough on its own — it separates the ARTIFACTS, and the collision is on the ROW.
      */
     claimKey?: string
+    /**
+     * `false`: no mail of this bundle. A master's backup before each update (FR-20.20) would
+     * otherwise land in the digest recipient's inbox every time. Defaults to mailing.
+     */
+    mail?: boolean
     /** Called with (percent, message) so a `BackgroundTask` can show progress (FR-13.29). */
     onProgress?: (percent: number, message: string) => void
   } = {},
 ): Promise<BackupRunOutcome | null> {
   const kind = opts.kind || 'full'
-  const variant = opts.variant === 'full' ? 'full' : 'data'
+  // FR-20.21 — a master's nightly run carries its files too: nothing else backs them up, where the
+  // cloud has mars's Layer-1 copy of the uploads PV. Asked for explicitly, either variant stands.
+  const variant = opts.variant === 'full' || (opts.variant === undefined && nodeRole() === 'master') ? 'full' : 'data'
   const progress = opts.onProgress || (() => {})
   const claimKey = opts.claimKey || SCHEDULED_CLAIM
 
@@ -254,7 +271,10 @@ export async function runBackupForOrg(
     if (variant === 'full') {
       progress(40, 'Packing documents')
       const { buildFilesSidecar } = await import('./backup-files.service.js')
-      files = await buildFilesSidecar(orgId, built.filename.replace(/\.ndjson\.zst$/, ''))
+      // A master packs its whole upload tree; the cloud, `docs/` (FR-13.29).
+      files = await buildFilesSidecar(orgId, built.filename.replace(/\.ndjson\.zst$/, ''), {
+        root: nodeRole() === 'master' ? 'org' : 'docs',
+      })
     }
 
     progress(60, 'Verifying')
@@ -264,6 +284,15 @@ export async function runBackupForOrg(
     const verified = await verifyBundle(built.absolutePath, built.sha256)
     if (!verified.ok) {
       throw new Error(`bundle failed its own verification: ${verified.problems.slice(0, 3).join('; ')}`)
+    }
+    // FR-20.21 — the files are read back too. On a master the sidecar is the only copy of the
+    // uploads, and one nobody has read back is a hope, not a backup.
+    if (files) {
+      const { verifyFilesSidecar } = await import('./backup-files.service.js')
+      const readBack = await verifyFilesSidecar(files.absolutePath, { sha256: files.sha256, count: files.count })
+      if (!readBack.ok) {
+        throw new Error(`files sidecar failed its own verification: ${readBack.problems.slice(0, 3).join('; ')}`)
+      }
     }
 
     // FR-13.48–13.59 — get it OFF this node, and only after it has proven itself.
@@ -282,13 +311,15 @@ export async function runBackupForOrg(
       absolutePath: built.absolutePath,
       filename: built.filename,
       sha256: built.sha256,
+      // FR-20.21 — the local copy carries the files too (Drive and S3 take the row bundle only).
+      ...(files ? { files: { absolutePath: files.absolutePath, filename: files.filename, sha256: files.sha256 } } : {}),
       // Read the artifact back on the FIRST day of each ISO week. Doing it every night costs
       // a download per org per night to learn the same fact; never doing it is how "the API
       // returned 200" gets mistaken for "the bytes are there".
       verify: new Date().getUTCDay() === 1,
     })
 
-    const mail = await mailBundle(orgId, built, opts.email)
+    const mail = opts.mail === false ? { emailed: false, skippedReason: 'not_mailed' } : await mailBundle(orgId, built, opts.email)
 
     // Prune AFTER the new bundle is written and verified, never before: the retention rule
     // must never be able to remove an old copy on a night that then fails to produce a new one.
@@ -456,7 +487,8 @@ async function mailBundle(
     payloadName = `${built.filename}.sealed`
   }
 
-  const overSized = !!payload && payload.length > MAX_ATTACHMENT_BINARY_BYTES
+  const ceiling = attachmentCeiling()
+  const overSized = !!payload && payload.length > ceiling
   const attach = !!payload && !overSized
 
   const note = !attachAllowed
@@ -469,7 +501,7 @@ async function mailBundle(
         `the cluster unsealed. This manifest still proves what should exist.`
       : overSized
         ? `The sealed bundle is ${(payload!.length / 1024 / 1024).toFixed(1)} MB, over the ` +
-          `${(MAX_ATTACHMENT_BINARY_BYTES / 1024 / 1024).toFixed(1)} MB this mail can carry. ` +
+          `${(ceiling / 1024 / 1024).toFixed(1)} MB this mail can carry. ` +
           `It was NOT attached — download it from the Backups screen. This manifest still proves what should exist.`
         : `The attachment is SEALED to ${recipientKey.slice(0, 24)}… and can only be opened ` +
           `with the private half, which is not on any cluster node: ` +
@@ -559,8 +591,10 @@ export async function backupTick(now = new Date()): Promise<{ checked: number; r
   // `e2e-*` test tenants; bundling all of them nightly would put artifacts nobody will ever
   // read on the PV that §2.4 identifies as the only resource under real pressure. The gate is
   // on the SCHEDULER only — an org admin can always take a manual backup of their own org.
+  // FR-20.85: only the orgs whose home is this node — the copy it would bundle off home is a mirror,
+  // and the run record it claims is a write the guard refuses.
   const orgs: any[] = await Org.find(
-    { 'settings.backup.enabled': true },
+    { 'settings.backup.enabled': true, ...(await homeScope('_id')) },
     { name: 1, settings: 1 },
   ).lean().exec()
   let ran = 0

@@ -1,0 +1,10 @@
+{
+  "browser": "chrome-headless-shell",
+  "buildId": "151.0.7922.77",
+  "tree": {
+    "win64": "sha256:530bf1c29c29e14aad288db7c68096701cd70e340c5800de71165a467b7cef8a",
+    "linux": "sha256:5f8ca06fa73e729b063429616ffcf218906315b7a47ee4786989fcb087344c80",
+    "mac": "sha256:6068f4ad1c9f0ce8889d245c1904d49ab82e9f0b8e4a8f693465605a17a6301a",
+    "mac_arm": "sha256:a99870c65bc844beb3d574c908d99c5c41b5dabde51087748cc25227eea59236"
+  }
+}

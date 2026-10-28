@@ -19,6 +19,16 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-deep-link = "2"
 # FR-14.7 — a per-user login item, so a till comes back by itself after a power cut.
 tauri-plugin-autostart = "2"
+# FR-14.28 — downloads the installer, checks its minisign signature against the key pinned in
+# `updater.pub`, and runs it. Driven from Rust only (`install.rs`): no capability grants it, so
+# neither the shell's pages nor the cloud app can start an update. ⚠ `native-tls` stays the backend
+# its reqwest picks when both are on: FR-14.32 wants the OS trust store for lgrai.app, so a
+# TLS-inspecting proxy the OS trusts still works. `rustls-tls` (ring, no bundled roots) is there only
+# so a paired master's pin can be handed in through `configure_client` (FR-20.31, `trust.rs`).
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "rustls-tls", "system-proxy"] }
+# The same verifier the plugin uses, called directly by `--verify-update` (the release pipeline's
+# check that the committed key matches the signing key) and again before anything is executed.
+minisign-verify = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = "0.4"
@@ -31,8 +41,25 @@ ed25519-dalek = { version = "2", features = ["pkcs8", "rand_core"] }
 rand = "0.8"
 sha2 = "0.10"
 base64 = "0.22"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "native-tls"] }
-tungstenite = { version = "0.24", default-features = false, features = ["handshake", "native-tls"] }
+# Both with TWO TLS stacks, on purpose (`trust.rs`): native-tls is what a plain client gets, the OS
+# store for lgrai.app (FR-14.32); rustls, with no roots of its own, carries a paired master's pin.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "native-tls", "rustls-tls-manual-roots"] }
+tungstenite = { version = "0.24", default-features = false, features = ["handshake", "native-tls", "__rustls-tls"] }
+# FR-20.31 — a master is trusted by the CA it was paired with, and by nothing else: rustls with a
+# root store holding that one certificate, the same on every OS (`trust.rs`). lgrai.app keeps the
+# OS store through native-tls (FR-14.32). ring, as rustls defaults to.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# Reading a CA's SubjectPublicKeyInfo, to check it against the fingerprint a pairing code carries.
+x509-cert = { version = "0.2", features = ["pem"] }
+# FR-20.32 — the loopback proxy a master's window goes through (`proxy.rs`): a server, which reqwest
+# is not. Every one of these was already in the lock through reqwest and Tauri; tokio runs on
+# Tauri's own runtime (`tauri::async_runtime`). tokio-rustls without its aws-lc default.
+hyper = { version = "1", features = ["server", "client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+tokio = { version = "1", features = ["net", "io-util", "rt", "time", "sync", "macros"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
 # FR-14.26 (C18) — the native fiscal bridge opens the till's serial port itself.
 # ⚠ This is why the transport is Rust and not Bun: Bun + `serialport` on Windows opens the port
 # and writes, but NEVER delivers received bytes, which made the Eltrade A3 look dead for two days
@@ -48,6 +75,25 @@ serialport = { version = "4", default-features = false }
 # ⚠ rusqlite and zstd were declared here but are NOT in the committed Cargo.lock, so the lock has
 # been out of sync with this file for a while. `cargo tauri build` runs without `--locked` and
 # regenerates it, which is how that went unnoticed.
+
+[target.'cfg(windows)'.dependencies]
+# FR-20.28 — finding masters through Windows' own DNS-SD (`discovery.rs`): a per-user app cannot open
+# the firewall for a multicast listener of its own. 0.59 was already in the lock.
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_NetworkManagement_Dns"] }
+
+[target.'cfg(not(windows))'.dependencies]
+# FR-20.28 — the same off Windows, with a pure-Rust mDNS client.
+mdns-sd = "0.13"
+
+[target.'cfg(unix)'.dependencies]
+# #344 — a logout or shutdown ends the app with SIGTERM, which would otherwise kill it where it stands
+# (`quit_on_signals`). 0.3 was already in the lock.
+signal-hook = "0.3"
+
+[dev-dependencies]
+# `proxy.rs`'s tests stand up a TLS master of their own, with a CA made at test time, so no
+# private key is ever committed.
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

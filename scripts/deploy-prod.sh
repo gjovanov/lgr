@@ -26,6 +26,10 @@
 #   ./scripts/deploy-prod.sh --build-only        # build+push, no gitops bump
 #   ./scripts/deploy-prod.sh --dry-run           # print every mutating step, run none
 #   ./scripts/deploy-prod.sh --no-pull           # deploy the host checkout as-is
+#   SUPTO_RUNNING=<v> ./scripts/deploy-prod.sh   # the SUPTO version prod runs, when the pod cannot say
+#
+# FR-20.50: a build whose SUPTO version (packages/config/src/supto.json) is new and not declared to
+# НАП is refused, once anything is declared. See `supto_gate` below.
 #
 # Long runs (a cold build is 15–30 min) must be backgrounded and polled by log
 # file, never by tmux scrollback — see .claude/skills/deploy-prod/SKILL.md.
@@ -69,7 +73,7 @@ done
 [[ -n "$OCR_TAG" && -z "$APP_TAG" ]] && DO_APP=0   # --ocr-tag alone = OCR redeploy
 
 # ── preflight ────────────────────────────────────────────────────────────────
-for bin in docker kubectl git awk; do command -v "$bin" >/dev/null || die "$bin not found — are you on master-node?"; done
+for bin in docker kubectl git awk jq; do command -v "$bin" >/dev/null || die "$bin not found — are you on master-node?"; done
 [[ -d "$SRC/.git" ]]         || die "source checkout missing: $SRC"
 [[ -f "$KUSTOMIZATION" ]]    || die "gitops checkout missing: $KUSTOMIZATION"
 docker info >/dev/null 2>&1  || die "docker daemon unreachable"
@@ -85,6 +89,33 @@ SHA="$(git -C "$SRC" rev-parse --short HEAD)"
 log "Source at $SHA — $(git -C "$SRC" log -1 --pretty=%s)"
 
 df -h "$(docker info -f '{{.DockerRootDir}}' 2>/dev/null || echo /)" | tail -1
+
+# ── FR-20.50 (P3-8c): a SUPTO version travels only once declared ─────────────
+# lgrai.app serves the cloud orgs' SUPTO and the mirrors' auditor access, so its deploys wait for a
+# declaration the way a master's updates do. Read with jq (there is no Bun here): the supto.json of
+# what is about to be built, and the pod's own copy of what runs. Not enforced while nothing is
+# declared (LGR is not on НАП's list yet); then a declared version goes, and so does a build within
+# the version that runs. A --tag redeploy builds nothing: its image passed this at its build.
+supto_gate() {
+  local file="$SRC/packages/config/src/supto.json" new running
+  [[ -f "$file" ]] || { warn "no $file: the SUPTO gate has nothing to read"; return 0; }
+  new="$(jq -er '.version' "$file")" || die "packages/config/src/supto.json names no SUPTO version"
+  if [[ "$(jq -r '.declared | length > 0' "$file")" != true ]]; then
+    log "SUPTO version $new: nothing is declared yet, so nothing waits"
+    return 0
+  fi
+  if [[ "$(jq -r --arg v "$new" 'any(.declared[]; . == $v)' "$file")" == true ]]; then
+    log "SUPTO version $new: declared"
+    return 0
+  fi
+  running="${SUPTO_RUNNING:-$(kubectl -n "$NS" exec deploy/lgr -c lgr -- cat /app/packages/config/src/supto.json 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)}"
+  if [[ -n "$running" && "$running" == "$new" ]]; then
+    log "SUPTO version $new: a build within the version lgrai.app runs"
+    return 0
+  fi
+  die "SUPTO version $new is not declared (lgrai.app runs ${running:-a version it cannot say}). Declare it to НАП, record it in packages/config/src/supto.json (\"declared\"), then deploy. FR-20.50"
+}
+if [[ $DO_BUILD == 1 && $DO_APP == 1 ]]; then supto_gate; fi
 
 # ── build + push ─────────────────────────────────────────────────────────────
 # `prune-docker-tags.sh --apply` keeps only the 2 newest local tags and clears the
@@ -150,9 +181,35 @@ bump_image_tag() {   # $1 = kustomize image name, $2 = new tag
   mv "$tmp" "$KUSTOMIZATION"
 }
 
+# FR-13.31 — the overlay also patches `LGR_IMAGE_TAG` into lgr-config, which a restored backup's
+# manifest is compared against, and the overlay says it MUST equal the app's newTag. Nothing kept
+# it so: it sat at v20260911-… while the image moved on to v20261014-…, so the restore check
+# compared against a version that was not running. Rewrites only the `value:` line that follows
+# `path: /data/LGR_IMAGE_TAG`, and fails unless exactly one matched.
+bump_image_tag_env() {   # $1 = new tag
+  local newtag="$1" tmp
+  [[ "$newtag" =~ ^$TAG_RE$ ]] || die "refusing to write malformed tag '$newtag'"
+  if [[ $DRY == 1 ]]; then printf '  DRY: LGR_IMAGE_TAG -> %s in %s\n' "$newtag" "$KUSTOMIZATION"; return; fi
+  tmp="$(mktemp)"
+  awk -v newtag="$newtag" '
+    BEGIN { armed = 0; hits = 0 }
+    {
+      line = $0
+      if (line ~ /path:[[:space:]]*\/data\/LGR_IMAGE_TAG[[:space:]]*$/) { armed = 1 }
+      else if (armed && line ~ /^[[:space:]]*value:[[:space:]]*/) {
+        sub(/value:.*/, "value: " newtag, line); armed = 0; hits++
+      }
+      print line
+    }
+    END { if (hits != 1) { printf("LGR_IMAGE_TAG value lines matched: %d (want 1)\n", hits) > "/dev/stderr"; exit 3 } }
+  ' "$KUSTOMIZATION" > "$tmp" || { rm -f "$tmp"; die "LGR_IMAGE_TAG bump failed"; }
+  mv "$tmp" "$KUSTOMIZATION"
+}
+
 log "Bumping $KUSTOMIZATION"
 run git -C "$DEPLOY_REPO" pull --ff-only origin master
 [[ $DO_APP == 1 ]] && bump_image_tag "$APP_IMAGE_NAME" "$APP_TAG"
+[[ $DO_APP == 1 ]] && bump_image_tag_env "$APP_TAG"
 [[ $DO_OCR == 1 && -n "$OCR_TAG" ]] && bump_image_tag "$OCR_IMAGE_NAME" "$OCR_TAG"
 
 if [[ $DRY == 0 ]]; then
@@ -198,10 +255,19 @@ if [[ $DRY == 0 ]]; then
   kubectl -n "$NS" get deploy -o custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[*].image
   kubectl -n "$NS" get pods -o wide
   NODE_IP="$(kubectl -n "$NS" get pod -l app=lgr -o jsonpath='{.items[0].status.hostIP}')"
-  CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "http://$NODE_IP:30040/" || echo 000)"
-  # First hit after a restart pays ~6s cold start (Bun JIT + Mongoose compile).
-  log "Smoke http://$NODE_IP:30040/ → HTTP $CODE"
-  [[ "$CODE" == "200" ]] || die "smoke check failed (HTTP $CODE)"
+  # `/` alone is not enough. From 2026-10-04 every SPA route answered its HTML with status 404
+  # (NODE_ENV=production flipped @elysiajs/static's mode; portal-api/src/spa-fallback.ts). A deep
+  # link must be the shell with 200, and an unknown API route a 404, never the shell, so a
+  # catch-all that swallows /api fails here too.
+  smoke() { # <path> <expected HTTP status>
+    local code
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "http://$NODE_IP:30040$1" || echo 000)"
+    log "Smoke http://$NODE_IP:30040$1 → HTTP $code (want $2)"
+    [[ "$code" == "$2" ]] || die "smoke check failed: $1 answered HTTP $code, expected $2"
+  }
+  smoke / 200   # first hit after a restart pays ~6s cold start (Bun JIT + Mongoose compile)
+  smoke /app-hub 200
+  smoke /api/__smoke_unknown_route__ 404
 fi
 
 echo "DEPLOY_DONE $SHA ${APP_TAG:-$OCR_TAG}"

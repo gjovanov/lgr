@@ -23,11 +23,15 @@ export async function waitForDataTable(page: Page, timeout = 10000): Promise<Loc
  * their field lookups the same way in both cases.
  */
 export async function clickCreate(page: Page): Promise<Locator> {
+  // FR-22.50: a list's Create says what it creates („New Payment Order"), so it is found by its
+  // test id first; the older shapes follow.
+  const labelled = page.getByTestId('create-button').filter({ visible: true }).first()
   const createLink = page.locator('a.v-btn[href$="/new"]').filter({ visible: true }).first()
   const createBtn = page.getByRole('button', { name: /create/i }).filter({ visible: true }).first()
   const addBtn = page.getByRole('button', { name: /^add$/i }).filter({ visible: true }).first()
 
-  if (await createLink.count()) await createLink.click()
+  if (await labelled.count()) await labelled.click()
+  else if (await createLink.count()) await createLink.click()
   else if (await createBtn.count()) await createBtn.click()
   else await addBtn.click()
 

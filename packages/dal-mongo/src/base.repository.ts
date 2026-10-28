@@ -1,7 +1,7 @@
 import type { Model } from 'mongoose'
 import type { BaseEntity, Filter, SortSpec, PageRequest, PageResult, AggregateStage } from 'dal'
 import type { IBatchRepository } from 'dal'
-import { DuplicateError } from 'dal'
+import { DuplicateError, ValidationError } from 'dal'
 import { toEntity, toDocument } from './entity-mapper.js'
 import { translateFilter } from './filter-translator.js'
 
@@ -103,6 +103,55 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
   async delete(id: string): Promise<boolean> {
     try {
       const result = await this.model.findByIdAndDelete(id).exec()
+      return result !== null
+    } catch (err: any) {
+      if (err.name === 'CastError') return false
+      throw err
+    }
+  }
+
+  // ── Org-scoped by-id operations (FR-20.7) ──
+  //
+  // ⚠ The filter is {_id, orgId}, never "load by id, then compare orgId": the write must not be
+  // able to land on another org's document even between a check and the write.
+
+  async findByIdInOrg(id: string, orgId: string): Promise<T | null> {
+    if (!orgId) return null
+    try {
+      const doc = await this.model.findOne({ _id: id, orgId }).lean().exec()
+      return doc ? toEntity<T>(doc) : null
+    } catch (err: any) {
+      if (err.name === 'CastError') return null
+      throw err
+    }
+  }
+
+  async updateInOrg(id: string, orgId: string, data: Partial<T>): Promise<T | null> {
+    if (!orgId) return null
+    // ⚠ The body is DATA, never an update document. Passed through as one, `{"$set": {"orgId": B}}`
+    // re-parents the document past the `orgId` strip below (and `$unset` / `$rename` likewise),
+    // because most PUT schemas allow additional properties. Refused rather than dropped: the
+    // caller sent an operator, so it did not get what it asked for.
+    const operators = Object.keys(data ?? {}).filter(k => k.startsWith('$'))
+    if (operators.length) {
+      throw new ValidationError(`Update operators are not accepted in a document body: ${operators.join(', ')}`)
+    }
+    try {
+      // Never re-parent: an `orgId` (or `_id`) in the body is dropped, whatever the route's schema.
+      const { orgId: _o, _id: _i, ...rest } = (data ?? {}) as any
+      const mongoData = { $set: toDocument(rest) }
+      const doc = await this.model.findOneAndUpdate({ _id: id, orgId }, mongoData, { new: true }).lean().exec()
+      return doc ? toEntity<T>(doc) : null
+    } catch (err: any) {
+      if (err.name === 'CastError') return null
+      throw err
+    }
+  }
+
+  async deleteInOrg(id: string, orgId: string): Promise<boolean> {
+    if (!orgId) return false
+    try {
+      const result = await this.model.findOneAndDelete({ _id: id, orgId }).exec()
       return result !== null
     } catch (err: any) {
       if (err.name === 'CastError') return false

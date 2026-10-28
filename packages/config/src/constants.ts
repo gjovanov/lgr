@@ -26,17 +26,6 @@ export const PERMISSIONS = [
 ] as const
 export type Permission = (typeof PERMISSIONS)[number]
 
-/**
- * Maps legacy `trade.*` permissions to their new granular equivalents.
- * Used to expand existing JWTs and DB records during the transition period.
- */
-export const LEGACY_PERMISSION_MAP: Record<string, string[]> = {
-  'trade.read': ['inventory.read', 'invoicing.read', 'pos.read'],
-  'trade.write': ['inventory.write', 'invoicing.write', 'pos.write'],
-  'trade.adjust': ['inventory.adjust'],
-  'trade.send': ['invoicing.send'],
-}
-
 export const MODULES = [
   'accounting', 'inventory', 'invoicing', 'pos', 'payroll', 'reports',
 ] as const
@@ -79,6 +68,16 @@ export const INVOICE_DIRECTIONS = ['outgoing', 'incoming'] as const
 export const INVOICE_STATUSES = ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'voided', 'cancelled'] as const
 
 export const PRODUCT_TYPES = ['goods', 'service', 'raw_material', 'finished_product'] as const
+
+/**
+ * Price-tier slots a product can hold: Доставна цена, Цена на едро, and Цена 0..Цена 10.
+ *
+ * ONE number for the model's validator, the goods-receipt and bill product updates and every
+ * form that pads or truncates tiers. When the tiers went 10 → 13 (04d2c5f4) the forms moved and
+ * `sanitizeProductUpdates` kept its own 10, so every receipt "with product update" on an article
+ * with a selling price answered 422 (FR-22 B-1).
+ */
+export const MAX_PRICE_TIERS = 13
 export const MOVEMENT_TYPES = ['receipt', 'dispatch', 'transfer', 'adjustment', 'return', 'production_in', 'production_out'] as const
 
 export const EMPLOYMENT_TYPES = ['full_time', 'part_time', 'contract', 'intern'] as const

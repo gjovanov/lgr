@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 /**
  * Learned per-supplier product-name mapping.
@@ -50,5 +51,7 @@ const aliasSchema = new Schema<ISupplierProductAlias>(
 aliasSchema.plugin(tenantPlugin)
 aliasSchema.index({ orgId: 1, supplierId: 1, aliasNormalized: 1 }, { unique: true })
 aliasSchema.index({ orgId: 1, productId: 1 })
+
+replicate(aliasSchema, { class: 'R' })
 
 export const SupplierProductAlias = model<ISupplierProductAlias>('SupplierProductAlias', aliasSchema)

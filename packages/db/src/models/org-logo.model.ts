@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 /**
  * The tenant's own letterhead, stored as bytes.
@@ -45,5 +46,7 @@ orgLogoSchema.plugin(tenantPlugin)
 // One logo per org — every upload upserts this row. Set on the path the plugin already
 // declared rather than adding a second `schema.index()`, which Mongoose flags as a duplicate.
 orgLogoSchema.path('orgId').index({ unique: true })
+
+replicate(orgLogoSchema, { class: 'R' })
 
 export const OrgLogo = model<IOrgLogo>('OrgLogo', orgLogoSchema)

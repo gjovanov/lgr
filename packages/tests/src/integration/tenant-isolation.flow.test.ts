@@ -4,6 +4,7 @@ import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser, createTestContact } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
+import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import type { Types } from 'mongoose'
@@ -310,6 +311,281 @@ describe('cross-tenant writes (gjovanov/lgr#41)', () => {
 
     expect(handled).toEqual([])
   }, 180_000)
+})
+
+// ── By-id routes (FR-20.7, AC 5) ──────────────────────────────────────────────────────────
+//
+// The sweeps above put another org's id in `:orgId`, which the guard refuses. This one asks
+// the other question: the caller's OWN `:orgId`, with the id of a document that belongs to
+// someone else. The guard has nothing to say about that — the handler's query has to.
+//
+// How it measures, with no per-route fixtures (so a route mounted next year is covered too):
+//   • ONE id, `PROBE`, is inserted into EVERY collection as a document of org B, carrying a
+//     marker in the string fields lists and forms usually return;
+//   • every org-scoped route with an extra path parameter is called by A, in A's own org, with
+//     `PROBE` in every parameter;
+//   • a route LEAKS if the marker comes back in its body, or if any of B's probe documents
+//     changed or disappeared. The second test is what catches writes, which answer whatever
+//     they answer — a PUT that re-parents B's document can return 200 and look perfectly normal.
+//
+// Positive control: the same GETs made by B, in B's own org, must find the marker — otherwise
+// a probe that reaches no handler would pass this vacuously.
+//
+// ⚠ Raw inserts skip validation, so a handler can 500 on the probe's thin shape before it reads
+// or writes anything. That makes a 5xx route unmeasured, not safe — which is why the static
+// test below exists alongside this one.
+
+const PROBE_MARK = 'xorg-probe-7c1f'
+const PROBE_FIELDS = [
+  'name', 'title', 'description', 'notes', 'code', 'companyName', 'firstName', 'lastName',
+  'number', 'reference', 'invoiceNumber', 'email', 'label',
+]
+/** Routes that answer for a document of another org BY DESIGN, with the reason. */
+const BY_ID_EXEMPT: Record<string, string> = {}
+
+function byIdRoutes(): Array<{ method: string; path: string }> {
+  const routes = (createApiApp() as any).routes as Array<{ method: string; path: string }>
+  return routes.filter(r => r.path.includes(':orgId') && (r.path.match(/:/g) || []).length > 1)
+}
+
+async function probeCollections() {
+  const { mongoose } = await import('db/connection')
+  const { NODE_STATE_MODELS } = await import('db/home/node-state')
+  const db = mongoose.connection.db!
+  // ⚠ Node state is not org data, and a probe row there is not inert: a marker document in
+  // `org_homes` is a malformed home for B, so the write guard refuses every write of B for the
+  // rest of the run (P0b-2). No route serves node state, so the probe has nothing to find there.
+  const nodeState = new Set([...NODE_STATE_MODELS]
+    .filter(n => mongoose.modelNames().includes(n))
+    .map(n => mongoose.model(n).collection.collectionName))
+  return (await db.listCollections().toArray())
+    .map(c => c.name)
+    .filter(n => !n.startsWith('system.') && !nodeState.has(n))
+    .map(n => db.collection(n))
+}
+
+async function snapshot(probeId: Types.ObjectId): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  for (const c of await probeCollections()) {
+    const doc = await c.findOne({ _id: probeId })
+    out.set(c.collectionName, doc ? JSON.stringify(doc) : '<gone>')
+  }
+  return out
+}
+
+async function call(method: string, path: string, token: string): Promise<{ status: number; text: string }> {
+  const req = app.handle(
+    new Request(`http://localhost${path}`, {
+      method,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      // `{}` reaches a handler with no body schema and is refused by one with a schema. Either
+      // way it can carry no field of its own; an `orgId` attempt is asserted separately below.
+      body: method === 'GET' || method === 'DELETE' ? undefined : '{}',
+    }),
+  )
+  const timeout = new Promise<Response>(r => setTimeout(() => r(new Response('timeout', { status: 599 })), 15_000))
+  const res = await Promise.race([req, timeout])
+  return { status: res.status, text: await res.text().catch(() => '') }
+}
+
+describe('by-id routes are scoped by org (FR-20.7)', () => {
+  let probeId: Types.ObjectId
+  let before: Map<string, string>
+
+  beforeAll(async () => {
+    const { mongoose } = await import('db/connection')
+    // Every model's collection exists, so the probe document goes where each route looks.
+    for (const name of mongoose.modelNames()) await mongoose.model(name).createCollection().catch(() => {})
+    probeId = new mongoose.Types.ObjectId()
+    const doc: Record<string, unknown> = { _id: probeId, orgId: B._id, isActive: true }
+    for (const f of PROBE_FIELDS) doc[f] = PROBE_MARK
+    for (const c of await probeCollections()) await c.insertOne({ ...doc }).catch(() => {})
+    before = await snapshot(probeId)
+  }, 120_000)
+
+  afterAll(async () => {
+    // Later suites in this file count rows; the probe must not be one of them.
+    for (const c of await probeCollections()) await c.deleteOne({ _id: probeId }).catch(() => {})
+  })
+
+  async function sweep(token: string, org: Tenant, methods: string[]) {
+    const found: string[] = []
+    const changed: string[] = []
+    for (const r of byIdRoutes().filter(r => methods.includes(r.method))) {
+      if (`${r.method} ${r.path}` in BY_ID_EXEMPT) continue
+      const url = r.path.replace(':orgId', org.orgId).replace(/:\w+/g, String(probeId))
+      const res = await call(r.method, url, token)
+      if (res.text.includes(PROBE_MARK)) found.push(`${r.method} ${r.path} → ${res.status}`)
+      if (r.method !== 'GET') {
+        const after = await snapshot(probeId)
+        const diff = [...before].filter(([k, v]) => after.get(k) !== v).map(([k]) => k)
+        if (diff.length) {
+          changed.push(`${r.method} ${r.path} → ${res.status} (${diff.join(', ')})`)
+          // Put B's documents back, so one leaking route cannot mask the next.
+          const { mongoose } = await import('db/connection')
+          for (const k of diff) {
+            const c = mongoose.connection.db!.collection(k)
+            await c.deleteOne({ _id: probeId })
+            await c.insertOne(JSON.parse(before.get(k)!, (key, v) => (key === '_id' ? probeId : key === 'orgId' ? B._id : v)))
+          }
+        }
+      }
+    }
+    return { found, changed }
+  }
+
+  it('no by-id route returns another org\'s document to a caller in its own org', async () => {
+    const { found } = await sweep(A.token, A, ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])
+    expect(found).toEqual([])
+  }, 600_000)
+
+  it('no by-id route changes or deletes another org\'s document', async () => {
+    const { changed } = await sweep(A.token, A, ['POST', 'PUT', 'DELETE', 'PATCH'])
+    expect(changed).toEqual([])
+  }, 600_000)
+
+  it('positive control: the owner\'s GETs DO find the probe, so the sweep reaches handlers', async () => {
+    const { found } = await sweep(B.token, B, ['GET'])
+    expect(found.length).toBeGreaterThan(20)
+  }, 600_000)
+
+  it('every exemption is still mounted', () => {
+    const mounted = new Set(byIdRoutes().map(r => `${r.method} ${r.path}`))
+    expect(Object.keys(BY_ID_EXEMPT).filter(k => !mounted.has(k))).toEqual([])
+  })
+
+  it('no controller passes a URL id to an unscoped repository method', async () => {
+    // The sweep cannot measure a route that 5xxs on the probe's thin shape, or one whose body
+    // schema refuses `{}` before the handler runs. This closes those by construction: a repo's
+    // `findById` / `update` / `delete` take no org, so a URL id must go to their `…InOrg` twins.
+    const { Glob } = await import('bun')
+    const root = new URL('../../../', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')
+    const bare = /\b(?:r|repos|getRepos\(\))\.\w+\.(?:findById|update|delete)\(\s*(?:params\.\w+|id)\s*[,)]/
+    const offenders: string[] = []
+    for await (const f of new Glob('*-api/src/controllers/*.ts').scan(root)) {
+      const lines = (await Bun.file(root + f).text()).split('\n')
+      lines.forEach((l, i) => { if (bare.test(l)) offenders.push(`${f}:${i + 1}: ${l.trim()}`) })
+    }
+    expect(offenders).toEqual([])
+  })
+})
+
+describe('a document never changes org through a by-id route (FR-20.7)', () => {
+  async function send(method: string, path: string, token: string, body?: unknown) {
+    const res = await app.handle(new Request(`http://localhost${path}`, {
+      method,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }))
+    return { status: res.status, body: await res.json().catch(() => null) as any }
+  }
+  const bankAccounts = (t: Tenant) => `/api/org/${t.orgId}/accounting/bank-account`
+
+  it('a PUT carrying orgId is refused, and the document stays in its org', async () => {
+    const created = await send('POST', bankAccounts(A), A.token, { name: 'Main', bankName: 'Bank', accountNumber: '1', currency: 'EUR', accountId: String(A._id) })
+    expect(created.status).toBe(200)
+    const id = created.body.bankAccount.id
+
+    const moved = await send('PUT', `${bankAccounts(A)}/${id}`, A.token, { name: 'Moved', orgId: B.orgId })
+    expect(moved.status).toBe(422)
+
+    const after = await send('GET', `${bankAccounts(A)}/${id}`, A.token)
+    expect(after.status).toBe(200)
+    expect(after.body.bankAccount.name).toBe('Main')
+    expect(String(after.body.bankAccount.orgId)).toBe(A.orgId)
+  })
+
+  it('a PUT carrying an update operator is refused with 422, and the document stays in its org', async () => {
+    // With the production error handler mounted: the 422 is its translation of the DAL refusal.
+    const served = new Elysia().onError(spaErrorHandler({}) as any).use(createApiApp())
+    const created = await send('POST', bankAccounts(A), A.token, { name: 'Main', bankName: 'Bank', accountNumber: '3', currency: 'EUR', accountId: String(A._id) })
+    const id = created.body.bankAccount.id
+
+    for (const body of [
+      { $set: { orgId: B.orgId, name: 'planted in B' } },
+      { $unset: { orgId: 1 } },
+      { $rename: { orgId: 'formerOrgId' } },
+    ]) {
+      const res = await served.handle(new Request(`http://localhost${bankAccounts(A)}/${id}`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${A.token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }))
+      expect(res.status).toBe(422)
+    }
+
+    const after = await send('GET', `${bankAccounts(A)}/${id}`, A.token)
+    expect(after.body.bankAccount.name).toBe('Main')
+    expect(String(after.body.bankAccount.orgId)).toBe(A.orgId)
+  })
+
+  it('no by-id PUT or PATCH moves the caller\'s own document with an update operator', async () => {
+    // The route-table version of the case above: ONE id, inserted into every collection as a
+    // document of the CALLER's org (A), then every by-id PUT/PATCH is sent bodies that would
+    // re-parent it. A route mounted next year is covered the day it is mounted.
+    const { mongoose } = await import('db/connection')
+    for (const name of mongoose.modelNames()) await mongoose.model(name).createCollection().catch(() => {})
+    const probeId = new mongoose.Types.ObjectId()
+    const doc: Record<string, unknown> = { _id: probeId, orgId: A._id, isActive: true }
+    for (const f of PROBE_FIELDS) doc[f] = PROBE_MARK
+    for (const c of await probeCollections()) await c.insertOne({ ...doc }).catch(() => {})
+
+    const bodies = [
+      { $set: { orgId: B.orgId } },
+      { $unset: { orgId: 1 } },
+      { $rename: { orgId: 'formerOrgId' } },
+    ]
+    const moved: string[] = []
+    try {
+      for (const r of byIdRoutes().filter(r => r.method === 'PUT' || r.method === 'PATCH')) {
+        const url = r.path.replace(':orgId', A.orgId).replace(/:\w+/g, String(probeId))
+        for (const body of bodies) {
+          await app.handle(new Request(`http://localhost${url}`, {
+            method: r.method,
+            headers: { authorization: `Bearer ${A.token}`, 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          }))
+          for (const c of await probeCollections()) {
+            const now = await c.findOne({ _id: probeId })
+            if (now && String(now.orgId) !== A.orgId) {
+              moved.push(`${r.method} ${r.path} ${Object.keys(body)[0]} → ${c.collectionName}`)
+              // Put it back, so one leaking route cannot mask the next.
+              await c.updateOne({ _id: probeId }, { $set: { orgId: A._id }, $unset: { formerOrgId: 1 } })
+            }
+          }
+        }
+      }
+    } finally {
+      for (const c of await probeCollections()) await c.deleteOne({ _id: probeId }).catch(() => {})
+    }
+
+    expect(moved).toEqual([])
+  }, 600_000)
+
+  it('another org\'s document answers 404 to GET, PUT and DELETE, and is left as it was', async () => {
+    const { getRepos } = await import('services/context')
+    const theirs = await getRepos().bankAccounts.create({ orgId: B.orgId, name: 'B main', bankName: 'Bank', accountNumber: '2', currency: 'EUR', accountId: String(B._id) } as any)
+    const path = `${bankAccounts(A)}/${theirs.id}`
+
+    expect((await send('GET', path, A.token)).status).toBe(404)
+    expect((await send('PUT', path, A.token, { name: 'mine now' })).status).toBe(404)
+    expect((await send('DELETE', path, A.token)).status).toBe(404)
+
+    const still = await getRepos().bankAccounts.findById(theirs.id) as any
+    expect(still?.name).toBe('B main')
+    expect(String(still?.orgId)).toBe(B.orgId)
+  })
+
+  it('a system exchange rate (orgId null) is readable through an org route, never writable', async () => {
+    const { ExchangeRate } = await import('db/models')
+    const rate = await ExchangeRate.create({ orgId: null, fromCurrency: 'EUR', toCurrency: 'BGN', rate: 1.95583, date: new Date(), source: 'api' } as any)
+    const path = `/api/org/${A.orgId}/accounting/exchange-rate/${rate._id}`
+
+    expect((await send('GET', path, A.token)).status).toBe(200)
+    expect((await send('PUT', path, A.token, { rate: 2 })).status).toBe(404)
+    expect((await send('DELETE', path, A.token)).status).toBe(404)
+    expect((await ExchangeRate.findById(rate._id).lean() as any)?.rate).toBe(1.95583)
+  })
 })
 
 // ── The three the issue demonstrated by hand ──────────────────────────────────────────────

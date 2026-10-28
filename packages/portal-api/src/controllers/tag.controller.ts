@@ -101,7 +101,7 @@ export const tagController = new Elysia({ prefix: '/org/:orgId/tags' })
       )
     }
 
-    await Tag.deleteOne({ _id: id })
+    await Tag.deleteOne({ _id: id, orgId })
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'admin', entityType: 'tag', entityId: id, entityName: tag.value })
 

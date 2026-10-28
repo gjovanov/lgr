@@ -1,6 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import {
+  getOrg,
+  getToken,
+  lastOrgId,
+  logoutEverywhere,
+  setSession,
+  updateOrg,
+} from 'ui-shared/session/session'
+import type { OrgChoice } from 'ui-shared/session/useOrgSession'
 import { getI18n, getVuetify } from 'ui-shared/plugins'
 
 export interface User {
@@ -49,13 +58,37 @@ export interface Organization {
   bankDetails?: OrgBankDetail[]
 }
 
+/** Who is signed in, as a person (from `/auth/me` or a sign-in that has not chosen an org). */
+export interface Person {
+  id: string
+  email: string
+  firstName: string
+  lastName: string
+  emailVerified?: boolean
+  hasPassword?: boolean
+  passwordSetBy?: 'self' | 'admin' | 'legacy' | null
+  providers?: { provider: string; verified: boolean }[]
+  /** FR-20.42: on a linked master, the lgrai.app where the person's name, email and password are changed. */
+  manageOn?: string | null
+}
+
+/** What `/auth/login` and the OAuth redeem answer. */
+export interface SignInAnswer {
+  token: string
+  needsOrgChoice: boolean
+  user?: User
+  org?: Organization
+  orgs?: OrgChoice[]
+  identity?: Person
+}
+
 export const useAppStore = defineStore('app', () => {
-  // Auth state
-  const token = ref(localStorage.getItem('lgr_token') || '')
+  // Auth state: this tab's session (multi-org: each tab keeps its own org, see ui-shared/session).
+  const token = ref(getToken())
   const user = ref<User | null>(null)
-  const currentOrg = ref<Organization | null>(
-    JSON.parse(localStorage.getItem('lgr_org') || 'null')
-  )
+  const currentOrg = ref<Organization | null>(getOrg<Organization>())
+  /** The signed-in person, when known (a linked account). */
+  const person = ref<Person | null>(null)
 
   // UI state
   const leftDrawer = ref(true)
@@ -80,13 +113,18 @@ export const useAppStore = defineStore('app', () => {
   }
 
   // Actions
-  async function login(username: string, password: string, orgSlug: string) {
-    const { data } = await httpClient.post('/auth/login', { username, password, orgSlug })
-    token.value = data.token
-    user.value = data.user
-    currentOrg.value = data.org
-    localStorage.setItem('lgr_token', data.token)
-    localStorage.setItem('lgr_org', JSON.stringify(data.org))
+  /**
+   * Sign in with a username or an email. `orgSlug` is optional: without it the person lands in
+   * the org this browser was last in, or one they chose before, or chooses (`needsOrgChoice`).
+   */
+  async function login(username: string, password: string, orgSlug?: string): Promise<SignInAnswer> {
+    const body: Record<string, string> = { username, password }
+    if (orgSlug?.trim()) body.orgSlug = orgSlug.trim()
+    const preferred = lastOrgId()
+    if (preferred) body.preferredOrgId = preferred
+    const { data } = await httpClient.post('/auth/login', body)
+    applySession(data)
+    return data
   }
 
   async function register(payload: {
@@ -102,7 +140,7 @@ export const useAppStore = defineStore('app', () => {
   }) {
     // ⚠ A password registration does NOT sign anyone in. The account is created inactive and is
     // activated from the emailed link (S-06), so there is no token to store. This used to write
-    // `data.token` regardless, which put the string "undefined" in `lgr_token`: the router then
+    // `data.token` regardless, which stored the string "undefined" as the session: the router then
     // believed the visitor was signed in, and the first API call bounced them out with a 401.
     const { data } = await httpClient.post('/auth/register', payload)
     return data as { message: string; userId: string; org: { id: string; name: string; slug: string } }
@@ -142,11 +180,7 @@ export const useAppStore = defineStore('app', () => {
     username: string
   }) {
     const { data } = await httpClient.post('/oauth/pending/register', payload)
-    token.value = data.token
-    user.value = data.user
-    currentOrg.value = data.org
-    localStorage.setItem('lgr_token', data.token)
-    localStorage.setItem('lgr_org', JSON.stringify(data.org))
+    applySession(data)
   }
 
   /**
@@ -157,9 +191,10 @@ export const useAppStore = defineStore('app', () => {
    * callback set — there is nothing to pass in, and nothing was read from the URL. The URL used
    * to carry the JWT, which let anyone sign a visitor into their own account.
    */
-  async function completeOAuthLogin() {
+  async function completeOAuthLogin(): Promise<SignInAnswer> {
     const { data } = await httpClient.post('/auth/oauth-code/redeem')
     applySession(data)
+    return data
   }
 
   /**
@@ -174,26 +209,43 @@ export const useAppStore = defineStore('app', () => {
     applySession(data)
   }
 
-  /**
-   * ⚠ Exactly what `login()` does with its response, in one place. The SPAs treat a browser as
-   * signed in only when `localStorage.lgr_token` is set and send it as a bearer header, so a
-   * cookie alone leaves the app looking signed out to its own router — which is why both redeem
-   * paths mirror the login response rather than inventing a shape.
-   */
-  function applySession(data: any) {
-    token.value = data.token
-    user.value = data.user
-    currentOrg.value = data.org
-    localStorage.setItem('lgr_token', data.token)
-    localStorage.setItem('lgr_org', JSON.stringify(data.org))
+  /** FR-20.39: on a master, the code lgrai.app sent the person back with, redeemed by the server. */
+  async function completeLgrSignIn(code: string, codeVerifier: string, redirectUri: string): Promise<SignInAnswer> {
+    const { data } = await httpClient.post('/auth/idp/redeem', { code, codeVerifier, redirectUri })
+    applySession(data)
+    return data
   }
 
-  function logout() {
+  /**
+   * ⚠ Every sign-in answer becomes this tab's session here, in one place. The SPAs treat a tab as
+   * signed in only when it holds a session token and send it as a bearer header, so a cookie
+   * alone leaves the app looking signed out to its own router. That is why both redeem paths
+   * mirror the login response rather than inventing a shape.
+   *
+   * A person who has not chosen an org yet (`needsOrgChoice`) holds an identity-only token: it
+   * reaches their org list and the switch, nothing else, and the router sends them to the picker.
+   */
+  function applySession(data: SignInAnswer) {
+    token.value = data.token
+    if (data.needsOrgChoice) {
+      setSession(data.token, null)
+      user.value = null
+      currentOrg.value = null
+      person.value = data.identity ?? null
+      return
+    }
+    setSession(data.token, data.org ?? null)
+    user.value = data.user ?? null
+    currentOrg.value = data.org ?? null
+  }
+
+  /** Sign out of this tab and of every other tab where the same person is signed in. */
+  async function logout() {
+    await logoutEverywhere(() => httpClient.post('/auth/logout'))
     token.value = ''
     user.value = null
     currentOrg.value = null
-    localStorage.removeItem('lgr_token')
-    localStorage.removeItem('lgr_org')
+    person.value = null
   }
 
   function setTheme(newTheme: string) {
@@ -216,9 +268,14 @@ export const useAppStore = defineStore('app', () => {
     const { data } = await httpClient.get('/auth/me')
     user.value = data.user
     currentOrg.value = data.org
-    if (data.org) {
-      localStorage.setItem('lgr_org', JSON.stringify(data.org))
-    }
+    person.value = data.identity ?? null
+    if (data.org) updateOrg(data.org)
+  }
+
+  /** This tab's session after a password change: the server ended every other one. */
+  function replaceToken(next: string) {
+    setSession(next, currentOrg.value)
+    token.value = next
   }
 
   function toggleDrawer() {
@@ -230,6 +287,7 @@ export const useAppStore = defineStore('app', () => {
     token,
     user,
     currentOrg,
+    person,
     leftDrawer,
     locale,
     theme,
@@ -250,6 +308,9 @@ export const useAppStore = defineStore('app', () => {
     registerOAuth,
     completeOAuthLogin,
     completeDesktopOAuthLogin,
+    completeLgrSignIn,
+    applySession,
+    replaceToken,
     logout,
     setTheme,
     toggleTheme,

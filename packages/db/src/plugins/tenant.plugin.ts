@@ -1,7 +1,9 @@
 import type { Schema } from 'mongoose'
+import { homeWriteGuard } from '../home/write-guard.js'
 
 /**
- * Adds `orgId` to a schema. That is ALL it does, and now the code says so.
+ * Adds `orgId` to a schema, and (FR-20.4) the write guard that refuses writes to an org whose home
+ * is elsewhere — see `home/write-guard.ts`. It still does NOT filter queries:
  *
  * ⚠ It does NOT filter queries by tenant, and never did. Until gjovanov/lgr#41 this function
  * also registered `pre('find')`, `pre('findOne')` and `pre('countDocuments')` hooks whose
@@ -38,4 +40,6 @@ export function tenantPlugin(schema: Schema) {
       index: true,
     },
   })
+  // FR-20.4: a write to an org whose home is elsewhere is refused, whatever makes it.
+  homeWriteGuard(schema)
 }

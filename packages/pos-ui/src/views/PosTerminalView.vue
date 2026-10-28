@@ -66,87 +66,69 @@
         </div>
       </div>
 
-      <v-row>
-        <!-- Product Catalog -->
-        <v-col cols="12" md="7">
-          <v-card>
-            <v-card-text class="pb-2">
-              <v-row dense>
-                <v-col cols="12" sm="4">
-                  <v-text-field v-model="productSearch" prepend-inner-icon="mdi-magnify" :label="$t('pos.searchProducts')" single-line hide-details clearable autofocus @update:model-value="onSearchChange" />
-                </v-col>
-                <v-col cols="6" sm="2">
-                  <v-select v-model="categoryFilter" :items="categoryOptions" :label="$t('warehouse.category')" clearable hide-details density="compact" @update:model-value="fetchCatalog(0)" />
-                </v-col>
-                <v-col cols="6" sm="2">
-                  <v-select v-model="typeFilter" :items="typeOptions" :label="$t('common.type')" clearable hide-details density="compact" @update:model-value="fetchCatalog(0)" />
-                </v-col>
-                <v-col cols="12" sm="4">
-                  <TagInput v-model="tagFilter" type="product" :org-url="appStore.orgUrl()" :label="$t('pos.filterByTags')" @update:model-value="fetchCatalog(0)" />
-                </v-col>
-              </v-row>
-            </v-card-text>
-            <v-card-text class="pt-0">
-              <v-row>
-                <v-col v-for="product in catalogProducts" :key="product.productId" cols="6" sm="4" md="3">
-                  <v-card variant="outlined" class="text-center pa-2 cursor-pointer" hover @click="addToCart(product)">
-                    <v-icon size="32" class="mb-1">mdi-package-variant</v-icon>
-                    <div class="text-caption">{{ product.productName }}</div>
-                    <div class="text-body-2 font-weight-bold">{{ fmt(product.unitPrice, 4) }}</div>
-                    <div v-if="product.stockAvailable !== null" class="text-caption text-medium-emphasis">{{ $t('pos.stock') }}: {{ product.stockAvailable }}</div>
-                  </v-card>
-                </v-col>
-                <v-col v-if="catalogProducts.length === 0 && !catalogLoading" cols="12">
-                  <div class="text-center text-disabled pa-8">{{ $t('common.noData') }}</div>
-                </v-col>
-              </v-row>
-              <div v-if="catalogTotalPages > 1" class="d-flex justify-center mt-4">
-                <v-pagination v-model="catalogPage" :length="catalogTotalPages" :total-visible="5" density="compact" @update:model-value="(p: number) => fetchCatalog(p - 1)" />
-              </div>
-            </v-card-text>
-          </v-card>
-        </v-col>
-
-        <!-- Cart -->
-        <v-col cols="12" md="5">
-          <v-card>
-            <v-card-title>{{ $t('pos.cart') }} ({{ cart.length }})</v-card-title>
-            <v-card-text>
-              <v-list v-if="cart.length > 0" density="compact">
-                <v-list-item v-for="(item, idx) in cart" :key="idx">
-                  <v-list-item-title>{{ item.name }}</v-list-item-title>
-                  <v-list-item-subtitle>{{ item.quantity }} x {{ fmt(item.unitPrice, 4) }}</v-list-item-subtitle>
-                  <template #prepend>
-                    <div class="d-flex align-center mr-2">
-                      <v-btn icon="mdi-minus" size="x-small" variant="text" @click="decrementQty(idx)" />
-                      <span class="mx-1">{{ item.quantity }}</span>
-                      <v-btn icon="mdi-plus" size="x-small" variant="text" @click="item.quantity++" />
-                    </div>
-                  </template>
-                  <template #append>
-                    <span class="text-body-2 font-weight-bold mr-2">{{ fmt(item.quantity * item.unitPrice, 4) }}</span>
-                    <v-btn icon="mdi-close" size="x-small" variant="text" color="error" @click="cart.splice(idx, 1)" />
-                  </template>
-                </v-list-item>
-              </v-list>
-              <div v-else class="text-center text-disabled pa-8">{{ $t('pos.emptyCart') }}</div>
-            </v-card-text>
-            <v-divider />
-            <v-card-text>
-              <div class="d-flex justify-space-between mb-1"><span>{{ $t('pos.subtotal') }}</span><span>{{ fmt(subtotal) }}</span></div>
-              <div class="d-flex justify-space-between mb-1"><span>{{ $t('pos.tax') }}</span><span>{{ fmt(taxAmount) }}</span></div>
-              <v-divider class="my-2" />
-              <div class="d-flex justify-space-between text-h6"><span>{{ $t('pos.total') }}</span><span>{{ fmt(total) }}</span></div>
-            </v-card-text>
-            <v-card-text>
+      <!-- FR-21.29: the catalog, the cart and the totals are the one RegisterTerminal the back
+           office sells through too; the till hands in its last sale and its payment. -->
+      <RegisterTerminal
+        ref="terminal"
+        :org-url="orgUrl()"
+        :currency="currency"
+        :warehouse-id="activeSession.warehouseId"
+        :active="!!activeSession"
+        :lines="cart"
+        :totals="totals"
+        :line-gross="lineGross"
+        :filters="{ type: true, tags: true }"
+        @add="addToCart"
+        @quantity="(idx: number, q: number) => { cart[idx].quantity = q }"
+        @remove="(idx: number) => cart.splice(idx, 1)"
+        @price="onLinePriceSelected"
+      >
+        <template #cart-top>
+              <!-- FR-22.54: the sale just made stays on screen until the next article goes into
+                   the cart: its number, what was paid, and what printed — or that nothing did. -->
+              <v-alert
+                v-if="lastSale"
+                :type="lastSale.tone"
+                variant="tonal"
+                density="compact"
+                data-testid="last-sale"
+              >
+                <div class="d-flex align-baseline justify-space-between flex-wrap ga-2">
+                  <span class="font-weight-bold" data-testid="last-sale-number">{{ $t('pos.lastSale.title', { number: lastSale.number }) }}</span>
+                  <span class="text-subtitle-1 font-weight-bold" data-testid="last-sale-total">{{ fmt(lastSale.total) }}</span>
+                </div>
+                <div class="text-body-2">
+                  {{ lastSale.paidBy }}<template v-if="lastSale.change > 0"> · {{ $t('pos.lastSale.change', { amount: fmt(lastSale.change) }) }}</template>
+                </div>
+                <div v-if="lastSale.receipt" class="text-body-2" data-testid="last-sale-receipt">{{ lastSale.receipt }}</div>
+                <div v-for="w in lastSale.warnings" :key="w" class="text-body-2 font-weight-medium">{{ w }}</div>
+              </v-alert>
+              <div v-else-if="!cart.length" class="text-center text-disabled pa-8">{{ $t('pos.emptyCart') }}</div>
+        </template>
+        <template #cart-actions>
+              <!-- #145: one price for the whole document — the named price every line switches
+                   to (and every line added after). A product without that price keeps its own. -->
+              <v-select
+                v-model="docPriceName"
+                :label="$t('pos.priceForAll')"
+                :items="docPriceItems"
+                item-title="title"
+                item-value="value"
+                :loading="docPriceLoading"
+                :disabled="cart.length === 0 && !docPriceName"
+                hide-details
+                clearable
+                class="mb-4"
+                data-testid="doc-price"
+                @update:menu="(open: boolean) => open && loadDocPriceNames()"
+                @update:model-value="applyDocPrice"
+              />
               <v-select v-model="paymentMethod" :label="$t('pos.paymentMethod')" :items="paymentMethods" item-title="title" item-value="value" hide-details class="mb-4" />
               <v-btn color="success" size="large" block :disabled="cart.length === 0" :loading="loading" @click="completeSale">
                 {{ $t('pos.completeSale') }}
               </v-btn>
-            </v-card-text>
-          </v-card>
-        </v-col>
-      </v-row>
+        </template>
+      </RegisterTerminal>
     </template>
 
     <!-- Open Session Dialog -->
@@ -210,13 +192,20 @@ import { useI18n } from 'vue-i18n'
 import { computePosTotals } from 'config/pos-totals'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { createIdempotentAction, isOutcomeUnknown } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
-import TagInput from 'ui-shared/components/TagInput.vue'
+import { registerSwitchGuard } from 'ui-shared/session/switch-guards'
+import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
+import RegisterTerminal from 'ui-shared/components/cash-register/RegisterTerminal.vue'
+import { fetchPriceOptions, priceOptionLabel, type PriceOption } from 'ui-shared/composables/usePriceOptions'
 import CloseSessionDialog from '../components/CloseSessionDialog.vue'
 import { useFiscalBridgeAlerts } from '../composables/useFiscalBridgeAlerts'
 
-interface CartItem { productId: string; name: string; quantity: number; unitPrice: number; taxRate: number }
+/** `priceName`: the named price chosen for the line (#145), shown beside it; unset = selling price. */
+interface CartItem { productId: string; name: string; quantity: number; unitPrice: number; taxRate: number; priceName?: string }
+/** FR-22.54: the sale just completed, as the cart area shows it until the next article goes in. */
+interface LastSale { number: string; total: number; change: number; paidBy: string; receipt: string; warnings: string[]; tone: 'success' | 'warning' }
 interface CatalogProduct { productId: string; productName: string; unitPrice: number; taxRate: number; stockAvailable: number | null; type?: string; category?: string }
 interface Session { _id: string; sessionNumber: string; warehouseId: string; openedAt: string; status: string; totalSales: number }
 interface Warehouse { id: string; name: string }
@@ -229,27 +218,17 @@ useFiscalBridgeAlerts()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const loading = ref(false)
-const productSearch = ref('')
-const categoryFilter = ref<string | null>(null)
-const typeFilter = ref<string | null>(null)
-const tagFilter = ref<string[]>([])
-const categoryOptions = ref<{ title: string; value: string }[]>([])
-const typeOptions = [
-  { title: t('warehouse.goods'), value: 'goods' },
-  { title: t('warehouse.service'), value: 'service' },
-]
-const catalogPage = ref(1)
-const catalogTotalPages = ref(1)
-const catalogLoading = ref(false)
+/** FR-21.29: the catalog, the cart and the totals (`ui-shared`), which the back office sells through too. */
+const terminal = ref<{ reset: () => Promise<void>; refresh: () => Promise<void> } | null>(null)
 const cart = ref<CartItem[]>([])
 const paymentMethod = ref('cash')
+const lastSale = ref<LastSale | null>(null)
 const openSessionDialog = ref(false)
 const closeSessionDialog = ref(false)
 const openingBalance = ref(0)
 // FR-9.6: bypassing a configured fiscal device is a privileged decision. The server
 // enforces it too; this only decides whether to offer the checkbox.
 const canSkipFiscal = computed(() => ['admin', 'manager'].includes(appStore.user?.role || ''))
-const catalogProducts = ref<CatalogProduct[]>([])
 const warehouses = ref<Warehouse[]>([])
 const sessionWarehouseId = ref('')
 const sessions = ref<Session[]>([])
@@ -275,13 +254,11 @@ watch(() => fiscalBridge.status.value, async (val) => {
     } catch {}
   }
 })
-let searchTimer: ReturnType<typeof setTimeout> | null = null
-
+// #145: cash and card only. Mobile and voucher are no longer offered at the till; the server
+// still accepts them, so transactions recorded with them before stay readable and reportable.
 const paymentMethods = [
   { title: t('pos.cash'), value: 'cash' },
   { title: t('pos.card'), value: 'card' },
-  { title: t('pos.mobile'), value: 'mobile' },
-  { title: t('pos.voucher'), value: 'voucher' },
 ]
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
@@ -289,28 +266,90 @@ function fmt(n: number, decimals = 2) { return new Intl.NumberFormat(undefined, 
 
 const activeSession = computed<Session | null>(() => sessions.value.find(s => s.status === 'open') || null)
 
-function onSearchChange() {
-  if (searchTimer) clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => fetchCatalog(0), 300)
-}
-
 // The server validates with this same function and the receipt prints its numbers. Rounding
 // VAT per line here once asked for 21.48 while the receipt said 21.47 with 0.01 change.
 const totals = computed(() => computePosTotals(cart.value))
 const subtotal = computed(() => totals.value.subtotal)
 const taxAmount = computed(() => totals.value.taxTotal)
 const total = computed(() => totals.value.total)
+/** A line's gross, as the device prints it (FR-21.30). */
+const lineGross = (l: { quantity: number; unitPrice: number; taxRate?: number }) => computePosTotals([l]).total
 
 function addToCart(p: CatalogProduct) {
+  // The next customer's first article: the last sale's result has been seen.
+  lastSale.value = null
   const existing = cart.value.find(c => c.productId === p.productId)
   if (existing) { existing.quantity++ } else {
     cart.value.push({ productId: p.productId, name: p.productName, quantity: 1, unitPrice: p.unitPrice, taxRate: p.taxRate })
+    // A document-wide price applies to lines added after it was chosen, too.
+    if (docPriceName.value) void applyNamedPrice(cart.value.length - 1, docPriceName.value)
   }
 }
 
-function decrementQty(idx: number) {
-  if (cart.value[idx].quantity > 1) cart.value[idx].quantity--
-  else cart.value.splice(idx, 1)
+// ── #145: choosing a price, per line or for the whole document ────────────────────────────
+//
+// The options are the product's own named prices (`/pricing/options?all=true`: the selling price
+// and every „Цена N" tier). POS prices are NET, like those prices, so a chosen price drops
+// straight into `unitPrice`; the fiscal receipt adds VAT as it does for any line.
+
+/** The selling price is the one option with no name of its own; tiers match by name. */
+const BASE_PRICE = '__base__'
+const priceCache = new Map<string, PriceOption[]>()
+async function optionsFor(productId: string): Promise<PriceOption[]> {
+  if (!priceCache.has(productId)) {
+    const res = await fetchPriceOptions(orgUrl(), productId, undefined, 1, true)
+    priceCache.set(productId, res.options || [])
+  }
+  return priceCache.get(productId)!
+}
+function optionValue(o: PriceOption) { return o.type === 'base' ? BASE_PRICE : o.name }
+
+function onLinePriceSelected(idx: number, opt: PriceOption) {
+  const line = cart.value[idx]
+  if (!line) return
+  line.unitPrice = opt.price
+  line.priceName = opt.type === 'base' ? undefined : opt.name
+}
+
+const docPriceName = ref<string | null>(null)
+const docPriceLoading = ref(false)
+const docPriceItems = ref<{ title: string; value: string }[]>([])
+
+/** Every price name any line in the cart has — the choices for the whole document. */
+async function loadDocPriceNames() {
+  docPriceLoading.value = true
+  try {
+    const seen = new Map<string, string>()
+    for (const line of cart.value) {
+      for (const o of await optionsFor(line.productId)) {
+        const v = optionValue(o)
+        if (!seen.has(v)) seen.set(v, priceOptionLabel(o, t))
+      }
+    }
+    docPriceItems.value = [...seen].map(([value, title]) => ({ value, title }))
+  } finally {
+    docPriceLoading.value = false
+  }
+}
+
+/** Put line `idx` on the price called `name`. Returns false when the product has no such price. */
+async function applyNamedPrice(idx: number, name: string): Promise<boolean> {
+  const line = cart.value[idx]
+  if (!line) return false
+  const opt = (await optionsFor(line.productId)).find(o => optionValue(o) === name)
+  if (!opt) return false
+  onLinePriceSelected(idx, opt)
+  return true
+}
+
+async function applyDocPrice(name: string | null) {
+  if (!name) return // cleared: lines keep the prices they have
+  let missing = 0
+  for (let i = 0; i < cart.value.length; i++) {
+    if (!(await applyNamedPrice(i, name))) missing++
+  }
+  // ⚠ Say so rather than leave a mixed basket looking uniform.
+  if (missing) showSnackbar(t('pos.priceForAllMissing', { count: missing }), 'warning')
 }
 
 const deviceChooserOpen = ref(false)
@@ -406,36 +445,19 @@ async function cancelDeviceChoice() {
   await fiscalBridge.disconnect() // release the port that was opened for it
 }
 
+/**
+ * FR-21 R5 (owner, 2026-10-27): the terminal rings into the signed-in user's OWN session. It used to
+ * take the first open session in the org, so cashier B sold into cashier A's drawer; the server now
+ * refuses that (`session_not_yours`).
+ */
 async function fetchSessions() {
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/session`, { params: { size: 10, sortBy: 'openedAt', sortOrder: 'desc' } })
+    const cashierId = appStore.user?.id || jwtUserId()
+    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/session`, {
+      params: { size: 10, sortBy: 'openedAt', sortOrder: 'desc', ...(cashierId ? { cashierId } : {}) },
+    })
     sessions.value = data.sessions || []
   } catch { sessions.value = [] }
-}
-
-async function fetchCatalog(page = 0) {
-  catalogLoading.value = true
-  try {
-    const params: Record<string, any> = { page, size: 24 }
-    if (activeSession.value?.warehouseId) params.warehouseId = activeSession.value.warehouseId
-    if (productSearch.value) params.search = productSearch.value
-    if (categoryFilter.value) params.category = categoryFilter.value
-    if (typeFilter.value) params.type = typeFilter.value
-    if (tagFilter.value.length) params.tags = tagFilter.value.join(',')
-    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/catalog`, { params })
-    catalogProducts.value = data.products || []
-    catalogTotalPages.value = data.totalPages || 1
-    catalogPage.value = (data.page || 0) + 1
-  } catch { catalogProducts.value = [] }
-  finally { catalogLoading.value = false }
-}
-
-async function fetchCategories() {
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/warehouse/product-category`, { params: { size: 0 } })
-    const cats = data.productCategories || data.categories || []
-    categoryOptions.value = cats.map((c: any) => ({ title: c.name, value: c.id || c._id }))
-  } catch { categoryOptions.value = [] }
 }
 
 async function fetchWarehouses() {
@@ -445,20 +467,30 @@ async function fetchWarehouses() {
   } catch { warehouses.value = [] }
 }
 
+// #155: a retry of an attempt whose answer never arrived must not open a second session or
+// ring the sale up twice. Each keeps its key until the server gives a definitive answer.
+const openAttempt = createIdempotentAction()
+const saleAttempt = createIdempotentAction()
+
 async function doOpenSession() {
   if (!sessionWarehouseId.value) return
   loading.value = true
+  const body = {
+    warehouseId: sessionWarehouseId.value,
+    openingBalance: openingBalance.value,
+    currency: currency.value,
+  }
   try {
-    const { data } = await httpClient.post(`${orgUrl()}/trade/pos/session`, {
-      warehouseId: sessionWarehouseId.value,
-      openingBalance: openingBalance.value,
-      currency: currency.value,
-    })
+    const { data } = await httpClient.post(`${orgUrl()}/trade/pos/session`, body, { headers: openAttempt.headers(body) })
+    openAttempt.settle()
     sessions.value.unshift(data.session)
     openSessionDialog.value = false
     showSuccess(t('common.savedSuccessfully'))
-    await fetchCatalog(0)
-  } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) }
+    // The terminal appears with the session and loads its catalog itself.
+  } catch (e: any) {
+    openAttempt.settle(e)
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  }
   finally { loading.value = false }
 }
 
@@ -469,8 +501,24 @@ async function doOpenSession() {
  * reaches here.
  */
 async function onSessionClosed() {
+  lastSale.value = null
   await fetchSessions()
   showSuccess(t('pos.close.done'))
+}
+
+/**
+ * What printed for a sale, in the words the cashier needs: the fiscal receipt and its УНП, a
+ * non-fiscal text receipt, or plainly nothing (no fiscal device is connected to this till, as in
+ * an org without one). No text when the receipt failed: the warning beside it says so and why.
+ */
+function receiptOutcome(txn: any, receiptError?: string): { text: string; printed: boolean } {
+  if (receiptError) return { text: '', printed: false }
+  if (txn?.fiscal?.state === 'printed' && txn.fiscal.mode === 'text') return { text: t('pos.lastSale.textReceipt'), printed: true }
+  const fiscal = [
+    txn?.fiscalReceiptNumber && t('pos.lastSale.fiscalReceipt', { number: txn.fiscalReceiptNumber }),
+    txn?.unpNumber && t('pos.lastSale.unp', { unp: txn.unpNumber }),
+  ].filter(Boolean)
+  return fiscal.length ? { text: fiscal.join(' · '), printed: true } : { text: t('pos.lastSale.notPrinted'), printed: false }
 }
 
 async function completeSale() {
@@ -483,34 +531,73 @@ async function completeSale() {
       taxAmount: Math.round(c.quantity * c.unitPrice * (c.taxRate / 100) * 100) / 100,
       lineTotal: c.quantity * c.unitPrice,
     }))
-    const { data } = await httpClient.post(`${orgUrl()}/trade/pos/session/${activeSession.value._id}/transaction`, {
+    const body = {
       type: 'sale', lines,
       subtotal: subtotal.value, discountTotal: 0, taxTotal: taxAmount.value, total: total.value,
       payments: [{ method: paymentMethod.value, amount: total.value }], changeDue: 0,
       nonFiscal: nonFiscalMode.value,
-    })
+    }
+    let data: any
+    try {
+      ({ data } = await httpClient.post(`${orgUrl()}/trade/pos/session/${activeSession.value._id}/transaction`, body, { headers: saleAttempt.headers(body) }))
+      saleAttempt.settle()
+    } catch (e: any) {
+      saleAttempt.settle(e)
+      // The answer never came: the sale may have happened. Pressing Complete again sends the
+      // same key and gets that sale back, rather than ringing the basket up a second time.
+      if (isOutcomeUnknown(e)) throw Object.assign(e, { outcomeUnknown: true })
+      throw e
+    }
     cart.value = []
+    // The next customer starts on each product's own price, not the last basket's choice.
+    docPriceName.value = null
+    // FR-22.54 (B-18): and on cash, with the cursor in an empty search — the method used to stay
+    // on „card", so the next cash customer was booked as card, and the scanner typed into nowhere.
+    paymentMethod.value = 'cash'
+    // An empty search, the cursor in it, and the catalog's stock figures after the sale.
+    void terminal.value?.reset()
     // The sale is recorded either way; a receipt that did not print, or stock that did not
     // move, must not look like success.
     const warnings = [
       data?.receiptError && t('pos.receiptNotPrinted', { reason: data.receiptError }),
       data?.stockError && t('pos.stockNotMoved', { reason: data.stockError }),
-    ].filter(Boolean)
+    ].filter(Boolean) as string[]
+    const txn = data?.transaction ?? {}
+    const receipt = receiptOutcome(txn, data?.receiptError)
+    lastSale.value = {
+      number: txn.transactionNumber || '',
+      total: txn.total ?? body.total,
+      change: txn.changeDue ?? 0,
+      paidBy: (txn.payments ?? body.payments).map((p: any) => t(`pos.${p.method}`)).join(' + '),
+      receipt: receipt.text,
+      warnings,
+      // A fiscal receipt was asked for („Нефискален" off) and nothing printed: not a clean success.
+      tone: warnings.length || (!receipt.printed && !body.nonFiscal) ? 'warning' : 'success',
+    }
     if (warnings.length) showSnackbar(warnings.join(' · '), 'warning', 15000)
     else showSuccess(t('pos.saleCompleted'))
-    await fetchCatalog(0)
-  } catch (e: any) { showError(e?.response?.data?.message || t('common.operationFailed')) }
+  } catch (e: any) {
+    const refused = e?.response?.data
+    // FR-20.49 — Прил. 29 т. 8: in the till's own language, saying what to check.
+    if (refused?.code === 'fiscal_device_unreached') showError(t('pos.fiscalDeviceUnreached', { device: refused.deviceName || '' }))
+    else showError(e?.outcomeUnknown ? t('pos.saleOutcomeUnknown') : (refused?.message || t('common.operationFailed')))
+  }
   finally { loading.value = false }
 }
 
+let unregisterSwitchGuard: (() => void) | null = null
+
 onMounted(async () => {
+  // A sale in progress would be lost (or, mid-completion, half-done) if the org menu reloaded
+  // this tab into another org.
+  unregisterSwitchGuard = registerSwitchGuard(() => (cart.value.length > 0 || loading.value ? 'orgSwitcher.blockedSale' : null))
   document.addEventListener('visibilitychange', onVisibilityChange)
   connectedElsewhereTimer = setInterval(refreshConnectedElsewhere, 15000)
-  await Promise.all([fetchSessions(), fetchWarehouses(), fetchCategories()])
-  if (activeSession.value) await fetchCatalog()
+  await Promise.all([fetchSessions(), fetchWarehouses()])
 })
 
 onUnmounted(() => {
+  unregisterSwitchGuard?.()
   document.removeEventListener('visibilitychange', onVisibilityChange)
   clearInterval(connectedElsewhereTimer)
 })

@@ -39,6 +39,7 @@
       "openLgr": "Open LGR",
       "openLgrHint": "Opens the LGR app in its own window.",
       "openLgrBrowserHint": "Opens the LGR app in your browser.",
+      "serverPin": "Server certificate",
       "fiscalDevices": "Fiscal devices",
       "fiscalDevicesNone": "No fiscal devices are assigned to this desktop.",
       "devicePort": "Port",
@@ -65,7 +66,9 @@
       "upToDate": "This is the latest version.",
       "updatesManaged": "Updates for this computer are installed by whoever manages it.",
       "updateStarted": "Installing the update…",
-      "updateDeferred": "The till is in use — the update will install shortly."
+      "updateDeferred": "The till is in use — the update will install shortly.",
+      "autoUpdateOn": "Automatic updates are on.",
+      "autoUpdateOff": "Automatic updates are off. Updates install only when you press Install."
     },
     "registration": {
       "label": "Registration",
@@ -107,6 +110,12 @@
         "body": "Nothing works offline. Check the network, then try again.",
         "action": "Retry",
         "diagnostics": "Create diagnostics bundle"
+      },
+      "orgMoved": {
+        "title": "This organisation now runs on its own server ({name})",
+        "bodyUnknown": "lgrai.app could not tell this computer where that server answers. Ask your administrator for a pairing code, then register this desktop with it.",
+        "bodyNotFollowed": "This computer could not switch to it yet ({reason}). It tries again by itself; if this message stays, ask your administrator for a pairing code.",
+        "action": "Pair with the server"
       }
     },
     "settings": {
@@ -124,6 +133,9 @@
       "openLgrOnLaunch": "Open LGR as soon as the app starts",
       "openLgrOnLaunchHint": "A till shows the point of sale after a reboot with nobody touching it.",
       "openInSystemBrowser": "Open LGR in my browser instead of its own window",
+      "systemBrowserMaster": "A shop server always opens in LGR Desktop’s own window.",
+      "autoUpdate": "Install updates automatically",
+      "autoUpdateHint": "Checks every 4 hours and installs new versions. Waits while the till is printing a receipt.",
       "proxy": "Proxy override",
       "proxyHint": "Leave empty to use the system proxy. The system's certificates are used either way.",
       "language": "Language",
@@ -150,12 +162,25 @@
       "serverIntro": "Where does this desktop find LGR?",
       "serverUpgraded": "Addresses are opened over a secure connection, so this was changed to {url}.",
       "serverInvalid": "That does not look like a server address.",
+      "serverHintLan": "A server in your shop: type its address as its Desktops page shows it, for example https://192.168.1.10:4443.",
+      "checkingServer": "Checking the server…",
+      "probeFailed": "The server did not answer ({reason}).",
+      "compareWords": "This is an LGR Server on your network. Check that its Desktops page shows these six words, in this order:",
+      "wordsMatch": "The words match",
+      "fingerprintVerified": "This server's certificate matches the registration link:",
+      "fingerprintMismatch": "This server's certificate does not match the registration link. Do not continue: ask your administrator for a new code.",
+      "notAMaster": "The registration link is for an LGR Server, but this address does not answer as one.",
+      "onNetwork": "On this network",
+      "lookForServers": "Look again",
+      "noServersFound": "No LGR Server answered. Type its address instead: many networks block the discovery messages.",
+      "advertMismatch": "This server’s certificate is not the one it advertised. Do not continue: check that you chose the right server, or type its address.",
       "nameIntro": "What should this machine be called in the Desktops list?",
       "codeIntro": "Ask an administrator for a registration code from Settings → Desktops.",
       "codeLabel": "Registration code",
       "codePlaceholder": "XXXX-XXXX",
       "codeInvalid": "A code looks like XXXX-XXXX.",
       "codeFromLink": "This code came from a link. Check it is the one you were given before continuing.",
+      "codeIsKey": "An enrollment key: this desktop is temporary, and removes itself from the organization when it shuts down.",
       "optionsIntro": "You can change any of this later in Settings.",
       "register": "Register",
       "registering": "Registering…",

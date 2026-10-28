@@ -33,7 +33,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
-import { fetchPriceOptions, formatPriceItem, type PriceOption } from '../composables/usePriceOptions'
+import { useI18n } from 'vue-i18n'
+import { fetchPriceOptions, formatPriceItem, priceOptionLabel, type PriceOption } from '../composables/usePriceOptions'
 
 const props = withDefaults(defineProps<{
   modelValue: number
@@ -47,10 +48,14 @@ const props = withDefaults(defineProps<{
   /** When false, never overwrite modelValue with the backend-resolved price (lines
    *  loaded from a persisted document keep their historical price + explanation). */
   autoApplyResolved?: boolean
+  /** List EVERY named price, the filterless „Цена N" slots included (`/pricing/options?all=true`,
+   *  what PriceSelectButton shows). Off: only the prices that apply to this contact/quantity. */
+  all?: boolean
 }>(), {
   currency: 'EUR',
   quantity: 1,
   autoApplyResolved: true,
+  all: false,
 })
 
 const emit = defineEmits<{
@@ -59,13 +64,14 @@ const emit = defineEmits<{
   'price-selected': [option: PriceOption | null]
 }>()
 
+const { t } = useI18n()
 const options = ref<PriceOption[]>([])
 const resolvedKey = ref('')
 const loading = ref(false)
 
 const comboItems = computed(() =>
   options.value.map(opt => ({
-    title: formatPriceItem(opt, props.currency),
+    title: formatPriceItem({ ...opt, name: priceOptionLabel(opt, t) }, props.currency),
     value: opt.price,
     raw: opt,
   }))
@@ -114,7 +120,7 @@ async function loadOptions() {
   }
   loading.value = true
   try {
-    const result = await fetchPriceOptions(props.orgUrl, props.productId, props.contactId, props.quantity)
+    const result = await fetchPriceOptions(props.orgUrl, props.productId, props.contactId, props.quantity, props.all)
     options.value = result.options
     resolvedKey.value = result.resolvedKey
 
@@ -217,6 +223,7 @@ function onValueChange(val: any) {
 // Watch for prop changes that should trigger re-fetch + auto-select
 watch(() => props.productId, loadOptions)
 watch(() => props.contactId, loadOptions)
+watch(() => props.all, loadOptions)
 watch(() => props.quantity, loadOptions, { flush: 'post' })
 
 onMounted(loadOptions)

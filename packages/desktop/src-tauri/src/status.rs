@@ -41,6 +41,32 @@ pub struct Status {
     pub update: Update,
     /// FR-14.16 — the desktop's assignment (C06/C07).
     pub assignment: Assignment,
+    /// FR-20.29 — for a desktop paired with a master, the CA it trusts that master by, and the six
+    /// words a person compares with the master's Desktops page. `None` for lgrai.app. A certificate's
+    /// fingerprint is public, so this is no exception to the no-credential rule above.
+    pub server_pin: Option<ServerPin>,
+    /// FR-20.82 — the org moved to its own server, and this desktop has not followed it (yet): where
+    /// to, and why not, as the Overview tells the person at the till. `None` while it has nothing
+    /// to say.
+    pub org_moved: Option<OrgMoved>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgMoved {
+    /// The server's name as lgrai.app knows it.
+    pub name: String,
+    /// Where it answers, when lgrai.app said so and the instruction was believed.
+    pub server: Option<String>,
+    /// Why this desktop did not follow, as a stable code; `None`: lgrai.app could not say where.
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerPin {
+    pub fingerprint: String,
+    pub words: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -57,6 +83,8 @@ pub struct Registration {
     pub state: String,
     pub desktop_id: Option<String>,
     pub org_slug: Option<String>,
+    /// FR-14.19, #328 — enrolled with a key: it unregisters itself on a clean shutdown. Additive.
+    pub ephemeral: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -120,7 +148,7 @@ mod tests {
             os: OsInfo::current(),
             server_url: "https://lgrai.app".into(),
             desktop_name: "TILL-1".into(),
-            registration: Registration { state: "not_registered".into(), desktop_id: None, org_slug: None },
+            registration: Registration { state: "not_registered".into(), desktop_id: None, org_slug: None, ephemeral: false },
             bridge: Bridge { supported: true, devices: vec![], fiscal: vec![] },
             autostart: false,
             open_lgr_on_launch: false,
@@ -130,6 +158,8 @@ mod tests {
             clock_skew_ms: None,
             update: Update::default(),
             assignment: Assignment::default(),
+            server_pin: None,
+            org_moved: None,
         }
     }
 

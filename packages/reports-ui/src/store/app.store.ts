@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { getOrg, getToken, logoutEverywhere, updateOrg } from 'ui-shared/session/session'
+import { portalHref } from 'ui-shared/nav/navigate'
 import { getI18n, getVuetify } from 'ui-shared/plugins'
 
 export interface User {
@@ -25,11 +27,10 @@ export interface Organization {
 
 export const useAppStore = defineStore('app', () => {
   // Auth state
-  const token = ref(localStorage.getItem('lgr_token') || '')
+  // This tab's session (multi-org: each tab keeps its own org, see ui-shared/session).
+  const token = ref(getToken())
   const user = ref<User | null>(null)
-  const currentOrg = ref<Organization | null>(
-    JSON.parse(localStorage.getItem('lgr_org') || 'null')
-  )
+  const currentOrg = ref<Organization | null>(getOrg<Organization>())
 
   // UI state
   const leftDrawer = ref(true)
@@ -54,15 +55,13 @@ export const useAppStore = defineStore('app', () => {
   }
 
   // Actions
-  function logout() {
+  async function logout() {
+    // Every tab where this person is signed in signs out with this one.
+    await logoutEverywhere(() => httpClient.post('/auth/logout'))
     token.value = ''
     user.value = null
     currentOrg.value = null
-    localStorage.removeItem('lgr_token')
-    localStorage.removeItem('lgr_org')
-    // Redirect to Portal for re-login
-    const portalUrl = window.location.hostname === 'localhost' ? 'http://localhost:4001' : '/'
-    window.location.href = portalUrl
+    window.location.href = portalHref('/auth/login')
   }
 
   function setTheme(newTheme: string) {
@@ -88,12 +87,11 @@ export const useAppStore = defineStore('app', () => {
       const { data } = await httpClient.get(`${portalBase}/auth/me`)
       user.value = data.user
       currentOrg.value = data.org
-      if (data.org) {
-        localStorage.setItem('lgr_org', JSON.stringify(data.org))
-      }
+      if (data.org) updateOrg(data.org)
     } catch {
-      // If profile fetch fails, redirect to Portal login
-      logout()
+      // A 401 has already signed this tab out (useHttpClient). Anything else (offline, a 5xx) is
+      // no reason to sign the person out of every tab.
+      if (!getToken()) window.location.href = portalHref('/')
     }
   }
 

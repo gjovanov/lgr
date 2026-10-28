@@ -1,0 +1,389 @@
+name: Desktop Promote
+
+# =============================================================================
+# FR-14.39 / C20 §3 — turn a DRAFT desktop release into the one the updater
+# serves, and only when the evidence says it may.
+#
+# ⚠ **A checklist is a reminder, not a gate** (C20 trap 2). The release PR
+# carries the three conditions as a checklist for a human to read; this workflow
+# RE-CHECKS all three from the artefacts, because a box ticked by hand is how an
+# ungated release ships. Nothing here reads the checklist.
+#
+# The three conditions, from FR-14.39:
+#
+#   1. `ci.yml` AND `desktop-ci.yml` are green for the TAGGED COMMIT;
+#   2. every lane cell is green, or matched by `expected-failures.txt` WITH A
+#      LINKED ISSUE;
+#   3. there is a field-verification log entry for this version.
+#
+# ⚠ Condition 2's evidence is attached to the DRAFT RELEASE, not read live out
+# of `lgr-deploy`. Two reasons, and both matter: a file in another repository is
+# mutable, so "the lanes were green" could become true after the fact by
+# editing it; and the release has to stand on its own months later, when the
+# working copy of that repo says something else entirely. So the run that
+# produced the results uploads them, and this workflow checks the snapshot.
+#
+#   gh release upload desktop-v0.2.0 \
+#     lane-results.tsv lane-expected-failures.txt
+#
+# ⚠ It never *creates* anything. Its only mutation is flipping `draft` to false
+# on a release that already exists, which is the smallest action that can be
+# called promotion.
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The desktop-v* tag whose draft release should be promoted'
+        required: true
+        type: string
+      allow_missing_lane_results:
+        description: >
+          Promote without lane evidence. Records WHY in the summary and is for a
+          release whose lanes genuinely cannot run (no host available), never
+          for one whose lanes failed.
+        required: false
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  promote:
+    name: promote ${{ inputs.tag }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # editing the release's draft flag
+      actions: read     # reading the tagged commit's check runs
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 1
+
+      # ── 0. The tag has to name a draft release ──────────────────────────────
+      - name: The release must exist, and be a draft
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG='${{ inputs.tag }}'
+
+          case "$TAG" in
+            desktop-v*) ;;
+            *) echo "::error::'$TAG' is not a desktop-v* tag"; exit 1 ;;
+          esac
+
+          if ! gh release view "$TAG" --json isDraft,targetCommitish,tagName >/tmp/rel.json 2>/tmp/rel.err; then
+            echo "::error::no release for $TAG — a tag push creates the draft; nothing to promote"
+            cat /tmp/rel.err
+            exit 1
+          fi
+
+          IS_DRAFT="$(jq -r .isDraft /tmp/rel.json)"
+          if [ "$IS_DRAFT" != "true" ]; then
+            # ⚠ Not an error worth failing on: it means somebody already
+            # promoted it, and this run has nothing to do. Failing would make a
+            # re-run look like a problem.
+            echo "::notice::$TAG is already published — nothing to promote"
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "already=false" >> "$GITHUB_OUTPUT"
+
+          SHA="$(git rev-parse HEAD)"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#desktop-v}" >> "$GITHUB_OUTPUT"
+          echo "Promoting $TAG at $SHA"
+
+      # ── 1. CI green for the tagged commit ──────────────────────────────────
+      #
+      # ⚠ The check runs for the COMMIT, not "the latest run on master". A tag
+      # can point at a commit that was green when it was the tip and has since
+      # been superseded, and it is this commit's artefacts that are being
+      # published.
+      - name: Condition 1 — ci.yml and desktop-ci.yml are green for this commit
+        if: steps.release.outputs.already == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHA='${{ steps.release.outputs.sha }}'
+
+          gh api "repos/${GITHUB_REPOSITORY}/commits/$SHA/check-runs" --paginate \
+            --jq '.check_runs[] | [.name, .conclusion] | @tsv' | sort -u >/tmp/checks.tsv || true
+
+          if [ ! -s /tmp/checks.tsv ]; then
+            echo "::error::no check runs at all for $SHA — CI never ran on the tagged commit"
+            exit 1
+          fi
+
+          echo "Check runs for $SHA:"
+          sed 's/^/  /' /tmp/checks.tsv
+
+          # ⚠ Named jobs, not "everything that ran". A workflow somebody adds
+          # later must not silently become a release blocker, and one somebody
+          # deletes must not silently stop being one. These two are the gate.
+          fail=0
+          for required in 'test + build (ubuntu)' 'clippy (ubuntu)' 'cargo check (macos)'; do
+            got="$(awk -F'\t' -v n="$required" '$1 == n { print $2 }' /tmp/checks.tsv | head -1)"
+            if [ -z "$got" ]; then
+              echo "::error::required check '$required' did not run for $SHA"
+              fail=1
+            elif [ "$got" != "success" ]; then
+              echo "::error::required check '$required' concluded '$got'"
+              fail=1
+            fi
+          done
+
+          # Any FAILED check at all also blocks: a red job nobody listed is
+          # still a red job on the commit being released.
+          if awk -F'\t' '$2 == "failure" { exit 0 } END { exit 1 }' /tmp/checks.tsv; then
+            echo "::error::at least one check FAILED for $SHA:"
+            awk -F'\t' '$2 == "failure" { print "  " $1 }' /tmp/checks.tsv
+            fail=1
+          fi
+
+          [ "$fail" = 0 ] || exit 1
+          echo "Condition 1 met."
+
+      # ── 2. Lane cells green, or expected WITH A LINKED ISSUE ───────────────
+      - name: Condition 2 — every lane cell green or expected
+        if: steps.release.outputs.already == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG='${{ inputs.tag }}'
+
+          gh release download "$TAG" --pattern 'lane-results*.tsv' --dir /tmp/lane 2>/dev/null || true
+          gh release download "$TAG" --pattern 'lane-expected-failures*.txt' --dir /tmp/lane 2>/dev/null || true
+
+          RESULTS="$(find /tmp/lane -name 'lane-results*.tsv' | head -1 || true)"
+          EXPECTED="$(find /tmp/lane -name 'lane-expected-failures*.txt' | head -1 || true)"
+
+          if [ -z "$RESULTS" ]; then
+            if [ '${{ inputs.allow_missing_lane_results }}' = 'true' ]; then
+              # ⚠ Recorded in the job summary, so "promoted without lane
+              # evidence" is a fact somebody can find later rather than a
+              # decision that left no trace.
+              {
+                echo '### :warning: Promoted WITHOUT lane evidence'
+                echo
+                echo "No \`lane-results*.tsv\` was attached to \`$TAG\`, and"
+                echo '`allow_missing_lane_results` was set.'
+                echo
+                echo 'This is for a release whose lanes genuinely cannot run.'
+                echo 'It is NOT for one whose lanes failed.'
+              } >>"$GITHUB_STEP_SUMMARY"
+              echo "::warning::promoting without lane results, as explicitly allowed"
+              exit 0
+            fi
+            echo "::error::no lane-results*.tsv attached to $TAG."
+            echo "::error::Attach the run's report:  gh release upload $TAG lane-results.tsv lane-expected-failures.txt"
+            echo "::error::Or re-run with allow_missing_lane_results if the lanes cannot run at all."
+            exit 1
+          fi
+
+          echo "Lane report: $RESULTS"
+          awk -F'\t' 'NR>1 { n[$7]++ } END { printf "  PASS %d  FAIL %d  NA %d\n", n["PASS"], n["FAIL"], n["NA"] }' "$RESULTS"
+
+          # ⚠ `#` only counts as a comment at the start of a line or after
+          # whitespace: a cell id IS `lane/method/type@host#check`, and
+          # stripping from the first `#` truncates every entry and silently
+          # matches nothing.
+          : >/tmp/allowed.txt
+          if [ -n "$EXPECTED" ]; then
+            while IFS= read -r line; do
+              # A full-line comment, or a blank line.
+              #
+              # ⚠ An `if`, NOT `grep -q ... && continue`. Under `set -e` a
+              # failing left side of `&&` aborts the script, so that form would
+              # have ended this loop at the FIRST non-comment line - which is
+              # every line that matters. The gate would then have approved a
+              # release with no allowed cells parsed at all.
+              if printf '%s' "$line" | grep -Eq '^[[:space:]]*(#|$)'; then
+                continue
+              fi
+              cell="$(printf '%s' "$line" | sed -E 's/[[:space:]]+#.*$//; s/^[[:space:]]+//; s/[[:space:]]+$//')"
+              [ -n "$cell" ] || continue
+              # ⚠ A linked issue is REQUIRED here, which is stricter than the
+              # file itself is day to day (C20 trap 3). An expected failure with
+              # no issue is a failure somebody got used to, and a release is
+              # exactly the moment that distinction matters.
+              if printf '%s' "$line" | grep -Eq '(#[0-9]+|gjovanov/lgr#[0-9]+|github\.com/[^ ]+/issues/[0-9]+)[[:space:]]*$'; then
+                printf '%s\n' "$cell" >>/tmp/allowed.txt
+              else
+                echo "::error::expected-failure '$cell' has no linked issue — not acceptable for a release (FR-14.39)"
+                echo "unlinked=1" >>/tmp/flags
+              fi
+            done <"$EXPECTED"
+          fi
+
+          awk -F'\t' 'NR>1 && $7 == "FAIL" { print $1 "\t" $8 }' "$RESULTS" >/tmp/failed.tsv
+
+          blocked=0
+          while IFS=$'\t' read -r cell detail; do
+            [ -n "$cell" ] || continue
+            if grep -Fxq "$cell" /tmp/allowed.txt; then
+              echo "  expected: $cell"
+            else
+              echo "::error::lane cell FAILED and is not an expected failure: $cell — $detail"
+              blocked=1
+            fi
+          done </tmp/failed.tsv
+
+          # ⚠ Same reason: `[ -f ... ] && x` is false when the file is absent,
+          # which under `set -e` would abort right here - on the HAPPY path,
+          # where no unlinked expected-failure was found.
+          if [ -f /tmp/flags ]; then
+            blocked=1
+          fi
+          [ "$blocked" = 0 ] || exit 1
+          echo "Condition 2 met."
+
+      # ── 3. A field-verification log entry ──────────────────────────────────
+      #
+      # ⚠ Checked at the TAGGED COMMIT (the checkout above), so the entry has to
+      # have existed when the tag was cut. Reading it from the default branch
+      # would let somebody add the entry afterwards and promote retroactively.
+      - name: Condition 3 — the field-verification log names this version
+        if: steps.release.outputs.already == 'false'
+        run: |
+          set -euo pipefail
+          VERSION='${{ steps.release.outputs.version }}'
+          LOG='docs/fr/FR-14-lgr-desktop-app-server-mode.md'
+
+          [ -f "$LOG" ] || { echo "::error::$LOG is missing at this commit"; exit 1; }
+
+          # The section, then the version inside it.
+          if ! grep -qiE '^#+.*field.?verification' "$LOG"; then
+            echo "::error::$LOG has no field-verification section"
+            exit 1
+          fi
+
+          section="$(awk '
+            tolower($0) ~ /^#+.*field.?verification/ { inside = 1; next }
+            inside && /^#{1,2} / { inside = 0 }
+            inside { print }
+          ' "$LOG")"
+
+          if ! printf '%s' "$section" | grep -q "$VERSION"; then
+            echo "::error::the field-verification log has no entry naming $VERSION."
+            echo "::error::FR-14.39: a release is promoted on evidence it worked in the field, not on CI alone."
+            exit 1
+          fi
+
+          # ⚠ And the entry must record a RED run. C20 trap 4: a check that has
+          # only ever passed may be asserting nothing, so the convention is to
+          # break the behaviour once and record the failing run beside the fixed
+          # one. An entry with no baseline is an entry that proves less than it
+          # looks like it does.
+          if ! printf '%s' "$section" | grep -qiE 'baseline|red run|failing run'; then
+            echo "::warning::the entry for $VERSION records no baseline (red) run — a check never seen failing is not evidence (C20 trap 4)"
+          fi
+          echo "Condition 3 met."
+
+      # ── Promote ────────────────────────────────────────────────────────────
+      - name: Publish the release
+        if: steps.release.outputs.already == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG='${{ inputs.tag }}'
+          gh release edit "$TAG" --draft=false
+          {
+            echo "### Promoted \`$TAG\`"
+            echo
+            echo "All three FR-14.39 conditions were re-checked from the artefacts:"
+            echo
+            echo "1. CI green for \`${{ steps.release.outputs.sha }}\`"
+            echo '2. every lane cell green, or expected with a linked issue'
+            echo '3. a field-verification log entry at the tagged commit'
+          } >>"$GITHUB_STEP_SUMMARY"
+          echo "Promoted $TAG."
+
+      # ⚠ **Last, and only after the release is actually published.** Until this runs, the fleet is
+      # still told it is up to date (#93): `DESKTOP_RELEASE_VERSION` is how the hub learns which
+      # desktop build is current, and nothing else in the system knows it - the hub and the shell
+      # are versioned separately, and the hub cannot read releases from a private repository.
+      #
+      # ⚠ **The order is the safety property.** The shell cannot install an update
+      # (`hand_to_installer` refuses until the signing anchors exist), so the offer is a PROMPT for
+      # a human to go and download it. Naming a version before its release is published points
+      # every till at a download that does not exist - and with no install path there is no error
+      # anywhere, just an operator clicking a dead link.
+      - name: Tell the fleet (set DESKTOP_RELEASE_VERSION in lgr-deploy)
+        if: steps.release.outputs.already == 'false'
+        env:
+          # A fine-grained PAT with `contents: write` on gjovanov/lgr-deploy ONLY. Absent is fine.
+          DEPLOY_TOKEN: ${{ secrets.LGR_DEPLOY_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          # ⚠ A missing token does NOT fail the job. The release is already published by now, and
+          # failing here would report a successful promotion as a failure. It says what was skipped
+          # and what that means instead.
+          if [ -z "${DEPLOY_TOKEN:-}" ]; then
+            echo "::notice title=Fleet not notified::LGR_DEPLOY_TOKEN is not set, so DESKTOP_RELEASE_VERSION was left alone. Tills keep being told they are up to date until somebody sets it in lgr-deploy by hand (#93)."
+            exit 0
+          fi
+
+          VERSION="${TAG#desktop-v}"
+          # ⚠ Parsed here as well as in the hub. The hub refuses a version it cannot compare and
+          # logs why, but by then it is deployed; a malformed tag should not get that far.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::refusing to offer a version the fleet cannot compare: '$VERSION' (from tag '$TAG')"
+            exit 1
+          fi
+
+          git clone --depth 1 "https://x-access-token:${DEPLOY_TOKEN}@github.com/gjovanov/lgr-deploy.git" deploy
+          cd deploy
+          CM=k8s/base/configmap-lgr-config.yaml
+          test -f "$CM"
+
+          # ⚠ Surgical, anchored replacement of ONE line. The prod overlay lesson applies here
+          # too: a blanket `sed` over this file would rewrite whatever else happened to match.
+          if ! grep -Eq '^  DESKTOP_RELEASE_VERSION:' "$CM"; then
+            echo "::warning title=Key absent::$CM has no DESKTOP_RELEASE_VERSION line, so nothing was changed. Add it once (empty) and re-run; this step only ever edits a key that already exists."
+            exit 0
+          fi
+          sed -i -E "s|^(  DESKTOP_RELEASE_VERSION:).*|\1 '${VERSION}'|" "$CM"
+          # ⚠ EMPTY, not a GitHub link: the releases are in a private repository, so a link 404s for
+          # every till operator. Empty makes the hub link its own `/api/desktop/download/<version>`.
+          if grep -Eq '^  DESKTOP_RELEASE_URL:' "$CM"; then
+            sed -i -E "s|^(  DESKTOP_RELEASE_URL:).*|\1 ''|" "$CM"
+          fi
+
+          # ⚠ The configmap alone changes nothing: `envFrom` is read when a pod STARTS. Bumping this
+          # pod-template annotation in the same commit is what rolls the pods (desktop-release.yml
+          # does the same).
+          DEP=k8s/base/deployment-lgr.yaml
+          if ! grep -Eq '^        lgr\.app/desktop-release:' "$DEP"; then
+            echo "::error::$DEP has no lgr.app/desktop-release annotation, so the pods would keep the old value."
+            exit 1
+          fi
+          sed -i -E "s|^(        lgr\.app/desktop-release:).*|\1 '${VERSION}'|" "$DEP"
+
+          # ⚠ Verify before committing, the way the image-tag bump does. A sed that matched
+          # nothing leaves the file looking fine.
+          grep -E "^  DESKTOP_RELEASE_(VERSION|URL):" "$CM"
+          if ! grep -Fq "DESKTOP_RELEASE_VERSION: '${VERSION}'" "$CM"; then
+            echo "::error::the edit did not take"; exit 1
+          fi
+          grep -Fq "lgr.app/desktop-release: '${VERSION}'" "$DEP" || { echo "::error::the annotation edit did not take"; exit 1; }
+
+          if git diff --quiet; then
+            echo "::notice title=Already current::DESKTOP_RELEASE_VERSION was already ${VERSION}."
+            exit 0
+          fi
+
+          git -c user.name='lgr-ci' -c user.email='ci@lgrai.app' \
+            commit -am "chore(desktop): offer ${VERSION} to the fleet (promoted ${TAG})"
+          git push origin HEAD:master
+          echo "::notice title=Fleet notified::DESKTOP_RELEASE_VERSION=${VERSION}. ArgoCD reconciles within ~60s."

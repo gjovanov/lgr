@@ -2,6 +2,9 @@
   <v-container fluid class="pa-4 pa-md-6">
     <h1 class="text-h4 mb-4">{{ $t('dashboard.title') }}</h1>
 
+    <!-- FR-22.51: the pages pinned with ★, one click away. -->
+    <FavoriteTiles class="mb-4" />
+
     <!-- Headline KPI cards -->
     <v-row dense>
       <v-col cols="12" sm="6" lg="3">
@@ -103,6 +106,7 @@ import { useI18n } from 'vue-i18n'
 import StatCard from 'ui-shared/components/StatCard.vue'
 import ChartView from 'ui-shared/components/ChartView.vue'
 import EmptyState from 'ui-shared/components/EmptyState.vue'
+import FavoriteTiles from 'ui-shell/components/FavoriteTiles'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { useAppStore } from '../../store/app.store'

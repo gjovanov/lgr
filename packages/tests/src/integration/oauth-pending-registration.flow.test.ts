@@ -14,7 +14,7 @@ import {
   PendingRegistrationError,
   PENDING_REGISTRATION_REFUSED,
 } from 'services/biz/oauth.service'
-import { OAuthPendingRegistration, Org, User } from 'db/models'
+import { Identity, OAuthPendingRegistration, Org, User } from 'db/models'
 import { isPublicRoute } from 'services/biz/public-routes'
 
 /**
@@ -22,9 +22,10 @@ import { isPublicRoute } from 'services/biz/public-routes'
  * `/auth/register?oauth_token=<JWT>`. The vector itself is `oauth-register-url-token.flow.test.ts`.
  *
  * S-05's fix, on the sign-up side: the callback stores the provider identity in a one-time record
- * and puts its code in the httpOnly `oauth_pending` cookie; the register form reads its prefill
- * and completes the sign-up through that cookie, and nothing else. An attacker cannot set a
- * cookie on our origin, so a planted register link carries nothing.
+ * and puts its code in the httpOnly `__Host-oauth_pending` cookie; the register form reads its
+ * prefill and completes the sign-up through that cookie, and nothing else. An attacker cannot set a
+ * cookie on our origin, and since P0a-8 (FR-20.72) not from a subdomain of it either, so a planted
+ * register link carries nothing.
  *
  * ⚠ These use `captureRejection`, never `.rejects` — one `.rejects` reaps the shared mongod on
  * Windows and cascades every later file into ECONNREFUSED (CLAUDE.md).
@@ -42,10 +43,10 @@ afterEach(async () => { await clearCollections() })
 const signer = (new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret })) as any).decorator.jwt
 
 /** A legitimate sign-up's identity. */
-const person = { provider: 'google', providerId: 'person-google-id', email: 'ada@lovelace.test', name: 'Ada Lovelace' }
+const person = { provider: 'google', providerId: 'person-google-id', email: 'ada@lovelace.test', name: 'Ada Lovelace', emailVerified: true }
 
 /** Someone else's: an attacker's own Google account. */
-const attacker = { provider: 'google', providerId: 'attacker-google-id', email: 'attacker@evil.test', name: 'Mallory Attacker' }
+const attacker = { provider: 'google', providerId: 'attacker-google-id', email: 'attacker@evil.test', name: 'Mallory Attacker', emailVerified: true }
 
 function get(path: string, cookie?: string) {
   return app.handle(new Request(`http://localhost${path}`, { headers: cookie ? { cookie } : {} }))
@@ -68,12 +69,17 @@ describe('OAuth sign-up — end to end, through the real callback', () => {
     expect(callback.status).toBe(302)
     expect(callback.headers.get('location')).toBe(`${config.oauth.frontendUrl}/auth/register?oauth=1`)
 
-    // The code travels in an httpOnly cookie that only the two sign-up endpoints receive.
-    const issued = setCookieFor(callback, 'oauth_pending')
+    // The code travels in an httpOnly `__Host-` cookie: Secure, `Path=/`, no Domain, so no
+    // subdomain of ours can plant or overwrite it (P0a-8).
+    const issued = setCookieFor(callback, '__Host-oauth_pending')
     expect(issued).toBeDefined()
     expect(issued).toMatch(/HttpOnly/i)
     expect(issued).toMatch(/SameSite=Lax/i)
-    expect(issued).toMatch(/Path=\/api\/oauth\/pending(;|$)/)
+    expect(issued).toMatch(/Secure/i)
+    expect(issued).toMatch(/Path=\/(;|$)/)
+    expect(issued).not.toMatch(/Domain=/i)
+    // Release N wrote the plain name beside it, for one release. N+1 does not (P0a-8).
+    expect(setCookieFor(callback, 'oauth_pending')).toBeUndefined()
     const cookie = issued!.split(';')[0]
 
     const prefill = await get('/api/oauth/pending', cookie)
@@ -92,14 +98,19 @@ describe('OAuth sign-up — end to end, through the real callback', () => {
     expect(user.oauthProviders.map((p: any) => p.providerId)).toEqual([person.providerId])
 
     // Signed in the way the sign-in handoff signs in: the session cookie matches the token's life.
-    const session = setCookieFor(done, 'auth')
+    const session = setCookieFor(done, '__Host-auth')
     expect(session).toMatch(/HttpOnly/i)
     expect(session).toMatch(/SameSite=Lax/i)
+    expect(session).toMatch(/Secure/i)
     expect(session).toMatch(/Max-Age=86400/)
-    // And the sign-up cookie is gone: expired on the path it was set on, or the browser keeps it.
-    const cleared = setCookieFor(done, 'oauth_pending')
+    expect(setCookieFor(done, 'auth')).toBeUndefined()
+    // And the sign-up cookie is gone: expired on the path and with the flags it was set with, or
+    // the browser keeps it.
+    const cleared = setCookieFor(done, '__Host-oauth_pending')
     expect(cleared).toMatch(/Max-Age=0/)
-    expect(cleared).toMatch(/Path=\/api\/oauth\/pending(;|$)/)
+    expect(cleared).toMatch(/Path=\/(;|$)/)
+    expect(cleared).toMatch(/Secure/i)
+    expect(setCookieFor(done, 'oauth_pending')).toBeUndefined()
 
     // The same cookie cannot sign up twice.
     const again = await post('/api/oauth/pending/register', { orgName: 'Second', orgSlug: 'second-org', username: 'ada2' }, cookie)
@@ -113,11 +124,41 @@ describe('OAuth sign-up — the two endpoints', () => {
   it('serves the prefill from the cookie, and keeps the provider id on the server', async () => {
     const code = await createPendingRegistration(person)
 
-    const res = await get('/api/oauth/pending', `oauth_pending=${code}`)
+    const res = await get('/api/oauth/pending', `__Host-oauth_pending=${code}`)
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body).toEqual({ provider: 'google', email: person.email, name: person.name })
     expect(JSON.stringify(body)).not.toContain(person.providerId)
+  })
+
+  it('does not read a plain oauth_pending cookie, which a subdomain can plant (release N+1)', async () => {
+    const code = await createPendingRegistration(person)
+    const res = await get('/api/oauth/pending', `oauth_pending=${code}`)
+    expect(res.status).toBe(400)
+    expect((await res.json()).message).toBe(PENDING_REGISTRATION_REFUSED)
+
+    const register = await post('/api/oauth/pending/register', { orgName: 'Planted', orgSlug: 'planted-org', username: 'ada' }, `oauth_pending=${code}`)
+    expect(register.status).toBe(400)
+    expect(await Org.findOne({ slug: 'planted-org' }).lean()).toBeNull()
+  })
+
+  it('ignores the cookie on a same-site request: a subdomain page cannot spend a sign-up', async () => {
+    const code = await createPendingRegistration(person)
+    const sibling = { cookie: `__Host-oauth_pending=${code}`, 'sec-fetch-site': 'same-site' }
+
+    const prefill = await app.handle(new Request('http://localhost/api/oauth/pending', { headers: sibling }))
+    expect(prefill.status).toBe(400)
+    expect((await prefill.json()).message).toBe(PENDING_REGISTRATION_REFUSED)
+
+    const register = await app.handle(new Request('http://localhost/api/oauth/pending/register', {
+      method: 'POST',
+      headers: { ...sibling, 'content-type': 'application/json' },
+      body: JSON.stringify({ orgName: 'Sibling', orgSlug: 'sibling-org', username: 'ada' }),
+    }))
+    expect(register.status).toBe(400)
+    expect(await Org.findOne({ slug: 'sibling-org' }).lean()).toBeNull()
+    // Untouched: the person's own tab can still complete it.
+    expect((await readPendingRegistration(code)).email).toBe(person.email)
   })
 
   it('does not read the prefill from the URL', async () => {
@@ -134,7 +175,7 @@ describe('OAuth sign-up — the two endpoints', () => {
     const res = await post(
       '/api/oauth/pending/register',
       { oauthToken: planted, orgName: 'Lovelace Ltd', orgSlug: 'lovelace-ltd', username: 'ada' },
-      `oauth_pending=${code}`,
+      `__Host-oauth_pending=${code}`,
     )
     expect(res.status).toBe(200)
 
@@ -160,12 +201,13 @@ describe('OAuth sign-up — the two endpoints', () => {
     await createTestOrg({ slug: 'taken-org' } as any)
     const code = await createPendingRegistration(person)
 
-    const failed = await post('/api/oauth/pending/register', { orgName: 'Mine', orgSlug: 'taken-org', username: 'ada' }, `oauth_pending=${code}`)
+    const failed = await post('/api/oauth/pending/register', { orgName: 'Mine', orgSlug: 'taken-org', username: 'ada' }, `__Host-oauth_pending=${code}`)
     expect(failed.status).toBe(400)
     expect((await failed.json()).message).toContain('already taken')
+    expect(setCookieFor(failed, '__Host-oauth_pending')).toBeUndefined()
     expect(setCookieFor(failed, 'oauth_pending')).toBeUndefined()
 
-    const retried = await post('/api/oauth/pending/register', { orgName: 'Mine', orgSlug: 'my-own-org', username: 'ada' }, `oauth_pending=${code}`)
+    const retried = await post('/api/oauth/pending/register', { orgName: 'Mine', orgSlug: 'my-own-org', username: 'ada' }, `__Host-oauth_pending=${code}`)
     expect(retried.status).toBe(200)
   })
 })
@@ -233,6 +275,38 @@ describe('OAuth sign-up — the record', () => {
     }
     expect(new Set(messages)).toEqual(new Set([PENDING_REGISTRATION_REFUSED]))
     expect(await Org.findOne({ slug: 'x-org' }).lean()).toBeNull()
+  })
+})
+
+describe('OAuth sign-up — the address must be one the provider verified (multi-org)', () => {
+  // Signing up founds a person on this address: their sign-in and password-reset channel in every
+  // org. One the provider did not verify must not get that far, and one that already has an
+  // account belongs to someone who signs in instead.
+
+  it('refuses an unverified email at the callback, before any form, and stores nothing', async () => {
+    const callback = await withFakeGoogle({ ...person, emailVerified: false }, () => app.handle(googleCallbackRequest('register')))
+    expect(callback.status).toBe(302)
+    expect(callback.headers.get('location')).toStartWith(`${config.oauth.frontendUrl}/auth/login?error=`)
+    expect(setCookieFor(callback, '__Host-oauth_pending')).toBeUndefined()
+    expect(setCookieFor(callback, 'oauth_pending')).toBeUndefined()
+    expect(await OAuthPendingRegistration.countDocuments({})).toBe(0)
+  })
+
+  it('refuses, at the callback, an address that already has an account', async () => {
+    await Identity.create({ email: person.email, firstName: 'Ada', lastName: 'Lovelace' })
+    const callback = await withFakeGoogle(person, () => app.handle(googleCallbackRequest('register')))
+    expect(callback.headers.get('location')).toStartWith(`${config.oauth.frontendUrl}/auth/login?error=`)
+    expect(await OAuthPendingRegistration.countDocuments({})).toBe(0)
+  })
+
+  it('answers a sign-up recorded without a verified email with its code, and releases the record', async () => {
+    // A record written before this rule has no `emailVerified`, which reads as unverified.
+    const code = await createPendingRegistration({ ...person, emailVerified: false })
+    const res = await post('/api/oauth/pending/register', { orgName: 'Mine', orgSlug: 'unverified-org', username: 'ada' }, `__Host-oauth_pending=${code}`)
+    expect(res.status).toBe(403)
+    expect(((await res.json()) as any).code).toBe('unverified_email')
+    expect(await Org.countDocuments({ slug: 'unverified-org' })).toBe(0)
+    expect((await OAuthPendingRegistration.findOne({}).lean())!.usedAt).toBeNull()
   })
 })
 

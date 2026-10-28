@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface IPaymentTermLine {
   type: string
@@ -51,5 +52,7 @@ const paymentTermSchema = new Schema<IPaymentTerm>(
 
 paymentTermSchema.plugin(tenantPlugin)
 paymentTermSchema.index({ orgId: 1, name: 1 }, { unique: true })
+
+replicate(paymentTermSchema, { class: 'R' })
 
 export const PaymentTerm = model<IPaymentTerm>('PaymentTerm', paymentTermSchema)

@@ -18,16 +18,21 @@
 
 mod bridge;
 mod diagnostics;
+mod discovery;
 mod enroll;
 mod framing;
 mod identity;
 mod keystore;
 mod presence;
+mod repoint;
+mod proxy;
 mod logs;
 mod paths;
 mod settings;
 mod status;
+mod trust;
 mod update;
+mod install;
 mod validate;
 mod web;
 
@@ -40,6 +45,10 @@ use tauri::{
     AppHandle, Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_autostart::ManagerExt;
+
+/// Set before the process restarts into an update or a re-point: the same desktop coming straight
+/// back, which an ephemeral desktop must never unregister for (`should_unregister`).
+pub(crate) static RESTARTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Everything the shell knows about itself at runtime.
 pub struct AppState {
@@ -74,6 +83,15 @@ pub struct AppState {
     /// (`bridge::halt`, and the presence loop sees `revoked`), and re-enrolling after that needs a
     /// restart — which is the honest outcome, because `halt()` is deliberately one-way.
     started: Arc<std::sync::atomic::AtomicBool>,
+    /// The stop flag of the presence run currently in flight.
+    ///
+    /// ⚠ **Per-run, not the process-wide `stop`.** Re-pointing a running desktop at another
+    /// server has to end THAT run and start a new one; reusing the shutdown flag would mean
+    /// setting it false again, and the old thread can read it after the reset - two presence
+    /// threads, which is what the `started` latch exists to prevent. `quit` sets this as well.
+    presence_stop: Arc<Mutex<Option<Arc<std::sync::atomic::AtomicBool>>>>,
+    /// FR-20.82 — the org moved and this desktop has not followed (yet), for the Overview.
+    org_moved: Arc<Mutex<Option<status::OrgMoved>>>,
     /// FR-14.28 — how many times the pending update has been put off for a busy till.
     deferrals: Arc<update::Deferrals>,
     /// FR-14.14 — the PKCE verifier for an OAuth flow currently in the system browser.
@@ -83,6 +101,12 @@ pub struct AppState {
     /// pair. `None` means no flow is in progress, which is what makes an unsolicited `lgr://login`
     /// something to ignore rather than act on.
     oauth_verifier: Arc<Mutex<Option<String>>>,
+    /// FR-20.39 (P2-4b): a master's "Sign in with LGR" in flight: its state and the shell's verifier.
+    /// Memory only, like `oauth_verifier`.
+    idp_flow: Arc<Mutex<Option<(String, String)>>>,
+    /// FR-20.32 — the loopback proxy `lgr-web` reaches a paired master through (`proxy.rs`).
+    /// `None` until a master's window is opened, and for lgrai.app, which the window loads directly.
+    proxy: Arc<Mutex<Option<proxy::Running>>>,
 }
 
 impl AppState {
@@ -96,9 +120,67 @@ impl AppState {
             retrying: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            presence_stop: Arc::new(Mutex::new(None)),
+            org_moved: Arc::new(Mutex::new(None)),
             deferrals: Arc::new(update::Deferrals::default()),
             oauth_verifier: Arc::new(Mutex::new(None)),
+            idp_flow: Arc::new(Mutex::new(None)),
+            proxy: Arc::new(Mutex::new(None)),
         }
+    }
+}
+
+/// The window's way to `server_url` (FR-20.32): for a paired master, the loopback proxy's origin
+/// and its boot URL for `path`, starting the proxy if it is not running. `None` for any other
+/// server, which the window loads directly.
+///
+/// ⚠ The port is the installation's (`settings.proxyPort`). A new port is a new origin, and the
+/// window's per-origin storage, the SPAs' sessions included, would start over at every launch.
+pub(crate) fn proxy_route(app: &AppHandle, server_url: &str, path: &str) -> Result<Option<(String, String)>, String> {
+    let Some(tls) = trust::pinned_tls(server_url)? else {
+        stop_proxy(app);
+        return Ok(None);
+    };
+    let master = url::Url::parse(server_url).map_err(|e| e.to_string())?;
+    let st = app.state::<AppState>();
+    let mut slot = st.proxy.lock().map_err(|_| "the proxy's state is poisoned".to_string())?;
+    if slot.as_ref().is_some_and(|r| r.master != master.origin().ascii_serialization()) {
+        if let Some(old) = slot.take() {
+            old.stop();
+        }
+    }
+    if slot.is_none() {
+        let mut cfg = settings::load(app);
+        let server = server_url.to_string();
+        let log_app = app.clone();
+        let up = proxy::Upstream {
+            origin: master.clone(),
+            tls: Arc::new(tls),
+            token: Arc::new(move || enroll::mint_token(&server).map_err(|e| e.to_string())),
+        };
+        let log = Arc::new(move |m: &str| log_app.state::<AppState>().logger.info(m));
+        let running = proxy::start(up, cfg.proxy_port, log)?;
+        if running.port != cfg.proxy_port {
+            if cfg.proxy_port != 0 {
+                st.logger.warn(&format!(
+                    "proxy: port {} is taken; the window moves to {} and its sessions start over",
+                    cfg.proxy_port, running.port
+                ));
+            }
+            cfg.proxy_port = running.port;
+            let _ = settings::save(app, &cfg);
+        }
+        st.logger.info(&format!("proxy: {} -> {}", running.origin(), running.master));
+        *slot = Some(running);
+    }
+    let running = slot.as_ref().expect("started just above");
+    Ok(Some((running.origin(), running.boot_url(path))))
+}
+
+/// Stop the loopback proxy, if one runs: the desktop left its master, or its pin changed.
+pub(crate) fn stop_proxy(app: &AppHandle) {
+    if let Some(running) = app.state::<AppState>().proxy.lock().ok().and_then(|mut s| s.take()) {
+        running.stop();
     }
 }
 
@@ -119,6 +201,16 @@ fn save_settings(app: AppHandle, incoming: settings::Settings) -> Result<setting
     // (FR-14.11), and a server URL carrying a path would misdirect every path resolved against it.
     s.server_url = validate::normalize_server_url(&s.server_url)
         .ok_or_else(|| "That does not look like a server address.".to_string())?;
+    // ⚠ What this desktop trusts is enrollment's to change, never the page's (FR-20.29): a pin is
+    // written only after a pairing has checked the CA against its fingerprint. The proxy's port and
+    // the window's server are the shell's own bookkeeping (FR-20.32): a page holding a copy read
+    // before they changed would otherwise move the window to a new origin and lose its sessions.
+    let on_disk = settings::load(&app);
+    s.master = on_disk.master;
+    s.proxy_port = on_disk.proxy_port;
+    s.web_server = on_disk.web_server;
+    // FR-20.82: a re-point's epoch is the shell's to raise; the page must not lower it.
+    s.home_epoch = on_disk.home_epoch;
     settings::save(&app, &s)?;
 
     // Keep the OS login item in step with the setting, and report a failure rather than leaving
@@ -273,7 +365,16 @@ fn open_lgr_blocking(app: &AppHandle) -> Result<(), String> {
     // `web::target_url` re-validates whichever it gets.
     let start_path = assigned_start_path(app);
 
-    if s.open_in_system_browser {
+    // ⚠ Never for a master (FR-20.32): a browser cannot trust its CA, and the proxy's launch
+    // secret belongs in the window's own cookie jar. In a browser's, every other server on
+    // 127.0.0.1 would be sent it (cookies ignore ports).
+    let master = trust::pin_for(&s.server_url).is_some();
+    if s.open_in_system_browser && master {
+        app.state::<AppState>()
+            .logger
+            .info("open_lgr: a master opens in its own window, never the system browser");
+    }
+    if s.open_in_system_browser && !master {
         let target = web::target_url(&s.server_url, start_path.as_deref())
             .ok_or_else(|| "the configured server address is not usable".to_string())?;
         app.state::<AppState>()
@@ -326,11 +427,14 @@ async fn print_lgr(app: AppHandle) -> Result<(), String> {
 /// `managed` and is never offered an Install button that cannot work.
 #[tauri::command]
 fn check_for_updates(app: AppHandle) -> Result<update::CheckResult, String> {
-    let s = settings::load(&app);
+    run_update_check(&app)
+}
+
+/// The check itself, shared by the Overview's button and the background loop.
+fn run_update_check(app: &AppHandle) -> Result<update::CheckResult, String> {
+    let s = settings::load(app);
     let running = app.package_info().version.to_string();
-    let kind = update::detect_install_kind(
-        &std::env::current_exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
-    );
+    let kind = update::detect_install_kind_here();
 
     let (offered, min_version) = enroll::fetch_manifest(&s.server_url).map_err(|e| e.to_string())?;
 
@@ -369,6 +473,212 @@ fn install_update(app: AppHandle, version: String) -> Result<String, String> {
     }
 }
 
+/// FR-14.28 — the background half of the updater, governed by the `autoUpdate` setting.
+///
+/// ⚠ One thread for the life of the process, started whatever the setting says, and the setting
+/// re-read on every tick (`update::auto_check_due`). Starting it only when the switch was on at
+/// launch would make turning it ON need a restart, and turning it OFF would not stop a loop that
+/// was already running.
+///
+/// ⚠ It goes through exactly the path the Install button does — `try_install`, with the till
+/// state and the shared deferral counter — so automatic installs carry every rule in `update.rs`:
+/// no downgrade, never mid-receipt, never self-installing a per-machine install.
+fn start_auto_update(app: &AppHandle) {
+    let handle = app.clone();
+    let stop = app.state::<AppState>().stop.clone();
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let mut last: Option<std::time::Instant> = None;
+        let mut deferred = false;
+        let mut logged_enabled: Option<bool> = None;
+        while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+            let enabled = settings::load(&handle).auto_update;
+            if logged_enabled != Some(enabled) {
+                logged_enabled = Some(enabled);
+                handle
+                    .state::<AppState>()
+                    .logger
+                    .info(&format!("auto-update: {}", if enabled { "on" } else { "off" }));
+            }
+            let due = update::auto_check_due(
+                enabled,
+                started.elapsed().as_secs(),
+                last.map(|t| t.elapsed().as_secs()),
+                deferred,
+            );
+            // ⚠ An unregistered desktop has no token to fetch the manifest with; asking anyway
+            // would log a refusal every four hours on a machine that is simply not set up yet.
+            if due && stored_registered() {
+                last = Some(std::time::Instant::now());
+                deferred = auto_update_once(&handle);
+            }
+            // Short ticks so Quit is not held up and a changed setting is seen within seconds.
+            std::thread::sleep(std::time::Duration::from_secs(15));
+        }
+    });
+}
+
+/// One automatic check, and the install attempt if it found something. Returns whether the
+/// attempt was deferred for a busy till, which brings the next check forward.
+fn auto_update_once(app: &AppHandle) -> bool {
+    let st = app.state::<AppState>();
+    let check = match run_update_check(app) {
+        Ok(c) => c,
+        Err(e) => {
+            // ⚠ A failed check is not a failed app — a till offline for the afternoon still sells.
+            st.logger.warn(&format!("auto-update: check failed: {e}"));
+            return false;
+        }
+    };
+    let Some(version) = check.available else { return false };
+    if check.managed {
+        // Already logged by the check (`kind=per_machine`). Whoever manages the machine installs it.
+        return false;
+    }
+
+    let running = app.package_info().version.to_string();
+    match update::try_install(app, &running, &version, st.bridge.till_state(), &st.deferrals) {
+        Ok(update::UpdateAction::Defer) => {
+            st.logger.info(&format!(
+                "auto-update: {version} deferred, the till is in use ({}/{})",
+                st.deferrals.count(),
+                update::MAX_DEFERRALS
+            ));
+            true
+        }
+        Ok(update::UpdateAction::Install) => {
+            st.logger.info(&format!("auto-update: installing {version}"));
+            false
+        }
+        Err(e) => {
+            st.logger.warn(&format!("auto-update: {version} not installed: {e}"));
+            false
+        }
+    }
+}
+
+/// Put the paired master's pin (`settings.master`) into `trust.rs`'s registry (FR-20.31).
+///
+/// ⚠ Checked, not trusted: a pin whose certificate is not the one its fingerprint names, or one on a
+/// name a pin may not apply to, is refused and said so. That desktop then cannot reach its master
+/// until it is paired again, which is the failure to want: it trusts nothing it was not paired with.
+fn restore_master_pin(app: &AppHandle) {
+    let Some(m) = settings::load(app).master else { return };
+    let logger = &app.state::<AppState>().logger;
+    let restored = trust::MasterPin::new(&m.ca_pem, &m.fingerprint)
+        .and_then(|pin| match (&m.next_ca_pem, &m.next_fingerprint) {
+            (Some(pem), Some(fp)) => pin.with_next(pem, fp),
+            _ => Ok(pin),
+        })
+        .map(|pin| trust::set_pin(&m.origin, Some(pin)));
+    match restored {
+        Ok(true) => {
+            logger.info(&format!("trusting {} by its pinned CA {}", m.origin, m.fingerprint));
+        }
+        _ => logger.error(&format!("the pin for {} in the settings proves nothing: pair this desktop again", m.origin)),
+    }
+}
+
+/// FR-20.30 — follow the LAN CA rotations a paired master announces: shortly after the start, then
+/// hourly. A week's notice gives every till that is switched on in it 168 chances.
+fn follow_ca_rotations(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(30));
+        loop {
+            follow_ca_rotation(&app);
+            std::thread::sleep(std::time::Duration::from_secs(3600));
+        }
+    });
+}
+
+/// Ask the paired master about its CA, through the pinned TLS, and do what `trust::follow` decides:
+/// learn an announced next CA (trusted beside the current one), or, once the switch took effect,
+/// keep only the new one. The settings, the pin in force and the window's proxy all follow.
+fn follow_ca_rotation(app: &AppHandle) {
+    let cfg = settings::load(app);
+    let Some(master) = cfg.master.clone() else { return };
+    let Some(pin) = trust::pin_for(&cfg.server_url) else { return };
+    let logger = &app.state::<AppState>().logger;
+    let said = match trust::ca_announcement(&cfg.server_url) {
+        Ok(s) => s,
+        // Quiet: an unreachable master is presence's to report, and one from before P1-4 has no
+        // `/__lgr/ca.json` to answer with (a desktop is often updated before its master).
+        Err(_) => return,
+    };
+    let mut current = pin;
+    // A promotion and the next announcement can arrive in one answer: follow until nothing changes.
+    for _ in 0..2 {
+        let next = match trust::follow(&current, &said) {
+            trust::Follow::Nothing => break,
+            trust::Follow::Unknown => {
+                logger.warn("ca rotation: the master names a CA this desktop knows nothing of; nothing changed");
+                break;
+            }
+            trust::Follow::Learn(pin, switch_at) => {
+                logger.info(&format!(
+                    "ca rotation: {} announced its next CA {}; trusted beside the current one{}",
+                    master.origin,
+                    pin.next.as_ref().map(|(_, fp)| fp.as_str()).unwrap_or("?"),
+                    switch_at.map(|t| format!(", the switch is due at {t}")).unwrap_or_default(),
+                ));
+                let mut next_cfg = settings::load(app);
+                if let Some(m) = next_cfg.master.as_mut() {
+                    m.next_ca_pem = pin.next.as_ref().map(|(pem, _)| pem.clone());
+                    m.next_fingerprint = pin.next.as_ref().map(|(_, fp)| fp.clone());
+                    m.next_switch_at = switch_at;
+                }
+                let _ = settings::save(app, &next_cfg);
+                pin
+            }
+            trust::Follow::Promote(pin) => {
+                logger.warn(&format!("ca rotation: {} moved to its new CA {}; the old one is trusted no more", master.origin, pin.fingerprint));
+                let mut next_cfg = settings::load(app);
+                if let Some(m) = next_cfg.master.as_mut() {
+                    m.ca_pem = pin.ca_pem.clone();
+                    m.fingerprint = pin.fingerprint.clone();
+                    m.next_ca_pem = None;
+                    m.next_fingerprint = None;
+                    m.next_switch_at = None;
+                }
+                let _ = settings::save(app, &next_cfg);
+                pin
+            }
+        };
+        trust::set_pin(&cfg.server_url, Some(next.clone()));
+        if let (Ok(Some(tls)), Ok(slot)) = (trust::pinned_tls(&cfg.server_url), app.state::<AppState>().proxy.lock()) {
+            if let Some(running) = slot.as_ref() {
+                running.retrust(Arc::new(tls));
+            }
+        }
+        current = next;
+    }
+}
+
+/// The pin a status reports: the six words a person can compare with the master's Desktops page.
+fn status_pin(server_url: &str, master: Option<&settings::MasterSetting>) -> Option<status::ServerPin> {
+    let fingerprint = match master {
+        // Without an app, the settings are all there is; checked the way `restore_master_pin` checks.
+        Some(m) => trust::MasterPin::new(&m.ca_pem, &m.fingerprint).ok().map(|p| p.fingerprint)?,
+        // With one, what is in force.
+        None => trust::pin_for(server_url)?.fingerprint,
+    };
+    Some(status::ServerPin {
+        words: trust::fingerprint_words(&fingerprint).unwrap_or_default().into_iter().map(String::from).collect(),
+        fingerprint,
+    })
+}
+
+/// Does this machine hold a live registration — the credential presence and the manifest need?
+fn stored_registered() -> bool {
+    keystore::secure_dir()
+        .map(|d| {
+            let s = keystore::load(&d);
+            !s.desktop_id.is_empty() && !s.revoked && keystore::key_storage(&d) != keystore::KeyStorage::None
+        })
+        .unwrap_or(false)
+}
+
 /// Replace this desktop's keypair (FR-14.32). C11 implements it.
 ///
 /// ⚠ Refuses rather than pretending. A Settings button that reported success while rotating
@@ -380,30 +690,103 @@ fn rotate_desktop_key(app: AppHandle) -> Result<(), String> {
     enroll::rotate_key(&s.server_url, &version).map_err(|e| e.to_string())
 }
 
-/// Exchange a registration code for this desktop's identity (FR-14.19).
+/// The LGR Servers on this network (FR-20.28), as their DNS-SD adverts describe them: the
+/// onboarding's "on this network" list. ⚠ Unverified: a chosen server is probed and pinned as a
+/// typed one is. Off the main thread: it listens for three seconds.
 #[tauri::command]
-fn enroll_desktop(app: AppHandle, req: EnrollRequest) -> Result<(), String> {
+async fn discover_servers() -> Result<Vec<discovery::Found>, String> {
+    tauri::async_runtime::spawn_blocking(|| discovery::browse(std::time::Duration::from_secs(3)))
+        .await
+        .map_err(|e| format!("discovery could not run: {e}"))
+}
+
+/// What the server at `server_url` is, before pairing with it (FR-20.28, FR-20.29): a name the OS
+/// store vouches for (lgrai.app), a plain LAN server, or an LGR Server whose CA's six words a person
+/// compares with its Desktops page. Off the main thread, like `open_lgr`: a master that does not
+/// answer takes the probe's whole timeout.
+#[tauri::command]
+async fn probe_server(server_url: String) -> Result<trust::ServerKind, String> {
+    let server = validate::normalize_server_url(&server_url).ok_or("invalid_server_url")?;
+    tauri::async_runtime::spawn_blocking(move || trust::probe(&server))
+        .await
+        .map_err(|e| format!("probe could not run: {e}"))?
+}
+
+/// Exchange a registration code for this desktop's identity (FR-14.19), and, for a master, pin the
+/// CA its fingerprint names (FR-20.29).
+///
+/// ⚠ Off the main thread (see `open_lgr`). Pairing with a master is a probe, the exchange and a
+/// token, each with its own timeout, and the setup screen must not freeze for all three.
+#[tauri::command]
+async fn enroll_desktop(app: AppHandle, req: EnrollRequest) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || enroll_desktop_blocking(&app, req))
+        .await
+        .map_err(|e| format!("enroll could not run: {e}"))?
+}
+
+fn enroll_desktop_blocking(app: &AppHandle, req: EnrollRequest) -> Result<(), String> {
     // ⚠ Shape first, network second. A typo in the address or the code must say so immediately
     // rather than after a 20-second timeout against something that was never a server.
     let server = validate::normalize_server_url(&req.server_url).ok_or("invalid_server_url")?;
-    if !is_enrollment_code(&req.code) {
+    // A one-time code (`XXXX-XXXX`), or an enrollment KEY (#328: an ephemeral desktop, FR-14.19).
+    if !is_enrollment_code(&req.code) && !enroll::is_enrollment_key(&req.code) {
         return Err("invalid_code".into());
     }
+
+    // FR-20.29 — a master is paired by its CA's fingerprint: the one its link carried, or the one
+    // whose six words a person confirmed. `trust::confirm` fetches the CA itself; the page only ever
+    // names the fingerprint.
+    let pin = match req.fingerprint.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+        None => None,
+        Some(fp) => Some(trust::confirm(&server, fp).map_err(|e| {
+            app.state::<AppState>().logger.warn(&format!("pairing refused: {e}"));
+            e
+        })?),
+    };
+    // The exchange runs under the trust it is pairing with. ⚠ Put back as it was if it fails, so a
+    // mistyped code does not leave a till trusting a CA nothing was registered against.
+    let previous = trust::pin_for(&server);
+    trust::set_pin(&server, pin.clone());
 
     let version = app.package_info().version.to_string();
     let name = if req.name.trim().is_empty() { settings::hostname() } else { req.name.clone() };
 
     let stored = enroll::enroll(&server, &req.code, &name, &version).map_err(|e| {
+        trust::set_pin(&server, previous.clone());
         app.state::<AppState>().logger.warn(&format!("enroll failed: {e}"));
         e.to_string()
     })?;
 
     // The address that worked is the one to keep — onboarding may have upgraded or trimmed what
-    // was typed, and the stored settings must match what the registration was made against.
-    let mut cfg = settings::load(&app);
-    cfg.server_url = server;
+    // was typed, and the stored settings must match what the registration was made against. And so
+    // is its trust: the pin, or none for a server the OS store vouches for.
+    let mut cfg = settings::load(app);
+    let left = cfg.master.take();
+    cfg.server_url = server.clone();
     cfg.desktop_name = name;
-    let _ = settings::save(&app, &cfg);
+    cfg.master = pin.as_ref().map(|p| settings::MasterSetting {
+        origin: server.clone(),
+        ca_pem: p.ca_pem.clone(),
+        fingerprint: p.fingerprint.clone(),
+        next_ca_pem: None,
+        next_fingerprint: None,
+        next_switch_at: None,
+    });
+    let _ = settings::save(app, &cfg);
+    // A master this desktop has left is trusted no more.
+    if let Some(old) = left.filter(|old| pin.is_none() || old.origin != server) {
+        trust::set_pin(&old.origin, None);
+    }
+    if let Some(p) = &pin {
+        app.state::<AppState>()
+            .logger
+            .info(&format!("paired with {server}: its CA {} is pinned", p.fingerprint));
+    }
+    // FR-20.32 — a re-point. The window still shows the previous registration and a proxy, if one
+    // runs, forwards with the previous pin: both go. The next Open LGR starts over, and clears the
+    // window's storage when the server changed (`web::prepare_storage`).
+    stop_proxy(app);
+    web::close(app);
 
     app.state::<AppState>()
         .logger
@@ -417,11 +800,27 @@ fn enroll_desktop(app: AppHandle, req: EnrollRequest) -> Result<(), String> {
     match enroll::mint_token(&cfg.server_url) {
         Ok(_) => {
             app.state::<AppState>().logger.info("enrollment verified: token minted");
+            // ⚠ A desktop can be re-enrolled - at a DIFFERENT server - without restarting, and
+            // the `started` latch then made `start_registered_services` a no-op. Presence kept
+            // talking to the previous server: the app worked (its window follows the new URL)
+            // while the Overview said "unreachable" and the hub listed the new desktop as offline,
+            // with nothing in the log. Observed against a till moved from a dev server to prod.
+            if app.state::<AppState>().started.load(std::sync::atomic::Ordering::SeqCst) {
+                restart_presence(app);
+                // ⚠ The bridge cannot follow in-process. Only say so when there is actually a
+                // device to move, so a desktop with none is not told to restart for nothing.
+                if !app.state::<AppState>().bridge.report().is_empty() {
+                    app.state::<AppState>().logger.warn(
+                        "fiscal bridge still bound to the previous registration: restart LGR Desktop to move it",
+                    );
+                    let _ = app.emit_to("main", "shell:restart-required", "bridge");
+                }
+            }
             // ⚠ Now, not at the next launch. `setup` started neither the presence socket nor the
             // bridges, because at that point this machine was not registered — and a till that
             // enrolls and then cannot print until somebody thinks to restart it is a support call
             // with no symptom to go on.
-            start_registered_services(&app);
+            start_registered_services(app);
             Ok(())
         }
         Err(e) => {
@@ -440,6 +839,10 @@ struct EnrollRequest {
     #[allow(dead_code)]
     name: String,
     code: String,
+    /// FR-20.29 — the master's CA fingerprint, from its link or confirmed by its six words. Absent
+    /// for lgrai.app, which the OS store vouches for.
+    #[serde(default)]
+    fingerprint: Option<String>,
 }
 
 /// `XXXX-XXXX`, as minted on the Desktops page (C06).
@@ -479,6 +882,7 @@ impl Default for RegistrationSnapshot {
                 state: "not_registered".into(),
                 desktop_id: None,
                 org_slug: None,
+                ephemeral: false,
             },
             key_storage: keystore::KeyStorage::None,
             devices: vec![],
@@ -520,6 +924,7 @@ fn registration_status() -> RegistrationSnapshot {
             state: state.into(),
             desktop_id: (!stored.desktop_id.is_empty()).then(|| stored.desktop_id.clone()),
             org_slug: (!stored.org_name.is_empty()).then(|| stored.org_name.clone()),
+            ephemeral: stored.ephemeral,
         },
         key_storage: storage,
         devices: stored.fiscal_device_ids.clone(),
@@ -569,6 +974,8 @@ fn build_status(app: &AppHandle) -> status::Status {
             version: None,
         },
         assignment: reg_status.assignment,
+        server_pin: status_pin(&s.server_url, None),
+        org_moved: app.state::<AppState>().org_moved.lock().ok().and_then(|m| m.clone()),
     }
 }
 
@@ -579,13 +986,7 @@ fn build_status(app: &AppHandle) -> status::Status {
 /// to authenticate with, and a socket that could only ever be refused is noise in the server's
 /// audit log.
 fn start_presence(app: &AppHandle) {
-    let stored_registered = keystore::secure_dir()
-        .map(|d| {
-            let s = keystore::load(&d);
-            !s.desktop_id.is_empty() && !s.revoked && keystore::key_storage(&d) != keystore::KeyStorage::None
-        })
-        .unwrap_or(false);
-    if !stored_registered {
+    if !stored_registered() {
         app.state::<AppState>().logger.info("presence: not registered, socket not started");
         return;
     }
@@ -593,12 +994,23 @@ fn start_presence(app: &AppHandle) {
     let server_url = settings::load(app).server_url;
     let state = app.state::<AppState>();
     let link = state.link.clone();
-    let stop = state.stop.clone();
+    // ⚠ This run's OWN stop flag, published so `restart_presence` can end this run and only this
+    // run. `quit` sets it too, which is why the process-wide flag is no longer read here.
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    if let Ok(mut slot) = state.presence_stop.lock() {
+        *slot = Some(stop.clone());
+    }
     let handle = app.clone();
 
     std::thread::spawn(move || {
+        // Remembers the last reason LOGGED, so a long outage does not fill the log with copies.
+        let mut last_reason: Option<&'static str> = None;
+        // FR-20.28 — a master that stops answering may only have moved (DHCP).
+        let mut unreachable_in_a_row = 0u32;
         presence::run(server_url, link, stop, move |event| match event {
             presence::Event::Authenticated => {
+                last_reason = None;
+                unreachable_in_a_row = 0;
                 handle.state::<AppState>().logger.info("presence: authenticated");
                 let _ = handle.emit_to("main", "shell:link", "connected");
 
@@ -616,7 +1028,13 @@ fn start_presence(app: &AppHandle) {
                     // list on the Desktops page instead of typing it from memory.
                     let ports = bridge::visible_ports();
                     match enroll::report_self(&url, &version, &ports) {
-                        Ok(()) => reporter.state::<AppState>().logger.info("presence: self reported"),
+                        Ok(None) => reporter.state::<AppState>().logger.info("presence: self reported"),
+                        // #328: an admin's assignment since the last report. Open LGR lands there
+                        // from now on; a window already open is left where its user is.
+                        Ok(Some(path)) => reporter.state::<AppState>().logger.info(&format!(
+                            "presence: self reported; the start path is now {}",
+                            if path.is_empty() { "/ (none assigned)" } else { path.as_str() }
+                        )),
                         Err(e) => reporter
                             .state::<AppState>()
                             .logger
@@ -645,16 +1063,156 @@ fn start_presence(app: &AppHandle) {
                 // showing a cloud app it can no longer reach.
                 show_main(&handle, Some("overview"));
             }
+            presence::Event::Repoint { instruction, name } => {
+                // FR-20.82: the network work (the master's CA) off the presence thread, whose loop
+                // is about to read the refusal that follows and reconnect.
+                let app = handle.clone();
+                std::thread::spawn(move || follow_repoint(&app, &instruction, &name));
+            }
+            presence::Event::Moved { name } => {
+                let st = handle.state::<AppState>();
+                st.logger.warn(&format!("presence: the organisation moved to its own server ({name}); lgrai.app cannot say where it answers, so this desktop waits to be paired with it"));
+                if let Ok(mut m) = st.org_moved.lock() {
+                    *m = Some(status::OrgMoved { name, server: None, reason: None });
+                }
+                show_main(&handle, Some("overview"));
+            }
             presence::Event::UpdateRequested => {
                 // C13 acts on this; recorded now so the path is not invented later.
                 handle.state::<AppState>().logger.info("presence: update requested by server");
                 let _ = handle.emit_to("main", "shell:update-requested", ());
             }
-            presence::Event::Disconnected => {
-                let _ = handle.emit_to("main", "shell:link", "unreachable");
+            presence::Event::Disconnected(reason) => {
+                // ⚠ **Say it.** This arm used to emit to the UI and log NOTHING, so a till that
+                // could not reach its hub produced an empty log: the app ran, the Desktops page
+                // said offline, and there was nothing to go on. The bridge's own disconnect has
+                // always been logged (`bridge: ... disconnected`); presence was the silent one.
+                //
+                // ⚠ Consecutive identical reasons are suppressed. A server that is down for a
+                // day would otherwise write ~1,400 identical lines and push everything else out
+                // of a rotated log - but the FIRST one, and every CHANGE, is always recorded.
+                let r = reason.as_str();
+                if last_reason != Some(r) {
+                    last_reason = Some(r);
+                    let st = handle.state::<AppState>();
+                    match reason {
+                        presence::DisconnectReason::Refused => st.logger.warn(
+                            "presence: the server refused this desktop's credential; retrying slowly",
+                        ),
+                        presence::DisconnectReason::Unreachable => st
+                            .logger
+                            .warn("presence: the server did not answer; retrying with backoff"),
+                        // #328: the line the first field lane looked for and never found.
+                        presence::DisconnectReason::Silent => st.logger.warn(
+                            "presence: the server said nothing for 75 s; the link is dead, reconnecting",
+                        ),
+                        presence::DisconnectReason::Closed => {
+                            st.logger.info("presence: socket closed, reconnecting")
+                        }
+                        // ⚠ Names the TILL as the thing to look at. Reported as `Refused` this
+                        // read as a hub problem, and the hub was never contacted.
+                        presence::DisconnectReason::NotConfigured => st.logger.warn(
+                            "presence: this machine cannot mint a credential (not registered, or no key); re-enrol it",
+                        ),
+                    }
+                }
+                // ⚠ The STATE, not the literal `"unreachable"` this used to send for every
+                // reason. `get_status` has always reported `signed_out` correctly and the
+                // Overview translates it in all four locales, so the event was the one place
+                // that disagreed with itself. Nothing listens to `shell:link` today, which is
+                // exactly why it was wrong and nobody saw it.
+                let link = handle.state::<AppState>().link.get().as_str();
+                let _ = handle.emit_to("main", "shell:link", link);
+
+                // FR-20.28 — a paired master that no longer answers where it was is looked for by
+                // its CA, after three tries in a row (seconds, on presence's backoff).
+                // A link that went silent counts too: a master that moved address goes quiet first.
+                if matches!(reason, presence::DisconnectReason::Unreachable | presence::DisconnectReason::Silent) {
+                    unreachable_in_a_row += 1;
+                    if unreachable_in_a_row >= 3 {
+                        maybe_refind_master(&handle);
+                    }
+                } else {
+                    unreachable_in_a_row = 0;
+                }
             }
         });
     });
+}
+
+/// Look for a paired master that stopped answering (`refind_master`): one search at a time, at most
+/// every two minutes, so a master that is simply switched off is not hunted for in a loop.
+fn maybe_refind_master(app: &AppHandle) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static LAST: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    static SEARCHING: AtomicBool = AtomicBool::new(false);
+    if settings::load(app).master.is_none() {
+        return;
+    }
+    {
+        let mut last = LAST.lock().unwrap_or_else(|p| p.into_inner());
+        if last.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(120)) {
+            return;
+        }
+        *last = Some(std::time::Instant::now());
+    }
+    if SEARCHING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if !refind_master(&app) {
+            app.state::<AppState>()
+                .logger
+                .info("presence: the master is not answering, and no address on this network proves to be it");
+        }
+        SEARCHING.store(false, Ordering::SeqCst);
+    });
+}
+
+/// FR-20.28 — "a paired desktop finds its master by identity, not by address". A master that no
+/// longer answers at its address is looked for on the network by the CA fingerprint this desktop
+/// pinned; an address is used only once the pin itself proves it, and then everything follows: the
+/// settings, the pin, the record of whose session the window holds, the proxy, presence.
+///
+/// ⚠ Proof is the pinned TLS, never the advert. Anyone on the LAN can claim a fingerprint; an
+/// address whose certificate the pin does not name fails at the handshake and is skipped.
+fn refind_master(app: &AppHandle) -> bool {
+    let cfg = settings::load(app);
+    let Some(master) = cfg.master.clone() else { return false };
+    let old = cfg.server_url.clone();
+    let Ok(pin) = trust::MasterPin::new(&master.ca_pem, &master.fingerprint) else { return false };
+    if let Some(url) = discovery::locate(&pin, &old, std::time::Duration::from_secs(3)) {
+        let mut next = settings::load(app);
+        next.server_url = url.clone();
+        next.master = Some(settings::MasterSetting { origin: url.clone(), ..master.clone() });
+        // ⚠ The same master at a new address: its window's session is not another server's, and
+        // must not be cleared as if it were (`web::prepare_storage`).
+        if next.web_server == old {
+            next.web_server = url.clone();
+        }
+        let _ = settings::save(app, &next);
+        trust::set_pin(&old, None);
+        if let (Ok(mut slot), Ok(target)) = (app.state::<AppState>().proxy.lock(), url::Url::parse(&url)) {
+            if let Some(running) = slot.as_mut() {
+                running.retarget(target);
+            }
+        }
+        app.state::<AppState>().logger.warn(&format!(
+            "the master moved from {old} to {url}: found on the network by its CA {}, proven by the pin",
+            master.fingerprint
+        ));
+        restart_presence(app);
+        // ⚠ The bridge cannot follow in-process (see `enroll_desktop_blocking`).
+        if !app.state::<AppState>().bridge.report().is_empty() {
+            app.state::<AppState>()
+                .logger
+                .warn("fiscal bridge still bound to the old address: restart LGR Desktop to move it");
+            let _ = app.emit_to("main", "shell:restart-required", "bridge");
+        }
+        return true;
+    }
+    false
 }
 
 /// Open the till's fiscal devices and bridge them to the hub (FR-14.26).
@@ -769,6 +1327,29 @@ fn start_registered_services(app: &AppHandle) {
     start_bridges(app);
 }
 
+/// End the presence run in flight and start a new one against the CURRENT settings.
+///
+/// ⚠ **Presence only, and bridges deliberately NOT.** `bridge::halt()` is one-way by design
+/// ("a resettable flag is one mis-ordered call away from a revoked till printing again"), and
+/// restarting a bridge means handing a serial port from one thread to another - two threads on one
+/// port is the single thing the fiscal protocol cannot survive. So a re-pointed till keeps its old
+/// bridge until it restarts, and `enroll_desktop` says so out loud rather than pretending.
+///
+/// ⚠ Presence has no port and no such hazard: the old run is told to stop, nudged awake out of
+/// its backoff sleep so it exits in milliseconds rather than up to a minute, and a new one starts.
+fn restart_presence(app: &AppHandle) {
+    let st = app.state::<AppState>();
+    if let Ok(mut slot) = st.presence_stop.lock() {
+        if let Some(flag) = slot.take() {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    // Wake whichever sleep the old run is in, so it observes the flag now.
+    st.link.nudge();
+    st.logger.info("presence: restarting against the current server");
+    start_presence(app);
+}
+
 /// Show and focus the main window, optionally routing it to a view first.
 fn show_main(app: &AppHandle, view: Option<&'static str>) {
     if let Some(v) = view {
@@ -814,7 +1395,7 @@ fn handle_deep_link(app: &AppHandle, raw: &str) {
             store(raw);
             show_main(app, Some("overview"));
         }
-        Some(validate::DeepLink::Login { code }) => {
+        Some(validate::DeepLink::Login { code, state }) => {
             // FR-14.14 — the system browser finished an OAuth handshake and sent the one-time
             // code back. ⚠ NOT stored as a pending deep link: this one is acted on immediately
             // and in Rust, because redeeming it needs the verifier, which never leaves this
@@ -823,6 +1404,12 @@ fn handle_deep_link(app: &AppHandle, raw: &str) {
             //
             // ⚠ The CODE is not logged. It is half a credential for the next 60 seconds.
             st.logger.info("deep link: login code received");
+            // FR-20.39: a master's "Sign in with LGR" this shell started carries its state.
+            if let Some(state) = state.as_deref() {
+                if web::finish_master_idp(app, &code, state) {
+                    return;
+                }
+            }
             web::finish_desktop_oauth(app, &code);
         }
         None => {
@@ -834,7 +1421,92 @@ fn handle_deep_link(app: &AppHandle, raw: &str) {
 }
 
 /// Wait for the fiscal bridge to go idle, then exit (FR-14.6).
-fn quit(app: &AppHandle) {
+/// FR-20.82 — follow a re-point: believe it (`repoint::verify`), check the master's CA against its
+/// pin (`trust::confirm`), keep the new server and pin, and restart into them. The desktop keeps
+/// its id and its key: its registry row moved with the org, so it mints its tokens at the master as
+/// it did here. ⚠ A restart, not an in-place switch: the bridges hold the till's ports and cannot
+/// follow in-process, and a move needs every till closed anyway (its preflight).
+///
+/// Not followed, it says why on the Overview, and follows the instruction lgrai.app sends again on
+/// the next connection (a master switched off for the night is reached in the morning).
+fn follow_repoint(app: &AppHandle, instruction: &str, name: &str) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static FOLLOWING: AtomicBool = AtomicBool::new(false);
+    if FOLLOWING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let st = app.state::<AppState>();
+    let said = |server: Option<String>, reason: &str| {
+        if let Ok(mut m) = st.org_moved.lock() {
+            *m = Some(status::OrgMoved { name: name.to_string(), server, reason: Some(reason.to_string()) });
+        }
+    };
+    let outcome = (|| -> Result<repoint::Repoint, (Option<String>, String)> {
+        let dir = keystore::secure_dir().map_err(|_| (None, "no_secure_storage".to_string()))?;
+        let stored = keystore::load(&dir);
+        let cfg = settings::load(app);
+        // The corrected clock, as every assertion this desktop makes.
+        let now = identity::ClockOffset { millis: stored.clock_offset_ms }.now_sec(chrono::Utc::now().timestamp_millis());
+        let r = repoint::verify(instruction, &stored.desktop_id, &stored.org_id, cfg.home_epoch, now).map_err(|e| (None, e.to_string()))?;
+        let mut cfg = cfg;
+        // FR-20.80 (P3-6c): back to lgrai.app. No pin: the machine's store vouches for the cloud, and
+        // `verify` took the instruction only for the cloud built into this binary.
+        let Some(fingerprint) = r.fingerprint.clone() else {
+            let left = cfg.master.take();
+            cfg.server_url = r.server.clone();
+            cfg.home_epoch = r.epoch;
+            settings::save(app, &cfg).map_err(|e| (Some(r.server.clone()), format!("settings_not_saved: {e}")))?;
+            if let Some(old) = left {
+                trust::set_pin(&old.origin, None);
+            }
+            return Ok(r);
+        };
+        let pin = trust::confirm(&r.server, &fingerprint).map_err(|e| (Some(r.server.clone()), e))?;
+        let left = cfg.master.take();
+        cfg.server_url = r.server.clone();
+        cfg.master = Some(settings::MasterSetting {
+            origin: r.server.clone(),
+            ca_pem: pin.ca_pem.clone(),
+            fingerprint: pin.fingerprint.clone(),
+            next_ca_pem: None,
+            next_fingerprint: None,
+            next_switch_at: None,
+        });
+        cfg.home_epoch = r.epoch;
+        settings::save(app, &cfg).map_err(|e| (Some(r.server.clone()), format!("settings_not_saved: {e}")))?;
+        trust::set_pin(&r.server, Some(pin));
+        if let Some(old) = left.filter(|old| old.origin != r.server) {
+            trust::set_pin(&old.origin, None);
+        }
+        Ok(r)
+    })();
+    match outcome {
+        Ok(r) => {
+            match &r.fingerprint {
+                Some(fp) => st.logger.info(&format!(
+                    "re-pointed: the organisation now lives on {name} at {} (its CA {fp} is pinned, epoch {}); restarting to follow it",
+                    r.server, r.epoch
+                )),
+                None => st.logger.info(&format!(
+                    "re-pointed: the organisation lives on {} again (epoch {}); the server's pin is dropped; restarting to follow it",
+                    r.server, r.epoch
+                )),
+            }
+            prepare_exit(app);
+            RESTARTING.store(true, std::sync::atomic::Ordering::SeqCst);
+            app.restart();
+        }
+        Err((server, reason)) => {
+            st.logger.warn(&format!("re-point to {name} not followed: {reason}; tried again on the next connection"));
+            said(server, &reason);
+            FOLLOWING.store(false, Ordering::SeqCst);
+        }
+    }
+}
+
+/// What quitting and restarting share: the bridge given its 10 s to finish a fiscal command, and
+/// every thread told to stop, so the next process finds the serial ports free.
+fn prepare_exit(app: &AppHandle) {
     let st = app.state::<AppState>();
     // ⚠ Bounded. "Wait for the bridge" must never become "never quit": a stuck bridge would
     // otherwise leave a window nobody can close.
@@ -852,8 +1524,90 @@ fn quit(app: &AppHandle) {
     // Let go of the serial ports before the process goes away, so the next thing to open them
     // (another till, a Chrome tab, the app restarting) is not refused by a port we still hold.
     st.stop.store(true, std::sync::atomic::Ordering::SeqCst);
-    st.logger.info("quitting");
+    // ⚠ The presence run reads its own flag now, not this one, so shutdown has to set both or a
+    // closing app would keep reconnecting.
+    if let Ok(slot) = st.presence_stop.lock() {
+        if let Some(flag) = slot.as_ref() {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    };
+}
+
+fn quit(app: &AppHandle) {
+    prepare_exit(app);
+    app.state::<AppState>().logger.info("quitting");
     app.exit(0);
+}
+
+/// #344 — off Windows, a logout or a shutdown ends the app with SIGTERM, a closed terminal with
+/// SIGHUP, Ctrl+C with SIGINT. Left at their default, each kills the process where it stands: no
+/// `RunEvent::Exit`, so an ephemeral desktop never leaves (its row waits for the hub's reaper,
+/// FR-14.19's backstop), and the fiscal bridge gets no chance to finish a command. Here each one
+/// takes the way out a Quit takes, as Windows ending the session already does.
+///
+/// ⚠ Only the FIRST signal is graceful. That way out waits for the bridge (up to 10 s) and the hub
+/// (2 s), and whoever signals again has stopped waiting: the next one ends the process at once, as
+/// the signal's own default would have.
+#[cfg(unix)]
+fn quit_on_signals(app: &AppHandle) {
+    use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+    let mut signals = match signal_hook::iterator::Signals::new([SIGTERM, SIGHUP, SIGINT]) {
+        Ok(s) => s,
+        Err(e) => {
+            app.state::<AppState>()
+                .logger
+                .warn(&format!("signals: no handler ({e}); a SIGTERM ends the app without its clean exit"));
+            return;
+        }
+    };
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut first = true;
+        for sig in signals.forever() {
+            if !first {
+                let _ = signal_hook::low_level::emulate_default_handler(sig);
+                std::process::exit(128 + sig);
+            }
+            first = false;
+            app.state::<AppState>().logger.info(&format!("signal {sig}: quitting"));
+            // `quit` waits on the bridge, and this thread has to stay free to hear a second signal.
+            let app = app.clone();
+            std::thread::spawn(move || quit(&app));
+        }
+    });
+}
+
+/// FR-14.19, #328 — an ephemeral desktop removes its own row on a clean shutdown: a Quit, or the OS
+/// ending the session (tao turns `WM_ENDSESSION` into the loop's end, and so `RunEvent::Exit`,
+/// before the process goes; off Windows, the SIGTERM a logout sends, see `quit_on_signals`). A
+/// machine that cannot reach its hub in time leaves the row to the hub's reaper.
+fn leave_if_ephemeral(app: &AppHandle) {
+    let Some(st) = app.try_state::<AppState>() else { return };
+    let Ok(dir) = keystore::secure_dir() else { return };
+    let stored = keystore::load(&dir);
+    let registered = !stored.desktop_id.is_empty() && !stored.revoked;
+    let started = st.started.load(std::sync::atomic::Ordering::SeqCst);
+    if !should_unregister(stored.ephemeral, registered, started, RESTARTING.load(std::sync::atomic::Ordering::SeqCst)) {
+        return;
+    }
+    let server = settings::load(app).server_url;
+    match enroll::unregister_self(&server, std::time::Duration::from_secs(2)) {
+        Ok(()) => st.logger.info("ephemeral: unregistered from the hub on a clean shutdown"),
+        Err(e) => st
+            .logger
+            .warn(&format!("ephemeral: could not unregister ({e}); the hub's reaper removes the row")),
+    }
+}
+
+/// Whether this exit is an ephemeral desktop leaving. Pure, so the whole rule is one table test.
+///
+/// ⚠ Never on a RESTART (an update, a re-point): the same desktop comes straight back, and roomler
+/// learned that an unregister there turns an update into a re-enrollment (FR-51,
+/// `should_self_unenroll`). ⚠ And only from a process that started this registration's services:
+/// a second instance, told to hand over to the first and exit, must not take the first one's row
+/// with it.
+fn should_unregister(ephemeral: bool, registered: bool, started: bool, restarting: bool) -> bool {
+    ephemeral && registered && started && !restarting
 }
 
 fn main() {
@@ -866,6 +1620,12 @@ fn main() {
     if args.iter().any(|a| a == "--status-json") {
         print_status_without_app();
         return;
+    }
+    // FR-14.28 — the release pipeline's proof that what it is about to publish is installable:
+    // the key compiled into THIS binary accepts the `.sig`, for this version, and the installer
+    // carries roomler's Authenticode publisher. Same function the till runs before installing.
+    if let Some(i) = args.iter().position(|a| a == "--verify-update") {
+        std::process::exit(verify_update_cli(&args[i + 1..]));
     }
 
     let requested_view = args
@@ -902,6 +1662,9 @@ fn main() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        // FR-14.28 — driven from `install.rs` only. ⚠ No `updater:*` permission in any
+        // capability, so no page — the shell's own or the cloud app — can start a download.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             shell_ready,
             get_settings,
@@ -918,6 +1681,8 @@ fn main() {
             check_for_updates,
             install_update,
             rotate_desktop_key,
+            discover_servers,
+            probe_server,
             enroll_desktop,
         ])
         .setup(move |app| {
@@ -937,6 +1702,13 @@ fn main() {
                 }
             }
             app.manage(st);
+            #[cfg(unix)]
+            quit_on_signals(&handle);
+
+            // FR-20.31 — before anything below talks to the server.
+            restore_master_pin(&handle);
+            // FR-20.30 — a rotation the master announces is taken up within the hour.
+            follow_ca_rotations(&handle);
 
             build_tray(&handle)?;
 
@@ -990,6 +1762,7 @@ fn main() {
             }
 
             start_registered_services(&handle);
+            start_auto_update(&handle);
 
             handle.state::<AppState>().logger.info("setup complete");
             Ok(())
@@ -1017,7 +1790,18 @@ fn main() {
                 api.prevent_close();
             }
         })
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!())
+        .map(|app| {
+            app.run(|handle, event| {
+                if let tauri::RunEvent::Exit = event {
+                    leave_if_ephemeral(handle);
+                    // The last line a clean exit writes: a log that ends without it was killed.
+                    if let Some(st) = handle.try_state::<AppState>() {
+                        st.logger.info("exited cleanly");
+                    }
+                }
+            })
+        });
 
     if let Err(e) = result {
         let msg = format!("Application failed to start: {e}");
@@ -1087,6 +1871,38 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// `--verify-update <installer> <installer.sig> <version>` — prints one JSON line, exits 0 only
+/// when a till would install this file.
+///
+/// ⚠ No `AppHandle`, like `--status-json`: it runs on a CI runner where no window can open.
+fn verify_update_cli(rest: &[String]) -> i32 {
+    let print = |ok: bool, detail: serde_json::Value| {
+        // ⚠ `writeln!`, not `println!`: the release build is a GUI-subsystem program, and a caller
+        // that does not wait for it (PowerShell's `& exe`) closes the pipe — `println!` then
+        // PANICS, which is how 0.1.6's first release run died. A lost answer must still leave the
+        // exit code meaning what it says, and the caller requires the JSON verdict anyway.
+        use std::io::Write;
+        let line = serde_json::json!({ "ok": ok, "keyPinned": install::pubkey().is_some(), "detail": detail });
+        let _ = writeln!(std::io::stdout(), "{line}");
+        if ok { 0 } else { 1 }
+    };
+    let [installer, sig, version] = rest else {
+        return print(false, "usage: --verify-update <installer> <installer.sig> <version>".into());
+    };
+    let bytes = match std::fs::read(installer) {
+        Ok(b) => b,
+        Err(e) => return print(false, format!("cannot read {installer}: {e}").into()),
+    };
+    let signature = match std::fs::read_to_string(sig) {
+        Ok(s) => s,
+        Err(e) => return print(false, format!("cannot read {sig}: {e}").into()),
+    };
+    match install::verify_installer(&bytes, &signature, version, &std::env::temp_dir()) {
+        Ok(proven) => print(true, serde_json::json!({ "platform": install::platform(), "verified": proven })),
+        Err(e) => print(false, e.into()),
+    }
+}
+
 /// `--status-json` without a Tauri app: read the settings file from the same non-roaming location
 /// the app uses and print what can be known.
 ///
@@ -1114,6 +1930,7 @@ fn print_status_without_app() {
     // from a till that had just enrolled successfully, and the obvious conclusion — "enrollment is
     // broken" — would have been wrong.
     let reg = registration_status();
+    let server_pin = status_pin(&s.server_url, s.master.as_ref());
     let st = status::Status {
         schema_version: status::SCHEMA_VERSION,
         app_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -1135,6 +1952,8 @@ fn print_status_without_app() {
         key_storage: reg.key_storage.as_str().into(),
         clock_skew_ms: reg.clock_skew_ms,
         assignment: reg.assignment,
+        server_pin,
+        org_moved: None,
     };
     // One line, so every consumer can capture it (see `status`).
     println!("{}", serde_json::to_string(&st).unwrap_or_else(|_| "{}".into()));
@@ -1192,5 +2011,30 @@ fn windows_message_box(msg: &str) {
             ) -> i32;
         }
         MessageBoxA(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), 0x10);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// FR-14.19, #328 — the whole rule, as roomler tests `should_self_unenroll`.
+    #[test]
+    fn an_ephemeral_desktop_leaves_only_on_a_real_shutdown() {
+        // (ephemeral, registered, started, restarting) → unregister?
+        let cases = [
+            ((true, true, true, false), true),
+            ((false, true, true, false), false), // a permanent till never removes itself
+            ((true, false, true, false), false), // nothing registered to remove
+            ((true, true, false, false), false), // a second instance handing over to the first
+            ((true, true, true, true), false),   // restarting into an update or a re-point
+        ];
+        for ((ephemeral, registered, started, restarting), leaves) in cases {
+            assert_eq!(
+                should_unregister(ephemeral, registered, started, restarting),
+                leaves,
+                "ephemeral={ephemeral} registered={registered} started={started} restarting={restarting}"
+            );
+        }
     }
 }

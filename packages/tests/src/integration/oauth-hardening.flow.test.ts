@@ -6,6 +6,7 @@ import {
   buildAuthUrl,
   parseState,
   getOrCreateUser,
+  fetchUserInfo,
   createLoginHandoff,
   redeemLoginHandoff,
   HandoffError,
@@ -78,7 +79,8 @@ describe('S-17 — OAuth may not self-enrol into an organisation', () => {
       orgId: String(org._id), inviterId: ownerId, maxUses: 1, assignRole: 'accountant',
     })
 
-    const { user, isNew } = await getOrCreateUser(stranger, 'invited-org', invite.code)
+    // Verified: an invite admits a stranger, but only a provider-verified address founds a new person.
+    const { user, isNew } = await getOrCreateUser({ ...stranger, emailVerified: true }, 'invited-org', invite.code)
     expect(isNew).toBe(true)
     expect(user.role).toBe('accountant') // the invite decides, not a hardcoded 'member'
   })
@@ -118,8 +120,9 @@ describe('S-17 — OAuth may not self-enrol into an organisation', () => {
       orgId: String(org._id), inviterId: ownerId, maxUses: 1,
     })
 
-    await getOrCreateUser(stranger, 'once-org', invite.code)
-    const second = { ...stranger, providerId: 'g-second', email: 'second@gmail.com' }
+    // Both verified, so the only thing standing between the second person and the org is the invite.
+    await getOrCreateUser({ ...stranger, emailVerified: true }, 'once-org', invite.code)
+    const second = { ...stranger, providerId: 'g-second', email: 'second@gmail.com', emailVerified: true }
     const err = await captureRejection(getOrCreateUser(second, 'once-org', invite.code))
     expectRejection(err, 'exhausted') // inviteDao.validate's own wording for a spent invite
 
@@ -311,15 +314,32 @@ describe('S-20 — an OAuth email links an existing account only when the provid
     expect((db!.oauthProviders || []).some((p) => p.provider === 'google' && p.providerId === 'g-verified')).toBe(true)
   })
 
-  it('still admits a stranger holding an UNPINNED invite, verified or not — it is a bearer secret', async () => {
+  it('still admits a stranger holding an UNPINNED invite — it is a bearer secret', async () => {
     const { org, ownerId } = await seedOrg('unpinned-org')
     const invite = await inviteDao.createInvite({
       orgId: String(org._id), inviterId: ownerId, maxUses: 1, assignRole: 'accountant',
     })
-    const info: OAuthUserInfo = { ...stranger, email: 'contractor@elsewhere.example', emailVerified: false }
+    const info: OAuthUserInfo = { ...stranger, email: 'contractor@elsewhere.example', emailVerified: true }
     const { user, isNew } = await getOrCreateUser(info, 'unpinned-org', invite.code)
     expect(isNew).toBe(true)
     expect(user.role).toBe('accountant')
+  })
+
+  it('but an unverified email can no longer found the person it admits (multi-org Phase 1B)', async () => {
+    // This test used to read "verified or not". Since an account is global, the email it is created
+    // with is the person's sign-in and password-reset address everywhere. An unverified one (any
+    // Microsoft tenant's `mail`) would put on a NEW person an address nobody proved: whoever owns it
+    // could later reset the password and inherit an account the attacker's provider still opens.
+    // The invite itself is untouched, so the person can complete it with a password instead.
+    const { org, ownerId } = await seedOrg('unpinned-unverified')
+    const invite = await inviteDao.createInvite({
+      orgId: String(org._id), inviterId: ownerId, maxUses: 1, assignRole: 'accountant',
+    })
+    const info: OAuthUserInfo = { ...stranger, email: 'contractor@elsewhere.example', emailVerified: false }
+    const err = await captureRejection(getOrCreateUser(info, 'unpinned-unverified', invite.code))
+    expectRejection(err, 'did not confirm this email')
+    expect(await User.findOne({ email: 'contractor@elsewhere.example' })).toBeNull()
+    expect((await inviteDao.findByCode(invite.code))!.useCount).toBe(0)
   })
 
   // ── The S-05 handoff must re-check the account at redeem, not only at the callback ────────
@@ -342,6 +362,47 @@ describe('S-20 — an OAuth email links an existing account only when the provid
     const err = await captureRejection(redeemLoginHandoff(code))
     expect(err).toBeInstanceOf(HandoffError)
     expect((err as Error).message).toBe(HANDOFF_REFUSED)
+  })
+})
+
+describe('S-20 — a provider answer that names no account is refused', () => {
+  /**
+   * `providerId` is the key every linked identity is found by. A userinfo ERROR body carries no
+   * id, and an `undefined` in that `$elemMatch` matches nothing only because the driver sends it
+   * as `null`: with `ignoreUndefined` it is dropped, and the filter becomes "any account linked to
+   * this provider". So the answer is refused where it is fetched, not left to a driver default.
+   */
+  async function withProviderAnswering(body: unknown, run: () => Promise<unknown>): Promise<unknown> {
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async () => Response.json(body)) as any
+    try {
+      return await run()
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  }
+
+  it('refuses a Google userinfo error body, which has no id', async () => {
+    const err = await captureRejection(
+      withProviderAnswering({ error: { code: 401, status: 'UNAUTHENTICATED' } }, () => fetchUserInfo('google', 'token')),
+    )
+    expectRejection(err, 'did not identify an account')
+  })
+
+  it('refuses a GitHub error body, rather than an account id of "undefined"', async () => {
+    const err = await captureRejection(
+      withProviderAnswering({ message: 'Bad credentials' }, () => fetchUserInfo('github', 'token')),
+    )
+    expectRejection(err, 'did not identify an account')
+  })
+
+  it('still answers for a provider that names its account', async () => {
+    const info = (await withProviderAnswering(
+      { id: 'g-named', email: 'named@example.com', verified_email: true, name: 'Named' },
+      () => fetchUserInfo('google', 'token'),
+    )) as OAuthUserInfo
+    expect(info.providerId).toBe('g-named')
+    expect(info.emailVerified).toBe(true)
   })
 })
 

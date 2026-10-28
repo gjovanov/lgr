@@ -57,6 +57,9 @@ pub struct Stored {
     pub fiscal_device_ids: Vec<String>,
     /// Set when the server told this machine it is no longer welcome (FR-14.22).
     pub revoked: bool,
+    /// FR-14.19, #328 — enrolled with an enrollment KEY: it unregisters itself on a clean shutdown
+    /// (`enroll::unregister_self`), and the hub's reaper is the backstop.
+    pub ephemeral: bool,
     /// server − local, in milliseconds, learned from `serverTime`.
     pub clock_offset_ms: i64,
     /**

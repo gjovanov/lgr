@@ -1,11 +1,14 @@
-import { DocFile, Invoice, StockMovement, Product, StockLevel } from 'db/models'
+import { DocFile, File as FileModel, Invoice, StockMovement, Product, StockLevel } from 'db/models'
 import { getRepos } from '../../context.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { reverseInvoiceStockMovement } from '../invoicing.service.js'
+import { liveInvoiceNumbersFor } from '../cash-sale-invoice.service.js'
 import { syncOrderForInvoice } from '../reservation.service.js'
+import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from '../cash-register/immutability.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { stockMovementDao } from '../../dao/warehouse/stock-movement.dao.js'
 import { trashDocumentFile } from './doc-store.service.js'
+import { toStored } from './stored-path.js'
 
 /**
  * Files app — batch removal of uploaded documents WITH rollback of everything their commit
@@ -98,23 +101,49 @@ async function planOne(orgId: string, doc: any, opts: DocDeleteOptions): Promise
 
   // ── invoices + movements this document booked ──
   for (const id of ids) {
-    const inv: any = await Invoice.findOne({ orgId, _id: id }).select('invoiceNumber status total issueDate createdAt').lean()
+    const inv: any = await Invoice.findOne({ orgId, _id: id }).select('invoiceNumber type status total issueDate createdAt register.origin').lean()
     if (inv) {
       const stale = uploadedAt && inv.createdAt && new Date(inv.createdAt) < uploadedAt
       if (stale) plan.provenanceMismatch = true
+      // FR-21.11: a till document or a storno is never voided, whatever booked it.
+      const immutable = isImmutableRegisterDocument(inv)
+      if (immutable) plan.warnings.push(`${inv.invoiceNumber}: ${REGISTER_DOCUMENT_IMMUTABLE.message}`)
+      let action: DocDeleteAction = inv.status === 'voided' ? 'already_reversed' : immutable || !opts.rollback ? 'skip' : stale && !opts.force ? 'skip' : 'void'
+      // #171: an invoice issued for this cash sale says the goods left on it. Voiding the sale
+      // under it would put them back on the shelf while the customer's invoice still stands.
+      if (action === 'void' && inv.type === 'cash_sale') {
+        const invoiced = await liveInvoiceNumbersFor(orgId, String(inv._id))
+        if (invoiced.length) {
+          plan.blocked = `${inv.invoiceNumber} is invoiced by ${invoiced.join(', ')} — void those invoices before rolling it back`
+          action = 'skip'
+        }
+      }
       plan.invoices.push({
         id: String(inv._id), number: inv.invoiceNumber, status: inv.status, total: inv.total, issueDate: dstr(inv.issueDate),
-        action: inv.status === 'voided' ? 'already_reversed' : !opts.rollback ? 'skip' : stale && !opts.force ? 'skip' : 'void',
+        action,
       })
       continue
     }
-    const mv: any = await StockMovement.findOne({ orgId, _id: id }).select('movementNumber type status date lines createdAt').lean()
+    const mv: any = await StockMovement.findOne({ orgId, _id: id }).select('movementNumber type status date lines createdAt invoiceId').lean()
     if (mv) {
       const stale = uploadedAt && mv.createdAt && new Date(mv.createdAt) < uploadedAt
       if (stale) plan.provenanceMismatch = true
+      let action: DocDeleteAction = mv.status === 'cancelled' ? 'already_reversed' : !opts.rollback ? 'skip' : stale && !opts.force ? 'skip' : 'reverse'
+      // FR-22 §5.4: a live document that took this movement as its stock — a bill made from the
+      // receipt (`stockSource`, FR-22.31), an invoice converted from the note — moved nothing
+      // itself. Reversing the movement under it would leave that document standing on goods
+      // that are no longer booked. Void the document first.
+      if (action === 'reverse' && mv.invoiceId) {
+        const holder: any = await Invoice.findOne({ orgId, _id: mv.invoiceId, 'stockSource.movementIds': mv._id })
+          .select('invoiceNumber status').lean()
+        if (holder && !['voided', 'cancelled'].includes(holder.status)) {
+          plan.blocked = `${mv.movementNumber} is billed by ${holder.invoiceNumber} — void that document before rolling it back`
+          action = 'skip'
+        }
+      }
       plan.movements.push({
         id: String(mv._id), number: mv.movementNumber, type: mv.type, status: mv.status, date: dstr(mv.date), lineCount: (mv.lines || []).length,
-        action: mv.status === 'cancelled' ? 'already_reversed' : !opts.rollback ? 'skip' : stale && !opts.force ? 'skip' : 'reverse',
+        action,
       })
       continue
     }
@@ -258,6 +287,8 @@ export async function deleteDocFiles(
       }
       const trashed = await trashDocumentFile(orgId, doc).catch(() => null)
       if (!trashed) warnings.push(`${plan.docNumber}: file bytes could not be moved to the trash folder`)
+      // The File row follows the bytes into the trash, where a wrong deletion is recovered from (#180).
+      else if (doc.fileId) await FileModel.updateOne({ orgId, _id: doc.fileId } as any, { $set: { storagePath: toStored(trashed) } })
       // HARD delete: the unique {orgId,docType,docNumber} index must not block a corrected re-upload.
       await DocFile.deleteOne({ orgId, _id: plan.docFileId } as any)
       deleted.push(plan.docNumber)

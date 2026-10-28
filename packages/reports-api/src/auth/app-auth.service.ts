@@ -1,12 +1,15 @@
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { config } from 'config'
-import { LEGACY_PERMISSION_MAP } from 'config/constants'
 import type { UserTokenized } from 'services/biz/auth.service'
 import { buildScopedRepos } from 'services/biz/scoped-repos'
 import { isForeignOrg, FOREIGN_ORG_MESSAGE } from 'services/biz/tenant-guard'
+import { permissionRefusal } from 'services/biz/route-permission'
+import { homeGate } from 'services/biz/home-gate'
+import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { isPublicRoute } from 'services/biz/public-routes'
-import { pickSessionToken, asSessionUser } from 'services/biz/session-token'
+import { pickSessionToken, asSessionUser, sessionCookieValue } from 'services/biz/session-token'
+import { liveSessionUser } from 'services/biz/identity/session.service'
 
 /**
  * Verification-only auth service for domain apps.
@@ -29,26 +32,27 @@ export const AppAuthService = new Elysia({ name: 'Service.AppAuth' })
     // A non-empty bearer token wins outright; the cookie is only for a request that sends none, and
     // an invalid bearer is never rescued by it. A verified signature is a session only if its claims
     // look like one. Both rules live in `services/biz/session-token.ts`, shared by all eight plugins.
-    const token = pickSessionToken(headers.authorization, cookie?.auth?.value)
-    const user: UserTokenized | null = token ? asSessionUser(await jwt.verify(token)) : null
+    // A token naming a person (`iid`) is revoked by a password change or reset: `liveSessionUser`.
+    const token = pickSessionToken(headers.authorization, sessionCookieValue(cookie, headers))
+    const user: UserTokenized | null = token ? await liveSessionUser(asSessionUser(await jwt.verify(token))) : null
 
-    // Expand legacy trade.* permissions to new granular permissions
-    if (user?.permissions) {
-      const expanded = new Set(user.permissions)
-      for (const perm of user.permissions) {
-        const mapped = LEGACY_PERMISSION_MAP[perm]
-        if (mapped) {
-          for (const p of mapped) expanded.add(p)
-        }
-      }
-      if (expanded.size > user.permissions.length) {
-        user.permissions = [...expanded]
-      }
-    }
     const scopedRepos = user?.ownRecordsModules?.length
       ? buildScopedRepos(user.ownRecordsModules, user.id)
       : null
     return { user, scopedRepos }
+  })
+  /**
+   * A request needs the permission its route names: a write since S-28, a read since S-29
+   * (`services/biz/route-permission.ts`).
+   *
+   * ⚠ A TRANSFORM hook, after the derive above: it runs before the body is validated, so a caller
+   * without the permission gets 403, never the route's schema. Another org's URL is left to the
+   * tenant guard below, which answers it with its own message.
+   */
+  .onTransform({ as: 'scoped' }, ({ user, params, request, route, status }: any) => {
+    if (isForeignOrg(user, params?.orgId)) return
+    const refusal = permissionRefusal(user, request.method, route)
+    if (refusal) throw status(403, refusal)
   })
   /**
    * gjovanov/lgr#41 — the cross-tenant guard, applied to every route of every controller that
@@ -70,12 +74,22 @@ export const AppAuthService = new Elysia({ name: 'Service.AppAuth' })
    * cannot be the thing that stops one — running it first would let a tokenless request fall
    * straight through to the handler, which is precisely the bug that was live here.
    */
-  .onBeforeHandle({ as: 'scoped' }, ({ user, params, status, request, route }) => {
+  .onBeforeHandle({ as: 'scoped' }, async ({ user, params, status, request, route }) => {
     if (!user && !isPublicRoute(request.method, route)) {
       return status(401, { message: 'Unauthorized' })
     }
     const orgId = (params as Record<string, string | undefined> | undefined)?.orgId
     if (isForeignOrg(user, orgId)) return status(403, { message: FOREIGN_ORG_MESSAGE })
+    // FR-20.4: only the home writes. Off its home, an org's writing routes answer 409.
+    if (user) {
+      const refusal = await homeGate(request.method, route, orgId)
+      if (refusal) return status(409, refusal)
+      // FR-20.55: on a master whose licence has run out, no new till session or sales document.
+      // ⚠ Never `body` here: naming it would make Elysia parse every route's body, the Stripe
+      // webhook's raw one included. A route that decides on its body asks in its handler.
+      const unlicensed = await licenceGate(request.method, route, orgId)
+      if (unlicensed) return status(402, unlicensed)
+    }
   })
   /**
    * ⚠ Object-form macro. The previous function form (`.macro(({ onBeforeHandle }) => …)`) is

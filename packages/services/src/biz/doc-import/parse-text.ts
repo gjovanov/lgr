@@ -34,9 +34,10 @@ export function parsePaymentMethod(rawText: string, aiPaymentTerms?: string | nu
   const v = clean(m?.[1]) || clean(aiPaymentTerms)
   if (!v) return undefined
   if (/сметка|превод|transfer/i.test(v)) return 'bank_transfer'
+  // Before cash: „cash on delivery" contains „cash", and наложен платеж is not paid at the counter.
+  if (/наложен|cash on delivery|\bCOD\b/i.test(v)) return 'cash_on_delivery'
   if (/брой|cash/i.test(v)) return 'cash'
   if (/карта|card/i.test(v)) return 'card'
-  if (/чек|check/i.test(v)) return 'check'
   return undefined
 }
 

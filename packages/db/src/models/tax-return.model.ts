@@ -1,5 +1,6 @@
 import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
+import { replicate } from '../replication/declare.js'
 
 export interface ITaxReturnLine {
   description: string
@@ -72,5 +73,7 @@ const taxReturnSchema = new Schema<ITaxReturn>(
 
 taxReturnSchema.plugin(tenantPlugin)
 taxReturnSchema.index({ orgId: 1, type: 1, 'period.from': -1 })
+
+replicate(taxReturnSchema, { class: 'R' })
 
 export const TaxReturn = model<ITaxReturn>('TaxReturn', taxReturnSchema)

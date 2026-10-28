@@ -95,10 +95,11 @@ test.describe('Invoice Stock Adjustment — Warehouse Selector', () => {
     await loginForApp(page)
     await page.goto('/invoicing/credit-notes')
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10000 })
-    // Scoped by destination, not by label: the list header carries more than one .v-btn`r
-    // matching /create/i, so the text filter is ambiguous under strict mode.
-    const createBtn = page.locator('a.v-btn[href$="/new"]').first()
-    await expect(createBtn).toBeVisible()
+    // FR-22.50: the list's Create says what it creates, and a list filtered to credit notes
+    // creates a credit note („New Credit Note"). Until then it opened a plain invoice, which is
+    // why this test waited 30s for a `type=credit_note` that never came.
+    const createBtn = page.getByTestId('create-button').first()
+    await expect(createBtn).toHaveText(/new credit note/i)
     await createBtn.click()
     // `credit-notes/new` is a redirect into the merged sales-document form carrying
     // `?type=credit_note` — the standalone credit-note route is gone, so the old

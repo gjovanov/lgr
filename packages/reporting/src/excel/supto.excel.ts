@@ -37,7 +37,9 @@ export async function generateTable181(transactions: any[], cashSales: any[]): P
       type: t.type,
       status: t.status,
       dateTime: t.createdAt ? formatDate(new Date(t.createdAt)) : '',
-      operatorCode: t.fiscalDeviceNumber ? '' : '', // derived from UNP
+      // #323: both branches were '' — every row printed no operator. The till's rows carry it
+      // (`cash-register/mapping.ts`: the stored code, else the one its УНП names).
+      operatorCode: t.operatorCode || '',
       fiscalDeviceNumber: t.fiscalDeviceNumber || '',
       fiscalReceiptNumber: t.fiscalReceiptNumber || '',
       subtotal: formatCurrency(t.subtotal),
@@ -56,7 +58,8 @@ export async function generateTable181(transactions: any[], cashSales: any[]): P
       type: 'cash_sale',
       status: inv.status,
       dateTime: inv.issueDate ? formatDate(new Date(inv.issueDate)) : '',
-      operatorCode: '',
+      // The author of a back-office cash sale, when they have a code; an imported day has none.
+      operatorCode: inv.register?.operatorCode || '',
       fiscalDeviceNumber: '',
       fiscalReceiptNumber: '',
       subtotal: formatCurrency(inv.subtotal),

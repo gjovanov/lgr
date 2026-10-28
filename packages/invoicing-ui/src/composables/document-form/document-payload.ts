@@ -17,13 +17,14 @@
  */
 
 import type { DocumentTypeConfig } from './types'
+import { MAX_PRICE_TIERS } from 'config/constants'
+import { computePosTotals } from 'config/pos-totals'
 
 /**
- * Price-tier slots a product can hold: Доставна цена, Цена на едро, and Цена 0..Цена 10.
- * Must match the Product model's validator — truncating lower silently dropped the
- * highest tiers whenever a goods receipt wrote prices.
+ * Price-tier slots a product can hold. The number lives in config, where the Product model and
+ * `sanitizeProductUpdates` read it too (FR-22 B-1); re-exported for this module's callers.
  */
-export const MAX_PRICE_TIERS = 13
+export { MAX_PRICE_TIERS }
 
 export interface PriceStep {
   type: string
@@ -56,6 +57,8 @@ export interface LineInput {
   }
   /** Original OCR wording — round-tripped verbatim (feeds supplier alias learning). */
   sourceText?: string
+  /** An invoice for a cash sale (#171): the cash-sale line it invoices — round-tripped verbatim. */
+  cashSaleLineId?: string
   resolvedPrice?: number
   /** Purchase bills with-product-update: staged product-master field edits. */
   productUpdate?: Record<string, any>
@@ -128,8 +131,9 @@ export interface LineAmounts {
 
 /**
  * Per-line raw (unrounded) amounts.
- *  - discount-aware (sales invoice, proforma): taxable = net − net·discount%, then tax.
- *  - non-discount (purchase, credit, debit, cash): legacy expressions reproduced exactly
+ *  - discount-aware (sales invoice, proforma, credit and debit notes): taxable =
+ *    net − net·discount%, then tax.
+ *  - non-discount (purchase invoice, cash sale): legacy expressions reproduced exactly
  *    (`qty·price·rate/100` and `qty·price·(1 + rate/100)`).
  */
 export function lineAmounts(l: LineInput, hasDiscount: boolean): LineAmounts {
@@ -161,6 +165,15 @@ export function computeTotals(
   config: DocumentTypeConfig,
 ): DocumentTotals {
   const hasDiscount = config.line.hasDiscount
+  // FR-21.30: a cash sale is a cash-register document, totalled as the till, the server's check and
+  // the fiscal device total one: the gross rounded once per VAT rate, VAT taken back out of it. The
+  // components-first rounding below can be a cent away, and a joined sale prints on the device.
+  if (config.docType === 'cash_sale') {
+    const t = computePosTotals(filledLines(lines).map((l) => ({
+      quantity: num(l.quantity), unitPrice: num(l.unitPrice), taxRate: num(l.taxRate), discount: hasDiscount ? num(l.discount) : 0,
+    })))
+    return { subtotal: t.subtotal, discountTotal: t.discountTotal, taxTotal: t.taxTotal, total: t.total }
+  }
   let subtotal = 0
   let discountTotal = 0
   let taxTotal = 0
@@ -199,8 +212,105 @@ export function buildPayloadLines(
     // order reservation/receipt and the next order sync would release it.
     if (l.orderRef) out.orderRef = l.orderRef
     if (l.sourceText) out.sourceText = l.sourceText
+    if (l.cashSaleLineId) out.cashSaleLineId = l.cashSaleLineId
     return out
   })
+}
+
+/**
+ * The lines a credit or debit note starts with once the user picks the invoice it corrects
+ * (FR-22.4): what was sold, as it was sold. The line's discount and unit come along — the copy
+ * used to zero the discount and drop the unit, so a note on a discounted sale credited the
+ * undiscounted price and every line became „бр." (B-6).
+ *
+ * Each line is marked `loaded`: the price is the invoice's, and a price editor must not swap it
+ * for whatever the article resolves to today. Order and reservation references stay behind —
+ * only a sales invoice may consume a reservation (the API refuses them on a note).
+ */
+export function linesFromRelatedInvoice(lines: any[] | undefined): Array<LineInput & { loaded: true }> {
+  return (lines || []).map((l: any) => ({
+    productId: l.productId ? String(l.productId) : undefined,
+    description: l.description || '',
+    quantity: num(l.quantity),
+    unit: l.unit || 'pcs',
+    unitPrice: num(l.unitPrice),
+    discount: num(l.discount),
+    taxRate: num(l.taxRate),
+    warehouseId: l.warehouseId ? String(l.warehouseId) : undefined,
+    resolvedPrice: num(l.unitPrice),
+    loaded: true as const,
+  }))
+}
+
+/**
+ * A credit or debit note started FROM an issued invoice (FR-22.21: „Кредитно известие" /
+ * „Дебитно известие" on the invoice): everything the note takes from it — the customer, the
+ * invoice it corrects, its currency and how it was paid, and its lines as they were sold
+ * (`linesFromRelatedInvoice`). The user then keeps what is returned or charged.
+ *
+ * The currency is the invoice's: a note corrects amounts in the currency they were charged in,
+ * and starting from the org's base currency put a USD invoice's note in EUR.
+ */
+export function noteFromInvoice(invoice: any): Required<Pick<DocumentFormState, 'contactId' | 'relatedInvoiceId' | 'currency' | 'exchangeRate' | 'paymentMethod' | 'lines'>> {
+  const contact = invoice?.contactId
+  return {
+    contactId: contact ? String(contact._id || contact.id || contact) : '',
+    relatedInvoiceId: String(invoice?.id || invoice?._id || ''),
+    currency: invoice?.currency || '',
+    exchangeRate: num(invoice?.exchangeRate) || 1,
+    paymentMethod: invoice?.paymentMethod || '',
+    lines: linesFromRelatedInvoice(invoice?.lines),
+  }
+}
+
+/**
+ * FR-22.24 — „Копирай": a new draft that starts as another document — the same partner, lines,
+ * prices, method, terms and notes — dated today and numbered when it is saved. Left behind: what
+ * belongs to the original alone — its numbers and dates, the supplier's own invoice number, the
+ * reservations its lines consumed (a copy must not draw on them a second time), the import's OCR
+ * wording, and its print notes.
+ */
+export function copyOfDocument(doc: any): Required<Pick<DocumentFormState, 'contactId' | 'relatedInvoiceId' | 'currency' | 'exchangeRate' | 'paymentMethod' | 'notes' | 'terms' | 'footer' | 'reason' | 'placeOfTransaction' | 'tags' | 'lines'>> & { billingAddress?: BillingAddress } {
+  const contact = doc?.contactId
+  const b = doc?.billingAddress
+  return {
+    contactId: contact ? String(contact._id || contact.id || contact) : '',
+    relatedInvoiceId: doc?.relatedInvoiceId ? String(doc.relatedInvoiceId) : '',
+    currency: doc?.currency || '',
+    exchangeRate: num(doc?.exchangeRate) || 1,
+    paymentMethod: doc?.paymentMethod || '',
+    notes: doc?.notes || '',
+    terms: doc?.terms || '',
+    footer: doc?.footer || '',
+    reason: doc?.reason || '',
+    placeOfTransaction: doc?.placeOfTransaction || '',
+    tags: Array.isArray(doc?.tags) ? [...doc.tags] : [],
+    ...(b ? { billingAddress: { street: b.street || '', city: b.city || '', state: b.state || '', postalCode: b.postalCode || '', country: b.country || '' } } : {}),
+    lines: (doc?.lines || []).map((l: any) => ({
+      productId: l.productId ? String(l.productId) : undefined,
+      description: l.description || '',
+      quantity: num(l.quantity),
+      unit: l.unit || 'pcs',
+      unitPrice: num(l.unitPrice),
+      discount: num(l.discount),
+      taxRate: num(l.taxRate),
+      warehouseId: l.warehouseId ? String(l.warehouseId) : undefined,
+      priceExplanation: l.priceExplanation || undefined,
+      resolvedPrice: num(l.unitPrice),
+      // The copied price is the document's: the price editor must not swap it for today's.
+      loaded: true,
+    })),
+  }
+}
+
+/**
+ * Whether a document's lines take their price from `/pricing/resolve`. That endpoint walks the
+ * SALES chain (selling price → category → tag → tier → contact), so only a document priced from
+ * the selling price may use it. A purchase document keeps the article's purchase price: resolving
+ * there replaced the supplier's price with what we sell the article for (B-10).
+ */
+export function resolvesSalesPrice(config: Pick<DocumentTypeConfig, 'priceField'>): boolean {
+  return config.priceField === 'sellingPrice'
 }
 
 /** productUpdates[] for the with-product-update flow: one entry per filled line whose
@@ -277,7 +387,9 @@ export function buildPayload(
   if (pc.emitDueDate) {
     p.dueDate = pc.dueDateFallbackToIssue ? (state.dueDate || state.issueDate) : state.dueDate
   }
-  if (pc.emitValidUntil) p.validUntil = state.validUntil
+  // A proforma's validity is its `dueDate`: the model has no `validUntil`, so sent under its own
+  // name the date was dropped and the server stored the issue date instead (B-11).
+  if (pc.emitValidUntil) p.dueDate = state.validUntil || state.issueDate
 
   // payment
   if (pc.emitPaymentMethod) p.paymentMethod = state.paymentMethod

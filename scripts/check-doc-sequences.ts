@@ -33,6 +33,7 @@
  */
 import { readFileSync, readdirSync, writeFileSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
+import { assertTokenOrg } from './lib/token-org.js'
 
 function parseArgs(argv: string[]) {
   const o: Record<string, string | boolean> = {}
@@ -97,6 +98,57 @@ function gapRuns(nums: number[]): Array<{ a: number; b: number }> {
 }
 const showRun = (r: { a: number; b: number }) => r.a === r.b ? `${r.a}` : `${r.a}–${r.b} (${r.b - r.a + 1})`
 
+/**
+ * Numbers PlusMinus allocated and then DELETED — `scripts/data/deleted-doc-numbers.json`.
+ *
+ * A gap where one of these sits is CLOSED, not pending: the document will never be exported, so
+ * reporting it as missing every single run teaches people to ignore the warning, which is worse
+ * than not having it. They are listed separately and excluded from the exit code.
+ *
+ * ⚠ A deleted document brought no stock on either side. So it can never explain a quantity
+ * difference — if a reconciliation was blaming one of these for a shortfall, that attribution is
+ * wrong and the shortfall still needs a cause. (It happened: regal-pz's 2026-10-02 report pinned
+ * 2,030 units on 3000016475-477/479 before they turned out to be deleted.)
+ *
+ * The same number means different documents in different orgs, so the list has to be attributed.
+ * `--org` is the explicit answer — but it also switches on the LGR cross-check and therefore
+ * DEMANDS credentials, while a deleted number is a local fact about the export that needs no API
+ * at all. So the org is also recognised from the scanned path, by matching a path segment against
+ * the file's own top-level keys (`_docs/regal-pz/2026-10-01` → `regal-pz`). An offline gap scan
+ * gets the list too, and nothing is hardcoded here beyond the filename.
+ */
+function loadDeleted(slug: string | undefined, scanned: string): { byType: Record<string, Set<number>>; org?: string; inferred: boolean } {
+  const byType: Record<string, Set<number>> = {}
+  let raw: any
+  try { raw = JSON.parse(readFileSync(join(import.meta.dir, 'data', 'deleted-doc-numbers.json'), 'utf8')) }
+  catch { return { byType, inferred: false } }           // absent or unreadable: every gap stays a gap
+  const orgs = Object.keys(raw).filter((k) => !k.startsWith('_'))
+  const segs = scanned.split(/[\\/,]+/).map((s) => s.trim().toLowerCase()).filter(Boolean)
+  const explicit = slug && orgs.includes(slug) ? slug : undefined
+  const org = explicit ?? orgs.find((o) => segs.includes(o.toLowerCase()))
+  if (!org) return { byType, inferred: false }
+  for (const [type, rows] of Object.entries((raw[org] ?? {}) as Record<string, Array<{ number: number }>>))
+    byType[type] = new Set((rows || []).map((r) => Number(r.number)).filter(Number.isFinite))
+  return { byType, org, inferred: !explicit }
+}
+const deletedList = loadDeleted(orgSlug, String(folderArg || rootArg || ''))
+const DELETED = deletedList.byType
+/** Split a gap run on the deleted numbers inside it, so only genuinely absent numbers remain. */
+function withoutDeleted(runs: Array<{ a: number; b: number }>, gone: Set<number> | undefined): { runs: Array<{ a: number; b: number }>; skipped: number[] } {
+  if (!gone?.size) return { runs, skipped: [] }
+  const kept: Array<{ a: number; b: number }> = []
+  const skipped: number[] = []
+  for (const r of runs) {
+    let start: number | null = null
+    for (let n = r.a; n <= r.b; n++) {
+      if (gone.has(n)) { skipped.push(n); if (start !== null) { kept.push({ a: start, b: n - 1 }); start = null } continue }
+      if (start === null) start = n
+    }
+    if (start !== null) kept.push({ a: start, b: r.b })
+  }
+  return { runs: kept, skipped }
+}
+
 // ── optional LGR cross-check ──
 let TOKEN = process.env.LGR_TOKEN || '', ORG_ID = ''
 async function http(method: string, path: string, body?: any) {
@@ -125,7 +177,7 @@ async function fetchAll(path: string, key: string): Promise<any[]> {
 async function lgrNumbers(): Promise<Record<string, Set<number>>> {
   const org = (p: string) => `/api/org/${ORG_ID}${p}`
   const username = process.env.LGR_USERNAME, password = process.env.LGR_PASSWORD
-  if (TOKEN) { const me = await http('GET', '/api/auth/me'); ORG_ID = me.user?.orgId || me.orgId }
+  if (TOKEN) { const me = await http('GET', '/api/auth/me'); assertTokenOrg(me, orgSlug); ORG_ID = me.user?.orgId || me.orgId }
   else { if (!username || !password) { console.error('LGR cross-check needs LGR_TOKEN or LGR_USERNAME+LGR_PASSWORD'); process.exit(2) }
     const r = await http('POST', '/api/auth/login', { orgSlug, username, password }); TOKEN = r.token; ORG_ID = r.org?.id || r.user?.orgId }
   const stok = new Set<number>(), skl = new Set<number>(), isk = new Set<number>(), inv = new Set<number>(), prof = new Set<number>()
@@ -147,6 +199,12 @@ async function main() {
   const findings: any[] = []
   const report: string[] = []
   report.push(`check-doc-sequences | ${folders.length} folder(s): ${folders.map(f => basename(f)).join(', ').slice(0, 120)}${orgSlug ? ` | LGR: ${orgSlug}` : ''}`)
+  // Say whose deleted-number list is in effect: a silently applied exclusion list is worse
+  // than none, because a reader cannot tell a closed gap from one nobody looked at.
+  if (deletedList.org) {
+    const n = Object.values(DELETED).reduce((a, s2) => a + s2.size, 0)
+    report.push(`  deleted-in-source list: ${deletedList.org} (${n} number(s))${deletedList.inferred ? ' — recognised from the path' : ''}`)
+  }
 
   let anyMissing = false
   for (const t of DOC_TYPES) {
@@ -155,7 +213,7 @@ async function main() {
     if (!nums.length) { if (!quiet) report.push(`── ${t.type}: (none)`); continue }
     const min = nums[0], max = nums[nums.length - 1]
     const dayOf = (n: number) => map.get(n)?.[0] || '?'
-    const intra = gapRuns(nums)
+    let intra = gapRuns(nums)
     const lgrset = lgr?.[t.type]
     const notImported = lgrset && lgrset.size ? nums.filter(n => !lgrset.has(n)) : []
     // cross-day (single-folder or first-folder): LGR numbers just below the scanned min
@@ -164,10 +222,22 @@ async function main() {
       const below = [...lgrset].filter(n => n < min)
       if (below.length) { const prev = Math.max(...below); if (prev < min - 1 && min - prev <= 50) crossDay.push({ a: prev + 1, b: min - 1 }) }
     }
+    // Numbers the operator has confirmed PlusMinus deleted are not pending — see `loadDeleted`.
+    const gone = DELETED[t.type]
+    const intraClean = withoutDeleted(intra, gone)
+    const crossClean = withoutDeleted(crossDay, gone)
+    intra = intraClean.runs
+    crossDay = crossClean.runs
+    const deletedHere = [...new Set([...intraClean.skipped, ...crossClean.skipped])].sort((a, b) => a - b)
+
     const problems = intra.length || crossDay.length || notImported.length
     if (problems) anyMissing = true
-    if (!problems && quiet) continue
+    if (!problems && quiet && !deletedHere.length) continue
     report.push(`── ${t.type}${t.note ? ` (${t.note})` : ''}: ${nums.length} docs, range [${min}–${max}]${problems ? '' : '   ✓ contiguous' + (lgrset?.size ? ' & imported' : '')}`)
+    if (deletedHere.length) {
+      report.push(`   • deleted in PlusMinus, never coming: ${deletedHere.join(' ')}  — gap closed, not pending`)
+      for (const n of deletedHere) findings.push({ type: t.type, kind: 'deleted_in_source', number: n, between: 'n/a' })
+    }
     for (const r of intra) { report.push(`   ⚠ MISSING ${showRun(r)}  — between ${dayOf(r.a - 1)} and ${dayOf(r.b + 1)}`); for (let n = r.a; n <= r.b; n++) findings.push({ type: t.type, kind: 'missing', number: n, between: `${dayOf(r.a - 1)}..${dayOf(r.b + 1)}` }) }
     for (const r of crossDay) { report.push(`   ⚠ MISSING vs prior LGR ${showRun(r)}  — before ${dayOf(min)}`); for (let n = r.a; n <= r.b; n++) findings.push({ type: t.type, kind: 'missing_prior', number: n, between: `LGR..${dayOf(min)}` }) }
     for (const n of notImported) { report.push(`   ⚠ NOT imported ${n}  (in folder ${dayOf(n)}, no LGR record)`); findings.push({ type: t.type, kind: 'not_imported', number: n, between: dayOf(n) }) }

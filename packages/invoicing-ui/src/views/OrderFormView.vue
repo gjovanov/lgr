@@ -95,7 +95,10 @@
                 <v-table density="compact">
                   <thead>
                     <tr>
-                      <th style="width:50%;min-width:50vw">{{ $t('common.description') }}</th>
+                      <!-- The description takes what the fixed columns leave, as on the invoice form: half the
+                           viewport pushed the allocations, and the reservations grid's status and actions,
+                           off-screen on a 1366 px laptop. -->
+                      <th style="min-width:220px">{{ $t('common.description') }}</th>
                       <th class="text-end" style="width: 110px">{{ $t('invoicing.qty') }}</th>
                       <th style="width:110px;min-width:110px">{{ $t('invoicing.unit') }}</th>
                       <th class="text-end" style="width: 130px">{{ $t('invoicing.expectedPrice') }}</th>
@@ -149,8 +152,9 @@
                               size="x-small"
                               variant="tonal"
                               :color="allocReserved(alloc) > 0 ? 'primary' : undefined"
+                              :title="allocClientSummary(alloc)"
                             >
-                              {{ warehouseName(alloc.warehouseId) }}: {{ alloc.quantity }}<span v-if="allocReserved(alloc)"> ({{ allocReserved(alloc) }}R)</span>
+                              {{ warehouseName(alloc.warehouseId) }}: {{ alloc.quantity }}<template v-if="allocReserved(alloc)"> ·<v-icon size="12" class="ms-1">mdi-account-lock-outline</v-icon>{{ allocReserved(alloc) }}</template>
                             </v-chip>
                             <v-chip v-if="unallocated(line) > 0" size="x-small" variant="outlined">+{{ unallocated(line) }}</v-chip>
                             <v-btn
@@ -161,6 +165,21 @@
                               :aria-label="$t('invoicing.allocations')"
                               @click="line._expanded = !line._expanded"
                             />
+                            <!-- The line's client reservations open and close on their own, under the allocations. -->
+                            <v-btn
+                              v-if="line.productId || lineResRows(line).length"
+                              size="x-small"
+                              :variant="line._resExpanded ? 'flat' : 'tonal'"
+                              color="primary"
+                              prepend-icon="mdi-account-lock-outline"
+                              :append-icon="line._resExpanded ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+                              :title="$t('invoicing.reservations.clientReservations')"
+                              :aria-label="$t('invoicing.reservations.clientReservations')"
+                              :aria-expanded="!!line._resExpanded"
+                              @click="line._resExpanded = !line._resExpanded"
+                            >
+                              {{ lineResCount(line) }}
+                            </v-btn>
                           </div>
                         </td>
                         <td>
@@ -191,16 +210,6 @@
                                 <v-chip size="x-small" variant="tonal">
                                   {{ $t('invoicing.freeQty') }}: {{ allocFree(alloc) }}
                                 </v-chip>
-                                <v-btn
-                                  v-if="isEdit && !readonly && alloc._id && line.productId"
-                                  size="x-small"
-                                  variant="text"
-                                  color="primary"
-                                  prepend-icon="mdi-account-lock-outline"
-                                  @click="openReserveDialog(group, line, alloc)"
-                                >
-                                  {{ $t('invoicing.reserveForClient') }}
-                                </v-btn>
                                 <v-btn v-if="!readonly" icon="mdi-close" size="x-small" variant="text" color="error" :title="$t('common.remove')" :aria-label="$t('common.remove')" @click="line.allocations.splice(ai, 1)" />
                               </div>
                             </div>
@@ -208,6 +217,101 @@
                               {{ $t('invoicing.addAllocation') }}
                             </v-btn>
                             <span v-if="overAllocated(line)" class="text-error text-caption ml-2">{{ $t('invoicing.overAllocated') }}</span>
+                          </v-sheet>
+                        </td>
+                      </tr>
+                      <!-- #203: the line's client reservations, a grid of their own, grouped by allocation.
+                           Changed here and saved with the order (`reservationChanges`). -->
+                      <tr v-if="line._resExpanded">
+                        <td :colspan="isEdit ? 7 : 6" class="pa-0">
+                          <v-sheet color="surface" class="pa-2 ps-3" style="border-left: 3px solid rgb(var(--v-theme-secondary))">
+                            <div v-if="!line.allocations.length" class="text-medium-emphasis text-body-2 pa-2">
+                              {{ $t('invoicing.reservations.allocateFirst') }}
+                            </div>
+                            <v-table v-else density="compact" class="order-res-grid">
+                              <thead>
+                                <tr>
+                                  <th>{{ $t('invoicing.customer') }}</th>
+                                  <th>{{ $t('invoicing.reservationNumber') }}</th>
+                                  <th>{{ $t('invoicing.internalOrder') }}</th>
+                                  <th class="text-end" style="width: 120px">{{ $t('invoicing.qty') }}</th>
+                                  <th class="text-end">{{ $t('invoicing.invoicedQty') }}</th>
+                                  <th class="text-end">{{ $t('invoicing.dispatchedQty') }}</th>
+                                  <th>{{ $t('common.status') }}</th>
+                                  <th style="width: 90px"></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <template v-for="(alloc, ai) in line.allocations" :key="alloc._id || alloc._key || ai">
+                                  <tr class="order-res-group">
+                                    <td colspan="8">
+                                      <div class="d-flex align-center ga-2 flex-wrap text-body-2">
+                                        <v-icon size="16" color="medium-emphasis">mdi-warehouse</v-icon>
+                                        <span class="font-weight-medium">{{ warehouseName(alloc.warehouseId) || '—' }}</span>
+                                        <span class="text-medium-emphasis">{{ $t('invoicing.qty') }} {{ alloc.quantity }} · {{ $t('invoicing.freeQty') }}: {{ allocFree(alloc) }}</span>
+                                        <v-spacer />
+                                        <!-- On every allocation, a new one too: the reservation is saved with the order. -->
+                                        <v-btn
+                                          v-if="!readonly && line.productId && alloc.warehouseId"
+                                          size="x-small"
+                                          variant="text"
+                                          color="primary"
+                                          prepend-icon="mdi-account-lock-outline"
+                                          :disabled="allocFree(alloc) <= 0"
+                                          @click="openReserveDialog(line, alloc)"
+                                        >
+                                          {{ $t('invoicing.reserveForClient') }}
+                                        </v-btn>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                  <tr v-for="row in allocRows(alloc)" :key="row.key">
+                                    <td :class="row.cancelled ? 'text-decoration-line-through text-medium-emphasis' : ''">{{ contactNames[row.contactId] || '—' }}</td>
+                                    <td class="text-no-wrap">
+                                      <router-link v-if="row.number && row.resId" :to="{ name: 'invoicing.reservations.detail', params: { id: String(row.resId) } }">{{ row.number }}</router-link>
+                                      <span v-else class="text-medium-emphasis">—</span>
+                                    </td>
+                                    <td class="text-no-wrap">
+                                      <router-link v-if="row.internalOrderId" :to="{ name: 'invoicing.internalOrders.edit', params: { id: row.internalOrderId } }">
+                                        {{ internalOrderNumbers[row.internalOrderId] || '…' }}
+                                      </router-link>
+                                      <span v-else class="text-medium-emphasis">—</span>
+                                    </td>
+                                    <td class="text-end">
+                                      <v-text-field
+                                        v-if="row.editable"
+                                        :model-value="row.quantity"
+                                        type="number"
+                                        :min="row.consumed"
+                                        density="compact"
+                                        hide-details
+                                        variant="underlined"
+                                        class="ms-auto"
+                                        style="max-width: 100px"
+                                        :aria-label="row.number ? `${$t('invoicing.qty')} ${row.number}` : $t('invoicing.qty')"
+                                        @update:model-value="(v: any) => setRowQuantity(row, Number(v))"
+                                      />
+                                      <span v-else>{{ row.quantity }}</span>
+                                    </td>
+                                    <td class="text-end">{{ row.invoiced }}</td>
+                                    <td class="text-end">{{ row.dispatched }}</td>
+                                    <td>
+                                      <v-chip v-if="row.cancelled" size="x-small" variant="tonal" color="error">{{ $t('invoicing.reservations.willCancel') }}</v-chip>
+                                      <v-chip v-else-if="row.createKey" size="x-small" variant="tonal" color="success">{{ $t('invoicing.reservations.new') }}</v-chip>
+                                      <v-chip v-else-if="row.status" size="x-small" label variant="tonal" :color="resStatusColor(row.status)">{{ $t(`invoicing.status.${row.status}`) }}</v-chip>
+                                    </td>
+                                    <td class="text-no-wrap text-end">
+                                      <v-btn v-if="row.editable && row.canChangeClient" icon="mdi-account-switch-outline" size="x-small" variant="text" :title="$t('invoicing.reservations.changeClient')" :aria-label="$t('invoicing.reservations.changeClient')" @click="openClientChange(row, line, alloc)" />
+                                      <v-btn v-if="!readonly && !row.cancelled && row.cancellable" icon="mdi-close" size="x-small" variant="text" color="error" :title="$t('invoicing.cancelReservation')" :aria-label="$t('invoicing.cancelReservation')" @click="removeRow(row)" />
+                                      <v-btn v-if="!readonly && row.cancelled" icon="mdi-undo" size="x-small" variant="text" :title="$t('invoicing.reservations.keep')" :aria-label="$t('invoicing.reservations.keep')" @click="removeRow(row)" />
+                                    </td>
+                                  </tr>
+                                  <tr v-if="!allocRows(alloc).length">
+                                    <td colspan="8" class="text-medium-emphasis text-caption ps-8">{{ $t('invoicing.noReservationsYet') }}</td>
+                                  </tr>
+                                </template>
+                              </tbody>
+                            </v-table>
                           </v-sheet>
                         </td>
                       </tr>
@@ -232,6 +336,7 @@
             <v-icon size="20" color="primary">mdi-lock-clock</v-icon>
             {{ $t('nav.reservations') }}
             <v-chip size="x-small" variant="tonal">{{ activeReservations.length }}</v-chip>
+            <v-chip v-if="hasStaged" size="x-small" variant="tonal" color="warning">{{ $t('invoicing.reservations.unsaved') }}</v-chip>
           </v-card-title>
           <v-divider />
           <v-card-text class="pa-2">
@@ -243,6 +348,7 @@
                 <thead>
                   <tr>
                     <th>{{ $t('invoicing.reservationNumber') }}</th>
+                    <th>{{ $t('invoicing.product') }}</th>
                     <th>{{ $t('invoicing.customer') }}</th>
                     <th>{{ $t('invoicing.internalOrder') }}</th>
                     <th>{{ $t('warehouse.warehouse') }}</th>
@@ -255,7 +361,10 @@
                 </thead>
                 <tbody>
                   <tr v-for="res in reservations" :key="res._id">
-                    <td class="text-no-wrap">{{ res.reservationNumber }}</td>
+                    <td class="text-no-wrap">
+                      <router-link :to="{ name: 'invoicing.reservations.detail', params: { id: String(res._id) } }">{{ res.reservationNumber }}</router-link>
+                    </td>
+                    <td>{{ allocLineDescription(res.allocationId) }}</td>
                     <td>{{ contactNames[res.contactId] || '—' }}</td>
                     <td class="text-no-wrap">
                       <router-link v-if="res.internalOrderId" :to="`/internal-orders/${res.internalOrderId}/edit`">
@@ -272,16 +381,27 @@
                         {{ $t(`invoicing.status.${res.status}`) }}
                       </v-chip>
                     </td>
-                    <td>
+                    <td class="text-no-wrap">
                       <v-btn
                         v-if="res.status === 'active' && !readonly"
-                        icon="mdi-close"
+                        :icon="staged.cancels.includes(res._id) ? 'mdi-undo' : 'mdi-close'"
                         size="x-small"
                         variant="text"
-                        color="error"
-                        :title="$t('invoicing.cancelReservation')"
-                        :aria-label="$t('invoicing.cancelReservation')"
-                        @click="cancelReservation(res)"
+                        :color="staged.cancels.includes(res._id) ? undefined : 'error'"
+                        :title="staged.cancels.includes(res._id) ? $t('invoicing.reservations.keep') : $t('invoicing.cancelReservation')"
+                        :aria-label="staged.cancels.includes(res._id) ? $t('invoicing.reservations.keep') : $t('invoicing.cancelReservation')"
+                        @click="toggleCancel(res._id)"
+                      />
+                      <!-- #203: a cancelled reservation, made again — staged like the rest, saved with the order. -->
+                      <v-btn
+                        v-if="res.status === 'cancelled' && !readonly && !stagedRepeat(res._id)"
+                        icon="mdi-restore"
+                        size="x-small"
+                        variant="text"
+                        color="primary"
+                        :title="$t('invoicing.reservations.reserveAgain')"
+                        :aria-label="$t('invoicing.reservations.reserveAgain')"
+                        @click="stageRepeat(res)"
                       />
                     </td>
                   </tr>
@@ -290,6 +410,7 @@
             </div>
           </v-card-text>
         </v-card>
+        <OrderInvoicesCard v-if="isEdit" :invoices="linkedInvoices" :contacts="contactNames" :currency="form.currency || baseCurrency" :locale-code="localeCode" />
 
         <!-- Notes / terms / tags -->
         <v-row class="mt-4">
@@ -345,7 +466,7 @@
     <!-- Reserve-for-client dialog (creates a RES- document on this allocation) -->
     <v-dialog v-model="reserveDialog.open" max-width="480">
       <v-card>
-        <v-card-title>{{ $t('invoicing.reserveForClient') }}</v-card-title>
+        <v-card-title>{{ reserveDialog.row ? $t('invoicing.reservations.changeClient') : $t('invoicing.reserveForClient') }}</v-card-title>
         <v-card-text>
           <div class="text-body-2 text-medium-emphasis mb-3">
             {{ reserveDialog.description }} · {{ warehouseName(reserveDialog.warehouseId) }} ·
@@ -372,11 +493,13 @@
             v-model.number="reserveDialog.quantity"
             type="number"
             min="0"
+            :max="reserveDialog.free"
             :label="$t('invoicing.qty')"
             density="compact"
             variant="outlined"
             hide-details
           />
+          <div class="text-caption text-medium-emphasis mt-2">{{ $t('invoicing.reservations.savedWithOrder') }}</div>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
@@ -384,8 +507,7 @@
           <v-btn
             color="primary"
             variant="flat"
-            :loading="reserveDialog.saving"
-            :disabled="!reserveDialog.contactId || !(reserveDialog.quantity > 0)"
+            :disabled="!reserveDialog.contactId || !(reserveDialog.quantity > 0) || reserveDialog.quantity > reserveDialog.free"
             @click="submitReservation"
           >
             {{ $t('invoicing.reserve') }}
@@ -421,6 +543,20 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- FR-22.41: what Cancel or Complete releases, asked before it happens. -->
+    <OrderCascadeDialog
+      v-model="cascade.open"
+      side="supplier"
+      :title="$t(cascade.action === 'cancel' ? 'invoicing.cascade.cancelSupplierTitle' : 'invoicing.cascade.completeSupplierTitle', { number: documentNumber })"
+      :summary="cascadeNow"
+      :confirm-label="cascade.action === 'cancel' ? $t('invoicing.cancelOrder') : $t('invoicing.completeOrder')"
+      :confirm-color="cascade.action === 'cancel' ? 'error' : 'primary'"
+      :loading="cascade.busy"
+      :error="cascade.error"
+      :staged-lost="hasStaged"
+      @confirm="confirmCascade"
+    />
   </EntityFormShell>
 </template>
 
@@ -435,15 +571,21 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { triggerBlobDownload } from 'ui-shared/composables/useInvoicingExport'
-import { upsertAmountInWords } from 'ui-shared/composables/useAmountInWords'
+import { upsertAmountInWords } from 'config/amount-in-words'
 import EntityFormShell, { type FormAction, type StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
+import { useConversionFeedback } from '../composables/useConversionFeedback'
+import { reservationErrorMessage } from '../composables/reservation-errors'
+import { cascadeSummary } from '../composables/order-cascade'
+import OrderCascadeDialog from '../components/OrderCascadeDialog.vue'
+import OrderInvoicesCard from '../components/OrderInvoicesCard.vue'
 
-interface AllocRow { _id?: string; warehouseId: string; quantity: number; receivedQuantity?: number }
+/** `_key` names an allocation before it is saved, so a reservation staged on it can point at it. */
+interface AllocRow { _id?: string; _key?: string; warehouseId: string; quantity: number; receivedQuantity?: number }
 interface LineRow {
   _id?: string
   productId?: string
@@ -455,7 +597,10 @@ interface LineRow {
   taxRate?: number
   receivedQuantity?: number
   allocations: AllocRow[]
+  /** The allocation editor is open. */
   _expanded?: boolean
+  /** The client-reservations grid is open. */
+  _resExpanded?: boolean
 }
 interface GroupRow { _id?: string; supplierId: string; reference?: string; notes?: string; lines: LineRow[] }
 
@@ -464,6 +609,7 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+const conversion = useConversionFeedback()
 const { formatCurrency } = useCurrency()
 const { uomOptions } = useProductUnits()
 
@@ -484,8 +630,11 @@ const rules = { required: (v: string) => !!v || t('validation.required') }
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 function fmtCurrency(amount: number) { return formatCurrency(amount, form.currency || baseCurrency.value, localeCode.value) }
 
-function emptyAllocation(): AllocRow { return { warehouseId: '', quantity: 0 } }
-function emptyLine(): LineRow { return { description: '', quantity: 0, unit: 'pcs', allocations: [], _expanded: false } }
+function newKey() {
+  return globalThis.crypto?.randomUUID?.() || `k${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
+}
+function emptyAllocation(): AllocRow { return { _key: newKey(), warehouseId: '', quantity: 0 } }
+function emptyLine(): LineRow { return { description: '', quantity: 0, unit: 'pcs', allocations: [], _expanded: false, _resExpanded: false } }
 function emptyGroup(): GroupRow { return { supplierId: '', reference: '', lines: [emptyLine()] } }
 
 const form = reactive({
@@ -502,6 +651,8 @@ const form = reactive({
 // ── linked reservations (RES- documents, loaded with the order) ──
 const reservations = ref<any[]>([])
 const internalOrderNumbers = ref<Record<string, string>>({})
+/** FR-22.36: the invoices against this order — supplier invoices and the sales invoices converted from it. */
+const linkedInvoices = ref<Record<string, any>>({})
 const activeReservations = computed(() => reservations.value.filter((r) => r.status !== 'cancelled'))
 const resByAlloc = computed(() => {
   const m = new Map<string, any[]>()
@@ -614,11 +765,135 @@ function onProductSelected(line: LineRow, product: any) {
   if (!line.expectedUnitPrice) line.expectedUnitPrice = product.purchasePrice || undefined
   if (!line.quantity) line.quantity = 1
 }
+// ── #203: client reservations staged in the form, saved with the order (`reservationChanges`) ──
+interface StagedCreate { key: string; alloc: { id?: string; key?: string }; contactId: string; quantity: number; repeatOf?: string }
+const staged = reactive({
+  creates: [] as StagedCreate[],
+  updates: {} as Record<string, { quantity?: number; contactId?: string }>,
+  cancels: [] as string[],
+})
+const hasStaged = computed(() => staged.creates.length > 0 || Object.keys(staged.updates).length > 0 || staged.cancels.length > 0)
+function clearStaged() {
+  staged.creates = []
+  staged.updates = {}
+  staged.cancels = []
+}
+const isOn = (ref: { id?: string; key?: string }, alloc: AllocRow) =>
+  (!!ref.id && !!alloc._id && String(ref.id) === String(alloc._id)) || (!!ref.key && ref.key === alloc._key)
+
+interface ResRow {
+  key: string; resId?: string; createKey?: string; number?: string; status?: string; contactId: string; quantity: number
+  invoiced: number; dispatched: number; consumed: number; internalOrderId?: string
+  cancelled: boolean; editable: boolean; cancellable: boolean; canChangeClient: boolean
+}
+/** An allocation's reservations as the form now has them: saved ones with their staged changes, then the new ones. */
+function allocRows(alloc: AllocRow): ResRow[] {
+  const rows: ResRow[] = []
+  if (alloc._id) {
+    for (const r of resByAlloc.value.get(String(alloc._id)) || []) {
+      const u = staged.updates[r._id] || {}
+      const cancelled = staged.cancels.includes(r._id)
+      const invoiced = Number(r.invoicedQuantity) || 0
+      const dispatched = Number(r.dispatchedQuantity) || 0
+      const consumed = Math.max(invoiced, dispatched)
+      rows.push({
+        key: r._id, resId: r._id, number: r.reservationNumber, status: r.status, contactId: String(u.contactId ?? r.contactId),
+        quantity: u.quantity ?? Number(r.quantity) ?? 0, invoiced, dispatched, consumed,
+        internalOrderId: r.internalOrderId ? String(r.internalOrderId) : undefined,
+        cancelled, editable: !readonly.value && !cancelled && r.status === 'active',
+        cancellable: r.status === 'active',
+        canChangeClient: consumed <= 0 && !r.internalOrderId,
+      })
+    }
+  }
+  for (const c of staged.creates) {
+    if (!isOn(c.alloc, alloc)) continue
+    rows.push({
+      key: c.key, createKey: c.key, contactId: c.contactId, quantity: c.quantity, invoiced: 0, dispatched: 0, consumed: 0,
+      cancelled: false, editable: !readonly.value, cancellable: true, canChangeClient: true,
+    })
+  }
+  return rows
+}
+/** All of a line's reservation rows, over its allocations. */
+function lineResRows(line: LineRow): ResRow[] {
+  return line.allocations.flatMap((a) => allocRows(a))
+}
+/** What the line's toggle shows: its reservations that stay. */
+function lineResCount(line: LineRow) {
+  return lineResRows(line).filter((r) => !r.cancelled).length
+}
 function allocReserved(alloc: AllocRow) {
-  if (!alloc._id) return 0
-  return (resByAlloc.value.get(String(alloc._id)) || []).reduce((s, r) => s + (Number(r.quantity) || 0), 0)
+  return allocRows(alloc).reduce((s, r) => s + (r.cancelled ? r.consumed : Number(r.quantity) || 0), 0)
 }
 function allocFree(alloc: AllocRow) { return Math.max(0, (Number(alloc.quantity) || 0) - allocReserved(alloc)) }
+function allocClientSummary(alloc: AllocRow) {
+  return allocRows(alloc).filter(r => !r.cancelled).map(r => `${contactNames.value[r.contactId] || '—'} ${r.quantity}`).join(', ')
+}
+function setRowQuantity(row: ResRow, q: number) {
+  if (row.createKey) {
+    const c = staged.creates.find(x => x.key === row.createKey)
+    if (c) c.quantity = q
+    return
+  }
+  const original = reservations.value.find((r) => r._id === row.resId)
+  const u = { ...(staged.updates[row.resId!] || {}) }
+  if (original && q === Number(original.quantity)) delete u.quantity
+  else u.quantity = q
+  if (Object.keys(u).length) staged.updates[row.resId!] = u
+  else delete staged.updates[row.resId!]
+}
+/** A staged create goes; a saved reservation is marked to cancel on save, or unmarked. */
+function removeRow(row: ResRow) {
+  if (row.createKey) {
+    staged.creates = staged.creates.filter(c => c.key !== row.createKey)
+    return
+  }
+  toggleCancel(row.resId!)
+}
+function toggleCancel(resId: string) {
+  if (staged.cancels.includes(resId)) staged.cancels = staged.cancels.filter(id => id !== resId)
+  else {
+    staged.cancels = [...staged.cancels, resId]
+    delete staged.updates[resId]
+  }
+}
+const stagedRepeat = (resId: string) => staged.creates.some(c => c.repeatOf === resId)
+/** „Резервирай отново": the cancelled reservation, staged again on its allocation if the order still has it. */
+function stageRepeat(res: any) {
+  const alloc = allAllocations().find(a => String(a._id) === String(res.allocationId))
+  if (!alloc) {
+    showError(t('invoicing.reservations.allocationGone'))
+    return
+  }
+  const free = allocFree(alloc)
+  if (free <= 0) {
+    showError(t('invoicing.reservations.noFreeQuantity'))
+    return
+  }
+  staged.creates.push({ key: newKey(), alloc: { id: String(alloc._id) }, contactId: String(res.contactId), quantity: Math.min(Number(res.quantity) || 0, free), repeatOf: res._id })
+}
+function allAllocations(): AllocRow[] {
+  return form.supplierGroups.flatMap(g => g.lines.flatMap(l => l.allocations))
+}
+function allocLineDescription(allocationId: string) {
+  for (const g of form.supplierGroups) for (const l of g.lines) if (l.allocations.some(a => String(a._id) === String(allocationId))) return l.description
+  return '—'
+}
+/** The staged changes as the order's PUT/POST carries them. */
+function reservationChangesPayload() {
+  if (!hasStaged.value) return undefined
+  return {
+    create: staged.creates.map(c => ({
+      ...(c.alloc.id ? { allocationId: c.alloc.id } : { allocationKey: c.alloc.key }),
+      contactId: c.contactId,
+      quantity: c.quantity,
+      ...(c.repeatOf ? { repeatOf: c.repeatOf } : {}),
+    })),
+    update: Object.entries(staged.updates).map(([id, u]) => ({ id, ...u })),
+    cancel: staged.cancels.map(id => ({ id })),
+  }
+}
 function allocatedQty(line: LineRow) { return line.allocations.reduce((s, a) => s + (Number(a.quantity) || 0), 0) }
 function unallocated(line: LineRow) { return Math.max(0, (Number(line.quantity) || 0) - allocatedQty(line)) }
 function overAllocated(line: LineRow) { return allocatedQty(line) > (Number(line.quantity) || 0) }
@@ -651,16 +926,21 @@ const formActions = computed<FormAction[]>(() => [
 ])
 
 // ── pending changes ──
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, markClean, tryRestore, snapshot: snapshotPending } = usePendingChanges({
   appId: 'invoicing',
   entityType: 'order',
   icon: 'mdi-clipboard-list-outline',
-  getFormData: () => JSON.parse(JSON.stringify(form)),
+  // `_expanded` / `_resExpanded` are which lines are open — the view, not the order: opening one is not an edit.
+  getFormData: () => JSON.parse(JSON.stringify({ ...form, _stagedReservations: staged }, (k, v) => (k === '_expanded' || k === '_resExpanded' ? undefined : v))),
   getPreviewFields: () => [
     { label: 'Date', value: form.issueDate || '' },
     { label: 'Suppliers', value: String(form.supplierGroups.length) },
   ],
-  setFormData: (data) => Object.assign(form, data),
+  setFormData: (data) => {
+    const { _stagedReservations, ...rest } = data as any
+    Object.assign(form, rest)
+    if (_stagedReservations) Object.assign(staged, _stagedReservations)
+  },
   isEdit: () => isEdit.value,
   entityId: () => route.params.id as string,
 })
@@ -698,12 +978,13 @@ function buildPayload() {
             allocations: l.allocations
               .filter((a) => a.warehouseId)
               .map((a) => ({
-                ...(a._id ? { _id: a._id } : {}),
+                ...(a._id ? { _id: a._id } : { clientKey: a._key }),
                 warehouseId: a.warehouseId,
                 quantity: Number(a.quantity) || 0,
               })),
           })),
       })),
+    reservationChanges: reservationChangesPayload(),
   }
 }
 
@@ -716,7 +997,9 @@ async function onSave() {
       await httpClient.put(`${orgUrl()}/invoicing/orders/${route.params.id}`, buildPayload())
       showSuccess(t('common.savedSuccessfully'))
       markSaved()
-      await loadOrder()
+      await loadOrder(undefined, { clearStaged: true })
+      // It stays open on what it saved: an edit from here is unsaved again (FR-22.16, as the documents do).
+      markClean()
     } else {
       const { data } = await httpClient.post(`${orgUrl()}/invoicing/orders`, buildPayload())
       showSuccess(t('common.savedSuccessfully'))
@@ -724,30 +1007,66 @@ async function onSave() {
       router.replace({ name: 'invoicing.orders.edit', params: { id: data.order._id } })
       orderNumber.value = data.order.orderNumber
       orderStatus.value = data.order.status
-      await loadOrder(data.order._id)
+      await loadOrder(data.order._id, { clearStaged: true })
+      markClean()
     }
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(reservationErrorMessage(e, t))
   } finally {
     saving.value = false
   }
 }
 
-async function doAction(path: string, successKey: string) {
+/** True when it went through; a refusal goes to `onError` (the cascade dialog) or the snackbar. */
+async function doAction(path: string, successKey: string, opts: { onError?: (message: string) => void } = {}): Promise<boolean> {
   loading.value = true
   try {
-    await httpClient.post(`${orgUrl()}/invoicing/orders/${route.params.id}/${path}`)
-    showSuccess(t(successKey))
-    await loadOrder()
+    const { data } = await httpClient.post(`${orgUrl()}/invoicing/orders/${route.params.id}/${path}`)
+    // FR-22.41: a cancelled order says whose client orders lost their reservations.
+    const affected = (data?.affectedInternalOrders || []).map((o: any) => o.orderNumber).filter(Boolean)
+    showSuccess(affected.length ? t('invoicing.cascade.cancelledReleased', { numbers: affected.join(', ') }) : t(successKey))
+    // A completed or cancelled order is read-only, so what was staged on it can never be saved.
+    // After Send the order stays open and the staged changes stay with it.
+    await loadOrder(undefined, { clearStaged: path === 'complete' || path === 'cancel' })
+    return true
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    const message = reservationErrorMessage(e, t)
+    if (opts.onError) opts.onError(message)
+    else showError(message)
+    return false
   } finally {
     loading.value = false
   }
 }
 function sendOrder() { doAction('send', 'invoicing.orderSent') }
-function completeOrder() { doAction('complete', 'invoicing.orderCompleted') }
-function cancelOrder() { doAction('cancel', 'invoicing.orderCancelled') }
+
+// ── FR-22.41: Cancel and Complete say what they release before they do it ──
+const cascade = reactive({ open: false, action: 'cancel' as 'cancel' | 'complete', error: '', busy: false })
+const cascadeNow = computed(() => cascadeSummary(reservations.value, 'supplier', internalOrderNumbers.value))
+function openCascade(action: 'cancel' | 'complete') {
+  cascade.action = action
+  cascade.error = ''
+  cascade.open = true
+}
+/**
+ * Cancel always asks: it cannot be undone. Complete asks when it lets reservations go, or when
+ * reservation changes are staged — a completed order is read-only, so they would be dropped.
+ */
+function cancelOrder() { openCascade('cancel') }
+function completeOrder() {
+  if (cascadeNow.value.count > 0 || hasStaged.value) openCascade('complete')
+  else doAction('complete', 'invoicing.orderCompleted')
+}
+async function confirmCascade() {
+  cascade.busy = true
+  cascade.error = ''
+  // Through doAction, so Cancel and Complete still drop the staged reservation changes.
+  const ok = await doAction(cascade.action, cascade.action === 'cancel' ? 'invoicing.orderCancelled' : 'invoicing.orderCompleted', {
+    onError: (message) => { cascade.error = message },
+  })
+  cascade.busy = false
+  if (ok) cascade.open = false
+}
 
 async function deleteOrder() {
   if (!confirm(t('invoicing.deleteOrderConfirm'))) return
@@ -756,66 +1075,63 @@ async function deleteOrder() {
     showSuccess(t('common.deletedSuccessfully'))
     router.push({ name: 'invoicing.orders' })
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(reservationErrorMessage(e, t))
   }
 }
 
 // ── reservations (create / cancel RES- documents) ──
+// #203: the dialog stages; nothing is posted until the order is saved, and the form is never reloaded
+// under the user's edits.
 const reserveDialog = reactive({
   open: false,
-  saving: false,
   contactId: '',
   quantity: 0,
   description: '',
   free: 0,
   warehouseId: '',
-  productId: '',
-  orderRefs: { groupId: '', lineId: '', allocationId: '' },
+  alloc: { id: undefined as string | undefined, key: undefined as string | undefined },
+  /** Set when the dialog changes the client of an existing or staged row. */
+  row: null as ResRow | null,
 })
 
-function openReserveDialog(group: GroupRow, line: LineRow, alloc: AllocRow) {
+function openReserveDialog(line: LineRow, alloc: AllocRow) {
+  reserveDialog.row = null
   reserveDialog.contactId = ''
   reserveDialog.quantity = allocFree(alloc)
   reserveDialog.description = line.description
   reserveDialog.free = allocFree(alloc)
   reserveDialog.warehouseId = alloc.warehouseId
-  reserveDialog.productId = line.productId || ''
-  reserveDialog.orderRefs = { groupId: group._id || '', lineId: line._id || '', allocationId: alloc._id || '' }
+  reserveDialog.alloc = alloc._id ? { id: String(alloc._id), key: undefined } : { id: undefined, key: alloc._key }
   reserveDialog.open = true
 }
 
-async function submitReservation() {
-  reserveDialog.saving = true
-  try {
-    await httpClient.post(`${orgUrl()}/invoicing/reservations`, {
-      source: 'order',
-      productId: reserveDialog.productId,
-      quantity: reserveDialog.quantity,
-      contactId: reserveDialog.contactId,
-      orderId: route.params.id,
-      groupId: reserveDialog.orderRefs.groupId,
-      lineId: reserveDialog.orderRefs.lineId,
-      allocationId: reserveDialog.orderRefs.allocationId,
-    })
-    showSuccess(t('common.savedSuccessfully'))
-    reserveDialog.open = false
-    await loadOrder()
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
-  } finally {
-    reserveDialog.saving = false
-  }
+function openClientChange(row: ResRow, line: LineRow, alloc: AllocRow) {
+  reserveDialog.row = row
+  reserveDialog.contactId = row.contactId
+  reserveDialog.quantity = row.quantity
+  reserveDialog.description = line.description
+  reserveDialog.free = allocFree(alloc) + row.quantity
+  reserveDialog.warehouseId = alloc.warehouseId
+  reserveDialog.alloc = alloc._id ? { id: String(alloc._id), key: undefined } : { id: undefined, key: alloc._key }
+  reserveDialog.open = true
 }
 
-async function cancelReservation(res: any) {
-  if (!confirm(t('invoicing.cancelReservationConfirm', { number: res.reservationNumber }))) return
-  try {
-    await httpClient.post(`${orgUrl()}/invoicing/reservations/${res._id}/cancel`, {})
-    showSuccess(t('common.savedSuccessfully'))
-    await loadOrder()
-  } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+function submitReservation() {
+  const row = reserveDialog.row
+  if (!row) {
+    staged.creates.push({ key: newKey(), alloc: { ...reserveDialog.alloc }, contactId: reserveDialog.contactId, quantity: reserveDialog.quantity })
+  } else if (row.createKey) {
+    const c = staged.creates.find(x => x.key === row.createKey)
+    if (c) { c.contactId = reserveDialog.contactId; c.quantity = reserveDialog.quantity }
+  } else {
+    const original = reservations.value.find((r) => r._id === row.resId)
+    const u: { quantity?: number; contactId?: string } = {}
+    if (original && reserveDialog.contactId !== String(original.contactId)) u.contactId = reserveDialog.contactId
+    if (original && reserveDialog.quantity !== Number(original.quantity)) u.quantity = reserveDialog.quantity
+    if (Object.keys(u).length) staged.updates[row.resId!] = u
+    else delete staged.updates[row.resId!]
   }
+  reserveDialog.open = false
 }
 
 // ── conversion ──
@@ -839,10 +1155,10 @@ async function convertFor(contactId: string) {
   convertingId.value = contactId
   try {
     const { data } = await httpClient.post(`${orgUrl()}/invoicing/orders/${route.params.id}/convert`, { contactId })
-    showSuccess(t('invoicing.invoiceCreatedFromOrder', { number: data.invoice.invoiceNumber }))
+    conversion.converted(data)
     await loadOrder()
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    conversion.failed(e)
   } finally {
     convertingId.value = ''
   }
@@ -862,7 +1178,12 @@ async function exportGroup(group: GroupRow, variant: 'supplier' | 'internal', fo
 }
 
 // ── loading ──
-async function loadOrder(id?: string) {
+/**
+ * `clearStaged`: the reload follows a save (or closes the order), so the staged reservation changes
+ * go — in the same tick the loaded reservations arrive. Clearing them before the request left the
+ * allocation showing neither while the order reloaded, and anything typed in that window was lost.
+ */
+async function loadOrder(id?: string, opts: { clearStaged?: boolean } = {}) {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/invoicing/orders/${id || route.params.id}`)
     const o = data.order
@@ -875,6 +1196,9 @@ async function loadOrder(id?: string) {
     form.notes = o.notes || ''
     form.terms = o.terms || ''
     form.tags = o.tags || []
+    // What the user opened or closed stays so across a reload (a save reloads the order).
+    const wasOpen = new Map<string, { alloc: boolean; res: boolean }>()
+    for (const g of form.supplierGroups) for (const l of g.lines) if (l._id) wasOpen.set(String(l._id), { alloc: !!l._expanded, res: !!l._resExpanded })
     form.supplierGroups = (o.supplierGroups || []).map((g: any) => ({
       _id: g._id,
       supplierId: g.supplierId,
@@ -890,7 +1214,10 @@ async function loadOrder(id?: string) {
         expectedUnitPrice: l.expectedUnitPrice,
         taxRate: l.taxRate,
         receivedQuantity: l.receivedQuantity || 0,
-        _expanded: false,
+        _expanded: wasOpen.get(String(l._id))?.alloc ?? false,
+        // #203: a line holding live reservations opens its reservations grid, so they are seen, not hidden.
+        _resExpanded: wasOpen.get(String(l._id))?.res
+          ?? (data.reservations || []).some((r: any) => r.status !== 'cancelled' && String(r.lineId) === String(l._id)),
         allocations: (l.allocations || []).map((a: any) => ({
           _id: a._id,
           warehouseId: a.warehouseId,
@@ -901,6 +1228,8 @@ async function loadOrder(id?: string) {
     }))
     // First-class reservations + names come with the response.
     reservations.value = data.reservations || []
+    linkedInvoices.value = data.lookup?.invoices || {}
+    if (opts.clearStaged) clearStaged()
     if (data.lookup?.contacts) Object.assign(contactNames.value, data.lookup.contacts)
     if (data.lookup?.internalOrders) {
       for (const [iid, info] of Object.entries<any>(data.lookup.internalOrders)) {
@@ -910,8 +1239,15 @@ async function loadOrder(id?: string) {
     // Refresh the option pools so selected ids render their names.
     supplierOptions.value = mergeKnown(supplierOptions.value, 'supplier')
     clientOptions.value = mergeKnown(clientOptions.value, 'client')
+    // FR-22.13: what was just loaded is the clean state — not the 500 ms timer's guess, which a
+    // slower load beat. Unless reservation changes are still staged (Send keeps them): those are
+    // unsaved, and leaving must still ask.
+    if (!hasStaged.value) snapshotPending()
   } catch {
     showError(t('common.operationFailed'))
+  } finally {
+    // The save itself succeeded: re-sending its staged creates would reserve twice.
+    if (opts.clearStaged) clearStaged()
   }
 }
 

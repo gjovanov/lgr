@@ -1,11 +1,41 @@
 import { createHash, randomBytes } from 'crypto'
 import { config } from 'config'
-import { User, Org, OAuthHandoff, OAuthPendingRegistration, Desktop, type IUser, type IOrg } from 'db/models'
+import { User, Org, OAuthHandoff, OAuthPendingRegistration, Desktop, Identity, type IUser, type IOrg } from 'db/models'
+import { homeNewOrg, isHomeHere, unhomeNewOrg } from 'db/home/home'
 import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
-import { type UserTokenized, tokenize, defaultOrgSettings, provisionNewOrg } from './auth.service.js'
+import {
+  type LoginResult,
+  type SessionUser,
+  type UserTokenized,
+  defaultOrgSettings,
+  landInOrg,
+  provisionNewOrg,
+  sessionFor,
+} from './auth.service.js'
+import {
+  asIdentityClaims,
+  chooseLanding,
+  identityStillValid,
+  membershipsOf,
+  type IdentityClaims,
+} from './identity/session.service.js'
 import { allocateOperatorCode } from './sequence.service.js'
+import {
+  IdentityError,
+  createIdentity,
+  discardIdentity,
+  emailInUse,
+  linkProviderToIdentity,
+  normalizeEmail,
+  resolveOAuthJoin,
+  type OAuthJoin,
+} from './identity/identity.service.js'
 import { logger } from '../logger/logger.js'
 import { inviteDao } from '../dao/invite.dao.js'
+import { fetchWithTimeout } from './outbound-fetch.js'
+
+/** FR-20.53: an OAuth provider gets 15 s; a sign-in must not hang on one. */
+const providerFetch = (url: string, init?: RequestInit) => fetchWithTimeout(url, init, { timeoutMs: 15_000 })
 
 export interface OAuthUserInfo {
   provider: string
@@ -50,7 +80,7 @@ const PROVIDERS: Record<
     }),
     tokenMethod: 'POST',
     userInfoFetcher: async (accessToken) => {
-      const resp = await fetch('https://www.googleapis.com/userinfo/v2/me', {
+      const resp = await providerFetch('https://www.googleapis.com/userinfo/v2/me', {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
       const data = await resp.json() as any
@@ -77,7 +107,7 @@ const PROVIDERS: Record<
     }),
     tokenMethod: 'GET',
     userInfoFetcher: async (accessToken) => {
-      const resp = await fetch(
+      const resp = await providerFetch(
         `https://graph.facebook.com/v18.0/me?fields=email,name,picture.type(large)&access_token=${accessToken}`,
       )
       const data = await resp.json() as any
@@ -88,7 +118,8 @@ const PROVIDERS: Record<
         name: data.name || '',
         avatarUrl: data.picture?.data?.url,
         // Facebook sends no verification signal, so an email from it may never link an existing
-        // account (S-20). A Facebook sign-up (new org) and an already-linked identity still work.
+        // account (S-20), nor found a new person (a sign-up, or joining by invite as someone new):
+        // that would put an address nobody proved on an account. An already-linked identity works.
         emailVerified: false,
       }
     },
@@ -105,7 +136,7 @@ const PROVIDERS: Record<
     }),
     tokenMethod: 'POST',
     userInfoFetcher: async (accessToken) => {
-      const resp = await fetch('https://api.github.com/user', {
+      const resp = await providerFetch('https://api.github.com/user', {
         headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'lgr-app' },
       })
       const data = await resp.json() as any
@@ -117,7 +148,7 @@ const PROVIDERS: Record<
       // nothing is treated as verified — fail closed.
       let emails: any[] = []
       try {
-        const emailResp = await fetch('https://api.github.com/user/emails', {
+        const emailResp = await providerFetch('https://api.github.com/user/emails', {
           headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'lgr-app' },
         })
         const body = await emailResp.json()
@@ -137,7 +168,8 @@ const PROVIDERS: Record<
 
       return {
         provider: 'github',
-        providerId: String(data.id),
+        // Not `String(data.id)`: an error body has no id, and that would be the string "undefined".
+        providerId: data.id == null ? '' : String(data.id),
         email,
         name: data.login,
         avatarUrl: data.avatar_url,
@@ -158,7 +190,7 @@ const PROVIDERS: Record<
     }),
     tokenMethod: 'POST',
     userInfoFetcher: async (accessToken) => {
-      const resp = await fetch('https://api.linkedin.com/v2/userinfo', {
+      const resp = await providerFetch('https://api.linkedin.com/v2/userinfo', {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
       const data = await resp.json() as any
@@ -186,7 +218,7 @@ const PROVIDERS: Record<
     }),
     tokenMethod: 'POST',
     userInfoFetcher: async (accessToken) => {
-      const resp = await fetch('https://graph.microsoft.com/v1.0/me', {
+      const resp = await providerFetch('https://graph.microsoft.com/v1.0/me', {
         headers: { Authorization: `Bearer ${accessToken}` },
       })
       const data = await resp.json() as any
@@ -240,6 +272,21 @@ function callbackUrl(provider: string): string {
  * requires the callback's state to match that cookie. Passing it in is what lets one value be
  * in both places.
  */
+/**
+ * The providers this deployment has client credentials for: what the sign-in page offers. Names
+ * only; nothing about the credentials themselves leaves the server.
+ */
+export function configuredProviders(): string[] {
+  return Object.keys(PROVIDERS).filter(provider => {
+    try {
+      getProviderConfig(provider)
+      return true
+    } catch {
+      return false
+    }
+  })
+}
+
 export function buildAuthUrl(
   provider: string,
   orgSlug: string | undefined,
@@ -248,6 +295,8 @@ export function buildAuthUrl(
   inviteCode?: string,
   /** FR-14.14 — set when a desktop shell started this flow, with its PKCE challenge. */
   desktop?: { desktopId: string; codeChallenge: string },
+  /** Multi-org: the org this browser was last in. Honoured only if it is one of the person's. */
+  prefer?: string,
 ): string {
   const providerDef = PROVIDERS[provider]
   if (!providerDef) throw new Error(`Unknown OAuth provider: ${provider}`)
@@ -263,6 +312,7 @@ export function buildAuthUrl(
     inviteCode,
     desktopId: desktop?.desktopId,
     codeChallenge: desktop?.codeChallenge,
+    prefer,
   })
   const stateEncoded = Buffer.from(state).toString('base64url')
   return providerDef.authUrl(clientId, callbackUrl(provider), stateEncoded)
@@ -277,11 +327,11 @@ export async function exchangeCodeForToken(provider: string, code: string): Prom
   let resp: Response
   if (providerDef.tokenMethod === 'GET') {
     const qs = new URLSearchParams(params).toString()
-    resp = await fetch(`${providerDef.tokenUrl}?${qs}`, {
+    resp = await providerFetch(`${providerDef.tokenUrl}?${qs}`, {
       headers: { Accept: 'application/json' },
     })
   } else {
-    resp = await fetch(providerDef.tokenUrl, {
+    resp = await providerFetch(providerDef.tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
       body: new URLSearchParams(params).toString(),
@@ -296,7 +346,17 @@ export async function exchangeCodeForToken(provider: string, code: string): Prom
 export async function fetchUserInfo(provider: string, accessToken: string): Promise<OAuthUserInfo> {
   const providerDef = PROVIDERS[provider]
   if (!providerDef) throw new Error(`Unknown OAuth provider: ${provider}`)
-  return providerDef.userInfoFetcher(accessToken)
+  const info = await providerDef.userInfoFetcher(accessToken)
+  // ⚠ S-20 — the account id is what a linked identity is FOUND by: `getOrCreateUser`,
+  // `signInWithOAuth` and `resolveOAuthJoin` all `$elemMatch` on `{ provider, providerId }`. A
+  // userinfo ERROR body carries no id, and an `undefined` in that filter is harmless only because
+  // the driver sends it as `null`, which matches no stored link. With `ignoreUndefined` set the
+  // key is DROPPED instead, and the filter becomes "any account linked to this provider"
+  // (measured 2026-10-10). An answer that names no account is no sign-in at all.
+  if (info.providerId === undefined || info.providerId === null || String(info.providerId).trim() === '') {
+    throw new Error(`The ${provider} sign-in did not identify an account`)
+  }
+  return info
 }
 
 /**
@@ -433,6 +493,22 @@ export async function getOrCreateUser(
     }
   }
 
+  // Multi-org (Phase 1B): who is joining, decided before the invite is consumed so a refusal costs
+  // it nothing. An unverified email never founds a person (`resolveOAuthJoin`).
+  let join: OAuthJoin | undefined
+  if (!user) {
+    join = await resolveOAuthJoin(info)
+    if (join.kind === 'existing') {
+      // Already a member here under a row the lookups above could not see (another address case):
+      // this IS that person, so they sign in to their own membership and the invite stays unused.
+      const own = await User.findOne({ identityId: join.identity._id, orgId: org._id }).exec()
+      if (own) {
+        if (own.isActive === false) throw new Error(refuseSignIn)
+        user = own
+      }
+    }
+  }
+
   if (user) {
     // Link OAuth provider if not already linked
     const already = (user.oauthProviders || []).some(
@@ -446,6 +522,12 @@ export async function getOrCreateUser(
       })
       await user.save()
     }
+    // The person's own link too, once the provider vouched for the very address they hold. That is
+    // also how a link the migration copied unverified becomes trusted (Phase 2 signs in by it).
+    if (user.identityId && info.emailVerified) {
+      const person = await Identity.findById(user.identityId, { email: 1 }).lean().exec()
+      if (person && person.email === normalizeEmail(info.email)) await linkProviderToIdentity(user.identityId, info)
+    }
   } else {
     // Create new user
     const nameParts = info.name.split(' ')
@@ -457,6 +539,9 @@ export async function getOrCreateUser(
     const role = (invite!.assignRole || 'member') as Role
     const permissions = DEFAULT_ROLE_PERMISSIONS[role] || DEFAULT_ROLE_PERMISSIONS.member
 
+    // FR-20.5: never a membership in an org whose home is elsewhere — refused before the invite is used.
+    if (!(await isHomeHere(org._id))) throw new Error('This organization is managed on its own server. Join it there.')
+
     // ⚠ Consume the invite BEFORE creating the user. `incrementUseCount` is the atomic check
     // that the last remaining use is ours; creating first and claiming after would let two
     // simultaneous callbacks both pass `validate()` and both get an account from a
@@ -464,25 +549,61 @@ export async function getOrCreateUser(
     const claimed = await inviteDao.incrementUseCount(String(invite!._id))
     if (!claimed) throw new Error('Invite could not be used')
 
-    // What `register()` gives an invited user, and what this path skipped (S-23): the fiscal
-    // operator code a POS receipt is printed under, and the start of their role history (Н-18).
-    const operatorCode = await allocateOperatorCode(String(org._id))
-    user = await User.create({
-      email: info.email,
-      username,
-      firstName,
-      lastName,
-      role,
-      operatorCode,
-      orgId: org._id,
-      isActive: true,
-      avatar: info.avatarUrl,
-      permissions,
-      roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
-      oauthProviders: [
-        { provider: info.provider, providerId: info.providerId },
-      ],
-    })
+    // The person: the one they already are, a new one, or (before the migration, while unlinked
+    // users of this address wait to be grouped) none yet.
+    let identityId: unknown
+    let createdIdentity = false
+    if (join!.kind === 'existing') {
+      identityId = join!.identity._id
+      await linkProviderToIdentity(identityId, info)
+    } else if (join!.kind === 'new') {
+      const person = await createIdentity(
+        {
+          email: info.email,
+          firstName,
+          lastName,
+          avatar: info.avatarUrl,
+          isActive: true,
+          emailVerified: true, // resolveOAuthJoin admits no other kind of new person
+          oauthProvider: { provider: info.provider, providerId: info.providerId },
+        },
+        'account_exists',
+      )
+      identityId = person._id
+      createdIdentity = true
+    }
+
+    // A membership carries its person's address: an existing person keeps the one they have, even
+    // when the provider reports another today (found by the link, or after an address change).
+    const memberEmail =
+      join!.kind === 'existing' ? join!.identity.email : identityId ? normalizeEmail(info.email) : info.email
+
+    try {
+      // What `register()` gives an invited user, and what this path skipped (S-23): the fiscal
+      // operator code a POS receipt is printed under, and the start of their role history (Н-18).
+      const operatorCode = await allocateOperatorCode(String(org._id))
+      user = await User.create({
+        email: memberEmail,
+        username,
+        firstName,
+        lastName,
+        role,
+        operatorCode,
+        orgId: org._id,
+        identityId,
+        isActive: true,
+        avatar: info.avatarUrl,
+        permissions,
+        roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
+        oauthProviders: [
+          { provider: info.provider, providerId: info.providerId },
+        ],
+      })
+    } catch (err) {
+      if (createdIdentity) await discardIdentity(identityId)
+      await inviteDao.releaseUse(String(invite!._id)).catch(() => undefined)
+      throw err
+    }
     isNew = true
     logger.info({ orgId: org._id, userId: user._id, provider: info.provider }, 'OAuth user created')
   }
@@ -495,7 +616,10 @@ export async function getOrCreateUser(
   // permission set — read-only, or own-records-only — got the role's full rights by signing in with
   // Google instead of a password, the Administrator set's every-permission never applied, and the
   // fiscal `operatorCode` was missing. Two answers to "what may this person do" drift; one cannot.
-  return { user: await tokenize(user), isNew }
+  // `sessionFor` is `tokenize()` plus, for a linked membership, the person (`iid`/`tv`), so this
+  // session ends with the person's password like any other.
+  const person = user.identityId ? await Identity.findById(user.identityId, { tokenVersion: 1 }).lean().exec() : null
+  return { user: await sessionFor(user, person), isNew }
 }
 
 export async function registerWithOAuth(
@@ -504,6 +628,12 @@ export async function registerWithOAuth(
   orgSlug: string,
   username: string,
 ): Promise<{ user: UserTokenized; isNew: boolean }> {
+  // Multi-org: founding an org makes a new person, so the address must be one the provider
+  // verified (never squat an address nobody proved) and one no account has yet (that person signs
+  // in, then founds the org as themselves).
+  if (!info.emailVerified) throw new IdentityError('unverified_email')
+  if (await emailInUse(info.email)) throw new IdentityError('account_exists')
+
   const existingOrg = await Org.findOne({ slug: orgSlug.toLowerCase() })
   if (existingOrg) throw new Error(`Organization slug "${orgSlug}" is already taken`)
 
@@ -511,39 +641,137 @@ export async function registerWithOAuth(
   const firstName = nameParts[0] || info.name
   const lastName = nameParts.slice(1).join(' ') || info.name
 
-  // ⚠ S-23: the same org a password registration builds. This copy enabled no modules, seeded no
-  // permission sets and created no app rows, and its admin had no operator code or role history, so
-  // the founder held the admin ROLE's defaults rather than the Administrator set's every-permission.
-  const org = await Org.create({
-    name: orgName,
-    slug: orgSlug.toLowerCase(),
-    settings: defaultOrgSettings(),
-    subscription: { plan: 'free', maxUsers: 5 },
-  })
+  const person = await createIdentity(
+    {
+      email: info.email,
+      firstName,
+      lastName,
+      avatar: info.avatarUrl,
+      isActive: true,
+      emailVerified: true,
+      oauthProvider: { provider: info.provider, providerId: info.providerId },
+    },
+    'account_exists',
+  )
 
-  const operatorCode = await allocateOperatorCode(String(org._id))
-  const user = await User.create({
-    email: info.email,
-    username,
-    firstName,
-    lastName,
-    role: 'admin',
-    operatorCode,
-    orgId: org._id,
-    isActive: true,
-    avatar: info.avatarUrl,
-    permissions: DEFAULT_ROLE_PERMISSIONS.admin,
-    roleHistory: [{ role: 'admin', startDate: new Date(), assignedAt: new Date() }],
-    oauthProviders: [
-      { provider: info.provider, providerId: info.providerId },
-    ],
-  })
+  let org: IOrg | undefined
+  let user: IUser | undefined
+  try {
+    // ⚠ S-23: the same org a password registration builds. This copy enabled no modules, seeded no
+    // permission sets and created no app rows, and its admin had no operator code or role history, so
+    // the founder held the admin ROLE's defaults rather than the Administrator set's every-permission.
+    org = await Org.create({
+      name: orgName,
+      slug: orgSlug.toLowerCase(),
+      settings: defaultOrgSettings(),
+      subscription: { plan: 'free', maxUsers: 5 },
+    })
+    // FR-20.18: on a master the new org is the master's, before any write for it.
+    await homeNewOrg(org._id)
 
-  await provisionNewOrg(org, user)
+    const operatorCode = await allocateOperatorCode(String(org._id))
+    user = await User.create({
+      email: normalizeEmail(info.email),
+      username,
+      firstName,
+      lastName,
+      role: 'admin',
+      operatorCode,
+      orgId: org._id,
+      identityId: person._id,
+      isActive: true,
+      avatar: info.avatarUrl,
+      permissions: DEFAULT_ROLE_PERMISSIONS.admin,
+      roleHistory: [{ role: 'admin', startDate: new Date(), assignedAt: new Date() }],
+      oauthProviders: [
+        { provider: info.provider, providerId: info.providerId },
+      ],
+    })
+
+    await provisionNewOrg(org, user)
+  } catch (err) {
+    await discardIdentity(person._id)
+    if (user) await User.deleteOne({ _id: user._id }).catch(() => undefined)
+    if (org) {
+      await Org.deleteOne({ _id: org._id }).catch(() => undefined)
+      await unhomeNewOrg(org._id).catch(() => undefined)
+    }
+    throw err
+  }
 
   logger.info({ orgId: org._id, userId: user._id, provider: info.provider }, 'OAuth registration completed')
 
-  return { user: await tokenize(user), isNew: true }
+  return { user: await sessionFor(user, person), isNew: true }
+}
+
+/**
+ * The org an invitation is for. An org-less OAuth sign-in that carries an invite joins THAT org
+ * (`getOrCreateUser` then checks the invite in full: org, pinned address, uses).
+ */
+export async function inviteOrgSlug(code: string): Promise<string> {
+  const invite = await inviteDao.findByCode(code)
+  const org = invite ? await Org.findById(invite.orgId, { slug: 1 }).lean().exec() : null
+  if (!org) throw new Error('Invalid invite code')
+  return org.slug
+}
+
+/** Why an org-less OAuth sign-in found no way in (the callback redirects with the code). */
+export class OAuthSignInError extends Error {
+  constructor(readonly code: 'no_account' | 'not_activated', message: string) {
+    super(message)
+  }
+}
+
+/**
+ * An org-less OAuth sign-in (multi-org Phase 2): the provider account names a PERSON, who then
+ * lands like a password sign-in (rule 5), or chooses.
+ *
+ * Who it is, in order (rule 4):
+ *   - the person who holds this provider account. A link the migration copied is unconfirmed
+ *     (before S-20 an unverified email was enough to make one), so it counts only when the
+ *     provider vouches, right now, for the person's own address; it is then confirmed.
+ *     Otherwise `link_unconfirmed`: no proof of who this is, and someone else's link;
+ *   - else the person whose address the provider VERIFIED; the account is linked for next time.
+ *     An unverified address (Microsoft, Facebook) names nobody;
+ *   - else no account (`no_account`). Joining an org is an invitation, never a sign-in.
+ *
+ * Before the migration has linked them, existing users are not people yet, so this finds them
+ * not: the org path (`org_slug`) still signs them in as before.
+ */
+export async function signInWithOAuth(info: OAuthUserInfo, opts: { prefer?: string } = {}): Promise<LoginResult> {
+  const address = normalizeEmail(info.email)
+  let identity = await Identity.findOne({
+    oauthProviders: { $elemMatch: { provider: info.provider, providerId: info.providerId } },
+  }).exec()
+  if (identity) {
+    const link = identity.oauthProviders.find(l => l.provider === info.provider && l.providerId === info.providerId)
+    const vouched = info.emailVerified && address === identity.email
+    if (!link?.verified && !vouched) throw new IdentityError('link_unconfirmed')
+    if (!link?.verified) await linkProviderToIdentity(identity._id, info)
+  } else if (info.emailVerified) {
+    identity = await Identity.findOne({ email: address }).exec()
+    if (identity) await linkProviderToIdentity(identity._id, info)
+  }
+  if (!identity) {
+    throw new OAuthSignInError('no_account', 'There is no LGR account for this sign-in. Ask your organization for an invitation.')
+  }
+  if (!identity.isActive) {
+    throw new OAuthSignInError('not_activated', 'Account not activated. Check your email for the activation link.')
+  }
+  // The provider has just proven the person holds their own address.
+  if (info.emailVerified && address === identity.email && !identity.emailVerified) {
+    await Identity.updateOne({ _id: identity._id }, { $set: { emailVerified: true, emailVerifiedAt: new Date() } }).exec()
+  }
+
+  const memberships = await membershipsOf(identity._id)
+  const landing = chooseLanding(identity, memberships, opts.prefer)
+  if (!landing) {
+    await Identity.updateOne({ _id: identity._id }, { $set: { lastLoginAt: new Date() } }).exec()
+    return { kind: 'choose', identity, memberships }
+  }
+  const org = await Org.findById(landing.user.orgId).exec()
+  if (!org) throw new OAuthSignInError('no_account', 'There is no LGR account for this sign-in. Ask your organization for an invitation.')
+  return landInOrg(landing.user, identity, org, memberships)
 }
 
 /**
@@ -564,6 +792,7 @@ export function parseState(stateStr: string): {
   inviteCode?: string
   desktopId?: string
   codeChallenge?: string
+  prefer?: string
 } {
   try {
     const decoded = Buffer.from(stateStr, 'base64url').toString('utf8')
@@ -581,6 +810,9 @@ export function parseState(stateStr: string): {
       // them — and the code it produces still needs the verifier they do not have.
       desktopId: str(raw.desktopId),
       codeChallenge: str(raw.codeChallenge),
+      // Only ever a landing PREFERENCE among the person's own memberships (`chooseLanding`), so a
+      // rewritten value can at most land them in another org they already belong to.
+      prefer: str(raw.prefer),
     }
   } catch {
     throw new Error('Invalid OAuth state parameter')
@@ -619,12 +851,15 @@ function hashHandoffCode(code: string): string {
  * 32 random bytes: this is a bearer credential for two minutes, so it is sized like one, not
  * like the human-typed 8-character codes elsewhere in the system.
  */
-export async function createLoginHandoff(payload: UserTokenized): Promise<string> {
+export async function createLoginHandoff(payload: UserTokenized | IdentityClaims): Promise<string> {
   const code = randomBytes(32).toString('base64url')
+  // An org session names its membership; an identity-only sign-in (no org chosen yet) its person.
+  const person = asIdentityClaims(payload)
   await OAuthHandoff.create({
     codeHash: hashHandoffCode(code),
-    userId: payload.id,
-    orgId: payload.orgId,
+    ...(person
+      ? { identityId: person.iid }
+      : { userId: (payload as UserTokenized).id, orgId: (payload as UserTokenized).orgId }),
     payload,
     expiresAt: new Date(Date.now() + HANDOFF_TTL_MS),
   })
@@ -641,7 +876,9 @@ export async function createLoginHandoff(payload: UserTokenized): Promise<string
  * Every failure — unknown, expired, already used — raises the same message. Distinguishing them
  * would tell an attacker whether a guessed code had ever existed.
  */
-export async function redeemLoginHandoff(code: unknown): Promise<{ user: UserTokenized; org: IOrg }> {
+export async function redeemLoginHandoff(
+  code: unknown,
+): Promise<{ user: SessionUser; org: IOrg; person?: undefined } | { person: IdentityClaims; user?: undefined; org?: undefined }> {
   if (typeof code !== 'string' || !code) throw new HandoffError(HANDOFF_REFUSED)
 
   const row = await OAuthHandoff.findOneAndUpdate(
@@ -653,6 +890,14 @@ export async function redeemLoginHandoff(code: unknown): Promise<{ user: UserTok
     { new: true },
   ).exec()
   if (!row) throw new HandoffError(HANDOFF_REFUSED)
+
+  // An identity-only sign-in: the person re-checked like a session (still active, still on the
+  // same tokenVersion), in the same single refusal as every other failure.
+  const person = asIdentityClaims(row.payload)
+  if (person) {
+    if (!(await identityStillValid(person.iid, person.tv))) throw new HandoffError(HANDOFF_REFUSED)
+    return { person }
+  }
 
   const org = await Org.findById(row.orgId).exec()
   if (!org) throw new HandoffError(HANDOFF_REFUSED)
@@ -667,8 +912,11 @@ export async function redeemLoginHandoff(code: unknown): Promise<{ user: UserTok
 
   // The claims come back as the callback assembled them, so the token this produces is the one
   // the callback would have signed. Re-deriving them here would be a second, drifting
-  // implementation of what a session says about a user.
-  return { user: row.payload as unknown as UserTokenized, org }
+  // implementation of what a session says about a user. A session naming a person must also
+  // still match them (a password changed in the window ends it here too).
+  const user = row.payload as unknown as SessionUser
+  if (user.iid && !(await identityStillValid(user.iid, user.tv))) throw new HandoffError(HANDOFF_REFUSED)
+  return { user, org }
 }
 
 // ── The DESKTOP handoff: the same record, delivered over `lgr://` and locked with PKCE ───────
@@ -699,6 +947,28 @@ function s256(verifier: string): string {
  * ⚠ The challenge is stored, never the verifier — storing the verifier would make a dump of this
  * collection redeemable, which is exactly what hashing the code already prevents.
  */
+/**
+ * The slug of the org a REGISTERED, active desktop belongs to; undefined for an id that names no
+ * such desktop (unknown, malformed or revoked).
+ *
+ * ⚠ Why the OAuth start needs it: a desktop sign-in must land in ONE org (the shell cannot show an
+ * org picker), and that org used to arrive as `org_slug` from the login page. Since multi-org
+ * sign-in the page sends `org_slug` only when its hidden org field was opened, so every desktop
+ * Google/Microsoft sign-in answered 400 "org_slug query parameter is required for a desktop
+ * sign-in" (prod, 2026-10-14). The desktop already belongs to exactly one org, so that is the org.
+ *
+ * Not an authorization step: `desktopId` is not authenticated at this point, but it only picks
+ * the org to sign in to, and the provider account must still be a member there. The redeem
+ * re-checks that the desktop is active.
+ */
+export async function desktopOrgSlug(desktopId: unknown): Promise<string | undefined> {
+  if (typeof desktopId !== 'string' || !/^[0-9a-f]{24}$/i.test(desktopId)) return undefined
+  const desktop = await Desktop.findOne({ _id: desktopId, status: 'active' }, { orgId: 1 }).lean().exec()
+  if (!desktop) return undefined
+  const org = await Org.findById((desktop as any).orgId, { slug: 1 }).lean().exec()
+  return (org as any)?.slug || undefined
+}
+
 export async function createDesktopHandoff(
   payload: UserTokenized,
   desktopId: string,
@@ -766,6 +1036,7 @@ export async function createPendingRegistration(info: OAuthUserInfo): Promise<st
       email: info.email,
       name: info.name || '',
       avatarUrl: info.avatarUrl || undefined,
+      emailVerified: info.emailVerified === true,
     },
     expiresAt: new Date(Date.now() + PENDING_REGISTRATION_TTL_MS),
   })
@@ -883,6 +1154,7 @@ export async function registerWithPendingRegistration(
         email: row.claims.email,
         name: row.claims.name,
         avatarUrl: row.claims.avatarUrl,
+        emailVerified: row.claims.emailVerified === true,
       },
       orgName,
       orgSlug,

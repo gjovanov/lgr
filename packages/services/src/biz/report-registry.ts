@@ -276,7 +276,10 @@ export const REPORT_REGISTRY: ReportEntry[] = [
       row.rowType === 'pos'
         ? `/pos/orders/${row.posId}`
         : row.invoiceId
-          ? `/invoicing/invoices/${row.invoiceId}/edit`
+          // A cash sale opens on its own page; the invoice form would show it as an invoice (FR-21.3).
+          ? row.docType === 'cash_sale'
+            ? `/invoicing/cash-sales/${row.invoiceId}/edit`
+            : `/invoicing/invoices/${row.invoiceId}/edit`
           : undefined,
   },
 

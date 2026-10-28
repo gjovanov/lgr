@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { consumeTokenHandoff } from 'ui-shared/nav/navigate'
+import { consumeTokenHandoff, signInHref } from 'ui-shared/nav/navigate'
+import { hasOrgSession } from 'ui-shared/session/session'
 
 const routes = [
   {
@@ -27,18 +28,23 @@ const routes = [
       { path: 'bills/new', name: 'invoicing.purchases.new', component: () => import('../views/PurchaseInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Purchase Invoices', to: '/bills' }, { title: 'New' }] } },
       { path: 'bills/:id/edit', name: 'invoicing.purchases.edit', component: () => import('../views/PurchaseInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Purchase Invoices', to: '/bills' }, { title: 'Edit' }] } },
 
-      // ── External Orders (ORDO) — route paths kept stable across the rename ──
-      { path: 'orders', name: 'invoicing.orders', component: () => import('../views/OrdersView.vue'), meta: { breadcrumb: [{ title: 'External Orders' }] } },
-      { path: 'orders/new', name: 'invoicing.orders.new', component: () => import('../views/OrderFormView.vue'), meta: { breadcrumb: [{ title: 'External Orders', to: '/orders' }, { title: 'New' }] } },
-      { path: 'orders/:id/edit', name: 'invoicing.orders.edit', component: () => import('../views/OrderFormView.vue'), meta: { breadcrumb: [{ title: 'External Orders', to: '/orders' }, { title: 'Edit' }] } },
+      // ── Outgoing Orders (ORDO; "external" until #203) — route paths and names kept stable ──
+      { path: 'orders', name: 'invoicing.orders', component: () => import('../views/OrdersView.vue'), meta: { breadcrumb: [{ title: 'Outgoing Orders' }] } },
+      { path: 'orders/new', name: 'invoicing.orders.new', component: () => import('../views/OrderFormView.vue'), meta: { breadcrumb: [{ title: 'Outgoing Orders', to: '/orders' }, { title: 'New' }] } },
+      { path: 'orders/:id/edit', name: 'invoicing.orders.edit', component: () => import('../views/OrderFormView.vue'), meta: { breadcrumb: [{ title: 'Outgoing Orders', to: '/orders' }, { title: 'Edit' }] } },
 
-      // ── Internal Orders (ORDI) ──
-      { path: 'internal-orders', name: 'invoicing.internalOrders', component: () => import('../views/InternalOrdersView.vue'), meta: { breadcrumb: [{ title: 'Internal Orders' }] } },
-      { path: 'internal-orders/new', name: 'invoicing.internalOrders.new', component: () => import('../views/InternalOrderFormView.vue'), meta: { breadcrumb: [{ title: 'Internal Orders', to: '/internal-orders' }, { title: 'New' }] } },
-      { path: 'internal-orders/:id/edit', name: 'invoicing.internalOrders.edit', component: () => import('../views/InternalOrderFormView.vue'), meta: { breadcrumb: [{ title: 'Internal Orders', to: '/internal-orders' }, { title: 'Edit' }] } },
+      // ── Incoming Orders (ORDI; "internal" until #203) ──
+      { path: 'internal-orders', name: 'invoicing.internalOrders', component: () => import('../views/InternalOrdersView.vue'), meta: { breadcrumb: [{ title: 'Incoming Orders' }] } },
+      { path: 'internal-orders/new', name: 'invoicing.internalOrders.new', component: () => import('../views/InternalOrderFormView.vue'), meta: { breadcrumb: [{ title: 'Incoming Orders', to: '/internal-orders' }, { title: 'New' }] } },
+      { path: 'internal-orders/:id/edit', name: 'invoicing.internalOrders.edit', component: () => import('../views/InternalOrderFormView.vue'), meta: { breadcrumb: [{ title: 'Incoming Orders', to: '/internal-orders' }, { title: 'Edit' }] } },
 
       // ── Reservations (RES) ──
       { path: 'reservations', name: 'invoicing.reservations', component: () => import('../views/ReservationsView.vue'), meta: { breadcrumb: [{ title: 'Reservations' }] } },
+      // FR-22.37: a new reservation is made in a dialog ON the list. This path („+ Нов", ★) opens
+      // it there: a redirect, so the grid keeps its own route name — the key of its column
+      // preferences and of its remembered filters. `?productId=` comes along to pre-fill it.
+      { path: 'reservations/new', name: 'invoicing.reservations.new', redirect: (to) => ({ name: 'invoicing.reservations', query: { ...to.query, new: '1' } }) },
+      { path: 'reservations/:id', name: 'invoicing.reservations.detail', component: () => import('../views/ReservationDetailView.vue'), meta: { breadcrumb: [{ title: 'Reservations', to: '/reservations' }, { title: 'Reservation' }] } },
 
       // ── Proforma ──
       { path: 'proforma', name: 'invoicing.proforma', component: () => import('../views/ProformaInvoicesView.vue'), meta: { breadcrumb: [{ title: 'Proforma' }] } },
@@ -58,6 +64,8 @@ const routes = [
       { path: 'cash-sales', name: 'invoicing.cash-sales', component: () => import('../views/CashSalesView.vue'), meta: { breadcrumb: [{ title: 'Cash Sales' }] } },
       { path: 'cash-sales/new', name: 'invoicing.cash-sales.new', component: () => import('../views/CashSaleFormView.vue'), meta: { breadcrumb: [{ title: 'Cash Sales', to: '/cash-sales' }, { title: 'New' }] } },
       { path: 'cash-sales/:id/edit', name: 'invoicing.cash-sales.edit', component: () => import('../views/CashSaleFormView.vue'), meta: { breadcrumb: [{ title: 'Cash Sales', to: '/cash-sales' }, { title: 'Edit' }] } },
+      // FR-21.13: a till sale the journal lists that is not a document yet (until R2 copies it).
+      { path: 'cash-sales/:id/view', name: 'invoicing.cash-sales.view', component: () => import('../views/CashSaleJournalDocumentView.vue'), meta: { breadcrumb: [{ title: 'Cash Sales', to: '/cash-sales' }, { title: 'Detail' }] } },
 
       // ── Payments ──
       { path: 'payment-orders', name: 'invoicing.payment-orders', component: () => import('../views/PaymentOrdersView.vue'), meta: { breadcrumb: [{ title: 'Payment Orders' }] } },
@@ -89,13 +97,13 @@ export const router = createRouter({
 router.beforeEach((to, _from, next) => {
   // Accept a token from URL params ONLY on a local dev origin (FR-14.24) — on any other
   // origin it is stripped and ignored. A full reload follows either way so Pinia
-  // re-initializes from localStorage.
+  // re-initializes from the tab's session.
   if (consumeTokenHandoff(to.query)) return
 
-  const token = localStorage.getItem('lgr_token')
-  if (!token) {
-    const portalUrl = window.location.hostname === 'localhost' ? 'http://localhost:4001' : '/'
-    window.location.href = portalUrl
+  // An org session, in THIS tab. Without one: the portal's sign-in (or its org picker, for a person
+  // signed in without an org), which brings the tab back to this page afterwards (FR-22.53).
+  if (!hasOrgSession()) {
+    window.location.href = signInHref(router.options.history.base + to.fullPath)
     return
   }
   next()

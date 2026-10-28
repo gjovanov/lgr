@@ -35,7 +35,8 @@ import { join, resolve, sep } from 'node:path'
 import zlib from 'node:zlib'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
-import { Org } from 'db/models'
+import { NODE_STATE_MODELS } from 'db/home/node-state'
+import { Identity, Org, User } from 'db/models'
 import { logger } from '../../logger/logger.js'
 import {
   BUNDLE_FORMAT,
@@ -64,6 +65,9 @@ const sha256 = (s: string | Buffer) => createHash('sha256').update(s).digest('he
  */
 const OPERATIONAL_COLLECTIONS = new Set(['BackupRun', 'DigestRun', 'RestoreRun'])
 
+/** FR-20.3 — node state about an org, never its data (`db/home/node-state.ts`, plan step P0b-10). */
+const NODE_STATE_COLLECTIONS = NODE_STATE_MODELS
+
 /**
  * Collections that belong to an org, discovered rather than listed.
  *
@@ -72,12 +76,34 @@ const OPERATIONAL_COLLECTIONS = new Set(['BackupRun', 'DigestRun', 'RestoreRun']
  * backup. `tenantPlugin` adds an `orgId` path to every tenant-scoped schema, so that path IS
  * the definition of "belongs to an org".
  */
+/** Why a model with an `orgId` is left out of a bundle, or undefined when it is the org's data. */
+export function bundleExclusion(modelName: string): 'operational' | 'node_state' | undefined {
+  if (OPERATIONAL_COLLECTIONS.has(modelName)) return 'operational'
+  if (NODE_STATE_COLLECTIONS.has(modelName)) return 'node_state'
+  return undefined
+}
+
 export function tenantCollections(): string[] {
   return Object.keys(mongoose.models)
     .filter(name => !!mongoose.models[name].schema.path('orgId'))
-    .filter(name => !OPERATIONAL_COLLECTIONS.has(name))
+    .filter(name => !bundleExclusion(name))
     .sort()
 }
+
+/**
+ * The PEOPLE behind this org's memberships (multi-org sign-in), carried as one more section.
+ *
+ * `Identity` is global: it has no `orgId`, so `tenantCollections()` cannot see it, and yet a
+ * membership is useless without its person, because the password and the sign-in providers live
+ * on the identity. Once the legacy per-org copies on `User` are gone, a bundle without its people
+ * would restore memberships that nobody can sign in to. So each org's bundle carries the
+ * identities its users point at, and a person in two orgs is in both orgs' bundles.
+ *
+ * ⚠ A restore treats this section differently from every other one: it only ever INSERTS a
+ * person who is missing. It never updates, deletes or remaps one (`backup-restore.service.ts`),
+ * because the same person belongs to other orgs that the restore is not about.
+ */
+export const PEOPLE_MODEL = 'Identity'
 
 /** zstd, with the level the FR pins per kind. */
 function compress(plain: Buffer, kind: 'full' | 'delta'): Buffer {
@@ -192,7 +218,8 @@ export async function buildBundle(orgId: string, opts: BuildBundleOptions): Prom
   const parts: Buffer[] = [Buffer.alloc(0)]
   let documentCount = 0
 
-  for (const modelName of tenantCollections()) {
+  /** Write one section from a cursor of lean documents. Nothing is written for an empty one. */
+  async function appendSection(modelName: string, cursor: AsyncIterable<unknown>): Promise<void> {
     const model = mongoose.models[modelName]
     // ⚠ A CURSOR, and `.lean()`, and per-line Buffers — each removes one full copy of the
     // organisation from memory, and the three together are what keep this function viable at
@@ -214,14 +241,14 @@ export async function buildBundle(orgId: string, opts: BuildBundleOptions): Prom
     let count = 0
     let bytes = 0
 
-    for await (const doc of model.find({ orgId }).lean().cursor()) {
+    for await (const doc of cursor) {
       const line = Buffer.from(JSON.stringify(doc) + '\n', 'utf8')
       hash.update(line)
       lines.push(line)
       bytes += line.length
       count++
     }
-    if (!count) continue
+    if (!count) return
 
     const section: BackupCollectionSection = {
       name: modelName,
@@ -240,6 +267,20 @@ export async function buildBundle(orgId: string, opts: BuildBundleOptions): Prom
     // ⚠ `Buffer.concat(lines)`, never `parts.push(...lines)`: spreading an array of hundreds
     // of thousands of elements into a call overflows the stack.
     parts.push(Buffer.concat(lines))
+  }
+
+  for (const modelName of tenantCollections()) {
+    await appendSection(modelName, mongoose.models[modelName].find({ orgId }).lean().cursor())
+  }
+
+  // The people behind the memberships (see PEOPLE_MODEL). ⚠ `+password`: it is `select: false`
+  // on the model, and a backup that quietly left it out would restore people who cannot sign in.
+  const people = (await User.distinct('identityId', { orgId, identityId: { $ne: null } }).exec()).filter(Boolean)
+  if (people.length) {
+    await appendSection(
+      PEOPLE_MODEL,
+      Identity.find({ _id: { $in: people } }).select('+password').sort({ _id: 1 }).lean().cursor(),
+    )
   }
 
   const manifest: BackupBundleManifest = {

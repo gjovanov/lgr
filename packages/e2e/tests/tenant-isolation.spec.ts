@@ -41,7 +41,7 @@ const ROUTES: Array<{ path: string; as?: 'admin' | 'sales' }> = [
   { path: '/api/org/:orgId/invoices/' },
   { path: '/api/org/:orgId/invoices/', as: 'sales' },
   { path: '/api/org/:orgId/digest/preview' },
-  { path: '/api/org/:orgId/digest/last-run', as: 'sales' },
+  { path: '/api/org/:orgId/digest/last-run' },
 
   // The org document itself.
   { path: '/api/org/:orgId/' },
@@ -55,7 +55,7 @@ const ROUTES: Array<{ path: string; as?: 'admin' | 'sales' }> = [
   { path: '/api/org/:orgId/warehouse/stock-level/' },
   { path: '/api/org/:orgId/payroll/employee/' },
   { path: '/api/org/:orgId/payroll/payslip/' },
-  { path: '/api/org/:orgId/trade/pos/transactions' },
+  { path: '/api/org/:orgId/cash-register/documents' },
   { path: '/api/org/:orgId/reports/catalog' },
   { path: '/api/org/:orgId/files/' },
   { path: '/api/org/:orgId/supto/export/tables' },

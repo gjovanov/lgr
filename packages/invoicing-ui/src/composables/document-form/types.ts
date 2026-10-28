@@ -50,7 +50,7 @@ export interface LineConfig {
 export interface TotalsConfig {
   /** Render the discount row in the totals card. */
   showDiscountRow: boolean
-  /** Emit a top-level `discountTotal` (sales invoice only). */
+  /** Emit a top-level `discountTotal` (sales invoice and the credit/debit notes). */
   emitDiscountTotal: boolean
   /** Emit a top-level `taxTotal` (sales invoice only). */
   emitTaxTotal: boolean
@@ -69,7 +69,7 @@ export interface PayloadConfig {
   emitDueDate: boolean
   /** Fall back `dueDate` → `issueDate` when empty (sales invoice only). */
   dueDateFallbackToIssue: boolean
-  /** Emit `validUntil` (proforma only). */
+  /** Emit the validity date `validUntil` (proforma only) — as `dueDate`, where the model keeps it. */
   emitValidUntil: boolean
   /** Emit `supplierInvoiceNumber` (purchase only). */
   emitSupplierInvoiceNumber: boolean
@@ -141,6 +141,11 @@ export interface DocumentTypeConfig {
   // ── payment ──
   paymentMethodMode: 'clearable' | 'fixed'
   paymentMethodDefault: string
+  /**
+   * What a NEW document's payment method starts as. Absent → cash (the form's long-standing
+   * fallback). A supplier bill starts empty (FR-22.33): nothing says how it will be paid.
+   */
+  paymentMethodOnCreate?: string
 
   // ── pricing ──
   priceField: 'sellingPrice' | 'purchasePrice'
@@ -175,6 +180,14 @@ export interface DocumentTypeConfig {
   // ── purchase-bill inline product updates ──
   /** Purchase bills only: enable the "with product update" toggle + GR product-master columns. */
   supportsProductUpdate?: boolean
+
+  // ── a supplier bill and its goods receipts (FR-22 slice 3) ──
+  /** „Запази и получи": save, then receive, in one action (FR-22.33). */
+  saveAndReceive?: boolean
+  /** The goods receipts the bill pays for: links, price differences, „Свържи с доставка" (FR-22.31/.32). */
+  linkDelivery?: boolean
+  /** „+ Нов продукт „…"" in a line's article search (FR-22.30). */
+  allowCreateProduct?: boolean
 
   // ── consumed by the pure payload module ──
   totals: TotalsConfig

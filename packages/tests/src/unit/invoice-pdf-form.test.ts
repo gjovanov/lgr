@@ -106,6 +106,15 @@ describe('printed invoice form', () => {
     }
   })
 
+  // INV-3000101474 on prod, 2026-10-13: a sales invoice imported before the import regenerated
+  // the line kept PlusMinus's text, which has no comma before the tax base.
+  it('drops the tax-base tail of an imported PlusMinus line, which has no comma', () => {
+    const notes = 'Словом : деветнадесет евро и 76 цента Данъчна основа 16.47 €'
+    const html = build({ notes }, {}, { locale: 'bg' })
+    expect(html).toContain('<td class="words">Словом : деветнадесет евро и 76 цента</td>')
+    expect(html).not.toContain('Данъчна основа 16.47')
+  })
+
   it('keeps a note that merely follows the words line', () => {
     const html = build({ notes: 'In words : twenty-one euro and 60 cents, Tax base 18.00 €\nDelivery to the depot.' }, {}, { locale: 'en' })
     expect(html).toContain('<td class="words">In words : twenty-one euro and 60 cents</td>')
@@ -132,6 +141,35 @@ describe('printed invoice form', () => {
     const html = build({}, {}, { headerNote: 'x'.repeat(400) })
     const block = html.slice(html.indexOf('head-note'), html.indexOf('</div>', html.indexOf('head-note')))
     expect(block.split('x').length - 1).toBe(300)
+  })
+
+  // ── #127: the line table's unit column and quantity heading ──
+
+  it('prints the localized unit abbreviation, never the stored code', () => {
+    // Bulgarian documents say „БР.", as the legacy PlusMinus forms did.
+    expect(build({ lines: [{ description: 'Item', quantity: 1, unit: 'pcs', unitPrice: 100, lineTotal: 120 }] }))
+      .toContain('<td class="a-center">БР.</td>')
+    // Already-abbreviated legacy values resolve to the same label rather than printing as typed.
+    expect(build()).toContain('<td class="a-center">БР.</td>')
+    expect(build({ lines: [{ description: 'Item', quantity: 2.5, unit: 'kg', unitPrice: 4, lineTotal: 12 }] }))
+      .toContain('<td class="a-center">КГ.</td>')
+    expect(build({ lines: [{ description: 'Item', quantity: 1, unit: 'pcs', unitPrice: 1, lineTotal: 1 }] }, {}, { locale: 'en' }))
+      .toContain('<td class="a-center">pcs</td>')
+    // A unit nothing knows about prints verbatim — `unit` is free text on the API.
+    expect(build({ lines: [{ description: 'Item', quantity: 1, unit: 'ролка', unitPrice: 1, lineTotal: 1 }] }))
+      .toContain('<td class="a-center">ролка</td>')
+    // No unit, no guess.
+    expect(build({ lines: [{ description: 'Item', quantity: 1, unitPrice: 1, lineTotal: 1 }] }))
+      .toContain('<td class="a-center"></td>')
+  })
+
+  it('spells out the Bulgarian unit and quantity headings', () => {
+    const html = build()
+    const head = html.slice(html.indexOf('<thead>'), html.indexOf('</thead>'))
+    expect(head).toContain('Мярка')
+    expect(head).toContain('Количество')
+    expect(head).not.toContain('>Кол<')
+    expect(head).not.toContain('>Мяр<')
   })
 
   it('renders a sales invoice twice — ОРИГИНАЛ, then an unmarked copy on a new page', () => {
@@ -164,5 +202,43 @@ describe('printed invoice form', () => {
     const original = build({}, {}, { copyMark: 'original' })
     expect(original).toContain('ОРИГИНАЛ')
     expect(original).not.toContain('КОПИЕ')
+  })
+})
+
+/**
+ * FR-22.18: a document printed before it is issued. Its DRF- number goes on issue, so a printout
+ * carrying it would hand the customer a number no invoice will ever have.
+ */
+describe('a printed draft', () => {
+  const draft = { status: 'draft', invoiceNumber: 'DRF-INV-2026-00042' }
+
+  it('says ЧЕРНОВА, as one copy, and never shows its draft number', () => {
+    const html = build(draft)
+    expect(html).toContain('ЧЕРНОВА')
+    expect(html).toContain('draft-watermark')
+    expect(html).not.toContain('DRF-INV-2026-00042')
+    expect(html).not.toContain('ОРИГИНАЛ')
+    expect(html).not.toContain('copy-break')
+    // The date still prints; only the number row is left out.
+    expect(html).toContain('21.03.2026')
+  })
+
+  it('in the language it is printed in', () => {
+    const en = buildInvoiceHtml({ ...baseInvoice, ...draft } as any, { name: 'Test Org' } as any, {} as any, undefined, { locale: 'en' }).html
+    expect(en).toContain('DRAFT')
+    expect(en).not.toContain('DRF-INV')
+  })
+
+  it('wins over a requested marker: a draft is nobody’s original', () => {
+    const html = build(draft, {}, { copyMark: 'original' })
+    expect(html).toContain('ЧЕРНОВА')
+    expect(html).not.toContain('ОРИГИНАЛ')
+  })
+
+  it('an issued document prints its number and no draft mark', () => {
+    const html = build({ status: 'sent' })
+    expect(html).toContain('INV-2026-00001')
+    expect(html).not.toContain('ЧЕРНОВА')
+    expect(html).not.toContain('draft-watermark')
   })
 })

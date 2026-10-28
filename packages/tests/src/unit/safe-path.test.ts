@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
-import { resolve, sep } from 'path'
-import { safeFileName, containedJoin } from 'services/biz/files/safe-path'
+import { basename, dirname, resolve, sep } from 'path'
+import { safeFileName, containedJoin, stampedUploadPath } from 'services/biz/files/safe-path'
 
 /**
  * S-03 (#49) — the uploaded filename reached `Bun.write` through `join(dir, file.name)`.
@@ -112,5 +112,48 @@ describe('containedJoin', () => {
   it('treats a nested path inside the base as fine', () => {
     const deep = containedJoin(BASE, '2026-08-13', 'versions', 'a.pdf')
     expect(deep.startsWith(BASE + sep)).toBe(true)
+  })
+})
+
+/**
+ * The two import writers (`/bills/import/extract`, `/doc-import/extract`) kept `/` and `\` in the
+ * name they stored, so `join` walked a part named `x/../../../anything` out of their directory.
+ * Over HTTP: `integration/upload-filename.flow.test.ts`.
+ */
+describe('stampedUploadPath', () => {
+  const DIR = resolve('/srv/uploads/org1/bill-ocr')
+  const NOW = 1761206400000
+
+  it('stores an ordinary export name as those writers always did', () => {
+    expect(stampedUploadPath(DIR, 'invoicem_3000100855.pdf', NOW)).toBe(resolve(DIR, `${NOW}-invoicem_3000100855.pdf`))
+    // Cyrillic and spaces were always `_` in these two directories; that does not change.
+    expect(stampedUploadPath(DIR, 'Фактура 12.pdf', NOW)).toBe(resolve(DIR, `${NOW}-${"_".repeat(8)}12.pdf`))
+  })
+
+  it('keeps only the last component of a path, on either platform', () => {
+    for (const [raw, last] of [
+      ['x/../../../../escaped.txt', 'escaped.txt'],
+      ['../../../../app/packages/portal-api/src/unified.ts', 'unified.ts'],
+      ['..\\..\\..\\lgr-seal.key', 'lgr-seal.key'],
+      ['/etc/passwd', 'passwd'],
+      ['C:\\Windows\\win.ini', 'win.ini'],
+      ['a:b.pdf', 'b.pdf'],
+      ['dir\\sub/deep\\file.pdf', 'file.pdf'],
+    ]) {
+      expect(stampedUploadPath(DIR, raw, NOW)).toBe(resolve(DIR, `${NOW}-${last}`))
+    }
+  })
+
+  /**
+   * ⚠ Unlike `safeFileName`, it never refuses. Behind the timestamp none of these can be the
+   * final segment, so refusing would only turn away a real file somebody called `con.pdf`.
+   */
+  it('lands every name, however odd, directly inside the directory', () => {
+    for (const raw of ['..', '.', '', '../', 'con.pdf', 'NUL', 'x/..', 'a\u0000b.pdf', 'evil.pdf:stream', undefined, null, 'x'.repeat(500)]) {
+      const p = stampedUploadPath(DIR, raw, NOW)
+      expect(dirname(p)).toBe(DIR)
+      expect(basename(p).startsWith(`${NOW}-`)).toBe(true)
+      expect(basename(p)).toMatch(/^[\w.\-]{1,200}$/)
+    }
   })
 })

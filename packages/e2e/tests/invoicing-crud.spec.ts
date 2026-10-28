@@ -116,11 +116,11 @@ test.describe('Invoicing CRUD', () => {
       await expect(taxTotalLabel).toBeVisible()
     }
 
-    // Save the invoice
+    // Save the invoice. FR-22.16: it stays open, on its own edit route.
     await page.getByRole('button', { name: /^save$/i }).first().click()
 
     await expect(
-      page.locator('.v-data-table').or(page.getByRole('heading', { name: /new invoice/i }))
+      page.getByRole('heading', { name: /edit invoice/i }).or(page.getByRole('heading', { name: /new invoice/i }))
     ).toBeVisible({ timeout: 10000 })
   })
 
@@ -130,15 +130,16 @@ test.describe('Invoicing CRUD', () => {
 
     await expect(page.getByRole('heading', { name: /new invoice/i })).toBeVisible({ timeout: 10000 })
 
-    // Select a contact first so billing address may auto-populate
+    // Select a contact first so billing address may auto-populate. A seeded one, by name: the
+    // picker opens on the customers used most recently (FR-22.25), and the first of those is
+    // whoever the last test invoiced — not necessarily someone with an address on file.
     const contactInput = page.locator('.v-autocomplete input').first()
     await contactInput.click({ force: true })
+    await contactInput.pressSequentially('Alpha', { delay: 25 })
+    const contactOption = page.locator('.v-overlay .v-list-item').filter({ hasText: 'Alpha Manufacturing' }).first()
+    await expect(contactOption).toBeVisible({ timeout: 5000 })
+    await contactOption.click()
     await page.waitForTimeout(500)
-    const contactOption = page.locator('.v-overlay .v-list-item').first()
-    if (await contactOption.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await contactOption.click()
-      await page.waitForTimeout(500)
-    }
 
     // ⚠ The billing address is no longer a set of labelled INPUTS on this form. It is rendered
     // read-only by `ContactPartyBlock` (`:address="config.captureBillingAddress ? ... : null"`),

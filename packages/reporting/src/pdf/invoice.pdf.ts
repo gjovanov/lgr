@@ -1,6 +1,7 @@
 import type { IInvoice, IOrg, IContact } from 'db/models'
 import { markdownToPdf, escHtml as esc, fmtDate, currencyMark, flattenHtml } from './base.pdf.js'
 import { invoiceDocI18n, invoiceDocTitle, AMOUNT_IN_WORDS_RE } from '../invoice-doc.i18n.js'
+import { unitLabel } from '../unit.i18n.js'
 import { productCredit } from '../product-credit.js'
 import { logoImgTag, LOGO_CSS } from './logo.js'
 
@@ -17,14 +18,15 @@ interface LineCol {
   /** Column width as a percentage of the table; the description column absorbs the rest. */
   width?: string
   align: 'left' | 'center' | 'right'
-  cell: (line: any, i: number) => string
+  cell: (line: any, i: number, locale?: string) => string
 }
 
 const LINE_COLS: LineCol[] = [
   { key: 'lineNo', width: '5%', align: 'left', cell: (_l, i) => String(i + 1) },
   { key: 'description', align: 'left', cell: (l) => String(l.description ?? '') },
-  { key: 'unit', width: '8%', align: 'center', cell: (l) => String(l.unit ?? '') },
-  { key: 'quantity', width: '9%', align: 'right', cell: (l) => trimQty(l.quantity) },
+  // `unit` holds the canonical code (`pcs`); the form prints the locale's abbreviation („БР.").
+  { key: 'unit', width: '9%', align: 'center', cell: (l, _i, locale) => unitLabel(l.unit, locale) },
+  { key: 'quantity', width: '12%', align: 'right', cell: (l) => trimQty(l.quantity) },
   { key: 'unitPrice', width: '11%', align: 'right', cell: (l) => money(l.unitPrice) },
   { key: 'discount', width: '8%', align: 'right', cell: (l) => (Number(l.discount) ? money(l.discount) : '') },
   { key: 'taxRate', width: '8%', align: 'right', cell: (l) => (l.taxRate == null ? '' : `${l.taxRate}%`) },
@@ -66,7 +68,13 @@ function pickAddress(entity: any, fallback?: any) {
  * was saved, which need not be the language it is printed in, and the two vocabularies differ
  * anyway ("Tax base" when written vs "Taxable amount" on the form). Spelled amounts carry no
  * comma of their own in any supported language, so the first one always opens the tail.
+ *
+ * ⚠ A line with NO comma is PlusMinus's, imported verbatim before 2026-10-13: "Словом :
+ * деветнадесет евро и 76 цента Данъчна основа 16.47 €". For that one only, the tail is found by
+ * its label followed by a figure, or it prints beside the totals that already state it.
  */
+const TAX_BASE_TAIL = /\s+(Данъчна основа|Даночна основа|Tax base|Taxable amount|Steuerbasis)\s*:?\s*-?\d/i
+
 function splitNotes(notes: string | undefined): { words: string; rest: string } {
   if (!notes) return { words: '', rest: '' }
   const lines = String(notes).split('\n')
@@ -76,6 +84,10 @@ function splitNotes(notes: string | undefined): { words: string; rest: string } 
   const tail = words.indexOf(',')
   // Only a tail that states a figure is the tax-base cross-check; anything else is prose.
   if (tail !== -1 && /\d/.test(words.slice(tail))) words = words.slice(0, tail).trimEnd()
+  else {
+    const m = TAX_BASE_TAIL.exec(words)
+    if (m) words = words.slice(0, m.index).trimEnd()
+  }
   const rest = lines.filter((_, i) => i !== idx).join('\n').trim()
   return { words, rest }
 }
@@ -149,6 +161,10 @@ const CSS = `
   .page-foot { position: fixed; left: 0; right: 0; bottom: 0; border-top: 1px solid #000;
     padding-top: 3px; font-size: 7.5pt; display: flex; justify-content: space-between; gap: 8px; }
   .page-foot .credit { white-space: nowrap; }
+  /* A draft (FR-22.18): across every page, light enough to read the document through. */
+  .draft-watermark { position: fixed; top: 38%; left: 0; right: 0; text-align: center;
+    font-size: 88pt; font-weight: 700; letter-spacing: 0.08em; color: rgba(0, 0, 0, 0.09);
+    transform: rotate(-28deg); z-index: 0; pointer-events: none; }
 `
 
 export interface InvoicePdfOptions {
@@ -196,13 +212,30 @@ export function buildInvoiceHtml(
   const inv = invoice as any
   const cur = currencyMark(inv.currency)
 
+  /**
+   * FR-22.18: a document printed before it is issued. Its DRF- number goes when it is issued, so
+   * the page never shows it — a customer holding the printout would hold a number no invoice
+   * has. Every page says ЧЕРНОВА instead, and it prints as one copy: it is nobody's original.
+   */
+  const isDraft = inv.status === 'draft'
+
   // ── Title + number/date/УНП ──
   const metaRows = [
-    `<tr><td class="k">${esc(L.number)}:</td><td class="v">${esc(inv.invoiceNumber)}</td></tr>`,
+    isDraft ? '' : `<tr><td class="k">${esc(L.number)}:</td><td class="v">${esc(inv.invoiceNumber)}</td></tr>`,
     `<tr><td class="k">${esc(L.date)}:</td><td class="v">${fmtDate(inv.issueDate)}</td></tr>`,
     // УНП is only present on fiscally-registered sales; the line is omitted otherwise rather
     // than printed empty, since an invented number would be a compliance defect.
-    inv.unpNumber ? `<tr><td class="k">${esc(L.unp)} :</td><td class="v">${esc(inv.unpNumber)}</td></tr>` : '',
+    // A till document carries it in its register block (FR-21).
+    (inv.unpNumber || inv.register?.unp)
+      ? `<tr><td class="k">${esc(L.unp)} :</td><td class="v">${esc(inv.unpNumber || inv.register.unp)}</td></tr>`
+      : '',
+    // #171: an invoice issued for a cash sale names it — number and the date of the sale, and for a
+    // till sale its УНП and fiscal receipt (FR-21 §3.9).
+    inv.cashSaleRef?.number
+      ? `<tr><td class="k">${esc(L.forCashSale)}:</td><td class="v">${esc(inv.cashSaleRef.number)} / ${fmtDate(inv.cashSaleRef.issueDate)}${
+        inv.cashSaleRef.unp ? ` · ${esc(L.unp)} ${esc(inv.cashSaleRef.unp)}` : ''}${
+        inv.cashSaleRef.receiptNumber ? ` · ${esc(L.receiptNo)} ${esc(inv.cashSaleRef.receiptNumber)}` : ''}</td></tr>`
+      : '',
   ].join('')
 
   // Whitespace-only text is no text: it must not open an empty block under the meta rows.
@@ -282,7 +315,7 @@ export function buildInvoiceHtml(
   const bodyRows = (inv.lines || []).map((line: any, i: number) => {
     const cells = cols.map(c => {
       const cls = c.key === 'description' ? `a-${c.align} desc` : `a-${c.align}`
-      return `<td class="${cls}">${esc(c.cell(line, i))}</td>`
+      return `<td class="${cls}">${esc(c.cell(line, i, locale))}</td>`
     }).join('')
     return `<tr>${cells}</tr>`
   }).join('')
@@ -324,7 +357,7 @@ export function buildInvoiceHtml(
   const metaRow = `
     <table class="meta-row">
       <tr>
-        <td>${esc(L.taxEventDate)}: ${fmtDate(inv.issueDate)}</td>
+        <td>${esc(L.taxEventDate)}: ${fmtDate(inv.taxEventDate || inv.issueDate)}</td>
         <td>${inv.placeOfTransaction ? `${esc(L.placeOfTransaction)}: ${esc(inv.placeOfTransaction)}` : ''}</td>
         <td style="text-align:right">${payMethod ? `${esc(L.payment)}: ${esc(payMethod)}` : ''}</td>
       </tr>
@@ -371,13 +404,19 @@ ${signatures}
   // unmarked one for the issuer — so the PDF carries both, the second starting on a fresh
   // page. Callers that ask for a specific marker (a reprint of one copy) get that single copy.
   const isSalesInvoice = (inv.type || 'invoice') === 'invoice' && inv.direction !== 'incoming'
-  const body = options?.copyMark
-    ? copy(options.copyMark === 'copy' ? i18n.copyMark.copy : i18n.copyMark.original)
-    : isSalesInvoice
-      ? `${copy(i18n.copyMark.original)}\n<div class="copy-break"></div>\n${copy(null)}`
-      : copy(i18n.copyMark.original)
+  const body = isDraft
+    ? copy(i18n.copyMark.draft)
+    : options?.copyMark
+      ? copy(options.copyMark === 'copy' ? i18n.copyMark.copy : i18n.copyMark.original)
+      : isSalesInvoice
+        ? `${copy(i18n.copyMark.original)}\n<div class="copy-break"></div>\n${copy(null)}`
+        : copy(i18n.copyMark.original)
+
+  // Fixed, so Chromium repeats it on every printed page of a long draft.
+  const watermark = isDraft ? `<div class="draft-watermark">${esc(i18n.copyMark.draft)}</div>` : ''
 
   const html = `
+${watermark}
 ${body}
 <div class="page-foot"><span>${esc(options?.footerText || '')}</span><span class="credit">${esc(productCredit(locale))}</span></div>
 `

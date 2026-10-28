@@ -216,7 +216,8 @@ describe('the fiscal collections, which must never be touched (FR-13.44)', () =>
     // retention job that filtered on age without filtering on collection would take all of it.
     const ancient = new Date(NOW.getTime() - 20 * 365 * 24 * 60 * 60 * 1000)
     for (const M of [Invoice, JournalEntry, StockMovement, POSTransaction, PayrollRun, AuditLog, Sequence]) {
-      await (M as any).updateMany({}, { $set: { createdAt: ancient, updatedAt: ancient } }).exec()
+      // Raw: the dates as stored, past the timestamps plugin and the frozen POSTransaction model (FR-21.26).
+      await (M as any).collection.updateMany({}, { $set: { createdAt: ancient, updatedAt: ancient } })
     }
 
     const before = {

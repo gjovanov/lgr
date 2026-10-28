@@ -37,19 +37,23 @@ export interface LineColumnEntry {
   locked: boolean
 }
 
+// Widths are as narrow as each column's content allows (the cells carry 6px gutters): the
+// description column takes whatever is left, so every pixel saved here shows more of the row.
 export const INVOICE_LINE_COLUMNS: LineColumn[] = [
   { key: 'description', i18n: 'common.description',  defaultOn: true },
-  { key: 'qty',         i18n: 'invoicing.qty',       defaultOn: true,  align: 'end',  width: '80px' },
-  { key: 'unit',        i18n: 'invoicing.unit',      defaultOn: true,                  width: '110px' },
-  { key: 'unitPrice',   i18n: 'invoicing.unitPrice', defaultOn: true,  align: 'end',  width: '160px' },
-  // discount only wired on Invoice + Proforma Line types
-  { key: 'discount',    i18n: 'invoicing.discount',  defaultOn: false, align: 'end',  width: '70px',
-    docs: ['invoice', 'proforma'] },
-  { key: 'taxRate',     i18n: 'invoicing.taxRate',   defaultOn: false, align: 'end',  width: '130px' },
-  { key: 'warehouse',   i18n: 'warehouse.warehouse', defaultOn: false,                 width: '180px' },
-  // net line amount (qty × unit price) — the default money column, positioned right before
-  // the gross Total so enabling Total puts the pair side-by-side.
-  { key: 'lineSubtotal', i18n: 'invoicing.subtotal', defaultOn: true,  align: 'end',  width: '110px' },
+  { key: 'qty',         i18n: 'invoicing.qty',       defaultOn: true,  align: 'end',  width: '84px' },
+  { key: 'unit',        i18n: 'invoicing.unit',      defaultOn: true,                  width: '84px' },
+  // the price picker icon + a combobox that always shows 5 decimals ("19.60000")
+  { key: 'unitPrice',   i18n: 'invoicing.unitPrice', defaultOn: true,  align: 'end',  width: '168px' },
+  // discount is wired on the documents whose lines carry one: Invoice, Proforma and the notes
+  // that correct an invoice (FR-22.4 — a note copies the invoice's discounted lines).
+  { key: 'discount',    i18n: 'invoicing.discount',  defaultOn: false, align: 'end',  width: '72px',
+    docs: ['invoice', 'proforma', 'credit_note', 'debit_note', 'purchase_credit_note', 'purchase_debit_note'] },
+  { key: 'taxRate',     i18n: 'invoicing.taxRate',   defaultOn: false, align: 'end',  width: '100px' },
+  { key: 'warehouse',   i18n: 'warehouse.warehouse', defaultOn: false,                 width: '150px' },
+  // net line amount (qty × unit price, less the line discount) — the default money column,
+  // positioned right before the gross Total so enabling Total puts the pair side-by-side.
+  { key: 'lineSubtotal', i18n: 'invoicing.subtotal', defaultOn: true,  align: 'end',  width: '100px' },
   { key: 'lineTotal',   i18n: 'common.total',        defaultOn: false, align: 'end',  width: '100px' },
 ]
 
@@ -90,10 +94,12 @@ export function useInvoiceLineColumns(
 
   const pref = ref<Pref>(defaultPref())
 
+  /** Where preferences went before the user id was known: still read when the user has none. */
+  const legacyKey = () => `lgr:invoice-line-cols:anon:${unwrap(opts.orgId) || 'no-org'}:${docType}`
+
   function load() {
     try {
-      const raw = localStorage.getItem(storageKey.value)
-        ?? localStorage.getItem(`lgr:invoice-line-cols:anon:${unwrap(opts.orgId) || 'no-org'}:${docType}`)
+      const raw = localStorage.getItem(storageKey.value) ?? localStorage.getItem(legacyKey())
       const parsed = raw ? JSON.parse(raw) : null
       if (Array.isArray(parsed)) {
         // Legacy format: visible keys in catalog order → derive {order, hidden}.
@@ -198,7 +204,12 @@ export function useInvoiceLineColumns(
   }
 
   function resetDefaults() {
-    try { localStorage.removeItem(storageKey.value) } catch { /* */ }
+    try {
+      localStorage.removeItem(storageKey.value)
+      // `load()` falls back to the legacy key: leave it behind and the old columns come back on
+      // the next load, so a reset would not stick.
+      localStorage.removeItem(legacyKey())
+    } catch { /* */ }
     pref.value = defaultPref()
   }
 

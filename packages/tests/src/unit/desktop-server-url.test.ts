@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { normaliseServerUrl, isLoopbackHost } from '../../../desktop-ui/src/server-url'
+import cases from '../../../desktop-ui/src/server-url.cases.json'
 
 /**
  * FR-14.11 — onboarding upgrades `http://` to `https://` **except for loopback**.
@@ -63,4 +64,17 @@ describe('onboarding server address (FR-14.11)', () => {
       expect(normaliseServerUrl(bad).url).toBeNull()
     }
   })
+})
+
+/**
+ * FR-20.31 — one URL rule. ⚠ The same table `validate.rs`'s `the_url_rule_is_the_pages_rule` runs the
+ * shell's `normalize_server_url` against: the two disagreed about loopback (`[::1]`, the rest of
+ * 127/8), so the page and the shell stored different addresses for the same input.
+ */
+describe('the shared server-address table (FR-20.31)', () => {
+  for (const c of cases as { in: string; out: string | null }[]) {
+    it(`${JSON.stringify(c.in)} → ${c.out}`, () => {
+      expect(normaliseServerUrl(c.in).url).toBe(c.out)
+    })
+  }
 })
