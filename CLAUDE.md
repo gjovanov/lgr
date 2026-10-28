@@ -1782,8 +1782,8 @@ and the prototype's five docs.
     claim only against older ones).
   - ⚠ **Overlaps repaired by hand before this button attach too**: dispatch reversed, then
     `stockSource.marker` set to the till day's `reference` (`salesAnalysis:<date>`). They need it,
-    because without `cashSaleRef` every total counts those sales twice (82 such invoices on regal-sf,
-    2026-10-28). Such an invoice attaches to that day only and nothing is reversed again. If its
+    because without `cashSaleRef` every total counts those sales twice (83 such invoices on
+    2026-10-28: 82 in regal-sf, 1 in regal-pz). Such an invoice attaches to that day only and nothing is reversed again. If its
     dispatch is not all back, it is refused (`attach_needs_attention`): with a marker set,
     `reverseInvoiceStockMovement` does not even run (`movesNoStock`). The old marker and its
     arbitration note go into the audit entry.
