@@ -690,7 +690,7 @@ document's (the handover's §2): `0005` here is `0008-cash-register-copy`, `0006
 - [x] Every reader in §3.3 counts a till sale exactly once, whichever store holds it. — `cash-register-readers.flow`.
 - [x] B-1 to B-7 are fixed, each with a regression test. — #244 (B-1–B-5, B-7), #248 (B-6).
 - [x] Register documents answer 409 to `PUT`, `DELETE`, `/void` and the Files rollback. — `cash-register-immutability.flow`.
-- [ ] `bun run test`, `bun run build` and `bun run test:e2e` pass. — `test` and `build`: CI on every release. `test:e2e`: `stock-validation.spec:43` failed on master until #345. The FR-21 projects pass with #337 and #345; the whole suite has not been run (the handover's §0 has what was).
+- [x] `bun run test`, `bun run build` and `bun run test:e2e` pass. — `test` and `build`: CI on every release. `test:e2e`: the whole suite, every project with the OCR and Eltrade stubs, on master `eb002d50` plus #356 (2026-10-28): 401 passed, 0 failed, 17 skipped by their own conditions. On the way: #345, #337, #349 and #356.
 
 **Before R2**
 - [x] `regal`'s March–April 2026 test sales are gone, the stock effects are reversed, the backup is on mars, and the audit trail records the cleanup. — FR-21.14, #269 (74 sales, owner's go, 2026-10-26).

@@ -9,26 +9,28 @@
 before it; after R3 only the day's imports had moved. This is what was done, what is left, and what
 turned up on the way that the spec does not say.
 
-## 0. What is left (2026-10-28)
+## 0. FR-21 is done (2026-10-28)
 
-The spec's acceptance criteria are ticked in its §9, each with its evidence. **One stays open:**
-R1's "`bun run test:e2e` passes".
+**Every acceptance criterion in the spec's §9 is ticked**, each with its evidence. #171 is closed.
 
-- **The whole e2e suite** ran on master `b3d8f7fe` (2026-10-28, a fresh seeded database, the OCR
-  and Eltrade stubs up): 393 passed, 6 failed.
-  - Two of the six were FR-21's specs, failing only after earlier specs had changed the shared
-    database. They are fixed in #349.
-  - Four are not FR-21's, and are with Goran (#171, 2026-10-28):
-    - `desktops-security.spec`, 3 tests: `POST /desktops/codes` answers 404;
-    - `backup.spec:69`: its text changed.
+- **The whole e2e suite passes:** every project, the OCR and Eltrade stubs up, a fresh seeded
+  database, master `eb002d50` plus #356: 401 passed, 0 failed, 17 skipped by their own conditions.
+  The last four failures were wrong specs, not product bugs (#356):
+  - `desktops-security.spec` named `POST /desktops/codes`, a route that never existed. The code is
+    minted at `/enrollment-codes`. It now covers all 13 of the controller's routes.
+  - `backup.spec:69` expected the restore section, which since 2026-09-10 renders only for a backup
+    sys-admin. It now asserts that a non-sys-admin is not offered it.
 
-  The criterion is ticked once #349 is in and those four pass.
+  ⚠ CI does not run e2e, which is how a spec stayed wrong for four weeks.
 - **The device test in `acme-corp` is skipped** (Atanas, 2026-10-28). The same flow runs end to end
   on the simulated Eltrade (`cash-register-fiscal.spec`, #337), through the real driver and protocol,
   so R5's "prints on its device" is ticked on that.
-- **#351, in review:** the digest's Payments line leaves out `origin: 'cash_register'` rows. A cash
-  sale carries no payment rows, so an invoiced cash sale's till money was on both Cash register and
-  Payments. It changes a digest line's meaning, so it waits for a yes.
+- **#351 is on production** (Goran's deploy, `eb002d50`): the digest's Payments line leaves out
+  `origin: 'cash_register'` rows, so the till's money is only ever the Cash register line. The field
+  check after it: only regal-sf's Payments moved.
+- **What comes after FR-21** is the spec's §11: the accountant's decisions (revenue for cash sales
+  without a session, back-office stornos in SUPTO 18.4/18.5, VAT credited to revenue) and the
+  partial storno.
 - **On production since 2026-10-28** (deploys `b3d8f7fe`, Goran, and `6de3e145`):
   - #334: **#281** (no storno of a fiscal sale while its device is offline) and `warehouse_manager`
     leaving `STORNO_ROLES`;
