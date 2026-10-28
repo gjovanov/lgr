@@ -9,9 +9,18 @@ import { LEASE_MS, assertSameRequest, isDuplicateKey, takeLease, waitForCompleti
 import { CASH_SALE_REF_ID } from './sale-counting.js'
 import { reverseInvoiceStockMovement } from './invoicing.service.js'
 import { retireAutomaticPayments } from './cash-settlement.service.js'
+import { localDayEnd, localDayOf, localDayStart } from './local-day.js'
 import { upsertAmountInWords } from 'config/amount-in-words'
 
 const { Types } = mongoose
+
+/**
+ * The Bulgarian day a document belongs to, for matching an invoice to the cash sale of its day.
+ * Not `isoDay` (the UTC date): a till sale keeps the moment it was rung, and one rung between 00:00
+ * and 02:00/03:00 in Sofia has the day before as its UTC date — so its invoice, dated that Sofia day,
+ * never found it. A date-only document (00:00 UTC) is the same day either way.
+ */
+const saleDay = (d: Date | string | undefined | null): string => (d ? localDayOf(d) : '')
 
 /**
  * „Фактура към касова продажба" — an invoice issued for a cash sale (#171, #203).
@@ -1030,14 +1039,13 @@ export interface CashSaleCandidates {
 export async function cashSaleCandidates(orgId: string, invoiceId: string): Promise<CashSaleCandidates> {
   const inv: any = await Invoice.findOne({ _id: invoiceId, orgId } as any).lean().exec()
   if (!inv) throw new CashSaleInvoiceError(404, 'not_found', 'Invoice not found')
-  const day = isoDay(inv.issueDate)
+  const day = saleDay(inv.issueDate)
   const why = attachRefusal(inv) ?? ((await postedToLedger(orgId, inv)) ? IN_LEDGER(inv) : null)
   if (why) return { eligible: false, code: why.code, reason: why.message, day, considered: 0, candidates: [] }
 
-  const from = new Date(`${day}T00:00:00.000Z`)
-  const to = new Date(from.getTime() + 86_400_000)
+  // The Bulgarian day, start to end: a till sale rung after midnight in Sofia is that day's.
   const sales: any[] = await Invoice.find(
-    { orgId, type: 'cash_sale', status: 'paid', issueDate: { $gte: from, $lt: to } } as any,
+    { orgId, type: 'cash_sale', status: 'paid', issueDate: { $gte: localDayStart(day), $lte: localDayEnd(day) } } as any,
   ).sort({ issueDate: 1, _id: 1 }).limit(500).lean().exec()
   const live: any[] = sales.length
     ? await Invoice.find(
@@ -1107,9 +1115,9 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
     throw new CashSaleInvoiceError(422, 'invoice_moves_no_stock',
       `${inv.invoiceNumber}'s goods were already given back to the till day ${tillMarker}, which is not ${cs.invoiceNumber}`)
   }
-  if (isoDay(inv.issueDate) !== isoDay(cs.issueDate)) {
+  if (saleDay(inv.issueDate) !== saleDay(cs.issueDate)) {
     throw new CashSaleInvoiceError(422, 'different_day',
-      `${inv.invoiceNumber} is dated ${isoDay(inv.issueDate)} and ${cs.invoiceNumber} ${isoDay(cs.issueDate)} — an invoice attaches to the cash sale of its own day`)
+      `${inv.invoiceNumber} is dated ${saleDay(inv.issueDate)} and ${cs.invoiceNumber} ${saleDay(cs.issueDate)} — an invoice attaches to the cash sale of its own day`)
   }
   if (cs.contactId && idOf(cs.contactId) !== idOf(inv.contactId)) {
     throw new CashSaleInvoiceError(422, 'contact_mismatch', `${cs.invoiceNumber} is a sale to another customer`)

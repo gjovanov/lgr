@@ -101,6 +101,35 @@ async function world() {
   return { orgId, customer, other, bolt, nut, washer, call, cashSale, invoice, attach, candidates, stock, load, invoicing }
 }
 
+describe('the day is the Bulgarian day', () => {
+  // A till sale keeps the moment it was rung. 22:30 UTC on the 20th is 01:30 on the 21st in Sofia
+  // (summer time until 25 October): the shop sold it on the 21st, and its invoice says so. Read as a
+  // UTC date, the sale was the 20th's, so the invoice of its day never found it.
+  const RUNG = '2026-10-20T22:30:00.000Z'
+
+  it('a sale rung after midnight in Sofia is that day\'s: its invoice finds it and attaches', async () => {
+    const w = await world()
+    const cs = await w.cashSale([[w.bolt, 3, 10]], { issueDate: RUNG })
+    const inv = await w.invoice([[w.bolt, 1, 10]], { issueDate: '2026-10-21' })
+
+    const offer = await w.candidates(inv._id)
+    expect(offer).toMatchObject({ eligible: true, day: '2026-10-21', considered: 1 })
+    expect(offer.candidates.map((c: any) => c.number)).toEqual([cs.invoiceNumber])
+    expect((await w.attach(inv._id, cs._id)).status).toBe(200)
+  }, 60_000)
+
+  it('and is not the previous day\'s, though the UTC date says so', async () => {
+    const w = await world()
+    const cs = await w.cashSale([[w.bolt, 3, 10]], { issueDate: RUNG })
+    const inv = await w.invoice([[w.bolt, 1, 10]], { issueDate: '2026-10-20' })
+
+    expect((await w.candidates(inv._id)).candidates).toEqual([])
+    const res = await w.attach(inv._id, cs._id)
+    expect(res.status).toBe(422)
+    expect(res.json.code).toBe('different_day')
+  }, 60_000)
+})
+
 describe('attaching an invoice to the cash sale of its day', () => {
   it('takes back its dispatch once, links it, and makes it paid by the till', async () => {
     const w = await world()

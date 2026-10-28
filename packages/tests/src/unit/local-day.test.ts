@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { isDateOnly, localDayEnd, localDayStart } from 'services/biz/local-day'
+import { isDateOnly, localDayEnd, localDayOf, localDayStart } from 'services/biz/local-day'
 import { suptoPeriod } from 'services/biz/supto-export.service'
 
 /**
@@ -48,6 +48,26 @@ describe('localDayStart / localDayEnd (Europe/Sofia)', () => {
     expect(isDateOnly('2026-07-15')).toBe(true)
     expect(isDateOnly('2026-07-15T10:00:00Z')).toBe(false)
     expect(() => localDayStart('15.07.2026')).toThrow()
+  })
+})
+
+describe('localDayOf (Europe/Sofia)', () => {
+  it('a date-only value (00:00 UTC) is the same day', () => {
+    expect(localDayOf(new Date('2026-10-21'))).toBe('2026-10-21')
+    expect(localDayOf('2026-01-01T00:00:00.000Z')).toBe('2026-01-01')
+  })
+  it('a moment after midnight in Sofia is the next day, whatever the UTC date', () => {
+    expect(localDayOf('2026-10-20T22:30:00.000Z')).toBe('2026-10-21') // summer time, UTC+3
+    expect(localDayOf('2026-12-31T22:30:00.000Z')).toBe('2027-01-01') // winter time, UTC+2
+    expect(localDayOf('2026-12-31T21:59:59.999Z')).toBe('2026-12-31')
+  })
+  it('across the change to winter time (25 October 2026)', () => {
+    expect(localDayOf('2026-10-24T21:00:00.000Z')).toBe('2026-10-25') // 00:00 EEST
+    expect(localDayOf('2026-10-25T21:59:00.000Z')).toBe('2026-10-25') // 23:59 EET
+    expect(localDayOf('2026-10-25T22:00:00.000Z')).toBe('2026-10-26')
+  })
+  it('an invalid date is no day', () => {
+    expect(localDayOf('not a date')).toBe('')
   })
 })
 
