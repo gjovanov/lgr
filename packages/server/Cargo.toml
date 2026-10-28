@@ -1,6 +1,6 @@
 [package]
 name = "lgr-server"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "LGR Server: the supervisor an on-premises master runs (FR-20, plan step P1-1)"
 publish = false

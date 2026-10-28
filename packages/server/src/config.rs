@@ -113,22 +113,64 @@ pub fn api_secrets(data: &Path) -> Result<BTreeMap<String, String>> {
     Ok(secrets)
 }
 
-/// Write `text` to `file`, readable by its owner only on Unix. (Windows: the data directory's ACL,
-/// set by the installer, P1-7.)
+/// Write `text` to `file`, readable by its owner only on Unix (Windows: the data directory's ACL,
+/// set by the installer, P1-7), and durably (`write_durable`).
 pub(crate) fn write_private(file: &Path, text: &str) -> Result<()> {
+    write_durable(file, text.as_bytes(), 0o600)
+}
+
+/// Write `bytes` to `file` so that a power cut leaves the old file or the new one, never a renamed
+/// file whose bytes never reached the disk: a temporary file beside it, flushed, renamed over it,
+/// and on Unix the directory flushed as well, which is what makes the rename itself survive.
+///
+/// ⚠ A rename alone is not enough. ext4 (delayed allocation) and NTFS both put the rename on disk
+/// well before the data, so a cut in the seconds after a FIRST start could leave an empty
+/// `state/node.json`, a half `keys/api-secrets.env` or an empty CA key, and the master then refused
+/// to start for good (exit 7, "restore it from a backup"). `mongod.rs` always wrote
+/// `keys/mongo.env` like this; everything in `state/` and `keys/` the supervisor writes does now.
+///
+/// `mode` is the file's permission bits on Unix (0o600 for anything secret). Writers of one file
+/// must not race: the temporary file is `<name>.tmp`, so a crash's leftover is replaced next time.
+pub(crate) fn write_durable(file: &Path, bytes: &[u8], mode: u32) -> Result<()> {
+    let name = file.file_name().with_context(|| format!("{} names no file", file.display()))?;
+    let dir = file.parent().filter(|d| !d.as_os_str().is_empty());
+    if let Some(dir) = dir {
+        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    }
+    let mut tmp_name = name.to_os_string();
+    tmp_name.push(".tmp");
+    let tmp = file.with_file_name(tmp_name);
+    let _ = std::fs::remove_file(&tmp);
+    {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, mode);
+        #[cfg(not(unix))]
+        let _ = mode;
+        let mut f = options.open(&tmp).with_context(|| format!("creating {}", tmp.display()))?;
+        // Exactly `mode`, whatever the umask: a file the API reads must not come out 0600 because
+        // the update helper ran with a stricter one.
+        #[cfg(unix)]
+        f.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(mode)).with_context(|| format!("setting the mode of {}", tmp.display()))?;
+        std::io::Write::write_all(&mut f, bytes).with_context(|| format!("writing {}", tmp.display()))?;
+        f.sync_all().with_context(|| format!("flushing {}", tmp.display()))?;
+    }
+    std::fs::rename(&tmp, file).with_context(|| format!("writing {}", file.display()))?;
+    if let Some(dir) = dir {
+        sync_dir(dir)?;
+    }
+    Ok(())
+}
+
+/// Flush a directory, so a rename or a new link in it survives a power cut. A no-op on Windows,
+/// where NTFS journals the rename and a directory cannot be opened as a file.
+pub(crate) fn sync_dir(dir: &Path) -> Result<()> {
     #[cfg(unix)]
-    {
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(file)
-            .with_context(|| format!("creating {}", file.display()))?;
-        f.write_all(text.as_bytes())?;
-        Ok(())
-    }
-    #[cfg(windows)]
-    {
-        std::fs::write(file, text).with_context(|| format!("writing {}", file.display()))
-    }
+    std::fs::File::open(dir).and_then(|d| d.sync_all()).with_context(|| format!("flushing {}", dir.display()))?;
+    #[cfg(not(unix))]
+    let _ = dir;
+    Ok(())
 }
 
 /// The variables a child needs from the OS to run at all: nothing that changes what LGR does.
@@ -259,6 +301,39 @@ mod tests {
         std::fs::write(package.join("app").join("server.js"), "").unwrap();
         let paths = Paths { home: dir.path().to_path_buf(), package, data: dir.path().join("data"), bun: PathBuf::from("bun"), chrome: None };
         (dir, paths)
+    }
+
+    #[test]
+    fn a_durable_write_replaces_the_file_and_leaves_no_temporary_one() {
+        let dir = tempfile::tempdir().unwrap();
+        // A directory that does not exist yet, as `state/` on a first start.
+        let file = dir.path().join("state").join("node.json");
+        write_private(&file, "{\"nodeId\":\"one\"}").unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "{\"nodeId\":\"one\"}");
+        // A crash's leftover temporary file is replaced, never refused or renamed in.
+        std::fs::write(dir.path().join("state").join("node.json.tmp"), "half").unwrap();
+        write_durable(&file, b"{\"nodeId\":\"two\"}", 0o644).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "{\"nodeId\":\"two\"}");
+        let left: Vec<String> = std::fs::read_dir(file.parent().unwrap()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(left, vec!["node.json".to_string()]);
+        // Two files whose names differ only after the dot get two temporary files, not one.
+        let key = dir.path().join("keys").join("lan-ca.key");
+        write_private(&key, "key").unwrap();
+        write_private(&key.with_extension("pem"), "pem").unwrap();
+        assert_eq!(std::fs::read_to_string(&key).unwrap(), "key");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_private_file_is_its_owner_s_alone_and_a_public_one_is_readable() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let secret = dir.path().join("api-secrets.env");
+        write_private(&secret, "JWT_SECRET=x\n").unwrap();
+        assert_eq!(std::fs::metadata(&secret).unwrap().permissions().mode() & 0o777, 0o600);
+        let state = dir.path().join("lan.json");
+        write_durable(&state, b"{}", 0o644).unwrap();
+        assert_eq!(std::fs::metadata(&state).unwrap().permissions().mode() & 0o777, 0o644);
     }
 
     #[test]

@@ -115,11 +115,7 @@ pub async fn register(data: &Path, client: &Https, ask: &Ask) -> Result<Registra
         orgs: self_view["orgs"].as_array().cloned().unwrap_or_default(),
         registered_at: now(),
     };
-    let file = registration_file(data);
-    let tmp = file.with_extension("tmp");
-    let _ = std::fs::remove_file(&tmp);
-    crate::config::write_private(&tmp, &serde_json::to_string_pretty(&registration)?)?;
-    std::fs::rename(&tmp, &file).with_context(|| format!("writing {}", file.display()))?;
+    crate::config::write_private(&registration_file(data), &serde_json::to_string_pretty(&registration)?)?;
     tracing::info!(server = %registration.server, orgs = registration.orgs.len(), "registered with global");
     Ok(registration)
 }

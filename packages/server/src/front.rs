@@ -177,11 +177,9 @@ pub fn node_id(data: &Path) -> Result<String> {
             let mut rng = rand::thread_rng();
             let tail: String = (0..16).map(|_| ALPHABET[rng.gen_range(0..ALPHABET.len())] as char).collect();
             let id = format!("master-{tail}");
-            std::fs::create_dir_all(file.parent().expect("state/ has a parent"))?;
-            let tmp = file.with_extension("tmp");
-            let _ = std::fs::remove_file(&tmp);
-            crate::config::write_private(&tmp, &serde_json::json!({ "nodeId": id, "createdAt": chrono_like_now() }).to_string())?;
-            std::fs::rename(&tmp, &file).with_context(|| format!("writing {}", file.display()))?;
+            // ⚠ Durably (`config::write_durable`): the first start's power cut must not leave an
+            // empty file here, which a later start could only refuse.
+            crate::config::write_private(&file, &serde_json::json!({ "nodeId": id, "createdAt": chrono_like_now() }).to_string())?;
             tracing::info!(node = %id, "this master's identity was made");
             Ok(id)
         }

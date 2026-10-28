@@ -47,15 +47,10 @@ fn now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
-/// Write `{server, token, expiresAt}` beside the file and rename it over: the API never reads half.
+/// Write `{server, token, expiresAt}` beside the file and rename it over: the API never reads half,
+/// and a power cut never leaves half (`config::write_durable`).
 pub fn write(data: &Path, server: &str, token: &str, expires_at: u64) -> Result<()> {
-    let file = file(data);
-    std::fs::create_dir_all(file.parent().expect("state/ has a parent"))?;
-    let tmp = file.with_extension("tmp");
-    let _ = std::fs::remove_file(&tmp);
-    crate::config::write_private(&tmp, &serde_json::json!({ "server": server, "token": token, "expiresAt": expires_at }).to_string())?;
-    std::fs::rename(&tmp, &file)?;
-    Ok(())
+    crate::config::write_private(&file(data), &serde_json::json!({ "server": server, "token": token, "expiresAt": expires_at }).to_string())
 }
 
 /// One refresh. False when there is nothing to do: not registered (and then no file is left).

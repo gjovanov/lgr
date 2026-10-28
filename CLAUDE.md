@@ -410,6 +410,13 @@ yet" (exit 2) until P1-9 / P1-8.
   SYSTEM and Administrators granted by SID). Windows service: `LGRServer` as `NT SERVICE\LGRServer`,
   recovery 5/30/60 s, 24 h reset. Linux: `lgr-server.service`, `User=lgr`. macOS: LaunchDaemon
   `ai.lgrai.server` as `_lgrserver` (P1-7 creates the user).
+- **State survives a power cut** (`config::write_durable`, 2026-10-28): every file the supervisor
+  keeps in `state/` and `keys/` is written as `<name>.tmp`, given its mode, flushed, renamed over,
+  and on Unix the directory flushed too. `write_private` is that with 0600.
+  - ⚠ A bare tmp + rename survives a crash, not a power cut. ext4 (delayed allocation) and NTFS put
+    the rename on disk before the data, so a cut seconds after a first start left an empty
+    `node.json` or a half `api-secrets.env`, and either is exit 7 for good.
+  - New state goes through `write_durable`.
 - **`mongod` (P1-2, FR-20.15, `mongod.rs`):** started first, on 127.0.0.1 only (port 27118, never
   27017, which another MongoDB may own), `--replSet rs0`, `--keyFile keys/mongo.keyfile`, cache
   0.5/1/2 GB by RAM (<8 / <16 / more GB), oplog 2 GB. The API is listed `pending` until the

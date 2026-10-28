@@ -42,9 +42,7 @@ fn valid_name(n: &str) -> bool {
 }
 
 fn write_atomic(file: &Path, text: &str) -> Result<()> {
-    let tmp = file.with_extension("tmp");
-    std::fs::write(&tmp, text).with_context(|| format!("writing {}", tmp.display()))?;
-    std::fs::rename(&tmp, file).with_context(|| format!("writing {}", file.display()))
+    crate::config::write_durable(file, text.as_bytes(), 0o644)
 }
 
 /// One look: `Some(version)` when that release is now whole on disk, `None` when global offers none.
