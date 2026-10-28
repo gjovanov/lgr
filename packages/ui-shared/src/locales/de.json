@@ -1419,7 +1419,20 @@
       "banner": "Rechnung zum Barverkauf {number} vom {date}. Ware und Zahlung sind beim Barverkauf, daher bewegt diese Rechnung keinen Bestand.",
       "openCashSale": "Barverkauf öffnen",
       "linesFromSale": "Dies sind die Positionen und Preise des Barverkaufs. Für eine andere Menge stornieren Sie diese Rechnung und stellen eine neue aus.",
-      "forCashSale": "Zum Barverkauf {number}"
+      "forCashSale": "Zum Barverkauf {number}",
+      "attach": "Einem Barverkauf zuordnen…",
+      "attachTitle": "Dem Barverkauf des Tages zuordnen",
+      "attachExplain": "Für eine Rechnung, die vor dem Kassenexport des Tages erfasst wurde: Die Kasse hat die Ware bereits ausgebucht und das Geld eingenommen. Die Rechnung wird dem Barverkauf zugeordnet, ihre eigene Ausbuchung wird zurückgenommen, sie gilt als von der Kasse bezahlt, und der Verkauf zählt einmal.",
+      "attachNone": "Keiner der {n} Barverkäufe vom {day} enthält alle Zeilen dieser Rechnung mit genug noch nicht fakturierter Menge.",
+      "attachConfirm": "Zuordnen",
+      "attachDone": "Rechnung dem Barverkauf {number} zugeordnet",
+      "attachRefusal": {
+        "invoice_has_payments": "Die Rechnung hat manuell erfasste Zahlungen — die Kasse hat das Geld für diesen Verkauf eingenommen; entfernen Sie sie zuerst.",
+        "invoice_in_ledger": "Der Buchungssatz der Rechnung ist gebucht — eine Rechnung zu einem Barverkauf bucht nichts Eigenes; stornieren Sie zuerst diesen Buchungssatz.",
+        "invoice_serves_an_order": "Die Rechnung liefert eine Reservierung aus einer Bestellung — ihre Ware stammt nicht aus der Kasse.",
+        "invoice_moves_no_stock": "Die Rechnung bewegt keinen Bestand — ihre Ware wurde mit einem anderen Beleg ausgebucht.",
+        "already_attached": "Die Rechnung gehört bereits zu einem Barverkauf."
+      }
     },
     "saveAndReceive": "Speichern und empfangen",
     "linkDelivery": {

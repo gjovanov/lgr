@@ -1320,7 +1320,9 @@ first day had 3 of 46 invoices like this (17 lines, two products driven negative
 0 of 44. **PlusMinus is the arbiter, not the documents**: `snapshot − LGR == invoice quantity` on
 every affected line means it deducted once, so the till is the stock-mover. Repair = reverse via
 `reverseInvoiceStockMovement` (restores the WAC layers, unlike a hand-rolled compensating entry)
-then set `stockSource.marker`, which is what `movesNoStock` reads to stop a re-dispatch.
+then set `stockSource.marker`, which is what `movesNoStock` reads to stop a re-dispatch. Since
+2026-10-28 that repair is a button: „Към касова продажба…" on the invoice attaches it to the day's
+cash sale (FR-21 §11, see "Invoice for a cash sale").
 `doc-import/till-overlap.ts` detects the containment at analyze time and **only warns** — the
 message carries "VERIFY before committing", which is the `BLOCKING` pattern the Files review uses.
 It must never suppress: containment is not proof (the till may simply have sold as much of every
@@ -1760,8 +1762,44 @@ and the prototype's five docs.
 - Also fixed on the way: every document form took its "clean" snapshot on a 500 ms timer, so a slow
   load counted as an edit and leaving an untouched document asked about unsaved changes —
   `loadDocument` now re-snapshots when it finishes.
+- **Attaching an invoice that already exists** (2026-10-28, FR-21 §11): „Към касова продажба…" on
+  an issued sales invoice written before the day's till export arrived — the till sold the goods,
+  the invoice dispatched them again. `GET /invoices/:id/cash-sale-candidates` (the cash sales of
+  its day it fits), `POST /invoices/:id/attach-to-cash-sale {cashSaleId}`, the dialog
+  `invoicing-ui/src/components/AttachToCashSaleDialog.vue`. Attached, it becomes what R0 issues:
+  its dispatch comes back ONCE (a reversal at cost, noted „Attached to cash sale …"), then it
+  carries `cashSaleRef` and the `stockSource` marker, is paid by the till (`cash_register`
+  payments replace `cash_on_issue`/`card_on_issue`, whose entries are retired), and its
+  `taxEventDate` is the sale's date. Its number and amounts never change.
+  - It fits a sale of the SAME day (UTC date) that sold every one of its lines, within what that
+    sale has not invoiced yet. Against a single sale (till or back office) a line must match the
+    article, price (½ cent), discount and VAT. ⚠ **An imported till day matches on article and VAT
+    only**: it carries one line per article at the day's AVERAGE price (1,899 of 3,418 regal lines
+    are priced beyond the cent), so 9 of the 82 snapshot-verified overlaps (2026-10-28) differed in
+    price from their own invoice. With that rule all 82 fit.
+  - ⚠ **Its claim comes LAST** (`fitsAsLast`), not in `_id` order: the invoice existed before the
+    claim, so its older `_id` would let it in over a newer conversion (`overClaimed` checks a
+    claim only against older ones).
+  - ⚠ **Overlaps repaired by hand before this button attach too**: dispatch reversed, then
+    `stockSource.marker` set to the till day's `reference` (`salesAnalysis:<date>`). They need it,
+    because without `cashSaleRef` every total counts those sales twice (83 such invoices on
+    2026-10-28: 82 in regal-sf, 1 in regal-pz). Such an invoice attaches to that day only and nothing is reversed again. If its
+    dispatch is not all back, it is refused (`attach_needs_attention`): with a marker set,
+    `reverseInvoiceStockMovement` does not even run (`movesNoStock`). The old marker and its
+    arbitration note go into the audit entry.
+  - Refused, never guessed: a draft (issue from the sale instead), a payment entered by hand, an
+    invoice that serves an order or moves no stock for any other reason, and one whose OWN journal
+    entry is posted (`invoice_in_ledger`: void it first). ⚠ A payment's entry carries the invoice as its
+    `sourceId` too, so `ownEntriesOf` leaves out the entries the invoice's payments name; an own
+    entry still in draft is voided on attach.
+  - Claim (with `leaseUntil` on the invoice) → storno re-read → fit → reverse → finish. A retry of
+    the same pair resumes once the lease lapses; a dispatch that is partly back already refuses
+    (`attach_needs_attention`) rather than reversing twice. ⚠ There is no detach. A void frees the
+    sale's quantities but moves nothing (the dispatch came back on attach), so an invoice attached
+    by mistake — a separate sale after all — needs a new invoice that dispatches its goods.
 - Tests: `integration/cash-sale-invoice.flow` (16), `cash-sale-invoice-readers.flow` (6),
-  `unit/cash-sale-invoice` (12), `e2e/tests/cash-sale-invoice.spec.ts` (2).
+  `unit/cash-sale-invoice` (12), `e2e/tests/cash-sale-invoice.spec.ts` (3); the attach:
+  `integration/cash-sale-attach.flow` (10), `unit/cash-sale-attach` (9).
 
 ## A receipt first, then its bill (2026-10-26, FR-22 slice 3: FR-22.28–.33, #168)
 

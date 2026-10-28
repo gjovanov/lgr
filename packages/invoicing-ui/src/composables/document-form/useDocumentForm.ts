@@ -1051,6 +1051,22 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   /** #171: the cash sale this invoice was issued for — its lines are that sale's, so no import. */
   const cashSaleRef = computed<{ cashSaleId: string; number: string; issueDate: string } | null>(() => invoiceData.value?.cashSaleRef || null)
+  /**
+   * FR-21 §11: an issued sales invoice that is no cash sale's yet can be attached to the cash sale
+   * of its day — for one entered before the till export brought that sale in.
+   */
+  const attachDialogOpen = ref(false)
+  const attachable = computed(() => {
+    // One that moves no stock already can only be a till day's, repaired by hand (`salesAnalysis:`).
+    const marker = invoiceData.value?.stockSource?.marker
+    return isEdit.value && config.docType === 'invoice' && config.direction === 'outgoing' && !cashSaleRef.value
+      && ['sent', 'paid', 'partially_paid', 'overdue'].includes(invoiceStatus.value)
+      && (!marker || String(marker).startsWith('salesAnalysis:'))
+  })
+  async function onAttached(invoice: any) {
+    showSuccess(t('invoicing.cashSaleInvoice.attachDone', { number: invoice?.cashSaleRef?.number || '' }))
+    await loadDocument()
+  }
 
   /** A document the form issues itself: every outgoing one but the cash sale, issued as it is saved. */
   const issuable = config.direction === 'outgoing' && config.docType !== 'cash_sale'
@@ -1103,6 +1119,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     if (convert) issued.push({ ...convert, color: 'primary', variant: 'flat', primary: true })
     if (config.editSaveGate !== 'draft-only') issued.push(issued.length ? outlinedSave : save)
     issued.push(...notes)
+    if (attachable.value) {
+      issued.push({ label: t('invoicing.cashSaleInvoice.attach'), icon: 'mdi-link-variant', variant: 'outlined', handler: () => { attachDialogOpen.value = true } })
+    }
     if (config.editSaveGate !== 'draft-only') issued.push(importAction)
     return issued
   })
@@ -1694,6 +1713,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     invoiceNumber,
     invoiceData,
     cashSaleRef,
+    attachDialogOpen,
+    onAttached,
     documentNumber,
     statusDef,
     // collections

@@ -1,12 +1,14 @@
 import { randomUUID } from 'crypto'
 import { mongoose } from 'db/connection'
-import { Invoice, Contact, StockMovement } from 'db/models'
+import { Invoice, Contact, StockMovement, JournalEntry } from 'db/models'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 import { createAuditEntry } from './audit-log.service.js'
 import { getNextInvoiceNumber, getNextDraftInvoiceNumber, issuableRefusal } from './invoice-numbering.service.js'
 import { LEASE_MS, assertSameRequest, isDuplicateKey, takeLease, waitForCompletion } from './hot-path-key.js'
 import { CASH_SALE_REF_ID } from './sale-counting.js'
+import { reverseInvoiceStockMovement } from './invoicing.service.js'
+import { retireAutomaticPayments } from './cash-settlement.service.js'
 import { upsertAmountInWords } from 'config/amount-in-words'
 
 const { Types } = mongoose
@@ -170,16 +172,8 @@ export function claimedByLine(claims: Claim[]): Map<string, number> {
 export function overClaimed(sold: Map<string, number>, claims: Claim[], ownId: string): Array<{ lineId: string; remaining: number; requested: number }> {
   const ordered = [...claims].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const used = new Map<string, number>()
-  const misfits = (c: Claim) => {
-    const over: Array<{ lineId: string; remaining: number; requested: number }> = []
-    for (const [lineId, q] of c.lines) {
-      const remaining = Math.max(0, (sold.get(lineId) || 0) - (used.get(lineId) || 0))
-      if (q > remaining + EPS) over.push({ lineId, remaining, requested: q })
-    }
-    return over
-  }
   for (const c of ordered) {
-    const over = misfits(c)
+    const over = misfitsOf(sold, used, c)
     if (c.id === ownId) return over
     if (over.length) continue
     for (const [k, q] of c.lines) used.set(k, (used.get(k) || 0) + q)
@@ -801,4 +795,473 @@ export async function checkInvoiceForCashSaleEdit(orgId: string, existing: any, 
 function sameLines(a: any[] = [], b: any[] = []): boolean {
   const key = (ls: any[]) => ls.map(l => `${idOf(l.cashSaleLineId)}:${num(l.quantity)}`).sort().join('|')
   return key(a) === key(b)
+}
+
+// ── Attaching an existing invoice (FR-21 §11) ────────────────────────────────────────────────
+//
+// An invoice entered before the till export arrived — the counter sold the goods on the till, a
+// фактура was written for the customer, and the day's export brought the same sale in as a cash
+// sale. The invoice dispatched the goods a second time (`doc-import/till-overlap.ts` only warns,
+// because a person decides). Attaching it makes it what R0 issues from the start: the invoice FOR
+// that cash sale. Its dispatch is taken back, it moves no stock from then on, it is paid by the
+// till's money, and every report counts the sale once, on the cash sale.
+//
+// The invoice is never re-priced: an issued tax document keeps its amounts. So it attaches only to
+// a sale that sold every one of its lines — the same article and VAT, and against a single sale the
+// same price and discount too (an imported till day's price is the day's average, see
+// `matchInvoiceLines`) — within what that sale has not invoiced yet. Otherwise the way is R0's:
+// void it, issue one from the sale.
+
+/** Issued states an invoice is attached from. A draft moved no stock: it is issued from the sale instead. */
+const ATTACHABLE = ['sent', 'paid', 'partially_paid', 'overdue']
+/** Payments the system recorded on issue (`cash-settlement.service`); a person's are never replaced. */
+const AUTO_PAYMENT_ORIGINS = new Set(['cash_on_issue', 'card_on_issue'])
+/** Half a cent: prices match when they print the same. */
+const PRICE_EPS = 0.005
+
+/** The lines of `claim` that do not fit beside `used`. */
+function misfitsOf(sold: Map<string, number>, used: Map<string, number>, claim: Claim): Array<{ lineId: string; remaining: number; requested: number }> {
+  const over: Array<{ lineId: string; remaining: number; requested: number }> = []
+  for (const [lineId, q] of claim.lines) {
+    const remaining = Math.max(0, (sold.get(lineId) || 0) - (used.get(lineId) || 0))
+    if (q > remaining + EPS) over.push({ lineId, remaining, requested: q })
+  }
+  return over
+}
+
+/**
+ * Does claim `ownId` fit when it comes LAST? An attached invoice is an existing document, so its
+ * `_id` says nothing about when it claimed — `overClaimed` would check it only against claims older
+ * than itself and let it in over a newer conversion. Here every other live claim keeps what it
+ * holds (in `_id` order, a misfit among them giving way as in `overClaimed`) and this one takes
+ * what is left. Racing a conversion, both may give way; they can never both win.
+ */
+export function fitsAsLast(sold: Map<string, number>, claims: Claim[], ownId: string): Array<{ lineId: string; remaining: number; requested: number }> {
+  const others = claims.filter(c => c.id !== ownId).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const used = new Map<string, number>()
+  for (const c of others) {
+    if (misfitsOf(sold, used, c).length) continue
+    for (const [k, q] of c.lines) used.set(k, (used.get(k) || 0) + q)
+  }
+  const own = claims.find(c => c.id === ownId)
+  return own ? misfitsOf(sold, used, own) : []
+}
+
+/** An invoice line, as the matching reads it. */
+export interface AttachableLine {
+  id: string; productId: string | null; description: string
+  quantity: number; unitPrice: number; discount: number; taxRate: number
+}
+/** A cash-sale line and what it has not invoiced yet. */
+export interface SaleLineLeft {
+  lineId: string; productId: string | null; description: string
+  remaining: number; unitPrice: number; discount: number; taxRate: number
+}
+export type LineMatch =
+  | { ok: true; map: Map<string, string> }
+  | { ok: false; code: string; message: string; line: string }
+
+/**
+ * Which cash-sale line each invoice line is — or why the invoice is not this sale's.
+ *
+ * A line matches on its article and its terms (price, discount, VAT), never on its total: a till
+ * day's `lineTotal` is gross (FR-21.5) where an invoice's need not be. Each invoice line takes ONE
+ * sale line with room for its whole quantity (an issued line is not split); lines of the same
+ * article share that sale line's budget, the largest placed first, each in the tightest room.
+ *
+ * `tillDay`: the sale is an imported till day, which carries ONE line per article at the day's
+ * AVERAGE price (its value ÷ its quantity) — on regal, 1,899 of 3,418 such lines are priced beyond
+ * the cent (2026-10-28). An invoice for one of the day's sales then differs from it whenever the
+ * article sold at more than one price that day: 9 of the 82 snapshot-verified overlaps did. So
+ * against a till day a line matches on its article and VAT alone.
+ */
+export function matchInvoiceLines(invoiceLines: AttachableLine[], saleLines: SaleLineLeft[], opts: { tillDay?: boolean } = {}): LineMatch {
+  const left = new Map(saleLines.map(l => [l.lineId, l.remaining]))
+  const map = new Map<string, string>()
+  for (const l of [...invoiceLines].sort((a, b) => b.quantity - a.quantity)) {
+    if (!(l.quantity > 0)) continue
+    if (!l.productId) {
+      return { ok: false, code: 'line_without_product', message: `„${l.description}" names no article, so it cannot be a line of a cash sale`, line: l.id }
+    }
+    const same = saleLines.filter(s => s.productId === l.productId)
+    if (!same.length) return { ok: false, code: 'line_not_in_cash_sale', message: `„${l.description}" is not sold on this cash sale`, line: l.id }
+    const terms = same.filter(s => Math.abs(s.taxRate - l.taxRate) <= EPS
+      && (opts.tillDay || (Math.abs(s.unitPrice - l.unitPrice) < PRICE_EPS && Math.abs(s.discount - l.discount) <= EPS)))
+    if (!terms.length) {
+      const s = same[0]
+      return {
+        ok: false, code: 'line_terms_differ', line: l.id,
+        message: opts.tillDay
+          ? `„${l.description}": ${l.taxRate}% VAT on the invoice, ${s.taxRate}% on the cash sale`
+          : `„${l.description}": ${l.unitPrice} at ${l.taxRate}% VAT on the invoice, ${s.unitPrice} at ${s.taxRate}% on the cash sale`,
+      }
+    }
+    const fit = terms
+      .filter(s => (left.get(s.lineId) || 0) + EPS >= l.quantity)
+      .sort((a, b) => (left.get(a.lineId) || 0) - (left.get(b.lineId) || 0))[0]
+    if (!fit) {
+      const most = Math.max(...terms.map(s => left.get(s.lineId) || 0))
+      return { ok: false, code: 'line_quantity_exceeds', message: `„${l.description}": ${l.quantity} on the invoice, ${most} not yet invoiced on the cash sale`, line: l.id }
+    }
+    left.set(fit.lineId, (left.get(fit.lineId) || 0) - l.quantity)
+    map.set(l.id, fit.lineId)
+  }
+  return { ok: true, map }
+}
+
+/**
+ * Is `cs` an imported till day? As `cash-register/journal.service#originOf` reads it (which imports
+ * this file, hence not imported from there): `register.origin`, else the import's marks on a
+ * document older than the register.
+ */
+function isTillDay(cs: any): boolean {
+  if (cs.register?.origin) return cs.register.origin === 'import'
+  return (cs.tags || []).includes('cash-register-import') || /^salesAnalysis:/.test(cs.reference || '')
+}
+
+function attachableLinesOf(inv: any): AttachableLine[] {
+  return (inv.lines || []).map((l: any) => ({
+    id: idOf(l._id), productId: l.productId ? idOf(l.productId) : null, description: l.description || '',
+    quantity: num(l.quantity), unitPrice: num(l.unitPrice), discount: num(l.discount), taxRate: num(l.taxRate),
+  }))
+}
+
+/** Does the match take every sold line of `cs` whole? (A sale to a named customer is invoiced whole.) */
+function takesWhole(cs: any, inv: any, map: Map<string, string>): boolean {
+  const qtyOf = new Map((inv.lines || []).map((l: any) => [idOf(l._id), num(l.quantity)]))
+  const taken = new Map<string, number>()
+  for (const [invLine, saleLine] of map) taken.set(saleLine, (taken.get(saleLine) || 0) + (qtyOf.get(invLine) || 0))
+  return (cs.lines || []).every((l: any) => num(l.quantity) <= 0 || Math.abs((taken.get(idOf(l._id)) || 0) - num(l.quantity)) <= EPS)
+}
+
+/**
+ * The till day an earlier repair already gave this invoice's goods back to, if any. Overlaps found
+ * before this button existed were repaired by hand: the dispatch reversed, then `stockSource.marker`
+ * set to the till day's `reference` (`salesAnalysis:<date>`). Their stock is right, but without
+ * `cashSaleRef` every total still counts the sale twice — once on the invoice, once on the day. So
+ * such an invoice attaches too, to that day only, and nothing is reversed again.
+ */
+function tillDayMarkerOf(inv: any): string | null {
+  const m = inv?.stockSource?.marker
+  return typeof m === 'string' && /^salesAnalysis:/.test(m) && inv.stockSource.detectedBy !== 'cash_sale' ? m : null
+}
+
+/** Why this invoice cannot be attached at all (null = it can), before any cash sale is looked at. */
+function attachRefusal(inv: any): { statusCode: number; code: string; message: string } | null {
+  if (!inv || inv.type !== 'invoice' || inv.direction !== 'outgoing') {
+    return { statusCode: 422, code: 'not_a_sales_invoice', message: 'Only a sales invoice can be attached to a cash sale' }
+  }
+  if (inv.cashSaleRef?.cashSaleId) {
+    return { statusCode: 409, code: 'already_attached', message: `${inv.invoiceNumber} is already the invoice of cash sale ${inv.cashSaleRef.number}` }
+  }
+  if (inv.status === 'draft') {
+    return { statusCode: 422, code: 'invoice_not_issued', message: `${inv.invoiceNumber} is a draft and moved no stock — delete it and issue the invoice from the cash sale` }
+  }
+  if (!ATTACHABLE.includes(inv.status)) {
+    return { statusCode: 422, code: 'invoice_released', message: `${inv.invoiceNumber} is ${inv.status}` }
+  }
+  if (inv.stockSource?.marker && !tillDayMarkerOf(inv)) {
+    return { statusCode: 422, code: 'invoice_moves_no_stock', message: `${inv.invoiceNumber} moved no stock: its goods left on ${inv.stockSource.docNumber || 'another document'}` }
+  }
+  if ((inv.lines || []).some((l: any) => l.orderRef && (l.orderRef.orderId || l.orderRef.reservationId || l.orderRef.internalOrderId))) {
+    return { statusCode: 422, code: 'invoice_serves_an_order', message: `${inv.invoiceNumber} delivers an order's reservation — its goods are not the till's` }
+  }
+  if ((inv.payments || []).some((p: any) => num(p.amount) > 0 && !AUTO_PAYMENT_ORIGINS.has(p.origin))) {
+    return { statusCode: 422, code: 'invoice_has_payments', message: `${inv.invoiceNumber} has payments recorded by hand — the till took the money for this sale; remove them first` }
+  }
+  return null
+}
+
+/**
+ * The invoice's OWN journal entries in `status` — what its issue posted (`invoice.posted`). A
+ * payment's entry carries the same `sourceId`, so the entries its payments name are left out: the
+ * automatic ones go with their payments (`retireAutomaticPayments`), and a payment entered by hand
+ * refuses the attach before any of this.
+ */
+async function ownEntriesOf(orgId: string, inv: any, status: 'posted' | 'draft'): Promise<string[]> {
+  const ofPayments = new Set((inv.payments || []).map((p: any) => idOf(p.journalEntryId)).filter(Boolean))
+  const rows: any[] = await JournalEntry.find({ orgId, sourceId: inv._id, status } as any, { _id: 1 }).lean().exec()
+  return rows.map(e => idOf(e._id)).filter(id => !ofPayments.has(id))
+}
+
+/**
+ * Is the invoice's own sale in the ledger? An invoice for a cash sale posts nothing of its own
+ * (R0), so a posted entry would have to be reversed — in a period that may already be reported.
+ * That stays a person's decision: they void the entry, then attach.
+ */
+async function postedToLedger(orgId: string, inv: any): Promise<boolean> {
+  return (await ownEntriesOf(orgId, inv, 'posted')).length > 0
+}
+
+const IN_LEDGER = (inv: any) => ({
+  statusCode: 409, code: 'invoice_in_ledger',
+  message: `${inv.invoiceNumber} is posted to the ledger — an invoice for a cash sale posts nothing of its own; void its journal entry first`,
+})
+
+/** What the invoice took out of stock and what came back, over its own movements. */
+async function netMovedOut(orgId: string, invoiceId: unknown): Promise<{ out: number; back: number }> {
+  const movements: any[] = await StockMovement.find({ orgId, invoiceId, status: 'completed' } as any, { fromWarehouseId: 1, toWarehouseId: 1, 'lines.quantity': 1 }).lean().exec()
+  let out = 0
+  let back = 0
+  for (const m of movements) {
+    const q = (m.lines || []).reduce((s: number, l: any) => s + num(l.quantity), 0)
+    if (m.fromWarehouseId) out += q
+    else if (m.toWarehouseId) back += q
+  }
+  return { out, back }
+}
+
+export interface CashSaleCandidates {
+  /** Whether the invoice can be attached at all, and why not. */
+  eligible: boolean
+  code?: string
+  reason?: string
+  /** The invoice's day: only the cash sales of that day are looked at. */
+  day: string
+  /** How many cash sales that day has. */
+  considered: number
+  candidates: Array<{
+    id: string; number: string; issueDate: Date; total: number; currency: string
+    origin: string | null; contactId: string | null; state: 'none' | 'partial' | 'full'
+  }>
+}
+
+/** The cash sales of the invoice's day that sold every line of it and have room for them. */
+export async function cashSaleCandidates(orgId: string, invoiceId: string): Promise<CashSaleCandidates> {
+  const inv: any = await Invoice.findOne({ _id: invoiceId, orgId } as any).lean().exec()
+  if (!inv) throw new CashSaleInvoiceError(404, 'not_found', 'Invoice not found')
+  const day = isoDay(inv.issueDate)
+  const why = attachRefusal(inv) ?? ((await postedToLedger(orgId, inv)) ? IN_LEDGER(inv) : null)
+  if (why) return { eligible: false, code: why.code, reason: why.message, day, considered: 0, candidates: [] }
+
+  const from = new Date(`${day}T00:00:00.000Z`)
+  const to = new Date(from.getTime() + 86_400_000)
+  const sales: any[] = await Invoice.find(
+    { orgId, type: 'cash_sale', status: 'paid', issueDate: { $gte: from, $lt: to } } as any,
+  ).sort({ issueDate: 1, _id: 1 }).limit(500).lean().exec()
+  const live: any[] = sales.length
+    ? await Invoice.find(
+        { orgId, type: 'invoice', [CASH_SALE_REF_ID]: { $in: sales.map(s => s._id) }, status: { $nin: RELEASED } } as any,
+        { cashSaleRef: 1, invoiceNumber: 1, leaseUntil: 1, 'lines.cashSaleLineId': 1, 'lines.quantity': 1 },
+      ).sort({ _id: 1 }).lean().exec()
+    : []
+  const now = Date.now()
+  const liveBySale = new Map<string, any[]>()
+  for (const d of live) {
+    if (isPending(d) && leaseLapsed(d, now)) continue
+    const k = idOf(d.cashSaleRef?.cashSaleId)
+    if (!liveBySale.has(k)) liveBySale.set(k, [])
+    liveBySale.get(k)!.push(d)
+  }
+  const lines = attachableLinesOf(inv)
+  const tillMarker = tillDayMarkerOf(inv)
+  const candidates: CashSaleCandidates['candidates'] = []
+  for (const cs of sales) {
+    if (refusal(cs)) continue
+    // Repaired by hand already: only the till day its goods were given back to.
+    if (tillMarker && cs.reference !== tillMarker) continue
+    if (cs.contactId && idOf(cs.contactId) !== idOf(inv.contactId)) continue
+    const others = liveBySale.get(idOf(cs._id)) || []
+    if (cs.contactId && others.length) continue
+    const st = stateOf(cs, others)
+    const m = matchInvoiceLines(lines, st.lines, { tillDay: isTillDay(cs) })
+    if (!m.ok) continue
+    if (cs.contactId && !takesWhole(cs, inv, m.map)) continue
+    candidates.push({
+      id: idOf(cs._id), number: cs.invoiceNumber, issueDate: cs.issueDate, total: num(cs.total), currency: cs.currency || 'EUR',
+      origin: cs.register?.origin || null, contactId: cs.contactId ? idOf(cs.contactId) : null, state: st.state,
+    })
+  }
+  return { eligible: true, day, considered: sales.length, candidates }
+}
+
+/**
+ * Attach issued invoice `invoiceId` to cash sale `cashSaleId` (FR-21 §11).
+ *
+ * The claim is written on the invoice, as every claim on a cash sale is (`cashSaleRef` and each
+ * line's `cashSaleLineId`), with a lease; then the storno and the fit are checked (this claim LAST,
+ * `fitsAsLast`), and only then is the invoice's dispatch taken back and the link finished. A
+ * request that stopped after its claim is resumed by the next one for the same pair, which takes
+ * the lapsed lease first — so the dispatch is never taken back twice.
+ */
+export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoiceId: string, cashSaleId: string): Promise<any> {
+  const r = getRepos()
+  const asRepo = (id: unknown) => r.invoices.findOne({ id: idOf(id), orgId } as any)
+  const inv: any = await Invoice.findOne({ _id: invoiceId, orgId } as any).lean().exec()
+  if (!inv) throw new CashSaleInvoiceError(404, 'not_found', 'Invoice not found')
+  const cs: any = await Invoice.findOne({ _id: cashSaleId, orgId } as any).lean().exec()
+
+  const linkedHere = !!inv.cashSaleRef?.cashSaleId && idOf(inv.cashSaleRef.cashSaleId) === idOf(cashSaleId)
+  // Finished — by an earlier attach, or issued by R0: it carries the cash sale's own stock marker.
+  if (linkedHere && inv.stockSource?.detectedBy === 'cash_sale') return asRepo(inv._id)
+  // Claimed and not finished: a request that stopped half-way, resumed below.
+  const resuming = linkedHere && ATTACHABLE.includes(inv.status)
+  if (!resuming) {
+    const why = attachRefusal(inv)
+    if (why) throw new CashSaleInvoiceError(why.statusCode, why.code, why.message)
+  }
+  const csWhy = cs ? refusal(cs) : { statusCode: 404, code: 'not_found', message: 'Cash sale not found' }
+  if (csWhy) throw new CashSaleInvoiceError(csWhy.statusCode, csWhy.code, csWhy.message)
+  const tillMarker = tillDayMarkerOf(inv)
+  if (tillMarker && tillMarker !== cs.reference) {
+    throw new CashSaleInvoiceError(422, 'invoice_moves_no_stock',
+      `${inv.invoiceNumber}'s goods were already given back to the till day ${tillMarker}, which is not ${cs.invoiceNumber}`)
+  }
+  if (isoDay(inv.issueDate) !== isoDay(cs.issueDate)) {
+    throw new CashSaleInvoiceError(422, 'different_day',
+      `${inv.invoiceNumber} is dated ${isoDay(inv.issueDate)} and ${cs.invoiceNumber} ${isoDay(cs.issueDate)} — an invoice attaches to the cash sale of its own day`)
+  }
+  if (cs.contactId && idOf(cs.contactId) !== idOf(inv.contactId)) {
+    throw new CashSaleInvoiceError(422, 'contact_mismatch', `${cs.invoiceNumber} is a sale to another customer`)
+  }
+  if (!resuming && (await postedToLedger(orgId, inv))) {
+    const e = IN_LEDGER(inv)
+    throw new CashSaleInvoiceError(e.statusCode, e.code, e.message)
+  }
+
+  const own = idOf(inv._id)
+  const others = (await liveInvoicesOf(orgId, idOf(cs._id))).filter(d => idOf(d._id) !== own)
+  if (cs.contactId && others.length) {
+    throw new CashSaleInvoiceError(409, 'cash_sale_fully_invoiced', `${cs.invoiceNumber} is already invoiced`)
+  }
+  const st = stateOf(cs, others)
+  const m = matchInvoiceLines(attachableLinesOf(inv), st.lines, { tillDay: isTillDay(cs) })
+  if (!m.ok) throw new CashSaleInvoiceError(422, m.code, m.message, { line: m.line })
+  if (cs.contactId && !takesWhole(cs, inv, m.map)) {
+    throw new CashSaleInvoiceError(422, 'cash_sale_whole_only', `${cs.invoiceNumber} names a customer, so its invoice takes every line in full`)
+  }
+
+  // The claim, with a lease: the link and each line's cash-sale line, on the invoice.
+  const lease = () => new Date(Date.now() + LEASE_MS)
+  if (!resuming) {
+    const set: Record<string, unknown> = {
+      cashSaleRef: {
+        cashSaleId: cs._id,
+        number: cs.invoiceNumber,
+        issueDate: cs.issueDate,
+        ...(cs.contactId ? { contactId: cs.contactId } : {}),
+        ...(cs.register?.unp ? { unp: cs.register.unp } : {}),
+        ...(cs.register?.fiscalReceiptNumber ? { receiptNumber: cs.register.fiscalReceiptNumber } : {}),
+      },
+      leaseUntil: lease(),
+    }
+    const arrayFilters: Array<Record<string, unknown>> = []
+    let i = 0
+    for (const [lineId, saleLineId] of m.map) {
+      set[`lines.$[l${i}].cashSaleLineId`] = new Types.ObjectId(saleLineId)
+      arrayFilters.push({ [`l${i}._id`]: new Types.ObjectId(lineId) })
+      i++
+    }
+    const claimed = await Invoice.findOneAndUpdate(
+      {
+        _id: inv._id, orgId, cashSaleRef: { $exists: false }, status: { $in: ATTACHABLE },
+        'stockSource.marker': tillMarker ?? { $exists: false },
+      } as any,
+      { $set: set },
+      { arrayFilters, new: true },
+    ).lean().exec()
+    if (!claimed) throw new CashSaleInvoiceError(409, 'invoice_changed', `${inv.invoiceNumber} changed meanwhile — open it again`)
+  } else {
+    const now = new Date()
+    const taken = await Invoice.findOneAndUpdate(
+      {
+        _id: inv._id, orgId, [CASH_SALE_REF_ID]: cs._id, 'stockSource.detectedBy': { $ne: 'cash_sale' }, status: { $in: ATTACHABLE },
+        $or: [{ leaseUntil: { $exists: false } }, { leaseUntil: null }, { leaseUntil: { $lt: now } }],
+      } as any,
+      { $set: { leaseUntil: lease() } },
+      { new: true },
+    ).lean().exec()
+    if (!taken) throw new CashSaleInvoiceError(409, 'attach_in_progress', `${inv.invoiceNumber} is being attached right now — try again in a moment`)
+  }
+  // A till day's marker from an earlier repair stays: only the claim goes.
+  const undo = () => Invoice.updateOne(
+    { _id: inv._id, orgId, [CASH_SALE_REF_ID]: cs._id, 'stockSource.detectedBy': { $ne: 'cash_sale' } } as any,
+    { $unset: { cashSaleRef: 1, leaseUntil: 1, 'lines.$[].cashSaleLineId': 1 } },
+  ).exec()
+
+  // FR-21 D-14: the claim is written first and the sale's storno read after, as R0 does.
+  const latest: any = await Invoice.findOne({ _id: cs._id, orgId } as any, { 'register.stornoState': 1 }).lean().exec()
+  if (latest?.register?.stornoState === 'full') {
+    await undo()
+    throw new CashSaleInvoiceError(422, 'cash_sale_stornoed', `Cash sale ${cs.invoiceNumber} was reversed by a storno — it cannot be invoiced`)
+  }
+  const claims = (await liveInvoicesOf(orgId, idOf(cs._id))).map(claimOf)
+  if (!claims.some(c => c.id === own)) claims.push(claimOf((await Invoice.findOne({ _id: inv._id, orgId } as any).lean().exec()) || inv))
+  if (cs.contactId && claims.some(c => c.id !== own)) {
+    await undo()
+    throw new CashSaleInvoiceError(409, 'cash_sale_fully_invoiced', `${cs.invoiceNumber} is already invoiced`)
+  }
+  const over = fitsAsLast(soldByLine(cs), claims, own)
+  if (over.length) {
+    await undo()
+    const line = (cs.lines || []).find((l: any) => idOf(l._id) === over[0].lineId)
+    throw new CashSaleInvoiceError(409, 'cash_sale_quantity_exceeded',
+      `„${line?.description || over[0].lineId}": ${over[0].requested} on the invoice, ${over[0].remaining} not yet invoiced on ${cs.invoiceNumber}`,
+      { lines: over })
+  }
+
+  // Its goods left on the till: take back this invoice's dispatch, at the cost they left at (#276).
+  const moved = await netMovedOut(orgId, inv._id)
+  if (moved.back > EPS || tillMarker) {
+    // Something already came back — a reversal of ours that stopped half-way, or the hand repair
+    // a till marker records — so all of it must be back. Nothing is guessed: with a marker set,
+    // `reverseInvoiceStockMovement` would not even run (`movesNoStock`), and the double dispatch
+    // would stay behind a link that says it is fixed.
+    if (moved.out - moved.back > EPS) {
+      await undo()
+      throw new CashSaleInvoiceError(409, 'attach_needs_attention',
+        `${inv.invoiceNumber}: ${moved.back} of the ${moved.out} it dispatched is back — check its stock movements before attaching`)
+    }
+  } else if (moved.out > EPS) {
+    const repoInv = await asRepo(inv._id)
+    await reverseInvoiceStockMovement(repoInv as any, actor.id, undefined, { note: `Attached to cash sale ${cs.invoiceNumber} — its goods left on the till` })
+  }
+
+  // Finished: no stock from now on, paid with the till's money, dated as the sale.
+  const now = new Date()
+  const paidOn = new Date(cs.paidAt || cs.issueDate || now)
+  const payments = mirroredPayments(cs, num(inv.total), paidOn)
+  const csMovements = (await StockMovement.find({ orgId, invoiceId: cs._id } as any, { _id: 1 }).lean().exec()).map((x: any) => x._id)
+  const replaced = (inv.payments || []).filter((p: any) => AUTO_PAYMENT_ORIGINS.has(p.origin))
+  const done = await Invoice.findOneAndUpdate(
+    { _id: inv._id, orgId, [CASH_SALE_REF_ID]: cs._id } as any,
+    {
+      $set: {
+        stockSource: stockSourceFor(cs, csMovements),
+        taxEventDate: cs.issueDate,
+        payments,
+        paymentMethod: mainMethod(payments),
+        amountPaid: round2(num(inv.total)),
+        amountDue: 0,
+        status: 'paid',
+        paidAt: paidOn,
+      },
+      $unset: { leaseUntil: 1 },
+      $push: { statusHistory: { status: 'paid', fromStatus: inv.status, changedAt: now, changedBy: actor.id, reason: `attached to cash sale ${cs.invoiceNumber}` } },
+    },
+    { new: true },
+  ).lean().exec()
+  if (!done) throw new CashSaleInvoiceError(409, 'invoice_changed', `${inv.invoiceNumber} changed meanwhile — open it again`)
+  // The on-issue payments it had were the same money: their journal entries go with them.
+  await retireAutomaticPayments(replaced)
+  // And it posts nothing of its own now (R0): a draft entry its issue made goes too. A posted one
+  // was refused above; the link stays on the invoice, to a voided entry, as the trail.
+  for (const id of await ownEntriesOf(orgId, inv, 'draft')) await r.journalEntries.update(id, { status: 'voided' } as any)
+
+  createAuditEntry({
+    orgId, userId: actor.id, action: 'update', module: 'invoicing', entityType: 'invoice',
+    entityId: own, entityName: inv.invoiceNumber, correlationId: idOf(cs._id),
+    changes: [
+      { field: 'cashSale', oldValue: null, newValue: cs.invoiceNumber },
+      // The hand repair's marker is replaced; what it said (and who arbitrated it) stays here.
+      ...(tillMarker ? [{ field: 'stockSource', oldValue: `${tillMarker} — ${inv.stockSource?.detectedBy || ''}`, newValue: `cash_sale:${cs.invoiceNumber}` }] : []),
+    ],
+  } as any)
+  createAuditEntry({
+    orgId, userId: actor.id, action: 'invoiced', module: 'invoicing', entityType: 'invoice',
+    entityId: idOf(cs._id), entityName: cs.invoiceNumber, correlationId: own,
+    changes: [{ field: 'invoice', oldValue: null, newValue: inv.invoiceNumber }],
+  } as any)
+  logger.info({ orgId, cashSale: cs.invoiceNumber, invoice: inv.invoiceNumber, reversed: moved.back > EPS || tillMarker ? 0 : moved.out }, 'Invoice attached to a cash sale')
+  return asRepo(own)
 }

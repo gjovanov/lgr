@@ -1213,7 +1213,20 @@
       "banner": "Invoice for cash sale {number} of {date}. The goods and the payment are on the cash sale, so this invoice moves no stock.",
       "openCashSale": "Open the cash sale",
       "linesFromSale": "These are the cash sale's lines and prices. To invoice a different quantity, void this invoice and issue a new one.",
-      "forCashSale": "For cash sale {number}"
+      "forCashSale": "For cash sale {number}",
+      "attach": "Attach to cash sale…",
+      "attachTitle": "Attach to the day's cash sale",
+      "attachExplain": "For an invoice entered before the day's till export: the till already moved the goods and took the money. The invoice is linked to the cash sale, its own dispatch is taken back, it becomes paid by the till, and the sale counts once.",
+      "attachNone": "None of the {n} cash sales of {day} sold all of this invoice's lines with enough left to invoice.",
+      "attachConfirm": "Attach",
+      "attachDone": "Invoice attached to cash sale {number}",
+      "attachRefusal": {
+        "invoice_has_payments": "The invoice has payments entered by hand — the till took the money for this sale; remove them first.",
+        "invoice_in_ledger": "The invoice's journal entry is posted — an invoice for a cash sale posts nothing of its own; void that entry first.",
+        "invoice_serves_an_order": "The invoice delivers an order's reservation — its goods are not the till's.",
+        "invoice_moves_no_stock": "The invoice moves no stock — its goods left on another document.",
+        "already_attached": "The invoice already belongs to a cash sale."
+      }
     },
     "saveAndReceive": "Save and receive",
     "linkDelivery": {

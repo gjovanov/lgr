@@ -119,4 +119,42 @@ test.describe('Invoice for a cash sale (#171)', () => {
     await expect(dialog.getByText(/what remains can be invoiced later/i)).toBeVisible({ timeout: 10000 })
     await expect(dialog.locator('.v-chip', { hasText: one.invoice.invoiceNumber })).toBeVisible()
   })
+
+  // FR-21 §11: an invoice entered before the day's till export, attached to the cash sale it brought.
+  test('an issued invoice is attached to the cash sale of its day: its dispatch comes back', async ({ page }) => {
+    const { token, orgId } = await getAuthToken()
+    const s = await seedCashSale(token, orgId, false)
+    const sold = s.cashSale.lines[0]
+    // A new article: some stock first, so the invoice can be issued.
+    const receipt = (await apiCall('POST', `/org/${orgId}/warehouse/movement`, token, {
+      type: 'receipt', date: new Date().toISOString(), toWarehouseId: s.warehouseId,
+      lines: [{ productId: s.productId, quantity: 10, unitCost: 5, totalCost: 50 }], totalAmount: 50, notes: 'e2e stock',
+    })).stockMovement
+    await apiCall('POST', `/org/${orgId}/warehouse/movement/${receipt._id || receipt.id}/confirm`, token, {})
+    const afterSale = await stockOf(token, orgId, s.productId, s.warehouseId)
+    // The фактура written at the counter, for one of the two bolts — it dispatched that bolt again.
+    const created = await apiCall('POST', `/org/${orgId}/invoices`, token, {
+      type: 'invoice', direction: 'outgoing', contactId: s.customerId, issueDate: today(), currency: 'EUR',
+      lines: [{ productId: s.productId, warehouseId: s.warehouseId, description: sold.description, quantity: 1, unitPrice: 10, taxRate: 20, taxAmount: 2, lineTotal: 12 }],
+      subtotal: 10, taxTotal: 2, total: 12, paymentMethod: 'bank_transfer',
+    })
+    const invoiceId = created.invoice.id || created.invoice._id
+    await apiCall('POST', `/org/${orgId}/invoices/${invoiceId}/send`, token, {})
+    expect(await stockOf(token, orgId, s.productId, s.warehouseId)).toBe(afterSale - 1)
+
+    await loginForApp(page)
+    await page.goto(`/invoicing/invoices/${invoiceId}/edit`)
+    await page.getByRole('button', { name: /attach to cash sale/i }).first().click()
+    const dialog = page.locator('.v-dialog').filter({ hasText: "Attach to the day's cash sale" })
+    // The day's one fitting sale is offered, and picked.
+    await expect(dialog.getByText(s.cashSale.invoiceNumber)).toBeVisible({ timeout: 10000 })
+    await dialog.getByRole('button', { name: /^attach$/i }).click()
+    await expect(page.locator('.v-snackbar').filter({ hasText: `Invoice attached to cash sale ${s.cashSale.invoiceNumber}` })).toBeVisible({ timeout: 10000 })
+    await expect(page.getByText(`Invoice for cash sale ${s.cashSale.invoiceNumber}`, { exact: false })).toBeVisible()
+
+    const invoice = (await apiCall('GET', `/org/${orgId}/invoices/${invoiceId}`, token)).invoice
+    expect(invoice.cashSaleRef.number).toBe(s.cashSale.invoiceNumber)
+    expect(invoice.status).toBe('paid')
+    expect(await stockOf(token, orgId, s.productId, s.warehouseId)).toBe(afterSale)
+  })
 })

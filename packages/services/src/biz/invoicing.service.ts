@@ -478,7 +478,7 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
   logger.info({ invoiceId: invoice.id, movementType }, 'Invoice stock movement created')
 }
 
-export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
+export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean; note?: string }): Promise<void> {
   const r = repos ?? getRepos()
   if (movesNoStock(invoice, 'reverse')) return
   const originalMovements = await r.stockMovements.findMany({ orgId: invoice.orgId, invoiceId: invoice.id } as any)
@@ -578,7 +578,9 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
       invoiceId: invoice.id,
       lines: movementLines,
       totalAmount,
-      notes: `Reversal for voided invoice ${invoice.invoiceNumber}`,
+      // Why it is reversed: a void, unless the caller says otherwise (an invoice attached to the cash
+      // sale whose till already moved its goods, FR-21 §11).
+      notes: opts?.note ?? `Reversal for voided invoice ${invoice.invoiceNumber}`,
       createdBy: userId,
     } as any)
 

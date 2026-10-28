@@ -76,6 +76,9 @@ async function retireAll(payments: any[]): Promise<void> {
   for (const p of payments) if (p.journalEntryId) await retireJournalEntry(String(p.journalEntryId))
 }
 
+/** For a caller that replaces automatic payments (an invoice attached to a cash sale): their entries go. */
+export const retireAutomaticPayments = retireAll
+
 export async function syncCashSettlement(orgId: string, invoiceId: string, userId: string): Promise<CashSettlementResult> {
   const r = getRepos()
   const inv: any = await r.invoices.findOne({ id: invoiceId, orgId } as any)
