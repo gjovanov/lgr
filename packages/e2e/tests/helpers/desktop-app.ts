@@ -236,11 +236,11 @@ function portDiagnostics(port: number, shell?: ShellProcess): string {
         .filter(l => /RemoteDebugging|WebView2|AdditionalBrowserArguments|DeveloperTools/i.test(l))
       out.push(`${key}: ${hits.length ? hits.join(' | ') : dump.includes('ERROR') ? '(key absent)' : '(no relevant values)'}`)
     }
-    // ⚠ **The leading hypothesis after everything above was ruled out (#116).** The runner runs
-    // as `runneradmin` with UAC effectively off, and an elevated browser process refusing to
-    // open a debugging port would be silent, machine-wide, version-independent and invisible on
-    // a developer machine — which is the shape of this failure exactly. Printed so the next
-    // dispatch answers it instead of inviting another guess.
+    // ⚠ **#116's cause: an elevated host.** Since Runtime 150 WebView2 ignores every `WEBVIEW2_*`
+    // environment override in an elevated process, so the variable above reaches the app and never
+    // its browser. GitHub's runner runs as `runneradmin` with UAC off, and `desktop-ci.yml` opens the
+    // port through the HKLM policy instead, which an elevated host still reads. Printed because an
+    // elevated run anywhere else fails the same silent way.
     out.push(`elevated: ${run('powershell', ['-NoProfile', '-NonInteractive', '-Command',
       '([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent())' +
       '.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)',
