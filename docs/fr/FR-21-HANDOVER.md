@@ -11,34 +11,33 @@ turned up on the way that the spec does not say.
 
 ## 0. What is left (2026-10-28)
 
-The spec's acceptance criteria are ticked in its §9, each with its evidence. Two stay open there.
+The spec's acceptance criteria are ticked in its §9, each with its evidence. **One stays open:**
+R1's "`bun run test:e2e` passes".
 
-- **The device test in `acme-corp`** (§10.1): the one step only a person at the till can take, and
-  what keeps R5's "prints on its device" open. On the non-fiscalized Eltrade A3, text mode:
-  1. open a session;
-  2. sell, including a back-office line with a discount (never printed on hardware);
-  3. storno it;
-  4. close;
-  5. check both journals agree.
-- **`bun run test:e2e`** (R1's last criterion), still open. What has been run, on 2026-10-28, on a
-  fresh seeded database, with #345 and #337:
-  - `invoicing-inventory` and `ux-budgets`: 194 of 195 passed;
-  - the one failure was `pos-devices.spec:97`. Its Reports-tab check first ran once a device existed,
-    and its selector was ambiguous. Fixed in #337; the spec now passes 7/7;
-  - `cash-register-fiscal`: 3 of 3, twice.
+- **The whole e2e suite** ran on master `b3d8f7fe` (2026-10-28, a fresh seeded database, the OCR
+  and Eltrade stubs up): 393 passed, 6 failed.
+  - Two of the six were FR-21's specs, failing only after earlier specs had changed the shared
+    database. They are fixed in #349.
+  - Four are not FR-21's, and are with Goran (#171, 2026-10-28):
+    - `desktops-security.spec`, 3 tests: `POST /desktops/codes` answers 404;
+    - `backup.spec:69`: its text changed.
 
-  The other projects (portal, accounting, payroll, the rest) and the doc-import PDF tests, which need
-  the OCR stub, were not run. The criterion is ticked once the whole suite passes after #337 and #345
-  merge.
-- **In review, with the owner's decisions of 2026-10-27:**
-  - #334: **#281**, a storno of a fiscal sale is refused while its device is offline; and
-    `warehouse_manager` leaves `STORNO_ROLES`.
-  - #335: **#279**, a refused sessionless cash sale draws no CS number.
-  - #336: **#280**, a completed transfer is accepted only while no other document names it. The
-    retry the issue describes already worked since `cac032ff`.
-  - #337: §8.3 items 1, 4 and 9 on a simulated Eltrade. They need the `FISCAL_TCP_ALLOW_LOOPBACK` seam,
-    which production ignores.
-  - #345: the `stock-validation` rewrite.
+  The criterion is ticked once #349 is in and those four pass.
+- **The device test in `acme-corp` is skipped** (Atanas, 2026-10-28). The same flow runs end to end
+  on the simulated Eltrade (`cash-register-fiscal.spec`, #337), through the real driver and protocol,
+  so R5's "prints on its device" is ticked on that.
+- **#351, in review:** the digest's Payments line leaves out `origin: 'cash_register'` rows. A cash
+  sale carries no payment rows, so an invoiced cash sale's till money was on both Cash register and
+  Payments. It changes a digest line's meaning, so it waits for a yes.
+- **On production since 2026-10-28** (deploys `b3d8f7fe`, Goran, and `6de3e145`):
+  - #334: **#281** (no storno of a fiscal sale while its device is offline) and `warehouse_manager`
+    leaving `STORNO_ROLES`;
+  - #335: **#279** (a refused sessionless cash sale draws no CS number);
+  - #336: **#280** (a completed transfer is a single document's);
+  - #343: attach an invoice to its day's cash sale;
+  - #347: on the Bulgarian day, plus the script for the hand-repaired overlaps. **All 83 are attached**
+    (82 regal-sf, 1 regal-pz). ⚠ The pod's filesystem is read-only, so such scripts run from the build
+    host through a port-forward (#349).
 - **Watch the daily cash-sale imports.** Since R5b `POST /invoices` checks a cash sale's total with
   `computePosTotals` (422 `cash_sale_total_mismatch`); an imported day is exempt, and none was refused
   on the first evening.
@@ -84,7 +83,7 @@ totals, a day's cash, SUPTO sums. The field check's output stays on the build ho
 | R2a — `pendingTransferIds` | FR-21.24 | #271, deployed 2026-10-26 (`v20261026-91340a8573f1`) |
 | R2b — the till writes cash-register documents | FR-21.15 – FR-21.20 (the till's door) | #272 + #278's fixes, deployed 2026-10-26 |
 | R2c — the copy migration and the restore | FR-21.21 – FR-21.22 | #273, deployed 2026-10-26, `0008` applied |
-| R2d — the back office and the import; `docs/supto`; the field-check script | FR-21.15 (the other doors), FR-21.23 | #274, deployed 2026-10-26. Left: the device test in `acme-corp` |
+| R2d — the back office and the import; `docs/supto`; the field-check script | FR-21.15 (the other doors), FR-21.23 | #274, deployed 2026-10-26. The device test in `acme-corp` was skipped (2026-10-28; the simulated Eltrade covers it, #337) |
 | R3 — freeze | FR-21.25 – FR-21.26 | #284, deployed 2026-10-27, `0009` applied |
 | R4 — contract | FR-21.27 – FR-21.28 | #286, deployed 2026-10-27 |
 | R5 — one terminal | FR-21.29 – FR-21.32 | R5a (#315, FR-21.31) and R5b (#316, FR-21.29/.30) deployed 2026-10-27. FR-21.32: in force since S-28, pinned by a test (§5, R5) |

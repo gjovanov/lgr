@@ -710,13 +710,13 @@ document's (the handover's §2): `0005` here is `0008-cash-register-copy`, `0006
 
 **R5** (#315, #316; production 2026-10-27)
 - [x] One terminal component in both apps, and one totals function for every cash-register document. — `RegisterTerminal.vue`, `computePosTotals` (#316).
-- [ ] A back-office sale by a user with an open session joins that session and prints on its device. — joins: `cash-register-session-join.flow`. Prints: on the simulated Eltrade (`e2e/cash-register-fiscal.spec`, #337). On a real device: the field test, §10.1.
+- [x] A back-office sale by a user with an open session joins that session and prints on its device. — joins: `cash-register-session-join.flow`. Prints: on the simulated Eltrade (`e2e/cash-register-fiscal.spec`, #337), which runs the real driver and protocol. The test on a real device (§10.1) is skipped (Atanas, 2026-10-28).
 - [x] (SHOULD) The till's write routes require `pos.write`, after the preflight's list of affected users has been cleared. — in force since S-28; the preflight on production found nobody (2026-10-27); `cash-register-till-permission.flow` (#321).
 
 ## 10. Field test (lgrai.app)
 
 After each release, on prod:
-1. **acme-corp, device test (§8.4):** open a session, sell, storno and close. Both journals agree.
+1. ~~**acme-corp, device test (§8.4):** open a session, sell, storno and close. Both journals agree.~~ Skipped (Atanas, 2026-10-28): the same flow runs end to end on the simulated Eltrade (`e2e/cash-register-fiscal.spec`, #337), through the real driver and the ISL protocol.
 2. **regal-pz and regal-sf, read-only:** the journal's count and totals for yesterday match the pre-release figures (§8.4). SUPTO 18.1 for the last 30 days is unchanged.
 3. **After R2:** a till sale made on regal-pz shows up in yesterday's digest, in Reports → cash register and in the product ledger's cash-register total.
 4. **After R5:** the operator enters a back-office cash sale with a session open; the close shows it in the expected cash.
