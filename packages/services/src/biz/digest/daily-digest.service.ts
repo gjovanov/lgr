@@ -147,11 +147,14 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
     }
   }
 
-  // Payments recorded ON the day, wherever their document was issued.
+  // Payments recorded ON the day, wherever their document was issued. Not the till's money: an
+  // invoice for a cash sale is born paid with rows marked `origin: 'cash_register'`, the cash sale's
+  // own takings, which are the Cash register line. A cash sale carries no payment rows, so those rows
+  // put the same money on this line too — and only for a cash sale someone invoiced (#171, R0 and §11).
   const paid: any[] = await Invoice.aggregate([
     { $match: { orgId: org, 'payments.date': { $gte: from, $lte: to } } },
     { $unwind: '$payments' },
-    { $match: { 'payments.date': { $gte: from, $lte: to } } },
+    { $match: { 'payments.date': { $gte: from, $lte: to }, 'payments.origin': { $ne: 'cash_register' } } },
     { $group: { _id: null, count: { $sum: 1 }, total: { $sum: '$payments.amount' } } },
   ]).exec()
 

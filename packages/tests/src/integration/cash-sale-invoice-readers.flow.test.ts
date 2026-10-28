@@ -9,6 +9,7 @@ import { invoiceController } from 'invoicing-api/src/controllers/invoice.control
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { reportById, validateParams } from 'services/biz/report-registry'
 import { buildDailyDigest } from 'services/biz/digest/daily-digest.service'
+import { localDayOf } from 'services/biz/local-day'
 import { getProductLedger } from 'services/biz/product-ledger.service'
 import { getContactLedger } from 'services/biz/contact-ledger.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
@@ -42,7 +43,7 @@ const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
  *   CS2 — a cash sale to X (4 nuts, card, 24.00), invoiced to X as INV2;
  *   INV3 — an ordinary invoice to Y (1 bolt, bank transfer, 12.00).
  */
-async function day() {
+async function day(on: string = DAY) {
   const org = await createTestOrg()
   const orgId = String(org._id)
   const user = await createTestUser(org._id)
@@ -71,14 +72,14 @@ async function day() {
     taxAmount: +(quantity * unitPrice * 0.2).toFixed(2), lineTotal: +(quantity * unitPrice * 1.2).toFixed(2),
   })
   const doc = (type: string, l: any, extra: Record<string, any>) => ({
-    type, direction: 'outgoing', issueDate: DAY, currency: 'EUR', lines: [l],
+    type, direction: 'outgoing', issueDate: on, currency: 'EUR', lines: [l],
     subtotal: l.quantity * l.unitPrice, taxTotal: l.taxAmount, total: l.lineTotal, ...extra,
   })
 
   const cs1 = (await call('POST', '', doc('cash_sale', line(bolt, 2, 10), { paymentMethod: 'cash' }))).invoice
-  const inv1 = (await call('POST', `/${cs1.id}/to-invoice`, { contactId: String(y._id), issueDate: DAY })).invoice
+  const inv1 = (await call('POST', `/${cs1.id}/to-invoice`, { contactId: String(y._id), issueDate: on })).invoice
   const cs2 = (await call('POST', '', doc('cash_sale', line(nut, 4, 5), { paymentMethod: 'card', contactId: String(x._id) }))).invoice
-  const inv2 = (await call('POST', `/${cs2.id}/to-invoice`, { contactId: String(x._id), issueDate: DAY })).invoice
+  const inv2 = (await call('POST', `/${cs2.id}/to-invoice`, { contactId: String(x._id), issueDate: on })).invoice
   const draft = (await call('POST', '', doc('invoice', line(bolt, 1, 10), { paymentMethod: 'bank_transfer', contactId: String(y._id) }))).invoice
   const inv3 = (await call('POST', `/${draft.id}/send`, {})).invoice
 
@@ -121,6 +122,20 @@ describe('every reader counts an invoiced cash sale once', () => {
     // The invoices still took their SALES_DOC numbers, so the register keeps them.
     const sales = (digest.documents as any).sales
     expect(JSON.stringify(sales)).toContain(d.inv1.invoiceNumber)
+  }, 60_000)
+
+  it("the daily digest's Payments line: the till's money once, not again on its invoices", async () => {
+    // Today, Bulgarian: payments are dated when they are made, so the day must be the one they fall on.
+    const today = localDayOf(new Date())
+    const d = await day(today)
+    const digest: any = await buildDailyDigest(d.orgId, today)
+    // CS1 (24.00 cash) and CS2 (24.00 card) were paid at the till: that money is the Cash register
+    // line. A cash sale carries no payment rows; INV1 and INV2 are born paid with rows marked
+    // `origin: 'cash_register'`, the same money, which put it on the Payments line as well — but only
+    // for a cash sale someone invoiced. INV3 is by bank transfer and unpaid.
+    expect(digest.kpis.cashTotal).toBe(48)
+    expect(digest.kpis.paymentsTotal).toBe(0)
+    expect(digest.kpis.paymentsCount).toBe(0)
   }, 60_000)
 
   it('the product ledger: the bolt was sold three times, not four', async () => {
