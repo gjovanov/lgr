@@ -630,6 +630,19 @@ async function pruneLocalGenerations(dir: string, keep: number): Promise<number>
 }
 
 /**
+ * Is `path` on the disk this server's data is on (`stat().dev`, the volume on Windows)? Unknown is
+ * "no": a check that cannot answer must not stop a backup. An object so the tests, whose folders all
+ * share one disk, can stand a second disk in.
+ */
+export const localDisk = {
+  async sameAsData(path: string): Promise<boolean> {
+    const dev = (p: string) => stat(p).then(s => s.dev, () => null)
+    const [location, data] = await Promise.all([dev(path), dev(config.upload.dir)])
+    return location !== null && data !== null && location === data
+  },
+}
+
+/**
  * FR-20.21 (plan step P1-9) — the master's local copy: a second disk, a USB drive or a NAS path
  * (`BACKUP_LOCAL_PATH`), laid out as Drive's tree is (`<path>/LGR/Backups/<org>/<kind>/`), and
  * carrying the run's files sidecar too.
@@ -643,6 +656,11 @@ async function pruneLocalGenerations(dir: string, keep: number): Promise<number>
  *
  * ⚠ A location that is not there is a `failed` destination, never a directory created on the
  * master's own disk: a copy beside the original under another name is no copy at all. Never throws.
+ *
+ * ⚠ And on a master, a location on the disk the server's own data is on fails too. "There" was the
+ * only test, and on Linux an unplugged drive leaves its mount point behind: an empty folder on the
+ * system disk, which passed it. The copy then went beside the database, read back perfectly, and
+ * reported `reached` every night, until the one disk failed and took both.
  */
 export async function pushBundleToLocalPath(opts: PushOptions): Promise<BackupDestinationResult | null> {
   const base = config.backup.localPath
@@ -653,6 +671,13 @@ export async function pushBundleToLocalPath(opts: PushOptions): Promise<BackupDe
     return {
       name: 'local_path', status: 'failed', at,
       reason: `the backup location ${base} is not there (a drive unplugged, or a share down)`,
+    }
+  }
+  if (nodeRole() === 'master' && (await localDisk.sameAsData(base))) {
+    return {
+      name: 'local_path', status: 'failed', at,
+      reason: `the backup location ${base} is on this server's own disk, beside its data, where a copy is no copy: ` +
+        'plug in and mount the backup drive (an unplugged drive leaves an empty folder behind), or name another disk or a share',
     }
   }
   const dir = join(base, 'LGR', opts.section || DRIVE_SECTION.backups, safeSegment(opts.manifest.orgSlug || String(opts.orgId)), opts.manifest.kind)

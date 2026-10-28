@@ -11,7 +11,10 @@ import { BackupRun } from 'db/models'
 import { forgetAllHomes, homeNewOrg } from 'db/home/home'
 import { runBackupForOrg } from 'services/biz/backup/backup-runner.service'
 import { FILES_SIDECAR_FORMAT_ORG, restoreFilesSidecar, verifyFilesSidecar } from 'services/biz/backup/backup-files.service'
+import { localDisk } from 'services/biz/backup/backup-destinations.service'
 import type { Types } from 'mongoose'
+
+const realSameAsData = localDisk.sameAsData
 
 /**
  * FR-20.21 (plan step P1-9) — backups on a master: a local copy (a second disk, a USB drive, a NAS
@@ -42,6 +45,7 @@ afterEach(async () => {
   ;(config.node as any).id = saved.id
   config.backup.localPath = saved.localPath
   config.backup.localKeep = saved.localKeep
+  localDisk.sameAsData = realSameAsData
   forgetAllHomes()
   await clearCollections()
 }, 30_000)
@@ -59,9 +63,14 @@ async function seedOrg(slug: string, home = false) {
   return String(orgId)
 }
 
+/**
+ * A folder standing in for a second disk. ⚠ Every folder a test makes shares the uploads' disk, which
+ * a master now refuses as a backup location, so the seam says "another disk" for this test.
+ */
 function freshLocal(): string {
   LOCAL = mkdtempSync(join(TMP, 'usb-'))
   config.backup.localPath = LOCAL
+  localDisk.sameAsData = async () => false
   return LOCAL
 }
 
@@ -155,6 +164,31 @@ describe('on a master (FR-20.21)', () => {
     // The local copy holds both artifacts.
     const dir = join(local, 'LGR', 'Backups', 'kasa-co', 'full')
     expect(readdirSync(dir).sort()).toEqual([run.filename, run.filesFilename].sort())
+  })
+
+  it("a location on the server's own disk fails, and gets nothing: an unplugged drive's mount point is one", async () => {
+    const orgId = await masterOrg('mountpoint-co')
+    // An empty folder on the disk the uploads are on: what /mnt/backup is once its drive is gone.
+    const mountPoint = mkdtempSync(join(TMP, 'mnt-backup-'))
+    config.backup.localPath = mountPoint
+    // The real check, not the stand-in second disk `freshLocal` gives the others.
+    expect(await localDisk.sameAsData(mountPoint)).toBe(true)
+    const outcome = await runBackupForOrg(orgId, '2026-09-03')
+    expect(outcome?.status).toBe('completed')
+    const run: any = await BackupRun.findOne({ orgId, date: '2026-09-03' }).lean().exec()
+    const copy = run.destinations.find((d: any) => d.name === 'local_path')
+    expect(copy.status).toBe('failed')
+    expect(copy.reason).toContain("this server's own disk")
+    expect(readdirSync(mountPoint)).toEqual([])
+  })
+
+  it("off a master, a folder beside the data is still taken: the rule is a master's", async () => {
+    const orgId = await seedOrg('global-local-co')
+    const folder = mkdtempSync(join(TMP, 'global-local-'))
+    config.backup.localPath = folder
+    await runBackupForOrg(orgId, '2026-09-03')
+    const run: any = await BackupRun.findOne({ orgId, date: '2026-09-03' }).lean().exec()
+    expect(run.destinations.find((d: any) => d.name === 'local_path')?.status).toBe('reached')
   })
 
   it('a run asked for as `data` stays `data`', async () => {

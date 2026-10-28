@@ -2223,6 +2223,11 @@ its database is on the same disk as everything else.
   - **Not sealed:** FR-20.21 seals what goes off-site, and this stays in the shop.
   - ⚠ A location that is not there is a `failed` destination, never a failed run, and it is
     never created: a "copy" made on the master's own disk would be no copy at all.
+  - ⚠ **And on a master, a location on the disk the uploads are on is `failed` too**
+    (`localDisk.sameAsData`, `stat().dev`; the volume on Windows). On Linux an unplugged drive
+    leaves its mount point behind, an empty folder on the system disk, and "is it there?" passed
+    it: the copy landed beside the database, read back fine and said `reached` every night.
+    Tests whose folders all share one disk stand a second disk in through that seam (`freshLocal`).
 - **Off-site only to Bulgaria or the EU** (FR-20.97, Н-18 чл. 52з(14), 52к(1)). On a master:
   - object storage must be NAMED EU (`s3InEu`: an `eu`/`eu-*` label, or a Hetzner, Scaleway or
     OVH EU site) or attested (`BACKUP_S3_EU=true`);
