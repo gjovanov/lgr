@@ -177,32 +177,17 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      # One annotation per run, on one leg, so the gap announces itself. A coverage reduction that
-      # lives only in a comment is one nobody will remember a month from now.
-      - name: Say that the CDP walk did not gate this run
-        if: matrix.platform == 'ubuntu-22.04' && github.event_name != 'workflow_dispatch'
-        run: echo "::warning title=CDP smoke not gating::windows smoke (CDP) is dispatch-only while gjovanov/lgr#116 is open - the debugging port never opens on this image, though the same spec passes locally against this job's own artifact. Run packages/e2e/tests/desktop-app.spec.ts locally, or dispatch Desktop CI, before changing the shell."
-
   windows-smoke:
     name: windows smoke (CDP)
     needs: build
-    # ⚠ **DISPATCH-ONLY, and this is a deliberate weakening — gjovanov/lgr#116.** The port never
-    # opens on this image: the app starts, the webview renders, and nothing listens on 9222. The
-    # same spec passes on a developer machine **against the exact artifact this job built** (14
-    # pass, 1 skipped, 24 s), so the subject is the image, not the product and not the harness.
-    # Five hypotheses are ruled out by experiment in #116; the leading one left is that the
-    # runner is elevated.
+    # ⚠ This walk is the only thing that has ever caught four shipped bugs at once (empty views
+    # under the CSP, Open LGR deadlocking the app, the unreachable page escaping to the system
+    # browser, `--status-json` lying). It runs wherever this workflow runs: a dispatch for a PR,
+    # and every desktop tag.
     #
-    # It was a failing check on every commit, and `desktop-promote.yml` condition 1 refuses to
-    # promote a release whose tagged commit carries ANY failing check — so an unexplained CI-only
-    # failure was blocking the first signed release outright.
-    #
-    # ⚠ The cost is real and must not be forgotten: this walk is the only thing that has ever
-    # caught four shipped bugs at once (empty views under the CSP, Open LGR deadlocking the app,
-    # the unreachable page escaping to the system browser, `--status-json` lying). Run it locally
-    # or dispatch it before changing the shell. The `build` jobs above run on demand and at every
-    # desktop tag, and the annotation below makes sure nobody discovers this gap by accident.
-    if: github.event_name == 'workflow_dispatch'
+    # It was dispatch-only from 2026-10-07 to 2026-10-28 (gjovanov/lgr#116): the port never opened
+    # on this image, though the same spec passed on a developer machine against this job's own
+    # artifact. The runner is elevated; see the step that sets the policy, below.
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -317,6 +302,24 @@ jobs:
           if ($before -eq $after) {
             Write-Host "::notice title=WebView2 unchanged::Still $after after waiting 180 s. EdgeUpdate may be restricted on this image; if the CDP port does not open, the runtime is no longer the leading suspect."
           }
+
+      # ⚠ **Why the port never opened here (gjovanov/lgr#116): this runner is ELEVATED** (it runs
+      # as `runneradmin` with UAC off), and since Runtime 150 WebView2 ignores every `WEBVIEW2_*`
+      # environment override in an elevated host (Microsoft: "For an elevated host app, use
+      # appropriate override flags"). So the variable on the next step reached the app and never
+      # its browser, while a developer's medium-integrity shell honoured it. An elevated host still
+      # reads this HKLM policy, and the runtime APPENDS it to the app's own arguments, as it does the
+      # variable. Keyed by the exe name, on a throwaway VM. The variable stays: a developer's
+      # non-elevated run uses it.
+      - name: Open the debugging port the way an elevated host allows
+        if: steps.spec.outputs.present == 'true'
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+          New-Item -Path $key -Force | Out-Null
+          New-ItemProperty -Path $key -Name 'lgr-desktop.exe' -Value '--remote-debugging-port=9222' -PropertyType String -Force | Out-Null
+          $elevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          Write-Host "elevated: $elevated; policy: $((Get-ItemProperty -Path $key).'lgr-desktop.exe')"
 
       # ⚠ The HARNESS sets the debugging port, never the app (C15 trap 12). An app that opened a
       # debugging port on its own would ship one to customers.
