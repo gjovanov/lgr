@@ -2263,6 +2263,7 @@ dependencies = [
  "serde_json",
  "serialport",
  "sha2",
+ "signal-hook",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",

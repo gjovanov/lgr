@@ -1539,10 +1539,48 @@ fn quit(app: &AppHandle) {
     app.exit(0);
 }
 
+/// #344 — off Windows, a logout or a shutdown ends the app with SIGTERM, a closed terminal with
+/// SIGHUP, Ctrl+C with SIGINT. Left at their default, each kills the process where it stands: no
+/// `RunEvent::Exit`, so an ephemeral desktop never leaves (its row waits for the hub's reaper,
+/// FR-14.19's backstop), and the fiscal bridge gets no chance to finish a command. Here each one
+/// takes the way out a Quit takes, as Windows ending the session already does.
+///
+/// ⚠ Only the FIRST signal is graceful. That way out waits for the bridge (up to 10 s) and the hub
+/// (2 s), and whoever signals again has stopped waiting: the next one ends the process at once, as
+/// the signal's own default would have.
+#[cfg(unix)]
+fn quit_on_signals(app: &AppHandle) {
+    use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+    let mut signals = match signal_hook::iterator::Signals::new([SIGTERM, SIGHUP, SIGINT]) {
+        Ok(s) => s,
+        Err(e) => {
+            app.state::<AppState>()
+                .logger
+                .warn(&format!("signals: no handler ({e}); a SIGTERM ends the app without its clean exit"));
+            return;
+        }
+    };
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut first = true;
+        for sig in signals.forever() {
+            if !first {
+                let _ = signal_hook::low_level::emulate_default_handler(sig);
+                std::process::exit(128 + sig);
+            }
+            first = false;
+            app.state::<AppState>().logger.info(&format!("signal {sig}: quitting"));
+            // `quit` waits on the bridge, and this thread has to stay free to hear a second signal.
+            let app = app.clone();
+            std::thread::spawn(move || quit(&app));
+        }
+    });
+}
+
 /// FR-14.19, #328 — an ephemeral desktop removes its own row on a clean shutdown: a Quit, or the OS
 /// ending the session (tao turns `WM_ENDSESSION` into the loop's end, and so `RunEvent::Exit`,
-/// before the process goes). A machine that cannot reach its hub in time leaves the row to the
-/// hub's reaper.
+/// before the process goes; off Windows, the SIGTERM a logout sends, see `quit_on_signals`). A
+/// machine that cannot reach its hub in time leaves the row to the hub's reaper.
 fn leave_if_ephemeral(app: &AppHandle) {
     let Some(st) = app.try_state::<AppState>() else { return };
     let Ok(dir) = keystore::secure_dir() else { return };
@@ -1664,6 +1702,8 @@ fn main() {
                 }
             }
             app.manage(st);
+            #[cfg(unix)]
+            quit_on_signals(&handle);
 
             // FR-20.31 — before anything below talks to the server.
             restore_master_pin(&handle);
@@ -1755,6 +1795,10 @@ fn main() {
             app.run(|handle, event| {
                 if let tauri::RunEvent::Exit = event {
                     leave_if_ephemeral(handle);
+                    // The last line a clean exit writes: a log that ends without it was killed.
+                    if let Some(st) = handle.try_state::<AppState>() {
+                        st.logger.info("exited cleanly");
+                    }
                 }
             })
         });
