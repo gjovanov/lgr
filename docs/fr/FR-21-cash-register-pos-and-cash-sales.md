@@ -681,33 +681,37 @@ After R2, an FR-13 restore of a bundle taken before R2 brings back `POSTransacti
 
 ## 9. Acceptance criteria
 
-**R1**
-- [ ] Both journals show the same rows (till, back office, imports), with the same columns, filters and actions. The route names are unchanged.
-- [ ] Every reader in §3.3 counts a till sale exactly once, whichever store holds it.
-- [ ] B-1 to B-7 are fixed, each with a regression test.
-- [ ] Register documents answer 409 to `PUT`, `DELETE`, `/void` and the Files rollback.
-- [ ] `bun run test`, `bun run build` and `bun run test:e2e` pass.
+Checked 2026-10-28, each against the PR or test that shows it. ⚠ The migration ids are not this
+document's (the handover's §2): `0005` here is `0008-cash-register-copy`, `0006` is
+`0009-cash-register-freeze`.
+
+**R1** (#244, #247, #248; production 2026-10-26)
+- [x] Both journals show the same rows (till, back office, imports), with the same columns, filters and actions. The route names are unchanged. — one component, `CashRegisterJournal.vue` (#248); `e2e/cash-register.spec`.
+- [x] Every reader in §3.3 counts a till sale exactly once, whichever store holds it. — `cash-register-readers.flow`.
+- [x] B-1 to B-7 are fixed, each with a regression test. — #244 (B-1–B-5, B-7), #248 (B-6).
+- [x] Register documents answer 409 to `PUT`, `DELETE`, `/void` and the Files rollback. — `cash-register-immutability.flow`.
+- [ ] `bun run test`, `bun run build` and `bun run test:e2e` pass. — `test` and `build`: CI on every release. `test:e2e`: `stock-validation.spec:43` failed on master until #345. The FR-21 projects pass with #337 and #345; the whole suite has not been run (the handover's §0 has what was).
 
 **Before R2**
-- [ ] `regal`'s March–April 2026 test sales are gone, the stock effects are reversed, the backup is on mars, and the audit trail records the cleanup.
+- [x] `regal`'s March–April 2026 test sales are gone, the stock effects are reversed, the backup is on mars, and the audit trail records the cleanup. — FR-21.14, #269 (74 sales, owner's go, 2026-10-26).
 
-**R2**
-- [ ] A till sale, a back-office sale and an import each create an `Invoice` document through the one service. The payloads and responses of `POST /invoices` and of the till routes are unchanged.
-- [ ] New documents are numbered from `CASH_SALE`. Copies keep their `TXN-…` numbers.
-- [ ] A storno is a `cash_storno` document, and the sale stays `paid` with its `stornoState`.
-- [ ] `0005` copies every `POSTransaction` with the same `_id`, number, УНП and times, and links its movement. Its parity check passes on the mars rehearsal of every org.
-- [ ] A keyed retry across the deploy replays the original, in both directions.
-- [ ] An R2 → R1 → R2 image rollback on the rehearsal data loses nothing and counts nothing twice.
-- [ ] `docs/supto` is updated.
+**R2** (#271–#274, #278; production 2026-10-26)
+- [x] A till sale, a back-office sale and an import each create an `Invoice` document through the one service. The payloads and responses of `POST /invoices` and of the till routes are unchanged. — `register.service.ts`; `cash-register-sale.flow`.
+- [x] New documents are numbered from `CASH_SALE`. Copies keep their `TXN-…` numbers. — `cash-register-sale.flow`, `cash-register-migration.flow`.
+- [x] A storno is a `cash_storno` document, and the sale stays `paid` with its `stornoState`. — `cash-register-storno.flow`.
+- [x] `0005` copies every `POSTransaction` with the same `_id`, number, УНП and times, and links its movement. Its parity check passes on the mars rehearsal of every org. — `0008`; `cash-register-migration.flow`; the rehearsal of 2026-10-26 (posted on #273).
+- [x] A keyed retry across the deploy replays the original, in both directions. — `cash-register-idempotency.flow`.
+- [x] An R2 → R1 → R2 image rollback on the rehearsal data loses nothing and counts nothing twice. — the rehearsal's field checks: identical with R1, R2 and R1 again.
+- [x] `docs/supto` is updated. — #274.
 
-**R3 / R4**
-- [ ] `0006` passes, and `POSTransaction` refuses writes.
-- [ ] No reader queries `postransactions`. Without `0006`, the server answers cash-register routes with 503 and the reason.
+**R3 / R4** (#284, #286; production 2026-10-27)
+- [x] `0006` passes, and `POSTransaction` refuses writes. — `0009` recorded on production; `db/plugins/frozen.plugin.ts`.
+- [x] No reader queries `postransactions`. Without `0006`, the server answers cash-register routes with 503 and the reason. — #286; `cash-register/freeze-check.ts` (`cash_register_not_migrated`).
 
-**R5**
-- [ ] One terminal component in both apps, and one totals function for every cash-register document.
-- [ ] A back-office sale by a user with an open session joins that session and prints on its device.
-- [ ] (SHOULD) The till's write routes require `pos.write`, after the preflight's list of affected users has been cleared.
+**R5** (#315, #316; production 2026-10-27)
+- [x] One terminal component in both apps, and one totals function for every cash-register document. — `RegisterTerminal.vue`, `computePosTotals` (#316).
+- [ ] A back-office sale by a user with an open session joins that session and prints on its device. — joins: `cash-register-session-join.flow`. Prints: on the simulated Eltrade (`e2e/cash-register-fiscal.spec`, #337). On a real device: the field test, §10.1.
+- [x] (SHOULD) The till's write routes require `pos.write`, after the preflight's list of affected users has been cleared. — in force since S-28; the preflight on production found nobody (2026-10-27); `cash-register-till-permission.flow` (#321).
 
 ## 10. Field test (lgrai.app)
 

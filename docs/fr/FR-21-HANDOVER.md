@@ -1,4 +1,4 @@
-# FR-21 — handover (2026-10-25, updated 2026-10-27)
+# FR-21 — handover (2026-10-25, updated 2026-10-28)
 
 **To:** Atanas (@lazarovski) · **Tracking:** #171 · **Spec:** [FR-21](FR-21-cash-register-pos-and-cash-sales.md)
 
@@ -9,16 +9,36 @@
 before it; after R3 only the day's imports had moved. This is what was done, what is left, and what
 turned up on the way that the spec does not say.
 
-## 0. What is left (2026-10-27)
+## 0. What is left (2026-10-28)
 
-- **The `warehouse_manager` storno (owner's call, found with FR-21.32).** `STORNO_ROLES`
-  (`cash-register-till.ts`) names `warehouse_manager`, but its default permissions hold neither
-  `pos.write` nor `invoicing.write`, so it reaches no storno door. Either the role gets `pos.write`,
-  or it leaves `STORNO_ROLES`.
-- **The R2 device test in `acme-corp`**, including the fiscal print of a back-office line with a
-  discount (§5, R5b).
-- **#279** (a gap in the CS series), **#280** (transfers stay confirmed after a rollback), **#281**
-  (a storno of a fiscal sale while the device is offline).
+The spec's acceptance criteria are ticked in its §9, each with its evidence. Two stay open there.
+
+- **The device test in `acme-corp`** (§10.1): the one step only a person at the till can take, and
+  what keeps R5's "prints on its device" open. On the non-fiscalized Eltrade A3, text mode:
+  1. open a session;
+  2. sell, including a back-office line with a discount (never printed on hardware);
+  3. storno it;
+  4. close;
+  5. check both journals agree.
+- **`bun run test:e2e`** (R1's last criterion), still open. What has been run, on 2026-10-28, on a
+  fresh seeded database, with #345 and #337:
+  - `invoicing-inventory` and `ux-budgets`: 194 of 195 passed;
+  - the one failure was `pos-devices.spec:97`. Its Reports-tab check first ran once a device existed,
+    and its selector was ambiguous. Fixed in #337; the spec now passes 7/7;
+  - `cash-register-fiscal`: 3 of 3, twice.
+
+  The other projects (portal, accounting, payroll, the rest) and the doc-import PDF tests, which need
+  the OCR stub, were not run. The criterion is ticked once the whole suite passes after #337 and #345
+  merge.
+- **In review, with the owner's decisions of 2026-10-27:**
+  - #334: **#281**, a storno of a fiscal sale is refused while its device is offline; and
+    `warehouse_manager` leaves `STORNO_ROLES`.
+  - #335: **#279**, a refused sessionless cash sale draws no CS number.
+  - #336: **#280**, a completed transfer is accepted only while no other document names it. The
+    retry the issue describes already worked since `cac032ff`.
+  - #337: §8.3 items 1, 4 and 9 on a simulated Eltrade. They need the `FISCAL_TCP_ALLOW_LOOPBACK` seam,
+    which production ignores.
+  - #345: the `stock-validation` rewrite.
 - **Watch the daily cash-sale imports.** Since R5b `POST /invoices` checks a cash sale's total with
   `computePosTotals` (422 `cash_sale_total_mismatch`); an imported day is exempt, and none was refused
   on the first evening.
@@ -364,11 +384,15 @@ that series its own line only from R2c, §3.23.)
    `cash-register`, `cash-sales`, `cash-sale-invoice`, `pos-terminal`, `pos-transactions` and FR-22's
    walks. `cash-register.spec` gained §8.3 item 7: the cash-register report and both exports (the list
    and the per-product pivot) carry a till sale.
-   **Not written:**
-   - §8.3 items 1, 4 and 9. They need a fiscal device in Playwright, and `fiscal/tcp-target.ts` (the
-     SSRF guard) refuses a loopback TCP device. So the planned `scripts/eltrade-tcp-stub.ts` needs a
-     test seam first, and that is a security decision.
-   - `cash-register-migration.spec.ts`. `cash-register-migration.flow` covers 0008 and the restore.
+   **Written later:** §8.3 items 1, 4 and 9 (#337, 2026-10-28). They needed a fiscal device in
+   Playwright, and `fiscal/tcp-target.ts` (the SSRF guard) refuses a loopback TCP device.
+   - The seam is the `loopback-test` policy: `FISCAL_TCP_ALLOW_LOOPBACK=1`, ignored when
+     `NODE_ENV=production`.
+   - The device is `e2e/scripts/eltrade-tcp-stub.ts`.
+   - The spec is `cash-register-fiscal.spec`, in its own project (§7).
+
+   **Not written:** `cash-register-migration.spec.ts`. `cash-register-migration.flow` covers 0008 and
+   the restore.
 3. **The rehearsal on mars** (§8.4) — done 2026-10-26, on a mongodump of prod in a throwaway
    `mongod` (the same data as the nightly bundles, and newer).
    - **Preflight:** clean, with 0 POS rows in any org, so 0008 only labels `register.origin`.
@@ -501,6 +525,21 @@ cd packages/e2e && BASE_URL=http://127.0.0.1:4987 bunx playwright test \
 ```
 
 With `BASE_URL` set, Playwright starts no server of its own.
+
+**The till on a fiscal device** (#337) runs in its own project, with the simulated Eltrade and the
+server allowed to reach it on loopback:
+
+```bash
+bun packages/e2e/scripts/eltrade-tcp-stub.ts &          # TCP 8299, its state on http://127.0.0.1:8300
+(cd packages/portal-api && FISCAL_TCP_ALLOW_LOOPBACK=1 bun --env-file=../../e2e.env src/unified.ts) &
+cd packages/e2e && BASE_URL=http://127.0.0.1:4987 bunx playwright test --project=cash-register-fiscal
+```
+
+- The spec makes its own cashier and manager: the seed's users have no operator code, which a fiscal
+  receipt needs.
+- It programs the device's VAT groups with the seed's rate (18 %): the driver refuses a line whose
+  rate no group carries, as a real Eltrade does.
+- It deactivates the device after itself, so no other spec prints on it.
 
 Two fallbacks, both used on 2026-10-26:
 - **Docker is down.** Use an in-memory replica set instead: from `packages/tests`, run
