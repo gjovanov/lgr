@@ -10,6 +10,8 @@ import {
 import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { Invoice, JournalEntry, StockLevel, StockMovement } from 'db/models'
+import { getRepos } from 'services/context'
+import { reverseInvoiceStockMovement } from 'services/biz/invoicing.service'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 const { Types } = mongoose
@@ -191,6 +193,56 @@ describe('attaching an invoice to the cash sale of its day', () => {
     expect(await w.stock(w.bolt)).toBe(95)
     // It keeps its own price: it is the tax document of its own sale.
     expect((await w.load(inv._id)).lines[0].unitPrice).toBe(10)
+  }, 60_000)
+
+  it('completes a till overlap repaired by hand: links it, and reverses nothing a second time', async () => {
+    const w = await world()
+    const cs = await w.cashSale([[w.bolt, 5, 10]])
+    await Invoice.updateOne({ _id: cs._id }, { $set: { reference: `salesAnalysis:${DAY}`, 'register.origin': 'import' } }).exec()
+    const inv = await w.invoice([[w.bolt, 2, 10]])
+    // The repair as it was done before this button: reverse the dispatch, then mark the till day.
+    const repo = await getRepos().invoices.findOne({ id: String(inv._id), orgId: w.orgId } as any)
+    await reverseInvoiceStockMovement(repo as any, String(inv.createdBy))
+    await Invoice.updateOne({ _id: inv._id }, {
+      $set: { stockSource: { marker: `salesAnalysis:${DAY}`, docNumber: cs.invoiceNumber, detectedBy: 'till-overlap, snapshot-arbitrated', linkedAt: new Date() } },
+    }).exec()
+    const movements = () => StockMovement.countDocuments({ orgId: w.orgId, invoiceId: inv._id }).exec()
+    expect([await w.stock(w.bolt), await movements()]).toEqual([95, 2])
+
+    // Still counted twice until now: it has no cashSaleRef. The till day is its only candidate.
+    expect((await w.candidates(inv._id)).candidates.map((c: any) => c.number)).toEqual([cs.invoiceNumber])
+    expect((await w.attach(inv._id, cs._id)).status).toBe(200)
+    const after = await w.load(inv._id)
+    expect(String(after.cashSaleRef.cashSaleId)).toBe(String(cs._id))
+    expect(after.stockSource).toMatchObject({ marker: `cash_sale:${cs.invoiceNumber}`, detectedBy: 'cash_sale' })
+    expect([await w.stock(w.bolt), await movements()]).toEqual([95, 2])
+    // A retry is the finished attach.
+    expect((await w.attach(inv._id, cs._id)).status).toBe(200)
+    expect(await movements()).toBe(2)
+  }, 60_000)
+
+  it('does not trust a till marker for another day, or one set before its dispatch came back', async () => {
+    const w = await world()
+    const cs = await w.cashSale([[w.bolt, 5, 10]])
+    await Invoice.updateOne({ _id: cs._id }, { $set: { reference: `salesAnalysis:${DAY}`, 'register.origin': 'import' } }).exec()
+    const mark = (id: unknown, day: string) => Invoice.updateOne({ _id: id }, {
+      $set: { stockSource: { marker: `salesAnalysis:${day}`, detectedBy: 'till-overlap', linkedAt: new Date() } },
+    }).exec()
+
+    const otherDay = await w.invoice([[w.bolt, 1, 10]])
+    await mark(otherDay._id, '2026-10-19')
+    expect((await w.attach(otherDay._id, cs._id)).json.code).toBe('invoice_moves_no_stock')
+    expect((await w.candidates(otherDay._id)).candidates).toEqual([])
+
+    // Marked, but never reversed: with the marker set, a reversal would not even run.
+    const unreversed = await w.invoice([[w.bolt, 1, 10]])
+    await mark(unreversed._id, DAY)
+    const res = await w.attach(unreversed._id, cs._id)
+    expect([res.status, res.json.code]).toEqual([409, 'attach_needs_attention'])
+    const after = await w.load(unreversed._id)
+    expect(after.cashSaleRef).toBeUndefined()
+    expect(after.stockSource.marker).toBe(`salesAnalysis:${DAY}`)
+    expect(await w.stock(w.bolt)).toBe(93) // the till's 5 and both invoices' 1: nothing came back
   }, 60_000)
 
   it('is refused for a stornoed sale, and its claim does not linger', async () => {

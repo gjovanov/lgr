@@ -1056,10 +1056,13 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
    * of its day — for one entered before the till export brought that sale in.
    */
   const attachDialogOpen = ref(false)
-  const attachable = computed(() =>
-    isEdit.value && config.docType === 'invoice' && config.direction === 'outgoing' && !cashSaleRef.value
-    && ['sent', 'paid', 'partially_paid', 'overdue'].includes(invoiceStatus.value),
-  )
+  const attachable = computed(() => {
+    // One that moves no stock already can only be a till day's, repaired by hand (`salesAnalysis:`).
+    const marker = invoiceData.value?.stockSource?.marker
+    return isEdit.value && config.docType === 'invoice' && config.direction === 'outgoing' && !cashSaleRef.value
+      && ['sent', 'paid', 'partially_paid', 'overdue'].includes(invoiceStatus.value)
+      && (!marker || String(marker).startsWith('salesAnalysis:'))
+  })
   async function onAttached(invoice: any) {
     showSuccess(t('invoicing.cashSaleInvoice.attachDone', { number: invoice?.cashSaleRef?.number || '' }))
     await loadDocument()

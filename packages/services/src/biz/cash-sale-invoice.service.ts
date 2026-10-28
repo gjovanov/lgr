@@ -934,6 +934,18 @@ function takesWhole(cs: any, inv: any, map: Map<string, string>): boolean {
   return (cs.lines || []).every((l: any) => num(l.quantity) <= 0 || Math.abs((taken.get(idOf(l._id)) || 0) - num(l.quantity)) <= EPS)
 }
 
+/**
+ * The till day an earlier repair already gave this invoice's goods back to, if any. Overlaps found
+ * before this button existed were repaired by hand: the dispatch reversed, then `stockSource.marker`
+ * set to the till day's `reference` (`salesAnalysis:<date>`). Their stock is right, but without
+ * `cashSaleRef` every total still counts the sale twice — once on the invoice, once on the day. So
+ * such an invoice attaches too, to that day only, and nothing is reversed again.
+ */
+function tillDayMarkerOf(inv: any): string | null {
+  const m = inv?.stockSource?.marker
+  return typeof m === 'string' && /^salesAnalysis:/.test(m) && inv.stockSource.detectedBy !== 'cash_sale' ? m : null
+}
+
 /** Why this invoice cannot be attached at all (null = it can), before any cash sale is looked at. */
 function attachRefusal(inv: any): { statusCode: number; code: string; message: string } | null {
   if (!inv || inv.type !== 'invoice' || inv.direction !== 'outgoing') {
@@ -948,7 +960,7 @@ function attachRefusal(inv: any): { statusCode: number; code: string; message: s
   if (!ATTACHABLE.includes(inv.status)) {
     return { statusCode: 422, code: 'invoice_released', message: `${inv.invoiceNumber} is ${inv.status}` }
   }
-  if (inv.stockSource?.marker) {
+  if (inv.stockSource?.marker && !tillDayMarkerOf(inv)) {
     return { statusCode: 422, code: 'invoice_moves_no_stock', message: `${inv.invoiceNumber} moved no stock: its goods left on ${inv.stockSource.docNumber || 'another document'}` }
   }
   if ((inv.lines || []).some((l: any) => l.orderRef && (l.orderRef.orderId || l.orderRef.reservationId || l.orderRef.internalOrderId))) {
@@ -1042,9 +1054,12 @@ export async function cashSaleCandidates(orgId: string, invoiceId: string): Prom
     liveBySale.get(k)!.push(d)
   }
   const lines = attachableLinesOf(inv)
+  const tillMarker = tillDayMarkerOf(inv)
   const candidates: CashSaleCandidates['candidates'] = []
   for (const cs of sales) {
     if (refusal(cs)) continue
+    // Repaired by hand already: only the till day its goods were given back to.
+    if (tillMarker && cs.reference !== tillMarker) continue
     if (cs.contactId && idOf(cs.contactId) !== idOf(inv.contactId)) continue
     const others = liveBySale.get(idOf(cs._id)) || []
     if (cs.contactId && others.length) continue
@@ -1076,15 +1091,22 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
   if (!inv) throw new CashSaleInvoiceError(404, 'not_found', 'Invoice not found')
   const cs: any = await Invoice.findOne({ _id: cashSaleId, orgId } as any).lean().exec()
 
-  const linkedTo = idOf(inv.cashSaleRef?.cashSaleId)
-  const resuming = !!linkedTo && linkedTo === idOf(cashSaleId) && !inv.stockSource?.marker
-  if (linkedTo && linkedTo === idOf(cashSaleId) && inv.stockSource?.marker) return asRepo(inv._id)
+  const linkedHere = !!inv.cashSaleRef?.cashSaleId && idOf(inv.cashSaleRef.cashSaleId) === idOf(cashSaleId)
+  // Finished — by an earlier attach, or issued by R0: it carries the cash sale's own stock marker.
+  if (linkedHere && inv.stockSource?.detectedBy === 'cash_sale') return asRepo(inv._id)
+  // Claimed and not finished: a request that stopped half-way, resumed below.
+  const resuming = linkedHere && ATTACHABLE.includes(inv.status)
   if (!resuming) {
     const why = attachRefusal(inv)
     if (why) throw new CashSaleInvoiceError(why.statusCode, why.code, why.message)
   }
   const csWhy = cs ? refusal(cs) : { statusCode: 404, code: 'not_found', message: 'Cash sale not found' }
   if (csWhy) throw new CashSaleInvoiceError(csWhy.statusCode, csWhy.code, csWhy.message)
+  const tillMarker = tillDayMarkerOf(inv)
+  if (tillMarker && tillMarker !== cs.reference) {
+    throw new CashSaleInvoiceError(422, 'invoice_moves_no_stock',
+      `${inv.invoiceNumber}'s goods were already given back to the till day ${tillMarker}, which is not ${cs.invoiceNumber}`)
+  }
   if (isoDay(inv.issueDate) !== isoDay(cs.issueDate)) {
     throw new CashSaleInvoiceError(422, 'different_day',
       `${inv.invoiceNumber} is dated ${isoDay(inv.issueDate)} and ${cs.invoiceNumber} ${isoDay(cs.issueDate)} — an invoice attaches to the cash sale of its own day`)
@@ -1131,7 +1153,10 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
       i++
     }
     const claimed = await Invoice.findOneAndUpdate(
-      { _id: inv._id, orgId, cashSaleRef: { $exists: false }, status: { $in: ATTACHABLE }, 'stockSource.marker': { $exists: false } } as any,
+      {
+        _id: inv._id, orgId, cashSaleRef: { $exists: false }, status: { $in: ATTACHABLE },
+        'stockSource.marker': tillMarker ?? { $exists: false },
+      } as any,
       { $set: set },
       { arrayFilters, new: true },
     ).lean().exec()
@@ -1140,7 +1165,7 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
     const now = new Date()
     const taken = await Invoice.findOneAndUpdate(
       {
-        _id: inv._id, orgId, [CASH_SALE_REF_ID]: cs._id, 'stockSource.marker': { $exists: false }, status: { $in: ATTACHABLE },
+        _id: inv._id, orgId, [CASH_SALE_REF_ID]: cs._id, 'stockSource.detectedBy': { $ne: 'cash_sale' }, status: { $in: ATTACHABLE },
         $or: [{ leaseUntil: { $exists: false } }, { leaseUntil: null }, { leaseUntil: { $lt: now } }],
       } as any,
       { $set: { leaseUntil: lease() } },
@@ -1148,8 +1173,9 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
     ).lean().exec()
     if (!taken) throw new CashSaleInvoiceError(409, 'attach_in_progress', `${inv.invoiceNumber} is being attached right now — try again in a moment`)
   }
+  // A till day's marker from an earlier repair stays: only the claim goes.
   const undo = () => Invoice.updateOne(
-    { _id: inv._id, orgId, [CASH_SALE_REF_ID]: cs._id, 'stockSource.marker': { $exists: false } } as any,
+    { _id: inv._id, orgId, [CASH_SALE_REF_ID]: cs._id, 'stockSource.detectedBy': { $ne: 'cash_sale' } } as any,
     { $unset: { cashSaleRef: 1, leaseUntil: 1, 'lines.$[].cashSaleLineId': 1 } },
   ).exec()
 
@@ -1176,11 +1202,15 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
 
   // Its goods left on the till: take back this invoice's dispatch, at the cost they left at (#276).
   const moved = await netMovedOut(orgId, inv._id)
-  if (moved.back > EPS) {
-    // Something already came back: a reversal of ours that stopped half-way. Nothing is guessed.
+  if (moved.back > EPS || tillMarker) {
+    // Something already came back — a reversal of ours that stopped half-way, or the hand repair
+    // a till marker records — so all of it must be back. Nothing is guessed: with a marker set,
+    // `reverseInvoiceStockMovement` would not even run (`movesNoStock`), and the double dispatch
+    // would stay behind a link that says it is fixed.
     if (moved.out - moved.back > EPS) {
+      await undo()
       throw new CashSaleInvoiceError(409, 'attach_needs_attention',
-        `${inv.invoiceNumber}: part of its dispatch is already back (${moved.back} of ${moved.out}) — check its stock movements before attaching`)
+        `${inv.invoiceNumber}: ${moved.back} of the ${moved.out} it dispatched is back — check its stock movements before attaching`)
     }
   } else if (moved.out > EPS) {
     const repoInv = await asRepo(inv._id)
@@ -1221,13 +1251,17 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
   createAuditEntry({
     orgId, userId: actor.id, action: 'update', module: 'invoicing', entityType: 'invoice',
     entityId: own, entityName: inv.invoiceNumber, correlationId: idOf(cs._id),
-    changes: [{ field: 'cashSale', oldValue: null, newValue: cs.invoiceNumber }],
+    changes: [
+      { field: 'cashSale', oldValue: null, newValue: cs.invoiceNumber },
+      // The hand repair's marker is replaced; what it said (and who arbitrated it) stays here.
+      ...(tillMarker ? [{ field: 'stockSource', oldValue: `${tillMarker} — ${inv.stockSource?.detectedBy || ''}`, newValue: `cash_sale:${cs.invoiceNumber}` }] : []),
+    ],
   } as any)
   createAuditEntry({
     orgId, userId: actor.id, action: 'invoiced', module: 'invoicing', entityType: 'invoice',
     entityId: idOf(cs._id), entityName: cs.invoiceNumber, correlationId: own,
     changes: [{ field: 'invoice', oldValue: null, newValue: inv.invoiceNumber }],
   } as any)
-  logger.info({ orgId, cashSale: cs.invoiceNumber, invoice: inv.invoiceNumber, reversed: moved.out }, 'Invoice attached to a cash sale')
+  logger.info({ orgId, cashSale: cs.invoiceNumber, invoice: inv.invoiceNumber, reversed: moved.back > EPS || tillMarker ? 0 : moved.out }, 'Invoice attached to a cash sale')
   return asRepo(own)
 }

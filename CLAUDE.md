@@ -1780,9 +1780,16 @@ and the prototype's five docs.
   - ⚠ **Its claim comes LAST** (`fitsAsLast`), not in `_id` order: the invoice existed before the
     claim, so its older `_id` would let it in over a newer conversion (`overClaimed` checks a
     claim only against older ones).
+  - ⚠ **Overlaps repaired by hand before this button attach too**: dispatch reversed, then
+    `stockSource.marker` set to the till day's `reference` (`salesAnalysis:<date>`). They need it,
+    because without `cashSaleRef` every total counts those sales twice (82 such invoices on regal-sf,
+    2026-10-28). Such an invoice attaches to that day only and nothing is reversed again. If its
+    dispatch is not all back, it is refused (`attach_needs_attention`): with a marker set,
+    `reverseInvoiceStockMovement` does not even run (`movesNoStock`). The old marker and its
+    arbitration note go into the audit entry.
   - Refused, never guessed: a draft (issue from the sale instead), a payment entered by hand, an
-    invoice that serves an order or already moves no stock, and one whose OWN journal entry is
-    posted (`invoice_in_ledger`: void it first). ⚠ A payment's entry carries the invoice as its
+    invoice that serves an order or moves no stock for any other reason, and one whose OWN journal
+    entry is posted (`invoice_in_ledger`: void it first). ⚠ A payment's entry carries the invoice as its
     `sourceId` too, so `ownEntriesOf` leaves out the entries the invoice's payments name; an own
     entry still in draft is voided on attach.
   - Claim (with `leaseUntil` on the invoice) → storno re-read → fit → reverse → finish. A retry of
@@ -1792,7 +1799,7 @@ and the prototype's five docs.
     by mistake — a separate sale after all — needs a new invoice that dispatches its goods.
 - Tests: `integration/cash-sale-invoice.flow` (16), `cash-sale-invoice-readers.flow` (6),
   `unit/cash-sale-invoice` (12), `e2e/tests/cash-sale-invoice.spec.ts` (3); the attach:
-  `integration/cash-sale-attach.flow` (8), `unit/cash-sale-attach` (9).
+  `integration/cash-sale-attach.flow` (10), `unit/cash-sale-attach` (9).
 
 ## A receipt first, then its bill (2026-10-26, FR-22 slice 3: FR-22.28–.33, #168)
 

@@ -722,7 +722,7 @@ After each release, on prod:
 - **Revenue for cash sales without a session.** Today none is ever posted. That needs the accountant; once decided, it is one rule in the service.
 - **VAT credited to the revenue account,** in both `invoice.posted` and the session JE. A separate accounting fix.
 - ~~**„Фактура към касова бележка"**~~ — built as R0 (D-14, §3.9).
-- ~~**Attaching an existing invoice**~~ to the cash sale of its day, for an invoice entered before the till export arrived — built 2026-10-28 (#171): „Към касова продажба…" on the invoice reverses its dispatch once, then links it as R0 would have issued it. It is the structural fix for the class `till-overlap.ts` only warns about, and a person still decides. Against an imported till day a line matches on article and VAT only, because the day's line price is an average. See CLAUDE.md, "Invoice for a cash sale".
+- ~~**Attaching an existing invoice**~~ to the cash sale of its day, for an invoice entered before the till export arrived — built 2026-10-28 (#171): „Към касова продажба…" on the invoice reverses its dispatch once, then links it as R0 would have issued it. It is the structural fix for the class `till-overlap.ts` only warns about, and a person still decides. Against an imported till day a line matches on article and VAT only, because the day's line price is an average. Overlaps repaired by hand before the button (marker `salesAnalysis:<date>`, no `cashSaleRef`, so counted twice in every total) attach to their day too, without a second reversal. See CLAUDE.md, "Invoice for a cash sale".
 - **Partial storno.**
 - **FR-20 items:** `SUPTO_MODE` enforcement, the 2-hour device rule, and drawing the УНП at the first item.
 - **Found along the way, each worth its own issue:**
