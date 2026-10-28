@@ -22,10 +22,12 @@
  * each org's earliest admin.
  *
  * On prod it needs the release that carries cash-settlement.service (and the payments' `origin`
- * field), and it must run from a file under /app/packages/portal-api/, where the workspace
- * packages resolve:
- *   kubectl -n lgr exec -i deploy/lgr -- sh -c 'cat > /app/packages/portal-api/settle.ts' < scripts/settle-cash-invoices.ts
- *   kubectl -n lgr exec deploy/lgr -- sh -c 'cd /app/packages/portal-api && bun settle.ts'   # then --execute, then rm
+ * field). ⚠ The pod's filesystem is read-only (2026-10-28): a file cannot be copied into it. Run it
+ * on the build host from a checkout at the deployed commit, through a port-forward, with
+ * `MONGODB_URI` pointing at it (the field check's way), and from `packages/portal-api`, where the
+ * workspace packages resolve:
+ *   cp scripts/settle-cash-invoices.ts packages/portal-api/.settle.ts
+ *   cd packages/portal-api && bun .settle.ts            # then --execute; then rm .settle.ts
  */
 // From db, not 'mongoose': portal-api (where this runs on prod) resolves db, not mongoose itself.
 import { mongoose } from 'db/connection'
