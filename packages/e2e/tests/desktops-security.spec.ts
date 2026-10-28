@@ -27,17 +27,30 @@ async function login(orgSlug: string, username: string): Promise<Session> {
   return { token: data.token, orgId: data.org._id || data.org.id }
 }
 
-/** Every desktops endpoint an admin uses, as `METHOD path` against a given org. */
+/**
+ * Every desktops endpoint an admin uses (`desktop.controller.ts`), as `METHOD path` against a given
+ * org. ⚠ Until 2026-10-28 this named `POST /codes`, a route that never existed (the code is minted
+ * at `/enrollment-codes`): it answered 404, and its `GET /codes` passed only by matching `GET /:id`.
+ */
 function endpoints(orgId: string) {
   const base = `${API}/api/org/${orgId}/desktops`
+  // A non-existent id on purpose: a refusal must come from the GATE, before anything is looked
+  // up, so these say nothing about whether the desktop, code or key exists.
+  const none = '000000000000000000000000'
   return [
     { method: 'GET', url: base, body: undefined },
-    { method: 'POST', url: `${base}/codes`, body: {} },
-    { method: 'GET', url: `${base}/codes`, body: undefined },
-    // A non-existent id on purpose: a refusal must come from the GATE, before anything is looked
-    // up, so these say nothing about whether the desktop exists.
-    { method: 'PUT', url: `${base}/000000000000000000000000`, body: { name: 'x' } },
-    { method: 'POST', url: `${base}/000000000000000000000000/revoke`, body: { reason: 'x' } },
+    { method: 'GET', url: `${base}/${none}`, body: undefined },
+    { method: 'PUT', url: `${base}/${none}`, body: { name: 'x' } },
+    { method: 'POST', url: `${base}/${none}/revoke`, body: { reason: 'x' } },
+    { method: 'POST', url: `${base}/${none}/rotate-key`, body: {} },
+    { method: 'POST', url: `${base}/${none}/update`, body: {} },
+    { method: 'POST', url: `${base}/update-all`, body: {} },
+    { method: 'POST', url: `${base}/enrollment-codes`, body: {} },
+    { method: 'GET', url: `${base}/enrollment-codes/${none}`, body: undefined },
+    { method: 'GET', url: `${base}/enrollment-keys`, body: undefined },
+    { method: 'POST', url: `${base}/enrollment-keys`, body: { name: 'x' } },
+    { method: 'DELETE', url: `${base}/enrollment-keys/${none}`, body: undefined },
+    { method: 'GET', url: `${base}/enrollment-keys/${none}/uses`, body: undefined },
   ]
 }
 

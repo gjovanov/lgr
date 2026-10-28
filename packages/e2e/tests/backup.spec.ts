@@ -66,11 +66,13 @@ test('the screen never reveals another organisation\'s runs', async ({ page }) =
   expect(res.status).toBe(403)
 })
 
-test('the restore section states what a restore does before offering it', async ({ page }) => {
-  await expect(page.getByText(/restore from a bundle/i)).toBeVisible()
-
-  // The warning is load-bearing UI, not decoration: this is the one screen in the product that
-  // deletes live data, and the safety-backup promise is what makes it defensible.
-  await expect(page.getByText(/a restore writes to live data/i)).toBeVisible()
-  await expect(page.getByText(/safety backup is taken automatically first/i)).toBeVisible()
+test('restore is offered only to a backup administrator, and the page says why', async ({ page }) => {
+  // ⚠ Rewritten 2026-10-28. This expected the restore section on screen, but since FR-13 Phase 4
+  // (2026-09-10) it renders only for a sys-admin (`BackupView.vue`, `v-if="store.sysAdmin"`), fail
+  // closed — and, as the header says, the seeded admin is deliberately NOT one here. So the test
+  // asked for a section the page correctly hides. What a NON-sys-admin must see: the restore
+  // surface absent, and the banner that explains the 403s (the server's allow-list is the control).
+  await expect(page.getByText(/you cannot use the restore functions on this screen/i)).toBeVisible()
+  await expect(page.getByText(/restore from a bundle/i)).toHaveCount(0)
+  await expect(page.getByText(/a restore writes to live data/i)).toHaveCount(0)
 })
