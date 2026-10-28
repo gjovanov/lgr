@@ -85,6 +85,11 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Network
 # FR-20.28 — the same off Windows, with a pure-Rust mDNS client.
 mdns-sd = "0.13"
 
+[target.'cfg(unix)'.dependencies]
+# #344 — a logout or shutdown ends the app with SIGTERM, which would otherwise kill it where it stands
+# (`quit_on_signals`). 0.3 was already in the lock.
+signal-hook = "0.3"
+
 [dev-dependencies]
 # `proxy.rs`'s tests stand up a TLS master of their own, with a CA made at test time, so no
 # private key is ever committed.
