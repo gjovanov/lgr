@@ -50,6 +50,8 @@ let deviceId = ''
 let till: { id: string; warehouseId: string }
 let sale: any
 let joined: any
+/** Three articles at one VAT rate, which the device is programmed for (`beforeAll`). */
+let articles: any[] = []
 const cents = (n: number) => Math.round(n * 100) / 100
 
 test.describe('FR-21 — the cash register on a fiscal device', () => {
@@ -73,13 +75,25 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     // The cashier's session on the store: the device is registered on the same warehouse.
     till = await openTillSession(cashier)
 
-    // A fresh device whose VAT groups carry the seed's rate. The driver refuses a line whose rate no
+    // The articles this spec sells: three with stock at the store, all at ONE VAT rate. In a full run
+    // other specs have changed articles before this one, so "the first article's rate" was not the
+    // rate of the ones sold, and the device refused a line (a voided receipt).
+    const { products } = await ok(cashier, 'GET', `/trade/pos/catalog?warehouseId=${till.warehouseId}&type=goods&size=100`)
+    const sellable = (products || []).filter((p: any) => (p.stockAvailable ?? 0) >= 2 && p.unitPrice > 0)
+    const byRate = new Map<number, any[]>()
+    for (const p of sellable) byRate.set(Number(p.taxRate || 0), [...(byRate.get(Number(p.taxRate || 0)) || []), p])
+    const [rate, same] = [...byRate.entries()].sort((a, b) => b[1].length - a[1].length)[0] || [20, []]
+    expect(same.length, 'three articles with stock at the store, at one VAT rate — is the DB seeded?').toBeGreaterThanOrEqual(3)
+    articles = same.slice(0, 3)
+
+    // A fresh device whose VAT group for that rate carries it. The driver refuses a line whose rate no
     // group is programmed at, as a real Eltrade does (the seed's articles are at 18 %, a Bulgarian
-    // device's Б at 20 %): the rate maps to Б (`fiscal/vat-groups`), so Б carries it.
-    const { products } = await ok(cashier, 'GET', `/trade/pos/catalog?warehouseId=${till.warehouseId}&type=goods&size=1`)
-    const rate = Number(products?.[0]?.taxRate ?? 20)
-    const programmed = await (await fetch(`${STUB}/reset`, { method: 'POST', body: JSON.stringify({ rates: [0, rate, rate, 9, 0, 0, 0, 0] }) })).json()
-    expect(programmed.rates[1]).toBe(rate)
+    // device's Б at 20 %). The rate's group is the one `fiscal/vat-groups` maps it to.
+    const group = rate >= 18 ? 1 : rate >= 7 ? 3 : 0 // Б, Г, А
+    const rates = [0, 20, 20, 9, 0, 0, 0, 0]
+    rates[group] = rate
+    const programmed = await (await fetch(`${STUB}/reset`, { method: 'POST', body: JSON.stringify({ rates }) })).json()
+    expect(programmed.rates[group]).toBe(rate)
 
     const { fiscalDevices } = await ok(admin, 'GET', '/fiscal/device?size=100')
     const existing = (fiscalDevices || []).find((d: any) => d.deviceNumber === SERIAL)
@@ -109,10 +123,7 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
   })
 
   test('1. a fiscal sale of two articles by card: one receipt with its УНП, the same sale in both journals', async ({ page }) => {
-    const { products } = await ok(cashier, 'GET', `/trade/pos/catalog?warehouseId=${till.warehouseId}&type=goods&size=100`)
-    const two = products.filter((p: any) => (p.stockAvailable ?? 0) >= 2 && p.unitPrice > 0).slice(0, 2)
-    expect(two, 'two articles with stock at the store — is the DB seeded?').toHaveLength(2)
-    const lines = two.map((p: any) => ({
+    const lines = articles.slice(0, 2).map((p: any) => ({
       productId: p.productId, name: p.productName, quantity: 1, unitPrice: p.unitPrice, discount: 0,
       taxRate: p.taxRate || 0, taxAmount: cents(p.unitPrice * (p.taxRate || 0) / 100), lineTotal: cents(p.unitPrice),
     }))
@@ -151,8 +162,7 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
   })
 
   test('9. R5: a back-office sale by the cashier joins the open session and prints on its device', async () => {
-    const { products } = await ok(cashier, 'GET', `/trade/pos/catalog?warehouseId=${till.warehouseId}&type=goods&size=100`)
-    const p = products.find((x: any) => (x.stockAvailable ?? 0) >= 1 && x.unitPrice > 0)
+    const p = articles[2]
     const rate = p.taxRate || 0
     const t = computePosTotals([{ quantity: 1, unitPrice: p.unitPrice, taxRate: rate, discount: 0 }])
     const before = (await device()).receipts.length
