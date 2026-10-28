@@ -12,10 +12,18 @@ import { lookup } from 'node:dns/promises'
  *   internet; a private address could only ever be the cluster's own network.
  * - `lan` — an on-prem master (FR-20). The printer sits on the shop's LAN, so private ranges are
  *   allowed. Loopback, link-local and the other special ranges still are not.
+ * - `loopback-test` — the e2e suite's simulated Eltrade (`e2e/scripts/eltrade-tcp-stub.ts`), on
+ *   127.0.0.1 (FR-21 §8.3). Also allows loopback, and only when `FISCAL_TCP_ALLOW_LOOPBACK=1` is set
+ *   on a server that is NOT `NODE_ENV=production`: in production the variable is ignored, so no
+ *   setting a user can reach turns it on.
  */
-export type FiscalTcpPolicy = 'public-only' | 'lan'
+export type FiscalTcpPolicy = 'public-only' | 'lan' | 'loopback-test'
 
-export function fiscalTcpPolicy(role: 'global' | 'master'): FiscalTcpPolicy {
+export function fiscalTcpPolicy(
+  role: 'global' | 'master',
+  env: Record<string, string | undefined> = process.env,
+): FiscalTcpPolicy {
+  if (env.FISCAL_TCP_ALLOW_LOOPBACK === '1' && env.NODE_ENV !== 'production') return 'loopback-test'
   return role === 'master' ? 'lan' : 'public-only'
 }
 
@@ -100,7 +108,8 @@ export function classifyAddress(ip: string): AddressClass {
 
 function allowed(cls: AddressClass, policy: FiscalTcpPolicy): boolean {
   if (cls === 'public') return true
-  if (cls === 'private') return policy === 'lan'
+  if (cls === 'private') return policy === 'lan' || policy === 'loopback-test'
+  if (cls === 'loopback') return policy === 'loopback-test'
   return false
 }
 

@@ -93,6 +93,14 @@ export default defineConfig({
       timeout: 180000,
     },
     {
+      // FR-21 §8.3: the till on a fiscal device. Needs `scripts/eltrade-tcp-stub.ts` and a server
+      // run with FISCAL_TCP_ALLOW_LOOPBACK=1 — see the header of the spec. Kept out of
+      // `invoicing-inventory` for the same reason doc-import is.
+      name: 'cash-register-fiscal',
+      use: { ...devices['Desktop Chrome'], baseURL },
+      testMatch: ['cash-register-fiscal.spec.ts'],
+    },
+    {
       name: 'payroll',
       use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: ['payroll.spec.ts', 'payroll-crud.spec.ts'],

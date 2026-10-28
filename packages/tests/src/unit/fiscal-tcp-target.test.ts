@@ -101,7 +101,32 @@ describe('resolveFiscalTcpTarget', () => {
   })
 
   it('maps node roles to policies: the cloud is public-only, a master may reach its LAN', () => {
-    expect(fiscalTcpPolicy('global')).toBe('public-only')
-    expect(fiscalTcpPolicy('master')).toBe('lan')
+    expect(fiscalTcpPolicy('global', {})).toBe('public-only')
+    expect(fiscalTcpPolicy('master', {})).toBe('lan')
+  })
+
+  // FR-21 §8.3: the e2e suite's simulated Eltrade listens on 127.0.0.1.
+  it('allows loopback only with FISCAL_TCP_ALLOW_LOOPBACK=1 outside production', async () => {
+    const on = { FISCAL_TCP_ALLOW_LOOPBACK: '1', NODE_ENV: 'development' }
+    expect(fiscalTcpPolicy('global', on)).toBe('loopback-test')
+    expect(fiscalTcpPolicy('master', on)).toBe('loopback-test')
+    expect(await resolveFiscalTcpTarget('127.0.0.1', fiscalTcpPolicy('global', on))).toBe('127.0.0.1')
+
+    // In production the variable is ignored: the cloud stays public-only, a master stays on its LAN.
+    for (const role of ['global', 'master'] as const) {
+      const policy = fiscalTcpPolicy(role, { FISCAL_TCP_ALLOW_LOOPBACK: '1', NODE_ENV: 'production' })
+      expect(policy).toBe(role === 'master' ? 'lan' : 'public-only')
+      const err = await captureRejection(resolveFiscalTcpTarget('127.0.0.1', policy))
+      expect((err as FiscalTargetError).code).toBe('forbidden')
+    }
+    // Only the exact value turns it on.
+    expect(fiscalTcpPolicy('global', { FISCAL_TCP_ALLOW_LOOPBACK: 'true' })).toBe('public-only')
+  })
+
+  it('the test policy still refuses link-local and the other special ranges', async () => {
+    for (const host of ['169.254.169.254', '0.0.0.0', '224.0.0.1']) {
+      const err = await captureRejection(resolveFiscalTcpTarget(host, 'loopback-test'))
+      expect((err as FiscalTargetError).code).toBe('forbidden')
+    }
   })
 })
