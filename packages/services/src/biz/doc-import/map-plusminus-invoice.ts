@@ -95,13 +95,17 @@ export function stripPartnerPrefix(v: string | undefined): string {
   return i >= 0 ? s.slice(i + 1).trim() : s
 }
 
-/** `"1"` → cash, `"2"` → bank_transfer. Confirmed live against one invoice of each; anything
- * else is left unmapped (never guessed) so it surfaces as a review gap instead of a wrong value.
- * Deliberately returns the bare English word: `parsePaymentMethod`'s regex (`/сметка|превод
- * |transfer/i`, `/брой|cash/i`, ...) matches these words directly, so feeding the word back
- * through `parsePaymentMethod` via the synthetic rawText (see below) reuses that function
- * unchanged rather than re-implementing its enum. */
-const PAYMENT_METHOD_BY_CODE: Record<string, string> = { '1': 'cash', '2': 'bank_transfer' }
+/** `"1"` → cash, `"2"` → bank_transfer, `"4"` → card. Confirmed, not guessed: `"1"`/`"2"` against
+ * two live LGR-imported invoices (one of each); `"4"` independently twice — regal-sf's own data
+ * carries a `paidCard` field alongside `paymentMethod:"4"`, and regal-pz's does too (`paidCard`
+ * present, `paidCash`/`paid` present instead when `paymentMethod:"1"`, matching). `"3"` (presumably
+ * check) has not occurred in any pulled batch — left unmapped rather than guessed. Anything
+ * unmapped surfaces as a review gap instead of a wrong value. Deliberately returns the bare
+ * English word: `parsePaymentMethod`'s regex (`/сметка|превод|transfer/i`, `/брой|cash/i`,
+ * `/карта|card/i`, ...) matches these words directly, so feeding the word back through
+ * `parsePaymentMethod` via the synthetic rawText (see below) reuses that function unchanged
+ * rather than re-implementing its enum. */
+const PAYMENT_METHOD_BY_CODE: Record<string, string> = { '1': 'cash', '2': 'bank_transfer', '4': 'card' }
 
 export function plusminusPaymentMethod(code: string | number | undefined): string | undefined {
   return code != null ? PAYMENT_METHOD_BY_CODE[String(code)] : undefined

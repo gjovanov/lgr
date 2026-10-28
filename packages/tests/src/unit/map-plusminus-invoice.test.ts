@@ -76,9 +76,10 @@ describe('plusminusInvoiceToExtraction', () => {
 })
 
 describe('plusminusPaymentMethod', () => {
-  it('maps the two confirmed codes', () => {
+  it('maps the three confirmed codes', () => {
     expect(plusminusPaymentMethod('1')).toBe('cash')
     expect(plusminusPaymentMethod('2')).toBe('bank_transfer')
+    expect(plusminusPaymentMethod('4')).toBe('card')
   })
 
   it('leaves an unconfirmed or missing code unmapped rather than guessing', () => {

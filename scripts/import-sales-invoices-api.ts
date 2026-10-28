@@ -209,18 +209,29 @@ async function main() {
   for (const s of skipped) console.log(`  ⚠ ${s.num}: ${s.reason} — skipped`)
 
   // ── analyze (draft supplied directly — skips OCR/AI entirely) ──
+  // One HTTP round trip per document, each wrapped: a server error or timeout on one invoice
+  // must not abandon the rest of the day's batch (same principle commitDocuments itself follows).
   const rows: any[] = []
   for (const f of candidates) {
-    const extraction = plusminusInvoiceToExtraction(f.doc, supplier)
-    const rawText = buildSyntheticRawText(f.doc.header)
-    const draft = { extraction, validation: { status: 'valid', checks: [] }, model: 'direct', engine: 'plusminus-api' }
-    const res = await http('POST', org('/doc-import/analyze'), {
-      target: 'sales_invoice',
-      items: [{ fileId: `plusminus:${f.num}`, filename: f.name, draft }],
-    })
     let result: any
-    try { result = await pollTask(res.taskId) }
-    catch (e: any) { rows.push({ num: f.num, ok: false, problems: [String(e?.message || e)] }); continue }
+    try {
+      const extraction = plusminusInvoiceToExtraction(f.doc, supplier)
+      // analyzeOne reads rawText from `item.text` independently of `item.draft` — placeOfTransaction
+      // /paymentMethod/terms are parsed from THAT, not from the extraction, so it must be sent too.
+      const rawText = buildSyntheticRawText(f.doc.header)
+      const draft = { extraction, validation: { status: 'valid', checks: [] }, model: 'direct', engine: 'plusminus-api' }
+      const res = await http('POST', org('/doc-import/analyze'), {
+        target: 'sales_invoice',
+        items: [{ fileId: `plusminus:${f.num}`, filename: f.name, text: rawText, draft }],
+        // Load-bearing: without this, every matched line's warehouseId stays unset
+        // (map-invoice.ts only sets it when opts.warehouseId is present), and convert later
+        // throws "Refusing to book stock ... no warehouseId" AFTER the invoice is already
+        // issued — found live 2026-10-28 on regal-pz's first real batch (16 invoices issued
+        // with no stock movement, fixed by a one-off remediation script; see git history).
+        context: { warehouseId: wh._id },
+      })
+      result = await pollTask(res.taskId)
+    } catch (e: any) { rows.push({ num: f.num, ok: false, problems: [String(e?.message || e)] }); continue }
     const doc = result?.results?.[0]
     if (!doc || doc.error) { rows.push({ num: f.num, ok: false, problems: [doc?.error || 'analyze returned no result'] }); continue }
 
