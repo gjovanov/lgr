@@ -176,6 +176,11 @@ export interface EnrollResult {
   orgName: string
   assignment: { fiscalDeviceIds: string[]; startPath?: string }
   name: string
+  /**
+   * #328: an enrollment KEY makes an ephemeral desktop, which unregisters itself on a clean
+   * shutdown (FR-14.19). Said here so the shell does not have to infer it from what it sent.
+   */
+  ephemeral: boolean
   serverTime: string
 }
 
@@ -240,6 +245,7 @@ async function enrollDesktopHere(input: EnrollInput): Promise<EnrollResult> {
       startPath: desktop.startPath,
     },
     name: desktop.name,
+    ephemeral: !!desktop.ephemeral,
     // ⚠ So the desktop can correct its own clock before signing its first assertion. The Win11
     // golden image the field lanes use runs ~+3 h off until `w32time` resyncs.
     serverTime: new Date().toISOString(),
