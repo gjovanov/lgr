@@ -82,6 +82,12 @@ export interface IOrg extends Document {
       defaultPayableAccountId?: string
       defaultRevenueAccountId?: string
       defaultExpenseAccountId?: string
+      /**
+       * #362: output VAT (e.g. 4532) and input VAT (e.g. 4531). Unset, an entry's tax line goes to
+       * the revenue / expense account, as it did before.
+       */
+      defaultOutputVatAccountId?: string
+      defaultInputVatAccountId?: string
       defaultSaleJournalId?: string
       defaultPurchaseJournalId?: string
       defaultCashJournalId?: string
@@ -234,6 +240,8 @@ const orgSchema = new Schema<IOrg>(
         defaultPayableAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
         defaultRevenueAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
         defaultExpenseAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
+        defaultOutputVatAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
+        defaultInputVatAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
         defaultSaleJournalId: { type: Schema.Types.ObjectId, ref: 'Journal' },
         defaultPurchaseJournalId: { type: Schema.Types.ObjectId, ref: 'Journal' },
         defaultCashJournalId: { type: Schema.Types.ObjectId, ref: 'Journal' },

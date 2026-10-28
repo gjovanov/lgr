@@ -1952,6 +1952,9 @@ tracks the steps. R1a (the correctness fixes the merge's parity checks depend on
   `total − taxTotal`, VAT `taxTotal`, money from `keptByMethod`. Over/short posts only against
   `settings.accounting.cashOverShortAccountId` (no UI sets it yet, like the other accounting
   defaults), as a balanced pair.
+- **VAT has its own account** (#362): `settings.accounting.defaultOutputVatAccountId` takes the
+  VAT of a sales document and of the session close, `defaultInputVatAccountId` a bill's. Unset, the
+  tax line goes to the revenue / expense account, as it did before (no UI sets them yet either).
 - ⚠ **No `POS-OUT` batch movement any more.** It was written `completed` without
   `confirmMovement`, moved nothing, and made SUPTO 18.8, FR-07 and FR-11.7c count every POS sale
   twice. Migration `0006` marks the old ones `recordOnly: true` and those readers skip the flag.

@@ -2,13 +2,14 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import {
   createTestOrg, createTestUser, createTestWarehouse, createTestAccount,
-  createTestPOSSession, createTestPOSTransaction,
+  createTestPOSSession, createTestPOSTransaction, createTestContact, createTestInvoice,
 } from '../helpers/factories'
 import { migrateTill } from '../helpers/migrate-till'
-import { Journal, JournalEntry, Org, POSSession, StockMovement } from 'db/models'
-import { createPOSSessionJournalEntry } from 'services/biz/auto-journal.service'
-import { registerEventHandlers, resetEventHandlers } from 'services/events/handlers'
+import { Invoice, Journal, JournalEntry, Org, POSSession, StockMovement } from 'db/models'
+import { createInvoiceJournalEntry, createPOSSessionJournalEntry } from 'services/biz/auto-journal.service'
+import { postInvoiceJournal, registerEventHandlers, resetEventHandlers } from 'services/events/handlers'
 import { eventBus } from 'services/events/event-bus'
+import { mongoose } from 'db/connection'
 import type { Types } from 'mongoose'
 
 /**
@@ -169,6 +170,127 @@ describe('POS session journal entry (FR-21.2)', () => {
     expect(entry.lines.some((l: any) => /over|short/i.test(l.description))).toBe(false)
     expect(entry.totalDebit).toBe(120)
     expect(entry.totalCredit).toBe(120)
+  })
+})
+
+/**
+ * #362 — VAT went to the revenue account (sales, the session close) and to the expense account
+ * (purchases). With the org's VAT accounts it goes to them; without, as before.
+ */
+describe('VAT has its own account (#362)', () => {
+  async function vat(s: Setup) {
+    createdBy = String(s.user._id)
+    const output = await createTestAccount(s.orgId, { name: 'Output VAT', type: 'liability' } as any)
+    const input = await createTestAccount(s.orgId, { name: 'Input VAT', type: 'asset' } as any)
+    const payable = await createTestAccount(s.orgId, { name: 'Payable', type: 'liability' } as any)
+    const expense = await createTestAccount(s.orgId, { name: 'Expense', type: 'expense', subType: 'operating_expense' } as any)
+    return { output, input, payable, expense }
+  }
+
+  /** `{ accountId: [debit, credit] }` summed per account. */
+  function byAccount(entry: any) {
+    const out: Record<string, [number, number]> = {}
+    for (const l of entry.lines) {
+      const k = String(l.accountId)
+      const [d, c] = out[k] ?? [0, 0]
+      out[k] = [Math.round((d + l.debit) * 100) / 100, Math.round((c + l.credit) * 100) / 100]
+    }
+    return out
+  }
+
+  let createdBy = ''
+  function invoice(over: Record<string, any>) {
+    return {
+      createdBy,
+      id: new mongoose.Types.ObjectId().toHexString(), invoiceNumber: 'INV-2026-00001', direction: 'outgoing', type: 'invoice',
+      currency: 'EUR', exchangeRate: 1, issueDate: new Date(), total: 120,
+      lines: [{ lineTotal: 120, taxAmount: 20 }],
+      ...over,
+    }
+  }
+
+  it('the session close credits net revenue and VAT to their own accounts', async () => {
+    const s = await setup()
+    const v = await vat(s)
+    const res = await createPOSSessionJournalEntry(
+      String(s.orgId),
+      { ...s.session.toObject(), id: String(s.session._id) },
+      [row({ total: 120, taxTotal: 20, subtotal: 100, payments: [{ method: 'cash', amount: 120 }] })],
+      { receivableAccountId: String(s.receivable._id), revenueAccountId: String(s.revenue._id), outputVatAccountId: String(v.output._id) },
+      { journalId: String(s.journal._id) },
+      false,
+    )
+    const a = byAccount(res!.journalEntry)
+    expect(a[String(s.revenue._id)]).toEqual([0, 100])
+    expect(a[String(v.output._id)]).toEqual([0, 20])
+    expect(a[String(s.receivable._id)]).toEqual([120, 0])
+  })
+
+  it('a sales invoice: revenue = net, output VAT = tax; a credit note reverses both', async () => {
+    const s = await setup()
+    const v = await vat(s)
+    const accounts = {
+      receivableAccountId: String(s.receivable._id), revenueAccountId: String(s.revenue._id),
+      outputVatAccountId: String(v.output._id), inputVatAccountId: String(v.input._id),
+    }
+    const sale = byAccount(await createInvoiceJournalEntry(String(s.orgId), invoice({}), accounts, { journalId: String(s.journal._id) }, false))
+    expect(sale[String(s.revenue._id)]).toEqual([0, 100])
+    expect(sale[String(v.output._id)]).toEqual([0, 20])
+    expect(sale[String(s.receivable._id)]).toEqual([120, 0])
+    expect(sale[String(v.input._id)]).toBeUndefined()
+
+    const note = byAccount(await createInvoiceJournalEntry(String(s.orgId), invoice({ type: 'credit_note', invoiceNumber: 'CN-1' }), accounts, { journalId: String(s.journal._id) }, false))
+    expect(note[String(s.revenue._id)]).toEqual([100, 0])
+    expect(note[String(v.output._id)]).toEqual([20, 0])
+    expect(note[String(s.receivable._id)]).toEqual([0, 120])
+  })
+
+  it('a bill: expense = net, input VAT = tax', async () => {
+    const s = await setup()
+    const v = await vat(s)
+    const bill = byAccount(await createInvoiceJournalEntry(
+      String(s.orgId), invoice({ direction: 'incoming', invoiceNumber: 'BILL-1' }),
+      { payableAccountId: String(v.payable._id), expenseAccountId: String(v.expense._id), outputVatAccountId: String(v.output._id), inputVatAccountId: String(v.input._id) },
+      { journalId: String(s.journal._id) }, false,
+    ))
+    expect(bill[String(v.expense._id)]).toEqual([100, 0])
+    expect(bill[String(v.input._id)]).toEqual([20, 0])
+    expect(bill[String(v.payable._id)]).toEqual([0, 120])
+    expect(bill[String(v.output._id)]).toBeUndefined()
+  })
+
+  it('without VAT accounts the tax stays where it went before', async () => {
+    const s = await setup()
+    createdBy = String(s.user._id)
+    const sale = byAccount(await createInvoiceJournalEntry(
+      String(s.orgId), invoice({}),
+      { receivableAccountId: String(s.receivable._id), revenueAccountId: String(s.revenue._id) },
+      { journalId: String(s.journal._id) }, false,
+    ))
+    expect(sale[String(s.revenue._id)]).toEqual([0, 120])
+  })
+
+  it('the invoice.posted handler reads the org\'s VAT account', async () => {
+    const s = await setup()
+    const v = await vat(s)
+    await Org.updateOne({ _id: s.orgId }, {
+      $set: {
+        'settings.accounting.defaultSaleJournalId': s.journal._id,
+        'settings.accounting.defaultReceivableAccountId': s.receivable._id,
+        'settings.accounting.defaultRevenueAccountId': s.revenue._id,
+        'settings.accounting.defaultOutputVatAccountId': v.output._id,
+      },
+    })
+    const contact = await createTestContact(s.orgId)
+    const inv = await createTestInvoice(s.orgId, contact._id as Types.ObjectId, {
+      status: 'sent', subtotal: 100, taxAmount: 20, total: 120,
+      lines: [{ description: 'x', quantity: 1, unit: 'pcs', unitPrice: 100, discount: 0, taxRate: 20, taxAmount: 20, lineTotal: 120 }] as any,
+    })
+    await postInvoiceJournal({ orgId: String(s.orgId), invoiceId: String(inv._id), userId: String(s.user._id) })
+    const fresh = await Invoice.findById(inv._id).lean() as any
+    const a = byAccount(await JournalEntry.findById(fresh.journalEntryId).lean())
+    expect(a[String(s.revenue._id)]).toEqual([0, 100])
+    expect(a[String(v.output._id)]).toEqual([0, 20])
   })
 })
 
