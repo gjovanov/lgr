@@ -43,6 +43,7 @@ export const LICENSED_ACTIONS: ReadonlyMap<string, LicensedAction> = new Map<str
   }],
   ['POST /api/org/:orgId/invoices/:id/convert', { what: 'invoicing a proforma' }],
   ['POST /api/org/:orgId/invoices/:id/to-invoice', { what: 'invoicing a cash sale' }],
+  ['POST /api/org/:orgId/invoices/:id/attach-to-cash-sale', { what: 'attaching an invoice to a cash sale' }],
   ['POST /api/org/:orgId/invoicing/internal-orders', { what: 'a new client order' }],
   ['POST /api/org/:orgId/invoicing/internal-orders/:id/convert', { what: 'invoicing a client order' }],
   ['POST /api/org/:orgId/invoicing/orders/:id/convert', { what: 'invoicing reserved stock' }],

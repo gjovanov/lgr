@@ -459,6 +459,14 @@
       @apply="applyImportedDocument"
     />
 
+    <!-- FR-21 §11: an issued invoice attached to the cash sale of its day. -->
+    <AttachToCashSaleDialog
+      v-if="isEdit"
+      v-model="attachDialogOpen"
+      :invoice-id="String(route.params.id || '')"
+      @attached="onAttached"
+    />
+
     <!-- Escape hatch for per-type dialogs (CashSale's StockTransferDialog). `submitCreate`
          is also exposed via defineExpose so wrappers can drive the create after a suspended
          onBeforeCreate without depending on slot-prop name casing. -->
@@ -480,6 +488,7 @@ import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
+import AttachToCashSaleDialog from '../AttachToCashSaleDialog.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import BankInfoRow from '../BankInfoRow.vue'
@@ -571,6 +580,8 @@ const {
   importDialogOpen,
   applyImportedDocument,
   cashSaleRef,
+  attachDialogOpen,
+  onAttached,
   lastPrint,
   issueError,
   isDraftDoc,

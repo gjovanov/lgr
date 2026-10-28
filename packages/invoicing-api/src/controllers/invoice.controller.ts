@@ -26,6 +26,7 @@ import {
 import {
   CashSaleInvoiceError, createInvoiceForCashSale, getCashSaleInvoicing, checkInvoiceForCashSaleEdit,
   issueFieldsFor, invoicingByCashSale, invoicedCashSaleIds, liveInvoiceNumbersFor,
+  cashSaleCandidates, attachInvoiceToCashSale,
 } from 'services/biz/cash-sale-invoice.service'
 import { logger } from 'services/logger'
 import { PendingTransferError, checkPendingTransfers, confirmTransferMovements } from 'services/biz/stock-transfer.service'
@@ -1593,6 +1594,31 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         locale: t.Optional(t.String()),
       }),
     },
+  )
+  // ── FR-21 §11: an invoice entered before its till sale arrived, attached to that sale ──
+  // The cash sales of the invoice's day that sold every line of it and have room for them.
+  .get('/:id/cash-sale-candidates', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    try {
+      return await cashSaleCandidates(orgId, id)
+    } catch (e: any) {
+      if (e instanceof CashSaleInvoiceError) return refused(status, e)
+      throw e
+    }
+  }, { isSignIn: true })
+  // Take back its dispatch and make it the invoice for that cash sale: see the service.
+  .post(
+    '/:id/attach-to-cash-sale',
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      try {
+        return { invoice: await attachInvoiceToCashSale(orgId, user, id, body.cashSaleId) }
+      } catch (e: any) {
+        if (e instanceof CashSaleInvoiceError) return refused(status, e)
+        throw e
+      }
+    },
+    { isSignIn: true, body: t.Object({ cashSaleId: t.String() }) },
   )
   .post('/:id/convert', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
