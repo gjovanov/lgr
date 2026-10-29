@@ -1067,12 +1067,22 @@ off). Silent, machine-wide, version-independent, invisible on a developer machin
 fits. `portDiagnostics` prints the integrity level and the elevation flag, so the next dispatch
 answers it.
 
-⚠ **The job is `workflow_dispatch`-only as of 2026-10-07, which is a deliberate weakening**
+**Resolved 2026-10-28: it was elevation.** Since Runtime 150, WebView2 ignores every `WEBVIEW2_*`
+environment override in an elevated host (Microsoft, *Develop secure WebView2 apps*: "For an
+elevated host app, use appropriate override flags"). The FR-14 lane hit the same wall in its
+per-machine cell, whose driver is an elevated task (#341, fixed in lgr-deploy#32 by starting the
+app de-elevated, as its user does). The runner cannot be de-elevated, so the job sets the HKLM
+`Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments` policy for `lgr-desktop.exe`, which
+an elevated host still reads and the runtime appends to the app's own arguments. The first run with it, on the runner (Desktop CI run 40756059652, 2026-10-28), printed `elevated: True` and passed the walk: **14 passed, 1 skipped, 14.5 s**.
+
+⚠ **The job was `workflow_dispatch`-only from 2026-10-07, a deliberate weakening**
 (gjovanov/lgr#116). It was a failing check on every commit, and promote condition 1 refuses any
 tagged commit carrying one — an unexplained CI-only failure was blocking the first signed release
 outright. The walk itself still passes; it is the automation on this image that does not. Every
 Desktop CI run prints a warning annotation saying so, because a coverage reduction that lives
-only in a comment is one nobody remembers a month later.
+only in a comment is one nobody remembers a month later. **Re-armed on 2026-10-28** with the policy
+above: it runs wherever Desktop CI runs (a dispatch, and every desktop tag), and the annotation is
+gone.
 
 ---
 
