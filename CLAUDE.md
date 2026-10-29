@@ -424,6 +424,24 @@ yet" (exit 2) until P1-9 / P1-8.
     the rename on disk before the data, so a cut seconds after a first start left an empty
     `node.json` or a half `api-secrets.env`, and either is exit 7 for good.
   - New state goes through `write_durable`.
+- **Another machine with this server's address** (#356, `arp.rs`, Linux): RFC 5227 probes for
+  `certs::lan_ip`, plus every ARP packet on its interface. A sender MAC that is none of this
+  machine's, naming this address, is a conflict.
+  - It goes in `state/address-conflict.json` and the status, NEVER `clone.json`. That one locks legal
+    numbering, and only the TLS proof may write it.
+  - Detection only: the supervisor never announces the address.
+  - ⚠ `CAP_NET_RAW` is a FILE capability of the binary, never the unit's. Root writes it as it
+    installs a version or a home (`arp::grant_file_capability`, in `install_bundle_checked` and
+    `service install`).
+    - Children are other files and inherit nothing, and a rollback to a version from before it runs
+      no watch rather than a wider one.
+    - ⚠ It is `cap_net_raw=p`, NEVER `+ep`: with the effective flag the kernel refuses to EXECUTE the
+      binary wherever the bounding set lacks `CAP_NET_RAW` (a pod that drops ALL, `--cap-drop
+      NET_RAW`), so the server would not start at all.
+    - The supervisor raises it, opens the socket once per process (a `OnceLock`, for every start in
+      the process), and drops it at the top of `run_supervisor_blocking`, before the runtime has a
+      thread.
+    - `NoNewPrivileges=`, or a directive that implies it, turns it off: the unit test refuses those.
 - **The update helper watches a switch for CRASHES, never restarts** (`helper.rs` `Watch`, #369, 0.1.4).
   - Linux counts systemd's `NRestarts`. A `systemctl restart` (an administrator's, or needrestart's after
     every library unattended-upgrades installs on Ubuntu) never moves it.

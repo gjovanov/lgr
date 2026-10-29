@@ -173,6 +173,46 @@ The server restarts itself instead, at night:
   Servers page).
 - `lgr-server licence import <file>`: an air-gapped server's licence.
 
+## Another machine with this server's address (Linux)
+
+The server watches its LAN address (RFC 5227): now and then it asks the network who holds the
+address, and it reads every ARP packet on that interface. If another machine answers for it,
+`lgr-server status` says so:
+
+```
+  address  192.168.1.20 claimed by 52:54:00:ab:cd:ef since 2026-10-29T10:00:00Z (last 2026-10-29T10:05:00Z)
+```
+
+The log and `state/address-conflict.json` under the data directory say so too. The tills then reach
+one machine or the other.
+
+- **The usual cause is a copy of this server's disk** on another PC. The copy keeps
+  `/etc/machine-id`, the DHCP client id comes from it, and the router gives both machines one
+  address. `PROBABLY A CLONE` at the end of the line means an advert names this server, from another
+  start, at that address too. Until it is dealt with, both machines are homes of the same orgs and
+  issue the same numbers. On the copy, as root:
+  1. `rm /etc/machine-id && systemd-machine-id-setup`;
+  2. reboot it;
+  3. install it again as a new server.
+- A copy at **another** address is the clone check's: it proves the copy holds this server's keys,
+  and locks legal numbering. This watch proves nothing, so it warns and locks nothing.
+- It needs `CAP_NET_RAW`, which the supervisor binary carries as a file capability
+  (`getcap /opt/lgr-server/current/lgr-server` prints `cap_net_raw=p`).
+  - Installing a version writes it: the package, an update, and `lgr-server service install`. The
+    supervisor uses it to open its socket and drops it at once. The API, `mongod` and the PDF browser
+    are other programs and never hold it.
+  - Where it is missing or not honoured, the status line reads `address  not watched:` and says why.
+    Possible causes:
+    - a version installed by one from before this check; the next update or package install gives it
+      one;
+    - `NoNewPrivileges=` in a drop-in;
+    - `/opt` mounted `nosuid`;
+    - a container or unit that drops `CAP_NET_RAW`.
+
+    The server runs either way.
+- Windows needs none of this: a copy of a Windows disk keeps its MAC-based DHCP client id, gets an
+  address of its own, and the clone check sees it.
+
 ## Settings: `config/api.env`
 
 The operator's settings are in `config/api.env` under the data directory

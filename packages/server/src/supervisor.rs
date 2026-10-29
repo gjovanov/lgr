@@ -372,6 +372,8 @@ impl Supervisor {
             "licences": self.registrar.lock().unwrap().as_ref().map(|r| crate::licence::list(&r.data)),
             "update": self.updates.lock().unwrap().as_ref().map(|u| u.status.lock().unwrap_or_else(|p| p.into_inner()).clone()),
             "nightRestart": self.night_restart.lock().unwrap().clone(),
+            // #356: another machine claiming this server's LAN address (null off Linux).
+            "addressCheck": crate::arp::status(),
         })
     }
 
