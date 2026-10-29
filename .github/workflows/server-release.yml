@@ -23,6 +23,10 @@ name: LGR Server
 #   on its own, offline, and uninstalls cleanly, keeping its data. The .deb also goes into clean
 #   Ubuntu 22.04 and 24.04 containers (every library resolves; the supervisor starts its database and
 #   API as the lgr user).
+# - **The image** (FR-20.12, gjovanov/lgr#367): the .deb's home in an image, for Compose and
+#   Kubernetes (packages/server/packaging/docker/). Run as Compose runs it before anything ships; a
+#   release carries it as a .tar.zst (air-gapped `docker load`) with its compose and k8s files, and
+#   pushes it to ghcr.io/gjovanov/lgr-server:<version>.
 #
 # A pull request that touches any of it builds it unsigned and installs it.
 
@@ -463,12 +467,14 @@ jobs:
 
       # Installed in clean containers: apt resolves the dependencies, every library the binaries
       # link is found, and the supervisor brings up its database and API as the lgr user.
+      # /var/lib/lgr is a volume, as in the image: a container's own layer is overlayfs, where the
+      # installer and the server both refuse the data (it is gone with the container, FR-20.12).
       - name: Install the .deb on Ubuntu 22.04 and 24.04
         run: |
           set -euo pipefail
           for image in ubuntu:22.04 ubuntu:24.04; do
             echo "::group::$image"
-            docker run --rm -e VERSION="$VERSION" -v "$PWD/out:/out:ro" "$image" bash -euo pipefail -c '
+            docker run --rm -e VERSION="$VERSION" -v "$PWD/out:/out:ro" --mount type=volume,dst=/var/lib/lgr "$image" bash -euo pipefail -c '
               export DEBIAN_FRONTEND=noninteractive
               apt-get update -qq
               apt-get install -y -qq /out/*.deb >/dev/null
@@ -579,10 +585,119 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # FR-20.12 (gjovanov/lgr#367, option A): a master from Compose or Kubernetes is the .deb's own home
+  # in an image (packages/server/packaging/docker/), built from the .deb the linux job made and run
+  # here the way Compose runs it: the host's network, one volume, the supervisor under tini. A tag or
+  # a dispatch saves it for the sign job (a release asset, and what the field lanes `docker load`
+  # air-gapped) with its compose and k8s files; image-publish pushes a published release to GHCR.
+  image:
+    needs: [version, linux]
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      IMAGE: ghcr.io/gjovanov/lgr-server
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux
+          path: out
+      - name: Build the image
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/image"
+          cp "out/lgr-server_${VERSION}_amd64.deb" "$RUNNER_TEMP/image/lgr-server.deb"
+          DOCKER_BUILDKIT=1 docker build --build-arg VERSION="$VERSION" -t "$IMAGE:$VERSION" -f packages/server/packaging/docker/Dockerfile "$RUNNER_TEMP/image"
+          docker image inspect "$IMAGE:$VERSION" --format '{{.Size}}' | awk '{ printf "the image: %.0f MB\n", $1 / 1048576 }'
+
+      # Before anything ships: the machine check reads the CONTAINER (its memory limit; data on its
+      # own layer refused, and the server not started there), then the image runs as Compose runs it.
+      # It comes up healthy, its setup console answers on the host's loopback and the link's token
+      # opens it, mongod and the console listen on loopback only, `update apply` says an image is
+      # updated by its tag and so does the status, `docker stop` is the service's own graceful stop,
+      # and it comes back on the same volume with its database clean.
+      - name: Run the image as Compose runs it
+        run: |
+          set -euo pipefail
+          img="$IMAGE:$VERSION"
+          logs() { docker logs --tail 150 lgr-smoke 2>&1 || true; docker exec lgr-smoke sh -c 'tail -n 60 /var/lib/lgr/logs/api.log /var/lib/lgr/logs/mongod.log' 2>/dev/null || true; }
+          fail() { echo "::error::$1"; logs; exit 1; }
+          healthy() { for _ in $(seq 1 "$(( $1 / 5 ))"); do [ "$(docker inspect -f '{{.State.Health.Status}}' lgr-smoke 2>/dev/null)" = healthy ] && return 0; sleep 5; done; return 1; }
+          # check <name> <jq condition>, on a preflight --json read from stdin.
+          check() { jq -e --arg n "$1" ".[] | select(.name == \$n) | $2" >/dev/null; }
+
+          docker run --rm "$img" --version
+          docker run --rm --memory 2g "$img" preflight --json > "$RUNNER_TEMP/pf-2g.json" || true
+          check memory '.ok == false and (.detail | contains("memory limit"))' < "$RUNNER_TEMP/pf-2g.json" || fail "a 2 GB container passed the memory check: $(cat "$RUNNER_TEMP/pf-2g.json")"
+          docker run --rm --memory 6g "$img" preflight --json > "$RUNNER_TEMP/pf-6g.json" || true
+          check memory '.ok == true' < "$RUNNER_TEMP/pf-6g.json" || fail "a 6 GB container failed the memory check: $(cat "$RUNNER_TEMP/pf-6g.json")"
+          docker run --rm -e LGR_SERVER_DATA=/home/lgr-layer "$img" preflight --json > "$RUNNER_TEMP/pf-layer.json" || true
+          check location '.ok == false and (.detail | contains("overlayfs"))' < "$RUNNER_TEMP/pf-layer.json" || fail "data on the container's own layer passed: $(cat "$RUNNER_TEMP/pf-layer.json")"
+          code=0; timeout 120 docker run --rm -e LGR_SERVER_DATA=/home/lgr-layer "$img" || code=$?
+          [ "$code" = 7 ] || fail "the server did not refuse its data on the container's own layer (exit $code)"
+
+          docker volume create lgr-smoke >/dev/null
+          docker run -d --name lgr-smoke --network host -e TZ=Europe/Sofia --mount source=lgr-smoke,target=/var/lib/lgr "$img" >/dev/null
+          healthy 300 || fail "the image did not come up healthy"
+          docker exec lgr-smoke lgr-server status
+          # #356: the ARP watch, on the file capability the root install gave the binary, within the
+          # container's bounding set (Docker's default keeps NET_RAW). Said, not required.
+          echo "address check: $(docker exec lgr-smoke lgr-server status --json | jq -c '.addressCheck')"
+          # (preflight exits 7 when any check fails, e.g. a runner's disk below the 20 GB floor)
+          docker exec lgr-smoke lgr-server preflight --json > "$RUNNER_TEMP/pf-volume.json" || true
+          check location '.ok == true' < "$RUNNER_TEMP/pf-volume.json" || fail "its volume failed the location check: $(cat "$RUNNER_TEMP/pf-volume.json")"
+
+          link="$(docker exec lgr-smoke lgr-server setup-token | grep -o 'http://127\.0\.0\.1:[0-9]*/__lgr/setup#[^[:space:]]*' | head -1)"
+          [ -n "$link" ] || fail "setup-token printed no link"
+          base="${link%%/__lgr/*}"
+          [ "$(curl -s -o /dev/null -w '%{http_code}' "$base/__lgr/setup")" = 200 ] || fail "the setup console does not answer on the host's loopback"
+          opened="$(curl -s -o /dev/null -w '%{http_code}' -H 'content-type: application/json' -d "{\"token\":\"${link#*#}\"}" "$base/__lgr/setup/session")"
+          [ "$opened" = 204 ] || fail "the setup link's token did not open a session ($opened)"
+          ss -ltnH | awk '{print $4}' | grep -E ':(27118|4480)$' || fail "mongod or the console is not listening"
+          if ss -ltnH | awk '{print $4}' | grep -E ':(27118|4480)$' | grep -vE '^(127\.0\.0\.1|\[::1\]):'; then fail "mongod or the setup console listens beyond loopback"; fi
+
+          out="$(docker exec lgr-smoke lgr-server update apply /tmp/x.tar.gz --sig /tmp/x.sig --asc /tmp/x.asc 2>&1)" && fail "update apply ran in a container: $out"
+          grep -q "runs from the image $IMAGE" <<< "$out" || fail "update apply said: $out"
+          state=""
+          for _ in $(seq 1 36); do state="$(docker exec lgr-smoke lgr-server status --json | jq -r '.update.state // empty')"; [ -n "$state" ] && break; sleep 5; done
+          [ "$state" = image ] || fail "the update status is '$state', not image"
+
+          start=$(date +%s); docker stop -t 30 lgr-smoke >/dev/null; took=$(( $(date +%s) - start ))
+          exited="$(docker inspect -f '{{.State.ExitCode}}' lgr-smoke)"
+          [ "$exited" = 0 ] || fail "the supervisor exited $exited on SIGTERM"
+          [ "$took" -lt 30 ] || fail "docker stop took $took s: the stop was not the graceful one"
+          docker start lgr-smoke >/dev/null
+          healthy 300 || fail "the image did not come back on its volume"
+          if docker exec lgr-smoke grep -qi 'unclean shutdown' /var/lib/lgr/logs/mongod.log; then fail "mongod was not stopped cleanly"; fi
+          echo "stopped in $took s, and back on its volume"
+          docker rm -f lgr-smoke >/dev/null && docker volume rm lgr-smoke >/dev/null
+
+      - name: The image and its Compose and k8s files, for the release
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          mkdir -p image-out
+          docker save "$IMAGE:$VERSION" | zstd -T0 -10 -q -o "image-out/lgr-server-${VERSION}-image-amd64.tar.zst"
+          for kind in compose k8s; do
+            sed -E 's/\$\{LGR_SERVER_VERSION[^}]*\}/'"$VERSION"'/g' "packages/server/packaging/docker/$kind.yaml" > "image-out/lgr-server-${VERSION}-$kind.yaml"
+          done
+          if grep -n '{LGR_SERVER_VERSION' image-out/*.yaml; then echo "::error::a file still names no version"; exit 1; fi
+          cd image-out && for f in *; do sha256sum "$f" | awk '{print $1"  "$2}' > "$f.sha256"; done
+          ls -la
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: image
+          path: image-out/
+          if-no-files-found: error
+          retention-days: 14
+          # zstd already.
+          compression-level: 0
+
   # Signing runs whenever the build is signed (a tag, or a dispatch even when it publishes nothing),
   # so a dispatch proves the keys before a tag needs them. The release job publishes what it signed.
   sign:
-    needs: [version, windows, linux]
+    needs: [version, windows, linux, image]
     if: needs.version.outputs.sign == 'true'
     runs-on: ubuntu-latest
     environment: release
@@ -596,7 +711,7 @@ jobs:
       # `release/*` would have published its server-manifest.json as a release asset.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: '{windows,linux}'
+          pattern: '{windows,linux,image}'
           path: release
           merge-multiple: true
       - name: Only the packages
@@ -604,7 +719,8 @@ jobs:
           set -euo pipefail
           ls -la release
           if find release -mindepth 1 -type d | grep -q .; then echo "::error::a directory came with the packages"; exit 1; fi
-          if ls release | grep -vqE '\.(msi|zip|deb|tar\.gz)(\.sha256)?$'; then echo "::error::something that is not a package came with them"; exit 1; fi
+          # The image (.tar.zst) and its compose and k8s files are packages too (FR-20.12).
+          if ls release | grep -vqE '\.(msi|zip|deb|tar\.gz|tar\.zst|yaml)(\.sha256)?$'; then echo "::error::something that is not a package came with them"; exit 1; fi
 
       # FR-20.20: the update signature. A master installs a bundle only when minisign accepts it
       # against the key its own package carries (the desktop updater's, FR-14.28) AND the platform
@@ -654,8 +770,8 @@ jobs:
           mkdir -m 700 -p "$GNUPGHOME"
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
           shopt -s nullglob
-          assets=(release/*.msi release/*.zip release/*.deb release/*.tar.gz)
-          [ ${#assets[@]} -ge 4 ] || { echo "::error::expected an MSI, a zip, a .deb and a tarball, found ${#assets[@]}"; exit 1; }
+          assets=(release/*.msi release/*.zip release/*.deb release/*.tar.gz release/*.tar.zst release/*.yaml)
+          [ ${#assets[@]} -ge 7 ] || { echo "::error::expected an MSI, a zip, a .deb, a tarball, the image and its compose and k8s files, found ${#assets[@]}"; exit 1; }
           for f in "${assets[@]}"; do
             gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" --local-user "$GPG_KEY_ID" --armor --detach-sign "$f"
           done
@@ -707,3 +823,44 @@ jobs:
           generate_release_notes: true
           files: release/*
           fail_on_unmatched_files: true
+
+  # FR-20.12: the published release's image on GHCR, `ghcr.io/gjovanov/lgr-server:<version>`: the bytes
+  # the release carries as its .tar.zst (checked against its .sha256), with build provenance. Never a
+  # `latest` while server releases are previews. ⚠ The first push creates the package PRIVATE: make
+  # it public once, in its settings on GitHub.
+  image-publish:
+    needs: [version, image, release]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      IMAGE: ghcr.io/gjovanov/lgr-server
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: image
+          path: image
+      - name: Push
+        id: push
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tarball="lgr-server-${VERSION}-image-amd64.tar.zst"
+          (cd image && sha256sum -c "$tarball.sha256")
+          zstd -dc "image/$tarball" | docker load
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "$IMAGE:$VERSION"
+          digest="$(docker image inspect "$IMAGE:$VERSION" --format '{{index .RepoDigests 0}}')"
+          echo "digest=${digest#*@}" >> "$GITHUB_OUTPUT"
+          echo "pushed $IMAGE:$VERSION ${digest#*@}"
+      - uses: actions/attest-build-provenance@8beda2b7ed98355c0e97c0a63bec38ae472e66c4 # v4
+        with:
+          subject-name: ghcr.io/gjovanov/lgr-server
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

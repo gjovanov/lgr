@@ -10,8 +10,10 @@ updater and the field lanes have run it.
 | Windows 10/11, Server 2019+, x64 | `lgr-server-<v>-x86_64-pc-windows-msvc.msi` | `C:\Program Files\LGR Server` | `C:\ProgramData\LGR` |
 | Ubuntu 22.04+, Debian 12, x64 | `lgr-server_<v>_amd64.deb` | `/opt/lgr-server` | `/var/lib/lgr` |
 | other Linux, x64 | `lgr-server-<v>-x86_64-unknown-linux-gnu.tar.gz` | where you unpack it | `/var/lib/lgr` |
+| Docker Compose, Kubernetes (k3s), x64 | `ghcr.io/gjovanov/lgr-server:<v>`, or `lgr-server-<v>-image-amd64.tar.zst` with `lgr-server-<v>-compose.yaml` and `lgr-server-<v>-k8s.yaml` | the image | a volume at `/var/lib/lgr` |
 
-Each asset has a `.sha256` and a `.asc`, and the release carries SLSA build provenance.
+Each asset has a `.sha256` and a `.asc`, and the release carries SLSA build provenance (the image
+on GHCR too).
 
 ## What the machine needs (FR-20.13)
 
@@ -20,7 +22,7 @@ Each asset has a `.sha256` and a `.asc`, and the release carries SLSA build prov
 - **Memory:** a machine with at least **4 GB** of RAM. The OS never reports all of it (firmware, an
   integrated GPU and the kernel keep some), so the check asks for 3.25 GB usable.
 - **Disk:** **20 GB** free where the data goes, on a **local, fixed disk**: never a network share,
-  a removable drive, a RAM disk or tmpfs.
+  a removable drive, a RAM disk, tmpfs, or a container's own layer (a container's data is a volume).
 
 **The MSI and the .deb check before they install anything**, and on a machine that falls short they
 install nothing and say why: the MSI in a message box (and in its log, `msiexec /l*v`), the .deb on
@@ -28,7 +30,8 @@ apt's output. Only on a first install: an upgrade is never refused. The tarball 
 `lgr-server preflight` says what the machine has.
 
 The service checks again at every start. It refuses to start only without AVX, without the VC++
-runtime `mongod` links (Windows) or with its data on a share or tmpfs. Below the memory or disk floor
+runtime `mongod` links (Windows) or with its data on a share, tmpfs or overlayfs (a container's own
+layer, or a live system's). Below the memory or disk floor
 it starts, and warns: a master that has run for months is not stopped at a reboot because its disk
 has 19 GB free.
 
@@ -96,6 +99,87 @@ sudo /opt/lgr-server-home/lgr-server service install
 ```
 
 Its `mongod` is MongoDB's Ubuntu 22.04 build: it needs glibc 2.35, OpenSSL 3 and libcurl.
+
+## Docker Compose and Kubernetes
+
+The image is the .deb's own home (gjovanov/lgr#367): Ubuntu 24.04, `/opt/lgr-server/versions/<v>/`,
+the supervisor as its main process with `mongod` and the API as its children, exactly as on a .deb,
+all running as `lgr` (uid and gid **10001**, fixed from one image to the next). Everything the
+server keeps is on **one volume at `/var/lib/lgr`**: the database, the keys, the backups and
+`config/api.env`. It runs on the **host's network**: the setup console and `mongod` stay on the
+host's loopback, the LAN ingress is the host's 4443, and the tills find the server by multicast
+DNS-SD, which a bridge network does not carry.
+
+The machine is checked where the container runs, at every start: the memory is the container's
+limit when it has one (the server sizes `mongod`'s cache for it), and the data must be on a volume.
+A server whose `/var/lib/lgr` is the container's own layer (overlayfs) refuses to start, because
+that layer goes with the container.
+
+### Compose
+
+Put the release's `lgr-server-<v>-compose.yaml` in a folder of its own as `compose.yaml` (the one
+in `packages/server/packaging/docker/` takes the version from `LGR_SERVER_VERSION` instead), then:
+
+```bash
+docker compose up -d
+docker compose exec lgr-server lgr-server setup-token
+```
+
+and open the link it prints in a browser **on that machine**. Every command in this guide runs the
+same way: `docker compose exec lgr-server lgr-server status`. The supervisor logs to `docker
+compose logs`; the API's and `mongod`'s logs are in the volume, under `/var/lib/lgr/logs/`.
+
+**Air-gapped:** check the image's `.asc` like any asset, then
+`zstd -dc lgr-server-<v>-image-amd64.tar.zst | docker load`. Compose uses the image it finds and
+pulls nothing.
+
+### Kubernetes (k3s)
+
+```bash
+kubectl apply -f lgr-server-<v>-k8s.yaml
+kubectl -n lgr-server exec deploy/lgr-server -- lgr-server setup-token
+```
+
+One pod (`Recreate`, never a rolling update) with `hostNetwork`, its data on a k3s `local-path`
+volume, which keeps it on that node. The setup link opens on the node itself, or through
+`ssh -L 4480:127.0.0.1:4480 <node>`. **Air-gapped:** put the release's `.tar.zst` in
+`/var/lib/rancher/k3s/agent/images/` on the node before applying. The namespace is labelled for the
+`privileged` Pod Security level, because `hostNetwork` is beyond `baseline`.
+
+### Updates, settings and backups in a container
+
+- **An image is updated by its tag.** `lgr-server update apply` refuses in a container: what it
+  installed would run with nothing to watch it, and be gone with the container. Take a backup first
+  (`lgr-server backup now`: the .deb's updater takes one before every switch, and here nobody else
+  does), then the next release's compose or k8s file, or the next `LGR_SERVER_VERSION`, and
+  `docker compose up -d`. A registered server's `lgr-server status` says when a version is offered
+  (`update image <v> available`).
+- **Security updates** to the image's own libraries come with the next image: every build takes
+  Ubuntu's updates. Nothing replaces a library inside a running container, so the
+  [night restart](#security-updates-on-ubuntu-and-debian) never has anything to do there; the host's
+  own updates are the host's.
+- **Settings** are `/var/lib/lgr/config/api.env` in the volume, as on any Linux master: edit it
+  through `docker compose exec`, then `docker compose restart`.
+- **`BACKUP_LOCAL_PATH`** must be another disk than the volume's, mounted into the container (for
+  example `- /mnt/usb:/backup`, and `BACKUP_LOCAL_PATH=/backup`). A folder on the volume's own disk
+  is refused like any other.
+- `TZ` (in the compose and k8s files) is the shop's time zone, for the server's own maintenance
+  times.
+
+### What never to do
+
+- **Bridge networking or published ports.** Never publish 27118 (`mongod`) or 4480 (the setup
+  console) beyond the machine.
+- **Two containers on one volume**, or the image beside a .deb install on the same machine: two
+  servers on one database corrupt it, and both want the same ports.
+- **`docker compose down -v`**: `-v` deletes the volume, which is the whole server.
+- **A bind mount the container cannot write**: a host folder for `/var/lib/lgr` must belong to
+  10001:10001 (`sudo chown -R 10001:10001 <folder>`). A named volume needs nothing.
+- **Dropping `NET_RAW`** (`cap_drop`, or Kubernetes' `restricted` Pod Security level). The
+  address-conflict check (gjovanov/lgr#356) runs in the container as on a .deb install: the
+  binary carries `CAP_NET_RAW` as a file capability, which Docker's and containerd's default
+  capabilities let through. Without `NET_RAW` the server still runs, but nothing watches for
+  another machine at its address. `lgr-server status` says so.
 
 ## Versions and updates
 
@@ -247,7 +331,7 @@ one machine or the other.
 The operator's settings are in `config/api.env` under the data directory
 (`C:\ProgramData\LGR\config\api.env`, `/var/lib/lgr/config/api.env`), one `NAME=value` per line.
 The service reads them when it starts, so restart it after a change: `Restart-Service LGRServer`,
-or `sudo systemctl restart lgr-server`.
+`sudo systemctl restart lgr-server`, or `docker compose restart`.
 
 What setup chose is kept apart, in `state/setup.json`, and this file **overrides** it: a line here
 always wins, and setup never edits this file. Set something here only to change what setup chose.

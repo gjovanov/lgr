@@ -18,6 +18,14 @@ DATA=/var/lib/lgr
 
 [ "$1" = install ] || exit 0
 
+# FR-20.12: an image build (packaging/docker/Dockerfile) installs on the BUILD machine, which is not
+# where the master runs. The container checks the machine it runs on at every start (the
+# supervisor's preflight). Only the image build sets this.
+if [ "${LGR_SERVER_IMAGE_BUILD:-}" = 1 ]; then
+  echo "LGR Server: an image build; the machine is checked where the container runs" >&2
+  exit 0
+fi
+
 failed=""
 refuse() {
   failed="$failed
@@ -46,12 +54,14 @@ if [ "${free:-0}" -lt "$MIN_FREE_KIB" ]; then
   refuse "$(awk -v k="${free:-0}" 'BEGIN { printf "%.1f", k / 1048576 }') GB free for $DATA (at least 20.0 GB needed)"
 fi
 
-# A local disk: never NFS, SMB, FUSE or tmpfs (statfs magic numbers, as preflight.rs reads them).
+# A local disk: never NFS, SMB, FUSE, tmpfs or overlayfs (statfs magic numbers, as preflight.rs
+# reads them). Overlayfs is a container's own layer or a live system's: mount a volume there.
 case "$(stat -f -c %t "$where")" in
   6969) refuse "$DATA is on NFS" ;;
   517b | ff534d42 | fe534d42) refuse "$DATA is on an SMB share" ;;
   65735546) refuse "$DATA is on a FUSE file system" ;;
   1021994) refuse "$DATA is on tmpfs, which does not survive a restart" ;;
+  794c7630) refuse "$DATA is on overlayfs, a container's own layer or a live system's, which does not keep it: mount a volume there" ;;
 esac
 
 if [ -n "$failed" ]; then

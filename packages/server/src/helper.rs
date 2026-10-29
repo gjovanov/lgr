@@ -566,9 +566,35 @@ fn undo_file(root: &Root) -> PathBuf {
     root.update().join("undo.json")
 }
 
+/// FR-20.12: a switch is watched by the update helper, which systemd starts. With no systemd (a
+/// container) nothing would watch it or go back, and an image is updated by its tag anyway: what is
+/// applied inside a container is gone with it.
+fn a_switch_can_be_watched() -> Result<()> {
+    #[cfg(target_os = "linux")]
+    if !pointer::has_systemd() {
+        anyhow::bail!("{}", unwatched(std::env::var("LGR_SERVER_IMAGE").ok().as_deref()));
+    }
+    Ok(())
+}
+
+/// What an operator reads when nothing could watch a switch.
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+fn unwatched(image: Option<&str>) -> String {
+    match image.filter(|i| !i.is_empty()) {
+        Some(image) => format!(
+            "this server runs from the image {image}, which is updated by its tag: take a backup (`lgr-server backup now`), then run {image}:<version> (the release's compose or k8s file names it). A version installed inside the container would run with nothing to watch it, and be gone with the container"
+        ),
+        None => "no systemd runs this machine, so nothing would watch a new version run, or go back if it does not: it is not switched to".to_string(),
+    }
+}
+
 /// `update install-bundle`: install a bundle (the package's own by default) and switch to it as the
 /// rules allow. What the MSI's action and the .deb's postinst run.
 pub fn install_bundle(root: Option<PathBuf>, bundle: Option<PathBuf>, start: bool, undoable: bool) -> Result<i32> {
+    // The postinst's own install (no --start) lays a version out in an image build too.
+    if start {
+        a_switch_can_be_watched()?;
+    }
     let root = root.map(Root).or_else(Root::here).context("this lgr-server is not part of an installed server: name its --root")?;
     let bundle = bundle.unwrap_or_else(|| root.installer().join(install::PACKAGE_BUNDLE));
     let data = data_dir()?;
@@ -604,6 +630,7 @@ pub fn install_bundle(root: Option<PathBuf>, bundle: Option<PathBuf>, start: boo
 /// signatures: copied into `update/staging/` first, so what is checked is what is unpacked, checked
 /// against the keys this binary carries, installed, and switched to now, watched like any other.
 pub fn apply(bundle: PathBuf, sig: PathBuf, asc: Option<PathBuf>, no_backup: bool) -> Result<i32> {
+    a_switch_can_be_watched()?;
     let root = Root::here().context("this lgr-server is not part of an installed server")?;
     let data = data_dir()?;
     let signature = std::fs::read_to_string(&sig).with_context(|| format!("reading {}", sig.display()))?;
@@ -1102,5 +1129,16 @@ mod tests {
         assert!(tuned.clean_secs >= 10 && tuned.deadline_secs > tuned.clean_secs && tuned.crash_limit >= 2);
         std::fs::write(root.update().join("helper.json"), "not json").unwrap();
         assert_eq!(Tuning::load(&root), Tuning::default());
+    }
+
+    /// FR-20.12: in a container `update apply` says how an image is updated, instead of switching to a
+    /// version nothing would watch, and that the container's next recreation would throw away.
+    #[test]
+    fn a_container_is_told_it_updates_by_its_tag() {
+        let m = unwatched(Some("ghcr.io/gjovanov/lgr-server"));
+        assert!(m.starts_with("this server runs from the image ghcr.io/gjovanov/lgr-server"), "{m}");
+        assert!(m.contains("then run ghcr.io/gjovanov/lgr-server:<version>"), "{m}");
+        assert!(unwatched(None).contains("no systemd"));
+        assert_eq!(unwatched(Some("")), unwatched(None));
     }
 }

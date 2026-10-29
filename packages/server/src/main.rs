@@ -55,7 +55,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Run the supervisor in the foreground (development, containers). Ctrl+C stops it.
+    /// Run the supervisor in the foreground (development, containers: the image's main process).
+    /// Ctrl+C or SIGTERM stops it, gracefully.
     Run,
     /// Register with the OS, or remove the registration, or run as the OS starts it.
     Service {
@@ -708,6 +709,17 @@ fn real_main(cli: Cli) -> Result<i32> {
             init_logging(None);
             Ok(night_restart::run_or_reexec(|| {
                 run_supervisor_blocking(async {
+                    // SIGTERM too, and stopped as gracefully as the service is: it is what `docker stop`
+                    // and Kubernetes send the image's supervisor (FR-20.12), and what `kill` sends.
+                    #[cfg(unix)]
+                    {
+                        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("SIGTERM handler");
+                        tokio::select! {
+                            _ = term.recv() => {}
+                            _ = tokio::signal::ctrl_c() => {}
+                        }
+                    }
+                    #[cfg(not(unix))]
                     let _ = tokio::signal::ctrl_c().await;
                 })
             }))

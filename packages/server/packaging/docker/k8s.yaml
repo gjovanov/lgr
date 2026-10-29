@@ -1,0 +1,99 @@
+# LGR Server on Kubernetes (FR-20.12, gjovanov/lgr#367): one master, on k3s, on the node it runs on.
+#
+#   LGR_SERVER_VERSION=<v> envsubst '$LGR_SERVER_VERSION' < k8s.yaml | kubectl apply -f -
+#   (the release's copy, lgr-server-<v>-k8s.yaml, names its version already: kubectl apply -f it)
+#   kubectl -n lgr-server exec deploy/lgr-server -- lgr-server setup-token
+#   and open the link it prints in a browser ON THE NODE (or through `ssh -L 4480:127.0.0.1:4480`).
+#
+# Air-gapped k3s: put the release's lgr-server-<v>-image-amd64.tar.zst in
+# /var/lib/rancher/k3s/agent/images/ on the node before applying this.
+#
+# ⚠ hostNetwork is not optional: the setup console and mongod stay on the node's loopback, the LAN
+#   ingress is the node's 4443, and the tills find the server by multicast DNS-SD, which a pod
+#   network does not carry. So the node runs nothing else on 4443, 4480 or 27118.
+# ⚠ One pod, one volume, ever (`Recreate`, never a rolling update): two servers on one database
+#   corrupt it.
+# ⚠ An image is updated by its tag: take a backup first
+#   (kubectl -n lgr-server exec deploy/lgr-server -- lgr-server backup now), then apply the new
+#   version. `lgr-server update apply` refuses in a container.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lgr-server
+  labels:
+    # hostNetwork is beyond the `baseline` Pod Security level, wherever that is enforced.
+    pod-security.kubernetes.io/enforce: privileged
+---
+# local-path (k3s's own): a directory on the node's disk, so the pod stays on that node. 20 GB free
+# is the floor the server checks at every start.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lgr-data
+  namespace: lgr-server
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lgr-server
+  namespace: lgr-server
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: lgr-server
+  template:
+    metadata:
+      labels:
+        app: lgr-server
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      # The supervisor's graceful stop (a receipt in flight, mongod's last checkpoint): systemd's 30 s.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+      initContainers:
+        # A new local-path volume is root's, mode 0777: the server's, 0750, as the .deb makes it.
+        - name: data-owner
+          image: ghcr.io/gjovanov/lgr-server:${LGR_SERVER_VERSION}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c", "chown 10001:10001 /var/lib/lgr && chmod 0750 /var/lib/lgr"]
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/lgr
+      containers:
+        - name: lgr-server
+          image: ghcr.io/gjovanov/lgr-server:${LGR_SERVER_VERSION}
+          imagePullPolicy: IfNotPresent
+          env:
+            # The shop's time zone, for the server's own maintenance times (e.g. Europe/Sofia).
+            - name: TZ
+              value: UTC
+          # A machine with 4 GB is the floor. A memory LIMIT is honoured: the server sizes mongod's
+          # cache for the limit, not for the node.
+          resources:
+            requests:
+              cpu: 500m
+              memory: 4Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/lgr
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: lgr-data
