@@ -29,9 +29,13 @@ pub struct Observed {
     /// ended (`NRestarts`, the `Restart=` policy at work). A restart someone asks for does not move
     /// it, and an explicit start resets it. `None` where the OS keeps no such count (Windows).
     pub auto_restarts: Option<u32>,
-    /// Windows: the service is being stopped in order (STOP_PENDING, or STOPPED with no error),
-    /// which makes the next new process one someone asked for. A crash leaves the SCM's error.
-    pub stopping: bool,
+    /// Windows: STOPPED with an error, what a process that died leaves behind (the SCM's 1067, or
+    /// our own refusals). `None` where the OS does not say (Linux).
+    ///
+    /// ⚠ The evidence of a crash, never of an orderly stop: our own stop is over in a second, so a
+    /// look once a second may never see one, while the SCM's recovery waits at least 5 s before it
+    /// starts a crashed service again (`service.rs`), so a crash is always seen.
+    pub crashed: Option<bool>,
 }
 
 /// `systemctl show`'s answer, read (Linux; here so the tests run on every OS).
@@ -44,7 +48,7 @@ pub fn observed_from_show(text: &str) -> Observed {
     let get = |k: &str| text.lines().find_map(|l| l.strip_prefix(&format!("{k}="))).unwrap_or("").trim().to_string();
     let pid = get("MainPID").parse::<u32>().ok().filter(|&p| p != 0);
     let running = get("ActiveState") == "active" && get("SubState") == "running";
-    Observed { running, pid, auto_restarts: get("NRestarts").parse::<u32>().ok(), stopping: false }
+    Observed { running, pid, auto_restarts: get("NRestarts").parse::<u32>().ok(), crashed: None }
 }
 
 /// The service SID Windows gives `NT SERVICE\<name>`: `S-1-5-80-` and the SHA-1 of the upper-case
@@ -206,10 +210,9 @@ mod windows {
         let s = m.open_service(crate::service::NAME, ServiceAccess::QUERY_STATUS)?;
         let st = s.query_status()?;
         // Our own stop reports STOPPED with no error (`service::exit_code(0)`); a process that died
-        // leaves the SCM's error, and a refusal its own code.
-        let stopping = st.current_state == ServiceState::StopPending
-            || (st.current_state == ServiceState::Stopped && st.exit_code == windows_service::service::ServiceExitCode::Win32(0));
-        Ok(Observed { running: st.current_state == ServiceState::Running, pid: st.process_id, auto_restarts: None, stopping })
+        // leaves the SCM's error (1067), and a refusal its own code.
+        let crashed = st.current_state == ServiceState::Stopped && st.exit_code != windows_service::service::ServiceExitCode::Win32(0);
+        Ok(Observed { running: st.current_state == ServiceState::Running, pid: st.process_id, auto_restarts: None, crashed: Some(crashed) })
     }
 
     /// Stop the service, and start it again: what makes a pointer change take effect.

@@ -106,15 +106,15 @@ pub struct Watch {
     last_pid: Option<u32>,
     /// The OS's own count of the service's automatic restarts, when it keeps one (Linux).
     last_auto: Option<u32>,
-    /// Stopped in order since the process last seen running (Windows).
-    stopped_in_order: bool,
+    /// Seen stopped with an error since the process last seen running (Windows).
+    crash_seen: bool,
     restarts: Vec<u64>,
     down_since: Option<u64>,
 }
 
 impl Watch {
     pub fn new() -> Self {
-        Self { last_pid: None, last_auto: None, stopped_in_order: false, restarts: Vec::new(), down_since: Some(0) }
+        Self { last_pid: None, last_auto: None, crash_seen: false, restarts: Vec::new(), down_since: Some(0) }
     }
 
     /// `now`: seconds since the watch began.
@@ -132,20 +132,27 @@ impl Watch {
             }
             self.last_auto = Some(n);
         } else {
-            // Windows (or a systemd too old to count): a new process while it runs, unless the
-            // service was stopped in order since the last one. (Only while it runs: on Linux the old
-            // process is still seen stopping right after the switch, and that is not a crash.)
-            if observed.stopping {
-                self.stopped_in_order = true;
+            // Windows: a new process is a restart after a crash only when the service was seen
+            // stopped with an error since the last one, which the SCM's recovery holds for at least
+            // 5 s. A new process with nothing seen between was a fast stop and start that someone
+            // asked for. A systemd too old to count says neither: every new process counts, as it
+            // always did. (Only while it runs: on Linux the old process is still seen stopping right
+            // after the switch, and that is not a crash.)
+            if observed.crashed == Some(true) {
+                self.crash_seen = true;
             }
             if observed.running {
                 if let Some(pid) = observed.pid {
                     if self.last_pid != Some(pid) {
-                        if self.last_pid.is_some() && !self.stopped_in_order {
+                        let crash = match observed.crashed {
+                            Some(_) => self.crash_seen,
+                            None => true,
+                        };
+                        if self.last_pid.is_some() && crash {
                             self.restarts.push(now);
                         }
-                        // Whatever stopped the last one, this process starts with a clean slate.
-                        self.stopped_in_order = false;
+                        // Whatever ended the last one, this process starts with a clean slate.
+                        self.crash_seen = false;
                         self.last_pid = Some(pid);
                     }
                 }
@@ -795,17 +802,24 @@ mod tests {
 
     const T: Tuning = Tuning { clean_secs: 300, deadline_secs: 1200, down_secs: 180, crash_limit: 3, crash_window_secs: 600 };
 
-    /// Running, as Windows reports it (no count of automatic restarts).
+    /// Running, from an OS that says nothing about why a process ended (a systemd older than 235):
+    /// every new process counts.
     fn up(pid: u32) -> Observed {
-        Observed { running: true, pid: Some(pid), auto_restarts: None, stopping: false }
+        Observed { running: true, pid: Some(pid), auto_restarts: None, crashed: None }
     }
     /// Running, as systemd reports it: `NRestarts` beside the PID.
     fn up_linux(pid: u32, n_restarts: u32) -> Observed {
-        Observed { running: true, pid: Some(pid), auto_restarts: Some(n_restarts), stopping: false }
+        Observed { running: true, pid: Some(pid), auto_restarts: Some(n_restarts), crashed: None }
     }
-    const DOWN: Observed = Observed { running: false, pid: None, auto_restarts: None, stopping: false };
-    /// Windows: STOP_PENDING, or STOPPED with no error.
-    const STOPPING: Observed = Observed { running: false, pid: None, auto_restarts: None, stopping: true };
+    /// Running, as the SCM reports it.
+    fn up_win(pid: u32) -> Observed {
+        Observed { running: true, pid: Some(pid), auto_restarts: None, crashed: Some(false) }
+    }
+    const DOWN: Observed = Observed { running: false, pid: None, auto_restarts: None, crashed: None };
+    /// Windows: STOPPED with an error, which the SCM's recovery holds for at least 5 s.
+    const WIN_CRASHED: Observed = Observed { running: false, pid: None, auto_restarts: None, crashed: Some(true) };
+    /// Windows: STOP_PENDING, STOPPED with no error, START_PENDING: no crash.
+    const WIN_BETWEEN: Observed = Observed { running: false, pid: None, auto_restarts: None, crashed: Some(false) };
     fn healthy(secs: u64) -> Option<Health> {
         Some(Health { uptime_secs: secs, api_running_secs: Some(secs) })
     }
@@ -847,7 +861,7 @@ mod tests {
     fn the_old_process_seen_stopping_after_the_switch_is_not_a_crash() {
         let mut w = Watch::new();
         // A systemd too old to count, right after `restart --no-block`: the old PID still there, not running.
-        assert_eq!(w.step(0, Observed { running: false, pid: Some(41), auto_restarts: None, stopping: false }, None, &T), Verdict::Wait);
+        assert_eq!(w.step(0, Observed { running: false, pid: Some(41), auto_restarts: None, crashed: None }, None, &T), Verdict::Wait);
         assert_eq!(w.step(2, up(42), None, &T), Verdict::Wait);
         assert_eq!(w.restarts.len(), 0);
     }
@@ -875,7 +889,7 @@ mod tests {
         let mut w = Watch::new();
         assert_eq!(w.step(0, up_linux(100, 0), None, &T), Verdict::Wait);
         // The process dies and systemd starts it again: `NRestarts` moves, between two looks too.
-        assert_eq!(w.step(60, Observed { running: false, pid: None, auto_restarts: Some(1), stopping: false }, None, &T), Verdict::Wait);
+        assert_eq!(w.step(60, Observed { running: false, pid: None, auto_restarts: Some(1), crashed: None }, None, &T), Verdict::Wait);
         assert_eq!(w.step(66, up_linux(101, 1), None, &T), Verdict::Wait);
         // Two at once (a look missed one): both count.
         assert!(matches!(w.step(130, up_linux(103, 3), None, &T), Verdict::Failed(r) if r.contains("restarted 3 times")));
@@ -891,43 +905,57 @@ mod tests {
     }
 
     #[test]
-    fn on_windows_an_orderly_stop_between_two_processes_is_not_a_crash() {
+    fn on_windows_a_new_process_with_no_crash_seen_is_not_a_crash() {
         let mut w = Watch::new();
-        assert_eq!(w.step(0, up(1), None, &T), Verdict::Wait);
-        // An administrator's Restart-Service, three times.
-        for (at, pid) in [(10, 2), (20, 3), (30, 4)] {
-            assert_eq!(w.step(at, STOPPING, None, &T), Verdict::Wait);
-            assert_eq!(w.step(at + 2, up(pid), None, &T), Verdict::Wait);
-        }
+        assert_eq!(w.step(0, up_win(1), None, &T), Verdict::Wait);
+        // An administrator's Restart-Service, three times: over within a look, or with only its
+        // stop or its start seen in between. Never STOPPED with an error.
+        assert_eq!(w.step(10, up_win(2), None, &T), Verdict::Wait);
+        assert_eq!(w.step(20, WIN_BETWEEN, None, &T), Verdict::Wait);
+        assert_eq!(w.step(21, up_win(3), None, &T), Verdict::Wait);
+        assert_eq!(w.step(30, WIN_BETWEEN, None, &T), Verdict::Wait);
+        assert_eq!(w.step(31, WIN_BETWEEN, None, &T), Verdict::Wait);
+        assert_eq!(w.step(32, up_win(4), None, &T), Verdict::Wait);
         assert_eq!(w.restarts.len(), 0);
-        // A kill: STOPPED with the SCM's error is not stopping, and the SCM starts it again.
-        let mut w = Watch::new();
-        assert_eq!(w.step(0, up(1), None, &T), Verdict::Wait);
-        for (at, pid) in [(10, 2), (50, 3)] {
-            assert_eq!(w.step(at, DOWN, None, &T), Verdict::Wait);
-            assert_eq!(w.step(at + 5, up(pid), None, &T), Verdict::Wait);
-        }
-        assert!(matches!(w.step(120, up(4), None, &T), Verdict::Failed(r) if r.contains("restarted 3 times")));
     }
 
     #[test]
-    fn a_watch_that_begins_mid_stop_still_counts_the_next_crash() {
+    fn on_windows_a_kill_is_seen_stopped_with_an_error_and_counts() {
+        // A kill: STOPPED with the SCM's 1067, for the 5, 30, then 60 s its recovery waits.
         let mut w = Watch::new();
-        // The switch's own stop, seen first: it makes no later crash orderly.
-        assert_eq!(w.step(0, STOPPING, None, &T), Verdict::Wait);
-        assert_eq!(w.step(2, up(10), None, &T), Verdict::Wait);
-        assert_eq!(w.step(30, up(11), None, &T), Verdict::Wait);
+        assert_eq!(w.step(0, up_win(1), None, &T), Verdict::Wait);
+        for (at, wait, pid) in [(10, 5, 2), (50, 30, 3)] {
+            for s in 0..wait {
+                assert_eq!(w.step(at + s, WIN_CRASHED, None, &T), Verdict::Wait);
+            }
+            assert_eq!(w.step(at + wait, WIN_BETWEEN, None, &T), Verdict::Wait, "START_PENDING");
+            assert_eq!(w.step(at + wait + 1, up_win(pid), None, &T), Verdict::Wait);
+        }
+        assert_eq!(w.step(150, WIN_CRASHED, None, &T), Verdict::Wait);
+        assert!(matches!(w.step(211, up_win(4), None, &T), Verdict::Failed(r) if r.contains("restarted 3 times")));
+    }
+
+    #[test]
+    fn a_crash_seen_before_the_first_process_is_not_held_against_the_next() {
+        let mut w = Watch::new();
+        // The helper starts while the service is still stopped with an error (before the switch).
+        assert_eq!(w.step(0, WIN_CRASHED, None, &T), Verdict::Wait);
+        assert_eq!(w.step(2, up_win(10), None, &T), Verdict::Wait);
+        assert_eq!(w.step(30, up_win(11), None, &T), Verdict::Wait, "a restart with nothing seen between");
+        assert_eq!(w.restarts.len(), 0);
+        assert_eq!(w.step(40, WIN_CRASHED, None, &T), Verdict::Wait);
+        assert_eq!(w.step(46, up_win(12), None, &T), Verdict::Wait);
         assert_eq!(w.restarts.len(), 1);
     }
 
     #[test]
     fn systemctl_show_is_read() {
         let show = "ActiveState=active\nSubState=running\nMainPID=4321\nNRestarts=2\n";
-        assert_eq!(pointer::observed_from_show(show), Observed { running: true, pid: Some(4321), auto_restarts: Some(2), stopping: false });
+        assert_eq!(pointer::observed_from_show(show), Observed { running: true, pid: Some(4321), auto_restarts: Some(2), crashed: None });
         // A systemd older than 235 has no NRestarts; a stopped unit's MainPID is 0. And
         // `deactivating` is never "in order": systemd passes it clearing a crashed one's children.
         let old = "ActiveState=deactivating\nSubState=stop-sigterm\nMainPID=0\n";
-        assert_eq!(pointer::observed_from_show(old), Observed { running: false, pid: None, auto_restarts: None, stopping: false });
+        assert_eq!(pointer::observed_from_show(old), Observed { running: false, pid: None, auto_restarts: None, crashed: None });
     }
 
     #[test]
