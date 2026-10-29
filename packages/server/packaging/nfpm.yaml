@@ -82,6 +82,14 @@ contents:
     dst: /usr/lib/systemd/system/lgr-server-update.path
     file_info:
       mode: 0644
+  # #370: needrestart lists the server after a library upgrade and never restarts it; the server
+  # restarts itself at night (`night_restart.rs`). A conffile: an administrator's edit survives an
+  # upgrade, and a purge removes it.
+  - src: packages/server/packaging/linux/needrestart.conf
+    dst: /etc/needrestart/conf.d/lgr-server.conf
+    type: config|noreplace
+    file_info:
+      mode: 0644
   # Dangling until the postinst installs the first version.
   - src: /opt/lgr-server/current/lgr-server
     dst: /usr/bin/lgr-server

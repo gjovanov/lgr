@@ -315,6 +315,13 @@ pub mod platform {
         #[cfg(not(target_os = "macos"))]
         {
             std::fs::write("/etc/systemd/system/lgr-server.service", systemd_unit(&exe, USER, data))?;
+            // #370: what the .deb's conffile says, for a home installed from the tarball: needrestart
+            // never restarts the server, which restarts itself at night. Never removed by `uninstall`,
+            // which the .deb's prerm runs: dpkg takes a deleted conffile as the administrator's choice.
+            if Path::new("/etc/needrestart").is_dir() {
+                let _ = std::fs::create_dir_all("/etc/needrestart/conf.d");
+                let _ = std::fs::write("/etc/needrestart/conf.d/lgr-server.conf", include_str!("../packaging/linux/needrestart.conf"));
+            }
             sh("systemctl", &["daemon-reload"])?;
             sh("systemctl", &[if start { "--now" } else { "--no-block" }, "enable", "lgr-server.service"])?;
         }
@@ -336,14 +343,17 @@ pub mod platform {
         Ok(())
     }
 
-    /// What systemd or launchd starts: the supervisor in the foreground, stopped by SIGTERM.
+    /// What systemd or launchd starts: the supervisor in the foreground, stopped by SIGTERM. It
+    /// starts again in place, as the same process, for a library a security update replaced (#370).
     pub fn run() -> Result<()> {
-        let code = crate::run_supervisor_blocking(async {
-            let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("SIGTERM handler");
-            tokio::select! {
-                _ = term.recv() => {}
-                _ = tokio::signal::ctrl_c() => {}
-            }
+        let code = crate::night_restart::run_or_reexec(|| {
+            crate::run_supervisor_blocking(async {
+                let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("SIGTERM handler");
+                tokio::select! {
+                    _ = term.recv() => {}
+                    _ = tokio::signal::ctrl_c() => {}
+                }
+            })
         });
         std::process::exit(code);
     }

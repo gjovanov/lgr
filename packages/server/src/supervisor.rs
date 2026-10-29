@@ -198,6 +198,10 @@ pub struct Supervisor {
     uplink: crate::uplink::Status,
     /// FR-20.56: the desktop release this master keeps for its tills.
     releases: crate::uplink::Status,
+    /// #370: what the night restart says (`night_restart.rs`).
+    night_restart: crate::uplink::Status,
+    /// #370: asked to stop and start again in place.
+    reexec: tokio::sync::Notify,
 }
 
 /// The data directory, whose `keys/node.key` and `state/` a registration reads and writes, and the
@@ -211,7 +215,7 @@ pub struct Registrar {
 
 impl Supervisor {
     pub fn new(policy: Policy) -> Self {
-        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), updates: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]), lan: Mutex::new(None), registrar: Mutex::new(None), uplink: std::sync::Arc::new(Mutex::new(serde_json::json!({}))), releases: std::sync::Arc::new(Mutex::new(serde_json::Value::Null)) }
+        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), updates: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]), lan: Mutex::new(None), registrar: Mutex::new(None), uplink: std::sync::Arc::new(Mutex::new(serde_json::json!({}))), releases: std::sync::Arc::new(Mutex::new(serde_json::Value::Null)), night_restart: std::sync::Arc::new(Mutex::new(serde_json::Value::Null)), reexec: tokio::sync::Notify::new() }
     }
 
     /// A supervisor already keeping `specs`.
@@ -297,6 +301,18 @@ impl Supervisor {
         self.releases.clone()
     }
 
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub fn night_restart_status(&self) -> crate::uplink::Status {
+        self.night_restart.clone()
+    }
+
+    /// #370: stop everything as a service stop does, and start again in place (`serve` returns
+    /// [`crate::night_restart::REEXEC`]).
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub fn request_reexec(&self) {
+        self.reexec.notify_one();
+    }
+
     /// FR-20.55: keep a licence an operator imported, for this master, as one from global is kept.
     pub fn import_licence(&self, jws: &str) -> Response {
         let Some(registrar) = self.registrar.lock().unwrap().clone() else {
@@ -355,6 +371,7 @@ impl Supervisor {
             "children": children,
             "licences": self.registrar.lock().unwrap().as_ref().map(|r| crate::licence::list(&r.data)),
             "update": self.updates.lock().unwrap().as_ref().map(|u| u.status.lock().unwrap_or_else(|p| p.into_inner()).clone()),
+            "nightRestart": self.night_restart.lock().unwrap().clone(),
         })
     }
 
@@ -486,6 +503,8 @@ impl Supervisor {
                     }
                 }
                 _ = &mut shutdown => return 0,
+                // #370: a library was replaced, and it is the night to take it.
+                _ = self.reexec.notified() => return crate::night_restart::REEXEC,
                 done = &mut *starting, if !started => {
                     started = true;
                     if let Ok(Err(code)) = done {
@@ -520,10 +539,29 @@ where
     }
     let supervisor = Arc::new(Supervisor::new(policy));
     let mut starting = tokio::spawn(start(supervisor.clone()));
-    let code = supervisor.serve(calls_rx, shutdown, &mut starting).await;
-    tracing::info!("shutting down");
+    let mut shutdown = std::pin::pin!(shutdown);
+    let mut code = supervisor.serve(calls_rx, shutdown.as_mut(), &mut starting).await;
     starting.abort();
-    supervisor.shutdown().await;
+    if code == crate::night_restart::REEXEC {
+        tracing::info!("stopping, to start again in place");
+        // #370: a stop asked for while the children stop (systemd's SIGTERM, a machine going down)
+        // wins. Started again into it, the new image would only be killed when the stop times out.
+        let mut down = std::pin::pin!(supervisor.shutdown());
+        let mut stop_asked = false;
+        loop {
+            tokio::select! {
+                _ = &mut down => break,
+                _ = shutdown.as_mut(), if !stop_asked => stop_asked = true,
+            }
+        }
+        if stop_asked {
+            tracing::info!("a stop was asked for while restarting in place: stopping instead");
+            code = 0;
+        }
+    } else {
+        tracing::info!("shutting down");
+        supervisor.shutdown().await;
+    }
     listening.abort();
     code
 }
@@ -615,6 +653,58 @@ mod tests {
         let t0 = Instant::now();
         sup.shutdown().await;
         assert!(t0.elapsed() < GRACE + Duration::from_secs(5));
+    }
+
+    /// #370: the night restart's request stops everything as a service stop does, and the supervisor
+    /// says it stopped to start again in place, never with an exit code.
+    #[tokio::test]
+    async fn a_request_to_start_again_in_place_stops_everything_first() {
+        #[cfg(windows)]
+        let endpoint = format!(r"\\.\pipe\lgr-server-test-reexec-{}", std::process::id());
+        #[cfg(unix)]
+        let dir = tempfile::tempdir().unwrap();
+        #[cfg(unix)]
+        let endpoint = dir.path().join("control.sock").display().to_string();
+        let kept: Arc<Mutex<Option<Arc<Supervisor>>>> = Arc::new(Mutex::new(None));
+        let keep = kept.clone();
+        let code = run(endpoint, FAST, std::future::pending::<()>(), move |sup| async move {
+            sup.add(sleeper("api"));
+            wait_for(&sup, |s| s["children"][0]["state"] == "running").await;
+            *keep.lock().unwrap() = Some(sup.clone());
+            sup.request_reexec();
+            Ok(())
+        })
+        .await;
+        assert_eq!(code, crate::night_restart::REEXEC);
+        let sup = kept.lock().unwrap().clone().unwrap();
+        assert_eq!(sup.status()["children"].as_array().map(|c| c.len()), Some(0), "every child was stopped before it returned");
+    }
+
+    /// #370: systemd's SIGTERM, arriving while the children stop for a restart in place, is a stop:
+    /// the supervisor exits instead of starting again into a machine going down.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_stop_asked_for_while_restarting_in_place_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        let endpoint = dir.path().join("control.sock").display().to_string();
+        let stop = Arc::new(tokio::sync::Notify::new());
+        let asked = stop.clone();
+        let code = run(endpoint, FAST, async move { asked.notified().await }, move |sup| async move {
+            // It ignores SIGTERM, so its stop waits out the grace: the window the stop lands in.
+            let mut stubborn = shell("api", "trap '' TERM; sleep 30");
+            stubborn.grace = Duration::from_secs(2);
+            sup.add(stubborn);
+            wait_for(&sup, |s| s["children"][0]["state"] == "running").await;
+            // Its own task: the start is aborted once the restart is asked for.
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                stop.notify_one();
+            });
+            sup.request_reexec();
+            Ok(())
+        })
+        .await;
+        assert_eq!(code, 0);
     }
 
     #[tokio::test]

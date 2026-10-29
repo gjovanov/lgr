@@ -71,18 +71,22 @@ impl Settings {
             Some(v) if ["off", "false", "0", "no"].contains(&v.as_str()) => false,
             Some(v) => anyhow::bail!("UPDATE_AUTO={v} is neither on nor off"),
         };
-        let window = match operator.get("UPDATE_WINDOW").map(|v| v.trim()).filter(|v| !v.is_empty()) {
-            None => Settings::default().window,
-            Some(w) => {
-                let (a, b) = w.split_once('-').with_context(|| format!("UPDATE_WINDOW={w} is not HH:MM-HH:MM"))?;
-                let (a, b) = (hhmm(a), hhmm(b));
-                match (a, b) {
-                    (Some(a), Some(b)) if a != b => (a, b),
-                    _ => anyhow::bail!("UPDATE_WINDOW={w} is not HH:MM-HH:MM with two different times"),
-                }
+        Ok(Self { auto, window: window_from_operator(operator)? })
+    }
+}
+
+/// `UPDATE_WINDOW` (`HH:MM-HH:MM`, the machine's local time), 22:00–06:00 when unset: when an update
+/// installs, and when the server restarts itself for a library a security update replaced (#370).
+pub fn window_from_operator(operator: &std::collections::BTreeMap<String, String>) -> Result<(u32, u32)> {
+    match operator.get("UPDATE_WINDOW").map(|v| v.trim()).filter(|v| !v.is_empty()) {
+        None => Ok(Settings::default().window),
+        Some(w) => {
+            let (a, b) = w.split_once('-').with_context(|| format!("UPDATE_WINDOW={w} is not HH:MM-HH:MM"))?;
+            match (hhmm(a), hhmm(b)) {
+                (Some(a), Some(b)) if a != b => Ok((a, b)),
+                _ => anyhow::bail!("UPDATE_WINDOW={w} is not HH:MM-HH:MM with two different times"),
             }
-        };
-        Ok(Self { auto, window })
+        }
     }
 }
 
