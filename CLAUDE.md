@@ -417,6 +417,17 @@ yet" (exit 2) until P1-9 / P1-8.
     the rename on disk before the data, so a cut seconds after a first start left an empty
     `node.json` or a half `api-secrets.env`, and either is exit 7 for good.
   - New state goes through `write_durable`.
+- **The update helper watches a switch for CRASHES, never restarts** (`helper.rs` `Watch`, #369, 0.1.4).
+  - Linux counts systemd's `NRestarts`. A `systemctl restart` (an administrator's, or needrestart's after
+    every library unattended-upgrades installs on Ubuntu) never moves it.
+  - Windows counts a process only when it was seen STOPPED with an error, which the SCM's recovery
+    (5/30/60 s) holds long enough for a once-a-second look. Never "an orderly stop was seen": our stop
+    lasts about a second and is easy to miss.
+  - Before #369 any new PID counted. The first update lane lost a good 0.1.3 to needrestart, and it
+    was then never switched to again on that machine.
+  - ⚠ The helper runs the LAST KNOWN GOOD version, never the one it watches. A fix to the helper
+    guards only switches made after it is the last known good version: the lanes proved #369 with a
+    test-only 0.1.5 over 0.1.4.
 - **`mongod` (P1-2, FR-20.15, `mongod.rs`):** started first, on 127.0.0.1 only (port 27118, never
   27017, which another MongoDB may own), `--replSet rs0`, `--keyFile keys/mongo.keyfile`, cache
   0.5/1/2 GB by RAM (<8 / <16 / more GB), oplog 2 GB. The API is listed `pending` until the
