@@ -175,8 +175,11 @@ volume, which keeps it on that node. The setup link opens on the node itself, or
 - **`docker compose down -v`**: `-v` deletes the volume, which is the whole server.
 - **A bind mount the container cannot write**: a host folder for `/var/lib/lgr` must belong to
   10001:10001 (`sudo chown -R 10001:10001 <folder>`). A named volume needs nothing.
-- The address-conflict check (gjovanov/lgr#356) needs the `NET_RAW` capability, which the image's
-  unprivileged supervisor does not hold: in a container it does not run.
+- **Dropping `NET_RAW`** (`cap_drop`, or Kubernetes' `restricted` Pod Security level). The
+  address-conflict check (gjovanov/lgr#356) runs in the container as on a .deb install: the
+  binary carries `CAP_NET_RAW` as a file capability, which Docker's and containerd's default
+  capabilities let through. Without `NET_RAW` the server still runs, but nothing watches for
+  another machine at its address. `lgr-server status` says so.
 
 ## Versions and updates
 
