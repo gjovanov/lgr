@@ -103,6 +103,21 @@ describe('which credential a request presents', () => {
     expect(res.status).toBe(200)
     expect(res.body.user.id).toBe(alice.id)
   })
+
+  // ⚠ Load-bearing: ten ops scripts send `Authorization: Bearer ${TOKEN}` with an EMPTY token on
+  // their first call, the sign-in itself (see unit/session-token.test.ts for the list).
+  it('signs in a script that sends an empty "Bearer " header with its login', async () => {
+    const RIGHT = 'test123' // the factory's password
+    const res = await app.handle(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' },
+        body: JSON.stringify({ orgSlug: orgSlugA, username: 'alice', password: RIGHT }),
+      }),
+    )
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as any).token).toBeString()
+  })
 })
 
 describe('a verified signature is not a session by itself', () => {
