@@ -189,6 +189,9 @@ pub struct Supervisor {
     front: Mutex<serde_json::Value>,
     /// What the children use (the egress proxy): stopped last, after every child.
     services: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    /// The connections the ingresses accepted: ended after every child, so none outlives this
+    /// round (FR-20.18, `ingress::Connections`).
+    connections: crate::ingress::Connections,
     /// The LAN identity, once its ingress is open: what `ca-rotate` announces on, and what the
     /// status says of the CA in force (FR-20.30).
     lan: Mutex<Option<std::sync::Arc<Mutex<crate::certs::LanIdentity>>>>,
@@ -221,7 +224,7 @@ pub struct Registrar {
 
 impl Supervisor {
     pub fn new(policy: Policy) -> Self {
-        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), updates: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]), lan: Mutex::new(None), registrar: Mutex::new(None), uplink: std::sync::Arc::new(Mutex::new(serde_json::json!({}))), releases: std::sync::Arc::new(Mutex::new(serde_json::Value::Null)), night_restart: std::sync::Arc::new(Mutex::new(serde_json::Value::Null)), reexec: tokio::sync::Notify::new(), reload: tokio::sync::Notify::new() }
+        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), updates: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]), connections: Default::default(), lan: Mutex::new(None), registrar: Mutex::new(None), uplink: std::sync::Arc::new(Mutex::new(serde_json::json!({}))), releases: std::sync::Arc::new(Mutex::new(serde_json::Value::Null)), night_restart: std::sync::Arc::new(Mutex::new(serde_json::Value::Null)), reexec: tokio::sync::Notify::new(), reload: tokio::sync::Notify::new() }
     }
 
     /// Stop everything and start again in this process, with what the configuration says now
@@ -278,6 +281,11 @@ impl Supervisor {
     /// Keep `task`, a service the children use, so a stop ends it after them.
     pub fn add_service(&self, task: tokio::task::JoinHandle<()>) {
         self.services.lock().unwrap().push(task);
+    }
+
+    /// Where this round's ingresses keep the connections they accept, which a stop ends.
+    pub fn connections(&self) -> crate::ingress::Connections {
+        self.connections.clone()
     }
 
     /// What the status says about the front: its port, socket, names and console. Never its secret.
@@ -442,6 +450,9 @@ impl Supervisor {
                 let _ = keeper.await;
             }
         }
+        // Nothing answers behind them now. A client that kept one alive reaches the next round
+        // instead of this one's console and token (FR-20.18).
+        self.connections.close();
         // Last: the API may still need the egress while it finishes what it was doing.
         for s in std::mem::take(&mut *self.services.lock().unwrap()) {
             s.abort();
@@ -697,6 +708,21 @@ mod tests {
         let t0 = Instant::now();
         sup.shutdown().await;
         assert!(t0.elapsed() < GRACE + Duration::from_secs(5));
+    }
+
+    /// FR-20.18: what the ingresses accepted ends with the round, so a connection kept alive never
+    /// reaches the old round after a restart in place.
+    #[tokio::test]
+    async fn a_stop_ends_the_connections_the_ingresses_accepted() {
+        let sup = Supervisor::new(FAST);
+        let (open, ended) = tokio::sync::oneshot::channel::<()>();
+        sup.connections().spawn(async move {
+            let _open = open;
+            std::future::pending::<()>().await
+        });
+        sup.shutdown().await;
+        let ended = tokio::time::timeout(Duration::from_secs(5), ended).await.expect("the connection outlived the stop");
+        assert!(ended.is_err(), "ended by the stop, not answered");
     }
 
     /// #370: the night restart's request stops everything as a service stop does, and the supervisor

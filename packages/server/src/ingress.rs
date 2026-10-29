@@ -239,8 +239,34 @@ pub async fn bind_retrying(ip: &str, port: u16) -> std::io::Result<TcpListener> 
     }
 }
 
-/// Accept on `listener` forever, each connection on its own task.
-pub async fn serve<H, F>(listener: TcpListener, handle: H)
+/// The connections one round's ingresses accepted (FR-20.18): they end with that round.
+///
+/// ⚠ A spawned task outlives the loop that spawned it. A client that keeps its connection alive (a
+/// browser polling setup's state, PowerShell) went on being answered by the OLD round after a
+/// restart in place: its console, its token, its supervisor. Setup's settings never read as
+/// applied, and the link `setup reset` printed was refused. Found by the Windows master lane, whose
+/// client is PowerShell; curl opens a connection per request, so the Linux lane never saw it. The
+/// supervisor ends them after its children (`Supervisor::shutdown`), so a request in flight when a
+/// stop begins still gets the API's answer.
+#[derive(Clone, Default)]
+pub struct Connections(Arc<std::sync::Mutex<tokio::task::JoinSet<()>>>);
+
+impl Connections {
+    pub(crate) fn spawn(&self, connection: impl Future<Output = ()> + Send + 'static) {
+        let mut open = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        // Those that ended are let go here: a master serves for months.
+        while open.try_join_next().is_some() {}
+        open.spawn(connection);
+    }
+
+    /// End every connection still open.
+    pub fn close(&self) {
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).abort_all();
+    }
+}
+
+/// Accept on `listener` forever, each connection on its own task, kept in `connections`.
+pub async fn serve<H, F>(listener: TcpListener, connections: Connections, handle: H)
 where
     H: Fn(Request<Incoming>, SocketAddr) -> F + Clone + Send + Sync + 'static,
     F: Future<Output = Response<Body>> + Send + 'static,
@@ -250,13 +276,13 @@ where
             tokio::time::sleep(Duration::from_millis(50)).await;
             continue;
         };
-        tokio::spawn(serve_connection(stream, peer, handle.clone()));
+        connections.spawn(serve_connection(stream, peer, handle.clone()));
     }
 }
 
 /// [`serve`] behind TLS: the LAN ingress (FR-20.30), on the master's own certificate, which the
 /// supervisor holds and the API never sees.
-pub async fn serve_tls<H, F>(listener: TcpListener, tls: Arc<rustls::ServerConfig>, handle: H)
+pub async fn serve_tls<H, F>(listener: TcpListener, tls: Arc<rustls::ServerConfig>, connections: Connections, handle: H)
 where
     H: Fn(Request<Incoming>, SocketAddr) -> F + Clone + Send + Sync + 'static,
     F: Future<Output = Response<Body>> + Send + 'static,
@@ -268,7 +294,7 @@ where
             continue;
         };
         let (acceptor, handle) = (acceptor.clone(), handle.clone());
-        tokio::spawn(async move {
+        connections.spawn(async move {
             // A handshake that never finishes must not hold a connection either.
             if let Ok(Ok(stream)) = tokio::time::timeout(Duration::from_secs(10), acceptor.accept(tcp)).await {
                 serve_connection(stream, peer, handle).await;
@@ -413,18 +439,19 @@ impl Console {
         forward(req, Source::Console, peer, &self.upstream, false).await
     }
 
-    /// Serve on 127.0.0.1 until setup is complete, then stop listening.
-    pub async fn run(self: Arc<Self>) {
+    /// Serve on 127.0.0.1 until setup is complete, then stop listening. Its connections are the
+    /// round's (`connections`), which ends them.
+    pub async fn run(self: Arc<Self>, connections: Connections) {
         match bind_retrying("127.0.0.1", self.port).await {
             Ok(listener) => {
                 tracing::info!(port = self.port, "the setup console is open on loopback");
-                self.serve_until_complete(listener, Duration::from_secs(2)).await;
+                self.serve_until_complete(listener, connections, Duration::from_secs(2)).await;
             }
             Err(e) => tracing::error!(port = self.port, error = %e, "the setup console cannot listen (is SETUP_PORT in use?)"),
         }
     }
 
-    async fn serve_until_complete(self: Arc<Self>, listener: TcpListener, check: Duration) {
+    async fn serve_until_complete(self: Arc<Self>, listener: TcpListener, connections: Connections, check: Duration) {
         /// Aborts the accept loop when this future is dropped, not only when setup completes.
         struct AbortOnDrop(tokio::task::JoinHandle<()>);
         impl Drop for AbortOnDrop {
@@ -436,7 +463,7 @@ impl Console {
         // ⚠ A stop or a restart in place (FR-20.18) drops this future, and a spawned task outlives
         // its JoinHandle: the accept loop went on listening with the OLD round's token and upstream,
         // and the next round's console could not bind its port (found running setup on Windows).
-        let _accepting = AbortOnDrop(tokio::spawn(serve(listener, move |req, peer| me.clone().handle(req, peer))));
+        let _accepting = AbortOnDrop(tokio::spawn(serve(listener, connections, move |req, peer| me.clone().handle(req, peer))));
         while !self.marker.exists() {
             tokio::time::sleep(check).await;
         }
@@ -569,7 +596,7 @@ mod tests {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let up = Arc::new(Upstream { port: api, secret: "the-front-secret".into() });
-        tokio::spawn(serve(listener, move |req, peer| {
+        tokio::spawn(serve(listener, Connections::default(), move |req, peer| {
             let up = up.clone();
             async move { forward(req, source, peer, &up, source == Source::Lan).await }
         }));
@@ -651,7 +678,7 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         let up = Arc::new(Upstream { port: echo_upstream().await, secret: "the-front-secret".into() });
         let console = Arc::new(Console::new(port, "the-setup-token".into(), up, marker.clone()));
-        let closed = tokio::spawn(console.serve_until_complete(listener, Duration::from_millis(100)));
+        let closed = tokio::spawn(console.serve_until_complete(listener, Connections::default(), Duration::from_millis(100)));
         let host = format!("127.0.0.1:{port}");
         let get = |path: &str, extra: &str| format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n{extra}Connection: close\r\n\r\n");
 
@@ -703,7 +730,7 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         let up = Arc::new(Upstream { port: api, secret: "the-front-secret".into() });
         let c = Arc::new(Console::new(port, token.into(), up, marker));
-        tokio::spawn(c.serve_until_complete(listener, Duration::from_millis(100)));
+        tokio::spawn(c.serve_until_complete(listener, Connections::default(), Duration::from_millis(100)));
         port
     }
 
@@ -715,13 +742,63 @@ mod tests {
         let up = Arc::new(Upstream { port: echo_upstream().await, secret: "the-front-secret".into() });
         let console = Arc::new(Console::new(port, "the-setup-token".into(), up, dir.path().join("setup-complete")));
         // What a stop or a restart in place does to every ingress: abort the task the round spawned.
-        let round = tokio::spawn(console.serve_until_complete(listener, Duration::from_millis(100)));
+        let round = tokio::spawn(console.serve_until_complete(listener, Connections::default(), Duration::from_millis(100)));
         tokio::time::sleep(Duration::from_millis(100)).await;
         round.abort();
         let _ = round.await;
         tokio::time::sleep(Duration::from_millis(100)).await;
         // The next round's console binds the same port: the accept loop went with the round.
         TcpListener::bind(("127.0.0.1", port)).await.expect("the old console still holds its port");
+    }
+
+    /// One answer off a connection that stays open: its head, then the body its length says.
+    async fn read_answer(s: &mut TcpStream) -> String {
+        let mut got = Vec::new();
+        let mut byte = [0u8; 1];
+        while !got.ends_with(b"\r\n\r\n") {
+            let n = tokio::time::timeout(Duration::from_secs(5), s.read(&mut byte)).await.unwrap().unwrap();
+            assert_eq!(n, 1, "the connection closed mid-answer");
+            got.push(byte[0]);
+        }
+        let head = String::from_utf8_lossy(&got).into_owned();
+        let length = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap())).unwrap_or(0);
+        let mut body = vec![0u8; length];
+        tokio::time::timeout(Duration::from_secs(5), s.read_exact(&mut body)).await.unwrap().unwrap();
+        head + &String::from_utf8_lossy(&body)
+    }
+
+    /// A browser polling setup's state, or PowerShell, keeps its connection alive. After a restart in
+    /// place nothing of the old round may answer on it: its console, its token, its supervisor (the
+    /// Windows master lane: setup's settings never read as applied, and a reset's link was refused).
+    #[tokio::test]
+    async fn a_connection_kept_alive_ends_with_its_round() {
+        let dir = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let up = Arc::new(Upstream { port: echo_upstream().await, secret: "the-front-secret".into() });
+        let console = Arc::new(Console::new(port, "the-setup-token".into(), up, dir.path().join("setup-complete")));
+        let connections = Connections::default();
+        let round = tokio::spawn(console.serve_until_complete(listener, connections.clone(), Duration::from_millis(100)));
+
+        // One connection, answered, and still open.
+        let mut s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let ask = format!("GET /__lgr/setup HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n");
+        s.write_all(ask.as_bytes()).await.unwrap();
+        let first = read_answer(&mut s).await;
+        assert!(first.starts_with("HTTP/1.1 200"), "{first}");
+
+        // The round ends as a stop or a restart in place ends it: its ingresses first, then, once its
+        // children have stopped, the connections they accepted (`Supervisor::shutdown`).
+        round.abort();
+        let _ = round.await;
+        connections.close();
+
+        // Nothing answers on it: the client opens another, which reaches the next round.
+        let _ = s.write_all(ask.as_bytes()).await;
+        let mut rest = Vec::new();
+        let read = tokio::time::timeout(Duration::from_secs(5), s.read_to_end(&mut rest)).await;
+        assert!(read.is_ok(), "the old round still holds the connection open");
+        assert!(rest.is_empty(), "the old round answered: {}", String::from_utf8_lossy(&rest));
     }
 
     #[tokio::test]
@@ -760,7 +837,7 @@ mod tests {
         let ca_pem = identity.ca_pem.clone();
         let lan = Arc::new(std::sync::Mutex::new(identity));
         let served = lan.clone();
-        tokio::spawn(serve_tls(listener, tls, move |req, peer| {
+        tokio::spawn(serve_tls(listener, tls, Connections::default(), move |req, peer| {
             let (up, lan) = (up.clone(), served.clone());
             async move {
                 if let Some(answer) = lan_ca_answer(&req, &lan) {

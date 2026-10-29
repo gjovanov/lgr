@@ -519,7 +519,7 @@ fn run_round(runtime: &tokio::runtime::Runtime, shutdown: std::pin::Pin<&mut imp
                             // The CA a pairing desktop fetches and checks (FR-20.29), and what a paired
                             // one follows a rotation by (FR-20.30): read from the identity each time.
                             let served = identity.clone();
-                            sup.add_ingress(tokio::spawn(ingress::serve_tls(listener, tls, move |req, peer| {
+                            sup.add_ingress(tokio::spawn(ingress::serve_tls(listener, tls, sup.connections(), move |req, peer| {
                                 let (up, lan) = (up.clone(), served.clone());
                                 async move {
                                     if let Some(answer) = ingress::lan_ca_answer(&req, &lan) {
@@ -583,7 +583,7 @@ fn run_round(runtime: &tokio::runtime::Runtime, shutdown: std::pin::Pin<&mut imp
                 // FR-20.18: setup's steps are the console's own (`setup.rs`).
                 let host = std::sync::Arc::new(setup::Host { data: paths.data.clone(), sup: sup.clone(), console_port: front.setup_port });
                 let console = std::sync::Arc::new(ingress::Console::new(front.setup_port, token, upstream.clone(), marker).with_setup(host));
-                sup.add_ingress(tokio::spawn(console.run()));
+                sup.add_ingress(tokio::spawn(console.run(sup.connections())));
             }
             Ok(())
         })
