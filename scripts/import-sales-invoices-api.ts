@@ -13,12 +13,11 @@
  * Safety gates (per invoice, must ALL pass before commit/convert):
  *   - the source JSON has a `header.docNumber` — a document missing one is skipped before it
  *     ever reaches the API
- *   - `header.sum` is not negative — the printed tell for a Кредитно/Дебитно известие (credit /
- *     debit note), which this mapper does not yet know how to type correctly (see
- *     `map-plusminus-invoice.ts`'s header comment — PlusMinus's JSON has no confirmed structural
- *     signal for these yet). A negative-sum document is skipped with a warning rather than mapped
- *     as a malformed plain invoice; import it via the existing PDF/OCR `import-sales-invoices`
- *     skill instead, which detects the type from the printed title.
+ *   - a negative `header.sum` (a Кредитно известие) types and books correctly — see
+ *     `map-plusminus-invoice.ts`'s header comment — but ONLY once `--only` scoping or a prior run
+ *     has already imported the invoice it corrects; `header.ОСНИЗВ`'s reference may name a
+ *     document outside this run's own candidate set, so it is not re-checked here beyond what
+ *     `resolveRelatedInvoice` already does server-side (logs and proceeds link-less, never fails).
  *   - direction resolved to `outgoing` and not flagged uncertain (`--include-uncertain` overrides)
  *   - not already imported (dedup by reference/invoiceNumber, same as the OCR script)
  *
@@ -248,11 +247,6 @@ async function main() {
   const candidates: SrcFile[] = []
   for (const f of todo) {
     if (!f.doc?.header?.docNumber) { skipped.push({ num: f.num, reason: 'no header.docNumber' }); continue }
-    const sum = Number(f.doc.header.sum)
-    if (Number.isFinite(sum) && sum < 0) {
-      skipped.push({ num: f.num, reason: `header.sum is negative (${sum}) — likely a credit/debit note; use the PDF/OCR skill for this one` })
-      continue
-    }
     candidates.push(f)
   }
   for (const s of skipped) console.log(`  ⚠ ${s.num}: ${s.reason} — skipped`)

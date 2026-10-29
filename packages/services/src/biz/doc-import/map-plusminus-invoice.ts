@@ -23,11 +23,17 @@
  * boilerplate, which is invariant and was copied verbatim off a real printed invoice) — so the
  * existing parsers do the work, unchanged.
  *
+ * **Credit notes** (a negative `header.sum`) are handled, not skipped: `buildSyntheticRawText`
+ * below emits the same "Кредитно известие" + "Известие към: <ref>" signal a printed note's OCR'd
+ * text already carries, so `detectNoteType`/`parseNoteReference` (detect.ts) — unchanged,
+ * text-based, written for the OCR path — classify it and resolve what it corrects without any
+ * server-side code touched. `header.ОСНИЗВ` ("-ФЕ 3000101701/29.10.2026") already has the exact
+ * "<code> <number>/<date>" shape `parseNoteReference`'s regex looks for. Confirmed on two real
+ * notes, both orgs (regal-pz 3000101716, regal-sf 2000129342): `ОСНИЗВ`, `header.comment` and
+ * every line's `fromDocument` all agree on the same original invoice number. No debit notes have
+ * been observed in either org's data — only the credit-note title is ever emitted.
+ *
  * Deliberately NOT handled here (left for the caller to triage before calling this at all):
- *   - Credit/debit notes. PlusMinus's JSON has no confirmed structural signal distinguishing a
- *     Кредитно/Дебитно известие from a plain invoice (only the printed PDF title does, per
- *     memory). A document whose header.sum is negative — the printed tell for a note — should be
- *     skipped by the caller rather than mapped as a malformed plain invoice.
  *   - Counterparty ЕИК/VAT/address/city: not present in PlusMinus's invoice header (only a name).
  *     `matchContact`'s existing name-only fallback tier handles this the same way it already does
  *     when the OCR/AI path also fails to read an ЕИК.
@@ -120,6 +126,23 @@ export const INVOICE_TERMS_BOILERPLATE = [
 ]
 
 /**
+ * `detectNoteType`/`parseNoteReference` (detect.ts) are text-based and unchanged — this emits
+ * exactly the two phrases they look for, from `header.ОСНИЗВ`, when `header.sum` is negative.
+ * `ОСНИЗВ` ("-ФЕ 3000101701/29.10.2026") already has the "<code> <number>/<date>" shape
+ * `parseNoteReference`'s regex scans for, so the whole value is reused verbatim rather than
+ * re-parsed. A malformed/absent `ОСНИЗВ` omits the "Известие към" line — the note still types
+ * correctly as credit_note, just with no resolvable `relatedReference`, the same graceful
+ * degradation the OCR path already has for a note that doesn't name what it corrects.
+ */
+function creditNoteSignalLines(h: PlusMinusHeader): string[] {
+  if (!((num(h.sum) ?? 0) < 0)) return []
+  const lines = ['Кредитно известие']
+  const basis = String(h['ОСНИЗВ'] ?? h.comment ?? '')
+  if (/\d{6,}\s*\/\s*\d{1,2}\.\d{1,2}\.\d{4}/.test(basis)) lines.push(`Известие към: ${basis}`)
+  return lines
+}
+
+/**
  * A small deterministic text blob carrying only the labelled fields `parse-text.ts`'s regexes
  * look for — not OCR output, just enough for those UNCHANGED functions to do their job from data
  * we actually have. Lines/fields we have no reliable source for (Съставил:, Словом:, the
@@ -127,7 +150,7 @@ export const INVOICE_TERMS_BOILERPLATE = [
  * undefined instead of a wrong value.
  */
 export function buildSyntheticRawText(h: PlusMinusHeader): string {
-  const lines: string[] = []
+  const lines: string[] = [...creditNoteSignalLines(h)]
   if (h.placeOfIssue) lines.push(`Място на сделката: : ${h.placeOfIssue}`)
   const method = plusminusPaymentMethod(h.paymentMethod ?? h.paymentType)
   if (method) lines.push(`Плащане: ${method}`)

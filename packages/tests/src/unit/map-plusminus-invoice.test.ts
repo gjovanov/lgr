@@ -16,8 +16,24 @@ import {
   INVOICE_TERMS_BOILERPLATE,
   type PlusMinusDocument,
 } from 'services/biz/doc-import/map-plusminus-invoice'
+import { detectNoteType, parseNoteReference } from 'services/biz/doc-import/detect'
 
 const SUPPLIER = { name: 'Регал ООД', eik: '112500982', vatNumber: 'BG112500982', address: 'Пловдивска 110', city: 'Пазарджик' }
+
+/** invoicem_3000101716.json verbatim (header only; the credit note PR's real regal-pz sample). */
+const CREDIT_NOTE_PZ: PlusMinusDocument['header'] = {
+  docNumber: '3000101716', doc: '-ФЕ', docDate: '20261029', partner: 'КЛИЕНТИ:АДСОМ - ООД',
+  sum: '-28.34', vat: '-4.72', comment: 'Стоки -ФЕ 3000101701/29.10.2026 ED338085-1111-0085802',
+  'ОСНИЗВ': '-ФЕ 3000101701/29.10.2026', paymentMethod: '1',
+}
+
+/** invoicem_2000129342.json verbatim (header only; the real regal-sf sample — a SEPARATE
+ *  pmserver.exe install, same ОСНИЗВ shape confirmed independently). */
+const CREDIT_NOTE_SF: PlusMinusDocument['header'] = {
+  docNumber: '2000129342', doc: '-ФЕ', docDate: '20261029', partner: 'ПАРТНЬОРИ:ЕЛЕКТРОГЕЦ ООД',
+  sum: '-111.67', vat: '-18.61', comment: 'Стоки -ФЕ 2000129271/27.10.2026',
+  'ОСНИЗВ': '-ФЕ 2000129271/27.10.2026', paymentMethod: '2',
+}
 
 const SAMPLE_INVOICE: PlusMinusDocument = {
   date: '20261026',
@@ -115,5 +131,28 @@ describe('buildSyntheticRawText', () => {
     const text = buildSyntheticRawText({})
     expect(text).not.toContain('Място на сделката')
     expect(text).not.toContain('Плащане:')
+  })
+
+  it('says nothing about a credit note for an ordinary positive-sum invoice', () => {
+    const text = buildSyntheticRawText(SAMPLE_INVOICE.header)
+    expect(text).not.toContain('Кредитно известие')
+    expect(detectNoteType(text)).toBeNull()
+  })
+
+  describe('a real negative-sum document (credit note), both orgs', () => {
+    it.each([
+      ['regal-pz', CREDIT_NOTE_PZ, '3000101701'],
+      ['regal-sf', CREDIT_NOTE_SF, '2000129271'],
+    ])('%s: detectNoteType/parseNoteReference — the SAME unchanged text-based functions the OCR path uses — read it as a credit note correcting %s', (_org, header, expectedRef) => {
+      const text = buildSyntheticRawText(header)
+      expect(detectNoteType(text)).toBe('credit_note')
+      expect(parseNoteReference(text)).toBe(expectedRef)
+    })
+  })
+
+  it('still types as a credit note when ОСНИЗВ is missing, just without a resolvable reference', () => {
+    const text = buildSyntheticRawText({ sum: '-5' })
+    expect(detectNoteType(text)).toBe('credit_note')
+    expect(parseNoteReference(text)).toBeUndefined()
   })
 })
