@@ -58,6 +58,34 @@ export interface CommitResult {
   error?: string
 }
 
+/**
+ * Filename prefix → the `kind` hint `analyzeOne` falls back to when the content-based detector
+ * (`detectDocKind`) can't place a document — e.g. a landscape стокова разписка whose native PDF
+ * text extraction interleaves "СТОКОВА" and "РАЗПИСКА" around the title's Номер:/Дата: box
+ * (confirmed live 2026-10-29 on 6 freshly remote-desktop-exported stokrazp PDFs, all refused
+ * with "this does not look like a стокова/складова разписка" through this wizard). The Files
+ * app already derives this same hint from `DocFile.docType`, itself set from the filename at
+ * upload time (`doc-store.service.ts`'s `PREFIX_TYPE`) — this mirrors ONLY the PDF-kind half of
+ * that table (ui-shared cannot import the server-side, Mongoose-coupled original), since the
+ * xlsx types take a different path (`sheet.kind`, set by the parsed-spreadsheet upload) and
+ * never consult this hint. It is a hint, not a verdict: `2000 КОРЕКЦИЯ` content still upgrades a
+ * `stokrazp_*` file from `goods_receipt` to `correction` — the hint only rescues a document the
+ * content check would otherwise refuse outright.
+ */
+const PREFIX_KIND: Record<string, string> = {
+  invoicem: 'invoice',
+  stokrazp: 'goods_receipt',
+  sklrazp: 'transfer_note',
+  sklisk: 'issue_note',
+}
+
+/** `"stokrazp_3000016596.pdf"` → `"goods_receipt"`; unrecognised/absent prefix → undefined. */
+export function kindFromFilename(filename: string | undefined): string | undefined {
+  const base = (filename || '').replace(/\.[^.]+$/, '')
+  const prefix = base.match(/^([A-Za-z]+)_/)?.[1] ?? ''
+  return PREFIX_KIND[prefix]
+}
+
 /** Largest batch the server accepts — mirrors MAX_BATCH_FILES. */
 export const MAX_IMPORT_FILES = 40
 
@@ -133,7 +161,7 @@ export function useDocImport(orgUrl: () => string) {
   /** Map the extracted text onto documents. Persists nothing — safe to run and walk away. */
   async function analyze(
     target: ImportTarget,
-    items: Array<{ fileId: string; filename?: string; text?: string; parsed?: any; profile?: string }>,
+    items: Array<{ fileId: string; filename?: string; text?: string; parsed?: any; profile?: string; kind?: string }>,
     context: Record<string, any> = {},
     options: Record<string, any> = {},
   ): Promise<AnalyzedDoc[]> {
@@ -141,7 +169,10 @@ export function useDocImport(orgUrl: () => string) {
     error.value = ''
     progress.value = 0
     try {
-      const { data } = await httpClient.post(`${orgUrl()}/doc-import/analyze`, { target, items, context, options })
+      // kind is a HINT (see kindFromFilename) — a caller's own kind, or content the detector
+      // already placed, always takes precedence; this only fills in what's still missing.
+      const withKindHint = items.map(it => (it.kind ? it : { ...it, kind: kindFromFilename(it.filename) }))
+      const { data } = await httpClient.post(`${orgUrl()}/doc-import/analyze`, { target, items: withKindHint, context, options })
       const result = await waitForTask(data.taskId)
       analyzed.value = result?.results || []
       return analyzed.value
