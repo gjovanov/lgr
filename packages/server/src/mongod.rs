@@ -472,6 +472,29 @@ mod tests {
         assert!(wait_for_free_port(port, Duration::from_secs(2)).await);
     }
 
+    /// ⚠ A tripwire, not a feature: plan step P1-2's FCV routine is not built, and it must be
+    /// before a package carries another major of mongod.
+    ///
+    /// A new major opens the data of the one before it and keeps its featureCompatibilityVersion
+    /// there until told. While the FCV stays, the update helper can still go back to the version
+    /// before, whose mongod opens the same data.
+    /// - **Raised during an attempt,** a rollback starts the OLD mongod on data it refuses, and the
+    ///   master is down with nothing left to go back to.
+    /// - **Never raised,** the major after next refuses the data at its first start.
+    ///
+    /// So: never raise it while an update is watched, raise it once the version is confirmed
+    /// (`last_known_good`), and refuse a bundle whose mongod is more than one major ahead of the
+    /// data's FCV.
+    #[test]
+    fn the_packaged_mongod_is_the_major_the_server_was_written_for() {
+        let lock: serde_json::Value = serde_json::from_str(include_str!("../runtime.lock.json")).unwrap();
+        let version = lock["mongod"]["version"].as_str().unwrap();
+        assert!(
+            version.starts_with("7.0."),
+            "runtime.lock.json pins mongod {version}: build the featureCompatibilityVersion routine first (see this test)"
+        );
+    }
+
     #[test]
     fn the_cache_is_sized_for_a_shop_pc() {
         const GB: u64 = 1 << 30;
