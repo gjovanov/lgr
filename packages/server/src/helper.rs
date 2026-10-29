@@ -4,7 +4,7 @@
 //!
 //! What it does now: it watches every switch until it is confirmed or rolled back.
 //! - **Confirmed** after the service has run cleanly for 5 minutes: the supervisor up that long, and
-//!   the API running that long by the supervisor's own account. Then the version is the last known
+//!   the API serving that long by its own account. Then the version is the last known
 //!   good, the helper itself moves to it, and only it and the version before stay on disk.
 //! - **Rolled back**, from disk and offline, when it crash-loops (3 restarts in 10 minutes), stays
 //!   down, or never runs cleanly within 20 minutes. The failure is recorded first, the version is
@@ -79,8 +79,8 @@ impl Tuning {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Health {
     pub uptime_secs: u64,
-    /// How long the API child has been running; `None` while it is not.
-    pub api_running_secs: Option<u64>,
+    /// How long the API has served, by its own account; `None` while it does not answer.
+    pub api_serving_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,7 +165,7 @@ impl Watch {
         if observed.running {
             self.down_since = None;
             if let Some(h) = health {
-                if h.uptime_secs >= t.clean_secs && h.api_running_secs.is_some_and(|s| s >= t.clean_secs) {
+                if h.uptime_secs >= t.clean_secs && h.api_serving_secs.is_some_and(|s| s >= t.clean_secs) {
                     return Verdict::Confirmed;
                 }
             }
@@ -199,9 +199,20 @@ fn health(rt: &tokio::runtime::Runtime, endpoint: &str) -> Option<Health> {
         .block_on(async { tokio::time::timeout(Duration::from_secs(3), crate::ipc::request(endpoint, &crate::ipc::Request::Status)).await })
         .ok()?
         .ok()?;
-    let s = answer.status?;
-    let api = s["children"].as_array()?.iter().find(|c| c["name"] == "api")?;
-    Some(Health { uptime_secs: s["uptimeSecs"].as_u64()?, api_running_secs: (api["state"] == "running").then(|| api["sinceSecs"].as_u64()).flatten() })
+    health_from(&answer.status?)
+}
+
+/// The supervisor's status, read as health.
+///
+/// ⚠ The API's OWN account (`api`, its `/status` over its control socket), never only its process.
+/// A process alive and not serving (waiting for a lock a stopped start left, or hung before it
+/// listens) is no clean run: the helper of the first 0.1.4 rollback lane called the version it went
+/// back to "running" while its API had served nothing for minutes. The control socket exists only
+/// once the API serves, and its `uptimeSecs` counts from then. A stopping API says `ok: false`.
+fn health_from(s: &serde_json::Value) -> Option<Health> {
+    let api = &s["api"];
+    let serving = (api["ok"] == true).then(|| api["uptimeSecs"].as_u64()).flatten();
+    Some(Health { uptime_secs: s["uptimeSecs"].as_u64()?, api_serving_secs: serving })
 }
 
 fn watch(t: &Tuning) -> Verdict {
@@ -821,7 +832,7 @@ mod tests {
     /// Windows: STOP_PENDING, STOPPED with no error, START_PENDING: no crash.
     const WIN_BETWEEN: Observed = Observed { running: false, pid: None, auto_restarts: None, crashed: Some(false) };
     fn healthy(secs: u64) -> Option<Health> {
-        Some(Health { uptime_secs: secs, api_running_secs: Some(secs) })
+        Some(Health { uptime_secs: secs, api_serving_secs: Some(secs) })
     }
 
     #[test]
@@ -830,8 +841,8 @@ mod tests {
         assert_eq!(w.step(0, up(10), healthy(1), &T), Verdict::Wait);
         assert_eq!(w.step(200, up(10), healthy(200), &T), Verdict::Wait);
         // The supervisor up for 5 minutes and the API only just restarted: not clean yet.
-        assert_eq!(w.step(310, up(10), Some(Health { uptime_secs: 310, api_running_secs: Some(20) }), &T), Verdict::Wait);
-        assert_eq!(w.step(320, up(10), Some(Health { uptime_secs: 320, api_running_secs: None }), &T), Verdict::Wait);
+        assert_eq!(w.step(310, up(10), Some(Health { uptime_secs: 310, api_serving_secs: Some(20) }), &T), Verdict::Wait);
+        assert_eq!(w.step(320, up(10), Some(Health { uptime_secs: 320, api_serving_secs: None }), &T), Verdict::Wait);
         assert_eq!(w.step(600, up(10), healthy(600), &T), Verdict::Confirmed);
     }
 
@@ -978,9 +989,9 @@ mod tests {
         // The supervisor stays up and the API crashes over and over: the PID never changes.
         let mut w = Watch::new();
         for at in (0..1200).step_by(30) {
-            assert_eq!(w.step(at, up(7), Some(Health { uptime_secs: at, api_running_secs: Some(3) }), &T), Verdict::Wait, "at {at}");
+            assert_eq!(w.step(at, up(7), Some(Health { uptime_secs: at, api_serving_secs: Some(3) }), &T), Verdict::Wait, "at {at}");
         }
-        assert!(matches!(w.step(1200, up(7), Some(Health { uptime_secs: 1200, api_running_secs: None }), &T), Verdict::Failed(r) if r == "it did not run cleanly for 5 minutes within 20 minutes"));
+        assert!(matches!(w.step(1200, up(7), Some(Health { uptime_secs: 1200, api_serving_secs: None }), &T), Verdict::Failed(r) if r == "it did not run cleanly for 5 minutes within 20 minutes"));
         // A tuned watch says seconds, never "0 minutes".
         let short = Tuning { clean_secs: 30, deadline_secs: 180, ..T };
         assert!(matches!(Watch::new().step(180, up(7), None, &short), Verdict::Failed(r) if r == "it did not run cleanly for 30 seconds within 3 minutes"));
@@ -1011,7 +1022,8 @@ mod tests {
             while let Some((_, answer)) = rx.recv().await {
                 let _ = answer.send(crate::ipc::Response::status(serde_json::json!({
                     "uptimeSecs": 400,
-                    "children": [{ "name": "mongod", "state": "running", "sinceSecs": 400 }, { "name": "api", "state": "running", "sinceSecs": 390 }],
+                    "children": [{ "name": "mongod", "state": "running", "sinceSecs": 400 }, { "name": "api", "state": "running", "sinceSecs": 395 }],
+                    "api": { "ok": true, "uptimeSecs": 390 },
                 })));
             }
         });
@@ -1023,7 +1035,29 @@ mod tests {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        assert_eq!(got, Some(Health { uptime_secs: 400, api_running_secs: Some(390) }));
+        assert_eq!(got, Some(Health { uptime_secs: 400, api_serving_secs: Some(390) }));
+    }
+
+    /// The first 0.1.4 rollback lane: the API's process ran, its control socket never answered (it
+    /// waited for the migration lock a stopped start had left), and the helper called it running.
+    #[test]
+    fn an_api_alive_and_not_serving_is_no_clean_run() {
+        let alive_only = serde_json::json!({
+            "uptimeSecs": 400,
+            "children": [{ "name": "api", "state": "running", "sinceSecs": 395 }],
+            "api": { "error": "connecting to /var/lib/lgr/run/api.sock: Connection refused" },
+        });
+        assert_eq!(health_from(&alive_only), Some(Health { uptime_secs: 400, api_serving_secs: None }));
+        let stopping = serde_json::json!({ "uptimeSecs": 400, "api": { "ok": false, "stopping": true, "uptimeSecs": 380 } });
+        assert_eq!(health_from(&stopping), Some(Health { uptime_secs: 400, api_serving_secs: None }));
+        let serving = serde_json::json!({ "uptimeSecs": 400, "api": { "ok": true, "uptimeSecs": 380 } });
+        assert_eq!(health_from(&serving), Some(Health { uptime_secs: 400, api_serving_secs: Some(380) }));
+        // And a watch never confirms the first, however long its process runs.
+        let mut w = Watch::new();
+        for at in (0..1200).step_by(60) {
+            assert_eq!(w.step(at, up(7), health_from(&serde_json::json!({ "uptimeSecs": at, "api": { "error": "refused" } })), &T), Verdict::Wait, "at {at}");
+        }
+        assert!(matches!(w.step(1200, up(7), None, &T), Verdict::Failed(r) if r.contains("did not run cleanly")));
     }
 
     fn offer(target: serde_json::Value) -> serde_json::Value {

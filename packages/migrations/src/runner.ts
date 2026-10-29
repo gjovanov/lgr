@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { hostname } from 'node:os'
 import type { Db } from 'mongodb'
 import type { Migration, MigrationContext, MigrationRecord } from './types.js'
 import { MIGRATIONS } from './registry.js'
@@ -102,7 +103,42 @@ export interface RunResult {
   alreadyApplied: string[]
 }
 
-async function acquireLock(db: Db, owner: string, ttlMs: number, waitMs: number): Promise<void> {
+/** This run, as its lock names it: the machine, the process and the run (`host:pid:uuid`). */
+function lockOwner(): string {
+  return `${hostname()}:${process.pid}:${randomUUID()}`
+}
+
+/** Whether `pid` is a process on this machine. EPERM is one this process may not signal: it exists. */
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e: any) {
+    return e?.code === 'EPERM'
+  }
+}
+
+/**
+ * Whether a lock's holder is a process that no longer exists ON THIS MACHINE, so its lock can be
+ * taken over now rather than when it lapses (10 minutes).
+ *
+ * ⚠ Why: a master's API runs the migrations at every start, and a start stopped in that second (the
+ * update helper's rollback stops the version systemd had just started again, a power cut, a crash)
+ * left the lock held. The next start then waited for it to lapse, alive and not serving: the first
+ * rollback lane's shop would have had no server for ten minutes.
+ *
+ * Only a holder on this host can be judged. Global's pods are separate machines, so one pod cannot
+ * see another's processes, and a lock there still lapses on its own. A pid that exists, this
+ * process's own included, is waited for: a reused pid, or two containers given one hostname whose
+ * pid numbering both start at 1, then cost the lapse, never a second run alongside a live one.
+ */
+export function holderIsGone(owner: string, here = hostname(), exists: (pid: number) => boolean = processExists): boolean {
+  const m = /^(.+):(\d+):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.exec(owner)
+  if (!m || m[1] !== here) return false
+  return !exists(Number(m[2]))
+}
+
+async function acquireLock(db: Db, owner: string, ttlMs: number, waitMs: number, log: RunOptions['log']): Promise<void> {
   const coll = db.collection<any>(COLLECTION)
   const deadline = Date.now() + waitMs
   for (;;) {
@@ -117,6 +153,19 @@ async function acquireLock(db: Db, owner: string, ttlMs: number, waitMs: number)
       return
     } catch (e: any) {
       if (e?.code !== 11000) throw e
+    }
+    // Held. By a process on this machine that is gone: taken over from that exact holder, so two
+    // starts racing for a dead holder's lock cannot both win it.
+    const held = await coll.findOne({ _id: LOCK_ID })
+    if (held && holderIsGone(String(held.owner ?? ''))) {
+      const taken = await coll.updateOne(
+        { _id: LOCK_ID, owner: held.owner },
+        { $set: { owner, expiresAt: new Date(now.getTime() + ttlMs) } },
+      )
+      if (taken.modifiedCount === 1) {
+        log?.('Migrations: took over the lock of a run on this machine that ended without releasing it', { previousOwner: held.owner })
+        return
+      }
     }
     if (Date.now() >= deadline) {
       const held = await coll.findOne({ _id: LOCK_ID })
@@ -150,8 +199,8 @@ export async function runMigrations(opts: RunOptions): Promise<RunResult> {
   } = opts
   assertRegistryOrder(migrations)
 
-  const owner = `${process.env.HOSTNAME || 'node'}:${process.pid}:${randomUUID()}`
-  await acquireLock(db, owner, lockTtlMs, lockWaitMs)
+  const owner = lockOwner()
+  await acquireLock(db, owner, lockTtlMs, lockWaitMs, log)
   const result: RunResult = { applied: [], alreadyApplied: [] }
   try {
     const coll = db.collection<MigrationRecord>(COLLECTION)

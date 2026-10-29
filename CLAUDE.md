@@ -245,6 +245,13 @@ default, the kill switch); `bun run migrate` runs it by hand.
   by `ctx.orgFilter` (every org today; P0b-3 narrows it to the orgs whose home is this node).
 - The backup FR-20.19 asks for comes from whoever runs it (the master supervisor, the nightly backup on
   global), not from server start.
+- **The lock** (`__lock__`, owner `host:pid:uuid`) lapses after 10 min. A start waits for it for up to 15 min.
+  - ⚠ A run whose holder is a process on THIS machine that no longer exists takes the lock over at
+    once (`holderIsGone`).
+  - The first 0.1.4 rollback lane showed why: the update helper stopped a version one second into its
+    boot-time migrations, and the version it went back to waited ten minutes, alive and not serving.
+  - Another host's holder (global's pods) still lapses on its own. A pid that exists (a reused one, or
+    this process's own) is waited for: never a second run beside a live one.
 
 ## The server package (FR-20.25/FR-20.26, plan step P0b-9)
 
@@ -428,6 +435,12 @@ yet" (exit 2) until P1-9 / P1-8.
   - ⚠ The helper runs the LAST KNOWN GOOD version, never the one it watches. A fix to the helper
     guards only switches made after it is the last known good version: the lanes proved #369 with a
     test-only 0.1.5 over 0.1.4.
+- **"Clean" is the API SERVING, by its own account** (`helper.rs` `health_from`, 0.1.4).
+  - It reads `api.ok` and `api.uptimeSecs` from the API's `/status` over its control socket, which
+    exists only once the API serves. It never reads whether the API child's process runs.
+  - The first 0.1.4 rollback lane's helper reported "the previous version runs" while that API sat
+    behind a migration lock, alive and serving nothing. A version whose API never answers is now
+    never confirmed: it reaches the 20-minute deadline instead.
 - **`mongod` (P1-2, FR-20.15, `mongod.rs`):** started first, on 127.0.0.1 only (port 27118, never
   27017, which another MongoDB may own), `--replSet rs0`, `--keyFile keys/mongo.keyfile`, cache
   0.5/1/2 GB by RAM (<8 / <16 / more GB), oplog 2 GB. The API is listed `pending` until the

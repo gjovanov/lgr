@@ -109,7 +109,7 @@ The packages install a version beside the others and point the service at it (FR
 | the update state | `...\LGR Server\update\state.json` | `/opt/lgr-server/update/state.json` |
 
 - **A switch is watched.** The update helper confirms a new version once the service has run
-  cleanly for 5 minutes (the supervisor and the API up that long), and switches back to the
+  cleanly for 5 minutes (the supervisor up that long, and the API serving that long by its own account), and switches back to the
   previous version by itself, from disk and offline, if it crash-loops (it dies and is started again
   3 times in 10 minutes), stays down, or never runs cleanly within 20 minutes. A version that failed
   is never switched to again, and an older one never at all.
