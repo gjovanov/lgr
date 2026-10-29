@@ -144,6 +144,26 @@ The packages install a version beside the others and point the service at it (FR
   Servers page).
 - `lgr-server licence import <file>`: an air-gapped server's licence.
 
+## Settings: `config/api.env`
+
+The operator's settings are in `config/api.env` under the data directory
+(`C:\ProgramData\LGR\config\api.env`, `/var/lib/lgr/config/api.env`), one `NAME=value` per line.
+The service reads them when it starts, so restart it after a change: `Restart-Service LGRServer`,
+or `sudo systemctl restart lgr-server`.
+
+⚠ Setup does not ask for these yet (gjovanov/lgr#350). Until it does, this file is where they are
+set.
+
+| Setting | What it does |
+|---|---|
+| `LAN_INGRESS=on` | Opens the LAN ingress, HTTPS on `LAN_PORT`, so the shop's tills can pair and connect. **Off by default:** a server with no tills opens nothing on the LAN. Pairing codes then name this machine's address, from the server's Desktops page. |
+| `LAN_PORT` | The LAN ingress's port, 4443 by default. |
+| `LGR_LAN_NAMES` | Names the server answers to on the LAN besides the machine's own and `<machine>.local`, comma-separated. A request for any other name is refused; an IP address always works. |
+| `SETUP_PORT` | The setup console's port on loopback, 4480 by default. |
+| `BACKUP_LOCAL_PATH` | A second disk, a USB drive or a share, for a copy of every night's backup (`<path>/LGR/Backups/<org>/<kind>/`). It must be **another disk** than the server's data. A folder on the same disk is refused, because a copy beside the database is no copy, and so is a drive that is not there (unplugged, or a share that is down). Mount the drive where the service can write. |
+| `BACKUP_LOCAL_KEEP` | How many generations the local copy keeps. |
+| `UPDATE_WINDOW`, `UPDATE_AUTO` | The nightly update window: see [Versions and updates](#versions-and-updates). |
+
 ## What is inside a version
 
 `HOME.json` says what the home is: its version, commit, target and the versions it carries, and
