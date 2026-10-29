@@ -5,8 +5,10 @@ import {
 } from '../helpers/factories'
 import type { Types } from 'mongoose'
 import { mongoose } from 'db/connection'
+import { randomUUID } from 'node:crypto'
+import { hostname } from 'node:os'
 import {
-  runMigrations, migrationStatus, checksumOf, assertRegistryOrder,
+  runMigrations, migrationStatus, checksumOf, assertRegistryOrder, holderIsGone,
   MigrationChecksumError, MigrationLockError, COLLECTION,
 } from 'migrations/runner'
 import { MIGRATIONS } from 'migrations/registry'
@@ -126,6 +128,57 @@ describe('the runner', () => {
     const err = await captureRejection(runMigrations({ db: db(), migrations: [counting('0002-b', ran)], lockWaitMs: 500 }))
     expect(err).toBeInstanceOf(MigrationLockError)
     expect((err as Error).message).toContain('busy-node')
+  })
+
+  it('a lock a run on THIS machine left behind is taken over at once, not after it lapses', async () => {
+    // The first rollback lane (2026-10-29): the update helper stopped a version a second after
+    // systemd started it, in the middle of its boot-time migrations, and the version it went back to
+    // waited for the lock to lapse: ten minutes alive and not serving.
+    const gone = Bun.spawn(['bun', '-e', '0'])
+    await gone.exited
+    const ran: string[] = []
+    const logged: string[] = []
+    const owner = `${hostname()}:${gone.pid}:${randomUUID()}`
+    await db().collection(COLLECTION).insertOne({ _id: '__lock__' as any, owner, expiresAt: new Date(Date.now() + 10 * 60_000) })
+    const started = Date.now()
+    const res = await runMigrations({ db: db(), migrations: [counting('0001-a', ran)], lockWaitMs: 30_000, log: m => logged.push(m) })
+    expect(res.applied).toEqual(['0001-a'])
+    expect(Date.now() - started).toBeLessThan(10_000)
+    expect(logged.some(m => m.includes('took over the lock'))).toBe(true)
+    expect(await db().collection(COLLECTION).findOne({ _id: '__lock__' as any })).toBeNull()
+  })
+
+  it('a lock held by a live process on this machine is still waited for', async () => {
+    const alive = Bun.spawn(['bun', '-e', 'await Bun.sleep(30000)'])
+    try {
+      const ran: string[] = []
+      await db().collection(COLLECTION).insertOne({
+        _id: '__lock__' as any,
+        owner: `${hostname()}:${alive.pid}:${randomUUID()}`,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      const err = await captureRejection(runMigrations({ db: db(), migrations: [counting('0001-a', ran)], lockWaitMs: 800 }))
+      expect(err).toBeInstanceOf(MigrationLockError)
+      expect(ran).toEqual([])
+    } finally {
+      alive.kill()
+      await alive.exited
+    }
+  })
+
+  it('judges a holder only on this machine, and only by whether its process exists', () => {
+    const here = 'shop-pc'
+    const id = randomUUID()
+    const dead = () => false
+    const live = () => true
+    expect(holderIsGone(`shop-pc:4242:${id}`, here, dead)).toBe(true)
+    expect(holderIsGone(`shop-pc:4242:${id}`, here, live)).toBe(false)
+    // Another machine (global's other pods), or an owner from before the host was named: lapses only.
+    expect(holderIsGone(`lgr-7fffb54d89-2nb58:4242:${id}`, here, dead)).toBe(false)
+    expect(holderIsGone(`node:4242:${id}`, here, dead)).toBe(false)
+    expect(holderIsGone('busy-node', here, dead)).toBe(false)
+    // This process's own pid exists: a run of this process, or another container's pid 1, is waited for.
+    expect(holderIsGone(`${hostname()}:${process.pid}:${id}`)).toBe(false)
   })
 
   it('passes the org scope through to each migration', async () => {
