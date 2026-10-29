@@ -210,6 +210,12 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
           // Already supported by AnalyzeItem/analyzeOne — this just exposes it over the API, for
           // sources whose own structured data already IS the extraction (e.g. a direct ERP API pull).
           draft: t.Optional(t.Any()),
+          // Filename-derived kind hint, same fallback AnalyzeItem.kind already documents — exposing
+          // it is what's new. Already supported by analyzeOne (`item.kind ?? 'unknown'`) and by the
+          // Files app (doc-pipeline.service.ts sets it from DocFile.docType); this lets the generic
+          // Stock Movements → Import wizard send it too, instead of refusing a document whose native
+          // text extraction fragments the title across the Номер:/Дата: box.
+          kind: t.Optional(t.String()),
         })),
         context: t.Optional(t.Object({
           warehouseId: t.Optional(t.String()),
