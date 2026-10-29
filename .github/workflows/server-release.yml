@@ -640,6 +640,9 @@ jobs:
           docker run -d --name lgr-smoke --network host -e TZ=Europe/Sofia --mount source=lgr-smoke,target=/var/lib/lgr "$img" >/dev/null
           healthy 300 || fail "the image did not come up healthy"
           docker exec lgr-smoke lgr-server status
+          # #356: the ARP watch, on the file capability the root install gave the binary, within the
+          # container's bounding set (Docker's default keeps NET_RAW). Said, not required.
+          echo "address check: $(docker exec lgr-smoke lgr-server status --json | jq -c '.addressCheck')"
           # (preflight exits 7 when any check fails, e.g. a runner's disk below the 20 GB floor)
           docker exec lgr-smoke lgr-server preflight --json > "$RUNNER_TEMP/pf-volume.json" || true
           check location '.ok == true' < "$RUNNER_TEMP/pf-volume.json" || fail "its volume failed the location check: $(cat "$RUNNER_TEMP/pf-volume.json")"
