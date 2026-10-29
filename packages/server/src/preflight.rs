@@ -373,16 +373,36 @@ mod tests {
         tempfile::Builder::new().prefix("preflight-").tempdir_in(beside).unwrap()
     }
 
+    /// Whether `path` is on overlayfs, by its own statfs: a CI runner that is itself a container (the
+    /// self-hosted ones on mars) builds on its own layer, which the location check refuses for a
+    /// master's data (FR-20.12), rightly.
+    #[cfg(target_os = "linux")]
+    fn on_overlayfs(path: &Path) -> bool {
+        let c = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: statfs writes the struct it is given; `c` outlives the call.
+        unsafe {
+            let mut st: libc::statfs = std::mem::zeroed();
+            libc::statfs(c.as_ptr(), &mut st) == 0 && st.f_type as i64 == 0x794C_7630
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    fn on_overlayfs(_: &Path) -> bool {
+        false
+    }
+
     #[test]
     fn this_machine_answers_every_check() {
         let dir = scratch();
         let checks = run(dir.path(), dir.path());
         let names: Vec<&str> = checks.iter().map(|c| c.name).collect();
         assert!(names.starts_with(&["cpu", "memory", "disk", "location"]), "{names:?}");
-        // A developer machine or a CI runner can run MongoDB (the test suite does): these hold here.
+        // A developer machine or a CI runner can run MongoDB (the test suite does): the CPU holds here,
+        // and so does the location, unless the runner is a container building on its own layer.
         for c in &checks {
-            if ["cpu", "location"].contains(&c.name) {
-                assert!(c.ok, "{c:?}");
+            match c.name {
+                "cpu" => assert!(c.ok, "{c:?}"),
+                "location" => assert_eq!(c.ok, !on_overlayfs(dir.path()), "{c:?}"),
+                _ => {}
             }
             assert!(!c.detail.is_empty());
         }
@@ -395,7 +415,11 @@ mod tests {
         let dir = scratch();
         let future = dir.path().join("not").join("yet");
         assert!(free_disk(&future).is_some());
-        assert!(location(&future).ok);
+        let c = location(&future);
+        assert_eq!(c.ok, !on_overlayfs(dir.path()), "{c:?}");
+        if !c.ok {
+            assert!(c.detail.contains("overlayfs") && c.detail.contains("mount a volume there"), "{c:?}");
+        }
     }
 
     /// Found by CI: the runner's `/tmp` is tmpfs. A data directory there is gone after a restart.
