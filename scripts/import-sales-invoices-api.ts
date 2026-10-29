@@ -22,26 +22,34 @@
  *   - direction resolved to `outgoing` and not flagged uncertain (`--include-uncertain` overrides)
  *   - not already imported (dedup by reference/invoiceNumber, same as the OCR script)
  *
- * ⚠ regal-sf ONLY: this script does not (yet) check till-overlap — a sale rung on the till AND
- * separately invoiced must not dispatch stock twice (memory `lgr-regal-sf-org`: historically
- * roughly a third of regal-sf's daily invoices are till-duplicates). That check needs the day's
- * till (storeOperations) ALREADY committed in LGR, which is separate, not-yet-built scope. Until
- * that lands, run regal-sf through this script with `--no-stock` and reconcile stock separately
- * once the till is in — do NOT `--convert` with stock dispatch for regal-sf before that.
+ * ⚠ Till-overlap check (regal-sf's recurring trap — memory `lgr-regal-sf-org`: historically
+ * roughly a third of regal-sf's daily invoices are till-duplicates): a sale rung on the till AND
+ * separately invoiced must not dispatch stock twice. Before marking a candidate eligible, this
+ * script looks up that invoice's OWN issueDate's already-committed cash sale (`reference
+ * salesAnalysis:<date>`, same key `scripts/import-cash-register-sales(-api).ts` writes) over
+ * `GET /invoices` and flags — never silently skips — one whose every line is covered by that
+ * day's till quantities. The comparison mirrors
+ * `packages/services/src/biz/doc-import/till-overlap.ts`'s `findTillOverlap`/`tillOverlapWarning`
+ * exactly (re-implemented here rather than imported, so this HTTP-only script does not pull in
+ * `db/models`); diff the two if that file's semantics ever change. A day with NO committed cash
+ * sale yet (nothing imported there, or a non-regal-sf org) makes this a no-op, not a block — so
+ * `--convert` with stock dispatch is safe to run directly as long as the day's till is imported
+ * FIRST. `--include-till-overlap` forces a flagged invoice through anyway.
  *
  * Usage:
  *   bun run scripts/import-sales-invoices-api.ts --dir <dir with invoicem_*.json>   # analyze + summary (no commit)
  *   bun run scripts/import-sales-invoices-api.ts --dir <dir> --convert              # ...then commit+issue eligible documents
  *
  * Options:
- *   --dir <dir>            (required) folder with invoicem_<number>.json (pull-plusminus-api's output)
- *   --org <slug>           org slug (default: regal-pz)
- *   --api <url>            API base (default: https://lgrai.app)
- *   --warehouse <code>     warehouse code (default: the org's isDefault warehouse)
- *   --convert              commit AND issue eligible documents to INV-<legacy number>
- *   --no-stock             convert WITHOUT dispatching stock
- *   --include-uncertain    also convert documents flagged needs-review (direction uncertain)
- *   --only <nums>          comma-separated invoice numbers to limit the run to
+ *   --dir <dir>               (required) folder with invoicem_<number>.json (pull-plusminus-api's output)
+ *   --org <slug>              org slug (default: regal-pz)
+ *   --api <url>               API base (default: https://lgrai.app)
+ *   --warehouse <code>        warehouse code (default: the org's isDefault warehouse)
+ *   --convert                 commit AND issue eligible documents to INV-<legacy number>
+ *   --no-stock                convert WITHOUT dispatching stock
+ *   --include-uncertain       also convert documents flagged needs-review (direction uncertain)
+ *   --include-till-overlap    also convert documents flagged as till-overlap (see above — verify first)
+ *   --only <nums>             comma-separated invoice numbers to limit the run to
  *
  * Credentials (env): LGR_TOKEN, or LGR_USERNAME + LGR_PASSWORD (login via /api/auth/login).
  */
@@ -74,6 +82,7 @@ const warehouseCode = args.warehouse as string | undefined
 const doConvert = !!args.convert
 const noStock = !!args['no-stock']
 const includeUncertain = !!args['include-uncertain']
+const includeTillOverlap = !!args['include-till-overlap']
 const only = args.only ? new Set(String(args.only).split(',').map(s => s.trim())) : null
 
 if (!dir) { console.error('Required: --dir <dir with invoicem_*.json>. See header for options.'); process.exit(2) }
@@ -147,6 +156,46 @@ async function pollTask(taskId: string, maxMs = 5 * 60_000): Promise<any> {
     await Bun.sleep(1000)
   }
   throw new Error(`task ${taskId} timed out`)
+}
+
+// ── till-overlap (see header comment) — one lookup per distinct issueDate in the batch ──
+interface TillDay { demand: Map<string, number>; docNumber: string | null; reference: string }
+const tillDayCache = new Map<string, TillDay | null>()
+
+async function loadCommittedTillDay(date: string | undefined): Promise<TillDay | null> {
+  if (!date) return null
+  if (tillDayCache.has(date)) return tillDayCache.get(date)!
+  const reference = `salesAnalysis:${date}`
+  const found = await http('GET', org(`/invoices?type=cash_sale&search=${encodeURIComponent(reference)}&page=0&size=5`))
+  const hit = (found.invoices || []).find((i: any) => i.reference === reference)
+  if (!hit) { tillDayCache.set(date, null); return null }
+  const full = await http('GET', org(`/invoices/${hit._id || hit.id}`))
+  const cs = full.invoice || full
+  const demand = new Map<string, number>()
+  for (const l of cs.lines || []) {
+    if (!l.productId) continue
+    const id = String(l.productId)
+    demand.set(id, (demand.get(id) || 0) + Number(l.quantity || 0))
+  }
+  const day: TillDay = { demand, docNumber: cs.invoiceNumber ? String(cs.invoiceNumber) : null, reference }
+  tillDayCache.set(date, day)
+  return day
+}
+
+/** Every line covered by that day's till quantities? Mirrors till-overlap.ts#findTillOverlap. */
+function findTillOverlap(mapped: any, till: TillDay): { docNumber: string | null; reference: string; lines: number; quantity: number } | null {
+  if (!till.demand.size) return null
+  const lines = (mapped?.lines || []).filter((l: any) => Number(l.quantity || 0) !== 0)
+  if (!lines.length) return null
+  let quantity = 0
+  for (const l of lines) {
+    if (!l.productId) return null
+    const q = Number(l.quantity || 0)
+    const sold = till.demand.get(String(l.productId))
+    if (sold === undefined || sold + 0.001 < q) return null
+    quantity += q
+  }
+  return { docNumber: till.docNumber, reference: till.reference, lines: lines.length, quantity }
 }
 
 async function main() {
@@ -242,6 +291,13 @@ async function main() {
     if (doc.duplicate) problems.push(`duplicate: ${doc.duplicate.reason} — ${doc.duplicate.number}`)
     if (uncertain && !includeUncertain) problems.push('uncertain (needs-review)')
     if (String(doc.mapped?.reference) !== f.num) problems.push(`reference ${doc.mapped?.reference} != filename ${f.num}`)
+
+    const till = await loadCommittedTillDay(doc.mapped?.issueDate)
+    const overlap = till ? findTillOverlap(doc.mapped, till) : null
+    if (overlap && !includeTillOverlap) {
+      const where = overlap.docNumber ? `${overlap.docNumber} (${overlap.reference})` : `the day's till (${overlap.reference})`
+      problems.push(`till-overlap: all ${overlap.lines} line(s), ${overlap.quantity} unit(s), already covered by ${where} — VERIFY before forcing with --include-till-overlap`)
+    }
 
     rows.push({ num: f.num, ok: problems.length === 0, problems, warnings, mapped: doc.mapped })
   }
