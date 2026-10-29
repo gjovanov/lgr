@@ -110,15 +110,19 @@ The packages install a version beside the others and point the service at it (FR
 
 - **A switch is watched.** The update helper confirms a new version once the service has run
   cleanly for 5 minutes (the supervisor and the API up that long), and switches back to the
-  previous version by itself, from disk and offline, if it crash-loops (3 restarts in 10 minutes),
-  stays down, or never runs cleanly within 20 minutes. A version that failed is never switched to
-  again, and an older one never at all.
+  previous version by itself, from disk and offline, if it crash-loops (it dies and is started again
+  3 times in 10 minutes), stays down, or never runs cleanly within 20 minutes. A version that failed
+  is never switched to again, and an older one never at all.
+  - A restart someone asks for is not a crash: an administrator's, or on Ubuntu needrestart's after
+    unattended-upgrades installs a library the server uses. It only delays the confirmation, which
+    needs 5 clean minutes of one process.
 - **Two versions stay on disk:** the one that runs and the one before it.
 - `lgr-server update status`: what runs, what is known good, what failed and what is on disk.
 - **Before every switch a backup is taken** of every org on the server, where its backups go. No
   backup, no switch. `lgr-server backup now` takes the same one by hand.
-- The helper's log is `update/helper.log` (Windows); on Linux,
-  `journalctl -u lgr-server-update`.
+- The helper's log is `update/helper.log` under the install, on both systems
+  (`/opt/lgr-server/update/helper.log` on Linux). `journalctl -u lgr-server-update` shows only
+  when systemd started and stopped it.
 - **Automatic updates** (a server registered with lgrai.app): every night between 22:00 and 06:00,
   when no till has a session open and no receipt is printing, the server installs the version
   lgrai.app offers it, after checking both signatures against the keys it carries. In
