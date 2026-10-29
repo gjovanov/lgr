@@ -113,9 +113,8 @@ The packages install a version beside the others and point the service at it (FR
   previous version by itself, from disk and offline, if it crash-loops (it dies and is started again
   3 times in 10 minutes), stays down, or never runs cleanly within 20 minutes. A version that failed
   is never switched to again, and an older one never at all.
-  - A restart someone asks for is not a crash: an administrator's, or on Ubuntu needrestart's after
-    unattended-upgrades installs a library the server uses. It only delays the confirmation, which
-    needs 5 clean minutes of one process.
+  - A restart someone asks for is not a crash (an administrator's, say). It only delays the
+    confirmation, which needs 5 clean minutes of one process.
 - **Two versions stay on disk:** the one that runs and the one before it.
 - `lgr-server update status`: what runs, what is known good, what failed and what is on disk.
 - **Before every switch a backup is taken** of every org on the server, where its backups go. No
@@ -139,6 +138,32 @@ The packages install a version beside the others and point the service at it (FR
   ```
   It refuses a bundle whose signatures do not check out, an older version, and a version that
   failed here before.
+
+### Security updates on Ubuntu and Debian
+
+unattended-upgrades installs the distribution's security updates every morning, and needrestart
+then restarts every service still running a library they replaced. The .deb tells needrestart to
+leave the server alone (`/etc/needrestart/conf.d/lgr-server.conf`): it lists `lgr-server` and never
+restarts it. A restart in the middle of a sale is the shop's to avoid, and a server that is switched
+on at opening time runs those upgrades right then.
+
+The server restarts itself instead, at night:
+- Every 10 minutes it looks for a system library (under `/usr`, `/lib`, `/lib64`) that was replaced
+  under one of its processes: itself, the database, the API, the PDF browser.
+- Once one was, it restarts inside `UPDATE_WINDOW` (22:00–06:00 by default), when no till has a
+  session open and no receipt is printing, at most once a night, and never while the update helper
+  watches a new version.
+- It restarts in place: its processes stop as on `systemctl stop` (the API finishes a receipt in
+  flight) and start again under the same service process, so systemd counts no restart. The version
+  that runs is the version that starts again: one a package installed meanwhile waits for the
+  service's next start, where the update helper watches it.
+- `lgr-server status` says what waits, for example
+  `restart  pending: libssl.so.3 replaced; waits for the maintenance window, 22:00-06:00`.
+- `NIGHT_RESTART=off` in `config/api.env` turns it off. The new libraries then run from the next
+  `sudo systemctl restart lgr-server`.
+- To watch it happen without waiting for the night, set a window around now
+  (`UPDATE_WINDOW=00:00-23:59`) and restart the service once. ⚠ That window lets an automatic
+  update install at any hour too: put it back afterwards.
 
 ## After installing
 
@@ -167,6 +192,7 @@ set.
 | `BACKUP_LOCAL_PATH` | A second disk, a USB drive or a share, for a copy of every night's backup (`<path>/LGR/Backups/<org>/<kind>/`). It must be **another disk** than the server's data. A folder on the same disk is refused, because a copy beside the database is no copy, and so is a drive that is not there (unplugged, or a share that is down). Mount the drive where the service can write. |
 | `BACKUP_LOCAL_KEEP` | How many generations the local copy keeps. |
 | `UPDATE_WINDOW`, `UPDATE_AUTO` | The nightly update window: see [Versions and updates](#versions-and-updates). |
+| `NIGHT_RESTART` | Linux: `off` stops the server restarting itself at night for a library a security update replaced. See [Security updates](#security-updates-on-ubuntu-and-debian). |
 
 ## What is inside a version
 

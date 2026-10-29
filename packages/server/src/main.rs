@@ -21,6 +21,7 @@ mod install;
 mod ipc;
 mod licence;
 mod mongod;
+mod night_restart;
 mod node_key;
 mod node_token;
 mod pacing;
@@ -328,6 +329,9 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
         // updates off, loudly, and never stops the shop.
         let update_settings = updates::Settings::from_operator(&operator);
         let running = updates::running_version(&paths);
+        // #370: when a library a security update replaced is taken, by a restart in place.
+        #[cfg(target_os = "linux")]
+        let night_settings = night_restart::Settings::from_operator(&operator);
         supervisor::run(ipc::default_endpoint(), backoff::Policy::default(), shutdown, move |sup| async move {
             // This start's nonce: the uplink says hello with it, and the LAN advert carries it, which is
             // how a clone of this server is told from this server (FR-20.51).
@@ -398,6 +402,12 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
             // FR-20.98 (P3-8b): the supervisor's account, for the API's status page, every 30 s: whether
             // the uplink is up or not, since offline is when it is read most.
             sup.add_service(tokio::spawn(status_file::run(sup.clone(), paths.data.join("state").join("status.json"), paths.data.clone(), oplog.clone(), status_file::EVERY)));
+            // #370: registered or not, a master takes the libraries a security update replaced, at night.
+            #[cfg(target_os = "linux")]
+            match night_settings {
+                Ok(settings) => sup.add_service(tokio::spawn(night_restart::run(sup.clone(), settings, install::Root::here(), paths.data.join("state").join("night-restart.json")))),
+                Err(e) => tracing::error!(error = %format!("{e:#}"), "no night restart: its settings are wrong"),
+            }
             // The egress first: the API is given its address, and a CONNECT may come at once.
             match tokio::net::TcpListener::bind(("127.0.0.1", front.egress_port)).await {
                 Ok(listener) => sup.add_service(tokio::spawn(egress::serve(listener, front.egress_secret.clone(), egress_rules))),
@@ -655,8 +665,10 @@ fn real_main(cli: Cli) -> Result<i32> {
     match cli.command {
         Command::Run => {
             init_logging(None);
-            Ok(run_supervisor_blocking(async {
-                let _ = tokio::signal::ctrl_c().await;
+            Ok(night_restart::run_or_reexec(|| {
+                run_supervisor_blocking(async {
+                    let _ = tokio::signal::ctrl_c().await;
+                })
             }))
         }
         Command::Service { action } => {
@@ -735,6 +747,12 @@ fn real_main(cli: Cli) -> Result<i32> {
                         String::new()
                     };
                     println!("  update   {state}{available}{reason}{alarm}");
+                }
+                // #370: a library the server runs on was replaced, and the restart that runs the new one.
+                let night = &status["nightRestart"];
+                if night["pending"].as_bool() == Some(true) {
+                    let libraries: Vec<&str> = night["libraries"].as_array().into_iter().flatten().filter_map(|l| l.as_str()).map(|l| l.rsplit('/').next().unwrap_or(l)).collect();
+                    println!("  restart  pending: {} replaced; {}", libraries.join(", "), night["waiting"].as_str().unwrap_or("looking again shortly"));
                 }
                 for c in status["children"].as_array().into_iter().flatten() {
                     println!(

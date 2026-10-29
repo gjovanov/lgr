@@ -441,6 +441,16 @@ yet" (exit 2) until P1-9 / P1-8.
   - The first 0.1.4 rollback lane's helper reported "the previous version runs" while that API sat
     behind a migration lock, alive and serving nothing. A version whose API never answers is now
     never confirmed: it reaches the 20-minute deadline instead.
+- **A library a security update replaced runs from a restart IN PLACE, at night** (`night_restart.rs`, #370).
+  - The .deb's conffile `/etc/needrestart/conf.d/lgr-server.conf` tells needrestart never to restart
+    lgr-server.
+  - Instead, the supervisor finds deleted executable mappings under `/usr`, `/lib` and `/lib64` in itself and
+    every process under it. Inside `UPDATE_WINDOW` (no till session, no fiscal command, no watched switch,
+    once a night) it stops its children as a service stop does and execs itself.
+  - ⚠ It execs `/proc/self/exe`, NEVER `current`. A version a package switched to must run from the
+    service's next START, where the update helper watches it.
+  - The main PID stays, so `NRestarts` never moves. The unit's user `lgr` may not `systemctl restart`
+    anything.
 - **`mongod` (P1-2, FR-20.15, `mongod.rs`):** started first, on 127.0.0.1 only (port 27118, never
   27017, which another MongoDB may own), `--replSet rs0`, `--keyFile keys/mongo.keyfile`, cache
   0.5/1/2 GB by RAM (<8 / <16 / more GB), oplog 2 GB. The API is listed `pending` until the
