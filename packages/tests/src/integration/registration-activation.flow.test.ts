@@ -185,3 +185,24 @@ describe('S-06: an expired link is recoverable', () => {
     expect((await codeFor(reg.body.userId))!.token).toBe(original!.token)
   })
 })
+
+describe('FR-20.17 (#350): only a master\'s setup console makes the first admin active at once', () => {
+  it('on lgrai.app a request claiming to come from a console still starts inactive, and is mailed a code', async () => {
+    // No front secret here (global): the source stamp means nothing, and nothing trusts it.
+    const res = await app.handle(
+      new Request('http://localhost/api/auth/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-lgr-source': 'console' },
+        body: JSON.stringify({
+          orgName: 'S-06 Forged Console', orgSlug: 's06-forged-console', email: 'forged@s06.test',
+          username: 'forged', password: PASSWORD, firstName: 'F', lastName: 'Orged',
+        }),
+      }),
+    )
+    expect(res.status).toBe(200)
+    const body: any = await res.json()
+    expect(body.active).toBe(false)
+    expect((await User.findById(body.userId).lean().exec())!.isActive).toBe(false)
+    expect(await codeFor(body.userId)).toBeTruthy()
+  })
+})

@@ -202,7 +202,13 @@ pub struct Supervisor {
     night_restart: crate::uplink::Status,
     /// #370: asked to stop and start again in place.
     reexec: tokio::sync::Notify,
+    /// FR-20.18: setup applied a setting, or `setup reset` reopened it: start again in this process.
+    reload: tokio::sync::Notify,
 }
+
+/// What [`Supervisor::serve`] returns when it is to start again in this process (setup, FR-20.18),
+/// never an exit code: `run_supervisor_blocking` takes it and runs another round.
+pub const RELOAD: i32 = -1;
 
 /// The data directory, whose `keys/node.key` and `state/` a registration reads and writes, and the
 /// client that reaches global through the machine's proxy rules.
@@ -215,7 +221,19 @@ pub struct Registrar {
 
 impl Supervisor {
     pub fn new(policy: Policy) -> Self {
-        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), updates: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]), lan: Mutex::new(None), registrar: Mutex::new(None), uplink: std::sync::Arc::new(Mutex::new(serde_json::json!({}))), releases: std::sync::Arc::new(Mutex::new(serde_json::Value::Null)), night_restart: std::sync::Arc::new(Mutex::new(serde_json::Value::Null)), reexec: tokio::sync::Notify::new() }
+        Self { started: Instant::now(), policy, children: Mutex::new(vec![]), ingresses: Mutex::new(vec![]), api_control: Mutex::new(None), updates: Mutex::new(None), front: Mutex::new(serde_json::Value::Null), services: Mutex::new(vec![]), lan: Mutex::new(None), registrar: Mutex::new(None), uplink: std::sync::Arc::new(Mutex::new(serde_json::json!({}))), releases: std::sync::Arc::new(Mutex::new(serde_json::Value::Null)), night_restart: std::sync::Arc::new(Mutex::new(serde_json::Value::Null)), reexec: tokio::sync::Notify::new(), reload: tokio::sync::Notify::new() }
+    }
+
+    /// Stop everything and start again in this process, with what the configuration says now
+    /// (FR-20.18): what setup chose takes effect as it would at a start. The service manager sees
+    /// no exit and no restart, so the update helper counts none (#369).
+    pub fn request_reload(&self) {
+        self.reload.notify_one();
+    }
+
+    /// The registrar, once the supervisor has started: what setup's link step registers with.
+    pub fn registrar(&self) -> Option<std::sync::Arc<Registrar>> {
+        self.registrar.lock().unwrap().clone()
     }
 
     /// A supervisor already keeping `specs`.
@@ -502,7 +520,17 @@ impl Supervisor {
                             let _ = reply.send(Response::ok());
                             return 0;
                         }
+                        // `setup reset` (FR-20.18): start again, so the console opens.
+                        Request::Reload => {
+                            let _ = reply.send(Response::ok());
+                            tracing::info!("asked to start again: stopping everything, then starting with the configuration as it is now");
+                            return RELOAD;
+                        }
                     }
+                }
+                _ = self.reload.notified() => {
+                    tracing::info!("setup changed a setting: stopping everything, then starting with it");
+                    return RELOAD;
                 }
                 _ = &mut shutdown => return 0,
                 // #370: a library was replaced, and it is the night to take it.
@@ -529,25 +557,39 @@ where
     let (calls_tx, calls_rx) = mpsc::channel::<Call>(16);
     // Bind the control channel first: a second supervisor (or a squatter) stops here, before it
     // starts children that would fight the first one's for the port and the database.
-    let listening = {
-        let endpoint = endpoint.clone();
-        tokio::spawn(async move { ipc::serve(&endpoint, calls_tx).await })
-    };
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    if listening.is_finished() {
+    //
+    // ⚠ Tried for a few seconds, not once. After a reload (FR-20.18) the previous round's listener is
+    // gone, but on Windows a pipe instance a client still has open (a `status` mid-answer) keeps the
+    // name taken until that client lets go, and `first_pipe_instance` refuses until then.
+    let mut attempt = 0;
+    let listening = loop {
+        let listening = {
+            let (endpoint, calls_tx) = (endpoint.clone(), calls_tx.clone());
+            tokio::spawn(async move { ipc::serve(&endpoint, calls_tx).await })
+        };
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        if !listening.is_finished() {
+            break listening;
+        }
         let err = listening.await.map(|r| r.err()).ok().flatten();
-        tracing::error!(?err, %endpoint, "control channel unavailable: is another supervisor running?");
-        return crate::backoff::EXIT_REFUSED;
-    }
+        attempt += 1;
+        if attempt >= 10 {
+            tracing::error!(?err, %endpoint, "control channel unavailable: is another supervisor running?");
+            return crate::backoff::EXIT_REFUSED;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    };
+    drop(calls_tx);
     let supervisor = Arc::new(Supervisor::new(policy));
     let mut starting = tokio::spawn(start(supervisor.clone()));
     let mut shutdown = std::pin::pin!(shutdown);
     let mut code = supervisor.serve(calls_rx, shutdown.as_mut(), &mut starting).await;
     starting.abort();
-    if code == crate::night_restart::REEXEC {
+    if code == crate::night_restart::REEXEC || code == RELOAD {
         tracing::info!("stopping, to start again in place");
         // #370: a stop asked for while the children stop (systemd's SIGTERM, a machine going down)
         // wins. Started again into it, the new image would only be killed when the stop times out.
+        // The same for setup's restart in this process (FR-20.18).
         let mut down = std::pin::pin!(supervisor.shutdown());
         let mut stop_asked = false;
         loop {

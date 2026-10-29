@@ -131,7 +131,22 @@ export async function provisionNewOrg(org: IOrg, admin: IUser): Promise<void> {
   }
 }
 
-export async function register(input: RegisterInput): Promise<{ org: IOrg; user: IUser; activationToken: string }> {
+export interface RegisterOptions {
+  /**
+   * FR-20.17 (#350): the first admin of a master, registered through its setup console. The
+   * one-time setup token behind that console proves more than an emailed link would (it takes
+   * administrator rights on the server itself), and an Air-gapped master has no mail at all: the
+   * person and the membership are active at once, and no activation is sent.
+   * ⚠ Only for founding an org. Someone joining by invite still proves their address.
+   */
+  activeFromSetup?: boolean
+}
+
+export async function register(
+  input: RegisterInput,
+  opts: RegisterOptions = {},
+): Promise<{ org: IOrg; user: IUser; activationToken: string; active: boolean }> {
+  const active = !!opts.activeFromSetup && !input.inviteCode
   // ⚠ Multi-org: registering is for someone new to LGR. A person who already has an account (an
   // identity, or before the migration any user) signs in instead, then joins or founds an org as
   // themselves: a second registration would make a second person with the same address.
@@ -183,7 +198,7 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
       firstName: input.firstName,
       middleName: input.middleName,
       lastName: input.lastName,
-      isActive: false, // until the activation link proves the address
+      isActive: active, // otherwise, until the activation link proves the address
     },
     'account_exists',
   )
@@ -224,7 +239,7 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
       role,
       operatorCode,
       orgId: org._id,
-      isActive: false,
+      isActive: active,
       permissions,
       roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
     })
@@ -253,6 +268,9 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
 
   logger.info({ orgId: org._id, userId: user._id }, 'New organization registered')
 
+  // FR-20.17: setup's first admin is active already. Nothing to prove by mail, nothing sent.
+  if (active) return { org, user, activationToken: '', active }
+
   // Generate activation code
   const { token: activationToken } = await codeDao.createActivationCode(String(user._id), String(org._id), config.email.activationTokenTtlMinutes)
 
@@ -269,7 +287,7 @@ export async function register(input: RegisterInput): Promise<{ org: IOrg; user:
   // ⚠ S-06: `activationToken` is returned to the CALLER of this function (tests read it), never
   // to an HTTP client. `POST /auth/register` used to echo it in its response, so whoever
   // registered could activate without ever seeing the email, and the check proved nothing.
-  return { org, user, activationToken }
+  return { org, user, activationToken, active }
 }
 
 /**

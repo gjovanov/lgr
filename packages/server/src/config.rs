@@ -179,13 +179,20 @@ fn os_env() -> BTreeMap<String, String> {
     KEEP.iter().filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v))).collect()
 }
 
-/// What the operator set in `<data>/config/api.env`: empty when there is no such file.
+/// The settings this master runs with: what setup chose (`state/setup.json`, FR-20.18), with what
+/// the operator set in `<data>/config/api.env` over it. Empty when there is neither.
+///
+/// ⚠ The operator's file always wins, and setup never writes it: a hand-made `LAN_INGRESS=off`
+/// stays off whatever setup chose, and a comment or a secret in that file is never rewritten by a
+/// page. Setup's own file belongs to the service account, which `config/` may not.
 pub fn operator_env(paths: &Paths) -> Result<BTreeMap<String, String>> {
+    let mut env = crate::setup::env(&crate::setup::load(&paths.data));
     match std::fs::read_to_string(paths.data.join("config").join("api.env")) {
-        Ok(text) => Ok(parse_env(&text)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
-        Err(e) => Err(e).context("reading config/api.env"),
+        Ok(text) => env.extend(parse_env(&text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e).context("reading config/api.env"),
     }
+    Ok(env)
 }
 
 /// How long the API waits, once asked to stop, for a receipt and the requests in flight (its own
@@ -375,6 +382,30 @@ mod tests {
         assert_eq!(first, again);
         assert!(first["JWT_SECRET"].len() >= 64);
         assert_ne!(first["JWT_SECRET"], first["DESKTOP_TOKEN_SECRET"]);
+    }
+
+    #[test]
+    fn what_setup_chose_reaches_the_api_under_what_the_operator_wrote() {
+        let (_dir, paths) = layout();
+        let chosen = crate::setup::Choices {
+            link: Some("airgapped".into()),
+            lan: Some(crate::setup::Lan { on: true, port: 4443 }),
+            backup: Some(crate::setup::Backup { local_path: Some("/media/usb".into()) }),
+            sys_admins: vec!["owner@shop.example".into()],
+            settings_at: Some(1),
+        };
+        crate::setup::save(&paths.data, &chosen).unwrap();
+        let env = api_spec(&paths, None, None).unwrap().env;
+        assert_eq!(env["BACKUP_SYS_ADMINS"], "owner@shop.example");
+        assert_eq!(env["BACKUP_LOCAL_PATH"], "/media/usb");
+        assert_eq!(operator_env(&paths).unwrap()["LAN_INGRESS"], "on");
+        // The operator's own line wins, whatever setup chose; the rest of setup's choices stay.
+        std::fs::create_dir_all(paths.data.join("config")).unwrap();
+        std::fs::write(paths.data.join("config").join("api.env"), "LAN_INGRESS=off\nBACKUP_LOCAL_PATH=/mnt/nas\n").unwrap();
+        let operator = operator_env(&paths).unwrap();
+        assert_eq!(operator["LAN_INGRESS"], "off");
+        assert_eq!(operator["BACKUP_LOCAL_PATH"], "/mnt/nas");
+        assert_eq!(operator["BACKUP_SYS_ADMINS"], "owner@shop.example");
     }
 
     #[test]

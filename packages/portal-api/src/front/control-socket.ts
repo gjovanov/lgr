@@ -26,6 +26,12 @@ export interface ControlHandlers {
    * update helper asks for it, through the supervisor, before it switches to a new version.
    */
   backup?: () => Promise<{ ok: boolean } & Record<string, unknown>>
+  /**
+   * FR-20.18 (#350): what the supervisor's setup console needs to know about this server: the orgs
+   * homed here with their owner and admins (setup's last step makes them `BACKUP_SYS_ADMINS`), and
+   * how many desktops are paired. Never a password, a token or anything a page could replay.
+   */
+  setup?: () => Promise<Record<string, unknown>>
   /** FR-20.64 (plan step P3-2b): the mirror's pages, and global's resends. */
   replication?: ReplicationHandlers
 }
@@ -60,6 +66,7 @@ export function startControlSocket(path: string, secret: string, handlers: Contr
     if (!secretMatches(request.headers.get(FRONT_HEADER), secret)) return json(403, { code: 'front_required' })
     const { pathname } = new URL(request.url)
     if (request.method === 'GET' && pathname === '/status') return json(200, await handlers.status())
+    if (request.method === 'GET' && pathname === '/setup' && handlers.setup) return json(200, await handlers.setup())
     if (request.method === 'POST' && pathname === '/backup' && handlers.backup) {
       // Awaited: the helper switches only on an answer that says the backup is done. ⚠ Bun closes a
       // connection idle for 10 s, and a backup may take minutes: this one request has no idle limit.

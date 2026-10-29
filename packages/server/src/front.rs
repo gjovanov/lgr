@@ -203,7 +203,8 @@ fn chrono_like_now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
-/// Setup is done once the API says so (FR-20.18): from then on, there is no console.
+/// Setup is done once its last step said so (`setup.rs`, FR-20.18): from then on there is no
+/// console, registering an org is off, and the tunnel carries traffic. `setup reset` removes it.
 pub fn setup_complete(data: &Path) -> bool {
     data.join("state").join("setup-complete").exists()
 }
@@ -218,10 +219,51 @@ pub fn setup_token(data: &Path) -> Result<String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e).with_context(|| format!("reading {}", file.display())),
     }
-    std::fs::create_dir_all(file.parent().expect("keys/ has a parent"))?;
+    let keys = file.parent().expect("keys/ has a parent");
+    std::fs::create_dir_all(keys)?;
     let token = random_token();
     crate::config::write_private(&file, &format!("{token}\n"))?;
+    give_to_keys_owner(keys, &file)?;
     Ok(token)
+}
+
+/// ⚠ `lgr-server setup-token` (and `setup reset`) run as root, and the service as `lgr`: a token
+/// file root makes is `0600 root`, which the service then cannot read, so its console never opens and
+/// the start gives up (exit 7, which systemd does not retry). The file goes to whoever owns `keys/`.
+#[cfg(unix)]
+fn give_to_keys_owner(keys: &Path, file: &Path) -> Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let (dir, made) = (std::fs::metadata(keys)?, std::fs::metadata(file)?);
+    if (dir.uid(), dir.gid()) != (made.uid(), made.gid()) {
+        std::os::unix::fs::chown(file, Some(dir.uid()), Some(dir.gid())).with_context(|| format!("giving {} to the owner of {}", file.display(), keys.display()))?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn give_to_keys_owner(_keys: &Path, _file: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// `setup reset`: the old link stops working. The next [`setup_token`] makes a new one.
+pub fn forget_setup_token(data: &Path) -> Result<()> {
+    let file = data.join("keys").join("setup-token");
+    match std::fs::remove_file(&file) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e).with_context(|| format!("removing {}", file.display())),
+    }
+}
+
+/// The console's session for `token`: what its cookie carries once the token opened it.
+///
+/// Derived from the token rather than drawn at random, so a session outlives the supervisor's
+/// restart in place (setup applies its settings that way, FR-20.18), and a new token (`setup reset`)
+/// ends every session the old one opened. ⚠ Never the token itself: the cookie is sent with every
+/// request, and the token is what opens setup again from a new browser.
+pub fn setup_session(token: &str) -> String {
+    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, token.as_bytes());
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(ring::hmac::sign(&key, b"lgr setup console session").as_ref())
 }
 
 /// What an administrator opens to set the server up. The token rides in the fragment, which no

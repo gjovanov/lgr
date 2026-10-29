@@ -43,6 +43,9 @@ pub enum Request {
     /// FR-20.20 (plan step P1-8d): back up every org homed here now, through the API's control
     /// socket, and answer once it is done. The update helper asks before it switches versions.
     BackupNow,
+    /// FR-20.18 (`setup reset`): stop everything and start again in this process, with the
+    /// configuration as it is now, so a reopened setup gets its console. Answered before it happens.
+    Reload,
 }
 
 /// An answer line.

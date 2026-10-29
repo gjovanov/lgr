@@ -27,7 +27,7 @@ use std::convert::Infallible;
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 
@@ -223,6 +223,22 @@ pub fn lan_ca_answer(req: &Request<Incoming>, lan: &std::sync::Mutex<crate::cert
     Some(r)
 }
 
+/// Bind `ip:port`, trying again for ten seconds while the port is taken. After a restart in place
+/// (setup, FR-20.18) the previous round's listener on the same port is still closing, and one failed
+/// bind would leave the console, or the LAN, shut for the whole round.
+pub async fn bind_retrying(ip: &str, port: u16) -> std::io::Result<TcpListener> {
+    let mut attempt = 0;
+    loop {
+        match TcpListener::bind((ip, port)).await {
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && attempt < 20 => {
+                attempt += 1;
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            other => return other,
+        }
+    }
+}
+
 /// Accept on `listener` forever, each connection on its own task.
 pub async fn serve<H, F>(listener: TcpListener, handle: H)
 where
@@ -269,27 +285,31 @@ where
 ///   from the URL's fragment (never sent to any server, never logged) and trades it for an
 ///   `HttpOnly` cookie. Every other request needs that cookie, which is stripped before the API
 ///   sees the request.
+/// - **Setup itself** (`setup.rs`) is the console's own: `/__lgr/setup/app` and
+///   `/__lgr/setup/api/*` are answered here and never reach the API. Everything else goes to the
+///   API stamped `console`, which is how the first admin is made (FR-20.17).
 /// - **It closes itself** once `state/setup-complete` exists: setup is over, and so is the console.
 pub struct Console {
     pub port: u16,
     pub token: String,
     pub upstream: Arc<Upstream>,
     pub marker: PathBuf,
-    sessions: Mutex<HashSet<String>>,
+    /// Setup's steps, once the supervisor has started; `None` serves the session and the API only.
+    setup: Option<Arc<crate::setup::Host>>,
 }
 
 pub const SESSION_COOKIE: &str = "lgr_setup";
 
 const SETUP_PAGE: &str = r#"<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>LGR Server setup</title>
+<title>LGR Server setup</title><link rel="icon" href="data:,">
 <body style="font-family:system-ui,sans-serif;margin:3rem;max-width:40rem">
 <p id="m">Opening setup…</p>
 <script>
 const token = location.hash.slice(1)
 history.replaceState(null, '', location.pathname)
 fetch('/__lgr/setup/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token }) })
-  .then(r => { if (r.ok) location.replace('/'); else throw new Error() })
+  .then(r => { if (r.ok) location.replace('/__lgr/setup/app'); else throw new Error() })
   .catch(() => { document.getElementById('m').textContent = 'This setup link does not open setup. As an administrator, run "lgr-server setup-token" for the current one.' })
 </script>
 "#;
@@ -301,7 +321,13 @@ fn same(a: &[u8], b: &[u8]) -> bool {
 
 impl Console {
     pub fn new(port: u16, token: String, upstream: Arc<Upstream>, marker: PathBuf) -> Self {
-        Self { port, token, upstream, marker, sessions: Mutex::new(HashSet::new()) }
+        Self { port, token, upstream, marker, setup: None }
+    }
+
+    /// The console with setup's steps (`setup.rs`).
+    pub fn with_setup(mut self, host: Arc<crate::setup::Host>) -> Self {
+        self.setup = Some(host);
+        self
     }
 
     fn host_is_mine(&self, headers: &HeaderMap) -> bool {
@@ -310,9 +336,9 @@ impl Console {
         [format!("127.0.0.1:{}", self.port), format!("localhost:{}", self.port), format!("[::1]:{}", self.port)].contains(&host)
     }
 
-    /// The session cookie's value, if the request carries one this console issued.
+    /// The session cookie's value, if the request carries the one this console's token opens.
     fn session_of(&self, headers: &HeaderMap) -> Option<String> {
-        let sessions = self.sessions.lock().unwrap();
+        let session = crate::front::setup_session(&self.token);
         headers
             .get_all(COOKIE)
             .into_iter()
@@ -321,7 +347,7 @@ impl Console {
             .filter_map(|c| c.trim().split_once('='))
             .filter(|(k, _)| *k == SESSION_COOKIE)
             .map(|(_, v)| v.to_string())
-            .find(|v| sessions.iter().any(|s| same(s.as_bytes(), v.as_bytes())))
+            .find(|v| same(session.as_bytes(), v.as_bytes()))
     }
 
     async fn open_session(&self, req: Request<Incoming>) -> Response<Body> {
@@ -335,8 +361,7 @@ impl Console {
             tracing::warn!("a setup session was refused: the token did not match");
             return refused();
         }
-        let session = crate::front::random_token();
-        self.sessions.lock().unwrap().insert(session.clone());
+        let session = crate::front::setup_session(&self.token);
         tracing::info!("a setup session was opened on the console");
         let mut r = text(StatusCode::NO_CONTENT, "");
         r.headers_mut().insert(
@@ -363,6 +388,13 @@ impl Console {
         if self.session_of(req.headers()).is_none() {
             return text(StatusCode::FORBIDDEN, "Setup needs its link. As an administrator, run \"lgr-server setup-token\".");
         }
+        // Setup's own steps: answered here, never forwarded (FR-20.18: the API serves no setup).
+        if crate::setup::is_setup_path(req.uri().path()) {
+            return match &self.setup {
+                Some(host) => crate::setup::handle(host.clone(), req).await,
+                None => text(StatusCode::SERVICE_UNAVAILABLE, "Setup is starting. Try again in a moment."),
+            };
+        }
         // The supervisor's credential, not the API's: it stops here.
         let kept: Vec<String> = req
             .headers()
@@ -383,7 +415,7 @@ impl Console {
 
     /// Serve on 127.0.0.1 until setup is complete, then stop listening.
     pub async fn run(self: Arc<Self>) {
-        match TcpListener::bind(("127.0.0.1", self.port)).await {
+        match bind_retrying("127.0.0.1", self.port).await {
             Ok(listener) => {
                 tracing::info!(port = self.port, "the setup console is open on loopback");
                 self.serve_until_complete(listener, Duration::from_secs(2)).await;
@@ -393,12 +425,21 @@ impl Console {
     }
 
     async fn serve_until_complete(self: Arc<Self>, listener: TcpListener, check: Duration) {
+        /// Aborts the accept loop when this future is dropped, not only when setup completes.
+        struct AbortOnDrop(tokio::task::JoinHandle<()>);
+        impl Drop for AbortOnDrop {
+            fn drop(&mut self) {
+                self.0.abort();
+            }
+        }
         let me = self.clone();
-        let accepting = tokio::spawn(serve(listener, move |req, peer| me.clone().handle(req, peer)));
+        // ⚠ A stop or a restart in place (FR-20.18) drops this future, and a spawned task outlives
+        // its JoinHandle: the accept loop went on listening with the OLD round's token and upstream,
+        // and the next round's console could not bind its port (found running setup on Windows).
+        let _accepting = AbortOnDrop(tokio::spawn(serve(listener, move |req, peer| me.clone().handle(req, peer))));
         while !self.marker.exists() {
             tokio::time::sleep(check).await;
         }
-        accepting.abort();
         tracing::info!("setup is complete: the console is closed");
     }
 }
@@ -654,6 +695,57 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(5), closed).await.unwrap().unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert!(TcpStream::connect(("127.0.0.1", port)).await.is_err(), "the console still listens");
+    }
+
+    /// A console as one round of the supervisor starts it, on a port of its own.
+    async fn console_round(token: &str, api: u16, marker: PathBuf) -> u16 {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let up = Arc::new(Upstream { port: api, secret: "the-front-secret".into() });
+        let c = Arc::new(Console::new(port, token.into(), up, marker));
+        tokio::spawn(c.serve_until_complete(listener, Duration::from_millis(100)));
+        port
+    }
+
+    #[tokio::test]
+    async fn a_console_stopped_with_its_round_lets_go_of_its_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let up = Arc::new(Upstream { port: echo_upstream().await, secret: "the-front-secret".into() });
+        let console = Arc::new(Console::new(port, "the-setup-token".into(), up, dir.path().join("setup-complete")));
+        // What a stop or a restart in place does to every ingress: abort the task the round spawned.
+        let round = tokio::spawn(console.serve_until_complete(listener, Duration::from_millis(100)));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        round.abort();
+        let _ = round.await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        // The next round's console binds the same port: the accept loop went with the round.
+        TcpListener::bind(("127.0.0.1", port)).await.expect("the old console still holds its port");
+    }
+
+    #[tokio::test]
+    async fn a_setup_session_outlives_a_restart_in_place_but_not_a_new_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let api = echo_upstream().await;
+        let marker = dir.path().join("setup-complete");
+        let cookie = format!("{SESSION_COOKIE}={}", crate::front::setup_session("the-setup-token"));
+        let get = |port: u16, path: &str| format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nCookie: {cookie}\r\nConnection: close\r\n\r\n");
+
+        // Setup restarts the supervisor to apply what it chose: the page's cookie still opens the next
+        // round's console, which has the same token.
+        let next_round = console_round("the-setup-token", api, marker.clone()).await;
+        assert_eq!(raw(next_round, &get(next_round, "/api/auth/me")).await.0, 200);
+        // Setup's own paths are the console's: before the steps are wired in, they wait, and never
+        // reach the API.
+        let (status, _, body) = raw(next_round, &get(next_round, "/__lgr/setup/api/state")).await;
+        assert_eq!(status, 503, "{body}");
+        assert!(!body.contains("x-lgr-source"), "setup reached the API: {body}");
+
+        // `setup reset` makes a new token: every session the old one opened ends.
+        let after_reset = console_round("a-new-token", api, marker).await;
+        assert_eq!(raw(after_reset, &get(after_reset, "/api/auth/me")).await.0, 403);
+        assert_ne!(crate::front::setup_session("the-setup-token"), "the-setup-token", "the cookie never carries the token");
     }
 
     #[tokio::test]
