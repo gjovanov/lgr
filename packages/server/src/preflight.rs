@@ -16,6 +16,8 @@
 //!   roaming profile: a database on any of those is lost, corrupted, or slow beyond use.
 //! - **Windows only:** the VC++ runtime `mongod` links is where Windows loads it from: the package's
 //!   `bin\`, which carries it app-local, or System32.
+//! - **In a container** (FR-20.12, the image): the memory is the container's limit when it has one,
+//!   and the data is on a volume, never on the container's own layer (overlayfs), which goes with it.
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -83,7 +85,8 @@ pub fn cpu() -> Check {
     }
 }
 
-/// Total physical memory, in bytes.
+/// Total physical memory, in bytes. On Linux, less when this process runs under a memory limit
+/// (`cgroup_memory_limit`): that is all it will get.
 pub fn total_ram() -> Option<u64> {
     #[cfg(windows)]
     unsafe {
@@ -94,9 +97,8 @@ pub fn total_ram() -> Option<u64> {
     }
     #[cfg(target_os = "linux")]
     {
-        let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
-        let kb: u64 = meminfo.lines().find(|l| l.starts_with("MemTotal:"))?.split_whitespace().nth(1)?.parse().ok()?;
-        Some(kb * 1024)
+        let machine = machine_ram()?;
+        Some(cgroup_memory_limit().map_or(machine, |limit| limit.min(machine)))
     }
     #[cfg(target_os = "macos")]
     unsafe {
@@ -108,11 +110,81 @@ pub fn total_ram() -> Option<u64> {
     }
 }
 
+/// What the kernel says the machine has (`MemTotal`), whatever this process may use of it.
+#[cfg(target_os = "linux")]
+fn machine_ram() -> Option<u64> {
+    let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let kb: u64 = meminfo.lines().find(|l| l.starts_with("MemTotal:"))?.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kb * 1024)
+}
+
+/// The memory limit this process runs under, if it has one: a container's (`docker run --memory`,
+/// a Kubernetes limit) or a unit's `MemoryMax=` (FR-20.12). ⚠ `/proc/meminfo` reports the MACHINE
+/// whatever the limit: a master that sized `mongod`'s cache for a 32 GB host inside a 4 GB container
+/// is killed by the kernel the first time that cache fills.
+#[cfg(target_os = "linux")]
+pub fn cgroup_memory_limit() -> Option<u64> {
+    let cgroups = std::fs::read_to_string("/proc/self/cgroup").ok()?;
+    cgroup_limit(&cgroups, Path::new("/sys/fs/cgroup"))
+}
+
+/// The least limit from this process's cgroup up to `root` (`/proc/self/cgroup` says where it is): a
+/// parent's binds too. cgroup v2 (`0::<path>`) reads `memory.max`, v1 the memory controller's
+/// `memory.limit_in_bytes`. Inside a container its own cgroup is the top of what it sees.
+#[cfg(any(target_os = "linux", test))]
+fn cgroup_limit(proc_self_cgroup: &str, root: &Path) -> Option<u64> {
+    let mut least: Option<u64> = None;
+    for line in proc_self_cgroup.lines() {
+        let mut fields = line.splitn(3, ':');
+        let (Some(_), Some(controllers), Some(path)) = (fields.next(), fields.next(), fields.next()) else { continue };
+        let (top, file) = if controllers.is_empty() {
+            (root.to_path_buf(), "memory.max")
+        } else if controllers.split(',').any(|c| c == "memory") {
+            (root.join("memory"), "memory.limit_in_bytes")
+        } else {
+            continue;
+        };
+        let mut dir = top.join(path.trim_start_matches('/'));
+        while dir.starts_with(&top) {
+            if let Some(limit) = limit_in(&dir.join(file)) {
+                least = Some(least.map_or(limit, |l| l.min(limit)));
+            }
+            if dir == top || !dir.pop() {
+                break;
+            }
+        }
+    }
+    least
+}
+
+/// A limit file's bytes. `max` (v2), and v1's "unlimited" (a number near `i64::MAX`), are no limit.
+#[cfg(any(target_os = "linux", test))]
+fn limit_in(file: &Path) -> Option<u64> {
+    let bytes: u64 = std::fs::read_to_string(file).ok()?.trim().parse().ok()?;
+    (bytes < 1 << 60).then_some(bytes)
+}
+
 pub fn memory() -> Check {
+    #[cfg(target_os = "linux")]
+    if let (Some(machine), Some(limit)) = (machine_ram(), cgroup_memory_limit()) {
+        if limit < machine {
+            return memory_under_limit(limit, machine);
+        }
+    }
     match total_ram() {
         Some(ram) => memory_of(ram),
         None => check("memory", false, "could not read the amount of RAM"),
     }
+}
+
+/// A process under a memory limit gets the limit, not the machine.
+#[cfg(any(target_os = "linux", test))]
+fn memory_under_limit(limit: u64, machine: u64) -> Check {
+    check(
+        "memory",
+        limit >= MIN_USABLE_RAM,
+        format!("{} of RAM usable: this server's memory limit (a container's, or its service's) on a machine with {} (a machine with {} is the least)", gb(limit), gb(machine), gb(MIN_RAM)),
+    )
 }
 
 /// `ram` is what the OS reports as usable, which on a machine with 4 GB installed is never 4 GiB.
@@ -197,12 +269,14 @@ pub fn not_local(data: &Path) -> Option<String> {
         let c = std::ffi::CString::new(existing(data).as_os_str().as_encoded_bytes()).ok()?;
         let mut st: libc::statfs = std::mem::zeroed();
         if libc::statfs(c.as_ptr(), &mut st) == 0 {
-            // NFS, SMB (old and CIFS), FUSE (sshfs and friends), and tmpfs (gone at reboot).
+            // NFS, SMB (old and CIFS), FUSE (sshfs and friends), tmpfs (gone at reboot), and overlayfs:
+            // a container's own layer (FR-20.12: the image's data is a volume), or a live system's.
             match st.f_type as i64 {
                 0x6969 => return Some(format!("{} is on NFS", data.display())),
                 0x517B | 0xFF53_4D42 | 0xFE53_4D42 => return Some(format!("{} is on an SMB share", data.display())),
                 0x6573_5546 => return Some(format!("{} is on a FUSE file system", data.display())),
                 0x0102_1994 => return Some(format!("{} is on tmpfs, which does not survive a restart", data.display())),
+                0x794C_7630 => return Some(format!("{} is on overlayfs, a container's own layer or a live system's, which does not keep it: mount a volume there", data.display())),
                 _ => {}
             }
         }
@@ -352,6 +426,43 @@ mod tests {
         assert_eq!(small.detail, "2.9 GB of RAM usable (a machine with 4.0 GB is the least)");
     }
 
+    /// FR-20.12: a container (or a unit with `MemoryMax=`) gets its limit, not the machine.
+    #[test]
+    fn a_memory_limit_is_what_this_server_gets() {
+        const GB: u64 = 1 << 30;
+        let tree = |files: &[(&str, &str)]| {
+            let dir = scratch();
+            for (rel, text) in files {
+                let p = dir.path().join(rel);
+                std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+                std::fs::write(p, text).unwrap();
+            }
+            dir
+        };
+        // A container with --memory 2g: cgroup v2, its own namespace, so its cgroup is the top it sees.
+        let c = tree(&[("memory.max", "2147483648\n")]);
+        assert_eq!(cgroup_limit("0::/\n", c.path()), Some(2 * GB));
+        // A service on a machine: no limit anywhere up the tree, and the root has no memory.max.
+        let s = tree(&[("system.slice/memory.max", "max\n"), ("system.slice/lgr-server.service/memory.max", "max\n")]);
+        assert_eq!(cgroup_limit("0::/system.slice/lgr-server.service\n", s.path()), None);
+        // A parent's limit binds: the least on the way up.
+        let n = tree(&[("system.slice/memory.max", "3221225472\n"), ("system.slice/lgr-server.service/memory.max", "6442450944\n")]);
+        assert_eq!(cgroup_limit("0::/system.slice/lgr-server.service\n", n.path()), Some(3 * GB));
+        // cgroup v1: the memory controller's line, its "unlimited" sentinel, other controllers ignored.
+        let v1 = tree(&[("memory/memory.limit_in_bytes", "4294967296\n")]);
+        assert_eq!(cgroup_limit("12:cpu,cpuacct:/docker/abc\n4:memory:/docker/abc\n", v1.path()), Some(4 * GB));
+        let unlimited = tree(&[("memory/memory.limit_in_bytes", "9223372036854771712\n")]);
+        assert_eq!(cgroup_limit("4:memory:/\n", unlimited.path()), None);
+        assert_eq!(cgroup_limit("", c.path()), None);
+        assert_eq!(cgroup_limit("not a cgroup line\n", c.path()), None);
+
+        let small = memory_under_limit(2 * GB, 16 * GB);
+        assert!(!small.ok, "{small:?}");
+        assert!(small.detail.starts_with("2.0 GB of RAM usable: this server's memory limit"), "{small:?}");
+        assert!(small.detail.contains("on a machine with 16.0 GB"), "{small:?}");
+        assert!(memory_under_limit(4 * GB, 16 * GB).ok);
+    }
+
     /// The supervisor refuses to start only where running is impossible or unsafe. A master that has
     /// run for months is not stopped at a reboot for its free disk or its RAM.
     #[test]
@@ -379,11 +490,28 @@ mod tests {
             "517b | ff534d42 | fe534d42)",
             "65735546)",
             "1021994)",
+            "794c7630)",
             "cannot run on this machine, so nothing was installed",
             "(a machine with 4.0 GB is the least)",
         ] {
             assert!(preinst.contains(needle), "{} lost `{needle}`", path.display());
         }
+    }
+
+    /// FR-20.12: an image is built on a machine that is not the one it runs on, so its build skips the
+    /// preinst's check (the container's own start checks where it runs), and nothing else does.
+    #[test]
+    fn only_the_image_build_skips_the_preinsts_check() {
+        let packaging = Path::new(env!("CARGO_MANIFEST_DIR")).join("packaging");
+        let preinst = std::fs::read_to_string(packaging.join("linux").join("preinst")).unwrap();
+        let skip = preinst.lines().position(|l| l.contains("LGR_SERVER_IMAGE_BUILD")).expect("the preinst names the image build");
+        let first_check = preinst.lines().position(|l| l.contains("grep -qw avx")).unwrap();
+        assert!(skip < first_check, "the image build is let through before any check");
+        // Set for the one command that installs the .deb, and never for the container (an ENV or ARG).
+        let dockerfile = std::fs::read_to_string(packaging.join("docker").join("Dockerfile")).unwrap();
+        let uses: Vec<&str> = dockerfile.lines().map(str::trim).filter(|l| !l.starts_with('#') && l.contains("LGR_SERVER_IMAGE_BUILD")).collect();
+        assert_eq!(uses.len(), 1, "{uses:?}");
+        assert!(uses[0].starts_with("LGR_SERVER_IMAGE_BUILD=1 apt-get install"), "{uses:?}");
     }
 
     fn with_dlls(dir: &Path, dlls: &[&str]) {

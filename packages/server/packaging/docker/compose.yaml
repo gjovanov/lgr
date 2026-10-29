@@ -1,0 +1,45 @@
+# LGR Server from Docker Compose (FR-20.12, gjovanov/lgr#367): one master on this machine.
+#
+#   1. This file in a folder of its own. The release's copy, lgr-server-<v>-compose.yaml, names its
+#      version already; this one takes it from a .env beside it (or the shell): LGR_SERVER_VERSION=<v>
+#   2. docker compose up -d
+#   3. docker compose exec lgr-server lgr-server setup-token
+#      and open the link it prints in a browser ON THIS MACHINE.
+#
+# Air-gapped: `zstd -dc lgr-server-<v>-image-amd64.tar.zst | docker load` first (from the release),
+# and Compose uses the image it finds instead of pulling it.
+#
+# ⚠ network_mode: host is not optional: the setup console and mongod stay on this machine's
+#   loopback, the LAN ingress is this machine's 4443, and the tills find the server by multicast
+#   DNS-SD, which a bridge network does not carry.
+# ⚠ Never publish 27118 (mongod) or 4480 (the setup console) beyond this machine.
+# ⚠ One container per volume, ever: two servers on one database corrupt it.
+# ⚠ An image is updated by its tag (`lgr-server update apply` refuses in a container): the next
+#   release's file, or the next LGR_SERVER_VERSION with this one, then `docker compose up -d`. The
+#   volume stays. The backup the .deb's updater takes before a switch is yours to take here, first:
+#   docker compose exec lgr-server lgr-server backup now
+
+name: lgr-server
+
+services:
+  lgr-server:
+    image: ghcr.io/gjovanov/lgr-server:${LGR_SERVER_VERSION:?set LGR_SERVER_VERSION to the release this machine runs, for example 0.1.5}
+    container_name: lgr-server
+    network_mode: host
+    restart: unless-stopped
+    # The supervisor's graceful stop (a receipt in flight, mongod's last checkpoint): systemd's 30 s.
+    stop_grace_period: 30s
+    environment:
+      # The shop's time zone, for the server's own maintenance times (e.g. Europe/Sofia).
+      TZ: ${TZ:-UTC}
+    volumes:
+      - lgr-data:/var/lib/lgr
+    # Rotated, so months of logs never fill a shop PC's disk.
+    logging:
+      driver: local
+      options:
+        max-size: 20m
+        max-file: "5"
+
+volumes:
+  lgr-data:

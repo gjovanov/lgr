@@ -220,6 +220,40 @@ pub struct Candidate {
     pub supto_waiting: Option<String>,
 }
 
+/// FR-20.12: why nothing on this machine installs an update, when nothing does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+enum Elsewhere {
+    /// The image this server runs from (`LGR_SERVER_IMAGE`, which the Dockerfile sets): it is
+    /// updated by its tag.
+    Image(String),
+    /// A Linux that systemd does not run: there is no update helper to wake.
+    NoSystemd,
+}
+
+impl Elsewhere {
+    fn here() -> Option<Self> {
+        #[cfg(target_os = "linux")]
+        if !crate::pointer::has_systemd() {
+            return Some(match std::env::var("LGR_SERVER_IMAGE").ok().filter(|i| !i.is_empty()) {
+                Some(image) => Elsewhere::Image(image),
+                None => Elsewhere::NoSystemd,
+            });
+        }
+        None
+    }
+
+    /// The update status then: what runs, what global offers, and how it is taken.
+    fn status(&self, running: &str, supto: &str, auto: bool, available: Option<&str>, checked_at: &str) -> serde_json::Value {
+        let (state, reason) = match (self, available) {
+            (Elsewhere::Image(image), Some(v)) => ("image", Some(format!("pull {image}:{v} and start the container from it"))),
+            (Elsewhere::Image(_), None) => ("image", None),
+            (Elsewhere::NoSystemd, _) => ("manual", Some("no systemd runs this machine, so nothing here installs updates".to_string())),
+        };
+        serde_json::json!({ "state": state, "running": running, "supto": supto, "auto": auto, "available": available, "reason": reason, "checkedAt": checked_at })
+    }
+}
+
 pub struct Updates {
     pub registrar: Arc<Registrar>,
     pub settings: Settings,
@@ -329,6 +363,7 @@ impl Updates {
             self.set(serde_json::json!({ "state": "not-versioned", "note": "this home was not installed by a package: it updates with its package" }));
             return;
         }
+        let elsewhere = Elsewhere::here();
         let mut deferrals: Deferrals = std::fs::read_to_string(&self.deferrals_file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         let (mut last_offer, mut candidate): (Option<Instant>, Option<Candidate>) = (None, None);
         let mut last_wake: Option<(String, Instant)> = None;
@@ -344,8 +379,15 @@ impl Updates {
                     Err(e) => tracing::warn!(error = %format!("{e:#}"), "the server release could not be checked"),
                 }
             }
-            let (gate, day) = self.gate_now(sup.api_control()).await;
             let now = time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap_or_default();
+            // FR-20.12: nothing here installs (an image, updated by its tag): say what is offered, and
+            // never wake a helper that is not there, nor count windows it could not have used.
+            if let Some(elsewhere) = &elsewhere {
+                self.set(elsewhere.status(&self.running, &self.supto, self.settings.auto, candidate.as_ref().map(|c| c.version.as_str()), &now));
+                tokio::time::sleep(TICK).await;
+                continue;
+            }
+            let (gate, day) = self.gate_now(sup.api_control()).await;
             match (&candidate, &gate) {
                 (None, _) => self.set(serde_json::json!({ "state": "up-to-date", "running": self.running, "supto": self.supto, "auto": self.settings.auto, "checkedAt": now })),
                 // FR-20.50: not before its declaration, whatever the gate says; nothing is counted.
@@ -470,5 +512,22 @@ mod tests {
     fn the_local_clock_reads() {
         let (_, minutes) = local_now().unwrap();
         assert!(minutes < 24 * 60);
+    }
+
+    /// FR-20.12: an image is updated by its tag. Its status says what is offered and how to take it,
+    /// and never "installing", which nothing in a container would ever finish.
+    #[test]
+    fn an_image_says_what_is_offered_and_installs_nothing() {
+        let image = Elsewhere::Image("ghcr.io/gjovanov/lgr-server".into());
+        let s = image.status("0.1.5", "1", true, Some("0.1.6"), "t");
+        assert_eq!(s["state"], "image");
+        assert_eq!(s["available"], "0.1.6");
+        assert_eq!(s["reason"], "pull ghcr.io/gjovanov/lgr-server:0.1.6 and start the container from it");
+        let s = image.status("0.1.5", "1", true, None, "t");
+        assert_eq!(s["state"], "image");
+        assert!(s["available"].is_null() && s["reason"].is_null(), "{s}");
+        let s = Elsewhere::NoSystemd.status("0.1.5", "1", true, Some("0.1.6"), "t");
+        assert_eq!(s["state"], "manual");
+        assert!(s["reason"].as_str().unwrap().contains("no systemd"), "{s}");
     }
 }
