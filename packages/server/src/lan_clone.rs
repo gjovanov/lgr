@@ -13,6 +13,8 @@
 //!   server's own LAN CA, and checks no name (a clone's certificate names its own address). Only a
 //!   machine holding this server's CA key, or its certificate's key, completes it: a copy of this disk.
 //!   A stale record answers nothing, and a forged one cannot answer that.
+//! - **A copy at THIS machine's address** is out of this watch's reach (a connection to its own
+//!   address never leaves the machine): `arp.rs` (#356) finds that one, as another machine claiming it.
 //! - **Confirmed, it is recorded** in `state/clone.json` (`at` renewed at every sighting). The API
 //!   reads it every minute and locks legal numbering with it (`series-lock.service#lanCloneTick`): until
 //!   a person records the last numbers, and again while the clone goes on answering after that.
@@ -58,20 +60,29 @@ pub struct Candidate {
     pub port: u16,
 }
 
+/// A TXT key of an advert, any case.
+fn txt<'a>(h: &'a Heard, key: &str) -> Option<&'a str> {
+    h.txt.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v.trim())
+}
+
+/// An advert naming `me`'s node from another start, and the address it names.
+fn other_start(me: &Me, h: &Heard) -> Option<(Option<String>, Ipv4Addr)> {
+    if txt(h, "v") != Some("1") || txt(h, "node") != Some(me.node.as_str()) || h.port == 0 {
+        return None;
+    }
+    let boot = txt(h, "boot").filter(|b| !b.is_empty()).map(str::to_string);
+    if boot.as_deref() == Some(me.boot.as_str()) {
+        return None;
+    }
+    Some((boot, txt(h, "ip").and_then(|s| s.parse::<Ipv4Addr>().ok()).or(h.ip)?))
+}
+
 /// The adverts heard that could be a clone of `me`. Never this start's own, and never this machine's
 /// own address (its advert from before a restart, still in caches).
 pub fn candidates(me: &Me, heard: &[Heard]) -> Vec<Candidate> {
     let mut out: Vec<Candidate> = Vec::new();
     for h in heard {
-        let get = |k: &str| h.txt.iter().find(|(key, _)| key.eq_ignore_ascii_case(k)).map(|(_, v)| v.trim());
-        if get("v") != Some("1") || get("node") != Some(me.node.as_str()) || h.port == 0 {
-            continue;
-        }
-        let boot = get("boot").filter(|b| !b.is_empty()).map(str::to_string);
-        if boot.as_deref() == Some(me.boot.as_str()) {
-            continue;
-        }
-        let Some(ip) = get("ip").and_then(|s| s.parse::<Ipv4Addr>().ok()).or(h.ip) else { continue };
+        let Some((boot, ip)) = other_start(me, h) else { continue };
         if Some(ip) == me.ip || ip.is_loopback() || ip.is_unspecified() {
             continue;
         }
@@ -81,6 +92,15 @@ pub fn candidates(me: &Me, heard: &[Heard]) -> Vec<Candidate> {
         }
     }
     out
+}
+
+/// Whether an advert names `me`'s node from another start AT `me`'s OWN ADDRESS: what `candidates`
+/// skips, since this machine's own record from before a restart looks exactly like it. Proof of
+/// nothing alone. Beside another machine claiming that address over ARP (`arp.rs`, #356), a probable
+/// clone there: a copy of this disk that DHCP gave the same address.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn at_my_address(me: &Me, heard: &[Heard]) -> bool {
+    me.ip.is_some_and(|mine| heard.iter().any(|h| other_start(me, h).is_some_and(|(_, ip)| ip == mine)))
 }
 
 /// A server-certificate check that trusts this server's own LAN CA and nothing else, and checks no
@@ -233,6 +253,17 @@ mod tests {
             Candidate { boot: Some("dddd".into()), ip: Ipv4Addr::new(192, 168, 1, 20), port: 4443 },
             Candidate { boot: None, ip: Ipv4Addr::new(192, 168, 1, 21), port: 4443 },
         ]);
+    }
+
+    #[test]
+    fn an_advert_of_this_node_from_another_start_at_its_own_address_is_told_apart() {
+        // What `candidates` skips, and what an ARP conflict on the address makes a probable clone of.
+        assert!(at_my_address(&me(), &[heard("master-abcdefghijklmnop", Some("bbbb"), "192.168.1.10")]));
+        assert!(at_my_address(&me(), &[heard("master-abcdefghijklmnop", None, "192.168.1.10")]), "a server too old to say its nonce");
+        assert!(!at_my_address(&me(), &[heard("master-abcdefghijklmnop", Some("aaaa"), "192.168.1.10")]), "this start's own");
+        assert!(!at_my_address(&me(), &[heard("master-abcdefghijklmnop", Some("bbbb"), "192.168.1.20")]), "another address: `candidates`' business");
+        assert!(!at_my_address(&me(), &[heard("master-qrstuvwxyz234567", Some("cccc"), "192.168.1.10")]), "another server");
+        assert!(!at_my_address(&Me { ip: None, ..me() }, &[heard("master-abcdefghijklmnop", Some("bbbb"), "192.168.1.10")]), "no address of its own yet");
     }
 
     #[test]

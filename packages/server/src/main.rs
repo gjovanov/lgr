@@ -5,6 +5,7 @@
 //! does goes through it: the API never runs on its own on a master.
 
 mod advert;
+mod arp;
 mod backoff;
 mod child;
 mod certs;
@@ -221,6 +222,9 @@ fn init_logging(to_file: Option<&std::path::Path>) {
 /// The supervisor until `shutdown` resolves: the API from the package, the control channel, the
 /// backoff policy. Returns the exit code ([`backoff::EXIT_CONFIG`] when it cannot even start).
 pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
+    // #356: the ARP socket, opened once per process while it is one thread, with the CAP_NET_RAW its
+    // file capability gives, which is then dropped. Kept for every start in this process (`arp::run`).
+    arp::open_before_threads();
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(r) => r,
         Err(e) => {
@@ -408,6 +412,10 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                 Ok(settings) => sup.add_service(tokio::spawn(night_restart::run(sup.clone(), settings, install::Root::here(), paths.data.join("state").join("night-restart.json")))),
                 Err(e) => tracing::error!(error = %format!("{e:#}"), "no night restart: its settings are wrong"),
             }
+            // #356 (RFC 5227): another machine claiming this server's LAN address, on Linux. With the
+            // LAN ingress open or not: a copy of this disk at this address is a second home either way.
+            let conflicts = paths.data.join("state").join("address-conflict.json");
+            sup.add_ingress(tokio::spawn(arp::run(front::node_id(&paths.data).ok(), boot.clone(), conflicts)));
             // The egress first: the API is given its address, and a CONNECT may come at once.
             match tokio::net::TcpListener::bind(("127.0.0.1", front.egress_port)).await {
                 Ok(listener) => sup.add_service(tokio::spawn(egress::serve(listener, front.egress_secret.clone(), egress_rules))),
@@ -753,6 +761,23 @@ fn real_main(cli: Cli) -> Result<i32> {
                 if night["pending"].as_bool() == Some(true) {
                     let libraries: Vec<&str> = night["libraries"].as_array().into_iter().flatten().filter_map(|l| l.as_str()).map(|l| l.rsplit('/').next().unwrap_or(l)).collect();
                     println!("  restart  pending: {} replaced; {}", libraries.join(", "), night["waiting"].as_str().unwrap_or("looking again shortly"));
+                }
+                // #356: another machine claiming this server's LAN address.
+                if let Some(check) = status["addressCheck"].as_object() {
+                    match check.get("conflict").filter(|c| c.is_object()) {
+                        Some(c) => println!(
+                            "  address  {} claimed by {} since {} (last {}){}",
+                            c["address"].as_str().unwrap_or("?"),
+                            c["otherMac"].as_str().unwrap_or("?"),
+                            c["firstSeen"].as_str().unwrap_or("?"),
+                            c["at"].as_str().unwrap_or("?"),
+                            if c["probableClone"].as_bool() == Some(true) { "  PROBABLY A CLONE" } else { "" }
+                        ),
+                        None if check.get("on").and_then(|v| v.as_bool()) == Some(false) => {
+                            println!("  address  not watched: {}", check.get("reason").and_then(|v| v.as_str()).unwrap_or("?"))
+                        }
+                        None => {}
+                    }
                 }
                 for c in status["children"].as_array().into_iter().flatten() {
                     println!(

@@ -382,6 +382,12 @@ pub fn install_bundle_checked(root: &Root, bundle: &Path, check: &dyn Fn(&Path) 
         Ok(Installed::New(m.version))
     })();
     let _ = remove_tree(&incoming);
+    // #356: the supervisor's CAP_NET_RAW, as a file capability, on a new version and on one installed
+    // already (a version an installer from before #356 put there gets it here). Last: a write to the
+    // file, or a chown, clears it. Not a file byte, so `verify_home` reads the same.
+    if let Ok(installed) = &result {
+        crate::arp::grant_file_capability(&root.exe_of(installed.version()));
+    }
     result
 }
 

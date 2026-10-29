@@ -322,6 +322,8 @@ pub mod platform {
                 let _ = std::fs::create_dir_all("/etc/needrestart/conf.d");
                 let _ = std::fs::write("/etc/needrestart/conf.d/lgr-server.conf", include_str!("../packaging/linux/needrestart.conf"));
             }
+            // #356: what `update install-bundle` gives a version, for a home installed from the tarball.
+            crate::arp::grant_file_capability(&exe);
             sh("systemctl", &["daemon-reload"])?;
             sh("systemctl", &[if start { "--now" } else { "--no-block" }, "enable", "lgr-server.service"])?;
         }
@@ -383,6 +385,17 @@ mod tests {
         assert!(unit.contains("RestartPreventExitStatus=7 8\n"));
         assert!(unit.contains("Environment=LGR_SERVER_DATA=/var/lib/lgr\n"));
         assert!(!unit.contains("User=root"));
+    }
+
+    #[test]
+    fn the_unit_grants_no_capability_and_honours_the_binarys() {
+        // #356: CAP_NET_RAW is the supervisor binary's FILE capability (`arp::grant_file_capability`). An
+        // ambient one here would reach the API and mongod through any version that never drops it, and
+        // NoNewPrivileges= (or a directive that implies it) would turn the file's off.
+        let unit = systemd_unit(&PathBuf::from("/opt/lgr-server/current/lgr-server"), "lgr", &PathBuf::from("/var/lib/lgr"));
+        for word in ["Capabilit", "NoNewPrivileges", "SystemCallFilter", "RestrictAddressFamilies", "MemoryDenyWriteExecute"] {
+            assert!(!unit.contains(word), "{word} in the unit:\n{unit}");
+        }
     }
 
     #[test]
