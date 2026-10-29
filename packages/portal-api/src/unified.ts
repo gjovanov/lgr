@@ -227,6 +227,8 @@ if (config.front.controlSocket && config.front.secret) {
         return b.blobFor(b.readBlobAsk(body))
       },
     },
+    // FR-20.18 (#350): the setup console's view of this server: the orgs homed here, the desktops paired.
+    setup: async () => (await import('services/biz/node/setup-facts')).setupFacts(),
     // FR-20.20: what the update helper asks for before it switches versions.
     backup: async () => {
       const { backupBeforeUpdate } = await import('services/biz/backup/pre-update-backup.service')

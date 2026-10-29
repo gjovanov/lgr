@@ -334,6 +334,22 @@ is ever read as a stamp.
     lowercased, single slashes, no trailing slash);
   - the three routes that create an org (`POST /api/auth/register`, `POST /api/auth/orgs`,
     `POST /api/oauth/pending/register`) answer 404 unless `source=console` (FR-20.18).
+  - ⚠ A registration stamped `console` on a master makes the founder ACTIVE, with no activation
+    mail (FR-20.17, #350). The console exists only during setup, on loopback, behind the one-time
+    token. An invite through it still needs the email. Gated on `nodeRole() === 'master'` AND
+    `frontSource()`, which is `undefined` with no front, so a forged header on global does nothing.
+- **Setup is the supervisor's** (`packages/server/src/setup.rs`, its page `setup_page.html`, served
+  at `/__lgr/setup/app` on the console, never by the API). It chooses the link level, opens the LAN,
+  sets the backup copy, then writes `state/setup-complete`, which closes the console and opens the
+  tunnel. Its choices live in `state/setup.json`, UNDER `config/api.env` (the operator's line wins,
+  and setup never edits that file). It applies them by restarting the supervisor IN ITS OWN PROCESS
+  (`supervisor::RELOAD`), so the service manager counts no restart (#369). The control socket's
+  `GET /setup` tells it which orgs are homed here (their owners become `BACKUP_SYS_ADMINS`) and how
+  many desktops are paired. `lgr-server setup reset` reopens it with a new token.
+  - ⚠ A console session is derived from the token (`front::setup_session`) so that it survives
+    that restart. Never the token itself in the cookie.
+  - ⚠ Never run `cargo fmt` in `packages/server`. There is no rustfmt config, CI runs only clippy,
+    and the crate is written in long lines: fmt rewrites all 36 files.
 - **`source=lan` needs a paired desktop:** `X-LGR-Desktop-Token`, verified and then re-read through
   `loadActiveDesktop`, so a revocation takes effect at once.
   - Exempt: `GET /api/health` and `POST /api/desktop/v1/{enroll,token}`, matched EXACTLY. A variant
@@ -360,6 +376,8 @@ is ever read as a stamp.
 - **The control socket** (`control-socket.ts`): HTTP over AF_UNIX (`Bun.serve({ unix })`), and every
   request carries the front secret.
   - `GET /status`: schedulers, `fiscalInFlight`, `posOpen`, requests and sockets in flight.
+  - `GET /setup`: the orgs homed here with owner and admins (addresses and an active flag only), and
+    the paired desktops. For setup's console.
   - `POST /stop`.
   - ⚠ Bun 1.4.4 on Windows serves HTTP on an AF_UNIX path, but not on a named pipe (ENOENT). A
     path longer than 108 bytes fails with ENAMETOOLONG.

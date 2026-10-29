@@ -32,6 +32,7 @@ mod preflight;
 mod register;
 mod replication;
 mod service;
+mod setup;
 mod signatures;
 mod status_file;
 mod supervisor;
@@ -91,6 +92,11 @@ enum Command {
     },
     /// Print the link that opens the setup console, with its one-time token (FR-20.18).
     SetupToken,
+    /// The setup console (FR-20.18): `reset` reopens setup on a server already set up.
+    Setup {
+        #[command(subcommand)]
+        action: SetupAction,
+    },
     /// Register this master with global for an org (FR-20.2), with the code its admin minted on the
     /// Servers page. Run again with another org's code to add that org.
     Register {
@@ -201,6 +207,14 @@ enum BackupAction {
 }
 
 #[derive(Subcommand)]
+enum SetupAction {
+    /// Reopen setup: a new one-time link (the old one stops working), and the console back, which
+    /// also lets an organization be registered on it again until setup is finished once more. What
+    /// setup chose before is kept as the starting point. For an administrator (root).
+    Reset,
+}
+
+#[derive(Subcommand)]
 enum LicenceAction {
     /// Keep a licence file a sys-admin issued for this server: an air-gapped master's.
     Import { file: std::path::PathBuf },
@@ -221,6 +235,11 @@ fn init_logging(to_file: Option<&std::path::Path>) {
 
 /// The supervisor until `shutdown` resolves: the API from the package, the control channel, the
 /// backoff policy. Returns the exit code ([`backoff::EXIT_CONFIG`] when it cannot even start).
+///
+/// FR-20.18: setup applies what it chose, and `setup reset` reopens it, by starting again IN THIS
+/// PROCESS ([`supervisor::RELOAD`]): every child stops, then the whole start runs again with the
+/// configuration as it is now. The service manager sees no exit and no restart, so the update
+/// helper never counts one as a crash (#369), and one stop request ends every round.
 pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
     // #356: the ARP socket, opened once per process while it is one thread, with the CAP_NET_RAW its
     // file capability gives, which is then dropped. Kept for every start in this process (`arp::run`).
@@ -232,6 +251,18 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
             return 1;
         }
     };
+    let mut shutdown = std::pin::pin!(shutdown);
+    loop {
+        let code = run_round(&runtime, shutdown.as_mut());
+        if code != supervisor::RELOAD {
+            return code;
+        }
+        tracing::info!("starting again in this process, with the configuration as it is now");
+    }
+}
+
+/// One start of the supervisor, until a stop, a start that gives up, or a reload.
+fn run_round(runtime: &tokio::runtime::Runtime, shutdown: std::pin::Pin<&mut impl Future<Output = ()>>) -> i32 {
     runtime.block_on(async {
         let config_error = |e: anyhow::Error| {
             tracing::error!(error = %format!("{e:#}"), "cannot start: the configuration is wrong");
@@ -479,7 +510,7 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                 sup.set_lan(identity.clone());
                 match tls {
                     Err(e) => tracing::error!(error = %format!("{e:#}"), "the LAN ingress has no TLS configuration: it stays closed"),
-                    Ok(tls) => match tokio::net::TcpListener::bind(("0.0.0.0", port)).await {
+                    Ok(tls) => match ingress::bind_retrying("0.0.0.0", port).await {
                         // Loud, not fatal: the console and the API stay up for whoever fixes it.
                         Err(e) => tracing::error!(port, error = %e, "the LAN ingress cannot listen (is LAN_PORT in use?)"),
                         Ok(listener) => {
@@ -488,7 +519,7 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
                             // The CA a pairing desktop fetches and checks (FR-20.29), and what a paired
                             // one follows a rotation by (FR-20.30): read from the identity each time.
                             let served = identity.clone();
-                            sup.add_ingress(tokio::spawn(ingress::serve_tls(listener, tls, move |req, peer| {
+                            sup.add_ingress(tokio::spawn(ingress::serve_tls(listener, tls, sup.connections(), move |req, peer| {
                                 let (up, lan) = (up.clone(), served.clone());
                                 async move {
                                     if let Some(answer) = ingress::lan_ca_answer(&req, &lan) {
@@ -549,8 +580,10 @@ pub fn run_supervisor_blocking(shutdown: impl Future<Output = ()>) -> i32 {
             } else {
                 let token = front::setup_token(&paths.data).map_err(config_error)?;
                 let marker = paths.data.join("state").join("setup-complete");
-                let console = std::sync::Arc::new(ingress::Console::new(front.setup_port, token, upstream.clone(), marker));
-                sup.add_ingress(tokio::spawn(console.run()));
+                // FR-20.18: setup's steps are the console's own (`setup.rs`).
+                let host = std::sync::Arc::new(setup::Host { data: paths.data.clone(), sup: sup.clone(), console_port: front.setup_port });
+                let console = std::sync::Arc::new(ingress::Console::new(front.setup_port, token, upstream.clone(), marker).with_setup(host));
+                sup.add_ingress(tokio::spawn(console.run(sup.connections())));
             }
             Ok(())
         })
@@ -924,6 +957,34 @@ fn real_main(cli: Cli) -> Result<i32> {
   {}
 ", front::setup_url(port, &token));
             println!("It works on this machine only, and only until setup is complete.");
+            Ok(0)
+        }
+        Command::Setup { action: SetupAction::Reset } => {
+            let paths = config::Paths::resolve()?;
+            let operator = config::operator_env(&paths)?;
+            let port = match operator.get("SETUP_PORT") {
+                Some(p) => p.parse().with_context(|| format!("SETUP_PORT={p} is not a port"))?,
+                None => front::DEFAULT_SETUP_PORT,
+            };
+            // The old link stops working first, then setup is open again, then the console comes back.
+            front::forget_setup_token(&paths.data)?;
+            let marker = paths.data.join("state").join("setup-complete");
+            match std::fs::remove_file(&marker) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e).with_context(|| format!("removing {}", marker.display())),
+            }
+            let token = front::setup_token(&paths.data)?;
+            match ask(ipc::Request::Reload) {
+                Ok(answer) if answer.ok => println!("Setup is open again. The server is starting again with its setup console (about half a minute)."),
+                Ok(answer) => println!("Setup is open again. The server did not start again ({}): restart the service.", answer.error.unwrap_or_default()),
+                Err(_) => println!("Setup is open again. The service is not running: the console opens when it starts."),
+            }
+            println!("Open this on the server itself, in a browser:
+
+  {}
+", front::setup_url(port, &token));
+            println!("Until setup is finished again, an organization can be registered through this console.");
             Ok(0)
         }
         Command::Update { action: UpdateAction::InstallBundle { bundle, root, start, undoable } } => {

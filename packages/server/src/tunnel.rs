@@ -151,6 +151,9 @@ pub struct Tunnel {
     up: Arc<Upstream>,
     out: mpsc::Sender<Message>,
     streams: HashMap<u32, Handle>,
+    /// FR-20.18: `state/setup-complete`. While it does not exist the tunnel carries nothing, and
+    /// says so to global for every stream.
+    setup_marker: Option<std::path::PathBuf>,
 }
 
 fn text(v: serde_json::Value) -> Message {
@@ -163,7 +166,14 @@ fn error(sid: u32, code: &str, message: &str) -> Message {
 
 impl Tunnel {
     pub fn new(up: Arc<Upstream>, out: mpsc::Sender<Message>) -> Self {
-        Self { up, out, streams: HashMap::new() }
+        Self { up, out, streams: HashMap::new(), setup_marker: None }
+    }
+
+    /// Carry nothing until `marker` exists (FR-20.18: "the uplink carries no tunnel traffic until
+    /// setup is complete"). Read at every stream, so `setup reset` closes it at once.
+    pub fn until_setup_complete(mut self, marker: Option<std::path::PathBuf>) -> Self {
+        self.setup_marker = marker;
+        self
     }
 
     /// From the session's loop, which drains `out`: never awaited there.
@@ -226,6 +236,10 @@ impl Tunnel {
         }
         if self.streams.len() >= MAX_STREAMS {
             self.answer_later(error(sid, "busy", "This server has too many requests open."));
+            return;
+        }
+        if self.setup_marker.as_ref().is_some_and(|m| !m.exists()) {
+            self.answer_later(error(sid, "setup_incomplete", "This server is being set up: it serves nothing through lgrai.app until setup is complete."));
             return;
         }
         let Some(open) = Open::from(v) else {
@@ -736,5 +750,25 @@ mod tests {
         // Nonsense opens nothing.
         t.control(&serde_json::json!({ "t": "tun-open", "sid": 11, "kind": "http", "path": "no-slash", "host": "x" }));
         assert_eq!(t.open_streams(), 0);
+    }
+
+    #[tokio::test]
+    async fn until_setup_is_complete_the_tunnel_carries_nothing_and_says_why() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("setup-complete");
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, mut rx) = mpsc::channel(64);
+        let mut t = Tunnel::new(Arc::new(Upstream { port, secret: "s".into() }), tx).until_setup_complete(Some(marker.clone()));
+        t.control(&open_frame(1, "GET", false));
+        match next_out(&mut rx).await {
+            Message::Text(s) => assert!(s.as_str().contains(r#""code":"setup_incomplete""#), "{s}"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(t.open_streams(), 0, "nothing reached the API");
+        // Read at every stream: the moment setup is complete, the next one goes through.
+        std::fs::write(&marker, "{}").unwrap();
+        t.control(&open_frame(2, "GET", false));
+        assert_eq!(t.open_streams(), 1);
     }
 }

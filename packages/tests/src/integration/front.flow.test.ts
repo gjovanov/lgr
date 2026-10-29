@@ -76,6 +76,9 @@ beforeAll(async () => {
       LGR_CONTROL_SOCKET: socket,
       DESKTOP_TOKEN_SECRET: DESKTOP_KEY,
       LGR_STOP_WAIT_MS: '3000',
+      // What lgr-server gives every master (`state/node.json`): without it an org founded in setup
+      // could not be homed here.
+      LGR_NODE_ID: 'master-frontflowtest234',
     },
     probeHeaders: { 'x-lgr-front': SECRET, 'x-lgr-source': 'tunnel' },
   })
@@ -227,6 +230,48 @@ describe('the control socket (FR-20.16, FR-20.23)', () => {
     const viaLan = await front('/backup', 'lan', { method: 'POST', headers: { 'x-lgr-desktop-token': desktop } })
     expect(await viaLan.text()).not.toContain('"runs"')
   }, 60_000)
+
+  // FR-20.17, FR-20.18 (#350): after the backup test (which needs nothing homed here), before stop.
+  const owner = { email: 'owner@setup.example', password: 'a-good-password-1' }
+
+  test('setup: the first admin registered on the console is active at once, and signs in', async () => {
+    const r = await front('/api/auth/register', 'console', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ orgName: 'Setup Shop', orgSlug: 'setup-shop', firstName: 'Ana', lastName: 'Owner', email: owner.email, username: 'owner', password: owner.password }),
+    })
+    const made = await r.json()
+    expect([r.status, made.message]).toEqual([200, 'Registered. Sign in now.'])
+    expect(made.active).toBe(true)
+    // No activation link was needed (an Air-gapped master has no mail): the password signs in at once.
+    const login = await front('/api/auth/login', 'console', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: owner.email, password: owner.password }),
+    })
+    expect(login.status).toBe(200)
+    const signedIn = await login.json()
+    expect(signedIn.token).toBeTruthy()
+    expect(signedIn.org.slug).toBe('setup-shop')
+  }, 30_000)
+
+  test('setup: the control socket says which orgs are homed here, their owner, and the desktops paired', async () => {
+    expect((await control('/setup', { secret: null })).status).toBe(403)
+    expect((await control('/setup', { secret: random() })).status).toBe(403)
+    const r = await control('/setup')
+    expect(r.status).toBe(200)
+    const facts = await r.json()
+    const org = facts.orgs.find((o: any) => o.slug === 'setup-shop')
+    expect(org.owner).toEqual({ email: owner.email, active: true })
+    expect(org.admins).toContainEqual({ email: owner.email, active: true })
+    // The desktop rows the earlier tests made belong to orgs that are not homed here.
+    expect(facts.desktops).toBe(0)
+    // Addresses and flags only: nothing a page could replay.
+    expect(JSON.stringify(facts)).not.toMatch(/password|\$argon2|\$2[aby]\$|token/i)
+    // And it is the supervisor's alone: no ingress reaches it.
+    const viaConsole = await front('/setup', 'console')
+    expect(await viaConsole.text()).not.toContain('"desktops"')
+  })
 
   test('stop: answered at once, then the API stops cleanly, exits 0 and removes its socket', async () => {
     const r = await control('/stop', { method: 'POST' })

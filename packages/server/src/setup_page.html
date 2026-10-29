@@ -1,0 +1,403 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LGR Server setup</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --fg:#1d2433; --muted:#5b6474; --line:#d8dde6; --bg:#f4f6f9; --card:#fff; --accent:#1f6feb; --ok:#1a7f37; --warn:#9a6700; --bad:#cf222e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:var(--fg); background:var(--bg); }
+  main { max-width:44rem; margin:0 auto; padding:2rem 1rem 4rem; }
+  h1 { font-size:1.4rem; margin:0 0 .25rem; }
+  .sub { color:var(--muted); margin:0 0 1.5rem; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:1rem 1.25rem; margin:0 0 .75rem; }
+  section h2 { font-size:1rem; margin:0; display:flex; gap:.5rem; align-items:center; }
+  section .body { margin-top:.75rem; }
+  section.todo h2 { color:var(--muted); }
+  .chip { font-size:.75rem; font-weight:600; border-radius:999px; padding:.05rem .55rem; border:1px solid currentColor; }
+  .chip.ok { color:var(--ok); } .chip.now { color:var(--accent); } .chip.wait { color:var(--warn); }
+  label { display:block; margin:.6rem 0 .2rem; font-weight:600; font-size:.9rem; }
+  .hint { color:var(--muted); font-size:.85rem; margin:.2rem 0 0; }
+  input[type=text], input[type=email], input[type=password], input[type=number], select { width:100%; padding:.5rem .6rem; border:1px solid var(--line); border-radius:6px; font:inherit; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; }
+  .choice { display:flex; gap:.6rem; align-items:flex-start; border:1px solid var(--line); border-radius:8px; padding:.6rem .75rem; margin:.4rem 0; cursor:pointer; }
+  .choice input { margin-top:.3rem; }
+  .choice b { display:block; }
+  button { font:inherit; font-weight:600; padding:.55rem 1.1rem; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; margin-top:1rem; }
+  button.secondary { background:#fff; color:var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+  .msg { margin-top:.75rem; padding:.5rem .75rem; border-radius:6px; display:none; }
+  .msg.bad { display:block; background:#ffebe9; color:var(--bad); }
+  .msg.info { display:block; background:#ddf4ff; color:#0a3069; }
+  .msg.warn { display:block; background:#fff8c5; color:#4d2d00; }
+  .code { font:600 1.6rem/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing:.08em; margin:.5rem 0; }
+  .words { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  footer { color:var(--muted); font-size:.8rem; margin-top:1.5rem; }
+  code { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#eef1f5; padding:0 .25rem; border-radius:4px; }
+  details summary { cursor:pointer; color:var(--muted); font-size:.85rem; margin-top:.6rem; }
+  ul.plain { padding-left:1.1rem; margin:.4rem 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1 data-t="title"></h1>
+  <p class="sub" data-t="subtitle"></p>
+  <div id="banner" class="msg"></div>
+  <div id="steps"></div>
+  <footer id="foot"></footer>
+</main>
+<script>
+'use strict'
+// FR-20.18 (#350): the console's setup steps. Served by lgr-server on loopback only, behind the
+// one-time setup token; nothing here is loaded from anywhere else.
+const LANG = (navigator.language || 'en').toLowerCase().startsWith('bg') ? 'bg' : 'en'
+const T = {
+  en: {
+    title: 'Set up LGR Server',
+    subtitle: 'This page runs on the server itself and only during setup. It closes when setup is complete.',
+    starting: 'The server is starting its database and its apps. This page carries on by itself.',
+    restarting: 'The server is starting again with your settings (about half a minute). This page carries on by itself.',
+    unreachable: 'The server is not answering this page. If it was just restarted, wait a moment; otherwise run "lgr-server setup-token" as an administrator for the current link.',
+    done: 'Done', now: 'Now', waiting: 'Waiting', later: 'Later', optional: 'Optional',
+    s1: '1. How this server links to lgrai.app',
+    s1air: 'Air-gapped', s1airHint: 'Never connects to lgrai.app. Updates, backups off the building and mail are yours to bring.',
+    s1control: 'Linked: Control', s1controlHint: 'Connects for updates, licences and health only. No business data leaves the building.',
+    s1full: 'Linked: Full', s1fullHint: 'Also keeps a copy in lgrai.app, so the shop is reachable from outside and nothing is lost with this machine.',
+    s1code: 'Registration code', s1codeHint: 'An admin of the organization mints it on lgrai.app, Servers page. It is valid for 10 minutes.',
+    s1name: 'Name of this server on the Servers page', s1server: 'Global (only for a test global)',
+    s1go: 'Continue', s1air_done: 'Air-gapped.', s1linked_done: 'Registered with {0} ({1}).',
+    s2: '2. The organization',
+    s2airIntro: 'Create the organization this server runs, and its first administrator. Their email and password stay on this server; nothing is sent anywhere.',
+    orgName: 'Organization name', orgSlug: 'Short name (letters, digits, dashes)', currency: 'Currency',
+    firstName: 'First name', lastName: 'Last name', email: 'Email', username: 'Username', password: 'Password', password2: 'Password again',
+    s2go: 'Create the organization', s2linkedIntro: 'On lgrai.app, an admin of the organization opens Servers, then "Move here" on this server. Its people, with their passwords, come with it.',
+    s2waiting: 'Waiting for the organization to arrive…', s2orgs: 'On this server:', s2mayAct: 'This server may act for: {0}',
+    pwShort: 'The password needs at least 8 characters.', pwDiffer: 'The two passwords differ.', slugBad: 'The short name needs 2 or more letters, digits or dashes.',
+    s3: '3. LAN access and backup',
+    s3lan: 'Let the tills on this network connect', s3lanHint: 'Tills pair with this server over the shop\'s network (HTTPS on this server\'s own certificate). Leave it off only if no till connects.',
+    s3port: 'Port', s3backup: 'Backup copy folder (optional)', s3backupHint: 'A folder on a USB drive or another disk, for a copy of every backup. Not the disk the database is on: a copy there is lost with it. Leave empty to keep backups in the server\'s data folder only.',
+    s3go: 'Apply', s3applied: 'Applied: LAN access {0}{1}.', on: 'on', off: 'off', backupTo: ', backups copied to {0}',
+    s4: '4. Pair the first till', s4intro: 'Sign in as the administrator to make a pairing code. A till paired now can sign in once setup is complete.',
+    s4signin: 'Sign in', s4mint: 'Make a pairing code', s4again: 'Make another code',
+    s4code: 'On the till, open LGR Desktop, connect to this server ({0}), and enter this code within 10 minutes:',
+    s4words: 'Or compare these six words with the ones the till shows:', s4paired: 'Tills paired with this server: {0}',
+    s4needLan: 'Turn LAN access on (step 3) to pair a till.',
+    s5: '5. Finish', s5intro: 'Finishing closes this page for good: registering an organization is off, and the server opens to its tills. To open setup again later, an administrator runs "lgr-server setup reset".',
+    s5noTill: 'No till is paired yet. After you finish, a till can only pair from another paired till or after "lgr-server setup reset".',
+    s5confirm: 'Finish without a paired till', s5go: 'Finish setup',
+    complete: 'Setup is complete.', completeNext: 'The server starts again without this page. Use LGR from a paired till.',
+    machine: 'Server: {0} · LGR Server {1}',
+    failed: 'That did not work: {0}',
+  },
+  bg: {
+    title: 'Настройка на LGR Server',
+    subtitle: 'Тази страница работи на самия сървър и само по време на настройката. Затваря се, когато настройката приключи.',
+    starting: 'Сървърът стартира базата данни и приложенията. Страницата ще продължи сама.',
+    restarting: 'Сървърът стартира отново с вашите настройки (около половин минута). Страницата ще продължи сама.',
+    unreachable: 'Сървърът не отговаря на тази страница. Ако току-що е рестартиран, изчакайте малко; иначе изпълнете "lgr-server setup-token" като администратор за текущата връзка.',
+    done: 'Готово', now: 'Сега', waiting: 'Изчакване', later: 'По-късно', optional: 'По избор',
+    s1: '1. Връзка на сървъра с lgrai.app',
+    s1air: 'Без връзка (Air-gapped)', s1airHint: 'Никога не се свързва с lgrai.app. Обновяванията, архивите извън обекта и пощата са ваша грижа.',
+    s1control: 'Свързан: Control', s1controlHint: 'Свързва се само за обновявания, лицензи и състояние. Търговски данни не напускат обекта.',
+    s1full: 'Свързан: Full', s1fullHint: 'Пази и копие в lgrai.app, така че обектът е достъпен отвън и нищо не се губи с тази машина.',
+    s1code: 'Код за регистрация', s1codeHint: 'Администратор на организацията го създава в lgrai.app, страница „Сървъри“. Валиден е 10 минути.',
+    s1name: 'Име на сървъра в страница „Сървъри“', s1server: 'Глобален сървър (само за тестов)',
+    s1go: 'Продължи', s1air_done: 'Без връзка.', s1linked_done: 'Регистриран в {0} ({1}).',
+    s2: '2. Организацията',
+    s2airIntro: 'Създайте организацията, която този сървър обслужва, и първия ѝ администратор. Имейлът и паролата остават на сървъра; нищо не се изпраща.',
+    orgName: 'Име на организацията', orgSlug: 'Кратко име (латински букви, цифри, тирета)', currency: 'Валута',
+    firstName: 'Име', lastName: 'Фамилия', email: 'Имейл', username: 'Потребителско име', password: 'Парола', password2: 'Паролата отново',
+    s2go: 'Създай организацията', s2linkedIntro: 'В lgrai.app администратор на организацията отваря „Сървъри“ и натиска „Премести тук“ за този сървър. Хората ѝ, с паролите си, идват с нея.',
+    s2waiting: 'Изчакване организацията да пристигне…', s2orgs: 'На този сървър:', s2mayAct: 'Сървърът може да работи за: {0}',
+    pwShort: 'Паролата трябва да е поне 8 знака.', pwDiffer: 'Двете пароли се различават.', slugBad: 'Краткото име трябва да има поне 2 латински букви, цифри или тирета.',
+    s3: '3. Достъп от мрежата и архив',
+    s3lan: 'Касите в тази мрежа да се свързват', s3lanHint: 'Касите се сдвояват със сървъра през мрежата на обекта (HTTPS със собствен сертификат на сървъра). Изключете само ако никоя каса няма да се свързва.',
+    s3port: 'Порт', s3backup: 'Папка за копие на архивите (по избор)', s3backupHint: 'Папка на USB устройство или друг диск, за копие на всеки архив. Не дискът на базата данни: копие там се губи заедно с нея. Оставете празно, за да се пазят архивите само в папката с данни на сървъра.',
+    s3go: 'Приложи', s3applied: 'Приложено: достъп от мрежата {0}{1}.', on: 'включен', off: 'изключен', backupTo: ', копие на архивите в {0}',
+    s4: '4. Сдвояване на първата каса', s4intro: 'Влезте като администратор, за да създадете код за сдвояване. Каса, сдвоена сега, може да влиза след края на настройката.',
+    s4signin: 'Вход', s4mint: 'Създай код за сдвояване', s4again: 'Създай нов код',
+    s4code: 'На касата отворете LGR Desktop, свържете се с този сървър ({0}) и въведете кода до 10 минути:',
+    s4words: 'Или сравнете тези шест думи с показаните на касата:', s4paired: 'Сдвоени каси: {0}',
+    s4needLan: 'Включете достъпа от мрежата (стъпка 3), за да сдвоите каса.',
+    s5: '5. Край', s5intro: 'Краят затваря тази страница окончателно: регистрирането на организация се изключва и сървърът се отваря за касите. За нова настройка администратор изпълнява "lgr-server setup reset".',
+    s5noTill: 'Все още няма сдвоена каса. След края каса може да се сдвои само от друга сдвоена каса или след "lgr-server setup reset".',
+    s5confirm: 'Край без сдвоена каса', s5go: 'Завърши настройката',
+    complete: 'Настройката е завършена.', completeNext: 'Сървърът стартира отново без тази страница. Използвайте LGR от сдвоена каса.',
+    machine: 'Сървър: {0} · LGR Server {1}',
+    failed: 'Не стана: {0}',
+  },
+}
+const t = (k, ...a) => String((T[LANG][k] ?? T.en[k] ?? k)).replace(/\{(\d)\}/g, (_, i) => a[i] ?? '')
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+const $ = id => document.getElementById(id)
+document.querySelectorAll('[data-t]').forEach(n => { n.textContent = t(n.dataset.t) })
+document.documentElement.lang = LANG
+
+let S = null            // the last state the console gave
+let shown = ''          // what is drawn, so a refresh redraws only when the step changes
+let session = null      // { token, orgId } once the administrator signed in on this page
+let finished = false
+let applying = false
+
+async function call(path, body, opts = {}) {
+  const r = await fetch(path, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: { 'content-type': 'application/json', ...(opts.bearer ? { authorization: 'Bearer ' + opts.bearer } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    credentials: 'same-origin',
+  })
+  let data = null
+  try { data = await r.json() } catch { data = null }
+  if (!r.ok) throw new Error((data && (data.message || data.code)) || ('HTTP ' + r.status))
+  return data
+}
+
+function banner(kind, text) {
+  const b = $('banner')
+  b.className = 'msg' + (kind ? ' ' + kind : '')
+  b.textContent = text || ''
+}
+
+function chip(state) {
+  return '<span class="chip ' + state + '">' + esc(t({ ok: 'done', now: 'now', wait: 'waiting', todo: 'later', opt: 'optional' }[state])) + '</span>'
+}
+
+function step() {
+  const c = S.choices || {}
+  const orgs = S.api && S.api.ready ? (S.api.orgs || []) : null
+  if (!c.link) return 'link'
+  // The API is starting: stay where the page was, or go by what was chosen.
+  if (orgs === null) return shown ? shown.split('|')[0] : (c.lan ? 'settings' : 'org')
+  if (orgs.length === 0) return 'org'
+  if (!c.lan || !c.backup || !S.applied) return 'settings'
+  return 'pair'
+}
+
+function sectionHtml(id, title, state, body) {
+  return '<section id="sec-' + id + '" class="' + (state === 'todo' ? 'todo' : '') + '"><h2>' + esc(title) + ' ' + chip(state) + '</h2>' +
+    (body ? '<div class="body">' + body + '</div>' : '') + '</section>'
+}
+
+function linkSummary() {
+  const c = S.choices || {}
+  if (c.link === 'airgapped') return esc(t('s1air_done'))
+  const r = S.registration
+  return r ? esc(t('s1linked_done', r.server, r.linkLevel)) : ''
+}
+
+function orgList() {
+  const orgs = (S.api && S.api.orgs) || []
+  return orgs.length ? '<ul class="plain">' + orgs.map(o => '<li>' + esc(o.name) + ' <span class="hint">(' + esc(o.slug) + ')</span></li>').join('') + '</ul>' : ''
+}
+
+function render() {
+  if (!S) return
+  if (finished || S.complete) {
+    $('steps').innerHTML = sectionHtml('done', t('complete'), 'ok', '<p>' + esc(t('completeNext')) + '</p>')
+    banner('', '')
+    return
+  }
+  const now = step()
+  const c = S.choices || {}
+  const key = now + '|' + (c.link || '') + '|' + ((S.api && S.api.orgs) || []).length + '|' + (session ? 1 : 0)
+  if (applying && S.applied && S.api.ready) applying = false
+  if (applying || (c.lan && !S.applied)) banner('info', t('restarting'))
+  else if (!S.api.ready) banner('info', t('starting'))
+  else banner('', '')
+  live()
+  if (key === shown) return
+  shown = key
+  const order = ['link', 'org', 'settings', 'pair']
+  const at = order.indexOf(now)
+  const state = name => (order.indexOf(name) < at ? 'ok' : order.indexOf(name) === at ? 'now' : 'todo')
+  let html = ''
+  html += sectionHtml('link', t('s1'), state('link'), now === 'link' ? linkForm() : linkSummary())
+  html += sectionHtml('org', t('s2'), state('org'), now === 'org' ? orgForm() : (at > 1 ? orgList() : ''))
+  html += sectionHtml('settings', t('s3'), state('settings'), now === 'settings' ? settingsForm() : (at > 2 ? settingsSummary() : ''))
+  html += sectionHtml('pair', t('s4'), now === 'pair' ? 'opt' : 'todo', now === 'pair' ? pairForm() : '')
+  html += sectionHtml('finish', t('s5'), now === 'pair' ? 'now' : 'todo', now === 'pair' ? finishForm() : '')
+  $('steps').innerHTML = html
+  wire(now)
+  live()
+}
+
+/** What changes while a step is drawn: counts and lists, updated in place so typing is never lost. */
+function live() {
+  const paired = $('paired')
+  if (paired) paired.textContent = t('s4paired', (S.api && S.api.desktops) ?? 0)
+  const arrived = $('arrived')
+  if (arrived) arrived.innerHTML = orgList() || esc(t('s2waiting'))
+  const noTill = $('noTill')
+  if (noTill) noTill.style.display = ((S.api && S.api.desktops) || 0) > 0 ? 'none' : 'block'
+  $('foot').textContent = t('machine', S.machine || '?', S.version || '?')
+}
+
+function linkForm() {
+  const opt = (v, title, hint, checked) =>
+    '<label class="choice"><input type="radio" name="level" value="' + v + '"' + (checked ? ' checked' : '') + '><span><b>' + esc(t(title)) + '</b><span class="hint">' + esc(t(hint)) + '</span></span></label>'
+  return opt('airgapped', 's1air', 's1airHint', true) + opt('control', 's1control', 's1controlHint') + opt('full', 's1full', 's1fullHint') +
+    '<div id="linked" style="display:none"><label for="code">' + esc(t('s1code')) + '</label><input id="code" type="text" autocomplete="off">' +
+    '<p class="hint">' + esc(t('s1codeHint')) + '</p><label for="sname">' + esc(t('s1name')) + '</label><input id="sname" type="text" value="' + esc(S.machine || '') + '">' +
+    '<details><summary>' + esc(t('s1server')) + '</summary><input id="server" type="text" placeholder="https://lgrai.app"></details></div>' +
+    '<button id="go">' + esc(t('s1go')) + '</button><div id="msg" class="msg"></div>'
+}
+
+function orgForm() {
+  if (S.choices.link !== 'airgapped') {
+    const r = S.registration
+    const may = r && r.orgs && r.orgs.length ? '<p class="hint">' + esc(t('s2mayAct', r.orgs.map(o => o.name || o.slug).join(', '))) + '</p>' : ''
+    return '<p>' + esc(t('s2linkedIntro')) + '</p>' + may + '<p><b>' + esc(t('s2orgs')) + '</b></p><div id="arrived"></div>'
+  }
+  const f = (id, label, type = 'text', extra = '') => '<div><label for="' + id + '">' + esc(t(label)) + '</label><input id="' + id + '" type="' + type + '" ' + extra + '></div>'
+  return '<p>' + esc(t('s2airIntro')) + '</p>' +
+    f('orgName', 'orgName', 'text', 'autocomplete="organization"') +
+    '<div class="row">' + f('orgSlug', 'orgSlug') + '<div><label for="currency">' + esc(t('currency')) + '</label><select id="currency"><option>EUR</option><option>BGN</option><option>USD</option><option>MKD</option></select></div></div>' +
+    '<div class="row">' + f('firstName', 'firstName', 'text', 'autocomplete="given-name"') + f('lastName', 'lastName', 'text', 'autocomplete="family-name"') + '</div>' +
+    '<div class="row">' + f('email', 'email', 'email', 'autocomplete="email"') + f('username', 'username', 'text', 'autocomplete="username"') + '</div>' +
+    '<div class="row">' + f('password', 'password', 'password', 'autocomplete="new-password"') + f('password2', 'password2', 'password', 'autocomplete="new-password"') + '</div>' +
+    '<button id="go">' + esc(t('s2go')) + '</button><div id="msg" class="msg"></div>'
+}
+
+function settingsForm() {
+  const c = S.choices || {}
+  const lan = c.lan || { on: true, port: 4443 }
+  const path = (c.backup && c.backup.localPath) || ''
+  return '<label class="choice"><input id="lanOn" type="checkbox"' + (lan.on ? ' checked' : '') + '><span><b>' + esc(t('s3lan')) + '</b><span class="hint">' + esc(t('s3lanHint')) + '</span></span></label>' +
+    '<div class="row"><div><label for="lanPort">' + esc(t('s3port')) + '</label><input id="lanPort" type="number" min="1024" max="65535" value="' + esc(lan.port || 4443) + '"></div><div></div></div>' +
+    '<label for="backupPath">' + esc(t('s3backup')) + '</label><input id="backupPath" type="text" value="' + esc(path) + '"><p class="hint">' + esc(t('s3backupHint')) + '</p>' +
+    '<button id="go">' + esc(t('s3go')) + '</button><div id="msg" class="msg"></div>'
+}
+
+function settingsSummary() {
+  const c = S.choices || {}
+  const lan = c.lan && c.lan.on ? t('on') : t('off')
+  const copy = c.backup && c.backup.localPath ? t('backupTo', c.backup.localPath) : ''
+  return esc(t('s3applied', lan, copy))
+}
+
+function pairForm() {
+  if (!S.lan) return '<p>' + esc(t('s4needLan')) + '</p><p id="paired" class="hint"></p>'
+  if (!session) {
+    return '<p>' + esc(t('s4intro')) + '</p><div class="row"><div><label for="who">' + esc(t('email')) + '</label><input id="who" type="text" autocomplete="username"></div>' +
+      '<div><label for="pw">' + esc(t('password')) + '</label><input id="pw" type="password" autocomplete="current-password"></div></div>' +
+      '<div id="orgPick"></div><button id="signin" class="secondary">' + esc(t('s4signin')) + '</button><div id="msg4" class="msg"></div><p id="paired" class="hint"></p>'
+  }
+  return '<button id="mint" class="secondary">' + esc(t('s4mint')) + '</button><div id="minted"></div><div id="msg4" class="msg"></div><p id="paired" class="hint"></p>'
+}
+
+function finishForm() {
+  return '<p>' + esc(t('s5intro')) + '</p><div id="noTill" class="msg warn">' + esc(t('s5noTill')) +
+    '<label class="choice" style="margin-top:.5rem"><input id="noTillOk" type="checkbox"><span>' + esc(t('s5confirm')) + '</span></label></div>' +
+    '<button id="finish">' + esc(t('s5go')) + '</button><div id="msg5" class="msg"></div>'
+}
+
+function fail(id, e) {
+  const m = $(id)
+  if (m) { m.className = 'msg bad'; m.textContent = t('failed', e.message || e) }
+}
+
+const SLUG = { а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sht',ъ:'a',ь:'y',ю:'yu',я:'ya',ѓ:'gj',ѕ:'dz',ј:'j',љ:'lj',њ:'nj',ќ:'kj',џ:'dzh' }
+const slugOf = s => String(s || '').toLowerCase().split('').map(ch => SLUG[ch] ?? ch).join('').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
+
+function wire(now) {
+  if (now === 'link') {
+    const linked = () => { $('linked').style.display = document.querySelector('input[name=level]:checked').value === 'airgapped' ? 'none' : 'block' }
+    document.querySelectorAll('input[name=level]').forEach(r => r.addEventListener('change', linked))
+    $('go').onclick = async () => {
+      const level = document.querySelector('input[name=level]:checked').value
+      $('go').disabled = true
+      try {
+        await call('/__lgr/setup/api/link', level === 'airgapped' ? { level } : { level, code: $('code').value, name: $('sname').value, server: $('server').value || undefined })
+        await refresh()
+      } catch (e) { fail('msg', e) } finally { const b = $('go'); if (b) b.disabled = false }
+    }
+  }
+  if (now === 'org' && S.choices.link === 'airgapped') {
+    let slugTouched = false
+    $('orgSlug').addEventListener('input', () => { slugTouched = true })
+    $('orgName').addEventListener('input', () => { if (!slugTouched) $('orgSlug').value = slugOf($('orgName').value) })
+    $('email').addEventListener('input', () => { if (!$('username').dataset.touched) $('username').value = ($('email').value.split('@')[0] || '').toLowerCase().replace(/[^a-z0-9._-]/g, '') })
+    $('username').addEventListener('input', () => { $('username').dataset.touched = '1' })
+    $('go').onclick = async () => {
+      const v = id => $(id).value.trim()
+      if ($('password').value.length < 8) return fail('msg', new Error(t('pwShort')))
+      if ($('password').value !== $('password2').value) return fail('msg', new Error(t('pwDiffer')))
+      if (!/^[a-z0-9-]{2,}$/.test(v('orgSlug'))) return fail('msg', new Error(t('slugBad')))
+      $('go').disabled = true
+      try {
+        const body = { orgName: v('orgName'), orgSlug: v('orgSlug'), firstName: v('firstName'), lastName: v('lastName'), email: v('email'), username: v('username'), password: $('password').value, baseCurrency: $('currency').value, locale: LANG }
+        const made = await call('/api/auth/register', body)
+        // The first admin is active (FR-20.17): sign them in here, for the pairing step.
+        if (made && made.active) await signIn(v('email'), $('password').value)
+        await refresh()
+      } catch (e) { fail('msg', e) } finally { const b = $('go'); if (b) b.disabled = false }
+    }
+  }
+  if (now === 'settings') {
+    $('go').onclick = async () => {
+      $('go').disabled = true
+      try {
+        await call('/__lgr/setup/api/settings', { lan: { on: $('lanOn').checked, port: Number($('lanPort').value) || 4443 }, backup: { localPath: $('backupPath').value.trim() || null } })
+        applying = true
+        shown = ''
+        render()
+      } catch (e) { fail('msg', e) } finally { const b = $('go'); if (b) b.disabled = false }
+    }
+  }
+  if (now === 'pair') {
+    if ($('signin')) $('signin').onclick = async () => {
+      try {
+        const pick = document.querySelector('input[name=org]:checked')
+        await signIn($('who').value.trim(), $('pw').value, pick ? pick.value : undefined)
+        shown = ''
+        render()
+      } catch (e) { fail('msg4', e) }
+    }
+    if ($('mint')) $('mint').onclick = async () => {
+      try {
+        const m = await call('/api/org/' + encodeURIComponent(session.orgId) + '/desktops/enrollment-codes', {}, { bearer: session.token })
+        $('minted').innerHTML = '<p>' + esc(t('s4code', m.server || '')) + '</p><div class="code">' + esc(m.code) + '</div>' +
+          (m.words && m.words.length ? '<p class="hint">' + esc(t('s4words')) + '</p><p class="words">' + esc(m.words.join(' ')) + '</p>' : '')
+        $('mint').textContent = t('s4again')
+      } catch (e) { fail('msg4', e) }
+    }
+    $('finish').onclick = async () => {
+      const paired = ((S.api && S.api.desktops) || 0) > 0
+      if (!paired && !$('noTillOk').checked) { $('noTill').scrollIntoView(); return }
+      $('finish').disabled = true
+      try {
+        await call('/__lgr/setup/api/finish', {})
+        finished = true
+        render()
+      } catch (e) { fail('msg5', e) } finally { const b = $('finish'); if (b) b.disabled = false }
+    }
+  }
+}
+
+/** Sign the administrator in through the API, as the console's own client. Several orgs: pick one. */
+async function signIn(who, password, orgSlug) {
+  const a = await call('/api/auth/login', orgSlug ? { username: who, password, orgSlug } : { username: who, password })
+  if (a.needsOrgChoice) {
+    const pick = $('orgPick')
+    if (pick) pick.innerHTML = (a.orgs || []).map((o, i) => '<label class="choice"><input type="radio" name="org" value="' + esc(o.slug) + '"' + (i ? '' : ' checked') + '><span>' + esc(o.name) + '</span></label>').join('')
+    throw new Error(LANG === 'bg' ? 'Изберете организация и влезте отново.' : 'Choose the organization, then sign in again.')
+  }
+  session = { token: a.token, orgId: a.org.id }
+}
+
+async function refresh() {
+  try {
+    S = await call('/__lgr/setup/api/state')
+    render()
+  } catch (e) {
+    if (!finished) banner('info', applying ? t('restarting') : t('unreachable'))
+  }
+}
+
+refresh()
+setInterval(refresh, 2000)
+</script>
+</body>
+</html>

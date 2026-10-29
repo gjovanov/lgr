@@ -165,12 +165,41 @@ The server restarts itself instead, at night:
   (`UPDATE_WINDOW=00:00-23:59`) and restart the service once. ⚠ That window lets an automatic
   update install at any hour too: put it back afterwards.
 
+## Setup (FR-20.18)
+
+A new server has to be set up once, on the server itself. As an administrator (root on Linux), run
+
+    lgr-server setup-token
+
+and open the link it prints in a browser on that machine. It works only there (`127.0.0.1`), and
+only until setup is complete. The page asks, in order:
+
+1. **How the server links to lgrai.app.** Air-gapped (never connects), or registered at Control or
+   Full with a code an admin of the organization mints on lgrai.app's Servers page.
+2. **The organization.** Air-gapped: you create it here, with its first administrator, who is
+   active at once (an air-gapped server has no mail to activate anyone with: holding the setup link
+   is the proof). Linked: an admin moves the organization here from the Servers page on lgrai.app,
+   and its people come with it.
+3. **LAN access and the backup copy.** Whether the shop's tills may connect over the network
+   (HTTPS on port 4443), and a folder on a USB drive or another disk for a copy of every backup.
+   The server restarts its services to apply them (about half a minute).
+4. **The first till** (optional, but do it): sign in as the administrator and make a pairing code,
+   then enter it in LGR Desktop on the till.
+5. **Finish.** The setup page closes for good: registering an organization is off, the server's
+   owner becomes the one who may restore backups (`BACKUP_SYS_ADMINS`), and the server opens to its
+   tills (and, when linked, to the organization's address on lgrai.app).
+
+After setup, a till pairs from the Desktops page of a till already paired. To run setup again (a new
+first till, another organization), an administrator runs `lgr-server setup reset`: it prints a new
+link (the old one stops working) and reopens the page with what was chosen before.
+
 ## After installing
 
 - `lgr-server status`: the supervisor, its children and its link.
 - `lgr-server setup-token`: the link that opens the setup console.
-- `lgr-server register --code XXXX-XXXX`: register with lgrai.app (the code comes from the org's
-  Servers page).
+- `lgr-server setup reset`: open setup again, with a new link.
+- `lgr-server register --code XXXX-XXXX`: register with lgrai.app from the command line instead
+  (the code comes from the org's Servers page).
 - `lgr-server licence import <file>`: an air-gapped server's licence.
 
 ## Another machine with this server's address (Linux)
@@ -220,8 +249,8 @@ The operator's settings are in `config/api.env` under the data directory
 The service reads them when it starts, so restart it after a change: `Restart-Service LGRServer`,
 or `sudo systemctl restart lgr-server`.
 
-⚠ Setup does not ask for these yet (gjovanov/lgr#350). Until it does, this file is where they are
-set.
+What setup chose is kept apart, in `state/setup.json`, and this file **overrides** it: a line here
+always wins, and setup never edits this file. Set something here only to change what setup chose.
 
 | Setting | What it does |
 |---|---|

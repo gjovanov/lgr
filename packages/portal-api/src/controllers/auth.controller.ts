@@ -51,7 +51,7 @@ import { Identity, Invite, Org, User, settingsForClient, type IIdentity } from '
 import { codeDao } from 'services/dao/code.dao'
 import { sendEmail } from 'services/biz/email.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
-import { config } from 'config'
+import { config, nodeRole } from 'config'
 
 /** Open invitations pinned to this address, with their org: what the person may join. */
 async function invitationsFor(email: string) {
@@ -81,15 +81,21 @@ export const authController = new Elysia({ prefix: '/auth' })
   .use(AuthService)
   .post(
     '/register',
-    async ({ body, set }) => {
+    async ({ body, set, headers }) => {
       try {
+        // FR-20.17 (#350): on a master, registering reaches this handler only through the setup
+        // console (`front-guard.ts`), behind the one-time setup token on the server itself. The
+        // org founded there gets its first admin active: an Air-gapped master has no mail to prove
+        // an address with, and the token proved more than a link would.
+        const fromSetup = nodeRole() === 'master' && frontSource(headers) === 'console'
         // ⚠ S-06: the activation code is NOT in this response. It used to be, which let whoever
         // registered activate without the email — so the email proved nothing. It reaches the
         // person only by mail; an expired link is replaced through `/activate/resend`.
-        const { org, user } = await register(body)
+        const { org, user, active } = await register(body, { activeFromSetup: fromSetup })
 
         return {
-          message: 'Registration successful. Please check your email to activate your account.',
+          message: active ? 'Registered. Sign in now.' : 'Registration successful. Please check your email to activate your account.',
+          active,
           org: { id: String(org._id), name: org.name, slug: org.slug },
           userId: String(user._id),
         }

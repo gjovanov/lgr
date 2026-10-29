@@ -59,6 +59,8 @@ pub struct Hooks {
     pub pacer: Option<Arc<crate::pacing::Pacer>>,
     /// FR-20.73 (P3-4c): only on the interactive channel, the API the tunnel's streams go to.
     pub tunnel: Option<Arc<crate::ingress::Upstream>>,
+    /// FR-20.18: `state/setup-complete`, without which the tunnel carries nothing.
+    pub setup_marker: Option<std::path::PathBuf>,
 }
 
 #[derive(Clone)]
@@ -301,7 +303,7 @@ where
     // trusts. Its frames go out through `tun_rx`, below; a clone alarm ends it with every stream it carries.
     let (tun_tx, mut tun_rx) = tokio::sync::mpsc::channel::<Message>(64);
     let mut tunnel = match &hooks.tunnel {
-        Some(up) if ch == "interactive" && !suspended && !outdated => Some(crate::tunnel::Tunnel::new(up.clone(), tun_tx)),
+        Some(up) if ch == "interactive" && !suspended && !outdated => Some(crate::tunnel::Tunnel::new(up.clone(), tun_tx).until_setup_complete(hooks.setup_marker.clone())),
         _ => None,
     };
 
@@ -463,6 +465,7 @@ async fn once(registrar: &Registrar, reg: &register::Registration, ch: &str, boo
         pages: wants.pages.map(|source| PagesHook { source, node_id: reg.node_id.clone() }),
         pacer: wants.pacer,
         tunnel: wants.tunnel,
+        setup_marker: Some(registrar.data.join("state").join("setup-complete")),
     };
     Ok(session(&url, stream, hello, ch, timing, status, hooks).await)
 }
