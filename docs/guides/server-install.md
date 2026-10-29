@@ -154,6 +154,10 @@ volume, which keeps it on that node. The setup link opens on the node itself, or
   does), then the next release's compose or k8s file, or the next `LGR_SERVER_VERSION`, and
   `docker compose up -d`. A registered server's `lgr-server status` says when a version is offered
   (`update image <v> available`).
+- **Security updates** to the image's own libraries come with the next image: every build takes
+  Ubuntu's updates. Nothing replaces a library inside a running container, so the
+  [night restart](#security-updates-on-ubuntu-and-debian) never has anything to do there; the host's
+  own updates are the host's.
 - **Settings** are `/var/lib/lgr/config/api.env` in the volume, as on any Linux master: edit it
   through `docker compose exec`, then `docker compose restart`.
 - **`BACKUP_LOCAL_PATH`** must be another disk than the volume's, mounted into the container (for
