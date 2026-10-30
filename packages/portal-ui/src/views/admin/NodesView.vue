@@ -199,6 +199,8 @@ function healthText(health: any): string {
     parts.push(t('servers.updateWaits', { version: u.available, reason: u.reason ?? '' }))
     if (u.alarm) parts.push(t('servers.updateAlarm', { n: u.blockedWindows ?? 0 }))
   }
+  // #373: replaced libraries the night restart waits to load, kept out by open tills.
+  if (health.nightRestart?.alarm) parts.push(t('servers.restartAlarm', { n: health.nightRestart.blockedNights ?? 0 }))
   return parts.filter(Boolean).join(' · ') || '—'
 }
 

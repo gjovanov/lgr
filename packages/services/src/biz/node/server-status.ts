@@ -26,6 +26,7 @@ import { currentLan } from '../desktop/desktop.service.js'
 import { lastSelfAnswer } from '../home/series-lock.service.js'
 import { captureOn } from '../replication/engine.js'
 import { inspectionOf, inspectionView, type TunnelReach } from './inspection.service.js'
+import { ALARM_AT } from './node-alarms.js'
 
 /** A status file older than this: the supervisor is not writing it. */
 const STALE_MS = 2 * 60_000
@@ -95,6 +96,27 @@ export async function serverStatus(orgId: string, now = new Date()): Promise<Rec
   const update = u && typeof u === 'object'
     ? { state: u.state ?? null, running: u.running ?? null, available: u.available ?? null, reason: u.reason ?? null, blockedWindows: u.blockedWindows ?? 0, alarm: !!u.alarm, supto: u.supto ?? null, suptoWaiting: u.suptoWaiting ?? null }
     : null
+  // #356/#380: the address watch (Linux), and another machine claiming this server's LAN address as it
+  // last recorded one. The record outlives the conflict, so `current` says whether it was seen in the
+  // last 15 minutes (`node-alarms.ts`'s window).
+  const a = sup?.addressCheck
+  const c = a?.conflict
+  const seenAt = c?.at ? new Date(c.at).getTime() : Number.NaN
+  const addressCheck = a && typeof a === 'object'
+    ? {
+        on: !!a.on,
+        reason: a.reason ?? null,
+        address: a.address ?? null,
+        conflict: c && typeof c === 'object'
+          ? { address: c.address ?? null, otherMac: c.otherMac ?? null, firstSeen: c.firstSeen ?? null, at: c.at ?? null, probableClone: !!c.probableClone, current: Number.isFinite(seenAt) && now.getTime() - seenAt <= ALARM_AT.conflictSecs * 1000 }
+          : null,
+      }
+    : null
+  // #370/#373: replaced system libraries the night restart waits to load, and its alarm.
+  const n = sup?.nightRestart
+  const nightRestart = n && typeof n === 'object' && n.pending === true
+    ? { since: n.since ?? null, waiting: n.waiting ?? null, blockedNights: n.blockedNights ?? 0, alarm: !!n.alarm }
+    : null
   // Where desktops reach it, as the supervisor publishes it (FR-20.30): what pairing codes name.
   const lanUrl = currentLan().url ?? null
   return {
@@ -111,6 +133,8 @@ export async function serverStatus(orgId: string, now = new Date()): Promise<Rec
             pacing: sup.uplink?.bulk?.pacing ?? null,
           },
           update,
+          addressCheck,
+          nightRestart,
           disk: sup.disk ?? null,
           oplogWindowSecs: sup.oplogWindowSecs ?? null,
           linkLevel: sup.registration?.linkLevel ?? null,

@@ -3259,6 +3259,7 @@
     "updateInstalling": "installiert {version}",
     "updateWaits": "{version} wartet: {reason}",
     "updateAlarm": "seit {n} Nächten durch offene Kassen aufgehalten",
+    "restartAlarm": "ersetzte Systembibliotheken warten auf den nächtlichen Neustart, seit {n} Nächten durch offene Kassen aufgehalten",
     "cloneAlarm": "Klon-Alarm",
     "wentBack": "Datenbank zurückgesetzt",
     "wentBackHint": "Die Kopie auf lgrai.app enthält Änderungen, die die Datenbank dieses Servers nicht mehr hat. Die gesetzliche Nummerierung ist gesperrt.",
@@ -3531,7 +3532,9 @@
       "fenced": "Für {n} Organisationen gesperrt",
       "clock_skew": "Uhr geht um {age} falsch",
       "supto_waiting": "SUPTO-Version {version} wartet auf ihre Anmeldung",
-      "home_hold": "Angehaltene Organisationen: {n}"
+      "home_hold": "Angehaltene Organisationen: {n}",
+      "address_conflict": "Ein anderer Rechner verwendet die LAN-Adresse dieses Servers",
+      "address_clone": "Wahrscheinlich eine Kopie dieses Servers: Ein anderer Rechner verwendet seine LAN-Adresse und gibt sich als dieser Server aus"
     },
     "address": {
       "title": "Adresse im Internet",
@@ -3575,6 +3578,13 @@
     "updateUpToDate": "{running}, aktuell",
     "updateNotVersioned": "Wird mit seinem Paket aktualisiert",
     "updateSuptoWaits": "{version} wartet: SUPTO-Version {supto} ist bei der НАП noch nicht angemeldet",
+    "address": "LAN-Adresse",
+    "addressWatched": "{address}, überwacht, ob ein anderer Rechner sie belegt",
+    "addressOff": "nicht überwacht: {reason}",
+    "addressConflict": "{address} wird seit {since} auch von {mac} verwendet (zuletzt {last})",
+    "addressClone": "Wahrscheinlich eine Kopie dieses Servers: {address} wird seit {since} auch von {mac} verwendet, der sich als dieser Server ausgibt (zuletzt {last}). Die Nummerierung wird nicht gesperrt: Finden Sie diesen Rechner.",
+    "restart": "Nächtlicher Neustart",
+    "restartWaits": "ersetzte Systembibliotheken warten seit {since}: {reason}",
     "link": "Verbindung zu lgrai.app",
     "linkLevel": "Verbindungsstufe",
     "notRegistered": "Nicht registriert",
