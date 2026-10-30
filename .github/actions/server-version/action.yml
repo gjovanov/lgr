@@ -1,0 +1,54 @@
+name: The server release's version
+description: >
+  What a server-release.yml run builds: its version (checked against packages/server/Cargo.toml),
+  its tag, and whether it signs and publishes. Each job works it out for itself after its checkout,
+  so no job waits on a separate one for it (a job hop is a queue for a hosted runner). Also exports
+  VERSION to the job's later steps.
+
+inputs:
+  version:
+    description: workflow_dispatch's `version` input (empty on a tag or a pull request)
+    default: ''
+  publish:
+    description: workflow_dispatch's `publish_release` input
+    default: 'false'
+
+outputs:
+  version:
+    description: N.N.N
+    value: ${{ steps.v.outputs.version }}
+  tag:
+    description: server-vN.N.N
+    value: ${{ steps.v.outputs.tag }}
+  release:
+    description: "'true' when this run publishes the GitHub release"
+    value: ${{ steps.v.outputs.release }}
+  sign:
+    description: "'true' unless this is a pull request (which builds unsigned)"
+    value: ${{ steps.v.outputs.sign }}
+
+runs:
+  using: composite
+  steps:
+    - id: v
+      shell: bash
+      env:
+        # Through the environment, never interpolated into the script: `version` is a free string.
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_PUBLISH: ${{ inputs.publish }}
+      run: |
+        set -euo pipefail
+        # ⚠ tr: a Windows checkout has CRLF line ends, and `"$` never matches before a \r.
+        CARGO="$(tr -d '\r' < packages/server/Cargo.toml | sed -n 's/^version = "\(.*\)"$/\1/p' | head -1)"
+        case "$GITHUB_EVENT_NAME" in
+          push)              VERSION="${GITHUB_REF#refs/tags/server-v}"; RELEASE=true ;;
+          workflow_dispatch) VERSION="$INPUT_VERSION"; RELEASE="$INPUT_PUBLISH" ;;
+          *)                 VERSION="$CARGO"; RELEASE=false ;;
+        esac
+        printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::'$VERSION' is not N.N.N"; exit 1; }
+        [ "$VERSION" = "$CARGO" ] || { echo "::error::version $VERSION is not packages/server/Cargo.toml's $CARGO"; exit 1; }
+        # A pull request builds unsigned; everything else is signed, and fails if it cannot be.
+        SIGN=$([ "$GITHUB_EVENT_NAME" = pull_request ] && echo false || echo true)
+        { echo "version=$VERSION"; echo "tag=server-v$VERSION"; echo "release=$RELEASE"; echo "sign=$SIGN"; } >> "$GITHUB_OUTPUT"
+        echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+        echo "version $VERSION, release $RELEASE, sign $SIGN"
