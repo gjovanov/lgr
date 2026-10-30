@@ -554,6 +554,10 @@ jobs:
   # ships unless this passes (`sign` needs it), but `image` does not wait for it.
   linux-test:
     needs: linux
+    # ⚠ Explicit, never the implicit `success()`: that one also asks every ANCESTOR, and `adopt` (the
+    # parent of `linux`) is skipped on every run but a tag, so this job was skipped too although
+    # `linux` had passed (run 41135060733). The same holds for `image` and `sign` below.
+    if: ${{ !cancelled() && needs.linux.result == 'success' }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -702,6 +706,8 @@ jobs:
   # air-gapped) with its compose and k8s files; image-publish pushes a published release to GHCR.
   image:
     needs: linux
+    # Explicit for the reason `linux-test` gives.
+    if: ${{ !cancelled() && needs.linux.result == 'success' }}
     runs-on: ubuntu-24.04
     env:
       IMAGE: ghcr.io/gjovanov/lgr-server
@@ -814,7 +820,13 @@ jobs:
   # built the bytes, so a tag that publishes a rehearsal's artifacts attests nothing it did not build.
   sign:
     needs: [package, windows, linux, linux-test, image]
-    if: needs.package.outputs.sign == 'true'
+    # Every build passed, spelled out for the reason `linux-test` gives: with the implicit check a
+    # skipped `adopt` would skip signing on every dispatch.
+    if: >-
+      ${{ !cancelled() && needs.package.outputs.sign == 'true' &&
+          needs.package.result == 'success' && needs.windows.result == 'success' &&
+          needs.linux.result == 'success' && needs.linux-test.result == 'success' &&
+          needs.image.result == 'success' }}
     runs-on: ubuntu-24.04
     environment: release
     permissions:
