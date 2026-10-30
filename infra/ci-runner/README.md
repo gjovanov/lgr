@@ -2,15 +2,16 @@
 
 ## Why
 
-> **Since 2026-10-30 these runners are the FALLBACK.** lgr went public, GitHub-hosted minutes cost
-> a public repository nothing, and the Linux jobs run hosted again (`LGR_LINUX_RUNNER` =
-> `"ubuntu-24.04"`), the suite split across three runners. Flip back to mars when GitHub's queue
-> is the slow part: hosted runners are shared with roomler-ai's CI under one account, 20 jobs at a
-> time, and a burst there has kept lgr's jobs waiting 3-5 minutes. Fork pull requests from any
-> outside contributor need approval before they run (`all_external_contributors`), which matters
-> most while these runners take jobs: one runs on mars.
+> **Since 2026-10-30 the reason is the QUEUE, not money.** lgr went public, so GitHub-hosted
+> minutes cost it nothing, but hosted runners are shared with roomler-ai's CI under one account,
+> 20 jobs at a time. Tried that day: a run waited 37 of its 47 minutes behind 153 of roomler-ai's
+> jobs, while the same work takes ~5 minutes here. So master and this repository's own branches run
+> on mars, and **pull requests from forks run hosted** (`ci.yml` routes them there whatever the
+> variable says): code from outside never runs on mars. Fork pull requests from any outside
+> contributor also need approval before they run (`all_external_contributors`). An organization of
+> lgr's own would give it its own 20 hosted jobs; then the variable can say hosted for everything.
 
-Until then the reason was money. lgr was a **private** repository, so every GitHub-hosted minute
+Before that the reason was money. lgr was a **private** repository, so every GitHub-hosted minute
 came out of the account's monthly allowance (2,000 included; Windows minutes count 2x and macOS
 10x). In October 2026 it ran out on the 7th. About $20 of overage followed, and then GitHub
 refused every job for the rest of the month, the Linux gate included. #125 moved the macOS and
@@ -19,12 +20,12 @@ minutes a week at October's pace), moved onto mars, where they cost nothing.
 
 ## Kill switch: one repository variable
 
-The Linux jobs read their runner from the repository variable `LGR_LINUX_RUNNER`:
+The Linux jobs (all but a fork's) read their runner from the repository variable `LGR_LINUX_RUNNER`:
 
 | Value | Where the Linux jobs run |
 |---|---|
-| `"ubuntu-24.04"`, or unset | GitHub-hosted (the default since 2026-10-30) |
-| `["self-hosted","lgr-mars"]` | mars, the fallback |
+| `["self-hosted","lgr-mars"]` | mars (the default since 2026-10-30): the suite in one job on 8 CPUs |
+| `"ubuntu-24.04"`, or unset | GitHub-hosted: the suite in three shards of 4 CPUs |
 
 ```bash
 gh variable set LGR_LINUX_RUNNER -R gjovanov/lgr --body '["self-hosted","lgr-mars"]'   # mars
@@ -48,10 +49,10 @@ If CI sits at "Waiting for a runner", check the containers below, or flip the va
   mars.
 - Two containers, `gh-runner-lgr-1` and `gh-runner-lgr-2`, so two Linux jobs go in parallel.
   Each is capped (`--cpus`, `--memory`) so CI cannot take the whole host from the k8s VMs that
-  share it. ⚠ 8 CPUs each since 2026-10-30 (was 4, raised live with `docker update --cpus 8`):
-  as the fallback they rarely run, and the suite takes 231 s on 8 instead of 352 s on 4. Both busy
-  at once can now use all 16 of mars's cores, so a fallback period overlapping an image build is
-  slower for both.
+  share it. ⚠ 8 CPUs each since 2026-10-30 (was 4, raised live with `docker update --cpus 8`): the
+  suite takes 231 s on 8 instead of 352 s on 4. Both busy at once can use all 16 of mars's cores,
+  so a CI run overlapping an image build (deploy-prod builds on mars) is slower for both; mars's
+  load is ~1 otherwise. Back to 4: `docker update --cpus 4 gh-runner-lgr-1 gh-runner-lgr-2`.
 
 ## Setup (on mars, as a `docker`-group user)
 
