@@ -116,7 +116,7 @@ shows both as `online`.
 - **Disk:** each job's checkout lives in the container's `_work`, which the next job's checkout
   cleans. Since 2026-10-30 cargo's target does NOT: `ci.yml` keeps it in the runner's home,
   `~/.cache/lgr-cargo-target`, so a run builds on the last one's artifacts instead of restoring
-  ~1 GB from GitHub's cache. Over 6,000 MB the job drops it whole (never file by file: cargo's
+  ~1 GB from GitHub's cache. Over 4,500 MB the job drops it whole (never file by file: cargo's
   fingerprints outlive deleted outputs). (The per-file test durations that split the suite into
   shards live in the Actions cache, not here: hosted runners keep nothing.) `docker system df`
   shows the total. `docker system prune` does not touch running containers.

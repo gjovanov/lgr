@@ -291,11 +291,11 @@ jobs:
         run: |
           t="$HOME/.cache/lgr-cargo-target"
           mb=$(du -sm "$t" 2>/dev/null | cut -f1)
-          if [ "${mb:-0}" -gt 6000 ]; then
-            echo "target is $mb MB (cap 6000): dropping it whole"
+          if [ "${mb:-0}" -gt 4500 ]; then
+            echo "target is $mb MB (cap 4500): dropping it whole"
             rm -rf "$t"
           else
-            echo "target is ${mb:-0} MB (cap 6000): kept"
+            echo "target is ${mb:-0} MB (cap 4500): kept"
           fi
           mkdir -p "$t"
           echo "CARGO_TARGET_DIR=$t" >> "$GITHUB_ENV"
