@@ -2,27 +2,38 @@
 
 ## Why
 
-lgr is a **private** repository, so every GitHub-hosted minute comes out of the account's monthly
-allowance (2,000 included; Windows minutes count 2x and macOS 10x). In October 2026 it ran out
-on the 7th. About $20 of overage followed, and then GitHub refused every job for the rest of the
-month, the Linux gate included. #125 moved the macOS and Windows work to on-demand and tag-time.
-This moves the Linux jobs, the bulk of what remains (about 1,300 minutes a week at October's
-pace), onto mars, where they cost nothing. Self-hosted jobs are not billed, so they keep running
-even when the allowance is gone.
+> **Since 2026-10-30 the reason is the QUEUE, not money.** lgr went public, so GitHub-hosted
+> minutes cost it nothing, but hosted runners are shared with roomler-ai's CI under one account,
+> 20 jobs at a time. Tried that day: a run waited 37 of its 47 minutes behind 153 of roomler-ai's
+> jobs, while the same work takes ~5 minutes here. So master and this repository's own branches run
+> on mars, and **pull requests from forks run hosted** (`ci.yml` routes them there whatever the
+> variable says): code from outside never runs on mars. Fork pull requests from any outside
+> contributor also need approval before they run (`all_external_contributors`). An organization of
+> lgr's own would give it its own 20 hosted jobs; then the variable can say hosted for everything.
+
+Before that the reason was money. lgr was a **private** repository, so every GitHub-hosted minute
+came out of the account's monthly allowance (2,000 included; Windows minutes count 2x and macOS
+10x). In October 2026 it ran out on the 7th. About $20 of overage followed, and then GitHub
+refused every job for the rest of the month, the Linux gate included. #125 moved the macOS and
+Windows work to on-demand and tag-time, and the Linux jobs, the bulk of what remained (about 1,300
+minutes a week at October's pace), moved onto mars, where they cost nothing.
 
 ## Kill switch: one repository variable
 
-The Linux jobs read their runner from the repository variable `LGR_LINUX_RUNNER`:
+The Linux jobs (all but a fork's) read their runner from the repository variable `LGR_LINUX_RUNNER`:
 
 | Value | Where the Linux jobs run |
 |---|---|
-| `["self-hosted","lgr-mars"]` | mars (free) |
-| unset, or `"ubuntu-latest"` | GitHub-hosted (billed) |
+| `["self-hosted","lgr-mars"]` | mars (the default since 2026-10-30): the suite in one job on 8 CPUs |
+| `"ubuntu-24.04"`, or unset | GitHub-hosted: the suite in three shards of 4 CPUs |
 
 ```bash
 gh variable set LGR_LINUX_RUNNER -R gjovanov/lgr --body '["self-hosted","lgr-mars"]'   # mars
-gh variable delete LGR_LINUX_RUNNER -R gjovanov/lgr                                 # hosted
+gh variable set LGR_LINUX_RUNNER -R gjovanov/lgr --body '"ubuntu-24.04"'               # hosted
 ```
+
+⚠ `ubuntu-24.04`, not `ubuntu-latest`: that label began moving to Ubuntu 26 on 2026-10-19, and
+the image is what the tests, the apt package names and mongodb-memory-server's mongod depend on.
 
 ⚠ While the variable points at mars, a job with no online runner **queues** instead of failing.
 If CI sits at "Waiting for a runner", check the containers below, or flip the variable.
@@ -36,9 +47,12 @@ If CI sits at "Waiting for a runner", check the containers below, or flip the va
   the container, so a workflow's `sudo apt-get install` never changes mars.
 - No Docker socket is mounted. A job cannot reach the host's Docker, and so cannot reach root on
   mars.
-- Two containers, `gh-runner-lgr-1` and `gh-runner-lgr-2`, so the two Linux jobs of a run go in
-  parallel. Each is capped (`--cpus`, `--memory`) so CI cannot starve the k8s VMs that share the
-  host.
+- Two containers, `gh-runner-lgr-1` and `gh-runner-lgr-2`, so two Linux jobs go in parallel.
+  Each is capped (`--cpus`, `--memory`) so CI cannot take the whole host from the k8s VMs that
+  share it. ⚠ 8 CPUs each since 2026-10-30 (was 4, raised live with `docker update --cpus 8`): the
+  suite takes 231 s on 8 instead of 352 s on 4. Both busy at once can use all 16 of mars's cores,
+  so a CI run overlapping an image build (deploy-prod builds on mars) is slower for both; mars's
+  load is ~1 otherwise. Back to 4: `docker update --cpus 4 gh-runner-lgr-1 gh-runner-lgr-2`.
 
 ## Setup (on mars, as a `docker`-group user)
 
@@ -69,7 +83,7 @@ unset T
 # In RAM it starts the way it does on a hosted runner. It counts against --memory.
 for i in 1 2; do
   docker run -d --name gh-runner-lgr-$i --restart unless-stopped \
-    --cpus 4 --memory 8g --pids-limit 8192 \
+    --cpus 8 --memory 8g --pids-limit 8192 \
     --tmpfs /tmp:rw,exec,nosuid,size=3g \
     -e REPO_URL=https://github.com/gjovanov/lgr \
     -e RUNNER_NAME=mars-lgr-$i \
@@ -96,9 +110,13 @@ shows both as `online`.
 - **`/tmp` fills up when runs are interrupted.** A cancelled or killed job never stops its test
   `mongod`, so its data dir (up to ~300 MB of preallocated journal) stays in the 3 GB tmpfs. Once it
   is full, every job fails with `ENOSPC` somewhere unrelated, a rustup download or a temp file in a
-  test (2026-10-25: 456 such dirs on `gh-runner-lgr-2`). Both Linux jobs in `ci.yml` now start by
+  test (2026-10-25: 456 such dirs on `gh-runner-lgr-2`). Every Linux job in `ci.yml` that runs tests starts by
   clearing every `/tmp/mongo-mem-*` no live `mongod` holds. To check by hand:
   `docker exec gh-runner-lgr-2 df -h /tmp`.
-- **Disk:** each job's checkout and cargo target live in the container's `_work`, which the next
-  job's checkout cleans. `docker system df` shows the total. `docker system prune` does not touch
-  running containers.
+- **Disk:** each job's checkout lives in the container's `_work`, which the next job's checkout
+  cleans. Since 2026-10-30 cargo's target does NOT: `ci.yml` keeps it in the runner's home,
+  `~/.cache/lgr-cargo-target`, so a run builds on the last one's artifacts instead of restoring
+  ~1 GB from GitHub's cache. Over 4,500 MB the job drops it whole (never file by file: cargo's
+  fingerprints outlive deleted outputs). (The per-file test durations that split the suite into
+  shards live in the Actions cache, not here: hosted runners keep nothing.) `docker system df`
+  shows the total. `docker system prune` does not touch running containers.
