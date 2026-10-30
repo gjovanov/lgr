@@ -131,6 +131,7 @@
     "./composables/usePageFavorites": "./src/composables/usePageFavorites.ts",
     "./nav/page-registry": "./src/nav/page-registry.ts",
     "./nav/navigate": "./src/nav/navigate.ts",
+    "./nav/node-role": "./src/nav/node-role.ts",
     "./nav/open-page": "./src/nav/open-page.ts",
     "./nav/return-path": "./src/nav/return-path.ts",
     "./composables/form-shortcuts": "./src/composables/form-shortcuts.ts",
