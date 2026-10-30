@@ -61,6 +61,9 @@ function writeStatus(writtenAt: Date, licences: any[]) {
     children: [{ name: 'mongod', state: 'running', failures: 0 }, { name: 'api', state: 'running', failures: 1 }],
     licences,
     update: { state: 'deferred', running: '0.9.0', supto: '1', available: '0.9.1', reason: 'a till is open', blockedWindows: 2, alarm: false, checkedAt: 1 },
+    // #356/#380, #373: as `arp.rs` and `night_restart.rs` publish them.
+    addressCheck: { on: true, address: '10.0.0.5', interface: 'enp1s0', conflict: { address: '10.0.0.5', otherMac: '52:54:00:ab:cd:ef', interface: 'enp1s0', firstSeen: new Date(writtenAt.getTime() - 3600_000).toISOString(), at: writtenAt.toISOString(), probableClone: true } },
+    nightRestart: { enabled: true, window: '22:00-06:00', pending: true, libraries: ['/usr/lib/libssl.so.3'], processes: ['lgr-server'], since: '2026-10-22T07:00:00Z', waiting: 'waits: 2 POS session(s) open', blockedNights: 7, alarm: true, checkedAt: writtenAt.toISOString() },
     disk: { freeBytes: 40 * 2 ** 30, totalBytes: 100 * 2 ** 30 },
     oplogWindowSecs: null,
     writtenAt: writtenAt.toISOString(),
@@ -130,10 +133,14 @@ describe('a master\'s status page (P3-8b)', () => {
       children: [{ name: 'mongod', state: 'running', failures: 0 }, { name: 'api', state: 'running', failures: 1 }],
       uplink: { interactive: 'connected', bulk: 'connected', pacing: { rateBytesPerSec: 65536, delayMs: 12 } },
       update: { state: 'deferred', running: '0.9.0', available: '0.9.1', reason: 'a till is open', blockedWindows: 2, alarm: false, supto: '1', suptoWaiting: null },
+      addressCheck: { on: true, reason: null, address: '10.0.0.5', conflict: { address: '10.0.0.5', otherMac: '52:54:00:ab:cd:ef', probableClone: true, current: true } },
+      nightRestart: { since: '2026-10-22T07:00:00Z', waiting: 'waits: 2 POS session(s) open', blockedNights: 7, alarm: true },
       disk: { freeBytes: 40 * 2 ** 30, totalBytes: 100 * 2 ** 30 },
       oplogWindowSecs: null,
       linkLevel: 'full',
     })
+    // The library paths stay on the server; only the count and the reason are shown.
+    expect(JSON.stringify(s.supervisor.nightRestart)).not.toContain('libssl')
     expect(s.org).toMatchObject({
       home: { here: true, state: 'active', numberingLocked: false },
       journalHead: 42,

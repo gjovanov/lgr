@@ -222,6 +222,15 @@ The packages install a version beside the others and point the service at it (FR
   ```
   It refuses a bundle whose signatures do not check out, an older version, and a version that
   failed here before.
+- ⚠ **Linux, 0.1.5 installed by 0.1.4** (`update apply` by hand, or 0.1.4's automatic update): its
+  [address check](#another-machine-with-this-servers-address-linux) stays off, because 0.1.4 does
+  not know to give a new version its file capability. `lgr-server status` reads
+  `address  not watched: this binary carries no CAP_NET_RAW file capability …`. To turn it on now,
+  apply the same bundle again with the same command: 0.1.5's own `update apply` gives the version
+  it finds installed its capability, and answers `0.1.5 is installed already, and current` without
+  a switch or a restart. Then restart the service at a quiet moment (`sudo systemctl restart
+  lgr-server`). Or leave it: the next update turns it on. A .deb upgrade (`apt install` of the
+  0.1.5 package) runs 0.1.5's own install and is not affected.
 
 ### Security updates on Ubuntu and Debian
 
@@ -243,6 +252,11 @@ The server restarts itself instead, at night:
   service's next start, where the update helper watches it.
 - `lgr-server status` says what waits, for example
   `restart  pending: libssl.so.3 replaced; waits for the maintenance window, 22:00-06:00`.
+- **If open tills keep it out for 7 nights** (a session open, a receipt printing, or an API that
+  cannot say), the line ends `ALARM: kept out by open tills through 7 nights` (from 0.1.6). The log
+  warns once, and the server's status page (Settings → Server status) and, for a linked server, its
+  row on lgrai.app's Servers page say so too. The replaced libraries run until then: close every
+  till one night, or restart the service at a quiet moment.
 - `NIGHT_RESTART=off` in `config/api.env` turns it off. The new libraries then run from the next
   `sudo systemctl restart lgr-server`.
 - To watch it happen without waiting for the night, set a window around now
@@ -296,14 +310,21 @@ address, and it reads every ARP packet on that interface. If another machine ans
   address  192.168.1.20 claimed by 52:54:00:ab:cd:ef since 2026-10-29T10:00:00Z (last 2026-10-29T10:05:00Z)
 ```
 
-The log and `state/address-conflict.json` under the data directory say so too. The tills then reach
-one machine or the other.
+The log and `state/address-conflict.json` under the data directory say so too, and from 0.1.6 the
+server's status page (Settings → Server status) shows it in red while it goes on. A linked server
+also raises an alarm on its row of lgrai.app's Servers page. The tills then reach one machine or the
+other.
 
 - **The usual cause is a copy of this server's disk** on another PC. The copy keeps
   `/etc/machine-id`, the DHCP client id comes from it, and the router gives both machines one
-  address. `PROBABLY A CLONE` at the end of the line means an advert names this server, from another
-  start, at that address too. Until it is dealt with, both machines are homes of the same orgs and
-  issue the same numbers. On the copy, as root:
+  address. `PROBABLY A CLONE` at the end of the line means the machine that claims the address also
+  announces itself as this server, from another start.
+  - That announcement is read off the wire (from 0.1.6, gjovanov/lgr#380): it comes from this
+    machine's own address, so the system drops it before any program could hear it.
+  - A server that sees a new conflict announces itself again, so that each copy hears the other.
+  - Until it is dealt with, both machines are homes of the same orgs and issue the same numbers.
+
+  On the copy, as root:
   1. `rm /etc/machine-id && systemd-machine-id-setup`;
   2. reboot it;
   3. install it again as a new server.
@@ -316,8 +337,9 @@ one machine or the other.
     are other programs and never hold it.
   - Where it is missing or not honoured, the status line reads `address  not watched:` and says why.
     Possible causes:
-    - a version installed by one from before this check; the next update or package install gives it
-      one;
+    - a version installed by one from before this check (0.1.5 installed by 0.1.4): the next update
+      or package install gives it one, or see [Versions and updates](#versions-and-updates) to turn
+      it on now;
     - `NoNewPrivileges=` in a drop-in;
     - `/opt` mounted `nosuid`;
     - a container or unit that drops `CAP_NET_RAW`.

@@ -6,10 +6,10 @@
 import { useI18n } from 'vue-i18n'
 
 export interface NodeAlarm {
-  kind: 'mirror_lag' | 'backup_stale' | 'disk_low' | 'oplog_short' | 'fenced' | 'clock_skew' | 'supto_waiting' | 'home_hold'
+  kind: 'mirror_lag' | 'backup_stale' | 'disk_low' | 'oplog_short' | 'fenced' | 'clock_skew' | 'supto_waiting' | 'home_hold' | 'address_conflict'
   value: number | null
   orgId?: string
-  /** The SUPTO version an update waits for (`supto_waiting`). */
+  /** The SUPTO version an update waits for (`supto_waiting`); `probable_clone` (`address_conflict`). */
   detail?: string
 }
 
@@ -27,6 +27,7 @@ export function useNodeAlarms() {
     if (a.kind === 'fenced') return t('servers.alarm.fenced', { n: a.value })
     if (a.kind === 'supto_waiting') return t('servers.alarm.supto_waiting', { version: a.detail ?? '?' })
     if (a.kind === 'home_hold') return t('servers.alarm.home_hold', { n: a.value })
+    if (a.kind === 'address_conflict') return t(a.detail === 'probable_clone' ? 'servers.alarm.address_clone' : 'servers.alarm.address_conflict')
     return t(`servers.alarm.${a.kind}`, { age: duration(a.value ?? 0) })
   }
   return { alarmText, duration }

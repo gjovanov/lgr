@@ -200,11 +200,41 @@ pub fn health_frame(status: &serde_json::Value, machine: Machine, lan: Option<&s
         },
         // FR-20.20: what runs, what is available, and an update kept out by open tills (the alarm).
         "update": status["update"],
+        // #356/#380: the address watch, and another machine claiming this server's address (an alarm on
+        // lgrai.app, "probably a clone" when an advert named this server there from another start).
+        "address": address_of(&status["addressCheck"]),
+        // #373: replaced libraries waiting for the night restart, and the alarm after seven nights of
+        // open tills.
+        "nightRestart": night_restart_of(&status["nightRestart"]),
     });
     if let Some(lan) = lan.filter(|l| l["url"].is_string() && l["caFingerprint"].is_string()) {
         frame["lan"] = serde_json::json!({ "url": lan["url"], "caFingerprint": lan["caFingerprint"] });
     }
     frame
+}
+
+/// What the health frame says of the address watch: whether it runs, why not, and the conflict as
+/// recorded, without the interface's name.
+fn address_of(check: &serde_json::Value) -> serde_json::Value {
+    if !check.is_object() {
+        return serde_json::Value::Null;
+    }
+    let c = &check["conflict"];
+    let conflict = if c.is_object() {
+        serde_json::json!({ "address": c["address"], "otherMac": c["otherMac"], "firstSeen": c["firstSeen"], "at": c["at"], "probableClone": c["probableClone"] })
+    } else {
+        serde_json::Value::Null
+    };
+    serde_json::json!({ "on": check["on"], "reason": check["reason"], "conflict": conflict })
+}
+
+/// What the health frame says of the night restart: only while something waits for it, and without
+/// the libraries' paths.
+fn night_restart_of(n: &serde_json::Value) -> serde_json::Value {
+    if n["pending"] != true {
+        return serde_json::Value::Null;
+    }
+    serde_json::json!({ "pending": true, "since": n["since"], "waiting": n["waiting"], "blockedNights": n["blockedNights"], "alarm": n["alarm"] })
 }
 
 /// `state/lan.json` as the supervisor last wrote it, while the LAN ingress is on.
@@ -699,6 +729,27 @@ mod tests {
         std::fs::write(&file, r#"{"url":"https://10.0.0.5:4443","caFingerprint":"sha256:abc","extra":1}"#).unwrap();
         let f = health_frame(&st, Machine::default(), read_lan(Some(&file)).as_ref());
         assert_eq!(f["lan"], serde_json::json!({ "url": "https://10.0.0.5:4443", "caFingerprint": "sha256:abc" }));
+    }
+
+    #[test]
+    fn the_address_watch_and_a_waiting_night_restart_ride_in_health() {
+        let st = serde_json::json!({
+            "addressCheck": { "on": true, "address": "10.0.0.5", "interface": "enp1s0", "conflict": {
+                "at": "2026-10-30T02:00:00Z", "firstSeen": "2026-10-30T01:58:00Z", "address": "10.0.0.5",
+                "otherMac": "52:54:00:ab:cd:ef", "interface": "enp1s0", "probableClone": true } },
+            "nightRestart": { "pending": true, "since": "2026-10-22T07:00:00Z", "waiting": "waits: 2 POS session(s) open",
+                "blockedNights": 7, "alarm": true, "libraries": ["/usr/lib/x86_64-linux-gnu/libssl.so.3"], "processes": ["lgr-server"] },
+        });
+        let f = health_frame(&st, Machine::default(), None);
+        assert_eq!(f["address"], serde_json::json!({ "on": true, "reason": null, "conflict": {
+            "address": "10.0.0.5", "otherMac": "52:54:00:ab:cd:ef", "firstSeen": "2026-10-30T01:58:00Z", "at": "2026-10-30T02:00:00Z", "probableClone": true } }));
+        assert_eq!(f["nightRestart"], serde_json::json!({ "pending": true, "since": "2026-10-22T07:00:00Z", "waiting": "waits: 2 POS session(s) open", "blockedNights": 7, "alarm": true }));
+        // Off Linux there is no watch; nothing waits, nothing is said.
+        let quiet = health_frame(&serde_json::json!({ "addressCheck": null, "nightRestart": { "pending": false } }), Machine::default(), None);
+        assert!(quiet["address"].is_null() && quiet["nightRestart"].is_null());
+        // Watched, no conflict, and why not when it is off.
+        let off = health_frame(&serde_json::json!({ "addressCheck": { "on": false, "reason": "no file capability", "conflict": null } }), Machine::default(), None);
+        assert_eq!(off["address"], serde_json::json!({ "on": false, "reason": "no file capability", "conflict": null }));
     }
 
     #[tokio::test]

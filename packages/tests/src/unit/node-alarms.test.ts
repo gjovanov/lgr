@@ -84,7 +84,46 @@ describe('the alarms a master raises (FR-20.101)', () => {
   })
 })
 
+describe('another machine at a master\'s LAN address (#356, #380)', () => {
+  const conflict = (at: Date, probableClone: boolean) => ({ conflict: { address: '10.0.0.5', otherMac: '52:54:00:ab:cd:ef', firstSeen: ago(3600), at, probableClone } })
+
+  it('an alarm while it goes on, saying when it is probably a copy of the server\'s disk', () => {
+    const a = nodeAlarms({ node: { health: healthy({ address: conflict(ago(120), false) }) }, connected: up, mirrors: [], now: NOW })
+    expect(a).toEqual([{ kind: 'address_conflict', value: null }])
+    const clone = nodeAlarms({ node: { health: healthy({ address: conflict(ago(120), true) }) }, connected: up, mirrors: [], now: NOW })
+    expect(clone).toEqual([{ kind: 'address_conflict', value: null, detail: 'probable_clone' }])
+  })
+
+  it('none once it was last seen more than fifteen minutes ago, or when there is none', () => {
+    const over = nodeAlarms({ node: { health: healthy({ address: conflict(ago(ALARM_AT.conflictSecs + 1), true) }) }, connected: up, mirrors: [], now: NOW })
+    expect(over).toEqual([])
+    const just = nodeAlarms({ node: { health: healthy({ address: conflict(ago(ALARM_AT.conflictSecs), false) }) }, connected: up, mirrors: [], now: NOW })
+    expect(kinds(just)).toEqual(['address_conflict'])
+    expect(nodeAlarms({ node: { health: healthy({ address: { on: true } }) }, connected: up, mirrors: [], now: NOW })).toEqual([])
+  })
+})
+
 describe('what lgrai.app keeps of a health frame for them (P3-8)', () => {
+  it('the address watch: an address and a MAC only, and times no later than now (#356, #380)', () => {
+    const at = new Date('2026-10-30T02:00:00Z')
+    const h: any = sanitizeHealth({
+      address: { on: true, reason: 'x'.repeat(500), interface: 'enp1s0', conflict: { address: '10.0.0.5', otherMac: '52:54:00:ab:cd:ef', firstSeen: '2026-10-30T01:00:00Z', at: '2030-01-01T00:00:00Z', probableClone: true, interface: 'enp1s0' } },
+    }, at)
+    expect(h.address).toEqual({ on: true, reason: 'x'.repeat(200), conflict: { address: '10.0.0.5', otherMac: '52:54:00:ab:cd:ef', firstSeen: new Date('2026-10-30T01:00:00Z'), at, probableClone: true } })
+    for (const bad of [{ address: '10.0.0.256', otherMac: '52:54:00:ab:cd:ef' }, { address: '10.0.0.5', otherMac: '52:54:00:AB:cd:ef' }, { address: '<b>', otherMac: 'x' }]) {
+      expect((sanitizeHealth({ address: { on: true, conflict: bad } }, at) as any).address).toEqual({ on: true })
+    }
+    expect((sanitizeHealth({}, at) as any).address).toBeUndefined()
+  })
+
+  it('the night restart: only while something waits, its count bounded (#373)', () => {
+    const at = new Date('2026-10-30T02:00:00Z')
+    const h: any = sanitizeHealth({ nightRestart: { pending: true, since: '2026-10-22T07:00:00Z', waiting: 'waits: 2 POS session(s) open', blockedNights: 7, alarm: true, libraries: ['/usr/lib/libssl.so.3'] } }, at)
+    expect(h.nightRestart).toEqual({ pending: true, since: new Date('2026-10-22T07:00:00Z'), waiting: 'waits: 2 POS session(s) open', blockedNights: 7, alarm: true })
+    expect((sanitizeHealth({ nightRestart: { pending: false, alarm: true } }, at) as any).nightRestart).toBeUndefined()
+    expect((sanitizeHealth({ nightRestart: { pending: true, blockedNights: 1e9, waiting: 'y'.repeat(400) } }, at) as any).nightRestart).toEqual({ pending: true, blockedNights: 1e5, waiting: 'y'.repeat(160) })
+  })
+
   it('the disk\'s size, the oplog\'s reach, the last backup, fenced orgs, the outbox, and the clock as a skew', () => {
     const at = new Date('2026-10-27T12:00:00Z')
     const h: any = sanitizeHealth({

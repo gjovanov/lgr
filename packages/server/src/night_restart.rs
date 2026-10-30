@@ -22,6 +22,11 @@
 //!     the update helper (pulled in by the unit's `Wants=`) watches it; re-executed into, it would
 //!     run unwatched.
 //! - `NIGHT_RESTART=off` (`config/api.env`) turns it off. The status still says what waits.
+//! - **Seven nights kept out by open tills raise an alarm** (#373), the update gate's count and rule:
+//!   a till, a fiscal command or an API that cannot say counts its night once; a night something else
+//!   held it counts nothing. A WARN on the seventh, and `blockedNights`/`alarm` in the status, the
+//!   status page and the health frame. A shop that never closes its tills otherwise runs replaced
+//!   libraries for good, and nothing says so.
 
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
@@ -115,8 +120,51 @@ pub enum Decision {
     Nothing,
     /// Something was, and the restart waits: why, for the status.
     Wait(String),
+    /// It waits for a till: a POS session open, a fiscal command in flight, or an API that cannot say
+    /// whether either is. Those nights count toward the alarm ([`Blocked`]).
+    Busy(String),
     /// Now: stop the children and start again in place.
     Restart,
+}
+
+/// Nights blocked by open tills before the alarm: the update gate's count (FR-20.20), so one shop's
+/// habit raises both alarms alike.
+pub const ALARM_NIGHTS: usize = crate::updates::ALARM_WINDOWS;
+
+/// The nights open tills kept the restart out, while replaced libraries wait (#373 left a shop that
+/// never closes its tills with no restart and nothing saying so). A count and the last night only:
+/// bounded however long it goes on.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Blocked {
+    nights: usize,
+    last: Option<String>,
+}
+
+impl Blocked {
+    /// What one look decided on the night it is (`tonight`). True on the night that raises the alarm.
+    /// Nothing replaced any more clears it.
+    pub fn note(&mut self, decision: &Decision, tonight: Option<&str>) -> bool {
+        match (decision, tonight) {
+            (Decision::Nothing, _) => {
+                *self = Self::default();
+                false
+            }
+            (Decision::Busy(_), Some(night)) if self.last.as_deref() != Some(night) => {
+                self.nights += 1;
+                self.last = Some(night.to_string());
+                self.nights == ALARM_NIGHTS
+            }
+            _ => false,
+        }
+    }
+
+    pub fn nights(&self) -> usize {
+        self.nights
+    }
+
+    pub fn alarm(&self) -> bool {
+        self.nights >= ALARM_NIGHTS
+    }
 }
 
 /// What a look knows.
@@ -162,14 +210,15 @@ pub fn decide(f: &Facts) -> Decision {
     if f.binary_gone {
         return wait("waits: the running version's files were removed, so the service's next start runs the new libraries");
     }
+    let busy = |why: &str| Decision::Busy(why.to_string());
     match f.pos_open {
-        None => return wait("waits: the API cannot say whether a till is open"),
-        Some(n) if n > 0 => return Decision::Wait(format!("waits: {n} POS session(s) open")),
+        None => return busy("waits: the API cannot say whether a till is open"),
+        Some(n) if n > 0 => return Decision::Busy(format!("waits: {n} POS session(s) open")),
         _ => {}
     }
     match f.fiscal_in_flight {
-        None => wait("waits: the API cannot say whether a fiscal command is in flight"),
-        Some(n) if n > 0 => wait("waits: a fiscal command is in flight"),
+        None => busy("waits: the API cannot say whether a fiscal command is in flight"),
+        Some(n) if n > 0 => busy("waits: a fiscal command is in flight"),
         _ => Decision::Restart,
     }
 }
@@ -319,6 +368,7 @@ mod linux {
         let last = read_last(&file);
         let mut since: Option<String> = None;
         let mut seen: Vec<String> = vec![];
+        let mut blocked = Blocked::default();
         tokio::time::sleep(FIRST_LOOK).await;
         loop {
             let me = std::process::id();
@@ -356,6 +406,14 @@ mod linux {
                 pos_open,
                 fiscal_in_flight,
             });
+            if blocked.note(&decision, tonight.as_deref()) {
+                tracing::warn!(
+                    nights = ALARM_NIGHTS,
+                    libraries = ?found.libraries,
+                    since = since.as_deref().unwrap_or("?"),
+                    "open tills have kept the night restart out for {ALARM_NIGHTS} nights, so the replaced libraries still run: close every till one night, or restart the service at a quiet moment"
+                );
+            }
             *status.lock().unwrap_or_else(|p| p.into_inner()) = serde_json::json!({
                 "enabled": settings.enabled,
                 "window": window_text(settings.window),
@@ -364,10 +422,13 @@ mod linux {
                 "processes": found.processes,
                 "since": since,
                 "waiting": match &decision {
-                    Decision::Wait(why) => Some(why.as_str()),
+                    Decision::Wait(why) | Decision::Busy(why) => Some(why.as_str()),
                     Decision::Restart => Some("restarting now"),
                     Decision::Nothing => None,
                 },
+                // #373: the nights a till kept it out, and the alarm after ALARM_NIGHTS of them.
+                "blockedNights": blocked.nights(),
+                "alarm": blocked.alarm(),
                 "last": last,
                 "checkedAt": at,
             });
@@ -486,10 +547,6 @@ mod tests {
             (Facts { watching: Some("0.1.5"), ..facts(&libs) }, "watches the switch to 0.1.5"),
             (Facts { update_installing: true, ..facts(&libs) }, "an update installs tonight"),
             (Facts { binary_gone: true, ..facts(&libs) }, "files were removed"),
-            (Facts { pos_open: Some(2), ..facts(&libs) }, "2 POS session(s) open"),
-            (Facts { pos_open: None, ..facts(&libs) }, "cannot say whether a till is open"),
-            (Facts { fiscal_in_flight: Some(1), ..facts(&libs) }, "a fiscal command is in flight"),
-            (Facts { fiscal_in_flight: None, ..facts(&libs) }, "cannot say whether a fiscal command"),
         ];
         for (f, why) in waits {
             match decide(&f) {
@@ -497,6 +554,44 @@ mod tests {
                 other => panic!("{other:?} where it should wait: {why}"),
             }
         }
+        // A till's wait, which counts toward the alarm.
+        let busy = [
+            (Facts { pos_open: Some(2), ..facts(&libs) }, "2 POS session(s) open"),
+            (Facts { pos_open: None, ..facts(&libs) }, "cannot say whether a till is open"),
+            (Facts { fiscal_in_flight: Some(1), ..facts(&libs) }, "a fiscal command is in flight"),
+            (Facts { fiscal_in_flight: None, ..facts(&libs) }, "cannot say whether a fiscal command"),
+        ];
+        for (f, why) in busy {
+            match decide(&f) {
+                Decision::Busy(w) => assert!(w.contains(why), "{w:?} should say {why:?}"),
+                other => panic!("{other:?} where a till should keep it out: {why}"),
+            }
+        }
+    }
+
+    #[test]
+    fn seven_nights_kept_out_by_tills_raise_the_alarm_once() {
+        let till = Decision::Busy("waits: 1 POS session(s) open".into());
+        let mut b = Blocked::default();
+        for (i, night) in ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06"].iter().enumerate() {
+            // Every ten minutes of a night counts once.
+            for _ in 0..3 {
+                assert!(!b.note(&till, Some(night)));
+            }
+            assert_eq!((b.nights(), b.alarm()), (i + 1, false));
+        }
+        // A night something else held it (the helper watching a switch) neither counts nor clears.
+        assert!(!b.note(&Decision::Wait("waits while the update helper watches the switch to 0.1.6".into()), Some("2026-10-07")));
+        // The day between two nights: no window, nothing counted.
+        assert!(!b.note(&Decision::Wait("waits for the maintenance window, 22:00-06:00".into()), None));
+        assert!(b.note(&till, Some("2026-10-08")), "the seventh night raises it");
+        assert!(!b.note(&till, Some("2026-10-08")), "once");
+        assert!(!b.note(&till, Some("2026-10-09")), "and not again on the eighth");
+        assert_eq!((b.nights(), b.alarm()), (8, true));
+        // Restarted (or the libraries were put back): nothing waits, nothing counts.
+        assert!(!b.note(&Decision::Nothing, Some("2026-10-10")));
+        assert_eq!((b.nights(), b.alarm()), (0, false));
+        assert_eq!(ALARM_NIGHTS, 7, "the update gate's count");
     }
 
     #[test]

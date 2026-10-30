@@ -15,6 +15,11 @@
  *   because its SUPTO version is not declared to НАП yet.
  * - **Orgs on hold** (P3-8d, FR-20.3): lgrai.app holds orgs of the server, homed on it or of which it
  *   reported a newer home record, until a sys-admin settles them (`home-hold.service.ts`).
+ * - **An address conflict** (#356, #380): another machine claims the server's LAN address, seen in the
+ *   last 15 minutes (the record outlives the conflict; while it goes on, it is renewed every few
+ *   minutes). `detail` is `probable_clone` when an advert named the server there from another start: a
+ *   copy of its disk, two machines issuing one series of legal numbers. Still not proven, so nothing
+ *   locks (only the TLS proof, `lan_clone`, does).
  *
  * ⚠ A health frame older than ten minutes says nothing about now: the alarms read from it are not
  * raised (the server being away is what the Servers page's connection says).
@@ -22,7 +27,7 @@
 import { MirrorState, OrgHome, ServerNode } from 'db/models'
 import { presenceOfNodes } from './node.service.js'
 
-export type NodeAlarmKind = 'mirror_lag' | 'backup_stale' | 'disk_low' | 'oplog_short' | 'fenced' | 'clock_skew' | 'supto_waiting' | 'home_hold'
+export type NodeAlarmKind = 'mirror_lag' | 'backup_stale' | 'disk_low' | 'oplog_short' | 'fenced' | 'clock_skew' | 'supto_waiting' | 'home_hold' | 'address_conflict'
 
 export interface NodeAlarm {
   kind: NodeAlarmKind
@@ -30,7 +35,7 @@ export interface NodeAlarm {
   value: number | null
   /** The org it is about, for a mirror's lag. */
   orgId?: string
-  /** The SUPTO version an update waits for. */
+  /** The SUPTO version an update waits for; `probable_clone` for an address conflict that is probably one. */
   detail?: string
 }
 
@@ -41,6 +46,7 @@ export const ALARM_AT = {
   oplogSecs: 7 * 86400,
   skewSecs: 120,
   healthFreshMs: 10 * 60_000,
+  conflictSecs: 15 * 60,
 }
 
 export interface AlarmInput {
@@ -84,6 +90,11 @@ export function nodeAlarms({ node, connected, mirrors, now }: AlarmInput): NodeA
   if (typeof h.api?.fenced === 'number' && h.api.fenced > 0) out.push({ kind: 'fenced', value: h.api.fenced })
   if (typeof h.clockSkewSecs === 'number' && Math.abs(h.clockSkewSecs) > ALARM_AT.skewSecs) out.push({ kind: 'clock_skew', value: h.clockSkewSecs })
   if (typeof h.update?.suptoWaiting === 'string') out.push({ kind: 'supto_waiting', value: null, detail: h.update.suptoWaiting })
+  const conflict = h.address?.conflict
+  const conflictAge = secsSince(conflict?.at, now)
+  if (conflict && conflictAge !== null && conflictAge <= ALARM_AT.conflictSecs) {
+    out.push({ kind: 'address_conflict', value: null, ...(conflict.probableClone ? { detail: 'probable_clone' } : {}) })
+  }
   return out
 }
 

@@ -301,6 +301,8 @@
               · {{ $t('servers.updateWaits', { version: item.health.update.available, reason: item.health.update.reason }) }}
               <template v-if="item.health.update.alarm"> · {{ $t('servers.updateAlarm', { n: item.health.update.blockedWindows }) }}</template>
             </span>
+            <!-- #373: replaced libraries the night restart waits to load, once open tills kept it out seven nights. -->
+            <span v-if="item.health.nightRestart?.alarm" class="text-error" data-test="restart-alarm"> · {{ $t('servers.restartAlarm', { n: item.health.nightRestart.blockedNights }) }}</span>
           </span>
           <span v-else class="text-medium-emphasis">—</span>
         </template>
@@ -634,6 +636,7 @@ interface ServerRow {
     diskFreeBytes?: number
     apiOk?: boolean
     update?: { state?: string; available?: string; reason?: string; blockedWindows?: number; alarm?: boolean }
+    nightRestart?: { since?: string; waiting?: string; blockedNights?: number; alarm?: boolean }
   } | null
 }
 

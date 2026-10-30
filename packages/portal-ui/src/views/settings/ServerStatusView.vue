@@ -29,6 +29,13 @@
                 <dt>{{ $t('serverStatus.disk') }}</dt><dd>{{ diskText }}</dd>
                 <dt>{{ $t('serverStatus.oplog') }}</dt><dd>{{ s.supervisor?.oplogWindowSecs != null ? duration(s.supervisor.oplogWindowSecs) : $t('serverStatus.oplogNotFull') }}</dd>
                 <dt>{{ $t('serverStatus.update') }}</dt><dd :class="s.supervisor?.update?.alarm || s.supervisor?.update?.suptoWaiting ? 'text-error' : undefined">{{ updateText }}</dd>
+                <!-- #356/#380: another machine at this server's LAN address; #373: the night restart open tills keep out. -->
+                <template v-if="s.supervisor?.addressCheck">
+                  <dt>{{ $t('serverStatus.address') }}</dt><dd :class="s.supervisor.addressCheck.conflict?.current ? 'text-error' : undefined" data-test="server-address">{{ addressText }}</dd>
+                </template>
+                <template v-if="s.supervisor?.nightRestart">
+                  <dt>{{ $t('serverStatus.restart') }}</dt><dd :class="s.supervisor.nightRestart.alarm ? 'text-error' : undefined" data-test="server-restart">{{ restartText }}</dd>
+                </template>
               </dl>
             </v-card-text>
           </v-card>
@@ -237,6 +244,22 @@ const updateText = computed(() => {
   }
   if (u.state === 'not-versioned') return t('serverStatus.updateNotVersioned')
   return t('serverStatus.updateUpToDate', { running: u.running ?? '—' })
+})
+const addressText = computed(() => {
+  const a = s.value?.supervisor?.addressCheck
+  if (!a) return '—'
+  const c = a.conflict
+  if (c) {
+    const what = { address: c.address ?? '—', mac: c.otherMac ?? '—', since: c.firstSeen ? when(c.firstSeen) : '—', last: c.at ? when(c.at) : '—' }
+    return t(c.probableClone ? 'serverStatus.addressClone' : 'serverStatus.addressConflict', what)
+  }
+  return a.on ? t('serverStatus.addressWatched', { address: a.address ?? '—' }) : t('serverStatus.addressOff', { reason: a.reason ?? '' })
+})
+const restartText = computed(() => {
+  const n = s.value?.supervisor?.nightRestart
+  if (!n) return ''
+  const waits = t('serverStatus.restartWaits', { since: n.since ? when(n.since) : '—', reason: n.waiting ?? '' })
+  return n.alarm ? `${waits} · ${t('servers.restartAlarm', { n: n.blockedNights })}` : waits
 })
 const pacingText = computed(() => {
   const p = s.value?.supervisor?.uplink?.pacing

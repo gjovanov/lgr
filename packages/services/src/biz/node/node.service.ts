@@ -557,6 +557,33 @@ const ver = (v: unknown) => (typeof v === 'string' && /^\d{1,6}\.\d{1,6}\.\d{1,6
 const supto = (v: unknown) => (typeof v === 'string' && (v === 'unknown' || SUPTO_VERSION_RE.test(v)) ? v : undefined)
 const UPDATE_STATES = ['up-to-date', 'installing', 'deferred', 'not-versioned'] as const
 
+const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/
+const MAC = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/
+
+/**
+ * #356/#380: a master's address watch. Whether it runs, and why not (the reason the supervisor gives,
+ * cut short), and another machine claiming the master's LAN address: kept only as an address and a
+ * MAC, with when it began and was last seen, and whether an advert named the master there from
+ * another start (a probable copy of its disk).
+ */
+function sanitizeAddress(v: any, at: Date) {
+  if (!v || typeof v !== 'object') return undefined
+  const c = v.conflict
+  const conflict = c && typeof c === 'object' && typeof c.address === 'string' && IPV4.test(c.address) && typeof c.otherMac === 'string' && MAC.test(c.otherMac)
+    ? { address: c.address, otherMac: c.otherMac, firstSeen: when(c.firstSeen, at), at: when(c.at, at), probableClone: bool(c.probableClone) }
+    : undefined
+  return { on: bool(v.on), reason: str(v.reason, 200), conflict }
+}
+
+/**
+ * #370/#373: system libraries the master runs on that were replaced, waiting for its night restart:
+ * since when, why it waits, and the alarm after seven nights kept out by open tills.
+ */
+function sanitizeNightRestart(v: any, at: Date) {
+  if (!v || typeof v !== 'object' || v.pending !== true) return undefined
+  return { pending: true, since: when(v.since, at), waiting: str(v.waiting, 160), blockedNights: num(v.blockedNights, 1e5), alarm: bool(v.alarm) }
+}
+
 /**
  * FR-20.20 (plan step P1-8e): what a master says about its own updates, kept for the Servers page:
  * what runs, what waits, why, and the alarm after seven windows kept out by open tills.
@@ -610,6 +637,10 @@ export function sanitizeHealth(frame: any, at = new Date()): Record<string, unkn
       outboxQueued: num(frame?.api?.outboxQueued, 1e9),
     },
     update: sanitizeUpdate(frame?.update),
+    // #356/#380: another machine at its LAN address (an alarm), and #373: the night restart that
+    // open tills keep out (an alarm after seven nights).
+    address: sanitizeAddress(frame?.address, at),
+    nightRestart: sanitizeNightRestart(frame?.nightRestart, at),
     // FR-20.82 (P3-6b): where its LAN ingress answers, and the pin of its CA: what a re-point names
     // for an org's desktops when the org moves here. Kept only in the shape a desktop would take.
     lan: typeof frame?.lan?.url === 'string' && LAN_URL.test(frame.lan.url) && typeof frame?.lan?.caFingerprint === 'string' && CA_PIN.test(frame.lan.caFingerprint)
@@ -708,6 +739,11 @@ export function nodeToWire(n: any) {
           clockTrusted: n.health.api?.clockTrusted,
           update: n.health.update
             ? { state: n.health.update.state, available: n.health.update.available, reason: n.health.update.reason, blockedWindows: n.health.update.blockedWindows, alarm: !!n.health.update.alarm, supto: n.health.update.supto, suptoWaiting: n.health.update.suptoWaiting }
+            : undefined,
+          // #356/#380: the conflict itself is an alarm (`node-alarms.ts`); this is what the row says.
+          address: n.health.address ? { on: n.health.address.on, reason: n.health.address.reason, conflict: n.health.address.conflict } : undefined,
+          nightRestart: n.health.nightRestart
+            ? { since: n.health.nightRestart.since, waiting: n.health.nightRestart.waiting, blockedNights: n.health.nightRestart.blockedNights, alarm: !!n.health.nightRestart.alarm }
             : undefined,
         }
       : null,

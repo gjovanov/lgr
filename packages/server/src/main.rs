@@ -21,6 +21,7 @@ mod lan_clone;
 mod install;
 mod ipc;
 mod licence;
+mod mdns_wire;
 mod mongod;
 mod night_restart;
 mod node_key;
@@ -633,7 +634,17 @@ async fn advertise(machine: String, node: String, lan: std::sync::Arc<std::sync:
                 }
             }
         }
-        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {}
+            // #380: another machine claims this address; if it is a copy of this disk, this is how it
+            // hears who this server is.
+            _ = advert::announce_wanted() => {
+                if let Some((_, _, registration)) = &current {
+                    registration.announce();
+                    tracing::info!("announced the advert again: another machine claims this server's address");
+                }
+            }
+        }
     }
 }
 
@@ -805,7 +816,12 @@ fn real_main(cli: Cli) -> Result<i32> {
                 let night = &status["nightRestart"];
                 if night["pending"].as_bool() == Some(true) {
                     let libraries: Vec<&str> = night["libraries"].as_array().into_iter().flatten().filter_map(|l| l.as_str()).map(|l| l.rsplit('/').next().unwrap_or(l)).collect();
-                    println!("  restart  pending: {} replaced; {}", libraries.join(", "), night["waiting"].as_str().unwrap_or("looking again shortly"));
+                    let alarm = if night["alarm"].as_bool() == Some(true) {
+                        format!("  ALARM: kept out by open tills through {} nights", night["blockedNights"].as_u64().unwrap_or(0))
+                    } else {
+                        String::new()
+                    };
+                    println!("  restart  pending: {} replaced; {}{alarm}", libraries.join(", "), night["waiting"].as_str().unwrap_or("looking again shortly"));
                 }
                 // #356: another machine claiming this server's LAN address.
                 if let Some(check) = status["addressCheck"].as_object() {

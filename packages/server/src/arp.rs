@@ -37,6 +37,12 @@
 //!   machine proven to hold this server's keys may lock it. An advert naming this node from another
 //!   start at the same address makes it a PROBABLE clone, still not a proven one (an advert proves
 //!   nothing, and this machine's own stale record looks the same), so still no lock.
+//! - ⚠ **That advert never reaches `advert::browse` (#380).** The other copy sends it from this
+//!   machine's own address, and the kernel drops such a packet as a martian (`accept_local=0`) before
+//!   any socket of the IP stack sees it. So the watch reads mDNS on a second packet socket too, ahead
+//!   of that check: IPv4 UDP to 5353 only (a BPF filter in the kernel), kept when it came from this
+//!   address and from the MAC that claims it over ARP (`mdns_wire.rs` reads it). The browse stays: its
+//!   query makes this machine's own responder answer on the wire, which is what the other copy reads.
 //! - **A router that answers for every address** (proxy ARP, as some client-isolating networks do)
 //!   would look like a conflict: an answer from the default gateway's MAC is not one.
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -270,7 +276,7 @@ pub fn open_before_threads() {
 /// tell a probable clone from another machine; without them it reports conflicts alone.
 pub async fn run(node: Option<String>, boot: Option<String>, file: PathBuf) {
     #[cfg(target_os = "linux")]
-    linux::watch_with(linux::socket(), node, boot, file, linux::here_now).await;
+    linux::watch_with(linux::socket(), linux::mdns_socket(), node, boot, file, linux::here_now).await;
     #[cfg(not(target_os = "linux"))]
     let _ = (node, boot, file);
 }
@@ -290,6 +296,8 @@ mod linux {
     /// The process's one ARP socket, or why there is none. It lives as long as the process: every
     /// start in it borrows it (`Borrowed`), and none closes it.
     static SOCKET: OnceLock<std::result::Result<OwnedFd, String>> = OnceLock::new();
+    /// The process's mDNS packet socket (#380), opened with the ARP one, or none.
+    static MDNS: OnceLock<Option<OwnedFd>> = OnceLock::new();
 
     pub fn open_once() {
         SOCKET.get_or_init(|| {
@@ -300,6 +308,16 @@ mod linux {
             let opened = open().map_err(|e| match e.raw_os_error() {
                 Some(libc::EPERM) | Some(libc::EACCES) => why_not(file_capability_on(Path::new("/proc/self/exe")), &std::fs::read_to_string("/proc/self/status").unwrap_or_default()),
                 _ => format!("the ARP socket cannot be opened: {e}"),
+            });
+            // Without it the watch still finds a conflict; it only cannot read the other copy's advert.
+            let _ = MDNS.set(match open_mdns() {
+                Ok(fd) => Some(fd),
+                Err(e) => {
+                    if opened.is_ok() {
+                        tracing::warn!(error = %e, "the mDNS packet socket cannot be opened: a copy of this server at its own address is reported as a conflict, never as a probable clone");
+                    }
+                    None
+                }
             });
             match drop_net_raw().and_then(|()| holds_net_raw()) {
                 Ok(false) => {}
@@ -317,6 +335,11 @@ mod linux {
             Some(Err(reason)) => Err(reason.clone()),
             None => Err("the ARP socket was not opened before the supervisor started".into()),
         }
+    }
+
+    /// The process's mDNS packet socket, if it has one.
+    pub fn mdns_socket() -> Option<RawFd> {
+        MDNS.get().and_then(Option::as_ref).map(AsRawFd::as_raw_fd)
     }
 
     /// The socket a start watches, borrowed from `SOCKET`: registered again by every start, closed by
@@ -382,6 +405,60 @@ mod linux {
         }
         // SAFETY: a fresh descriptor that nothing else owns.
         Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+    }
+
+    const fn bpf(code: u16, jt: u8, jf: u8, k: u32) -> libc::sock_filter {
+        libc::sock_filter { code, jt, jf, k }
+    }
+
+    /// Classic BPF over what a SOCK_DGRAM packet socket sees, from the IP header on: a whole IPv4 UDP
+    /// datagram to 5353 is kept, everything else is dropped in the kernel. A jump goes `jt`/`jf`
+    /// instructions past the next one; the last is the drop. ⚠ A `static`: the kernel reads it through
+    /// a pointer, and a `const` is a fresh temporary wherever it is named.
+    static MDNS_FILTER: [libc::sock_filter; 12] = [
+        bpf(0x30, 0, 0, 0),           // A = the version and header length byte
+        bpf(0x54, 0, 0, 0xf0),        // A &= 0xf0
+        bpf(0x15, 0, 8, 0x40),        // IPv4, or drop
+        bpf(0x30, 0, 0, 9),           // A = the protocol
+        bpf(0x15, 0, 6, 17),          // UDP, or drop
+        bpf(0x28, 0, 0, 6),           // A = the flags and the fragment offset
+        bpf(0x45, 4, 0, 0x3fff),      // a fragment (more to come, or an offset): drop
+        bpf(0xb1, 0, 0, 0),           // X = the header's length
+        bpf(0x48, 0, 0, 2),           // A = the UDP destination port
+        bpf(0x15, 0, 1, crate::mdns_wire::MDNS_PORT as u32), // 5353, or drop
+        bpf(0x06, 0, 0, 0xffff),      // keep it whole
+        bpf(0x06, 0, 0, 0),           // drop
+    ];
+
+    /// #380: an AF_PACKET socket for the mDNS answers the IP stack drops as martians, on every
+    /// interface. Made with no protocol, so nothing reaches it until the filter is on and it is bound
+    /// to IPv4: it never holds anything but mDNS.
+    pub fn open_mdns() -> io::Result<OwnedFd> {
+        // SAFETY: socket(2) with constant arguments; the descriptor is owned at once.
+        let fd = unsafe { libc::socket(libc::AF_PACKET, libc::SOCK_DGRAM | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC, 0) };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: a fresh descriptor that nothing else owns.
+        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+        let program = libc::sock_fprog { len: MDNS_FILTER.len() as u16, filter: MDNS_FILTER.as_ptr().cast_mut() };
+        // SAFETY: the program and its instructions outlive the call, which copies them; the length is
+        // the program's.
+        let attached = unsafe {
+            libc::setsockopt(fd.as_raw_fd(), libc::SOL_SOCKET, libc::SO_ATTACH_FILTER, (&program as *const libc::sock_fprog).cast(), std::mem::size_of::<libc::sock_fprog>() as libc::socklen_t)
+        };
+        if attached != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: all zeros is a valid sockaddr_ll.
+        let mut at: libc::sockaddr_ll = unsafe { std::mem::zeroed() };
+        at.sll_family = libc::AF_PACKET as u16;
+        at.sll_protocol = (libc::ETH_P_IP as u16).to_be();
+        // SAFETY: the address outlives the call, and the length is its own.
+        if unsafe { libc::bind(fd.as_raw_fd(), (&at as *const libc::sockaddr_ll).cast(), std::mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(fd)
     }
 
     fn caps() -> io::Result<(CapHeader, [CapData; 2])> {
@@ -456,9 +533,18 @@ mod linux {
         Ok(())
     }
 
-    /// One packet, the interface it was seen on and how (`PACKET_OUTGOING`: this machine's own), or
-    /// None while none waits.
-    pub fn recv(fd: RawFd, buf: &mut [u8]) -> io::Result<Option<(usize, i32, u8)>> {
+    /// A packet read: its length in the buffer, the interface it was seen on, how
+    /// (`PACKET_OUTGOING`: this machine's own) and the MAC it came from.
+    #[derive(Debug, Clone, Copy)]
+    pub struct Got {
+        pub len: usize,
+        pub ifindex: i32,
+        pub kind: u8,
+        pub from: [u8; 6],
+    }
+
+    /// One packet, or None while none waits.
+    pub fn recv(fd: RawFd, buf: &mut [u8]) -> io::Result<Option<Got>> {
         // SAFETY: all zeros is a valid sockaddr_ll.
         let mut from: libc::sockaddr_ll = unsafe { std::mem::zeroed() };
         let mut len = std::mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t;
@@ -468,7 +554,11 @@ mod linux {
             let e = io::Error::last_os_error();
             return if e.kind() == io::ErrorKind::WouldBlock { Ok(None) } else { Err(e) };
         }
-        Ok(Some((n as usize, from.sll_ifindex, from.sll_pkttype)))
+        let mut mac = [0u8; 6];
+        if from.sll_halen == 6 {
+            mac.copy_from_slice(&from.sll_addr[..6]);
+        }
+        Ok(Some(Got { len: (n as usize).min(buf.len()), ifindex: from.sll_ifindex, kind: from.sll_pkttype, from: mac }))
     }
 
     /// The address watched, its interface, and every MAC this machine has.
@@ -514,15 +604,47 @@ mod linux {
         warned_any: Option<Instant>,
         written: Option<Instant>,
         looked: Option<Instant>,
+        /// #380: adverts read on the mDNS packet socket that came from this address, each with the MAC
+        /// that sent it. The newest `ADVERTS_KEPT`.
+        adverts: Vec<([u8; 6], crate::advert::Heard)>,
+        /// When this server's own advert was last asked to announce again (#380).
+        announced: Option<Instant>,
+    }
+
+    const ADVERTS_KEPT: usize = 16;
+
+    /// #380: every mDNS answer waiting on the packet socket, kept when it came from `h`'s address and
+    /// from a machine that is not this one, with the MAC it came from.
+    fn heard_on_the_wire(fd: RawFd, buf: &mut [u8], here: Option<&Here>, seen: &mut Seen) -> io::Result<()> {
+        while let Some(got) = recv(fd, buf)? {
+            let Some(h) = here else { continue };
+            if got.kind == PACKET_OUTGOING || got.ifindex != h.ifindex || h.ours.contains(&got.from) {
+                continue;
+            }
+            let Some((source, payload)) = crate::mdns_wire::mdns_payload(&buf[..got.len]) else { continue };
+            if source != h.ip {
+                continue;
+            }
+            for heard in crate::mdns_wire::adverts(payload) {
+                if seen.adverts.iter().any(|(mac, known)| *mac == got.from && *known == heard) {
+                    continue;
+                }
+                if seen.adverts.len() == ADVERTS_KEPT {
+                    seen.adverts.remove(0);
+                }
+                seen.adverts.push((got.from, heard));
+            }
+        }
+        Ok(())
     }
 
     fn published(on: bool, here: Option<&Here>, conflict: Option<&serde_json::Value>) -> serde_json::Value {
         serde_json::json!({ "on": on, "address": here.map(|h| h.ip.to_string()), "interface": here.map(|h| h.interface.clone()), "conflict": conflict })
     }
 
-    /// The watch over `socket` (the process's, or a test's), its address found by `find` (a test names
-    /// a veth's).
-    pub async fn watch_with(socket: std::result::Result<RawFd, String>, node: Option<String>, boot: Option<String>, file: PathBuf, find: impl Fn() -> Option<Here>) {
+    /// The watch over `socket` (the process's, or a test's) and `mdns` (#380: the mDNS packet socket,
+    /// when there is one), its address found by `find` (a test names a veth's).
+    pub async fn watch_with(socket: std::result::Result<RawFd, String>, mdns: Option<RawFd>, node: Option<String>, boot: Option<String>, file: PathBuf, find: impl Fn() -> Option<Here>) {
         let mut shown = load(&file);
         let off = |reason: String, shown: Option<&serde_json::Value>| {
             set_status(serde_json::json!({ "on": false, "reason": reason, "conflict": shown }));
@@ -543,12 +665,23 @@ mod linux {
                 return off(format!("the ARP socket cannot be watched: {e}"), shown.as_ref());
             }
         };
+        // SAFETY: as the ARP socket's: the process's (`MDNS`, never closed) or a test's, open for as long
+        // as this AsyncFd lives.
+        let mut wire = mdns.and_then(|m| match unsafe { tokio::io::unix::AsyncFd::register_with_interest(Borrowed(m), tokio::io::Interest::READABLE) } {
+            Ok(m) => Some(m),
+            Err(e) => {
+                tracing::warn!(error = %e, "the mDNS packet socket cannot be watched: a copy of this server at its own address is reported as a conflict, never as a probable clone");
+                None
+            }
+        });
         let mut here: Option<Here> = None;
         let mut probes = Probes::new(Instant::now());
         let mut next_look = Instant::now();
         let mut seen = Seen::default();
         let mut proxy_arp_told = false;
         let mut buf = [0u8; 128];
+        // A whole mDNS message, as large as a jumbo frame carries one.
+        let mut wire_buf = vec![0u8; 9216];
         set_status(published(true, None, shown.as_ref()));
         loop {
             let now = Instant::now();
@@ -573,6 +706,7 @@ mod linux {
                 }
             }
             let wake = if here.is_some() { next_look.min(probes.next()) } else { next_look };
+            let mut wire_failed = false;
             tokio::select! {
                 ready = fd.readable() => match ready {
                     Err(e) => {
@@ -581,9 +715,9 @@ mod linux {
                     }
                     Ok(mut guard) => loop {
                         match recv(guard.get_inner().as_raw_fd(), &mut buf) {
-                            Ok(Some((n, ifindex, pkttype))) => {
-                                let (Some(h), Some(p)) = (&here, parse(&buf[..n.min(buf.len())])) else { continue };
-                                if pkttype == PACKET_OUTGOING || ifindex != h.ifindex || !claims(&p, h.ip, &h.ours) {
+                            Ok(Some(got)) => {
+                                let (Some(h), Some(p)) = (&here, parse(&buf[..got.len])) else { continue };
+                                if got.kind == PACKET_OUTGOING || got.ifindex != h.ifindex || !claims(&p, h.ip, &h.ours) {
                                     continue;
                                 }
                                 if gateway_mac(&h.interface) == Some(p.sender_mac) {
@@ -610,17 +744,44 @@ mod linux {
                         }
                     },
                 },
+                ready = async {
+                    match &wire {
+                        Some(w) => w.readable().await,
+                        None => std::future::pending().await,
+                    }
+                } => match ready {
+                    Err(e) => {
+                        tracing::warn!(error = %e, "the mDNS packet socket failed: a copy of this server at its own address is reported as a conflict, never as a probable clone");
+                        wire_failed = true;
+                    }
+                    Ok(mut guard) => {
+                        if let Err(e) = heard_on_the_wire(guard.get_inner().as_raw_fd(), &mut wire_buf, here.as_ref(), &mut seen) {
+                            tracing::debug!(error = %e, "reading the mDNS packet socket failed");
+                        }
+                        guard.clear_ready();
+                    }
+                },
                 _ = tokio::time::sleep_until(wake.into()) => {}
             }
-            // Is it this server, at its own address? An advert naming this node from another start there.
+            if wire_failed {
+                wire = None;
+            }
+            // Is it this server, at its own address? An advert naming this node from another start there:
+            // first what the machine that claims the address sent from it (#380), then a browse, at most
+            // every CLONE_LOOK_EVERY.
             let (Some(c), Some(node), Some(boot)) = (seen.last.as_mut(), node.as_ref(), boot.as_ref()) else { continue };
-            if c.probable_clone || seen.looked.is_some_and(|t| t.elapsed() < CLONE_LOOK_EVERY) {
+            if c.probable_clone {
                 continue;
             }
-            seen.looked = Some(Instant::now());
             let me = crate::lan_clone::Me { node: node.clone(), boot: boot.clone(), ip: Some(c.address) };
-            let heard = tokio::task::spawn_blocking(|| crate::advert::browse(crate::lan_clone::LISTEN)).await.unwrap_or_default();
-            if crate::lan_clone::at_my_address(&me, &heard) {
+            let sent: Vec<crate::advert::Heard> = seen.adverts.iter().filter(|(mac, _)| *mac == c.other_mac).map(|(_, h)| h.clone()).collect();
+            let mut probable = crate::lan_clone::at_my_address(&me, &sent);
+            if !probable && !seen.looked.is_some_and(|t| t.elapsed() < CLONE_LOOK_EVERY) {
+                seen.looked = Some(Instant::now());
+                let heard = tokio::task::spawn_blocking(|| crate::advert::browse(crate::lan_clone::LISTEN)).await.unwrap_or_default();
+                probable = crate::lan_clone::at_my_address(&me, &heard);
+            }
+            if probable {
                 c.probable_clone = true;
                 tracing::error!(
                     address = %c.address,
@@ -645,6 +806,12 @@ mod linux {
         let now = Instant::now();
         if !seen.last.as_ref().is_some_and(|c| c.address == h.ip && c.other_mac == other) {
             seen.last = Some(Conflict { address: h.ip, other_mac: other, interface: h.interface.clone(), probable_clone: false });
+            // #380: a copy of this disk at this address hears this server's advert from an
+            // announcement only. One, at most every CLONE_LOOK_EVERY, however the machines take turns.
+            if seen.announced.is_none_or(|t| now.duration_since(t) >= CLONE_LOOK_EVERY) {
+                seen.announced = Some(now);
+                crate::advert::announce_again();
+            }
         }
         // A flood of made-up senders must not grow this without end.
         if seen.warned.len() > 64 {
@@ -806,6 +973,9 @@ mod linux {
                 ip(&["link", "set", &near, "up"]);
                 ip(&["netns", "exec", &ns, "ip", "addr", "add", &cidr, "dev", &far]);
                 ip(&["netns", "exec", &ns, "ip", "link", "set", &far, "up"]);
+                // As on any machine: mdns-sd's daemon binds its signal socket on 127.0.0.1, and with a
+                // fresh namespace's loopback down it does not start at all.
+                ip(&["netns", "exec", &ns, "ip", "link", "set", "lo", "up"]);
                 let out = std::process::Command::new("ip").args(["netns", "exec", &ns, "cat", &format!("/sys/class/net/{far}/address")]).output().unwrap();
                 pair.far_mac = parse_mac(&String::from_utf8_lossy(&out.stdout)).unwrap();
                 pair.near_mac = sysfs_mac(&near).unwrap();
@@ -827,7 +997,7 @@ mod linux {
 
         /// A machine that holds this address answers the probe, and is found. ⚠ Needs root
         /// (namespaces and the raw socket), so it is ignored by default:
-        /// `sudo <binary> --ignored arp::linux::tests::` runs both.
+        /// `sudo <binary> --ignored --test-threads=1 arp::linux::tests::` runs them all.
         #[test]
         #[ignore]
         fn a_machine_that_holds_this_address_is_found() {
@@ -839,9 +1009,9 @@ mod linux {
             while found.is_none() && Instant::now() < deadline {
                 send(socket.as_raw_fd(), pair.ifindex, &probe(pair.near_mac, pair.address)).unwrap();
                 std::thread::sleep(Duration::from_millis(300));
-                while let Some((n, at, kind)) = recv(socket.as_raw_fd(), &mut buf).unwrap() {
-                    if let Some(p) = parse(&buf[..n]) {
-                        if kind != PACKET_OUTGOING && at == pair.ifindex && claims(&p, pair.address, &[pair.near_mac]) {
+                while let Some(got) = recv(socket.as_raw_fd(), &mut buf).unwrap() {
+                    if let Some(p) = parse(&buf[..got.len]) {
+                        if got.kind != PACKET_OUTGOING && got.ifindex == pair.ifindex && claims(&p, pair.address, &[pair.near_mac]) {
                             found = Some(p.sender_mac);
                         }
                     }
@@ -850,24 +1020,116 @@ mod linux {
             assert_eq!(found, Some(pair.far_mac), "the far end answers the probe for the address both ends hold");
         }
 
+        /// The watch tests below share the process's one status: one at a time.
+        static ONE_WATCH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
         /// The whole watch, as the supervisor runs it: it probes, hears the answer, records the other
         /// machine and says so in the status. ⚠ Root only, like the one above.
         #[tokio::test]
         #[ignore]
         async fn the_watch_records_the_machine_that_holds_its_address() {
+            let _one = ONE_WATCH.lock().await;
             let pair = Pair::new('w', Ipv4Addr::new(10, 213, 1, 7));
             let dir = tempfile::tempdir().unwrap();
             let file = dir.path().join("state").join("address-conflict.json");
             let here = pair.here();
             let find = move || Some(here.clone());
             let socket = open().unwrap();
-            let _ = tokio::time::timeout(Duration::from_secs(6), watch_with(Ok(socket.as_raw_fd()), None, None, file.clone(), find)).await;
+            let _ = tokio::time::timeout(Duration::from_secs(6), watch_with(Ok(socket.as_raw_fd()), None, None, None, file.clone(), find)).await;
             let v = load(&file).expect("the conflict is recorded");
             assert_eq!((v["address"].as_str(), v["otherMac"].as_str()), (Some("10.213.1.7"), Some(mac_text(&pair.far_mac).as_str())));
             assert_eq!(v["probableClone"].as_bool(), Some(false), "no advert, no node to compare: a conflict, not a clone");
             let s = status();
             assert_eq!((s["on"].as_bool(), s["address"].as_str()), (Some(true), Some("10.213.1.7")));
             assert_eq!(s["conflict"], v);
+        }
+
+        /// #380: the far end, a copy of this disk at this machine's own address, advertises this node
+        /// from another start. Its answers never reach a socket of the IP stack here (martians), so only
+        /// the mDNS packet socket hears them, and the watch makes the conflict a probable clone. The far
+        /// end's responder is the real one (`advert::register`), run in its namespace by this test
+        /// binary (`advertise_as_a_copy`). ⚠ Root only, like the ones above.
+        #[tokio::test]
+        #[ignore]
+        async fn a_copy_that_advertises_this_node_at_this_address_is_a_probable_clone() {
+            let _one = ONE_WATCH.lock().await;
+            let pair = Pair::new('c', Ipv4Addr::new(10, 213, 2, 7));
+            let dir = tempfile::tempdir().unwrap();
+            let file = dir.path().join("state").join("address-conflict.json");
+            // Both open before the copy starts: its first announcement waits on the socket.
+            let (socket, mdns) = (open().unwrap(), open_mdns().unwrap());
+            let mut copy = std::process::Command::new("ip")
+                .args(["netns", "exec", &pair.ns])
+                .arg(std::env::current_exe().unwrap())
+                .args(["--ignored", "--exact", "arp::linux::tests::advertise_as_a_copy", "--nocapture"])
+                .env("LGR_ARP_COPY", format!("node-380 boot-copy {}", pair.address))
+                .spawn()
+                .unwrap();
+            let here = pair.here();
+            let find = move || Some(here.clone());
+            let watch = watch_with(Ok(socket.as_raw_fd()), Some(mdns.as_raw_fd()), Some("node-380".into()), Some("boot-original".into()), file.clone(), find);
+            let _ = tokio::time::timeout(Duration::from_secs(15), watch).await;
+            let _ = copy.kill();
+            let _ = copy.wait();
+            let v = load(&file).expect("the conflict is recorded");
+            assert_eq!(v["otherMac"].as_str(), Some(mac_text(&pair.far_mac).as_str()));
+            assert_eq!(v["probableClone"].as_bool(), Some(true), "the copy's advert, read on the packet socket, names this node from another start at this address");
+        }
+
+        /// The mDNS packet socket alone: the kernel's filter keeps the far end's real announcement, and it
+        /// reads as the far end's, from its MAC, at the address both ends hold. ⚠ Root only.
+        #[test]
+        #[ignore]
+        fn the_mdns_socket_reads_the_copys_announcement() {
+            let pair = Pair::new('m', Ipv4Addr::new(10, 213, 3, 7));
+            let mdns = open_mdns().unwrap();
+            let mut copy = std::process::Command::new("ip")
+                .args(["netns", "exec", &pair.ns])
+                .arg(std::env::current_exe().unwrap())
+                .args(["--ignored", "--exact", "arp::linux::tests::advertise_as_a_copy", "--nocapture"])
+                .env("LGR_ARP_COPY", format!("node-380 boot-copy {}", pair.address))
+                .spawn()
+                .unwrap();
+            let mut buf = vec![0u8; 9216];
+            let (mut frames, mut heard) = (vec![], vec![]);
+            let deadline = Instant::now() + Duration::from_secs(8);
+            while Instant::now() < deadline && heard.is_empty() {
+                while let Some(got) = recv(mdns.as_raw_fd(), &mut buf).unwrap() {
+                    let payload = crate::mdns_wire::mdns_payload(&buf[..got.len]);
+                    frames.push(format!("{} bytes on {} kind {} from {} source {:?}", got.len, got.ifindex, got.kind, mac_text(&got.from), payload.map(|p| p.0)));
+                    if let Some((source, payload)) = payload {
+                        for h in crate::mdns_wire::adverts(payload) {
+                            heard.push((source, got.from, got.ifindex, h));
+                        }
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            let _ = copy.kill();
+            let _ = copy.wait();
+            assert!(!frames.is_empty(), "the socket read nothing at all");
+            let ok = heard.iter().any(|(source, from, at, h)| *source == pair.address && *from == pair.far_mac && *at == pair.ifindex && h.port == 4443);
+            assert!(ok, "frames: {frames:#?}\nheard: {heard:#?}");
+        }
+
+        /// What the tests above run in the far end's namespace: this node's advert from another start, at
+        /// the address both ends hold, for twenty seconds. Nothing without `LGR_ARP_COPY`.
+        #[test]
+        #[ignore]
+        fn advertise_as_a_copy() {
+            let Ok(spec) = std::env::var("LGR_ARP_COPY") else { return };
+            let f: Vec<&str> = spec.split_whitespace().collect();
+            let advert = crate::advert::Advert {
+                instance: "Copy".into(),
+                host: "lgr-copy".into(),
+                ip: f[2].parse().unwrap(),
+                port: 4443,
+                node: f[0].into(),
+                fingerprint: "sha256:copy".into(),
+                boot: f[1].into(),
+            };
+            let _registration = crate::advert::register(&advert).unwrap();
+            std::thread::sleep(Duration::from_secs(20));
         }
     }
 }

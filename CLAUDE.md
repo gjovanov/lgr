@@ -448,9 +448,26 @@ yet" (exit 2) until P1-9 / P1-8.
   - It goes in `state/address-conflict.json` and the status, NEVER `clone.json`. That one locks legal
     numbering, and only the TLS proof may write it.
   - Detection only: the supervisor never announces the address.
+  - ⚠ **A copy at THIS address is read off the wire** (#380, `mdns_wire.rs`).
+    - Its mDNS comes from this machine's own address, which the kernel drops as a martian
+      (`accept_local=0`) before any socket of the IP stack. `advert::browse` can never hear it.
+    - A second packet socket reads it: IPv4 UDP to 5353, with a BPF filter attached BEFORE the bind.
+      An advert is kept only from the MAC that claims the address over ARP, and naming this node from
+      another start, it makes the conflict `probableClone`.
+    - A new conflict makes the DNS-SD advert announce again (`advert::announce_again`, mdns-sd's
+      re-`register`). A copy never hears a query from here (martian both ways), so only an
+      announcement tells it who this server is.
+    - ⚠ The veth tests need `lo` up in the far namespace. mdns-sd binds its signal socket on
+      127.0.0.1, and does not start without it.
+  - The conflict rides in the health frame (`address`). lgrai.app raises `address_conflict` while it
+    was seen in the last 15 minutes (`node-alarms.ts`, `detail: probable_clone`), and the master's own
+    status page shows it.
   - ⚠ `CAP_NET_RAW` is a FILE capability of the binary, never the unit's. Root writes it as it
     installs a version or a home (`arp::grant_file_capability`, in `install_bundle_checked` and
     `service install`).
+    - ⚠ The INSTALLING version writes it. A 0.1.5 installed by 0.1.4's `update apply` or helper has
+      none. Applying the same bundle again with its own `update apply` writes it
+      (`Installed::Already`, no switch, no restart), and the watch comes on at the next start.
     - Children are other files and inherit nothing, and a rollback to a version from before it runs
       no watch rather than a wider one.
     - ⚠ It is `cap_net_raw=p`, NEVER `+ep`: with the effective flag the kernel refuses to EXECUTE the
@@ -487,6 +504,11 @@ yet" (exit 2) until P1-9 / P1-8.
     service's next START, where the update helper watches it.
   - The main PID stays, so `NRestarts` never moves. The unit's user `lgr` may not `systemctl restart`
     anything.
+  - **Seven nights kept out by open tills raise an alarm** (#373, `Blocked`, the update gate's
+    `ALARM_WINDOWS`).
+    - Only a till, a fiscal command or an API that cannot say (`Decision::Busy`) counts its night.
+    - It shows as `blockedNights`/`alarm` in the status, in the health frame (`nightRestart`), on the
+      master's status page and on the server's row on lgrai.app, plus one WARN.
 - **`mongod` (P1-2, FR-20.15, `mongod.rs`):** started first, on 127.0.0.1 only (port 27118, never
   27017, which another MongoDB may own), `--replSet rs0`, `--keyFile keys/mongo.keyfile`, cache
   0.5/1/2 GB by RAM (<8 / <16 / more GB), oplog 2 GB. The API is listed `pending` until the

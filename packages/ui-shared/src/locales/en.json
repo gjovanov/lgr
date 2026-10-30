@@ -3259,6 +3259,7 @@
     "updateInstalling": "installing {version}",
     "updateWaits": "{version} waits: {reason}",
     "updateAlarm": "kept out by open tills for {n} nights",
+    "restartAlarm": "replaced system libraries wait for the night restart, kept out by open tills for {n} nights",
     "cloneAlarm": "Clone alarm",
     "wentBack": "Database went back",
     "wentBackHint": "lgrai.app's copy holds changes this server's database no longer has. Its legal numbering is locked.",
@@ -3531,7 +3532,9 @@
       "fenced": "Fenced for {n} organizations",
       "clock_skew": "Clock {age} off",
       "supto_waiting": "SUPTO version {version} waits for its declaration",
-      "home_hold": "Organizations on hold: {n}"
+      "home_hold": "Organizations on hold: {n}",
+      "address_conflict": "Another machine is using this server's LAN address",
+      "address_clone": "Probably a copy of this server: another machine uses its LAN address and names itself as this server"
     },
     "address": {
       "title": "Address on the internet",
@@ -3575,6 +3578,13 @@
     "updateUpToDate": "{running}, up to date",
     "updateNotVersioned": "Updated with its package",
     "updateSuptoWaits": "{version} waits: SUPTO version {supto} is not declared to НАП yet",
+    "address": "LAN address",
+    "addressWatched": "{address}, watched for another machine taking it",
+    "addressOff": "not watched: {reason}",
+    "addressConflict": "{address} is also used by {mac}, since {since} (last seen {last})",
+    "addressClone": "Probably a copy of this server: {address} is also used by {mac}, which names itself as this server, since {since} (last seen {last}). Numbering does not lock: find that machine.",
+    "restart": "Night restart",
+    "restartWaits": "replaced system libraries wait since {since}: {reason}",
     "link": "Link to lgrai.app",
     "linkLevel": "Link level",
     "notRegistered": "Not registered",
