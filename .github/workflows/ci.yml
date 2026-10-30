@@ -37,13 +37,19 @@ env:
   RUST_VERSION: '1.98'
 
 jobs:
-  test-and-build:
-    name: test + build (ubuntu)
+  # ⚠ Two Linux jobs that each take about as long: the suite in one, everything that builds in the
+  # other, on the two mars runners side by side. Until 2026-10-30 the builds (UIs, the server package,
+  # its boot and the two-node lane, ~75 s) ran after the suite, in its job, and were named with it:
+  # `test + build (ubuntu)`, then `clippy (ubuntu)`. desktop-promote.yml accepts either name.
+  test:
+    name: test (ubuntu)
     # ⚠ The repository variable LGR_LINUX_RUNNER picks the runner: `["self-hosted","lgr-mars"]` runs
     # this on mars, which costs nothing; unset means GitHub-hosted `ubuntu-latest`, billed against the
     # monthly allowance that ran out on 2026-10-07. Setup and the kill switch: infra/ci-runner/.
     runs-on: ${{ fromJSON(vars.LGR_LINUX_RUNNER || '"ubuntu-latest"') }}
-    timeout-minutes: 30
+    # The suite took 20 minutes serially; in parallel it takes a few. A hang should not hold one of
+    # two runners for half an hour.
+    timeout-minutes: 20
     steps:
       # ⚠ Self-hosted only. The runners' /tmp is a 3 GB tmpfs (infra/ci-runner/README.md), and a run
       # that is cancelled or killed never stops its test mongod, so that mongod's data dir stays
@@ -70,7 +76,10 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # ⚠ Hosted only. The self-hosted runner keeps its home between runs, so ~/.bun/install/cache
+      # is already there, and restoring it re-downloaded and re-extracted 118 MB (16 s) every run.
       - name: Cache Bun install
+        if: runner.environment != 'self-hosted'
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.bun/install/cache
@@ -82,11 +91,12 @@ jobs:
       # ⚠ Its download directory is pinned to the cached path. Unpinned, it downloaded elsewhere on
       # this runner, so the cache never had anything to save ("Path Validation Error … no cache is
       # being saved", every run until 2026-10-24). On the self-hosted runner, which keeps its home
-      # between runs, the pin also makes the download a one-off.
+      # between runs, the pin also makes the download a one-off, and the cache is not needed there.
       - name: Pin mongodb-memory-server's download directory
         run: echo "MONGOMS_DOWNLOAD_DIR=$HOME/.cache/mongodb-binaries" >> "$GITHUB_ENV"
 
       - name: Cache mongodb-memory-server binaries
+        if: runner.environment != 'self-hosted'
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/mongodb-binaries
@@ -95,8 +105,25 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # ⚠ Serially the suite took 19m56s of a 21m49s job (run 40967014117: 3680 tests, 354 files),
+      # and most of a typical file was its own replica set starting, indexing and stopping. So:
+      # - one Bun worker per CPU this job may use (`--parallel`), each file in a fresh global
+      #   (implied), so a file can never pass on what another left behind;
+      # - one replica set for the whole run (with-test-mongo.ts), where each worker keeps one
+      #   database from file to file and empties it in between (packages/tests/src/setup.ts).
+      # ⚠ The CPUs come from the cgroup quota, not `nproc`: the runner container is capped at 4 of
+      # mars's 16 cores, `nproc` says 16, and so does Bun's default worker count.
+      # The timings file makes the workers start the slowest files first, so no 25-second file is
+      # left to run alone at the end. It is the runner's own (its home survives runs), rewritten by
+      # every run, and only ever an ORDER: a stale or missing one changes nothing but the tail.
       - name: Test
-        run: bun run test
+        run: |
+          cpus=$(awk '$1 != "max" { print int($1 / $2) }' /sys/fs/cgroup/cpu.max 2>/dev/null || true)
+          [ "${cpus:-0}" -ge 1 ] || cpus=$(nproc)
+          echo "test workers: $cpus"
+          mkdir -p "$HOME/.cache"
+          bun packages/tests/src/with-test-mongo.ts bun run test --parallel="$cpus" \
+            --timings="$HOME/.cache/lgr-test-timings.json" --update-timings
         env:
           # The PDF renderer keeps Chrome's sandbox for a non-root process (FR-20.25). This
           # runner is non-root on Ubuntu, whose AppArmor default refuses the user namespaces the
@@ -104,54 +131,9 @@ jobs:
           # runs as uid 1000 too, in a pod that allows it.
           PDF_CHROME_NO_SANDBOX: '1'
 
-      # Includes `desktop-ui` (FR-14.8) — that package was NOT built by anything until
-      # FR-14.34, and bit-rotted unnoticed for four days in August because of it.
-      - name: Build all UIs
-        run: bun run build
-
-      # FR-20.26 (plan step P0b-9): the package a master runs, built from the UIs just built, then
-      # checked (AC 21, 66, 67), booted against a real database, and rebuilt to show that the same
-      # commit gives the same bytes.
-      - name: Build the server package
-        run: bun run build:server
-
-      - name: Check the server package
-        run: bun run check:package
-
-      # FR-20.25: the Chrome a master ships (`chrome-headless-shell`, pinned tree by tree in
-      # packages/server/pdf-browser.lock.json), so the invoice the boot prints is printed by it,
-      # not by puppeteer's own download.
-      - name: Fetch the master's PDF browser
-        run: bun scripts/fetch-pdf-browser.ts --platform linux --out dist/lgr-home
-
-      - name: Boot the server package
-        run: bun test packages/tests/src/integration/server-package.flow.test.ts --env-file=.env.test --timeout 300000
-        env:
-          LGR_SERVER_PACKAGE: dist/lgr-server
-          PDF_CHROME_NO_SANDBOX: '1'
-          PUPPETEER_EXECUTABLE_PATH: ${{ github.workspace }}/dist/lgr-home/chrome/chrome-headless-shell
-
-      - name: The server package is reproducible
-        run: |
-          bun run build:server --out dist/lgr-server-again
-          if ! cmp dist/lgr-server/server-manifest.json dist/lgr-server-again/server-manifest.json; then
-            # Say WHAT differs, so a flake can be chased rather than re-run.
-            bun scripts/explain-package-diff.ts dist/lgr-server dist/lgr-server-again
-            exit 1
-          fi
-
-      # FR-20 plan step T-1: a global and a master, each the package just built on its own replica
-      # set, with the chaos proxy and the TLS front between them.
-      - name: Two nodes
-        run: bun test packages/tests/src/two-node --env-file=.env.test --timeout 300000
-        env:
-          LGR_TWO_NODE: '1'
-          LGR_SERVER_PACKAGE: dist/lgr-server
-          PDF_CHROME_NO_SANDBOX: '1'
-
-  clippy:
-    name: clippy (ubuntu)
-    # The same switch as test-and-build above.
+  build:
+    name: build + clippy (ubuntu)
+    # The same switch as `test` above.
     runs-on: ${{ fromJSON(vars.LGR_LINUX_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 30
     steps:
@@ -191,7 +173,9 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # Hosted only: the self-hosted runner keeps ~/.bun (see `test`).
       - name: Cache Bun install
+        if: runner.environment != 'self-hosted'
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.bun/install/cache
@@ -201,8 +185,23 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build Desktop UI
-        run: bun run build:desktop-ui
+      # The mongod mongodb-memory-server downloads, where `test` keeps it: the supervisor's bootstrap
+      # test (P1-2), the package's boot and the two-node lane all run a real one. Restored only;
+      # `test` saves it. (Hosted only: the self-hosted runner keeps it in its home.)
+      - name: Pin mongodb-memory-server's download directory
+        run: echo "MONGOMS_DOWNLOAD_DIR=$HOME/.cache/mongodb-binaries" >> "$GITHUB_ENV"
+
+      - name: Restore mongodb-memory-server binaries
+        if: runner.environment != 'self-hosted'
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}
+
+      # Includes `desktop-ui` (FR-14.8), which cargo needs (above) — that package was NOT built by
+      # anything until FR-14.34, and bit-rotted unnoticed for four days in August because of it.
+      - name: Build all UIs
+        run: bun run build
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
@@ -210,9 +209,33 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy
 
-      # ⚠ Saved from master only. Pull requests restore master's cache but must not save their own:
-      # a PR save is scoped to that PR, and one PR's saves once took 3.2 GB of the 10 GB pool.
+      # ⚠ Self-hosted: cargo's target lives in the runner's home, outside the checkout (which the
+      # next job's checkout would clean), so a run builds on the last one's artifacts. Restoring
+      # Swatinem's copy instead downloaded ~956 MB from GitHub's cache at ~25 MB/s: 1m53s of a
+      # 3m30s job (run 40967014117), for a disk that already had it.
+      # ⚠ Over the cap it is dropped WHOLE, never pruned file by file: cargo decides what to rebuild
+      # from `.fingerprint/`, so an output deleted under a surviving fingerprint is never rebuilt
+      # (roomler-ai docs/build-caches.md, rc.422-424). One cold build is the price of a correct one.
+      - name: Keep cargo's target on the runner
+        if: runner.environment == 'self-hosted'
+        run: |
+          t="$HOME/.cache/lgr-cargo-target"
+          mb=$(du -sm "$t" 2>/dev/null | cut -f1)
+          if [ "${mb:-0}" -gt 6000 ]; then
+            echo "target is $mb MB (cap 6000): dropping it whole"
+            rm -rf "$t"
+          else
+            echo "target is ${mb:-0} MB (cap 6000): kept"
+          fi
+          mkdir -p "$t"
+          echo "CARGO_TARGET_DIR=$t" >> "$GITHUB_ENV"
+          df -h "$HOME" | tail -1
+
+      # ⚠ Hosted only (the step above is the self-hosted twin). Saved from master only. Pull requests
+      # restore master's cache but must not save their own: a PR save is scoped to that PR, and one
+      # PR's saves once took 3.2 GB of the 10 GB pool.
       - name: Rust cache
+        if: runner.environment != 'self-hosted'
         uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           workspaces: |
@@ -242,14 +265,6 @@ jobs:
         working-directory: packages/desktop/src-tauri
         run: cargo clippy --all-targets -- -D warnings
 
-      # The mongod mongodb-memory-server downloads for the test job: the supervisor's bootstrap test
-      # (P1-2) runs against a real one. Restored only; the test job saves it.
-      - name: Restore mongodb-memory-server binaries
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ~/.cache/mongodb-binaries
-          key: mongodb-binaries-${{ runner.os }}
-
       # FR-20 plan steps P1-1 and P1-2: the supervisor a master runs. Its tests start and kill real
       # child processes, talk over a real unix socket, and bootstrap a real mongod when one is here.
       - name: Supervisor (lgr-server) clippy and tests
@@ -261,6 +276,47 @@ jobs:
           if [ -n "$found" ]; then export LGR_SERVER_TEST_MONGOD="$found"; fi
           echo "mongod for the bootstrap test: ${found:-none, so it is skipped}"
           cargo test
+
+      # FR-20.26 (plan step P0b-9): the package a master runs, built from the UIs built above, then
+      # checked (AC 21, 66, 67), booted against a real database, and rebuilt to show that the same
+      # commit gives the same bytes.
+      - name: Build the server package
+        run: bun run build:server
+
+      - name: Check the server package
+        run: bun run check:package
+
+      # FR-20.25: the Chrome a master ships (`chrome-headless-shell`, pinned tree by tree in
+      # packages/server/pdf-browser.lock.json), so the invoice the boot prints is printed by it,
+      # not by puppeteer's own download.
+      - name: Fetch the master's PDF browser
+        run: bun scripts/fetch-pdf-browser.ts --platform linux --out dist/lgr-home
+
+      - name: Boot the server package
+        run: bun test packages/tests/src/integration/server-package.flow.test.ts --env-file=.env.test --timeout 300000
+        env:
+          LGR_SERVER_PACKAGE: dist/lgr-server
+          # Chrome's sandbox needs user namespaces this runner's AppArmor refuses (see `test`).
+          PDF_CHROME_NO_SANDBOX: '1'
+          PUPPETEER_EXECUTABLE_PATH: ${{ github.workspace }}/dist/lgr-home/chrome/chrome-headless-shell
+
+      - name: The server package is reproducible
+        run: |
+          bun run build:server --out dist/lgr-server-again
+          if ! cmp dist/lgr-server/server-manifest.json dist/lgr-server-again/server-manifest.json; then
+            # Say WHAT differs, so a flake can be chased rather than re-run.
+            bun scripts/explain-package-diff.ts dist/lgr-server dist/lgr-server-again
+            exit 1
+          fi
+
+      # FR-20 plan step T-1: a global and a master, each the package just built on its own replica
+      # set, with the chaos proxy and the TLS front between them.
+      - name: Two nodes
+        run: bun test packages/tests/src/two-node --env-file=.env.test --timeout 300000
+        env:
+          LGR_TWO_NODE: '1'
+          LGR_SERVER_PACKAGE: dist/lgr-server
+          PDF_CHROME_NO_SANDBOX: '1'
 
   macos-check:
     name: cargo check (macos)

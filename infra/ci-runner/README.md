@@ -99,6 +99,10 @@ shows both as `online`.
   test (2026-10-25: 456 such dirs on `gh-runner-lgr-2`). Both Linux jobs in `ci.yml` now start by
   clearing every `/tmp/mongo-mem-*` no live `mongod` holds. To check by hand:
   `docker exec gh-runner-lgr-2 df -h /tmp`.
-- **Disk:** each job's checkout and cargo target live in the container's `_work`, which the next
-  job's checkout cleans. `docker system df` shows the total. `docker system prune` does not touch
-  running containers.
+- **Disk:** each job's checkout lives in the container's `_work`, which the next job's checkout
+  cleans. Since 2026-10-30 cargo's target does NOT: `ci.yml` keeps it in the runner's home,
+  `~/.cache/lgr-cargo-target`, so a run builds on the last one's artifacts instead of restoring
+  ~1 GB from GitHub's cache. Over 6,000 MB the job drops it whole (never file by file: cargo's
+  fingerprints outlive deleted outputs). The test job also keeps `~/.cache/lgr-test-timings.json`,
+  the per-file durations Bun uses to start the slowest test files first. `docker system df` shows
+  the total. `docker system prune` does not touch running containers.
