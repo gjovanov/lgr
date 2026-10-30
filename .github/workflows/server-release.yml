@@ -366,7 +366,7 @@ jobs:
           if ("$out" -notlike '*nothing to back up*') { Fail "backup now said: $out" }
 
           # The helper's watch, in seconds rather than the real 5/20 minutes (SYSTEM's file; Administrators
-          # may write it). ⚠ The broken update below is only ever failed by the DEADLINE: its supervisor
+          # may write it). NOTE: the broken update below is only ever failed by the DEADLINE: its supervisor
           # stays up while the API crash-loops, so it is neither down nor restarting. At 180 s that one
           # wait was 3 of this step's 5.5 minutes (run 41004074162). 80 s still gives a good update
           # 60 s to come up before its 20 clean seconds, and it needed about 5 (confirmed 36 s after

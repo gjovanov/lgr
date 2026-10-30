@@ -38,7 +38,7 @@ runs:
         INPUT_PUBLISH: ${{ inputs.publish }}
       run: |
         set -euo pipefail
-        # ⚠ tr: a Windows checkout has CRLF line ends, and `"$` never matches before a \r.
+        # NOTE tr: a Windows checkout has CRLF line ends, and `"$` never matches before a \r.
         CARGO="$(tr -d '\r' < packages/server/Cargo.toml | sed -n 's/^version = "\(.*\)"$/\1/p' | head -1)"
         case "$GITHUB_EVENT_NAME" in
           push)              VERSION="${GITHUB_REF#refs/tags/server-v}"; RELEASE=true ;;
