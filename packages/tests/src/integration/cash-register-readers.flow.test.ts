@@ -178,6 +178,23 @@ describe('FR-21.8 / FR-21.27 — a till sale counts once, read from its document
     expect((await get(`/org/${s.orgId}/cash-register/documents`, s.token)).status).toBe(200)
   })
 
+  // A burst on a freshly started server: every request but the first used to read the answer the
+  // first had not written yet, and got 503 with no message (pos-idempotency failed this way once
+  // its file ran with fresh module state).
+  it('FR-21.28: requests that arrive while the first check runs get its answer', async () => {
+    const s = await seed()
+    resetRegisterReadiness()
+    const open = await Promise.all(Array.from({ length: 5 }, () => get(`/org/${s.orgId}/cash-register/documents`, s.token)))
+    expect(open.map(r => r.status)).toEqual([200, 200, 200, 200, 200])
+
+    await tillSale(s, 'pos')
+    resetRegisterReadiness()
+    const refused = await Promise.all(Array.from({ length: 5 }, () => get(`/org/${s.orgId}/cash-register/documents`, s.token)))
+    expect(refused.map(r => r.status)).toEqual([503, 503, 503, 503, 503])
+    for (const r of refused) expect(r.json.message).toContain('0009-cash-register-freeze')
+    resetRegisterReadiness() // the refusal is cached for 15 s: not this file's next test's
+  })
+
   it('a stornoed sale and its storno: 18.4 lists the storno, 18.5 the sale, and the day nets to nothing', async () => {
     const s = await seed()
     const sale = await tillSale(s, 'both', { status: 'cancelled' })

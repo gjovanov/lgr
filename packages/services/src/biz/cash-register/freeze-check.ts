@@ -29,33 +29,56 @@ export interface RegisterReadiness {
 let ready = false
 let checkedAt = 0
 let last: RegisterReadiness = { ready: false }
+/** The check in flight. Whoever asks while it runs gets its answer. */
+let pending: Promise<RegisterReadiness> | null = null
+/** Bumped by a reset, so a check that started before it cannot write its answer after it. */
+let generation = 0
 
-/** For tests: forget the cached answer. */
+/** For tests: forget the cached answer, and any check still in flight. */
 export function resetRegisterReadiness(): void {
+  generation++
   ready = false
   checkedAt = 0
   last = { ready: false }
+  pending = null
 }
 
 export async function registerReadiness(now = Date.now()): Promise<RegisterReadiness> {
   if (ready) return { ready: true }
+  // ⚠ Before the recheck window: `checkedAt` is set when a check STARTS, so without this a request
+  // that arrived while the first check was still querying got the initial `last`, not ready and
+  // with no reason, and the route answered 503 with no message. On a freshly started server every
+  // request of a burst but the first did (found by the parallel test run, 2026-10-30).
+  if (pending) return pending
   if (checkedAt && now - checkedAt < RECHECK_MS) return last
   checkedAt = now
+  const gen = generation
+  const check = readiness().then(answer => {
+    if (gen === generation) {
+      last = answer
+      if (answer.ready) ready = true
+    }
+    return answer
+  })
+  pending = check.finally(() => {
+    if (gen === generation) pending = null
+  })
+  return pending
+}
+
+async function readiness(): Promise<RegisterReadiness> {
   const db = mongoose.connection.db
-  if (!db) return (last = { ready: false, reason: 'The database is not connected yet.' })
+  if (!db) return { ready: false, reason: 'The database is not connected yet.' }
   const [recorded, posRow] = await Promise.all([
     db.collection(MIGRATIONS_COLLECTION).findOne({ _id: FREEZE_MIGRATION as any }, { projection: { _id: 1 } }),
     db.collection('postransactions').findOne({}, { projection: { _id: 1 } }),
   ])
-  if (recorded || !posRow) {
-    ready = true
-    return (last = { ready: true })
-  }
-  return (last = {
+  if (recorded || !posRow) return { ready: true }
+  return {
     ready: false,
     reason: `The cash register's history is read from documents only, and migration ${FREEZE_MIGRATION} has not run on this database: `
       + 'POS transactions may exist that no reader would see. Run `bun run migrate`.',
-  })
+  }
 }
 
 /** The 503 a cash-register route answers while the server is not ready, or null. */
