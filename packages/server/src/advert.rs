@@ -64,6 +64,30 @@ pub fn register(advert: &Advert) -> anyhow::Result<Registration> {
     imp::register(advert).map(|inner| Registration { _inner: inner })
 }
 
+impl Registration {
+    /// Announce the advert again, as it was first announced (#380).
+    pub fn announce(&self) {
+        self._inner.announce();
+    }
+}
+
+/// #380: what the address watch (`arp.rs`) asks for when another machine claims this server's address.
+/// A copy of this disk there never hears a query from this machine (its kernel drops one from its own
+/// address as a martian), so it never hears an answer to one either: only an announcement tells it
+/// this server's advert. Asked any number of times before `advertise` (main.rs) wakes, it is one.
+static ANNOUNCE: std::sync::LazyLock<tokio::sync::Notify> = std::sync::LazyLock::new(tokio::sync::Notify::new);
+
+/// Asked by the address watch, which runs on Linux only.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn announce_again() {
+    ANNOUNCE.notify_one();
+}
+
+/// What `advertise` waits on beside its minute.
+pub async fn announce_wanted() {
+    ANNOUNCE.notified().await;
+}
+
 /// An advert heard on the network, before anything is concluded from it: anyone can send one.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Heard {
@@ -207,6 +231,11 @@ mod imp {
                 bail!("the OS did not take the advert (status {answer:?})")
             }
         }
+    }
+
+    impl Registration {
+        /// Nothing: no address watch asks for it off Linux.
+        pub fn announce(&self) {}
     }
 
     impl Drop for Registration {
@@ -410,6 +439,7 @@ mod imp {
     pub struct Registration {
         daemon: mdns_sd::ServiceDaemon,
         fullname: String,
+        info: mdns_sd::ServiceInfo,
     }
 
     pub fn register(a: &Advert) -> Result<Registration> {
@@ -426,8 +456,18 @@ mod imp {
         )
         .context("describing the advert")?;
         let fullname = info.get_fullname().to_string();
-        daemon.register(info).context("registering the advert")?;
-        Ok(Registration { daemon, fullname })
+        daemon.register(info.clone()).context("registering the advert")?;
+        Ok(Registration { daemon, fullname, info })
+    }
+
+    impl Registration {
+        /// mdns-sd announces a service registered again exactly as the first time (no withdrawal in
+        /// between, so no cache on the LAN forgets it).
+        pub fn announce(&self) {
+            if let Err(e) = self.daemon.register(self.info.clone()) {
+                tracing::debug!(error = %e, "the advert could not be announced again");
+            }
+        }
     }
 
     impl Drop for Registration {

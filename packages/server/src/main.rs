@@ -21,6 +21,7 @@ mod lan_clone;
 mod install;
 mod ipc;
 mod licence;
+mod mdns_wire;
 mod mongod;
 mod night_restart;
 mod node_key;
@@ -633,7 +634,17 @@ async fn advertise(machine: String, node: String, lan: std::sync::Arc<std::sync:
                 }
             }
         }
-        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {}
+            // #380: another machine claims this address; if it is a copy of this disk, this is how it
+            // hears who this server is.
+            _ = advert::announce_wanted() => {
+                if let Some((_, _, registration)) = &current {
+                    registration.announce();
+                    tracing::info!("announced the advert again: another machine claims this server's address");
+                }
+            }
+        }
     }
 }
 
