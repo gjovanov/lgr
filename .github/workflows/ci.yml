@@ -8,6 +8,13 @@ name: CI
 # push to master, on Linux only, and finishes in minutes. The per-platform desktop builds and the
 # Windows smoke live in `desktop-ci.yml` (FR-14.35), and the heavy nightly e2e runs on mars rather
 # than on paid Actions minutes.
+#
+# ⚠ Where the Linux jobs run: the repository variable LGR_LINUX_RUNNER, unset meaning GitHub-hosted
+# `ubuntu-24.04` (pinned: `ubuntu-latest` began moving to Ubuntu 26 on 2026-10-19, and an image's
+# contents are not a contract). Since the repository went public, hosted minutes cost nothing, so
+# the jobs run there (2026-10-30). `["self-hosted","lgr-mars"]` sends them to the two mars runners,
+# the fallback for when GitHub's queue is the slow part: infra/ci-runner/. Hosted runners are shared
+# with roomler-ai's CI under one account (20 jobs at a time).
 
 on:
   pull_request:
@@ -37,19 +44,22 @@ env:
   RUST_VERSION: '1.98'
 
 jobs:
-  # ⚠ Two Linux jobs that each take about as long: the suite in one, everything that builds in the
-  # other, on the two mars runners side by side. Until 2026-10-30 the builds (UIs, the server package,
-  # its boot and the two-node lane, ~75 s) ran after the suite, in its job, and were named with it:
-  # `test + build (ubuntu)`, then `clippy (ubuntu)`. desktop-promote.yml accepts either name.
-  test:
-    name: test (ubuntu)
-    # ⚠ The repository variable LGR_LINUX_RUNNER picks the runner: `["self-hosted","lgr-mars"]` runs
-    # this on mars, which costs nothing; unset means GitHub-hosted `ubuntu-latest`, billed against the
-    # monthly allowance that ran out on 2026-10-07. Setup and the kill switch: infra/ci-runner/.
-    runs-on: ${{ fromJSON(vars.LGR_LINUX_RUNNER || '"ubuntu-latest"') }}
-    # The suite took 20 minutes serially; in parallel it takes a few. A hang should not hold one of
-    # two runners for half an hour.
+  # ⚠ The suite in three shards side by side, and everything that builds in a job of its own beside
+  # them. Until 2026-10-30 the builds (UIs, the server package, its boot and the two-node lane) ran
+  # after the suite in one job, `test + build (ubuntu)`, and the suite ran file after file (19m56s of
+  # a 21m49s job, run 40967014117). The check names a release gate reads are `test (ubuntu)` (the
+  # aggregate below) and `build + clippy (ubuntu)`; desktop-promote.yml accepts the old names too.
+  test-shard:
+    name: test (ubuntu, shard ${{ matrix.shard }}/3)
+    # The switch the header describes.
+    runs-on: ${{ fromJSON(vars.LGR_LINUX_RUNNER || '"ubuntu-24.04"') }}
+    # A shard takes a few minutes. A hang should not hold a runner for half an hour.
     timeout-minutes: 20
+    strategy:
+      # Every shard reports, so one failure does not hide another.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       # ⚠ Self-hosted only. The runners' /tmp is a 3 GB tmpfs (infra/ci-runner/README.md), and a run
       # that is cancelled or killed never stops its test mongod, so that mongod's data dir stays
@@ -105,25 +115,34 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # What each test file took the last time master ran it, which Bun's --shard splits the files
+      # by (three equal TIMES, not three equal counts) and --parallel starts slowest first. Only ever
+      # a split and an order: a stale or missing file changes how even the shards are, nothing else.
+      - name: The last measured time of each test file
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .test-timings/last.json
+          key: test-timings-${{ github.run_id }}
+          restore-keys: test-timings-
+
       # ⚠ Serially the suite took 19m56s of a 21m49s job (run 40967014117: 3680 tests, 354 files),
       # and most of a typical file was its own replica set starting, indexing and stopping. So:
-      # - one Bun worker per CPU this job may use (`--parallel`), each file in a fresh global
-      #   (implied), so a file can never pass on what another left behind;
-      # - one replica set for the whole run (with-test-mongo.ts), where each worker keeps one
-      #   database from file to file and empties it in between (packages/tests/src/setup.ts).
-      # ⚠ The CPUs come from the cgroup quota, not `nproc`: the runner container is capped at 4 of
-      # mars's 16 cores, `nproc` says 16, and so does Bun's default worker count.
-      # The timings file makes the workers start the slowest files first, so no 25-second file is
-      # left to run alone at the end. It is the runner's own (its home survives runs), rewritten by
-      # every run, and only ever an ORDER: a stale or missing one changes nothing but the tail.
+      # - this shard's files on one Bun worker per CPU the job may use (`--parallel`), each file in a
+      #   fresh global (implied), so a file can never pass on what another left behind;
+      # - one replica set for the shard (with-test-mongo.ts), where each worker keeps one database
+      #   from file to file and empties it in between (packages/tests/src/setup.ts).
+      # ⚠ The CPUs come from the cgroup quota where there is one, not `nproc`: a mars runner container
+      # is capped at 8 of the host's 16 cores and `nproc` says 16, as does Bun's default worker count.
+      # --update-timings writes what THIS shard's files took to shard.json, for the `test` job below.
       - name: Test
         run: |
           cpus=$(awk '$1 != "max" { print int($1 / $2) }' /sys/fs/cgroup/cpu.max 2>/dev/null || true)
           [ "${cpus:-0}" -ge 1 ] || cpus=$(nproc)
           echo "test workers: $cpus"
-          mkdir -p "$HOME/.cache"
+          mkdir -p .test-timings
           bun packages/tests/src/with-test-mongo.ts bun run test --parallel="$cpus" \
-            --timings="$HOME/.cache/lgr-test-timings.json" --update-timings
+            --shard=${{ matrix.shard }}/3 \
+            --timings=.test-timings/shard.json --timings=.test-timings/last.json --update-timings
         env:
           # The PDF renderer keeps Chrome's sandbox for a non-root process (FR-20.25). This
           # runner is non-root on Ubuntu, whose AppArmor default refuses the user namespaces the
@@ -131,10 +150,53 @@ jobs:
           # runs as uid 1000 too, in a pod that allows it.
           PDF_CHROME_NO_SANDBOX: '1'
 
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-timings-${{ matrix.shard }}
+          path: .test-timings/shard.json
+          if-no-files-found: ignore
+          retention-days: 1
+
+  # The check a release gate reads: green only when every shard is. It also merges the shards'
+  # timings and, on master, keeps them for the next run's split.
+  test:
+    name: test (ubuntu)
+    needs: test-shard
+    if: ${{ !cancelled() }}
+    runs-on: ${{ fromJSON(vars.LGR_LINUX_RUNNER || '"ubuntu-24.04"') }}
+    timeout-minutes: 5
+    steps:
+      - name: Every shard passed
+        env:
+          SHARDS: ${{ needs.test-shard.result }}
+        run: |
+          [ "$SHARDS" = success ] || { echo "::error::the test shards: $SHARDS"; exit 1; }
+          echo "all three shards passed"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: test-timings-*
+          path: .test-timings
+
+      - name: One timings file from the three
+        run: |
+          set -euo pipefail
+          jq -s '{ version: 1, files: (map(.files) | add) }' .test-timings/test-timings-*/shard.json > .test-timings/last.json
+          echo "timings for $(jq '.files | length' .test-timings/last.json) files"
+
+      # Master only: a pull request's save would be scoped to that pull request, and master's is the
+      # one every run starts from. A new key per run, because a cache entry cannot be overwritten.
+      - name: Keep them for the next run
+        if: github.ref == 'refs/heads/master'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .test-timings/last.json
+          key: test-timings-${{ github.run_id }}-${{ github.run_attempt }}
+
   build:
     name: build + clippy (ubuntu)
-    # The same switch as `test` above.
-    runs-on: ${{ fromJSON(vars.LGR_LINUX_RUNNER || '"ubuntu-latest"') }}
+    # The switch the header describes.
+    runs-on: ${{ fromJSON(vars.LGR_LINUX_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 30
     steps:
       # ⚠ Self-hosted only. The runners' /tmp is a 3 GB tmpfs (infra/ci-runner/README.md), and a run
@@ -173,7 +235,7 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      # Hosted only: the self-hosted runner keeps ~/.bun (see `test`).
+      # Hosted only: the self-hosted runner keeps ~/.bun (see `test-shard`).
       - name: Cache Bun install
         if: runner.environment != 'self-hosted'
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -185,9 +247,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # The mongod mongodb-memory-server downloads, where `test` keeps it: the supervisor's bootstrap
+      # The mongod mongodb-memory-server downloads, where `test-shard` keeps it: the supervisor's bootstrap
       # test (P1-2), the package's boot and the two-node lane all run a real one. Restored only;
-      # `test` saves it. (Hosted only: the self-hosted runner keeps it in its home.)
+      # `test-shard` saves it. (Hosted only: the self-hosted runner keeps it in its home.)
       - name: Pin mongodb-memory-server's download directory
         run: echo "MONGOMS_DOWNLOAD_DIR=$HOME/.cache/mongodb-binaries" >> "$GITHUB_ENV"
 
@@ -296,7 +358,7 @@ jobs:
         run: bun test packages/tests/src/integration/server-package.flow.test.ts --env-file=.env.test --timeout 300000
         env:
           LGR_SERVER_PACKAGE: dist/lgr-server
-          # Chrome's sandbox needs user namespaces this runner's AppArmor refuses (see `test`).
+          # Chrome's sandbox needs user namespaces this runner's AppArmor refuses (see `test-shard`).
           PDF_CHROME_NO_SANDBOX: '1'
           PUPPETEER_EXECUTABLE_PATH: ${{ github.workspace }}/dist/lgr-home/chrome/chrome-headless-shell
 

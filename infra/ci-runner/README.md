@@ -2,13 +2,20 @@
 
 ## Why
 
-lgr is a **private** repository, so every GitHub-hosted minute comes out of the account's monthly
-allowance (2,000 included; Windows minutes count 2x and macOS 10x). In October 2026 it ran out
-on the 7th. About $20 of overage followed, and then GitHub refused every job for the rest of the
-month, the Linux gate included. #125 moved the macOS and Windows work to on-demand and tag-time.
-This moves the Linux jobs, the bulk of what remains (about 1,300 minutes a week at October's
-pace), onto mars, where they cost nothing. Self-hosted jobs are not billed, so they keep running
-even when the allowance is gone.
+> **Since 2026-10-30 these runners are the FALLBACK.** lgr went public, GitHub-hosted minutes cost
+> a public repository nothing, and the Linux jobs run hosted again (`LGR_LINUX_RUNNER` =
+> `"ubuntu-24.04"`), the suite split across three runners. Flip back to mars when GitHub's queue
+> is the slow part: hosted runners are shared with roomler-ai's CI under one account, 20 jobs at a
+> time, and a burst there has kept lgr's jobs waiting 3-5 minutes. Fork pull requests from any
+> outside contributor need approval before they run (`all_external_contributors`), which matters
+> most while these runners take jobs: one runs on mars.
+
+Until then the reason was money. lgr was a **private** repository, so every GitHub-hosted minute
+came out of the account's monthly allowance (2,000 included; Windows minutes count 2x and macOS
+10x). In October 2026 it ran out on the 7th. About $20 of overage followed, and then GitHub
+refused every job for the rest of the month, the Linux gate included. #125 moved the macOS and
+Windows work to on-demand and tag-time, and the Linux jobs, the bulk of what remained (about 1,300
+minutes a week at October's pace), moved onto mars, where they cost nothing.
 
 ## Kill switch: one repository variable
 
@@ -16,13 +23,16 @@ The Linux jobs read their runner from the repository variable `LGR_LINUX_RUNNER`
 
 | Value | Where the Linux jobs run |
 |---|---|
-| `["self-hosted","lgr-mars"]` | mars (free) |
-| unset, or `"ubuntu-latest"` | GitHub-hosted (billed) |
+| `"ubuntu-24.04"`, or unset | GitHub-hosted (the default since 2026-10-30) |
+| `["self-hosted","lgr-mars"]` | mars, the fallback |
 
 ```bash
 gh variable set LGR_LINUX_RUNNER -R gjovanov/lgr --body '["self-hosted","lgr-mars"]'   # mars
-gh variable delete LGR_LINUX_RUNNER -R gjovanov/lgr                                 # hosted
+gh variable set LGR_LINUX_RUNNER -R gjovanov/lgr --body '"ubuntu-24.04"'               # hosted
 ```
+
+⚠ `ubuntu-24.04`, not `ubuntu-latest`: that label began moving to Ubuntu 26 on 2026-10-19, and
+the image is what the tests, the apt package names and mongodb-memory-server's mongod depend on.
 
 ⚠ While the variable points at mars, a job with no online runner **queues** instead of failing.
 If CI sits at "Waiting for a runner", check the containers below, or flip the variable.
@@ -36,9 +46,12 @@ If CI sits at "Waiting for a runner", check the containers below, or flip the va
   the container, so a workflow's `sudo apt-get install` never changes mars.
 - No Docker socket is mounted. A job cannot reach the host's Docker, and so cannot reach root on
   mars.
-- Two containers, `gh-runner-lgr-1` and `gh-runner-lgr-2`, so the two Linux jobs of a run go in
-  parallel. Each is capped (`--cpus`, `--memory`) so CI cannot starve the k8s VMs that share the
-  host.
+- Two containers, `gh-runner-lgr-1` and `gh-runner-lgr-2`, so two Linux jobs go in parallel.
+  Each is capped (`--cpus`, `--memory`) so CI cannot take the whole host from the k8s VMs that
+  share it. ⚠ 8 CPUs each since 2026-10-30 (was 4, raised live with `docker update --cpus 8`):
+  as the fallback they rarely run, and the suite takes 231 s on 8 instead of 352 s on 4. Both busy
+  at once can now use all 16 of mars's cores, so a fallback period overlapping an image build is
+  slower for both.
 
 ## Setup (on mars, as a `docker`-group user)
 
@@ -69,7 +82,7 @@ unset T
 # In RAM it starts the way it does on a hosted runner. It counts against --memory.
 for i in 1 2; do
   docker run -d --name gh-runner-lgr-$i --restart unless-stopped \
-    --cpus 4 --memory 8g --pids-limit 8192 \
+    --cpus 8 --memory 8g --pids-limit 8192 \
     --tmpfs /tmp:rw,exec,nosuid,size=3g \
     -e REPO_URL=https://github.com/gjovanov/lgr \
     -e RUNNER_NAME=mars-lgr-$i \
@@ -96,13 +109,13 @@ shows both as `online`.
 - **`/tmp` fills up when runs are interrupted.** A cancelled or killed job never stops its test
   `mongod`, so its data dir (up to ~300 MB of preallocated journal) stays in the 3 GB tmpfs. Once it
   is full, every job fails with `ENOSPC` somewhere unrelated, a rustup download or a temp file in a
-  test (2026-10-25: 456 such dirs on `gh-runner-lgr-2`). Both Linux jobs in `ci.yml` now start by
+  test (2026-10-25: 456 such dirs on `gh-runner-lgr-2`). Every Linux job in `ci.yml` that runs tests starts by
   clearing every `/tmp/mongo-mem-*` no live `mongod` holds. To check by hand:
   `docker exec gh-runner-lgr-2 df -h /tmp`.
 - **Disk:** each job's checkout lives in the container's `_work`, which the next job's checkout
   cleans. Since 2026-10-30 cargo's target does NOT: `ci.yml` keeps it in the runner's home,
   `~/.cache/lgr-cargo-target`, so a run builds on the last one's artifacts instead of restoring
   ~1 GB from GitHub's cache. Over 6,000 MB the job drops it whole (never file by file: cargo's
-  fingerprints outlive deleted outputs). The test job also keeps `~/.cache/lgr-test-timings.json`,
-  the per-file durations Bun uses to start the slowest test files first. `docker system df` shows
-  the total. `docker system prune` does not touch running containers.
+  fingerprints outlive deleted outputs). (The per-file test durations that split the suite into
+  shards live in the Actions cache, not here: hosted runners keep nothing.) `docker system df`
+  shows the total. `docker system prune` does not touch running containers.
