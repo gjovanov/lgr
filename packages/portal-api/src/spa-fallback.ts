@@ -19,10 +19,23 @@ import { logger } from 'services/logger'
  */
 export const GLOBAL_ANALYTICS_TAG = '<script defer data-domain="lgrai.app" src="https://purestat.ai/js/purestat.js"></script>'
 
-/** The portal's shell as this node serves it: with the analytics tag on `global`, untouched elsewhere. */
+/**
+ * What a master's portal shell says about itself (gjovanov/lgr#384): read once by the portal's
+ * router (`ui-shared/nav/node-role.ts`, which holds the same string), so that a visitor nobody
+ * signed in lands on the server's own sign-in page. lgrai.app's landing page is its marketing
+ * (pricing, a free sign-up), and on a shop's LAN it was the first screen a till showed of its
+ * own server, with no sign-in form on it.
+ */
+export const MASTER_NODE_TAG = '<meta name="lgr-node" content="master">'
+
+/**
+ * The portal's shell as this node serves it: with the analytics tag on `global`, and on a
+ * master the tag above instead.
+ */
 export function portalShellFor(html: string, role: 'global' | 'master'): string {
-  if (role !== 'global' || html.includes(GLOBAL_ANALYTICS_TAG)) return html
-  return html.replace('</head>', `  ${GLOBAL_ANALYTICS_TAG}\n  </head>`)
+  const tag = role === 'global' ? GLOBAL_ANALYTICS_TAG : MASTER_NODE_TAG
+  if (html.includes(tag)) return html
+  return html.replace('</head>', `  ${tag}\n  </head>`)
 }
 
 /** The SPAs the unified server serves, by URL prefix. `portal` is the root and the default. */

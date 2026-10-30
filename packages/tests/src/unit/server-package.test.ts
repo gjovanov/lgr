@@ -7,7 +7,8 @@ import {
   type ServerManifest,
 } from '../../../../scripts/lib/server-package.ts'
 import { checkPackage, foreignOriginHits, issuedDocumentHits, secretNameHits } from '../../../../scripts/check-package.ts'
-import { GLOBAL_ANALYTICS_TAG, portalShellFor } from '../../../portal-api/src/spa-fallback.js'
+import { GLOBAL_ANALYTICS_TAG, MASTER_NODE_TAG, portalShellFor } from '../../../portal-api/src/spa-fallback.js'
+import { MASTER_NODE_TAG as UI_MASTER_NODE_TAG, servedByMaster } from '../../../ui-shared/src/nav/node-role.js'
 
 /**
  * The server package may hold only what it lists, and nothing a master must not carry (FR-20.26,
@@ -179,7 +180,7 @@ describe('the analytics tag is lgrai.app\'s alone (AC 66)', () => {
     const global = portalShellFor(shell, 'global')
     expect(global.split(GLOBAL_ANALYTICS_TAG).length).toBe(2)
     expect(portalShellFor(global, 'global')).toBe(global)
-    expect(portalShellFor(shell, 'master')).toBe(shell)
+    expect(portalShellFor(shell, 'master')).not.toContain(GLOBAL_ANALYTICS_TAG)
   })
 
   it('no SPA\'s index.html carries an origin of its own, so no build does', () => {
@@ -187,6 +188,38 @@ describe('the analytics tag is lgrai.app\'s alone (AC 66)', () => {
       const html = readFileSync(join(REPO_ROOT, 'packages', `${ui}-ui`, 'index.html'), 'utf8')
       expect({ ui, hits: foreignOriginHits('index.html', html) }).toEqual({ ui, hits: [] })
     }
+  })
+})
+
+// gjovanov/lgr#384: a till's first screen of its master was lgrai.app's marketing landing page.
+describe('a master\'s portal shell says it is one, and the portal reads it', () => {
+  const shell = '<!doctype html><html><head><title>LGR</title></head><body></body></html>'
+  // The one `querySelector` the portal asks of its document, over a shell's text.
+  const docOf = (html: string) => ({
+    querySelector: (sel: string) => {
+      const name = /^meta\[name="([^"]+)"\]$/.exec(sel)?.[1]
+      const m = name ? new RegExp(`<meta name="${name}" content="([^"]*)">`).exec(html) : null
+      return (m ? { getAttribute: (a: string) => (a === 'content' ? m[1] : null) } : null) as any
+    },
+  })
+
+  it('a master marks its shell, once, and only a master does', () => {
+    const master = portalShellFor(shell, 'master')
+    expect(master.split(MASTER_NODE_TAG).length).toBe(2)
+    expect(portalShellFor(master, 'master')).toBe(master)
+    expect(portalShellFor(shell, 'global')).not.toContain(MASTER_NODE_TAG)
+  })
+
+  it('the portal reads the very tag the server writes', () => {
+    expect(UI_MASTER_NODE_TAG).toBe(MASTER_NODE_TAG)
+    expect(servedByMaster(docOf(portalShellFor(shell, 'master')))).toBe(true)
+  })
+
+  it('lgrai.app, a development page, or no document at all is not a master', () => {
+    expect(servedByMaster(docOf(portalShellFor(shell, 'global')))).toBe(false)
+    expect(servedByMaster(docOf(shell))).toBe(false)
+    expect(servedByMaster(docOf('<head><meta name="lgr-node" content="global"></head>'))).toBe(false)
+    expect(servedByMaster(undefined)).toBe(false)
   })
 })
 

@@ -1,6 +1,16 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { consumeTokenHandoff } from 'ui-shared/nav/navigate'
+import { servedByMaster } from 'ui-shared/nav/node-role'
 import { getToken, hasOrgSession } from 'ui-shared/session/session'
+
+/**
+ * Where a visitor nobody signed in goes first (gjovanov/lgr#384). On lgrai.app, the landing page.
+ * On a master, which marks its shell (`servedByMaster`), its own sign-in page: the landing page is
+ * lgrai.app's marketing (pricing, a free sign-up), and a shop's till opened on it, with no
+ * sign-in form, when it first showed its own server.
+ */
+const onMaster = servedByMaster()
+const signedOutHome = onMaster ? 'auth.login' : 'landing'
 
 const routes = [
   {
@@ -8,6 +18,8 @@ const routes = [
     name: 'landing',
     component: () => import('../views/LandingView.vue'),
     meta: { public: true, guest: true },
+    // The legal pages link back here, and so do bookmarks: a master has no landing page.
+    beforeEnter: () => (onMaster ? { name: 'auth.login' } : true),
   },
   {
     path: '/privacy',
@@ -116,7 +128,7 @@ router.beforeEach((to, _from, next) => {
   const forPerson = to.matched.some(r => r.meta.person)
   const signedIn = !!getToken()
   if (!isPublic && !signedIn) {
-    next({ name: 'landing' })
+    next({ name: signedOutHome })
   } else if (signedIn && !isPublic && !forPerson && !hasOrgSession()) {
     // Signed in as a person who has not entered an org yet: every other screen needs one.
     next({ name: 'orgs' })
