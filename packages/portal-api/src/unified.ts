@@ -15,7 +15,7 @@ import { UI_MODULES, oneSpaShell, portalShellFor, spaErrorHandler, uiStaticPlugi
 
 // WebSocket
 import { setupWebSocket } from './websocket/ws.server.js'
-import { setupFiscalBridgeWS } from './websocket/fiscal-bridge.js'
+import { closeAllBridges, setupFiscalBridgeWS } from './websocket/fiscal-bridge.js'
 import { setupDesktopWS } from './websocket/desktop.js'
 import { setupUplinkWS } from './websocket/uplink.js'
 
@@ -193,6 +193,8 @@ const stopDeps = {
   server: app.server,
   waitMs: config.stop.waitMs,
   closeControl: undefined as undefined | (() => void),
+  // FR-24.44: once nothing fiscal is in flight, tills reconnect elsewhere at once.
+  closeBridges: () => closeAllBridges(1012),
   disconnect: async () => (await import('db/connection')).mongoose.disconnect(),
 }
 const stopNow = (reason: string) => { void gracefulStop(reason, stopDeps) }
@@ -314,12 +316,8 @@ setTimeout(async () => {
     }
   }
 
-  // Reset stale fiscal device statuses on startup (connections lost on restart)
-  await once('fiscal-status-reset', async () => {
-    const { resetStaleFiscalStatuses } = await import('services/biz/fiscal-status-reset')
-    const count = await resetStaleFiscalStatuses()
-    if (count > 0) logger.info({ count }, 'Reset stale fiscal device statuses to offline')
-  })
+  // FR-24.46: no reset of every device at boot. With two pods it marked offline the devices the
+  // sibling held; the `fiscal-presence` scheduler below marks offline only what no live row holds.
   // FR-21.28: say at startup when the cash register will answer 503 until `bun run migrate` (0009).
   await once('cash-register-readiness', async () => {
     const { logRegisterReadiness } = await import('services/biz/cash-register/freeze-check')
@@ -337,6 +335,11 @@ setTimeout(async () => {
   const { startSchedulers } = await import('services/scheduler/registry')
   const owner = await import('services/background/task-owner')
   await startSchedulers([
+    // FR-24.46: a device marked `online` that no live presence row holds (on any pod) is `offline`.
+    {
+      name: 'fiscal-presence', intervalMs: 10_000, immediate: true,
+      ...lazy(() => import('services/biz/fiscal-presence.service'), m => m.markUnheldDevicesOffline()),
+    },
     // NTP time verification at start (the immediate tick), then every 6 hours by default.
     {
       name: 'fiscal-time-sync', intervalMs: config.supto.timeSyncIntervalMs, immediate: true,

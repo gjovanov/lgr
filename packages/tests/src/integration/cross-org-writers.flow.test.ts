@@ -9,7 +9,7 @@ import { inviteDao } from 'services/dao/invite.dao'
 import { changePassword, joinOrgByInvite } from 'services/biz/identity/account.service'
 import { applyAdminIdentityEdit } from 'services/biz/identity/identity.service'
 import { DesktopError, enrollDesktop, mintEnrollmentCode } from 'services/biz/desktop/desktop.service'
-import { resetStaleFiscalStatuses } from 'services/biz/fiscal-status-reset'
+import { markUnheldDevicesOffline } from 'services/biz/fiscal-presence.service'
 import { retentionTick } from 'services/biz/retention/retention.service'
 import { runMigrations } from 'migrations/runner'
 import { config } from 'config'
@@ -149,7 +149,8 @@ describe('no new presence in an org homed elsewhere', () => {
 })
 
 describe('sweeps and migrations filter by home (AC 3)', () => {
-  it('the boot-time reset touches no device of an org whose home is elsewhere', async () => {
+  // FR-24.46: the boot-time reset is gone; the presence sweep that replaces it keeps the same scope.
+  it('the unheld-device sweep touches no device of an org whose home is elsewhere', async () => {
     const { home, away } = await world()
     const base = { manufacturer: 'eltrade', connectionType: 'browser', isActive: true, status: 'online' }
     await FiscalDevice.collection.insertMany([
@@ -158,7 +159,7 @@ describe('sweeps and migrations filter by home (AC 3)', () => {
     ])
     await moveAway(away._id)
 
-    expect(await resetStaleFiscalStatuses()).toBe(1)
+    expect(await markUnheldDevicesOffline()).toBe(1)
 
     const st = async (orgId: unknown) => (await FiscalDevice.findOne({ orgId }).lean() as any).status
     expect(await st(home._id)).toBe('offline')

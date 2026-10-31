@@ -17,7 +17,7 @@
 
 import { ref } from 'vue'
 import { IslResponseCollector } from './fiscalIslResponse'
-import { getToken } from '../session/session'
+import { getOrg, getToken } from '../session/session'
 import { registerSwitchGuard } from '../session/switch-guards'
 
 import { fiscalBridgeStatus, type FiscalBridgeStatus } from './fiscalBridgeStatus'
@@ -103,6 +103,128 @@ let lastWarehouseId = ''
 let portDisconnecting = false // flag to prevent ws.onclose from overriding error status
 /** An admin took the device over: ws.onclose must keep that explanation, not overwrite it. */
 let evicted = false
+
+// ── FR-24.40/24.41/24.49: a bridge that comes back by itself ──────────────────────────────────
+
+/**
+ * This tab's id (FR-24.49), sent with the registration so a reconnect takes this tab's own
+ * presence row over at once. sessionStorage: the same across a reload of the tab, another in
+ * another tab. (A duplicated tab copies it, but cannot open the port the first tab holds.)
+ */
+function tabInstanceId(): string {
+  try {
+    let id = sessionStorage.getItem('lgr_bridge_instance')
+    if (!id) {
+      id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
+      sessionStorage.setItem('lgr_bridge_instance', id)
+    }
+    return id
+  } catch {
+    return ''
+  }
+}
+
+/** The socket dropped with the port still open: reconnect, 1 s doubling to 30 s, no picker. */
+const RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000]
+let reconnectAttempt = 0
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+/** The cashier disconnected on purpose: nothing reconnects until they connect again. */
+let stopped = false
+
+function scheduleReconnect(immediately: boolean): void {
+  if (reconnectTimer || stopped || evicted || !serialPort || !reader || !writer || !lastDeviceNumber) return
+  const delay = immediately ? 0 : RECONNECT_DELAYS_MS[Math.min(reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)]
+  reconnectAttempt++
+  status.value = 'reconnecting'
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null
+    if (stopped || evicted || !serialPort) return
+    const ok = await connect(lastOrgId, lastDeviceNumber, lastWarehouseId, { reconnecting: true })
+    if (ok) {
+      reconnectAttempt = 0
+      return
+    }
+    // Retried: the server is restarting, or another pod still holds our old row (bridge_in_use,
+    // as the desktop retries it). Not retried: an eviction, a session that is gone, no permission.
+    if (!evicted && errorCode.value !== 'unauthenticated' && errorCode.value !== 'forbidden') scheduleReconnect(false)
+  }, delay)
+}
+
+function cancelReconnect(): void {
+  if (reconnectTimer) clearTimeout(reconnectTimer)
+  reconnectTimer = null
+  reconnectAttempt = 0
+}
+
+/** What a page load needs to bring the bridge back without the picker (FR-24.41). */
+interface RememberedBridge {
+  orgId: string
+  deviceNumber: string
+  warehouseId: string
+  baudRate: number
+  usbVendorId?: number
+  usbProductId?: number
+}
+const REMEMBER_KEY = 'lgr_bridge_last'
+
+function remember(): void {
+  try {
+    const info = serialPort?.getInfo?.() ?? {}
+    const r: RememberedBridge = {
+      orgId: lastOrgId, deviceNumber: lastDeviceNumber, warehouseId: lastWarehouseId, baudRate: selectedBaudRate.value,
+      ...(info.usbVendorId !== undefined ? { usbVendorId: info.usbVendorId, usbProductId: info.usbProductId } : {}),
+    }
+    localStorage.setItem(REMEMBER_KEY, JSON.stringify(r))
+  } catch { /* no storage: the cashier connects by hand, as before */ }
+}
+
+function forget(): void {
+  try { localStorage.removeItem(REMEMBER_KEY) } catch { /* nothing to forget */ }
+}
+
+/**
+ * FR-24.41: after a page load, reopen the port this tab's org used, when it is unambiguous:
+ * exactly one granted port matching the remembered USB vendor/product, or (a native COM port,
+ * which reports neither) the only granted port. `getPorts()` needs no gesture for a port already
+ * granted. A port another tab holds stays a message (`port_in_use`), never status `error`.
+ * ⚠ Unproven on every till: Chrome's spec does not say outright that `open()` needs no gesture;
+ * the USB reconnect path above already relies on it.
+ */
+async function resume(currentOrgId: string): Promise<boolean> {
+  if (!isSupported || serialPort || status.value !== 'disconnected') return false
+  let r: RememberedBridge
+  try {
+    const raw = localStorage.getItem(REMEMBER_KEY)
+    if (!raw) return false
+    r = JSON.parse(raw)
+  } catch {
+    return false
+  }
+  if (!r?.deviceNumber || !currentOrgId || r.orgId !== currentOrgId) return false
+  const ports: any[] = await (navigator as any).serial.getPorts().catch(() => [])
+  const candidates = r.usbVendorId !== undefined
+    ? ports.filter(p => { const i = p.getInfo?.() ?? {}; return i.usbVendorId === r.usbVendorId && i.usbProductId === r.usbProductId })
+    : ports.length === 1 ? ports : []
+  if (candidates.length !== 1) return false
+  try {
+    selectedBaudRate.value = r.baudRate || selectedBaudRate.value
+    serialPort = candidates[0]
+    await serialPort.open({ baudRate: selectedBaudRate.value, dataBits: 8, parity: 'none', stopBits: 1 })
+    try { await serialPort.setSignals({ dataTerminalReady: true, requestToSend: true }) } catch {}
+    reader = serialPort.readable.getReader()
+    writer = serialPort.writable.getWriter()
+    serialPort.addEventListener('disconnect', handlePortDisconnect)
+  } catch (e: any) {
+    serialPort = null
+    if (e?.name === 'NetworkError') {
+      errorCode.value = 'port_in_use'
+      errorMessage.value = PORT_IN_USE_MESSAGE
+    }
+    status.value = 'disconnected'
+    return false
+  }
+  return connect(r.orgId, r.deviceNumber, r.warehouseId)
+}
 
 // Listen for device reconnect (USB plugged back in / powered on)
 if (isSupported) {
@@ -213,7 +335,7 @@ async function requestPort(): Promise<boolean> {
 /**
  * Connect to LGR's fiscal bridge WebSocket and start relaying commands.
  */
-async function connect(orgId: string, devNumber: string, warehouseId?: string): Promise<boolean> {
+async function connect(orgId: string, devNumber: string, warehouseId?: string, opts: { reconnecting?: boolean } = {}): Promise<boolean> {
   if (!serialPort || !reader || !writer) {
     errorMessage.value = 'Serial port not open. Call requestPort() first.'
     status.value = 'error'
@@ -223,10 +345,12 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
   deviceNumber.value = devNumber
   deviceInfo.value = null
   evicted = false
+  stopped = false
+  if (!opts.reconnecting) cancelReconnect()
   lastOrgId = orgId
   lastDeviceNumber = devNumber
   lastWarehouseId = warehouseId || ''
-  status.value = 'connecting'
+  status.value = opts.reconnecting ? 'reconnecting' : 'connecting'
 
   try {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -249,6 +373,8 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
       orgId,
       warehouseId: warehouseId || '',
       token: getToken(),
+      // FR-24.49: a reconnect of this tab takes its own presence row over at once.
+      instanceId: tabInstanceId(),
     }))
 
     // Wait for registration confirmation
@@ -290,30 +416,41 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
         // An admin deliberately took the device. Say who, and do NOT try to reconnect — racing
         // for the port with the tab that now owns it is how both ends end up with nothing.
         evicted = true
+        cancelReconnect()
+        forget()
         errorCode.value = 'bridge_in_use'
         errorMessage.value = msg.message || 'This fiscal device was taken over.'
         status.value = 'disconnected'
       }
     }
 
-    ws.onclose = () => {
+    const thisSocket = ws
+    ws.onclose = (event: CloseEvent) => {
+      if (ws !== thisSocket) return // a newer socket replaced this one
       // Don't override 'error' status set by handlePortDisconnect, nor the eviction message —
       // the server closes the socket right after telling us who took the device, and a bare
       // "disconnected" would lose the only useful half of that.
-      if (!portDisconnecting && !evicted) {
-        status.value = 'disconnected'
-        deviceNumber.value = ''
+      if (portDisconnecting || evicted) return
+      // FR-24.40: the port is still open, so only the socket went (a deploy, a network blip): come
+      // back by itself, no picker. 1012 is the server restarting (FR-24.44): at once.
+      if (!stopped && serialPort && reader && writer) {
+        scheduleReconnect(event?.code === 1012)
+        return
       }
+      status.value = 'disconnected'
+      deviceNumber.value = ''
     }
 
     ws.onerror = () => {
-      status.value = 'error'
+      // FR-24.40: a socket error is followed by its close, which reconnects; it is no device error.
       errorMessage.value = 'WebSocket connection lost'
     }
 
     status.value = 'connected'
     errorMessage.value = ''
     errorCode.value = ''
+    reconnectAttempt = 0
+    remember()
     return true
   } catch (e: any) {
     errorMessage.value = e.message
@@ -322,11 +459,14 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string): 
     // "someone else has it" or "your session expired" must land on 'disconnected' with a code,
     // exactly as `port_in_use` already does.
     const code: FiscalBridgeErrorCode | undefined = e?.bridgeCode
+    try { ws?.close() } catch { /* already gone */ }
     if (code === 'bridge_in_use' || code === 'unauthenticated' || code === 'forbidden') {
       errorCode.value = code
-      status.value = 'disconnected'
+      // FR-24.40: a reconnect that met our own old row (bridge_in_use) keeps trying; scheduleReconnect decides.
+      status.value = opts.reconnecting && code === 'bridge_in_use' ? 'reconnecting' : 'disconnected'
     } else {
-      status.value = 'error'
+      // While reconnecting, an unreachable server is the restart we are waiting out, not a device error.
+      status.value = opts.reconnecting ? 'reconnecting' : 'error'
     }
     return false
   }
@@ -511,6 +651,7 @@ async function relayCommand(commandId: string, frameBase64: string, protocol?: s
  * Cleans up state and notifies the user via reactive status.
  */
 function handlePortDisconnect() {
+  cancelReconnect()
   reader = null
   writer = null
   serialPort = null
@@ -526,6 +667,10 @@ function handlePortDisconnect() {
  * Disconnect serial port and WebSocket. Only call explicitly — NOT on unmount.
  */
 async function disconnect() {
+  // On purpose: nothing reconnects, and the next page load does not bring it back.
+  stopped = true
+  cancelReconnect()
+  forget()
   try {
     if (serialPort) serialPort.removeEventListener('disconnect', handlePortDisconnect)
     if (reader) { reader.releaseLock(); reader = null }
@@ -561,5 +706,15 @@ export function useFiscalBridge() {
     requestPort,
     connect,
     disconnect,
+    resume,
   }
+}
+
+// FR-24.41: after a page load, the bridge this tab's org last used comes back by itself when its
+// port is unambiguous. Once, shortly after the page settles; a failure leaves the usual Connect.
+if (isSupported && typeof window !== 'undefined') {
+  setTimeout(() => {
+    const orgId = getOrg()?.id
+    if (orgId) void resume(orgId).catch(() => undefined)
+  }, 500)
 }

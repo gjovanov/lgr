@@ -2,6 +2,8 @@ import { Elysia } from 'elysia'
 import { enterRequest, leaveRequest } from 'db/home/request-context'
 import { isReadOnlyRoute, isListedReadWriter, routeKey } from 'services/biz/route-class'
 import { requestVia } from './front/front-guard.js'
+import { isStopping } from './front/graceful-stop.js'
+import { mongoose } from 'db/connection'
 
 // Portal controllers
 import { authController } from './controllers/auth.controller.js'
@@ -178,6 +180,22 @@ export function createApiApp() {
          * is reachable without a token by definition, so its body is the smallest true thing.
          */
         .get('/health', () => ({ ok: true }))
+        /**
+         * FR-24.42: readiness, for the Kubernetes readiness probe. 503 while this pod stops (it must
+         * get no new traffic) and while Mongo does not answer. Liveness stays a TCP check, and
+         * `/health` stays as it is: desktops read it, and it must not fail on a slow database.
+         */
+        .get('/ready', async ({ set }) => {
+          if (isStopping()) {
+            set.status = 503
+            return { ready: false, reason: 'stopping' }
+          }
+          if (!(await mongoAnswers())) {
+            set.status = 503
+            return { ready: false, reason: 'database' }
+          }
+          return { ready: true }
+        })
         // Portal
         .use(authController)
         .use(localAuthController)
@@ -305,4 +323,19 @@ export function createApiApp() {
     .use(idpController)
     .use(idpSignInController),
     )
+}
+
+/** FR-24.42: Mongo answers a ping within 2 s. */
+async function mongoAnswers(): Promise<boolean> {
+  const db = mongoose.connection.db
+  if (!db || mongoose.connection.readyState !== 1) return false
+  try {
+    await Promise.race([
+      db.admin().ping(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
+    ])
+    return true
+  } catch {
+    return false
+  }
 }

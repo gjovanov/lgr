@@ -845,7 +845,33 @@ Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models`
     the entry, the fiscal bridge in one chunk. Read the bridge's status from `fiscalBridgeStatus`, never by
     importing `useFiscalBridge` into the shell's first load.
   - ⚠ **Only English is in the first load**; mk/de/bg load on demand (`plugins/i18n#loadLocale`), and every SPA
-    mounts after `whenI18nReady()`. Change a language with `loadLocale`, never by setting `locale.value`.## Frontend Conventions
+    mounts after `whenI18nReady()`. Change a language with `loadLocale`, never by setting `locale.value`.
+
+## Ready for several pods (FR-24 Phase 5, #402)
+
+- **Who holds a fiscal device is a row**, `fiscal_presence` (`FiscalPresence`, node state, class `N`):
+  one per `(orgId, deviceNumber)`, claimed by a bridge's registration (`kind` user/desktop) or by the
+  server opening a TCP device (`server`), heartbeated every 5 s by the holding pod, dead after 20 s.
+  `services/biz/fiscal-presence.service.ts`.
+  - ⚠ **Its unique index decides `bridge_in_use`**, not the in-memory socket map, which cannot see a
+    sibling pod. The same tab (`instanceId`, FR-24.49) or desktop (`desktopId`) reconnecting takes its
+    own row over at once; a dead row is anyone's; an admin takeover replaces it.
+  - A close releases the row only while `connId` is its own. A takeover or a revocation decided on
+    another pod is acted on by the holder's next heartbeat (`presenceTick`, `evict`).
+  - `connected` / `bridgedBy` (device list, close preview, terminal) = held by this process OR a live
+    row anywhere.
+- **No reset at boot** (FR-24.46): the `fiscal-presence` scheduler marks offline only `online` devices
+  no live row holds (`markUnheldDevicesOffline`, `homeScope`).
+- **`GET /api/ready`** (FR-24.42): 503 while stopping or when Mongo does not answer a ping in 2 s. The
+  readiness probe; `/api/health` is unchanged (desktops read it). Public, LAN-exempt.
+- **A stop closes the bridges with 1012** (FR-24.44, `closeAllBridges` from `graceful-stop`), after the
+  fiscal wait, releasing their rows: tills reconnect at once to a pod that takes connections.
+- **The browser bridge comes back by itself** (`useFiscalBridge`): a dropped socket with the port open
+  reconnects (1 s → 30 s, 1012 at once, `bridge_in_use` retried, an eviction not); after a page load it
+  reopens a granted port when exactly one matches the remembered USB ids (`resume`, FR-24.41).
+- ⚠ `replicas` stays 1 until Phase 6 (lgr-deploy says so on the field).
+
+## Frontend Conventions
 
 - **Plugin order is critical**: i18n → vuetify → pinia → router (vuetify locale adapter requires i18n)
 - **Vuetify i18n**: `$vuetify.*` keys merged into i18n messages from `vuetify/lib/locale/`

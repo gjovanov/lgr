@@ -13,7 +13,8 @@ import { fiscalCapabilities } from 'fiscal/capabilities'
 import { FISCAL_ADMIN_ROLES, onDevice, printDeviceReport, type DeviceReportRequest, type DeviceRow, type Status } from 'fiscal/device-command'
 import { FiscalTargetError, fiscalTcpPolicy, resolveFiscalTcpTarget } from 'fiscal/tcp-target'
 import { nodeRole } from 'config'
-import { bridgeHolder, rebindBridgePrinter } from '../websocket/fiscal-bridge.js'
+import { holdServerDevice, rebindBridgePrinter, releaseServerDevice } from '../websocket/fiscal-bridge.js'
+import { holderOf, livePresenceByDevice } from 'services/biz/fiscal-presence.service'
 
 /** A report from the device page, audited on the device (POS Sessions audits on the session). */
 function deviceReport(status: Status, orgId: string, userId: string, device: DeviceRow, report: DeviceReportRequest) {
@@ -67,19 +68,22 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     // `items` stays out of the response: spread next to the sanitized list, it handed every
     // caller the raw documents, connectionParams included, which sanitizeDevice exists to strip.
     const { items, ...pageInfo } = await r.fiscalDevices.findAll(filter, { page, size, sort: { name: 1 } })
+    // FR-24.47: one read of the org's live presence rows, whichever pod holds each device.
+    const live = await livePresenceByDevice(orgId)
     return {
       // `connected`: a bridge holds the device RIGHT NOW (the stored `status` is only the last
       // thing written). The POS terminal reads it to show "connected in another tab" rather
       // than offering a connect that can only fail: only one tab can hold a serial port.
       // `bridgedBy` is what the POS prints as "connected via Till 2" (FR-14.27). It is read from
-      // the live socket map, so it is absent the moment the bridge drops — unlike the stored
+      // the live presence rows (FR-24.47), on any pod, so it is absent once the bridge drops — unlike the stored
       // `connectionType`, which says what SHOULD hold the port, not what does.
       // `capabilities`: what the device's driver can do (`fiscal/capabilities`), from its
       // manufacturer and connection alone — known whether or not it is connected.
       fiscalDevices: items.map((d: any) => ({
         ...sanitizeDevice(d, user.role),
-        connected: isDeviceConnected(d.id),
-        bridgedBy: bridgeHolder(orgId, d.deviceNumber) ?? undefined,
+        // Held by this process, or by a live row on any pod.
+        connected: isDeviceConnected(d.id) || live.has(String(d.deviceNumber)),
+        bridgedBy: holderOf(live.get(String(d.deviceNumber))) ?? undefined,
         capabilities: fiscalCapabilities(d.manufacturer, d.connectionType),
       })),
       ...pageInfo,
@@ -208,6 +212,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
 
     await r.fiscalDevices.updateInOrg(id, orgId, { isActive: false, deactivatedAt: new Date() } as any)
     await disconnectDevice(id)
+    await releaseServerDevice(orgId, String(existing.deviceNumber))
 
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: existing.name })
 
@@ -239,6 +244,9 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       })
     }
 
+    // FR-24.45: the device is the server's while it holds the presence row; not when another holds it.
+    const heldBy = await holdServerDevice({ orgId, deviceNumber: String(device.deviceNumber), deviceId: id, label: device.name || 'the server' })
+    if (heldBy) return status(409, { message: `This device is already connected by ${heldBy}.`, code: 'bridge_in_use' })
     try {
       const config = buildConnectionConfig(device.connectionType, device.connectionParams || {})
       await connectDevice(id, device.manufacturer, config)
@@ -247,6 +255,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     } catch (e: any) {
       // A refused address is the device's configuration, not a broken printer: nothing was
       // opened, and the device is NOT marked `error`, which would stop every sale on it.
+      await releaseServerDevice(orgId, String(device.deviceNumber))
       if (e instanceof FiscalTargetError) return status(422, { message: e.message, code: e.code })
       await r.fiscalDevices.updateInOrg(id, orgId, { status: 'error' } as any)
       return status(500, { message: `Connection failed: ${e.message}` })
@@ -261,6 +270,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
     await disconnectDevice(id)
+    await releaseServerDevice(orgId, String(device.deviceNumber))
     await r.fiscalDevices.updateInOrg(id, orgId, { status: 'offline' } as any)
 
     return { message: 'Disconnected', status: 'offline' }
