@@ -805,7 +805,7 @@
     "cashRegister": {
       "title": "Cash register",
       "requireConnectedDevice": "A sale needs a connected fiscal printer",
-      "requireConnectedDeviceHint": "Turn this off only for an organization with no fiscal device, such as a demo or a test one: its sales print nothing."
+      "requireConnectedDeviceHint": "Turn this off only for an organization whose sales do not print here: a demo, a test one, or one still on another till. Off, LGR prints nothing: cash and card invoices are paid as they are issued, with no receipt."
     }
   },
   "admin": {

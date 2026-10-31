@@ -56,6 +56,10 @@ Status*.
   receipt number saved on the transaction.
 - If a receipt does not print, the sale is still saved and the cashier sees why (out of paper, not
   in „Регистрация“, …) instead of "Sale completed".
+- **A payment on an invoice** prints on the device of the session of whoever takes it (FR-23): an
+  invoice issued in cash or by card its lines and „Фактура № …“, any other payment a line per VAT
+  rate, „Плащане по фактура № …“. With no open session or no connected device the payment is
+  refused. An org on another till turns this off with „A sale needs a connected fiscal printer“.
 - Closing the POS session runs the **Z-report** on the device.
 
 ## 5. The device page (POS → Devices → the device)

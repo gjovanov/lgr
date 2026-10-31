@@ -218,6 +218,7 @@ import { useRowEmail } from '../composables/useRowEmail'
 import { useDocumentIssue } from '../composables/useDocumentIssue'
 import { useRowPrint } from '../composables/useRowPrint'
 import * as can from '../composables/document-row-actions'
+import { receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import RecordPaymentDialog from '../components/RecordPaymentDialog.vue'
 
 interface Invoice {
@@ -502,7 +503,7 @@ async function voidInvoice(item: Invoice) {
     showSuccess(t(VOIDED_KEY[item.type] || VOIDED_KEY.invoice))
     await refresh()
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(receiptRefusalMessage(t, e, t('common.operationFailed')))
   } finally {
     loading.value = false
   }

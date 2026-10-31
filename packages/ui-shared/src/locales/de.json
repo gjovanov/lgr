@@ -1119,7 +1119,7 @@
     "cashRegister": {
       "title": "Kasse",
       "requireConnectedDevice": "Verkauf nur mit verbundenem Fiskaldrucker",
-      "requireConnectedDeviceHint": "Nur für eine Organisation ohne Fiskalgerät ausschalten, etwa eine Demo- oder Testorganisation: ihre Verkäufe werden nicht gedruckt."
+      "requireConnectedDeviceHint": "Nur für eine Organisation ausschalten, deren Verkäufe hier nicht gedruckt werden: eine Demo- oder Testorganisation oder eine, die noch eine andere Kasse nutzt. Ausgeschaltet druckt LGR nichts: Bar- und Kartenrechnungen gelten bei der Ausstellung als bezahlt, ohne Beleg."
     }
   },
   "admin": {

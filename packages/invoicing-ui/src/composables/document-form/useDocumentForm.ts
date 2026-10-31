@@ -22,6 +22,7 @@ import { appHref } from 'ui-shared/nav/navigate'
 import type { FormAction, SmartButtonDef, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import type { DocumentTypeConfig } from './types'
 import { useDocumentIssue } from '../useDocumentIssue'
+import { receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import { canRecordPayment } from '../document-row-actions'
 import {
   buildPayload as buildPayloadPure,
@@ -1390,7 +1391,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       await loadDocument()
       return id
     } catch (e: any) {
-      showError(e?.response?.data?.message || t('common.operationFailed'))
+      showError(receiptRefusalMessage(t, e, t('common.operationFailed')))
       return null
     } finally {
       loading.value = false

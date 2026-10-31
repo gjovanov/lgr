@@ -8,6 +8,7 @@ import { AuditLog, FiscalDevice, Invoice, Journal, JournalEntry, Org, POSSession
 import { statsController } from 'invoicing-api/src/controllers/stats.controller'
 import { contactController } from 'invoicing-api/src/controllers/contact.controller'
 import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller'
+import { agingReportController } from 'invoicing-api/src/controllers/aging-report.controller'
 import { convertDraftInvoice, persistInvoiceDraft } from 'services/biz/doc-import/persist'
 import { eventBus } from 'services/events/event-bus'
 import { postPosSessionJournal, registerEventHandlers, resetEventHandlers } from 'services/events/handlers'
@@ -40,10 +41,13 @@ import { config } from 'config'
  * NOTE: no `.rejects` / `.resolves` (Bun-on-Windows deadlock, see Known Issues).
  */
 
+/** A document's date: today, as a receipt's is the moment it printed. Nothing here depends on the day it runs. */
+const TODAY = new Date().toISOString().slice(0, 10)
+
 let app: Elysia
 beforeAll(async () => {
   await setupTestDB()
-  app = tillApp().use(statsController).use(contactController).use(invoiceExportController) as any
+  app = tillApp().use(statsController).use(contactController).use(invoiceExportController).use(agingReportController) as any
 }, 60_000)
 afterAll(async () => { await teardownTestDB() }, 60_000)
 afterEach(async () => { forgetDevices(); await clearCollections() }, 30_000)
@@ -71,7 +75,7 @@ async function draftOf(w: TillWorld, o: { method?: string; lines?: any[]; type?:
   const taxTotal = +lines.reduce((s: number, l: any) => s + l.taxAmount, 0).toFixed(2)
   const total = +lines.reduce((s: number, l: any) => s + l.lineTotal, 0).toFixed(2)
   const r = await w.call('POST', '/invoices', {
-    type: o.type ?? 'invoice', direction: 'outgoing', contactId: String(contact._id), issueDate: '2026-10-31', currency: 'EUR', lines,
+    type: o.type ?? 'invoice', direction: 'outgoing', contactId: String(contact._id), issueDate: TODAY, currency: 'EUR', lines,
     subtotal: +(total - taxTotal).toFixed(2), taxTotal, total, paymentMethod: o.method ?? 'cash', ...o.extra,
   })
   if (r.status !== 200) throw new Error(`draft: ${r.status} ${JSON.stringify(r.json)}`)
@@ -80,7 +84,7 @@ async function draftOf(w: TillWorld, o: { method?: string; lines?: any[]; type?:
 
 const send = (w: TillWorld, id: string, key?: string, as?: string) => w.call('POST', `/invoices/${id}/send`, {}, key, as)
 const pay = (w: TillWorld, id: string, amount: number, method = 'cash', key?: string, as?: string) =>
-  w.call('POST', `/invoices/${id}/payments`, { date: '2026-10-31', amount, method }, key, as)
+  w.call('POST', `/invoices/${id}/payments`, { date: TODAY, amount, method }, key, as)
 const raw = (id: string) => Invoice.findById(id).lean().exec() as Promise<any>
 const receiptsOf = (id: string) => Invoice.find({ type: 'payment_receipt', 'register.paidInvoiceId': id }).sort({ _id: 1 }).lean().exec() as Promise<any[]>
 const sessionOf = (w: TillWorld) => POSSession.findById(w.sessionId).lean().exec() as Promise<any>
@@ -338,7 +342,7 @@ describe('an invoice issued at the counter (§2.4)', () => {
     const w = await tillWorld(app)
     const cs = (await w.backOfficeSale(1)).json.invoice
     const contact = await createTestContact(w.oid, { companyName: 'Y', type: 'customer' } as any)
-    const draft = await w.call('POST', `/invoices/${cs.id}/to-invoice`, { contactId: String(contact._id), issueDate: '2026-10-31', issue: false }, undefined, w.clerkToken)
+    const draft = await w.call('POST', `/invoices/${cs.id}/to-invoice`, { contactId: String(contact._id), issueDate: TODAY, issue: false }, undefined, w.clerkToken)
     expect(draft.status).toBe(200)
     expect(draft.json.invoice.status).toBe('draft')
 
@@ -414,7 +418,7 @@ describe('the switch is off: LGR prints nothing (Q-4)', () => {
 
 describe('an imported document never prints (§2.2)', () => {
   const mapped = (w: TillWorld, method: string): any => ({
-    type: 'invoice', direction: 'outgoing', reference: '3000100974', currency: 'EUR', exchangeRate: 1, issueDate: '2026-10-31',
+    type: 'invoice', direction: 'outgoing', reference: '3000100974', currency: 'EUR', exchangeRate: 1, issueDate: TODAY,
     lines: [line(w)], subtotal: 20, taxTotal: 4, total: 24, paymentMethod: method, tags: ['ocr-import'],
     billingAddress: { street: '-', city: '-', postalCode: '-', country: '-' },
   })
@@ -475,7 +479,7 @@ describe('an edit does not settle silently where LGR prints', () => {
   it('a total raised on a settled invoice with no receipt adds no payment: the rest is due, and payable', async () => {
     const w = await tillWorld(app)
     const draft = await persistInvoiceDraft(w.orgId, String(w.user._id), {
-      type: 'invoice', direction: 'outgoing', reference: '3000100975', currency: 'EUR', exchangeRate: 1, issueDate: '2026-10-31',
+      type: 'invoice', direction: 'outgoing', reference: '3000100975', currency: 'EUR', exchangeRate: 1, issueDate: TODAY,
       lines: [line(w)], subtotal: 20, taxTotal: 4, total: 24, paymentMethod: 'cash', tags: ['ocr-import'],
       billingAddress: { street: '-', city: '-', postalCode: '-', country: '-' },
     } as any)
@@ -496,7 +500,7 @@ describe('an edit does not settle silently where LGR prints', () => {
   it('a total lowered shrinks no payment', async () => {
     const w = await tillWorld(app)
     const draft = await persistInvoiceDraft(w.orgId, String(w.user._id), {
-      type: 'invoice', direction: 'outgoing', reference: '3000100976', currency: 'EUR', exchangeRate: 1, issueDate: '2026-10-31',
+      type: 'invoice', direction: 'outgoing', reference: '3000100976', currency: 'EUR', exchangeRate: 1, issueDate: TODAY,
       lines: [line(w)], subtotal: 20, taxTotal: 4, total: 24, paymentMethod: 'cash', tags: ['ocr-import'],
       billingAddress: { street: '-', city: '-', postalCode: '-', country: '-' },
     } as any)
@@ -610,6 +614,17 @@ describe('a payment recorded later (§2.2)', () => {
     expect(w.sim!.receipts).toHaveLength(1)
   })
 
+  it('a payment takes cents: a fiscal receipt has no others', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    expect((await pay(w, d.id, 10.004)).status).toBe(200)
+    const [receipt] = await receiptsOf(d.id)
+    expect(receipt.total).toBe(10)
+    expect((await raw(d.id)).amountPaid).toBe(10)
+    expect(w.sim!.receipts[0].total).toBe(10)
+  })
+
   it('more than is due is refused before anything is written', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w, { method: 'bank_transfer' })
@@ -628,9 +643,7 @@ describe('a payment recorded later (§2.2)', () => {
 
     const answers = await Promise.all([pay(w, d.id, 20), pay(w, d.id, 20)])
 
-    expect(answers.map(a => a.status).sort()).toEqual([200, expect.any(Number)].sort() as any)
-    const ok = answers.filter(a => a.status === 200)
-    expect(ok).toHaveLength(1)
+    expect(answers.filter(a => a.status === 200)).toHaveLength(1)
     expect(answers.find(a => a.status !== 200)!.json.code).toMatch(/^(overpayment|payment_in_progress)$/)
     expect(w.sim!.receipts).toHaveLength(1)
     expect((await raw(d.id)).amountPaid).toBe(20)
@@ -729,7 +742,7 @@ describe('a payment recorded later (§2.2)', () => {
     const w = await tillWorld(app)
     const cs = (await w.backOfficeSale(1)).json.invoice
     const contact = await createTestContact(w.oid, { companyName: 'Y', type: 'customer' } as any)
-    const inv = await w.call('POST', `/invoices/${cs.id}/to-invoice`, { contactId: String(contact._id), issueDate: '2026-10-31' })
+    const inv = await w.call('POST', `/invoices/${cs.id}/to-invoice`, { contactId: String(contact._id), issueDate: TODAY })
     expect(inv.status).toBe(200)
     expect(w.sim!.receipts).toHaveLength(0)
   })
@@ -1053,7 +1066,7 @@ describe('print-once, reused unchanged (#155)', () => {
     const w = await tillWorld(app)
     const d = await issuedOnBank(w)
     const { requestHash } = await import('services/biz/hot-path-key')
-    const hash = requestHash(`invoice.payment:${d.id}`, { date: '2026-10-31', amount: 24, method: 'cash' })
+    const hash = requestHash(`invoice.payment:${d.id}`, { date: TODAY, amount: 24, method: 'cash' })
     await interrupted(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber }, { key: 'retry-key-0001', hash })
 
     const r = await pay(w, d.id, 24, 'cash', 'retry-key-0001')
@@ -1067,7 +1080,7 @@ describe('print-once, reused unchanged (#155)', () => {
     const w = await tillWorld(app)
     const d = await issuedOnBank(w)
     const { requestHash } = await import('services/biz/hot-path-key')
-    const hash = requestHash(`invoice.payment:${d.id}`, { date: '2026-10-31', amount: 24, method: 'cash' })
+    const hash = requestHash(`invoice.payment:${d.id}`, { date: TODAY, amount: 24, method: 'cash' })
     // Two documents past the note: not ours alone.
     await interrupted(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber - 2 }, { key: 'retry-key-0002', hash })
 
@@ -1243,16 +1256,20 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
     const entry = reportById(id)!
     return entry.handler!({ orgId, params: validateParams(entry, params), output: 'table' }) as Promise<any>
   }
-  const period = (date: string) => ({ preset: 'custom', from: date, to: date })
+  /** Yesterday to tomorrow: the documents' date and the receipt's moment are inside it at any hour. */
+  const around = () => {
+    const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10)
+    return { preset: 'custom', from: day(-1), to: day(1) }
+  }
 
   it('sales history: the invoice counts, the receipt is not a row', async () => {
     const w = await tillWorld(app)
     const d = await day(w)
-    const out = await report('sales-history', w.orgId, { period: period('2026-10-31'), includeNonRegister: true })
+    const out = await report('sales-history', w.orgId, { period: around(), includeNonRegister: true })
     const docs = out.rows.filter((r: any) => r.rowType === 'document')
     expect(docs.map((r: any) => r.number)).toEqual([d.invoice.invoiceNumber])
     expect(out.rows.some((r: any) => r.number === d.receipt.invoiceNumber)).toBe(false)
-    const pos = await report('sales-history', w.orgId, { period: period(d.date), source: 'pos' })
+    const pos = await report('sales-history', w.orgId, { period: around(), source: 'pos' })
     expect(pos.rows.filter((r: any) => r.rowType === 'pos')).toHaveLength(1)
   })
 
@@ -1278,9 +1295,9 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
   it('Reports: sales documents list the invoice, the cash register does not list the receipt', async () => {
     const w = await tillWorld(app)
     const d = await day(w)
-    const sales = await report('sales-documents', w.orgId, { period: period('2026-10-31') })
+    const sales = await report('sales-documents', w.orgId, { period: around() })
     expect(sales.rows.map((r: any) => r.number)).toEqual([d.invoice.invoiceNumber])
-    const cash = await report('cash-register', w.orgId, { period: period(d.date) })
+    const cash = await report('cash-register', w.orgId, { period: around() })
     expect(cash.rows.some((r: any) => r.number === d.receipt.invoiceNumber)).toBe(false)
   })
 
@@ -1337,6 +1354,17 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
     expect(summary.paid30d).toEqual({ amount: 36, count: 2 })
     const list = await w.call('GET', '/invoices/summary?direction=outgoing')
     expect(list.json.summary.paid30d).toEqual({ amount: 36, count: 2 })
+  })
+
+  it('what is owed is the invoice\'s: aging and the open balance count a cash-on-delivery invoice once', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'cash_on_delivery' })
+    await send(w, d.id)
+    const aging = (await w.call('GET', '/invoicing/reports/aging')).json.data
+    expect(aging.map((r: any) => [r.contactId, r.totalOutstanding])).toEqual([[d.contactId, 24]])
+    expect((await w.call('GET', `/stats/contact/${d.contactId}`)).json.stats.openBalance).toBe(24)
+    expect((await w.call('GET', `/invoicing/contact/${d.contactId}/summary`)).json.openBalance).toBe(24)
+    expect((await getInvoiceSummary(w.orgId, { direction: 'outgoing' } as any)).outstanding).toEqual({ amount: 24, count: 1 })
   })
 
   it('the smart buttons count the invoice, not the receipt', async () => {
