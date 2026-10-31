@@ -1558,6 +1558,11 @@ type `shipment` → `dispatch` (the backend enum) and `completed` added to the s
    open after a choice — `chooseOption` handles both. And assert a select's value with
    `toHaveValue`, never `toHaveText`: an `<input>`'s text content is always `""`, so a
    `toHaveText` assertion passes against every value.
+7. **`locator.isVisible({ timeout })` does not wait.** Playwright ignores the option and answers
+   at once, so a guard on it skips its test, or drops its step, whenever the page is still
+   rendering, and the run stays green. Use `tests/helpers/vuetify.ts#appears`. A green run says
+   what it skipped and what only passed on a retry in its job summary
+   (`e2e/scripts/night-summary.ts`): read it. #408 tracks the 94 conditional sites left.
 
 ## DIN/ISO Fastener Catalog + Product Tagging (2026-08-03)
 
