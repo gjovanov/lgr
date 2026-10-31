@@ -79,6 +79,15 @@
                   </td>
                   <td class="text-end" :class="diffClass(m)">{{ fmt(difference(m)) }}</td>
                 </tr>
+                <!-- What couriers owe: expected, and never counted. It is not at the till. -->
+                <tr v-if="expected.cashOnDelivery" data-testid="close-cash-on-delivery">
+                  <td>
+                    <v-icon size="small" class="mr-2">mdi-truck-delivery-outline</v-icon>
+                    {{ $t('pos.close.method.cashOnDelivery') }}
+                  </td>
+                  <td class="text-end">{{ fmt(expected.cashOnDelivery) }}</td>
+                  <td colspan="2" class="text-end text-medium-emphasis">{{ $t('pos.close.notCounted') }}</td>
+                </tr>
               </tbody>
             </v-table>
 

@@ -21,6 +21,7 @@
 | totalReturns | Number | Общо връщания |
 | totalCash | Number | Общо в брой |
 | totalCard | Number | Общо с карта |
+| totalCashOnDelivery | Number | Общо с наложен платеж (при куриера, не е в касата) |
 | transactionCount | Number | Брой транзакции |
 
 ### Касов документ — `Invoice` с тип `cash_sale` / `cash_storno` (FR-21)

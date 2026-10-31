@@ -212,8 +212,9 @@ function documentStatus(doc: any): JournalStatus {
   return 'completed'
 }
 
+/** The methods as words, not as keys: "cash on delivery". The journal's page shows them translated. */
 function label(payments: JournalPayment[]): string {
-  return [...new Set(payments.map(p => p.method))].join(' + ')
+  return [...new Set(payments.map(p => p.method.replace(/_/g, ' ')))].join(' + ')
 }
 
 function fromDocument(doc: any, moved: Set<string>): JournalRow {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { keptByMethod, posRowSign } from 'services/biz/cash-register/counting'
+import { cashOnDeliveryOf, keptByMethod, posRowSign } from 'services/biz/cash-register/counting'
 
 /**
  * FR-21.1 — the one counting rule every cash-register reader shares, and the money a row left in
@@ -53,5 +53,25 @@ describe('keptByMethod — card and other as paid, cash the rest of the total', 
 
   it('no payments: the whole total is cash', () => {
     expect(keptByMethod({ total: 12.5 })).toEqual({ cash: 12.5, card: 0, other: 0 })
+  })
+
+  it('cash on delivery is other, and no part of it is cash', () => {
+    expect(keptByMethod({ total: 24, payments: [{ method: 'cash_on_delivery', amount: 24 }] })).toEqual({ cash: 0, card: 0, other: 24 })
+  })
+})
+
+describe('cashOnDeliveryOf — the courier\'s part of "other"', () => {
+  it('is what the row paid on delivery', () => {
+    expect(cashOnDeliveryOf({ total: 24, payments: [{ method: 'cash_on_delivery', amount: 24 }] })).toBe(24)
+  })
+
+  it('is none of a voucher, a card or an unpaid row', () => {
+    expect(cashOnDeliveryOf({ total: 24, payments: [{ method: 'voucher', amount: 24 }] })).toBe(0)
+    expect(cashOnDeliveryOf({ total: 24, payments: [{ method: 'card', amount: 24 }] })).toBe(0)
+    expect(cashOnDeliveryOf({ total: 24 })).toBe(0)
+  })
+
+  it('never exceeds what the row left in "other"', () => {
+    expect(cashOnDeliveryOf({ total: 24, payments: [{ method: 'card', amount: 20 }, { method: 'cash_on_delivery', amount: 24 }] })).toBe(4)
   })
 })

@@ -43,7 +43,7 @@ describe('the session report: its figures', () => {
     expect(r.vat).toEqual([{ rate: 20, net: 20, vat: 4, gross: 24 }])
     expect(r.total).toBe(24)
     // The drawer keeps 30 less the 6 change; the card sale and its storno net out.
-    expect(r.byMethod).toEqual({ cash: 24, card: 0, other: 0 })
+    expect(r.byMethod).toEqual({ cash: 24, card: 0, other: 0, cashOnDelivery: 0 })
     expect(r.change).toBe(6)
     expect(r.drawer).toEqual({ opening: 50, expected: 74, counted: 70, difference: -4 })
     expect(r.documents).toEqual({ first: 'CS-1', last: 'CS-4' })

@@ -92,7 +92,9 @@ server what the device's driver supports (`capabilities` on `GET /fiscal/device/
   checks the number, the password's form and the name before anything is sent.
 - **Cash on delivery** prints in the reserve slot **R**. Name it „НАЛОЖЕН ПЛАТЕЖ“ once (Payment types
   card, one click) so the receipt says what it was. Every other driver refuses a cash-on-delivery
-  payment rather than printing it as cash.
+  payment rather than printing it as cash. The till offers it beside cash and card. The courier
+  holds that money, so the session's close shows it as expected, nobody counts it, and it stays out
+  of expected cash. A device without the slot refuses the sale before anything is numbered.
 - An error says what happened: bad input 400, the device refusing (out of paper, wrong password) 409,
   no device connected 503, no answer 504.
 

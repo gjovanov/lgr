@@ -198,6 +198,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { createIdempotentAction, isOutcomeUnknown } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
+import { paymentMethodKey } from 'ui-shared/composables/usePaymentMethods'
 import { registerSwitchGuard } from 'ui-shared/session/switch-guards'
 import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
 import RegisterTerminal from 'ui-shared/components/cash-register/RegisterTerminal.vue'
@@ -257,11 +258,13 @@ watch(() => fiscalBridge.status.value, async (val) => {
     } catch {}
   }
 })
-// #145: cash and card only. Mobile and voucher are no longer offered at the till; the server
-// still accepts them, so transactions recorded with them before stay readable and reportable.
+// #145: mobile and voucher are no longer offered at the till; the server still accepts them, so
+// transactions recorded with them before stay readable and reportable. Cash on delivery tenders
+// exactly the total, which is what a sale sends for every method, and gives no change.
 const paymentMethods = [
   { title: t('pos.cash'), value: 'cash' },
   { title: t('pos.card'), value: 'card' },
+  { title: t('pos.cashOnDelivery'), value: 'cash_on_delivery' },
 ]
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
@@ -584,7 +587,7 @@ async function completeSale() {
       number: txn.transactionNumber || '',
       total: txn.total ?? body.total,
       change: txn.changeDue ?? 0,
-      paidBy: (txn.payments ?? body.payments).map((p: any) => t(`pos.${p.method}`)).join(' + '),
+      paidBy: (txn.payments ?? body.payments).map((p: any) => t(paymentMethodKey(p.method))).join(' + '),
       receipt: receipt.text,
       warnings,
       // A fiscal receipt was asked for („Нефискален" off) and nothing printed: not a clean success.
@@ -596,6 +599,8 @@ async function completeSale() {
     const refused = e?.response?.data
     // FR-20.49 — Прил. 29 т. 8: in the till's own language, saying what to check.
     if (refused?.code === 'fiscal_device_unreached') showError(t('pos.fiscalDeviceUnreached', { device: refused.deviceName || '' }))
+    // Refused before anything was written: the basket is still there, for another method.
+    else if (refused?.code === 'cod_not_supported') showError(t('pos.codNotSupported'))
     else if (refused?.code === 'fiscal_device_not_connected') {
       // The printer went away since the button was enabled: nothing was sold or numbered.
       warehouseHasDevice.value = !!refused.deviceConfigured

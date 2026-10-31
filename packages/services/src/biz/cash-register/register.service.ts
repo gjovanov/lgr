@@ -315,15 +315,18 @@ async function printSaleStep(c: RegisterContext, doc: any): Promise<any> {
   }
 }
 
+/**
+ * The session's money per bucket. Cash on delivery has its own: the courier collects it, so it is
+ * never in the drawer, the close expects it without counting it, and it must not raise expected cash.
+ */
+interface SessionBuckets { cash: number; card: number; other: number; cashOnDelivery: number }
+const bucketOf = (method: string): keyof SessionBuckets =>
+  (method === 'cash' ? 'cash' : method === 'card' ? 'card' : method === 'cash_on_delivery' ? 'cashOnDelivery' : 'other')
+
 /** What a document handed over per close bucket, as the request sent it: tendered, not kept. */
-function tenderedBuckets(doc: any): { cash: number; card: number; other: number } {
-  const out = { cash: 0, card: 0, other: 0 }
-  for (const p of doc.payments || []) {
-    const amount = Number(p.tendered ?? p.amount) || 0
-    if (p.method === 'cash') out.cash += amount
-    else if (p.method === 'card') out.card += amount
-    else out.other += amount
-  }
+function tenderedBuckets(doc: any): SessionBuckets {
+  const out: SessionBuckets = { cash: 0, card: 0, other: 0, cashOnDelivery: 0 }
+  for (const p of doc.payments || []) out[bucketOf(p.method)] += Number(p.tendered ?? p.amount) || 0
   return out
 }
 
@@ -338,13 +341,17 @@ function tenderedBuckets(doc: any): { cash: number; card: number; other: number 
 export function stornoRefundBuckets(
   payments: { method: string; amount: number }[] | undefined,
   original: { payments?: { method: string; amount: number }[]; changeDue?: number },
-): { cash: number; card: number; other: number } {
-  const bucket = (m: string) => (m === 'cash' ? 'cash' : m === 'card' ? 'card' : 'other')
-  const out = { cash: 0, card: 0, other: 0 }
+): SessionBuckets {
+  const out: SessionBuckets = { cash: 0, card: 0, other: 0, cashOnDelivery: 0 }
   const source = payments?.length ? payments : original.payments || []
-  for (const p of source) out[bucket(p.method)] += Number(p.amount) || 0
+  for (const p of source) out[bucketOf(p.method)] += Number(p.amount) || 0
   if (!payments?.length) out.cash -= Number(original.changeDue) || 0
-  return { cash: Math.max(0, round2(out.cash)), card: Math.max(0, round2(out.card)), other: Math.max(0, round2(out.other)) }
+  return {
+    cash: Math.max(0, round2(out.cash)),
+    card: Math.max(0, round2(out.card)),
+    other: Math.max(0, round2(out.other)),
+    cashOnDelivery: Math.max(0, round2(out.cashOnDelivery)),
+  }
 }
 
 /** The session's accumulators — claimed and applied in one Mongo transaction, so never twice. */
@@ -376,6 +383,7 @@ function saleIncrements(doc: any): Record<string, number> {
   if (t.card) inc.totalCard = t.card
   // FR-9.2: mobile/voucher were accepted per transaction but never summed.
   if (t.other) inc.totalOther = t.other
+  if (t.cashOnDelivery) inc.totalCashOnDelivery = t.cashOnDelivery
   return inc
 }
 
@@ -864,6 +872,7 @@ export async function runStornoSteps(c: RegisterContext, id: string): Promise<an
     if (refund.cash) inc.totalCash = -refund.cash
     if (refund.card) inc.totalCard = -refund.card
     if (refund.other) inc.totalOther = -refund.other
+    if (refund.cashOnDelivery) inc.totalCashOnDelivery = -refund.cashOnDelivery
     await applySessionTotals(doc, sessionId, inc)
     doc = await Invoice.findById(doc._id).lean().exec()
   }

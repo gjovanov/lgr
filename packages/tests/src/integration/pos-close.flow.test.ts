@@ -23,13 +23,13 @@ afterEach(async () => { await clearCollections() })
 describe('expectedTotals (FR-9.3)', () => {
   it('adds the opening float to cash but not to card', () => {
     expect(expectedTotals({ openingBalance: 500, totalCash: 120.5, totalCard: 80, totalOther: 0 }))
-      .toEqual({ cash: 620.5, card: 80, other: 0 })
+      .toEqual({ cash: 620.5, card: 80, other: 0, cashOnDelivery: 0 })
   })
 
   it('treats a session predating totalOther as zero', () => {
     // Sessions created before FR-9.2 have no `totalOther` at all.
     expect(expectedTotals({ openingBalance: 100, totalCash: 0, totalCard: 0 }))
-      .toEqual({ cash: 100, card: 0, other: 0 })
+      .toEqual({ cash: 100, card: 0, other: 0, cashOnDelivery: 0 })
   })
 
   it('rounds to cents rather than carrying float noise', () => {

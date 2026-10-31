@@ -954,6 +954,24 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   - **Cash on delivery** = `FiscalPaymentType` `cash_on_delivery` → reserve slot **`R`**, named „НАЛОЖЕН
     ПЛАТЕЖ" from the device page (55h, admin only). Every other driver refuses it via `paymentCode()` — the
     drivers' old `table[type] || 'P'` printed any unmapped payment as cash.
+- **The till's tender** (`invoicing-api/lib/cash-register-till.ts`, 2026-10-31) is checked BEFORE anything is
+  written, so a refused sale draws no number and no УНП, at every door that prints: the till's sale, both storno
+  routes, and the back-office sale joined to a session (D-13).
+  - ⚠ `toFiscalPaymentType` has **no default** (`FiscalPaymentMethodError`). Everything unknown used to print as
+    cash, so a bank transfer on a joined sale was recorded by the device as cash taken. `mobile` stays card;
+    `check` is gone (no document can hold it, and at the till it would have burned a CS number at the insert).
+    A method no receipt can carry is 422 `payment_method_not_fiscal`. The tender's `method` is a plain string in
+    the till's schemas on purpose: a schema union would answer that with its own generic 422.
+  - **Cash on delivery at the till** tenders exactly the total and nothing beside it (422
+    `cod_amount_mismatch`): a short tender would be booked as cash taken (`keptByMethod` calls the rest of a total
+    cash), and an over-tender would give change out of a drawer that took nothing. A device without
+    `capabilities.cashOnDelivery` refuses it (422 `cod_not_supported`), on a text receipt too; a joined sale that
+    asks for no receipt prints nothing, so nothing refuses it.
+  - ⚠ The courier holds that money, so it is **never in the drawer**: `POSSession.totalCashOnDelivery`, its own
+    bucket, out of expected cash. The close's `cash_on_delivery` line carries `expected` only (no `counted`, no
+    `difference`), and only when there is something to expect. The session report has its own line
+    (`cashOnDeliveryOf`). The session JE leaves it in "POS Other" on the receivable account, unchanged. The back
+    office's cash-sale form still does not offer it (`usePaymentMethods({ cashOnDelivery: false })`).
 - **`capabilities.ts`** — what each DRIVER can do (which reports, operator read/program, text receipts,
   payment-name programming, COD, max operators), resolved from manufacturer × connection type exactly as
   `createPrinter` / `createBridgePrinter` choose the class. Served on `GET /fiscal/device[/:id]`; the device page

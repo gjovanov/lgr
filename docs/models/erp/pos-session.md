@@ -21,6 +21,7 @@ export interface IPOSSession extends Document {
   totalReturns: number
   totalCash: number
   totalCard: number
+  totalCashOnDelivery: number
   transactionCount: number
   createdAt: Date
   updatedAt: Date
@@ -46,6 +47,7 @@ export interface IPOSSession extends Document {
 | totalReturns | number | Yes | `0` | Total returns amount during the session |
 | totalCash | number | Yes | `0` | Total cash payments received |
 | totalCard | number | Yes | `0` | Total card payments received |
+| totalCashOnDelivery | number | Yes | `0` | Cash on delivery: a courier holds it, so it is never in the drawer and stays out of the expected cash |
 | transactionCount | number | Yes | `0` | Number of transactions in the session |
 | orgId | ObjectId | Yes | - | Tenant organization ID (auto-injected by tenantPlugin) |
 | createdAt | Date | Auto | - | Timestamp of creation |

@@ -105,7 +105,7 @@
             <v-card-title class="text-subtitle-1">{{ $t('cashRegister.detail.payments') }}</v-card-title>
             <v-card-text>
               <div v-for="(p, i) in doc.row.payments" :key="i" class="d-flex justify-space-between">
-                <span>{{ p.method }}</span>
+                <span>{{ $t(paymentMethodKey(p.method)) }}</span>
                 <span>
                   {{ fmtCurrency(p.amount, doc.row.currency) }}
                   <span v-if="p.tendered !== undefined" class="text-caption text-medium-emphasis">
@@ -162,6 +162,7 @@ import StornoDialog from './StornoDialog.vue'
 import { httpClient } from '../../composables/useHttpClient'
 import { useCurrency } from '../../composables/useCurrency'
 import { useSnackbar } from '../../composables/useSnackbar'
+import { paymentMethodKey } from '../../composables/usePaymentMethods'
 import { canStornoJournalRow } from '../../cash-register/storno'
 
 const props = defineProps<{

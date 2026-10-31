@@ -12,9 +12,17 @@ import { useI18n } from 'vue-i18n'
  *
  * There is no cheque: nobody pays by cheque here and no document ever used it, so the method
  * was removed outright (2026-10). Cash on delivery (наложен платеж) is offered everywhere but
- * at a till — a cash sale is paid on the spot, which is the one thing a courier payment is not;
- * pass `{ cashOnDelivery: false }` there.
+ * on the back office's cash-sale form, which passes `{ cashOnDelivery: false }`: that form settles
+ * on the spot. The till offers it from its own list (2026-10-31): a fiscal receipt in the device's
+ * own slot, on a session bucket of its own.
  */
+/** The message key of a method's name: not every one is `pos.<method>`. */
+export function paymentMethodKey(method: string): string {
+  if (method === 'cash_on_delivery') return 'pos.cashOnDelivery'
+  if (method === 'bank_transfer') return 'pos.bankTransfer'
+  return method === 'other' ? 'common.other' : `pos.${method}`
+}
+
 export function usePaymentMethods(opts: { cashOnDelivery?: boolean } = {}) {
   const { t } = useI18n()
   return computed(() => [

@@ -232,22 +232,27 @@ describe('POS storno (#145)', () => {
 describe('stornoRefundBuckets', () => {
   it('mirrors the sale: cash kept = tendered − change', () => {
     expect(stornoRefundBuckets(undefined, { payments: [{ method: 'cash', amount: 30 }], changeDue: 6 }))
-      .toEqual({ cash: 24, card: 0, other: 0 })
+      .toEqual({ cash: 24, card: 0, other: 0, cashOnDelivery: 0 })
   })
 
   it('splits a mixed tender into its buckets, old mobile/voucher tenders into other', () => {
     expect(stornoRefundBuckets(undefined, {
       payments: [{ method: 'card', amount: 15 }, { method: 'cash', amount: 10 }, { method: 'voucher', amount: 5 }],
       changeDue: 1,
-    })).toEqual({ cash: 9, card: 15, other: 5 })
+    })).toEqual({ cash: 9, card: 15, other: 5, cashOnDelivery: 0 })
   })
 
   it('uses the refund the operator states when one is given', () => {
     expect(stornoRefundBuckets([{ method: 'card', amount: 24 }], { payments: [{ method: 'cash', amount: 30 }], changeDue: 6 }))
-      .toEqual({ cash: 0, card: 24, other: 0 })
+      .toEqual({ cash: 0, card: 24, other: 0, cashOnDelivery: 0 })
   })
 
   it('never goes negative', () => {
-    expect(stornoRefundBuckets(undefined, { payments: [], changeDue: 3 })).toEqual({ cash: 0, card: 0, other: 0 })
+    expect(stornoRefundBuckets(undefined, { payments: [], changeDue: 3 })).toEqual({ cash: 0, card: 0, other: 0, cashOnDelivery: 0 })
+  })
+
+  it('cash on delivery comes back out of its own bucket, never out of the drawer', () => {
+    expect(stornoRefundBuckets(undefined, { payments: [{ method: 'cash_on_delivery', amount: 24 }] }))
+      .toEqual({ cash: 0, card: 0, other: 0, cashOnDelivery: 24 })
   })
 })

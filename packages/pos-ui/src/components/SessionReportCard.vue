@@ -21,6 +21,7 @@
         <tr><td>{{ $t('pos.sessionReport.cash') }}</td><td class="text-end">{{ money(report.byMethod.cash) }}</td></tr>
         <tr><td>{{ $t('pos.sessionReport.card') }}</td><td class="text-end">{{ money(report.byMethod.card) }}</td></tr>
         <tr v-if="report.byMethod.other"><td>{{ $t('pos.sessionReport.other') }}</td><td class="text-end">{{ money(report.byMethod.other) }}</td></tr>
+        <tr v-if="report.byMethod.cashOnDelivery" data-testid="session-report-cod"><td>{{ $t('pos.sessionReport.cashOnDelivery') }}</td><td class="text-end">{{ money(report.byMethod.cashOnDelivery) }}</td></tr>
         <tr v-if="report.change"><td>{{ $t('pos.sessionReport.change') }}</td><td class="text-end">{{ money(report.change) }}</td></tr>
         <tr><td>{{ $t('pos.sessionReport.opening') }}</td><td class="text-end">{{ money(report.drawer.opening) }}</td></tr>
         <tr v-if="report.drawer.expected !== undefined"><td>{{ $t('pos.sessionReport.expected') }}</td><td class="text-end">{{ money(report.drawer.expected) }}</td></tr>
@@ -45,7 +46,7 @@ export interface SessionReportData {
   counts: { sales: number; stornos: number; voided: number; fiscal: number; text: number; unprinted: number }
   vat: Array<{ rate: number; net: number; vat: number; gross: number }>
   total: number
-  byMethod: { cash: number; card: number; other: number }
+  byMethod: { cash: number; card: number; other: number; cashOnDelivery?: number }
   change: number
   drawer: { opening: number; expected?: number; counted?: number; difference?: number }
   documents?: { first: string; last: string }

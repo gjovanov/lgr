@@ -1456,6 +1456,7 @@
     "card": "Card",
     "bankTransfer": "Bank Transfer",
     "cashOnDelivery": "Cash on delivery",
+    "codNotSupported": "This fiscal device has no cash-on-delivery payment. Nothing was sold: take the payment in cash or by card.",
     "mobile": "Mobile",
     "voucher": "Voucher",
     "connectPrinter": "Connect Printer",
@@ -1518,10 +1519,14 @@
       "fiscalFailed": "The fiscal day could NOT be closed — the session is still open",
       "noFiscalDevice": "No fiscal device is configured for this warehouse; the day will close without a fiscal report.",
       "otherSessionsOpen": "{n} other session(s) are still open on this warehouse. A Z-report closes the fiscal day for the whole device.",
+      "notCounted": "With the courier, not counted",
+      "receiptOpenTitle": "The session is still open",
+      "receiptOpen": "A sale is printing on this device. Wait for it to finish, then close again.",
       "method": {
         "cash": "Cash",
         "card": "Card",
-        "other": "Other payments"
+        "other": "Other payments",
+        "cashOnDelivery": "Cash on delivery"
       }
     },
     "pin": {
@@ -1565,6 +1570,7 @@
       "cash": "Cash",
       "card": "Card",
       "other": "Other",
+      "cashOnDelivery": "Cash on delivery",
       "change": "Change given",
       "opening": "Opening float",
       "expected": "Expected cash",

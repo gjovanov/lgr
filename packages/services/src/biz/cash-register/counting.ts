@@ -70,3 +70,16 @@ export function keptByMethod(row: { total?: number; payments?: { method?: string
   other = Math.min(Math.max(0, cents(other)), Math.max(0, cents(total - card)))
   return { cash: cents(total - card - other), card, other }
 }
+
+/**
+ * The part of `keptByMethod(row).other` a courier collects. The session report shows it on its own
+ * line; the session journal entry leaves it in "POS Other", on the receivable account, where
+ * money a courier owes belongs. ⚠ It never reaches "POS Cash": the doors refuse a cash-on-delivery
+ * tender that is not exactly the total (`cod_amount_mismatch`), and the rest of a total is what
+ * `keptByMethod` calls cash.
+ */
+export function cashOnDeliveryOf(row: { total?: number; payments?: { method?: string; amount?: number }[] }): number {
+  let cod = 0
+  for (const p of row.payments || []) if (p?.method === 'cash_on_delivery') cod += Number(p.amount) || 0
+  return Math.min(Math.max(0, cents(cod)), keptByMethod(row).other)
+}

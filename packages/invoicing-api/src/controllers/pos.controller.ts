@@ -32,29 +32,39 @@ export { stornoRefundBuckets } from 'services/biz/cash-register/register.service
 /** Payment buckets the close screen reconciles, in display order. */
 export const CLOSE_METHODS = ['cash', 'card', 'other'] as const
 
-export interface ExpectedTotals { cash: number; card: number; other: number }
+export interface ExpectedTotals { cash: number; card: number; other: number; cashOnDelivery: number }
 
 /**
  * What the register SHOULD hold, from the session's own accumulators.
  *
  * Cash includes the opening float; card and other do not — nobody starts the day with a
  * card balance. Note this reads the session totals rather than `expectedBalance`, which is
- * only written at close.
+ * only written at close. Cash on delivery is what couriers owe: never part of expected cash.
  */
 export function expectedTotals(session: any): ExpectedTotals {
   return {
     cash: round2((session.openingBalance || 0) + (session.totalCash || 0)),
     card: round2(session.totalCard || 0),
     other: round2(session.totalOther || 0),
+    cashOnDelivery: round2(session.totalCashOnDelivery || 0),
   }
 }
 
-export function buildClosingBreakdown(expected: ExpectedTotals, counted: Record<string, number | undefined>) {
-  return CLOSE_METHODS.map(method => {
+export interface ClosingLine { method: string; expected: number; counted?: number; difference?: number }
+
+/**
+ * One line per method the till counts, and, when a courier owes the session something, a
+ * `cash_on_delivery` line of what is expected. Never counted: that money is not at the till, so
+ * there is nothing to enter and no difference to report.
+ */
+export function buildClosingBreakdown(expected: Omit<ExpectedTotals, 'cashOnDelivery'> & { cashOnDelivery?: number }, counted: Record<string, number | undefined>): ClosingLine[] {
+  const lines: ClosingLine[] = CLOSE_METHODS.map(method => {
     const exp = round2(expected[method] || 0)
     const got = round2(Number(counted?.[method]) || 0)
     return { method, expected: exp, counted: got, difference: round2(got - exp) }
   })
+  const owed = round2(expected.cashOnDelivery || 0)
+  return owed ? [...lines, { method: 'cash_on_delivery', expected: owed }] : lines
 }
 
 function round2(n: number): number {
