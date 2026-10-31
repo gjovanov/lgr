@@ -10,6 +10,10 @@ name: Desktop Dry Build
 # It builds the **unsigned** app on all three platforms and throws the artifacts away. Signing
 # needs `environment: release` and the Entra OIDC exchange (FR-14.3), which is a tag-only path;
 # what is being watched here is dependency and toolchain drift, not the signing material.
+#
+# Since 2026-10-31 the CLI itself is tauri-apps' prebuilt binary (`.github/actions/tauri-cli`),
+# so installing it no longer resolves or compiles anything. What can still drift is the app's own
+# build from cold, the toolchain and the runner images, and the CLI download itself.
 
 on:
   schedule:
@@ -30,7 +34,6 @@ permissions:
   issues: write
 
 env:
-  TAURI_CLI_VERSION: '2.10.1'
   RUST_VERSION: '1.98'
 
 jobs:
@@ -68,8 +71,9 @@ jobs:
       # ⚠ No Rust cache here, deliberately, unlike every other job. A warm cache would hide
       # exactly the dependency-resolution drift this workflow exists to catch.
 
+      # The release's own install, so this keeps proving what a release does.
       - name: Install Tauri CLI
-        run: cargo install tauri-cli@${{ env.TAURI_CLI_VERSION }} --locked
+        uses: ./.github/actions/tauri-cli
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'

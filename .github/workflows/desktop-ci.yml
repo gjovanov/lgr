@@ -56,7 +56,6 @@ env:
   # ⚠ Pinned, like everywhere else. An unpinned toolchain is how a green pipeline turns red on a
   # morning nobody changed anything.
   RUST_VERSION: '1.98'
-  TAURI_CLI_VERSION: '2.10.1'
 
 jobs:
   build:
@@ -142,8 +141,9 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      # Prebuilt and digest-pinned, the same one desktop-release.yml installs.
       - name: Install Tauri CLI
-        run: cargo install tauri-cli@${{ env.TAURI_CLI_VERSION }} --locked
+        uses: ./.github/actions/tauri-cli
 
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
