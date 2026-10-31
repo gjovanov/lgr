@@ -91,20 +91,26 @@ async function resolveFiscalDeviceForClose(orgId: string, warehouseId: string): 
  * never undoes the close it reports on.
  */
 async function printSessionReport(orgId: string, deviceId: string, report: SessionReport, operatorCode?: string): Promise<string | undefined> {
+  let printer: any
+  let opened = false
   try {
     if (!isDeviceConnected(deviceId)) return 'The fiscal printer is not connected'
-    const printer: any = getPrinter(deviceId)
+    printer = getPrinter(deviceId)
     if (!printer?.openNonFiscalReceipt || !printer?.printNonFiscalText || !printer?.closeNonFiscalReceipt) {
       return 'This fiscal device cannot print a text receipt'
     }
     const org: any = await Org.findById(orgId, { 'settings.locale': 1, 'settings.timezone': 1 }).lean().exec()
     await printer.openNonFiscalReceipt(operatorCode || '1')
+    opened = true
     for (const line of formatSessionReport(report, org?.settings?.locale || 'en', org?.settings?.timezone || 'Europe/Sofia')) {
       await printer.printNonFiscalText(line)
     }
     await printer.closeNonFiscalReceipt()
     return undefined
   } catch (e: any) {
+    // A failed line leaves the receipt open on the device, and every later sale would have to clear
+    // it first. Closed here, best effort: the failure to report is the line's.
+    if (opened) await printer.closeNonFiscalReceipt().catch(() => {})
     return String(e?.message || 'The session report did not print').slice(0, 300)
   }
 }

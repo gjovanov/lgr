@@ -23,6 +23,7 @@ afterAll(async () => { await teardownTestDB() }, 60_000)
 afterEach(async () => { forgetDevices(); await clearCollections() })
 
 const OPEN_NONFISCAL = 0x26
+const CLOSE_NONFISCAL = 0x27
 const Z_REPORT = 0x45
 
 describe('the session report: its figures', () => {
@@ -121,6 +122,46 @@ describe('the session report at close', () => {
     expect(stored.report.counts.sales).toBe(1)
     expect(stored.reportError).toContain('Out of paper')
     expect(stored.reportPrintedAt).toBeUndefined()
+  })
+
+  it('a line that fails leaves no receipt open on the device, and the session stays closed', async () => {
+    const w = await tillWorld(app)
+    await w.sell(1)
+    const printer = new EltradeFiscalPrinter(w.sim!.exchange, w.deviceId)
+    const print = printer.printNonFiscalText.bind(printer)
+    let lines = 0
+    printer.printNonFiscalText = async (text: string) => {
+      if (++lines === 3) throw new Error('Paper jam')
+      return print(text)
+    }
+    registerPrinter(w.deviceId, printer)
+
+    const closed = await close(w, 112)
+    expect(closed.status).toBe(200)
+    expect(closed.json.reportError).toContain('Paper jam')
+    // The receipt the failed line left open is closed, or the device would refuse what comes next.
+    expect(w.sim!.nonFiscalOpen).toBe(false)
+    expect(w.sim!.executed.filter((e) => e.cmd === CLOSE_NONFISCAL)).toHaveLength(1)
+
+    // The jam is cleared: the reprint finds nothing in its way.
+    const reprinted = await w.call('POST', `/trade/pos/session/${w.sessionId}/report/print`)
+    expect(reprinted.status).toBe(200)
+    expect(w.sim!.nonFiscalLines.join('\n')).toContain('SESSION REPORT')
+    expect(w.sim!.nonFiscalOpen).toBe(false)
+  })
+
+  it('a receipt that never opened is not closed: there is nothing to close', async () => {
+    const w = await tillWorld(app)
+    await w.sell(1)
+    const printer = new EltradeFiscalPrinter(w.sim!.exchange, w.deviceId)
+    printer.openNonFiscalReceipt = async () => { throw new Error('Out of paper') }
+    let closes = 0
+    printer.closeNonFiscalReceipt = async () => { closes++ }
+    registerPrinter(w.deviceId, printer)
+
+    const closed = await close(w, 112)
+    expect(closed.json.reportError).toContain('Out of paper')
+    expect(closes).toBe(0)
   })
 
   it('a till with no device keeps its report and prints nothing', async () => {
