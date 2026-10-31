@@ -121,9 +121,9 @@ Each `*-ui` imports `ui-shell` + `ui-shared`, communicates via HTTP/WS to unifie
 
 Every data model uses `tenantPlugin`, which adds an indexed, required `orgId` field — **and nothing else**. It does **not** filter queries (`packages/db/src/plugins/tenant.plugin.ts`). A `Model.find({})` returns every org's rows; passing `{ orgId }` is on the caller.
 
-All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is where tenancy is enforced**. `isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) is registered as a `beforeHandle` hook by `AuthService` and by all seven `AppAuthService` copies, so every authenticated route whose path carries `:orgId` rejects a caller whose JWT names a different org with **403**. It is applied by default — there is nothing for a new controller to opt into, and no exception list (gjovanov/lgr#41). The property is asserted over the real route table by `packages/tests/src/integration/tenant-isolation.flow.test.ts`.
+All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is where tenancy is enforced**. `isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) is registered as a `beforeHandle` hook by `AuthService` and by `AppAuthService` (`services/http/app-auth.service.ts`, one copy since FR-24.30, re-exported by each `*-api`), so every authenticated route whose path carries `:orgId` rejects a caller whose JWT names a different org with **403**. It is applied by default — there is nothing for a new controller to opt into, and no exception list (gjovanov/lgr#41). The property is asserted over the real route table by `packages/tests/src/integration/tenant-isolation.flow.test.ts`.
 
-**A write needs the permission its route names** (S-28). Every non-GET route under `/api/org/:orgId` resolves to a rule in `packages/services/src/biz/route-permission.ts`: the permission(s) it needs (`invoicing.write`, `accounting.post`, …), `self` (the controller guards itself, e.g. `canAccessReport`, admin-only routes) or `member` (any member, e.g. a note). The eight auth plugins enforce it in a **transform** hook, so a caller without the permission gets 403 before the body is validated; `admin` always passes. ⚠ A new write route fails `route-permission.flow.test.ts` until it has a rule, and is refused at runtime meanwhile. ⚠ The refusal is THROWN (a transform hook cannot return one), and `spaErrorHandler` passes a thrown status through; anything else it is handed becomes a 500.
+**A write needs the permission its route names** (S-28). Every non-GET route under `/api/org/:orgId` resolves to a rule in `packages/services/src/biz/route-permission.ts`: the permission(s) it needs (`invoicing.write`, `accounting.post`, …), `self` (the controller guards itself, e.g. `canAccessReport`, admin-only routes) or `member` (any member, e.g. a note). The two auth plugins (`AuthService`, `AppAuthService`) enforce it in a **transform** hook, so a caller without the permission gets 403 before the body is validated; `admin` always passes. ⚠ A new write route fails `route-permission.flow.test.ts` until it has a rule, and is refused at runtime meanwhile. ⚠ The refusal is THROWN (a transform hook cannot return one), and `spaErrorHandler` passes a thrown status through; anything else it is handed becomes a 500.
 
 **So does a read** (S-29). Every GET under an org resolves to a rule in `PREFIX_READ_RULES`, the same three kinds, enforced by the same hook (`permissionRefusal`).
 - A module's reads accept any permission of that module (`payroll.read`, `.write` or `.approve`), since a role that writes it reads it.
@@ -161,7 +161,7 @@ which is every org today. `db/home/home.ts`: `homeOf` (5 s cache, `forgetHome`) 
   `backup-node-state.flow.test.ts` until it is classified as org data, operational or node state.
 - ⚠ It **fails closed**: a row that disagrees with `Org.homeEpochHighWater`, or no row once that is set,
   is `hold`; only `active` writes.
-- The auth plugins run `services/biz/home-gate.ts#homeGate` right after `isForeignOrg` (all eight, no
+- The auth plugins run `services/biz/home-gate.ts#homeGate` right after `isForeignOrg` (both plugins, no
   exception list): off its home, an org's **writing** routes answer **409 `org_home_elsewhere`**. What
   writes is `services/biz/route-class.ts`: a GET reads, anything else writes, except the POSTs listed in
   `READ_ONLY_WRITES` (reports, list exports). ⚠ A route added there must write NOTHING.
@@ -680,7 +680,7 @@ scans server code and fails on any `fetch(` call without one.
 `AuthService` is an Elysia plugin (`packages/portal-api/src/auth/auth.service.ts`) that:
 - Derives `user` from the `Authorization: Bearer` header, or from the session cookie only when no
   header is sent (S-22: a non-empty Bearer is used exclusively, and an invalid one is never rescued
-  by the cookie). Rules in `services/biz/session-token.ts`, shared by all eight auth plugins.
+  by the cookie). Rules in `services/biz/session-token.ts`, shared by both auth plugins.
 - ⚠ **The session cookie is `__Host-auth`** (FR-20.72, P0a-8), and so are the OAuth flow cookies
   (`__Host-oauth_state` / `_handoff` / `_pending`, `portal-api/src/auth/oauth-cookies.ts`): an
   org's address `<slug>.lgrai.app` is a sibling subdomain, and the prefix is what stops it planting
