@@ -13,7 +13,7 @@ import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useInvoiceLineColumns } from 'ui-shared/composables/useInvoiceLineColumns'
 import { upsertAmountInWords } from 'config/amount-in-words'
 import { useGRColumns } from 'ui-shared/composables/useGRColumns'
-import { cascadePurchasePrice, needsSeed, seedFromProduct, setProductField, setTierPrice } from 'ui-shared/composables/gr-product-update'
+import { cascadePurchasePrice, needsSeed, productsForSeed, seedFromProduct, setProductField, setTierPrice } from 'ui-shared/composables/gr-product-update'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
 import { rememberedFlag, rememberedSetting } from 'ui-shared/composables/useUserDefaults'
@@ -184,7 +184,17 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
    * no switch and no product columns, and its payload carries no updates (the server refuses them).
    */
   const receiptLinked = computed(() => String(invoiceData.value?.stockSource?.marker || '').startsWith('movement:'))
-  const productUpdateOffered = computed(() => !!config.supportsProductUpdate && !receiptLinked.value)
+  /**
+   * The currency of a bill that cannot update its products, or ''. A product's prices are kept in
+   * the org's currency and nothing converts, so the server refuses such an update and the form
+   * offers none, and says why.
+   */
+  const foreignBillCurrency = computed(() => (
+    config.supportsProductUpdate && !receiptLinked.value && form.currency && form.currency !== baseCurrency.value
+      ? form.currency
+      : ''
+  ))
+  const productUpdateOffered = computed(() => !!config.supportsProductUpdate && !receiptLinked.value && !foreignBillCurrency.value)
   const grColumnPickerOpen = ref(false)
   const grCategories = ref<Array<{ _id: string; name: string }>>([])
   const {
@@ -842,17 +852,16 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   /**
    * Seed every line that names a product and stages nothing yet: a loaded bill, an import, lines
-   * from the ledger or a copy, the switch turned on. One request per article, a few at a time.
+   * from the ledger or a copy, the switch turned on. All of a bill's articles are read at once.
    */
   async function seedUnseededLines() {
     if (!grColumnsVisible.value) return
     const pending = form.lines.filter(needsSeed)
     if (!pending.length) return
-    const products = new Map<string, any>()
-    await mapLimit([...new Set(pending.map((l) => String(l.productId)))], 6, async (id) => {
-      const p = await fetchProductForSeed(id)
-      if (p) products.set(id, p)
-    })
+    const products = await productsForSeed(async (ids) => {
+      const { data } = await httpClient.get(`${orgUrl()}/warehouse/product`, { params: { ids: ids.join(','), size: ids.length } })
+      return data.products || []
+    }, [...new Set(pending.map((l) => String(l.productId)))])
     for (const line of pending) {
       const p = products.get(String(line.productId))
       // Staged meanwhile (a product picked again while these loaded): that line keeps its own.
@@ -877,10 +886,10 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     cascadePurchasePrice(line, line.unitPrice)
   }
 
-  // Turning the switch on seeds the lines that name a product and stage nothing yet (a loaded
-  // draft or received bill) and loads the category options.
-  watch(withProductUpdate, async (on) => {
-    if (!on || !productUpdateOffered.value) return
+  // The columns appearing (the switch turned on, the bill back in the org's currency) seed the
+  // lines that name a product and stage nothing yet, and load the category options.
+  watch(grColumnsVisible, async (on) => {
+    if (!on) return
     if (!grCategories.value.length) fetchGRCategories()
     await seedUnseededLines()
   })
@@ -1812,6 +1821,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     withProductUpdate,
     onWithProductUpdateChange,
     productUpdateOffered,
+    foreignBillCurrency,
     grColumnPickerOpen,
     grColumnsVisible,
     grSelectedCols,

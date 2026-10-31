@@ -257,3 +257,24 @@ export function buildProductUpdates(lines: readonly GRLine[] | null | undefined)
   }
   return out
 }
+
+/** Ids one request carries: 200 stay well inside what a proxy takes on a URL. */
+const SEED_BATCH = 200
+
+/**
+ * The products of these ids, by id, a batch at a time. Both forms seed their lines this way, and
+ * the bill's switch starts on, so it runs on every bill opened and must not cost a request per
+ * article. A batch that fails leaves its articles out: their lines stay unseeded and send nothing.
+ */
+export async function productsForSeed(
+  read: (ids: string[]) => Promise<any[]>,
+  ids: readonly string[],
+): Promise<Map<string, any>> {
+  const out = new Map<string, any>()
+  for (let i = 0; i < ids.length; i += SEED_BATCH) {
+    try {
+      for (const p of await read(ids.slice(i, i + SEED_BATCH))) out.set(String(p.id ?? p._id), p)
+    } catch { /* those lines stay as they are */ }
+  }
+  return out
+}
