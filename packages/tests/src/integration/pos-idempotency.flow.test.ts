@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { describe, it, expect, beforeAll, afterAll, afterEach, spyOn } from 'bun:test'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
@@ -340,6 +340,41 @@ describe('storno, session open and session close with a key', () => {
 
     expect([first.status, late.status]).toEqual([200, 200])
     expect(late.json.transaction.id).toBe(first.json.transaction.id)
+    expect(stornoReceipts(w.sim)).toHaveLength(1)
+  }, 60_000)
+
+  it('a storno that lands between the two reads of a waiting duplicate is its own, not "already cancelled"', async () => {
+    const w = await world()
+    const saleId = await soldOnce(w)
+    const body = { originalTransactionId: saleId, reason: 'customer_return' }
+    await Invoice.updateOne({ _id: saleId }, { $set: { 'register.stornoState': 'full' } }).exec()
+
+    // The waiting duplicate asks two things: is there a document with my key, and has this sale a
+    // paid storno. The first request runs to its end inside the second question, a window of one
+    // query that no sleep can hold open, and which a loaded machine does hit.
+    const realExists = Invoice.exists.bind(Invoice)
+    let ran = false
+    let first: Awaited<ReturnType<typeof post>> | undefined
+    const exists = spyOn(Invoice, 'exists').mockImplementation(((filter: any) => {
+      if (filter?.type !== 'cash_storno' || ran) return realExists(filter)
+      ran = true
+      return {
+        exec: async () => {
+          await Invoice.updateOne({ _id: saleId }, { $set: { 'register.stornoState': 'none' } }).exec()
+          first = await post(stornoUrl(w), w.token, body, 'storno-key-0006')
+          return realExists(filter).exec()
+        },
+      }
+    }) as any)
+    let late: Awaited<ReturnType<typeof post>>
+    try {
+      late = await post(stornoUrl(w), w.token, body, 'storno-key-0006')
+    } finally {
+      exists.mockRestore()
+    }
+
+    expect([first?.status, late.status]).toEqual([200, 200])
+    expect(late.json.transaction.id).toBe(first!.json.transaction.id)
     expect(stornoReceipts(w.sim)).toHaveLength(1)
   }, 60_000)
 

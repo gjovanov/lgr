@@ -320,9 +320,12 @@ export async function stornoDoor(input: StornoDoorInput): Promise<{ status: numb
       // "already cancelled" for a storno that went through. So a keyed request waits for its key.
       if (key && original?.register?.stornoState === 'full') {
         for (let i = 0; i < 40; i++) {
+          // ⚠ In this order. The other way round, a storno landing between the two reads was this
+          // request's own, found as "a paid storno" and missed as "my key", so it was refused.
+          const reversed = await Invoice.exists({ orgId, type: 'cash_storno', relatedInvoiceId: original._id, status: 'paid' }).exec()
           const mine = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
           if (mine) return answer(await settleKeyedDocument(mine, hash!, context, runStornoSteps))
-          if (await Invoice.exists({ orgId, type: 'cash_storno', relatedInvoiceId: original._id, status: 'paid' }).exec()) break
+          if (reversed) break
           await new Promise(res => setTimeout(res, 100))
         }
       }
