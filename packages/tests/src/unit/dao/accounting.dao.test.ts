@@ -270,6 +270,26 @@ describe('FiscalYearDao', () => {
     expect(found!.name).toBe('FY 2024')
   })
 
+  it('should find the fiscal year for a timestamp on its last day', async () => {
+    const org = await createTestOrg({ slug: 'fy-lastday-org' })
+    await createTestFiscalYear(org._id, {
+      name: 'FY 2024',
+      startDate: new Date('2024-01-01'),
+      endDate: new Date('2024-12-31'),
+      status: 'closed',
+    })
+    await createTestFiscalYear(org._id, {
+      name: 'FY 2025',
+      startDate: new Date('2025-01-01'),
+      endDate: new Date('2025-12-31'),
+      status: 'open',
+    })
+
+    const found = await fiscalYearDao.findByDateRange(String(org._id), new Date('2024-12-31T18:00:00Z'))
+    expect(found).toBeDefined()
+    expect(found!.name).toBe('FY 2024')
+  })
+
   it('should return null when no fiscal year matches', async () => {
     const org = await createTestOrg({ slug: 'fy-null-org' })
     await createTestFiscalYear(org._id, {
@@ -372,6 +392,28 @@ describe('FiscalPeriodDao', () => {
     expect(found).toBeDefined()
     expect(found!.name).toBe('February')
     expect(found!.number).toBe(2)
+  })
+
+  it('should find period by date for a timestamp on its last day', async () => {
+    const org = await createTestOrg({ slug: 'fpd-lastday-org' })
+    const fy = await createTestFiscalYear(org._id)
+    await createTestFiscalPeriod(org._id, fy._id, {
+      name: 'January',
+      number: 1,
+      startDate: new Date('2025-01-01'),
+      endDate: new Date('2025-01-31'),
+    })
+    await createTestFiscalPeriod(org._id, fy._id, {
+      name: 'February',
+      number: 2,
+      startDate: new Date('2025-02-01'),
+      endDate: new Date('2025-02-28'),
+    })
+
+    const lastDay = await fiscalPeriodDao.findByDate(String(org._id), new Date('2025-01-31T18:00:00Z'))
+    expect(lastDay!.name).toBe('January')
+    const nextDay = await fiscalPeriodDao.findByDate(String(org._id), new Date('2025-02-01T00:00:00Z'))
+    expect(nextDay!.name).toBe('February')
   })
 
   it('should return null when date is outside any period', async () => {
