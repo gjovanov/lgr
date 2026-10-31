@@ -117,6 +117,37 @@ test.describe('FR-21 — one cash register, two journals', () => {
     expect(await stockOf(admin, sale)).toBe(sale.stockBefore)
   })
 
+  test('the storno is on Reports → Export → Cash register, negative and naming its sale — from an old link too', async ({ page }) => {
+    expect(stornoNumber, 'the storno test above made one').not.toBe('')
+    await loginForApp(page)
+    // The second link is one made when the tab still offered Draft / Completed: it asks for everything.
+    for (const qs of [`tab=cash_register&q=${stornoNumber}`, `tab=cash_register&status=draft,stornoed,paid&q=${stornoNumber}`]) {
+      await page.goto(`/reports/export?${qs}`)
+      const row = rowOf(page, stornoNumber)
+      await expect(row).toBeVisible({ timeout: 15000 })
+      await expect(row).toContainText(`Storno of ${sale.number}`)
+      await expect(row).toContainText(`-€${sale.total.toFixed(2)}`)
+    }
+  })
+
+  test('the storno opens on the journal\'s page, which prints it — and so does its row', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto(`/invoicing/cash-sales?q=${stornoNumber}`)
+    const row = rowOf(page, stornoNumber)
+    await expect(row).toBeVisible({ timeout: 10000 })
+
+    const fromRow = page.waitForEvent('download')
+    await row.getByRole('button', { name: 'Print' }).click()
+    expect((await fromRow).suggestedFilename()).toBe(`${stornoNumber}.pdf`)
+
+    await row.getByRole('link', { name: stornoNumber, exact: true }).click()
+    await expect(page).toHaveURL(/\/invoicing\/cash-sales\/[0-9a-f]{24}\/view/)
+    await expect(page.getByTestId('journal-document-title')).toHaveText(stornoNumber)
+    const fromPage = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Print' }).click()
+    expect((await fromPage).suggestedFilename()).toBe(`${stornoNumber}.pdf`)
+  })
+
   test('a cashier sees the till sale but no Storno button', async ({ page }) => {
     const another = await ringTillSale()
     await loginForApp(page, 'acme-corp', 'sales', 'test123')

@@ -31,9 +31,21 @@
         :aria-label="$t('invoicing.cashSaleInvoice.action')"
         @click="openInvoiceDialog(item)"
       />
-      <!-- FR-10 (#19): email a cash sale held as a document. Tooltip on a wrapper span — a disabled
-           v-btn has `pointer-events: none`, so a tooltip on the button itself never fires. -->
-      <v-tooltip v-if="item.store === 'invoice' && item.kind === 'sale'" location="top" :text="$t('invoicing.sendEmail.action')">
+      <!-- Print the document — a sale or its storno, which prints as „Сторно на касова продажба"
+           naming the sale it reverses — as the document page's Печат does. -->
+      <v-btn
+        v-if="item.store === 'invoice'"
+        icon="mdi-printer"
+        size="small"
+        variant="text"
+        :loading="printingId === item.id"
+        :title="$t('common.print')"
+        :aria-label="$t('common.print')"
+        @click="printRow(item)"
+      />
+      <!-- FR-10 (#19): email a cash sale or a storno held as a document. Tooltip on a wrapper span
+           — a disabled v-btn has `pointer-events: none`, so a tooltip on the button itself never fires. -->
+      <v-tooltip v-if="item.store === 'invoice'" location="top" :text="$t('invoicing.sendEmail.action')">
         <template #activator="{ props: tip }">
           <span v-bind="tip">
             <v-btn
@@ -104,9 +116,13 @@ const role = computed(() => appStore.user?.role || jwtRole())
 const userId = computed(() => appStore.user?.id || jwtUserId())
 const journal = ref<{ fetchItems: () => Promise<void> } | null>(null)
 
-/** A document opens on its page (print, email); a till sale that is not one yet, on the journal's. */
+/**
+ * A sale held as a document opens on its page (print, email); a storno on the journal's, where it
+ * reads as a storno and prints — the cash-sale form would show it as a sale. A till sale that is
+ * not a document yet opens on the journal's page too.
+ */
 function journalRoute(row: any) {
-  return row.store === 'invoice'
+  return row.store === 'invoice' && row.kind === 'sale'
     ? { name: 'invoicing.cash-sales.edit', params: { id: row.id } }
     : { name: 'invoicing.cash-sales.view', params: { id: row.id } }
 }
@@ -146,7 +162,18 @@ function onImported(results: any[]) {
 // ── Export: the journal's period and status, as the invoicing export reads them ──
 const showExportDialog = ref(false)
 const exportFilters = ref<Record<string, any>>({})
-const { loading: exportLoading, exportList } = useInvoicingExport(() => appStore.orgUrl())
+const { loading: exportLoading, exportList, exportOne } = useInvoicingExport(() => appStore.orgUrl())
+
+/** The row's Печат: the document's PDF, in the user's language. */
+const printingId = ref('')
+async function printRow(item: any) {
+  printingId.value = item.id
+  try {
+    await exportOne(item.id, item.number, 'pdf', 'detailed', undefined, appStore.locale)
+  } finally {
+    printingId.value = ''
+  }
+}
 
 function openExport(filters: Record<string, any>) {
   exportFilters.value = { ...filters }

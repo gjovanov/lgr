@@ -81,6 +81,32 @@ function pickColumns(
 }
 
 /**
+ * The rows with each `status` column's values in the words the UI sent (`valueLabels`): the
+ * registry names a status by its value, and only the UI holds the message catalogue. A value the
+ * UI sent no word for prints as it is.
+ */
+export function withValueLabels(
+  rows: Record<string, any>[],
+  columns: { key: string; type?: string }[],
+  valueLabels: unknown,
+): Record<string, any>[] {
+  if (!valueLabels || typeof valueLabels !== 'object') return rows
+  const maps = columns
+    .filter((c) => c.type === 'status')
+    .map((c) => [c.key, (valueLabels as Record<string, unknown>)[c.key]] as const)
+    .filter((e): e is readonly [string, Record<string, unknown>] => !!e[1] && typeof e[1] === 'object')
+  if (!maps.length) return rows
+  return rows.map((row) => {
+    const out = { ...row }
+    for (const [key, words] of maps) {
+      const word = typeof row[key] === 'string' ? words[row[key]] : undefined
+      if (typeof word === 'string') out[key] = word.slice(0, MAX_LABEL_LEN)
+    }
+    return out
+  })
+}
+
+/**
  * How the PDF's closing box is filled.
  *
  * A handler that produced a per-currency reconciliation (`meta.summary` — sales history)
@@ -163,10 +189,14 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
       locale: (body as any)?.locale,
     })
 
+    // FR-6.10: the drill-down is the registry's rule, resolved here per row, so the runner keeps
+    // no second copy of it — that copy opened every document as an invoice, a cash sale and a
+    // bill included. Null when the rule names no page for a row.
+    const drilldown = resolved.entry.drilldown
     return {
       id,
       columns: result.columns,
-      rows: result.rows,
+      rows: drilldown ? result.rows.map((row) => ({ ...row, _href: drilldown(row) ?? null })) : result.rows,
       totals: result.totals,
       meta: {
         ...result.meta,
@@ -213,6 +243,7 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
     const org = await Org.findById(orgId).lean()
     const orgName = (org as any)?.name || 'Organization'
     const columns = pickColumns(result, b.columns, b.labels)
+    const rows = withValueLabels(result.rows, columns, b.valueLabels)
     const title = b.title || id
     // A `period` param, when the report has one, is what the header block prints.
     const period = Object.values(resolved.params).find(
@@ -226,7 +257,7 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
         title,
         orgName,
         columns,
-        rows: result.rows,
+        rows,
         totals: result.totals,
         totalsLabel: b.totalsLabel,
         period,
@@ -240,7 +271,7 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
       title,
       orgName,
       columns,
-      rows: result.rows,
+      rows,
       totals: result.totals,
       totalsLabel: b.totalsLabel,
       period,
@@ -268,6 +299,8 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
       columns: t.Optional(t.Array(t.String())),
       /** Column key → localized header, resolved by the UI from the registry's labelKeys. */
       labels: t.Optional(t.Record(t.String(), t.String())),
+      // Per `status` column: value → the word the UI prints for it.
+      valueLabels: t.Optional(t.Record(t.String(), t.Record(t.String(), t.String()))),
       title: t.Optional(t.String()),
       totalsLabel: t.Optional(t.String()),
       /** Localized meta-block labels (Period / Generated / Rows / empty-state). */

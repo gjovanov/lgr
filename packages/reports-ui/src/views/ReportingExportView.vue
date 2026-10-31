@@ -82,10 +82,11 @@ const tabs = computed(() => [
     descKey:  'reporting.export.cashRegister.desc',
     icon: 'mdi-cash-register',
     docType: 'cash_sale' as DocType,
+    // The two states a cash-register document has: a sale or storno is paid, and a storno whose
+    // receipt failed is voided. There is no draft, and `completed` is no Invoice status at all.
     statusOptions: [
-      { value: 'draft',     title: t('invoicing.status.draft') },
-      { value: 'completed', title: t('invoicing.status.completed') },
-      { value: 'paid',      title: t('invoicing.status.paid') },
+      { value: 'paid',   title: t('invoicing.status.paid') },
+      { value: 'voided', title: t('invoicing.status.voided') },
     ],
   },
 ])
