@@ -11,8 +11,55 @@
  */
 export type VatGroup = 'А' | 'Б' | 'В' | 'Г'
 
-/** Payment types recognized by fiscal printers */
-export type FiscalPaymentType = 'cash' | 'card' | 'check' | 'voucher'
+/**
+ * Payment types recognized by fiscal printers.
+ *
+ * `cash_on_delivery` prints only on a device with a slot for it (an Eltrade's reserve slot 'R',
+ * named „НАЛОЖЕН ПЛАТЕЖ" from the device page). Every other driver refuses it — see `paymentCode`.
+ */
+export type FiscalPaymentType = 'cash' | 'card' | 'check' | 'voucher' | 'cash_on_delivery'
+
+/** One of a device's payment slots as the device names it (Eltrade 55h). */
+export interface FiscalPaymentName {
+  /** The slot's code on the device ('P', 'L', 'R', …). */
+  code: string
+  /** What the device prints for it; empty when it reports none. */
+  name: string
+  /** The LGR payment type printed in this slot, if any. */
+  type?: FiscalPaymentType
+}
+
+/**
+ * The driver cannot do what it was asked, on any device of its kind: a payment type it has no slot
+ * for, a command its protocol lacks. Thrown before anything is sent, and never retried or replaced
+ * by something close — a COD payment printed as cash is booked as cash in the device's own records.
+ */
+export class FiscalUnsupportedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'FiscalUnsupportedError'
+  }
+}
+
+const PAYMENT_LABEL: Record<FiscalPaymentType, string> = {
+  cash: 'cash',
+  card: 'card',
+  check: 'cheque',
+  voucher: 'voucher',
+  cash_on_delivery: 'cash on delivery',
+}
+
+/**
+ * A payment's code in a driver's table, or a refusal. ⚠ Never a fallback: the drivers used to
+ * answer `table[type] || 'P'`, so a type missing from the table printed as cash.
+ */
+export function paymentCode(table: Partial<Record<FiscalPaymentType, string>>, type: FiscalPaymentType, driver: string): string {
+  const code = table[type]
+  if (code) return code
+  throw new FiscalUnsupportedError(
+    `${driver} has no payment type for ${PAYMENT_LABEL[type] ?? type}, so it is refused rather than printed as another payment — the device would record it as that one.`,
+  )
+}
 
 /** Status of the fiscal device */
 export interface FiscalDeviceStatus {
@@ -169,6 +216,12 @@ export interface IFiscalPrinter {
 
   /** Read operator info from device */
   readOperator?(operatorNumber: number): Promise<{ number: number; name: string }>
+
+  /** The names the device prints for each of its payment slots. */
+  readPaymentNames?(): Promise<FiscalPaymentName[]>
+
+  /** Name one payment slot; resolves to what the device reports afterwards, with the name it had. */
+  programPaymentName?(code: string, name: string): Promise<FiscalPaymentName & { previous?: string }>
 }
 
 /**
@@ -206,6 +259,10 @@ export interface FiscalConnectionConfig {
 
 /**
  * Map application payment methods to fiscal payment types.
+ *
+ * ⚠ Cash on delivery keeps its own type. It used to fall through to the cash default, so a COD
+ * payment would have printed, and been recorded by the device, as cash. Now a driver with a slot
+ * for it prints it there and every other driver refuses it (`paymentCode`).
  */
 export function toFiscalPaymentType(method: string): FiscalPaymentType {
   switch (method) {
@@ -214,6 +271,7 @@ export function toFiscalPaymentType(method: string): FiscalPaymentType {
     case 'mobile': return 'card' // Mobile payments are treated as card by fiscal printers
     case 'voucher': return 'voucher'
     case 'check': return 'check'
+    case 'cash_on_delivery': return 'cash_on_delivery'
     default: return 'cash'
   }
 }

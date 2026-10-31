@@ -24,6 +24,7 @@ import type {
   FiscalPaymentType,
   StornoReason,
 } from './types.js'
+import { paymentCode } from './types.js'
 import { logger } from 'services/logger'
 
 // Tremol protocol constants
@@ -62,13 +63,17 @@ export const TREMOL_CMD = {
   READ_OPERATOR: 0x6A,             // 6Ah - Read operator (Number) → Number;Name;Password
 } as const
 
-/** Tremol payment type codes (0-9, where 0=cash, 1=card typically) */
-const PAYMENT_CODE: Record<FiscalPaymentType, string> = {
+/**
+ * Tremol payment type codes (0-9, where 0=cash, 1=card typically). No cash on delivery: it is
+ * refused, never printed as cash.
+ */
+const PAYMENT_CODE: Partial<Record<FiscalPaymentType, string>> = {
   cash: '0',
   card: '1',
   check: '2',
   voucher: '3',
 }
+const DRIVER = "LGR's Tremol driver"
 
 const STORNO_REASON: Record<StornoReason, string> = {
   operator_error: '0',
@@ -349,7 +354,7 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
   async printPayment(type: FiscalPaymentType, amount: number): Promise<void> {
     // Command 35h: PaymentType;OptionChange;Amount
     // OptionChange: 1=Yes (return change)
-    const code = PAYMENT_CODE[type] || '0'
+    const code = paymentCode(PAYMENT_CODE, type, DRIVER)
     await this.transport.sendCommand(TREMOL_CMD.PAYMENT, `${code};1;${amount.toFixed(2)}`)
   }
 
@@ -384,6 +389,8 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
     lines: { name: string; quantity: number; price: number; vatGroup: VatGroup }[],
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
+    // A payment this driver cannot print is refused before the storno receipt is opened.
+    paymentCode(PAYMENT_CODE, payment.type, DRIVER)
     // Command 30h with storno format:
     // OpNum;OpPass;ReceiptFormat;PrintVAT;StornoRcpPrintType;StornoReason;RelatedToRcpNum;RelatedToRcpDateTime;FMNum$UNP
     const dd = String(originalDate.getDate()).padStart(2, '0')

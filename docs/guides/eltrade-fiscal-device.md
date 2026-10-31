@@ -58,7 +58,45 @@ Status*.
   in „Регистрация“, …) instead of "Sale completed".
 - Closing the POS session runs the **Z-report** on the device.
 
-## 5. First-time checklist
+## 5. The device page (POS → Devices → the device)
+
+What an Eltrade can do from here, and what its protocol (v1.1.7) does not have. The page asks the
+server what the device's driver supports (`capabilities` on `GET /fiscal/device/:id`, from
+`packages/fiscal/src/capabilities.ts`) and disables the rest with the reason.
+
+| Control | Eltrade | Command |
+|---|---|---|
+| Device Status → Read Status | yes | 4Ah, 5Ah, 3Eh, 71h |
+| Daily X-Report / Daily Z-Report | yes (Z: admin or manager) | 45h `2` / `0` |
+| FM Report by Date (short / detailed) | yes | 4Fh / 5Eh `DDMMYY,DDMMYY` |
+| FM Report by Number (short / detailed) | yes, numbers 1–9999 | 5Fh / 49h `NNNN,NNNN` |
+| Operators → Program on Device | yes, operators 1–16 | 66h |
+| Operators → Read from Device | **no** — the protocol cannot read an operator back | — |
+| Operator Report | **no** — not in the protocol | — |
+| Electronic Journal (KLEN) | **no** — not in the protocol | — |
+| Payment types → Read from Device | yes, the 11 slots P N C D I J K L M Q R | 55h `<slot>` |
+| Payment types → Name R „НАЛОЖЕН ПЛАТЕЖ“ | yes, admin only, audited | 55h `R,НАЛОЖЕН ПЛАТЕЖ` |
+
+- **A report never touches a receipt that is still printing.** While a sale (or a service receipt)
+  is printing, X, Z and every fiscal-memory report are refused with "A sale is printing on this
+  device…" (HTTP 409 `receipt_open`): wait for it to finish, then try again. They used to void the
+  sale's receipt, or complete it in cash once it was part-paid.
+- **A receipt nothing will finish does not block a report.** When the server stopped, or the bridge
+  or the connection dropped, in the middle of a sale, the receipt stays open on the device. The next
+  report clears it the way the next sale would (voided, or completed in cash if a payment had gone
+  through), then prints. Closing the POS session runs the same Z, so the close is not stuck behind
+  it. ⚠ A part-paid receipt completed in cash adds cash the drawer never took: the API logs
+  `…completing it with the remainder in cash` when that happens.
+- **Program on Device**: the password authorises the change — it is the operator's password on the
+  device (4–8 digits). Three wrong ones lock the device until it is switched off and on, so LGR
+  checks the number, the password's form and the name before anything is sent.
+- **Cash on delivery** prints in the reserve slot **R**. Name it „НАЛОЖЕН ПЛАТЕЖ“ once (Payment types
+  card, one click) so the receipt says what it was. Every other driver refuses a cash-on-delivery
+  payment rather than printing it as cash.
+- An error says what happened: bad input 400, the device refusing (out of paper, wrong password) 409,
+  no device connected 503, no answer 504.
+
+## 6. First-time checklist
 
 Run in this order — only step 5 creates a fiscal record.
 
@@ -70,7 +108,7 @@ Run in this order — only step 5 creates a fiscal record.
 5. Sell one small item with **Non-fiscal OFF** → fiscal receipt: the УНП starts with the device
    number, the line is in group Б, and the POS transaction shows the fiscal receipt number.
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -79,19 +117,26 @@ Run in this order — only step 5 creates a fiscal record.
 | "does not answer" / timeouts | wrong port picked; device inside a sub-menu | pick the right port; return the device to its main menu |
 | "serial number … set up as …" | wrong Device Number in LGR | set it to the serial the device reports |
 | "not allowed in the current state of the device" | a receipt left open, clock not set, day needs a Z-report, fiscal memory/КЛЕН full | read Device Status; LGR voids a receipt left open by an interrupted sale automatically |
+| "A sale is printing on this device, so the X-report (or Z-report) was not printed" | a sale (or a service receipt) is printing on the device right now. Closing the POS session runs the same Z-report: it is refused too, and the session stays open | wait for the sale to finish and try again. A receipt left by an interrupted sale does not cause this: the report clears it |
+| Program on Device refused: "not allowed in the current state" | the password is not that operator's on the device | use the operator's own password — after three wrong ones the device must be switched off and on |
 | "No VAT group on the Eltrade is programmed at X %" | product rate matches no programmed group | fix the product's tax rate, or have service check the device rates |
 | "Refusing to move the Eltrade clock back" | server time is behind the device by > 5 min | check the server/NTP time; a device clock that is ahead needs service |
 
 Every frame is logged by the API (`Eltrade command SENT` / `Eltrade response received`, with hex) —
 attach those lines when reporting a problem.
 
-## 7. What is verified, and what is not
+## 8. What is verified, and what is not
 
-Built from Eltrade's own protocol document (v1.1.1) and cross-checked against ErpNet.FP's Eltrade
-driver, which runs against real devices. Tested against `packages/tests/src/helpers/eltrade-simulator.ts`,
-a device simulator built from the same document. **Not yet run on a physical A3.** Deliberately
-handled both ways because the document is not specific:
+Built from Eltrade's own protocol document (v1.1.1, re-checked against v1.1.7) and cross-checked
+against ErpNet.FP's Eltrade driver, which runs against real devices. Tested against
+`packages/tests/src/helpers/eltrade-simulator.ts`, a device simulator built from the same document.
+Status, diagnostics, the clock and a non-fiscal sale were field-verified on a non-fiscalized A3
+(2026-09-26); **the reports, operator programming and payment type names have not been run on a
+physical A3.** Deliberately handled both ways because the document is not specific:
 
 - the field layout of the diagnostic answer (serial / fiscal memory are found by shape);
 - whether amounts come back with a decimal point or in cents;
-- the width of a service-receipt line on 58 mm paper (the POS formats it to 28 characters).
+- the width of a service-receipt line on 58 mm paper (the POS formats it to 28 characters);
+- the 55h answer, written `Result\Name` in the document: a bare name, `P`/`F`, or both with a
+  separator are all read;
+- what an A3 answers to a wrong operator password (the simulator answers "not allowed").

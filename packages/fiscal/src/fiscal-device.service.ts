@@ -11,6 +11,7 @@ import { EltradeFiscalPrinter } from './eltrade.js'
 import { IslTcpTransport } from './isl-tcp.js'
 import { tracked } from './in-flight.js'
 import { noteAnswered } from './device-reach.js'
+import { FiscalNotConnectedError } from './errors.js'
 import { resolveFiscalTcpTarget, fiscalTcpPolicy, type FiscalTcpPolicy } from './tcp-target.js'
 import { logger } from 'services/logger'
 import { nodeRole } from 'config'
@@ -113,7 +114,7 @@ const trackedPrinters = new WeakMap<IFiscalPrinter, IFiscalPrinter>()
 export function getPrinter(deviceId: string): IFiscalPrinter {
   const printer = activeConnections.get(deviceId)
   if (!printer) {
-    throw new Error(`Fiscal device ${deviceId} is not connected`)
+    throw new FiscalNotConnectedError(deviceId)
   }
   let view = trackedPrinters.get(printer)
   if (!view) {

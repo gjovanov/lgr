@@ -21,15 +21,18 @@ import type {
   StornoReason,
   FiscalExchangeOptions,
 } from './types.js'
+import { paymentCode } from './types.js'
 import { buildFrame, parseResponse, CMD } from './datecs.js'
 import { logger } from 'services/logger'
 
-const PAYMENT_CODE: Record<FiscalPaymentType, string> = {
+/** No cash on delivery: it is refused, never printed as cash. */
+const PAYMENT_CODE: Partial<Record<FiscalPaymentType, string>> = {
   cash: 'P',
   card: 'N',
   check: 'C',
   voucher: 'D',
 }
+const DRIVER = "LGR's Datecs driver"
 
 const STORNO_REASON_CODE: Record<StornoReason, number> = {
   operator_error: 0,
@@ -114,7 +117,7 @@ export class WebSocketFiscalPrinter implements IFiscalPrinter {
   }
 
   async printPayment(type: FiscalPaymentType, amount: number): Promise<void> {
-    const code = PAYMENT_CODE[type] || 'P'
+    const code = paymentCode(PAYMENT_CODE, type, DRIVER)
     await this.send(CMD.PAYMENT, `\t${code}${amount.toFixed(2)}`)
   }
 
@@ -140,6 +143,8 @@ export class WebSocketFiscalPrinter implements IFiscalPrinter {
     lines: { name: string; quantity: number; price: number; vatGroup: VatGroup }[],
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
+    // A payment this driver cannot print is refused before the storno receipt is opened.
+    paymentCode(PAYMENT_CODE, payment.type, DRIVER)
     const dd = String(originalDate.getDate()).padStart(2, '0')
     const mm = String(originalDate.getMonth() + 1).padStart(2, '0')
     const yy = String(originalDate.getFullYear()).slice(-2)

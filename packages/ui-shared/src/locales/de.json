@@ -872,6 +872,40 @@
       "documents": "Belege",
       "receipts": "Bons",
       "z": "Z-Bericht Nr."
+    },
+    "device": {
+      "why": {
+        "protocol": {
+          "readOperator": "{brand}-Geräte können ihre Bediener nicht auslesen — programmieren Sie sie hier",
+          "operatorReport": "Das {brand}-Protokoll hat keinen Bedienerbericht",
+          "electronicJournal": "Das {brand}-Protokoll hat keinen Ausdruck des elektronischen Journals (KLEN)",
+          "other": "Das {brand}-Protokoll hat keinen solchen Befehl"
+        },
+        "driver": "Der LGR-Treiber für dieses {brand}-Gerät unterstützt das noch nicht",
+        "noDriver": "LGR kann dieses {brand}-Gerät über diese Verbindung nicht öffnen"
+      },
+      "operators": {
+        "eltradePassword": "Bei Eltrade bestätigt das Passwort die Änderung: Geben Sie das Passwort des Bedieners am Gerät ein (4–8 Ziffern). Drei falsche Passwörter sperren das Gerät, bis es aus- und wieder eingeschaltet wird."
+      },
+      "paymentTypes": {
+        "title": "Zahlungsarten",
+        "hint": "Lesen Sie die Namen, die das Gerät für seine Zahlungsarten druckt.",
+        "read": "Vom Gerät lesen",
+        "code": "Code",
+        "name": "Name auf dem Gerät",
+        "usedFor": "LGR druckt",
+        "uses": {
+          "cash": "Bar",
+          "card": "Karte",
+          "check": "Scheck",
+          "voucher": "Gutschein",
+          "cash_on_delivery": "Nachnahme"
+        },
+        "nameCod": "{code} „{name}“ benennen",
+        "codHint": "Eine Nachnahme wird als {code} gedruckt. Benennen Sie es, damit der Beleg „{name}“ zeigt.",
+        "named": "{code} heißt auf dem Gerät jetzt „{name}“",
+        "adminOnly": "Nur ein Administrator kann eine Zahlungsart benennen."
+      }
     }
   },
   "cashRegister": {

@@ -1,14 +1,17 @@
 /**
  * An Eltrade fiscal device on the other end of the wire, for driver and POS tests.
  *
- * Built from "ELTRADE Комуникационен протокол" v1.1.1, not from the driver: it validates
- * every frame (LEN, BCC), keeps the receipt state machine, raises the documented status
- * bits, answers NAK to a bad frame and — the rule a retransmit depends on — REPLAYS its last
- * answer, without executing anything, when it sees the same SEQ twice in a row.
+ * Built from "ELTRADE Комуникационен протокол" v1.1.1 (re-checked against v1.1.7), not from the
+ * driver: it validates every frame (LEN, BCC), keeps the receipt state machine, raises the
+ * documented status bits, answers NAK to a bad frame and — the rule a retransmit depends on —
+ * REPLAYS its last answer, without executing anything, when it sees the same SEQ twice in a row.
  *
  * Where the protocol leaves a behaviour open the simulator takes the STRICT reading, so the
  * driver is tested against the least forgiving device: a УНП whose prefix is not this
- * device's serial is a syntax error, and a non-cash tender above what is due is refused.
+ * device's serial is a syntax error, a non-cash tender above what is due is refused, a report
+ * (X, Z, fiscal memory) is refused while a receipt is open, its period must be one the protocol
+ * spells, and an operator's password must match the one it was first programmed with (three
+ * wrong ones block the device until `powerCycle()`).
  *
  * Fault injection (each counter is consumed per frame): `nakNext` answers NAK before looking
  * at the frame; `loseNextAnswers` executes the command but "loses" the answer on the line,
@@ -35,6 +38,47 @@ export interface SimReceipt {
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 const GROUPS = ['А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'З']
 
+/** Commands that print: refused with "no paper" when the roll is out. */
+const PRINTING = [0x26, 0x27, 0x2A, 0x31, 0x35, 0x38, 0x45, 0x49, 0x4F, 0x5E, 0x5F, 0x90]
+
+/**
+ * The data each fiscal-memory report takes (v1.1.7). By number: `Start,End`, 4 digits each — 49h
+ * may also take nothing (the whole life of the device) and the '#' (SHA-1) / '*' (skip zero
+ * groups) prefixes. By date: `DDMMYY,DDMMYY`, or a month `MMYY` or a year `YY` alone; 5Eh takes the
+ * same prefixes.
+ */
+const FM_REPORT_DATA: Record<number, RegExp> = {
+  0x49: /^(?:#?\*?(\d{4}),(\d{4}))?$/,
+  0x5F: /^(\d{4}),(\d{4})$/,
+  0x4F: /^(?:(\d{6}),(\d{6})|(\d{4})|(\d{2}))$/,
+  0x5E: /^#?\*?(?:(\d{6}),(\d{6})|(\d{4})|(\d{2}))$/,
+}
+
+/** A real DDMMYY day, as a sortable YYMMDD; null for 310226 and the like. */
+function fmDay(ddmmyy: string): string | null {
+  const [dd, mm, yy] = [ddmmyy.slice(0, 2), ddmmyy.slice(2, 4), ddmmyy.slice(4, 6)].map(Number)
+  const d = new Date(Date.UTC(2000 + yy, mm - 1, dd))
+  return d.getUTCDate() === dd && d.getUTCMonth() === mm - 1 ? ddmmyy.slice(4, 6) + ddmmyy.slice(2, 4) + ddmmyy.slice(0, 2) : null
+}
+
+/** Strict: the shape the protocol spells, real dates and months, and a period that does not run backwards. */
+export function validFmReportData(cmd: number, text: string): boolean {
+  const m = FM_REPORT_DATA[cmd]?.exec(text)
+  if (!m) return false
+  const [, a, b, month] = m
+  if (month !== undefined) return Number(month.slice(0, 2)) >= 1 && Number(month.slice(0, 2)) <= 12
+  if (a === undefined || b === undefined) return true // a year, or 49h's whole period
+  if (a.length === 4) return Number(a) <= Number(b)
+  const [from, to] = [fmDay(a), fmDay(b)]
+  return !!from && !!to && from <= to
+}
+
+/** Placeholder names for the 11 payment slots (55h) — not any device's factory names. */
+const DEFAULT_PAYMENT_NAMES: Record<string, string> = {
+  P: 'В БРОЙ', N: 'ЧЕК', C: 'ТАЛОН', D: 'В.ТАЛОН', I: 'АМБАЛАЖ', J: 'ВЪТР.ОБСЛУЖВАНЕ',
+  K: 'ПОВРЕДИ', L: 'КАРТА', M: 'БАНКА', Q: 'НЗОК', R: 'РЕЗЕРВ',
+}
+
 export class EltradeSimulator {
   // ── identity & configuration ──
   serial = 'ED123456'
@@ -47,6 +91,11 @@ export class EltradeSimulator {
   terminalDown = false
   /** How amounts come back: "12.50" or an integer count of cents ("1250"). */
   amountFormat: 'decimal' | 'cents' = 'decimal'
+  /**
+   * How 55h answers a read: the bare name, or `P\<name>` — the protocol's `Result\Name` leaves both
+   * readings open, and the driver must take either.
+   */
+  paymentNameAnswer: 'bare' | 'prefixed' = 'bare'
   clock = new Date('2026-07-15T09:00:00Z')
 
   // ── fault injection ──
@@ -72,7 +121,19 @@ export class EltradeSimulator {
   executed: { cmd: number; data: string }[] = []
   /** Every frame received, replays and rejected ones included. */
   frames = 0
-  operators: Record<number, string> = {}
+  /** 66h: operator 1–16 → its name and the password that authenticates the next change. */
+  operators: Record<number, { name: string; password: string }> = {}
+  /** 55h: the name the device prints for each payment slot. */
+  paymentNames: Record<string, string> = { ...DEFAULT_PAYMENT_NAMES }
+  /** Wrong operator passwords in a row; the third blocks the device (66h). */
+  wrongPasswords = 0
+  locked = false
+
+  /** Switch the device off and on: what a block after three wrong passwords needs. */
+  powerCycle(): void {
+    this.locked = false
+    this.wrongPasswords = 0
+  }
 
   exchange = async (frame: Buffer | Uint8Array): Promise<Buffer> => {
     this.frames++
@@ -127,8 +188,10 @@ export class EltradeSimulator {
     const text = decodeCp1251(raw)
     const flags = { syntax: false, invalid: false, notAllowed: false, noPaper: false }
     let out = ''
-    const prints = [0x26, 0x27, 0x2A, 0x31, 0x35, 0x38, 0x45, 0x90].includes(cmd)
-    if (prints && !this.paper) {
+    const prints = PRINTING.includes(cmd)
+    if (this.locked && cmd !== 0x4A) {
+      flags.notAllowed = true // blocked after three wrong passwords; only the status still answers
+    } else if (prints && !this.paper) {
       flags.noPaper = true
     } else {
       out = this.run(cmd, text, flags)
@@ -244,6 +307,8 @@ export class EltradeSimulator {
         return ''
       case 0x45: {
         if (this.receipt || this.nonFiscalOpen) { flags.notAllowed = true; return '' }
+        // [<Option>[N]: '0' Z, '2' X, then 'N' or 'a' (keep the operators' / items' data).
+        if (!/^(?:[02][Na]?)?$/.test(text)) { flags.syntax = true; return '' }
         const zeroing = text === '' || text.startsWith('0')
         const answer = `${String(this.closure + (zeroing ? 1 : 0)).padStart(4, '0')},${this.money(this.dayTotal)},0,0,0,0,0,0,0,0`
         if (zeroing) { this.closure++; this.dayTotal = 0 }
@@ -251,12 +316,34 @@ export class EltradeSimulator {
         return answer
       }
       case 0x49: case 0x4F: case 0x5E: case 0x5F:
+        if (this.receipt || this.nonFiscalOpen) { flags.notAllowed = true; return '' }
+        if (!validFmReportData(cmd, text)) { flags.syntax = true; return '' }
         this.reports.push({ cmd, data: text })
         return ''
+      case 0x55: {
+        // Option[,Name]: the slot alone reads its name; with a name (≤ 20) sets it — 'F' if longer.
+        const m = /^([PNCDIJKLMQR])(?:,(.*))?$/s.exec(text)
+        if (!m) { flags.syntax = true; return '' }
+        const [, code, name] = m
+        if (name === undefined) return this.paymentNameAnswer === 'prefixed' ? `P\\${this.paymentNames[code]}` : this.paymentNames[code]
+        if (name.length > 20) return 'F'
+        this.paymentNames[code] = name
+        return 'P'
+      }
       case 0x66: {
-        const [n, pwd, ...name] = text.split(',')
-        if (!/^\d{1,2}$/.test(n) || !/^\d{4,8}$/.test(pwd)) { flags.syntax = true; return '' }
-        this.operators[Number(n)] = name.join(',')
+        // <OpCode>,<Pwd>,<OpName>: operator 1–16, password 4–8 digits, name up to 24.
+        const m = /^(\d{1,2}),(\d{4,8}),(.*)$/s.exec(text)
+        if (!m || Number(m[1]) < 1 || Number(m[1]) > 16 || m[3].length > 24) { flags.syntax = true; return '' }
+        const n = Number(m[1])
+        // An empty location takes the password it is first given; after that it must match.
+        const known = this.operators[n]?.password
+        if (known && known !== m[2]) {
+          flags.notAllowed = true
+          if (++this.wrongPasswords >= 3) this.locked = true
+          return ''
+        }
+        this.wrongPasswords = 0
+        this.operators[n] = { name: m[3], password: m[2] }
         return ''
       }
       default:

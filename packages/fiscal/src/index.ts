@@ -7,14 +7,23 @@ export type {
   FiscalConnectionConfig,
   VatGroup,
   FiscalPaymentType,
+  FiscalPaymentName,
   StornoReason,
   FiscalExchangeOptions,
 } from './types.js'
 
-export { toFiscalPaymentType, toVatGroup } from './types.js'
+export { toFiscalPaymentType, toVatGroup, paymentCode, FiscalUnsupportedError } from './types.js'
 export { DatecsFiscalPrinter, buildFrame, parseResponse, CMD } from './datecs.js'
 export { TremolFiscalPrinter, buildTremolFrame, parseTremolResponse, TREMOL_CMD } from './tremol.js'
-export { EltradeFiscalPrinter, EltradeError, ELTRADE_CMD, decodeEltradeStatus, type EltradeStatus } from './eltrade.js'
+export {
+  EltradeFiscalPrinter, EltradeError, ELTRADE_CMD, ELTRADE_PAYMENT_SLOTS, decodeEltradeStatus,
+  type EltradeStatus, type EltradeErrorKind,
+} from './eltrade.js'
+export {
+  fiscalCapabilities, fiscalDriverFor, unsupportedReason, FISCAL_FEATURES, FEATURE_METHODS, CASH_ON_DELIVERY_NAME,
+  type FiscalCapabilities, type FiscalFeature, type FiscalDriver, type FiscalMissing,
+} from './capabilities.js'
+export { fiscalFailure, FiscalNotConnectedError, type FiscalFailure, type FiscalFailureCode } from './errors.js'
 export { buildIslFrame, parseIslStream, ISL } from './isl-frame.js'
 export { IslTcpTransport } from './isl-tcp.js'
 export { WebSocketFiscalPrinter, type SendCommandFn } from './ws-fiscal-printer.js'
