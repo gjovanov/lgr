@@ -61,7 +61,7 @@
       <span :title="item.hasTime ? '' : $t('cashRegister.noTime')">{{ fmtDate(item) }}</span>
     </template>
     <template #item.kind="{ item }">
-      <v-chip size="small" label :color="item.kind === 'storno' ? 'error' : 'success'" data-testid="journal-kind-chip">
+      <v-chip size="small" label :color="kindColor(item.kind)" data-testid="journal-kind-chip">
         {{ $t(`cashRegister.kind.${item.kind}`) }}
       </v-chip>
     </template>
@@ -94,7 +94,7 @@
           variant="tonal"
           :color="item.invoicingState === 'full' ? 'primary' : 'warning'"
           v-bind="linkProps(invoiceLink(inv))"
-          :title="item.invoicingState === 'partial' ? $t('invoicing.cashSaleInvoice.statePartial') : $t('invoicing.cashSaleInvoice.stateFull')"
+          :title="item.kind === 'payment' ? $t('cashRegister.receipt.paidInvoice') : item.invoicingState === 'partial' ? $t('invoicing.cashSaleInvoice.statePartial') : $t('invoicing.cashSaleInvoice.stateFull')"
         >
           {{ inv.number }}
         </v-chip>
@@ -157,6 +157,7 @@ import { useCurrency } from '../../composables/useCurrency'
 import { useSnackbar } from '../../composables/useSnackbar'
 import { paymentMethodKey } from '../../composables/usePaymentMethods'
 import { canStornoJournalRow } from '../../cash-register/storno'
+import { kindColor } from '../../cash-register/journal-kind'
 import { appHref } from '../../nav/navigate'
 
 const props = defineProps<{
@@ -183,7 +184,7 @@ const { t } = useI18n()
 const { formatCurrency } = useCurrency()
 const { showSuccess, showSnackbar } = useSnackbar()
 
-const KINDS = ['sale', 'storno']
+const KINDS = ['sale', 'storno', 'payment']
 const ORIGINS = ['pos', 'backoffice', 'import']
 const STATUSES = ['completed', 'stornoed', 'voided']
 const FISCAL_STATES = ['printed', 'pending', 'failed', 'unknown', 'none']

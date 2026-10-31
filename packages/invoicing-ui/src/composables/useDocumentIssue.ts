@@ -2,6 +2,7 @@ import { ref, watch, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
+import { receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useAppStore } from '../store/app.store'
 import {
@@ -77,6 +78,11 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
    * on. The form shows it on the draft (FR-22 §5.2); the list has the snackbar.
    */
   const lastError = ref('')
+  /**
+   * FR-23: the document was issued and its receipt did not print. It is issued and unpaid; the form
+   * shows why, and takes the payment again.
+   */
+  const lastReceiptError = ref('')
 
   /** The document waiting on the transfer dialog, and what its caller does once it is issued. */
   let pending: { id: string; type: string; then?: (invoice: any) => Promise<void> | void } | null = null
@@ -90,12 +96,14 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
 
   async function finish(invoice: any, type: string, then?: (invoice: any) => Promise<void> | void) {
     lastError.value = ''
+    lastReceiptError.value = invoice?.receiptError ? t('cashRegister.receipt.issuedNotPaid', { reason: invoice.receiptError }) : ''
+    if (lastReceiptError.value) showError(lastReceiptError.value)
     await opts.onIssued?.(invoice, type)
     await then?.(invoice)
   }
 
   function failed(e: any): IssueOutcome {
-    lastError.value = e?.response?.data?.message || t('common.operationFailed')
+    lastError.value = receiptRefusalMessage(t, e, t('common.operationFailed'))
     showError(lastError.value)
     return 'failed'
   }
@@ -120,7 +128,7 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
       // Stock sufficient — send directly. #155: an unanswered attempt keeps its key, so issuing
       // again returns that issue — never a second dispatch or number.
       const issued = await issueAttempt.run({ id: doc._id }, headers => sendIssue(httpClient, appStore.orgUrl(), doc._id, {}, headers))
-      showSuccess(t(ISSUED_KEY[type] || ISSUED_KEY.invoice))
+      if (!issued?.receiptError) showSuccess(t(ISSUED_KEY[type] || ISSUED_KEY.invoice))
       await finish(issued, type, then)
       return 'issued'
     } catch (e: any) {
@@ -141,7 +149,7 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
       // Send invoice with pending transfer IDs (backend confirms transfers first)
       const sendBody = { pendingTransferIds: transferIds }
       const issued = await issueAttempt.run({ id, ...sendBody }, headers => sendIssue(httpClient, appStore.orgUrl(), id, sendBody, headers))
-      showSuccess(t(ISSUED_KEY[type] || ISSUED_KEY.invoice))
+      if (!issued?.receiptError) showSuccess(t(ISSUED_KEY[type] || ISSUED_KEY.invoice))
       pending = null
       transfer.open.value = false
       await finish(issued, type, then)
@@ -153,5 +161,5 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
     }
   }
 
-  return { transfer, issue, confirmTransfers, lastError }
+  return { transfer, issue, confirmTransfers, lastError, lastReceiptError }
 }

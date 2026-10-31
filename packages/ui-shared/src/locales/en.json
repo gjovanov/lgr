@@ -1655,7 +1655,23 @@
     },
     "kind": {
       "sale": "Sale",
-      "storno": "Storno"
+      "storno": "Storno",
+      "payment": "Invoice payment"
+    },
+    "receipt": {
+      "noSession": "Open a session at the till first: a payment at the counter prints its receipt on that session's device.",
+      "inProgress": "Another payment on this document is printing. Wait for it to finish, then try again.",
+      "fiscallyPaid": "A fiscal receipt has printed for this document, so its total can no longer change and it cannot be voided. Correct it with a credit or a debit note.",
+      "currency": "The till's device prints in another currency than this document's. Take this payment by bank.",
+      "notPrintable": "This document's money cannot be split per VAT rate for a receipt. Take this payment by bank.",
+      "notIssued": "Issue this document first: its receipt names its number.",
+      "willPrint": "Saving prints a fiscal receipt on your session's device.",
+      "printAgain": "Print again",
+      "printed": "Payment recorded, receipt {number} printed",
+      "unknown": "Payment recorded, but check the device: {reason}",
+      "issuedNotPaid": "Issued, but the receipt did not print, so it is still unpaid: {reason}",
+      "takePayment": "Take the payment",
+      "paidInvoice": "Invoice paid"
     },
     "origin": {
       "pos": "Till",

@@ -22,6 +22,7 @@ import { appHref } from 'ui-shared/nav/navigate'
 import type { FormAction, SmartButtonDef, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import type { DocumentTypeConfig } from './types'
 import { useDocumentIssue } from '../useDocumentIssue'
+import { canRecordPayment } from '../document-row-actions'
 import {
   buildPayload as buildPayloadPure,
   buildProductUpdates,
@@ -1105,6 +1106,11 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const correctable = computed(() =>
     isEdit.value && (config.docType === 'invoice' || config.docType === 'purchase_invoice') && CORRECTABLE.includes(invoiceStatus.value),
   )
+  /** FR-23: a sales document that still owes, as the lists offer it (`canRecordPayment`). */
+  const payable = computed(() =>
+    isEdit.value && config.direction === 'outgoing' && (config.docType === 'invoice' || config.docType === 'debit_note')
+    && !cashSaleRef.value && canRecordPayment({ type: config.apiType, status: invoiceStatus.value, direction: config.direction }),
+  )
   /** FR-22.22: a proforma becomes an invoice once — and not after it was voided. */
   const convertible = computed(() => config.docType === 'proforma' && !['converted', 'voided', 'cancelled'].includes(invoiceStatus.value))
 
@@ -1147,6 +1153,11 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     const issued: FormAction[] = []
     if (convert) issued.push({ ...convert, color: 'primary', variant: 'flat', primary: true })
     if (config.editSaveGate !== 'draft-only') issued.push(issued.length ? outlinedSave : save)
+    // FR-23: an issued invoice or debit note is paid from its own form too. It is how a payment
+    // whose receipt failed is taken again.
+    if (payable.value) {
+      issued.push({ label: t('invoicing.recordPayment'), icon: 'mdi-cash', variant: 'outlined', handler: () => { paymentDialog.value = true } })
+    }
     issued.push(...notes)
     if (attachable.value) {
       issued.push({ label: t('invoicing.cashSaleInvoice.attach'), icon: 'mdi-link-variant', variant: 'outlined', handler: () => { attachDialogOpen.value = true } })
@@ -1452,6 +1463,19 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const issuingWithPrint = ref(false)
   /** Why the document is still a draft after it was asked to be issued (FR-22 §5.2). */
   const issueError = issuer.lastError
+  /** FR-23: issued, and its receipt did not print: unpaid, and the Pay action takes the money again. */
+  const receiptError = issuer.lastReceiptError
+
+  // ── a payment on the document (FR-23) ──
+  const paymentDialog = ref(false)
+  /** What the payment dialog reads off the document it pays. */
+  const payableDoc = computed(() => (invoiceData.value
+    ? { ...invoiceData.value, _id: String(route.params.id), type: config.apiType, direction: config.direction }
+    : null))
+  async function onPaymentRecorded() {
+    receiptError.value = ''
+    await loadDocument()
+  }
 
   /**
    * „Издай" / „Запази и издай" / „Издай и печатай": save what the form shows when it differs from
@@ -1911,6 +1935,10 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     issuing,
     issueFromForm,
     issueError,
+    receiptError,
+    paymentDialog,
+    payableDoc,
+    onPaymentRecorded,
     transfer: issuer.transfer,
     confirmTransfers: issuer.confirmTransfers,
     // FR-22.27: place of deal

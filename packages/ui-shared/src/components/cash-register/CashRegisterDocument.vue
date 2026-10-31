@@ -4,7 +4,7 @@
       <v-btn icon="mdi-arrow-left" variant="text" :to="backRoute" :aria-label="$t('cashRegister.detail.back')" />
       <h1 class="text-h5" data-testid="journal-document-title">{{ doc?.row.number || '' }}</h1>
       <template v-if="doc">
-        <v-chip size="small" label :color="doc.row.kind === 'storno' ? 'error' : 'success'">{{ $t(`cashRegister.kind.${doc.row.kind}`) }}</v-chip>
+        <v-chip size="small" label :color="kindColor(doc.row.kind)">{{ $t(`cashRegister.kind.${doc.row.kind}`) }}</v-chip>
         <v-chip size="small" label :color="statusColor(doc.row.status)" data-testid="journal-document-status">{{ $t(`cashRegister.status.${doc.row.status}`) }}</v-chip>
         <v-chip size="small" variant="tonal">{{ $t(`cashRegister.origin.${doc.row.origin}`) }}</v-chip>
       </template>
@@ -47,6 +47,11 @@
               <div>{{ $t(`cashRegister.fiscalState.${doc.row.fiscal.state}`) }}</div>
             </v-col>
             <v-col v-if="doc.row.reference" cols="12" sm="6" md="3"><div class="text-caption text-medium-emphasis">{{ $t('cashRegister.columns.reference') }}</div><div>{{ doc.row.reference }}</div></v-col>
+            <!-- FR-23: the invoice a payment's receipt took money for. -->
+            <v-col v-for="inv in doc.row.kind === 'payment' ? doc.row.invoices : []" :key="inv.id" cols="12" sm="6" md="3">
+              <div class="text-caption text-medium-emphasis">{{ $t('cashRegister.receipt.paidInvoice') }}</div>
+              <a :href="appHref('invoicing', `/invoicing/invoices/${inv.id}/edit`)" class="text-decoration-none" data-testid="journal-paid-invoice">{{ inv.number }}</a>
+            </v-col>
           </v-row>
         </v-card-text>
       </v-card>
@@ -164,6 +169,8 @@ import { useCurrency } from '../../composables/useCurrency'
 import { useSnackbar } from '../../composables/useSnackbar'
 import { paymentMethodKey } from '../../composables/usePaymentMethods'
 import { canStornoJournalRow } from '../../cash-register/storno'
+import { kindColor } from '../../cash-register/journal-kind'
+import { appHref } from '../../nav/navigate'
 
 const props = defineProps<{
   orgUrl: string
@@ -202,7 +209,8 @@ async function load() {
 
 watch(() => [props.orgUrl, props.id], () => { if (props.id) void load() }, { immediate: true })
 
-const documentLink = computed(() => (doc.value && props.documentRoute ? props.documentRoute(doc.value.row) : null))
+// FR-23: a payment's receipt has no form of its own: it names the invoice it paid, on this page.
+const documentLink = computed(() => (doc.value && props.documentRoute && doc.value.row.kind !== 'payment' ? props.documentRoute(doc.value.row) : null))
 const canStorno = computed(() => canStornoJournalRow(doc.value?.row, props.role))
 
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[props.locale || 'en'] || 'en-US')

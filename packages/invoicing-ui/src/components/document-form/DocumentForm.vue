@@ -218,6 +218,25 @@
       {{ $t('invoicing.issueFlow.notIssued', { reason: issueError }) }}
     </v-alert>
 
+    <!-- FR-23: issued and unpaid, because its receipt did not print. -->
+    <v-alert
+      v-if="receiptError && !isDraftDoc"
+      type="error"
+      variant="tonal"
+      density="compact"
+      class="mb-3"
+      closable
+      data-testid="receipt-error"
+      @click:close="receiptError = ''"
+    >
+      {{ receiptError }}
+      <template #append>
+        <v-btn size="small" variant="outlined" data-testid="receipt-retry" @click="paymentDialog = true">{{ $t('cashRegister.receipt.takePayment') }}</v-btn>
+      </template>
+    </v-alert>
+
+    <RecordPaymentDialog v-model="paymentDialog" :document="payableDoc" @recorded="onPaymentRecorded" />
+
     <SendEmailDialog
       v-model="showEmailDialog"
       :default-to="contactEmail"
@@ -511,6 +530,7 @@ import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
 import AttachToCashSaleDialog from '../AttachToCashSaleDialog.vue'
+import RecordPaymentDialog from '../RecordPaymentDialog.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import BankInfoRow from '../BankInfoRow.vue'
@@ -606,6 +626,10 @@ const {
   onAttached,
   lastPrint,
   issueError,
+  receiptError,
+  paymentDialog,
+  payableDoc,
+  onPaymentRecorded,
   isDraftDoc,
   confirmTransfers,
   stockReceipts,

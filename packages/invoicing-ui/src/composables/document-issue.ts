@@ -94,5 +94,6 @@ export async function sendIssue(
   headers: Record<string, string> = {},
 ): Promise<any> {
   const { data } = await client.post(`${orgUrl}/invoices/${id}/send`, body, { headers })
-  return data?.invoice
+  // FR-23: issued, and its receipt did not print. The issue stands; the caller says so.
+  return data?.receiptError ? { ...data.invoice, receiptError: data.receiptError, receipt: data.receipt } : data?.invoice
 }
