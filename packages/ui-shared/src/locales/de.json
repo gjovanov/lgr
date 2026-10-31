@@ -849,6 +849,23 @@
       "notConfigured": "Für dieses Lager ist kein Fiskaldrucker eingerichtet. Wenden Sie sich an den Administrator."
     },
     "sessionDocuments": "Barverkäufe der Sitzung {number}",
+    "deviceReport": {
+      "menu": "Geräteberichte",
+      "noDevice": "Kein Fiskalgerät für diese Sitzung",
+      "notConnected": "{name} ist nicht verbunden",
+      "x": "X-Bericht",
+      "fmByDate": "Fiskalspeicher nach Datum",
+      "fmByNumber": "Fiskalspeicher nach Z-Nummer",
+      "ej": "Elektronisches Journal",
+      "operator": "Bedienerbericht",
+      "numberFrom": "Erster Z-Bericht Nr.",
+      "numberTo": "Letzter Z-Bericht Nr.",
+      "detailed": "Detailliert",
+      "operatorNumber": "Bediener",
+      "allOperators": "Alle Bediener",
+      "print": "Drucken",
+      "printed": "Der Bericht wurde auf dem Fiskalgerät gedruckt."
+    },
     "sessionReport": {
       "title": "Sitzungsbericht",
       "view": "Sitzungsbericht",

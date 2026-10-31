@@ -77,6 +77,12 @@ server what the device's driver supports (`capabilities` on `GET /fiscal/device/
 | Payment types → Read from Device | yes, the 11 slots P N C D I J K L M Q R | 55h `<slot>` |
 | Payment types → Name R „НАЛОЖЕН ПЛАТЕЖ“ | yes, admin only, audited | 55h `R,НАЛОЖЕН ПЛАТЕЖ` |
 
+The same reports print from **POS Sessions**, from a session's row: an X while the session is open,
+the fiscal memory by date (prefilled with the session's days) or by Z number (prefilled with its
+Z-report), short or detailed. A closed session prints on the device it closed on. There is no Z
+there: a Z runs only through a session's close, and one printed outside it makes the next close
+print zeros.
+
 - **A report never touches a receipt that is still printing.** While a sale (or a service receipt)
   is printing, X, Z and every fiscal-memory report are refused with "A sale is printing on this
   device…" (HTTP 409 `receipt_open`): wait for it to finish, then try again. They used to void the

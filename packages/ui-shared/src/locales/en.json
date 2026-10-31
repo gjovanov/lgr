@@ -1550,6 +1550,23 @@
       "notConfigured": "No fiscal printer is set up for this warehouse. Ask an admin to set one up."
     },
     "sessionDocuments": "Cash sales of session {number}",
+    "deviceReport": {
+      "menu": "Device reports",
+      "noDevice": "No fiscal device for this session",
+      "notConnected": "{name} is not connected",
+      "x": "X-report",
+      "fmByDate": "Fiscal memory by date",
+      "fmByNumber": "Fiscal memory by Z number",
+      "ej": "Electronic journal",
+      "operator": "Operator report",
+      "numberFrom": "First Z-report no.",
+      "numberTo": "Last Z-report no.",
+      "detailed": "Detailed",
+      "operatorNumber": "Operator",
+      "allOperators": "All operators",
+      "print": "Print",
+      "printed": "The report was printed on the fiscal device."
+    },
     "sessionReport": {
       "title": "Session report",
       "view": "Session report",

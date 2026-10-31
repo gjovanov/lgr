@@ -981,6 +981,10 @@ LGR implements СУПТО (Софтуер за Управление на Про�
 - **`errors.ts`** — `fiscalFailure(e)`: a driver error as an HTTP answer (input 400, unsupported 400, device
   refused / receipt open 409, unreadable answer 502, not connected 503, timeout 504). The device endpoints used
   to answer 500 to everything.
+- **`device-command.ts`** — `onDevice` and `printDeviceReport`: one command on a device, and the X, fiscal-memory,
+  КЛЕН and operator reports, as an API answers them. In `fiscal` because two controllers print them and
+  `invoicing-api` cannot import `portal-api`. ⚠ It has no Z: on the device page that is its own route, and from
+  POS Sessions it does not exist (a Z outside the close makes the next close print zeros).
 - **`fiscal-device.service.ts`** — in-memory connection manager (`connect`, `disconnect`, `getPrinter`, `registerPrinter`, `unregisterPrinter`)
 - **`fiscal-bridge.ts`** (portal-api/websocket/) — WebSocket endpoint `/ws/fiscal-bridge`, with **two
   kinds of bridge**: a browser tab over Web Serial, and (since FR-14.26) a registered **LGR Desktop**
@@ -1006,6 +1010,13 @@ LGR implements СУПТО (Софтуер за Управление на Про�
     Rust, never Bun**: Bun + `serialport` on Windows opens the port and writes but never delivers
     received bytes, which made the Eltrade A3 look dead for two days in September. The drivers stay
     on the hub and УНП allocation stays there too — the shell only moves bytes.
+- **POS Sessions prints a device's reports**: `POST /trade/pos/session/:id/device-report` (`kind`: `x`, `fm_date`,
+  `fm_number`, `ej`, `operator`), and `GET` of the same path for what the menu offers. A closed session prints on
+  its `fiscalDeviceId`; an open one on its warehouse's device, found as the close finds it (`resolveFiscalDeviceForClose`).
+  An X is for an open session only (409 `session_not_open`: it reads the device's day as it stands). Roles are the
+  device page's, so `sales` gets 403, and the route has its own `self` rule in `route-permission` because
+  `warehouse_manager` runs devices with no `pos.write`. Capability first (400 `unsupported`, nothing sent), then
+  input, then 409 `fiscal_device_not_connected`; driver errors through `fiscalFailure`. Audited on the session.
 - **`bridge.ts`** — standalone serial-to-TCP bridge script for non-browser setups (`bun run packages/fiscal/src/bridge.ts`)
 - **`time-sync.service.ts`** — fiscal device clock sync (periodic, default 6h). Device clocks
   are Bulgarian time: format through `zoned-time.ts`, never `getHours()` (the pod is UTC).

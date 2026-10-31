@@ -45,6 +45,9 @@ export const EXACT_WRITE_RULES: ReadonlyMap<string, WriteRule> = new Map<string,
   // FR-21.18: the journal's storno, from the POS app's /pos/orders or invoicing's /cash-sales. The
   // route also requires a storno role (admin, manager, warehouse_manager), as the till's does.
   ['POST cash-register/documents/:id/storno', { need: ['pos.write', 'invoicing.write'] }],
+  // A device's reports, from POS Sessions: the device page's roles (a cashier holds `pos.write` and
+  // prints none; a warehouse manager runs the devices and holds no `pos.write`).
+  ['POST trade/pos/session/:id/device-report', { self: 'FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager' }],
   ['POST doc-import/extract', { need: ['invoicing.write', 'inventory.write'] }],
   ['POST doc-import/analyze', { self: 'PERMISSION_BY_TARGET: the write permission of the surface imported into' }],
   ['POST doc-import/commit', { self: 'PERMISSION_BY_TARGET: the write permission of the surface imported into' }],
@@ -194,6 +197,8 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
 export const EXACT_READ_RULES: ReadonlyMap<string, WriteRule> = new Map<string, WriteRule>([
   // A contact's amounts due and paid: the invoicing app's, not the pickers'.
   ['invoicing/contact/:id/summary', { need: INVOICING }],
+  // What the POS Sessions menu offers: the roles of the route it posts to.
+  ['trade/pos/session/:id/device-report', { self: 'FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager' }],
 ])
 
 /** The rule for a read route; `undefined` when there is none (refused, and a failing test). */

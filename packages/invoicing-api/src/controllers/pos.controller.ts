@@ -16,6 +16,8 @@ import {
 import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
 import { buildSessionReport, formatSessionReport, type SessionReport } from 'services/biz/cash-register/session-report'
 import { maySaleOpen } from 'fiscal/device-reach'
+import { fiscalCapabilities } from 'fiscal/capabilities'
+import { DEVICE_REPORT_KINDS, FISCAL_ADMIN_ROLES, printDeviceReport } from 'fiscal/device-command'
 import { fiscalFailure } from 'fiscal/errors'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
@@ -84,6 +86,16 @@ async function resolveFiscalDeviceForClose(orgId: string, warehouseId: string): 
   const devices = await r.fiscalDevices.findMany({ orgId, warehouseId, isActive: true } as any) as any[]
   if (!devices?.length) return null
   return devices.find(d => isDeviceConnected(d.id)) || devices[0]
+}
+
+/**
+ * The device a session's reports print on: the one its close used, once it is closed, and until
+ * then its warehouse's, found the way its close will find it.
+ */
+async function sessionReportDevice(orgId: string, session: any): Promise<any | null> {
+  if (session.status !== 'closed') return resolveFiscalDeviceForClose(orgId, String(session.warehouseId))
+  if (!session.fiscalDeviceId) return null
+  return getRepos().fiscalDevices.findOne({ id: String(session.fiscalDeviceId), orgId } as any)
 }
 
 /**
@@ -520,6 +532,65 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     })
     return { printed: true }
   }, { isSignIn: true })
+  /** The device a session's reports print on and what it can do, for the POS Sessions menu. */
+  .get('/session/:id/device-report', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    const session = await getRepos().posSessions.findOne({ id, orgId } as any) as any
+    if (!session) return status(404, { message: 'POS session not found' })
+    const device = await sessionReportDevice(orgId, session)
+    return {
+      device: device
+        ? {
+            id: device.id, name: device.name, deviceNumber: device.deviceNumber,
+            connected: isDeviceConnected(device.id),
+            capabilities: fiscalCapabilities(device.manufacturer, device.connectionType),
+          }
+        : null,
+    }
+  }, { isSignIn: true })
+  /**
+   * A report from POS Sessions, on the session's device: an X while it is open, the fiscal memory
+   * by date or Z number, the electronic journal, the operator report.
+   *
+   * ⚠ No Z: a Z runs only through the close (`fiscal/device-command`). The roles are the device
+   * page's, so a cashier prints none of these, and the route is its own in `route-permission`:
+   * `warehouse_manager` runs devices and holds no `pos.write`.
+   */
+  .post('/session/:id/device-report', async ({ params: { orgId, id }, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    const session = await getRepos().posSessions.findOne({ id, orgId } as any) as any
+    if (!session) return status(404, { message: 'POS session not found' })
+    // An X reads the device's day as it stands, which belongs to no session but an open one.
+    if (body.kind === 'x' && session.status !== 'open') {
+      return status(409, { code: 'session_not_open', message: 'An X-report reads the device\'s open day: only an open session has one.' })
+    }
+
+    const notConnected = (message: string) => status(409, { code: 'fiscal_device_not_connected', message })
+    const device = await sessionReportDevice(orgId, session)
+    if (!device) return notConnected('No fiscal printer is set up for this session.')
+
+    return printDeviceReport(status, device, body, {
+      notConnected,
+      audit: (action, entityName) => createAuditEntry({
+        orgId, userId: user.id, operatorCode: user.operatorCode, action,
+        module: 'pos', entityType: 'pos_session', entityId: id, entityName,
+      }),
+    })
+  }, {
+    isSignIn: true,
+    body: t.Object({
+      kind: t.Union(DEVICE_REPORT_KINDS.map(k => t.Literal(k))),
+      // A page sends null (or '') for a field left empty; `printDeviceReport` says what is missing.
+      startDate: t.Optional(t.Union([t.String(), t.Null()])),
+      endDate: t.Optional(t.Union([t.String(), t.Null()])),
+      startNumber: t.Optional(t.Union([t.Number(), t.String(), t.Null()])),
+      endNumber: t.Optional(t.Union([t.Number(), t.String(), t.Null()])),
+      detailed: t.Optional(t.Union([t.Boolean(), t.Null()])),
+      operatorNumber: t.Optional(t.Number()),
+    }),
+  })
 
   /**
    * FR-9.3–9.6 — the real close.

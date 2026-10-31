@@ -40,13 +40,26 @@ describe('FR-21.32 — the till writes need pos.write', () => {
     })
   }
 
+  /**
+   * The one exception, and it writes nothing of the till's: a device's reports from POS Sessions
+   * print on the device and run on the device page's roles, and `warehouse_manager` runs devices
+   * with no `pos.write`. Named by the whole route, so a new write cannot slip in beside it.
+   */
+  const DEVICE_REPORT = '/org/:orgId/trade/pos/session/:id/device-report'
+
   it('every write route of the till resolves to a rule that needs pos.write', () => {
-    const writes = (posController as any).routes.filter((r: any) => !['GET', 'HEAD', 'OPTIONS'].includes(r.method))
+    const writes = (posController as any).routes
+      .filter((r: any) => !['GET', 'HEAD', 'OPTIONS'].includes(r.method))
+      .filter((r: any) => r.path !== DEVICE_REPORT)
     expect(writes.length).toBeGreaterThan(3)
     for (const r of writes) {
       const rule: any = writeRuleFor(r.method, r.path)
       expect({ route: `${r.method} ${r.path}`, need: rule?.need }).toEqual({ route: `${r.method} ${r.path}`, need: ['pos.write'] })
     }
+  })
+
+  it('a device report decides for itself, on the device page\'s roles', () => {
+    expect((writeRuleFor('POST', DEVICE_REPORT) as any).self).toContain('FISCAL_ADMIN_ROLES')
   })
 
   it('a role without pos.write is refused at every till door, before anything is written', async () => {

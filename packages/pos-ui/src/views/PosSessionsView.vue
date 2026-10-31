@@ -91,15 +91,48 @@
           </template>
           <!-- The session's report: what its close printed after the Z-report, and a reprint. -->
           <template #item.actions="{ item }">
-            <v-btn
-              icon="mdi-file-chart-outline"
-              size="small"
-              variant="text"
-              :title="$t('pos.sessionReport.view')"
-              :aria-label="$t('pos.sessionReport.view')"
-              data-testid="session-report-open"
-              @click="openReport(item)"
-            />
+            <div class="d-flex justify-end">
+              <v-btn
+                icon="mdi-file-chart-outline"
+                size="small"
+                variant="text"
+                :title="$t('pos.sessionReport.view')"
+                :aria-label="$t('pos.sessionReport.view')"
+                data-testid="session-report-open"
+                @click="openReport(item)"
+              />
+              <!-- The device's own reports, for whoever runs the devices. No Z: it runs only through
+                   a session's close, and one printed here would make that close print zeros. -->
+              <v-menu v-if="runsDevices" @update:model-value="(open: boolean) => open && loadReportDevice(item)">
+                <template #activator="{ props: menu }">
+                  <v-btn
+                    v-bind="menu"
+                    icon="mdi-printer-pos-outline"
+                    size="small"
+                    variant="text"
+                    :title="$t('pos.deviceReport.menu')"
+                    :aria-label="$t('pos.deviceReport.menu')"
+                    data-testid="session-device-report"
+                  />
+                </template>
+                <v-list density="compact" min-width="280" data-testid="session-device-report-menu">
+                  <v-list-item v-if="deviceLoading"><v-progress-linear indeterminate /></v-list-item>
+                  <v-list-item v-else-if="!reportDevice" disabled :title="$t('pos.deviceReport.noDevice')" data-testid="device-report-none" />
+                  <template v-else>
+                    <v-list-subheader>
+                      {{ reportDevice.connected ? reportDevice.name : $t('pos.deviceReport.notConnected', { name: reportDevice.name }) }}
+                    </v-list-subheader>
+                    <v-list-item
+                      v-for="choice in reportChoices(item)"
+                      :key="choice.kind"
+                      :title="$t(choice.label)"
+                      :data-testid="`device-report-${choice.kind}`"
+                      @click="chooseReport(choice.kind, item)"
+                    />
+                  </template>
+                </v-list>
+              </v-menu>
+            </div>
           </template>
         </v-data-table-server>
       </v-card-text>
@@ -124,6 +157,46 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- What a report reads, prefilled from the session. An X reads nothing and prints at once. -->
+    <v-dialog v-model="paramsOpen" max-width="420">
+      <v-card v-if="paramsKind" data-testid="device-report-params">
+        <v-card-title>{{ $t(REPORT_LABEL[paramsKind]) }}</v-card-title>
+        <v-card-text>
+          <template v-if="paramsKind === 'fm_date' || paramsKind === 'ej'">
+            <v-text-field v-model="params.startDate" :label="$t('invoicing.dateFrom')" type="date" density="compact" data-testid="device-report-from" />
+            <v-text-field v-model="params.endDate" :label="$t('invoicing.dateTo')" type="date" density="compact" data-testid="device-report-to" />
+          </template>
+          <template v-if="paramsKind === 'fm_number'">
+            <v-text-field v-model.number="params.startNumber" :label="$t('pos.deviceReport.numberFrom')" type="number" min="1" density="compact" data-testid="device-report-from" />
+            <v-text-field v-model.number="params.endNumber" :label="$t('pos.deviceReport.numberTo')" type="number" min="1" density="compact" data-testid="device-report-to" />
+          </template>
+          <v-switch
+            v-if="paramsKind === 'fm_date' || paramsKind === 'fm_number'"
+            v-model="params.detailed"
+            :label="$t('pos.deviceReport.detailed')"
+            color="primary"
+            density="compact"
+            hide-details
+          />
+          <v-select
+            v-if="paramsKind === 'operator'"
+            v-model="params.operatorNumber"
+            :items="operatorOptions"
+            :label="$t('pos.deviceReport.operatorNumber')"
+            density="compact"
+            hide-details
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="paramsOpen = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="primary" variant="flat" prepend-icon="mdi-printer" :loading="deviceReportPrinting" data-testid="device-report-print" @click="printDeviceReport">
+            {{ $t('pos.deviceReport.print') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
@@ -137,6 +210,7 @@ import ChartView from 'ui-shared/components/ChartView.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { jwtRole } from 'ui-shared/composables/useStorageIdentity'
 import StatusPipeline from 'ui-shell/components/StatusPipeline'
 import SessionReportCard, { type SessionReportData } from '../components/SessionReportCard.vue'
 
@@ -214,6 +288,109 @@ async function printReport() {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     reportPrinting.value = false
+  }
+}
+
+// ── The device's own reports ──
+type ReportKind = 'x' | 'fm_date' | 'fm_number' | 'ej' | 'operator'
+interface ReportDevice { name: string; connected: boolean; capabilities: { features: Record<string, boolean>; maxOperators: number } }
+
+/** The roles of the device page's report routes: not a cashier. The server refuses them too. */
+const runsDevices = computed(() => ['admin', 'manager', 'warehouse_manager'].includes(appStore.user?.role || jwtRole()))
+
+const REPORT_LABEL: Record<ReportKind, string> = {
+  x: 'pos.deviceReport.x',
+  fm_date: 'pos.deviceReport.fmByDate',
+  fm_number: 'pos.deviceReport.fmByNumber',
+  ej: 'pos.deviceReport.ej',
+  operator: 'pos.deviceReport.operator',
+}
+
+const reportDevice = ref<ReportDevice | null>(null)
+const deviceLoading = ref(false)
+const deviceReportPrinting = ref(false)
+const reportSession = ref<any>(null)
+
+const paramsOpen = ref(false)
+const paramsKind = ref<ReportKind | null>(null)
+const params = ref<Record<string, any>>({})
+const operatorOptions = computed(() => [
+  { title: t('pos.deviceReport.allOperators'), value: 0 },
+  ...Array.from({ length: reportDevice.value?.capabilities.maxOperators || 0 }, (_, i) => ({ title: String(i + 1), value: i + 1 })),
+])
+
+/** The device this session's reports print on, as the server resolves it, asked when the menu opens. */
+async function loadReportDevice(item: any) {
+  reportDevice.value = null
+  deviceLoading.value = true
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/trade/pos/session/${item._id || item.id}/device-report`)
+    reportDevice.value = data.device
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    deviceLoading.value = false
+  }
+}
+
+/** What this row offers: what the device can do, and an X only while its day is the session's. */
+function reportChoices(item: any): { kind: ReportKind; label: string }[] {
+  const has = (feature: string) => !!reportDevice.value?.capabilities.features[feature]
+  const offered: [ReportKind, boolean][] = [
+    ['x', item.status === 'open' && has('xReport')],
+    ['fm_date', has('fmReportByDate')],
+    ['fm_number', has('fmReportByNumber')],
+    ['ej', has('electronicJournal')],
+    ['operator', has('operatorReport')],
+  ]
+  return offered.filter(([, on]) => on).map(([kind]) => ({ kind, label: REPORT_LABEL[kind] }))
+}
+
+/** The calendar day of an instant on the org's clock, else this browser's, as a date field holds it. */
+function orgDay(at: string | Date): string {
+  const parts = (timeZone?: string) => new Intl.DateTimeFormat('en-GB', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(at))
+  let found: Intl.DateTimeFormatPart[]
+  try {
+    found = parts((appStore.currentOrg as any)?.settings?.timezone || undefined)
+  } catch {
+    found = parts() // a zone the browser does not know
+  }
+  const part = (type: string) => found.find(p => p.type === type)?.value
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+/** Prefilled from the session: its days, its Z-report. */
+function chooseReport(kind: ReportKind, item: any) {
+  reportSession.value = item
+  paramsKind.value = kind
+  if (kind === 'x') {
+    params.value = {}
+    void printDeviceReport()
+    return
+  }
+  const z = Number(item.zReportNumber) || null
+  params.value = {
+    startDate: orgDay(item.openedAt),
+    endDate: orgDay(item.closedAt || new Date()),
+    startNumber: z,
+    endNumber: z,
+    detailed: false,
+    operatorNumber: 0,
+  }
+  paramsOpen.value = true
+}
+
+async function printDeviceReport() {
+  deviceReportPrinting.value = true
+  try {
+    const id = reportSession.value._id || reportSession.value.id
+    await httpClient.post(`${appStore.orgUrl()}/trade/pos/session/${id}/device-report`, { kind: paramsKind.value, ...params.value })
+    paramsOpen.value = false
+    showSuccess(t('pos.deviceReport.printed'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    deviceReportPrinting.value = false
   }
 }
 
