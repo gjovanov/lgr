@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { consumeTokenHandoff, signInHref } from 'ui-shared/nav/navigate'
+import { consumeTokenHandoff, goTo, signInHref } from 'ui-shared/nav/navigate'
 import { hasOrgSession } from 'ui-shared/session/session'
+import { moduleRoutes } from 'ui-shell/module'
+import { manifest } from '../manifest'
 
 /**
  * FR-06 (#14). Two kinds of route live here:
@@ -13,25 +15,7 @@ import { hasOrgSession } from 'ui-shared/session/session'
  * The runner is declared LAST so `/export` and `/aging` win over `/:id`.
  */
 const routes = [
-  {
-    path: '/',
-    component: () => import('../layouts/DefaultLayout.vue'),
-    children: [
-      { path: '', name: 'reports.hub', component: () => import('../views/ReportsHubView.vue'), meta: { breadcrumb: [{ title: 'Reports' }] } },
-
-      // ── Moved from invoicing-ui (FR-6.19) ──
-      { path: 'export', name: 'reports.export', component: () => import('../views/ReportingExportView.vue'), meta: { breadcrumb: [{ title: 'Reports', to: '/' }, { title: 'Export' }] } },
-      { path: 'aging', name: 'reports.aging', component: () => import('../views/InvoiceAgingView.vue'), meta: { breadcrumb: [{ title: 'Reports', to: '/' }, { title: 'Aging Report' }] } },
-
-      // ── SUPTO / НАП tables 18.1–18.9 (FR-06 P2) ──
-      // One view, nine catalog cards. It drives the existing `/supto/export/:tableId`
-      // endpoint because those workbooks are legally prescribed — see supto.report.ts.
-      { path: 'supto/:table', name: 'reports.supto', component: () => import('../views/SuptoTableView.vue'), meta: { breadcrumb: [{ title: 'Reports', to: '/' }, { title: 'SUPTO' }] } },
-
-      // ── Registry-driven (FR-6.9) ──
-      { path: ':id', name: 'reports.runner', component: () => import('../views/ReportRunnerView.vue'), meta: { breadcrumb: [{ title: 'Reports', to: '/' }, { title: 'Report' }] } },
-    ],
-  },
+  ...moduleRoutes(manifest, () => import('../layouts/DefaultLayout.vue'), import.meta.env.BASE_URL),
 ]
 
 export const router = createRouter({
@@ -52,7 +36,7 @@ router.beforeEach((to, _from, next) => {
   // An org session, in THIS tab. Without one: the portal's sign-in (or its org picker, for a person
   // signed in without an org), which brings the tab back to this page afterwards (FR-22.53).
   if (!hasOrgSession()) {
-    window.location.href = signInHref(router.options.history.base + to.fullPath)
+    goTo(signInHref(router.options.history.base + to.fullPath))
     return
   }
   next()

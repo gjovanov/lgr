@@ -74,7 +74,8 @@ import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
 import { useAppStore } from '../store/app.store'
 import { useNotificationStore } from '../store/notification.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { appHomeHref } from 'ui-shared/nav/navigate'
+import { appHomeHref, goTo } from 'ui-shared/nav/navigate'
+import { pendingRestoreUrl } from 'ui-shared/nav/open-page'
 import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'
 import type { AppInfo } from 'ui-shell/components/types'
 import type { PendingChangeEntry } from 'ui-shared/stores/pending-changes.types'
@@ -95,8 +96,10 @@ function handleRestore(entry: PendingChangeEntry) {
   pendingChangesOpen.value = false
   if (entry.appId === 'portal' && entry.routeName) {
     router.push({ name: entry.routeName, params: entry.routeParams, query: { restore: entry.id } })
-  } else if (entry.routePath) {
-    window.location.href = `/${entry.appId}${entry.routePath}?restore=${entry.id}`
+  } else {
+    // FR-24.7: the entry's path may be relative to its app or full.
+    const url = pendingRestoreUrl(entry)
+    if (url) goTo(url)
   }
 }
 
@@ -137,7 +140,7 @@ onMounted(async () => {
 })
 
 function handleAppNavigate(app: AppInfo) {
-  window.location.href = appHomeHref(app)
+  goTo(appHomeHref(app))
 }
 
 async function handleLogout() {

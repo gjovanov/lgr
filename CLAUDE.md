@@ -814,6 +814,23 @@ with no decision, a stale file, or a split field with no single owner.
 
 Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models` barrel.
 
+## One app, step by step (FR-24, #402)
+
+`docs/fr/FR-24-one-app.md`. Phase 0 put POS inside invoicing; Phase 1 made every module the same pieces:
+- **One app store** (`ui-shared/stores/app.store.ts`, the portal's superset). Each package's
+  `store/app.store.ts` only re-exports it. `logout` / `fetchProfile` keep each side's behaviour
+  (`onPortal()`): a domain page goes to the portal's sign-in, the portal's router handles its own.
+- **A module is a manifest** (`<pkg>/src/manifest.ts`, POS: `invoicing-ui/src/pos/manifest.ts`;
+  type `ui-shell/module`): id, base, menu (i18n keys, data), routes, `outside` routes, pendingChanges.
+  Routers are `moduleRoutes(manifest, layout, BASE_URL)`; each `DefaultLayout.vue` is `<ModuleLayout>`.
+- ⚠ **Paths in routes, menus, breadcrumbs and back-to are relative to the MODULE** (`/orders`), never
+  to a router base. `inModule(route, to)` adds the path of the module's shell record (`meta.module`).
+  `unit/module-manifests.test.ts` resolves every one of them against its module's own routes.
+- ⚠ **Every move goes through `ui-shared/nav/navigate.ts#goTo`**: a router push when this SPA serves
+  the path, a page load otherwise. A page load drops a browser till's printer. Plain `<a href>` into
+  this SPA follows the router (`installInAppLinks`, from `registerPlugins`). `unit/navigation-seam.test.ts`
+  fails on any `window.location` assignment outside its list of deliberate page loads.
+- `openPage` to the same view is a push plus a remount (`viewKey`), never a page load.
 ## Frontend Conventions
 
 - **Plugin order is critical**: i18n → vuetify → pinia → router (vuetify locale adapter requires i18n)

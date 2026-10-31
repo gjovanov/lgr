@@ -91,6 +91,7 @@
 </template>
 
 <script setup lang="ts">
+import { goTo } from 'ui-shared/nav/navigate'
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -133,7 +134,7 @@ function statusColor(status: string) {
 /** A full load, so every store in the portal starts from the session in the org just entered. */
 function enterApps() {
   sessionStorage.removeItem('lgr_invite_code')
-  window.location.href = '/apps'
+  goTo('/apps')
 }
 
 async function join() {

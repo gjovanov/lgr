@@ -367,7 +367,7 @@
                     <td>{{ allocLineDescription(res.allocationId) }}</td>
                     <td>{{ contactNames[res.contactId] || '—' }}</td>
                     <td class="text-no-wrap">
-                      <router-link v-if="res.internalOrderId" :to="`/internal-orders/${res.internalOrderId}/edit`">
+                      <router-link v-if="res.internalOrderId" :to="{ name: 'invoicing.internalOrders.edit', params: { id: res.internalOrderId } }">
                         {{ internalOrderNumbers[res.internalOrderId] || '…' }}
                       </router-link>
                       <span v-else>—</span>

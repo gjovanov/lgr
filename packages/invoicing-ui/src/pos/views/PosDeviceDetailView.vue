@@ -5,7 +5,7 @@
     :status="!isNew && device.status ? { steps: ['offline', 'online', 'error'], current: device.status } : undefined"
     :actions="formActions"
     :loading="loading"
-    back-to="/pos/devices"
+    back-to="/devices"
     back-label="Devices"
   >
     <v-form ref="formRef" @submit.prevent="handleSave">

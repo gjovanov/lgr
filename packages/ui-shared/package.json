@@ -64,6 +64,7 @@
     "./composables/fiscalIslResponse": "./src/composables/fiscalIslResponse.ts",
     "./composables/usePendingChanges": "./src/composables/usePendingChanges.ts",
     "./composables/useDialogPendingChanges": "./src/composables/useDialogPendingChanges.ts",
+    "./stores/app.store": "./src/stores/app.store.ts",
     "./stores/pending-changes.store": "./src/stores/pending-changes.store.ts",
     "./stores/pending-changes.types": "./src/stores/pending-changes.types.ts",
     "./components/EntityFormShell": "./src/components/EntityFormShell.vue",

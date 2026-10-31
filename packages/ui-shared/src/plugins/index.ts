@@ -6,6 +6,7 @@ import { createVuetifyPlugin } from './vuetify'
 import { createPinia } from 'pinia'
 import type { createVuetify } from 'vuetify'
 import { matchPage } from '../nav/page-registry'
+import { installInAppLinks } from '../nav/navigate'
 import { usePageFavorites } from '../composables/usePageFavorites'
 
 type LocaleMessages = Record<string, Record<string, unknown>>
@@ -66,6 +67,8 @@ export function registerPlugins(app: App, options?: RegisterPluginsOptions) {
 
   if (options?.router) {
     app.use(options.router)
+    // FR-24.5: links into a page this SPA serves follow the router; every move goes through goTo.
+    installInAppLinks(options.router)
     // Track page visits (across every app) for the global ★ favorites/most-used menu.
     // window.location is the full app-prefixed URL once navigation is confirmed; its query
     // tells a credit note's form from an invoice's.
