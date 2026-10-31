@@ -52,8 +52,50 @@ export interface ProductLedgerOptions {
   dateTo?: string
   contactId?: string
   eventTypes?: string[]
+  /** One of `LEDGER_SORT_KEYS`; unset or unknown: the booking order, oldest first. */
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
   page?: number
   size?: number
+}
+
+const TEXT_SORT_KEYS = ['documentRef', 'contactName', 'eventType', 'warehouseName', 'invoiceNumber', 'reference']
+const NUMBER_SORT_KEYS = ['startQty', 'quantityChange', 'endQty', 'runningQty', 'unitCost', 'lineTotalCost', 'runningValue']
+/** Every column the ledger can be sorted by. */
+export const LEDGER_SORT_KEYS = ['date', ...TEXT_SORT_KEYS, ...NUMBER_SORT_KEYS]
+
+/** „SM-2026-00010" after „SM-2026-00009", and Cyrillic in its own alphabet. */
+const collator = new Intl.Collator('bg', { numeric: true, sensitivity: 'base' })
+
+/**
+ * The ledger in the asked order. `entries` arrive in booking order, which breaks every tie, so a
+ * group of equal values still reads oldest → newest. A row without a value (no contact, no
+ * invoice) goes last either way: sorting by invoice shows the invoices.
+ */
+export function sortLedgerEntries(entries: ProductLedgerEntry[], sortBy?: string, sortOrder?: string): ProductLedgerEntry[] {
+  const desc = sortOrder === 'desc'
+  if (sortBy === 'date') return desc ? [...entries].reverse() : entries
+  if (!sortBy || !LEDGER_SORT_KEYS.includes(sortBy)) return entries
+  const numeric = NUMBER_SORT_KEYS.includes(sortBy)
+  const value = (e: ProductLedgerEntry): string | number | null => {
+    const v = (e as any)[sortBy]
+    if (numeric) return typeof v === 'number' && Number.isFinite(v) ? v : null
+    return v === undefined || v === null || v === '' ? null : String(v)
+  }
+  return entries
+    .map((e, i) => ({ e, i, v: value(e) }))
+    .sort((a, b) => {
+      if (a.v === null || b.v === null) return a.v === b.v ? a.i - b.i : a.v === null ? 1 : -1
+      const c = numeric ? (a.v as number) - (b.v as number) : collator.compare(a.v as string, b.v as string)
+      return (desc ? -c : c) || a.i - b.i
+    })
+    .map(x => x.e)
+}
+
+/** A bare `YYYY-MM-DD` upper bound runs to the end of that day: an invoice books its dispatch at the time it was issued. */
+function endOfPeriod(dateTo: string): number {
+  const t = new Date(dateTo).getTime()
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateTo) ? t + 86_400_000 - 1 : t
 }
 
 export async function getProductLedger(
@@ -66,19 +108,13 @@ export async function getProductLedger(
   const page = options.page ?? 0
   const size = options.size ?? 25
 
-  // Build match filter
+  // The product's whole history: the period and the contact are applied to the rows only after
+  // the running balance (below), so a row's start/end quantity is the stock on either side of it
+  // and not a sum that restarts at the period's first day.
   const matchFilter: Record<string, any> = {
     orgId: orgOid,
     'lines.productId': productOid,
     status: { $in: ['confirmed', 'completed'] },
-  }
-  if (options.contactId) {
-    matchFilter.contactId = new Types.ObjectId(options.contactId)
-  }
-  if (options.dateFrom || options.dateTo) {
-    matchFilter.date = {}
-    if (options.dateFrom) matchFilter.date.$gte = new Date(options.dateFrom)
-    if (options.dateTo) matchFilter.date.$lte = new Date(options.dateTo)
   }
 
   // Aggregation: unwind lines, filter by productId, sort by date
@@ -279,11 +315,6 @@ export async function getProductLedger(
     adjustmentMovementId: { $exists: false },
   }
   if (options.warehouseId) icFilter.warehouseId = new Types.ObjectId(options.warehouseId)
-  if (options.dateFrom || options.dateTo) {
-    icFilter.date = {}
-    if (options.dateFrom) icFilter.date.$gte = new Date(options.dateFrom)
-    if (options.dateTo) icFilter.date.$lte = new Date(options.dateTo)
-  }
 
   const legacyCounts = await InventoryCount.find(icFilter).sort({ date: 1 }).lean().exec()
 
@@ -317,7 +348,7 @@ export async function getProductLedger(
 
   // Compute running totals on FULL dataset (for running qty/value columns). Each row also
   // carries the balance on either side of it, so the ledger reads as start → change → end
-  // even when the event-type filter below hides the neighbouring rows.
+  // even when the filters below hide the neighbouring rows.
   let runningQty = 0
   let runningValue = 0
 
@@ -328,11 +359,17 @@ export async function getProductLedger(
     return { ...e, startQty, endQty: runningQty, runningQty, runningValue }
   })
 
-  // Apply event type filter AFTER computing running totals (preserves absolute running totals)
-  let filteredEntries = allEntries
-  if (options.eventTypes?.length) {
-    filteredEntries = allEntries.filter(e => options.eventTypes!.includes(e.eventType))
-  }
+  // Period, contact and event type AFTER the running totals (they stay absolute). The contact is
+  // the row's own, so a movement whose customer is on its invoice counts too.
+  const from = options.dateFrom ? new Date(options.dateFrom).getTime() : -Infinity
+  const to = options.dateTo ? endOfPeriod(options.dateTo) : Infinity
+  const filteredEntries = allEntries.filter(e => {
+    const t = new Date(e.date).getTime()
+    if (t < from || t > to) return false
+    if (options.contactId && e.contactId !== options.contactId) return false
+    if (options.eventTypes?.length && !options.eventTypes.includes(e.eventType)) return false
+    return true
+  })
 
   // Summary is computed from FILTERED entries (reflects current view)
   let totalIn = 0
@@ -348,13 +385,14 @@ export async function getProductLedger(
 
   const totalEntries = filteredEntries.length
 
-  // Paginate (size=0 means return all)
+  // Sorted across every filtered row, then paginated (size=0 means return all)
+  const sortedEntries = sortLedgerEntries(filteredEntries, options.sortBy, options.sortOrder)
   let paginatedEntries: ProductLedgerEntry[]
   if (size > 0) {
     const start = page * size
-    paginatedEntries = filteredEntries.slice(start, start + size)
+    paginatedEntries = sortedEntries.slice(start, start + size)
   } else {
-    paginatedEntries = filteredEntries
+    paginatedEntries = sortedEntries
   }
 
   // Compute sales summary from invoices (pass all filters)

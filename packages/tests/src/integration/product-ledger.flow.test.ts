@@ -607,3 +607,116 @@ describe('Product Ledger', () => {
     expect(result.summary.totalOut).toBe(30)
   })
 })
+
+/**
+ * The ledger sorts by any of its columns — every filtered row, before it is paged — and its
+ * filters (period, contact, event type) hide rows without moving the balance: each row's start
+ * and end quantity is the stock on either side of it.
+ */
+describe('Product Ledger — sorting, and filters that keep the balance absolute', () => {
+  /**
+   * Five movements, chronologically (start → end):
+   *   r1 01-05 receipt  +100 @5  Corp A      0 → 100
+   *   r2 02-10 dispatch  −30     Corp B    100 →  70
+   *   r3 02-20 dispatch   −5     (invoice to Corp B)  70 → 65
+   *   r4 03-01 receipt   +40 @6  —          65 → 105
+   *   r5 03-15 15:30Z dispatch −12 Corp A  105 →  93
+   */
+  async function seedLedger() {
+    const org = await createTestOrg()
+    const product = await createTestProduct(org._id)
+    const warehouse = await createTestWarehouse(org._id)
+    const user = await createTestUser(org._id)
+    const contactA = await createTestContact(org._id, { companyName: 'Corp A' })
+    const contactB = await createTestContact(org._id, { companyName: 'Corp B' })
+    const invoiceB = await createTestInvoice(org._id, contactB._id)
+
+    const book = async (f: { type: 'receipt' | 'dispatch'; date: string; qty: number; unitCost?: number; contactId?: any; invoiceId?: any }) => {
+      const unitCost = f.unitCost ?? 5
+      const m = await StockMovement.create({
+        orgId: org._id, movementNumber: await stockMovementDao.getNextMovementNumber(String(org._id)),
+        type: f.type, status: 'draft', date: new Date(f.date),
+        ...(f.type === 'receipt' ? { toWarehouseId: warehouse._id } : { fromWarehouseId: warehouse._id }),
+        ...(f.contactId ? { contactId: f.contactId } : {}),
+        ...(f.invoiceId ? { invoiceId: f.invoiceId } : {}),
+        lines: [{ productId: product._id, quantity: f.qty, unitCost, totalCost: f.qty * unitCost }],
+        totalAmount: f.qty * unitCost, createdBy: user._id,
+      })
+      await confirmMovement(String(m._id))
+      return m.movementNumber as string
+    }
+    const r1 = await book({ type: 'receipt', date: '2026-01-05', qty: 100, contactId: contactA._id })
+    const r2 = await book({ type: 'dispatch', date: '2026-02-10', qty: 30, contactId: contactB._id })
+    const r3 = await book({ type: 'dispatch', date: '2026-02-20', qty: 5, invoiceId: invoiceB._id })
+    const r4 = await book({ type: 'receipt', date: '2026-03-01', qty: 40, unitCost: 6 })
+    const r5 = await book({ type: 'dispatch', date: '2026-03-15T15:30:00Z', qty: 12, contactId: contactA._id })
+
+    const ledger = (opts: Parameters<typeof getProductLedger>[2] = {}) => getProductLedger(String(org._id), String(product._id), opts)
+    return { r: [r1, r2, r3, r4, r5], contactA, contactB, ledger }
+  }
+
+  const refs = (res: Awaited<ReturnType<typeof getProductLedger>>) => res.entries.map(e => e.documentRef)
+  const balances = (res: Awaited<ReturnType<typeof getProductLedger>>) => res.entries.map(e => [e.startQty, e.endQty])
+
+  it('sorts every row before paging, each row keeping its own balance', async () => {
+    const { r, ledger } = await seedLedger()
+
+    const pages = await Promise.all([0, 1, 2].map(page => ledger({ sortBy: 'quantityChange', sortOrder: 'desc', page, size: 2 })))
+    expect(pages.map(refs)).toEqual([[r[0], r[3]], [r[2], r[4]], [r[1]]])
+    expect(pages.flatMap(balances)).toEqual([[0, 100], [65, 105], [70, 65], [105, 93], [100, 70]])
+    expect(pages.every(p => p.total === 5 && p.totalPages === 3)).toBe(true)
+
+    expect(refs(await ledger({ sortBy: 'quantityChange', sortOrder: 'asc', size: 0 }))).toEqual([r[1], r[4], r[2], r[3], r[0]])
+    expect(refs(await ledger({ sortBy: 'endQty', sortOrder: 'asc', size: 0 }))).toEqual([r[2], r[1], r[4], r[0], r[3]])
+  })
+
+  it('sorts by date both ways, and falls back to booking order for no or an unknown column', async () => {
+    const { r, ledger } = await seedLedger()
+    expect(refs(await ledger({ sortBy: 'date', sortOrder: 'desc', size: 0 }))).toEqual([...r].reverse())
+    expect(refs(await ledger({ sortBy: 'date', sortOrder: 'asc', size: 0 }))).toEqual(r)
+    expect(refs(await ledger({ size: 0 }))).toEqual(r)
+    expect(refs(await ledger({ sortBy: 'lines.0.quantity', sortOrder: 'desc', size: 0 }))).toEqual(r)
+  })
+
+  it('sorts text columns with the empty ones last, in either direction', async () => {
+    const { r, ledger } = await seedLedger()
+    // Corp A: r1, r5 · Corp B: r2, r3 (its invoice's customer) · none: r4
+    expect(refs(await ledger({ sortBy: 'contactName', sortOrder: 'asc', size: 0 }))).toEqual([r[0], r[4], r[1], r[2], r[3]])
+    expect(refs(await ledger({ sortBy: 'contactName', sortOrder: 'desc', size: 0 }))).toEqual([r[1], r[2], r[0], r[4], r[3]])
+    // Document numbers compare as numbers inside the text: SM-…-00010 after SM-…-00009.
+    expect(refs(await ledger({ sortBy: 'documentRef', sortOrder: 'desc', size: 0 }))).toEqual([...r].reverse())
+  })
+
+  it('sorts within the filters, and the summary does not depend on the order', async () => {
+    const { r, ledger } = await seedLedger()
+    const res = await ledger({ eventTypes: ['dispatched'], sortBy: 'endQty', sortOrder: 'asc', size: 0 })
+    expect(refs(res)).toEqual([r[2], r[1], r[4]])
+    expect(balances(res)).toEqual([[70, 65], [100, 70], [105, 93]])
+
+    const unsorted = await ledger({ eventTypes: ['dispatched'], size: 0 })
+    expect(res.summary).toEqual(unsorted.summary)
+    expect(res.summary.totalOut).toBe(47)
+  })
+
+  it('a period hides the rows outside it, not the stock held before it', async () => {
+    const { r, ledger } = await seedLedger()
+    const feb = await ledger({ dateFrom: '2026-02-01', dateTo: '2026-02-28', size: 0 })
+    expect(refs(feb)).toEqual([r[1], r[2]])
+    expect(balances(feb)).toEqual([[100, 70], [70, 65]])
+    expect(feb.summary.totalOut).toBe(35)
+  })
+
+  it('a period runs to the end of its last day', async () => {
+    const { r, ledger } = await seedLedger()
+    const day = await ledger({ dateFrom: '2026-03-15', dateTo: '2026-03-15', size: 0 })
+    expect(refs(day)).toEqual([r[4]])
+    expect(balances(day)).toEqual([[105, 93]])
+  })
+
+  it('a contact shows its rows — its invoices\' too — at the real balance', async () => {
+    const { r, contactB, ledger } = await seedLedger()
+    const res = await ledger({ contactId: String(contactB._id), sortBy: 'quantityChange', sortOrder: 'asc', size: 0 })
+    expect(refs(res)).toEqual([r[1], r[2]])
+    expect(balances(res)).toEqual([[100, 70], [70, 65]])
+  })
+})

@@ -162,7 +162,9 @@ async function fetchLedger() {
   if (!props.productId) return
   loading.value = true
   try {
-    const params: Record<string, string> = {}
+    // Every row (`size=0`): the table shows and sorts what it holds, and the server's default
+    // page of 25 left an article's later movements out of both.
+    const params: Record<string, string> = { size: '0' }
     if (warehouseFilter.value) params.warehouseId = warehouseFilter.value
     if (dateFrom.value) params.dateFrom = dateFrom.value
     if (dateTo.value) params.dateTo = dateTo.value
