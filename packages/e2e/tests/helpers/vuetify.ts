@@ -1,6 +1,17 @@
 import type { Locator, Page } from '@playwright/test'
 
 /**
+ * Whether `locator` shows up within `timeout` ms, for a guard that skips a test.
+ *
+ * ⚠ Never `locator.isVisible({ timeout })`: Playwright ignores that option and answers at once,
+ * so such a guard skips its test whenever the page is still rendering. A green run then says
+ * nothing about it (`grid-url-state`'s first test, 2026-10-31, with rows in the list).
+ */
+export async function appears(locator: Locator, timeout: number): Promise<boolean> {
+  return locator.waitFor({ state: 'visible', timeout }).then(() => true, () => false)
+}
+
+/**
  * Opening a Vuetify `v-select` / `v-autocomplete`.
  *
  * ⚠ `getByRole('combobox', { name }).click()` resolves to the real `<input>` and then times

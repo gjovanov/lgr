@@ -3,6 +3,7 @@ import { loginForApp } from './helpers/login'
 import { apiLogin, apiGet, apiPost } from './helpers/api'
 import { lineUnitPrice } from './helpers/document-form'
 import { rowAction, rowOf, rowsWithStatus } from './helpers/row-actions'
+import { appears } from './helpers/vuetify'
 
 test.describe('Stock Validation on Invoicing', () => {
   test('should show error when creating cash register sale with insufficient stock', async ({ page }) => {
@@ -15,7 +16,7 @@ test.describe('Stock Validation on Invoicing', () => {
     // `.v-table` line row, no ProductLineDescription and no per-line warehouse select on this
     // screen any more. The old flow waited 10s for an input that no longer exists.
     const card = page.getByTestId('register-card').first()
-    test.skip(!(await card.isVisible({ timeout: 10000 }).catch(() => false)), 'no products seeded')
+    test.skip(!(await appears(card, 10000)), 'no products seeded')
     await card.click()
 
     const cartRow = page.locator('[data-testid^="cart-line-"]').first()
@@ -129,7 +130,7 @@ test.describe('Stock Validation on Invoicing', () => {
     await page.waitForTimeout(800)
 
     const card = page.getByTestId('register-card').filter({ hasText: stocked.productName }).first()
-    test.skip(!(await card.isVisible({ timeout: 10000 }).catch(() => false)), 'product not in catalog')
+    test.skip(!(await appears(card, 10000)), 'product not in catalog')
     await card.click()
     await expect(page.locator('[data-testid^="cart-line-"]').first()).toBeVisible()
 

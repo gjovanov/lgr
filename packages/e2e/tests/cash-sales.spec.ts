@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
 import { createBackOfficeCashSale } from './helpers/cash-register'
+import { appears } from './helpers/vuetify'
 
 const apiBase = process.env.BASE_URL || 'http://localhost:4001'
 
@@ -58,8 +59,7 @@ test.describe('Cash Register Sales', () => {
 
     // FR-03: lines are added by clicking product cards — there is no free-text line editor.
     const card = page.getByTestId('register-card').first()
-    const hasProducts = await card.isVisible({ timeout: 10000 }).catch(() => false)
-    test.skip(!hasProducts, 'no products seeded — nothing to sell')
+    test.skip(!(await appears(card, 10000)), 'no products seeded — nothing to sell')
 
     await card.click()
 
