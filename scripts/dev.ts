@@ -27,10 +27,11 @@ const SERVICES: Service[] = [
   { name: 'inventory', cwd: 'packages/inventory-ui', port: 4031, color: '\x1b[33m' },
   { name: 'invoicing', cwd: 'packages/invoicing-ui', port: 4021, color: '\x1b[35m' },
   { name: 'accounting', cwd: 'packages/accounting-ui', port: 4011, color: '\x1b[34m' },
-  { name: 'pos', cwd: 'packages/pos-ui', port: 4091, color: '\x1b[91m' },
   { name: 'payroll', cwd: 'packages/payroll-ui', port: 4041, color: '\x1b[95m' },
   { name: 'reports', cwd: 'packages/reports-ui', port: 4101, color: '\x1b[96m' },
   { name: 'files', cwd: 'packages/files-ui', port: 4111, color: '\x1b[92m' },
+  // FR-24: the one SPA, every module in one app (Phase 2 runs it beside the others).
+  { name: 'web', cwd: 'packages/web', port: 4200, color: '\x1b[97m' },
 ]
 
 /** Child output is colourised, so strip ANSI before pattern-matching it. */

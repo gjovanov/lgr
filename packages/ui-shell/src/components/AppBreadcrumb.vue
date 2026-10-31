@@ -15,6 +15,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { inModule } from 'ui-shared/nav/open-page'
 
 export interface BreadcrumbItem {
   title: string
@@ -42,7 +43,8 @@ const breadcrumbItems = computed<BreadcrumbItem[]>(() => {
   for (const matched of route.matched) {
     const meta = matched.meta?.breadcrumb as BreadcrumbItem[] | undefined
     if (meta) {
-      crumbs.push(...meta)
+      // FR-24.4: a crumb's path is relative to its module; the router names it under the module's shell.
+      crumbs.push(...meta.map(c => (c.to ? { ...c, to: inModule(route, c.to) } : c)))
     }
   }
 
