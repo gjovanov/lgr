@@ -12,8 +12,11 @@ name: LGR Server
 #   .sig with the desktop updater's key (FR-14.28), checked here against the updater.pub a master's
 #   package carries: a master installs one only when that AND the platform signature accept it.
 # - **Every asset** gets a detached .asc signed with roomler's release GPG key and a .sha256, and the
-#   set gets SLSA build provenance. Signing runs on a tag or any dispatch (the `sign` job); only a
-#   `server-v*` tag (or a dispatch with publish_release) publishes.
+#   set gets SLSA build provenance, all in the `sign` job of the run that built them. Signing runs on
+#   a tag or any dispatch; only a `server-v*` tag (or a dispatch with publish_release) publishes.
+# - **A tag publishes its rehearsal** (`adopt`, 2026-10-30): when a signed dispatch on the tagged
+#   commit still has its artifacts, the tag builds nothing and publishes those bytes, the ones the
+#   field lanes ran. Without one it builds and signs itself.
 # - **The packages carry the bundle** (FR-20.20, plan step P1-8b): the MSI and the .deb install a
 #   bootstrap and the bundle under installer/, and hand the bundle to `lgr-server update install-bundle`,
 #   which the update helper runs too: versions/<v>/, the services pointed at it.
@@ -51,6 +54,8 @@ on:
       - 'scripts/build-server.ts'
       - 'scripts/lib/server-package.ts'
       - '.github/workflows/server-release.yml'
+      - '.github/actions/server-version/**'
+      - '.github/actions/wait-for-job/**'
 
 permissions:
   contents: read
@@ -59,9 +64,67 @@ concurrency:
   group: server-release-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# ⚠ Build speed (2026-10-30, run 41004074162 took 22 min). Hosted runners are shared with
+# roomler-ai's CI under one account (20 jobs at a time), so every job that waits for another before
+# it can START queues again for a runner: 5m17s once, before `package`. So:
+# - There is no `version` job. Each job works the version out after its checkout
+#   (.github/actions/server-version), and `package` publishes it for the jobs after the builds.
+# - `windows` and `linux` start with the run. They compile the supervisor while `package` builds the
+#   UIs, and wait for it (.github/actions/wait-for-job) only at the step that downloads its bundle.
+# - `linux` builds and uploads; `linux-test` and `image` take its .deb from there in parallel,
+#   instead of `image` waiting out the whole systemd lane.
 jobs:
-  version:
-    runs-on: ubuntu-latest
+  # ⚠ A tag publishes what its rehearsal built; it does not rebuild. A release is cut as a signed
+  # dispatch of this workflow (publish_release=false) that the field lanes test, then tagged on the
+  # SAME commit. Until 2026-10-30 the tag rebuilt everything (~17 min) and published bytes no lane
+  # had run, so every release was lane-tested twice. This job finds the rehearsal: a successful
+  # dispatch on this commit whose `signed` and `image` artifacts are still there (14 days) and whose
+  # sign job attested them. Found, nothing builds and `release` publishes those bytes. Not found,
+  # this run builds and signs as a dispatch would, and says so on the run page.
+  adopt:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.find.outputs.run }}
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: v
+        uses: ./.github/actions/server-version
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          # Newest first. The same commit means the same Cargo.toml, so the same version: a dispatch
+          # refuses any other.
+          runs="$(gh api "repos/$repo/actions/workflows/server-release.yml/runs?event=workflow_dispatch&head_sha=$GITHUB_SHA&status=success&per_page=20" --jq '.workflow_runs[].id' 2>/dev/null)" || runs=""
+          for id in $runs; do
+            have="$(gh api "repos/$repo/actions/runs/$id/artifacts?per_page=100" --jq '[.artifacts[] | select(.expired | not) | .name] | join(" ")')" || continue
+            case " $have " in *" signed "*) ;; *) echo "run $id: no signed artifact (expired, or the run did not sign)"; continue ;; esac
+            case " $have " in *" image "*) ;; *) echo "run $id: no image artifact"; continue ;; esac
+            # Provenance is made by the run that BUILT the bytes (the sign job), never by a publisher.
+            made="$(gh api "repos/$repo/actions/runs/$id/jobs?per_page=100" --jq '[.jobs[] | select(.name == "sign") | .steps[] | select(.name == "Build provenance" and .conclusion == "success")] | length')" || continue
+            [ "${made:-0}" -ge 1 ] || { echo "run $id: its sign job made no provenance (a run from before this job existed)"; continue; }
+            url="$GITHUB_SERVER_URL/$repo/actions/runs/$id"
+            echo "run=$id" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Publishing the rehearsal::$GITHUB_REF_NAME publishes the signed artifacts of run $id ($url), the bytes its lanes ran. Nothing is rebuilt."
+            printf '### %s publishes [run %s](%s)\nNothing is rebuilt: these are the bytes the lanes ran.\n' "$GITHUB_REF_NAME" "$id" "$url" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          done
+          echo "run=" >> "$GITHUB_OUTPUT"
+          echo "::warning title=No rehearsal to publish::no successful dispatch of server-release.yml on $GITHUB_SHA still has its signed artifacts, so this run builds and signs anew, and publishes bytes no lane has run"
+
+  # The API and its UIs: one bundle for every platform (`bun run build:server`), checked.
+  package:
+    needs: adopt
+    if: ${{ !cancelled() && needs.adopt.outputs.run == '' }}
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.v.outputs.version }}
       tag: ${{ steps.v.outputs.tag }}
@@ -70,31 +133,10 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - id: v
-        env:
-          # Through the environment, never interpolated into the script: `version` is a free string.
-          INPUT_VERSION: ${{ inputs.version }}
-          INPUT_PUBLISH: ${{ inputs.publish_release }}
-        run: |
-          set -euo pipefail
-          CARGO="$(sed -n 's/^version = "\(.*\)"$/\1/p' packages/server/Cargo.toml | head -1)"
-          case "$GITHUB_EVENT_NAME" in
-            push)              VERSION="${GITHUB_REF#refs/tags/server-v}"; RELEASE=true ;;
-            workflow_dispatch) VERSION="$INPUT_VERSION"; RELEASE="$INPUT_PUBLISH" ;;
-            *)                 VERSION="$CARGO"; RELEASE=false ;;
-          esac
-          printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::'$VERSION' is not N.N.N"; exit 1; }
-          [ "$VERSION" = "$CARGO" ] || { echo "::error::version $VERSION is not packages/server/Cargo.toml's $CARGO"; exit 1; }
-          # A pull request builds unsigned; everything else is signed, and fails if it cannot be.
-          SIGN=$([ "$GITHUB_EVENT_NAME" = pull_request ] && echo false || echo true)
-          { echo "version=$VERSION"; echo "tag=server-v$VERSION"; echo "release=$RELEASE"; echo "sign=$SIGN"; } >> "$GITHUB_OUTPUT"
-          echo "version $VERSION, release $RELEASE, sign $SIGN"
-
-  # The API and its UIs: one bundle for every platform (`bun run build:server`), checked.
-  package:
-    needs: version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: ./.github/actions/server-version
+        with:
+          version: ${{ inputs.version }}
+          publish: ${{ inputs.publish_release }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
@@ -110,7 +152,10 @@ jobs:
           retention-days: 7
 
   windows:
-    needs: [version, package]
+    # Only `adopt`, which is skipped at once unless this is a tag: it compiles while `package` builds,
+    # and waits for it below (see the note above).
+    needs: adopt
+    if: ${{ !cancelled() && needs.adopt.outputs.run == '' }}
     runs-on: windows-latest
     # ⚠ The Azure federated credential trusts this environment's subject, not a tag: every job that
     # signs with Azure carries it (roomler's lesson).
@@ -118,14 +163,21 @@ jobs:
     permissions:
       contents: read
       id-token: write   # azure/login's OIDC inside sign-windows
-    env:
-      VERSION: ${{ needs.version.outputs.version }}
+      actions: read     # wait-for-job reads this run's jobs
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: v
+        uses: ./.github/actions/server-version
+        with:
+          version: ${{ inputs.version }}
+          publish: ${{ inputs.publish_release }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
       # The Chrome fetcher resolves puppeteer's pin from packages/reporting.
+      # ⚠ No Bun cache here, on purpose: tried 2026-10-30 (run 41082222685), its 49 MB came down in
+      # under a second and then took 29 s to EXTRACT (many small files, NTFS), and the install still
+      # took 17 s to link from it: 47 s against 35 s for a cold install.
       - run: bun install --frozen-lockfile
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
@@ -170,8 +222,8 @@ jobs:
         uses: gjovanov/roomler-ai/.github/actions/sign-windows@855b9279ae54e8c0985fc8572b4b15c11f94ed54
         with:
           files: packages/server/target/release/lgr-server.exe,packages/server/target/release/lgr_server_msi.dll
-          mode: ${{ needs.version.outputs.sign == 'true' && 'azure' || 'off' }}
-          require: ${{ needs.version.outputs.sign }}
+          mode: ${{ steps.v.outputs.sign == 'true' && 'azure' || 'off' }}
+          require: ${{ steps.v.outputs.sign }}
           expect-subject-contains:  ${{ vars.AZURE_SIGNING_EXPECT_SUBJECT }}
           endpoint:                 ${{ vars.AZURE_SIGNING_ENDPOINT }}
           signing-account-name:     ${{ vars.AZURE_SIGNING_ACCOUNT }}
@@ -182,6 +234,9 @@ jobs:
           description: LGR Server
           description-url: https://lgrai.app/
 
+      - uses: ./.github/actions/wait-for-job
+        with:
+          job: package
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: server-package
@@ -252,8 +307,8 @@ jobs:
         uses: gjovanov/roomler-ai/.github/actions/sign-windows@855b9279ae54e8c0985fc8572b4b15c11f94ed54
         with:
           files: ${{ steps.msi.outputs.path }}
-          mode: ${{ needs.version.outputs.sign == 'true' && 'azure' || 'off' }}
-          require: ${{ needs.version.outputs.sign }}
+          mode: ${{ steps.v.outputs.sign == 'true' && 'azure' || 'off' }}
+          require: ${{ steps.v.outputs.sign }}
           expect-subject-contains:  ${{ vars.AZURE_SIGNING_EXPECT_SUBJECT }}
           endpoint:                 ${{ vars.AZURE_SIGNING_ENDPOINT }}
           signing-account-name:     ${{ vars.AZURE_SIGNING_ACCOUNT }}
@@ -360,8 +415,13 @@ jobs:
           if ($LASTEXITCODE) { Fail "backup now failed: $out" }
           if ("$out" -notlike '*nothing to back up*') { Fail "backup now said: $out" }
 
-          # The helper's watch, in minutes rather than the real 5/20 (SYSTEM's file; Administrators may write it).
-          '{ "cleanSecs": 30, "deadlineSecs": 180, "downSecs": 60 }' | Set-Content -Encoding ascii "$root\update\helper.json"
+          # The helper's watch, in seconds rather than the real 5/20 minutes (SYSTEM's file; Administrators
+          # may write it). NOTE: the broken update below is only ever failed by the DEADLINE: its supervisor
+          # stays up while the API crash-loops, so it is neither down nor restarting. At 180 s that one
+          # wait was 3 of this step's 5.5 minutes (run 41004074162). 80 s still gives a good update
+          # 60 s to come up before its 20 clean seconds, and it needed about 5 (confirmed 36 s after
+          # its install at 30 clean). The helper floors the deadline at clean + 30 (helper.rs).
+          '{ "cleanSecs": 20, "deadlineSecs": 80, "downSecs": 60 }' | Set-Content -Encoding ascii "$root\update\helper.json"
 
           # 2. An update the helper confirms.
           $b2 = Bundle $v2 $null
@@ -403,9 +463,12 @@ jobs:
           if (-not (Test-Path "$env:ProgramData\LGR\keys")) { throw 'the uninstall removed the data' }
           'installed, updated, rolled back, uninstalled; the data stayed'
 
+      # ⚠ The hash and the name written by hand: Git Bash's sha256sum prints `hash *name` (binary
+      # mode), and up to server-v0.1.6 that `*` went into the published file, so `sha256sum -c` on it
+      # looked for a file named `*lgr-server-...msi`.
       - name: Checksum
         shell: bash
-        run: cd out && for f in *.msi *.zip; do sha256sum "$f" | awk '{print $1"  "$2}' > "$f.sha256"; done
+        run: cd out && for f in *.msi *.zip; do printf '%s  %s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$f" > "$f.sha256"; done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows
@@ -413,15 +476,25 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # Builds and uploads; `linux-test` installs what it made, and `image` wraps its .deb, in parallel.
   linux:
-    needs: [version, package]
+    # Only `adopt`, as `windows`: it compiles while `package` builds, and waits for it below.
+    needs: adopt
+    if: ${{ !cancelled() && needs.adopt.outputs.run == '' }}
     # 22.04: the glibc floor the binaries are built against (2.35), as roomler does.
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      actions: read     # wait-for-job reads this run's jobs
     env:
-      VERSION: ${{ needs.version.outputs.version }}
       NFPM_VERSION: 2.43.0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: v
+        uses: ./.github/actions/server-version
+        with:
+          version: ${{ inputs.version }}
+          publish: ${{ inputs.publish_release }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
@@ -435,6 +508,9 @@ jobs:
           workspaces: packages/server
       - name: Build the supervisor
         run: cargo build --release --locked --manifest-path packages/server/Cargo.toml
+      - uses: ./.github/actions/wait-for-job
+        with:
+          job: package
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: server-package
@@ -464,6 +540,51 @@ jobs:
           cp "out/lgr-server-$VERSION-x86_64-unknown-linux-gnu.tar.gz" dist/installer/lgr-server-bundle.tar.gz
           VERSION="$VERSION" ARCH=amd64 ./nfpm package -f packages/server/packaging/nfpm.yaml -p deb -t "out/lgr-server_${VERSION}_amd64.deb"
           dpkg-deb --info "out/lgr-server_${VERSION}_amd64.deb"
+
+      - name: Checksums
+        run: cd out && for f in *.deb *.tar.gz; do sha256sum "$f" | awk '{print $1"  "$2}' > "$f.sha256"; done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux
+          path: out/
+          if-no-files-found: error
+          retention-days: 14
+
+  # The .deb and the tarball `linux` made, installed: in clean containers and under systemd. Nothing
+  # ships unless this passes (`sign` needs it), but `image` does not wait for it.
+  linux-test:
+    needs: linux
+    # ⚠ Explicit, never the implicit `success()`: that one also asks every ANCESTOR, and `adopt` (the
+    # parent of `linux`) is skipped on every run but a tag, so this job was skipped too although
+    # `linux` had passed (run 41135060733). The same holds for `image` and `sign` below.
+    if: ${{ !cancelled() && needs.linux.result == 'success' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: v
+        uses: ./.github/actions/server-version
+        with:
+          version: ${{ inputs.version }}
+          publish: ${{ inputs.publish_release }}
+      # The master's own PDF reader runs its test from packages/tests below.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux
+          path: out
+      # The update lane builds its bundles from the home: the tarball IS that home, under its name.
+      - name: The home, from the tarball
+        run: |
+          set -euo pipefail
+          name="lgr-server-$VERSION-x86_64-unknown-linux-gnu"
+          (cd out && sha256sum -c "$name.tar.gz.sha256")
+          mkdir -p dist
+          tar xzf "out/$name.tar.gz" -C dist
+          mv "dist/$name" dist/home
+          test -x dist/home/lgr-server && test -f dist/home/HOME.json
 
       # Installed in clean containers: apt resolves the dependencies, every library the binaries
       # link is found, and the supervisor brings up its database and API as the lgr user.
@@ -547,7 +668,9 @@ jobs:
           # FR-20.20: the backup a switch takes first, through the supervisor's IPC and the API's socket.
           sudo lgr-server backup now | tee "$RUNNER_TEMP/backup.txt" || fail "backup now failed"
           grep -q "nothing to back up" "$RUNNER_TEMP/backup.txt" || fail "backup now said: $(cat "$RUNNER_TEMP/backup.txt")"
-          echo '{ "cleanSecs": 30, "deadlineSecs": 180, "downSecs": 60 }' | sudo tee $root/update/helper.json >/dev/null
+          # Seconds, not the real 5/20 minutes. 80, not 180: the broken update below is failed only by
+          # the deadline (the Windows step says why), and a good one is confirmed ~5 s after it starts.
+          echo '{ "cleanSecs": 20, "deadlineSecs": 80, "downSecs": 60 }' | sudo tee $root/update/helper.json >/dev/null
 
           b2=$(bundle "$v2")
           sudo $root/installer/lgr-server update install-bundle "$b2" --start
@@ -576,28 +699,25 @@ jobs:
           sudo test -d /var/lib/lgr/keys || fail "the removal took the data"
           echo "installed, updated, rolled back, removed; the data stayed"
 
-      - name: Checksums
-        run: cd out && for f in *.deb *.tar.gz; do sha256sum "$f" | awk '{print $1"  "$2}' > "$f.sha256"; done
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: linux
-          path: out/
-          if-no-files-found: error
-          retention-days: 14
-
   # FR-20.12 (gjovanov/lgr#367, option A): a master from Compose or Kubernetes is the .deb's own home
   # in an image (packages/server/packaging/docker/), built from the .deb the linux job made and run
   # here the way Compose runs it: the host's network, one volume, the supervisor under tini. A tag or
   # a dispatch saves it for the sign job (a release asset, and what the field lanes `docker load`
   # air-gapped) with its compose and k8s files; image-publish pushes a published release to GHCR.
   image:
-    needs: [version, linux]
+    needs: linux
+    # Explicit for the reason `linux-test` gives.
+    if: ${{ !cancelled() && needs.linux.result == 'success' }}
     runs-on: ubuntu-24.04
     env:
-      VERSION: ${{ needs.version.outputs.version }}
       IMAGE: ghcr.io/gjovanov/lgr-server
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: v
+        uses: ./.github/actions/server-version
+        with:
+          version: ${{ inputs.version }}
+          publish: ${{ inputs.publish_release }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: linux
@@ -695,12 +815,24 @@ jobs:
           compression-level: 0
 
   # Signing runs whenever the build is signed (a tag, or a dispatch even when it publishes nothing),
-  # so a dispatch proves the keys before a tag needs them. The release job publishes what it signed.
+  # so a dispatch proves the keys before a tag needs them. The release job publishes what it signed,
+  # or what a rehearsal's sign job signed (`adopt`). Build provenance is made HERE, by the run that
+  # built the bytes, so a tag that publishes a rehearsal's artifacts attests nothing it did not build.
   sign:
-    needs: [version, windows, linux, image]
-    if: needs.version.outputs.sign == 'true'
-    runs-on: ubuntu-latest
+    needs: [package, windows, linux, linux-test, image]
+    # Every build passed, spelled out for the reason `linux-test` gives: with the implicit check a
+    # skipped `adopt` would skip signing on every dispatch.
+    if: >-
+      ${{ !cancelled() && needs.package.outputs.sign == 'true' &&
+          needs.package.result == 'success' && needs.windows.result == 'success' &&
+          needs.linux.result == 'success' && needs.linux-test.result == 'success' &&
+          needs.image.result == 'success' }}
+    runs-on: ubuntu-24.04
     environment: release
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       # The updater's public key (packages/desktop/src-tauri/updater.pub) and .bun-version.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -750,7 +882,7 @@ jobs:
       - name: The release's SUPTO version
         run: |
           set -euo pipefail
-          v='${{ needs.version.outputs.version }}'
+          v='${{ needs.package.outputs.version }}'
           supto="$(jq -er '.version' packages/config/src/supto.json)"
           [[ "$supto" =~ ^[0-9A-Za-z][0-9A-Za-z.-]{0,19}$ ]] || { echo "::error::packages/config/src/supto.json names no SUPTO version"; exit 1; }
           printf '%s\n' "$supto" > "release/lgr-server-$v.supto"
@@ -785,6 +917,13 @@ jobs:
           done
           ls -la release
 
+      # ⚠ `adopt` looks for this step by its NAME in a rehearsal's sign job: renaming it makes every
+      # tag rebuild instead of publishing its rehearsal.
+      - name: Build provenance
+        uses: actions/attest-build-provenance@8beda2b7ed98355c0e97c0a63bec38ae472e66c4 # v4
+        with:
+          subject-path: 'release/*'
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: signed
@@ -792,32 +931,80 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # Publishes this run's `signed`, or the rehearsal's when `adopt` found one (then package, the builds
+  # and sign are skipped, which is why the condition names its own status function).
   release:
-    needs: [version, sign]
-    if: needs.version.outputs.release == 'true'
-    runs-on: ubuntu-latest
+    needs: [adopt, package, sign]
+    if: >-
+      ${{ !cancelled() && (needs.adopt.outputs.run != '' ||
+          (needs.sign.result == 'success' && needs.package.outputs.release == 'true')) }}
+    runs-on: ubuntu-24.04
     environment: release
     permissions:
       contents: write
-      id-token: write
-      attestations: write
+      actions: read     # a rehearsal's artifacts are another run's
+    env:
+      VERSION: ${{ needs.adopt.outputs.version || needs.package.outputs.version }}
     steps:
+      # The updater's public key, for the check below.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          sparse-checkout: packages/desktop/src-tauri/updater.pub
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: signed
           path: release
+          run-id: ${{ needs.adopt.outputs.run || github.run_id }}
+          github-token: ${{ github.token }}
 
-      - name: Build provenance
-        uses: actions/attest-build-provenance@8beda2b7ed98355c0e97c0a63bec38ae472e66c4 # v4
-        with:
-          subject-path: 'release/*'
+      # Checked whoever signed it, this run or the rehearsal, right before it is published: every
+      # asset is this version's and matches its .sha256, carries a GPG signature by the key roomler
+      # publishes, and each update bundle a minisign one by the key a master's package carries.
+      - name: The assets are this version's, whole and signed
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          cd release
+          ls -la
+          for f in *; do
+            case "$f" in *"-$VERSION-"*|*"_${VERSION}_"*|*"-$VERSION."*) ;; *) echo "::error::$f is not $VERSION's"; exit 1 ;; esac
+          done
+          sums=(*.sha256)
+          [ ${#sums[@]} -ge 7 ] || { echo "::error::expected a .sha256 for each of 7 assets, found ${#sums[@]}"; exit 1; }
+          # The asset each .sha256 is NAMED after, not the name written inside it (which carried a
+          # stray `*` from the Windows runner up to server-v0.1.6).
+          for s in "${sums[@]}"; do
+            f="${s%.sha256}"
+            [ "$(sha256sum "$f" | cut -d' ' -f1)" = "$(cut -d' ' -f1 "$s")" ] || { echo "::error::$f does not match its .sha256"; exit 1; }
+            echo "$f: sha256 OK"
+          done
+          assets=(*.msi *.zip *.deb *.tar.gz *.tar.zst *.yaml)
+          [ ${#assets[@]} -ge 7 ] || { echo "::error::expected an MSI, a zip, a .deb, a tarball, the image and its compose and k8s files, found ${#assets[@]}"; exit 1; }
+          export GNUPGHOME="$RUNNER_TEMP/gnupg-verify"
+          mkdir -m 700 -p "$GNUPGHOME"
+          curl -fsSL https://github.com/gjovanov/roomler-ai/releases/latest/download/roomler-release-pubkey.asc | gpg --batch --import
+          for f in "${assets[@]}"; do
+            gpg --batch --status-fd 1 --verify "$f.asc" "$f" > "$RUNNER_TEMP/v.txt"
+            grep -q '^\[GNUPG:\] VALIDSIG' "$RUNNER_TEMP/v.txt" || { echo "::error::$f.asc does not verify"; exit 1; }
+          done
+          sudo apt-get install -y -qq minisign > /dev/null
+          base64 -d "$GITHUB_WORKSPACE/packages/desktop/src-tauri/updater.pub" > "$RUNNER_TEMP/updater.pub"
+          bundles=(*.zip *.tar.gz)
+          [ ${#bundles[@]} -eq 2 ] || { echo "::error::expected 2 update bundles, found ${#bundles[@]}"; exit 1; }
+          for f in "${bundles[@]}"; do
+            base64 -d "$f.sig" > "$RUNNER_TEMP/bundle.minisig"
+            minisign -V -p "$RUNNER_TEMP/updater.pub" -m "$f" -x "$RUNNER_TEMP/bundle.minisig"
+          done
+          [ -s "lgr-server-$VERSION.supto" ] || { echo "::error::no SUPTO version beside the bundles"; exit 1; }
+          echo "$VERSION: ${#assets[@]} assets, checksums, signatures and bundle signatures all hold"
 
       - name: Publish
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          tag_name: ${{ needs.version.outputs.tag }}
+          tag_name: ${{ needs.adopt.outputs.tag || needs.package.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: LGR Server ${{ needs.version.outputs.version }}
+          name: LGR Server ${{ env.VERSION }}
           # Until the updater (P1-8) and the field lanes (P2-8) have run it, a server release is a preview.
           prerelease: true
           generate_release_notes: true
@@ -829,22 +1016,26 @@ jobs:
   # `latest` while server releases are previews. ⚠ The first push creates the package PRIVATE: make
   # it public once, in its settings on GitHub.
   image-publish:
-    needs: [version, image, release]
-    if: needs.version.outputs.release == 'true'
-    runs-on: ubuntu-latest
+    # After `release`, from this run's `image` or the rehearsal's (see `release`).
+    needs: [adopt, package, image, release]
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
       id-token: write
       attestations: write
+      actions: read     # a rehearsal's artifacts are another run's
     env:
-      VERSION: ${{ needs.version.outputs.version }}
+      VERSION: ${{ needs.adopt.outputs.version || needs.package.outputs.version }}
       IMAGE: ghcr.io/gjovanov/lgr-server
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: image
           path: image
+          run-id: ${{ needs.adopt.outputs.run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Push
         id: push
         env:

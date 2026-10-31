@@ -1,0 +1,44 @@
+name: Wait for another job of this run
+description: >
+  Waits until a sibling job of the same workflow run has finished, and fails unless it succeeded.
+  It lets a job start its own slow work (a compile) without `needs:`, and wait only at the step
+  that consumes the other job's artifact. A `needs:` holds the whole job back, and a job that has
+  not started yet also queues for a runner afterwards.
+
+inputs:
+  job:
+    description: The job's name as the run lists it (its `name:`, or its id when it has none)
+    required: true
+  timeout-minutes:
+    description: Give up after this long
+    default: '30'
+
+runs:
+  using: composite
+  steps:
+    - name: Wait for ${{ inputs.job }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        JOB: ${{ inputs.job }}
+        LIMIT: ${{ inputs.timeout-minutes }}
+      run: |
+        set -euo pipefail
+        # filter=latest: after "re-run failed jobs" a job that passed the first time is listed by its
+        # earlier attempt, and the artifact it uploaded then is still this run's.
+        url="repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100"
+        deadline=$(( $(date +%s) + LIMIT * 60 ))
+        last=""
+        while :; do
+          state="$(gh api "$url" --jq '.jobs[] | select(.name == env.JOB) | "\(.status) \(.conclusion)"' 2>/dev/null | head -1)" || state=""
+          case "$state" in
+            'completed success') echo "$JOB succeeded"; exit 0 ;;
+            completed\ *) echo "::error::$JOB concluded '${state#completed }', so this job has nothing to build on"; exit 1 ;;
+          esac
+          [ "$state" = "$last" ] || { echo "$JOB: ${state:-not listed yet}"; last=$state; }
+          if [ "$(date +%s)" -ge "$deadline" ]; then
+            echo "::error::$JOB did not finish within $LIMIT minutes (last seen: ${state:-not listed})"
+            exit 1
+          fi
+          sleep 10
+        done

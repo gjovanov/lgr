@@ -288,6 +288,12 @@ window, rollback from disk. Global's side (plan step P1-8a):
   tarball on Linux). Each has a minisign `.sig` with the desktop updater's key, checked in the
   workflow against the `updater.pub` a master's package carries, and a GPG `.asc`; the signing runs
   on a tag or any dispatch, so a dispatch proves the keys before a tag needs them.
+- **A tag publishes its rehearsal** (2026-10-30). The signed dispatch the field lanes test is
+  published as it is: a `server-v*` tag on the same commit finds that run (`adopt`), builds
+  nothing, re-checks every checksum and signature, and publishes those bytes. Only a tag with no
+  such dispatch (its artifacts expire after 14 days) builds and signs anew, and says so on the run
+  page. Build provenance is made by the run that built the bytes (the `sign` job), so it names the
+  dispatch, not the tag.
 - **The offer:** `GET /api/node/v1/server-release` (node token) names the version a human promoted
   (`SERVER_RELEASE_VERSION`; prereleases count, since the promotion is the gate) and, per target, its
   bundle with the `.sig`, the `.asc` and the sha256 inline. A target missing any of them is left out,

@@ -91,7 +91,10 @@ mdns-sd = "0.13"
 [dev-dependencies]
 tempfile = "3"
 
+# Thin LTO, not fat (2026-10-30): this crate's own release build, its dependencies built, took 127 s
+# with fat and 81 s with thin on 4 CPUs, for a binary 5 % larger (11.5 MB). That build is on the
+# critical path of server-release.yml's Windows job, where fat took ~3 minutes.
 [profile.release]
-lto = true
+lto = "thin"
 codegen-units = 1
 strip = true

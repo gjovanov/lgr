@@ -127,9 +127,18 @@ jobs:
           # ⚠ Named jobs, not "everything that ran". A workflow somebody adds
           # later must not silently become a release blocker, and one somebody
           # deletes must not silently stop being one. These two are the gate.
+          # A `|` lists a job's names, current first: ci.yml split its Linux jobs
+          # on 2026-10-30 (`test + build` → `test`, `clippy` → `build + clippy`),
+          # and a commit from before carries the old ones.
           fail=0
-          for required in 'test + build (ubuntu)' 'clippy (ubuntu)' 'cargo check (macos)'; do
-            got="$(awk -F'\t' -v n="$required" '$1 == n { print $2 }' /tmp/checks.tsv | head -1)"
+          for required in 'test (ubuntu)|test + build (ubuntu)' 'build + clippy (ubuntu)|clippy (ubuntu)' 'cargo check (macos)'; do
+            got=""
+            IFS='|' read -ra names <<< "$required"
+            for name in "${names[@]}"; do
+              got="$(awk -F'\t' -v n="$name" '$1 == n { print $2 }' /tmp/checks.tsv | head -1)"
+              [ -z "$got" ] || break
+            done
+            required="${names[0]}"
             if [ -z "$got" ]; then
               echo "::error::required check '$required' did not run for $SHA"
               fail=1
