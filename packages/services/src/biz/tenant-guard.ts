@@ -7,7 +7,7 @@
  * 73 of the 83 probeable GET routes answered 200 with another organisation's data.
  *
  * The check lives here, import-pure, and is registered as a `beforeHandle` hook by the auth
- * plugins (`portal-api/src/auth/auth.service.ts` and the seven `app-auth.service.ts` copies)
+ * plugins (`portal-api/src/auth/auth.service.ts` and `services/http/app-auth.service.ts`, the one domain plugin (FR-24.30))
  * so it applies to every route of every controller that authenticates — by default, with
  * nothing to opt into and nothing for a new controller to remember. `tenantPlugin` does NOT
  * help: it only adds the `orgId` field (`db/src/plugins/tenant.plugin.ts`).

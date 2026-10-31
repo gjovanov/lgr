@@ -12,7 +12,8 @@
     "./scheduler/*": "./src/scheduler/*.ts",
     "./events/*": "./src/events/*.ts",
     "./mixins/*": "./src/mixins/*.ts",
-    "./logger": "./src/logger/logger.ts"
+    "./logger": "./src/logger/logger.ts",
+    "./http/*": "./src/http/*.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",
@@ -20,6 +21,8 @@
     "dal": "workspace:*",
     "db": "workspace:*",
     "nanoid": "^5.1.6",
-    "pino": "^9.9.0"
+    "pino": "^9.9.0",
+    "elysia": "^1.3.0",
+    "@elysiajs/jwt": "^1.3.0"
   }
 }

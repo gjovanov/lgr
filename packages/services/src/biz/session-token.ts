@@ -3,7 +3,7 @@ import type { UserTokenized } from './auth.service.js'
 
 /**
  * What a request presents as its session, and what counts as one. Used by the eight auth plugins
- * (`portal-api/src/auth/auth.service.ts` and the seven `app-auth.service.ts` copies), so the rule
+ * (`portal-api/src/auth/auth.service.ts` and `services/http/app-auth.service.ts`, the one domain plugin (FR-24.30)), so the rule
  * cannot drift between them. Import-pure: no Elysia, no database.
  */
 
