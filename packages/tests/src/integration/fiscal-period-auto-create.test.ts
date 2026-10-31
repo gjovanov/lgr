@@ -114,6 +114,39 @@ describe('ensureFiscalPeriod', () => {
     expect(periodIdApr).not.toBe(periodIdMar)
   })
 
+  // A period's endDate is 00:00 of its last day. Until 2026-10-31 the lookup compared it with the
+  // timestamp itself, so nothing booked after midnight on the last day of a month found a period.
+  it('should find the period for a timestamp on the last day of its month', async () => {
+    const org = await createTestOrg({ slug: 'fp-auto-lastday', settings: { fiscalYearStart: 1 } as any })
+    const orgId = String(org._id)
+    const periodName = async (date: string) =>
+      (await FiscalPeriod.findById(await ensureFiscalPeriod(orgId, new Date(date))).exec())!.name
+
+    expect(await periodName('2026-10-15')).toBe('October')
+    expect(await periodName('2026-10-31T15:30:00Z')).toBe('October')
+    expect(await periodName('2026-10-31T23:59:59.999Z')).toBe('October')
+    expect(await periodName('2026-11-01T00:00:00Z')).toBe('November')
+    expect(await periodName('2026-12-31T18:00:00Z')).toBe('December')
+
+    // Found every time, never re-created
+    const years = await FiscalYear.find({ orgId }).exec()
+    expect(years).toHaveLength(1)
+    const periods = await FiscalPeriod.find({ orgId }).exec()
+    expect(periods).toHaveLength(12)
+  })
+
+  it('should auto-create the fiscal year when its first booking is on its last day', async () => {
+    const org = await createTestOrg({ slug: 'fp-auto-lastday-new', settings: { fiscalYearStart: 4 } as any })
+    const orgId = String(org._id)
+
+    const periodId = await ensureFiscalPeriod(orgId, new Date('2026-03-31T18:00:00Z'))
+
+    const period = await FiscalPeriod.findById(periodId).exec()
+    expect(period!.name).toBe('March')
+    const year = await FiscalYear.findById(period!.fiscalYearId).exec()
+    expect(year!.name).toBe('FY 2025/2026')
+  })
+
   it('should support journal entry creation that triggers auto-creation', async () => {
     const org = await createTestOrg({ slug: 'fp-auto-je', settings: { fiscalYearStart: 1 } as any })
     const orgId = String(org._id)
