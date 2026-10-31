@@ -1709,6 +1709,12 @@
       "active": "Aktive",
       "inactive": "Deaktivierte"
     },
+    "movementProducts": {
+      "search": "Produkte suchen",
+      "type": "Produkttyp",
+      "status": "Produktstatus",
+      "pick": "Produkte auswählen…"
+    },
     "outOfStock": "Nicht vorrätig",
     "lowStock": "Niedriger Bestand",
     "inStock": "Auf Lager",

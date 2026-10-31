@@ -3,7 +3,7 @@ import { loginForApp } from './helpers/login'
 import { apiLogin, apiGet, apiPost, type ApiSession } from './helpers/api'
 import { rowAction } from './helpers/row-actions'
 import { lineValues } from './helpers/document-form'
-import { listGeometry } from './helpers/list-geometry'
+import { listGeometry, pinnedInView } from './helpers/list-geometry'
 
 /**
  * FR-22.47 — an article offers „Заприходи", „Продай" and „Резервирай" (Receive, Sell, Reserve), in
@@ -113,16 +113,36 @@ test.beforeAll(async () => {
   expect(price, 'the resolved selling price').toBeGreaterThan(0)
 })
 
-test('the Products list fits 1366 px with one menu per row — with the „Active" column too', async ({ page }) => {
+/**
+ * The six price tiers shown by default make the list wider than 1366 px, so it scrolls sideways
+ * with the article's name and its row menu pinned. Hide them on the cog and it fits as before.
+ */
+test('at 1366 px the Products list keeps the name and the row menu in view — and fits without the price tiers', async ({ page }) => {
   await loginForApp(page)
-  for (const path of ['/inventory/products', '/inventory/products?status=all']) {
+  const paths = ['/inventory/products', '/inventory/products?status=all']
+  for (const path of paths) {
     await page.goto(path)
     await expect(page.locator('.v-data-table tbody tr').first()).toBeVisible({ timeout: 15000 })
     await page.waitForLoadState('networkidle')
     const geo = await listGeometry(page)
     expect(geo.rows, `${path}: rows to measure`).toBeGreaterThan(0)
-    expect(geo.hidden, `${path}: no sideways scroll at 1366 px`).toBeLessThanOrEqual(1)
     expect(new Set(geo.actionButtons), `${path}: one menu button per row`).toEqual(new Set([1]))
+    for (const scroll of ['start', 'end'] as const) {
+      expect(await pinnedInView(page, scroll, 1), `${path}, scrolled to the ${scroll}: the name and the menu`).toEqual({ cell: true, menu: true })
+    }
+  }
+
+  await page.getByRole('button', { name: 'Columns' }).click()
+  const dialog = page.getByRole('dialog')
+  for (const tier of ['Доставна цена', 'Цена на едро', 'Цена 1', 'Цена 2', 'Цена 4', 'Цена 5']) {
+    await dialog.locator('.v-list-item').filter({ has: page.locator('.v-list-item-title', { hasText: new RegExp(`^${tier}$`) }) }).getByRole('checkbox').click()
+  }
+  await dialog.getByRole('button', { name: 'Close' }).click()
+  for (const path of paths) {
+    await page.goto(path)
+    await expect(page.locator('.v-data-table tbody tr').first()).toBeVisible({ timeout: 15000 })
+    await page.waitForLoadState('networkidle')
+    expect((await listGeometry(page)).hidden, `${path}: no sideways scroll at 1366 px without the tiers`).toBeLessThanOrEqual(1)
   }
 })
 

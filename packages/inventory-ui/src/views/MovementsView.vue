@@ -36,6 +36,25 @@
             <DateField v-model="dateTo" :label="$t('invoicing.dateTo')" hide-details density="compact" />
           </v-col>
         </v-row>
+        <!-- The Products list's search and filters, for the articles a movement carries: the
+             movements holding any article they find there (`buildProductListFilter`). -->
+        <v-row>
+          <v-col cols="12" md="3">
+            <v-text-field v-model="productSearch" prepend-inner-icon="mdi-package-variant-closed" :label="$t('warehouse.movementProducts.search')" clearable hide-details density="compact" />
+          </v-col>
+          <v-col cols="12" md="2">
+            <v-select v-model="productCategory" :label="$t('warehouse.category')" :items="categoryOptions" clearable hide-details density="compact" />
+          </v-col>
+          <v-col cols="12" md="2">
+            <v-select v-model="productType" :label="$t('warehouse.movementProducts.type')" :items="productTypeItems(['goods', 'service'])" clearable hide-details density="compact" />
+          </v-col>
+          <v-col cols="12" md="3">
+            <TagInput v-model="productTags" type="product" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
+          </v-col>
+          <v-col cols="12" md="2">
+            <v-select v-model="productStatus" :label="$t('warehouse.movementProducts.status')" :items="productStatusItems" hide-details density="compact" />
+          </v-col>
+        </v-row>
         <v-row>
           <v-col cols="12" md="4">
             <v-autocomplete
@@ -49,7 +68,7 @@
               multiple
               chips
               closable-chips
-              :placeholder="$t('invoicing.searchProduct')"
+              :placeholder="$t('warehouse.movementProducts.pick')"
               density="compact"
               hide-details
               variant="underlined"
@@ -180,6 +199,8 @@ import DateField from 'ui-shared/components/DateField.vue'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
+import TagInput from 'ui-shared/components/TagInput.vue'
+import { useProductTypes } from 'ui-shared/composables/useProductTypes'
 import { appHref } from 'ui-shared/nav/navigate'
 
 interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string; bill?: { id: string; number: string } }
@@ -207,6 +228,23 @@ const viewMode = ref<'movements' | 'ledger'>('movements')
 const displayMode = ref<'list' | 'kanban'>('list')
 const dateFrom = ref('')
 const dateTo = ref('')
+
+// The Products list's filters, for the articles on a movement's lines. Its status filter starts at
+// "all" here: a deactivated article's movements are still movements.
+const { productTypeItems } = useProductTypes()
+const { search: productSearch, debouncedSearch: debouncedProductSearch } = useSearchDebounce()
+const productCategory = ref<string | null>(null)
+const productType = ref<string | null>(null)
+const productTags = ref<string[]>([])
+const PRODUCT_STATUSES = ['all', 'active', 'inactive'] as const
+type ProductStatus = (typeof PRODUCT_STATUSES)[number]
+const productStatus = ref<ProductStatus>('all')
+const categoryOptions = ref<string[]>([])
+const productStatusItems = computed(() => [
+  { title: t('common.all'), value: 'all' },
+  { title: t('warehouse.activeFilter.active'), value: 'active' },
+  { title: t('warehouse.activeFilter.inactive'), value: 'inactive' },
+])
 
 // A movement's statuses, named as the list's status chips name them (FR-22.11: they were
 // English in every language, in the status filter and as the board's column titles).
@@ -256,6 +294,11 @@ const filters = computed(() => {
   if (selectedProducts.value.length) f.productId = selectedProducts.value.map(p => p._id).join(',')
   if (dateFrom.value) f.dateFrom = dateFrom.value
   if (dateTo.value) f.dateTo = dateTo.value
+  if (debouncedProductSearch.value) f.productSearch = debouncedProductSearch.value
+  if (productCategory.value) f.productCategory = productCategory.value
+  if (productType.value) f.productType = productType.value
+  if (productTags.value.length) f.productTags = productTags.value.join(',')
+  if (productStatus.value !== 'all') f.productActive = productStatus.value === 'active' ? 'true' : 'false'
   return f
 })
 
@@ -270,6 +313,11 @@ useListQueryState([
   { key: 'to', ref: dateTo, codec: 'date' },
   // NB: viewMode here is the movements/ledger toggle, not the list/kanban switcher.
   { key: 'view', ref: viewMode, default: 'movements' },
+  { key: 'pq', ref: productSearch, mirror: debouncedProductSearch },
+  { key: 'pcategory', ref: productCategory },
+  { key: 'ptype', ref: productType },
+  { key: 'ptags', ref: productTags, codec: 'csv' },
+  { key: 'pstatus', ref: productStatus, default: 'all', sanitize: (v) => (PRODUCT_STATUSES.includes(v) ? v : undefined) },
 ])
 
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
@@ -361,5 +409,12 @@ async function fetchContacts() {
   } catch { /* */ }
 }
 
-onMounted(() => { fetchItems(); fetchWarehouses(); fetchContacts() })
+async function fetchCategories() {
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-category`, { params: { isActive: 'true' } })
+    categoryOptions.value = (data.productCategories || []).map((c: { name: string }) => c.name)
+  } catch { /* */ }
+}
+
+onMounted(() => { fetchItems(); fetchWarehouses(); fetchContacts(); fetchCategories() })
 </script>

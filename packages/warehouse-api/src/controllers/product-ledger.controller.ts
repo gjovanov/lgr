@@ -17,6 +17,8 @@ export const productLedgerController = new Elysia({ prefix: '/org/:orgId/warehou
       dateTo: query.dateTo as string | undefined,
       contactId: query.contactId as string | undefined,
       eventTypes,
+      sortBy: (query.sortBy as string | undefined) || undefined,
+      sortOrder: query.sortOrder === 'desc' ? 'desc' : 'asc',
       page: query.page ? parseInt(query.page as string, 10) : undefined,
       size: query.size ? parseInt(query.size as string, 10) : undefined,
     })

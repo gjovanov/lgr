@@ -422,6 +422,10 @@ const entries = ref<any[]>([])
 const totalEntries = ref(0)
 const currentPage = ref(0)
 const pageSize = ref(25)
+// The header the ledger is sorted by; none = booking order, oldest first. The server sorts every
+// filtered row before it pages them.
+const sortBy = ref('')
+const sortOrder = ref<'asc' | 'desc'>('asc')
 const summary = ref({
   totalIn: 0, totalOut: 0, currentQty: 0, currentValue: 0,
   totalCashRegisterSales: 0, totalInvoiceSales: 0, totalSales: 0,
@@ -537,8 +541,12 @@ async function fetchStockData() {
   stockLoading.value = false
 }
 
+// Only the latest request's answer is shown: a slower one for an earlier sort or filter never
+// overwrites it.
+let ledgerRequest = 0
 async function fetchLedger() {
   if (!productId.value) return
+  const mine = ++ledgerRequest
   ledgerLoading.value = true
   try {
     const params: Record<string, string> = {
@@ -550,12 +558,18 @@ async function fetchLedger() {
     if (dateTo.value) params.dateTo = dateTo.value
     if (contactFilter.value) params.contactId = contactFilter.value
     if (eventTypeFilter.value.length) params.eventTypes = eventTypeFilter.value.join(',')
+    if (sortBy.value) {
+      params.sortBy = sortBy.value
+      params.sortOrder = sortOrder.value
+    }
 
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-ledger/${productId.value}`, { params })
+    if (mine !== ledgerRequest) return
     entries.value = data.entries || []
     totalEntries.value = data.total ?? 0
     summary.value = data.summary || summary.value
   } catch {
+    if (mine !== ledgerRequest) return
     entries.value = []
     totalEntries.value = 0
   }
@@ -563,7 +577,14 @@ async function fetchLedger() {
 }
 
 function onUpdateOptions(opts: any) {
-  currentPage.value = (opts.page ?? 1) - 1
+  const sort = opts.sortBy?.[0]
+  const key: string = sort?.key || ''
+  const order = sort?.order === 'desc' ? 'desc' : 'asc'
+  const resorted = key !== sortBy.value || (!!key && order !== sortOrder.value)
+  sortBy.value = key
+  sortOrder.value = order
+  // A new order starts on its first page; the table keeps whatever page it was on.
+  currentPage.value = resorted ? 0 : (opts.page ?? 1) - 1
   pageSize.value = opts.itemsPerPage ?? 25
   fetchLedger()
 }

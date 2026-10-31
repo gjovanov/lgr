@@ -21,8 +21,9 @@
     <template #selection="{ item }">
       <v-chip size="small" label closable @click:close="onSelect(null)">{{ item.raw.name || item.raw.displayName }}</v-chip>
     </template>
+    <!-- The name above, the SKU and unit below: the SKU once, not again in the title. -->
     <template #item="{ item, props: itemProps }">
-      <v-list-item v-bind="itemProps">
+      <v-list-item v-bind="itemProps" :title="item.raw.name || item.raw.displayName">
         <template #subtitle>{{ item.raw.sku }} &mdash; {{ item.raw.unit }}</template>
       </v-list-item>
     </template>
