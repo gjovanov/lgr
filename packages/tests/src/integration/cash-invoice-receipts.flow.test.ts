@@ -27,6 +27,7 @@ import { printableDocument } from 'invoicing-api/src/lib/invoice-pdf'
 import { bookingOf } from 'services/biz/move/fenced-import.service'
 import { fitsDue } from 'services/biz/invoice-payment'
 import { localDayOf } from 'services/biz/local-day'
+import { config } from 'config'
 
 /**
  * FR-23 R1 — a fiscal receipt for a cash or card payment on an invoice or a debit note, on the
@@ -300,6 +301,23 @@ describe('an invoice issued at the counter (§2.4)', () => {
     expect((await raw(d.id)).status).toBe('draft')
   })
 
+  it('a device not reached in two hours, in SUPTO production mode: refused before anything is written', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    const mode = config.supto.mode
+    config.supto.mode = 'production'
+    try {
+      await FiscalDevice.updateOne({ _id: w.deviceId }, { $set: { lastCommunicationAt: new Date(Date.now() - 3 * 3_600_000) } })
+      w.sim!.silent = true
+      const r = await send(w, d.id)
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('fiscal_device_unreached')
+      expect((await raw(d.id)).status).toBe('draft')
+    } finally {
+      config.supto.mode = mode
+    }
+  })
+
   it('a document in another currency than the session\'s device: refused before anything is written', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w, { extra: { currency: 'USD', exchangeRate: 0.9 } })
@@ -314,6 +332,22 @@ describe('an invoice issued at the counter (§2.4)', () => {
     await Sequence.create({ orgId: w.oid, prefix: 'CASH_SALE', year: 0, lastNumber: 0, displayPrefix: 'CSR' } as any)
     const { receipt } = await issuedPaid(w)
     expect(receipt.invoiceNumber).toMatch(/^CSR-\d{4}-\d{5}$/)
+  })
+
+  it('a draft invoice for a cash sale prints nothing and asks for no session: that sale took the money', async () => {
+    const w = await tillWorld(app)
+    const cs = (await w.backOfficeSale(1)).json.invoice
+    const contact = await createTestContact(w.oid, { companyName: 'Y', type: 'customer' } as any)
+    const draft = await w.call('POST', `/invoices/${cs.id}/to-invoice`, { contactId: String(contact._id), issueDate: '2026-10-31', issue: false }, undefined, w.clerkToken)
+    expect(draft.status).toBe(200)
+    expect(draft.json.invoice.status).toBe('draft')
+
+    const r = await send(w, String(draft.json.invoice.id), undefined, w.clerkToken)
+
+    expect(r.status).toBe(200)
+    expect(r.json.invoice.status).toBe('paid')
+    expect(w.sim!.receipts).toHaveLength(0)
+    expect(await receiptsOf(String(draft.json.invoice.id))).toHaveLength(0)
   })
 
   it('a bank transfer prints nothing and asks for no session', async () => {
