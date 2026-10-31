@@ -60,7 +60,7 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
       isSignIn: true,
       query: t.Object({
         search: t.Optional(t.String()),
-        kind: literal('sale', 'storno'),
+        kind: literal('sale', 'storno', 'payment'),
         origin: literal('pos', 'backoffice', 'import'),
         status: literal('completed', 'stornoed', 'voided'),
         fiscalState: t.Optional(t.String()),

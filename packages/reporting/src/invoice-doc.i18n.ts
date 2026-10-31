@@ -18,6 +18,7 @@ export interface InvoiceDocI18n {
     debit_note: string
     cash_sale: string
     cash_storno: string
+    payment_receipt: string
   }
   /** Why a cash sale was reversed (the fiscal storno's reason). */
   stornoReason: { operator_error: string; customer_return: string; price_reduction: string; tax_base_reduction: string }
@@ -34,6 +35,8 @@ export interface InvoiceDocI18n {
     forCashSale: string
     /** A fiscal receipt's number (FR-21 §3.9). */
     receiptNo: string
+    /** A fiscal receipt that paid this invoice (FR-23). */
+    paidByReceipt: string
     /** The cash sale a storno reverses, and why. */
     stornoOf: string
     reason: string
@@ -86,6 +89,7 @@ const bg: InvoiceDocI18n = {
     debit_note: 'ДЕБИТНО ИЗВЕСТИЕ',
     cash_sale: 'КАСОВА ПРОДАЖБА',
     cash_storno: 'СТОРНО НА КАСОВА ПРОДАЖБА',
+    payment_receipt: 'ПЛАЩАНЕ ПО ФАКТУРА',
   },
   stornoReason: {
     operator_error: 'Операторска грешка',
@@ -99,6 +103,7 @@ const bg: InvoiceDocI18n = {
     date: 'Дата',
     unp: 'УНП',
     forCashSale: 'Към касова продажба',
+    paidByReceipt: 'Платена с касов бон',
     receiptNo: 'ФБ №',
     stornoOf: 'Сторно на',
     reason: 'Основание',
@@ -156,6 +161,7 @@ const en: InvoiceDocI18n = {
     debit_note: 'DEBIT NOTE',
     cash_sale: 'CASH SALE',
     cash_storno: 'CASH SALE STORNO',
+    payment_receipt: 'PAYMENT RECEIPT',
   },
   stornoReason: {
     operator_error: 'Operator error',
@@ -169,6 +175,7 @@ const en: InvoiceDocI18n = {
     date: 'Date',
     unp: 'USN',
     forCashSale: 'For cash sale',
+    paidByReceipt: 'Paid by receipt',
     receiptNo: 'Receipt No.',
     stornoOf: 'Storno of',
     reason: 'Reason',
@@ -225,6 +232,7 @@ const de: InvoiceDocI18n = {
     debit_note: 'LASTSCHRIFT',
     cash_sale: 'BARVERKAUF',
     cash_storno: 'STORNO BARVERKAUF',
+    payment_receipt: 'ZAHLUNGSBELEG',
   },
   stornoReason: {
     operator_error: 'Bedienerfehler',
@@ -238,6 +246,7 @@ const de: InvoiceDocI18n = {
     date: 'Datum',
     unp: 'USN',
     forCashSale: 'Zum Barverkauf',
+    paidByReceipt: 'Bezahlt mit Beleg',
     receiptNo: 'Beleg-Nr.',
     stornoOf: 'Storno zu',
     reason: 'Grund',
@@ -294,6 +303,7 @@ const mk: InvoiceDocI18n = {
     debit_note: 'ДЕБИТНА БЕЛЕШКА',
     cash_sale: 'КАСОВА ПРОДАЖБА',
     cash_storno: 'СТОРНО НА КАСОВА ПРОДАЖБА',
+    payment_receipt: 'УПЛАТА ПО ФАКТУРА',
   },
   stornoReason: {
     operator_error: 'Грешка на операторот',
@@ -307,6 +317,7 @@ const mk: InvoiceDocI18n = {
     date: 'Датум',
     unp: 'УНП',
     forCashSale: 'Кон готовинска продажба',
+    paidByReceipt: 'Платена со сметка',
     receiptNo: 'Фиск. сметка бр.',
     stornoOf: 'Сторно на',
     reason: 'Основ',

@@ -15,7 +15,6 @@ import {
 } from 'services/biz/cash-register/register.service'
 import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
 import { buildSessionReport, formatSessionReport, type SessionReport } from 'services/biz/cash-register/session-report'
-import { maySaleOpen } from 'fiscal/device-reach'
 import { fiscalCapabilities } from 'fiscal/capabilities'
 import { DEVICE_REPORT_KINDS, FISCAL_ADMIN_ROLES, printDeviceReport } from 'fiscal/device-command'
 import { fiscalFailure } from 'fiscal/errors'
@@ -23,7 +22,7 @@ import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
 import {
-  STORNO_ROLES, assertPrinterConnected, assertTillTender, findKeyedTillDocument, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
+  STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, findKeyedTillDocument, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
 } from '../lib/cash-register-till.js'
 
 // FR-21: the till's device, its receipts and the price a device is given live with the cash-register
@@ -488,7 +487,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       expected: expectedTotals(session),
       currency: session.currency,
       // What the session sold so far, as its report will print it at close.
-      report: buildSessionReport(session, await loadPosRows({ orgId, sessionId: id })),
+      report: buildSessionReport(session, await loadPosRows({ orgId, sessionId: id, withReceipts: true })),
       openSessionsOnWarehouse: openOnWarehouse,
       fiscalDevice: device
         ? { id: device.id, name: device.name, deviceNumber: device.deviceNumber, connected: isDeviceConnected(device.id) }
@@ -505,7 +504,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     const session = await getRepos().posSessions.findOne({ id, orgId } as any) as any
     if (!session) return status(404, { message: 'POS session not found' })
     return {
-      report: session.report ?? buildSessionReport(session, await loadPosRows({ orgId, sessionId: id })),
+      report: session.report ?? buildSessionReport(session, await loadPosRows({ orgId, sessionId: id, withReceipts: true })),
       printedAt: session.reportPrintedAt ?? null,
       error: session.reportError ?? null,
     }
@@ -522,7 +521,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     const device = await resolveFiscalDeviceForClose(orgId, String(session.warehouseId))
     if (!device) return status(409, { code: 'fiscal_device_not_connected', message: 'No fiscal printer is set up for this warehouse' })
 
-    const report: SessionReport = session.report ?? buildSessionReport(session, await loadPosRows({ orgId, sessionId: id }))
+    const report: SessionReport = session.report ?? buildSessionReport(session, await loadPosRows({ orgId, sessionId: id, withReceipts: true }))
     const error = await printSessionReport(orgId, device.id, report, user.operatorCode)
     if (error) return status(409, { code: 'report_not_printed', message: error })
     await POSSession.updateOne({ _id: id, orgId }, { $set: { reportPrintedAt: new Date() }, $unset: { reportError: 1 } }).exec()
@@ -802,7 +801,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       // The session's own figures, printed after the Z-report: a device's Z counts only its fiscal
       // receipts, so a till printing text receipts closed on a report of zeros. Kept on the
       // session for a reprint; a print that fails is recorded and never undoes the close.
-      const report = buildSessionReport(updated, await loadPosRows({ orgId, sessionId: id }), { closing: breakdown, zReportNumber })
+      const report = buildSessionReport(updated, await loadPosRows({ orgId, sessionId: id, withReceipts: true }), { closing: breakdown, zReportNumber })
       const reportError = device && !b.closeWithoutFiscal
         ? await printSessionReport(orgId, device.id, report, user.operatorCode)
         : undefined
@@ -892,17 +891,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         // FR-20.49 — Прил. 29 т. 8: no fiscal sale opens on a device not reached in two hours (SUPTO
         // production mode only). ⚠ Here, for a NEW sale only: a keyed retry above is a sale that
         // already opened, and refusing it now would strand its receipt.
-        if (!nonFiscal) {
-          const verdict = await maySaleOpen(orgId, session.warehouseId)
-          if (!verdict.ok) {
-            return status(409, {
-              code: 'fiscal_device_unreached',
-              message: `The fiscal device "${verdict.deviceName}" has not answered for more than 2 hours. A sale cannot open until it does (Н-18, Прил. 29 т. 8).`,
-              deviceName: verdict.deviceName,
-              lastCommunicationAt: verdict.lastCommunicationAt,
-            })
-          }
-        }
+        if (!nonFiscal) await assertSaleMayOpen(orgId, session.warehouseId)
 
         const settings = await tillSettings(orgId)
         // FR-21.16: refused before a receipt can print, when the org does not let the till sell what

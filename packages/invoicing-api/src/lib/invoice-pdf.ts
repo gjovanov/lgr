@@ -1,6 +1,7 @@
 import { Invoice, Contact, Org } from 'db/models'
 import { generateInvoicePDF, HEADER_NOTE_MAX } from 'reporting/pdf/invoice.pdf'
 import { getOrgLogoDataUri } from 'services/biz/org-logo.service'
+import { paidByReceipts } from 'services/biz/cash-register/payment-receipt.service'
 
 /**
  * Issuer line printed in the page foot, beneath the software-credit line printed by the
@@ -59,6 +60,16 @@ export async function stornoRefOf(orgId: string, storno: any) {
   }
 }
 
+/**
+ * The document as its printout reads it: a storno names the sale it reverses, and an invoice or a
+ * debit note the fiscal receipts that paid it (FR-23), as an invoice for a cash sale names that sale.
+ */
+export async function printableDocument(orgId: string, invoice: any): Promise<any> {
+  const stornoRef = invoice.type === 'cash_storno' ? await stornoRefOf(orgId, invoice) : undefined
+  const paidBy = invoice.type === 'invoice' || invoice.type === 'debit_note' ? await paidByReceipts(orgId, String(invoice._id)) : []
+  return { ...invoice, ...(stornoRef ? { stornoRef } : {}), ...(paidBy.length ? { paymentReceipts: paidBy } : {}) }
+}
+
 export async function renderInvoicePdf(
   orgId: string,
   invoiceId: string,
@@ -78,7 +89,6 @@ export async function renderInvoicePdf(
     ? await Contact.findById((invoice as any).contactId).lean()
     : null
   const org = await Org.findById(orgId).lean()
-  const stornoRef = (invoice as any).type === 'cash_storno' ? await stornoRefOf(orgId, invoice) : undefined
 
   // The invoice form reads the letterhead off the org record it is given, and the renderer
   // cannot fetch a URL — so hand it the uploaded logo inlined, falling back to whatever
@@ -86,7 +96,7 @@ export async function renderInvoicePdf(
   const orgForPdf = { ...(org as any), logo: (await getOrgLogoDataUri(orgId)) ?? (org as any)?.logo }
 
   try {
-    const doc = stornoRef ? { ...(invoice as any), stornoRef } : invoice
+    const doc = await printableDocument(orgId, invoice)
     const buffer = await generateInvoicePDF(doc as any, orgForPdf as any, (contact as any) || {}, opts.columns, {
       locale,
       footerText: orgFooterLine(org),

@@ -8,7 +8,8 @@
 import type { RepositoryRegistry } from 'dal'
 import { getRepos } from '../context.js'
 import { isDateOnly, localDayEnd, localDayStart } from './local-day.js'
-import { loadPosRows } from './cash-register/pos-union.js'
+import { loadPosRows, PAYMENT_RECEIPT } from './cash-register/pos-union.js'
+import { receiptTookMoney } from './cash-register/counting.js'
 import { originOf } from './cash-register/register.service.js'
 import { User } from 'db/models'
 
@@ -44,7 +45,7 @@ export interface SuptoExportFilters {
  * device and operator filters apply here, after the union.
  */
 async function tillRows(filters: SuptoExportFilters, keep: (t: any) => boolean, byDevice = true) {
-  const rows = await loadPosRows({ orgId: filters.orgId, from: filters.dateFrom, to: filters.dateTo })
+  const rows = await loadPosRows({ orgId: filters.orgId, from: filters.dateFrom, to: filters.dateTo, withReceipts: true })
   return rows.filter(t =>
     keep(t)
     && (!byDevice || !filters.fiscalDeviceNumber || t.fiscalDeviceNumber === filters.fiscalDeviceNumber),
@@ -53,11 +54,19 @@ async function tillRows(filters: SuptoExportFilters, keep: (t: any) => boolean, 
 
 const SALE_TYPES = ['sale', 'return', 'exchange']
 
+/**
+ * FR-23: what the device sold, for the tables that list receipts. A payment's receipt is one: an
+ * inspector reads the device's journal against them. It lists under its own type, and only once it
+ * printed or may have; one that failed took nothing, and 18.5 accounts for its number and УНП. The
+ * invoice it paid is in none of these tables, so none of them holds the money twice.
+ */
+const onTheDevice = (t: any) => (t.type === PAYMENT_RECEIPT ? receiptTookMoney(t) : SALE_TYPES.includes(t.type))
+
 /** 18.1 — Summarized sales (POS + cash sales) */
 export async function exportSummarizedSales(filters: SuptoExportFilters, repos?: RepositoryRegistry) {
   const r = repos ?? getRepos()
   const transactions = await tillRows(filters, t =>
-    SALE_TYPES.includes(t.type)
+    onTheDevice(t)
     && (!filters.operatorCode || t.operatorCode === filters.operatorCode))
 
   // Also include cash_sale invoices — but not the till's own documents, already listed above.
@@ -91,12 +100,12 @@ export async function exportSummarizedSales(filters: SuptoExportFilters, repos?:
 
 /** 18.2 — Payment details */
 export async function exportPaymentDetails(filters: SuptoExportFilters, _repos?: RepositoryRegistry) {
-  return tillRows(filters, () => true)
+  return tillRows(filters, t => t.type !== PAYMENT_RECEIPT || receiptTookMoney(t))
 }
 
 /** 18.3 — Itemized sales (line-level detail) */
 export async function exportItemizedSales(filters: SuptoExportFilters, _repos?: RepositoryRegistry) {
-  return tillRows(filters, t => SALE_TYPES.includes(t.type))
+  return tillRows(filters, onTheDevice)
 }
 
 /** 18.4 — Reversed (storno) sales */

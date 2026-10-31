@@ -2,7 +2,8 @@
  * FR-21.12 — the cash-register journal: every cash-register sale and storno, one row shape.
  *
  * What it lists: every `cash_sale` and `cash_storno` document — the till's
- * (`register.origin: 'pos'`), the back office's and the PlusMinus imports'.
+ * (`register.origin: 'pos'`), the back office's and the PlusMinus imports' — and the receipt of
+ * every payment on an invoice (`payment_receipt`, FR-23): number, УНП, amount and the invoice it paid.
  *
  * Until R4 it also listed the POS rows no document had copied yet. Since R3 every row has its
  * document and `postransactions` is frozen, so the journal reads the documents only (FR-21.27);
@@ -13,10 +14,10 @@
  */
 import { Contact, Invoice, POSSession, StockMovement, User, Warehouse } from 'db/models'
 import { localDayWindow, BULGARIAN_TIME_ZONE } from '../local-day.js'
-import { REGISTER_TYPES } from './pos-union.js'
+import { PAYMENT_RECEIPT, TILL_DOCUMENT_TYPES } from './pos-union.js'
 import { invoicedCashSaleIds, invoicingByCashSale } from '../cash-sale-invoice.service.js'
 
-export type JournalKind = 'sale' | 'storno'
+export type JournalKind = 'sale' | 'storno' | 'payment'
 export type JournalOrigin = 'pos' | 'backoffice' | 'import'
 export type JournalStatus = 'completed' | 'stornoed' | 'voided'
 export type JournalStock = 'moved' | 'error' | 'none'
@@ -99,7 +100,10 @@ export interface JournalRow {
   relatedId?: string
   /** On a sale: the stornos that reverse it. */
   stornoedBy?: string[]
-  /** #171: on a cash sale held as a document, the invoices issued for it and how far it is invoiced. */
+  /**
+   * #171: on a cash sale held as a document, the invoices issued for it and how far it is invoiced.
+   * FR-23: on a payment's receipt, the invoice it paid.
+   */
   invoices?: Array<{ id: string; number: string; status: string }>
   invoicingState?: 'none' | 'partial' | 'full'
 }
@@ -149,9 +153,12 @@ function fiscalStateMatch(state: string, stateField: string, receiptField: strin
 
 // ── The document side ───────────────────────────────────────────────────────
 
+const KIND_TYPE: Record<JournalKind, string> = { sale: 'cash_sale', storno: 'cash_storno', payment: PAYMENT_RECEIPT }
+const kindOf = (doc: any): JournalKind => (doc.type === 'cash_storno' ? 'storno' : doc.type === PAYMENT_RECEIPT ? 'payment' : 'sale')
+
 function documentMatch(q: JournalQuery, invoiced: any[] | null): Record<string, any> | null {
-  const and: Record<string, any>[] = [{ orgId: oid(q.orgId) }, { type: { $in: REGISTER_TYPES } }]
-  if (q.kind) and.push({ type: q.kind === 'storno' ? 'cash_storno' : 'cash_sale' })
+  const and: Record<string, any>[] = [{ orgId: oid(q.orgId) }, { type: { $in: TILL_DOCUMENT_TYPES } }]
+  if (q.kind) and.push({ type: KIND_TYPE[q.kind] })
   if (invoiced) and.push({ type: 'cash_sale', _id: q.invoiced === 'yes' ? { $in: invoiced } : { $nin: invoiced } })
   if (q.origin === 'pos') and.push({ 'register.origin': 'pos' })
   if (q.origin === 'import') {
@@ -229,7 +236,7 @@ function fromDocument(doc: any, moved: Set<string>): JournalRow {
     id,
     store: 'invoice',
     number: doc.invoiceNumber,
-    kind: doc.type === 'cash_storno' ? 'storno' : 'sale',
+    kind: kindOf(doc),
     origin,
     status: documentStatus(doc),
     date: new Date(doc.issueDate || doc.createdAt).toISOString(),
@@ -261,6 +268,9 @@ function fromDocument(doc: any, moved: Set<string>): JournalRow {
       ? { relatedId: String(reg.storno?.originalId || doc.relatedInvoiceId) }
       : {}),
     ...(reg.stornoedBy?.length ? { stornoedBy: reg.stornoedBy.map(String) } : {}),
+    ...(doc.type === PAYMENT_RECEIPT
+      ? { invoices: [{ id: String(reg.paidInvoiceId), number: reg.paidInvoiceNumber || '', status: 'paid' }], invoicingState: 'full' as const }
+      : {}),
   }
 }
 
@@ -359,7 +369,7 @@ export interface JournalDocument {
 /** One journal entry in full: its lines, its storno chain, its stock and its session. */
 export async function getJournalDocument(orgId: string, id: string): Promise<JournalDocument | null> {
   if (!isOid(id)) return null
-  const doc: any = await Invoice.findOne({ _id: oid(id), orgId: oid(orgId), type: { $in: REGISTER_TYPES } }).lean().exec()
+  const doc: any = await Invoice.findOne({ _id: oid(id), orgId: oid(orgId), type: { $in: TILL_DOCUMENT_TYPES } }).lean().exec()
   if (!doc) return null
 
   const moved = new Set((await StockMovement.distinct('invoiceId', { orgId: oid(orgId), invoiceId: doc._id }).exec()).map(String))
@@ -375,7 +385,7 @@ export async function getJournalDocument(orgId: string, id: string): Promise<Jou
   // The storno chain: the sale a storno reverses, and the stornos of a sale.
   const relatedIds = [journalRow.relatedId, ...(journalRow.stornoedBy || [])].filter(Boolean) as string[]
   const relatedDocs: any[] = relatedIds.length
-    ? await Invoice.find({ _id: { $in: relatedIds.map(oid) }, orgId: oid(orgId), type: { $in: REGISTER_TYPES } }).lean().exec()
+    ? await Invoice.find({ _id: { $in: relatedIds.map(oid) }, orgId: oid(orgId), type: { $in: TILL_DOCUMENT_TYPES } }).lean().exec()
     : []
   const related = relatedDocs.map(d => fromDocument(d, new Set()))
 

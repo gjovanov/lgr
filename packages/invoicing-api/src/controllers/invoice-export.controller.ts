@@ -386,10 +386,10 @@ const COMPANION_KINDS = new Set<CompanionDocKind>(['certificate', 'ppprotocol'])
 
 /**
  * Only outgoing documents get companion prints — on an incoming bill we are the recipient — and
- * never a storno: it delivers nothing to declare or hand over.
+ * never a storno or a payment's receipt: they deliver nothing to declare or hand over.
  */
 function companionAllowed(invoice: any): boolean {
-  return invoice?.direction === 'outgoing' && invoice?.type !== 'cash_storno'
+  return invoice?.direction === 'outgoing' && invoice?.type !== 'cash_storno' && invoice?.type !== 'payment_receipt'
 }
 
 /**
