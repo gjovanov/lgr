@@ -755,6 +755,7 @@
     "card": "Karte",
     "bankTransfer": "Banküberweisung",
     "cashOnDelivery": "Nachnahme",
+    "codNotSupported": "Dieses Fiskalgerät kennt keine Nachnahme. Es wurde nichts verkauft: Nehmen Sie die Zahlung bar oder per Karte an.",
     "mobile": "Mobil",
     "voucher": "Gutschein",
     "connectPrinter": "Drucker verbinden",
@@ -817,10 +818,14 @@
       "fiscalFailed": "Der Fiskaltag konnte NICHT abgeschlossen werden — die Sitzung bleibt offen",
       "noFiscalDevice": "Für dieses Lager ist kein Fiskalgerät konfiguriert; der Tag wird ohne Fiskalbericht abgeschlossen.",
       "otherSessionsOpen": "{n} weitere Sitzung(en) sind auf diesem Lager offen. Ein Z-Bericht schließt den Fiskaltag des gesamten Geräts.",
+      "notCounted": "Beim Kurier, wird nicht gezählt",
+      "receiptOpenTitle": "Die Sitzung bleibt geöffnet",
+      "receiptOpen": "Auf diesem Gerät wird gerade ein Verkauf gedruckt. Warten Sie, bis er fertig ist, und schließen Sie dann erneut ab.",
       "method": {
         "cash": "Bar",
         "card": "Karte",
-        "other": "Sonstige Zahlungen"
+        "other": "Sonstige Zahlungen",
+        "cashOnDelivery": "Nachnahme"
       }
     },
     "pin": {
@@ -844,6 +849,23 @@
       "notConfigured": "Für dieses Lager ist kein Fiskaldrucker eingerichtet. Wenden Sie sich an den Administrator."
     },
     "sessionDocuments": "Barverkäufe der Sitzung {number}",
+    "deviceReport": {
+      "menu": "Geräteberichte",
+      "noDevice": "Kein Fiskalgerät für diese Sitzung",
+      "notConnected": "{name} ist nicht verbunden",
+      "x": "X-Bericht",
+      "fmByDate": "Fiskalspeicher nach Datum",
+      "fmByNumber": "Fiskalspeicher nach Z-Nummer",
+      "ej": "Elektronisches Journal",
+      "operator": "Bedienerbericht",
+      "numberFrom": "Erster Z-Bericht Nr.",
+      "numberTo": "Letzter Z-Bericht Nr.",
+      "detailed": "Detailliert",
+      "operatorNumber": "Bediener",
+      "allOperators": "Alle Bediener",
+      "print": "Drucken",
+      "printed": "Der Bericht wurde auf dem Fiskalgerät gedruckt."
+    },
     "sessionReport": {
       "title": "Sitzungsbericht",
       "view": "Sitzungsbericht",
@@ -864,6 +886,7 @@
       "cash": "Bar",
       "card": "Karte",
       "other": "Sonstige",
+      "cashOnDelivery": "Nachnahme",
       "change": "Rückgeld",
       "opening": "Anfangsbestand",
       "expected": "Erwartetes Bargeld",

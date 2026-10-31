@@ -24,13 +24,19 @@ export interface IPOSSession extends Document {
   totalCard: number
   /** FR-9.2: mobile/voucher tenders, which were accepted per transaction but never summed. */
   totalOther: number
+  /**
+   * Cash on delivery: a courier owes it, so it is never in the drawer. The close shows it as
+   * expected, nobody counts it, and it stays out of expected cash.
+   */
+  totalCashOnDelivery: number
   transactionCount: number
   /**
    * FR-9.1 — what the operator counted, per method, against what the system expected.
    * `closingBalance`/`expectedBalance`/`difference` keep their cash-only meaning for
-   * backward compatibility with the legacy single-number close.
+   * backward compatibility with the legacy single-number close. A `cash_on_delivery` line carries
+   * `expected` only: there is nothing at the till to count.
    */
-  closingBreakdown?: { method: string; expected: number; counted: number; difference: number }[]
+  closingBreakdown?: { method: string; expected: number; counted?: number; difference?: number }[]
   /**
    * Whether the fiscal day was closed on the device. `skipped` = no device configured, or an
    * admin explicitly bypassed. `failed` = the device was reachable-but-broken; the session
@@ -86,12 +92,13 @@ const posSessionSchema = new Schema<IPOSSession>(
     totalCard: { type: Number, required: true, default: 0 },
     // Sessions predating this field read as 0, which is exactly right.
     totalOther: { type: Number, required: true, default: 0 },
+    totalCashOnDelivery: { type: Number, required: true, default: 0 },
     transactionCount: { type: Number, required: true, default: 0 },
     closingBreakdown: [{
       method: { type: String, required: true },
       expected: { type: Number, required: true },
-      counted: { type: Number, required: true },
-      difference: { type: Number, required: true },
+      counted: Number,
+      difference: Number,
     }],
     fiscalStatus: { type: String, enum: ['closed', 'skipped', 'failed'] },
     fiscalError: String,

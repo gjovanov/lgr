@@ -6,6 +6,7 @@
  */
 
 import { createWorkbook, finalizeWorkbook, styleHeaderRow, formatCurrency, formatDate } from './base.excel.js'
+import { paymentMethodLabel } from '../i18n.js'
 
 // ── 18.1 Summarized Sales ──
 
@@ -99,7 +100,8 @@ export async function generateTable182(transactions: any[]): Promise<Buffer> {
         transactionNumber: t.transactionNumber,
         date: t.createdAt ? formatDate(new Date(t.createdAt)) : '',
         total: formatCurrency(t.total),
-        method: p.method,
+        // In the words the receipt prints, for the inspector: the only method whose key is not a word.
+        method: p.method === 'cash_on_delivery' ? paymentMethodLabel(p.method, 'bg') : p.method,
         amount: formatCurrency(p.amount),
         reference: p.reference || '',
         fiscalDeviceNumber: t.fiscalDeviceNumber || '',

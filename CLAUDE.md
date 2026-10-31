@@ -947,13 +947,32 @@ LGR implements СУПТО (Софтуер за Управление на Про�
     mid-sale; a reconnect is a new driver) is cleared as a sale clears it (`clearOpenReceipt`) and the report
     prints: refusing it stranded the till, whose close runs this Z. ⚠ Only the driver's own state tells the two
     apart (`fiscalOperation()` counts, it does not lock): a receipt is counted BEFORE its 90h/26h is sent, and let
-    go once closed, voided, or (text) a line fails. ⚠ A POS close whose Z is refused this way still answers 503
-    `fiscal_error` and marks the device `error`.
+    go once closed, voided, or (text) a line fails. A POS close whose Z is refused this way answers 409
+    `receipt_open`, leaves the device's status alone and puts the session back to `open` with no failure on it:
+    closing again once the sale has finished works. Every other Z failure stays 503 `fiscal_error` + device `error`.
   - v1.1.7 has NO command to read an operator back (66h only sets one), no operator report and no КЛЕН print —
     never add a method that pretends. Operators 1–16; payment slots P N C D I J K L M Q R (35h/55h).
   - **Cash on delivery** = `FiscalPaymentType` `cash_on_delivery` → reserve slot **`R`**, named „НАЛОЖЕН
     ПЛАТЕЖ" from the device page (55h, admin only). Every other driver refuses it via `paymentCode()` — the
     drivers' old `table[type] || 'P'` printed any unmapped payment as cash.
+- **The till's tender** (`invoicing-api/lib/cash-register-till.ts`, 2026-10-31) is checked BEFORE anything is
+  written, so a refused sale draws no number and no УНП, at every door that prints: the till's sale, both storno
+  routes, and the back-office sale joined to a session (D-13).
+  - ⚠ `toFiscalPaymentType` has **no default** (`FiscalPaymentMethodError`). Everything unknown used to print as
+    cash, so a bank transfer on a joined sale was recorded by the device as cash taken. `mobile` stays card;
+    `check` is gone (no document can hold it, and at the till it would have burned a CS number at the insert).
+    A method no receipt can carry is 422 `payment_method_not_fiscal`. The tender's `method` is a plain string in
+    the till's schemas on purpose: a schema union would answer that with its own generic 422.
+  - **Cash on delivery at the till** tenders exactly the total and nothing beside it (422
+    `cod_amount_mismatch`): a short tender would be booked as cash taken (`keptByMethod` calls the rest of a total
+    cash), and an over-tender would give change out of a drawer that took nothing. A device without
+    `capabilities.cashOnDelivery` refuses it (422 `cod_not_supported`), on a text receipt too; a joined sale that
+    asks for no receipt prints nothing, so nothing refuses it.
+  - ⚠ The courier holds that money, so it is **never in the drawer**: `POSSession.totalCashOnDelivery`, its own
+    bucket, out of expected cash. The close's `cash_on_delivery` line carries `expected` only (no `counted`, no
+    `difference`), and only when there is something to expect. The session report has its own line
+    (`cashOnDeliveryOf`). The session JE leaves it in "POS Other" on the receivable account, unchanged. The back
+    office's cash-sale form still does not offer it (`usePaymentMethods({ cashOnDelivery: false })`).
 - **`capabilities.ts`** — what each DRIVER can do (which reports, operator read/program, text receipts,
   payment-name programming, COD, max operators), resolved from manufacturer × connection type exactly as
   `createPrinter` / `createBridgePrinter` choose the class. Served on `GET /fiscal/device[/:id]`; the device page
@@ -962,6 +981,10 @@ LGR implements СУПТО (Софтуер за Управление на Про�
 - **`errors.ts`** — `fiscalFailure(e)`: a driver error as an HTTP answer (input 400, unsupported 400, device
   refused / receipt open 409, unreadable answer 502, not connected 503, timeout 504). The device endpoints used
   to answer 500 to everything.
+- **`device-command.ts`** — `onDevice` and `printDeviceReport`: one command on a device, and the X, fiscal-memory,
+  КЛЕН and operator reports, as an API answers them. In `fiscal` because two controllers print them and
+  `invoicing-api` cannot import `portal-api`. ⚠ It has no Z: on the device page that is its own route, and from
+  POS Sessions it does not exist (a Z outside the close makes the next close print zeros).
 - **`fiscal-device.service.ts`** — in-memory connection manager (`connect`, `disconnect`, `getPrinter`, `registerPrinter`, `unregisterPrinter`)
 - **`fiscal-bridge.ts`** (portal-api/websocket/) — WebSocket endpoint `/ws/fiscal-bridge`, with **two
   kinds of bridge**: a browser tab over Web Serial, and (since FR-14.26) a registered **LGR Desktop**
@@ -987,6 +1010,13 @@ LGR implements СУПТО (Софтуер за Управление на Про�
     Rust, never Bun**: Bun + `serialport` on Windows opens the port and writes but never delivers
     received bytes, which made the Eltrade A3 look dead for two days in September. The drivers stay
     on the hub and УНП allocation stays there too — the shell only moves bytes.
+- **POS Sessions prints a device's reports**: `POST /trade/pos/session/:id/device-report` (`kind`: `x`, `fm_date`,
+  `fm_number`, `ej`, `operator`), and `GET` of the same path for what the menu offers. A closed session prints on
+  its `fiscalDeviceId`; an open one on its warehouse's device, found as the close finds it (`resolveFiscalDeviceForClose`).
+  An X is for an open session only (409 `session_not_open`: it reads the device's day as it stands). Roles are the
+  device page's, so `sales` gets 403, and the route has its own `self` rule in `route-permission` because
+  `warehouse_manager` runs devices with no `pos.write`. Capability first (400 `unsupported`, nothing sent), then
+  input, then 409 `fiscal_device_not_connected`; driver errors through `fiscalFailure`. Audited on the session.
 - **`bridge.ts`** — standalone serial-to-TCP bridge script for non-browser setups (`bun run packages/fiscal/src/bridge.ts`)
 - **`time-sync.service.ts`** — fiscal device clock sync (periodic, default 6h). Device clocks
   are Bulgarian time: format through `zoned-time.ts`, never `getHours()` (the pod is UTC).
@@ -1675,11 +1705,12 @@ in LGR while the device still had it open.
 - **Any fiscal failure reverts the session to `open`**, records `fiscalStatus:'failed'` +
   `fiscalError`, flips the device to `error`, and returns **503 `{code:'fiscal_error'}`** with
   a message distinguishing a connection failure from a device error. The day is never closed
-  on a fiscal error.
+  on a fiscal error. The one exception is a Z the driver refused because a sale is printing on
+  it: nothing failed, so 409 `receipt_open`, the device untouched, and no failure on the session.
 - `fiscalStatus: 'skipped'` when the warehouse has **no** active device (regal may run without
   one). A device that exists but fails is never silently skipped — only `closeWithoutFiscal`
   bypasses it, and only for admin/manager.
-- Model: `closingBreakdown[{method,expected,counted,difference}]`, `fiscalStatus`,
+- Model: `closingBreakdown[{method,expected,counted?,difference?}]`, `fiscalStatus`,
   `fiscalError`, `zReportNumber`, `fiscalClosedAt`, `fiscalDeviceId`, and **`totalOther`**
   (mobile/voucher were accepted per transaction but never summed, so the close screen had no
   expected value for them). `closingBalance`/`expectedBalance`/`difference` keep their

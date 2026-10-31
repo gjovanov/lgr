@@ -747,9 +747,21 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
   /**
    * An interrupted sale leaves a receipt open, and every later command is then refused.
    * Close or void it before starting a new document, in one turn of the queue.
+   *
+   * ⚠ `forServiceReceipt`: a service receipt never clears a sale THIS driver is printing, or a
+   * session report reprinted during a sale voids the customer's receipt. It is refused, as a report
+   * is (`report()`). Two sales on one driver still clear each other: `abandonReceipt` would void
+   * the first once the second was refused, so that needs its own fix.
    */
-  private ensureNoOpenReceipt(): Promise<void> {
+  private ensureNoOpenReceipt(forServiceReceipt = false): Promise<void> {
     return this.serialize(async () => {
+      if (forServiceReceipt && this.receipt) {
+        throw new EltradeError(
+          'A sale is printing on this device, so the service receipt was not printed. Wait for it to finish, then try again.',
+          'busy',
+          ELTRADE_CMD.OPEN_NON_FISCAL,
+        )
+      }
       const { status } = await this.primedTransact(ELTRADE_CMD.GET_STATUS, 'X', { check: false })
       await this.clearOpenReceipt(status, 'a new receipt')
     })
@@ -994,7 +1006,7 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
   // ── Non-fiscal (service) receipt ──
 
   async openNonFiscalReceipt(_operatorCode: string): Promise<void> {
-    await this.ensureNoOpenReceipt()
+    await this.ensureNoOpenReceipt(true)
     // Counted as this driver's before 26h is sent, as a fiscal receipt is before 90h.
     this.textReceipt = true
     try {

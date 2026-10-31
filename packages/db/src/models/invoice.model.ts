@@ -411,9 +411,11 @@ const invoiceSchema = new Schema<IInvoice>(
         date: { type: Date, required: true },
         amount: { type: Number, required: true },
         // No 'check': nobody pays by cheque here, and no document ever did. cash_on_delivery is
-        // наложен платеж — the courier collects, so it is paid later, not on issue. `mobile` and
-        // `voucher` are the till's legacy methods (FR-21): kept for copied POS sales, offered by
-        // no form, and counted as "other" by every report.
+        // наложен платеж — the courier collects, so on an invoice it is paid later, not on issue.
+        // The till takes it too (2026-10-31): a fiscal receipt in the device's own slot, the sale
+        // `paid` as every till sale is, and the money on the session's own bucket, never in the
+        // drawer. `mobile` and `voucher` are the till's legacy methods (FR-21): kept for copied POS
+        // sales, offered by no form, and counted as "other" by every report.
         method: { type: String, required: true, enum: ['cash', 'bank_transfer', 'card', 'cash_on_delivery', 'other', 'mobile', 'voucher'] },
         tendered: Number,
         reference: String,

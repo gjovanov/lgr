@@ -121,8 +121,9 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
         reason: t.Union([t.Literal('operator_error'), t.Literal('customer_return'), t.Literal('price_reduction'), t.Literal('tax_base_reduction')]),
         /** The open session a till sale's refund leaves; a back-office sale takes none. */
         sessionId: t.Optional(t.String()),
+        // Any string: refused by hand before anything is written (`stornoDoor`), with its reason.
         payments: t.Optional(t.Array(t.Object({
-          method: t.Union([t.Literal('cash'), t.Literal('card'), t.Literal('mobile'), t.Literal('voucher')]),
+          method: t.String(),
           amount: t.Number(),
           reference: t.Optional(t.String()),
         }))),

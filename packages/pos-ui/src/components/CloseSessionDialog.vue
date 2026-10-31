@@ -79,6 +79,15 @@
                   </td>
                   <td class="text-end" :class="diffClass(m)">{{ fmt(difference(m)) }}</td>
                 </tr>
+                <!-- What couriers owe: expected, and never counted. It is not at the till. -->
+                <tr v-if="expected.cashOnDelivery" data-testid="close-cash-on-delivery">
+                  <td>
+                    <v-icon size="small" class="mr-2">mdi-truck-delivery-outline</v-icon>
+                    {{ $t('pos.close.method.cashOnDelivery') }}
+                  </td>
+                  <td class="text-end">{{ fmt(expected.cashOnDelivery) }}</td>
+                  <td colspan="2" class="text-end text-medium-emphasis">{{ $t('pos.close.notCounted') }}</td>
+                </tr>
               </tbody>
             </v-table>
 
@@ -268,11 +277,11 @@ async function submit() {
     // An unanswered attempt keeps its key: closing again returns that close, never a second Z-report.
     attempt.settle(e)
     // The session is still open — the server reverted it. Say so plainly.
-    result.value = {
-      kind: 'error',
-      title: t('pos.close.fiscalFailed'),
-      detail: e?.response?.data?.message || t('common.operationFailed'),
-    }
+    const refused = e?.response?.data
+    result.value = refused?.code === 'receipt_open'
+      // Not a failure: a sale is printing on the device, and closing again after it works.
+      ? { kind: 'error', title: t('pos.close.receiptOpenTitle'), detail: t('pos.close.receiptOpen') }
+      : { kind: 'error', title: t('pos.close.fiscalFailed'), detail: refused?.message || t('common.operationFailed') }
   } finally {
     submitting.value = false
   }

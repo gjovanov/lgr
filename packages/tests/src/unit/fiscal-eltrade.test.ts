@@ -21,7 +21,7 @@ import { buildIslFrame, buildIslResponseFrame, islBcc, parseIslStream, ISL } fro
 import { encodeCp1251, decodeCp1251 } from 'fiscal/cp1251'
 import { formatDeviceDateTime, formatDeviceIsoDateTime, parseDeviceDateTime } from 'fiscal/zoned-time'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
-import { toFiscalPaymentType, toVatGroup } from 'fiscal/types'
+import { FiscalPaymentMethodError, toFiscalPaymentType, toVatGroup } from 'fiscal/types'
 import { IslResponseCollector } from 'ui-shared/composables/fiscalIslResponse'
 
 /**
@@ -636,6 +636,27 @@ describe('EltradeFiscalPrinter — a report while THIS driver is printing a rece
     expect(sim.nonFiscalLines).toEqual(['ОБЩО'])
   })
 
+  it('a service receipt during a sale (a session report reprinted) is refused, and the sale stands', async () => {
+    const sim = new EltradeSimulator()
+    const p = await saleInProgress(sim)
+    const before = sim.executed.length
+    const err = await captureRejection(p.openNonFiscalReceipt('0001'))
+    expectRejection(err, /^A sale is printing on this device, so the service receipt was not printed\. Wait for it to finish, then try again\.$/)
+    expect(err.kind).toBe('busy')
+    expect(sim.executed.length).toBe(before) // nothing reached the device
+    expect(sim.receipt).toMatchObject({ kind: 'fiscal' })
+    expect((p as any).textReceipt).toBe(false)
+
+    // The sale goes on to its end, and the service receipt prints after it.
+    await p.printPayment('cash', sim.receipt!.total)
+    await p.closeFiscalReceipt()
+    expect(sim.receipts.map(r => r.voided)).toEqual([undefined])
+    await p.openNonFiscalReceipt('0001')
+    await p.printNonFiscalText('ОТЧЕТ')
+    await p.closeNonFiscalReceipt()
+    expect(sim.nonFiscalLines).toEqual(['ОТЧЕТ'])
+  })
+
   it('a report queued ahead of the 27h that closes a service receipt is refused, and the close still succeeds', async () => {
     // Were the receipt let go when 27h is asked for rather than once it has run, this report
     // would close it first, and the till's own 27h would fail on a receipt that printed whole.
@@ -913,6 +934,31 @@ describe('EltradeFiscalPrinter — payment type names (55h)', () => {
     expectRejection(err, /refused "НАЛОЖЕН ПЛАТЕЖ" as the name of payment type R/)
     expect(err.kind).toBe('rejected')
     expect(sim.paymentNames.R).toBe('РЕЗЕРВ')
+  })
+})
+
+describe('toFiscalPaymentType: what a receipt can carry, and no default', () => {
+  it('maps the till\'s methods; a mobile payment is a card payment to a device', () => {
+    expect(['cash', 'card', 'mobile', 'voucher', 'cash_on_delivery'].map(toFiscalPaymentType))
+      .toEqual(['cash', 'card', 'card', 'voucher', 'cash_on_delivery'])
+  })
+
+  it('refuses everything else with a typed error, where it used to answer cash', () => {
+    for (const method of ['bank_transfer', 'other', 'check', 'crypto', '', 'constructor', 'CASH']) {
+      const refused = (() => {
+        try {
+          return toFiscalPaymentType(method)
+        } catch (e) {
+          return e
+        }
+      })()
+      expect(refused).toBeInstanceOf(FiscalPaymentMethodError)
+      expect((refused as FiscalPaymentMethodError).method).toBe(method)
+    }
+  })
+
+  it('says it in words', () => {
+    expect(new FiscalPaymentMethodError('bank_transfer').message).toContain('"bank transfer"')
   })
 })
 

@@ -55,6 +55,8 @@
     <template #item.number="{ item }">
       <entity-link :label="item.number" :to="detailRoute(item)" />
     </template>
+    <!-- The row's methods in the reader's language; `paymentLabel` is the same in words, for an API. -->
+    <template #item.paymentLabel="{ item }">{{ paymentText(item) }}</template>
     <template #item.date="{ item }">
       <span :title="item.hasTime ? '' : $t('cashRegister.noTime')">{{ fmtDate(item) }}</span>
     </template>
@@ -153,6 +155,7 @@ import { useSearchDebounce } from '../../composables/useSearchDebounce'
 import { useListQueryState } from '../../composables/useListQueryState'
 import { useCurrency } from '../../composables/useCurrency'
 import { useSnackbar } from '../../composables/useSnackbar'
+import { paymentMethodKey } from '../../composables/usePaymentMethods'
 import { canStornoJournalRow } from '../../cash-register/storno'
 import { appHref } from '../../nav/navigate'
 
@@ -184,7 +187,7 @@ const KINDS = ['sale', 'storno']
 const ORIGINS = ['pos', 'backoffice', 'import']
 const STATUSES = ['completed', 'stornoed', 'voided']
 const FISCAL_STATES = ['printed', 'pending', 'failed', 'unknown', 'none']
-const METHODS = ['cash', 'card', 'bank_transfer', 'other']
+const METHODS = ['cash', 'card', 'cash_on_delivery', 'bank_transfer', 'other']
 const INVOICED = ['yes', 'no']
 
 const { search, debouncedSearch } = useSearchDebounce()
@@ -209,10 +212,10 @@ const fiscalStateOptions = computed(() => FISCAL_STATES.map(value => ({
   title: value === 'none' ? t('cashRegister.fiscalState.noReceipt') : t(`cashRegister.fiscalState.${value}`),
 })))
 const invoicedOptions = computed(() => INVOICED.map(value => ({ value, title: t(`common.${value}`) })))
-const methodOptions = computed(() => METHODS.map(value => ({
-  value,
-  title: value === 'other' ? t('common.other') : t(`pos.${value === 'bank_transfer' ? 'bankTransfer' : value}`),
-})))
+const methodOptions = computed(() => METHODS.map(value => ({ value, title: t(paymentMethodKey(value)) })))
+function paymentText(row: { payments?: { method: string }[] }): string {
+  return [...new Set((row.payments || []).map(p => p.method))].map(m => t(paymentMethodKey(m))).join(' + ')
+}
 
 const hasActiveFilters = computed(() =>
   !!debouncedSearch.value || !!kind.value || !!origin.value || !!status.value || !!fiscalState.value || !!method.value

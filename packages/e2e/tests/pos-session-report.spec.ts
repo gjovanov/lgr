@@ -24,6 +24,26 @@ test.beforeAll(async () => {
   sale = await ringTillSale(cashier)
 })
 
+test('a close that met a sale printing says to wait, and the session stays open to close again', async ({ page }) => {
+  // The device's side is `integration/pos-close.flow`; here, what the dialog makes of the answer.
+  await page.route(`**/trade/pos/session/${sale.sessionId}/close`, route => route.fulfill({
+    status: 409,
+    json: { code: 'receipt_open', message: 'A sale is printing on this device. Wait for it to finish, then close again.' },
+  }))
+  await loginForApp(page, 'acme-corp', 'sales', 'test123')
+  await page.goto('/pos/terminal')
+  await page.getByRole('button', { name: 'Close Session' }).click()
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Close the register' })
+  const confirm = dialog.getByRole('button', { name: 'Close', exact: true })
+  await expect(confirm).toBeEnabled({ timeout: 15000 })
+  await confirm.click()
+
+  await expect(dialog).toContainText('The session is still open')
+  await expect(dialog).toContainText('Wait for it to finish, then close again.')
+  await expect(dialog).not.toContainText('could NOT be closed')
+  await expect(dialog.getByRole('button', { name: 'Retry' })).toBeVisible()
+})
+
 test('the close dialog shows the session report the close keeps', async ({ page }) => {
   await loginForApp(page, 'acme-corp', 'sales', 'test123')
   await page.goto('/pos/terminal')

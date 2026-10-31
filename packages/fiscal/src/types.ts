@@ -41,6 +41,19 @@ export class FiscalUnsupportedError extends Error {
   }
 }
 
+/**
+ * A payment method no fiscal receipt can carry: a bank transfer, "other", anything LGR does not
+ * know. The doors that print refuse one before anything is written (`payment_method_not_fiscal`,
+ * `invoicing-api/lib/cash-register-till.ts`); this is what stops one that got past them, before the
+ * receipt opens. ⚠ Never answered with a method that is close: the device records what it prints.
+ */
+export class FiscalPaymentMethodError extends Error {
+  constructor(readonly method: string) {
+    super(`A fiscal receipt cannot carry the payment method "${method.replace(/_/g, ' ')}". Use cash, card or cash on delivery.`)
+    this.name = 'FiscalPaymentMethodError'
+  }
+}
+
 const PAYMENT_LABEL: Record<FiscalPaymentType, string> = {
   cash: 'cash',
   card: 'card',
@@ -260,9 +273,12 @@ export interface FiscalConnectionConfig {
 /**
  * Map application payment methods to fiscal payment types.
  *
- * ⚠ Cash on delivery keeps its own type. It used to fall through to the cash default, so a COD
- * payment would have printed, and been recorded by the device, as cash. Now a driver with a slot
- * for it prints it there and every other driver refuses it (`paymentCode`).
+ * ⚠ There is no default. Anything else used to print as cash, so a bank transfer on a fiscal receipt
+ * was recorded by the device as cash taken. It throws `FiscalPaymentMethodError` now, and so does
+ * `check`: the method was removed outright, and no document can hold one (`Invoice.payments.method`).
+ *
+ * Cash on delivery keeps its own type: a driver with a slot for it prints it there, and every other
+ * driver refuses it (`paymentCode`).
  */
 export function toFiscalPaymentType(method: string): FiscalPaymentType {
   switch (method) {
@@ -270,9 +286,8 @@ export function toFiscalPaymentType(method: string): FiscalPaymentType {
     case 'card': return 'card'
     case 'mobile': return 'card' // Mobile payments are treated as card by fiscal printers
     case 'voucher': return 'voucher'
-    case 'check': return 'check'
     case 'cash_on_delivery': return 'cash_on_delivery'
-    default: return 'cash'
+    default: throw new FiscalPaymentMethodError(method)
   }
 }
 

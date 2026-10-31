@@ -16,10 +16,14 @@ import {
 import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
 import { buildSessionReport, formatSessionReport, type SessionReport } from 'services/biz/cash-register/session-report'
 import { maySaleOpen } from 'fiscal/device-reach'
+import { fiscalCapabilities } from 'fiscal/capabilities'
+import { DEVICE_REPORT_KINDS, FISCAL_ADMIN_ROLES, printDeviceReport } from 'fiscal/device-command'
+import { fiscalFailure } from 'fiscal/errors'
+import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
 import {
-  STORNO_ROLES, assertPrinterConnected, findKeyedTillDocument, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
+  STORNO_ROLES, assertPrinterConnected, assertTillTender, findKeyedTillDocument, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
 } from '../lib/cash-register-till.js'
 
 // FR-21: the till's device, its receipts and the price a device is given live with the cash-register
@@ -32,29 +36,39 @@ export { stornoRefundBuckets } from 'services/biz/cash-register/register.service
 /** Payment buckets the close screen reconciles, in display order. */
 export const CLOSE_METHODS = ['cash', 'card', 'other'] as const
 
-export interface ExpectedTotals { cash: number; card: number; other: number }
+export interface ExpectedTotals { cash: number; card: number; other: number; cashOnDelivery: number }
 
 /**
  * What the register SHOULD hold, from the session's own accumulators.
  *
  * Cash includes the opening float; card and other do not — nobody starts the day with a
  * card balance. Note this reads the session totals rather than `expectedBalance`, which is
- * only written at close.
+ * only written at close. Cash on delivery is what couriers owe: never part of expected cash.
  */
 export function expectedTotals(session: any): ExpectedTotals {
   return {
     cash: round2((session.openingBalance || 0) + (session.totalCash || 0)),
     card: round2(session.totalCard || 0),
     other: round2(session.totalOther || 0),
+    cashOnDelivery: round2(session.totalCashOnDelivery || 0),
   }
 }
 
-export function buildClosingBreakdown(expected: ExpectedTotals, counted: Record<string, number | undefined>) {
-  return CLOSE_METHODS.map(method => {
+export interface ClosingLine { method: string; expected: number; counted?: number; difference?: number }
+
+/**
+ * One line per method the till counts, and, when a courier owes the session something, a
+ * `cash_on_delivery` line of what is expected. Never counted: that money is not at the till, so
+ * there is nothing to enter and no difference to report.
+ */
+export function buildClosingBreakdown(expected: Omit<ExpectedTotals, 'cashOnDelivery'> & { cashOnDelivery?: number }, counted: Record<string, number | undefined>): ClosingLine[] {
+  const lines: ClosingLine[] = CLOSE_METHODS.map(method => {
     const exp = round2(expected[method] || 0)
     const got = round2(Number(counted?.[method]) || 0)
     return { method, expected: exp, counted: got, difference: round2(got - exp) }
   })
+  const owed = round2(expected.cashOnDelivery || 0)
+  return owed ? [...lines, { method: 'cash_on_delivery', expected: owed }] : lines
 }
 
 function round2(n: number): number {
@@ -75,25 +89,41 @@ async function resolveFiscalDeviceForClose(orgId: string, warehouseId: string): 
 }
 
 /**
+ * The device a session's reports print on: the one its close used, once it is closed, and until
+ * then its warehouse's, found the way its close will find it.
+ */
+async function sessionReportDevice(orgId: string, session: any): Promise<any | null> {
+  if (session.status !== 'closed') return resolveFiscalDeviceForClose(orgId, String(session.warehouseId))
+  if (!session.fiscalDeviceId) return null
+  return getRepos().fiscalDevices.findOne({ id: String(session.fiscalDeviceId), orgId } as any)
+}
+
+/**
  * Print a session's report as a text receipt on its warehouse's device, in the org's language
  * and on its clock. Answers why it could not, rather than throwing: a report that did not print
  * never undoes the close it reports on.
  */
 async function printSessionReport(orgId: string, deviceId: string, report: SessionReport, operatorCode?: string): Promise<string | undefined> {
+  let printer: any
+  let opened = false
   try {
     if (!isDeviceConnected(deviceId)) return 'The fiscal printer is not connected'
-    const printer: any = getPrinter(deviceId)
+    printer = getPrinter(deviceId)
     if (!printer?.openNonFiscalReceipt || !printer?.printNonFiscalText || !printer?.closeNonFiscalReceipt) {
       return 'This fiscal device cannot print a text receipt'
     }
     const org: any = await Org.findById(orgId, { 'settings.locale': 1, 'settings.timezone': 1 }).lean().exec()
     await printer.openNonFiscalReceipt(operatorCode || '1')
+    opened = true
     for (const line of formatSessionReport(report, org?.settings?.locale || 'en', org?.settings?.timezone || 'Europe/Sofia')) {
       await printer.printNonFiscalText(line)
     }
     await printer.closeNonFiscalReceipt()
     return undefined
   } catch (e: any) {
+    // A failed line leaves the receipt open on the device, and every later sale would have to clear
+    // it first. Closed here, best effort: the failure to report is the line's.
+    if (opened) await printer.closeNonFiscalReceipt().catch(() => {})
     return String(e?.message || 'The session report did not print').slice(0, 300)
   }
 }
@@ -140,6 +170,17 @@ function validateTotals(body: any) {
   }
 }
 
+/**
+ * One payment of a sale or a refund. The method is any string here and checked by hand
+ * (`assertTillTender`, `stornoDoor`): the schema would refuse one a receipt cannot carry with its
+ * own 422, where the till answers `payment_method_not_fiscal` before anything is written.
+ */
+const TENDER = t.Object({
+  method: t.String(),
+  amount: t.Number(),
+  reference: t.Optional(t.String()),
+})
+
 /** The body of a POS sale. */
 const SALE_BODY = t.Object({
   type: t.Union([t.Literal('sale'), t.Literal('return'), t.Literal('exchange')]),
@@ -164,11 +205,7 @@ const SALE_BODY = t.Object({
   discountTotal: t.Optional(t.Number()),
   taxTotal: t.Optional(t.Number()),
   total: t.Number(),
-  payments: t.Array(t.Object({
-    method: t.Union([t.Literal('cash'), t.Literal('card'), t.Literal('mobile'), t.Literal('voucher')]),
-    amount: t.Number(),
-    reference: t.Optional(t.String()),
-  })),
+  payments: t.Array(TENDER),
   changeDue: t.Optional(t.Number()),
   nonFiscal: t.Optional(t.Boolean()),
 })
@@ -407,6 +444,13 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
     if (query.cashierId) filter.cashierId = query.cashierId
+    // Calendar days in the org's own zone (the pod runs on UTC): the day the session opened in the
+    // shop, the last one whole.
+    if (query.dateFrom || query.dateTo) {
+      const org: any = await Org.findById(orgId, { 'settings.timezone': 1 }).lean().exec()
+      const window = localDayWindow(query.dateFrom, query.dateTo, org?.settings?.timezone || BULGARIAN_TIME_ZONE)
+      if (window) filter.openedAt = window
+    }
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
@@ -488,6 +532,65 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     })
     return { printed: true }
   }, { isSignIn: true })
+  /** The device a session's reports print on and what it can do, for the POS Sessions menu. */
+  .get('/session/:id/device-report', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    const session = await getRepos().posSessions.findOne({ id, orgId } as any) as any
+    if (!session) return status(404, { message: 'POS session not found' })
+    const device = await sessionReportDevice(orgId, session)
+    return {
+      device: device
+        ? {
+            id: device.id, name: device.name, deviceNumber: device.deviceNumber,
+            connected: isDeviceConnected(device.id),
+            capabilities: fiscalCapabilities(device.manufacturer, device.connectionType),
+          }
+        : null,
+    }
+  }, { isSignIn: true })
+  /**
+   * A report from POS Sessions, on the session's device: an X while it is open, the fiscal memory
+   * by date or Z number, the electronic journal, the operator report.
+   *
+   * ⚠ No Z: a Z runs only through the close (`fiscal/device-command`). The roles are the device
+   * page's, so a cashier prints none of these, and the route is its own in `route-permission`:
+   * `warehouse_manager` runs devices and holds no `pos.write`.
+   */
+  .post('/session/:id/device-report', async ({ params: { orgId, id }, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    const session = await getRepos().posSessions.findOne({ id, orgId } as any) as any
+    if (!session) return status(404, { message: 'POS session not found' })
+    // An X reads the device's day as it stands, which belongs to no session but an open one.
+    if (body.kind === 'x' && session.status !== 'open') {
+      return status(409, { code: 'session_not_open', message: 'An X-report reads the device\'s open day: only an open session has one.' })
+    }
+
+    const notConnected = (message: string) => status(409, { code: 'fiscal_device_not_connected', message })
+    const device = await sessionReportDevice(orgId, session)
+    if (!device) return notConnected('No fiscal printer is set up for this session.')
+
+    return printDeviceReport(status, device, body, {
+      notConnected,
+      audit: (action, entityName) => createAuditEntry({
+        orgId, userId: user.id, operatorCode: user.operatorCode, action,
+        module: 'pos', entityType: 'pos_session', entityId: id, entityName,
+      }),
+    })
+  }, {
+    isSignIn: true,
+    body: t.Object({
+      kind: t.Union(DEVICE_REPORT_KINDS.map(k => t.Literal(k))),
+      // A page sends null (or '') for a field left empty; `printDeviceReport` says what is missing.
+      startDate: t.Optional(t.Union([t.String(), t.Null()])),
+      endDate: t.Optional(t.Union([t.String(), t.Null()])),
+      startNumber: t.Optional(t.Union([t.Number(), t.String(), t.Null()])),
+      endNumber: t.Optional(t.Union([t.Number(), t.String(), t.Null()])),
+      detailed: t.Optional(t.Union([t.Boolean(), t.Null()])),
+      operatorNumber: t.Optional(t.Number()),
+    }),
+  })
 
   /**
    * FR-9.3–9.6 — the real close.
@@ -612,6 +715,14 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
           const num = (report as any)?.reportNumber
           if (num && num !== 'unknown') zReportNumber = String(num)
         } catch (e: any) {
+          // #394: the driver refused the Z because a sale is printing on it right now. Nothing
+          // failed: the device stays as it is, the session goes back to open and keeps no failure,
+          // and closing again once the sale has finished works.
+          if (fiscalFailure(e).code === 'receipt_open') {
+            await release()
+            logger.info({ orgId, sessionId: id, deviceId: device.id }, 'Z-report waits for a sale printing on the device — session left open')
+            return status(409, { code: 'receipt_open', message: 'A sale is printing on this device. Wait for it to finish, then close again.' })
+          }
           const message = e?.message || 'Fiscal device error'
           await release('failed', message.slice(0, 300))
           // Mirror the sale path: a device that just failed is marked so the next operation
@@ -776,6 +887,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         // No sale without a connected printer (2026-10-31): refused before anything is written, so
         // no number or УНП is drawn. A keyed retry is answered above and may still finish.
         await assertPrinterConnected(orgId, String(session.warehouseId), c)
+        assertTillTender(body.payments, verified.total, c.printer)
 
         // FR-20.49 — Прил. 29 т. 8: no fiscal sale opens on a device not reached in two hours (SUPTO
         // production mode only). ⚠ Here, for a NEW sale only: a keyed retry above is a sale that
@@ -863,11 +975,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       body: t.Object({
         originalTransactionId: t.String(),
         reason: t.Union([t.Literal('operator_error'), t.Literal('customer_return'), t.Literal('price_reduction'), t.Literal('tax_base_reduction')]),
-        payments: t.Optional(t.Array(t.Object({
-          method: t.Union([t.Literal('cash'), t.Literal('card'), t.Literal('mobile'), t.Literal('voucher')]),
-          amount: t.Number(),
-          reference: t.Optional(t.String()),
-        }))),
+        payments: t.Optional(t.Array(TENDER)),
       }),
     },
   )

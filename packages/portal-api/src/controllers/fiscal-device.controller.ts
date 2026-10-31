@@ -6,83 +6,20 @@ import {
   connectDevice,
   disconnectDevice,
   getDeviceStatus,
-  getPrinter,
   buildConnectionConfig,
   isDeviceConnected,
 } from 'fiscal/fiscal-device.service'
-import { FEATURE_METHODS, fiscalCapabilities, unsupportedReason, type FiscalFeature } from 'fiscal/capabilities'
-import { fiscalFailure } from 'fiscal/errors'
-import type { IFiscalPrinter } from 'fiscal/types'
+import { fiscalCapabilities } from 'fiscal/capabilities'
+import { FISCAL_ADMIN_ROLES, onDevice, printDeviceReport, type DeviceReportRequest, type DeviceRow, type Status } from 'fiscal/device-command'
 import { FiscalTargetError, fiscalTcpPolicy, resolveFiscalTcpTarget } from 'fiscal/tcp-target'
 import { nodeRole } from 'config'
 import { bridgeHolder, rebindBridgePrinter } from '../websocket/fiscal-bridge.js'
 
-const FISCAL_ADMIN_ROLES = ['admin', 'manager', 'warehouse_manager']
-
-type Status = (code: number, body: Record<string, unknown>) => any
-type DeviceRow = { id: string; name?: string; manufacturer: string; connectionType: string }
-
-/** Who opens a device's port, so a 503 can say what to do about it. */
-const NOT_CONNECTED_HINT: Record<string, string> = {
-  browser: 'connect it from the POS (Connect Printer) or from this device page, in Chrome or Edge',
-  desktop: 'it connects through its LGR Desktop, which is not running or cannot reach the server',
-  tcp: 'the server has not opened it yet: connect it first',
-}
-
-/**
- * One command on a device, answered. Refused before anything is sent when the device cannot do
- * `feature` at all (400 `unsupported`, with the reason the device page shows), when `check` finds
- * the request's data wrong (400 `bad_input`) or when nothing holds the device (503). A driver's
- * failure is answered by what it was (`fiscal/errors`) — bad input 400, the device refusing 409,
- * no answer 504 — where these endpoints used to answer 500 to everything.
- */
-async function onDevice(
-  status: Status,
-  device: DeviceRow,
-  what: string,
-  opts: { feature?: FiscalFeature; check?: () => string | null },
-  run: (printer: IFiscalPrinter) => Promise<unknown>,
-) {
-  if (opts.feature) {
-    const reason = unsupportedReason(device.manufacturer, device.connectionType, opts.feature)
-    if (reason) return status(400, { code: 'unsupported', feature: opts.feature, message: reason })
-  }
-  const bad = opts.check?.()
-  if (bad) return status(400, { code: 'bad_input', message: bad })
-  if (!isDeviceConnected(device.id)) {
-    return status(503, { code: 'not_connected', message: `${what}: the device is not connected — ${NOT_CONNECTED_HINT[device.connectionType] ?? 'connect it first'}.` })
-  }
-  try {
-    const printer = getPrinter(device.id)
-    // The live driver is the last word: one registered under another manufacturer's row lacks it.
-    const methods = opts.feature && opts.feature !== 'cashOnDelivery' ? FEATURE_METHODS[opts.feature] : []
-    if (methods.some(m => typeof (printer as any)[m] !== 'function')) {
-      return status(400, { code: 'unsupported', feature: opts.feature, message: `${what} is not supported by this device's driver.` })
-    }
-    return await run(printer)
-  } catch (e) {
-    const failure = fiscalFailure(e)
-    return status(failure.status, { code: failure.code, message: `${what} failed: ${failure.message}` })
-  }
-}
-
-/** A field the device page leaves `null` (or `''`) when it is empty. */
-const given = (v: unknown) => v !== null && v !== undefined && v !== ''
-
-function periodError(start: unknown, end: unknown): string | null {
-  if (!given(start) || !given(end)) return 'Enter both dates of the period.'
-  const [a, b] = [new Date(String(start)), new Date(String(end))]
-  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return 'A date of the period is not a date.'
-  if (a.getTime() > b.getTime()) return 'The period starts after it ends.'
-  return null
-}
-
-function zNumbersError(start: unknown, end: unknown): string | null {
-  if (!given(start) || !given(end)) return 'Enter the first and the last Z-report number.'
-  const [a, b] = [Number(start), Number(end)]
-  if (!Number.isInteger(a) || !Number.isInteger(b) || a < 1 || b < 1) return 'Z-report numbers are whole numbers, from 1.'
-  if (a > b) return `The first Z-report number (${a}) is after the last (${b}).`
-  return null
+/** A report from the device page, audited on the device (POS Sessions audits on the session). */
+function deviceReport(status: Status, orgId: string, userId: string, device: DeviceRow, report: DeviceReportRequest) {
+  return printDeviceReport(status, device, report, {
+    audit: (action, entityName) => createAuditEntry({ orgId, userId, action, module: 'fiscal', entityType: 'fiscal_device', entityId: device.id, entityName }),
+  })
 }
 
 /**
@@ -413,13 +350,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
-    return onDevice(status, device, 'X-Report', { feature: 'xReport' }, async (printer) => {
-      const result = await printer.printDailyXReport!()
-
-      createAuditEntry({ orgId, userId: user.id, action: 'x_report', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `X-Report on ${device.name}` })
-
-      return { xReport: result }
-    })
+    return deviceReport(status, orgId, user.id, device, { kind: 'x' })
   }, { isSignIn: true })
   .post('/:id/operator-report', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
@@ -429,19 +360,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
-    const max = fiscalCapabilities(device.manufacturer, device.connectionType).maxOperators
-    const n = body.operatorNumber
-    return onDevice(status, device, 'Operator report', {
-      feature: 'operatorReport',
-      // 0, or none, is every operator.
-      check: () => n === undefined || (Number.isInteger(n) && n >= 0 && n <= max) ? null : `Operators on this device are numbered 1–${max} (0 is all of them).`,
-    }, async (printer) => {
-      await printer.printOperatorReport!(n)
-
-      createAuditEntry({ orgId, userId: user.id, action: 'operator_report', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `Operator report on ${device.name}` })
-
-      return { message: 'Operator report printed' }
-    })
+    return deviceReport(status, orgId, user.id, device, { kind: 'operator', operatorNumber: body.operatorNumber })
   }, {
     isSignIn: true,
     body: t.Object({
@@ -456,27 +375,14 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
-    const byDate = body.type === 'by_date'
-    return onDevice(status, device, 'FM report', {
-      feature: byDate ? 'fmReportByDate' : 'fmReportByNumber',
-      check: () => byDate ? periodError(body.startDate, body.endDate) : zNumbersError(body.startNumber, body.endNumber),
-    }, async (printer) => {
-      if (byDate) {
-        await printer.printFiscalMemoryReportByDate!(new Date(String(body.startDate)), new Date(String(body.endDate)), !!body.detailed)
-      } else {
-        await printer.printFiscalMemoryReportByNumber!(Number(body.startNumber), Number(body.endNumber), !!body.detailed)
-      }
-
-      createAuditEntry({ orgId, userId: user.id, action: 'fm_report', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `FM report (${body.type}) on ${device.name}` })
-
-      return { message: 'Fiscal memory report printed' }
-    })
+    const { type, ...period } = body
+    return deviceReport(status, orgId, user.id, device, { ...period, kind: type === 'by_date' ? 'fm_date' : 'fm_number' })
   }, {
     isSignIn: true,
     body: t.Object({
       type: t.Union([t.Literal('by_date'), t.Literal('by_number')]),
-      // The page sends null (or '') for a field left empty. Checked by hand (`periodError`,
-      // `zNumbersError`), so the answer says what is missing rather than failing the schema.
+      // The page sends null (or '') for a field left empty. Checked by hand (`printDeviceReport`),
+      // so the answer says what is missing rather than failing the schema.
       startDate: t.Optional(t.Union([t.String(), t.Null()])),
       endDate: t.Optional(t.Union([t.String(), t.Null()])),
       startNumber: t.Optional(t.Union([t.Number(), t.String(), t.Null()])),
@@ -492,16 +398,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
-    return onDevice(status, device, 'EJ report', {
-      feature: 'electronicJournal',
-      check: () => periodError(body.startDate, body.endDate),
-    }, async (printer) => {
-      await printer.printEJReport!(new Date(String(body.startDate)), new Date(String(body.endDate)))
-
-      createAuditEntry({ orgId, userId: user.id, action: 'ej_report', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `EJ report on ${device.name}` })
-
-      return { message: 'Electronic journal report printed' }
-    })
+    return deviceReport(status, orgId, user.id, device, { kind: 'ej', startDate: body.startDate, endDate: body.endDate })
   }, {
     isSignIn: true,
     body: t.Object({

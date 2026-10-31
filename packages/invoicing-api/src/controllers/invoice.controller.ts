@@ -11,7 +11,7 @@ import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumbe
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
 import { Invoice, POSSession, Reservation, StockMovement } from 'db/models'
-import { assertPrinterConnected, tillContext } from '../lib/cash-register-till.js'
+import { assertJoinedSaleTender, assertPrinterConnected, tillContext } from '../lib/cash-register-till.js'
 import { computePosTotals } from 'config/pos-totals'
 import { assertHomeIsHere } from 'db/home/home'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
@@ -734,6 +734,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           // print it, as the till's is — before anything is written.
           if (createCtx.joined && createCtx.receipt) {
             await assertPrinterConnected(orgId, String(createCtx.joined.warehouseId), context)
+            assertJoinedSaleTender((body as any).paymentMethod || 'cash', createCtx.receipt, context.printer)
           }
         } catch (e: any) {
           if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
