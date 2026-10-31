@@ -10,6 +10,7 @@ import {
   createTestStockLevel,
   createTestStockMovement,
   createTestFiscalDevice,
+  allowSalesWithoutPrinter,
 } from '../helpers/factories'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { posController } from 'invoicing-api/src/controllers/pos.controller'
@@ -96,6 +97,8 @@ function saleBody(productId: string, nonFiscal = false) {
  */
 async function world() {
   const org = await createTestOrg()
+  // The stock, not the printer: these sales print nothing (`till-printer-gate.flow` has the rule).
+  await allowSalesWithoutPrinter(org._id)
   const warehouse = await createTestWarehouse(org._id)
   const user = await createTestUser(org._id, { operatorCode: '0001' } as any)
   const product = await createTestProduct(org._id, { sellingPrice: 10, taxRate: 20 } as any)

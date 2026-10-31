@@ -42,6 +42,13 @@
         <v-col cols="12" sm="6" md="2">
           <DateField v-model="dateTo" :label="$t('invoicing.dateTo')" />
         </v-col>
+        <!-- From a session's „Касови продажби": that session's documents. Named by the rows' own
+             session number, which a reader without the POS app can see too. -->
+        <v-col v-if="session" cols="12" class="pt-0">
+          <v-chip closable color="primary" variant="tonal" data-testid="journal-session-chip" @click:close="session = ''">
+            {{ $t('cashRegister.filters.session', { number: items[0]?.sessionNumber || '…' }) }}
+          </v-chip>
+        </v-col>
       </FilterBar>
     </template>
 
@@ -190,6 +197,8 @@ const method = ref<string | null>(null)
 const invoiced = ref<string | null>(null)
 const dateFrom = ref<string | null>(null)
 const dateTo = ref<string | null>(null)
+/** One session's documents (a session id), from the sessions page; '' is every session. */
+const session = ref('')
 
 const kindOptions = computed(() => KINDS.map(value => ({ value, title: t(`cashRegister.kind.${value}`) })))
 const originOptions = computed(() => ORIGINS.map(value => ({ value, title: t(`cashRegister.origin.${value}`) })))
@@ -207,7 +216,7 @@ const methodOptions = computed(() => METHODS.map(value => ({
 
 const hasActiveFilters = computed(() =>
   !!debouncedSearch.value || !!kind.value || !!origin.value || !!status.value || !!fiscalState.value || !!method.value
-  || !!invoiced.value || !!dateFrom.value || !!dateTo.value)
+  || !!invoiced.value || !!dateFrom.value || !!dateTo.value || !!session.value)
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
@@ -220,6 +229,7 @@ const filters = computed(() => {
   if (invoiced.value) f.invoiced = invoiced.value
   if (dateFrom.value) f.dateFrom = dateFrom.value
   if (dateTo.value) f.dateTo = dateTo.value
+  if (session.value) f.sessionId = session.value
   return f
 })
 
@@ -239,6 +249,8 @@ useListQueryState([
   { key: 'invoiced', ref: invoiced, sanitize: known(INVOICED) },
   { key: 'from', ref: dateFrom, codec: 'date' },
   { key: 'to', ref: dateTo, codec: 'date' },
+  // A session's id and nothing else: anything else is no session, which reads as every one.
+  { key: 'session', ref: session, sanitize: (v: any) => (typeof v === 'string' && /^[0-9a-f]{24}$/i.test(v) ? v : undefined) },
 ])
 
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({

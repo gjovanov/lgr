@@ -399,12 +399,36 @@ export async function stornoDoor(input: StornoDoorInput): Promise<{ status: numb
 
 const registerSessionOf = (s: any) => (s ? registerSession(s) : null)
 
-/** The org's settings the till reads: its base currency, and whether it may sell below zero. */
-export async function tillSettings(orgId: string): Promise<{ baseCurrency?: string; allowNegativeStock: boolean }> {
+/**
+ * The org's settings the till reads: its base currency, whether it may sell below zero, and
+ * whether a sale needs a connected printer.
+ */
+export async function tillSettings(orgId: string): Promise<{ baseCurrency?: string; allowNegativeStock: boolean; requireConnectedDevice: boolean }> {
   const org: any = await Org.findById(orgId, { 'settings.baseCurrency': 1, 'settings.cashRegister': 1 }).lean().exec()
   return {
     baseCurrency: org?.settings?.baseCurrency,
     // FR-21.16: unset means allowed, which is what the till always did.
     allowNegativeStock: org?.settings?.cashRegister?.allowNegativeStock !== false,
+    // Unset means required: only an org that turned it off sells with nothing to print on.
+    requireConnectedDevice: org?.settings?.cashRegister?.requireConnectedDevice !== false,
   }
+}
+
+/**
+ * No sale without a connected printer (2026-10-31): a sale that prints — every till sale, and a
+ * back-office sale that asked its session's device for a receipt — is refused when nothing would
+ * print it, unless the org turned the rule off (a demo or test org with no device). Called before
+ * anything is written, so a refused sale draws no number and no УНП.
+ */
+export async function assertPrinterConnected(orgId: string, warehouseId: string, ctx: { printer?: unknown } | null): Promise<void> {
+  if (ctx?.printer) return
+  if (!(await tillSettings(orgId)).requireConnectedDevice) return
+  const configured = (await getRepos().fiscalDevices.count({ orgId, warehouseId, isActive: true } as any)) > 0
+  throw new RegisterRefusal(409, {
+    code: 'fiscal_device_not_connected',
+    deviceConfigured: configured,
+    message: configured
+      ? 'The fiscal printer is not connected. Connect it before selling.'
+      : 'No fiscal printer is set up for this warehouse. Set one up and connect it before selling.',
+  })
 }

@@ -838,7 +838,12 @@
       "failed": "Anmeldung fehlgeschlagen. Bitte erneut versuchen.",
       "withPassword": "Mit Passwort anmelden",
       "switchOperator": "Bediener wechseln"
-    }
+    },
+    "printerRequired": {
+      "notConnected": "Verbinden Sie den Fiskaldrucker, um zu verkaufen.",
+      "notConfigured": "Für dieses Lager ist kein Fiskaldrucker eingerichtet. Wenden Sie sich an den Administrator."
+    },
+    "sessionDocuments": "Barverkäufe der Sitzung {number}"
   },
   "cashRegister": {
     "title": "Kassenverkäufe",
@@ -893,7 +898,8 @@
       "origin": "Herkunft",
       "status": "Status",
       "fiscalState": "Bon",
-      "paymentMethod": "Zahlung"
+      "paymentMethod": "Zahlung",
+      "session": "Sitzung {number}"
     },
     "detail": {
       "lines": "Positionen",
@@ -1007,7 +1013,12 @@
     "multiOrgHint": "Diese Person arbeitet auch in einer anderen Organisation. Name, E-Mail und Passwort gehören ihr; nur sie kann sie auf ihrer Kontoseite ändern.",
     "identityExists": "{email} hat bereits ein LGR-Konto. Laden Sie die Person stattdessen in diese Organisation ein.",
     "inviteInstead": "Stattdessen einladen",
-    "inviteSent": "Einladung gesendet."
+    "inviteSent": "Einladung gesendet.",
+    "cashRegister": {
+      "title": "Kasse",
+      "requireConnectedDevice": "Verkauf nur mit verbundenem Fiskaldrucker",
+      "requireConnectedDeviceHint": "Nur für eine Organisation ohne Fiskalgerät ausschalten, etwa eine Demo- oder Testorganisation: ihre Verkäufe werden nicht gedruckt."
+    }
   },
   "admin": {
     "auditLog": "Prüfprotokoll",

@@ -124,7 +124,10 @@
                 @update:model-value="applyDocPrice"
               />
               <v-select v-model="paymentMethod" :label="$t('pos.paymentMethod')" :items="paymentMethods" item-title="title" item-value="value" hide-details class="mb-4" />
-              <v-btn color="success" size="large" block :disabled="cart.length === 0" :loading="loading" @click="completeSale">
+              <v-alert v-if="saleBlocked" type="warning" variant="tonal" density="compact" class="mb-3" data-testid="printer-required">
+                {{ warehouseHasDevice === false ? $t('pos.printerRequired.notConfigured') : $t('pos.printerRequired.notConnected') }}
+              </v-alert>
+              <v-btn color="success" size="large" block :disabled="cart.length === 0 || saleBlocked" :loading="loading" data-testid="complete-sale" @click="completeSale">
                 {{ $t('pos.completeSale') }}
               </v-btn>
         </template>
@@ -363,6 +366,8 @@ const deviceCandidates = ref<any[]>([])
  * "Failed to open serial port".
  */
 const connectedElsewhere = ref<{ deviceNumber: string; name: string } | null>(null)
+/** Whether the session's warehouse has a device set up at all (null until asked). */
+const warehouseHasDevice = ref<boolean | null>(null)
 
 async function refreshConnectedElsewhere() {
   if (!activeSession.value || fiscalBridge.status.value === 'connected') {
@@ -374,10 +379,21 @@ async function refreshConnectedElsewhere() {
     const { data } = await httpClient.get(`${orgUrl()}/fiscal/device`, {
       params: { isActive: 'true', size: 0, warehouseId: activeSession.value.warehouseId },
     })
-    const dev = (data.fiscalDevices || []).find((d: any) => d.connected)
+    const devices = data.fiscalDevices || []
+    warehouseHasDevice.value = devices.length > 0
+    const dev = devices.find((d: any) => d.connected)
     connectedElsewhere.value = dev ? { deviceNumber: dev.deviceNumber, name: dev.name } : null
   } catch { /* keep the last known state */ }
 }
+
+/**
+ * No sale without a connected printer (2026-10-31), unless the org turned the rule off for having
+ * no device. The device is this tab's, or held by another tab or the till's desktop, which the
+ * server prints through — a text receipt needs it as much as a fiscal one. The server refuses the
+ * sale regardless; this says so before the cart is filled.
+ */
+const printerRequired = computed(() => (appStore.currentOrg as any)?.settings?.cashRegister?.requireConnectedDevice !== false)
+const saleBlocked = computed(() => printerRequired.value && fiscalBridge.status.value !== 'connected' && !connectedElsewhere.value)
 
 // The other tab can close, or the printer can go off, at any time: re-check periodically,
 // and at once when this tab comes back into view or its own bridge changes state.
@@ -580,6 +596,12 @@ async function completeSale() {
     const refused = e?.response?.data
     // FR-20.49 — Прил. 29 т. 8: in the till's own language, saying what to check.
     if (refused?.code === 'fiscal_device_unreached') showError(t('pos.fiscalDeviceUnreached', { device: refused.deviceName || '' }))
+    else if (refused?.code === 'fiscal_device_not_connected') {
+      // The printer went away since the button was enabled: nothing was sold or numbered.
+      warehouseHasDevice.value = !!refused.deviceConfigured
+      showError(t(refused.deviceConfigured ? 'pos.printerRequired.notConnected' : 'pos.printerRequired.notConfigured'))
+      refreshConnectedElsewhere()
+    }
     else showError(e?.outcomeUnknown ? t('pos.saleOutcomeUnknown') : (refused?.message || t('common.operationFailed')))
   }
   finally { loading.value = false }

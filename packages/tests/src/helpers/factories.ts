@@ -91,6 +91,15 @@ export async function createTestOrg(overrides: Partial<IOrg> = {}): Promise<IOrg
   return Org.create({ ...defaults, ...overrides }) as Promise<IOrg>
 }
 
+/**
+ * An org that sells with no fiscal printer connected: "no sale without a connected printer"
+ * (`settings.cashRegister.requireConnectedDevice`) turned off, as on the demo org. For a test whose
+ * till has no device, or one it leaves unconnected, on purpose.
+ */
+export async function allowSalesWithoutPrinter(orgId: Types.ObjectId | string): Promise<void> {
+  await Org.updateOne({ _id: orgId }, { $set: { 'settings.cashRegister.requireConnectedDevice': false } }).exec()
+}
+
 export async function createTestUser(orgId: Types.ObjectId, overrides: Partial<IUser> = {}): Promise<IUser> {
   const ts = uniqueTs()
   const role = overrides.role || 'admin'

@@ -211,6 +211,21 @@
         </v-card-text>
       </v-card>
 
+      <!-- Cash register: a sale that prints needs its printer connected, unless this is turned off
+           for an org with no device (a demo or a test org). -->
+      <v-card class="mb-4">
+        <v-card-title>{{ $t('settings.cashRegister.title') }}</v-card-title>
+        <v-card-text>
+          <v-switch
+            v-model="form.requireConnectedDevice"
+            :label="$t('settings.cashRegister.requireConnectedDevice')"
+            :hint="$t('settings.cashRegister.requireConnectedDeviceHint')"
+            persistent-hint
+            color="primary"
+          />
+        </v-card-text>
+      </v-card>
+
       <!-- Modules -->
       <v-card class="mb-4">
         <v-card-title>{{ $t('settings.modules') }}</v-card-title>
@@ -475,6 +490,9 @@ const form = reactive({
   workingDaysPerWeek: 5,
   defaultCostingMethod: 'wac',
   allowNegativeStock: false,
+  // The cash register block as loaded, so a save keeps what this page does not edit.
+  cashRegister: {} as Record<string, unknown>,
+  requireConnectedDevice: true,
   modules: {} as Record<string, boolean>,
   subscription: null as any,
   // FR-11 (#21) — daily digest.
@@ -586,6 +604,10 @@ async function save() {
           defaultCostingMethod: form.defaultCostingMethod,
           allowNegativeStock: form.allowNegativeStock,
         },
+        cashRegister: {
+          ...form.cashRegister,
+          requireConnectedDevice: form.requireConnectedDevice,
+        },
         payroll: {
           payFrequency: form.payrollCycle,
         },
@@ -635,6 +657,9 @@ onMounted(async () => {
     form.workingDaysPerWeek = org.settings?.payroll?.workingDaysPerWeek || 5
     form.defaultCostingMethod = org.settings?.inventory?.defaultCostingMethod || 'wac'
     form.allowNegativeStock = org.settings?.inventory?.allowNegativeStock || false
+    form.cashRegister = { ...(org.settings?.cashRegister || {}) }
+    // Unset means required (the server's rule).
+    form.requireConnectedDevice = org.settings?.cashRegister?.requireConnectedDevice !== false
     form.subscription = org.subscription || null
 
     // Build modules toggle map
