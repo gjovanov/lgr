@@ -179,7 +179,7 @@ The API needs no merging at runtime. This phase removes the copies.
 | Tunnel edge limits | `tunnel/edge.ts:36` | Documented as per pod |
 | Schedulers | `unified.ts:319` | Audited one by one: each is claimed, idempotent or local (`fiscal-time-sync` touches only devices this pod holds). No change needed |
 
-**Why `replicas: 2` breaks tills.** A bridge lives on one pod and a sale lands on either. `getFiscalContext` (`cash-register-till.ts:47`) reads "not connected in this process" as "offline", logs "proceeding without fiscal receipt" and returns `null`. So half the sales are refused by the printer gate (#390), or, where the gate is off, go through with no receipt. ⚠ Until Phase 6 ships, a comment on `replicas` in `deployment-lgr.yaml` MUST say so (FR-24.47).
+**Why `replicas: 2` breaks tills.** A bridge lives on one pod and a sale lands on either. `getFiscalContext` (`cash-register-till.ts:48`) reads "not connected in this process" as "offline", logs "proceeding without fiscal receipt" and returns `null`. So half the sales are refused by the printer gate (#390), or, where the gate is off, go through with no receipt. ⚠ Until Phase 6 ships, a comment on `replicas` in `deployment-lgr.yaml` MUST say so (FR-24.47).
 
 ### 6.2 The design: the request goes to the printer
 
@@ -228,7 +228,7 @@ A forwarded request adds none of that. Everything the fiscal code assumes about 
     - `fiscal-device.controller.ts`: `PUT /:id` (it rebinds the driver) and everything under `/:id/` that reaches the device: `connect`, `disconnect`, `status`, `z-report`, `x-report`, `sync-time`, `operator-report`, `fm-report`, `ej-report`, `program-operator`, `read-operator`, `payment-names`.
     - FR-23 adds invoice issue and payment when it lands.
   - **Exempt: `numbering.controller.ts`.** Its witness reads every device of an org in one request, and `not_connected` is its documented answer for a device on another pod (`device-witness.service.ts`). It is evidence for a person, never a lock, so it stays local.
-- **FR-24.51** The hop MUST reuse `forwardHttp` with its own key label. A hop is never forwarded again. The holder unreachable answers 503 `fiscal_holder_unreachable` with nothing written, and the terminal retries under the sale's idempotency key (`hot-path-key`).
+- **FR-24.51** The hop MUST reuse `forwardHttp` with its own key label. A hop is never forwarded again. The holder unreachable answers 503 `fiscal_holder_unreachable` with nothing written, and the client retries under the same `Idempotency-Key`: the sale, the close and the storno already carry one (`ui-shared/composables/idempotency`, `hot-path-key`, #155).
 - **FR-24.52** ⚠ "Held elsewhere" MUST never read as "offline". `getFiscalContext`'s proceed-without-a-receipt path stays reachable only when no live row exists anywhere. A route that missed FR-24.50 reaching a device held by another pod answers 503. It never skips the receipt. A hop arriving where the device has just left answers 409 `fiscal_holder_moved`, and the client retries once.
 - **FR-24.53** A test MUST walk the real route table and fail when a route reaching `getPrinter` or `getFiscalContext` has no declaration and is not on the exempt list, as `tenant-isolation.flow.test.ts` does for the guard.
 - **FR-24.54** `tests/two-node` gains a two-pod till lane: a simulated Eltrade (`helpers/eltrade-simulator.ts`) bridged to pod A, with every flow requested on pod B: sale, storno, close with Z-report, device report, takeover, revocation, pod A killed mid-day.
@@ -253,7 +253,7 @@ A forwarded request adds none of that. Everything the fiscal code assumes about 
 | **An old pending-changes entry** with an app-relative path | FR-24.7 |
 | **A forward during a roll** finds the holder draining | 503 with nothing written, or 409, then a retry under the idempotency key. The window is the drain plus a reconnect: seconds |
 | **Two pods race for one device** | The unique index picks one, the other gets `bridge_in_use`, as two tabs do today |
-| **Double booking across a retry** | The sale's idempotency key already covers it, and it is Mongo-backed, so it holds across pods |
+| **Double booking across a retry** | The `Idempotency-Key` on a sale, a close and a storno already covers it, and it is Mongo-backed, so it holds across pods |
 | **Bun blocks on one thread** | Unchanged per pod. A second pod means a heavy report no longer stalls every till |
 
 ## 8. Integration constraints
