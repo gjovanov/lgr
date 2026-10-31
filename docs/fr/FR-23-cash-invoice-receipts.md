@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-10-31. The owner answered Q-1, Q-2 (card) and Q-4 the same day (§5). Q-3 goes to the accountant, and COD on an invoice (Q-2) and Q-5 stand as proposed until he says otherwise. |
+| **Status** | Specified 2026-10-31. The owner answered Q-1, Q-2 (card) and Q-4 the same day (§5). Q-3 goes to the accountant, and COD on an invoice (Q-2) and Q-5 stand as proposed until he says otherwise. **R1 built 2026-10-31** (§6). R2 and R3 are not. |
 | **Tracking** | Partial storno: [gjovanov/lgr#363](https://github.com/gjovanov/lgr/issues/363). The rest is new. |
 | **Builds on** | FR-21 (#171): the register block, the till's print-once state (#155), D-13 (a back-office sale joins the cashier's open session), R0 (an invoice for a cash sale, §3.9). The printer gate (#390). |
 | **Code anchors** | origin/master `a2758a9e` (2026-10-31). Anchors, not gospel. |
@@ -62,7 +62,7 @@ Today, an invoice paid in cash is settled on issue (`syncCashSettlement`, paymen
 
 **What the receipt says.** A payment that settles the whole invoice at issue prints the invoice's lines, like any sale, followed by a text line „Фактура № …". Any other payment prints one line per VAT rate, „Плащане по фактура № …", with the amount split pro rata. The last payment takes the remainder, so the receipts add up to the invoice exactly, rate by rate. The accountant confirms the wording against Н-18 (**Q-3**).
 
-**The driver gap.** `IFiscalPrinter` cannot print text inside a fiscal receipt today; `printNonFiscalText` works only on a non-fiscal one. One optional method is added, `printFiscalText(text)`, with a capability flag. On Eltrade it would be ISL 36h, "free text in a fiscal receipt"; confirm against the protocol PDF, since neither the driver nor `eltrade-simulator.ts` implements it yet. A device without it prints the invoice number as the line's name.
+**The driver gap.** `IFiscalPrinter` could not print text inside a fiscal receipt; `printNonFiscalText` works only on a non-fiscal one. One optional method is added, `printFiscalText(text)`, with a capability flag (`fiscalText`). On Eltrade it is ISL 36h, „PRINTING A FREE FISCAL TEXT" in the protocol v1.1.1: up to 46 bytes, framed in `#`, S1.1 with no fiscal receipt open. ErpNet.FP's ISL drivers send comments with it. It has not run on a physical device. A device without it prints the invoice number as the line's name.
 
 ### 2.3 Where it prints
 
@@ -152,3 +152,20 @@ Each release goes through Atanas's protocol on #171, and the SUPTO docs change i
 - **Q-3 — Wording.** Itemised lines plus „Фактура № …" for a whole payment at issue, and „Плащане по фактура № …" per VAT rate otherwise. The accountant confirms against Н-18.
 - **Q-4 — Which orgs print.** ✓ Answered 2026-10-31: the printer gate's switch decides. Off means LGR prints nothing and cash invoices stay as today.
 - **Q-5 — Freeze.** Once a receipt has printed for an invoice, its total is corrected only by credit and debit notes. Stands as proposed unless the owner objects.
+
+## 6. R1 as built (2026-10-31)
+
+Where the spec left a choice, what was chosen:
+
+- **`unknown` stands, as the till's sale does (D-4).** §2.4 names printed and failed. An interrupted print the device cannot confirm is never reprinted, its money is recorded, and `receiptError` and the journal's fiscal state say so. Not recording it left a dead end: the invoice due, the money in the drawer, and only a second receipt to pay it with.
+- **The amount is held on the invoice** (`receiptHolds`) while a receipt prints, in one atomic update with the check that it fits. The budget of §2.5 is taken in `_id` order because a sale is never written to; an invoice is written to anyway, and the hold also stops a payment by bank taking the same money during the print.
+- **A request that died is finished by the next payment on the document.** That one prints nothing: the customer at the counter now may be paying another amount, another way. A keyed retry of the same request may print.
+- **The link is `payments[].receiptId`.** `payment.recorded` writes the array back through the repository, which gives every row a new `_id`, so the row's id is no key. A receipt's payment is stamped in place.
+- **SUPTO 18.1 lists the receipt too**, beside the §2.6 list of 18.2–18.5. It lists every receipt under its УНП, the invoice is in none of those tables, and 18.1 and 18.2 must agree. 18.4 has nothing to list until R2's `payment_storno`. 18.5 lists a failed receipt.
+- **A whole payment prints per rate when its lines would not add up.** A device totals rounded VAT-inclusive prices; 1000 × 0.1234 net is 148.08 on the invoice and 150.00 on the device. The line is then named „Фактура № …", as on a device with no text line.
+- **A debit note names itself:** „Дебитно известие № …", „Плащане по дебитно известие № …".
+- **A cash payment on an imported invoice prints nothing and is recorded**, as §2.2's "never" says. That cash is in no session.
+- **A later payment on a COD invoice prints nothing**, by any method: every cent of it has its receipt.
+- **A payment on a draft is refused** where LGR prints (422 `document_not_issued`): a receipt names a number.
+- **A document in another currency than the session is refused** (422 `receipt_currency`). The device prints in one currency.
+- **A rate with a negative total is refused** (422 `receipt_not_printable`). A device takes no negative line.

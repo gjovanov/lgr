@@ -2216,6 +2216,75 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
   `checkPendingTransfers` refuses the whole list (422 `pending_transfer_invalid`) before a sale
   draws its number.
 
+## A fiscal receipt for every payment on an invoice (2026-10-31, FR-23 R1)
+
+Spec: `docs/fr/FR-23-cash-invoice-receipts.md`; §6 lists what the build decided. R2 (`payment_storno`,
+credit-note refunds) and R3 (the till's partial storno, #363) are not built.
+
+**The invoice is the sale** (Q-1): it moves the stock and posts the revenue, as it always did. A
+`payment_receipt` is the money: an `Invoice` row of its own type, in the register's `CS`/`CSR` series,
+on the open session of whoever issues or pays (D-13), printed on that session's device. It moves no
+stock and posts no revenue. It prints for an invoice or a debit note issued in cash or by card, a cash
+or card payment on one (whole or in parts), and an invoice on cash on delivery (at issue, slot R, the
+invoice still due until the courier pays).
+
+- ⚠ **There is one switch, the printer gate's** (`settings.cashRegister.requireConnectedDevice`, #390).
+  **Unset means on.** Off, LGR prints nothing and cash invoices behave as they always did. On, a cash
+  invoice with no open session or no connected device is refused before anything is written: 409
+  `fiscal_device_not_connected` (`noSession: true` for the first), no number, no УНП, no claim on the
+  draft. ⚠ An org still on another till (`regal-pz`, `regal-sf`) gets the switch OFF before this
+  deploys, and turns it on when it moves to LGR's till.
+- ⚠ **An imported document NEVER prints.** `syncCashSettlement` is called by `/send`, `PUT` and
+  `convertDraftInvoice`, so printing lives in the doors (`invoicing-api/lib/counter-receipt.ts`,
+  `prepareReceipt`), never in that function. The conversion settles as it always did, with the switch
+  on too. `printsAtCounter` also refuses a document a person issues or pays by hand that an import
+  wrote (`isImportedDocument`: `ocr_import` on its first status entry, the `ocr-import` tag,
+  `importedFrom`).
+- ⚠ **Where LGR prints, `PUT` never settles**: `syncDueAfterEdit` runs instead of `syncCashSettlement`. It
+  adds, shrinks and withdraws no payment, and only says what is owed, so a raised total is payable
+  where a stale `paid` would refuse the payment.
+- ⚠ **A new `Invoice` type reaches every reader that has no `type` in its filter.** Those are
+  `GET /invoices`, `getInvoiceSummary` (paid in 30 days), the digest's KPIs, `byMethod` and
+  `paymentsTotal`, the contact ledger with its cost, `/stats/*`, the contact's summary. Each spreads
+  `NOT_PAYMENT_RECEIPT` (`sale-counting.ts`). A reader that names its types needs nothing. The digest's
+  CS sequence line still takes the receipts' numbers, or every one reads as a gap.
+- ⚠ **`REGISTER_TYPES` stays the two sales.** `loadPosRows` leaves receipts out unless asked
+  (`withReceipts`): the session journal entry and sales history read through it, and the invoice posted
+  that money. The session's report and SUPTO ask. `TILL_DOCUMENT_TYPES` is what the journal and the device
+  witness read.
+- **The session counts it, its close JE does not.** Its increments are a sale's (`saleIncrements`), so
+  `totalSales` is what the device rang and agrees with the Z-report. `counts.payments` on the report is
+  absent when zero, so an older report keeps its shape.
+- **The steps** (`payment-receipt.service.ts`, `runReceiptSteps`): hold → number → УНП → print once →
+  session totals → payment → complete. ⚠ The hold (`Invoice.receiptHolds`) is taken before the number, in
+  one atomic update with the check that the amount fits, so a loser burns no number; `fitsDue` counts it
+  in every payment, so a bank payment recorded during the print cannot take the same money.
+- **Failed:** the receipt is voided with its number and УНП (18.5 lists it), no payment, and the
+  document stays as it was. `/payments` answers 503 `fiscal_error`; `/send` answers 200 with
+  `receiptError`, because issued is issued. **Unknown** (an interrupted print the device cannot confirm)
+  stands as the till's sale does: never reprinted, the money recorded, the doubt shown.
+- **A request that died** is finished by the next payment on the document (`finishInterruptedReceipts`).
+  That one never prints: it records what the device's counter says printed and gives up the rest. A keyed
+  retry of the same request may print.
+- ⚠ **The link is `payments[].receiptId`, not the row's `_id`:** the `payment.recorded` handler writes the
+  array back through the repository, which gives every row a new `_id`. It stamps a receipt's row in
+  place instead, so a part payment recorded a moment later is not lost.
+- **What it prints** (`receipt-lines.ts`, pure): a whole payment at issue, the document's lines and
+  `printFiscalText` „Фактура № …"; anything else, one line per VAT rate, „Плащане по фактура № …", pro
+  rata of what is left of each rate, so the last takes the remainder and the receipts add up exactly.
+  ⚠ A whole payment prints per rate too when the device would total its lines differently (a price
+  rounded to the cent × a thousand), or has no text line (`capabilities.ts`, `fiscalText`); the line is
+  then named „Фактура № …". Lines are checked before printing, never after.
+- **COD:** the receipt pays nothing. A later payment on it prints nothing, by any method: `prepareReceipt`
+  stops at "every cent has its receipt". ⚠ A second receipt would book the sale on the device twice.
+- **The freeze** (§2.7): a live receipt (printing, printed, unknown) makes `PUT` answer 409
+  `fiscally_paid` to a changed total, a move between VAT rates, or a changed currency, and refuses
+  `/void` and `attach-to-cash-sale`. Everything else stays editable. The receipt itself is immutable.
+- ⚠ **`bookingOf` (fenced import) answers `none` for a receipt.** As `register`, the import would dispatch
+  its lines.
+- **SUPTO:** 18.1–18.3 list it under its own type, 18.5 a failed one. The invoice is in none of them.
+- ⚠ 36h is from Eltrade's protocol v1.1.1 and the simulator; it has not run on a device.
+
 ## An article starts its documents: „Заприходи", „Продай", „Резервирай" (2026-10-26, FR-22.47)
 
 - **Where**: the Products list's row menu (one ⋮ now — Edit, Stock, the three, Delete apart) and the
