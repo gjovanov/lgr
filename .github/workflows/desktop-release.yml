@@ -47,7 +47,6 @@ on:
 permissions: {}
 
 env:
-  TAURI_CLI_VERSION: '2.10.1'
   # ⚠ Pinned, and the same version as `rust-toolchain.toml` and `ci.yml`. It was `@stable`, so the
   # compiler changed under the release build without a commit.
   RUST_VERSION: '1.98'
@@ -169,14 +168,13 @@ jobs:
           key: ${{ matrix.target }}
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
-      # ⚠ `--locked` is THE fix for the failure that killed this pipeline. Without it,
-      # `cargo install tauri-cli@2.10.1` resolves fresh dependency versions at install time, and
-      # on 2026-07-20 that produced, on all three platforms:
-      #   E0063: missing fields `uninstaller_header_image` … `minimum_webview2_version`
-      # A green run of an unlocked `cargo install` says nothing about tomorrow, which is why this
-      # sat broken for over two months. Never remove this flag.
+      # tauri-apps' prebuilt binary, digest-pinned in the action; the version lives there too.
+      # Until 2026-10-31 this compiled tauri-cli from source: 4 to 11 minutes in every leg. The
+      # compile is also what killed this pipeline on 2026-07-20 (an unlocked `cargo install`
+      # resolved fresh dependencies, E0063 `uninstaller_header_image` ... `minimum_webview2_version`
+      # on all three platforms); a binary that is not compiled here resolves nothing.
       - name: Install Tauri CLI
-        run: cargo install tauri-cli@${{ env.TAURI_CLI_VERSION }} --locked
+        uses: ./.github/actions/tauri-cli
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
