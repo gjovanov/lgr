@@ -82,6 +82,10 @@ jobs:
 
       - name: Run the suite
         run: bun packages/tests/src/with-test-mongo.ts bun packages/e2e/scripts/nightly.ts
+        env:
+          # Chrome's sandbox needs user namespaces this runner's AppArmor refuses, as in `ci.yml`.
+          # Without it every PDF fails, and a spec reads that as a download that never comes.
+          PDF_CHROME_NO_SANDBOX: '1'
 
       - name: Upload the report
         if: failure()

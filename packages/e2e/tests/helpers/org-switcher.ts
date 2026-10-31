@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test'
+import { leaveNavDrawer } from './nav'
 
 /**
  * Multi-org sign-in helpers. They live in a helper module, not the spec, because a spec here
@@ -30,6 +31,7 @@ export async function signInAsMultiInAcme(page: Page) {
 
 /** Open the org menu in the top bar and enter the org matching `name`. */
 export async function switchTo(page: Page, name: RegExp) {
+  await leaveNavDrawer(page)
   await page.getByTestId('org-switcher').click()
   await page.getByTestId('org-switcher-org').filter({ hasText: name }).click()
   await expect(page.getByTestId('org-switcher')).toContainText(name, { timeout: 15000 })

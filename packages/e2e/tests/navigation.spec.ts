@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginAsAdmin, loginForApp } from './helpers/login'
-import { navDrawer, openNavDrawer } from './helpers/nav'
+import { leaveNavDrawer, navDrawer, openNavDrawer } from './helpers/nav'
 
 test.describe('Navigation', () => {
   test('should show sidebar navigation drawer after login', async ({ page }) => {
@@ -63,6 +63,7 @@ test.describe('Navigation', () => {
     // Toggling v-model changes the --is-active class / translate transform.
     // Verify the nav icon button is clickable and triggers a state change.
     const navIcon = page.locator('.v-app-bar').locator('button').first()
+    await leaveNavDrawer(page)
     await navIcon.click()
 
     // Wait for animation
