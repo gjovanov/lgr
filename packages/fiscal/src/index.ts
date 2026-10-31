@@ -12,7 +12,7 @@ export type {
   FiscalExchangeOptions,
 } from './types.js'
 
-export { toFiscalPaymentType, toVatGroup, paymentCode, FiscalUnsupportedError } from './types.js'
+export { toFiscalPaymentType, toVatGroup, paymentCode, FiscalUnsupportedError, FiscalPaymentMethodError } from './types.js'
 export { DatecsFiscalPrinter, buildFrame, parseResponse, CMD } from './datecs.js'
 export { TremolFiscalPrinter, buildTremolFrame, parseTremolResponse, TREMOL_CMD } from './tremol.js'
 export {

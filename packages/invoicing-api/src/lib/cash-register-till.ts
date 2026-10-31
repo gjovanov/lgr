@@ -21,7 +21,8 @@ import {
   type RegisterContext, type RegisterSession, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
 import { isDeviceConnected, getPrinter, type IFiscalPrinter } from 'fiscal/fiscal-device.service'
-import { toFiscalPaymentType } from 'fiscal/types'
+import { FiscalPaymentMethodError, toFiscalPaymentType } from 'fiscal/types'
+import { unsupportedReason } from 'fiscal/capabilities'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
 import { fiscalOperation } from 'fiscal/in-flight'
 import { roundCents } from 'config/pos-totals'
@@ -33,7 +34,7 @@ import { roundCents } from 'config/pos-totals'
  */
 export const STORNO_ROLES = ['admin', 'manager']
 
-export type FiscalCtx = { deviceId: string; deviceNumber: string; printer: IFiscalPrinter } | null
+export type FiscalCtx = { deviceId: string; deviceNumber: string; printer: IFiscalPrinter; cashOnDeliveryRefusal: string | null } | null
 
 /**
  * Look up the active fiscal device for a warehouse.
@@ -61,7 +62,12 @@ export async function getFiscalContext(orgId: string, warehouseId: string): Prom
     return null
   }
 
-  return { deviceId: device.id, deviceNumber: device.deviceNumber as string, printer: getPrinter(device.id) }
+  return {
+    deviceId: device.id,
+    deviceNumber: device.deviceNumber as string,
+    printer: getPrinter(device.id),
+    cashOnDeliveryRefusal: unsupportedReason(device.manufacturer, device.connectionType, 'cashOnDelivery'),
+  }
 }
 
 /**
@@ -152,13 +158,16 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
     deviceNumber: fiscal.deviceNumber,
     lastReceiptNumber: async () => (p.getLastReceiptNumber ? p.getLastReceiptNumber() : undefined),
     printsText: !!p.openNonFiscalReceipt,
+    cashOnDeliveryRefusal: fiscal.cashOnDeliveryRefusal,
     async printSale(doc) {
+      // Read before the receipt opens: a payment no receipt can carry must not strand an open one.
+      const payments = tendered(doc).map((t: any) => ({ type: toFiscalPaymentType(t.method), amount: t.amount }))
       await p.openFiscalReceipt(operatorCode, operatorName, doc.register?.unp)
       for (const line of doc.lines || []) {
         const taxRate = line.taxRate ?? 0
         await p.printSaleLine(line.description, line.quantity, fiscalUnitPrice(line.unitPrice, taxRate), mapTaxRateToVatGroup(taxRate), line.discount || undefined, taxRate)
       }
-      for (const payment of tendered(doc)) await p.printPayment(toFiscalPaymentType(payment.method), payment.amount)
+      for (const payment of payments) await p.printPayment(payment.type, payment.amount)
       const { fiscalReceiptNumber } = await p.closeFiscalReceipt()
       return fiscalReceiptNumber
     },
@@ -184,7 +193,7 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
         vatGroup: mapTaxRateToVatGroup(l.taxRate ?? 0),
         taxRate: l.taxRate ?? 0,
       }))
-      const method = storno.payments?.[0]?.method || original.payments?.[0]?.method || 'cash'
+      const method = refundMethod(storno.payments, original)
       const s = storno.register?.storno || {}
       const result = await p.printStornoReceipt(
         operatorCode, operatorName, storno.register?.unp,
@@ -210,6 +219,74 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
     },
     operation: fn => fiscalOperation(fn),
   }
+}
+
+/**
+ * The tender of a sale or a refund, checked BEFORE anything is written: no number, no УНП, no
+ * receipt. Every door that prints comes through these (the till's sale, both storno routes, the
+ * back office's sale joined to a session). What they refuse used to reach the device: a bank
+ * transfer printed as cash, and cash on delivery refused by the driver with the receipt already open.
+ */
+function assertFiscalMethods(methods: string[]): void {
+  for (const method of methods) {
+    try {
+      toFiscalPaymentType(method)
+    } catch (e) {
+      if (!(e instanceof FiscalPaymentMethodError)) throw e
+      throw new RegisterRefusal(422, { code: 'payment_method_not_fiscal', method, message: e.message })
+    }
+  }
+}
+
+/** The device the receipt prints on has somewhere to print this tender. */
+function assertDeviceTakes(methods: string[], printer: RegisterPrinter | null | undefined): void {
+  if (printer?.cashOnDeliveryRefusal && methods.includes('cash_on_delivery')) {
+    throw new RegisterRefusal(422, { code: 'cod_not_supported', message: printer.cashOnDeliveryRefusal })
+  }
+}
+
+/**
+ * Cash on delivery settles the whole amount, exactly. The courier owes it and the drawer never holds
+ * it, so a short tender would book the rest as cash taken (`keptByMethod`), and an over-tender
+ * would give change out of a drawer that took nothing.
+ */
+function assertCashOnDeliveryExact(tenders: { method: string; amount: number }[], total: number): void {
+  if (!tenders.some(t => t.method === 'cash_on_delivery')) return
+  if (tenders.length === 1 && roundCents(tenders[0].amount) === roundCents(total)) return
+  throw new RegisterRefusal(422, {
+    code: 'cod_amount_mismatch',
+    message: `Cash on delivery is the only payment and exactly the total (${roundCents(total).toFixed(2)}): no change is given.`,
+  })
+}
+
+/** A till sale: every method one a receipt can carry, whichever receipt it prints. */
+export function assertTillTender(tenders: { method: string; amount: number }[], total: number, printer: RegisterPrinter | null | undefined): void {
+  const methods = tenders.map(t => t.method)
+  assertFiscalMethods(methods)
+  assertDeviceTakes(methods, printer)
+  assertCashOnDeliveryExact(tenders, total)
+}
+
+/** A back-office sale joined to a session (D-13): its `method`, on the receipt it asked for. */
+export function assertJoinedSaleTender(method: string, receipt: 'fiscal' | 'text', printer: RegisterPrinter | null | undefined): void {
+  if (!printer) return
+  if (receipt === 'fiscal') assertFiscalMethods([method])
+  assertDeviceTakes([method], printer)
+}
+
+/** The one method a storno receipt prints for the whole amount: the first the refund names. */
+function refundMethod(refund: { method: string }[] | undefined, original: any): string {
+  return refund?.[0]?.method || original.payments?.[0]?.method || original.paymentMethod || 'cash'
+}
+
+/** A storno: the refund the operator named, and what its receipt prints when it prints one. */
+function assertStornoTender(refund: { method: string; amount: number }[] | undefined, original: any, printer: RegisterPrinter | null): void {
+  assertFiscalMethods((refund ?? []).map(p => p.method))
+  assertCashOnDeliveryExact(refund ?? [], Number(original.total) || 0)
+  if (!printer) return
+  const method = refundMethod(refund, original)
+  assertFiscalMethods([method])
+  assertDeviceTakes([method], printer)
 }
 
 /** A session as the service reads it. */
@@ -359,6 +436,8 @@ export async function stornoDoor(input: StornoDoorInput): Promise<{ status: numb
       })
     }
     const printsReceipt = !!c.printer && printedFiscally(original)
+    // Before the claim: a refused refund leaves the sale as it was.
+    assertStornoTender(input.payments, original, printsReceipt ? c.printer! : null)
 
     const stornoId = newDocumentId()
     if (!(await claimForStorno(original, stornoId))) {

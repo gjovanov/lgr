@@ -54,6 +54,11 @@ export interface TillWorldOptions {
   role?: string
   /** On hand in the warehouse, at `avgCost` 4. */
   stock?: number
+  /**
+   * The device row's manufacturer, which is what `fiscal/capabilities` reads. The simulated Eltrade
+   * still answers, so whatever a capability check should have stopped shows up on it.
+   */
+  manufacturer?: string
 }
 
 export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
@@ -67,22 +72,25 @@ export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
   await createTestStockLevel(org._id, product._id, warehouse._id, { quantity: opts.stock ?? 10, availableQuantity: opts.stock ?? 10, avgCost: 4 } as any)
 
   let sim: EltradeSimulator | null = null
+  let deviceId = ''
   if (opts.device !== false) {
     const device = await createTestFiscalDevice(org._id, warehouse._id, {
-      name: 'Eltrade A3', deviceNumber: 'ED123456', manufacturer: 'eltrade', connectionType: 'browser', status: 'online',
+      name: 'Eltrade A3', deviceNumber: 'ED123456', manufacturer: opts.manufacturer ?? 'eltrade', connectionType: 'browser', status: 'online',
     } as any)
-    const deviceId = String(device._id)
+    deviceId = String(device._id)
     sim = new EltradeSimulator()
     registerPrinter(deviceId, new EltradeFiscalPrinter(sim.exchange, deviceId))
     registered.push(deviceId)
   }
 
-  const token = await (signer as any).decorator.jwt.sign({
-    id: String(user._id), orgId, role, email: 'cashier@test.com', username: 'cashier',
+  /** The cashier's token under another role, with that role's own permissions. */
+  const tokenAs = (asRole: string): Promise<string> => (signer as any).decorator.jwt.sign({
+    id: String(user._id), orgId, role: asRole, email: 'cashier@test.com', username: 'cashier',
     firstName: 'Иван', lastName: 'Петров', operatorCode: '0001',
-    permissions: DEFAULT_ROLE_PERMISSIONS[role as keyof typeof DEFAULT_ROLE_PERMISSIONS] || DEFAULT_ROLE_PERMISSIONS.admin,
+    permissions: DEFAULT_ROLE_PERMISSIONS[asRole as keyof typeof DEFAULT_ROLE_PERMISSIONS] || DEFAULT_ROLE_PERMISSIONS.admin,
     ownRecordsModules: [],
   })
+  const token = await tokenAs(role)
 
   // A back-office clerk with no session of their own: their cash sales stay sessionless (FR-21.31).
   const clerk = await createTestUser(org._id, { operatorCode: '0002', role } as any)
@@ -146,7 +154,7 @@ export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
   }
 
   return {
-    org, orgId, warehouse, user, product, sim, token, session, sessionId, clerk, clerkToken,
+    org, orgId, warehouse, user, product, sim, deviceId, token, tokenAs, session, sessionId, clerk, clerkToken,
     call, saleBody, sell, storno, backOfficeSale, cashierBackOfficeSale, stock,
     oid: org._id as Types.ObjectId,
   }

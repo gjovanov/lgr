@@ -21,7 +21,7 @@ import { buildIslFrame, buildIslResponseFrame, islBcc, parseIslStream, ISL } fro
 import { encodeCp1251, decodeCp1251 } from 'fiscal/cp1251'
 import { formatDeviceDateTime, formatDeviceIsoDateTime, parseDeviceDateTime } from 'fiscal/zoned-time'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
-import { toFiscalPaymentType, toVatGroup } from 'fiscal/types'
+import { FiscalPaymentMethodError, toFiscalPaymentType, toVatGroup } from 'fiscal/types'
 import { IslResponseCollector } from 'ui-shared/composables/fiscalIslResponse'
 
 /**
@@ -913,6 +913,31 @@ describe('EltradeFiscalPrinter — payment type names (55h)', () => {
     expectRejection(err, /refused "НАЛОЖЕН ПЛАТЕЖ" as the name of payment type R/)
     expect(err.kind).toBe('rejected')
     expect(sim.paymentNames.R).toBe('РЕЗЕРВ')
+  })
+})
+
+describe('toFiscalPaymentType: what a receipt can carry, and no default', () => {
+  it('maps the till\'s methods; a mobile payment is a card payment to a device', () => {
+    expect(['cash', 'card', 'mobile', 'voucher', 'cash_on_delivery'].map(toFiscalPaymentType))
+      .toEqual(['cash', 'card', 'card', 'voucher', 'cash_on_delivery'])
+  })
+
+  it('refuses everything else with a typed error, where it used to answer cash', () => {
+    for (const method of ['bank_transfer', 'other', 'check', 'crypto', '', 'constructor', 'CASH']) {
+      const refused = (() => {
+        try {
+          return toFiscalPaymentType(method)
+        } catch (e) {
+          return e
+        }
+      })()
+      expect(refused).toBeInstanceOf(FiscalPaymentMethodError)
+      expect((refused as FiscalPaymentMethodError).method).toBe(method)
+    }
+  })
+
+  it('says it in words', () => {
+    expect(new FiscalPaymentMethodError('bank_transfer').message).toContain('"bank transfer"')
   })
 })
 

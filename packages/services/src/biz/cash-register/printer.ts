@@ -27,6 +27,8 @@ export interface RegisterPrinter {
   printSale(doc: RegisterDocument): Promise<string>
   /** Whether the device prints non-fiscal text (the till's „Нефискален" mode). */
   readonly printsText: boolean
+  /** Why this device cannot take a cash-on-delivery payment; null when it can (`fiscal/capabilities`). */
+  readonly cashOnDeliveryRefusal: string | null
   /** Print the sale as a non-fiscal text receipt. */
   printText(doc: RegisterDocument): Promise<void>
   /** Print the storno receipt of `original`. Returns its receipt number. */

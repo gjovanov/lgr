@@ -19,7 +19,7 @@ import { maySaleOpen } from 'fiscal/device-reach'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
 import {
-  STORNO_ROLES, assertPrinterConnected, findKeyedTillDocument, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
+  STORNO_ROLES, assertPrinterConnected, assertTillTender, findKeyedTillDocument, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
 } from '../lib/cash-register-till.js'
 
 // FR-21: the till's device, its receipts and the price a device is given live with the cash-register
@@ -140,6 +140,17 @@ function validateTotals(body: any) {
   }
 }
 
+/**
+ * One payment of a sale or a refund. The method is any string here and checked by hand
+ * (`assertTillTender`, `stornoDoor`): the schema would refuse one a receipt cannot carry with its
+ * own 422, where the till answers `payment_method_not_fiscal` before anything is written.
+ */
+const TENDER = t.Object({
+  method: t.String(),
+  amount: t.Number(),
+  reference: t.Optional(t.String()),
+})
+
 /** The body of a POS sale. */
 const SALE_BODY = t.Object({
   type: t.Union([t.Literal('sale'), t.Literal('return'), t.Literal('exchange')]),
@@ -164,11 +175,7 @@ const SALE_BODY = t.Object({
   discountTotal: t.Optional(t.Number()),
   taxTotal: t.Optional(t.Number()),
   total: t.Number(),
-  payments: t.Array(t.Object({
-    method: t.Union([t.Literal('cash'), t.Literal('card'), t.Literal('mobile'), t.Literal('voucher')]),
-    amount: t.Number(),
-    reference: t.Optional(t.String()),
-  })),
+  payments: t.Array(TENDER),
   changeDue: t.Optional(t.Number()),
   nonFiscal: t.Optional(t.Boolean()),
 })
@@ -776,6 +783,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         // No sale without a connected printer (2026-10-31): refused before anything is written, so
         // no number or УНП is drawn. A keyed retry is answered above and may still finish.
         await assertPrinterConnected(orgId, String(session.warehouseId), c)
+        assertTillTender(body.payments, verified.total, c.printer)
 
         // FR-20.49 — Прил. 29 т. 8: no fiscal sale opens on a device not reached in two hours (SUPTO
         // production mode only). ⚠ Here, for a NEW sale only: a keyed retry above is a sale that
@@ -863,11 +871,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       body: t.Object({
         originalTransactionId: t.String(),
         reason: t.Union([t.Literal('operator_error'), t.Literal('customer_return'), t.Literal('price_reduction'), t.Literal('tax_base_reduction')]),
-        payments: t.Optional(t.Array(t.Object({
-          method: t.Union([t.Literal('cash'), t.Literal('card'), t.Literal('mobile'), t.Literal('voucher')]),
-          amount: t.Number(),
-          reference: t.Optional(t.String()),
-        }))),
+        payments: t.Optional(t.Array(TENDER)),
       }),
     },
   )
