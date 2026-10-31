@@ -15,13 +15,16 @@ import type {
   FiscalPaymentType,
   StornoReason,
 } from './types.js'
+import { paymentCode } from './types.js'
 import { buildTremolFrame, parseTremolResponse, TREMOL_CMD } from './tremol.js'
 import { logger } from 'services/logger'
 import type { SendCommandFn } from './ws-fiscal-printer.js'
 
-const PAYMENT_CODE: Record<FiscalPaymentType, string> = {
+/** No cash on delivery: it is refused, never printed as cash. */
+const PAYMENT_CODE: Partial<Record<FiscalPaymentType, string>> = {
   cash: '0', card: '1', check: '2', voucher: '3',
 }
+const DRIVER = "LGR's Tremol driver"
 const STORNO_REASON: Record<StornoReason, string> = {
   operator_error: '0', customer_return: '1', price_reduction: '2', tax_base_reduction: '2',
 }
@@ -85,7 +88,7 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   }
 
   async printPayment(type: FiscalPaymentType, amount: number): Promise<void> {
-    const code = PAYMENT_CODE[type] || '0'
+    const code = paymentCode(PAYMENT_CODE, type, DRIVER)
     await this.send(TREMOL_CMD.PAYMENT, `${code};1;${amount.toFixed(2)}`)
   }
 
@@ -105,6 +108,8 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
     lines: { name: string; quantity: number; price: number; vatGroup: VatGroup }[],
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
+    // A payment this driver cannot print is refused before the storno receipt is opened.
+    paymentCode(PAYMENT_CODE, payment.type, DRIVER)
     const dd = String(originalDate.getDate()).padStart(2, '0')
     const mm = String(originalDate.getMonth() + 1).padStart(2, '0')
     const yy = String(originalDate.getFullYear()).slice(-2)

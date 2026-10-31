@@ -28,6 +28,7 @@ import type {
   FiscalPaymentType,
   StornoReason,
 } from './types.js'
+import { paymentCode } from './types.js'
 import { logger } from 'services/logger'
 
 // Datecs protocol constants
@@ -52,13 +53,14 @@ export const CMD = {
   PRINT_FREE_TEXT: 0x36,     // 54 - Print free text line
 } as const
 
-/** Datecs payment type codes */
-const PAYMENT_CODE: Record<FiscalPaymentType, string> = {
+/** Datecs payment type codes. No cash on delivery: it is refused, never printed as cash. */
+const PAYMENT_CODE: Partial<Record<FiscalPaymentType, string>> = {
   cash: 'P',
   card: 'N',
   check: 'C',
   voucher: 'D',
 }
+const DRIVER = "LGR's Datecs driver"
 
 /** Datecs storno reason codes */
 const STORNO_REASON_CODE: Record<StornoReason, number> = {
@@ -274,7 +276,7 @@ export class DatecsFiscalPrinter implements IFiscalPrinter {
   async printPayment(type: FiscalPaymentType, amount: number): Promise<void> {
     // Command 53: Total/Payment
     // Data: <PaymentType>\t<Amount>
-    const code = PAYMENT_CODE[type] || 'P'
+    const code = paymentCode(PAYMENT_CODE, type, DRIVER)
     await this.transport.sendCommand(CMD.PAYMENT, `\t${code}${amount.toFixed(2)}`)
   }
 
@@ -302,6 +304,8 @@ export class DatecsFiscalPrinter implements IFiscalPrinter {
     lines: { name: string; quantity: number; price: number; vatGroup: VatGroup }[],
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
+    // A payment this driver cannot print is refused before the storno receipt is opened.
+    paymentCode(PAYMENT_CODE, payment.type, DRIVER)
     // Open storno receipt with reason and original receipt reference
     const dateStr = formatDatecsDate(originalDate)
     const reasonCode = STORNO_REASON_CODE[reason]

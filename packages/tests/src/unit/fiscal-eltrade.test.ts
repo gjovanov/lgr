@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { captureRejection, expectRejection } from '../helpers/capture-rejection'
-import { EltradeSimulator } from '../helpers/eltrade-simulator'
+import { EltradeSimulator, validFmReportData } from '../helpers/eltrade-simulator'
 import {
   EltradeFiscalPrinter,
   decodeEltradeStatus,
@@ -8,18 +8,24 @@ import {
   eltradeRejectionReasons,
   parseEltradeDiagnostics,
   parseDeviceAmount,
+  parsePaymentNameAnswer,
   splitItemText,
   ELTRADE_CMD,
+  ELTRADE_PAYMENT_SLOTS,
 } from 'fiscal/eltrade'
+import { DatecsFiscalPrinter } from 'fiscal/datecs'
+import { TremolFiscalPrinter } from 'fiscal/tremol'
+import { WebSocketFiscalPrinter } from 'fiscal/ws-fiscal-printer'
+import { WsTremolFiscalPrinter } from 'fiscal/ws-tremol-printer'
 import { buildIslFrame, buildIslResponseFrame, islBcc, parseIslStream, ISL } from 'fiscal/isl-frame'
 import { encodeCp1251, decodeCp1251 } from 'fiscal/cp1251'
 import { formatDeviceDateTime, formatDeviceIsoDateTime, parseDeviceDateTime } from 'fiscal/zoned-time'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
-import { toVatGroup } from 'fiscal/types'
+import { toFiscalPaymentType, toVatGroup } from 'fiscal/types'
 import { IslResponseCollector } from 'ui-shared/composables/fiscalIslResponse'
 
 /**
- * Eltrade driver — protocol "ELTRADE Комуникационен протокол" v1.1.1.
+ * Eltrade driver — protocol "ELTRADE Комуникационен протокол" v1.1.1, re-checked against v1.1.7.
  *
  * No Eltrade is attached to CI (or to the dev box this was written on), so the driver is
  * exercised against `EltradeSimulator`, which implements the protocol document — frame
@@ -479,7 +485,343 @@ describe('EltradeFiscalPrinter — reports, clock, status, operators', () => {
     const p = printerFor(sim)
     expectRejection(await captureRejection(p.programOperator(1, 'abc', 'X')), /4–8 digits/)
     await p.programOperator(2, '0000', 'Мария, Иванова')
-    expect(sim.operators[2]).toBe('Мария Иванова')
+    expect(sim.operators[2]).toEqual({ name: 'Мария Иванова', password: '0000' })
+  })
+})
+
+// ── Reports never touch an open receipt ───────────────────────────────────
+
+/** A sale in progress on the device, as the POS leaves it between two commands. */
+async function saleInProgress(sim: EltradeSimulator, paid = 0) {
+  const p = printerFor(sim)
+  await p.openFiscalReceipt('0001', 'Op', UNP)
+  await p.printSaleLine('Болт М8', 2, 12, 'Б', undefined, 20)
+  if (paid) await p.printPayment('cash', paid)
+  return p
+}
+
+describe('EltradeFiscalPrinter — a report while a receipt is open', () => {
+  const touchedReceipt = [ELTRADE_CMD.CANCEL_FISCAL, ELTRADE_CMD.TOTAL, ELTRADE_CMD.CLOSE_FISCAL, ELTRADE_CMD.CLOSE_NON_FISCAL]
+
+  it('refuses the X-report during a sale, and voids nothing', async () => {
+    const sim = new EltradeSimulator()
+    const p = await saleInProgress(sim)
+    const before = sim.executed.length
+    const err = await captureRejection(p.printDailyXReport())
+    expectRejection(err, /fiscal receipt open, so the X-report was not printed/)
+    expect(err.kind).toBe('busy')
+    const after = sim.executed.slice(before).map(e => e.cmd)
+    expect(after).toEqual([ELTRADE_CMD.GET_STATUS]) // the check, and nothing else
+    expect(sim.receipt!.sales).toHaveLength(1)
+    expect(sim.receipts).toEqual([])
+  })
+
+  it('refuses the Z-report on a part-paid receipt instead of completing it in cash', async () => {
+    const sim = new EltradeSimulator()
+    const p = await saleInProgress(sim, 5)
+    const closure = sim.closure
+    const err = await captureRejection(p.printDailyZReport())
+    expectRejection(err, /fiscal receipt open, so the Z-report was not printed/)
+    expect(sim.executed.map(e => e.cmd).filter(c => touchedReceipt.includes(c as any) && c !== ELTRADE_CMD.TOTAL)).toEqual([])
+    expect(sim.receipt!.payments).toEqual([{ mode: 'P', amount: 5 }]) // the 5 paid, no cash remainder added
+    expect(sim.closure).toBe(closure)
+    expect(sim.reports).toEqual([])
+
+    // The sale finishes; then the day closes.
+    await p.printPayment('cash', 19)
+    await p.closeFiscalReceipt()
+    expect((await p.printDailyZReport()).reportNumber).toBe(String(closure + 1).padStart(4, '0'))
+  })
+
+  it('refuses every report while a service (text) receipt is open, and leaves it open', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    await p.openNonFiscalReceipt('0001')
+    const reports: [string, () => Promise<unknown>][] = [
+      ['X-report', () => p.printDailyXReport()],
+      ['Z-report', () => p.printDailyZReport()],
+      ['fiscal-memory report', () => p.printFiscalMemoryReportByDate(new Date('2026-07-01T10:00:00Z'), new Date('2026-07-31T10:00:00Z'))],
+      ['fiscal-memory report', () => p.printFiscalMemoryReportByDate(new Date('2026-07-01T10:00:00Z'), new Date('2026-07-31T10:00:00Z'), true)],
+      ['fiscal-memory report', () => p.printFiscalMemoryReportByNumber(1, 2)],
+      ['fiscal-memory report', () => p.printFiscalMemoryReportByNumber(1, 2, true)],
+    ]
+    for (const [what, run] of reports) {
+      expectRejection(await captureRejection(run()), new RegExp(`service \\(non-fiscal\\) receipt open, so the ${what} was not printed`))
+    }
+    expect(sim.nonFiscalOpen).toBe(true)
+    expect(cmds(sim).filter(c => touchedReceipt.includes(c as any))).toEqual([])
+    expect(sim.reports).toEqual([])
+  })
+
+  it('checks and prints in one turn of the queue: a receipt opened meanwhile waits for the report', async () => {
+    const sim = new EltradeSimulator()
+    let p!: EltradeFiscalPrinter
+    let racer: Promise<unknown> | null = null
+    p = new EltradeFiscalPrinter(async (frame) => {
+      // While the report's status check is on the wire (the priming read is frame 0), another
+      // caller opens a receipt with a single command — the step a sale's 90h would be.
+      if (frame[3] === ELTRADE_CMD.GET_STATUS && sim.frames > 0 && !racer) {
+        racer = (p as any).request(ELTRADE_CMD.OPEN_NON_FISCAL, '', { timeoutMs: 1000 })
+      }
+      return sim.exchange(frame)
+    }, 'race')
+    const x = await p.printDailyXReport()
+    await racer
+    expect(x.reportNumber).toBe('0012')
+    expect(sim.reports).toEqual([{ cmd: ELTRADE_CMD.DAILY_REPORT, data: '2' }])
+    expect(sim.nonFiscalOpen).toBe(true)
+    const order = cmds(sim)
+    expect(order.indexOf(ELTRADE_CMD.DAILY_REPORT)).toBeLessThan(order.indexOf(ELTRADE_CMD.OPEN_NON_FISCAL))
+  })
+})
+
+describe('EltradeFiscalPrinter — what every report sends', () => {
+  it('X 45h "2", Z 45h "0"; fiscal memory by date 4Fh/5Eh, by number 5Fh/49h', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    await p.printDailyXReport()
+    await p.printDailyZReport()
+    // 22:30 UTC on the 31st is already 1 August in Sofia: the device's days, not the server's.
+    await p.printFiscalMemoryReportByDate(new Date('2026-07-01T10:00:00Z'), new Date('2026-07-31T22:30:00Z'))
+    await p.printFiscalMemoryReportByDate(new Date('2026-07-01T10:00:00Z'), new Date('2026-07-31T10:00:00Z'), true)
+    await p.printFiscalMemoryReportByNumber(3, 12)
+    await p.printFiscalMemoryReportByNumber(1, 9999, true)
+    expect(sim.reports).toEqual([
+      { cmd: ELTRADE_CMD.DAILY_REPORT, data: '2' },
+      { cmd: ELTRADE_CMD.DAILY_REPORT, data: '0' },
+      { cmd: ELTRADE_CMD.SHORT_FM_REPORT_BY_DATE, data: '010726,010826' },
+      { cmd: ELTRADE_CMD.DETAILED_FM_REPORT_BY_DATE, data: '010726,310726' },
+      { cmd: ELTRADE_CMD.SHORT_FM_REPORT_BY_NUMBER, data: '0003,0012' },
+      { cmd: ELTRADE_CMD.DETAILED_FM_REPORT_BY_NUMBER, data: '0001,9999' },
+    ])
+  })
+
+  it('refuses a period or a number range the device cannot take, with nothing sent', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    const bad: [() => Promise<unknown>, RegExp][] = [
+      [() => p.printFiscalMemoryReportByNumber(0, 5), /whole numbers from 1 to 9999/],
+      [() => p.printFiscalMemoryReportByNumber(5, 3), /the first no greater than the last/],
+      [() => p.printFiscalMemoryReportByNumber(1.5, 3), /whole numbers/],
+      [() => p.printFiscalMemoryReportByNumber(1, 10000), /from 1 to 9999/],
+      [() => p.printFiscalMemoryReportByNumber(Number.NaN, 3), /whole numbers/],
+      [() => p.printFiscalMemoryReportByDate(new Date('2026-07-31T10:00:00Z'), new Date('2026-07-01T10:00:00Z')), /starts \(2026-07-31\) after it ends \(2026-07-01\)/],
+      [() => p.printFiscalMemoryReportByDate(new Date('nonsense'), new Date('2026-07-01T10:00:00Z')), /both dates are needed/],
+    ]
+    for (const [run, why] of bad) {
+      const err = await captureRejection(run())
+      expectRejection(err, why)
+      expect(err.kind).toBe('input')
+    }
+    expect(sim.frames).toBe(0)
+  })
+
+  it('reports why a fiscal-memory report did not print when the paper is out', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    sim.paper = false
+    const err = await captureRejection(p.printFiscalMemoryReportByNumber(1, 5))
+    expectRejection(err, /out of paper/)
+    expect(err.kind).toBe('rejected')
+    expect(sim.reports).toEqual([])
+  })
+})
+
+describe('EltradeSimulator — the report periods the protocol spells (v1.1.7)', () => {
+  it('takes DDMMYY,DDMMYY and the month (MMYY) and year (YY) forms; NNNN,NNNN by number', () => {
+    const ok: [number, string][] = [
+      [0x4F, '010726,310726'], [0x4F, '0726'], [0x4F, '26'], [0x5E, '#*010726,310726'], [0x5E, '0726'],
+      [0x5F, '0001,0012'], [0x49, '0001,0012'], [0x49, '#*0001,0012'], [0x49, ''],
+    ]
+    for (const [cmd, data] of ok) expect({ cmd, data, ok: validFmReportData(cmd, data) }).toEqual({ cmd, data, ok: true })
+    const refused: [number, string][] = [
+      [0x4F, '310226,310326'], [0x4F, '310726,010726'], [0x4F, '1326'], [0x4F, '01-07-26,31-07-26'], [0x4F, ''],
+      [0x5F, '12,13'], [0x5F, '0013,0012'], [0x5F, ''], [0x49, '#'], [0x5E, '#*'],
+    ]
+    for (const [cmd, data] of refused) expect({ cmd, data, ok: validFmReportData(cmd, data) }).toEqual({ cmd, data, ok: false })
+  })
+})
+
+describe('EltradeFiscalPrinter — operators 1–16 (66h)', () => {
+  it('refuses operator 0 and 17, and an empty name, with nothing sent', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    for (const n of [0, 17, 1.5]) {
+      const err = await captureRejection(p.programOperator(n, '1234', 'Иван'))
+      expectRejection(err, /numbered 1–16/)
+      expect(err.kind).toBe('input')
+    }
+    expectRejection(await captureRejection(p.programOperator(3, '1234', ' , ')), /operator's name/)
+    expect(sim.frames).toBe(0)
+  })
+
+  it('programs operator 16; the password it was given authenticates the next change', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    await p.programOperator(16, '123456', 'Петър Петров')
+    expect(sim.operators[16]).toEqual({ name: 'Петър Петров', password: '123456' })
+    const err = await captureRejection(p.programOperator(16, '654321', 'Друго име'))
+    expectRejection(err, /not allowed in the current state/)
+    expect(err.kind).toBe('rejected')
+    expect(sim.operators[16].name).toBe('Петър Петров')
+    await p.programOperator(16, '123456', 'Петър Иванов')
+    expect(sim.operators[16].name).toBe('Петър Иванов')
+  })
+
+  it('the simulator blocks after three wrong passwords until it is switched off and on', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    await p.programOperator(1, '1111', 'Op')
+    for (let i = 0; i < 3; i++) await captureRejection(p.programOperator(1, '2222', 'Op'))
+    expect(sim.locked).toBe(true)
+    expectRejection(await captureRejection(p.printDailyXReport()), /not allowed in the current state/)
+    sim.powerCycle()
+    expect((await p.printDailyXReport()).reportNumber).toBe('0012')
+  })
+})
+
+describe('EltradeFiscalPrinter — payment type names (55h)', () => {
+  it('reads all 11 slots in device order, with the LGR payment each one carries', async () => {
+    const sim = new EltradeSimulator()
+    const names = await printerFor(sim).readPaymentNames()
+    expect(names.map(n => n.code)).toEqual(['P', 'N', 'C', 'D', 'I', 'J', 'K', 'L', 'M', 'Q', 'R'])
+    expect(names.map(n => n.code)).toEqual([...ELTRADE_PAYMENT_SLOTS])
+    expect(names.find(n => n.code === 'P')).toEqual({ code: 'P', name: 'В БРОЙ', type: 'cash' })
+    expect(names.find(n => n.code === 'L')).toEqual({ code: 'L', name: 'КАРТА', type: 'card' })
+    expect(names.find(n => n.code === 'R')).toEqual({ code: 'R', name: 'РЕЗЕРВ', type: 'cash_on_delivery' })
+    expect(names.find(n => n.code === 'M')).toEqual({ code: 'M', name: 'БАНКА' })
+    expect(sim.executed.filter(e => e.cmd === ELTRADE_CMD.PAYMENT_NAME).map(e => e.data)).toEqual([...ELTRADE_PAYMENT_SLOTS])
+  })
+
+  it('takes a read answered as "P\\<name>" as well as a bare name', async () => {
+    const sim = new EltradeSimulator()
+    sim.paymentNameAnswer = 'prefixed'
+    const names = await printerFor(sim).readPaymentNames()
+    expect(names.find(n => n.code === 'L')!.name).toBe('КАРТА')
+    expect(parsePaymentNameAnswer('P')).toEqual({ result: 'P' })
+    expect(parsePaymentNameAnswer('F')).toEqual({ result: 'F' })
+    expect(parsePaymentNameAnswer('P,НАЛОЖЕН ПЛАТЕЖ')).toEqual({ result: 'P', name: 'НАЛОЖЕН ПЛАТЕЖ' })
+    expect(parsePaymentNameAnswer('КАРТА ')).toEqual({ name: 'КАРТА' })
+  })
+
+  it('names the reserve slot „НАЛОЖЕН ПЛАТЕЖ" and answers with what the device then reports', async () => {
+    const sim = new EltradeSimulator()
+    const named = await printerFor(sim).programPaymentName('r', 'НАЛОЖЕН ПЛАТЕЖ')
+    expect(named).toEqual({ code: 'R', name: 'НАЛОЖЕН ПЛАТЕЖ', type: 'cash_on_delivery', previous: 'РЕЗЕРВ' })
+    expect(sim.paymentNames.R).toBe('НАЛОЖЕН ПЛАТЕЖ')
+    // read, set, read back
+    expect(sim.executed.filter(e => e.cmd === ELTRADE_CMD.PAYMENT_NAME).map(e => e.data)).toEqual(['R', 'R,НАЛОЖЕН ПЛАТЕЖ', 'R'])
+  })
+
+  it('refuses a slot that is not one of the 11, and a name over 20 characters, with nothing sent', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    const errs = [
+      await captureRejection(p.programPaymentName('X', 'КАРТА')),
+      await captureRejection(p.programPaymentName('R', 'НАЛОЖЕН ПЛАТЕЖ С ДОСТАВКА')),
+      await captureRejection(p.programPaymentName('R', '  ')),
+    ]
+    expectRejection(errs[0], /payment types are P, N, C, D, I, J, K, L, M, Q, R/)
+    expectRejection(errs[1], /1–20 characters, got 25/)
+    expectRejection(errs[2], /1–20 characters, got 0/)
+    expect(errs.map(e => e.kind)).toEqual(['input', 'input', 'input'])
+    expect(sim.frames).toBe(0)
+  })
+
+  it('a device that does not answer fails at the first read — no name is sent, no second wait', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    await p.readDateTime() // connected and primed
+    sim.silent = true
+    const err = await captureRejection(p.programPaymentName('R', 'НАЛОЖЕН ПЛАТЕЖ'))
+    expect(err.kind).toBe('timeout')
+    expect(sim.paymentNames.R).toBe('РЕЗЕРВ')
+    expect(sim.executed.filter(e => e.cmd === ELTRADE_CMD.PAYMENT_NAME)).toEqual([])
+  })
+
+  it('a read-back that fails after the device said P still reports the name as set', async () => {
+    const sim = new EltradeSimulator()
+    let sets = 0
+    const run = (sim as any).run.bind(sim)
+    ;(sim as any).run = (cmd: number, text: string, flags: any) => {
+      if (cmd === ELTRADE_CMD.PAYMENT_NAME && text.includes(',')) sets++
+      // After the name is set, the device garbles the read: a syntax error on 55h.
+      if (cmd === ELTRADE_CMD.PAYMENT_NAME && sets && !text.includes(',')) { flags.syntax = true; return '' }
+      return run(cmd, text, flags)
+    }
+    const named = await printerFor(sim).programPaymentName('R', 'НАЛОЖЕН ПЛАТЕЖ')
+    expect(named).toEqual({ code: 'R', name: 'НАЛОЖЕН ПЛАТЕЖ', type: 'cash_on_delivery', previous: 'РЕЗЕРВ' })
+    expect(sim.paymentNames.R).toBe('НАЛОЖЕН ПЛАТЕЖ')
+  })
+
+  it('reports the device refusing the name (answer F)', async () => {
+    const sim = new EltradeSimulator()
+    const run = (sim as any).run.bind(sim)
+    ;(sim as any).run = (cmd: number, text: string, flags: any) => (cmd === ELTRADE_CMD.PAYMENT_NAME && text.includes(',') ? 'F' : run(cmd, text, flags))
+    const err = await captureRejection(printerFor(sim).programPaymentName('R', 'НАЛОЖЕН ПЛАТЕЖ'))
+    expectRejection(err, /refused "НАЛОЖЕН ПЛАТЕЖ" as the name of payment type R/)
+    expect(err.kind).toBe('rejected')
+    expect(sim.paymentNames.R).toBe('РЕЗЕРВ')
+  })
+})
+
+describe('cash on delivery (FiscalPaymentType "cash_on_delivery")', () => {
+  it('the till maps it to its own type, never to cash', () => {
+    expect(toFiscalPaymentType('cash_on_delivery')).toBe('cash_on_delivery')
+    expect(toFiscalPaymentType('cash')).toBe('cash')
+  })
+
+  it('an Eltrade prints it in the reserve slot R, never tendering more than is due', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    await p.openFiscalReceipt('0001', 'Op', UNP)
+    await p.printSaleLine('Болт М8', 2, 12, 'Б', undefined, 20)
+    await p.printPayment('cash_on_delivery', 24.01)
+    await p.closeFiscalReceipt()
+    expect(sim.receipts[0].payments).toEqual([{ mode: 'R', amount: 24 }])
+  })
+
+  it('an Eltrade storno paid back on delivery carries R too', async () => {
+    const sim = new EltradeSimulator()
+    await printerFor(sim).printStornoReceipt(
+      '0001', 'Op', 'ED123456-0001-0000009', '0000101', new Date('2026-07-15T09:00:05Z'), UNP, 'customer_return',
+      [{ name: 'Болт М8', quantity: 2, price: 12, vatGroup: 'Б', taxRate: 20 }], { type: 'cash_on_delivery', amount: 24 },
+    )
+    expect(sim.receipts[0].payments).toEqual([{ mode: 'R', amount: 24 }])
+  })
+
+  it('every driver without a slot refuses it before sending anything — never prints it as cash', async () => {
+    const sent: unknown[] = []
+    const send = async (frame: Buffer) => { sent.push(frame); return Buffer.alloc(0) }
+    const datecs = new DatecsFiscalPrinter({ type: 'tcp', tcp: { ip: '127.0.0.1', port: 1 } }, 'd')
+    ;(datecs as any).transport.sendCommand = async (...a: unknown[]) => { sent.push(a); return '' }
+    const drivers = [
+      ['Datecs', datecs],
+      ['Datecs', new WebSocketFiscalPrinter(send, 'w')],
+      ['Tremol', new WsTremolFiscalPrinter(send, 't')],
+      ['Tremol', new TremolFiscalPrinter({ type: 'tcp', tcp: { ip: '127.0.0.1', port: 1 } } as any, 't2')],
+    ] as const
+    ;((drivers[3][1] as any).transport).sendCommand = async (...a: unknown[]) => { sent.push(a); return '' }
+    for (const [name, driver] of drivers) {
+      const pay = await captureRejection(driver.printPayment('cash_on_delivery', 10))
+      expectRejection(pay, new RegExp(`LGR's ${name} driver has no payment type for cash on delivery`))
+      expect(pay.name).toBe('FiscalUnsupportedError')
+      const storno = await captureRejection(driver.printStornoReceipt(
+        '0001', 'Op', UNP, '0000101', new Date(), UNP, 'customer_return',
+        [{ name: 'A', quantity: 1, price: 10, vatGroup: 'Б' }], { type: 'cash_on_delivery', amount: 10 },
+      ))
+      expectRejection(storno, /no payment type for cash on delivery/)
+    }
+    expect(sent).toEqual([])
+  })
+})
+
+describe('EltradeFiscalPrinter — how a lost transport fails', () => {
+  it('a bridge that is gone is unreachable; one that gave up waiting is a timeout', async () => {
+    const gone = new EltradeFiscalPrinter(async () => { throw new Error('Fiscal bridge disconnected') }, 'x')
+    expect((await captureRejection(gone.readDateTime())).kind).toBe('unreachable')
+    const slow = new EltradeFiscalPrinter(async () => { throw new Error('Fiscal bridge command timeout (60000ms)') }, 'x')
+    expect((await captureRejection(slow.readDateTime())).kind).toBe('timeout')
   })
 })
 

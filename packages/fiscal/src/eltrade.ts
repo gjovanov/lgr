@@ -2,9 +2,13 @@
  * Eltrade fiscal device driver — A1/A3/A6/B1/B3 KL cash registers (in PC mode) and the
  * Eltrade fiscal printers.
  *
- * Protocol: "ELTRADE Комуникационен протокол" v1.1.1 — the ISL/Datecs framing in
- * `isl-frame.ts`, 115200 8N1, text in Windows-1251. Cross-checked against ErpNet.FP's
- * `BgEltradeIslFiscalPrinter`, which has run against real Eltrade devices.
+ * Protocol: "ELTRADE Комуникационен протокол" v1.1.1, re-checked against v1.1.7 (2026-10) — the
+ * ISL/Datecs framing in `isl-frame.ts`, 115200 8N1, text in Windows-1251. Cross-checked against
+ * ErpNet.FP's `BgEltradeIslFiscalPrinter`, which has run against real Eltrade devices.
+ *
+ * What the protocol does NOT have, so no method here pretends to: reading an operator back (66h
+ * only sets one), an operator report, and printing the electronic journal (КЛЕН). The device page
+ * learns that from `capabilities.ts` and says so instead of offering the button.
  *
  * Device setup: with USB connected the ECR shows „Връзка с PC" and answers from its main menu
  * (field-verified on a non-fiscalized A3 KL, 2026-09-26). ErpNet.FP's notes ask for mode
@@ -24,6 +28,8 @@
  *    aborted every receipt on them), so they are reported, not fatal.
  *  - The device keeps Bulgarian local time; the API runs on UTC. Clock values go through
  *    `zoned-time.ts`, never `getHours()`.
+ *  - A report (X, Z, fiscal memory) is refused while a receipt is open, never cleared out of its
+ *    way: the POS and the device page share this driver (`report()`).
  */
 
 import type {
@@ -34,9 +40,11 @@ import type {
   ZReportResult,
   VatGroup,
   FiscalPaymentType,
+  FiscalPaymentName,
   StornoReason,
   FiscalExchangeOptions,
 } from './types.js'
+import { paymentCode } from './types.js'
 import { encodeCp1251, decodeCp1251 } from './cp1251.js'
 import { ISL, ISL_MAX_DATA, ISL_SEQ_SPAN, buildIslFrame, parseIslStream, toHex } from './isl-frame.js'
 import {
@@ -63,6 +71,7 @@ export const ELTRADE_CMD = {
   DETAILED_FM_REPORT_BY_NUMBER: 0x49,
   GET_STATUS: 0x4A,
   SHORT_FM_REPORT_BY_DATE: 0x4F,
+  PAYMENT_NAME: 0x55,
   DIAGNOSTIC_INFO: 0x5A,
   DETAILED_FM_REPORT_BY_DATE: 0x5E,
   SHORT_FM_REPORT_BY_NUMBER: 0x5F,
@@ -87,6 +96,7 @@ const COMMAND_NAME: Record<number, string> = {
   0x49: 'detailed FM report by number',
   0x4A: 'read status',
   0x4F: 'short FM report by date',
+  0x55: 'payment type name',
   0x5A: 'read diagnostic info',
   0x5E: 'detailed FM report by date',
   0x5F: 'short FM report by number',
@@ -98,13 +108,29 @@ const COMMAND_NAME: Record<number, string> = {
 
 const cmdLabel = (cmd: number) => `"${COMMAND_NAME[cmd] ?? 'command'}" (${cmd.toString(16).toUpperCase()}h)`
 
-/** Payment codes of command 35h. */
+/**
+ * Payment codes of command 35h. Cash on delivery goes in the reserve slot 'R', which the device
+ * page names „НАЛОЖЕН ПЛАТЕЖ" (55h) so the receipt says what it was.
+ */
 const PAYMENT_MODE: Record<FiscalPaymentType, string> = {
   cash: 'P',
   card: 'L',
   check: 'N',
   voucher: 'C',
+  cash_on_delivery: 'R',
 }
+
+/**
+ * The 11 payment slots of 35h and 55h, in the device's order (types 1–11): cash, cheque, coupons,
+ * external coupons, packaging, internal service, damages, card, bank transfer, NZOK, reserve.
+ */
+export const ELTRADE_PAYMENT_SLOTS = ['P', 'N', 'C', 'D', 'I', 'J', 'K', 'L', 'M', 'Q', 'R'] as const
+export type EltradePaymentSlot = typeof ELTRADE_PAYMENT_SLOTS[number]
+
+/** The LGR payment type each slot carries, where one does. */
+const SLOT_TYPE = Object.fromEntries(
+  Object.entries(PAYMENT_MODE).map(([type, code]) => [code, type as FiscalPaymentType]),
+) as Partial<Record<string, FiscalPaymentType>>
 
 /** Reason codes of a 90h storno. 'O' is only valid for receipts from this same fiscal memory. */
 const STORNO_REASON: Record<StornoReason, string> = {
@@ -121,6 +147,11 @@ const TAX_GROUPS = ['А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'З'] as const
 const ITEM_TEXT_MAX = 30
 const FREE_TEXT_MAX = 46
 const OPERATOR_NAME_MAX = 24
+const PAYMENT_NAME_MAX = 20
+/** 66h: operators 1 to 16. */
+export const ELTRADE_MAX_OPERATORS = 16
+/** 49h/5Fh: a fiscal-memory record (Z-report) number is 4 digits. */
+const FM_NUMBER_MAX = 9999
 
 const TIMEOUT_MS = {
   /** Reads and settings: the device answers within 60 ms (protocol §В). */
@@ -315,6 +346,20 @@ export function parseDeviceAmount(raw: string | undefined): number | null {
   return (sign * Number(m[2])) / 100
 }
 
+/**
+ * A 55h answer. The protocol writes it `Result\Name`: 'P' (done) or 'F' (the name is longer than
+ * 20) when a name is set, the current name when one is read. Which of the two a device sends, and
+ * whether it ever sends both, the document leaves open, so every shape is read: `P`, `F`, a bare
+ * name, or a result and a name with a separator between them.
+ */
+export function parsePaymentNameAnswer(data: string): { result?: 'P' | 'F'; name?: string } {
+  const text = String(data ?? '').trim()
+  if (text === 'P' || text === 'F') return { result: text }
+  const m = /^([PF])[\\|,;\t](.*)$/s.exec(text)
+  if (m) return { result: m[1] as 'P' | 'F', name: m[2].trim() }
+  return { name: text }
+}
+
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 
 /** Printable text: control characters would be read as field separators by the device. */
@@ -354,10 +399,18 @@ export interface EltradeOptions {
   timeZone?: string
 }
 
+/**
+ * Why a command failed — what `fiscal/errors.ts` turns into an HTTP status:
+ * `input` the caller's data (nothing was sent), `busy` a receipt is open and the command must not
+ * touch it, `rejected` the device refused it, `timeout` no answer, `unreachable` the transport is
+ * gone (bridge or socket closed), `protocol` an answer that cannot be read.
+ */
+export type EltradeErrorKind = 'rejected' | 'timeout' | 'protocol' | 'input' | 'busy' | 'unreachable'
+
 export class EltradeError extends Error {
   constructor(
     message: string,
-    readonly kind: 'rejected' | 'timeout' | 'protocol' | 'input',
+    readonly kind: EltradeErrorKind,
     readonly command?: number,
     readonly status?: EltradeStatus,
   ) {
@@ -444,16 +497,47 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
   }
 
   private request(cmd: number, data = '', opts: RequestOptions = {}): Promise<Reply> {
+    return this.serialize(() => this.primedTransact(cmd, data, opts))
+  }
+
+  /** `transact`, after the session's priming read. Only ever runs inside `serialize`. */
+  private async primedTransact(cmd: number, data: string, opts: RequestOptions): Promise<Reply> {
+    // The device answers a repeated SEQ by replaying its last answer WITHOUT executing the
+    // command. A new driver instance can collide with the last SEQ of the previous session,
+    // so the first exchange is a harmless status read: a replay there costs nothing and
+    // `transact` moves to a fresh SEQ; afterwards SEQs only advance.
+    if (!this.primed) {
+      await this.transact(ELTRADE_CMD.GET_STATUS, 'X', { check: false })
+      this.primed = true
+    }
+    return this.transact(cmd, data, opts)
+  }
+
+  /**
+   * Run a report — X, Z or fiscal memory — unless a receipt is open on the device.
+   *
+   * ⚠ A report never touches an open receipt. It used to clear one out of its way as a new sale
+   * does (`ensureNoOpenReceipt`), and the POS and the device page share this driver: an X- or
+   * Z-report pressed while a till was mid-sale voided that sale's receipt, or completed it in cash
+   * once a payment had gone through. Now the report is refused, and says why.
+   *
+   * The status read and the report are one turn of the queue, so no other caller's command can
+   * open a receipt between the check and the report.
+   */
+  private report(cmd: number, data: string, what: string): Promise<Reply> {
     return this.serialize(async () => {
-      // The device answers a repeated SEQ by replaying its last answer WITHOUT executing the
-      // command. A new driver instance can collide with the last SEQ of the previous session,
-      // so the first exchange is a harmless status read: a replay there costs nothing and
-      // `transact` moves to a fresh SEQ; afterwards SEQs only advance.
-      if (!this.primed) {
-        await this.transact(ELTRADE_CMD.GET_STATUS, 'X', { check: false })
-        this.primed = true
+      const { status } = await this.primedTransact(ELTRADE_CMD.GET_STATUS, 'X', { check: false })
+      if (status.fiscalReceiptOpen || status.nonFiscalReceiptOpen) {
+        const open = status.fiscalReceiptOpen ? 'a fiscal receipt' : 'a service (non-fiscal) receipt'
+        throw new EltradeError(
+          `The Eltrade has ${open} open, so ${what} was not printed: finish the sale in progress, then print it again. `
+          + 'LGR never voids or completes a receipt to print a report; one left open by an interrupted sale is cleared by the next sale on this device.',
+          'busy',
+          cmd,
+          status,
+        )
       }
-      return this.transact(cmd, data, opts)
+      return this.transact(cmd, data, { prints: true, timeoutMs: TIMEOUT_MS.report })
     })
   }
 
@@ -476,7 +560,8 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
       } catch (e: any) {
         const message = String(e?.message || e)
         if (isFatalTransportError(message)) {
-          throw new EltradeError(`Eltrade ${cmdLabel(cmd)}: ${message}`, 'timeout', cmd)
+          // A bridge that gave up waiting is a timeout; one that is gone is not connected.
+          throw new EltradeError(`Eltrade ${cmdLabel(cmd)}: ${message}`, /timeout/i.test(message) ? 'timeout' : 'unreachable', cmd)
         }
         problem = message
         logger.warn({ deviceId: this.deviceId, cmd: cmdLabel(cmd), attempt, error: message }, 'Eltrade exchange failed — resending with the same SEQ')
@@ -751,14 +836,15 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
   }
 
   async printPayment(type: FiscalPaymentType, amount: number): Promise<void> {
+    const mode = paymentCode(PAYMENT_MODE, type, 'Eltrade')
     const receipt = this.receipt ?? (this.receipt = { expected: 0, remaining: null, lastPaidCode: null })
+    // ⚠ The ANSWER code 'R' (paid in full), not the payment slot 'R' (reserve) of the same letter.
     if (receipt.lastPaidCode === 'R') {
       // The device already reports the receipt as paid — e.g. its total came out a cent below
       // LGR's and the first tender covered it. Another 35h would just print more change.
       logger.info({ deviceId: this.deviceId, type, amount }, 'Eltrade: receipt already paid — payment skipped')
       return
     }
-    const mode = PAYMENT_MODE[type] ?? 'P'
     if (receipt.remaining === null) receipt.remaining = await this.readAmountDue(receipt.expected)
 
     let tender = round2(Math.abs(amount))
@@ -894,8 +980,7 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
   // ── Reports ──
 
   private async dailyReport(option: '0' | '2'): Promise<ZReportResult> {
-    await this.ensureNoOpenReceipt()
-    const { data } = await this.request(ELTRADE_CMD.DAILY_REPORT, option, { prints: true, timeoutMs: TIMEOUT_MS.report })
+    const { data } = await this.report(ELTRADE_CMD.DAILY_REPORT, option, option === '0' ? 'the Z-report' : 'the X-report')
     // Answer: Closure,FM_Total,TotA..TotH
     const fields = data.split(',')
     const closure = fields[0]?.trim() ?? ''
@@ -918,18 +1003,35 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     return this.dailyReport('2')
   }
 
+  /** 4Fh short / 5Eh detailed, `DDMMYY,DDMMYY` in the device's (Bulgarian) calendar. */
   async printFiscalMemoryReportByDate(startDate: Date, endDate: Date, detailed = false): Promise<void> {
     const cmd = detailed ? ELTRADE_CMD.DETAILED_FM_REPORT_BY_DATE : ELTRADE_CMD.SHORT_FM_REPORT_BY_DATE
+    const valid = (d: Date) => d instanceof Date && Number.isFinite(d.getTime())
+    if (!valid(startDate) || !valid(endDate)) {
+      throw new EltradeError('Fiscal-memory report: both dates are needed', 'input', cmd)
+    }
+    // Compared as the device's days: a period ending on the day it starts is one day, not empty.
+    const day = (d: Date) => formatDeviceIsoDateTime(d, this.timeZone).slice(0, 10)
+    if (day(startDate) > day(endDate)) {
+      throw new EltradeError(`Fiscal-memory report: the period starts (${day(startDate)}) after it ends (${day(endDate)})`, 'input', cmd)
+    }
     // Both dates are always sent: with only one the device prints a monthly/annual report.
-    await this.request(cmd, `${formatDeviceDate(startDate, this.timeZone)},${formatDeviceDate(endDate, this.timeZone)}`, {
-      prints: true, timeoutMs: TIMEOUT_MS.report,
-    })
+    await this.report(cmd, `${formatDeviceDate(startDate, this.timeZone)},${formatDeviceDate(endDate, this.timeZone)}`, 'the fiscal-memory report')
   }
 
+  /** 5Fh short / 49h detailed, `NNNN,NNNN`: the first and last Z-report (fiscal record) number. */
   async printFiscalMemoryReportByNumber(startNumber: number, endNumber: number, detailed = false): Promise<void> {
     const cmd = detailed ? ELTRADE_CMD.DETAILED_FM_REPORT_BY_NUMBER : ELTRADE_CMD.SHORT_FM_REPORT_BY_NUMBER
-    const pad = (n: number) => String(Math.max(0, Math.trunc(n))).padStart(4, '0')
-    await this.request(cmd, `${pad(startNumber)},${pad(endNumber)}`, { prints: true, timeoutMs: TIMEOUT_MS.report })
+    const valid = (n: number) => Number.isInteger(n) && n >= 1 && n <= FM_NUMBER_MAX
+    if (!valid(startNumber) || !valid(endNumber) || startNumber > endNumber) {
+      throw new EltradeError(
+        `Fiscal-memory report: Z-report numbers are whole numbers from 1 to ${FM_NUMBER_MAX}, the first no greater than the last (got ${startNumber}–${endNumber})`,
+        'input',
+        cmd,
+      )
+    }
+    const pad = (n: number) => String(n).padStart(4, '0')
+    await this.report(cmd, `${pad(startNumber)},${pad(endNumber)}`, 'the fiscal-memory report')
   }
 
   // ── Clock ──
@@ -963,9 +1065,13 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
 
   // ── Operators ──
 
+  /**
+   * 66h names operator 1–16. There is no command to read one back, so the device page programs
+   * operators and never reads them (`capabilities.ts`).
+   */
   async programOperator(operatorNumber: number, password: string, name: string): Promise<void> {
-    if (!Number.isInteger(operatorNumber) || operatorNumber < 1 || operatorNumber > 16) {
-      throw new EltradeError('Eltrade operators are numbered 1–16', 'input', ELTRADE_CMD.SET_OPERATOR)
+    if (!Number.isInteger(operatorNumber) || operatorNumber < 1 || operatorNumber > ELTRADE_MAX_OPERATORS) {
+      throw new EltradeError(`Eltrade operators are numbered 1–${ELTRADE_MAX_OPERATORS}`, 'input', ELTRADE_CMD.SET_OPERATOR)
     }
     // The password authenticates the change; three wrong ones lock the device until it is
     // power-cycled — so nothing malformed is ever sent.
@@ -973,6 +1079,67 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
       throw new EltradeError('Eltrade operator passwords are 4–8 digits', 'input', ELTRADE_CMD.SET_OPERATOR)
     }
     const clean = sanitizeDeviceText(name).replace(/,/g, ' ').replace(/\s+/g, ' ').trim().slice(0, OPERATOR_NAME_MAX)
+    // The name prints on every receipt the operator issues; an empty one would blank it.
+    if (!clean) throw new EltradeError('Enter the operator\'s name — it prints on their receipts', 'input', ELTRADE_CMD.SET_OPERATOR)
     await this.request(ELTRADE_CMD.SET_OPERATOR, `${operatorNumber},${password},${clean}`)
+  }
+
+  // ── Payment types ──
+
+  /** What the device prints for each of its 11 payment slots (55h with the slot alone). */
+  async readPaymentNames(): Promise<FiscalPaymentName[]> {
+    const names: FiscalPaymentName[] = []
+    for (const code of ELTRADE_PAYMENT_SLOTS) names.push(this.slot(code, await this.readPaymentName(code)))
+    return names
+  }
+
+  /**
+   * Name payment slot `code` (55h `Option,Name`) — what every receipt paid through it prints. The
+   * reserve slot 'R' carries cash on delivery, named „НАЛОЖЕН ПЛАТЕЖ". Checked before anything is
+   * sent: one of the 11 slots, a name of 1–20 characters. Answers with the name the device reports
+   * afterwards, and the one it had.
+   */
+  async programPaymentName(code: string, name: string): Promise<FiscalPaymentName & { previous?: string }> {
+    const slot = String(code ?? '').trim().toUpperCase()
+    if (!(ELTRADE_PAYMENT_SLOTS as readonly string[]).includes(slot)) {
+      throw new EltradeError(`Eltrade payment types are ${ELTRADE_PAYMENT_SLOTS.join(', ')}, not "${code}"`, 'input', ELTRADE_CMD.PAYMENT_NAME)
+    }
+    // A comma would end the name field early, as in an operator name.
+    const clean = sanitizeDeviceText(name).replace(/,/g, ' ').replace(/\s+/g, ' ').trim()
+    if (!clean || clean.length > PAYMENT_NAME_MAX) {
+      throw new EltradeError(`An Eltrade payment type name is 1–${PAYMENT_NAME_MAX} characters, got ${clean.length}`, 'input', ELTRADE_CMD.PAYMENT_NAME)
+    }
+    // The name it had is for the audit trail only — but a device that does not answer at all will
+    // not take the new one either, so that fails here rather than after a second wait.
+    const previous = await this.readPaymentName(slot).catch((e: any) => {
+      if (e?.kind === 'timeout' || e?.kind === 'unreachable') throw e
+      return undefined
+    })
+    const { data } = await this.request(ELTRADE_CMD.PAYMENT_NAME, `${slot},${clean}`)
+    if (parsePaymentNameAnswer(data).result === 'F') {
+      throw new EltradeError(`Eltrade refused "${clean}" as the name of payment type ${slot}`, 'rejected', ELTRADE_CMD.PAYMENT_NAME)
+    }
+    // The device said done ('P'); a read-back that fails does not undo that.
+    const reported = await this.readPaymentName(slot).catch((e: any) => {
+      logger.warn({ deviceId: this.deviceId, code: slot, error: e?.message }, 'Eltrade: payment type name not read back — reporting the one sent')
+      return clean
+    })
+    const now = this.slot(slot, reported)
+    logger.info({ deviceId: this.deviceId, code: slot, name: now.name, previous }, 'Eltrade payment type named')
+    return previous === undefined ? now : { ...now, previous }
+  }
+
+  private async readPaymentName(code: string): Promise<string> {
+    const { data } = await this.request(ELTRADE_CMD.PAYMENT_NAME, code)
+    const answer = parsePaymentNameAnswer(data)
+    if (answer.result === 'F') {
+      throw new EltradeError(`Eltrade refused to read the name of payment type ${code}`, 'rejected', ELTRADE_CMD.PAYMENT_NAME)
+    }
+    return answer.name ?? ''
+  }
+
+  private slot(code: string, name: string): FiscalPaymentName {
+    const type = SLOT_TYPE[code]
+    return type ? { code, name, type } : { code, name }
   }
 }

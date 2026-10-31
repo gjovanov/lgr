@@ -13,8 +13,8 @@
  *   bun packages/e2e/scripts/eltrade-tcp-stub.ts &
  *   FISCAL_TCP_ALLOW_LOOPBACK=1 bun packages/portal-api/src/unified.ts
  *
- * HTTP on the next port, for the spec: `GET /state` (receipts, reports, closures), `POST /reset`
- * (a fresh device; `{ "rates": [А..З] }` programs its VAT groups).
+ * HTTP on the next port, for the spec: `GET /state` (receipts, reports, closures, operators, payment
+ * type names), `POST /reset` (a fresh device; `{ "rates": [А..З] }` programs its VAT groups).
  */
 import { createServer, type Socket } from 'node:net'
 import { EltradeSimulator } from '../../tests/src/helpers/eltrade-simulator'
@@ -100,6 +100,10 @@ Bun.serve({
         // The last text receipt's lines, and how many the device closed (27h): a session report.
         nonFiscalLines: sim.nonFiscalLines,
         textReceipts: sim.executed.filter(e => e.cmd === 0x27).length,
+        // Names only: an operator's password is not the spec's to read back.
+        operators: Object.fromEntries(Object.entries(sim.operators).map(([n, op]) => [n, op.name])),
+        paymentNames: sim.paymentNames,
+        receiptOpen: !!sim.receipt || sim.nonFiscalOpen,
       })
     }
     if (url.pathname === '/reset' && req.method === 'POST') {
