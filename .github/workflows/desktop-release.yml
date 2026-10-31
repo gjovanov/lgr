@@ -59,11 +59,42 @@ jobs:
     name: resolve the platforms
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions: {}
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.pick.outputs.matrix }}
       platforms: ${{ steps.pick.outputs.platforms }}
+      published: ${{ steps.published.outputs.published }}
     steps:
+      # ⚠ Publishing a draft creates its tag, and that push lands here. Building then replaced the
+      # bytes the lanes had tested and turned the release back into a draft, so someone had to cancel
+      # this run within seconds (desktop-v0.1.7 did). A tag whose release is already published is that
+      # release: there is nothing to build. `desktop-ci.yml` still runs on it, which is the gate.
+      #
+      # A tag pushed by hand has no published release yet (a draft has no tag, so it answers 404) and
+      # builds as ever. Any other answer stops here: guessing wrong could replace released bytes.
+      - name: Is this tag's release already published?
+        id: published
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$TAG")
+          case "$code" in
+            200)
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Nothing to build::$TAG is already published, so this run keeps its assets."
+              ;;
+            404) echo "published=false" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::error::GitHub answered $code for the release of $TAG, so building could replace it"
+              exit 1
+              ;;
+          esac
+
       - name: Pick the matrix
         id: pick
         env:
@@ -111,6 +142,7 @@ jobs:
 
   build:
     needs: setup
+    if: needs.setup.outputs.published != 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
