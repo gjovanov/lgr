@@ -13,6 +13,7 @@ import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useInvoiceLineColumns } from 'ui-shared/composables/useInvoiceLineColumns'
 import { upsertAmountInWords } from 'config/amount-in-words'
 import { useGRColumns } from 'ui-shared/composables/useGRColumns'
+import { cascadePurchasePrice, needsSeed, seedFromProduct, setProductField, setTierPrice } from 'ui-shared/composables/gr-product-update'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
 import { rememberedFlag, rememberedSetting } from 'ui-shared/composables/useUserDefaults'
@@ -27,7 +28,6 @@ import {
   computeTotals,
   lineAmounts,
   linesFromRelatedInvoice,
-  MAX_PRICE_TIERS,
   copyOfDocument,
   noteFromInvoice,
   resolvesSalesPrice,
@@ -166,7 +166,25 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const { uomOptions } = useProductUnits()
 
   // ── GR product-update columns (purchase bills only) ──
-  const withProductUpdate = ref(false)
+  /**
+   * „С актуализация на продукт" starts ON, and is remembered per user and org under its own key
+   * (the receipt form remembers its own switch, `gr-with-update`). ON is safe on a bill opened and
+   * saved untouched: the payload carries only what the user changed on a line's product
+   * (`ui-shared/composables/gr-product-update.ts`).
+   */
+  const billUpdateMemory = config.supportsProductUpdate ? rememberedFlag('bill-with-update') : null
+  const withProductUpdate = ref(!!config.supportsProductUpdate && billUpdateMemory?.read() !== false)
+  function onWithProductUpdateChange(on: boolean | null) {
+    withProductUpdate.value = !!on
+    billUpdateMemory?.write(!!on)
+  }
+  /**
+   * FR-22 D-2: a bill made from goods receipts updates no product. Its receipts brought the goods in
+   * at their costs, and receiving it carries its prices forward (`applyLinkedBillPrices`). It shows
+   * no switch and no product columns, and its payload carries no updates (the server refuses them).
+   */
+  const receiptLinked = computed(() => String(invoiceData.value?.stockSource?.marker || '').startsWith('movement:'))
+  const productUpdateOffered = computed(() => !!config.supportsProductUpdate && !receiptLinked.value)
   const grColumnPickerOpen = ref(false)
   const grCategories = ref<Array<{ _id: string; name: string }>>([])
   const {
@@ -180,7 +198,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     userId: jwtUserId,
     orgId: () => appStore.currentOrg?.id,
   })
-  const grColumnsVisible = computed(() => !!config.supportsProductUpdate && withProductUpdate.value)
+  const grColumnsVisible = computed(() => productUpdateOffered.value && withProductUpdate.value)
 
   // ── doc-level single-value controls (used while the per-line column is hidden) ──
   // null docTaxRate = mixed/unset (label shows placeholder); picking a value applies to all lines.
@@ -435,6 +453,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
         warehouseId: entry.warehouseId || undefined,
       })
     }
+    void seedUnseededLines()
   }
 
   /**
@@ -488,15 +507,21 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     }
 
     syncDocLevelFromLines()
+    await seedUnseededLines()
     showSuccess(t('docImport.applied'))
   }
 
   async function onProductSelected(idx: number, product: any) {
     const line = form.lines[idx]
     if (!line) return
-    // A price chosen for the previous product means nothing for this one.
+    // A price chosen for the previous product means nothing for this one…
     line.pricePinned = false
+    // …nor does what was staged for its product: the line is seeded again, for this one.
+    line.productUpdate = {}
+    line.priceTiers = []
+    line.productBase = undefined
     line.unitPrice = product[config.priceField] ?? 0
+    const priceAtPick = line.unitPrice
     line.unit = product.unit || line.unit
     if (config.resetDiscountOnProductSelect) line.discount = 0
     line.taxRate = product.taxRate ?? line.taxRate
@@ -505,7 +530,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     if (docPriceKey.value && line.productId) await applyDocPriceToLine(line)
     // …and the customer's last price (#145), which wins over it.
     if (useLastPrice.value && line.productId) await applyLastPriceToLine(line)
-    if (grColumnsVisible.value && line.productId) await seedLineProductUpdate(idx)
+    if (grColumnsVisible.value && line.productId) await seedLineProductUpdate(idx, priceAtPick)
     // Selecting a product on the last row appends a fresh blank row (matches legacy UX).
     if (idx === form.lines.length - 1) form.lines.push(emptyLine())
   }
@@ -516,6 +541,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     line.productId = undefined
     line.priceExplanation = undefined
     line.resolvedPrice = undefined
+    line.productUpdate = {}
+    line.priceTiers = []
+    line.productBase = undefined
   }
 
   function openProductPicker(idx: number) {
@@ -779,50 +807,57 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   }
 
   // ── GR product-update helpers (purchase bills only) ──
+  // What a line stages, its base and what reaches the product: `ui-shared/composables/gr-product-update.ts`.
   function setGRField(line: Line, field: string, value: any) {
-    if (!line.productUpdate) line.productUpdate = {}
-    line.productUpdate[field] = value === '' ? undefined : value
+    setProductField(line, field, value)
   }
 
-  function setGRTierPrice(line: Line, i: number, val: any) {
-    if (!Array.isArray(line.priceTiers)) line.priceTiers = []
-    while (line.priceTiers.length <= i) {
-      line.priceTiers.push({ name: `Price ${line.priceTiers.length + 1}`, percent: 0, finalPrice: 0, manualOverride: false, contactIds: [], tags: [] })
+  /** A price typed into a tier's column: the tier of that NAME on the line's product. */
+  function setGRTierPrice(line: Line, tierName: string, val: any) {
+    setTierPrice(line, tierName, val)
+  }
+
+  async function fetchProductForSeed(id: string): Promise<any | null> {
+    try {
+      const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${id}`)
+      return data.product || data
+    } catch {
+      return null
     }
-    const n = Number(val)
-    if (!Number.isFinite(n)) return
-    line.priceTiers[i].finalPrice = n
-    line.priceTiers[i].manualOverride = true // direct edit overrides the cascade
   }
 
-  /** Load the full product and stage its current fields + tiers on the line (padded to 10 slots). */
-  async function seedLineProductUpdate(idx: number) {
+  /** Load the line's product and stage its current fields and tiers on the line, with their base. */
+  async function seedLineProductUpdate(idx: number, priceAtPick?: number) {
     const line = form.lines[idx]
     if (!line?.productId) return
-    try {
-      const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${line.productId}`)
-      const p = data.product || data
-      line.productUpdate = {
-        type: p.type,
-        categoryId: p.categoryId || undefined,
-        unit: p.unit,
-        purchasePrice: p.purchasePrice ?? 0,
-        sellingPrice: p.sellingPrice ?? 0,
-        taxRate: p.taxRate ?? 0,
-      }
-      const existing = (p.priceTiers || []).map((t: any) => ({
-        name: t.name || '',
-        percent: Number(t.percent) || 0,
-        finalPrice: Number(t.finalPrice) || 0,
-        manualOverride: !!t.manualOverride,
-        contactIds: (t.contactIds || []).map((id: any) => String(id)),
-        tags: t.tags || [],
-      }))
-      while (existing.length < MAX_PRICE_TIERS) {
-        existing.push({ name: `Price ${existing.length + 1}`, percent: 0, finalPrice: Number(p.sellingPrice) || 0, manualOverride: false, contactIds: [], tags: [] })
-      }
-      line.priceTiers = existing.slice(0, MAX_PRICE_TIERS)
-    } catch { /* keep defaults if fetch fails */ }
+    const productId = String(line.productId)
+    const priceBefore = priceAtPick ?? line.unitPrice
+    const product = await fetchProductForSeed(productId)
+    // The line may have been given another product while this one loaded.
+    if (!product || String(line.productId) !== productId) return
+    Object.assign(line, seedFromProduct(product, productId))
+    // A price typed while the product loaded is its new purchase price, as if typed after.
+    if (line.unitPrice !== priceBefore) cascadePurchasePrice(line, line.unitPrice)
+  }
+
+  /**
+   * Seed every line that names a product and stages nothing yet: a loaded bill, an import, lines
+   * from the ledger or a copy, the switch turned on. One request per article, a few at a time.
+   */
+  async function seedUnseededLines() {
+    if (!grColumnsVisible.value) return
+    const pending = form.lines.filter(needsSeed)
+    if (!pending.length) return
+    const products = new Map<string, any>()
+    await mapLimit([...new Set(pending.map((l) => String(l.productId)))], 6, async (id) => {
+      const p = await fetchProductForSeed(id)
+      if (p) products.set(id, p)
+    })
+    for (const line of pending) {
+      const p = products.get(String(line.productId))
+      // Staged meanwhile (a product picked again while these loaded): that line keeps its own.
+      if (p && needsSeed(line)) Object.assign(line, seedFromProduct(p, String(line.productId)))
+    }
   }
 
   async function fetchGRCategories() {
@@ -832,29 +867,22 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     } catch { /* */ }
   }
 
-  /** When the bill's unit price (= purchase price) changes, recompute non-overridden tiers
-   *  from their percent and mirror the purchase price into the staged product update. */
+  /**
+   * The bill's unit price is the article's new purchase price: staged on the line's product, with
+   * the tiers that follow the purchase price moved along (`cascadePurchasePrice` says which do).
+   */
   function applyGRPriceCascade(idx: number) {
     const line = form.lines[idx]
     if (!line || !grColumnsVisible.value) return
-    const purchase = Number(line.unitPrice) || 0
-    if (!purchase) return
-    for (const t of (line.priceTiers || [])) {
-      if (!t.manualOverride) t.finalPrice = +(purchase * (1 + (t.percent || 0) / 100)).toFixed(4)
-    }
-    setGRField(line, 'purchasePrice', purchase)
+    cascadePurchasePrice(line, line.unitPrice)
   }
 
-  // Toggling ON seeds any line that has a product but no staged update yet (covers edit
-  // mode for draft AND received bills) and lazily loads the category options.
+  // Turning the switch on seeds the lines that name a product and stage nothing yet (a loaded
+  // draft or received bill) and loads the category options.
   watch(withProductUpdate, async (on) => {
-    if (!on || !config.supportsProductUpdate) return
+    if (!on || !productUpdateOffered.value) return
     if (!grCategories.value.length) fetchGRCategories()
-    const idxs = form.lines
-      .map((l, i) => ({ l, i }))
-      .filter(({ l }) => l.productId && (!l.productUpdate || Object.keys(l.productUpdate).length === 0))
-      .map(({ i }) => i)
-    await Promise.all(idxs.map(seedLineProductUpdate))
+    await seedUnseededLines()
   })
 
   // ── contact change (R6: re-resolve for ALL types; invoice also captures billing) ──
@@ -996,6 +1024,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
         await ensureSelectedRelatedInvoiceLoaded(copy.relatedInvoiceId)
       }
       syncDocLevelFromLines()
+      await seedUnseededLines()
     } catch {
       /* A blank form, as „Нов" opens. */
     }
@@ -1248,8 +1277,12 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   // ── persistence ──
   function buildPayload(): Record<string, any> {
     const p = buildPayloadPure(form as unknown as DocumentFormState, config)
-    // Purchase bills with the toggle ON also carry the staged product-master updates.
-    if (grColumnsVisible.value) p.productUpdates = buildProductUpdates(form.lines)
+    // A purchase bill with the switch on carries what its lines change on their products, and only
+    // that: a bill saved untouched updates no product and takes the plain save path.
+    if (grColumnsVisible.value) {
+      const updates = buildProductUpdates(form.lines)
+      if (updates.length) p.productUpdates = updates
+    }
     // Auto amount-in-words ("Словом") on outgoing documents, in the user's UI language,
     // refreshed on every save (replaces any prior line, never stacks). Writes into the
     // notes field and mirrors it back onto the form so an immediate re-save is stable.
@@ -1652,6 +1685,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       syncDocLevelFromLines()
       await ensureSelectedContactLoaded(inv.contactId)
       if (form.relatedInvoiceId) await ensureSelectedRelatedInvoiceLoaded(form.relatedInvoiceId)
+      // A bill's lines take their product's current values before the clean state is taken:
+      // seeding is loading, not an edit, and must not leave an untouched bill "unsaved".
+      await seedUnseededLines()
       // What was just loaded is the clean state. The composable's own snapshot runs on a 500 ms
       // timer from mount, so a slower load used to count as an edit: leaving an untouched
       // document asked to keep "unsaved changes". After a save that stays on the document
@@ -1665,10 +1701,13 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   onMounted(async () => {
     const tasks: Promise<any>[] = [fetchContacts(), fetchWarehouses()]
     if (config.showRelatedInvoice) tasks.push(fetchInvoices())
+    // The switch starts on: the category column's options are loaded as the switch would load them.
+    if (grColumnsVisible.value) tasks.push(fetchGRCategories())
     await Promise.all(tasks)
     userDefaultWarehouseId.value = loadUserDefaultWarehouse()
     if (tryRestore()) {
       syncDocLevelFromLines()
+      void seedUnseededLines()
       return
     }
     if (!isEdit.value) {
@@ -1750,6 +1789,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     isColActive,
     // GR product-update (purchase bills)
     withProductUpdate,
+    onWithProductUpdateChange,
+    productUpdateOffered,
     grColumnPickerOpen,
     grColumnsVisible,
     grSelectedCols,

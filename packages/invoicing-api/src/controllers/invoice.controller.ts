@@ -1084,6 +1084,15 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         if (!(existing.type === 'invoice' && (existing as any).direction === 'incoming')) {
           return status(422, { message: 'productUpdates is only supported for purchase bills' })
         }
+        // A bill made from goods receipts updates no product: its receipts brought the goods in at
+        // their costs, and receiving the bill carries its prices forward (FR-22 D-2,
+        // `applyLinkedBillPrices`). Its form offers no product update; this refuses an older one.
+        if (isReceiptLinked(existing)) {
+          return status(422, {
+            code: 'receipt_linked_bill',
+            message: `${(existing as any).invoiceNumber} is made from goods receipts (${(existing as any).stockSource?.docNumber}) — it updates no product`,
+          })
+        }
         // Bill $set + product bulk-update in one transaction; no stock movement here
         // (bills touch stock only via /receive). Not reachable from desktop/SQLite.
         let updatedProductIds: string[] = []

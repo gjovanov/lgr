@@ -1698,17 +1698,7 @@
       "unit": "Мярка",
       "purchasePrice": "Доставна цена",
       "sellingPrice": "Продажна цена",
-      "taxRate": "ДДС %",
-      "price1": "Цена 1",
-      "price2": "Цена 2",
-      "price3": "Цена 3",
-      "price4": "Цена 4",
-      "price5": "Цена 5",
-      "price6": "Цена 6",
-      "price7": "Цена 7",
-      "price8": "Цена 8",
-      "price9": "Цена 9",
-      "price10": "Цена 10"
+      "taxRate": "ДДС %"
     },
     "filter": {
       "contact": "Контакт",

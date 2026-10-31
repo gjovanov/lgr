@@ -23,7 +23,7 @@
             <v-col v-for="col in columnsBySection[section]" :key="col.key" cols="12" sm="6" md="4">
               <v-checkbox
                 :model-value="selected.includes(col.key)"
-                :label="$t(col.i18n)"
+                :label="col.label || $t(col.i18n || '')"
                 density="compact"
                 hide-details
                 @update:model-value="emit('toggle', col.key)"

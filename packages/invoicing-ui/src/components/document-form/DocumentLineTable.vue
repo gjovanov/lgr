@@ -2,14 +2,17 @@
   <div>
     <div class="d-flex align-center mt-4 mb-2">
       <h3 class="text-subtitle-2 font-weight-bold">{{ $t('invoicing.lineItems') }}</h3>
+      <!-- On by default and remembered per user and org. Not on a bill made from goods receipts:
+           that one updates no product (FR-22 D-2). -->
       <v-chip
-        v-if="config.supportsProductUpdate"
+        v-if="productUpdateOffered"
         class="ml-3"
         size="small"
         :color="withProductUpdate ? 'primary' : undefined"
         :variant="withProductUpdate ? 'flat' : 'outlined'"
+        data-testid="bill-product-update"
       >
-        <v-switch v-model="withProductUpdate" density="compact" hide-details class="mr-2" color="white" style="width: 36px" />
+        <v-switch :model-value="withProductUpdate" density="compact" hide-details class="mr-2" color="white" style="width: 36px" @update:model-value="onWithProductUpdateChange" />
         {{ $t(withProductUpdate ? 'warehouse.withProductUpdate' : 'warehouse.withoutProductUpdate') }}
       </v-chip>
       <v-btn v-if="grColumnsVisible" class="ml-2" size="small" variant="outlined" prepend-icon="mdi-view-column-outline" @click="grColumnPickerOpen = true">
@@ -140,7 +143,7 @@
             :key="'gr-' + col.key"
             :class="col.align === 'end' ? 'text-end' : ''"
             style="min-width: 110px"
-          >{{ $t(col.i18n) }}</th>
+          >{{ col.label || $t(col.i18n || '') }}</th>
           <th style="width:32px"></th>
         </tr>
       </thead>
@@ -248,7 +251,7 @@
               :categories="grCategories"
               :uom-options="uomOptions"
               @set-field="(f, v) => setGRField(line, f, v)"
-              @set-tier="(i, v) => setGRTierPrice(line, i, v)"
+              @set-tier="(name, v) => setGRTierPrice(line, name, v)"
             />
           </td>
           <td>
@@ -337,6 +340,8 @@ const {
   selectNoCols,
   resetColDefaults,
   withProductUpdate,
+  onWithProductUpdateChange,
+  productUpdateOffered,
   grColumnPickerOpen,
   grColumnsVisible,
   grSelectedCols,

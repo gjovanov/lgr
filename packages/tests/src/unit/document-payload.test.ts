@@ -14,6 +14,7 @@ import {
   type DocumentFormState,
 } from '../../../invoicing-ui/src/composables/document-form/document-payload'
 import { DOCUMENT_CONFIGS } from '../../../invoicing-ui/src/composables/document-form/configs'
+import { seedFromProduct, setTierPrice } from 'ui-shared/composables/gr-product-update'
 
 /**
  * Wire-faithful payload: axios JSON-serialises the body, dropping `undefined`-valued keys.
@@ -533,7 +534,7 @@ describe('buildProductUpdates — purchase bill with-product-update', () => {
     ])).toEqual([{ productId: 'p1', purchasePrice: 55 }])
   })
 
-  it('attaches priceTiers only when touched, normalised and capped at the model limit', () => {
+  it('attaches priceTiers only when touched, as staged and capped at the model limit', () => {
     const untouched = buildProductUpdates([
       { productId: 'p1', quantity: 1, unitPrice: 10, productUpdate: {}, priceTiers: [{ name: 'Price 1', percent: 0, finalPrice: 0, manualOverride: false }] },
     ])
@@ -549,7 +550,30 @@ describe('buildProductUpdates — purchase bill with-product-update', () => {
     expect(out).toHaveLength(1)
     expect(out[0].productId).toBe('p1')
     expect(out[0].priceTiers).toHaveLength(MAX_PRICE_TIERS)
-    expect(out[0].priceTiers[0]).toEqual({ name: 'P1', percent: 0, finalPrice: 100, manualOverride: true, contactIds: [], tags: [] })
+    // Only what the staged tier carries: an empty `contactIds`/`tags` it never had would erase the
+    // product's own once the server merges the tier in by name.
+    expect(out[0].priceTiers[0]).toEqual({ name: 'P1', percent: 0, finalPrice: 100, manualOverride: true })
+  })
+
+  it('a line seeded from its product sends only what differs from what it was seeded with', () => {
+    const product = {
+      _id: 'p1', type: 'goods', unit: 'pcs', purchasePrice: 10, sellingPrice: 20, taxRate: 20,
+      priceTiers: [{ name: 'Цена 1', percent: 30, finalPrice: 13, manualOverride: false, contactIds: ['k1'], minQuantity: 5 }],
+    }
+    const untouched = { productId: 'p1', description: 'Part', quantity: 1, unitPrice: 10, ...seedFromProduct(product, 'p1') }
+    // The bill form opens with the switch ON: an untouched bill must update no product at all.
+    expect(buildProductUpdates([untouched])).toEqual([])
+
+    const edited = { productId: 'p1', description: 'Part', quantity: 1, unitPrice: 10, ...seedFromProduct(product, 'p1') }
+    setTierPrice(edited, 'Цена 1', '14.5')
+    setTierPrice(edited, 'Цена 5', '30')
+    expect(buildProductUpdates([edited])).toEqual([{
+      productId: 'p1',
+      priceTiers: [
+        { name: 'Цена 1', finalPrice: 14.5, manualOverride: true },
+        { name: 'Цена 5', finalPrice: 30, manualOverride: true },
+      ],
+    }])
   })
 
   it('does not leak staged fields into buildPayload lines (whitelist unchanged)', () => {
@@ -564,12 +588,17 @@ describe('buildProductUpdates — purchase bill with-product-update', () => {
       notes: '',
       tags: [],
       lines: [
-        { productId: 'p1', description: 'Part', quantity: 1, unit: 'pcs', unitPrice: 10, taxRate: 20, productUpdate: { purchasePrice: 10 }, priceTiers: [{ name: 'Price 1', finalPrice: 12, manualOverride: true }] },
+        {
+          productId: 'p1', description: 'Part', quantity: 1, unit: 'pcs', unitPrice: 10, taxRate: 20, productUpdate: { purchasePrice: 10 },
+          priceTiers: [{ name: 'Price 1', finalPrice: 12, manualOverride: true }],
+          productBase: { productId: 'p1', fields: { purchasePrice: 10 }, tiers: [] },
+        },
       ],
     }
     const p = wire(buildPayload(state, DOCUMENT_CONFIGS.purchase_invoice))
     expect(p.lines[0]).not.toHaveProperty('productUpdate')
     expect(p.lines[0]).not.toHaveProperty('priceTiers')
+    expect(p.lines[0]).not.toHaveProperty('productBase')
     expect(p).not.toHaveProperty('productUpdates') // buildPayload itself never adds it; the composable does
   })
 })
