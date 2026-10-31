@@ -314,10 +314,29 @@ describe('sales-history — POS rows', () => {
       issueDate: at('2026-05-10'), type: 'invoice', direction: 'outgoing', status: 'paid',
       total: 10, amountPaid: 10, paymentMethod: 'cash', invoiceNumber: 'INV-7',
     })
+    await createTestInvoice(s.orgId, s.customer._id as Types.ObjectId, {
+      issueDate: at('2026-05-10'), type: 'cash_storno', direction: 'outgoing', status: 'paid',
+      total: 4, amountPaid: 4, invoiceNumber: 'CS-8',
+    })
     const res = await runMigrated(String(s.orgId), { period: DAY })
     const href = (n: string) => entry().drilldown!(res.rows.find(r => r.number === n)!)
     expect(href('CS-7')).toMatch(/^\/invoicing\/cash-sales\/[0-9a-f]{24}\/edit$/)
     expect(href('INV-7')).toMatch(/^\/invoicing\/invoices\/[0-9a-f]{24}\/edit$/)
+    // A storno reads as a storno on the journal's page; the cash-sale form would show a sale.
+    expect(href('CS-8')).toMatch(/^\/invoicing\/cash-sales\/[0-9a-f]{24}\/view$/)
+  })
+
+  it('a till sale reads paid, as every cash-register document does — not the POS row\'s completed', async () => {
+    const s = await withPos()
+    await createTestPOSTransaction(s.orgId, s.session._id as Types.ObjectId, s.user._id as Types.ObjectId, {
+      status: 'completed', total: 42, createdAt: at('2026-05-10T14:32:05'),
+      payments: [{ method: 'cash', amount: 42 }], transactionNumber: 'TXN-PAID',
+    })
+    const res = await runMigrated(String(s.orgId), { period: DAY })
+    const row = res.rows.find(r => r.number === 'TXN-PAID')!
+    expect(row.rowType).toBe('pos')
+    expect(row.status).toBe('paid')
+    expect(res.columns.find(c => c.key === 'status')!.type).toBe('status')
   })
 })
 

@@ -54,13 +54,22 @@
       >
         <template #item.number="{ item }">
           <entity-link :label="item.number" :href="numberLinkHref(item)" />
+          <div v-if="item.type === 'cash_storno' && item.relatedInvoiceNumber" class="text-caption text-medium-emphasis text-no-wrap">
+            {{ $t('cashRegister.detail.stornoOf') }} {{ item.relatedInvoiceNumber }}
+          </div>
         </template>
         <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] || item.date?.split('T')[0] }}</template>
         <template #item.contactName="{ item }">{{ item.contactName }}</template>
         <template #item.status="{ item }">
           <StatusChip :status="item.status" />
         </template>
-        <template #item.total="{ item }">{{ formatCurrency(item.total || 0, item.currency || baseCurrency) }}</template>
+        <!-- A storno is stored positive and gives its sale back, so it reads negative, as in the
+             export; a voided document is listed but counts nothing. -->
+        <template #item.total="{ item }">
+          <span :class="{ 'text-decoration-line-through text-disabled': item.status === 'voided' }">
+            {{ formatCurrency((item.type === 'cash_storno' ? -1 : 1) * (item.total || 0), item.currency || baseCurrency) }}
+          </span>
+        </template>
         <template #no-data>
           <EmptyState
             icon="mdi-file-search-outline"
@@ -91,7 +100,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
-import { useListQueryState } from 'ui-shared/composables/useListQueryState'
+import { useListQueryState, allOptionsParam } from 'ui-shared/composables/useListQueryState'
 import { appHref } from 'ui-shared/nav/navigate'
 import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
@@ -121,7 +130,8 @@ const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 
 const { search, debouncedSearch } = useSearchDebounce()
-const statusFilter = ref<string[]>([])
+// Every status, which is also what the URL omits (`allOptionsParam`).
+const statusFilter = ref<string[]>(props.statusOptions.map(o => o.value))
 const paymentMethodFilter = ref<string[]>([])
 const tagFilter = ref<string[]>([])
 
@@ -138,9 +148,13 @@ const allPaymentMethodsSelected = computed(() =>
 const dateFrom = ref('')
 const dateTo = ref('')
 
+const statusValues = computed(() => props.statusOptions.map(o => o.value))
 const allStatusesSelected = computed(() =>
-  statusFilter.value.length === 0 || statusFilter.value.length === props.statusOptions.length,
+  statusFilter.value.length === 0 || statusValues.value.every(s => statusFilter.value.includes(s)),
 )
+// A link made when the cash tab still offered Чернова / Завършена (statuses no cash-register
+// document ever had) asked for everything: it reads as all.
+const LEGACY_ALL_STATUSES: Record<Kind, string[]> = { outgoing: [], incoming: [], cash_register: ['draft'] }
 
 /**
  * FR-6.19 brings this grid up to the FR-05 convention it predates: filters + pagination
@@ -153,7 +167,7 @@ const allStatusesSelected = computed(() =>
  */
 useListQueryState([
   { key: 'q', ref: search, mirror: debouncedSearch },
-  { key: 'status', ref: statusFilter, codec: 'csv' },
+  allOptionsParam('status', statusFilter, statusValues.value, LEGACY_ALL_STATUSES[props.kind]),
   { key: 'pm', ref: paymentMethodFilter, codec: 'csv' },
   { key: 'tags', ref: tagFilter, codec: 'csv' },
   { key: 'from', ref: dateFrom, codec: 'date' },
@@ -166,7 +180,8 @@ const filters = computed(() => {
   if (props.kind === 'outgoing') { f.direction = 'outgoing'; f.types = 'invoice,credit_note,debit_note' }
   // FR-01: the incoming side is merged too — bills + incoming credit/debit notes.
   else if (props.kind === 'incoming') { f.direction = 'incoming'; f.types = 'invoice,credit_note,debit_note' }
-  else if (props.kind === 'cash_register') { f.type = 'cash_sale' }
+  // The sales and their stornos, which count against them (FR-21.9) — as the export lists them.
+  else if (props.kind === 'cash_register') { f.types = 'cash_sale,cash_storno' }
 
   if (debouncedSearch.value) f.search = debouncedSearch.value
   if (!allStatusesSelected.value) f.status = statusFilter.value.join(',')

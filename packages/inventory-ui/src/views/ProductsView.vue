@@ -100,8 +100,14 @@
       </template>
       <span v-else class="text-disabled">—</span>
     </template>
-    <template #item.purchasePrice="{ item }">{{ fmtCurrency(item.purchasePrice) }}</template>
-    <template #item.sellingPrice="{ item }">{{ fmtCurrency(item.sellingPrice) }}</template>
+    <template #item.purchasePrice="{ item }">{{ fmtPrice(item.purchasePrice) }}</template>
+    <template #item.sellingPrice="{ item }">{{ fmtPrice(item.sellingPrice) }}</template>
+    <!-- The price tiers, a column per slot (product-price-columns.ts). An article with no price at
+         a tier's level shows a dash, as it shows nothing reserved. -->
+    <template v-for="col in TIER_COLUMNS" #[`item.${col.key}`]="{ item }">
+      <span v-if="tierPrice(item.priceTiers, col.name) === null" class="text-disabled">—</span>
+      <template v-else>{{ fmtPrice(tierPrice(item.priceTiers, col.name)!) }}</template>
+    </template>
     <template #item.isActive="{ item }">
       <v-icon :color="item.isActive !== false ? 'success' : 'grey'">
         {{ item.isActive !== false ? 'mdi-check-circle' : 'mdi-close-circle' }}
@@ -132,7 +138,6 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
@@ -145,8 +150,9 @@ import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import RowActionsMenu, { type RowAction } from 'ui-shared/components/RowActionsMenu.vue'
 import { useProductDocActions } from '../composables/useProductDocActions'
+import { TIER_COLUMNS, tierPrice, formatUnitPrice, type TierLike } from '../composables/product-price-columns'
 
-interface Product { _id: string; sku: string; name: string; category: string; type: string; unit: string; purchasePrice: number; sellingPrice: number; isActive: boolean; trackInventory?: boolean }
+interface Product { _id: string; sku: string; name: string; category: string; type: string; unit: string; purchasePrice: number; sellingPrice: number; priceTiers?: TierLike[]; isActive: boolean; trackInventory?: boolean }
 interface StockBadge { warehouseId: string; warehouseName: string; quantity: number; availableQuantity: number }
 /** `getProductsSupplyTotals` — the definitions of the product's stock tab, summed. */
 interface SupplyTotals { reserved: number; incoming: number; reservedIncoming: number; planned: number }
@@ -159,7 +165,6 @@ type ActiveFilter = (typeof ACTIVE_FILTERS)[number]
 const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
-const { formatCurrency } = useCurrency()
 const { productTypeLabel, productTypeItems } = useProductTypes()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
@@ -221,24 +226,37 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
 // FR-22.46 (#4.1): stock before unit, and what is reserved and on order right after the stock.
 // A user who reordered the columns keeps their order; the two new ones join it after „Наличност"
 // (useGridColumns).
+//
+// The three stock columns sort by the figure the cell shows, over every filtered article (the
+// server computes them, `product-stock-sort.ts`); a dash goes last either way.
+//
+// With the price tiers shown the list is wider than a 1366 px screen, so the name and the row
+// menu stay put while the prices scroll sideways (`fixed`), and the name keeps a readable width
+// instead of shrinking to a word per line. The price columns take FR-22.23's 8 px gutters, which
+// is what lets the whole list fit 1920 px in Bulgarian. „Покупна цена" waits on the cog: it is
+// „Доставна цена" again wherever the tiers are kept.
+const PRICE_CELL = { headerProps: { class: 'px-2' }, cellProps: { class: 'px-2' } }
 const headers = computed(() => [
   { title: t('warehouse.sku'), key: 'sku', sortable: true },
-  { title: t('common.name'), key: 'name', sortable: true },
+  { title: t('common.name'), key: 'name', sortable: true, fixed: 'start' as const, minWidth: '180px' },
   { title: t('warehouse.category'), key: 'category', sortable: true },
   { title: t('common.type'), key: 'type' },
-  { title: t('warehouse.stock'), key: 'stock', sortable: false },
-  { title: t('warehouse.supply.reserved'), key: 'reserved', sortable: false, align: 'end' as const },
-  { title: t('warehouse.supply.onOrder'), key: 'onOrder', sortable: false, align: 'end' as const },
+  { title: t('warehouse.stock'), key: 'stock' },
+  { title: t('warehouse.supply.reserved'), key: 'reserved', align: 'end' as const },
+  { title: t('warehouse.supply.onOrder'), key: 'onOrder', align: 'end' as const },
   { title: t('warehouse.unit'), key: 'unit' },
-  { title: t('warehouse.purchasePrice'), key: 'purchasePrice', align: 'end' as const },
-  { title: t('warehouse.sellingPrice'), key: 'sellingPrice', align: 'end' as const },
+  { title: t('warehouse.purchasePrice'), key: 'purchasePrice', align: 'end' as const, defaultHidden: true, ...PRICE_CELL },
+  { title: t('warehouse.sellingPrice'), key: 'sellingPrice', align: 'end' as const, ...PRICE_CELL },
+  // A column per price tier, headed by the tier's name and sorted by its price (the server reads
+  // the tier out of `tier_<slot>`); the slots regal prices by are shown, the rest wait on the cog.
+  ...TIER_COLUMNS.map((c) => ({ title: c.name, key: c.key, align: 'end' as const, defaultHidden: c.defaultHidden, ...PRICE_CELL })),
   // FR-22.48: only when the list can hold deactivated articles. Among active ones it says "yes"
   // on every row, and its width is what keeps the row actions inside 1366 px.
   ...(activeFilter.value === 'active' ? [] : [{ title: t('common.active'), key: 'isActive', align: 'center' as const }]),
-  { title: t('common.actions'), key: 'actions', sortable: false },
+  { title: t('common.actions'), key: 'actions', sortable: false, fixed: 'end' as const },
 ])
 
-function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
+function fmtPrice(amount: number) { return formatUnitPrice(amount, baseCurrency.value, localeCode.value) }
 function fmtQty(n: number) { return new Intl.NumberFormat(localeCode.value, { maximumFractionDigits: 3 }).format(n || 0) }
 function stockFor(id: string): StockBadge[] { return (stockMap.value[id] || []).filter((s) => (s.quantity || 0) !== 0) }
 function supplyFor(id: string): SupplyTotals { return supplyMap.value[id] || NO_SUPPLY }

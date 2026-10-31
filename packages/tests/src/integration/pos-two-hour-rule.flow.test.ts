@@ -9,6 +9,7 @@ import {
   createTestProduct,
   createTestStockLevel,
   createTestFiscalDevice,
+  allowSalesWithoutPrinter,
 } from '../helpers/factories'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { posController } from 'invoicing-api/src/controllers/pos.controller'
@@ -83,6 +84,9 @@ function saleBody(productId: string, nonFiscal = false) {
 /** A till whose one device was last reached at `lastCommunicationAt`, and is connected or not. */
 async function till(opts: { lastCommunicationAt?: Date; connected: boolean }) {
   const org = await createTestOrg()
+  // The two-hour rule on its own: with "no sale without a connected printer" on, a device not
+  // connected is refused before it (`till-printer-gate.flow` has that).
+  await allowSalesWithoutPrinter(org._id)
   const warehouse = await createTestWarehouse(org._id)
   const user = await createTestUser(org._id, { operatorCode: '0001' } as any)
   const product = await createTestProduct(org._id, { sellingPrice: 10, taxRate: 20 } as any)

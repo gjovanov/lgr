@@ -9,6 +9,7 @@ import {
   createTestProduct,
   createTestStockLevel,
   createTestFiscalDevice,
+  allowSalesWithoutPrinter,
 } from '../helpers/factories'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { posController, stornoRefundBuckets, expectedTotals } from 'invoicing-api/src/controllers/pos.controller'
@@ -92,6 +93,8 @@ async function openSession(orgId: string, warehouseId: string, cashierId: string
 
 async function world() {
   const org = await createTestOrg()
+  // The storno, not the printer: these sales print nothing (`till-printer-gate.flow` has the rule).
+  await allowSalesWithoutPrinter(org._id)
   const warehouse = await createTestWarehouse(org._id)
   const user = await createTestUser(org._id, { operatorCode: '0001' } as any)
   const product = await createTestProduct(org._id, { sellingPrice: 10, taxRate: 20 } as any)

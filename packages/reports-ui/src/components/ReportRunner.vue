@@ -302,7 +302,12 @@ import { PERIOD_PRESETS, type ReportMeta, type ReportRunResult, type ColumnType,
 
 const props = defineProps<{ meta: ReportMeta }>()
 
-const { t } = useI18n()
+const { t, te } = useI18n()
+
+/** A document status in the user's words; an unknown one as it came. */
+function statusLabel(value: string): string {
+  return te(`invoicing.status.${value}`) ? t(`invoicing.status.${value}`) : value
+}
 const appStore = useAppStore()
 const { showError, showSuccess } = useSnackbar()
 
@@ -490,6 +495,8 @@ function formatCell(value: any, type: ColumnType | undefined): string {
       return String(Math.round(Number(value) || 0))
     case 'date':
       return String(value).split('T')[0]
+    case 'status':
+      return statusLabel(String(value))
     default:
       return String(value)
   }
@@ -501,6 +508,10 @@ function formatCell(value: any, type: ColumnType | undefined): string {
  * route names: each domain UI is a separate SPA and Vue Router cannot cross them.
  */
 function drilldownHref(row: Record<string, any>): string | undefined {
+  // A report whose registry entry has a rule gets it resolved per row by the server (`_href`):
+  // a cash sale opens on its own page and a bill on the bill form, which the fallback below
+  // cannot tell apart. Null means the rule names no page for this row.
+  if ('_href' in row) return row._href ? appHref(String(row._href).split('/')[1], row._href) : undefined
   // Most specific id wins: a sales-history POS row and a warehouse-operations document row
   // both also carry a productId, and the source document is the more useful target.
   if (row.posId) return appHref('pos', `/pos/orders/${row.posId}`)
@@ -534,6 +545,12 @@ async function doExport() {
     // …and only the columns the user actually has on screen, in their order.
     const labels: Record<string, string> = {}
     for (const c of visibleColumns.value) labels[c.key] = t(c.labelKey)
+    // …and so are the statuses, the values the user reads on screen in their own words.
+    const valueLabels: Record<string, Record<string, string>> = {}
+    for (const c of visibleColumns.value.filter(col => col.type === 'status')) {
+      const seen = new Set((result.value?.rows || []).map(r => r[c.key]).filter(v => typeof v === 'string'))
+      valueLabels[c.key] = Object.fromEntries([...seen].map(v => [v, statusLabel(v)]))
+    }
 
     const res = await httpClient.post(
       `${appStore.orgUrl()}/reports/${props.meta.id}/export`,
@@ -542,6 +559,7 @@ async function doExport() {
         params: values.value,
         columns: visibleColumns.value.map(c => c.key),
         labels,
+        valueLabels,
         title: t(props.meta.labelKey),
         totalsLabel: t('common.total'),
         // The PDF's header block is localized here for the same reason the column headers

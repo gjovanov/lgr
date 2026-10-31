@@ -42,6 +42,13 @@ export interface IPOSSession extends Document {
   fiscalClosedAt?: Date
   /** The device actually used — a warehouse may have more than one. */
   fiscalDeviceId?: Types.ObjectId
+  /**
+   * The session's own figures as its close printed them, after the Z-report (`session-report.ts`),
+   * kept for a reprint; when it printed, or why it did not.
+   */
+  report?: Record<string, unknown>
+  reportPrintedAt?: Date
+  reportError?: string
   journalEntryId?: Types.ObjectId
   batchMovementId?: Types.ObjectId
   // ── Idempotency (FR-20.37, #155) ──
@@ -98,6 +105,9 @@ const posSessionSchema = new Schema<IPOSSession>(
     notes: String,
     journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
     batchMovementId: { type: Schema.Types.ObjectId, ref: 'StockMovement' },
+    report: Schema.Types.Mixed,
+    reportPrintedAt: Date,
+    reportError: String,
     clientKey: String,
     requestHash: String,
     closeClientKey: String,

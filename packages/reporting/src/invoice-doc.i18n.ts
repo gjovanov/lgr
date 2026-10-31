@@ -17,7 +17,10 @@ export interface InvoiceDocI18n {
     credit_note: string
     debit_note: string
     cash_sale: string
+    cash_storno: string
   }
+  /** Why a cash sale was reversed (the fiscal storno's reason). */
+  stornoReason: { operator_error: string; customer_return: string; price_reduction: string; tax_base_reduction: string }
   /**
    * Печатен маркер under the title. `draft` marks a document printed before it is issued
    * (FR-22.18): it has no number yet, and is not anybody's original.
@@ -31,6 +34,9 @@ export interface InvoiceDocI18n {
     forCashSale: string
     /** A fiscal receipt's number (FR-21 §3.9). */
     receiptNo: string
+    /** The cash sale a storno reverses, and why. */
+    stornoOf: string
+    reason: string
     recipient: string
     supplier: string
     city: string
@@ -79,6 +85,13 @@ const bg: InvoiceDocI18n = {
     credit_note: 'КРЕДИТНО ИЗВЕСТИЕ',
     debit_note: 'ДЕБИТНО ИЗВЕСТИЕ',
     cash_sale: 'КАСОВА ПРОДАЖБА',
+    cash_storno: 'СТОРНО НА КАСОВА ПРОДАЖБА',
+  },
+  stornoReason: {
+    operator_error: 'Операторска грешка',
+    customer_return: 'Връщане / рекламация',
+    price_reduction: 'Намаление на цената',
+    tax_base_reduction: 'Намаление на данъчната основа',
   },
   copyMark: { original: 'ОРИГИНАЛ', copy: 'КОПИЕ', draft: 'ЧЕРНОВА' },
   label: {
@@ -87,6 +100,8 @@ const bg: InvoiceDocI18n = {
     unp: 'УНП',
     forCashSale: 'Към касова продажба',
     receiptNo: 'ФБ №',
+    stornoOf: 'Сторно на',
+    reason: 'Основание',
     recipient: 'ПОЛУЧАТЕЛ',
     supplier: 'ДОСТАВЧИК',
     city: 'Град',
@@ -140,6 +155,13 @@ const en: InvoiceDocI18n = {
     credit_note: 'CREDIT NOTE',
     debit_note: 'DEBIT NOTE',
     cash_sale: 'CASH SALE',
+    cash_storno: 'CASH SALE STORNO',
+  },
+  stornoReason: {
+    operator_error: 'Operator error',
+    customer_return: 'Return / complaint',
+    price_reduction: 'Price reduction',
+    tax_base_reduction: 'Tax base reduction',
   },
   copyMark: { original: 'ORIGINAL', copy: 'COPY', draft: 'DRAFT' },
   label: {
@@ -148,6 +170,8 @@ const en: InvoiceDocI18n = {
     unp: 'USN',
     forCashSale: 'For cash sale',
     receiptNo: 'Receipt No.',
+    stornoOf: 'Storno of',
+    reason: 'Reason',
     recipient: 'RECIPIENT',
     supplier: 'SUPPLIER',
     city: 'City',
@@ -200,6 +224,13 @@ const de: InvoiceDocI18n = {
     credit_note: 'GUTSCHRIFT',
     debit_note: 'LASTSCHRIFT',
     cash_sale: 'BARVERKAUF',
+    cash_storno: 'STORNO BARVERKAUF',
+  },
+  stornoReason: {
+    operator_error: 'Bedienerfehler',
+    customer_return: 'Rückgabe / Reklamation',
+    price_reduction: 'Preisminderung',
+    tax_base_reduction: 'Minderung der Bemessungsgrundlage',
   },
   copyMark: { original: 'ORIGINAL', copy: 'KOPIE', draft: 'ENTWURF' },
   label: {
@@ -208,6 +239,8 @@ const de: InvoiceDocI18n = {
     unp: 'USN',
     forCashSale: 'Zum Barverkauf',
     receiptNo: 'Beleg-Nr.',
+    stornoOf: 'Storno zu',
+    reason: 'Grund',
     recipient: 'EMPFÄNGER',
     supplier: 'LIEFERANT',
     city: 'Stadt',
@@ -260,6 +293,13 @@ const mk: InvoiceDocI18n = {
     credit_note: 'КРЕДИТНА БЕЛЕШКА',
     debit_note: 'ДЕБИТНА БЕЛЕШКА',
     cash_sale: 'КАСОВА ПРОДАЖБА',
+    cash_storno: 'СТОРНО НА КАСОВА ПРОДАЖБА',
+  },
+  stornoReason: {
+    operator_error: 'Грешка на операторот',
+    customer_return: 'Враќање / рекламација',
+    price_reduction: 'Намалување на цената',
+    tax_base_reduction: 'Намалување на даночната основа',
   },
   copyMark: { original: 'ОРИГИНАЛ', copy: 'КОПИЈА', draft: 'НАЦРТ' },
   label: {
@@ -268,6 +308,8 @@ const mk: InvoiceDocI18n = {
     unp: 'УНП',
     forCashSale: 'Кон готовинска продажба',
     receiptNo: 'Фиск. сметка бр.',
+    stornoOf: 'Сторно на',
+    reason: 'Основ',
     recipient: 'ПРИМАЧ',
     supplier: 'ДОСТАВУВАЧ',
     city: 'Град',

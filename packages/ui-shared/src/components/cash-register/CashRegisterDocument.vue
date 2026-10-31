@@ -9,6 +9,8 @@
         <v-chip size="small" variant="tonal">{{ $t(`cashRegister.origin.${doc.row.origin}`) }}</v-chip>
       </template>
       <v-spacer />
+      <!-- What the app around it offers on the document (the invoicing app: Печат). -->
+      <slot v-if="doc" name="actions" :row="doc.row" />
       <v-btn v-if="doc && documentLink" variant="outlined" prepend-icon="mdi-file-document-outline" :href="typeof documentLink === 'string' ? documentLink : undefined" :to="typeof documentLink === 'string' ? undefined : documentLink">
         {{ $t('cashRegister.detail.openDocument') }}
       </v-btn>

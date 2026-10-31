@@ -67,7 +67,8 @@ export interface ParamDef {
   contactSide?: 'customer' | 'supplier'
 }
 
-export type ColumnType = 'text' | 'money' | 'quantity' | 'int' | 'percent' | 'date'
+/** `status`: a document status (`paid`, `voided`…), which the UI prints in its own words. */
+export type ColumnType = 'text' | 'money' | 'quantity' | 'int' | 'percent' | 'date' | 'status'
 
 export interface ReportColumn {
   key: string

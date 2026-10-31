@@ -9,6 +9,7 @@ import {
   createTestProduct,
   createTestStockLevel,
   createTestFiscalDevice,
+  allowSalesWithoutPrinter,
 } from '../helpers/factories'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { posController } from 'invoicing-api/src/controllers/pos.controller'
@@ -72,6 +73,8 @@ async function post(path: string, token: string, body: any) {
 
 async function world(opts: { printer?: boolean } = {}) {
   const org = await createTestOrg()
+  // The totals, not the printer: a sale without one prints nothing (`till-printer-gate.flow`).
+  await allowSalesWithoutPrinter(org._id)
   const warehouse = await createTestWarehouse(org._id)
   const user = await createTestUser(org._id, { operatorCode: '0001' } as any)
   const product = await createTestProduct(org._id, { sellingPrice: 17.8952, taxRate: 20 } as any)

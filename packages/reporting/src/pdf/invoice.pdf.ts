@@ -236,6 +236,16 @@ export function buildInvoiceHtml(
         inv.cashSaleRef.unp ? ` · ${esc(L.unp)} ${esc(inv.cashSaleRef.unp)}` : ''}${
         inv.cashSaleRef.receiptNumber ? ` · ${esc(L.receiptNo)} ${esc(inv.cashSaleRef.receiptNumber)}` : ''}</td></tr>`
       : '',
+    // A storno names the cash sale it reverses, the same way, and why (`stornoRef`, filled by the
+    // export from FR-21's `register.storno`).
+    inv.type === 'cash_storno' && inv.stornoRef?.number
+      ? `<tr><td class="k">${esc(L.stornoOf)}:</td><td class="v">${esc(inv.stornoRef.number)} / ${fmtDate(inv.stornoRef.issueDate)}${
+        inv.stornoRef.unp ? ` · ${esc(L.unp)} ${esc(inv.stornoRef.unp)}` : ''}${
+        inv.stornoRef.receiptNumber ? ` · ${esc(L.receiptNo)} ${esc(inv.stornoRef.receiptNumber)}` : ''}</td></tr>`
+      : '',
+    inv.type === 'cash_storno' && inv.stornoRef?.reason
+      ? `<tr><td class="k">${esc(L.reason)}:</td><td class="v">${esc((i18n.stornoReason as Record<string, string>)[inv.stornoRef.reason] || inv.stornoRef.reason)}</td></tr>`
+      : '',
   ].join('')
 
   // Whitespace-only text is no text: it must not open an empty block under the meta rows.

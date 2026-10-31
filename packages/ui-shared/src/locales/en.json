@@ -801,7 +801,12 @@
     "multiOrgHint": "This person also works in another organization. Their name, email and password are theirs to change, from their account page.",
     "identityExists": "{email} already has an LGR account. Invite them to this organization instead.",
     "inviteInstead": "Send an invitation instead",
-    "inviteSent": "Invitation sent."
+    "inviteSent": "Invitation sent.",
+    "cashRegister": {
+      "title": "Cash register",
+      "requireConnectedDevice": "A sale needs a connected fiscal printer",
+      "requireConnectedDeviceHint": "Turn this off only for an organization with no fiscal device, such as a demo or a test one: its sales print nothing."
+    }
   },
   "admin": {
     "auditLog": "Audit Log",
@@ -1530,6 +1535,40 @@
       "failed": "Could not sign in. Try again.",
       "withPassword": "Sign in with your password",
       "switchOperator": "Switch operator"
+    },
+    "printerRequired": {
+      "notConnected": "Connect the fiscal printer to sell.",
+      "notConfigured": "No fiscal printer is set up for this warehouse. Ask an admin to set one up."
+    },
+    "sessionDocuments": "Cash sales of session {number}",
+    "sessionReport": {
+      "title": "Session report",
+      "view": "Session report",
+      "print": "Print report",
+      "printed": "The session report was printed on the fiscal device.",
+      "notPrinted": "The session report did not print: {error}. The session is closed; print it again from here or from POS Sessions.",
+      "sales": "Sales",
+      "stornos": "Stornos",
+      "voided": "Voided stornos",
+      "fiscal": "Fiscal receipts",
+      "text": "Text receipts",
+      "unprinted": "Not printed",
+      "vatRate": "VAT {rate}%",
+      "net": "Net",
+      "vat": "VAT",
+      "gross": "Gross",
+      "total": "Total",
+      "cash": "Cash",
+      "card": "Card",
+      "other": "Other",
+      "change": "Change given",
+      "opening": "Opening float",
+      "expected": "Expected cash",
+      "counted": "Counted",
+      "difference": "Difference",
+      "documents": "Documents",
+      "receipts": "Receipts",
+      "z": "Z-report No."
     }
   },
   "cashRegister": {
@@ -1585,7 +1624,8 @@
       "origin": "Origin",
       "status": "Status",
       "fiscalState": "Receipt",
-      "paymentMethod": "Payment"
+      "paymentMethod": "Payment",
+      "session": "Session {number}"
     },
     "detail": {
       "lines": "Lines",
@@ -1708,6 +1748,12 @@
     "activeFilter": {
       "active": "Active",
       "inactive": "Deactivated"
+    },
+    "movementProducts": {
+      "search": "Search products",
+      "type": "Product type",
+      "status": "Product status",
+      "pick": "Pick products…"
     },
     "outOfStock": "Out of Stock",
     "lowStock": "Low Stock",

@@ -82,7 +82,7 @@ const COLUMNS: ReportColumn[] = [
   { key: 'userName', labelKey: 'reports.columns.user' },
   { key: 'number', labelKey: 'reports.columns.operationNumber' },
   { key: 'contactName', labelKey: 'reports.columns.contact' },
-  { key: 'status', labelKey: 'common.status' },
+  { key: 'status', labelKey: 'common.status', type: 'status' },
   { key: 'invoiceNumber', labelKey: 'reports.columns.invoiceNumber' },
   { key: 'total', labelKey: 'reports.columns.value', type: 'money', align: 'end' },
   { key: 'paymentLabel', labelKey: 'reports.columns.payment' },
@@ -252,7 +252,10 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
         userId: t.createdBy ?? null,
         number: t.transactionNumber,
         contactId: t.customerId ?? null,
-        status: t.status,
+        // Every till row kept here is a paid document: a sale (a stornoed one stays paid) or a
+        // storno that printed — `posRowSign` skipped a voided one. It says `paid`, as the document
+        // rows beside it do, not the POS row's `completed`, which no document has.
+        status: 'paid',
         invoiceNumber: '', // no POS→invoice link exists today
         total: +((Number(t.total) || 0) * sign).toFixed(2),
         currency: session?.currency || 'EUR',

@@ -76,6 +76,12 @@ export interface IOrg extends Document {
        * never touched it refuse sales.
        */
       allowNegativeStock?: boolean
+      /**
+       * Whether a sale needs a connected printer (2026-10-31). Unset means YES: a till sale, and a
+       * back-office sale that asks for a receipt, is refused when its warehouse's device is not
+       * connected. `false` is for an org with no device at all — a demo or a test org.
+       */
+      requireConnectedDevice?: boolean
     }
     accounting?: {
       defaultReceivableAccountId?: string
@@ -234,6 +240,7 @@ const orgSchema = new Schema<IOrg>(
       // No default: an org that never set it reads as "allowed" (see the interface).
       cashRegister: {
         allowNegativeStock: Boolean,
+        requireConnectedDevice: Boolean,
       },
       accounting: {
         defaultReceivableAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },

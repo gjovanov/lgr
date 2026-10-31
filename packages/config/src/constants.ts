@@ -70,6 +70,33 @@ export const INVOICE_STATUSES = ['draft', 'sent', 'partially_paid', 'paid', 'ove
 export const PRODUCT_TYPES = ['goods', 'service', 'raw_material', 'finished_product'] as const
 
 /**
+ * The canonical price-tier slots, in order: what the product form pads an article to, and the
+ * Products list's price columns. The imports and the seed name theirs the same
+ * (`doc-import/map-movement.ts#TIER_NAMES`, `scripts/seed-products.ts`).
+ *
+ * `key` stands for the slot where its Cyrillic name cannot go: the list's column key, which is
+ * also its sort key in the URL (`usePaginatedTable` keeps only `[A-Za-z0-9_.]` there) — the
+ * column is `PRICE_TIER_COLUMN_PREFIX` + `key`, e.g. `tier_1` for „Цена 1".
+ */
+export const PRICE_TIERS: readonly { key: string; name: string }[] = [
+  { key: 'delivery', name: 'Доставна цена' },
+  { key: 'wholesale', name: 'Цена на едро' },
+  { key: '0', name: 'Цена 0' },
+  { key: '1', name: 'Цена 1' },
+  { key: '2', name: 'Цена 2' },
+  { key: '3', name: 'Цена 3' },
+  { key: '4', name: 'Цена 4' },
+  { key: '5', name: 'Цена 5' },
+  { key: '6', name: 'Цена 6' },
+  { key: '7', name: 'Цена 7' },
+  { key: '8', name: 'Цена 8' },
+  { key: '9', name: 'Цена 9' },
+  { key: '10', name: 'Цена 10' },
+]
+export const PRICE_TIER_NAMES: readonly string[] = PRICE_TIERS.map((t) => t.name)
+export const PRICE_TIER_COLUMN_PREFIX = 'tier_'
+
+/**
  * Price-tier slots a product can hold: Доставна цена, Цена на едро, and Цена 0..Цена 10.
  *
  * ONE number for the model's validator, the goods-receipt and bill product updates and every
@@ -77,7 +104,7 @@ export const PRODUCT_TYPES = ['goods', 'service', 'raw_material', 'finished_prod
  * `sanitizeProductUpdates` kept its own 10, so every receipt "with product update" on an article
  * with a selling price answered 422 (FR-22 B-1).
  */
-export const MAX_PRICE_TIERS = 13
+export const MAX_PRICE_TIERS = PRICE_TIERS.length
 export const MOVEMENT_TYPES = ['receipt', 'dispatch', 'transfer', 'adjustment', 'return', 'production_in', 'production_out'] as const
 
 export const EMPLOYMENT_TYPES = ['full_time', 'part_time', 'contract', 'intern'] as const

@@ -11,7 +11,7 @@ import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumbe
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
 import { Invoice, POSSession, Reservation, StockMovement } from 'db/models'
-import { tillContext } from '../lib/cash-register-till.js'
+import { assertPrinterConnected, tillContext } from '../lib/cash-register-till.js'
 import { computePosTotals } from 'config/pos-totals'
 import { assertHomeIsHere } from 'db/home/home'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
@@ -36,6 +36,8 @@ import {
 import {
   ReceiptBillError, applyLinkedBillPrices, checkLinkedBillEdit, isReceiptLinked, linkedReceiptsOf, releaseReceiptLinks,
 } from 'services/biz/receipt-bill.service'
+import { REGISTER_TYPES } from 'services/biz/cash-register/pos-union'
+import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 
 // ── Idempotent create, issue and payment (FR-20.37, #155) ───────────────────────────────────
 
@@ -367,6 +369,12 @@ function overpayment(status: Status, doc: { total?: number; amountPaid?: number 
  * carrying only the header-level method (unpaid / imported docs) — when `paymentMethod` does.
  * Accepts "cash,card" or an array. Returns null when nothing valid was requested.
  */
+/** A list's type filter names cash-register documents only: a cash sale, a storno, or both. */
+export function onlyRegisterTypes(type: unknown): boolean {
+  const list = typeof type === 'string' ? [type] : Array.isArray((type as any)?.$in) ? (type as any).$in : []
+  return list.length > 0 && list.every((t: string) => (REGISTER_TYPES as readonly string[]).includes(t))
+}
+
 export function buildPaymentMethodFilter(raw: string | string[]): Record<string, any> | null {
   const list = (Array.isArray(raw) ? raw : String(raw).split(','))
     .map(s => String(s).trim())
@@ -470,9 +478,18 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (cond) (filter.$and ||= []).push(cond)
     }
     if (query.startDate || query.endDate) {
-      filter.issueDate = {}
-      if (query.startDate) filter.issueDate.$gte = new Date(query.startDate as string)
-      if (query.endDate) filter.issueDate.$lte = new Date(query.endDate as string)
+      // A cash-register document carries the moment of sale, so it is counted in the org's days,
+      // as the journal counts it: `new Date(endDate)` is 00:00 UTC and lost the last day's till
+      // sales. Every other document keeps a date-only issueDate.
+      const window = onlyRegisterTypes(filter.type)
+        ? localDayWindow(query.startDate, query.endDate, (await r.orgs.findById(orgId) as any)?.settings?.timezone || BULGARIAN_TIME_ZONE)
+        : null
+      if (window) filter.issueDate = window
+      else {
+        filter.issueDate = {}
+        if (query.startDate) filter.issueDate.$gte = new Date(query.startDate as string)
+        if (query.endDate) filter.issueDate.$lte = new Date(query.endDate as string)
+      }
     }
     // Cash sales list: `invoiced=yes` keeps the cash sales an invoice was issued for, `no` the rest.
     if (query.invoiced === 'yes' || query.invoiced === 'no') {
@@ -712,6 +729,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         let context: RegisterContext
         try {
           context = await cashSaleContext(createCtx)
+          // A sale that asked its session's device for a receipt is refused when nothing would
+          // print it, as the till's is — before anything is written.
+          if (createCtx.joined && createCtx.receipt) {
+            await assertPrinterConnected(orgId, String(createCtx.joined.warehouseId), context)
+          }
         } catch (e: any) {
           if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
           throw e

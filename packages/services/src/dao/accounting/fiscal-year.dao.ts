@@ -1,5 +1,6 @@
 import { FiscalYear, type IFiscalYear } from 'db/models'
 import { BaseDao } from '../base.dao.js'
+import { fiscalRangeFilter } from '../../utils/fiscal-range.js'
 
 class FiscalYearDaoClass extends BaseDao<IFiscalYear> {
   constructor() {
@@ -11,7 +12,7 @@ class FiscalYearDaoClass extends BaseDao<IFiscalYear> {
   }
 
   async findByDateRange(orgId: string, date: Date): Promise<IFiscalYear | null> {
-    return this.model.findOne({ orgId, startDate: { $lte: date }, endDate: { $gte: date } }).exec()
+    return this.model.findOne({ orgId, ...fiscalRangeFilter(date) }).exec()
   }
 }
 

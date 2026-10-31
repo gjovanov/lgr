@@ -247,6 +247,7 @@ import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import ProductTabBar from '../components/ProductTabBar.vue'
 import ProductDocActions from '../components/ProductDocActions.vue'
 import type { ProductForActions } from '../composables/product-doc-actions'
+import { PRICE_TIER_NAMES } from 'config/constants'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -352,7 +353,7 @@ let updatingFromPercent = false
 // Canonical price-tier slots. Extended 2026-08-06 from 10 → 13 (added Цена 8/9/10):
 // the storeAvailability export carries Цена0..Цена9 (the old 10-slot model truncated
 // Цена8/Цена9), and Цена 10 is headroom for the full PlusMinus price-level range.
-const CANONICAL_TIER_NAMES = ['Доставна цена', 'Цена на едро', 'Цена 0', 'Цена 1', 'Цена 2', 'Цена 3', 'Цена 4', 'Цена 5', 'Цена 6', 'Цена 7', 'Цена 8', 'Цена 9', 'Цена 10']
+const CANONICAL_TIER_NAMES: readonly string[] = PRICE_TIER_NAMES
 const TIER_SLOT_COUNT = CANONICAL_TIER_NAMES.length
 
 function makeDefaultTier(i: number, sellingPrice: number): PriceTier {

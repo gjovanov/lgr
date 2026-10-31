@@ -2,6 +2,7 @@ import type { RepositoryRegistry } from 'dal'
 import type { IJournalEntry } from 'dal/entities'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
+import { fiscalRangeContains, fiscalRangeFilter } from '../utils/fiscal-range.js'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -47,11 +48,7 @@ export async function ensureFiscalPeriod(orgId: string, date: Date, repos?: Repo
   const r = repos ?? getRepos()
 
   // 1. Check if a fiscal period already exists for this date
-  const existing = await r.fiscalPeriods.findOne({
-    orgId,
-    startDate: { $lte: date },
-    endDate: { $gte: date },
-  } as any)
+  const existing = await r.fiscalPeriods.findOne({ orgId, ...fiscalRangeFilter(date) } as any)
   if (existing) return existing.id
 
   // 2. Look up org's fiscalYearStart setting
@@ -73,9 +70,7 @@ export async function ensureFiscalPeriod(orgId: string, date: Date, repos?: Repo
   const inserted = await r.fiscalPeriods.createMany(periods as any)
 
   // 6. Find and return the period that matches the original date
-  const matching = inserted.find(
-    (p) => p.startDate <= date && p.endDate >= date,
-  )
+  const matching = inserted.find((p) => fiscalRangeContains(p, date))
   if (!matching) throw new Error(`Failed to find matching period for date ${date.toISOString()}`)
   return matching.id
 }
