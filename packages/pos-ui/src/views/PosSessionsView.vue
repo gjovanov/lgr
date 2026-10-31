@@ -89,9 +89,41 @@
           <template #item.closedAt="{ item }">
             {{ item.closedAt ? formatDateTime(item.closedAt) : '-' }}
           </template>
+          <!-- The session's report: what its close printed after the Z-report, and a reprint. -->
+          <template #item.actions="{ item }">
+            <v-btn
+              icon="mdi-file-chart-outline"
+              size="small"
+              variant="text"
+              :title="$t('pos.sessionReport.view')"
+              :aria-label="$t('pos.sessionReport.view')"
+              data-testid="session-report-open"
+              @click="openReport(item)"
+            />
+          </template>
         </v-data-table-server>
       </v-card-text>
     </v-card>
+
+    <v-dialog v-model="reportOpen" max-width="520">
+      <v-card>
+        <v-card-title>{{ $t('pos.sessionReport.title') }}</v-card-title>
+        <v-card-text>
+          <v-progress-linear v-if="reportLoading" indeterminate class="mb-2" />
+          <v-alert v-if="reportError" type="warning" variant="tonal" density="compact" class="mb-2">
+            {{ $t('pos.sessionReport.notPrinted', { error: reportError }) }}
+          </v-alert>
+          <SessionReportCard v-if="report" :report="report" />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn v-if="report" variant="outlined" prepend-icon="mdi-printer" :loading="reportPrinting" @click="printReport">
+            {{ $t('pos.sessionReport.print') }}
+          </v-btn>
+          <v-btn variant="text" @click="reportOpen = false">{{ $t('common.close') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
@@ -103,11 +135,15 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ChartView from 'ui-shared/components/ChartView.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
+import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import StatusPipeline from 'ui-shell/components/StatusPipeline'
+import SessionReportCard, { type SessionReportData } from '../components/SessionReportCard.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
+const { showSuccess, showError } = useSnackbar()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 
@@ -140,7 +176,46 @@ const headers = computed(() => [
   { title: 'Transactions', key: 'transactionCount', align: 'end' as const, sortable: true },
   { title: 'Opened At', key: 'openedAt', sortable: true },
   { title: 'Closed At', key: 'closedAt', sortable: true },
+  { title: '', key: 'actions', sortable: false, align: 'end' as const },
 ])
+
+// ── The session's report ──
+const reportOpen = ref(false)
+const reportLoading = ref(false)
+const reportPrinting = ref(false)
+const report = ref<SessionReportData | null>(null)
+const reportError = ref('')
+const reportSessionId = ref('')
+
+async function openReport(item: any) {
+  reportSessionId.value = item._id || item.id
+  report.value = null
+  reportError.value = ''
+  reportOpen.value = true
+  reportLoading.value = true
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/trade/pos/session/${reportSessionId.value}/report`)
+    report.value = data.report
+    reportError.value = data.error || ''
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    reportLoading.value = false
+  }
+}
+
+async function printReport() {
+  reportPrinting.value = true
+  try {
+    await httpClient.post(`${appStore.orgUrl()}/trade/pos/session/${reportSessionId.value}/report/print`)
+    reportError.value = ''
+    showSuccess(t('pos.sessionReport.printed'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    reportPrinting.value = false
+  }
+}
 
 function fmtCurrency(amount: number, currency?: string) {
   return formatCurrency(amount, currency || baseCurrency.value, localeCode.value)

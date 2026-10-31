@@ -97,6 +97,9 @@ Bun.serve({
         closure: sim.closure,
         lastDocNumber: sim.lastDocNumber,
         frames: sim.frames,
+        // The last text receipt's lines, and how many the device closed (27h): a session report.
+        nonFiscalLines: sim.nonFiscalLines,
+        textReceipts: sim.executed.filter(e => e.cmd === 0x27).length,
       })
     }
     if (url.pathname === '/reset' && req.method === 'POST') {

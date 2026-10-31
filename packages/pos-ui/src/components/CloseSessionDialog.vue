@@ -17,6 +17,11 @@
             <div class="font-weight-medium">{{ result.title }}</div>
             <div v-if="result.detail" class="text-body-2 mt-1">{{ result.detail }}</div>
           </v-alert>
+          <!-- The session's own figures, printed after the Z-report; the session is closed either way. -->
+          <v-alert v-if="result.reportError" type="warning" variant="tonal" density="compact" class="mb-2" data-testid="session-report-error">
+            {{ $t('pos.sessionReport.notPrinted', { error: result.reportError }) }}
+          </v-alert>
+          <SessionReportCard v-if="result.report" :report="result.report" />
         </template>
 
         <template v-else>
@@ -102,6 +107,9 @@
       <v-card-actions>
         <v-spacer />
         <template v-if="result">
+          <v-btn v-if="result.report" variant="outlined" prepend-icon="mdi-printer" :loading="reprinting" @click="reprint">
+            {{ $t('pos.sessionReport.print') }}
+          </v-btn>
           <v-btn variant="text" @click="finish">{{ $t('common.close') }}</v-btn>
           <v-btn v-if="result.kind === 'error'" color="primary" variant="flat" :loading="submitting" @click="submit">
             {{ $t('pos.close.retry') }}
@@ -123,7 +131,9 @@ import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useAppStore } from '../store/app.store'
+import SessionReportCard, { type SessionReportData } from './SessionReportCard.vue'
 
 /**
  * FR-9.9/9.10 (#18) — the end-of-day close, modeled on the legacy PlusMinus screen: one row
@@ -157,6 +167,7 @@ const METHOD_ICON: Record<string, string> = {
 }
 
 const { t } = useI18n()
+const { showSuccess, showError } = useSnackbar()
 const appStore = useAppStore()
 
 const open = computed({
@@ -171,7 +182,14 @@ const expected = ref<Record<string, number>>({ cash: 0, card: 0, other: 0 })
 const counted = ref<Record<string, number>>({ cash: 0, card: 0, other: 0 })
 const notes = ref('')
 const closeWithoutFiscal = ref(false)
-const result = ref<{ kind: 'success' | 'skipped' | 'error'; title: string; detail?: string } | null>(null)
+const result = ref<{
+  kind: 'success' | 'skipped' | 'error'
+  title: string
+  detail?: string
+  /** The session's own figures, which the close printed after the Z-report — or why it did not. */
+  report?: SessionReportData
+  reportError?: string
+} | null>(null)
 
 /** „Other" is noise unless this register actually took some — hide it when it is 0. */
 const visibleMethods = computed(() =>
@@ -240,9 +258,11 @@ async function submit() {
         title: t('pos.close.fiscalClosed'),
         // Tremol reports no number; showing the literal "unknown" would be worse than nothing.
         detail: data.zReportNumber ? t('pos.close.zReportNumber', { n: data.zReportNumber }) : undefined,
+        report: data.report,
+        reportError: data.reportError,
       }
     } else {
-      result.value = { kind: 'skipped', title: t('pos.close.fiscalSkipped') }
+      result.value = { kind: 'skipped', title: t('pos.close.fiscalSkipped'), report: data.report, reportError: data.reportError }
     }
   } catch (e: any) {
     // An unanswered attempt keeps its key: closing again returns that close, never a second Z-report.
@@ -255,6 +275,21 @@ async function submit() {
     }
   } finally {
     submitting.value = false
+  }
+}
+
+/** Print the session's report again on the warehouse's device. */
+const reprinting = ref(false)
+async function reprint() {
+  reprinting.value = true
+  try {
+    await httpClient.post(`${props.orgUrl}/trade/pos/session/${props.sessionId}/report/print`)
+    if (result.value) result.value = { ...result.value, reportError: undefined }
+    showSuccess(t('pos.sessionReport.printed'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    reprinting.value = false
   }
 }
 

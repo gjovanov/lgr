@@ -843,7 +843,36 @@
       "notConnected": "Verbinden Sie den Fiskaldrucker, um zu verkaufen.",
       "notConfigured": "Für dieses Lager ist kein Fiskaldrucker eingerichtet. Wenden Sie sich an den Administrator."
     },
-    "sessionDocuments": "Barverkäufe der Sitzung {number}"
+    "sessionDocuments": "Barverkäufe der Sitzung {number}",
+    "sessionReport": {
+      "title": "Sitzungsbericht",
+      "view": "Sitzungsbericht",
+      "print": "Bericht drucken",
+      "printed": "Der Sitzungsbericht wurde auf dem Fiskalgerät gedruckt.",
+      "notPrinted": "Der Sitzungsbericht wurde nicht gedruckt: {error}. Die Sitzung ist geschlossen; drucken Sie ihn hier oder unter POS-Sitzungen erneut.",
+      "sales": "Verkäufe",
+      "stornos": "Stornos",
+      "voided": "Ungültige Stornos",
+      "fiscal": "Fiskalbelege",
+      "text": "Textbelege",
+      "unprinted": "Nicht gedruckt",
+      "vatRate": "MwSt {rate}%",
+      "net": "Netto",
+      "vat": "MwSt",
+      "gross": "Brutto",
+      "total": "Gesamt",
+      "cash": "Bar",
+      "card": "Karte",
+      "other": "Sonstige",
+      "change": "Rückgeld",
+      "opening": "Anfangsbestand",
+      "expected": "Erwartetes Bargeld",
+      "counted": "Gezählt",
+      "difference": "Differenz",
+      "documents": "Belege",
+      "receipts": "Bons",
+      "z": "Z-Bericht Nr."
+    }
   },
   "cashRegister": {
     "title": "Kassenverkäufe",
