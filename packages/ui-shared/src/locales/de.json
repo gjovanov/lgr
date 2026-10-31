@@ -1488,6 +1488,10 @@
       "receiptCost": "Wareneingang: {price}",
       "received": "Rechnung empfangen — die Ware kam mit dem Wareneingang"
     },
+    "stockReceipt": {
+      "print": "Wareneingangsschein",
+      "hint": "Den Wareneingang dieser Eingangsrechnung drucken — einen je Lager, in das die Ware ging"
+    },
     "reservations": {
       "repeatOf": "erneut reserviert",
       "fromOutgoingOrder": "Lieferantenbestellung",

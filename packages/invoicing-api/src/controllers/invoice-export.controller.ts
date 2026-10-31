@@ -10,6 +10,8 @@ import { generateInvoicingSingleXLSX } from 'reporting/excel/invoicing-single.ex
 import { generateInvoicePDF, HEADER_NOTE_MAX } from 'reporting/pdf/invoice.pdf'
 import { generateCompanionDocPDF, type CompanionDocData } from 'reporting/pdf/companion-doc.pdf'
 import { generateCompanionDocXLSX } from 'reporting/excel/companion-doc.excel'
+import { generateStockReceiptPDF, type StockReceiptData } from 'reporting/pdf/stock-receipt.pdf'
+import { billStockReceiptSections, isSupplierBill, RELEASED_BILL_STATUSES } from 'services/biz/bill-stock-receipt.service'
 import { docTitleFor, exportI18n } from 'reporting/i18n'
 import { sourceDocLabel } from 'reporting/companion-doc.i18n'
 import { getNextCompanionNumber, companionNumberField, buildPaymentMethodFilter, invoiceSortField, type CompanionDocKind } from './invoice.controller.js'
@@ -478,6 +480,30 @@ async function buildCompanionData(
   }
 }
 
+// ── „Стокова разписка": the goods receipts a supplier bill booked ──
+
+/** `?doc=` value of the stock receipt — checked before the companion branch, which refuses bills. */
+const STOCK_RECEIPT_DOC = 'stock_receipt'
+
+/**
+ * The stock receipt of `bill`: one section per receipt it booked, the bill named by OUR number
+ * and date (no supplier block, no supplier invoice number). `null` when it booked no goods.
+ */
+async function buildStockReceiptData(orgId: string, bill: any, locale: string): Promise<StockReceiptData | null> {
+  const sections = await billStockReceiptSections(orgId, bill)
+  if (!sections.length) return null
+  const org = await Org.findById(orgId).lean()
+  return {
+    sections,
+    bill: { number: bill.invoiceNumber, date: bill.issueDate, draft: bill.status === 'draft' },
+    currency: bill.currency,
+    footerText: orgFooterLine(org),
+    // Same letterhead the invoice form prints; the generator falls back to the bundled asset.
+    logo: (await getOrgLogoDataUri(orgId)) ?? (org as any)?.logo,
+    locale,
+  }
+}
+
 // `orgFooterLine` moved to lib/invoice-pdf.ts (FR-10) so the export and email paths share it.
 
 export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoicing/export' })
@@ -764,9 +790,37 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         return status(400, { message: e.message })
       }
       const filename = `${(invoice as any).invoiceNumber}.${format}`
+      const doc = query.doc as string | undefined
+
+      // ── „Стокова разписка" (?doc=stock_receipt): the goods a supplier bill booked ──
+      if (doc === STOCK_RECEIPT_DOC) {
+        const inv = invoice as any
+        if (format !== 'pdf') return status(400, { message: 'A stock receipt prints as PDF only' })
+        if (!isSupplierBill(inv)) {
+          return status(422, { code: 'not_a_bill', message: 'A stock receipt is printed from a supplier bill' })
+        }
+        if (RELEASED_BILL_STATUSES.includes(inv.status)) {
+          return status(422, { code: 'bill_voided', message: `${inv.invoiceNumber} is voided — the goods it booked are no longer its own` })
+        }
+        const data = await buildStockReceiptData(orgId, inv, locale)
+        if (!data) {
+          return status(404, { code: 'no_goods_booked', message: `${inv.invoiceNumber} has booked no goods — a stock receipt prints once they are received` })
+        }
+        try {
+          const buffer = await generateStockReceiptPDF(data)
+          if (!buffer) return status(503, { message: 'PDF renderer unavailable' })
+          set.headers['content-type'] = 'application/pdf'
+          set.headers['content-disposition'] = `attachment; filename="${inv.invoiceNumber}-stock-receipt.pdf"`
+          return new Response(buffer)
+        } catch (e: any) {
+          return status(503, {
+            message: 'PDF export is temporarily unavailable. Retry in a moment.',
+            detail: e?.message?.slice(0, 300),
+          })
+        }
+      }
 
       // ── Companion document branch (?doc=certificate|ppprotocol) ──
-      const doc = query.doc as string | undefined
       if (doc && doc !== 'document') {
         if (!COMPANION_KINDS.has(doc as CompanionDocKind)) {
           return status(400, { message: `Unknown companion document: ${doc}` })

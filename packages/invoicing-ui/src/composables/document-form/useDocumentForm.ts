@@ -1254,6 +1254,27 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     showExportDialog.value = true
   }
 
+  // ── „Стокова разписка": the goods a supplier bill booked ──
+  /** The receipts the bill booked (`GET /invoices/:id`); the print is offered when there are some. */
+  const stockReceipts = computed<Array<{ id: string; number: string; date: string; warehouseName: string }>>(
+    () => (config.direction === 'incoming' && invoiceData.value?.stockMovements) || [],
+  )
+  const { loading: stockReceiptLoading, exportOne: exportStockReceipt } = useInvoicingExport(() => appStore.orgUrl())
+
+  /**
+   * One section per receipt the bill booked. It prints what was booked, not what the form holds, so
+   * nothing is saved first: no edit on the form changes a receipt.
+   */
+  async function onPrintStockReceipt() {
+    const id = route.params.id as string
+    if (!id || !stockReceipts.value.length) return
+    try {
+      await exportStockReceipt(id, `${invoiceNumber.value || id}-stock-receipt`, 'pdf', 'detailed', undefined, appStore.locale, 'stock_receipt')
+    } catch (e: any) {
+      showError(e?.response?.data?.message || t('export.failed'))
+    }
+  }
+
   /** Bumped when the form takes a fresh clean state, so `isDirtyNow` reads it again. */
   const cleanTick = ref(0)
   /** The print notes as stored: they live outside `form`, which the pending-changes snapshot covers. */
@@ -1868,6 +1889,10 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     lastPrint,
     onPrint,
     onPrintOptions,
+    // a supplier bill's „Стокова разписка"
+    stockReceipts,
+    stockReceiptLoading,
+    onPrintStockReceipt,
     // persistence
     buildPayload,
     onSave,

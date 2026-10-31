@@ -1247,6 +1247,10 @@
       "receiptCost": "Receipt: {price}",
       "received": "Bill received — the stock came in on its receipt"
     },
+    "stockReceipt": {
+      "print": "Stock receipt",
+      "hint": "Print the goods receipt this bill booked — one per warehouse the goods went into"
+    },
     "reservations": {
       "repeatOf": "reserved again",
       "fromOutgoingOrder": "Supplier order",
