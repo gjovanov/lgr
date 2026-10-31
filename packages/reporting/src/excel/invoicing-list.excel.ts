@@ -155,6 +155,9 @@ export function computeAggregates(rows: InvoiceExportRow[]): {
 
   const byMethod: Partial<Record<PaymentMethod, number>> = {}
   for (const r of rows) {
+    // A voided document is listed, but counts nothing: a voided storno is a refund that never
+    // happened, and a voided invoice owes nothing.
+    if (r.status === 'voided') continue
     for (const k of MONEY_COLUMN_KEYS) columns[k] += Number(r[k]) || 0
     const pm = r.paymentsByMethod || {}
     for (const m of Object.keys(pm) as PaymentMethod[]) {

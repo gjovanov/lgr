@@ -40,6 +40,25 @@ export type RenderInvoicePdfResult =
   | { ok: false; status: 404; message: string }
   | { ok: false; status: 503; message: string; detail?: string }
 
+/**
+ * The cash sale a storno reverses, as its printout names it: the sale's number and date, its УНП
+ * and receipt, and the reason (FR-21's `register.storno`).
+ */
+export async function stornoRefOf(orgId: string, storno: any) {
+  const s = storno.register?.storno || {}
+  const originalId = s.originalId || storno.relatedInvoiceId
+  const original: any = originalId
+    ? await Invoice.findOne({ _id: originalId, orgId }, { invoiceNumber: 1, issueDate: 1 }).lean()
+    : null
+  return {
+    number: original?.invoiceNumber || '',
+    issueDate: s.originalDate || original?.issueDate,
+    unp: s.originalUnp || '',
+    receiptNumber: s.originalReceiptNumber || '',
+    reason: s.reason || '',
+  }
+}
+
 export async function renderInvoicePdf(
   orgId: string,
   invoiceId: string,
@@ -59,6 +78,7 @@ export async function renderInvoicePdf(
     ? await Contact.findById((invoice as any).contactId).lean()
     : null
   const org = await Org.findById(orgId).lean()
+  const stornoRef = (invoice as any).type === 'cash_storno' ? await stornoRefOf(orgId, invoice) : undefined
 
   // The invoice form reads the letterhead off the org record it is given, and the renderer
   // cannot fetch a URL — so hand it the uploaded logo inlined, falling back to whatever
@@ -66,7 +86,8 @@ export async function renderInvoicePdf(
   const orgForPdf = { ...(org as any), logo: (await getOrgLogoDataUri(orgId)) ?? (org as any)?.logo }
 
   try {
-    const buffer = await generateInvoicePDF(invoice as any, orgForPdf as any, (contact as any) || {}, opts.columns, {
+    const doc = stornoRef ? { ...(invoice as any), stornoRef } : invoice
+    const buffer = await generateInvoicePDF(doc as any, orgForPdf as any, (contact as any) || {}, opts.columns, {
       locale,
       footerText: orgFooterLine(org),
       headerNote: supplied ?? stored,

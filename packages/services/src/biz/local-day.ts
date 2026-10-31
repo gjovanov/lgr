@@ -61,3 +61,15 @@ export function localDayEnd(date: string, timeZone: string = BULGARIAN_TIME_ZONE
   const next = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1)).toISOString().slice(0, 10)
   return new Date(localDayStart(next, timeZone).getTime() - 1)
 }
+
+/**
+ * A from/to filter of calendar dates as the instants it covers in `timeZone`: from 00:00 of `from`
+ * to the last millisecond of `to`, either end optional. A value that is not a calendar date bounds
+ * nothing; null when neither end does.
+ */
+export function localDayWindow(from: unknown, to: unknown, timeZone: string = BULGARIAN_TIME_ZONE): { $gte?: Date; $lte?: Date } | null {
+  const w: { $gte?: Date; $lte?: Date } = {}
+  if (isDateOnly(from)) w.$gte = localDayStart(from, timeZone)
+  if (isDateOnly(to)) w.$lte = localDayEnd(to, timeZone)
+  return Object.keys(w).length ? w : null
+}

@@ -20,6 +20,7 @@ import { orgFooterLine, renderInvoicePdf } from '../lib/invoice-pdf.js'
 import { sendEmail } from 'services/biz/email.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { EmailLog } from 'db/models'
+import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 
 const MAX_ROWS = 1000
 
@@ -164,7 +165,12 @@ function negatedStorno(inv: any): any {
   }
 }
 
-async function toExportRows(invoices: any[]): Promise<InvoiceExportRow[]> {
+/**
+ * `signStornos` (on by default) turns a storno negative, for a register that sums it against its
+ * sale. A storno exported on its own keeps its own amounts, as its PDF and its receipt print them.
+ */
+async function toExportRows(invoices: any[], opts: { signStornos?: boolean } = {}): Promise<InvoiceExportRow[]> {
+  const signStornos = opts.signStornos ?? true
   // Batch-load contacts
   const contactIds = new Set<string>()
   for (const inv of invoices) if (inv.contactId) contactIds.add(String(inv.contactId))
@@ -175,7 +181,7 @@ async function toExportRows(invoices: any[]): Promise<InvoiceExportRow[]> {
 
   return invoices.map((raw: any) => {
     // A cash-sale storno is stored positive and gives its sale back: it exports negative (FR-21.9).
-    const inv = raw.type === 'cash_storno' ? negatedStorno(raw) : raw
+    const inv = raw.type === 'cash_storno' && signStornos ? negatedStorno(raw) : raw
     const c = inv.contactId ? cmap.get(String(inv.contactId)) : null
     const contactName = c
       ? ((c as any).companyName || [(c as any).firstName, (c as any).lastName].filter(Boolean).join(' '))
@@ -253,11 +259,14 @@ function round2(n: number): number {
  * ProductId-less legacy lines group by description+unit.
  */
 export async function aggregateCashSales(filter: Record<string, any>): Promise<{ sections: CashAggSection[]; docCount: number }> {
-  const docs: any[] = await Invoice.find(filter, { lines: 1, currency: 1, type: 1 }).limit(CASH_AGG_DOC_CAP).lean()
+  const docs: any[] = await Invoice.find(filter, { lines: 1, currency: 1, type: 1, status: 1 }).limit(CASH_AGG_DOC_CAP).lean()
 
   type Acc = CashAggRow & { productId?: string }
   const byCurrency = new Map<string, Map<string, Acc>>()
   for (const doc of docs) {
+    // A voided document sold nothing and gave nothing back: a voided storno is a refund whose
+    // receipt failed (FR-21.9 counts paid documents only).
+    if (doc.status === 'voided') continue
     const currency = doc.currency || ''
     // A storno takes its goods and money back (FR-21.9); it is stored positive.
     const sign = doc.type === 'cash_storno' ? -1 : 1
@@ -312,7 +321,7 @@ export async function aggregateCashSales(filter: Record<string, any>): Promise<{
         .sort((x, y) => x.productName.localeCompare(y.productName, 'bg')),
     }))
     .sort((a, b) => a.currency.localeCompare(b.currency))
-  return { sections, docCount: docs.length }
+  return { sections, docCount: docs.filter((d) => d.status !== 'voided').length }
 }
 
 /** Shared response builder for both aggregated endpoints. Returns a Response or an error. */
@@ -373,9 +382,12 @@ async function cashAggResponse(
 
 const COMPANION_KINDS = new Set<CompanionDocKind>(['certificate', 'ppprotocol'])
 
-/** Only outgoing documents get companion prints — on an incoming bill we are the recipient. */
+/**
+ * Only outgoing documents get companion prints — on an incoming bill we are the recipient — and
+ * never a storno: it delivers nothing to declare or hand over.
+ */
 function companionAllowed(invoice: any): boolean {
-  return invoice?.direction === 'outgoing'
+  return invoice?.direction === 'outgoing' && invoice?.type !== 'cash_storno'
 }
 
 /**
@@ -621,9 +633,16 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
       }
 
       if (b.startDate || b.endDate) {
-        filter.issueDate = {} as any
-        if (b.startDate) filter.issueDate.$gte = new Date(b.startDate)
-        if (b.endDate) filter.issueDate.$lte = new Date(b.endDate)
+        // Till documents carry the moment of sale: their days are the org's, as on the grid.
+        const window = kind === 'cash_register'
+          ? localDayWindow(b.startDate, b.endDate, ((await Org.findById(orgId).lean()) as any)?.settings?.timezone || BULGARIAN_TIME_ZONE)
+          : null
+        if (window) filter.issueDate = window
+        else {
+          filter.issueDate = {} as any
+          if (b.startDate) filter.issueDate.$gte = new Date(b.startDate)
+          if (b.endDate) filter.issueDate.$lte = new Date(b.endDate)
+        }
       }
       if (b.status) {
         const list = String(b.status).split(',').map(s => s.trim()).filter(Boolean)
@@ -754,7 +773,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         }
         const kind = doc as CompanionDocKind
         if (!companionAllowed(invoice)) {
-          return status(400, { message: 'Companion documents are only available for outgoing documents' })
+          return status(400, { message: 'Companion documents are only available for outgoing documents, never a storno' })
         }
         // Allocating the number mutates the invoice, so a read-only role (nra_auditor) may only
         // reprint a companion whose number already exists.
@@ -796,7 +815,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
       }
 
       if (format === 'xlsx') {
-        const [row] = await toExportRows([invoice])
+        const [row] = await toExportRows([invoice], { signStornos: false })
         const buffer = await generateInvoicingSingleXLSX(row, mode, columns, locale)
         set.headers['content-type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         set.headers['content-disposition'] = `attachment; filename="${filename}"`

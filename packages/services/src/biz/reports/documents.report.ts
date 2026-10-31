@@ -211,7 +211,7 @@ const COL = {
   // report, so whoever adds the two registers up must take these out once.
   cashSale:    { key: 'cashSale',    labelKey: 'reports.columns.cashSale' },
   contactName: { key: 'contactName', labelKey: 'reports.columns.contact' },
-  status:      { key: 'status',      labelKey: 'common.status' },
+  status:      { key: 'status',      labelKey: 'common.status', type: 'status' },
   currency:    { key: 'currency',    labelKey: 'common.currency' },
   subtotal:    { key: 'subtotal',    labelKey: 'reports.columns.net',      type: 'money', align: 'end' },
   taxTotal:    { key: 'taxTotal',    labelKey: 'reports.columns.tax',      type: 'money', align: 'end' },

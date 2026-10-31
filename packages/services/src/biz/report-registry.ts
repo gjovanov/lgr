@@ -276,10 +276,13 @@ export const REPORT_REGISTRY: ReportEntry[] = [
       row.rowType === 'pos'
         ? `/pos/orders/${row.posId}`
         : row.invoiceId
-          // A cash sale opens on its own page; the invoice form would show it as an invoice (FR-21.3).
+          // A cash sale opens on its own page; the invoice form would show it as an invoice (FR-21.3),
+          // and a storno on the journal's, where it reads as a storno.
           ? row.docType === 'cash_sale'
             ? `/invoicing/cash-sales/${row.invoiceId}/edit`
-            : `/invoicing/invoices/${row.invoiceId}/edit`
+            : row.docType === 'cash_storno'
+              ? `/invoicing/cash-sales/${row.invoiceId}/view`
+              : `/invoicing/invoices/${row.invoiceId}/edit`
           : undefined,
   },
 
@@ -330,7 +333,12 @@ export const REPORT_REGISTRY: ReportEntry[] = [
       view: 'runner',
       route: `/${spec.id}`,
       handler: makeDocumentsReport(kind),
-      drilldown: (row) => (row.invoiceId ? `${spec.drilldownApp}/${row.invoiceId}/edit` : undefined),
+      // A storno reads as a storno on the journal's page; the cash-sale form would show a sale.
+      drilldown: (row) => (!row.invoiceId
+        ? undefined
+        : row.docType === 'cash_storno'
+          ? `/invoicing/cash-sales/${row.invoiceId}/view`
+          : `${spec.drilldownApp}/${row.invoiceId}/edit`),
     }
   }),
 

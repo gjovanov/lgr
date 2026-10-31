@@ -12,7 +12,7 @@
  * The same journal is mounted at `/pos/orders` and `/invoicing/cash-sales` (D-10).
  */
 import { Contact, Invoice, POSSession, StockMovement, User, Warehouse } from 'db/models'
-import { isDateOnly, localDayEnd, localDayStart, BULGARIAN_TIME_ZONE } from '../local-day.js'
+import { localDayWindow, BULGARIAN_TIME_ZONE } from '../local-day.js'
 import { REGISTER_TYPES } from './pos-union.js'
 import { invoicedCashSaleIds, invoicingByCashSale } from '../cash-sale-invoice.service.js'
 
@@ -127,11 +127,7 @@ export function originOf(doc: any): JournalOrigin {
 }
 
 function windowOf(q: JournalQuery): { $gte?: Date; $lte?: Date } | null {
-  const tz = q.timeZone || BULGARIAN_TIME_ZONE
-  const w: { $gte?: Date; $lte?: Date } = {}
-  if (q.dateFrom && isDateOnly(q.dateFrom)) w.$gte = localDayStart(q.dateFrom, tz)
-  if (q.dateTo && isDateOnly(q.dateTo)) w.$lte = localDayEnd(q.dateTo, tz)
-  return Object.keys(w).length ? w : null
+  return localDayWindow(q.dateFrom, q.dateTo, q.timeZone || BULGARIAN_TIME_ZONE)
 }
 
 /**
