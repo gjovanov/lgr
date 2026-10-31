@@ -8,7 +8,7 @@ import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-e
 import { receiptBillController } from 'invoicing-api/src/controllers/receipt-bill.controller'
 import { movementController } from 'warehouse-api/src/controllers/movement.controller'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
-import { billStockReceiptSections } from 'services/biz/bill-stock-receipt.service'
+import { billStockReceiptSections, stockReceiptCurrency } from 'services/biz/bill-stock-receipt.service'
 import { Invoice, StockMovement } from 'db/models'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
@@ -198,4 +198,19 @@ describe('„Стокова разписка" of a supplier bill', () => {
     expect((await w.call('POST', `/invoices/${b.id}/receive`)).status).toBe(200)
     expect((await w.stockReceipt(b.id, 'doc=stock_receipt&format=xlsx')).status).toBe(400)
   }, 60_000)
+})
+
+describe('the currency a stock receipt prints in', () => {
+  it('a bill that received its own goods booked them at its own prices: the bill\'s', () => {
+    expect(stockReceiptCurrency({ currency: 'USD' }, 'EUR')).toBe('USD')
+  })
+
+  it('a bill made from receipts prints what they booked: the org\'s, whatever the bill says', () => {
+    expect(stockReceiptCurrency({ currency: 'USD', stockSource: { marker: 'movement:6ae61ec7' } }, 'EUR')).toBe('EUR')
+  })
+
+  it('a marker that is not a receipt link changes nothing, and neither does an org with no currency', () => {
+    expect(stockReceiptCurrency({ currency: 'USD', stockSource: { marker: 'cash_sale:CS-1' } }, 'EUR')).toBe('USD')
+    expect(stockReceiptCurrency({ currency: 'USD', stockSource: { marker: 'movement:6ae61ec7' } }, undefined)).toBe('USD')
+  })
 })

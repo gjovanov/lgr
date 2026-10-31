@@ -12,7 +12,7 @@ import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { buildPayload, buildProductUpdates } from '../../../invoicing-ui/src/composables/document-form/document-payload'
 import { DOCUMENT_CONFIGS } from '../../../invoicing-ui/src/composables/document-form/configs'
 import { cascadePurchasePrice, seedFromProduct, setProductField, setTierPrice } from 'ui-shared/composables/gr-product-update'
-import { Invoice, Product } from 'db/models'
+import { Invoice, Product, ProductCategory } from 'db/models'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS, MAX_PRICE_TIERS } from 'config/constants'
 
@@ -245,6 +245,76 @@ describe('a supplier bill saved with „С актуализация на про�
     expect(String(res.json.message)).toContain(`${MAX_PRICE_TIERS}`)
     expect(w.state(await w.read())).toEqual(before)
     expect(((await Invoice.findById(bill.id).lean().exec()) as any).lines[0].quantity).toBe(5)
+  }, 60_000)
+
+  it('a bill in another currency updates no product: 422 on create and on edit, nothing written', async () => {
+    const w = await world()
+    const before = w.state(await w.read())
+    const l = await w.line()
+    setProductField(l, 'sellingPrice', '30')
+
+    const created = await w.call('POST', '/invoices', { ...w.payload([l]), currency: 'USD', exchangeRate: 0.9 })
+    expect([created.status, created.json.code]).toEqual([422, 'foreign_currency_bill'])
+    expect(created.json.message).toBe('A bill in USD updates no product: product prices are kept in EUR')
+
+    const bill = await w.newBill()
+    const edited = await w.call('PUT', `/invoices/${bill.id}`, { ...w.payload([l]), currency: 'USD', exchangeRate: 0.9 })
+    expect([edited.status, edited.json.code]).toEqual([422, 'foreign_currency_bill'])
+
+    // A bill already in another currency, with no currency in the body, is refused all the same.
+    await Invoice.updateOne({ _id: bill.id }, { $set: { currency: 'USD' } })
+    const { currency: _c, ...noCurrency } = w.payload([l]) as any
+    const stored = await w.call('PUT', `/invoices/${bill.id}`, noCurrency)
+    expect([stored.status, stored.json.code]).toEqual([422, 'foreign_currency_bill'])
+
+    expect(w.state(await w.read())).toEqual(before)
+  }, 60_000)
+
+  it('a bill in another currency saved with no product update is an ordinary bill', async () => {
+    const w = await world()
+    const res = await w.call('POST', '/invoices', { ...w.payload([await w.line()]), currency: 'USD', exchangeRate: 0.9 })
+    expect(res.status).toBe(200)
+    expect(res.json.invoice.currency).toBe('USD')
+  }, 60_000)
+
+  it('a category picked on a line renames the article too: the name lists read, and its search mirror', async () => {
+    const w = await world()
+    const category = await ProductCategory.create({ orgId: w.product.orgId, name: 'Болтове DIN' })
+    const l = await w.line()
+    setProductField(l, 'categoryId', String(category._id))
+    expect((await w.call('POST', '/invoices', w.payload([l]))).status).toBe(200)
+    const after = await w.read()
+    expect([String(after.categoryId), after.category, after.categoryLower]).toEqual([String(category._id), 'Болтове DIN', 'болтове din'])
+  }, 60_000)
+
+  it('a category of another org is refused: 422, the article unchanged', async () => {
+    const w = await world()
+    const elsewhere = await createTestOrg()
+    const category = await ProductCategory.create({ orgId: elsewhere._id, name: 'Чужда' })
+    const before = await w.read()
+    const l = await w.line()
+    setProductField(l, 'categoryId', String(category._id))
+    const res = await w.call('POST', '/invoices', w.payload([l]))
+    expect(res.status).toBe(422)
+    const after = await w.read()
+    expect([String(after.categoryId), after.category]).toEqual([String(before.categoryId), before.category])
+  }, 60_000)
+
+  it('the product list reads several articles at once, the org\'s own only', async () => {
+    const w = await world()
+    const second = await createTestProduct(w.product.orgId, { sku: 'PRD-0002', name: 'Шайба М8' })
+    const elsewhere = await createTestOrg()
+    const foreign = await createTestProduct(elsewhere._id, { sku: 'PRD-0003', name: 'Чужд продукт' })
+    const ids = [w.product._id, second._id, foreign._id, 'not-an-id'].join(',')
+    const res = await w.call('GET', `/warehouse/product?ids=${ids}&size=4`)
+    expect(res.status).toBe(200)
+    expect(res.json.products.map((p: any) => String(p.id ?? p._id)).sort()).toEqual([String(w.product._id), String(second._id)].sort())
+    // The whole article: what a line is seeded from.
+    const own = res.json.products.find((p: any) => String(p.id ?? p._id) === String(w.product._id))
+    expect(own.priceTiers.map((t: any) => t.name)).toEqual((await w.read()).priceTiers.map((t: any) => t.name))
+
+    const none = await w.call('GET', '/warehouse/product?ids=not-an-id&size=4')
+    expect(none.json.products).toEqual([])
   }, 60_000)
 
   it('a bill made from goods receipts updates no product: 422, nothing written', async () => {

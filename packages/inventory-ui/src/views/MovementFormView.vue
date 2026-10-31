@@ -274,7 +274,7 @@ import GRColumnPicker from '../components/GRColumnPicker.vue'
 import { useGRColumns } from '../composables/useGRColumns'
 // What a line stages for its product, and what reaches it — shared with the supplier bill's form.
 import {
-  buildProductUpdates, cascadePurchasePrice, needsSeed, seedFromProduct, setProductField, setTierPrice, tierPriceOf,
+  buildProductUpdates, cascadePurchasePrice, needsSeed, productsForSeed, seedFromProduct, setProductField, setTierPrice, tierPriceOf,
   type GRBase, type GRTier,
 } from 'ui-shared/composables/gr-product-update'
 
@@ -761,18 +761,15 @@ async function seedLineProductUpdate(idx: number, costAtPick?: number) {
 
 /**
  * Seed the lines that name a product and stage nothing yet (a loaded draft, a reload after a
- * save): one request per article.
+ * save): all their articles are read at once.
  */
 async function seedUnseededLines() {
   const pending = form.value.lines.filter((l: any) => needsSeed(l))
   if (!pending.length) return
-  const products = new Map<string, any>()
-  await Promise.all([...new Set(pending.map((l: any) => String(l.productId)))].map(async (id) => {
-    try {
-      const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${id}`)
-      products.set(id, data.product || data)
-    } catch { /* that line stays as it is */ }
-  }))
+  const products = await productsForSeed(async (ids) => {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product`, { params: { ids: ids.join(','), size: ids.length } })
+    return data.products || []
+  }, [...new Set(pending.map((l: any) => String(l.productId)))])
   for (const line of pending) {
     const p = products.get(String(line.productId))
     // Staged meanwhile (a price typed while these loaded): that line keeps what was typed.

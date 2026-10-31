@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
 import { receivedBill } from './helpers/bills'
+import { openSelect } from './helpers/vuetify'
 
 /**
  * The supplier bill form's „With product update": ON for a new bill, remembered per user once
@@ -29,6 +30,26 @@ test.describe('Supplier bill form — with product update', () => {
     await page.getByTestId('bill-product-update').locator('input[type="checkbox"]').click()
     await page.reload()
     await expect(page.getByTestId('bill-product-update')).toContainText(/^\s*With product update\s*$/)
+  })
+
+  test('a bill in another currency offers no product update and says why; back in the org\'s, it does', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/bills/new')
+    const chip = page.getByTestId('bill-product-update')
+    await expect(chip).toBeVisible()
+
+    await openSelect(page, /^Currency$/)
+    await page.getByRole('option', { name: 'USD', exact: true }).click()
+    await expect(chip).toHaveCount(0)
+    await expect(page.getByTestId('bill-no-product-update')).toHaveText('In USD: this bill updates no products')
+    const heads = page.locator('.line-table thead th')
+    await expect(heads.filter({ hasText: /^Buying Price$/ })).toHaveCount(0)
+
+    await openSelect(page, /^Currency$/)
+    await page.getByRole('option', { name: 'EUR', exact: true }).click()
+    await expect(chip).toBeVisible()
+    await expect(page.getByTestId('bill-no-product-update')).toHaveCount(0)
+    await expect(heads.filter({ hasText: /^Buying Price$/ })).toHaveCount(1)
   })
 
   test('opened untouched with the switch ON, a bill is not "unsaved": Print does not save it first', async ({ page }) => {

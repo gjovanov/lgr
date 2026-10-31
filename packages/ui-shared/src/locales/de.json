@@ -1740,6 +1740,7 @@
     "priceTiersHelp": "Jeder Platz entspricht standardmäßig dem Verkaufspreis ohne Filter. Geben Sie Namen und Preis (oder %) ein, um ihn zu nutzen. Filter aktivieren, damit eine Stufe nur für bestimmte Kontakte, Tags, Mengen oder Datumsbereiche gilt.",
     "finalPrice": "Endpreis",
     "withProductUpdate": "Mit Produktaktualisierung",
+    "foreignCurrencyNoUpdate": "In {currency}: diese Rechnung aktualisiert keine Produkte",
     "withoutProductUpdate": "Ohne Produktaktualisierung",
     "grPicker": {
       "title": "Spalten konfigurieren",

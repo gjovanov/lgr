@@ -11,7 +11,7 @@ import { generateInvoicePDF, HEADER_NOTE_MAX } from 'reporting/pdf/invoice.pdf'
 import { generateCompanionDocPDF, type CompanionDocData } from 'reporting/pdf/companion-doc.pdf'
 import { generateCompanionDocXLSX } from 'reporting/excel/companion-doc.excel'
 import { generateStockReceiptPDF, type StockReceiptData } from 'reporting/pdf/stock-receipt.pdf'
-import { billStockReceiptSections, isSupplierBill, RELEASED_BILL_STATUSES } from 'services/biz/bill-stock-receipt.service'
+import { billStockReceiptSections, isSupplierBill, RELEASED_BILL_STATUSES, stockReceiptCurrency } from 'services/biz/bill-stock-receipt.service'
 import { docTitleFor, exportI18n } from 'reporting/i18n'
 import { sourceDocLabel } from 'reporting/companion-doc.i18n'
 import { getNextCompanionNumber, companionNumberField, buildPaymentMethodFilter, invoiceSortField, type CompanionDocKind } from './invoice.controller.js'
@@ -496,7 +496,7 @@ async function buildStockReceiptData(orgId: string, bill: any, locale: string): 
   return {
     sections,
     bill: { number: bill.invoiceNumber, date: bill.issueDate, draft: bill.status === 'draft' },
-    currency: bill.currency,
+    currency: stockReceiptCurrency(bill, (org as any)?.settings?.baseCurrency),
     footerText: orgFooterLine(org),
     // Same letterhead the invoice form prints; the generator falls back to the bundled asset.
     logo: (await getOrgLogoDataUri(orgId)) ?? (org as any)?.logo,

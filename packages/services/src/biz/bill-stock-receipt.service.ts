@@ -1,4 +1,5 @@
 import { Product, StockMovement, Warehouse } from 'db/models'
+import { isReceiptLinked } from './receipt-bill.service.js'
 
 /**
  * „Стокова разписка" for a supplier bill: the goods receipts that booked the bill's goods.
@@ -19,6 +20,15 @@ export const RELEASED_BILL_STATUSES = ['voided', 'cancelled']
 /** A supplier bill: the only document a stock receipt is printed from. */
 export function isSupplierBill(invoice: any): boolean {
   return invoice?.type === 'invoice' && invoice?.direction === 'incoming'
+}
+
+/**
+ * The currency a bill's stock receipt prints in. A bill that received its own goods booked them at
+ * its own prices. A bill made from receipts prints what those receipts booked, and a receipt books
+ * in the org's currency, whatever the bill says.
+ */
+export function stockReceiptCurrency(bill: any, baseCurrency: string | undefined): string {
+  return (isReceiptLinked(bill) && baseCurrency) || bill.currency
 }
 
 function idOf(v: any): string {

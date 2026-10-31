@@ -4,6 +4,7 @@ import {
   cascadePurchasePrice,
   needsSeed,
   productUpdateOf,
+  productsForSeed,
   seedFromProduct,
   setProductField,
   setTierPrice,
@@ -181,5 +182,43 @@ describe('a line staged without a base (the receipt form\'s import of a разп
   it('sends no tiers when none carries a price or a fixing', () => {
     const line: GRLine = { productId: 'p1', productUpdate: {}, priceTiers: [{ name: 'Цена 1', percent: 0, finalPrice: 0, manualOverride: false }] }
     expect(productUpdateOf(line)).toBeNull()
+  })
+})
+
+describe('productsForSeed', () => {
+  it('reads the articles a batch at a time and keys them by id', async () => {
+    const asked: number[] = []
+    const ids = Array.from({ length: 450 }, (_, i) => `p${i}`)
+    const got = await productsForSeed(async (batch) => {
+      asked.push(batch.length)
+      return batch.map(id => ({ _id: id, unit: 'pcs' }))
+    }, ids)
+    expect(asked).toEqual([200, 200, 50])
+    expect(got.size).toBe(450)
+    expect(got.get('p449')).toEqual({ _id: 'p449', unit: 'pcs' })
+  })
+
+  it('takes the id either way the API spells it', async () => {
+    const got = await productsForSeed(async () => [{ id: 'a' }, { _id: 'b' }], ['a', 'b'])
+    expect([...got.keys()]).toEqual(['a', 'b'])
+  })
+
+  it('a batch that fails leaves its articles out and the others stand', async () => {
+    let call = 0
+    const ids = Array.from({ length: 250 }, (_, i) => `p${i}`)
+    const got = await productsForSeed(async (batch) => {
+      if (call++ === 0) throw new Error('network')
+      return batch.map(id => ({ _id: id }))
+    }, ids)
+    expect(got.has('p0')).toBe(false)
+    expect(got.has('p200')).toBe(true)
+    expect(got.size).toBe(50)
+  })
+
+  it('nothing to read asks nothing', async () => {
+    let asked = false
+    const got = await productsForSeed(async () => { asked = true; return [] }, [])
+    expect(asked).toBe(false)
+    expect(got.size).toBe(0)
   })
 })

@@ -15,6 +15,9 @@
         <v-switch :model-value="withProductUpdate" density="compact" hide-details class="mr-2" color="white" style="width: 36px" @update:model-value="onWithProductUpdateChange" />
         {{ $t(withProductUpdate ? 'warehouse.withProductUpdate' : 'warehouse.withoutProductUpdate') }}
       </v-chip>
+      <v-chip v-else-if="foreignBillCurrency" class="ml-3" size="small" variant="outlined" data-testid="bill-no-product-update">
+        {{ $t('warehouse.foreignCurrencyNoUpdate', { currency: foreignBillCurrency }) }}
+      </v-chip>
       <v-btn v-if="grColumnsVisible" class="ml-2" size="small" variant="outlined" prepend-icon="mdi-view-column-outline" @click="grColumnPickerOpen = true">
         {{ $t('warehouse.grPicker.button', { n: grActiveColumns.length }) }}
       </v-btn>
@@ -342,6 +345,7 @@ const {
   withProductUpdate,
   onWithProductUpdateChange,
   productUpdateOffered,
+  foreignBillCurrency,
   grColumnPickerOpen,
   grColumnsVisible,
   grSelectedCols,
