@@ -24,6 +24,8 @@ export interface PaymentRecordedEvent {
     amount: number
     method: string
     date?: string
+    /** The receipt that took it at the counter (FR-23): the payment row it is stamped on. */
+    receiptId?: string
   }
 }
 

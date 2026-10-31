@@ -28,6 +28,12 @@ import { voidJournalEntry } from './accounting.service.js'
  *    can no longer be issued or voided. It is settled when it is issued.
  * Bank transfer and cash on delivery (наложен платеж) are deliberately not settled here: the
  * money comes later, from the bank or the courier.
+ *
+ * ⚠ FR-23: where LGR prints (`settings.cashRegister.requireConnectedDevice` not off) a printed
+ * receipt and its payment are the settlement, and neither `/send` nor `PUT` calls this rule for a
+ * document a person issues: money taken at the counter goes through the payment action, which
+ * prints. The import conversion still does, in every org: another system printed that receipt.
+ * Printing never lives in here, because the conversion comes through here.
  */
 
 /** Marks the cash payments this rule records, so it can tell them from ones a person entered. */
@@ -161,6 +167,39 @@ export async function syncCashSettlement(orgId: string, invoiceId: string, userI
   }
   logger.info({ orgId, invoiceId, invoiceNumber: inv.invoiceNumber, method: inv.paymentMethod, action, added, removed }, 'counter settlement')
   return { action, amount: round2(added - removed) }
+}
+
+/**
+ * FR-23: an edit in an org where LGR prints. It moves no money: no payment is added, shrunk or
+ * withdrawn, because that money goes through the payment action, which prints. It only says what
+ * is owed now. So a total raised on a paid document leaves the rest due and payable, where a stale
+ * `paid` would refuse the payment; a total lowered below what was paid stays paid, and what was
+ * taken stays recorded for a person to correct.
+ */
+export async function syncDueAfterEdit(orgId: string, invoiceId: string, userId: string): Promise<CashSettlementResult> {
+  const r = getRepos()
+  const inv: any = await r.invoices.findOne({ id: invoiceId, orgId } as any)
+  if (!inv || inv.direction !== 'outgoing' || inv.type !== 'invoice' || !ISSUED.includes(inv.status)) return NONE
+  if (inv.cashSaleRef?.cashSaleId) return NONE
+  const payments: any[] = inv.payments || []
+  // What this rule would have kept in line where nothing prints; every other document as today.
+  if (!SETTLED_ON_ISSUE[inv.paymentMethod] && !payments.some(p => AUTO_ORIGINS.has(p.origin))) return NONE
+
+  const total = round2(inv.total)
+  const paid = sum(payments)
+  const amountDue = Math.max(0, round2(total - paid))
+  const status = paid > 0 ? statusFor(total, paid) : inv.status
+  if (status === inv.status && amountDue === round2(inv.amountDue)) return NONE
+  await r.invoices.update(invoiceId, {
+    amountPaid: paid,
+    amountDue,
+    status,
+    paidAt: status === 'paid' ? inv.paidAt ?? null : null,
+    statusHistory: status === inv.status
+      ? inv.statusHistory || []
+      : [...(inv.statusHistory || []), { status, fromStatus: inv.status, changedAt: new Date(), changedBy: userId, reason: 'total edited' }],
+  } as any)
+  return { action: 'adjusted', amount: 0 }
 }
 
 function paymentDate(inv: any): Date {

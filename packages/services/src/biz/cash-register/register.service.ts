@@ -56,6 +56,8 @@ export const isPendingNumber = (n: unknown) => String(n ?? '').startsWith(PENDIN
  * stock failure is recorded on it, never rolled back (D-4), so it leaves no gap.
  */
 const numbersAfterStock = (doc: any) => doc?.type === 'cash_sale' && !doc?.register?.sessionId
+/** A receipt waits the same way, for the hold on its invoice (FR-23): one that gives way draws none. */
+const numbersLater = (doc: any) => numbersAfterStock(doc) || doc?.type === 'payment_receipt'
 
 type ObjectId = InstanceType<typeof Invoice.base.Types.ObjectId>
 const oid = (v: unknown): ObjectId => new Invoice.base.Types.ObjectId(String(v))
@@ -202,7 +204,7 @@ export async function tillSaleDocument(input: TillSaleInput): Promise<Record<str
 // ── The steps ────────────────────────────────────────────────────────────────
 
 /** Set fields of the register block, returning the document after the write. */
-async function setRegister(id: unknown, set: Record<string, unknown>): Promise<any> {
+export async function setRegister(id: unknown, set: Record<string, unknown>): Promise<any> {
   const $set = Object.fromEntries(Object.entries(set).map(([k, v]) => [`register.${k}`, v]))
   return Invoice.findByIdAndUpdate(id, { $set }, { new: true }).lean().exec()
 }
@@ -211,7 +213,7 @@ async function setRegister(id: unknown, set: Record<string, unknown>): Promise<a
  * Give a keyed document its real number: it was inserted under `PENDING_NUMBER`. A number the
  * counter handed out twice is retried, as an unkeyed insert does. Null after three.
  */
-async function numberPending(orgId: string, doc: any): Promise<any | null> {
+export async function numberPending(orgId: string, doc: any): Promise<any | null> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const number = await getNextInvoiceNumber(orgId, 'outgoing', doc.type)
     try {
@@ -275,7 +277,7 @@ async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promis
 }
 
 /** The sale's receipt: fiscal or text, at most once. */
-async function printSaleStep(c: RegisterContext, doc: any): Promise<any> {
+export async function printSaleStep(c: RegisterContext, doc: any): Promise<any> {
   const printer = c.printer
   if (!printer) {
     return setRegister(doc._id, { 'fiscal.state': 'unknown', receiptError: 'The fiscal device is no longer connected — check whether the receipt printed.' })
@@ -355,7 +357,7 @@ export function stornoRefundBuckets(
 }
 
 /** The session's accumulators — claimed and applied in one Mongo transaction, so never twice. */
-async function applySessionTotals(doc: any, sessionId: string, inc: Record<string, number>): Promise<void> {
+export async function applySessionTotals(doc: any, sessionId: string, inc: Record<string, number>): Promise<void> {
   const s = await Invoice.startSession()
   try {
     await s.withTransaction(async () => {
@@ -372,7 +374,7 @@ async function applySessionTotals(doc: any, sessionId: string, inc: Record<strin
 }
 
 /** A sale's increments: the same buckets, and the same rule, the close screen reconciles. */
-function saleIncrements(doc: any): Record<string, number> {
+export function saleIncrements(doc: any): Record<string, number> {
   const t = tenderedBuckets(doc)
   const inc: Record<string, number> = { transactionCount: 1, totalSales: Number(doc.total) || 0 }
   // Change goes back out of the drawer in cash, so the drawer keeps what was tendered in cash
@@ -430,7 +432,7 @@ function reachedDeviceOrDrawer(doc: any): boolean {
 }
 
 /** Remove a sale that failed before it reached the device or the drawer. */
-async function rollBack(doc: any): Promise<void> {
+export async function rollBack(doc: any): Promise<void> {
   await Invoice.deleteOne({ _id: doc._id, orgId: doc.orgId }).exec()
 }
 
@@ -544,7 +546,7 @@ export async function insertRegisterDocument(
     // `runSaleSteps` numbers it after its stock.
     const number = keyed
       ? `${PENDING_NUMBER}${keyed.key}`
-      : numbersAfterStock(document) ? `${PENDING_NUMBER}doc:${String(document._id ?? (document._id = newDocumentId()))}` : await getNextInvoiceNumber(orgId, 'outgoing', document.type)
+      : numbersLater(document) ? `${PENDING_NUMBER}doc:${String(document._id ?? (document._id = newDocumentId()))}` : await getNextInvoiceNumber(orgId, 'outgoing', document.type)
     const fields = {
       ...document,
       issueDate: document.issueDate ?? new Date(),

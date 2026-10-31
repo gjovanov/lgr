@@ -147,6 +147,8 @@
     "./composables/useDocImport": "./src/composables/useDocImport.ts",
     "./composables/useImageResize": "./src/composables/useImageResize.ts",
     "./cash-register/storno": "./src/cash-register/storno.ts",
+    "./cash-register/receipt-refusal": "./src/cash-register/receipt-refusal.ts",
+    "./cash-register/journal-kind": "./src/cash-register/journal-kind.ts",
     "./components/cash-register/CashRegisterJournal.vue": "./src/components/cash-register/CashRegisterJournal.vue",
     "./components/cash-register/CashRegisterDocument.vue": "./src/components/cash-register/CashRegisterDocument.vue",
     "./components/cash-register/StornoDialog.vue": "./src/components/cash-register/StornoDialog.vue",

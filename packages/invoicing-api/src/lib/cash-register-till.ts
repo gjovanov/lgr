@@ -20,12 +20,16 @@ import {
   runStornoSteps, settleKeyedDocument, stornoDocument, stornoRefusal,
   type RegisterContext, type RegisterSession, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
+import { fiscalUnitPrice } from 'services/biz/cash-register/receipt-lines'
 import { isDeviceConnected, getPrinter, type IFiscalPrinter } from 'fiscal/fiscal-device.service'
+import { maySaleOpen } from 'fiscal/device-reach'
 import { FiscalPaymentMethodError, toFiscalPaymentType } from 'fiscal/types'
 import { unsupportedReason } from 'fiscal/capabilities'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
 import { fiscalOperation } from 'fiscal/in-flight'
 import { roundCents } from 'config/pos-totals'
+
+export { fiscalUnitPrice }
 
 /**
  * Who may reverse a sale (H4, #145), on top of the route's permission (`pos.write`, or the journal's
@@ -34,7 +38,7 @@ import { roundCents } from 'config/pos-totals'
  */
 export const STORNO_ROLES = ['admin', 'manager']
 
-export type FiscalCtx = { deviceId: string; deviceNumber: string; printer: IFiscalPrinter; cashOnDeliveryRefusal: string | null } | null
+export type FiscalCtx = { deviceId: string; deviceNumber: string; printer: IFiscalPrinter; cashOnDeliveryRefusal: string | null; printsFiscalText: boolean } | null
 
 /**
  * Look up the active fiscal device for a warehouse.
@@ -67,16 +71,8 @@ export async function getFiscalContext(orgId: string, warehouseId: string): Prom
     deviceNumber: device.deviceNumber as string,
     printer: getPrinter(device.id),
     cashOnDeliveryRefusal: unsupportedReason(device.manufacturer, device.connectionType, 'cashOnDelivery'),
+    printsFiscalText: unsupportedReason(device.manufacturer, device.connectionType, 'fiscalText') === null,
   }
-}
-
-/**
- * The VAT-inclusive unit price a fiscal device must be given. Till lines carry NET prices (the
- * cart adds tax on top); a fiscal device derives VAT from the gross amount per group, so sending
- * the net price would print — and book — every line without its VAT.
- */
-export function fiscalUnitPrice(netUnitPrice: number, taxRate: number | undefined): number {
-  return roundCents(netUnitPrice * (1 + (taxRate || 0) / 100))
 }
 
 /** What the customer handed over, per payment: the device computes the change itself. */
@@ -160,6 +156,7 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
     lastReceiptNumber: async () => (p.getLastReceiptNumber ? p.getLastReceiptNumber() : undefined),
     printsText: !!p.openNonFiscalReceipt,
     cashOnDeliveryRefusal: fiscal.cashOnDeliveryRefusal,
+    printsFiscalText: fiscal.printsFiscalText,
     async printSale(doc) {
       // Read before the receipt opens: a payment no receipt can carry must not strand an open one.
       const payments = tendered(doc).map((t: any) => ({ type: toFiscalPaymentType(t.method), amount: t.amount }))
@@ -168,6 +165,8 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
         const taxRate = line.taxRate ?? 0
         await p.printSaleLine(line.description, line.quantity, fiscalUnitPrice(line.unitPrice, taxRate), mapTaxRateToVatGroup(taxRate), line.discount || undefined, taxRate)
       }
+      // FR-23: the invoice a whole payment is for, under its lines. Only ever on a device that can.
+      if (doc.register?.receiptText) await p.printFiscalText?.(doc.register.receiptText)
       for (const payment of payments) await p.printPayment(payment.type, payment.amount)
       const { fiscalReceiptNumber } = await p.closeFiscalReceipt()
       return fiscalReceiptNumber
@@ -288,6 +287,26 @@ function assertStornoTender(refund: { method: string; amount: number }[] | undef
   const method = refundMethod(refund, original)
   assertFiscalMethods([method])
   assertDeviceTakes([method], printer)
+}
+
+/**
+ * FR-20.49 — Прил. 29 т. 8: no fiscal receipt opens on a device not reached in two hours (SUPTO
+ * production mode only). For a NEW document only: a retry of one that already opened must finish.
+ */
+export async function assertSaleMayOpen(orgId: string, warehouseId: unknown): Promise<void> {
+  const verdict = await maySaleOpen(orgId, warehouseId as any)
+  if (verdict.ok) return
+  throw new RegisterRefusal(409, {
+    code: 'fiscal_device_unreached',
+    message: `The fiscal device "${verdict.deviceName}" has not answered for more than 2 hours. A sale cannot open until it does (Н-18, Прил. 29 т. 8).`,
+    deviceName: verdict.deviceName,
+    lastCommunicationAt: verdict.lastCommunicationAt,
+  })
+}
+
+/** FR-21.31 (D-13): the user's own open session, which their back-office documents join. */
+export async function openSessionOf(orgId: string, userId: string): Promise<any | null> {
+  return POSSession.findOne({ orgId, cashierId: userId, status: 'open' }).sort({ openedAt: -1 }).lean().exec()
 }
 
 /** A session as the service reads it. */

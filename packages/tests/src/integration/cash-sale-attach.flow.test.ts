@@ -4,7 +4,7 @@ import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { mongoose } from 'db/connection'
 import {
-  createTestOrg, createTestUser, createTestContact, createTestWarehouse, createTestProduct, createTestStockLevel,
+  allowSalesWithoutPrinter, createTestOrg, createTestUser, createTestContact, createTestWarehouse, createTestProduct, createTestStockLevel,
   createTestJournalEntry,
 } from '../helpers/factories'
 import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
@@ -41,6 +41,8 @@ const DAY = '2026-10-20'
 
 async function world() {
   const org = await createTestOrg()
+  // An invoice settled on issue, as one is where LGR prints nothing (FR-23).
+  await allowSalesWithoutPrinter(org._id)
   const orgId = String(org._id)
   const user = await createTestUser(org._id)
   const customer = await createTestContact(org._id, { companyName: 'Купувач ООД', type: 'customer' } as any)

@@ -11,13 +11,21 @@ import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumbe
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
 import { Invoice, POSSession, Reservation, StockMovement } from 'db/models'
-import { assertJoinedSaleTender, assertPrinterConnected, tillContext } from '../lib/cash-register-till.js'
+import { assertJoinedSaleTender, assertPrinterConnected, openSessionOf, tillContext, tillSettings } from '../lib/cash-register-till.js'
+import {
+  finishInterruptedReceipts, keyedReceipt, prepareIssueReceipt, prepareReceipt, printReceipt, receiptOutcome, settleKeyedReceipt,
+  type PreparedReceipt,
+} from '../lib/counter-receipt.js'
 import { computePosTotals } from 'config/pos-totals'
 import { assertHomeIsHere } from 'db/home/home'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
-import { syncCashSettlement } from 'services/biz/cash-settlement.service'
+import { syncCashSettlement, syncDueAfterEdit } from 'services/biz/cash-settlement.service'
+import { fitsDue, heldOn, outstandingOf, overpays, paymentPipeline } from 'services/biz/invoice-payment'
+import { FISCALLY_PAID, isFiscallyPaid, paidByReceipts } from 'services/biz/cash-register/payment-receipt.service'
+import { movesPrintedMoney } from 'services/biz/cash-register/receipt-lines'
+import { NOT_PAYMENT_RECEIPT } from 'services/biz/sale-counting'
 import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from 'services/biz/cash-register/immutability'
 import {
   readIdempotencyKey, requestHash, assertSameRequest, isDuplicateKey, takeLease, waitForCompletion,
@@ -55,11 +63,6 @@ interface CreateCtx {
   joined?: any | null
   /** How a joined sale prints on its session's device; absent, it prints nothing. */
   receipt?: 'fiscal' | 'text'
-}
-
-/** FR-21.31 (D-13): the author's own open session, which their back-office cash sale joins. */
-async function openSessionOf(orgId: string, userId: string): Promise<any | null> {
-  return POSSession.findOne({ orgId, cashierId: userId, status: 'open' }).sort({ openedAt: -1 }).lean().exec()
 }
 
 const reused = (status: Status, e: IdempotencyError) => status(e.statusCode, { code: e.code, message: e.message })
@@ -331,23 +334,7 @@ function synthesizeStatusHistory(invoice: any): any[] {
 
 const PAYMENT_METHODS = ['cash', 'bank_transfer', 'card', 'cash_on_delivery', 'other']
 
-/** Half a cent: money is compared at the cent, never at floating-point precision. */
-const PAYMENT_TOLERANCE = 0.005
-
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
-
-/**
- * FR-22.7: what a document still has to be paid — its total less what has been paid on it, the
- * figure the record-payment dialog offers.
- */
-function outstandingOf(doc: { total?: number; amountPaid?: number }): number {
-  return round2((Number(doc.total) || 0) - (Number(doc.amountPaid) || 0))
-}
-
-/** Whether `amount` pays more than the document still owes. */
-function overpays(doc: { total?: number; amountPaid?: number }, amount: number): boolean {
-  return (Number(doc.amountPaid) || 0) + amount > (Number(doc.total) || 0) + PAYMENT_TOLERANCE
-}
 
 /**
  * The refusal of an overpayment. Nothing posts one on purpose: the dialog offers the outstanding
@@ -363,6 +350,14 @@ function overpayment(status: Status, doc: { total?: number; amountPaid?: number 
     message: `Payment ${round2(amount)} is more than the ${outstanding} still due on this document`,
   })
 }
+
+/** FR-23: it would fit, but a receipt printing right now is taking that money. */
+const receiptPrinting = (status: Status) => status(409, {
+  code: 'payment_in_progress',
+  message: 'Another payment on this document is printing. Wait for it to finish, then try again.',
+})
+const holdsTheRoom = (doc: { total?: number; amountPaid?: number; receiptHolds?: { amount?: number }[] }, amount: number) =>
+  overpays({ total: doc.total, amountPaid: (Number(doc.amountPaid) || 0) + heldOn(doc) }, amount)
 
 /**
  * Filter documents by payment method. A document matches when any of its recorded
@@ -462,6 +457,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (list.length === 1) filter.type = list[0]
       else if (list.length > 1) filter.type = { $in: list }
     }
+    // FR-23: a payment's receipt is not a document of these lists. It has its own, the journal.
+    if (!filter.type) Object.assign(filter, NOT_PAYMENT_RECEIPT)
     if (query.direction) filter.direction = query.direction
     if (query.status) {
       const list = String(query.status).split(',').map(s => s.trim()).filter(Boolean)
@@ -980,6 +977,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // The goods receipts a supplier bill booked — what its „Стокова разписка" prints; the
         // form offers the print only when there are some.
         ...(isSupplierBill(invoice) ? { stockMovements: await billStockReceipts(orgId, invoice) } : {}),
+        // FR-23: the receipts that paid it.
+        paymentReceipts: await paidByReceipts(orgId, id),
         statusHistory: synthesizeStatusHistory(invoice),
         contactId: contact ? { _id: contact.id, id: contact.id, companyName: (contact as any).companyName, firstName: (contact as any).firstName, lastName: (contact as any).lastName, email: (contact as any).email } : invoice.contactId,
       },
@@ -998,6 +997,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (!existing) return status(404, { message: 'Invoice not found' })
       // FR-21.11: a till document or a storno is corrected by a storno, never edited.
       if (isImmutableRegisterDocument(existing as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
+      // FR-23 §2.7: a printed receipt cannot change, so what it printed cannot either. Anything else
+      // on the document stays editable, as on every other.
+      if (movesPrintedMoney(existing as any, body as any)) {
+        // A receipt whose request died is no reason to refuse, if it never printed.
+        await finishInterruptedReceipts(orgId, user, id)
+        if (await isFiscallyPaid(orgId, id)) return status(409, { ...FISCALLY_PAID })
+      }
 
       // Inline product-master updates (purchase bills only) — extracted before the $set below.
       const productUpdates = (body as any).productUpdates as any[] | undefined
@@ -1123,7 +1129,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
       // An issued invoice edited to cash (or its total changed while cash) is paid; one edited
       // away from cash gives back the payment that rule recorded. Drafts are untouched.
-      const settlement = await syncCashSettlement(orgId, id, user.id)
+      // ⚠ FR-23: not where LGR prints. That money goes through the payment action, which prints; an
+      // edit must not settle silently.
+      const { requireConnectedDevice: prints } = await tillSettings(orgId)
+      const settlement = await (prints ? syncDueAfterEdit : syncCashSettlement)(orgId, id, user.id)
       if (settlement.action !== 'none') updated = await r.invoices.findOne({ id, orgId } as any)
 
       return { invoice: updated }
@@ -1226,6 +1235,38 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     }
     const hash = key ? requestHash(`invoice.send:${id}`, body ?? {}) : undefined
 
+    /** The issued document, with what its receipt came to (FR-23). */
+    const withReceipt = async (receipt: any) => ({ invoice: await r.invoices.findOne({ id, orgId } as any), ...receiptOutcome(receipt) })
+    /**
+     * FR-23 §2.4: the receipt, now that the document has the number it names. Issued is issued: a
+     * failure here leaves it issued and unpaid, says why, and the Pay button takes the money.
+     */
+    const printAtIssue = async (prepared: PreparedReceipt) => {
+      try {
+        const doc = await Invoice.findOne({ _id: id, orgId }).lean().exec()
+        return await withReceipt(await printReceipt(orgId, prepared, doc, key ? { key, hash: hash! } : undefined))
+      } catch (e: any) {
+        if (!(e instanceof RegisterRefusal)) throw e
+        return { invoice: await r.invoices.findOne({ id, orgId } as any), receiptError: e.message }
+      }
+    }
+    /**
+     * A retry of an issue that went through: its receipt comes back, printed once, and one the first
+     * attempt never finished, or never started, is finished here.
+     */
+    const replayIssued = async () => {
+      try {
+        const receipt = key ? await keyedReceipt(orgId, key) : null
+        if (receipt) return await withReceipt(await settleKeyedReceipt(orgId, user, receipt, hash!))
+        const prepared = await prepareIssueReceipt(orgId, user, await Invoice.findOne({ _id: id, orgId }).lean().exec())
+        if (prepared) return await printAtIssue(prepared)
+      } catch (e: any) {
+        if (!(e instanceof RegisterRefusal)) throw e
+        return { invoice: await r.invoices.findOne({ id, orgId } as any), receiptError: e.message }
+      }
+      return { invoice: await r.invoices.findOne({ id, orgId } as any) }
+    }
+
     /**
      * The issue this key already made, or the one still running under it: the issued document
      * comes back, never a second dispatch or a second number. Null when the holder's lease
@@ -1239,7 +1280,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         if (doc.issue.requestHash !== hash) {
           return status(422, { code: 'idempotency_key_reused', message: 'This Idempotency-Key was already used for a different request' })
         }
-        if (doc.status !== 'draft') return { invoice: await r.invoices.findOne({ id, orgId } as any) }
+        if (doc.status !== 'draft') return replayIssued()
         if (!doc.issue.leaseUntil || new Date(doc.issue.leaseUntil).getTime() < Date.now()) return null
         if (Date.now() >= deadline) {
           return status(409, { code: 'idempotency_in_progress', message: 'This document is still being issued — retry with the same Idempotency-Key.' })
@@ -1260,6 +1301,16 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     // Refused here, before the claim and the dispatch, never at the allocation after them.
     const frozen = await issuableRefusal(orgId, invoice.direction as string, invoice.type as string)
     if (frozen) return status(409, { code: frozen.code, message: frozen.message })
+
+    // FR-23 §2.3: a document paid at the counter prints, in the open session of whoever issues it.
+    // No session, no device: refused here, with no number drawn, no stock moved, no claim taken.
+    let counter: PreparedReceipt | null
+    try {
+      counter = await prepareIssueReceipt(orgId, user, invoice)
+    } catch (e: any) {
+      if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
+      throw e
+    }
 
     /**
      * ⚠ CLAIM the draft before anything moves. Two Issue clicks (or a retry) used to both pass
@@ -1361,6 +1412,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       contactId: invoice.contactId as string,
     })
 
+    // FR-23 §2.4: where LGR prints, the receipt and its payment are the settlement. Not in
+    // `syncCashSettlement`: the import conversion comes through there, and never prints.
+    if (counter) return printAtIssue(counter)
+
     // A cash invoice is paid the moment it is issued — no separate "record payment" step.
     const settlement = await syncCashSettlement(orgId, id, user.id)
     if (settlement.action !== 'none') return { invoice: await r.invoices.findOne({ id, orgId } as any) }
@@ -1428,30 +1483,59 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         }
         return { invoice: await r.invoices.findOne({ id, orgId } as any) }
       }
+      /** FR-23: what a payment that printed answers, and one whose receipt failed: nothing was recorded. */
+      const receiptAnswer = async (receipt: any) => {
+        if (receipt.register?.fiscal?.state === 'failed') {
+          return status(503, {
+            code: 'fiscal_error',
+            receiptId: String(receipt._id),
+            message: `The receipt was not printed, so no payment was recorded: ${receipt.register.receiptError}`,
+          })
+        }
+        return { invoice: await r.invoices.findOne({ id, orgId } as any), ...receiptOutcome(receipt) }
+      }
 
-      const invoice = await r.invoices.findOne({ id, orgId } as any)
+      let invoice = await r.invoices.findOne({ id, orgId } as any)
       if (!invoice) return status(404, { message: 'Invoice not found' })
       if (key) {
+        // A receipt holds the key of the payment it took.
+        const receipt = await keyedReceipt(orgId, key)
+        if (receipt) {
+          try {
+            return await receiptAnswer(await settleKeyedReceipt(orgId, user, receipt, hash!))
+          } catch (e: any) {
+            if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
+            throw e
+          }
+        }
         const replayed = await replayPayment(invoice)
         if (replayed) return replayed
       }
+      // FR-23: what a request that died left on this document comes first: its receipt may have
+      // printed, and then this money is already taken.
+      if (await finishInterruptedReceipts(orgId, user, id)) invoice = (await r.invoices.findOne({ id, orgId } as any))!
       if (['voided', 'cancelled', 'paid'].includes(invoice.status))
         return status(400, { message: 'Cannot record payment on this invoice' })
       if (overpays(invoice, body.amount)) return overpayment(status, invoice, body.amount)
+      if (holdsTheRoom(invoice as any, body.amount)) return receiptPrinting(status)
 
-      /**
-       * ⚠ ONE atomic update: append the payment, add it to `amountPaid`, and derive
-       * `amountDue`, `status`, `paidAt` and the status history from the RESULT, inside the
-       * database. Read-modify-write here lost a payment whenever two were recorded at once (each
-       * wrote back the array it had read), and let a retried request pay twice. The key, when
-       * sent, is part of the filter: a second request with it matches nothing.
-       */
+      // FR-23 §2.2: cash or card at the counter prints, and the receipt records the payment. Refused
+      // here when it cannot, with nothing written.
+      try {
+        const tender = { method: body.method, amount: body.amount, date: new Date(body.date), ...(body.reference ? { reference: body.reference } : {}) }
+        const prepared = await prepareReceipt(orgId, user, invoice, tender, false)
+        if (prepared) {
+          const doc = await Invoice.findOne({ _id: id, orgId }).lean().exec()
+          return await receiptAnswer(await printReceipt(orgId, prepared, doc, key ? { key, hash: hash! } : undefined))
+        }
+      } catch (e: any) {
+        if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
+        throw e
+      }
+
       const { ObjectId } = (Invoice.base as any).Types
       const oid = (v: string) => new ObjectId(v)
-      const at = new Date()
-      const payment = {
-        // Mongoose gives array subdocuments an _id; a raw update has to do it itself.
-        _id: new ObjectId(),
+      const row = {
         date: new Date(body.date),
         amount: body.amount,
         method: body.method,
@@ -1464,48 +1548,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         {
           _id: oid(id), orgId: oid(orgId),
           status: { $nin: ['voided', 'cancelled', 'paid'] },
+          // The key, when sent, is part of the filter: a second request with it matches nothing.
           ...(key ? { 'payments.clientKey': { $ne: key } } : {}),
-          // The overpayment check again, inside the update: two payments recorded at once each
-          // fit what was owed when they were read, and must not overpay it between them.
-          $expr: { $lte: [{ $add: [{ $ifNull: ['$amountPaid', 0] }, body.amount] }, { $add: ['$total', PAYMENT_TOLERANCE] }] },
+          ...fitsDue(body.amount),
         },
-        [
-          {
-            $set: {
-              _priorStatus: '$status',
-              // $literal: a reference typed as "$…" is text, not a field path.
-              payments: { $concatArrays: [{ $ifNull: ['$payments', []] }, [{ $literal: payment }]] },
-              amountPaid: { $add: [{ $ifNull: ['$amountPaid', 0] }, body.amount] },
-            },
-          },
-          { $set: { amountDue: { $subtract: ['$total', '$amountPaid'] } } },
-          { $set: { status: { $cond: [{ $lte: ['$amountDue', 0] }, 'paid', 'partially_paid'] } } },
-          {
-            $set: {
-              paidAt: { $cond: [{ $lte: ['$amountDue', 0] }, at, '$paidAt'] },
-              statusHistory: {
-                $cond: [
-                  { $ne: ['$status', '$_priorStatus'] },
-                  {
-                    $concatArrays: [
-                      { $ifNull: ['$statusHistory', []] },
-                      [{
-                        status: '$status',
-                        fromStatus: '$_priorStatus',
-                        changedAt: at,
-                        changedBy: oid(String(user.id)),
-                        reason: { $literal: `payment ${body.amount} ${body.method}` },
-                      }],
-                    ],
-                  },
-                  '$statusHistory',
-                ],
-              },
-              updatedAt: at,
-            },
-          },
-          { $unset: '_priorStatus' },
-        ],
+        paymentPipeline(row, { at: new Date(), by: String(user.id) }) as any,
         { returnDocument: 'after' },
       )
       if (!after) {
@@ -1519,6 +1566,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         if (current && !['voided', 'cancelled', 'paid'].includes(current.status) && overpays(current, body.amount)) {
           return overpayment(status, current, body.amount)
         }
+        if (current && !['voided', 'cancelled', 'paid'].includes(current.status) && holdsTheRoom(current, body.amount)) return receiptPrinting(status)
         return status(400, { message: 'Cannot record payment on this invoice' })
       }
       const updated = await r.invoices.findOne({ id, orgId } as any)
@@ -1561,6 +1609,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const invoice = await r.invoices.findOne({ id, orgId } as any)
     if (!invoice) return status(404, { message: 'Invoice not found' })
     if (isImmutableRegisterDocument(invoice as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
+    // FR-23 §2.7: the receipt stands, so the document it paid does.
+    await finishInterruptedReceipts(orgId, user, id)
+    if (await isFiscallyPaid(orgId, id)) return status(409, { ...FISCALLY_PAID })
     // #171: an invoice for a cash sale is born paid, but the money is the cash sale's, so voiding
     // it gives nothing back — it only releases the sale's quantities for a new invoice.
     const voidable = (invoice as any).cashSaleRef?.cashSaleId ? ['draft', 'paid'] : ['draft', 'sent', 'received']
@@ -1647,6 +1698,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     '/:id/attach-to-cash-sale',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      // FR-23 §2.7: its receipt took this money; a cash sale cannot be what paid it.
+      if (await isFiscallyPaid(orgId, id)) return status(409, { ...FISCALLY_PAID })
       try {
         return { invoice: await attachInvoiceToCashSale(orgId, user, id, body.cashSaleId) }
       } catch (e: any) {

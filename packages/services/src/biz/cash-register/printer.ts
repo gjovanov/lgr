@@ -23,12 +23,17 @@ export interface RegisterPrinter {
    * before printing and again on a resume: it is how print-once tells "printed" from "not printed".
    */
   lastReceiptNumber(): Promise<number | undefined>
-  /** Print the sale's fiscal receipt under `doc.register.unp`. Returns the receipt number. */
+  /**
+   * Print the sale's fiscal receipt under `doc.register.unp`, with `doc.register.receiptText` under
+   * its lines when it has one (FR-23). Returns the receipt number.
+   */
   printSale(doc: RegisterDocument): Promise<string>
   /** Whether the device prints non-fiscal text (the till's „Нефискален" mode). */
   readonly printsText: boolean
   /** Why this device cannot take a cash-on-delivery payment; null when it can (`fiscal/capabilities`). */
   readonly cashOnDeliveryRefusal: string | null
+  /** Whether it prints a text line inside a fiscal receipt (`fiscal/capabilities`, FR-23). */
+  readonly printsFiscalText: boolean
   /** Print the sale as a non-fiscal text receipt. */
   printText(doc: RegisterDocument): Promise<void>
   /** Print the storno receipt of `original`. Returns its receipt number. */

@@ -225,9 +225,17 @@ export function registerEventHandlers(): void {
     )
 
     if (je) {
+      // FR-23: a receipt's payment is stamped on its own row, which the receipt names. Written back
+      // whole, the array would lose a part payment recorded a moment later, at the same counter.
+      if (payload.receiptId) {
+        await Invoice.updateOne(
+          { _id: payload.invoiceId, orgId: payload.orgId, 'payments.receiptId': payload.receiptId },
+          { $set: { 'payments.$.journalEntryId': je.id } },
+        ).exec()
+      }
       // Update the last payment entry with journalEntryId
       const payments = invoice.payments || []
-      if (payments.length > 0) {
+      if (!payload.receiptId && payments.length > 0) {
         payments[payments.length - 1].journalEntryId = je.id
         await r.invoices.update(payload.invoiceId, { payments } as any)
       }
