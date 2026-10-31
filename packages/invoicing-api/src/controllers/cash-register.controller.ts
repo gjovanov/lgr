@@ -1,3 +1,4 @@
+import { FiscalRoute, deviceFromJournalDocument } from 'fiscal/fiscal-route'
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { orgDao } from 'services/dao/org.dao'
@@ -23,6 +24,8 @@ const literal = <T extends string>(...values: T[]) => t.Optional(t.Union(values.
 
 export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-register' })
   .use(AppAuthService)
+  // FR-24.50: the routes that reach a fiscal device say which; one held on another pod runs there.
+  .use(FiscalRoute)
   // FR-21.28: refused, with the reason, until the till's history may be read from documents only.
   .onBeforeHandle(async ({ status }) => {
     const refusal = await cashRegisterRefusal()
@@ -116,7 +119,7 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
       return 'status' in out ? status(out.status, out.body) : out
     },
     {
-      isSignIn: true,
+      isSignIn: true, fiscalDevice: deviceFromJournalDocument,
       body: t.Object({
         reason: t.Union([t.Literal('operator_error'), t.Literal('customer_return'), t.Literal('price_reduction'), t.Literal('tax_base_reduction')]),
         /** The open session a till sale's refund leaves; a back-office sale takes none. */

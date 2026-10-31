@@ -1,3 +1,4 @@
+import { FiscalRoute, deviceFromBodyWarehouse, deviceFromSession } from 'fiscal/fiscal-route'
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { livePresence } from 'services/biz/fiscal-presence.service'
@@ -333,6 +334,8 @@ function pageOf(rows: any[], query: Record<string, any>) {
 
 export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
   .use(AppAuthService)
+  // FR-24.50: the routes that reach a fiscal device say which; one held on another pod runs there.
+  .use(FiscalRoute)
   // FR-21.28: the till is refused, with the reason, until its history may be read from documents only.
   .onBeforeHandle(async ({ status }) => {
     const refusal = await cashRegisterRefusal()
@@ -430,7 +433,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       return { session }
     },
     {
-      isSignIn: true,
+      isSignIn: true, fiscalDevice: deviceFromBodyWarehouse,
       body: t.Object({
         warehouseId: t.String(),
         openingBalance: t.Number({ minimum: 0 }),
@@ -495,7 +498,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         ? { id: device.id, name: device.name, deviceNumber: device.deviceNumber, connected: isDeviceConnected(device.id) || !!(await livePresence({ orgId, deviceNumber: String(device.deviceNumber) })) }
         : null,
     }
-  }, { isSignIn: true })
+  }, { isSignIn: true, fiscalDevice: deviceFromSession })
 
   /**
    * The session's report: the one its close printed (kept on the session), or, while it is open,
@@ -532,7 +535,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       module: 'pos', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber,
     })
     return { printed: true }
-  }, { isSignIn: true })
+  }, { isSignIn: true, fiscalDevice: deviceFromSession })
   /** The device a session's reports print on and what it can do, for the POS Sessions menu. */
   .get('/session/:id/device-report', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
@@ -581,7 +584,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       }),
     })
   }, {
-    isSignIn: true,
+    isSignIn: true, fiscalDevice: deviceFromSession,
     body: t.Object({
       kind: t.Union(DEVICE_REPORT_KINDS.map(k => t.Literal(k))),
       // A page sends null (or '') for a field left empty; `printDeviceReport` says what is missing.
@@ -817,7 +820,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       return { session: updated, fiscalStatus, zReportNumber, report, ...(reportError ? { reportError } : {}) }
     },
     {
-      isSignIn: true,
+      isSignIn: true, fiscalDevice: deviceFromSession,
       body: t.Object({
         /** Legacy single-number form — still accepted, maps to `counted.cash`. */
         closingBalance: t.Optional(t.Number()),
@@ -934,7 +937,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       }
     },
     {
-      isSignIn: true,
+      isSignIn: true, fiscalDevice: deviceFromSession,
       body: SALE_BODY,
     },
   )
@@ -973,7 +976,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       return 'status' in out ? status(out.status, out.body) : out
     },
     {
-      isSignIn: true,
+      isSignIn: true, fiscalDevice: deviceFromSession,
       body: t.Object({
         originalTransactionId: t.String(),
         reason: t.Union([t.Literal('operator_error'), t.Literal('customer_return'), t.Literal('price_reduction'), t.Literal('tax_base_reduction')]),

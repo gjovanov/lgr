@@ -42,6 +42,8 @@ export interface NodeOptions {
   env?: Record<string, string>
   /** Sent with the readiness probe: a node behind a front answers nothing without its secret. */
   probeHeaders?: Record<string, string>
+  /** FR-24.54: a database another node shares (two pods of one global). Not stopped with this node. */
+  mongoUri?: string
 }
 
 export interface TwoNodes {
@@ -65,8 +67,8 @@ function packageDir(): string | undefined {
 }
 
 export async function startNode(role: 'global' | 'master', scratch: string, opts: NodeOptions = {}): Promise<Node> {
-  const mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 } })
-  const mongoUri = mongo.getUri('lgr')
+  const mongo = opts.mongoUri ? null : await MongoMemoryReplSet.create({ replSet: { count: 1 } })
+  const mongoUri = opts.mongoUri ?? mongo!.getUri('lgr')
   const port = freePort()
   const url = `http://127.0.0.1:${port}`
   const uploadDir = join(scratch, `${role}-uploads`)
@@ -93,6 +95,8 @@ export async function startNode(role: 'global' | 'master', scratch: string, opts
     DESKTOP_REAPER_INTERVAL_MS: '0',
     NODE_REAPER_INTERVAL_MS: '0',
     ...(pkg ? { LGR_UI_ROOT: join(pkg, 'ui') } : {}),
+    // Where the other pods reach this one (tunnel/pod.ts): its own listener.
+    LGR_POD_ADDR: url,
     ...opts.env,
   })
   const cmd = pkg ? ['bun', join(pkg, 'app', 'server.js')] : ['bun', 'src/unified.ts']
@@ -122,7 +126,7 @@ export async function startNode(role: 'global' | 'master', scratch: string, opts
     async stop() {
       proc.kill()
       await proc.exited
-      await mongo.stop()
+      await mongo?.stop()
     },
   }
 }
@@ -152,4 +156,39 @@ export async function startTwoNodes(): Promise<TwoNodes> {
 export function uplinkFetch(nodes: TwoNodes, path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<Response> {
   const { timeoutMs = 10_000, ...rest } = init
   return fetch(`${nodes.uplinkUrl}${path}`, { ...rest, signal: AbortSignal.timeout(timeoutMs), tls: { ca: nodes.ca.ca } } as any)
+}
+
+/**
+ * FR-24.54: two pods of one global, on one database, as Kubernetes runs them with `replicas: 2`.
+ * The same secrets (a token one pod signs is good on the other, as behind one Service), each its own
+ * process, port and `LGR_POD_ADDR`. Neither has a front: global's pods answer directly.
+ */
+export interface TwoPods {
+  readonly a: Node
+  readonly b: Node
+  readonly mongoUri: string
+  /** Shared by both pods: what a test signs a session with. */
+  readonly jwtSecret: string
+  stop(): Promise<void>
+}
+
+export async function startTwoPods(): Promise<TwoPods> {
+  const scratch = mkdtempSync(join(tmpdir(), 'lgr-two-pods-'))
+  const mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 } })
+  const mongoUri = mongo.getUri('lgr')
+  const shared = { JWT_SECRET: random(), DESKTOP_TOKEN_SECRET: random(), NODE_TOKEN_SECRET: random(), UPLOAD_DIR: join(scratch, 'uploads') }
+  // One after the other: both would run the migrations at once otherwise (the lock makes one wait).
+  const a = await startNode('global', scratch, { mongoUri, env: shared })
+  const b = await startNode('global', scratch, { mongoUri, env: shared })
+  return {
+    a,
+    b,
+    mongoUri,
+    jwtSecret: shared.JWT_SECRET,
+    async stop() {
+      await Promise.all([a.stop().catch(() => undefined), b.stop().catch(() => undefined)])
+      await mongo.stop()
+      rmSync(scratch, { recursive: true, force: true })
+    },
+  }
 }
