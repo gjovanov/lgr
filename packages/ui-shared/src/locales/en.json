@@ -1569,6 +1569,40 @@
       "documents": "Documents",
       "receipts": "Receipts",
       "z": "Z-report No."
+    },
+    "device": {
+      "why": {
+        "protocol": {
+          "readOperator": "{brand} devices cannot report their operators — program them from here",
+          "operatorReport": "The {brand} protocol has no operator report",
+          "electronicJournal": "The {brand} protocol has no electronic-journal (KLEN) print",
+          "other": "The {brand} protocol has no such command"
+        },
+        "driver": "LGR's driver for this {brand} device does not support this yet",
+        "noDriver": "LGR cannot open this {brand} device over this connection"
+      },
+      "operators": {
+        "eltradePassword": "On an Eltrade the password authorises the change: enter the operator's password on the device (4–8 digits). Three wrong passwords lock the device until it is switched off and on."
+      },
+      "paymentTypes": {
+        "title": "Payment types",
+        "hint": "Read the names the device prints for its payment types.",
+        "read": "Read from Device",
+        "code": "Code",
+        "name": "Name on the device",
+        "usedFor": "LGR prints",
+        "uses": {
+          "cash": "Cash",
+          "card": "Card",
+          "check": "Cheque",
+          "voucher": "Voucher",
+          "cash_on_delivery": "Cash on delivery"
+        },
+        "nameCod": "Name {code} \"{name}\"",
+        "codHint": "A cash-on-delivery payment prints in {code}. Name it so the receipt says \"{name}\".",
+        "named": "{code} is now named \"{name}\" on the device",
+        "adminOnly": "Only an admin can name a payment type."
+      }
     }
   },
   "cashRegister": {

@@ -79,7 +79,11 @@
 
         <!-- Tab 2: Operators -->
         <v-tabs-window-item value="operators">
-          <v-table density="compact">
+          <!-- What this device cannot do with its operators, and how an Eltrade's password works -->
+          <v-alert v-if="operatorNotes.length" type="info" variant="tonal" density="compact" class="mb-4" data-testid="operator-notes">
+            <div v-for="note in operatorNotes" :key="note">{{ note }}</div>
+          </v-alert>
+          <v-table density="compact" data-testid="operators">
             <thead>
               <tr>
                 <th style="width: 60px">#</th>
@@ -103,6 +107,7 @@
                     variant="outlined"
                     color="primary"
                     class="mr-2"
+                    :disabled="!has('programOperator')"
                     :loading="op.programming"
                     @click="programOperator(op)"
                   >
@@ -111,6 +116,7 @@
                   <v-btn
                     size="small"
                     variant="outlined"
+                    :disabled="!has('readOperator')"
                     :loading="op.reading"
                     @click="readOperator(op)"
                   >
@@ -164,97 +170,175 @@
               </v-card>
             </v-col>
 
+            <!-- What the device cannot do is disabled with the reason (`capabilities` on the device):
+                 an Eltrade has no operator report and no electronic-journal print in its protocol. -->
+
             <!-- Daily X-Report -->
             <v-col cols="12" md="6" lg="4">
-              <v-card variant="outlined">
+              <v-card variant="outlined" data-testid="report-xReport">
                 <v-card-title class="text-subtitle-1">Daily X-Report</v-card-title>
                 <v-card-text>
                   <p class="text-body-2 text-medium-emphasis">Print daily X-report (without closing the day).</p>
+                  <p v-if="!has('xReport')" class="text-caption text-medium-emphasis mt-2" data-testid="why-xReport">
+                    <v-icon icon="mdi-information-outline" size="small" class="mr-1" />{{ why('xReport') }}
+                  </p>
                 </v-card-text>
                 <v-card-actions>
                   <v-spacer />
-                  <v-btn color="primary" :loading="reportLoading.xReport" @click="printXReport">Print</v-btn>
+                  <v-btn color="primary" :disabled="!has('xReport')" :loading="reportLoading.xReport" @click="printXReport">Print</v-btn>
                 </v-card-actions>
               </v-card>
             </v-col>
 
             <!-- Daily Z-Report -->
             <v-col cols="12" md="6" lg="4">
-              <v-card variant="outlined">
+              <v-card variant="outlined" data-testid="report-zReport">
                 <v-card-title class="text-subtitle-1">Daily Z-Report</v-card-title>
                 <v-card-text>
                   <p class="text-body-2 text-medium-emphasis">Print daily Z-report (closes the fiscal day).</p>
+                  <p v-if="!has('zReport')" class="text-caption text-medium-emphasis mt-2" data-testid="why-zReport">
+                    <v-icon icon="mdi-information-outline" size="small" class="mr-1" />{{ why('zReport') }}
+                  </p>
                 </v-card-text>
                 <v-card-actions>
                   <v-spacer />
-                  <v-btn color="primary" :loading="reportLoading.zReport" @click="printZReport">Print</v-btn>
+                  <v-btn color="primary" :disabled="!has('zReport')" :loading="reportLoading.zReport" @click="printZReport">Print</v-btn>
                 </v-card-actions>
               </v-card>
             </v-col>
 
             <!-- Operator Report -->
             <v-col cols="12" md="6" lg="4">
-              <v-card variant="outlined">
+              <v-card variant="outlined" data-testid="report-operatorReport">
                 <v-card-title class="text-subtitle-1">Operator Report</v-card-title>
                 <v-card-text>
                   <v-select
                     v-model="reportParams.operatorNumber"
                     label="Operator"
                     :items="operatorSelectOptions"
+                    :disabled="!has('operatorReport')"
                     density="compact"
                     hide-details
                   />
+                  <p v-if="!has('operatorReport')" class="text-caption text-medium-emphasis mt-2" data-testid="why-operatorReport">
+                    <v-icon icon="mdi-information-outline" size="small" class="mr-1" />{{ why('operatorReport') }}
+                  </p>
                 </v-card-text>
                 <v-card-actions>
                   <v-spacer />
-                  <v-btn color="primary" :loading="reportLoading.operatorReport" @click="printOperatorReport">Print</v-btn>
+                  <v-btn color="primary" :disabled="!has('operatorReport')" :loading="reportLoading.operatorReport" @click="printOperatorReport">Print</v-btn>
                 </v-card-actions>
               </v-card>
             </v-col>
 
             <!-- Fiscal Memory Report by Date -->
             <v-col cols="12" md="6" lg="4">
-              <v-card variant="outlined">
+              <v-card variant="outlined" data-testid="report-fmReportByDate">
                 <v-card-title class="text-subtitle-1">FM Report by Date</v-card-title>
                 <v-card-text>
-                  <v-text-field v-model="reportParams.fmDateFrom" label="From" type="date" density="compact" hide-details class="mb-2" />
-                  <v-text-field v-model="reportParams.fmDateTo" label="To" type="date" density="compact" hide-details class="mb-2" />
-                  <v-switch v-model="reportParams.fmDateDetailed" label="Detailed" density="compact" hide-details color="primary" />
+                  <v-text-field v-model="reportParams.fmDateFrom" label="From" type="date" :disabled="!has('fmReportByDate')" density="compact" hide-details class="mb-2" />
+                  <v-text-field v-model="reportParams.fmDateTo" label="To" type="date" :disabled="!has('fmReportByDate')" density="compact" hide-details class="mb-2" />
+                  <v-switch v-model="reportParams.fmDateDetailed" label="Detailed" :disabled="!has('fmReportByDate')" density="compact" hide-details color="primary" />
+                  <p v-if="!has('fmReportByDate')" class="text-caption text-medium-emphasis mt-2" data-testid="why-fmReportByDate">
+                    <v-icon icon="mdi-information-outline" size="small" class="mr-1" />{{ why('fmReportByDate') }}
+                  </p>
                 </v-card-text>
                 <v-card-actions>
                   <v-spacer />
-                  <v-btn color="primary" :loading="reportLoading.fmReportDate" @click="printFmReportByDate">Print</v-btn>
+                  <v-btn color="primary" :disabled="!has('fmReportByDate')" :loading="reportLoading.fmReportDate" @click="printFmReportByDate">Print</v-btn>
                 </v-card-actions>
               </v-card>
             </v-col>
 
             <!-- Fiscal Memory Report by Number -->
             <v-col cols="12" md="6" lg="4">
-              <v-card variant="outlined">
+              <v-card variant="outlined" data-testid="report-fmReportByNumber">
                 <v-card-title class="text-subtitle-1">FM Report by Number</v-card-title>
                 <v-card-text>
-                  <v-text-field v-model.number="reportParams.fmStartNumber" label="Start Number" type="number" density="compact" hide-details class="mb-2" />
-                  <v-text-field v-model.number="reportParams.fmEndNumber" label="End Number" type="number" density="compact" hide-details class="mb-2" />
-                  <v-switch v-model="reportParams.fmNumberDetailed" label="Detailed" density="compact" hide-details color="primary" />
+                  <v-text-field v-model.number="reportParams.fmStartNumber" label="Start Number" type="number" :disabled="!has('fmReportByNumber')" density="compact" hide-details class="mb-2" />
+                  <v-text-field v-model.number="reportParams.fmEndNumber" label="End Number" type="number" :disabled="!has('fmReportByNumber')" density="compact" hide-details class="mb-2" />
+                  <v-switch v-model="reportParams.fmNumberDetailed" label="Detailed" :disabled="!has('fmReportByNumber')" density="compact" hide-details color="primary" />
+                  <p v-if="!has('fmReportByNumber')" class="text-caption text-medium-emphasis mt-2" data-testid="why-fmReportByNumber">
+                    <v-icon icon="mdi-information-outline" size="small" class="mr-1" />{{ why('fmReportByNumber') }}
+                  </p>
                 </v-card-text>
                 <v-card-actions>
                   <v-spacer />
-                  <v-btn color="primary" :loading="reportLoading.fmReportNumber" @click="printFmReportByNumber">Print</v-btn>
+                  <v-btn color="primary" :disabled="!has('fmReportByNumber')" :loading="reportLoading.fmReportNumber" @click="printFmReportByNumber">Print</v-btn>
                 </v-card-actions>
               </v-card>
             </v-col>
 
             <!-- Electronic Journal (KLEN) -->
             <v-col cols="12" md="6" lg="4">
-              <v-card variant="outlined">
+              <v-card variant="outlined" data-testid="report-electronicJournal">
                 <v-card-title class="text-subtitle-1">Electronic Journal (KLEN)</v-card-title>
                 <v-card-text>
-                  <v-text-field v-model="reportParams.ejDateFrom" label="From" type="date" density="compact" hide-details class="mb-2" />
-                  <v-text-field v-model="reportParams.ejDateTo" label="To" type="date" density="compact" hide-details />
+                  <v-text-field v-model="reportParams.ejDateFrom" label="From" type="date" :disabled="!has('electronicJournal')" density="compact" hide-details class="mb-2" />
+                  <v-text-field v-model="reportParams.ejDateTo" label="To" type="date" :disabled="!has('electronicJournal')" density="compact" hide-details />
+                  <p v-if="!has('electronicJournal')" class="text-caption text-medium-emphasis mt-2" data-testid="why-electronicJournal">
+                    <v-icon icon="mdi-information-outline" size="small" class="mr-1" />{{ why('electronicJournal') }}
+                  </p>
                 </v-card-text>
                 <v-card-actions>
                   <v-spacer />
-                  <v-btn color="primary" :loading="reportLoading.ejReport" @click="printEjReport">Print</v-btn>
+                  <v-btn color="primary" :disabled="!has('electronicJournal')" :loading="reportLoading.ejReport" @click="printEjReport">Print</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-col>
+
+            <!-- Payment types: the name the device prints for each payment slot. Cash on delivery
+                 prints in a reserve slot (an Eltrade's R), which an admin names in one click. -->
+            <v-col cols="12" md="6">
+              <v-card variant="outlined" data-testid="payment-types">
+                <v-card-title class="text-subtitle-1">{{ t('pos.device.paymentTypes.title') }}</v-card-title>
+                <v-card-text>
+                  <p v-if="!has('paymentNames')" class="text-caption text-medium-emphasis" data-testid="why-paymentNames">
+                    <v-icon icon="mdi-information-outline" size="small" class="mr-1" />{{ why('paymentNames') }}
+                  </p>
+                  <template v-else>
+                    <p v-if="!paymentNames" class="text-body-2 text-medium-emphasis">{{ t('pos.device.paymentTypes.hint') }}</p>
+                    <v-table v-else density="compact">
+                      <thead>
+                        <tr>
+                          <th style="width: 60px">{{ t('pos.device.paymentTypes.code') }}</th>
+                          <th>{{ t('pos.device.paymentTypes.name') }}</th>
+                          <th>{{ t('pos.device.paymentTypes.usedFor') }}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="p in paymentNames" :key="p.code" :data-testid="`payment-${p.code}`">
+                          <td>{{ p.code }}</td>
+                          <td>{{ p.name || '—' }}</td>
+                          <td>{{ p.type ? t(`pos.device.paymentTypes.uses.${p.type}`) : '' }}</td>
+                        </tr>
+                      </tbody>
+                    </v-table>
+                    <template v-if="codSlot">
+                      <p class="text-caption text-medium-emphasis mt-2">
+                        {{ t('pos.device.paymentTypes.codHint', { code: codSlot.code, name: codSlot.name }) }}
+                        <template v-if="!isAdmin"> {{ t('pos.device.paymentTypes.adminOnly') }}</template>
+                      </p>
+                      <v-btn
+                        variant="outlined"
+                        color="primary"
+                        size="small"
+                        class="mt-2"
+                        :disabled="!isAdmin"
+                        :loading="paymentLoading.naming"
+                        data-testid="name-cod-slot"
+                        @click="nameCashOnDeliverySlot"
+                      >
+                        {{ t('pos.device.paymentTypes.nameCod', { code: codSlot.code, name: codSlot.name }) }}
+                      </v-btn>
+                    </template>
+                  </template>
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn color="primary" :disabled="!has('paymentNames')" :loading="paymentLoading.reading" @click="readPaymentNames">
+                    {{ t('pos.device.paymentTypes.read') }}
+                  </v-btn>
                 </v-card-actions>
               </v-card>
             </v-col>
@@ -280,9 +364,10 @@ import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
+import { jwtRole } from 'ui-shared/composables/useStorageIdentity'
 import { useFiscalBridgeAlerts } from '../composables/useFiscalBridgeAlerts'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
@@ -373,16 +458,59 @@ const formActions = computed<FormAction[]>(() => {
   return actions
 })
 
-// Operators
-const operators = ref(
-  Array.from({ length: 8 }, (_, i) => ({
-    number: i + 1,
-    name: '',
-    password: '',
-    programming: false,
-    reading: false,
-  }))
-)
+/**
+ * What the saved device's driver can do (`GET /fiscal/device/:id` → `capabilities`, from
+ * `fiscal/capabilities` on the server): what it cannot is disabled below, with the reason. Null
+ * until the device is loaded — and then nothing is disabled, as before capabilities existed.
+ */
+interface Capabilities {
+  driver: string | null
+  features: Record<string, boolean>
+  missing: Record<string, 'protocol' | 'driver' | 'no_driver'>
+  maxOperators: number
+  cashOnDeliverySlot?: { code: string; name: string }
+}
+const caps = ref<Capabilities | null>(null)
+/** The manufacturer the capabilities were read for — the saved one, not the form's. */
+const capsManufacturer = ref('')
+
+function has(feature: string): boolean {
+  return !caps.value || !!caps.value.features?.[feature]
+}
+
+/** Why `feature` is off on this device; '' when it is on. */
+function why(feature: string): string {
+  const reason = caps.value?.missing?.[feature]
+  const m = capsManufacturer.value
+  const brand = m ? m[0].toUpperCase() + m.slice(1) : ''
+  if (reason === 'protocol') {
+    const key = `pos.device.why.protocol.${feature}`
+    return te(key) ? t(key, { brand }) : t('pos.device.why.protocol.other', { brand })
+  }
+  if (reason === 'no_driver') return t('pos.device.why.noDriver', { brand })
+  if (reason === 'driver') return t('pos.device.why.driver', { brand })
+  return ''
+}
+
+const role = computed(() => appStore.user?.role || jwtRole())
+const isAdmin = computed(() => role.value === 'admin')
+const codSlot = computed(() => caps.value?.cashOnDeliverySlot || null)
+
+// Operators — as many as the device numbers (an Eltrade 16); 8 until it says
+const operatorCount = computed(() => caps.value?.maxOperators || 8)
+const newOperator = (number: number) => ({ number, name: '', password: '', programming: false, reading: false })
+const operators = ref(Array.from({ length: operatorCount.value }, (_, i) => newOperator(i + 1)))
+watch(operatorCount, (n) => {
+  operators.value = Array.from({ length: n }, (_, i) => operators.value[i] ?? newOperator(i + 1))
+})
+
+const operatorNotes = computed(() => {
+  const notes: string[] = []
+  if (!has('programOperator')) notes.push(why('programOperator'))
+  if (!has('readOperator')) notes.push(why('readOperator'))
+  if (caps.value?.driver === 'eltrade') notes.push(t('pos.device.operators.eltradePassword'))
+  return [...new Set(notes)]
+})
 
 // Reports
 const reportParams = reactive({
@@ -409,10 +537,14 @@ const reportLoading = reactive({
   ejReport: false,
 })
 
-const operatorSelectOptions = [
+const operatorSelectOptions = computed(() => [
   { title: 'All Operators', value: 0 },
-  ...Array.from({ length: 8 }, (_, i) => ({ title: `Operator ${i + 1}`, value: i + 1 })),
-]
+  ...Array.from({ length: operatorCount.value }, (_, i) => ({ title: `Operator ${i + 1}`, value: i + 1 })),
+])
+
+// Payment types (the names the device prints for its payment slots)
+const paymentNames = ref<{ code: string; name: string; type?: string }[] | null>(null)
+const paymentLoading = reactive({ reading: false, naming: false })
 
 function deviceStatusColor(s: string) {
   const map: Record<string, string> = {
@@ -493,11 +625,25 @@ async function fetchDevice() {
       isActive: d.isActive !== false,
       status: d.status || '',
     })
+    setCapabilities(d)
   } catch (e: any) {
     showError(e?.response?.data?.message || 'Failed to load device')
   } finally {
     loading.value = false
   }
+}
+
+function setCapabilities(d: any) {
+  caps.value = d?.capabilities || null
+  capsManufacturer.value = d?.manufacturer || ''
+}
+
+/** A saved manufacturer or connection can change what the device can do. */
+async function refreshCapabilities() {
+  try {
+    const { data } = await httpClient.get(`${deviceUrl.value}/${deviceId.value}`)
+    setCapabilities(data.fiscalDevice || data)
+  } catch { /* the page keeps what it had */ }
 }
 
 async function handleSave() {
@@ -531,6 +677,7 @@ async function handleSave() {
       await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, payload)
       markSaved()
       showSuccess('Device saved')
+      await refreshCapabilities()
     }
   } catch (e: any) {
     showError(e?.response?.data?.message || 'Failed to save device')
@@ -658,6 +805,40 @@ async function printEjReport() {
     showError(e?.response?.data?.message || 'Failed to print EJ report')
   } finally {
     reportLoading.ejReport = false
+  }
+}
+
+// Payment type actions
+async function readPaymentNames() {
+  paymentLoading.reading = true
+  try {
+    const { data } = await httpClient.get(`${deviceUrl.value}/${deviceId.value}/payment-names`)
+    paymentNames.value = data.paymentNames || []
+  } catch (e: any) {
+    showError(e?.response?.data?.message || 'Failed to read the payment types')
+  } finally {
+    paymentLoading.reading = false
+  }
+}
+
+/** One click: the slot cash on delivery prints in gets the name the receipt should show. */
+async function nameCashOnDeliverySlot() {
+  const slot = codSlot.value
+  if (!slot) return
+  paymentLoading.naming = true
+  try {
+    const { data } = await httpClient.post(`${deviceUrl.value}/${deviceId.value}/payment-names`, { code: slot.code, name: slot.name })
+    const named = data.paymentName || { code: slot.code, name: slot.name }
+    if (paymentNames.value) {
+      paymentNames.value = paymentNames.value.map(p => (p.code === named.code ? { ...p, ...named } : p))
+    } else {
+      await readPaymentNames()
+    }
+    showSuccess(t('pos.device.paymentTypes.named', { code: named.code, name: named.name }))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || 'Failed to name the payment type')
+  } finally {
+    paymentLoading.naming = false
   }
 }
 

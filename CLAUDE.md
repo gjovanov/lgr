@@ -939,6 +939,25 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   `tests/helpers/eltrade-simulator.ts` (from the protocol PDF); field-verified 2026-09-26 on a NON-fiscalized A3
   (status, diagnostics, clock, a non-fiscal sale through prod) — fiscal receipts still unproven on hardware.
   Field guide: **`docs/guides/eltrade-fiscal-device.md`**
+  - ⚠ **A report never touches an open receipt** (2026-10-31): X, Z and the fiscal-memory reports read the
+    status and print in ONE turn of the command queue and are refused (`busy` → HTTP 409 `receipt_open`) while a
+    fiscal or service receipt is open. They used to clear it like a new sale does — and the POS and the device
+    page share the driver, so an X pressed mid-sale voided the sale, or cash-completed it once part-paid. The
+    POS close runs the same Z: with a receipt open it answers its own 503 `fiscal_error` and the session stays
+    open; the next sale clears a receipt an interrupted sale left.
+  - v1.1.7 has NO command to read an operator back (66h only sets one), no operator report and no КЛЕН print —
+    never add a method that pretends. Operators 1–16; payment slots P N C D I J K L M Q R (35h/55h).
+  - **Cash on delivery** = `FiscalPaymentType` `cash_on_delivery` → reserve slot **`R`**, named „НАЛОЖЕН
+    ПЛАТЕЖ" from the device page (55h, admin only). Every other driver refuses it via `paymentCode()` — the
+    drivers' old `table[type] || 'P'` printed any unmapped payment as cash.
+- **`capabilities.ts`** — what each DRIVER can do (which reports, operator read/program, text receipts,
+  payment-name programming, COD, max operators), resolved from manufacturer × connection type exactly as
+  `createPrinter` / `createBridgePrinter` choose the class. Served on `GET /fiscal/device[/:id]`; the device page
+  disables what is off with its reason (`protocol` / `driver` / `no_driver`). ⚠ `unit/fiscal-capabilities.test.ts`
+  holds the table to the classes: a feature is on ⇔ the class has its methods — add the method, then the flag.
+- **`errors.ts`** — `fiscalFailure(e)`: a driver error as an HTTP answer (input 400, unsupported 400, device
+  refused / receipt open 409, unreadable answer 502, not connected 503, timeout 504). The device endpoints used
+  to answer 500 to everything.
 - **`fiscal-device.service.ts`** — in-memory connection manager (`connect`, `disconnect`, `getPrinter`, `registerPrinter`, `unregisterPrinter`)
 - **`fiscal-bridge.ts`** (portal-api/websocket/) — WebSocket endpoint `/ws/fiscal-bridge`, with **two
   kinds of bridge**: a browser tab over Web Serial, and (since FR-14.26) a registered **LGR Desktop**
@@ -1057,6 +1076,11 @@ Atomic counter using MongoDB `findOneAndUpdate` with `$inc`. Race-condition safe
 ### SUPTO Controller Endpoints
 
 - **Fiscal devices**: `GET/POST/PUT/DELETE /api/org/:orgId/fiscal/device` + `/connect`, `/disconnect`, `/status`, `/z-report`, `/sync-time` — restricted to admin/manager/warehouse_manager. Connection types: `tcp`, `serial`, `usb`, `browser`, `desktop`
+  - The device page's commands — `/x-report`, `/fm-report`, `/operator-report`, `/ej-report`, `/program-operator`,
+    `/read-operator`, `GET|POST /payment-names` (POST admin only) — go through `onDevice()`: a feature the driver
+    lacks is 400 `unsupported` with the reason and nothing sent, then input checks (400 `bad_input`), then 503 when
+    nothing holds the device; a driver failure maps through `fiscal/errors`. Tested in
+    `integration/fiscal-device-reports.flow.test.ts` (HTTP answer AND what reached the simulator).
   - ⚠ **`/connect` REFUSES `browser` and `desktop` with 422**, before attempting anything. Those
     transports are opened by a tab or by a till, never by the server — and the catch path marks the
     device `status: 'error'`, which makes the server 503 every sale once no bridge holds it. An admin

@@ -6,14 +6,84 @@ import {
   connectDevice,
   disconnectDevice,
   getDeviceStatus,
+  getPrinter,
   buildConnectionConfig,
   isDeviceConnected,
 } from 'fiscal/fiscal-device.service'
+import { FEATURE_METHODS, fiscalCapabilities, unsupportedReason, type FiscalFeature } from 'fiscal/capabilities'
+import { fiscalFailure } from 'fiscal/errors'
+import type { IFiscalPrinter } from 'fiscal/types'
 import { FiscalTargetError, fiscalTcpPolicy, resolveFiscalTcpTarget } from 'fiscal/tcp-target'
 import { nodeRole } from 'config'
 import { bridgeHolder, rebindBridgePrinter } from '../websocket/fiscal-bridge.js'
 
 const FISCAL_ADMIN_ROLES = ['admin', 'manager', 'warehouse_manager']
+
+type Status = (code: number, body: Record<string, unknown>) => any
+type DeviceRow = { id: string; name?: string; manufacturer: string; connectionType: string }
+
+/** Who opens a device's port, so a 503 can say what to do about it. */
+const NOT_CONNECTED_HINT: Record<string, string> = {
+  browser: 'connect it from the POS (Connect Printer) or from this device page, in Chrome or Edge',
+  desktop: 'it connects through its LGR Desktop, which is not running or cannot reach the server',
+  tcp: 'the server has not opened it yet: connect it first',
+}
+
+/**
+ * One command on a device, answered. Refused before anything is sent when the device cannot do
+ * `feature` at all (400 `unsupported`, with the reason the device page shows), when `check` finds
+ * the request's data wrong (400 `bad_input`) or when nothing holds the device (503). A driver's
+ * failure is answered by what it was (`fiscal/errors`) — bad input 400, the device refusing 409,
+ * no answer 504 — where these endpoints used to answer 500 to everything.
+ */
+async function onDevice(
+  status: Status,
+  device: DeviceRow,
+  what: string,
+  opts: { feature?: FiscalFeature; check?: () => string | null },
+  run: (printer: IFiscalPrinter) => Promise<unknown>,
+) {
+  if (opts.feature) {
+    const reason = unsupportedReason(device.manufacturer, device.connectionType, opts.feature)
+    if (reason) return status(400, { code: 'unsupported', feature: opts.feature, message: reason })
+  }
+  const bad = opts.check?.()
+  if (bad) return status(400, { code: 'bad_input', message: bad })
+  if (!isDeviceConnected(device.id)) {
+    return status(503, { code: 'not_connected', message: `${what}: the device is not connected — ${NOT_CONNECTED_HINT[device.connectionType] ?? 'connect it first'}.` })
+  }
+  try {
+    const printer = getPrinter(device.id)
+    // The live driver is the last word: one registered under another manufacturer's row lacks it.
+    const methods = opts.feature && opts.feature !== 'cashOnDelivery' ? FEATURE_METHODS[opts.feature] : []
+    if (methods.some(m => typeof (printer as any)[m] !== 'function')) {
+      return status(400, { code: 'unsupported', feature: opts.feature, message: `${what} is not supported by this device's driver.` })
+    }
+    return await run(printer)
+  } catch (e) {
+    const failure = fiscalFailure(e)
+    return status(failure.status, { code: failure.code, message: `${what} failed: ${failure.message}` })
+  }
+}
+
+/** A field the device page leaves `null` (or `''`) when it is empty. */
+const given = (v: unknown) => v !== null && v !== undefined && v !== ''
+
+function periodError(start: unknown, end: unknown): string | null {
+  if (!given(start) || !given(end)) return 'Enter both dates of the period.'
+  const [a, b] = [new Date(String(start)), new Date(String(end))]
+  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return 'A date of the period is not a date.'
+  if (a.getTime() > b.getTime()) return 'The period starts after it ends.'
+  return null
+}
+
+function zNumbersError(start: unknown, end: unknown): string | null {
+  if (!given(start) || !given(end)) return 'Enter the first and the last Z-report number.'
+  const [a, b] = [Number(start), Number(end)]
+  if (!Number.isInteger(a) || !Number.isInteger(b) || a < 1 || b < 1) return 'Z-report numbers are whole numbers, from 1.'
+  if (a > b) return `The first Z-report number (${a}) is after the last (${b}).`
+  return null
+}
 
 /**
  * A TCP device's address is checked when it is saved, so the admin hears about it at once — the
@@ -67,10 +137,13 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       // `bridgedBy` is what the POS prints as "connected via Till 2" (FR-14.27). It is read from
       // the live socket map, so it is absent the moment the bridge drops — unlike the stored
       // `connectionType`, which says what SHOULD hold the port, not what does.
+      // `capabilities`: what the device's driver can do (`fiscal/capabilities`), from its
+      // manufacturer and connection alone — known whether or not it is connected.
       fiscalDevices: items.map((d: any) => ({
         ...sanitizeDevice(d, user.role),
         connected: isDeviceConnected(d.id),
         bridgedBy: bridgeHolder(orgId, d.deviceNumber) ?? undefined,
+        capabilities: fiscalCapabilities(d.manufacturer, d.connectionType),
       })),
       ...pageInfo,
     }
@@ -122,9 +195,15 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
-    const device = await r.fiscalDevices.findOne({ id, orgId } as any)
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any) as any
     if (!device) return status(404, { message: 'Fiscal device not found' })
-    return { fiscalDevice: sanitizeDevice(device, user.role) }
+    // The device page disables what the driver cannot do, and says why (`fiscal/capabilities`).
+    return {
+      fiscalDevice: {
+        ...sanitizeDevice(device, user.role),
+        capabilities: fiscalCapabilities(device.manufacturer, device.connectionType),
+      },
+    }
   }, { isSignIn: true })
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
@@ -270,20 +349,16 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     if (!['admin', 'manager'].includes(user.role)) return status(403, { message: 'Admin or manager required for Z-reports' })
     const r = getRepos()
 
-    const device = await r.fiscalDevices.findOne({ id, orgId } as any)
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
-    const { getPrinter } = await import('fiscal/fiscal-device.service')
-    try {
-      const printer = getPrinter(id)
+    return onDevice(status, device, 'Z-Report', { feature: 'zReport' }, async (printer) => {
       const result = await printer.printDailyZReport()
 
       createAuditEntry({ orgId, userId: user.id, action: 'z_report', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `Z-Report #${result.reportNumber}` })
 
       return { zReport: result }
-    } catch (e: any) {
-      return status(500, { message: `Z-Report failed: ${e.message}` })
-    }
+    })
   }, { isSignIn: true })
   /**
    * A person sets a device's clock from the server's (FR-20.22): the confirmation the automatic sync
@@ -296,13 +371,11 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     if (!['admin', 'manager'].includes(user.role)) return status(403, { message: 'Admin or manager required for time sync' })
     const r = getRepos()
 
-    const device = await r.fiscalDevices.findOne({ id, orgId } as any)
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
-    const { getPrinter } = await import('fiscal/fiscal-device.service')
     const { clockTrusted, formatStep, MAX_STEP_MS } = await import('fiscal/clock')
-    try {
-      const printer = getPrinter(id)
+    return onDevice(status, device, 'Time sync', {}, async (printer) => {
       const theirs = await printer.readDateTime().catch(() => null)
       const now = new Date()
       const stepMs = theirs ? now.getTime() - theirs.getTime() : null
@@ -325,13 +398,11 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       await printer.syncDateTime(now)
       createAuditEntry({
         orgId, userId: user.id, action: 'update', module: 'fiscal', entityType: 'fiscal_device', entityId: id,
-        entityName: (device as any).name,
+        entityName: device.name,
         changes: [{ field: 'clock', oldValue: theirs?.toISOString() ?? null, newValue: now.toISOString() }],
       })
       return { message: 'Time synchronized', serverTime: now.toISOString(), stepMs, verified: trust.ok }
-    } catch (e: any) {
-      return status(500, { message: `Time sync failed: ${e.message}` })
-    }
+    })
   }, { isSignIn: true, body: t.Optional(t.Object({ confirm: t.Optional(t.Boolean()) })) })
   // ── Report and operator endpoints ──
   .post('/:id/x-report', async ({ params: { orgId, id }, user, status }) => {
@@ -339,42 +410,38 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
-    const device = await r.fiscalDevices.findOne({ id, orgId } as any)
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
-    const { getPrinter } = await import('fiscal/fiscal-device.service')
-    try {
-      const printer = getPrinter(id)
-      if (!printer.printDailyXReport) return status(400, { message: 'X-Report not supported by this device' })
-      const result = await printer.printDailyXReport()
+    return onDevice(status, device, 'X-Report', { feature: 'xReport' }, async (printer) => {
+      const result = await printer.printDailyXReport!()
 
       createAuditEntry({ orgId, userId: user.id, action: 'x_report', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `X-Report on ${device.name}` })
 
       return { xReport: result }
-    } catch (e: any) {
-      return status(500, { message: `X-Report failed: ${e.message}` })
-    }
+    })
   }, { isSignIn: true })
   .post('/:id/operator-report', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
-    const device = await r.fiscalDevices.findOne({ id, orgId } as any)
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
-    const { getPrinter } = await import('fiscal/fiscal-device.service')
-    try {
-      const printer = getPrinter(id)
-      if (!printer.printOperatorReport) return status(400, { message: 'Operator report not supported by this device' })
-      await printer.printOperatorReport(body.operatorNumber)
+    const max = fiscalCapabilities(device.manufacturer, device.connectionType).maxOperators
+    const n = body.operatorNumber
+    return onDevice(status, device, 'Operator report', {
+      feature: 'operatorReport',
+      // 0, or none, is every operator.
+      check: () => n === undefined || (Number.isInteger(n) && n >= 0 && n <= max) ? null : `Operators on this device are numbered 1–${max} (0 is all of them).`,
+    }, async (printer) => {
+      await printer.printOperatorReport!(n)
 
       createAuditEntry({ orgId, userId: user.id, action: 'operator_report', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `Operator report on ${device.name}` })
 
       return { message: 'Operator report printed' }
-    } catch (e: any) {
-      return status(500, { message: `Operator report failed: ${e.message}` })
-    }
+    })
   }, {
     isSignIn: true,
     body: t.Object({
@@ -386,39 +453,35 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
-    const device = await r.fiscalDevices.findOne({ id, orgId } as any)
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
-    const { getPrinter } = await import('fiscal/fiscal-device.service')
-    try {
-      const printer = getPrinter(id)
-      if (body.type === 'by_date') {
-        if (!body.startDate || !body.endDate) return status(400, { message: 'startDate and endDate required for by_date report' })
-        if (!printer.printFiscalMemoryReportByDate) return status(400, { message: 'FM report by date not supported by this device' })
-        await printer.printFiscalMemoryReportByDate(new Date(body.startDate), new Date(body.endDate), body.detailed)
-      } else if (body.type === 'by_number') {
-        if (body.startNumber === undefined || body.endNumber === undefined) return status(400, { message: 'startNumber and endNumber required for by_number report' })
-        if (!printer.printFiscalMemoryReportByNumber) return status(400, { message: 'FM report by number not supported by this device' })
-        await printer.printFiscalMemoryReportByNumber(body.startNumber, body.endNumber, body.detailed)
+    const byDate = body.type === 'by_date'
+    return onDevice(status, device, 'FM report', {
+      feature: byDate ? 'fmReportByDate' : 'fmReportByNumber',
+      check: () => byDate ? periodError(body.startDate, body.endDate) : zNumbersError(body.startNumber, body.endNumber),
+    }, async (printer) => {
+      if (byDate) {
+        await printer.printFiscalMemoryReportByDate!(new Date(String(body.startDate)), new Date(String(body.endDate)), !!body.detailed)
       } else {
-        return status(400, { message: 'type must be "by_date" or "by_number"' })
+        await printer.printFiscalMemoryReportByNumber!(Number(body.startNumber), Number(body.endNumber), !!body.detailed)
       }
 
       createAuditEntry({ orgId, userId: user.id, action: 'fm_report', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `FM report (${body.type}) on ${device.name}` })
 
       return { message: 'Fiscal memory report printed' }
-    } catch (e: any) {
-      return status(500, { message: `FM report failed: ${e.message}` })
-    }
+    })
   }, {
     isSignIn: true,
     body: t.Object({
       type: t.Union([t.Literal('by_date'), t.Literal('by_number')]),
-      startDate: t.Optional(t.String()),
-      endDate: t.Optional(t.String()),
-      startNumber: t.Optional(t.Number()),
-      endNumber: t.Optional(t.Number()),
-      detailed: t.Optional(t.Boolean()),
+      // The page sends null (or '') for a field left empty. Checked by hand (`periodError`,
+      // `zNumbersError`), so the answer says what is missing rather than failing the schema.
+      startDate: t.Optional(t.Union([t.String(), t.Null()])),
+      endDate: t.Optional(t.Union([t.String(), t.Null()])),
+      startNumber: t.Optional(t.Union([t.Number(), t.String(), t.Null()])),
+      endNumber: t.Optional(t.Union([t.Number(), t.String(), t.Null()])),
+      detailed: t.Optional(t.Union([t.Boolean(), t.Null()])),
     }),
   })
   .post('/:id/ej-report', async ({ params: { orgId, id }, body, user, status }) => {
@@ -426,26 +489,24 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
-    const device = await r.fiscalDevices.findOne({ id, orgId } as any)
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
-    const { getPrinter } = await import('fiscal/fiscal-device.service')
-    try {
-      const printer = getPrinter(id)
-      if (!printer.printEJReport) return status(400, { message: 'EJ report not supported by this device' })
-      await printer.printEJReport(new Date(body.startDate), new Date(body.endDate))
+    return onDevice(status, device, 'EJ report', {
+      feature: 'electronicJournal',
+      check: () => periodError(body.startDate, body.endDate),
+    }, async (printer) => {
+      await printer.printEJReport!(new Date(String(body.startDate)), new Date(String(body.endDate)))
 
       createAuditEntry({ orgId, userId: user.id, action: 'ej_report', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `EJ report on ${device.name}` })
 
       return { message: 'Electronic journal report printed' }
-    } catch (e: any) {
-      return status(500, { message: `EJ report failed: ${e.message}` })
-    }
+    })
   }, {
     isSignIn: true,
     body: t.Object({
-      startDate: t.String(),
-      endDate: t.String(),
+      startDate: t.Optional(t.Union([t.String(), t.Null()])),
+      endDate: t.Optional(t.Union([t.String(), t.Null()])),
     }),
   })
   .post('/:id/program-operator', async ({ params: { orgId, id }, body, user, status }) => {
@@ -453,21 +514,23 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
-    const device = await r.fiscalDevices.findOne({ id, orgId } as any)
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
-    const { getPrinter } = await import('fiscal/fiscal-device.service')
-    try {
-      const printer = getPrinter(id)
-      if (!printer.programOperator) return status(400, { message: 'Program operator not supported by this device' })
-      await printer.programOperator(body.operatorNumber, body.password, body.name)
+    // Checked before anything reaches the device: an Eltrade's password AUTHENTICATES the change,
+    // and three wrong ones lock it until it is switched off and on.
+    const max = fiscalCapabilities(device.manufacturer, device.connectionType).maxOperators
+    const n = body.operatorNumber
+    return onDevice(status, device, 'Program operator', {
+      feature: 'programOperator',
+      check: () => Number.isInteger(n) && n >= 1 && n <= max ? null : `Operators on this device are numbered 1–${max}.`,
+    }, async (printer) => {
+      await printer.programOperator!(n, body.password, body.name)
 
-      createAuditEntry({ orgId, userId: user.id, action: 'program_operator', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `Program operator #${body.operatorNumber} on ${device.name}` })
+      createAuditEntry({ orgId, userId: user.id, action: 'program_operator', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `Program operator #${n} on ${device.name}` })
 
       return { message: 'Operator programmed' }
-    } catch (e: any) {
-      return status(500, { message: `Program operator failed: ${e.message}` })
-    }
+    })
   }, {
     isSignIn: true,
     body: t.Object({
@@ -481,23 +544,73 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
-    const device = await r.fiscalDevices.findOne({ id, orgId } as any)
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
-    const { getPrinter } = await import('fiscal/fiscal-device.service')
-    try {
-      const printer = getPrinter(id)
-      if (!printer.readOperator) return status(400, { message: 'Read operator not supported by this device' })
-      const operator = await printer.readOperator(body.operatorNumber)
-
-      return { operator }
-    } catch (e: any) {
-      return status(500, { message: `Read operator failed: ${e.message}` })
-    }
+    // An Eltrade answers 400 here with its reason: its protocol has no command to read an operator.
+    const max = fiscalCapabilities(device.manufacturer, device.connectionType).maxOperators
+    const n = body.operatorNumber
+    return onDevice(status, device, 'Read operator', {
+      feature: 'readOperator',
+      check: () => Number.isInteger(n) && n >= 1 && n <= max ? null : `Operators on this device are numbered 1–${max}.`,
+    }, async (printer) => ({ operator: await printer.readOperator!(n) }))
   }, {
     isSignIn: true,
     body: t.Object({
       operatorNumber: t.Number(),
+    }),
+  })
+  // ── Payment types ──
+  /**
+   * The names the device prints for its payment slots (Eltrade 55h), for the device page's
+   * "Payment types" card.
+   */
+  .get('/:id/payment-names', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    const r = getRepos()
+
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
+    if (!device) return status(404, { message: 'Fiscal device not found' })
+
+    return onDevice(status, device, 'Reading payment types', { feature: 'paymentNames' }, async (printer) => ({
+      paymentNames: await printer.readPaymentNames!(),
+    }))
+  }, { isSignIn: true })
+  /**
+   * Name one payment slot — on an Eltrade, the reserve slot 'R' that cash on delivery prints in, as
+   * „НАЛОЖЕН ПЛАТЕЖ". ⚠ Admin only: the name prints on every receipt paid through the slot, so
+   * renaming the card slot would print card payments under another name. Audited with the name it
+   * replaced.
+   */
+  .post('/:id/payment-names', async ({ params: { orgId, id }, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (user.role !== 'admin') return status(403, { message: 'Admin required to name payment types' })
+    const r = getRepos()
+
+    const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
+    if (!device) return status(404, { message: 'Fiscal device not found' })
+
+    return onDevice(status, device, 'Naming a payment type', {
+      feature: 'paymentNames',
+      check: () => !body.code.trim() ? 'Choose the payment type to name.' : !body.name.trim() ? 'Enter the name the device should print.' : null,
+    }, async (printer) => {
+      const named = await printer.programPaymentName!(body.code, body.name)
+
+      createAuditEntry({
+        orgId, userId: user.id, action: 'program_payment_name', module: 'fiscal', entityType: 'fiscal_device', entityId: id,
+        entityName: `Payment type ${named.code} on ${device.name}`,
+        changes: [{ field: `paymentName.${named.code}`, oldValue: named.previous ?? null, newValue: named.name }],
+      })
+
+      const { previous: _previous, ...paymentName } = named
+      return { paymentName }
+    })
+  }, {
+    isSignIn: true,
+    body: t.Object({
+      code: t.String({ maxLength: 4 }),
+      name: t.String({ maxLength: 100 }),
     }),
   })
 
