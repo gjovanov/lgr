@@ -1,7 +1,7 @@
 import type { App } from 'vue'
 import type { Router } from 'vue-router'
 import type { I18n } from 'vue-i18n'
-import { createI18nPlugin } from './i18n'
+import { createI18nPlugin, initialLocale, loadLocale } from './i18n'
 import { createVuetifyPlugin } from './vuetify'
 import { createPinia } from 'pinia'
 import type { createVuetify } from 'vuetify'
@@ -27,6 +27,7 @@ declare global {
   interface Window {
     __LGR_I18N__?: I18n
     __LGR_VUETIFY__?: ReturnType<typeof createVuetify>
+    __LGR_I18N_READY__?: Promise<void>
   }
 }
 
@@ -35,6 +36,14 @@ export function getI18n(): I18n {
   const i18n = window.__LGR_I18N__
   if (!i18n) throw new Error('registerPlugins() has not been called yet')
   return i18n
+}
+
+/**
+ * Resolves once the person's language has loaded (registerPlugins starts it). Each SPA mounts after
+ * it, so the first paint is in their language rather than English for a moment.
+ */
+export function whenI18nReady(): Promise<void> {
+  return window.__LGR_I18N_READY__ ?? Promise.resolve()
 }
 
 /** Returns the Vuetify instance registered on the Vue app */
@@ -59,6 +68,8 @@ export function registerPlugins(app: App, options?: RegisterPluginsOptions) {
   // Store on window so all module copies can access the same instances
   window.__LGR_I18N__ = i18n
   window.__LGR_VUETIFY__ = vuetify
+  // The person's language loads now; main.ts mounts once it has (whenI18nReady).
+  window.__LGR_I18N_READY__ = loadLocale(i18n, initialLocale()).catch(() => undefined)
 
   // CRITICAL: i18n MUST be registered BEFORE vuetify for locale adapter
   app.use(i18n)

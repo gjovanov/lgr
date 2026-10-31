@@ -56,6 +56,44 @@ export function movedUiLocation(pathname: string, search = ''): string | null {
   return `/invoicing${pathname}${search}`
 }
 
+/**
+ * FR-24.13: the one SPA (`packages/web`) beside the eight, until Phase 3 flips the default and
+ * deletes them. Which shell a browser gets: the `lgr_ui` cookie (`/__ui/one` sets it, `/__ui/split`
+ * clears it), else `LGR_UI_DEFAULT` (`split` unless set). A server package stays on the split build.
+ */
+export type UiShell = 'one' | 'split'
+export const UI_COOKIE = 'lgr_ui'
+
+/** The one SPA's shell as this node serves it, in its two variants (FR-24.18). */
+export interface OneSpaShell {
+  /** For a module's page: no analytics tag, ever (module URLs carry document ids). */
+  module: string
+  /** For a portal page: as `portalShellFor` serves the portal's own shell. */
+  portal: string
+}
+
+/** Both variants from the built `index.html`. The master tag goes on both: the router reads it once. */
+export function oneSpaShell(html: string, role: 'global' | 'master'): OneSpaShell {
+  return { module: role === 'master' ? portalShellFor(html, 'master') : html, portal: portalShellFor(html, role) }
+}
+
+/** The shell this request asked for. */
+export function shellFor(request: Request, fallback: UiShell = 'split'): UiShell {
+  const cookie = request.headers.get('cookie') ?? ''
+  const m = cookie.match(/(?:^|;\s*)lgr_ui=(one|split)(?:;|$)/)
+  return (m?.[1] as UiShell | undefined) ?? fallback
+}
+
+/** The build id the one SPA's `index.html` carries (`<meta name="lgr-build">`), or null. */
+export function webBuildId(html: string | undefined): string | null {
+  return html?.match(/<meta name="lgr-build" content="([^"]+)"/)?.[1] ?? null
+}
+
+/** A module's page, rather than the portal's: its path is under a module SPA's prefix. */
+function isModulePath(pathname: string): boolean {
+  return UI_MODULES.some(m => m !== 'portal' && (pathname === `/${m}` || pathname.startsWith(`/${m}/`)))
+}
+
 /** One SPA's built files, mounted under its prefix. */
 export function uiStaticPlugin(ui: { assets: string; prefix: string }, opts: { alwaysStatic?: boolean } = {}) {
   return staticPlugin({
@@ -102,7 +140,10 @@ export function validationMessage(err: any): string {
  *   - a `Response` alone: with `NODE_ENV` unset, the static plugin's catch-all route maps the
  *     handler's Response through `set`, whose status is that route's 404.
  */
-export function spaErrorHandler(indexHtmlMap: Partial<Record<UiModule, string>>) {
+export function spaErrorHandler(
+  indexHtmlMap: Partial<Record<UiModule, string>>,
+  opts: { one?: OneSpaShell | null; defaultShell?: UiShell } = {},
+) {
   return ({ code, error: err, set, request }: { code: unknown; error: any; set: any; request: Request }) => {
     // A status THROWN on purpose (`throw status(403, …)`): an answer, not a failure. The
     // write-permission guard throws one, because it runs before validation in a transform hook,
@@ -144,10 +185,23 @@ export function spaErrorHandler(indexHtmlMap: Partial<Record<UiModule, string>>)
         set.headers['location'] = moved
         return new Response(null, { status: 302, headers: { location: moved, 'cache-control': 'no-store' } })
       }
+      // FR-24.13: try the one SPA (`/__ui/one`) or go back to the eight (`/__ui/split`), on this browser.
+      const choice = pathname === '/__ui/one' ? 'one' : pathname === '/__ui/split' ? 'split' : null
+      if (choice && (request.method === 'GET' || request.method === 'HEAD')) {
+        const cookie = `${UI_COOKIE}=${choice}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly`
+        set.status = 302
+        set.headers['location'] = '/'
+        set.headers['set-cookie'] = cookie
+        return new Response(null, { status: 302, headers: { location: '/', 'set-cookie': cookie, 'cache-control': 'no-store' } })
+      }
       if (!pathname.startsWith('/api/') && !pathname.match(/\.\w{2,}$/)) {
+        // The one SPA, when this browser runs it: one shell for every path (FR-24.13).
+        const one = opts.one && shellFor(request, opts.defaultShell) === 'one' ? opts.one : null
         // The module's own SPA, or the portal (app hub) for a path no module claims.
         const moduleName = UI_MODULES.find(m => m !== 'portal' && pathname.startsWith(`/${m}`))
-        const html = indexHtmlMap[moduleName || 'portal'] || indexHtmlMap.portal
+        const html = one
+          ? (isModulePath(pathname) ? one.module : one.portal)
+          : indexHtmlMap[moduleName || 'portal'] || indexHtmlMap.portal
         if (html) {
           set.status = 200
           return new Response(html, {

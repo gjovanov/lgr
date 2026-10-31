@@ -273,6 +273,10 @@ jobs:
       - name: Build all UIs
         run: bun run build
 
+      # FR-24.15: first-load JS within budget, no module view in the entry, one fiscal bridge.
+      - name: The one SPA's bundle budget
+        run: bun run check:web
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:

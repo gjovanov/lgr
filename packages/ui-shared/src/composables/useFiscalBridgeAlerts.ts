@@ -1,7 +1,7 @@
 import { watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
-import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { useFiscalBridge } from './useFiscalBridge'
+import { useSnackbar } from './useSnackbar'
 
 /**
  * Say what the server found when it first spoke to a freshly connected device (Eltrade sends
@@ -11,6 +11,11 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
  *  - another serial number: the device record in LGR names a different device, so every
  *    УНП would carry the wrong prefix;
  *  - device errors: no paper, clock not set, fiscal memory problems.
+ */
+/**
+ * FR-24.17: called once, by the module shell (ui-shell ModuleLayout), so a printer lost while the
+ * cashier is in another module is still said. ⚠ It only READS the bridge; it never opens a port: Web
+ * Serial gives a port to one tab, and the till's views alone connect.
  */
 export function useFiscalBridgeAlerts() {
   const { t } = useI18n()

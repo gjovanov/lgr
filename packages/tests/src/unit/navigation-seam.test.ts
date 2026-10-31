@@ -29,6 +29,7 @@ const PAGE_LOADS: Record<string, string> = {
   'portal-ui/src/views/idp/IdpAuthorizeView.vue': 'back to the relying party, another origin',
   'portal-ui/src/views/settings/BillingView.vue': 'Stripe checkout and portal, another origin',
   'invoicing-ui/src/pos/views/PosPinView.vue': 'a PIN sign-in is a new session for this tab',
+  'web/src/stale.ts': 'FR-24.14: a newer build, loaded only when no form is dirty and no printer is held',
 }
 
 const ASSIGNMENT = /window\.location(\.href)?\s*=(?!=)|window\.location\.(assign|replace)\(|(?<![.\w])location\.href\s*=(?!=)/
@@ -44,7 +45,7 @@ function sources(dir: string): string[] {
   return out
 }
 
-const roots = readdirSync(PACKAGES).filter(p => (p.endsWith('-ui') && p !== 'desktop-ui') || p === 'ui-shared' || p === 'ui-shell')
+const roots = readdirSync(PACKAGES).filter(p => (p.endsWith('-ui') && p !== 'desktop-ui') || p === 'ui-shared' || p === 'ui-shell' || p === 'web')
 
 describe('FR-24.5: every move goes through goTo', () => {
   it('no web UI source assigns window.location, except the page loads listed with their reason', () => {

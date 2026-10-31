@@ -458,6 +458,28 @@
         "services": "workspace:*",
       },
     },
+    "packages/web": {
+      "name": "web",
+      "version": "0.1.0",
+      "dependencies": {
+        "@mdi/font": "^7.4.0",
+        "axios": "^1.7.0",
+        "config": "workspace:*",
+        "pinia": "^3.0.3",
+        "ui-shared": "workspace:*",
+        "ui-shell": "workspace:*",
+        "vue": "^3.5.21",
+        "vue-i18n": "^9.14.0",
+        "vue-router": "^4.5.1",
+        "vuetify": "^3.10.0",
+      },
+      "devDependencies": {
+        "@vitejs/plugin-vue": "^5.2.0",
+        "typescript": "^5.5.0",
+        "vite": "^6.0.0",
+        "vite-plugin-vuetify": "^2.0.0",
+      },
+    },
   },
   "packages": {
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.40.1", "", { "dependencies": { "@types/node": "^18.11.18", "@types/node-fetch": "^2.6.4", "abort-controller": "^3.0.0", "agentkeepalive": "^4.2.1", "form-data-encoder": "1.7.2", "formdata-node": "^4.3.2", "node-fetch": "^2.6.7" } }, "sha512-DJMWm8lTEM9Lk/MSFL+V+ugF7jKOn0M2Ujvb5fN8r2nY14aHbGPZ1k6sgjL+tpJ3VuOGJNG+4R83jEpOuYPv8w=="],
@@ -1507,6 +1529,8 @@
     "vuetify": ["vuetify@3.13.7", "", { "peerDependencies": { "typescript": ">=4.7", "vite-plugin-vuetify": ">=2.1.0", "vue": "^3.5.0", "webpack-plugin-vuetify": ">=3.1.0" }, "optionalPeers": ["typescript", "vite-plugin-vuetify", "webpack-plugin-vuetify"] }, "sha512-HJ93r7kPRz9U1Xfd4vqseG1lL98LAG9a25jDZ+P4x9VEmK+ucpbQ56r2tTqeIUlCOxrl3FCmjNYL82WeRtOosA=="],
 
     "warehouse-api": ["warehouse-api@workspace:packages/warehouse-api"],
+
+    "web": ["web@workspace:packages/web"],
 
     "web-streams-polyfill": ["web-streams-polyfill@4.0.0-beta.3", "", {}, "sha512-QW95TCTaHmsYfHDybGMwO5IJIM93I/6vTRk+daHTWFPhwh+C8Cg7j7XyKrwrj8Ib6vYXe0ocYNrmzY4xAAN6ug=="],
 

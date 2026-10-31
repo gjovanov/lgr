@@ -365,7 +365,6 @@ import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import { jwtRole } from 'ui-shared/composables/useStorageIdentity'
-import { useFiscalBridgeAlerts } from '../composables/useFiscalBridgeAlerts'
 
 const { t, te } = useI18n()
 const route = useRoute()
@@ -373,7 +372,6 @@ const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const fiscalBridge = useFiscalBridge()
-useFiscalBridgeAlerts()
 
 // Watch for device disconnect (USB unplugged / powered off)
 watch(() => fiscalBridge.status.value, async (val) => {

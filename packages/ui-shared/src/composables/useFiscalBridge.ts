@@ -20,7 +20,8 @@ import { IslResponseCollector } from './fiscalIslResponse'
 import { getToken } from '../session/session'
 import { registerSwitchGuard } from '../session/switch-guards'
 
-export type FiscalBridgeStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'
+import { fiscalBridgeStatus, type FiscalBridgeStatus } from './fiscalBridgeStatus'
+export type { FiscalBridgeStatus }
 
 /**
  * Why the last attempt failed, when the cause is known and fixable by the cashier.
@@ -71,7 +72,7 @@ const ISL_DEFAULT_BUDGET_MS = 30000
 const ISL_LONG_COMMAND_MS = 60000
 
 // ─── Module-level singleton state (survives component unmount + navigation) ───
-const status = ref<FiscalBridgeStatus>('disconnected')
+const status = fiscalBridgeStatus
 // An org switch reloads the tab, dropping the printer mid-operation with nobody left bridging it
 // (and a receipt possibly open on the device). The org menu refuses while this tab holds it.
 registerSwitchGuard(() =>

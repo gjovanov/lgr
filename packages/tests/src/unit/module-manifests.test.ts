@@ -75,6 +75,19 @@ describe('FR-24.3: one manifest per module', () => {
     for (const m of MANIFESTS) expect({ id: m.id, base: m.base }).toEqual({ id: m.id, base: APP_NAV_META[m.id].base })
   })
 
+  it('redirects by name, never to a path, which would name a router base', () => {
+    const misses: string[] = []
+    const walk = (id: string, records: any[]) => {
+      for (const r of records) {
+        const target = typeof r.redirect === 'function' ? r.redirect({ params: { id: 'x' }, query: {} }) : r.redirect
+        if (typeof target === 'string' || (target && typeof target === 'object' && 'path' in target)) misses.push(` `)
+        if (r.children) walk(id, r.children)
+      }
+    }
+    for (const m of MANIFESTS) walk(m.id, m.routes)
+    expect(misses).toEqual([])
+  })
+
   it('names routes relative to the module: no route path names a base', () => {
     for (const m of MANIFESTS) {
       for (const r of [...m.routes, ...(m.outside ?? [])]) {

@@ -332,6 +332,8 @@
     }
   },
   "common": {
+    "newVersion": "Eine neue Version von LGR ist verfügbar.",
+    "reload": "Neu laden",
     "save": "Speichern",
     "selectAll": "Alle auswählen",
     "selectNone": "Leeren",

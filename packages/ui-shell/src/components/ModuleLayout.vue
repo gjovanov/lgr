@@ -34,6 +34,17 @@
       />
     </template>
 
+    <!-- FR-24.17: this tab holds a printer. Read only: the shell never opens a port. -->
+    <v-chip
+      v-if="bridge.status.value !== 'disconnected'"
+      class="lgr-bridge-chip"
+      size="small"
+      :color="bridge.status.value === 'connected' ? 'success' : bridge.status.value === 'error' ? 'error' : 'warning'"
+      prepend-icon="mdi-printer-pos"
+      :title="bridge.status.value"
+      data-testid="shell-bridge-chip"
+    >{{ bridge.deviceNumber.value || bridge.status.value }}</v-chip>
+
     <!-- FR-24.6: `viewKey` remounts the view when a page opens the same view it shows. -->
     <router-view :key="viewKey" />
   </AppShell>
@@ -52,7 +63,9 @@ import AppShell from './AppShell.vue'
 import TopMenuBar, { type TopMenuItem, type TopMenuChild } from './TopMenuBar.vue'
 import PendingChangesPanel from './PendingChangesPanel.vue'
 import { appHomeHref, goTo, portalHref } from 'ui-shared/nav/navigate'
-import { inModule, pendingRestoreUrl, routerAppId, spaOf, viewKey } from 'ui-shared/nav/open-page'
+import { inModule, pendingRestoreUrl, viewKey } from 'ui-shared/nav/open-page'
+import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
+import { useFiscalBridgeAlerts } from 'ui-shared/composables/useFiscalBridgeAlerts'
 import { useAppStore } from 'ui-shared/stores/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'
@@ -70,6 +83,8 @@ const route = useRoute()
 const router = useRouter()
 const apps = ref<AppInfo[]>([])
 const pendingChangesOpen = ref(false)
+const bridge = useFiscalBridge()
+useFiscalBridgeAlerts()
 
 function child(item: ModuleMenuItem): TopMenuChild {
   return {
@@ -91,12 +106,10 @@ const menuItems = computed<TopMenuItem[] | null>(() => {
   }))
 })
 
-/** This SPA's app id, from the router's base: a restore made in it reopens with a router push. */
-const spaId = routerAppId(router.options.history.base)
-
 function handleRestore(entry: PendingChangeEntry) {
   pendingChangesOpen.value = false
-  if (entry.routeName && spaOf(entry.appId) === spaId && router.hasRoute(entry.routeName)) {
+  // A route this router knows (its own module, POS inside invoicing, every module in one SPA).
+  if (entry.routeName && router.hasRoute(entry.routeName)) {
     router.push({ name: entry.routeName, params: entry.routeParams, query: { restore: entry.id } })
     return
   }
@@ -113,11 +126,10 @@ onMounted(async () => {
     await appStore.fetchProfile()
   }
   if (appStore.currentOrg?.id) {
-    if (props.manifest.pendingChanges) {
-      // /auth/me returns the JWT-shaped user (`id`, no `_id`) — fall back so the
-      // pending-changes storage key stays stable and persist() actually writes.
-      pendingChangesStore.load(appStore.currentOrg.id, (appStore.user as any)?._id || (appStore.user as any)?.id || '')
-    }
+    // Loaded whatever module this shell first shows: in one SPA it goes on to show the others.
+    // /auth/me returns the JWT-shaped user (`id`, no `_id`) — fall back so the
+    // pending-changes storage key stays stable and persist() actually writes.
+    pendingChangesStore.load(appStore.currentOrg.id, (appStore.user as any)?._id || (appStore.user as any)?.id || '')
     try {
       const portalBase = window.location.hostname === 'localhost' ? 'http://localhost:4001/api' : ''
       const { data } = await httpClient.get(`${portalBase}/org/${appStore.currentOrg.id}/apps`)
@@ -128,3 +140,12 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style scoped>
+.lgr-bridge-chip {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1006;
+}
+</style>
