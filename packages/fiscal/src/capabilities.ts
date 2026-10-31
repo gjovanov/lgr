@@ -30,6 +30,7 @@ export const FISCAL_FEATURES = [
   'textReceipt',
   'paymentNames',
   'cashOnDelivery',
+  'fiscalText',
 ] as const
 export type FiscalFeature = typeof FISCAL_FEATURES[number]
 
@@ -48,6 +49,7 @@ export const FEATURE_METHODS: Record<Exclude<FiscalFeature, 'cashOnDelivery'>, r
   programOperator: ['programOperator'],
   textReceipt: ['openNonFiscalReceipt', 'printNonFiscalText', 'closeNonFiscalReceipt'],
   paymentNames: ['readPaymentNames', 'programPaymentName'],
+  fiscalText: ['printFiscalText'],
 }
 
 /**
@@ -90,9 +92,10 @@ function driverCapabilities(
 
 const DRIVERS: Record<FiscalDriver, Omit<FiscalCapabilities, 'driver'>> = {
   // Protocol v1.1.7: no command reads an operator (66h only sets one), none prints an operator
-  // report or the КЛЕН. 66h takes operators 1–16; the reserve payment slot 'R' carries COD.
+  // report or the КЛЕН. 66h takes operators 1–16; the reserve payment slot 'R' carries COD; 36h
+  // prints free text inside a fiscal receipt.
   eltrade: driverCapabilities(
-    ['zReport', 'xReport', 'fmReportByDate', 'fmReportByNumber', 'programOperator', 'textReceipt', 'paymentNames', 'cashOnDelivery'],
+    ['zReport', 'xReport', 'fmReportByDate', 'fmReportByNumber', 'programOperator', 'textReceipt', 'paymentNames', 'cashOnDelivery', 'fiscalText'],
     ['operatorReport', 'electronicJournal', 'readOperator'],
     { maxOperators: 16, cashOnDeliverySlot: { code: 'R', name: CASH_ON_DELIVERY_NAME } },
   ),
@@ -161,6 +164,7 @@ const FEATURE_LABEL: Record<FiscalFeature, string> = {
   textReceipt: 'non-fiscal (text) receipts',
   paymentNames: 'naming payment types',
   cashOnDelivery: 'a cash-on-delivery payment',
+  fiscalText: 'free text inside a fiscal receipt',
 }
 
 const brand = (manufacturer: string) => manufacturer ? manufacturer[0].toUpperCase() + manufacturer.slice(1) : 'This'

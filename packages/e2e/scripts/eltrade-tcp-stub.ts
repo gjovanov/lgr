@@ -13,8 +13,8 @@
  *   bun packages/e2e/scripts/eltrade-tcp-stub.ts &
  *   FISCAL_TCP_ALLOW_LOOPBACK=1 bun packages/portal-api/src/unified.ts
  *
- * HTTP on the next port, for the spec: `GET /state` (receipts, reports, closures, operators, payment
- * type names), `POST /reset` (a fresh device; `{ "rates": [А..З] }` programs its VAT groups).
+ * HTTP on the next port, for the spec: `GET /state` (receipts with their free text, reports, closures,
+ * operators, payment type names), `POST /reset` (a fresh device; `{ "rates": [А..З] }` programs its VAT groups).
  */
 import { createServer, type Socket } from 'node:net'
 import { EltradeSimulator } from '../../tests/src/helpers/eltrade-simulator'

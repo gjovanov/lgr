@@ -177,6 +177,54 @@ describe('Н-18 VAT groups', () => {
 
 // ── The driver against the device ─────────────────────────────────────────
 
+describe('EltradeFiscalPrinter — free text inside a fiscal receipt (36h, FR-23)', () => {
+  const UNP = 'ED123456-0001-0000001'
+
+  it('prints it where the receipt stands, in Windows-1251, between the lines and the payment', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    await p.openFiscalReceipt('0001', 'Иван', UNP)
+    await p.printSaleLine('Болт', 1, 12, 'Б', undefined, 20)
+    await p.printFiscalText('Фактура № INV-2026-00123')
+    await p.printPayment('cash', 12)
+    await p.closeFiscalReceipt()
+    expect(sim.receipts).toHaveLength(1)
+    expect(sim.receipts[0].texts).toEqual(['Фактура № INV-2026-00123'])
+    expect(sim.receipts[0].total).toBe(12)
+  })
+
+  it('sends at most 46 characters and no control characters: the device reads those as separators', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    await p.openFiscalReceipt('0001', 'Иван', UNP)
+    await p.printFiscalText(`ред\t${'x'.repeat(60)}`)
+    const sent = sim.executed.find(e => e.cmd === ELTRADE_CMD.PRINT_FISCAL_TEXT)!.data
+    expect(sent.length).toBe(46)
+    expect(sent).not.toContain('\t')
+  })
+
+  it('is refused with no fiscal receipt open, and a service receipt is not one', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    const none = await captureRejection(p.printFiscalText('Фактура № 1'))
+    expect(String((none as Error).message)).toContain('not allowed')
+
+    await p.openNonFiscalReceipt('0001')
+    const text = await captureRejection(p.printFiscalText('Фактура № 1'))
+    expect(String((text as Error).message)).toContain('not allowed')
+    expect(sim.executed.some(e => e.cmd === ELTRADE_CMD.PRINT_FISCAL_TEXT)).toBe(false)
+  })
+
+  it('is a printing command: no paper, no text', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    await p.openFiscalReceipt('0001', 'Иван', UNP)
+    sim.paper = false
+    const out = await captureRejection(p.printFiscalText('Фактура № 1'))
+    expect(String((out as Error).message)).toContain('out of paper')
+  })
+})
+
 describe('EltradeFiscalPrinter — non-fiscal (service) receipt', () => {
   it('opens, prints Cyrillic lines and closes', async () => {
     const sim = new EltradeSimulator()

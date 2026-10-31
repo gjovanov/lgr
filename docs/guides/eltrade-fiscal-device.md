@@ -76,6 +76,7 @@ server what the device's driver supports (`capabilities` on `GET /fiscal/device/
 | Electronic Journal (KLEN) | **no** — not in the protocol | — |
 | Payment types → Read from Device | yes, the 11 slots P N C D I J K L M Q R | 55h `<slot>` |
 | Payment types → Name R „НАЛОЖЕН ПЛАТЕЖ“ | yes, admin only, audited | 55h `R,НАЛОЖЕН ПЛАТЕЖ` |
+| Free text inside a fiscal receipt („Фактура № …“, FR-23) | yes, no control on the page | 36h, up to 46 characters |
 
 The same reports print from **POS Sessions**, from a session's row: an X while the session is open,
 the fiscal memory by date (prefilled with the session's days) or by Z number (prefilled with its
@@ -140,8 +141,12 @@ Built from Eltrade's own protocol document (v1.1.1, re-checked against v1.1.7) a
 against ErpNet.FP's Eltrade driver, which runs against real devices. Tested against
 `packages/tests/src/helpers/eltrade-simulator.ts`, a device simulator built from the same document.
 Status, diagnostics, the clock and a non-fiscal sale were field-verified on a non-fiscalized A3
-(2026-09-26); **the reports, operator programming and payment type names have not been run on a
-physical A3.** Deliberately handled both ways because the document is not specific:
+(2026-09-26); **the reports, operator programming, payment type names and the free text of a fiscal
+receipt (36h) have not been run on a physical A3.** 36h is „PRINTING A FREE FISCAL TEXT“ in the
+protocol v1.1.1 (up to 46 bytes, framed in `#`, refused with S1.1 when no fiscal receipt is open), and
+ErpNet.FP's ISL drivers send comments with it, its Eltrade driver not overriding it. A check on the
+device is still owed: where the line lands on the receipt, and that it prints between the sale lines
+and the payment. Deliberately handled both ways because the document is not specific:
 
 - the field layout of the diagnostic answer (serial / fiscal memory are found by shape);
 - whether amounts come back with a decimal point or in cents;

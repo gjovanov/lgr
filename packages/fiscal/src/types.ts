@@ -161,6 +161,14 @@ export interface IFiscalPrinter {
   /** Print subtotal on the current fiscal receipt */
   printSubtotal(): Promise<{ subtotal: number }>
 
+  /**
+   * Print a line of free text inside the open fiscal receipt: what an invoice paid at the counter
+   * says under its lines, „Фактура № …" (FR-23 §2.2). Optional: a driver without it
+   * (`capabilities.ts`, `fiscalText`) has the invoice's number printed as a line's name instead.
+   * `printNonFiscalText` will not do: it works only on a non-fiscal receipt.
+   */
+  printFiscalText?(text: string): Promise<void>
+
   /** Print payment and close the fiscal receipt */
   printPayment(type: FiscalPaymentType, amount: number): Promise<void>
 

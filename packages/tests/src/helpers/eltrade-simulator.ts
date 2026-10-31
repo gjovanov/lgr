@@ -28,6 +28,8 @@ export interface SimReceipt {
   kind: 'fiscal' | 'storno'
   header: string[]
   sales: SimSale[]
+  /** Free text printed inside the receipt (36h), in order. */
+  texts: string[]
   payments: SimPayment[]
   total: number
   paid: number
@@ -39,7 +41,7 @@ const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 const GROUPS = ['А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'З']
 
 /** Commands that print: refused with "no paper" when the roll is out. */
-const PRINTING = [0x26, 0x27, 0x2A, 0x31, 0x35, 0x38, 0x45, 0x49, 0x4F, 0x5E, 0x5F, 0x90]
+const PRINTING = [0x26, 0x27, 0x2A, 0x31, 0x35, 0x36, 0x38, 0x45, 0x49, 0x4F, 0x5E, 0x5F, 0x90]
 
 /**
  * The data each fiscal-memory report takes (v1.1.7). By number: `Start,End`, 4 digits each — 49h
@@ -243,7 +245,7 @@ export class EltradeSimulator {
           flags.syntax = true
           return ''
         }
-        this.receipt = { kind: storno ? 'storno' : 'fiscal', header, sales: [], payments: [], total: 0, paid: 0 }
+        this.receipt = { kind: storno ? 'storno' : 'fiscal', header, sales: [], texts: [], payments: [], total: 0, paid: 0 }
         return '0003,0001'
       }
       case 0x31: {
@@ -288,6 +290,12 @@ export class EltradeSimulator {
         const left = round2(this.receipt.total - this.receipt.paid)
         return left > 0 ? `D${this.money(left)}` : `R${this.money(-left)}`
       }
+      case 0x36:
+        // "A fiscal receipt must be opened because in the opposite case the text will not be
+        // printed and the S1.1 flag is raised"; past 46 symbols it is cut off (v1.1.1).
+        if (!this.receipt) { flags.notAllowed = true; return '' }
+        this.receipt.texts.push(text.slice(0, 46))
+        return ''
       case 0x38: {
         if (!this.receipt || !this.receipt.payments.length || this.receipt.paid + 0.001 < this.receipt.total) {
           flags.notAllowed = true

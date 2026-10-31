@@ -65,6 +65,7 @@ export const ELTRADE_CMD = {
   SALE: 0x31,
   SUBTOTAL: 0x33,
   TOTAL: 0x35,
+  PRINT_FISCAL_TEXT: 0x36,
   CLOSE_FISCAL: 0x38,
   CANCEL_FISCAL: 0x3C,
   SET_DATE_TIME: 0x3D,
@@ -90,6 +91,7 @@ const COMMAND_NAME: Record<number, string> = {
   0x31: 'register sale',
   0x33: 'subtotal',
   0x35: 'payment',
+  0x36: 'print fiscal text',
   0x38: 'close fiscal receipt',
   0x3C: 'cancel fiscal receipt',
   0x3D: 'set date/time',
@@ -862,6 +864,18 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     const receipt = this.receipt ?? (this.receipt = { expected: 0, remaining: null, lastPaidCode: null })
     const amount = round2(Number(price.toFixed(2)) * quantity)
     receipt.expected = round2(receipt.expected + amount - (discount ? round2((amount * discount) / 100) : 0))
+  }
+
+  /**
+   * 36h: a line of free text in the open fiscal receipt, framed in '#' like 2Ah's and cut after 46
+   * characters (protocol v1.1.1, "36h (54) PRINTING A FREE FISCAL TEXT"). Refused, with the
+   * not-allowed bit, when no fiscal receipt is open. ErpNet.FP's ISL drivers send comments the same
+   * way, and its Eltrade driver does not override it. ⚠ Not run on a physical device yet.
+   */
+  async printFiscalText(text: string): Promise<void> {
+    await this.request(ELTRADE_CMD.PRINT_FISCAL_TEXT, sanitizeDeviceText(text).slice(0, FREE_TEXT_MAX), {
+      prints: true, timeoutMs: TIMEOUT_MS.print,
+    })
   }
 
   async printSubtotal(): Promise<{ subtotal: number }> {

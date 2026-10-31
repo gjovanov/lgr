@@ -58,6 +58,16 @@ describe('fiscal capabilities — in step with the driver classes', () => {
     })
   }
 
+  it('free text inside a fiscal receipt: Eltrade has it, the other drivers do not yet (FR-23)', () => {
+    expect(fiscalCapabilities('eltrade', 'browser').features.fiscalText).toBe(true)
+    expect(unsupportedReason('eltrade', 'tcp', 'fiscalText')).toBeNull()
+    for (const [m, c] of [['datecs', 'tcp'], ['datecs', 'browser'], ['tremol', 'browser']]) {
+      expect(fiscalCapabilities(m, c).features.fiscalText).toBe(false)
+      // Their protocols have it (36h, 37h); LGR's drivers do not send it yet.
+      expect(fiscalCapabilities(m, c).missing.fiscalText).toBe('driver')
+    }
+  })
+
   it('every manufacturer × connection names the class its factory builds (or none, where the server refuses)', () => {
     const send = async () => Buffer.alloc(0)
     for (const m of MANUFACTURERS) {
