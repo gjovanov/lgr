@@ -16,6 +16,7 @@ import {
 import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
 import { buildSessionReport, formatSessionReport, type SessionReport } from 'services/biz/cash-register/session-report'
 import { maySaleOpen } from 'fiscal/device-reach'
+import { fiscalFailure } from 'fiscal/errors'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
 import {
@@ -629,6 +630,14 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
           const num = (report as any)?.reportNumber
           if (num && num !== 'unknown') zReportNumber = String(num)
         } catch (e: any) {
+          // #394: the driver refused the Z because a sale is printing on it right now. Nothing
+          // failed: the device stays as it is, the session goes back to open and keeps no failure,
+          // and closing again once the sale has finished works.
+          if (fiscalFailure(e).code === 'receipt_open') {
+            await release()
+            logger.info({ orgId, sessionId: id, deviceId: device.id }, 'Z-report waits for a sale printing on the device — session left open')
+            return status(409, { code: 'receipt_open', message: 'A sale is printing on this device. Wait for it to finish, then close again.' })
+          }
           const message = e?.message || 'Fiscal device error'
           await release('failed', message.slice(0, 300))
           // Mirror the sale path: a device that just failed is marked so the next operation

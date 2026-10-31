@@ -947,8 +947,9 @@ LGR implements СУПТО (Софтуер за Управление на Про�
     mid-sale; a reconnect is a new driver) is cleared as a sale clears it (`clearOpenReceipt`) and the report
     prints: refusing it stranded the till, whose close runs this Z. ⚠ Only the driver's own state tells the two
     apart (`fiscalOperation()` counts, it does not lock): a receipt is counted BEFORE its 90h/26h is sent, and let
-    go once closed, voided, or (text) a line fails. ⚠ A POS close whose Z is refused this way still answers 503
-    `fiscal_error` and marks the device `error`.
+    go once closed, voided, or (text) a line fails. A POS close whose Z is refused this way answers 409
+    `receipt_open`, leaves the device's status alone and puts the session back to `open` with no failure on it:
+    closing again once the sale has finished works. Every other Z failure stays 503 `fiscal_error` + device `error`.
   - v1.1.7 has NO command to read an operator back (66h only sets one), no operator report and no КЛЕН print —
     never add a method that pretends. Operators 1–16; payment slots P N C D I J K L M Q R (35h/55h).
   - **Cash on delivery** = `FiscalPaymentType` `cash_on_delivery` → reserve slot **`R`**, named „НАЛОЖЕН
@@ -1693,11 +1694,12 @@ in LGR while the device still had it open.
 - **Any fiscal failure reverts the session to `open`**, records `fiscalStatus:'failed'` +
   `fiscalError`, flips the device to `error`, and returns **503 `{code:'fiscal_error'}`** with
   a message distinguishing a connection failure from a device error. The day is never closed
-  on a fiscal error.
+  on a fiscal error. The one exception is a Z the driver refused because a sale is printing on
+  it: nothing failed, so 409 `receipt_open`, the device untouched, and no failure on the session.
 - `fiscalStatus: 'skipped'` when the warehouse has **no** active device (regal may run without
   one). A device that exists but fails is never silently skipped — only `closeWithoutFiscal`
   bypasses it, and only for admin/manager.
-- Model: `closingBreakdown[{method,expected,counted,difference}]`, `fiscalStatus`,
+- Model: `closingBreakdown[{method,expected,counted?,difference?}]`, `fiscalStatus`,
   `fiscalError`, `zReportNumber`, `fiscalClosedAt`, `fiscalDeviceId`, and **`totalOther`**
   (mobile/voucher were accepted per transaction but never summed, so the close screen had no
   expected value for them). `closingBalance`/`expectedBalance`/`difference` keep their

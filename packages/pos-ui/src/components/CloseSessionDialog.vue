@@ -277,11 +277,11 @@ async function submit() {
     // An unanswered attempt keeps its key: closing again returns that close, never a second Z-report.
     attempt.settle(e)
     // The session is still open — the server reverted it. Say so plainly.
-    result.value = {
-      kind: 'error',
-      title: t('pos.close.fiscalFailed'),
-      detail: e?.response?.data?.message || t('common.operationFailed'),
-    }
+    const refused = e?.response?.data
+    result.value = refused?.code === 'receipt_open'
+      // Not a failure: a sale is printing on the device, and closing again after it works.
+      ? { kind: 'error', title: t('pos.close.receiptOpenTitle'), detail: t('pos.close.receiptOpen') }
+      : { kind: 'error', title: t('pos.close.fiscalFailed'), detail: refused?.message || t('common.operationFailed') }
   } finally {
     submitting.value = false
   }
