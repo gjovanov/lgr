@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { canStornoTransaction, canStornoJournalRow, STORNO_ROLES } from '../../../pos-ui/src/composables/storno'
+import { canStornoTransaction, canStornoJournalRow, STORNO_ROLES } from '../../../invoicing-ui/src/pos/composables/storno'
 
 /**
  * #145 — the STORNO button must never be offered where the server would refuse it

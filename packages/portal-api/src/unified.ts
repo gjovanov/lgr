@@ -132,7 +132,7 @@ const moduleUiConfig = [
   { name: 'accounting', prefix: '/accounting' },
   { name: 'inventory', prefix: '/inventory' },
   { name: 'invoicing', prefix: '/invoicing' },
-  { name: 'pos', prefix: '/pos' },
+  // POS: routes of the invoicing SPA since FR-24 Phase 0; `/pos/*` answers 302 (spa-fallback.ts).
   { name: 'payroll', prefix: '/payroll' },
   { name: 'reports', prefix: '/reports' },
   { name: 'files', prefix: '/files' },

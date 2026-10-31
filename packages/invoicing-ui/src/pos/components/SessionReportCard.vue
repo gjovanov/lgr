@@ -37,7 +37,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useAppStore } from '../store/app.store'
+import { useAppStore } from '../../store/app.store'
 
 /** The wire shape of `SessionReport` (services/biz/cash-register/session-report.ts). */
 export interface SessionReportData {

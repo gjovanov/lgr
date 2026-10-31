@@ -13,7 +13,6 @@ RUN cd /app/packages/portal-ui && bun run build
 RUN cd /app/packages/accounting-ui && bun run build
 RUN cd /app/packages/inventory-ui && bun run build
 RUN cd /app/packages/invoicing-ui && bun run build
-RUN cd /app/packages/pos-ui && bun run build
 RUN cd /app/packages/payroll-ui && bun run build
 RUN cd /app/packages/reports-ui && bun run build
 RUN cd /app/packages/files-ui && bun run build
@@ -36,7 +35,6 @@ COPY --from=ui-builder /app/packages/portal-ui/dist /app/packages/portal-ui/dist
 COPY --from=ui-builder /app/packages/accounting-ui/dist /app/packages/accounting-ui/dist
 COPY --from=ui-builder /app/packages/inventory-ui/dist /app/packages/inventory-ui/dist
 COPY --from=ui-builder /app/packages/invoicing-ui/dist /app/packages/invoicing-ui/dist
-COPY --from=ui-builder /app/packages/pos-ui/dist /app/packages/pos-ui/dist
 COPY --from=ui-builder /app/packages/payroll-ui/dist /app/packages/payroll-ui/dist
 COPY --from=ui-builder /app/packages/reports-ui/dist /app/packages/reports-ui/dist
 COPY --from=ui-builder /app/packages/files-ui/dist /app/packages/files-ui/dist
