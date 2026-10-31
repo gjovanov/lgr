@@ -150,7 +150,7 @@ const ORG_CREATING = new Set(['POST /api/auth/register', 'POST /api/auth/orgs', 
  * exchanges that produce one. ⚠ Matched on the EXACT path, so a variant the router might still
  * route (`/enroll/`, an escaped letter) is gated, not exempt: an exemption fails closed.
  */
-const LAN_WITHOUT_DESKTOP = new Set(['GET /api/health', 'POST /api/desktop/v1/enroll', 'POST /api/desktop/v1/token'])
+const LAN_WITHOUT_DESKTOP = new Set(['GET /api/health', 'GET /api/ready', 'POST /api/desktop/v1/enroll', 'POST /api/desktop/v1/token'])
 
 const refuse = (status: number, code: string, message: string) =>
   new Response(JSON.stringify({ code, message }), { status, headers: { 'content-type': 'application/json' } })

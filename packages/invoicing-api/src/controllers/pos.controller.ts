@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
+import { livePresence } from 'services/biz/fiscal-presence.service'
 import { getRepos } from 'services/context'
 import { buildProductSearchFilter } from 'services/biz/search.utils'
 import { createAuditEntry, generateCorrelationId } from 'services/biz/audit-log.service'
@@ -491,7 +492,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       report: buildSessionReport(session, await loadPosRows({ orgId, sessionId: id })),
       openSessionsOnWarehouse: openOnWarehouse,
       fiscalDevice: device
-        ? { id: device.id, name: device.name, deviceNumber: device.deviceNumber, connected: isDeviceConnected(device.id) }
+        ? { id: device.id, name: device.name, deviceNumber: device.deviceNumber, connected: isDeviceConnected(device.id) || !!(await livePresence({ orgId, deviceNumber: String(device.deviceNumber) })) }
         : null,
     }
   }, { isSignIn: true })
@@ -543,7 +544,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       device: device
         ? {
             id: device.id, name: device.name, deviceNumber: device.deviceNumber,
-            connected: isDeviceConnected(device.id),
+            // FR-24.47: held on any pod, from its presence row.
+            connected: isDeviceConnected(device.id) || !!(await livePresence({ orgId, deviceNumber: String(device.deviceNumber) })),
             capabilities: fiscalCapabilities(device.manufacturer, device.connectionType),
           }
         : null,

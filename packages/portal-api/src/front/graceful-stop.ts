@@ -8,7 +8,9 @@
  *    receipt printing through a fiscal bridge needs its socket to finish.
  * 2. The schedulers stop ticking.
  * 3. Wait, up to `LGR_STOP_WAIT_MS`, until no fiscal operation and no request is in flight.
- * 4. Disconnect the fiscal devices, then close the control socket and the database.
+ * 4. Close the fiscal bridges with 1012, releasing their presence rows (FR-24.44): the tills
+ *    reconnect at once, to a pod that takes connections. Then disconnect the fiscal devices, close the
+ *    control socket and the database.
  * 5. Exit 0.
  *
  * ⚠ A second call while stopping returns the first one's promise: SIGTERM arriving during a
@@ -24,6 +26,8 @@ export interface StopDeps {
   server?: { stop: (closeActiveConnections?: boolean) => unknown; pendingRequests?: number } | null
   waitMs: number
   closeControl?: () => void
+  /** FR-24.44: closes the fiscal bridges with 1012 once nothing fiscal is in flight. */
+  closeBridges?: () => Promise<unknown>
   /** Closes the database. */
   disconnect?: () => Promise<unknown>
   /** `process.exit` unless a test says otherwise. */
@@ -64,6 +68,11 @@ async function run(reason: string, deps: StopDeps): Promise<void> {
     logger.warn({ ...left, waitedMs: Date.now() - started }, 'Stopping with work still in flight: the wait ran out')
   }
 
+  try {
+    await deps.closeBridges?.()
+  } catch (e: any) {
+    logger.warn({ error: e?.message }, 'Closing the fiscal bridges failed')
+  }
   try {
     await disconnectAll()
   } catch (e: any) {

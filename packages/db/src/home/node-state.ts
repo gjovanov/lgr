@@ -68,6 +68,8 @@ export const NODE_STATE_MODELS: ReadonlySet<string> = new Set([
   'MirrorBlob',
   'MirrorDeadLetter',
   'OrgMove',
+  // FR-24.45: which pod holds a fiscal device; meaningless anywhere but on the node that wrote it.
+  'FiscalPresence',
   'FencedExport',
   'FencedImportItem',
 ])
