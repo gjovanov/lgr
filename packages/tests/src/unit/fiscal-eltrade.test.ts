@@ -489,7 +489,7 @@ describe('EltradeFiscalPrinter — reports, clock, status, operators', () => {
   })
 })
 
-// ── Reports never touch an open receipt ───────────────────────────────────
+// ── A report and an open receipt ──────────────────────────────────────────
 
 /** A sale in progress on the device, as the POS leaves it between two commands. */
 async function saleInProgress(sim: EltradeSimulator, paid = 0) {
@@ -500,7 +500,23 @@ async function saleInProgress(sim: EltradeSimulator, paid = 0) {
   return p
 }
 
-describe('EltradeFiscalPrinter — a report while a receipt is open', () => {
+/**
+ * A driver whose exchange runs `onFrame` before each frame reaches the device, e.g. to queue a
+ * report while a given command is on the wire.
+ */
+function printerWatching(sim: EltradeSimulator, onFrame: (frame: Uint8Array, p: EltradeFiscalPrinter) => void) {
+  const p: EltradeFiscalPrinter = new EltradeFiscalPrinter(async (frame) => {
+    onFrame(frame, p)
+    return sim.exchange(frame)
+  }, 'watched')
+  return p
+}
+
+/** The commands the device executed after `from`, the status reads left out. */
+const after = (sim: EltradeSimulator, from: number) =>
+  sim.executed.slice(from).map(e => e.cmd).filter(c => c !== ELTRADE_CMD.GET_STATUS)
+
+describe('EltradeFiscalPrinter — a report while THIS driver is printing a receipt: refused', () => {
   const touchedReceipt = [ELTRADE_CMD.CANCEL_FISCAL, ELTRADE_CMD.TOTAL, ELTRADE_CMD.CLOSE_FISCAL, ELTRADE_CMD.CLOSE_NON_FISCAL]
 
   it('refuses the X-report during a sale, and voids nothing', async () => {
@@ -508,7 +524,7 @@ describe('EltradeFiscalPrinter — a report while a receipt is open', () => {
     const p = await saleInProgress(sim)
     const before = sim.executed.length
     const err = await captureRejection(p.printDailyXReport())
-    expectRejection(err, /fiscal receipt open, so the X-report was not printed/)
+    expectRejection(err, /^A sale is printing on this device, so the X-report was not printed\. Wait for it to finish, then try again\.$/)
     expect(err.kind).toBe('busy')
     const after = sim.executed.slice(before).map(e => e.cmd)
     expect(after).toEqual([ELTRADE_CMD.GET_STATUS]) // the check, and nothing else
@@ -521,7 +537,7 @@ describe('EltradeFiscalPrinter — a report while a receipt is open', () => {
     const p = await saleInProgress(sim, 5)
     const closure = sim.closure
     const err = await captureRejection(p.printDailyZReport())
-    expectRejection(err, /fiscal receipt open, so the Z-report was not printed/)
+    expectRejection(err, /A sale is printing on this device, so the Z-report was not printed/)
     expect(sim.executed.map(e => e.cmd).filter(c => touchedReceipt.includes(c as any) && c !== ELTRADE_CMD.TOTAL)).toEqual([])
     expect(sim.receipt!.payments).toEqual([{ mode: 'P', amount: 5 }]) // the 5 paid, no cash remainder added
     expect(sim.closure).toBe(closure)
@@ -533,7 +549,7 @@ describe('EltradeFiscalPrinter — a report while a receipt is open', () => {
     expect((await p.printDailyZReport()).reportNumber).toBe(String(closure + 1).padStart(4, '0'))
   })
 
-  it('refuses every report while a service (text) receipt is open, and leaves it open', async () => {
+  it('refuses every report while it prints a service (text) receipt, and leaves it open', async () => {
     const sim = new EltradeSimulator()
     const p = printerFor(sim)
     await p.openNonFiscalReceipt('0001')
@@ -546,7 +562,7 @@ describe('EltradeFiscalPrinter — a report while a receipt is open', () => {
       ['fiscal-memory report', () => p.printFiscalMemoryReportByNumber(1, 2, true)],
     ]
     for (const [what, run] of reports) {
-      expectRejection(await captureRejection(run()), new RegExp(`service \\(non-fiscal\\) receipt open, so the ${what} was not printed`))
+      expectRejection(await captureRejection(run()), new RegExp(`^A service \\(non-fiscal\\) receipt is printing on this device, so the ${what} was not printed`))
     }
     expect(sim.nonFiscalOpen).toBe(true)
     expect(cmds(sim).filter(c => touchedReceipt.includes(c as any))).toEqual([])
@@ -572,6 +588,141 @@ describe('EltradeFiscalPrinter — a report while a receipt is open', () => {
     expect(sim.nonFiscalOpen).toBe(true)
     const order = cmds(sim)
     expect(order.indexOf(ELTRADE_CMD.DAILY_REPORT)).toBeLessThan(order.indexOf(ELTRADE_CMD.OPEN_NON_FISCAL))
+  })
+
+  it('a Z queued while the sale\'s 90h is on the wire is refused, never voids the receipt being opened', async () => {
+    const sim = new EltradeSimulator()
+    let report: Promise<any> | null = null
+    let ownedWhenSent: boolean | null = null
+    const p = printerWatching(sim, (frame, p) => {
+      if (frame[3] !== ELTRADE_CMD.OPEN_FISCAL || report) return
+      ownedWhenSent = (p as any).receipt !== null // counted as this driver's BEFORE 90h is sent
+      report = captureRejection(p.printDailyZReport())
+    })
+    await p.openFiscalReceipt('0001', 'Op', UNP)
+    const err = await report!
+    expect(ownedWhenSent).toBe(true)
+    expectRejection(err, /A sale is printing on this device, so the Z-report was not printed/)
+    expect(err.kind).toBe('busy')
+    expect(sim.receipt).toMatchObject({ kind: 'fiscal', header: ['Op', UNP] })
+    expect(sim.receipts).toEqual([])
+    expect(sim.closure).toBe(12)
+
+    // The sale goes on to its end; then the day closes.
+    await p.printSaleLine('Болт М8', 2, 12, 'Б', undefined, 20)
+    await p.printPayment('cash', 24)
+    await p.closeFiscalReceipt()
+    expect((await p.printDailyZReport()).reportNumber).toBe('0013')
+    expect(sim.receipts.map(r => r.voided)).toEqual([undefined])
+  })
+
+  it('the same for 26h: a report queued behind a service receipt\'s open never closes it', async () => {
+    const sim = new EltradeSimulator()
+    let report: Promise<any> | null = null
+    let ownedWhenSent: boolean | null = null
+    const p = printerWatching(sim, (frame, p) => {
+      if (frame[3] !== ELTRADE_CMD.OPEN_NON_FISCAL || report) return
+      ownedWhenSent = (p as any).textReceipt === true
+      report = captureRejection(p.printDailyXReport())
+    })
+    await p.openNonFiscalReceipt('0001')
+    const err = await report!
+    expect(ownedWhenSent).toBe(true)
+    expectRejection(err, /A service \(non-fiscal\) receipt is printing on this device, so the X-report was not printed/)
+    expect(sim.nonFiscalOpen).toBe(true)
+    expect(cmds(sim)).not.toContain(ELTRADE_CMD.CLOSE_NON_FISCAL)
+    await p.printNonFiscalText('ОБЩО')
+    await p.closeNonFiscalReceipt()
+    expect(sim.nonFiscalLines).toEqual(['ОБЩО'])
+  })
+
+  it('a report queued ahead of the 27h that closes a service receipt is refused, and the close still succeeds', async () => {
+    // Were the receipt let go when 27h is asked for rather than once it has run, this report
+    // would close it first, and the till's own 27h would fail on a receipt that printed whole.
+    const sim = new EltradeSimulator()
+    let report: Promise<any> | null = null
+    const p = printerWatching(sim, (frame, p) => {
+      if (frame[3] === ELTRADE_CMD.PRINT_NON_FISCAL_TEXT && !report) report = captureRejection(p.printDailyXReport())
+    })
+    await p.openNonFiscalReceipt('0001')
+    await p.printNonFiscalText('ОБЩО')
+    await p.closeNonFiscalReceipt() // queued behind the report
+    expectRejection(await report!, /service \(non-fiscal\) receipt is printing on this device/)
+    expect(sim.nonFiscalOpen).toBe(false)
+    expect(cmds(sim).filter(c => c === ELTRADE_CMD.CLOSE_NON_FISCAL)).toHaveLength(1)
+    expect((await p.printDailyXReport()).reportNumber).toBe('0012') // and afterwards it prints
+  })
+})
+
+describe('EltradeFiscalPrinter — a receipt nothing will finish: the report clears it, then prints', () => {
+  it('a sale\'s receipt left by a driver that is gone (the bridge dropped mid-sale): the Z voids it and closes the day', async () => {
+    const sim = new EltradeSimulator()
+    await saleInProgress(sim) // ...and that driver is never heard from again
+    const reconnected = printerFor(sim) // a reconnect registers a NEW driver
+    const before = sim.executed.length
+    const z = await reconnected.printDailyZReport()
+    expect(z.reportNumber).toBe('0013')
+    expect(sim.closure).toBe(13)
+    expect(sim.receipt).toBeNull()
+    expect(sim.receipts).toEqual([expect.objectContaining({ kind: 'fiscal', header: ['Op', UNP], voided: true })])
+    expect(after(sim, before)).toEqual([ELTRADE_CMD.CANCEL_FISCAL, ELTRADE_CMD.DAILY_REPORT])
+  })
+
+  it('a part-paid one cannot be voided (3Ch refuses it): it is completed in cash, then the Z prints', async () => {
+    const sim = new EltradeSimulator()
+    await saleInProgress(sim, 5)
+    const before = sim.executed.length
+    const z = await printerFor(sim).printDailyZReport()
+    expect(z.reportNumber).toBe('0013')
+    expect(z.totalSales).toBe(24) // the completed receipt is in the day it closes
+    expect(sim.receipt).toBeNull()
+    expect(sim.receipts).toEqual([expect.objectContaining({ payments: [{ mode: 'P', amount: 5 }, { mode: 'P', amount: 19 }] })])
+    expect(sim.receipts[0].voided).toBeUndefined()
+    expect(after(sim, before)).toEqual([ELTRADE_CMD.TOTAL, ELTRADE_CMD.CLOSE_FISCAL, ELTRADE_CMD.DAILY_REPORT])
+  })
+
+  it('a service receipt left open on the device: the X closes it, then prints', async () => {
+    const sim = new EltradeSimulator()
+    sim.nonFiscalOpen = true // e.g. a text receipt the server stopped in the middle of
+    const before = sim.executed.length
+    const x = await printerFor(sim).printDailyXReport()
+    expect(x.reportNumber).toBe('0012')
+    expect(sim.nonFiscalOpen).toBe(false)
+    expect(sim.closure).toBe(12) // an X closes nothing
+    expect(sim.reports).toEqual([{ cmd: ELTRADE_CMD.DAILY_REPORT, data: '2' }])
+    expect(after(sim, before)).toEqual([ELTRADE_CMD.CLOSE_NON_FISCAL, ELTRADE_CMD.DAILY_REPORT])
+  })
+
+  it('the same driver, when the void of a failed sale never reached the device', async () => {
+    const sim = new EltradeSimulator()
+    let gone = false
+    const p = new EltradeFiscalPrinter(async (f) => {
+      if (gone) throw new Error('Fiscal bridge disconnected')
+      return sim.exchange(f)
+    }, 'flaky')
+    await p.openFiscalReceipt('0001', 'Op', UNP)
+    await p.printSaleLine('Болт М8', 2, 12, 'Б', undefined, 20)
+    gone = true
+    // The payment fails, and so does the till's void of it (abandonReceipt → cancelFiscalReceipt).
+    expect((await captureRejection(p.printPayment('cash', 24)))?.kind).toBe('unreachable')
+    expect((await captureRejection(p.cancelFiscalReceipt()))?.kind).toBe('unreachable')
+    expect(sim.receipt).not.toBeNull()
+
+    gone = false
+    expect((await p.printDailyZReport()).reportNumber).toBe('0013')
+    expect(sim.receipts).toEqual([expect.objectContaining({ voided: true })])
+  })
+
+  it('a service receipt whose line failed, its caller stopping without closing it', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    await p.openNonFiscalReceipt('0001')
+    sim.paper = false
+    expect((await captureRejection(p.printNonFiscalText('ОБЩО')))?.kind).toBe('rejected')
+    sim.paper = true // a new roll; the receipt is still open
+    expect(sim.nonFiscalOpen).toBe(true)
+    expect((await p.printDailyXReport()).reportNumber).toBe('0012')
+    expect(sim.nonFiscalOpen).toBe(false)
   })
 })
 

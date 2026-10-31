@@ -77,11 +77,16 @@ server what the device's driver supports (`capabilities` on `GET /fiscal/device/
 | Payment types → Read from Device | yes, the 11 slots P N C D I J K L M Q R | 55h `<slot>` |
 | Payment types → Name R „НАЛОЖЕН ПЛАТЕЖ“ | yes, admin only, audited | 55h `R,НАЛОЖЕН ПЛАТЕЖ` |
 
-- **A report never touches an open receipt.** While a sale is being printed (a fiscal or a service
-  receipt is open), X, Z and every fiscal-memory report are refused with "…has a fiscal receipt
-  open…" (HTTP 409 `receipt_open`) instead of voiding the sale's receipt, or completing it in cash
-  once it was part-paid, as they used to. A receipt left open by an interrupted sale is cleared by
-  the next sale on the device.
+- **A report never touches a receipt that is still printing.** While a sale (or a service receipt)
+  is printing, X, Z and every fiscal-memory report are refused with "A sale is printing on this
+  device…" (HTTP 409 `receipt_open`): wait for it to finish, then try again. They used to void the
+  sale's receipt, or complete it in cash once it was part-paid.
+- **A receipt nothing will finish does not block a report.** When the server stopped, or the bridge
+  or the connection dropped, in the middle of a sale, the receipt stays open on the device. The next
+  report clears it the way the next sale would (voided, or completed in cash if a payment had gone
+  through), then prints. Closing the POS session runs the same Z, so the close is not stuck behind
+  it. ⚠ A part-paid receipt completed in cash adds cash the drawer never took: the API logs
+  `…completing it with the remainder in cash` when that happens.
 - **Program on Device**: the password authorises the change — it is the operator's password on the
   device (4–8 digits). Three wrong ones lock the device until it is switched off and on, so LGR
   checks the number, the password's form and the name before anything is sent.
@@ -112,7 +117,7 @@ Run in this order — only step 5 creates a fiscal record.
 | "does not answer" / timeouts | wrong port picked; device inside a sub-menu | pick the right port; return the device to its main menu |
 | "serial number … set up as …" | wrong Device Number in LGR | set it to the serial the device reports |
 | "not allowed in the current state of the device" | a receipt left open, clock not set, day needs a Z-report, fiscal memory/КЛЕН full | read Device Status; LGR voids a receipt left open by an interrupted sale automatically |
-| "…has a fiscal receipt open, so the X-report (or Z-report) was not printed" | a sale is printing on the device right now, or one was interrupted. Closing the POS session runs the same Z-report: it is refused too, and the session stays open | let the sale finish and try again; a receipt an interrupted sale left is cleared by the next sale |
+| "A sale is printing on this device, so the X-report (or Z-report) was not printed" | a sale (or a service receipt) is printing on the device right now. Closing the POS session runs the same Z-report: it is refused too, and the session stays open | wait for the sale to finish and try again. A receipt left by an interrupted sale does not cause this: the report clears it |
 | Program on Device refused: "not allowed in the current state" | the password is not that operator's on the device | use the operator's own password — after three wrong ones the device must be switched off and on |
 | "No VAT group on the Eltrade is programmed at X %" | product rate matches no programmed group | fix the product's tax rate, or have service check the device rates |
 | "Refusing to move the Eltrade clock back" | server time is behind the device by > 5 min | check the server/NTP time; a device clock that is ahead needs service |

@@ -28,8 +28,10 @@
  *    aborted every receipt on them), so they are reported, not fatal.
  *  - The device keeps Bulgarian local time; the API runs on UTC. Clock values go through
  *    `zoned-time.ts`, never `getHours()`.
- *  - A report (X, Z, fiscal memory) is refused while a receipt is open, never cleared out of its
- *    way: the POS and the device page share this driver (`report()`).
+ *  - A report (X, Z, fiscal memory) never touches a receipt this driver is still printing: it is
+ *    refused until the sale finishes. A receipt nothing will finish (the server stopped, or the
+ *    bridge dropped, mid-receipt) is cleared as a new sale clears it, and the report prints
+ *    (`report()`).
  */
 
 import type {
@@ -457,7 +459,14 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
   private seq = Math.floor(Math.random() * ISL_SEQ_SPAN)
   private primed = false
   private queue: Promise<unknown> = Promise.resolve()
+  /**
+   * The fiscal receipt this driver is printing: set before its 90h is sent, cleared once it is
+   * closed or voided. With `textReceipt`, the only thing that tells a sale still printing from a
+   * receipt an interrupted sale left behind (`report()`).
+   */
   private receipt: ReceiptState | null = null
+  /** A service (non-fiscal) receipt this driver is printing: set before its 26h is sent. */
+  private textReceipt = false
   private diagnostics: EltradeDiagnostics | null = null
   private taxRates: (number | null)[] | null = null
   /** Status carried by the most recent answer. */
@@ -514,28 +523,33 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
   }
 
   /**
-   * Run a report — X, Z or fiscal memory — unless a receipt is open on the device.
+   * Run a report — X, Z or fiscal memory. The status read, whatever an open receipt needs, and
+   * the report are ONE turn of the queue, so no other caller's command lands in between.
    *
-   * ⚠ A report never touches an open receipt. It used to clear one out of its way as a new sale
-   * does (`ensureNoOpenReceipt`), and the POS and the device page share this driver: an X- or
-   * Z-report pressed while a till was mid-sale voided that sale's receipt, or completed it in cash
-   * once a payment had gone through. Now the report is refused, and says why.
-   *
-   * The status read and the report are one turn of the queue, so no other caller's command can
-   * open a receipt between the check and the report.
+   * An open receipt is one of two things, and only this driver's own state tells them apart:
+   *  - a receipt THIS driver is printing (`receipt` / `textReceipt`): a sale between two of its
+   *    commands. ⚠ The report is refused (`busy`). It used to clear the receipt out of its way, and
+   *    the POS and the device page share this driver, so an X or Z pressed mid-sale voided the
+   *    sale, or completed it in cash once part-paid.
+   *  - one nothing will finish: the server stopped mid-receipt, or the bridge or socket dropped
+   *    before the void reached the device (a reconnect is a new driver, which never opened it). It
+   *    is cleared as a new sale clears it (`clearOpenReceipt`) and the report prints. Refusing it
+   *    strands the till: the POS close runs this Z, and a cashier closing the day cannot clear it.
    */
   private report(cmd: number, data: string, what: string): Promise<Reply> {
     return this.serialize(async () => {
       const { status } = await this.primedTransact(ELTRADE_CMD.GET_STATUS, 'X', { check: false })
       if (status.fiscalReceiptOpen || status.nonFiscalReceiptOpen) {
-        const open = status.fiscalReceiptOpen ? 'a fiscal receipt' : 'a service (non-fiscal) receipt'
-        throw new EltradeError(
-          `The Eltrade has ${open} open, so ${what} was not printed: finish the sale in progress, then print it again. `
-          + 'LGR never voids or completes a receipt to print a report; one left open by an interrupted sale is cleared by the next sale on this device.',
-          'busy',
-          cmd,
-          status,
-        )
+        if (this.receipt || this.textReceipt) {
+          const printing = this.receipt ? 'A sale' : 'A service (non-fiscal) receipt'
+          throw new EltradeError(
+            `${printing} is printing on this device, so ${what} was not printed. Wait for it to finish, then try again.`,
+            'busy',
+            cmd,
+            status,
+          )
+        }
+        await this.clearOpenReceipt(status, what)
       }
       return this.transact(cmd, data, { prints: true, timeoutMs: TIMEOUT_MS.report })
     })
@@ -732,29 +746,47 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
 
   /**
    * An interrupted sale leaves a receipt open, and every later command is then refused.
-   * Close or void it before starting a new document.
+   * Close or void it before starting a new document, in one turn of the queue.
    */
-  private async ensureNoOpenReceipt(): Promise<void> {
-    const status = await this.readStatus()
+  private ensureNoOpenReceipt(): Promise<void> {
+    return this.serialize(async () => {
+      const { status } = await this.primedTransact(ELTRADE_CMD.GET_STATUS, 'X', { check: false })
+      await this.clearOpenReceipt(status, 'a new receipt')
+    })
+  }
+
+  /**
+   * Close the open service receipt (27h), void the open fiscal one. What a new sale does with a
+   * receipt left open, and what a report does with one nothing will finish (`report()`). `next`
+   * names what the device is being cleared for, in the log. Only ever runs inside `serialize`.
+   */
+  private async clearOpenReceipt(status: EltradeStatus, next: string): Promise<void> {
     if (status.nonFiscalReceiptOpen) {
-      logger.warn({ deviceId: this.deviceId }, 'Eltrade: closing a non-fiscal receipt left open')
-      await this.request(ELTRADE_CMD.CLOSE_NON_FISCAL, '', { check: false, timeoutMs: TIMEOUT_MS.print })
+      logger.warn({ deviceId: this.deviceId, next }, 'Eltrade: closing a non-fiscal receipt left open')
+      this.textReceipt = false
+      await this.transact(ELTRADE_CMD.CLOSE_NON_FISCAL, '', { check: false, timeoutMs: TIMEOUT_MS.print })
     }
     if (status.fiscalReceiptOpen) {
-      logger.warn({ deviceId: this.deviceId }, 'Eltrade: a fiscal receipt was left open by an interrupted sale — voiding it')
-      await this.cancelFiscalReceipt()
+      logger.warn({ deviceId: this.deviceId, next }, 'Eltrade: a fiscal receipt was left open by an interrupted sale — voiding it')
+      this.receipt = null
+      await this.voidFiscalReceipt()
     }
   }
 
   async cancelFiscalReceipt(): Promise<void> {
     this.receipt = null
-    const { status } = await this.request(ELTRADE_CMD.CANCEL_FISCAL, '', { check: false, timeoutMs: TIMEOUT_MS.print })
+    await this.serialize(() => this.voidFiscalReceipt())
+  }
+
+  /** 3Ch, or the receipt finished in cash where 3Ch is refused. Only ever runs inside `serialize`. */
+  private async voidFiscalReceipt(): Promise<void> {
+    const { status } = await this.primedTransact(ELTRADE_CMD.CANCEL_FISCAL, '', { check: false, timeoutMs: TIMEOUT_MS.print })
     if (!status.fiscalReceiptOpen) return
     // 3Ch is refused once a payment has gone through; such a receipt can only be finished.
     // Leaving it open would block the device, so settle the remainder in cash and close it.
     logger.error({ deviceId: this.deviceId }, 'Eltrade: receipt could not be voided after a payment — completing it with the remainder in cash')
-    await this.request(ELTRADE_CMD.TOTAL, '\t', { check: false, timeoutMs: TIMEOUT_MS.print })
-    await this.request(ELTRADE_CMD.CLOSE_FISCAL, '', { check: false, timeoutMs: TIMEOUT_MS.print })
+    await this.transact(ELTRADE_CMD.TOTAL, '\t', { check: false, timeoutMs: TIMEOUT_MS.print })
+    await this.transact(ELTRADE_CMD.CLOSE_FISCAL, '', { check: false, timeoutMs: TIMEOUT_MS.print })
   }
 
   private operatorLabel(name: string, code: string): string {
@@ -777,16 +809,27 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     }
   }
 
+  /**
+   * 90h, the receipt counted as this driver's BEFORE the command is sent: a report queued behind
+   * it must find a sale in progress, never an open receipt nobody owns (`report()`).
+   */
+  private async openReceipt(header: string, hint: string | undefined): Promise<void> {
+    this.receipt = { expected: 0, remaining: null, lastPaidCode: null }
+    try {
+      await this.request(ELTRADE_CMD.OPEN_FISCAL, header, { prints: true, timeoutMs: TIMEOUT_MS.print, hint })
+    } catch (e) {
+      this.receipt = null
+      throw e
+    }
+  }
+
   // ── Fiscal receipt ──
 
   async openFiscalReceipt(operatorCode: string, operatorName: string, unpNumber: string): Promise<void> {
     this.assertUnp(unpNumber)
     await this.ensureNoOpenReceipt()
     const hint = await this.unpHint(unpNumber)
-    await this.request(ELTRADE_CMD.OPEN_FISCAL, `${this.operatorLabel(operatorName, operatorCode)},${unpNumber}`, {
-      prints: true, timeoutMs: TIMEOUT_MS.print, hint,
-    })
-    this.receipt = { expected: 0, remaining: null, lastPaidCode: null }
+    await this.openReceipt(`${this.operatorLabel(operatorName, operatorCode)},${unpNumber}`, hint)
     logger.info({ deviceId: this.deviceId, operatorCode, unpNumber }, 'Eltrade fiscal receipt opened')
   }
 
@@ -931,8 +974,7 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
       receiptNumber,
       formatDeviceIsoDateTime(originalDate, this.timeZone),
     ].join(',')
-    await this.request(ELTRADE_CMD.OPEN_FISCAL, header, { prints: true, timeoutMs: TIMEOUT_MS.print, hint: await this.unpHint(unp) })
-    this.receipt = { expected: 0, remaining: null, lastPaidCode: null }
+    await this.openReceipt(header, await this.unpHint(unp))
 
     try {
       // Quantities and amounts on a reversal are POSITIVE; the receipt type carries the sign.
@@ -953,28 +995,48 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
 
   async openNonFiscalReceipt(_operatorCode: string): Promise<void> {
     await this.ensureNoOpenReceipt()
-    const { data } = await this.request(ELTRADE_CMD.OPEN_NON_FISCAL, '', { prints: true, timeoutMs: TIMEOUT_MS.print })
-    // Answer: Allreceipt,ErrCode — codes per the protocol, 26h.
-    const errCode = data.split(',')[1]?.trim()
-    const errors: Record<string, string> = {
-      '1': 'the fiscal memory is not formatted',
-      '2': 'a fiscal receipt is open',
-      '3': 'a non-fiscal receipt is already open',
-    }
-    if (errCode && errors[errCode]) {
-      throw new EltradeError(`Eltrade rejected ${cmdLabel(ELTRADE_CMD.OPEN_NON_FISCAL)}: ${errors[errCode]}`, 'rejected', ELTRADE_CMD.OPEN_NON_FISCAL)
+    // Counted as this driver's before 26h is sent, as a fiscal receipt is before 90h.
+    this.textReceipt = true
+    try {
+      const { data } = await this.request(ELTRADE_CMD.OPEN_NON_FISCAL, '', { prints: true, timeoutMs: TIMEOUT_MS.print })
+      // Answer: Allreceipt,ErrCode — codes per the protocol, 26h.
+      const errCode = data.split(',')[1]?.trim()
+      const errors: Record<string, string> = {
+        '1': 'the fiscal memory is not formatted',
+        '2': 'a fiscal receipt is open',
+        '3': 'a non-fiscal receipt is already open',
+      }
+      if (errCode && errors[errCode]) {
+        throw new EltradeError(`Eltrade rejected ${cmdLabel(ELTRADE_CMD.OPEN_NON_FISCAL)}: ${errors[errCode]}`, 'rejected', ELTRADE_CMD.OPEN_NON_FISCAL)
+      }
+    } catch (e) {
+      this.textReceipt = false
+      throw e
     }
   }
 
   async printNonFiscalText(text: string): Promise<void> {
-    // The device frames each line with '#' and cuts it after 46 characters.
-    await this.request(ELTRADE_CMD.PRINT_NON_FISCAL_TEXT, sanitizeDeviceText(text).slice(0, FREE_TEXT_MAX), {
-      prints: true, timeoutMs: TIMEOUT_MS.print,
-    })
+    try {
+      // The device frames each line with '#' and cuts it after 46 characters.
+      await this.request(ELTRADE_CMD.PRINT_NON_FISCAL_TEXT, sanitizeDeviceText(text).slice(0, FREE_TEXT_MAX), {
+        prints: true, timeoutMs: TIMEOUT_MS.print,
+      })
+    } catch (e) {
+      // ⚠ Nothing prints on after a failed line, and a caller may stop without closing the
+      // receipt. Still counted as printing, it would refuse every report until the next sale.
+      this.textReceipt = false
+      throw e
+    }
   }
 
   async closeNonFiscalReceipt(): Promise<void> {
-    await this.request(ELTRADE_CMD.CLOSE_NON_FISCAL, '', { prints: true, timeoutMs: TIMEOUT_MS.print })
+    try {
+      await this.request(ELTRADE_CMD.CLOSE_NON_FISCAL, '', { prints: true, timeoutMs: TIMEOUT_MS.print })
+    } finally {
+      // Cleared once 27h has run, never before: a report queued ahead of it still finds the
+      // receipt printing. Closed or not, nothing prints on it any more.
+      this.textReceipt = false
+    }
   }
 
   // ── Reports ──

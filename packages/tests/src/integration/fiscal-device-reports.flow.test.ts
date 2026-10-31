@@ -344,10 +344,36 @@ describe('the device\'s own state: 409, 503, 504 — never a blanket 500', () =>
     for (const path of ['/x-report', '/z-report']) {
       const r = await w.call('POST', path)
       expect({ path, status: r.status, code: r.json.code }).toEqual({ path, status: 409, code: 'receipt_open' })
+      expect(r.json.message).toContain('A sale is printing on this device')
     }
     expect(w.sim.receipt).toMatchObject({ sales: [{ text: 'Болт М8', amount: 24 }], payments: [{ mode: 'P', amount: 5 }] })
     expect(w.sim.receipts).toEqual([])
     expect(w.sim.closure).toBe(12)
+  })
+
+  test('a sale\'s receipt nothing will finish (the bridge dropped mid-sale): the Z voids it and closes the day', async () => {
+    const w = await world()
+    // The sale printed through a driver that is gone: a reconnect registers a NEW one, which
+    // never opened this receipt.
+    const gone = new EltradeFiscalPrinter(w.sim.exchange, w.deviceId)
+    await gone.openFiscalReceipt('0001', 'Оператор', 'ED123456-0001-0000001')
+    await gone.printSaleLine('Болт М8', 2, 12, 'Б', undefined, 20)
+    const r = await w.call('POST', '/z-report', undefined, 'manager')
+    expect(r.status).toBe(200)
+    expect(r.json.zReport.reportNumber).toBe('0013')
+    expect(w.sim.closure).toBe(13)
+    expect(w.sim.receipt).toBeNull()
+    expect(w.sim.receipts).toEqual([expect.objectContaining({ voided: true, sales: [expect.objectContaining({ text: 'Болт М8' })] })])
+  })
+
+  test('a service receipt left open on the device: the X closes it, then prints', async () => {
+    const w = await world()
+    w.sim.nonFiscalOpen = true
+    const r = await w.call('POST', '/x-report')
+    expect(r.status).toBe(200)
+    expect(r.json.xReport.reportNumber).toBe('0012')
+    expect(w.sim.nonFiscalOpen).toBe(false)
+    expect(w.sim.reports).toEqual([{ cmd: ELTRADE_CMD.DAILY_REPORT, data: '2' }])
   })
 
   test('nothing holds the device: 503', async () => {

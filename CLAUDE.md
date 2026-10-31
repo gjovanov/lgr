@@ -939,12 +939,16 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   `tests/helpers/eltrade-simulator.ts` (from the protocol PDF); field-verified 2026-09-26 on a NON-fiscalized A3
   (status, diagnostics, clock, a non-fiscal sale through prod) — fiscal receipts still unproven on hardware.
   Field guide: **`docs/guides/eltrade-fiscal-device.md`**
-  - ⚠ **A report never touches an open receipt** (2026-10-31): X, Z and the fiscal-memory reports read the
-    status and print in ONE turn of the command queue and are refused (`busy` → HTTP 409 `receipt_open`) while a
-    fiscal or service receipt is open. They used to clear it like a new sale does — and the POS and the device
-    page share the driver, so an X pressed mid-sale voided the sale, or cash-completed it once part-paid. The
-    POS close runs the same Z: with a receipt open it answers its own 503 `fiscal_error` and the session stays
-    open; the next sale clears a receipt an interrupted sale left.
+  - ⚠ **A report never touches a receipt the driver is still printing** (2026-10-31): X, Z and the fiscal-memory
+    reports read the status, deal with an open receipt and print in ONE turn of the command queue. A receipt THIS
+    driver is printing (`receipt` / `textReceipt`) refuses the report (`busy` → HTTP 409 `receipt_open`): they used
+    to clear it like a new sale does, and the POS and the device page share the driver, so an X pressed mid-sale
+    voided the sale, or cash-completed it once part-paid. One it is NOT printing (server stopped, bridge dropped
+    mid-sale; a reconnect is a new driver) is cleared as a sale clears it (`clearOpenReceipt`) and the report
+    prints: refusing it stranded the till, whose close runs this Z. ⚠ Only the driver's own state tells the two
+    apart (`fiscalOperation()` counts, it does not lock): a receipt is counted BEFORE its 90h/26h is sent, and let
+    go once closed, voided, or (text) a line fails. ⚠ A POS close whose Z is refused this way still answers 503
+    `fiscal_error` and marks the device `error`.
   - v1.1.7 has NO command to read an operator back (66h only sets one), no operator report and no КЛЕН print —
     never add a method that pretends. Operators 1–16; payment slots P N C D I J K L M Q R (35h/55h).
   - **Cash on delivery** = `FiscalPaymentType` `cash_on_delivery` → reserve slot **`R`**, named „НАЛОЖЕН
