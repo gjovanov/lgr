@@ -227,6 +227,11 @@ describe('open-page helpers', () => {
     expect(routerPathFor('/invoicing/invoices', router)).toBe('/invoices')
     expect(routerPathFor('/inventory/', router)).toBeNull()
     expect(routerPathFor('/invoicingX/', router)).toBeNull()
+    // A root router (the portal's, the one SPA's) takes any path it resolves (FR-24 Phase 2).
+    const root = { options: { history: { base: '/' } }, resolve: (p: string) => ({ matched: ['/apps', '/invoicing/pos/terminal'].includes(p) ? [{}] : [] }) } as any
+    expect(routerPathFor('/invoicing/pos/terminal', root)).toBe('/invoicing/pos/terminal')
+    expect(routerPathFor('/apps', root)).toBe('/apps')
+    expect(routerPathFor('/nowhere', root)).toBeNull()
   })
 
   it('remaps favourites pinned on the old /pos/* pages', () => {

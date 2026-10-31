@@ -1,7 +1,7 @@
 import { loadRouteLocation, type Router } from 'vue-router'
 import { APP_NAV_META, type PageDef } from './page-registry'
 import { ref } from 'vue'
-import { appHref, goTo } from './navigate'
+import { appHref, goTo, routerPathFor } from './navigate'
 
 /** The app a router serves, from its history base ("/invoicing"); null for the portal's router. */
 export function routerAppId(base: string): string | null {
@@ -84,9 +84,11 @@ export const viewKey = ref(0)
  * which drops the till's printer (FR-24).
  */
 export async function openPage(page: PageDef, router?: Router | null): Promise<void> {
-  if (router && routerAppId(router.options.history.base) === spaOf(page.appId)) {
+  // This router serves the page: its own module, POS inside invoicing, or every page in one SPA.
+  const inHere = router ? routerPathFor(page.path, router) : null
+  if (router && inHere) {
     try {
-      const target = router.resolve(appRelativePath(page))
+      const target = router.resolve(inHere)
       const current = router.currentRoute.value
       if (target.fullPath === current.fullPath) return
       if (target.matched.length) {

@@ -44,9 +44,10 @@ export const manifest: ModuleManifest = {
 
       // ── Products (flat tabbed routes) ──
       { path: 'products', name: 'inventory.products', component: () => import('./views/ProductsView.vue'), meta: { breadcrumb: [{ title: 'Products' }] } },
-      { path: 'products/new', redirect: '/products/new/edit' },
+      // FR-24.4: redirects by NAME; a path here would name the router's base.
+      { path: 'products/new', redirect: { name: 'inventory.products.new', params: { tab: 'edit' } } },
       { path: 'products/new/:tab(edit|pricing|settings)', name: 'inventory.products.new', component: () => import('./views/ProductFormView.vue'), meta: { breadcrumb: [{ title: 'Products', to: '/products' }, { title: 'New' }] } },
-      { path: 'products/:id', redirect: (to) => ({ path: `/products/${to.params.id}/edit` }) },
+      { path: 'products/:id', redirect: (to) => ({ name: 'inventory.products.edit', params: { id: to.params.id, tab: 'edit' } }) },
       { path: 'products/:id/:tab(edit|pricing|settings)', name: 'inventory.products.edit', component: () => import('./views/ProductFormView.vue'), meta: { breadcrumb: [{ title: 'Products', to: '/products' }, { title: 'Edit' }] } },
       { path: 'products/:id/:tab(stock|ledger|movements|levels)', name: 'inventory.products.stock', component: () => import('./views/ProductStockView.vue'), meta: { breadcrumb: [{ title: 'Products', to: '/products' }, { title: 'Stock' }] } },
       { path: 'opening-stock', name: 'inventory.opening-stock', component: () => import('./views/OpeningStockImportView.vue'), meta: { breadcrumb: [{ title: 'Opening Stock Import' }] } },

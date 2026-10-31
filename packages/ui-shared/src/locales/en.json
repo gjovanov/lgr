@@ -332,6 +332,8 @@
     }
   },
   "common": {
+    "newVersion": "A new version of LGR is available.",
+    "reload": "Reload",
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",

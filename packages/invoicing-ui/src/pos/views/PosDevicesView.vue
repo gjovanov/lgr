@@ -108,13 +108,11 @@ import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import EntityLink from 'ui-shared/components/EntityLink'
-import { useFiscalBridgeAlerts } from '../composables/useFiscalBridgeAlerts'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const fiscalBridge = useFiscalBridge()
 const { showSuccess, showError } = useSnackbar()
-useFiscalBridgeAlerts()
 
 // Watch for device disconnect (USB unplugged / powered off)
 watch(() => fiscalBridge.status.value, async (val) => {

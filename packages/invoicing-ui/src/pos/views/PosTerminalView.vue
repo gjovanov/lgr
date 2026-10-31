@@ -204,7 +204,6 @@ import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
 import RegisterTerminal from 'ui-shared/components/cash-register/RegisterTerminal.vue'
 import { fetchPriceOptions, priceOptionLabel, type PriceOption } from 'ui-shared/composables/usePriceOptions'
 import CloseSessionDialog from '../components/CloseSessionDialog.vue'
-import { useFiscalBridgeAlerts } from '../composables/useFiscalBridgeAlerts'
 
 /** `priceName`: the named price chosen for the line (#145), shown beside it; unset = selling price. */
 interface CartItem { productId: string; name: string; quantity: number; unitPrice: number; taxRate: number; priceName?: string }
@@ -218,7 +217,6 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError, showSnackbar } = useSnackbar()
 const fiscalBridge = useFiscalBridge()
-useFiscalBridgeAlerts()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const loading = ref(false)

@@ -20,6 +20,7 @@
 
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
+import { inModule } from 'ui-shared/nav/open-page'
 
 /**
  * The header a page in a CARD-HUB app wears — one whose hub screen *is* its navigation.
@@ -58,7 +59,9 @@ const props = withDefaults(defineProps<{
 
 const router = useRouter()
 
+
 function back() {
-  router.push(props.to)
+  // FR-24.4: `to` is relative to the module (its hub is `/`), not to the router's base.
+  router.push(inModule(router.currentRoute.value, props.to))
 }
 </script>

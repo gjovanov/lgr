@@ -19,6 +19,7 @@ import {
 } from '../session/session'
 import type { OrgChoice } from '../session/useOrgSession'
 import { getI18n, getVuetify } from '../plugins'
+import { loadLocale } from '../plugins/i18n'
 import { portalHref } from '../nav/navigate'
 import { currentAppId } from '../session/useOrgSession'
 
@@ -272,7 +273,7 @@ export const useAppStore = defineStore('app', () => {
 
   function setLocale(newLocale: string) {
     locale.value = newLocale
-    getI18n().global.locale.value = newLocale
+    void loadLocale(getI18n(), newLocale)
     localStorage.setItem('lgr_locale', newLocale)
   }
 
@@ -291,7 +292,7 @@ export const useAppStore = defineStore('app', () => {
     try {
       // Per-app Vite dev serves another origin than the unified API on 4001.
       const portalBase = window.location.hostname === 'localhost' ? 'http://localhost:4001/api' : ''
-      const { data } = await httpClient.get(`/auth/me`)
+      const { data } = await httpClient.get(`${portalBase}/auth/me`)
       applyProfile(data)
     } catch {
       if (!getToken()) window.location.href = portalHref('/')

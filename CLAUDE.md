@@ -831,7 +831,21 @@ Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models`
   this SPA follows the router (`installInAppLinks`, from `registerPlugins`). `unit/navigation-seam.test.ts`
   fails on any `window.location` assignment outside its list of deliberate page loads.
 - `openPage` to the same view is a push plus a remount (`viewKey`), never a page load.
-## Frontend Conventions
+- **Phase 2: the one SPA, `packages/web`** (`bun run dev:web`, port 4200; `bun run build:web`). Its router is
+  `portal-ui/src/routes.ts` (the portal's routes and `portalGuard`, also used by the portal's own router) plus
+  every manifest (`web/src/modules.ts`) under ONE shell record (`OneShell` → `ModuleLayout`), so a move between
+  modules never remounts the layout. One guard: portal rules for portal routes, an org session for a module's.
+  - The server serves it per browser: cookie `lgr_ui` (`/__ui/one`, `/__ui/split`), else `LGR_UI_DEFAULT`
+    (`split` by default). Its files are under `/ui/`. A server package stays on the eight.
+  - ⚠ Redirects in a manifest go by NAME: a path names a router's base (the products redirect broke in the
+    one SPA). `unit/module-manifests.test.ts` refuses a path redirect.
+  - Stale code (FR-24.14): `<meta name="lgr-build">` vs the server's `x-lgr-build`; the next move loads the
+    page only when no form is dirty and no printer is held, else the shell offers it (`web/src/stale.ts`).
+  - Budget (FR-24.15): `bun run check:web` (CI and the Dockerfile): first-load JS ≤ 360 KB gzipped, no view in
+    the entry, the fiscal bridge in one chunk. Read the bridge's status from `fiscalBridgeStatus`, never by
+    importing `useFiscalBridge` into the shell's first load.
+  - ⚠ **Only English is in the first load**; mk/de/bg load on demand (`plugins/i18n#loadLocale`), and every SPA
+    mounts after `whenI18nReady()`. Change a language with `loadLocale`, never by setting `locale.value`.## Frontend Conventions
 
 - **Plugin order is critical**: i18n → vuetify → pinia → router (vuetify locale adapter requires i18n)
 - **Vuetify i18n**: `$vuetify.*` keys merged into i18n messages from `vuetify/lib/locale/`

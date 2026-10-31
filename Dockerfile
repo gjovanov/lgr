@@ -16,6 +16,8 @@ RUN cd /app/packages/invoicing-ui && bun run build
 RUN cd /app/packages/payroll-ui && bun run build
 RUN cd /app/packages/reports-ui && bun run build
 RUN cd /app/packages/files-ui && bun run build
+# FR-24.13: the one SPA, beside the eight until Phase 3; FR-24.15 keeps it within its budget.
+RUN cd /app/packages/web && bun run build && cd /app && bun scripts/check-web-bundle.ts
 
 # ── Runtime: single unified process ──
 FROM base AS runtime
@@ -38,6 +40,7 @@ COPY --from=ui-builder /app/packages/invoicing-ui/dist /app/packages/invoicing-u
 COPY --from=ui-builder /app/packages/payroll-ui/dist /app/packages/payroll-ui/dist
 COPY --from=ui-builder /app/packages/reports-ui/dist /app/packages/reports-ui/dist
 COPY --from=ui-builder /app/packages/files-ui/dist /app/packages/files-ui/dist
+COPY --from=ui-builder /app/packages/web/dist /app/packages/web/dist
 
 ENV HOST=0.0.0.0
 EXPOSE 4001

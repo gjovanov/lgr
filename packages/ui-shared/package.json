@@ -61,6 +61,8 @@
     "./components/PriceCombobox.vue": "./src/components/PriceCombobox.vue",
     "./composables/usePriceOptions": "./src/composables/usePriceOptions.ts",
     "./composables/useFiscalBridge": "./src/composables/useFiscalBridge.ts",
+    "./composables/useFiscalBridgeAlerts": "./src/composables/useFiscalBridgeAlerts.ts",
+    "./composables/fiscalBridgeStatus": "./src/composables/fiscalBridgeStatus.ts",
     "./composables/fiscalIslResponse": "./src/composables/fiscalIslResponse.ts",
     "./composables/usePendingChanges": "./src/composables/usePendingChanges.ts",
     "./composables/useDialogPendingChanges": "./src/composables/useDialogPendingChanges.ts",

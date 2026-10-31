@@ -20,9 +20,10 @@ let appRouter: Router | null = null
  */
 export function routerPathFor(path: string, router: Router | null = appRouter): string | null {
   if (!router || !path.startsWith('/') || path.startsWith('//')) return null
+  // A root router (base "/": the portal's, or the one SPA's) takes any path it resolves.
   const base = router.options.history.base.replace(/\/+$/, '')
   const pathname = path.split(/[?#]/)[0]
-  if (!base || (pathname !== base && !pathname.startsWith(`${base}/`))) return null
+  if (base && pathname !== base && !pathname.startsWith(`${base}/`)) return null
   const rel = path.slice(base.length) || '/'
   try {
     return router.resolve(rel).matched.length ? rel : null
