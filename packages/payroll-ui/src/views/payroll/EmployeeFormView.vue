@@ -158,7 +158,7 @@ async function save() {
   try {
     await store.saveEmployee({ ...form })
     markSaved()
-    router.push('/employees')
+    router.push({ name: 'payroll.employees' })
     showSuccess(t('common.savedSuccessfully'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

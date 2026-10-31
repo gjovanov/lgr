@@ -42,6 +42,6 @@ defineProps<{
 const router = useRouter()
 
 function back() {
-  router.push('/')
+  router.push({ name: 'reports.hub' })
 }
 </script>
