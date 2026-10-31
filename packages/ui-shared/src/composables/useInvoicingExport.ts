@@ -6,6 +6,8 @@ export type ExportMode = 'compact' | 'detailed'
 export type DocType = 'invoice' | 'proforma' | 'credit_note' | 'debit_note' | 'cash_sale' | 'bill'
 /** Extra documents printable alongside an outgoing document, each rendered as its own file. */
 export type CompanionDoc = 'certificate' | 'ppprotocol'
+/** What `exportOne` can render instead of the document itself: a companion, or a bill's „Стокова разписка". */
+export type PrintDoc = CompanionDoc | 'stock_receipt'
 
 const MIME: Record<ExportFormat, string> = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -89,8 +91,8 @@ export function useInvoicingExport(orgUrl: () => string) {
     mode: ExportMode = 'detailed',
     columns?: string[],
     locale?: string,
-    /** Companion document to render instead of the document itself. */
-    doc?: CompanionDoc,
+    /** A companion document (or a bill's stock receipt) to render instead of the document itself. */
+    doc?: PrintDoc,
     /**
      * Free text for this print only, printed under the number block. Not stored on the
      * document — it travels with the request and is forgotten afterwards.

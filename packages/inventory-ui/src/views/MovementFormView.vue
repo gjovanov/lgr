@@ -84,7 +84,7 @@
               <th class="text-end" style="width:96px">{{ $t('common.total') }}</th>
               <!-- A fixed width: the room they leave goes to the article's name, which is what a line is read by. -->
               <th v-for="col in (grWithUpdate ? activeColumns : [])" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''" style="width: 88px; min-width: 80px">
-                {{ $t(col.i18n) }}
+                {{ col.label || $t(col.i18n || '') }}
               </th>
               <th v-if="!readonly" style="width:32px"></th>
             </tr>
@@ -159,15 +159,16 @@
                   variant="underlined"
                   @update:model-value="setUpdate(line, 'unit', $event)"
                 />
+                <!-- A tier by its NAME — blank when the article holds none of that name. -->
                 <v-text-field
-                  v-else-if="col.tierIndex != null"
-                  :model-value="tierFinalPrice(line, col.tierIndex)"
+                  v-else-if="col.tierName"
+                  :model-value="tierPriceOf(line.priceTiers, col.tierName)"
                   type="number"
                   step="0.0001"
                   density="compact"
                   hide-details
                   variant="underlined"
-                  @update:model-value="setTierFinalPrice(line, col.tierIndex!, $event)"
+                  @update:model-value="setTierPrice(line, col.tierName!, $event)"
                 />
                 <v-text-field
                   v-else
@@ -271,9 +272,11 @@ import { useProductTypes } from 'ui-shared/composables/useProductTypes'
 import type { FormAction, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import GRColumnPicker from '../components/GRColumnPicker.vue'
 import { useGRColumns } from '../composables/useGRColumns'
-
-// The one tier-slot limit the model and `sanitizeProductUpdates` also read (FR-22 B-1).
-import { MAX_PRICE_TIERS } from 'config/constants'
+// What a line stages for its product, and what reaches it — shared with the supplier bill's form.
+import {
+  buildProductUpdates, cascadePurchasePrice, needsSeed, seedFromProduct, setProductField, setTierPrice, tierPriceOf,
+  type GRBase, type GRTier,
+} from 'ui-shared/composables/gr-product-update'
 
 interface Warehouse { _id: string; name: string; isDefault?: boolean }
 interface MovementState {
@@ -319,10 +322,11 @@ function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrenc
 
 const emptyLine = () => ({
   productId: '', productName: '', quantity: 0, unitCost: 0, stockQty: null as number | null,
-  // GR-with-update extras (only populated when grWithUpdate is ON)
+  // GR-with-update extras (only populated when grWithUpdate is ON): the product's fields and its
+  // tiers by name as staged, and the base they were seeded from (`gr-product-update.ts`).
   productUpdate: {} as Record<string, any>,
-  // Snapshot of the product's existing priceTiers (10 entries) so we can edit finalPrice slot-by-slot.
-  priceTiers: [] as Array<{ name: string; percent: number; finalPrice: number; manualOverride: boolean; contactIds?: string[]; tags?: string[] }>,
+  priceTiers: [] as GRTier[],
+  productBase: undefined as GRBase | undefined,
 })
 const form = ref({
   type: 'receipt', fromWarehouseId: null as string | null, toWarehouseId: null as string | null, contactId: '' as string | undefined,
@@ -518,41 +522,16 @@ async function fetchItem() {
       contactId: detail.contactId || undefined, date: detail.date?.split('T')[0] || '', notes: detail.notes || '',
       lines: (detail.lines || []).map((l: any) => ({ productId: l.productId, productName: l.productName || '', quantity: l.quantity, unitCost: l.unitCost, stockQty: null, productUpdate: l.productUpdate || {}, priceTiers: l.priceTiers || [] })),
     }
+    const wasOn = grWithUpdate.value
     syncGrWithUpdateFromLines()
+    // Reloaded with the switch on (after a save): the lines take their articles' current values
+    // again, so what the next save sends is what changes from here. Turning it on seeds them too.
+    if (wasOn && !readonly.value) await seedUnseededLines()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }
-}
-
-function buildProductUpdates(): Array<Record<string, any>> {
-  const updates: Array<Record<string, any>> = []
-  for (const line of form.value.lines) {
-    if (!line.productId) continue
-    const u: Record<string, any> = { productId: line.productId }
-    let hasChanges = false
-    for (const [k, v] of Object.entries(line.productUpdate || {})) {
-      if (v !== undefined && v !== '') { u[k] = v; hasChanges = true }
-    }
-    // Only attach priceTiers if the user actually touched them (manualOverride set or any non-empty filter).
-    if (Array.isArray(line.priceTiers) && line.priceTiers.length > 0) {
-      const anyTouched = line.priceTiers.some(t => t.manualOverride || (t.finalPrice || 0) > 0)
-      if (anyTouched) {
-        u.priceTiers = line.priceTiers.slice(0, MAX_PRICE_TIERS).map(t => ({
-          name: t.name,
-          percent: Number(t.percent) || 0,
-          finalPrice: Number(t.finalPrice) || 0,
-          manualOverride: !!t.manualOverride,
-          contactIds: t.contactIds || [],
-          tags: t.tags || [],
-        }))
-        hasChanges = true
-      }
-    }
-    if (hasChanges) updates.push(u)
-  }
-  return updates
 }
 
 /**
@@ -577,7 +556,8 @@ async function save(): Promise<string | null> {
   }
 
   if (grWithUpdate.value && form.value.type === 'receipt') {
-    basePayload.productUpdates = buildProductUpdates()
+    // Only what the lines change on their products (`gr-product-update.ts`).
+    basePayload.productUpdates = buildProductUpdates(form.value.lines)
   }
 
   if (isEdit.value) {
@@ -733,13 +713,14 @@ async function onLineProductSelected(idx: number, product: any) {
   line.stockQty = null
   line.productUpdate = {}
   line.priceTiers = []
+  line.productBase = undefined
   // FR-22.28: an article on the last line opens the next one, as on the invoice forms.
   if (idx === form.value.lines.length - 1) form.value.lines.push(emptyLine())
   focusQuantity(idx)
   await fetchLineStock(idx, { prefill: true })
 
   // When grWithUpdate is ON, load the full product so we can show/edit its fields.
-  if (grWithUpdate.value) await seedLineProductUpdate(idx)
+  if (grWithUpdate.value) await seedLineProductUpdate(idx, product.purchasePrice ?? 0)
 }
 
 /**
@@ -758,45 +739,50 @@ function focusQuantity(idx: number) {
   }, 200)
 }
 
-/** Load the full product and stage its current fields + tiers on the line (padded to 10 slots). */
-async function seedLineProductUpdate(idx: number) {
+/**
+ * Load the line's product and stage its current fields and tiers on the line, with their base —
+ * what the payload compares against, so only what the user changes reaches the product
+ * (`ui-shared/composables/gr-product-update.ts`). Tiers go by name: none is padded in.
+ */
+async function seedLineProductUpdate(idx: number, costAtPick?: number) {
   const line = form.value.lines[idx]
   if (!line?.productId) return
+  const productId = String(line.productId)
+  const costBefore = costAtPick ?? line.unitCost
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${line.productId}`)
-    const p = data.product || data
-    line.productUpdate = {
-      type: p.type,
-      categoryId: p.categoryId || undefined,
-      unit: p.unit,
-      purchasePrice: p.purchasePrice ?? 0,
-      sellingPrice: p.sellingPrice ?? 0,
-      taxRate: p.taxRate ?? 0,
-    }
-    // Normalise priceTiers: pad to the full slot count so every tier column has a row to bind to.
-    const existing = (p.priceTiers || []).map((t: any) => ({
-      name: t.name || '',
-      percent: Number(t.percent) || 0,
-      finalPrice: Number(t.finalPrice) || 0,
-      manualOverride: !!t.manualOverride,
-      contactIds: (t.contactIds || []).map((id: any) => String(id)),
-      tags: t.tags || [],
-    }))
-    while (existing.length < MAX_PRICE_TIERS) {
-      existing.push({ name: `Price ${existing.length + 1}`, percent: 0, finalPrice: Number(p.sellingPrice) || 0, manualOverride: false, contactIds: [], tags: [] })
-    }
-    line.priceTiers = existing.slice(0, MAX_PRICE_TIERS)
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${productId}`)
+    // The line may have been given another product while this one loaded.
+    if (String(line.productId) !== productId) return
+    Object.assign(line, seedFromProduct(data.product || data, productId))
+    // A cost typed while the product loaded is its new purchase price, as if typed after.
+    if (line.unitCost !== costBefore) cascadePurchasePrice(line, line.unitCost)
   } catch { /* keep defaults if fetch fails */ }
+}
+
+/**
+ * Seed the lines that name a product and stage nothing yet (a loaded draft, a reload after a
+ * save): one request per article.
+ */
+async function seedUnseededLines() {
+  const pending = form.value.lines.filter((l: any) => needsSeed(l))
+  if (!pending.length) return
+  const products = new Map<string, any>()
+  await Promise.all([...new Set(pending.map((l: any) => String(l.productId)))].map(async (id) => {
+    try {
+      const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${id}`)
+      products.set(id, data.product || data)
+    } catch { /* that line stays as it is */ }
+  }))
+  for (const line of pending) {
+    const p = products.get(String(line.productId))
+    // Staged meanwhile (a price typed while these loaded): that line keeps what was typed.
+    if (p && needsSeed(line)) Object.assign(line, seedFromProduct(p, String(line.productId)))
+  }
 }
 
 // Toggling ON seeds any line that already has a product but no staged update yet (edit mode).
 watch(grWithUpdate, async (on) => {
-  if (!on) return
-  const idxs = form.value.lines
-    .map((l: any, i: number) => ({ l, i }))
-    .filter(({ l }: any) => l.productId && (!l.productUpdate || Object.keys(l.productUpdate).length === 0))
-    .map(({ i }: any) => i)
-  await Promise.all(idxs.map(seedLineProductUpdate))
+  if (on) await seedUnseededLines()
 })
 
 function onLineProductCleared(idx: number) {
@@ -870,37 +856,17 @@ function productUpdateFor(line: any): Record<string, any> {
 }
 
 function setUpdate(line: any, field: string, value: any) {
-  if (!line.productUpdate) line.productUpdate = {}
-  line.productUpdate[field] = value === '' ? undefined : value
+  setProductField(line, field, value)
 }
 
-function tierFinalPrice(line: any, i: number): number | undefined {
-  return line.priceTiers?.[i]?.finalPrice
-}
-
-function setTierFinalPrice(line: any, i: number, val: any) {
-  if (!Array.isArray(line.priceTiers)) line.priceTiers = []
-  while (line.priceTiers.length <= i) {
-    line.priceTiers.push({ name: `Price ${line.priceTiers.length + 1}`, percent: 0, finalPrice: 0, manualOverride: false, contactIds: [], tags: [] })
-  }
-  const n = Number(val)
-  if (!Number.isFinite(n)) return
-  line.priceTiers[i].finalPrice = n
-  line.priceTiers[i].manualOverride = true // direct edit overrides the cascade
-}
-
-/** When unitCost (purchase price for this receipt) changes, recompute each tier's finalPrice
- * from its stored percent unless the user has manually overridden that tier. */
+/**
+ * The receipt's unit cost is the article's new purchase price: staged on its product, with the
+ * tiers that follow the purchase price moved along (`cascadePurchasePrice` says which do).
+ */
 function onUnitCostChange(idx: number) {
   const line = form.value.lines[idx]
   if (!line || !grWithUpdate.value) return
-  const purchase = Number(line.unitCost) || 0
-  if (!purchase) return
-  for (const t of (line.priceTiers || [])) {
-    if (!t.manualOverride) t.finalPrice = +(purchase * (1 + (t.percent || 0) / 100)).toFixed(4)
-  }
-  // Mirror purchasePrice into the product update so the backend persists it.
-  setUpdate(line, 'purchasePrice', purchase)
+  cascadePurchasePrice(line, line.unitCost)
 }
 
 /**

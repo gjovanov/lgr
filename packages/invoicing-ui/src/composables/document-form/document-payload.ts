@@ -19,6 +19,7 @@
 import type { DocumentTypeConfig } from './types'
 import { MAX_PRICE_TIERS } from 'config/constants'
 import { computePosTotals } from 'config/pos-totals'
+import { buildProductUpdates as buildGRProductUpdates, type GRBase, type GRTier } from 'ui-shared/composables/gr-product-update'
 
 /**
  * Price-tier slots a product can hold. The number lives in config, where the Product model and
@@ -62,8 +63,10 @@ export interface LineInput {
   resolvedPrice?: number
   /** Purchase bills with-product-update: staged product-master field edits. */
   productUpdate?: Record<string, any>
-  /** Purchase bills with-product-update: staged priceTiers snapshot (≤ MAX_PRICE_TIERS slots). */
-  priceTiers?: Array<{ name: string; percent?: number; finalPrice?: number; manualOverride?: boolean; contactIds?: string[]; tags?: string[] }>
+  /** Purchase bills with-product-update: the staged tiers, by name — the product's own and any added. */
+  priceTiers?: GRTier[]
+  /** Purchase bills with-product-update: the product as the line was seeded from it — never edited. */
+  productBase?: GRBase
 }
 
 export interface BillingAddress {
@@ -313,36 +316,13 @@ export function resolvesSalesPrice(config: Pick<DocumentTypeConfig, 'priceField'
   return config.priceField === 'sellingPrice'
 }
 
-/** productUpdates[] for the with-product-update flow: one entry per filled line whose
- *  staged productUpdate has values or whose tiers were touched. Mirrors the inventory
- *  movements form builder (MovementFormView.buildProductUpdates). */
+/**
+ * productUpdates[] for the with-product-update flow: one entry per filled line that changes its
+ * product, carrying only what changed from what the line was seeded with — the receipt form
+ * builds its payload with the same rules (`ui-shared/composables/gr-product-update.ts`).
+ */
 export function buildProductUpdates(lines: LineInput[] | undefined): Record<string, any>[] {
-  const updates: Record<string, any>[] = []
-  for (const line of filledLines(lines)) {
-    if (!line.productId) continue // free-text lines have no product master to update
-    const u: Record<string, any> = { productId: line.productId }
-    let hasChanges = false
-    for (const [k, v] of Object.entries(line.productUpdate || {})) {
-      if (v !== undefined && v !== '') { u[k] = v; hasChanges = true }
-    }
-    // Only attach priceTiers if the user actually touched them (override set or any price > 0).
-    if (Array.isArray(line.priceTiers) && line.priceTiers.length > 0) {
-      const anyTouched = line.priceTiers.some(t => t.manualOverride || (t.finalPrice || 0) > 0)
-      if (anyTouched) {
-        u.priceTiers = line.priceTiers.slice(0, MAX_PRICE_TIERS).map(t => ({
-          name: t.name,
-          percent: Number(t.percent) || 0,
-          finalPrice: Number(t.finalPrice) || 0,
-          manualOverride: !!t.manualOverride,
-          contactIds: t.contactIds || [],
-          tags: t.tags || [],
-        }))
-        hasChanges = true
-      }
-    }
-    if (hasChanges) updates.push(u)
-  }
-  return updates
+  return buildGRProductUpdates(filledLines(lines))
 }
 
 /**

@@ -1488,6 +1488,10 @@
       "receiptCost": "Wareneingang: {price}",
       "received": "Rechnung empfangen — die Ware kam mit dem Wareneingang"
     },
+    "stockReceipt": {
+      "print": "Wareneingangsschein",
+      "hint": "Den Wareneingang dieser Eingangsrechnung drucken — einen je Lager, in das die Ware ging"
+    },
     "reservations": {
       "repeatOf": "erneut reserviert",
       "fromOutgoingOrder": "Lieferantenbestellung",
@@ -1698,17 +1702,7 @@
       "unit": "ME",
       "purchasePrice": "Einkaufspreis",
       "sellingPrice": "Verkaufspreis",
-      "taxRate": "MwSt. %",
-      "price1": "Preis 1",
-      "price2": "Preis 2",
-      "price3": "Preis 3",
-      "price4": "Preis 4",
-      "price5": "Preis 5",
-      "price6": "Preis 6",
-      "price7": "Preis 7",
-      "price8": "Preis 8",
-      "price9": "Preis 9",
-      "price10": "Preis 10"
+      "taxRate": "MwSt. %"
     },
     "filter": {
       "contact": "Kontakt",

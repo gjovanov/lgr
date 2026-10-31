@@ -38,6 +38,7 @@ import {
 } from 'services/biz/receipt-bill.service'
 import { REGISTER_TYPES } from 'services/biz/cash-register/pos-union'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
+import { billStockReceipts, isSupplierBill } from 'services/biz/bill-stock-receipt.service'
 
 // ── Idempotent create, issue and payment (FR-20.37, #155) ───────────────────────────────────
 
@@ -975,6 +976,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // FR-22.31: a bill made from goods receipts links them, and its form compares its prices
         // with what they were received at.
         ...(isReceiptLinked(invoice) ? { receipts: await linkedReceiptsOf(orgId, invoice) } : {}),
+        // The goods receipts a supplier bill booked — what its „Стокова разписка" prints; the
+        // form offers the print only when there are some.
+        ...(isSupplierBill(invoice) ? { stockMovements: await billStockReceipts(orgId, invoice) } : {}),
         statusHistory: synthesizeStatusHistory(invoice),
         contactId: contact ? { _id: contact.id, id: contact.id, companyName: (contact as any).companyName, firstName: (contact as any).firstName, lastName: (contact as any).lastName, email: (contact as any).email } : invoice.contactId,
       },
@@ -1083,6 +1087,15 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (Array.isArray(productUpdates) && productUpdates.length > 0) {
         if (!(existing.type === 'invoice' && (existing as any).direction === 'incoming')) {
           return status(422, { message: 'productUpdates is only supported for purchase bills' })
+        }
+        // A bill made from goods receipts updates no product: its receipts brought the goods in at
+        // their costs, and receiving the bill carries its prices forward (FR-22 D-2,
+        // `applyLinkedBillPrices`). Its form offers no product update; this refuses an older one.
+        if (isReceiptLinked(existing)) {
+          return status(422, {
+            code: 'receipt_linked_bill',
+            message: `${(existing as any).invoiceNumber} is made from goods receipts (${(existing as any).stockSource?.docNumber}) — it updates no product`,
+          })
         }
         // Bill $set + product bulk-update in one transaction; no stock movement here
         // (bills touch stock only via /receive). Not reachable from desktop/SQLite.

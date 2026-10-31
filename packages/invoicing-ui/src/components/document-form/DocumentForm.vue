@@ -190,6 +190,18 @@
           <v-icon>mdi-tune-variant</v-icon>
         </v-btn>
       </div>
+      <!-- A supplier bill's goods as they were booked: one receipt per warehouse they went into. -->
+      <v-btn
+        v-if="stockReceipts.length"
+        variant="outlined"
+        prepend-icon="mdi-clipboard-text-outline"
+        :loading="stockReceiptLoading"
+        :title="$t('invoicing.stockReceipt.hint')"
+        data-testid="print-stock-receipt"
+        @click="onPrintStockReceipt"
+      >
+        {{ $t('invoicing.stockReceipt.print') }}
+      </v-btn>
     </div>
 
     <!-- FR-22 §5.2: asked to be issued, and not issued — the draft says why. -->
@@ -373,6 +385,16 @@
               <v-icon>mdi-tune-variant</v-icon>
             </v-btn>
           </div>
+          <v-btn
+            v-if="stockReceipts.length"
+            variant="outlined"
+            prepend-icon="mdi-clipboard-text-outline"
+            :loading="stockReceiptLoading"
+            :title="$t('invoicing.stockReceipt.hint')"
+            @click="onPrintStockReceipt"
+          >
+            {{ $t('invoicing.stockReceipt.print') }}
+          </v-btn>
           <v-btn
             v-if="canSaveAndReceive"
             color="primary"
@@ -586,6 +608,9 @@ const {
   issueError,
   isDraftDoc,
   confirmTransfers,
+  stockReceipts,
+  stockReceiptLoading,
+  onPrintStockReceipt,
 } = doc
 
 // FR-22.17: the stock check's transfer dialog, as top-level refs so the template unwraps them.
