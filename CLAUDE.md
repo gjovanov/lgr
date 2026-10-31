@@ -1179,9 +1179,11 @@ In-process typed event bus at `packages/services/src/events/event-bus.ts`. Handl
 
 Reusable state machine at `packages/services/src/mixins/state-machine.ts` — working but has zero instantiations (ORDO/ORDI transitions are hand-rolled in their controllers). There is no `packages/sales-api` SalesOrder module; the shipped order documents are the invoicing ORDO/ORDI pair above.
 
-### Independent Deployment (not yet implemented)
+### One app, several pods (FR-24, planned)
 
-The architecture supports splitting the unified API into independently deployable services per domain if needed for scaling. Each domain API package can already run standalone on its own port (legacy mode). The planned approach would use a reverse proxy to route `/api/org/:orgId/{module}/*` to the appropriate service.
+The direction is the opposite of splitting the API by domain: `docs/fr/FR-24-one-app.md` merges the eight SPAs into one build at the same URLs, and makes the one API process safe to run as several pods. The domain `*-api` packages have no server of their own.
+
+⚠ **`replicas` must stay 1 until FR-24 Phase 6 ships.** A bridged printer lives on one pod, and `getFiscalContext` reads "not connected in this process" as offline: with two pods, sales landing on the other pod are refused by the printer gate, or go through with no receipt where the gate is off.
 
 ---
 
