@@ -15,8 +15,12 @@ import { homeScope } from 'db/home/home'
 export const HEARTBEAT_MS = 5_000
 export const DEAD_MS = 20_000
 
-/** This process, as the rows name it. */
-export const POD_ID = hostname()
+/**
+ * This process, as the rows name it: its host and its process id. ⚠ Not the hostname alone: two
+ * processes on one machine (a test's two pods, a developer's) share it, and each would read the
+ * other's rows as its own and never forward. In Kubernetes the hostname is the pod's name.
+ */
+export const POD_ID = `${hostname()}#${process.pid}`
 
 export interface FiscalHolder {
   kind: FiscalHolderKind
