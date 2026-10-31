@@ -74,6 +74,15 @@
           <template #item.totalReturns="{ item }">
             {{ fmtCurrency(item.totalReturns) }}
           </template>
+          <!-- The session's own cash-register documents: the journal, filtered to this session. -->
+          <template #item.transactionCount="{ item }">
+            <entity-link
+              :label="String(item.transactionCount ?? 0)"
+              :to="{ name: 'pos.orders', query: { session: item._id || item.id } }"
+              :aria-label="$t('pos.sessionDocuments', { number: item.sessionNumber })"
+              data-testid="session-documents"
+            />
+          </template>
           <template #item.openedAt="{ item }">
             {{ formatDateTime(item.openedAt) }}
           </template>
@@ -93,6 +102,7 @@ import { useAppStore } from '../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import ChartView from 'ui-shared/components/ChartView.vue'
+import EntityLink from 'ui-shared/components/EntityLink'
 import StatusPipeline from 'ui-shell/components/StatusPipeline'
 
 const { t } = useI18n()

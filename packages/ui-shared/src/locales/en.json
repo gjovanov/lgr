@@ -801,7 +801,12 @@
     "multiOrgHint": "This person also works in another organization. Their name, email and password are theirs to change, from their account page.",
     "identityExists": "{email} already has an LGR account. Invite them to this organization instead.",
     "inviteInstead": "Send an invitation instead",
-    "inviteSent": "Invitation sent."
+    "inviteSent": "Invitation sent.",
+    "cashRegister": {
+      "title": "Cash register",
+      "requireConnectedDevice": "A sale needs a connected fiscal printer",
+      "requireConnectedDeviceHint": "Turn this off only for an organization with no fiscal device, such as a demo or a test one: its sales print nothing."
+    }
   },
   "admin": {
     "auditLog": "Audit Log",
@@ -1530,7 +1535,12 @@
       "failed": "Could not sign in. Try again.",
       "withPassword": "Sign in with your password",
       "switchOperator": "Switch operator"
-    }
+    },
+    "printerRequired": {
+      "notConnected": "Connect the fiscal printer to sell.",
+      "notConfigured": "No fiscal printer is set up for this warehouse. Ask an admin to set one up."
+    },
+    "sessionDocuments": "Cash sales of session {number}"
   },
   "cashRegister": {
     "title": "Cash Register Sales",
@@ -1585,7 +1595,8 @@
       "origin": "Origin",
       "status": "Status",
       "fiscalState": "Receipt",
-      "paymentMethod": "Payment"
+      "paymentMethod": "Payment",
+      "session": "Session {number}"
     },
     "detail": {
       "lines": "Lines",

@@ -95,6 +95,8 @@ export async function seed() {
       },
       payroll: { payFrequency: 'monthly', socialSecurityRate: 18, healthInsuranceRate: 7.5, pensionRate: 18 },
       modules: [...MODULES],
+      // The demo org has no fiscal device: its till sells with nothing to print on.
+      cashRegister: { requireConnectedDevice: false },
     },
     subscription: { plan: 'professional', maxUsers: 50 },
   })

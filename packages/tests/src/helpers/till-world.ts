@@ -8,6 +8,7 @@ import {
   createTestProduct,
   createTestStockLevel,
   createTestFiscalDevice,
+  allowSalesWithoutPrinter,
 } from './factories'
 import { EltradeSimulator } from './eltrade-simulator'
 import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
@@ -44,6 +45,12 @@ const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
 
 export interface TillWorldOptions {
   device?: boolean
+  /**
+   * A world with no device is an org that turned off "no sale without a connected printer"
+   * (`settings.cashRegister.requireConnectedDevice: false`), like the demo org: its till sells
+   * with nothing to print on. `requireDevice` keeps the rule on, to test the refusal.
+   */
+  requireDevice?: boolean
   role?: string
   /** On hand in the warehouse, at `avgCost` 4. */
   stock?: number
@@ -52,6 +59,7 @@ export interface TillWorldOptions {
 export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
   const org = await createTestOrg()
   const orgId = String(org._id)
+  if (opts.device === false && !opts.requireDevice) await allowSalesWithoutPrinter(org._id)
   const warehouse = await createTestWarehouse(org._id)
   const role = opts.role ?? 'admin'
   const user = await createTestUser(org._id, { operatorCode: '0001', role } as any)

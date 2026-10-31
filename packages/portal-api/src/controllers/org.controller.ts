@@ -20,7 +20,14 @@ export const orgController = new Elysia({ prefix: '/org/:orgId' })
       if (!user) return status(401, { message: 'Unauthorized' })
       if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
-      const org = await orgDao.update(orgId, body)
+      // Each settings block sent replaces that block, and only that one. A whole `settings` in the
+      // update replaced every block the page never sends — the org's time zone (the digest's days,
+      // the cash register's) and the cash register's switches among them.
+      const { settings, ...fields } = body as any
+      const org = await orgDao.update(orgId, {
+        ...fields,
+        ...(settings ? Object.fromEntries(Object.entries(settings).map(([k, v]) => [`settings.${k}`, v])) : {}),
+      })
       if (!org) return status(404, { message: 'Organization not found' })
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'admin', entityType: 'organization', entityId: orgId, entityName: org.name })
@@ -75,6 +82,11 @@ export const orgController = new Elysia({ prefix: '/org/:orgId' })
           inventory: t.Optional(t.Object({
             defaultCostingMethod: t.Optional(t.String()),
             allowNegativeStock: t.Optional(t.Boolean()),
+          })),
+          // The cash register: selling below zero (FR-21.16) and selling with no printer connected.
+          cashRegister: t.Optional(t.Object({
+            allowNegativeStock: t.Optional(t.Boolean()),
+            requireConnectedDevice: t.Optional(t.Boolean()),
           })),
           payroll: t.Optional(t.Object({
             payFrequency: t.Optional(t.String()),

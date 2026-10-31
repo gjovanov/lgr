@@ -18,7 +18,7 @@ import { maySaleOpen } from 'fiscal/device-reach'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
 import {
-  STORNO_ROLES, findKeyedTillDocument, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
+  STORNO_ROLES, assertPrinterConnected, findKeyedTillDocument, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
 } from '../lib/cash-register-till.js'
 
 // FR-21: the till's device, its receipts and the price a device is given live with the cash-register
@@ -695,6 +695,9 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         }
 
         const c = await context()
+        // No sale without a connected printer (2026-10-31): refused before anything is written, so
+        // no number or УНП is drawn. A keyed retry is answered above and may still finish.
+        await assertPrinterConnected(orgId, String(session.warehouseId), c)
 
         // FR-20.49 — Прил. 29 т. 8: no fiscal sale opens on a device not reached in two hours (SUPTO
         // production mode only). ⚠ Here, for a NEW sale only: a keyed retry above is a sale that
