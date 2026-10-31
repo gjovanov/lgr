@@ -5,7 +5,36 @@ import { confirmMovement } from 'services/biz/warehouse.service'
 import { createMovementWithProductUpdates, updateMovementWithProductUpdates, GRValidationError } from 'services/biz/movement-with-update.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
+import { buildProductListFilter, hasProductListFilter, productIdsMatching } from 'services/biz/product-list-filter'
+import { findPageSortedBy } from 'services/biz/sorted-page'
 import { billingByMovement, receiptBillingFor } from 'services/biz/receipt-bill.service'
+
+/**
+ * What the Movements list's columns sort by. Two print a field under another name; three print
+ * the name of what the movement points at, which only an aggregation can order by.
+ */
+const MOVEMENT_SORT_FIELDS: Record<string, string> = { number: 'movementNumber', total: 'totalAmount' }
+const refName = (from: string, localField: string, name: unknown) => [
+  { $lookup: { from, localField, foreignField: '_id', as: '_ref' } },
+  { $addFields: { sortKey: name } },
+]
+const MOVEMENT_SORT_BY_REF: Record<string, Record<string, unknown>[]> = {
+  fromWarehouseName: refName('warehouses', 'fromWarehouseId', { $first: '$_ref.name' }),
+  toWarehouseName: refName('warehouses', 'toWarehouseId', { $first: '$_ref.name' }),
+  // As the list prints it: the company, else the person's first and last name.
+  contactName: refName('contacts', 'contactId', {
+    $let: {
+      vars: { c: { $first: '$_ref' } },
+      in: {
+        $cond: [
+          { $gt: [{ $strLenCP: { $ifNull: ['$$c.companyName', ''] } }, 0] },
+          '$$c.companyName',
+          { $trim: { input: { $concat: [{ $ifNull: ['$$c.firstName', ''] }, ' ', { $ifNull: ['$$c.lastName', ''] }] } } },
+        ],
+      },
+    },
+  }),
+}
 
 async function getNextMovementNumber(orgId: string): Promise<string> {
   const r = getRepos()
@@ -54,10 +83,23 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         { toWarehouseId: query.warehouseId },
       ]
     }
-    if (query.productId) {
-      const ids = (query.productId as string).split(',').map(id => id.trim()).filter(Boolean)
-      filter['lines.productId'] = ids.length === 1 ? ids[0] : { $in: ids }
+    // The movements carrying any article the Products list's search and filters find (`product*`,
+    // `buildProductListFilter`); articles picked by id (`productId`) narrow that further.
+    const productQuery = {
+      search: query.productSearch as string | undefined,
+      category: query.productCategory as string | undefined,
+      type: query.productType as string | undefined,
+      tags: query.productTags as string | string[] | undefined,
+      isActive: query.productActive as string | undefined,
     }
+    let productIds: string[] | null = query.productId
+      ? (query.productId as string).split(',').map(id => id.trim()).filter(Boolean)
+      : null
+    if (hasProductListFilter(productQuery)) {
+      const matching = new Set(await productIdsMatching(r.products, buildProductListFilter(orgId, productQuery)))
+      productIds = productIds ? productIds.filter(id => matching.has(id)) : [...matching]
+    }
+    if (productIds) filter['lines.productId'] = productIds.length === 1 ? productIds[0] : { $in: productIds }
     if (query.dateFrom || query.dateTo) {
       filter.date = {} as any
       if (query.dateFrom) filter.date.$gte = new Date(query.dateFrom as string)
@@ -69,7 +111,10 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     const sortBy = (query.sortBy as string) || 'date'
     const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
 
-    const result = await r.stockMovements.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+    const byRef = MOVEMENT_SORT_BY_REF[sortBy]
+    const result = byRef
+      ? await findPageSortedBy(r.stockMovements, filter, byRef, sortOrder, page, size, { date: -1 })
+      : await r.stockMovements.findAll(filter, { page, size, sort: { [MOVEMENT_SORT_FIELDS[sortBy] || sortBy]: sortOrder } })
 
     // Manual lookups to replace .populate()
     const fromWhIds = new Set<string>()

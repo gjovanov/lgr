@@ -2,8 +2,9 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
-import { buildProductSearchFilter } from 'services/biz/search.utils'
+import { buildProductListFilter } from 'services/biz/product-list-filter'
 import { QuickProductError, createQuickProduct } from 'services/biz/quick-product.service'
+import { findProductsByTierPrice, tierForSortKey } from 'services/biz/product-tier-sort'
 
 export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/product' })
   .use(AppAuthService)
@@ -11,21 +12,16 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
 
-    const filter: Record<string, any> = { orgId }
-    if (query.category) filter.category = query.category
-    if (query.type) filter.type = query.type
-    if (query.search) {
-      Object.assign(filter, buildProductSearchFilter(query.search as string))
-    }
-    if (query.tags) {
-      const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
-      filter.tags = { $in: tagList }
-    }
     // FR-22.48: the Products list asks for active or deactivated articles; without the param every
-    // caller (the pickers, the API clients) still gets both. "Active" is `$ne: false`, not `true`:
-    // a product saved before the field existed has none, and has always been listed as active.
-    if (query.isActive === 'true') filter.isActive = { $ne: false }
-    else if (query.isActive === 'false') filter.isActive = false
+    // caller (the pickers, the API clients) still gets both. The Movements list filters by the
+    // same rules (`buildProductListFilter`).
+    const filter = buildProductListFilter(orgId, {
+      search: query.search as string | undefined,
+      category: query.category as string | undefined,
+      type: query.type as string | undefined,
+      tags: query.tags as string | string[] | undefined,
+      isActive: query.isActive as string | undefined,
+    })
     if (query.warehouseId) {
       // Restrict to products that currently hold stock in the selected warehouse.
       const stock = await r.stockLevels.findMany({ orgId, warehouseId: query.warehouseId, quantity: { $gt: 0 } } as any)
@@ -37,7 +33,11 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     const sortBy = (query.sortBy as string) || 'name'
     const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : 1
 
-    const result = await r.products.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+    // A price tier's column (`tier_1`) sorts by that tier's price, which a plain find cannot.
+    const tier = tierForSortKey(sortBy)
+    const result = tier
+      ? await findProductsByTierPrice(r.products, filter, tier, sortOrder, page, size)
+      : await r.products.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { products: result.items, ...result }
   }, { isSignIn: true })
   .post(

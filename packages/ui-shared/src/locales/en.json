@@ -1709,6 +1709,12 @@
       "active": "Active",
       "inactive": "Deactivated"
     },
+    "movementProducts": {
+      "search": "Search products",
+      "type": "Product type",
+      "status": "Product status",
+      "pick": "Pick products…"
+    },
     "outOfStock": "Out of Stock",
     "lowStock": "Low Stock",
     "inStock": "In Stock",

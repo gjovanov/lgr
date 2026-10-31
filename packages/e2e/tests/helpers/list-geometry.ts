@@ -28,3 +28,24 @@ export async function listGeometry(page: Page): Promise<ListGeometry> {
     }
   })
 }
+
+/**
+ * Whether the first row's cell in column `cellIndex` and its row menu are in view — inside the
+ * table's box and painted on top, not scrolled under a pinned column — with the table scrolled
+ * to its `start` or its `end`.
+ */
+export async function pinnedInView(page: Page, scroll: 'start' | 'end', cellIndex: number): Promise<{ cell: boolean; menu: boolean }> {
+  return page.locator('.v-table__wrapper').first().evaluate((el, { scroll, cellIndex }) => {
+    el.scrollLeft = scroll === 'start' ? 0 : el.scrollWidth
+    const box = el.getBoundingClientRect()
+    const row = el.querySelector('tbody tr') as HTMLElement
+    const inView = (node: Element | null | undefined) => {
+      if (!node) return false
+      const r = node.getBoundingClientRect()
+      if (r.left < box.left - 1 || r.right > box.right + 1) return false
+      const hit = document.elementFromPoint(r.left + Math.min(10, r.width / 2), r.top + r.height / 2)
+      return !!hit && node.contains(hit)
+    }
+    return { cell: inView(row.children[cellIndex]), menu: inView(row.lastElementChild?.querySelector('button')) }
+  }, { scroll, cellIndex })
+}
