@@ -119,8 +119,11 @@ function sourceText(ctx: Ctx): string {
 // ── What is imported, and what stays for a person ──────────────────────────────────────────────
 
 /** How lgrai.app books a sale once it is in: as `/send`, `/receive` or the till would have. */
-function bookingOf(doc: Doc): 'none' | 'sale' | 'bill' | 'register' {
+export function bookingOf(doc: Doc): 'none' | 'sale' | 'bill' | 'register' {
   if (doc.status === 'draft' || DEAD.has(String(doc.status)) || doc.type === 'proforma') return 'none'
+  // FR-23: a payment's receipt books nothing. Its invoice comes in with the stock, the entry and the
+  // payment row; `createInvoiceStockMovement` below would dispatch its lines a second time.
+  if (doc.type === 'payment_receipt') return 'none'
   if (doc.type === 'cash_sale' || doc.type === 'cash_storno') return 'register'
   return doc.direction === 'incoming' ? 'bill' : 'sale'
 }

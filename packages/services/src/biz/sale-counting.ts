@@ -30,6 +30,14 @@ export const CASH_SALE_REF_ID = 'cashSaleRef.cashSaleId'
 /** Totals rule, as a match fragment: leave out the invoices issued for a cash sale. */
 export const NOT_INVOICE_FOR_CASH_SALE: Record<string, any> = { [CASH_SALE_REF_ID]: { $exists: false } }
 
+/**
+ * FR-23: leave out the receipts of payments on invoices, for a reader with no `type` in its filter.
+ * The invoice is the sale and its payment row is the money; a receipt is both again, and it names
+ * the customer and, printed whole, the invoice's products. A reader that names its types never
+ * sees one.
+ */
+export const NOT_PAYMENT_RECEIPT: Record<string, any> = { type: { $ne: 'payment_receipt' } }
+
 /** Statuses of an invoice that is not (or no longer) a document. */
 const NOT_A_DOCUMENT = ['draft', 'voided', 'cancelled']
 

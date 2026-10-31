@@ -1,5 +1,5 @@
 import { Invoice } from 'db/models'
-import { NOT_INVOICE_FOR_CASH_SALE } from './sale-counting.js'
+import { NOT_INVOICE_FOR_CASH_SALE, NOT_PAYMENT_RECEIPT } from './sale-counting.js'
 
 /**
  * Invoice KPI summary ($facet): outstanding / overdue / paid-30d / drafts.
@@ -36,6 +36,8 @@ export async function getInvoiceSummary(
     if (list.length === 1) match.type = list[0]
     else if (list.length > 1) match.type = { $in: list }
   }
+  // FR-23: a payment's receipt is money its invoice already counts.
+  if (!match.type) Object.assign(match, NOT_PAYMENT_RECEIPT)
   if (f.direction) match.direction = f.direction
   if (f.contactId) match.contactId = f.contactId
   if (f.tags) {

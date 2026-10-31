@@ -38,7 +38,7 @@ import {
 import { effectiveMethods, bucketFor } from '../reports/sales-history.report.js'
 import { EFFECTIVE_DATE } from '../reports/warehouse-operations.report.js'
 import { INVOICING_SEQUENCE_KEYS, closedSeriesOf, resolveDefPrefix } from '../sequence-registry.js'
-import { NOT_INVOICE_FOR_CASH_SALE } from '../sale-counting.js'
+import { NOT_INVOICE_FOR_CASH_SALE, NOT_PAYMENT_RECEIPT } from '../sale-counting.js'
 import {
   DIGEST_CAPS,
   DIGEST_OPT_IN_SECTIONS,
@@ -99,8 +99,9 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
   const org = oid(orgId)
 
   const docs: any[] = await Invoice.find(
-    // An invoice issued for a cash sale is the same money as that cash sale (#171).
-    { orgId: org, issueDate: { $gte: from, $lte: to }, status: ISSUED_STATUSES, ...NOT_INVOICE_FOR_CASH_SALE },
+    // An invoice issued for a cash sale is the same money as that cash sale (#171), and a payment's
+    // receipt the same money as its invoice (FR-23).
+    { orgId: org, issueDate: { $gte: from, $lte: to }, status: ISSUED_STATUSES, ...NOT_INVOICE_FOR_CASH_SALE, ...NOT_PAYMENT_RECEIPT },
     { type: 1, direction: 1, status: 1, total: 1, currency: 1, paymentMethod: 1, payments: 1, amountPaid: 1 },
   ).lean().exec()
 
@@ -151,8 +152,9 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
   // invoice for a cash sale is born paid with rows marked `origin: 'cash_register'`, the cash sale's
   // own takings, which are the Cash register line. A cash sale carries no payment rows, so those rows
   // put the same money on this line too — and only for a cash sale someone invoiced (#171, R0 and §11).
+  // A receipt's own tender is the row on its invoice again (FR-23).
   const paid: any[] = await Invoice.aggregate([
-    { $match: { orgId: org, 'payments.date': { $gte: from, $lte: to } } },
+    { $match: { orgId: org, 'payments.date': { $gte: from, $lte: to }, ...NOT_PAYMENT_RECEIPT } },
     { $unwind: '$payments' },
     { $match: { 'payments.date': { $gte: from, $lte: to }, 'payments.origin': { $ne: 'cash_register' } } },
     { $group: { _id: null, count: { $sum: 1 }, total: { $sum: '$payments.amount' } } },
@@ -272,6 +274,8 @@ async function buildDocuments(orgId: string, date: string): Promise<DigestDocume
   const sales = rows.filter(r => r.direction === 'outgoing' && SALES_TYPES.includes(r.type))
   // The cash register's sales and stornos (FR-21.9) — one family, one number series.
   const cash = rows.filter(r => r.type === 'cash_sale' || r.type === 'cash_storno')
+  // FR-23: a payment's receipt is no sale of the day, but it holds a number of that series.
+  const receipts = rows.filter(r => r.type === 'payment_receipt')
   const purchases = rows.filter(r => r.direction === 'incoming')
 
   const pack = (list: any[], key: string, cap: number) => ({
@@ -302,7 +306,7 @@ async function buildDocuments(orgId: string, date: string): Promise<DigestDocume
   }
   const [salesSeq, cashSeq, ...closedSeqs] = await Promise.all([
     buildSequenceLine(orgId, 'SALES_DOC', sales.map(r => r.number)),
-    buildSequenceLine(orgId, 'CASH_SALE', cash.filter(r => !closedSeriesOf(r.number)).map(r => r.number)),
+    buildSequenceLine(orgId, 'CASH_SALE', [...cash, ...receipts].filter(r => !closedSeriesOf(r.number)).map(r => r.number)),
     ...[...closed].map(([key, numbers]) => buildSequenceLine(orgId, key, numbers, { closed: true })),
   ])
 

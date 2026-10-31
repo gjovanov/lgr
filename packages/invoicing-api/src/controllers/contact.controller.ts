@@ -7,6 +7,7 @@ import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
 import { pickerContacts } from 'services/biz/contact-picker.service'
 import { Invoice, StockMovement } from 'db/models'
+import { NOT_PAYMENT_RECEIPT } from 'services/biz/sale-counting'
 
 /**
  * Email is optional, and an empty box is how a form says "none". `format: 'email'` alone
@@ -145,7 +146,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
     if (!user) return status(401, { message: 'Unauthorized' })
 
     const [invoiceCount, unpaid, movementCount] = await Promise.all([
-      Invoice.countDocuments({ orgId, contactId: id } as any),
+      Invoice.countDocuments({ orgId, contactId: id, ...NOT_PAYMENT_RECEIPT } as any),
       Invoice.find({
         orgId,
         contactId: id,
