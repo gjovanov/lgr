@@ -17,6 +17,7 @@ import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
 import { buildSessionReport, formatSessionReport, type SessionReport } from 'services/biz/cash-register/session-report'
 import { maySaleOpen } from 'fiscal/device-reach'
 import { fiscalFailure } from 'fiscal/errors'
+import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
 import {
@@ -431,6 +432,13 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     const filter: Record<string, any> = { orgId }
     if (query.status) filter.status = query.status
     if (query.cashierId) filter.cashierId = query.cashierId
+    // Calendar days in the org's own zone (the pod runs on UTC): the day the session opened in the
+    // shop, the last one whole.
+    if (query.dateFrom || query.dateTo) {
+      const org: any = await Org.findById(orgId, { 'settings.timezone': 1 }).lean().exec()
+      const window = localDayWindow(query.dateFrom, query.dateTo, org?.settings?.timezone || BULGARIAN_TIME_ZONE)
+      if (window) filter.openedAt = window
+    }
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
