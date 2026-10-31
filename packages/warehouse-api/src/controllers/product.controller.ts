@@ -5,6 +5,7 @@ import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildProductListFilter } from 'services/biz/product-list-filter'
 import { QuickProductError, createQuickProduct } from 'services/biz/quick-product.service'
 import { findProductsByTierPrice, tierForSortKey } from 'services/biz/product-tier-sort'
+import { findProductsByStockColumn, stockColumnForSortKey } from 'services/biz/product-stock-sort'
 
 export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/product' })
   .use(AppAuthService)
@@ -33,11 +34,15 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     const sortBy = (query.sortBy as string) || 'name'
     const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : 1
 
-    // A price tier's column (`tier_1`) sorts by that tier's price, which a plain find cannot.
+    // A price tier's column (`tier_1`) sorts by that tier's price, and a stock column by the figure
+    // its cell shows; a plain find can do neither.
     const tier = tierForSortKey(sortBy)
+    const stockColumn = stockColumnForSortKey(sortBy)
     const result = tier
       ? await findProductsByTierPrice(r.products, filter, tier, sortOrder, page, size)
-      : await r.products.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+      : stockColumn
+        ? await findProductsByStockColumn(r.products, orgId, filter, stockColumn, (query.warehouseId as string) || undefined, sortOrder, page, size)
+        : await r.products.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { products: result.items, ...result }
   }, { isSignIn: true })
   .post(

@@ -298,6 +298,66 @@ describe('the Products list: reserved and on order, per article (FR-22.45)', () 
   }, 120_000)
 })
 
+/**
+ * The stock columns sort too, by the figure each cell shows: every filtered article is ranked
+ * before the page is cut, a dash goes last in both directions (then by name), and with a
+ * warehouse chosen the figures are that warehouse's.
+ */
+describe('the Products list sorts by its stock columns', () => {
+  async function sortWorld() {
+    const w = await supplyWorld()
+    const screw = await createTestProduct(w.org._id, { name: 'Винт М8', sku: 'PSL-SCREW' } as any)
+    const pin = await createTestProduct(w.org._id, { name: 'Щифт М8', sku: 'PSL-PIN' } as any)
+    await createTestStockLevel(w.org._id, screw._id, w.w2._id, { quantity: 40, availableQuantity: 40 })
+    // Sold short: a red badge, and a figure all the same.
+    await createTestStockLevel(w.org._id, pin._id, w.w1._id, { quantity: -2, availableQuantity: -2 })
+    await createReservation(w.orgId, w.userId, {
+      source: 'stock', productId: String(screw._id), warehouseId: String(w.w2._id), contactId: String(w.c1._id), quantity: 3,
+    })
+    async function skus(qs: string) {
+      const r = await w.get(`/product?size=50&${qs}`)
+      expect(r.status).toBe(200)
+      return (r.json.products as any[]).map((p) => p.sku.replace('PSL-', ''))
+    }
+    return { ...w, skus }
+  }
+
+  it('„Наличност": on hand over every warehouse, the articles without stock last', async () => {
+    const w = await sortWorld()
+    // Bolts 65 + 20, screws 40, nuts 10, pins −2; no washer was ever stocked.
+    expect(await w.skus('sortBy=stock&sortOrder=asc')).toEqual(['PIN', 'NUT', 'SCREW', 'BOLT', 'WASHER'])
+    expect(await w.skus('sortBy=stock&sortOrder=desc')).toEqual(['BOLT', 'SCREW', 'NUT', 'PIN', 'WASHER'])
+  }, 60_000)
+
+  it('„Резервирано" and „Поръчано": the list\'s own figures, the dashes last by name', async () => {
+    const w = await sortWorld()
+    // Reserved: bolts 20, screws 3. On order: bolts 15, nuts 8 (the draft and the cancelled
+    // order bring nothing).
+    expect(await w.skus('sortBy=reserved&sortOrder=asc')).toEqual(['SCREW', 'BOLT', 'NUT', 'WASHER', 'PIN'])
+    expect(await w.skus('sortBy=reserved&sortOrder=desc')).toEqual(['BOLT', 'SCREW', 'NUT', 'WASHER', 'PIN'])
+    expect(await w.skus('sortBy=onOrder&sortOrder=asc')).toEqual(['NUT', 'BOLT', 'SCREW', 'WASHER', 'PIN'])
+    expect(await w.skus('sortBy=onOrder&sortOrder=desc')).toEqual(['BOLT', 'NUT', 'SCREW', 'WASHER', 'PIN'])
+  }, 60_000)
+
+  it('with a warehouse chosen, sorts its articles by its own figures', async () => {
+    const w = await sortWorld()
+    const in2 = `warehouseId=${w.w2._id}`
+    // Склад 2 holds 20 bolts and 40 screws; 3 screws are held there, 10 bolts are on their way.
+    expect(await w.skus(`${in2}&sortBy=stock&sortOrder=asc`)).toEqual(['BOLT', 'SCREW'])
+    expect(await w.skus(`${in2}&sortBy=stock&sortOrder=desc`)).toEqual(['SCREW', 'BOLT'])
+    expect(await w.skus(`${in2}&sortBy=reserved&sortOrder=asc`)).toEqual(['SCREW', 'BOLT'])
+    expect(await w.skus(`${in2}&sortBy=onOrder&sortOrder=asc`)).toEqual(['BOLT', 'SCREW'])
+  }, 60_000)
+
+  it('ranks every filtered article before cutting the page, and keeps to the search', async () => {
+    const w = await sortWorld()
+    const page = await w.get('/product?size=2&page=1&sortBy=stock&sortOrder=desc')
+    expect(page.json.products.map((p: any) => p.sku)).toEqual(['PSL-NUT', 'PSL-PIN'])
+    expect(page.json).toMatchObject({ total: 5, page: 1, size: 2, totalPages: 3 })
+    expect(await w.skus(`search=${encodeURIComponent('болт')}&sortBy=stock&sortOrder=desc`)).toEqual(['BOLT'])
+  }, 60_000)
+})
+
 describe('the Products list hides deactivated articles unless asked (FR-22.48)', () => {
   it('?isActive=true lists the active ones (and those saved before the flag), false the deactivated', async () => {
     const w = await world()

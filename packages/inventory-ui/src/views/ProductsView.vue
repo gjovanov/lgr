@@ -227,21 +227,25 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
 // A user who reordered the columns keeps their order; the two new ones join it after „Наличност"
 // (useGridColumns).
 //
+// The three stock columns sort by the figure the cell shows, over every filtered article (the
+// server computes them, `product-stock-sort.ts`); a dash goes last either way.
+//
 // With the price tiers shown the list is wider than a 1366 px screen, so the name and the row
 // menu stay put while the prices scroll sideways (`fixed`), and the name keeps a readable width
 // instead of shrinking to a word per line. The price columns take FR-22.23's 8 px gutters, which
-// is what lets the whole list fit 1920 px in Bulgarian.
+// is what lets the whole list fit 1920 px in Bulgarian. „Покупна цена" waits on the cog: it is
+// „Доставна цена" again wherever the tiers are kept.
 const PRICE_CELL = { headerProps: { class: 'px-2' }, cellProps: { class: 'px-2' } }
 const headers = computed(() => [
   { title: t('warehouse.sku'), key: 'sku', sortable: true },
   { title: t('common.name'), key: 'name', sortable: true, fixed: 'start' as const, minWidth: '180px' },
   { title: t('warehouse.category'), key: 'category', sortable: true },
   { title: t('common.type'), key: 'type' },
-  { title: t('warehouse.stock'), key: 'stock', sortable: false },
-  { title: t('warehouse.supply.reserved'), key: 'reserved', sortable: false, align: 'end' as const },
-  { title: t('warehouse.supply.onOrder'), key: 'onOrder', sortable: false, align: 'end' as const },
+  { title: t('warehouse.stock'), key: 'stock' },
+  { title: t('warehouse.supply.reserved'), key: 'reserved', align: 'end' as const },
+  { title: t('warehouse.supply.onOrder'), key: 'onOrder', align: 'end' as const },
   { title: t('warehouse.unit'), key: 'unit' },
-  { title: t('warehouse.purchasePrice'), key: 'purchasePrice', align: 'end' as const, ...PRICE_CELL },
+  { title: t('warehouse.purchasePrice'), key: 'purchasePrice', align: 'end' as const, defaultHidden: true, ...PRICE_CELL },
   { title: t('warehouse.sellingPrice'), key: 'sellingPrice', align: 'end' as const, ...PRICE_CELL },
   // A column per price tier, headed by the tier's name and sorted by its price (the server reads
   // the tier out of `tier_<slot>`); the slots regal prices by are shown, the rest wait on the cog.
