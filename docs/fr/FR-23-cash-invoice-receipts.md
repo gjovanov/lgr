@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft, 2026-10-31. Waiting on the owner's answer to **Q-1** (§5) before any code. |
+| **Status** | Specified 2026-10-31. The owner answered Q-1, Q-2 (card) and Q-4 the same day (§5). Q-3 goes to the accountant, and COD on an invoice (Q-2) and Q-5 stand as proposed until he says otherwise. |
 | **Tracking** | Partial storno: [gjovanov/lgr#363](https://github.com/gjovanov/lgr/issues/363). The rest is new. |
 | **Builds on** | FR-21 (#171): the register block, the till's print-once state (#155), D-13 (a back-office sale joins the cashier's open session), R0 (an invoice for a cash sale, §3.9). The printer gate (#390). |
 | **Code anchors** | origin/master `a2758a9e` (2026-10-31). Anchors, not gospel. |
@@ -14,7 +14,7 @@
 - **A debit note paid in cash** prints a sale receipt.
 - **A credit note refunded in cash** prints a storno of the invoice's receipt. Partial storno is built (#363).
 - **A cash refund with no receipt to storno is refused.**
-- **Stock moves once, by the invoice.** That was the wording of the option the owner picked. An earlier design note said the opposite (the CS moves the stock, as in R0). §1 puts that choice to the owner before anything is built.
+- **Stock moves once, by the invoice.** That was the wording of the option the owner picked. An earlier design note said the opposite (the CS moves the stock, as in R0), so §1 put the choice back to him, and he confirmed the invoice.
 
 ## 1. The decision: which document moves the stock
 
@@ -30,7 +30,7 @@ Today, an invoice paid in cash is settled on issue (`syncCashSettlement`, paymen
 | Debit note in cash | ✓ | ✗ same problem as a part payment |
 | Credit-note refund in cash | ✓ a storno, money only; the credit note returns the goods | ✓ but a storno of the CS returns the goods too, so it collides with the credit note (§3.5 of FR-21: a quantity is corrected once) |
 
-**Recommendation: A**, for every cash payment on an invoice-side document. R0 keeps its own direction: a sale rung at the till first and invoiced afterwards ends as B, and that stays. Each document says which direction it came from: `cashSaleRef` on an R0 invoice, `paidInvoiceId` on a receipt (§2.1).
+**Decision: A** (owner, 2026-10-31), for every cash payment on an invoice-side document. R0 keeps its own direction: a sale rung at the till first and invoiced afterwards ends as B, and that stays. Each document says which direction it came from: `cashSaleRef` on an R0 invoice, `paidInvoiceId` on a receipt (§2.1).
 
 ## 2. Design (model A)
 
@@ -55,8 +55,8 @@ Today, an invoice paid in cash is settled on issue (`syncCashSettlement`, paymen
 | Cash payment recorded on an issued invoice (`POST /invoices/:id/payment`) | a `payment_receipt` for that amount | cash |
 | Debit note issued or paid in cash | a `payment_receipt` (a sale receipt) | cash |
 | Credit note refunded in cash | a `payment_storno` citing a receipt that paid the invoice (§2.5) | cash |
-| Card at the counter | **Q-2** | card |
-| Invoice with method cash on delivery | **Q-2**. Proposed: at issue, payment type „НАЛОЖЕН ПЛАТЕЖ" (Eltrade slot R), with the invoice still due until the courier pays | slot R |
+| Card at the counter: invoice issued with method card, or a card payment recorded | a `payment_receipt`, by the same rules as cash (owner, Q-2) | card |
+| Invoice with method cash on delivery | Proposed (Q-2): at issue, payment type „НАЛОЖЕН ПЛАТЕЖ" (Eltrade slot R), with the invoice still due until the courier pays | slot R |
 | **Any imported document** (Files app, `convertDraftInvoice`, the API import skills) | **never**. Another system printed its receipt. | — |
 | Bank transfer, `other` | nothing | — |
 
@@ -68,7 +68,8 @@ Today, an invoice paid in cash is settled on issue (`syncCashSettlement`, paymen
 
 - **Through the issuing user's open session**, on that session's device (D-13). The cash goes into that drawer.
 - **No open session, or the device isn't connected:** refused before anything is written, the printer gate's 409 `fiscal_device_not_connected` (#390). Nothing is issued as paid, and no number or УНП is drawn.
-- **Orgs where LGR prints nothing:** with the gate's switch off (`settings.cashRegister.requireConnectedDevice: false`), cash invoices behave as today: settled on issue, no receipt. Whether to reuse that switch is **Q-4**.
+- **Orgs where LGR prints nothing:** with the gate's switch off (`settings.cashRegister.requireConnectedDevice: false`), cash invoices behave as today: settled on issue, no receipt. There is one switch, not two (owner, Q-4).
+- ⚠ **R1's deploy order:** the regal stores' till is still PlusMinus, so `regal-pz` and `regal-sf` get the switch set off BEFORE R1 deploys. Unset means required, and every cash invoice there would then need an LGR device. Each store turns it on when it moves to the LGR till.
 
 ### 2.4 Order of operations
 
@@ -144,8 +145,10 @@ Each release goes through Atanas's protocol on #171, and the SUPTO docs change i
 
 ## 5. Questions for the owner
 
-- **Q-1 — Stock.** Model A, the invoice moves the stock (picked 2026-10-31, recommended), or model B, the cash sale moves it (R0's shape, which cannot handle cash paid later or in parts)?
-- **Q-2 — Card and cash on delivery.** Н-18 requires a fiscal receipt for a card payment at the point of sale too. Should a card payment at the counter print as cash does? Recommended: yes. Should a COD invoice print at issue on slot R?
+- **Q-1 — Stock.** ✓ Answered 2026-10-31: model A, the invoice moves the stock.
+- **Q-2 — Card and cash on delivery.**
+  - ✓ Answered 2026-10-31: a card payment at the counter prints as cash does.
+  - Still open: should a COD invoice print at issue on slot R? §2.2 proposes yes.
 - **Q-3 — Wording.** Itemised lines plus „Фактура № …" for a whole payment at issue, and „Плащане по фактура № …" per VAT rate otherwise. The accountant confirms against Н-18.
-- **Q-4 — Which orgs print.** Reuse the printer gate's switch, so that off means LGR prints nothing and cash invoices stay as today? ⚠ The regal stores' till is still PlusMinus, so their switch must be off before R1 deploys, or every cash invoice there would need an LGR device.
-- **Q-5 — Freeze.** Once a receipt has printed for an invoice, its total is corrected only by credit and debit notes. Agreed?
+- **Q-4 — Which orgs print.** ✓ Answered 2026-10-31: the printer gate's switch decides. Off means LGR prints nothing and cash invoices stay as today.
+- **Q-5 — Freeze.** Once a receipt has printed for an invoice, its total is corrected only by credit and debit notes. Stands as proposed unless the owner objects.
