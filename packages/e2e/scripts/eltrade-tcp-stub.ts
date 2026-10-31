@@ -14,7 +14,7 @@
  *   FISCAL_TCP_ALLOW_LOOPBACK=1 bun packages/portal-api/src/unified.ts
  *
  * HTTP on the next port, for the spec: `GET /state` (receipts with their free text, reports, closures,
- * operators, payment type names), `POST /reset` (a fresh device; `{ "rates": [А..З] }` programs its VAT groups).
+ * operators, payment type names), `POST /paper` (`{ "on": false }`: the roll runs out), `POST /reset` (a fresh device; `{ "rates": [А..З] }` programs its VAT groups).
  */
 import { createServer, type Socket } from 'node:net'
 import { EltradeSimulator } from '../../tests/src/helpers/eltrade-simulator'
@@ -105,6 +105,11 @@ Bun.serve({
         paymentNames: sim.paymentNames,
         receiptOpen: !!sim.receipt || sim.nonFiscalOpen,
       })
+    }
+    if (url.pathname === '/paper' && req.method === 'POST') {
+      const body: any = await req.json().catch(() => ({}))
+      sim.paper = body?.on !== false
+      return Response.json({ paper: sim.paper })
     }
     if (url.pathname === '/reset' && req.method === 'POST') {
       const body: any = await req.json().catch(() => ({}))
