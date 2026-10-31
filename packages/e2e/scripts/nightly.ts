@@ -70,7 +70,7 @@ try {
   // One worker: the suite shares this one seeded database, and specs that each pass alone fail
   // beside each other (CLAUDE.md, E2E gotcha 5).
   const playwright = Bun.spawn(
-    ['bunx', 'playwright', 'test', '--workers=1', '--reporter=line,html', ...process.argv.slice(2)],
+    ['bunx', 'playwright', 'test', '--workers=1', '--reporter=line,html,./scripts/night-summary.ts', ...process.argv.slice(2)],
     {
       cwd: join(ROOT, 'packages', 'e2e'),
       env: { ...env, BASE_URL, PLAYWRIGHT_HTML_OPEN: 'never' },

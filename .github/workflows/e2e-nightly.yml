@@ -22,6 +22,7 @@ on:
     paths:
       - '.github/workflows/e2e-nightly.yml'
       - 'packages/e2e/scripts/nightly.ts'
+      - 'packages/e2e/scripts/night-summary.ts'
 
 concurrency:
   group: e2e-nightly-${{ github.ref }}
