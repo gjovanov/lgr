@@ -58,6 +58,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+import { inModule } from 'ui-shared/nav/open-page'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import EmptyState from 'ui-shared/components/EmptyState.vue'
@@ -118,8 +119,8 @@ const groups = computed(() => {
 })
 
 function open(report: ReportMeta) {
-  // Both `custom` and `runner` entries live in this SPA, so the route is always in-app.
-  router.push(report.route)
+  // Both `custom` and `runner` entries live in this module; `route` is module-relative (FR-24.4).
+  router.push(inModule(router.currentRoute.value, report.route))
 }
 
 onMounted(async () => {

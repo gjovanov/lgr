@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LGR</title>
+    <script>
+      // FR-24.14: during a rollout this page and its entry script can come from pods on different
+      // versions. An entry that fails to load reloads the page, a bounded number of times; a page
+      // that mounted clears the count (main.ts).
+      window.addEventListener('error', function (e) {
+        var t = e.target
+        if (!t || t.tagName !== 'SCRIPT' || t.type !== 'module') return
+        var n = Number(sessionStorage.getItem('lgr_boot_retry') || 0)
+        if (n >= 3) return
+        sessionStorage.setItem('lgr_boot_retry', String(n + 1))
+        setTimeout(function () { location.reload() }, 500 * (n + 1))
+      }, true)
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

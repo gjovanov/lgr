@@ -8,7 +8,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
-import { appHref } from 'ui-shared/nav/navigate'
+import { appHref, goTo } from 'ui-shared/nav/navigate'
 
 /**
  * FR-6.19a — redirect stub for the two report pages that moved into the Reports app.
@@ -32,6 +32,6 @@ const target = computed(() => {
 onMounted(() => {
   // `replace`, not `assign`: Back should return where the user came from, not bounce off
   // this stub and forward again.
-  window.location.replace(target.value)
+  goTo(target.value, { replace: true })
 })
 </script>

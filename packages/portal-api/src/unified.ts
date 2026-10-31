@@ -11,7 +11,7 @@ import { logger } from 'services/logger'
 // The whole API route table lives in `api.ts` so tests can mount it — see the header there.
 import { createApiApp } from './api.js'
 // Same reason for the SPA serving: `spa-fallback.flow.test.ts` drives it with the real plugins.
-import { UI_MODULES, portalShellFor, spaErrorHandler, uiStaticPlugin, type UiModule } from './spa-fallback.js'
+import { UI_MODULES, oneSpaShell, portalShellFor, spaErrorHandler, uiStaticPlugin, webBuildId, type UiModule, type UiShell } from './spa-fallback.js'
 
 // WebSocket
 import { setupWebSocket } from './websocket/ws.server.js'
@@ -76,6 +76,15 @@ for (const mod of UI_MODULES) {
 // The analytics tag goes on lgrai.app's portal only (FR-20 AC 66).
 if (indexHtmlMap.portal) indexHtmlMap.portal = portalShellFor(indexHtmlMap.portal, nodeRole())
 
+// FR-24.13: the one SPA (`packages/web`), beside the eight until Phase 3. Not in a server package.
+const webDir = uiRoot ? `${uiRoot}/web` : '../web/dist'
+const webHtml = await Bun.file(`${webDir}/index.html`).text().catch(() => undefined)
+const oneSpa = webHtml ? oneSpaShell(webHtml, nodeRole()) : null
+const buildId = webBuildId(webHtml)
+/** `LGR_UI_DEFAULT`: the shell a browser without the `lgr_ui` cookie gets. */
+const defaultShell: UiShell = process.env.LGR_UI_DEFAULT === 'one' ? 'one' : 'split'
+if (oneSpa) logger.info({ defaultShell, buildId }, 'The one SPA is served beside the eight (FR-24)')
+
 const app = new Elysia()
   // FR-20.72–20.74 (P3-4b): an org's address, `<label>.lgrai.app`, is its server's: tunnelled before
   // anything of lgrai.app's own app, headers or cookies runs. Global only; nothing for other hosts.
@@ -89,7 +98,9 @@ const app = new Elysia()
   .use(isolationHeaders()) // FR-20.72: CORP same-origin + Origin-Agent-Cluster on every response
   .use(corsPlugin()) // S-07: an allow-list, not every origin a caller names
   // 422 / SPA shell / 404 / 500. The shell's status needs care: see spa-fallback.ts.
-  .onError(spaErrorHandler(indexHtmlMap))
+  .onError(spaErrorHandler(indexHtmlMap, { one: oneSpa, defaultShell }))
+  // FR-24.14: the one SPA's build on every answer, so an open tab sees a deploy happened.
+  .onRequest(({ set }) => { if (buildId) set.headers['x-lgr-build'] = buildId })
   // API docs on lgrai.app only: the page loads its viewer from a CDN, and a master serves no
   // third-party script (FR-20 AC 66).
   .use(
@@ -132,7 +143,7 @@ const moduleUiConfig = [
   { name: 'accounting', prefix: '/accounting' },
   { name: 'inventory', prefix: '/inventory' },
   { name: 'invoicing', prefix: '/invoicing' },
-  { name: 'pos', prefix: '/pos' },
+  // POS: routes of the invoicing SPA since FR-24 Phase 0; `/pos/*` answers 302 (spa-fallback.ts).
   { name: 'payroll', prefix: '/payroll' },
   { name: 'reports', prefix: '/reports' },
   { name: 'files', prefix: '/files' },
@@ -148,6 +159,15 @@ for (const ui of moduleUiConfig) {
     } catch {
       logger.info(`Static plugin failed for ${ui.name}-ui`)
     }
+  }
+}
+
+// FR-24.10: the one SPA's files live under `/ui/` (its own asset directory), so both builds coexist.
+if (oneSpa) {
+  try {
+    app.use(await uiStaticPlugin({ assets: `${webDir}/ui`, prefix: '/ui' }))
+  } catch {
+    logger.info('Static plugin failed for the one SPA')
   }
 }
 

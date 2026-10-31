@@ -12,9 +12,9 @@ The system follows a **multi-app architecture** (Google Workspace model): a Port
 
 ```bash
 # Development
-bun run dev                  # Unified API (4001) + the 8 UI dev servers (portal + 7 apps); `bun run dev -- api portal` starts a subset
+bun run dev                  # Unified API (4001) + the 7 UI dev servers (portal + 6 SPAs; POS is in invoicing); `bun run dev -- api portal` starts a subset
 bun run start                # Production: unified API (4001) serving all built UIs
-bun run build                # Build all 9 UIs (portal, the 7 apps, desktop-ui)
+bun run build                # Build all 8 UIs (portal, the 6 domain SPAs, desktop-ui)
 bun run seed                 # Seed database (Acme Corp + Beta Inc)
 bun run migrate              # Apply pending versioned migrations (--status lists them; FR-20.19)
 
@@ -24,7 +24,6 @@ bun run dev:accounting-ui    # Accounting UI (port 4011)
 bun run dev:invoicing-ui     # Invoicing UI (port 4021)
 bun run dev:inventory-ui     # Inventory UI (port 4031)
 bun run dev:payroll-ui       # Payroll UI (port 4041)
-bun run dev:pos-ui           # POS UI (port 4091)
 bun run dev:reports-ui       # Reports UI (port 4101)
 bun run dev:files-ui         # Files UI (port 4111)
 
@@ -81,7 +80,9 @@ packages/
   inventory-ui/        → Products, stock, movements, valuations (served at /inventory/*)
   invoicing-ui/        → Contacts, invoices, bills, cash sales, payments (served at /invoicing/*)
   accounting-ui/       → 10 accounting views + store
-  pos-ui/              → Point-of-sale terminal, transactions, devices (served at /pos/*)
+  (pos)                → POS lives in invoicing-ui/src/pos since FR-24 Phase 0, served at /invoicing/pos/*;
+                         /pos/* answers 302 there (desktops hold startPath /pos/). Still its own App Hub
+                         app (pos.read, OrgApp, the PIN scope): APP_NAV_META.pos.spa = 'invoicing'
   payroll-ui/          → 5 payroll views + store
   files-ui/            → Document ingest: upload, analyze, commit, reconcile (served at /files/*)
   reports-ui/          → Report card hub + generic runner + the two moved invoicing report
@@ -120,9 +121,9 @@ Each `*-ui` imports `ui-shell` + `ui-shared`, communicates via HTTP/WS to unifie
 
 Every data model uses `tenantPlugin`, which adds an indexed, required `orgId` field — **and nothing else**. It does **not** filter queries (`packages/db/src/plugins/tenant.plugin.ts`). A `Model.find({})` returns every org's rows; passing `{ orgId }` is on the caller.
 
-All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is where tenancy is enforced**. `isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) is registered as a `beforeHandle` hook by `AuthService` and by all seven `AppAuthService` copies, so every authenticated route whose path carries `:orgId` rejects a caller whose JWT names a different org with **403**. It is applied by default — there is nothing for a new controller to opt into, and no exception list (gjovanov/lgr#41). The property is asserted over the real route table by `packages/tests/src/integration/tenant-isolation.flow.test.ts`.
+All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is where tenancy is enforced**. `isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) is registered as a `beforeHandle` hook by `AuthService` and by `AppAuthService` (`services/http/app-auth.service.ts`, one copy since FR-24.30, re-exported by each `*-api`), so every authenticated route whose path carries `:orgId` rejects a caller whose JWT names a different org with **403**. It is applied by default — there is nothing for a new controller to opt into, and no exception list (gjovanov/lgr#41). The property is asserted over the real route table by `packages/tests/src/integration/tenant-isolation.flow.test.ts`.
 
-**A write needs the permission its route names** (S-28). Every non-GET route under `/api/org/:orgId` resolves to a rule in `packages/services/src/biz/route-permission.ts`: the permission(s) it needs (`invoicing.write`, `accounting.post`, …), `self` (the controller guards itself, e.g. `canAccessReport`, admin-only routes) or `member` (any member, e.g. a note). The eight auth plugins enforce it in a **transform** hook, so a caller without the permission gets 403 before the body is validated; `admin` always passes. ⚠ A new write route fails `route-permission.flow.test.ts` until it has a rule, and is refused at runtime meanwhile. ⚠ The refusal is THROWN (a transform hook cannot return one), and `spaErrorHandler` passes a thrown status through; anything else it is handed becomes a 500.
+**A write needs the permission its route names** (S-28). Every non-GET route under `/api/org/:orgId` resolves to a rule in `packages/services/src/biz/route-permission.ts`: the permission(s) it needs (`invoicing.write`, `accounting.post`, …), `self` (the controller guards itself, e.g. `canAccessReport`, admin-only routes) or `member` (any member, e.g. a note). The two auth plugins (`AuthService`, `AppAuthService`) enforce it in a **transform** hook, so a caller without the permission gets 403 before the body is validated; `admin` always passes. ⚠ A new write route fails `route-permission.flow.test.ts` until it has a rule, and is refused at runtime meanwhile. ⚠ The refusal is THROWN (a transform hook cannot return one), and `spaErrorHandler` passes a thrown status through; anything else it is handed becomes a 500.
 
 **So does a read** (S-29). Every GET under an org resolves to a rule in `PREFIX_READ_RULES`, the same three kinds, enforced by the same hook (`permissionRefusal`).
 - A module's reads accept any permission of that module (`payroll.read`, `.write` or `.approve`), since a role that writes it reads it.
@@ -160,7 +161,7 @@ which is every org today. `db/home/home.ts`: `homeOf` (5 s cache, `forgetHome`) 
   `backup-node-state.flow.test.ts` until it is classified as org data, operational or node state.
 - ⚠ It **fails closed**: a row that disagrees with `Org.homeEpochHighWater`, or no row once that is set,
   is `hold`; only `active` writes.
-- The auth plugins run `services/biz/home-gate.ts#homeGate` right after `isForeignOrg` (all eight, no
+- The auth plugins run `services/biz/home-gate.ts#homeGate` right after `isForeignOrg` (both plugins, no
   exception list): off its home, an org's **writing** routes answer **409 `org_home_elsewhere`**. What
   writes is `services/biz/route-class.ts`: a GET reads, anything else writes, except the POSTs listed in
   `READ_ONLY_WRITES` (reports, list exports). ⚠ A route added there must write NOTHING.
@@ -679,7 +680,7 @@ scans server code and fails on any `fetch(` call without one.
 `AuthService` is an Elysia plugin (`packages/portal-api/src/auth/auth.service.ts`) that:
 - Derives `user` from the `Authorization: Bearer` header, or from the session cookie only when no
   header is sent (S-22: a non-empty Bearer is used exclusively, and an invalid one is never rescued
-  by the cookie). Rules in `services/biz/session-token.ts`, shared by all eight auth plugins.
+  by the cookie). Rules in `services/biz/session-token.ts`, shared by both auth plugins.
 - ⚠ **The session cookie is `__Host-auth`** (FR-20.72, P0a-8), and so are the OAuth flow cookies
   (`__Host-oauth_state` / `_handoff` / `_pending`, `portal-api/src/auth/oauth-cookies.ts`): an
   org's address `<slug>.lgrai.app` is a sibling subdomain, and the prefix is what stops it planting
@@ -813,6 +814,39 @@ with no decision, a stale file, or a split field with no single owner.
 
 Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models` barrel.
 
+## One app, step by step (FR-24, #402)
+
+`docs/fr/FR-24-one-app.md`. Phase 0 put POS inside invoicing; Phase 1 made every module the same pieces:
+- **One app store** (`ui-shared/stores/app.store.ts`, the portal's superset). Each package's
+  `store/app.store.ts` only re-exports it. `logout` / `fetchProfile` keep each side's behaviour
+  (`onPortal()`): a domain page goes to the portal's sign-in, the portal's router handles its own.
+- **A module is a manifest** (`<pkg>/src/manifest.ts`, POS: `invoicing-ui/src/pos/manifest.ts`;
+  type `ui-shell/module`): id, base, menu (i18n keys, data), routes, `outside` routes, pendingChanges.
+  Routers are `moduleRoutes(manifest, layout, BASE_URL)`; each `DefaultLayout.vue` is `<ModuleLayout>`.
+- ⚠ **Paths in routes, menus, breadcrumbs and back-to are relative to the MODULE** (`/orders`), never
+  to a router base. `inModule(route, to)` adds the path of the module's shell record (`meta.module`).
+  `unit/module-manifests.test.ts` resolves every one of them against its module's own routes.
+- ⚠ **Every move goes through `ui-shared/nav/navigate.ts#goTo`**: a router push when this SPA serves
+  the path, a page load otherwise. A page load drops a browser till's printer. Plain `<a href>` into
+  this SPA follows the router (`installInAppLinks`, from `registerPlugins`). `unit/navigation-seam.test.ts`
+  fails on any `window.location` assignment outside its list of deliberate page loads.
+- `openPage` to the same view is a push plus a remount (`viewKey`), never a page load.
+- **Phase 2: the one SPA, `packages/web`** (`bun run dev:web`, port 4200; `bun run build:web`). Its router is
+  `portal-ui/src/routes.ts` (the portal's routes and `portalGuard`, also used by the portal's own router) plus
+  every manifest (`web/src/modules.ts`) under ONE shell record (`OneShell` → `ModuleLayout`), so a move between
+  modules never remounts the layout. One guard: portal rules for portal routes, an org session for a module's.
+  - The server serves it per browser: cookie `lgr_ui` (`/__ui/one`, `/__ui/split`), else `LGR_UI_DEFAULT`
+    (`split` by default). Its files are under `/ui/`. A server package stays on the eight.
+  - ⚠ Redirects in a manifest go by NAME: a path names a router's base (the products redirect broke in the
+    one SPA). `unit/module-manifests.test.ts` refuses a path redirect.
+  - Stale code (FR-24.14): `<meta name="lgr-build">` vs the server's `x-lgr-build`; the next move loads the
+    page only when no form is dirty and no printer is held, else the shell offers it (`web/src/stale.ts`).
+  - Budget (FR-24.15): `bun run check:web` (CI and the Dockerfile): first-load JS ≤ 360 KB gzipped, no view in
+    the entry, the fiscal bridge in one chunk. Read the bridge's status from `fiscalBridgeStatus`, never by
+    importing `useFiscalBridge` into the shell's first load.
+  - ⚠ **Only English is in the first load**; mk/de/bg load on demand (`plugins/i18n#loadLocale`), and every SPA
+    mounts after `whenI18nReady()`. Change a language with `loadLocale`, never by setting `locale.value`.
+
 ## Ready for several pods (FR-24 Phase 5, #402)
 
 - **Who holds a fiscal device is a row**, `fiscal_presence` (`FiscalPresence`, node state, class `N`):
@@ -836,6 +870,7 @@ Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models`
   reconnects (1 s → 30 s, 1012 at once, `bridge_in_use` retried, an eviction not); after a page load it
   reopens a granted port when exactly one matches the remembered USB ids (`resume`, FR-24.41).
 - ⚠ `replicas` stays 1 until Phase 6 (lgr-deploy says so on the field).
+
 ## Frontend Conventions
 
 - **Plugin order is critical**: i18n → vuetify → pinia → router (vuetify locale adapter requires i18n)
@@ -1754,7 +1789,7 @@ in LGR while the device still had it open.
 - `GET /session/:id/close-preview` feeds the dialog: expected per method, the device and its
   connection state, and how many other sessions are open on the warehouse (a Z-report zeroes
   the **device's** day, not one session).
-- UI: `pos-ui/src/components/CloseSessionDialog.vue` — per-method expected/counted/difference
+- UI: `invoicing-ui/src/pos/components/CloseSessionDialog.vue` — per-method expected/counted/difference
   rows modeled on the legacy screen, three visually distinct outcomes.
 - `erp.service.closePOSSession` was the old duplicate, `@deprecated` with only its own tests as
   callers. It and the other `erp.service` POS functions were deleted in FR-21 R3, once
@@ -2455,10 +2490,10 @@ master** (`portal-api/src/controllers/local-auth.controller.ts`).
   to `PIN_SCOPE_ORG`, or a till breaks on it. ⚠ Keep `/auth/switch` out: it would mint a FULL
   session from a PIN session.
 - **The UI** (P1-5b) appears only where `GET /auth/local/methods` says `pin: true`:
-  - pos-ui's `/pin` (`PosPinView`) opens when a tab has no session there, and from the POS menu
+  - The till's `/invoicing/pos/pin` (`PosPinView`) opens when a tab has no session there, and from the POS menu
     ("Switch operator");
   - a "Till PIN" card under the portal's account (`TillPinCard`, hidden on a 404).
-  - ⚠ Those calls use plain `fetch` (`pos-ui/src/composables/useTillPin.ts`), never the shared
+  - ⚠ Those calls use plain `fetch` (`invoicing-ui/src/pos/composables/useTillPin.ts`), never the shared
     HTTP client. They run with no session, or with the last operator's, and the client's 401
     recovery would sign the tab out or send it to the portal.
 - ⚠ **A master's PASSWORD sign-in backs off too.** There the password is the person's local

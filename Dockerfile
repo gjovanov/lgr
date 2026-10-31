@@ -13,10 +13,11 @@ RUN cd /app/packages/portal-ui && bun run build
 RUN cd /app/packages/accounting-ui && bun run build
 RUN cd /app/packages/inventory-ui && bun run build
 RUN cd /app/packages/invoicing-ui && bun run build
-RUN cd /app/packages/pos-ui && bun run build
 RUN cd /app/packages/payroll-ui && bun run build
 RUN cd /app/packages/reports-ui && bun run build
 RUN cd /app/packages/files-ui && bun run build
+# FR-24.13: the one SPA, beside the eight until Phase 3; FR-24.15 keeps it within its budget.
+RUN cd /app/packages/web && bun run build && cd /app && bun scripts/check-web-bundle.ts
 
 # ── Runtime: single unified process ──
 FROM base AS runtime
@@ -36,10 +37,10 @@ COPY --from=ui-builder /app/packages/portal-ui/dist /app/packages/portal-ui/dist
 COPY --from=ui-builder /app/packages/accounting-ui/dist /app/packages/accounting-ui/dist
 COPY --from=ui-builder /app/packages/inventory-ui/dist /app/packages/inventory-ui/dist
 COPY --from=ui-builder /app/packages/invoicing-ui/dist /app/packages/invoicing-ui/dist
-COPY --from=ui-builder /app/packages/pos-ui/dist /app/packages/pos-ui/dist
 COPY --from=ui-builder /app/packages/payroll-ui/dist /app/packages/payroll-ui/dist
 COPY --from=ui-builder /app/packages/reports-ui/dist /app/packages/reports-ui/dist
 COPY --from=ui-builder /app/packages/files-ui/dist /app/packages/files-ui/dist
+COPY --from=ui-builder /app/packages/web/dist /app/packages/web/dist
 
 ENV HOST=0.0.0.0
 EXPOSE 4001

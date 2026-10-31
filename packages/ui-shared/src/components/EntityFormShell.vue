@@ -141,6 +141,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { inModule } from '../nav/open-page'
 import { useI18n } from 'vue-i18n'
 import SmartButton from './SmartButton.vue'
 import { focusFirstField, isMacPlatform, useFormShortcuts } from '../composables/form-shortcuts'
@@ -282,7 +283,8 @@ function getStepColor(step: string, idx: number): string {
 
 function goBack() {
   if (props.backTo) {
-    router.push(props.backTo)
+    // FR-24.4: back-to is relative to the module; the router names it under the module's shell.
+    router.push(inModule(route, props.backTo))
   } else {
     router.back()
   }

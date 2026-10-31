@@ -259,7 +259,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useGridNavigation } from 'ui-shared/composables/useGridNavigation'
 import { pinnedWarehouseId, rememberedFlag } from 'ui-shared/composables/useUserDefaults'
-import { appHref } from 'ui-shared/nav/navigate'
+import { appHref, goTo } from 'ui-shared/nav/navigate'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import DateField from 'ui-shared/components/DateField.vue'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
@@ -578,7 +578,7 @@ async function save(): Promise<string | null> {
 /** After a create, the page becomes the movement's own: its route, its number, its status. */
 async function showSaved(id: string | null) {
   if (!id) {
-    router.push('/movements')
+    router.push({ name: 'inventory.movements' })
     return
   }
   if (route.params.id !== id) await router.replace({ name: 'inventory.movements.view', params: { id } })
@@ -639,12 +639,12 @@ async function createBill() {
   billing.value = true
   try {
     const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/bills/from-receipt`, { movementIds: [route.params.id] })
-    window.location.href = billHref(data.invoice.id || data.invoice._id)
+    goTo(billHref(data.invoice.id || data.invoice._id))
   } catch (e: any) {
     const res = e?.response?.data
     // Billed meanwhile (a second click, another tab): go to that bill rather than refuse.
     if (res?.code === 'receipt_already_billed' && res.invoiceId) {
-      window.location.href = billHref(res.invoiceId)
+      goTo(billHref(res.invoiceId))
       return
     }
     showError(res?.message || t('common.operationFailed'))

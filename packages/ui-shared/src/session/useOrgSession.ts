@@ -68,10 +68,16 @@ export async function foundOrg(body: { name: string; slug: string; baseCurrency?
 
 /** The app a page belongs to: a domain app's id, or 'portal'. */
 export function currentAppId(pathname = window.location.pathname): string {
+  // The longest base wins: POS pages live under the invoicing SPA (`/invoicing/pos/*`, FR-24).
+  let best = 'portal'
+  let bestLength = -1
   for (const [id, meta] of Object.entries(APP_NAV_META)) {
-    if (pathname === meta.base || pathname.startsWith(`${meta.base}/`)) return id
+    if ((pathname === meta.base || pathname.startsWith(`${meta.base}/`)) && meta.base.length > bestLength) {
+      best = id
+      bestLength = meta.base.length
+    }
   }
-  return 'portal'
+  return best
 }
 
 /**

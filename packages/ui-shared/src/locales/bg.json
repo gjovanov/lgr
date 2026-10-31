@@ -332,6 +332,8 @@
     }
   },
   "common": {
+    "newVersion": "Има нова версия на LGR.",
+    "reload": "Презареди",
     "save": "Запази",
     "selectAll": "Избери всички",
     "selectNone": "Изчисти",
