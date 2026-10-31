@@ -636,6 +636,27 @@ describe('EltradeFiscalPrinter — a report while THIS driver is printing a rece
     expect(sim.nonFiscalLines).toEqual(['ОБЩО'])
   })
 
+  it('a service receipt during a sale (a session report reprinted) is refused, and the sale stands', async () => {
+    const sim = new EltradeSimulator()
+    const p = await saleInProgress(sim)
+    const before = sim.executed.length
+    const err = await captureRejection(p.openNonFiscalReceipt('0001'))
+    expectRejection(err, /^A sale is printing on this device, so the service receipt was not printed\. Wait for it to finish, then try again\.$/)
+    expect(err.kind).toBe('busy')
+    expect(sim.executed.length).toBe(before) // nothing reached the device
+    expect(sim.receipt).toMatchObject({ kind: 'fiscal' })
+    expect((p as any).textReceipt).toBe(false)
+
+    // The sale goes on to its end, and the service receipt prints after it.
+    await p.printPayment('cash', sim.receipt!.total)
+    await p.closeFiscalReceipt()
+    expect(sim.receipts.map(r => r.voided)).toEqual([undefined])
+    await p.openNonFiscalReceipt('0001')
+    await p.printNonFiscalText('ОТЧЕТ')
+    await p.closeNonFiscalReceipt()
+    expect(sim.nonFiscalLines).toEqual(['ОТЧЕТ'])
+  })
+
   it('a report queued ahead of the 27h that closes a service receipt is refused, and the close still succeeds', async () => {
     // Were the receipt let go when 27h is asked for rather than once it has run, this report
     // would close it first, and the till's own 27h would fail on a receipt that printed whole.
