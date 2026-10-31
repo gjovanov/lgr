@@ -5,6 +5,7 @@ import { computePosTotals } from '../../config/src/pos-totals'
 import { apiLogin } from './helpers/api'
 import { loginForApp } from './helpers/login'
 import { openTillSession } from './helpers/cash-register'
+import { openSelect } from './helpers/vuetify'
 
 /**
  * FR-21 §8.3 items 1, 4 and 9 — the cash register on a fiscal device.
@@ -45,11 +46,14 @@ const device = async () => (await fetch(`${STUB}/state`)).json() as Promise<any>
 
 let admin: Session
 let cashier: Session
+let cashierName = ''
 let manager: Session
 let deviceId = ''
 let till: { id: string; warehouseId: string }
 let sale: any
 let joined: any
+/** The sale the terminal rang up as cash on delivery. */
+let delivered: any
 /** Three articles at one VAT rate, which the device is programmed for (`beforeAll`). */
 let articles: any[] = []
 const cents = (n: number) => Math.round(n * 100) / 100
@@ -71,6 +75,7 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
       return apiLogin('acme-corp', username, 'test12345')
     }
     cashier = await person('sales')
+    cashierName = `e2e-sales-${run}`
     manager = await person('manager')
     // The cashier's session on the store: the device is registered on the same warehouse.
     till = await openTillSession(cashier)
@@ -187,6 +192,85 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     expect(row).toMatchObject({ origin: 'pos', sessionId: till.id, fiscal: { isFiscal: true, deviceNumber: SERIAL } })
   })
 
+  test('cash on delivery at the terminal: slot R on the receipt, in its own words on the screen, and the close expects it without counting it', async ({ page }) => {
+    const p = articles[0]
+    const before = (await device()).receipts.length
+
+    await loginForApp(page, 'acme-corp', cashierName, 'test12345')
+    await page.goto('/pos/terminal')
+    // A fiscal receipt: the switch starts on, for a till with a device that is not fiscalized yet.
+    const nonFiscal = page.getByLabel('Non-fiscal')
+    await expect(nonFiscal).toBeVisible({ timeout: 15000 })
+    await nonFiscal.uncheck({ force: true })
+
+    await page.getByRole('textbox', { name: /Search products/i }).fill(p.productName)
+    const card = page.getByTestId('register-card').filter({ hasText: p.productName }).first()
+    await expect(card).toBeVisible({ timeout: 15000 })
+    await card.click()
+
+    await openSelect(page, /Payment Method/i)
+    await page.getByRole('option', { name: 'Cash on delivery', exact: true }).click()
+    const selling = page.waitForResponse(r => r.url().endsWith(`/trade/pos/session/${till.id}/transaction`) && r.request().method() === 'POST')
+    await page.getByTestId('complete-sale').click()
+    const res = await selling
+    expect(res.status()).toBe(200)
+    delivered = (await res.json()).transaction
+
+    // The method's name, not `pos.cash_on_delivery` (the key the screen used to build).
+    await expect(page.getByTestId('last-sale')).toContainText('Cash on delivery')
+    await expect(page.getByTestId('last-sale')).not.toContainText('pos.')
+    expect(delivered.unpNumber).toMatch(new RegExp(`^${SERIAL}-`))
+
+    const printed = (await device()).receipts.slice(before)
+    expect(printed).toHaveLength(1)
+    expect(printed[0].kind).toBe('fiscal')
+    expect(printed[0].payments).toEqual([{ mode: 'R', amount: delivered.total }])
+
+    // Expected, and nothing to enter: the courier holds it.
+    await page.getByRole('button', { name: 'Close Session' }).click()
+    const dialog = page.getByRole('dialog').filter({ hasText: 'Close the register' })
+    const line = dialog.getByTestId('close-cash-on-delivery')
+    await expect(line).toContainText('Cash on delivery')
+    await expect(line).toContainText(delivered.total.toFixed(2))
+    await expect(line.locator('input')).toHaveCount(0)
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+    // The journal filters by it, and its Payment column says it in words.
+    await page.goto('/pos/orders?method=cash_on_delivery')
+    const row = page.locator('.v-data-table tbody tr').filter({ has: page.getByRole('link', { name: delivered.transactionNumber, exact: true }) })
+    await expect(row).toContainText('Cash on delivery', { timeout: 15000 })
+    await expect(page.getByRole('link', { name: sale.transactionNumber, exact: true })).toHaveCount(0)
+  })
+
+  test('POS Sessions prints an X on the session\'s device, from the session\'s menu, and offers no Z', async ({ page }) => {
+    const { session } = await ok(cashier, 'GET', `/trade/pos/session/${till.id}`)
+    const before = await device()
+
+    await loginForApp(page)
+    await page.goto('/pos/sessions')
+    const row = page.locator('.v-data-table tbody tr').filter({ hasText: session.sessionNumber })
+    await expect(row).toBeVisible({ timeout: 15000 })
+    await row.getByTestId('session-device-report').click()
+
+    // What an Eltrade has, and nothing it has not.
+    const menu = page.getByTestId('session-device-report-menu')
+    await expect(menu.getByTestId('device-report-x')).toBeVisible()
+    await expect(menu.getByTestId('device-report-fm_date')).toBeVisible()
+    await expect(menu.getByTestId('device-report-fm_number')).toBeVisible()
+    await expect(menu.getByTestId('device-report-ej')).toHaveCount(0)
+    await expect(menu.getByTestId('device-report-operator')).toHaveCount(0)
+    await expect(menu).not.toContainText('Z-report')
+
+    const printing = page.waitForResponse(r => r.url().endsWith(`/trade/pos/session/${till.id}/device-report`) && r.request().method() === 'POST')
+    await menu.getByTestId('device-report-x').click()
+    expect((await printing).status()).toBe(200)
+    await expect(page.getByText('The report was printed on the fiscal device.')).toBeVisible()
+
+    const after = await device()
+    expect(after.reports.slice(before.reports.length)).toEqual([{ cmd: 0x45, data: '2' }])
+    expect(after.closure).toBe(before.closure)
+  })
+
   test('3 + 4. the card sale stornoed from the invoicing journal prints its storno receipt; the close runs the Z-report and expects the cash', async () => {
     const opened: any = (await ok(cashier, 'GET', `/trade/pos/session/${till.id}`)).session
     const before = await device()
@@ -199,11 +283,13 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     expect(stornoReceipts.map((r: any) => r.kind)).toEqual(['storno'])
 
     // Expected cash: the opening balance and the joined sale's cash. The card sale and its storno
-    // are card: the drawer neither took nor gives back cash for them.
+    // are card: the drawer neither took nor gives back cash for them. Cash on delivery is the
+    // courier's: expected on its own, and no part of the cash.
     const preview = await ok(cashier, 'GET', `/trade/pos/session/${till.id}/close-preview`)
     expect(preview.fiscalDevice).toMatchObject({ deviceNumber: SERIAL, connected: true })
     expect(preview.expected.cash).toBeCloseTo(cents((opened.openingBalance || 0) + joined.total), 2)
     expect(preview.expected.card).toBeCloseTo(0, 2)
+    expect(preview.expected.cashOnDelivery).toBeCloseTo(delivered.total, 2)
 
     const closed = await ok(cashier, 'POST', `/trade/pos/session/${till.id}/close`, {
       counted: { cash: preview.expected.cash, card: preview.expected.card, other: preview.expected.other ?? 0 },
@@ -216,12 +302,15 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     expect(afterClose.reports.length).toBeGreaterThan(afterStorno.reports.length)
 
     // Then LGR's own figures, as a text receipt on the same device: a Z counts only the device's
-    // fiscal receipts. The card sale and its storno cancel out; the joined sale's cash is the day.
+    // fiscal receipts. The card sale and its storno cancel out; the joined sale's cash and the
+    // courier's money are the day, on lines of their own.
     expect(closed.reportError).toBeUndefined()
-    expect(closed.report).toMatchObject({ sessionNumber: opened.sessionNumber, counts: { sales: 2, stornos: 1 } })
-    expect(closed.report.total).toBeCloseTo(joined.total, 2)
+    expect(closed.report).toMatchObject({ sessionNumber: opened.sessionNumber, counts: { sales: 3, stornos: 1 } })
+    expect(closed.report.total).toBeCloseTo(joined.total + delivered.total, 2)
     expect(closed.report.byMethod.cash).toBeCloseTo(joined.total, 2)
     expect(closed.report.byMethod.card).toBeCloseTo(0, 2)
+    expect(closed.report.byMethod.cashOnDelivery).toBeCloseTo(delivered.total, 2)
+    expect(closed.session.closingBreakdown.find((l: any) => l.method === 'cash_on_delivery').counted).toBeUndefined()
     expect(afterClose.textReceipts).toBe(afterStorno.textReceipts + 1)
     expect(afterClose.nonFiscalLines.join('\n')).toContain(opened.sessionNumber)
   })
@@ -237,7 +326,8 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     await row.getByTestId('session-report-open').click()
     const dialog = page.getByRole('dialog').filter({ has: page.getByTestId('session-report') })
     await expect(dialog.getByTestId('session-report')).toContainText(session.sessionNumber)
-    await expect(dialog.getByTestId('session-report-total')).toContainText(joined.total.toFixed(2))
+    await expect(dialog.getByTestId('session-report-total')).toContainText(cents(joined.total + delivered.total).toFixed(2))
+    await expect(dialog.getByTestId('session-report-cod')).toContainText(delivered.total.toFixed(2))
 
     const printing = page.waitForResponse(r => r.url().includes(`/trade/pos/session/${till.id}/report/print`))
     await dialog.getByRole('button', { name: 'Print report' }).click()
@@ -249,5 +339,33 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     // Only a text receipt: a reprint never touches the device's fiscal day.
     expect(after.closure).toBe(before.closure)
     expect(after.receipts.length).toBe(before.receipts.length)
+  })
+
+  test('a closed session offers no X, and its fiscal memory report starts from its own Z-report', async ({ page }) => {
+    const { session } = await ok(cashier, 'GET', `/trade/pos/session/${till.id}`)
+    expect(session.zReportNumber).toBeTruthy()
+    const before = await device()
+    const z = Number(session.zReportNumber)
+
+    await loginForApp(page)
+    await page.goto('/pos/sessions')
+    const row = page.locator('.v-data-table tbody tr').filter({ hasText: session.sessionNumber })
+    await expect(row).toBeVisible({ timeout: 15000 })
+    await row.getByTestId('session-device-report').click()
+    const menu = page.getByTestId('session-device-report-menu')
+    await expect(menu.getByTestId('device-report-fm_number')).toBeVisible()
+    await expect(menu.getByTestId('device-report-x')).toHaveCount(0)
+    await menu.getByTestId('device-report-fm_number').click()
+
+    const params = page.getByTestId('device-report-params')
+    await expect(params.getByTestId('device-report-from').locator('input')).toHaveValue(String(z))
+    await expect(params.getByTestId('device-report-to').locator('input')).toHaveValue(String(z))
+    const printing = page.waitForResponse(r => r.url().endsWith(`/trade/pos/session/${till.id}/device-report`) && r.request().method() === 'POST')
+    await params.getByTestId('device-report-print').click()
+    expect((await printing).status()).toBe(200)
+
+    const after = await device()
+    const number = String(z).padStart(4, '0')
+    expect(after.reports.slice(before.reports.length)).toEqual([{ cmd: 0x5F, data: `${number},${number}` }])
   })
 })
