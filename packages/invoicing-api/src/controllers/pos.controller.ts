@@ -7,13 +7,14 @@ import { eventBus } from 'services/events/event-bus'
 import { nextRegistryNumber } from 'services/biz/sequence-registry'
 import { assertDispatchAvailable } from 'services/biz/invoicing.service'
 import { logger } from 'services/logger'
-import { POSSession } from 'db/models'
+import { Org, POSSession } from 'db/models'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import {
   RegisterRefusal, insertRegisterDocument, runSaleSteps, settleKeyedDocument, tillSaleDocument,
 } from 'services/biz/cash-register/register.service'
 import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
+import { buildSessionReport, formatSessionReport, type SessionReport } from 'services/biz/cash-register/session-report'
 import { maySaleOpen } from 'fiscal/device-reach'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
@@ -71,6 +72,30 @@ async function resolveFiscalDeviceForClose(orgId: string, warehouseId: string): 
   const devices = await r.fiscalDevices.findMany({ orgId, warehouseId, isActive: true } as any) as any[]
   if (!devices?.length) return null
   return devices.find(d => isDeviceConnected(d.id)) || devices[0]
+}
+
+/**
+ * Print a session's report as a text receipt on its warehouse's device, in the org's language
+ * and on its clock. Answers why it could not, rather than throwing: a report that did not print
+ * never undoes the close it reports on.
+ */
+async function printSessionReport(orgId: string, deviceId: string, report: SessionReport, operatorCode?: string): Promise<string | undefined> {
+  try {
+    if (!isDeviceConnected(deviceId)) return 'The fiscal printer is not connected'
+    const printer: any = getPrinter(deviceId)
+    if (!printer?.openNonFiscalReceipt || !printer?.printNonFiscalText || !printer?.closeNonFiscalReceipt) {
+      return 'This fiscal device cannot print a text receipt'
+    }
+    const org: any = await Org.findById(orgId, { 'settings.locale': 1, 'settings.timezone': 1 }).lean().exec()
+    await printer.openNonFiscalReceipt(operatorCode || '1')
+    for (const line of formatSessionReport(report, org?.settings?.locale || 'en', org?.settings?.timezone || 'Europe/Sofia')) {
+      await printer.printNonFiscalText(line)
+    }
+    await printer.closeNonFiscalReceipt()
+    return undefined
+  } catch (e: any) {
+    return String(e?.message || 'The session report did not print').slice(0, 300)
+  }
 }
 
 /**
@@ -418,11 +443,50 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     return {
       expected: expectedTotals(session),
       currency: session.currency,
+      // What the session sold so far, as its report will print it at close.
+      report: buildSessionReport(session, await loadPosRows({ orgId, sessionId: id })),
       openSessionsOnWarehouse: openOnWarehouse,
       fiscalDevice: device
         ? { id: device.id, name: device.name, deviceNumber: device.deviceNumber, connected: isDeviceConnected(device.id) }
         : null,
     }
+  }, { isSignIn: true })
+
+  /**
+   * The session's report: the one its close printed (kept on the session), or, while it is open,
+   * its figures so far.
+   */
+  .get('/session/:id/report', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const session = await getRepos().posSessions.findOne({ id, orgId } as any) as any
+    if (!session) return status(404, { message: 'POS session not found' })
+    return {
+      report: session.report ?? buildSessionReport(session, await loadPosRows({ orgId, sessionId: id })),
+      printedAt: session.reportPrintedAt ?? null,
+      error: session.reportError ?? null,
+    }
+  }, { isSignIn: true })
+  /** Print the session's report again, on its warehouse's connected device. */
+  .post('/session/:id/report/print', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const session = await getRepos().posSessions.findOne({ id, orgId } as any) as any
+    if (!session) return status(404, { message: 'POS session not found' })
+    // The close's rule: the cashier who owns the session, or a manager.
+    if (String(session.cashierId) !== String(user.id) && user.role !== 'admin' && user.role !== 'manager') {
+      return status(403, { message: 'Only the session owner or a manager can print its report' })
+    }
+    const device = await resolveFiscalDeviceForClose(orgId, String(session.warehouseId))
+    if (!device) return status(409, { code: 'fiscal_device_not_connected', message: 'No fiscal printer is set up for this warehouse' })
+
+    const report: SessionReport = session.report ?? buildSessionReport(session, await loadPosRows({ orgId, sessionId: id }))
+    const error = await printSessionReport(orgId, device.id, report, user.operatorCode)
+    if (error) return status(409, { code: 'report_not_printed', message: error })
+    await POSSession.updateOne({ _id: id, orgId }, { $set: { reportPrintedAt: new Date() }, $unset: { reportError: 1 } }).exec()
+    createAuditEntry({
+      orgId, userId: user.id, operatorCode: user.operatorCode, action: 'print_session_report',
+      module: 'pos', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber,
+    })
+    return { printed: true }
   }, { isSignIn: true })
 
   /**
@@ -466,7 +530,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
             return status(422, { code: 'idempotency_key_reused', message: 'This Idempotency-Key was already used for a different request' })
           }
           if (s.status === 'closed') {
-            return { session: await r.posSessions.findByIdInOrg(id, orgId), fiscalStatus: s.fiscalStatus, zReportNumber: s.zReportNumber }
+            // The close it already made, with its report — printed then, never again.
+            return { session: await r.posSessions.findByIdInOrg(id, orgId), fiscalStatus: s.fiscalStatus, zReportNumber: s.zReportNumber, report: s.report }
           }
           if (Date.now() >= deadline) {
             return status(409, { code: 'idempotency_in_progress', message: 'This close is still being processed — retry with the same Idempotency-Key.' })
@@ -623,7 +688,20 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       // fire-and-forget — a JE failure must not un-close a fiscally closed day).
       eventBus.emit('pos.session.closed', { sessionId: id, orgId, userId: user.id })
 
-      return { session: updated, fiscalStatus, zReportNumber }
+      // The session's own figures, printed after the Z-report: a device's Z counts only its fiscal
+      // receipts, so a till printing text receipts closed on a report of zeros. Kept on the
+      // session for a reprint; a print that fails is recorded and never undoes the close.
+      const report = buildSessionReport(updated, await loadPosRows({ orgId, sessionId: id }), { closing: breakdown, zReportNumber })
+      const reportError = device && !b.closeWithoutFiscal
+        ? await printSessionReport(orgId, device.id, report, user.operatorCode)
+        : undefined
+      const printed = !!device && !b.closeWithoutFiscal && !reportError
+      await POSSession.updateOne(
+        { _id: id, orgId },
+        { $set: { report, ...(printed ? { reportPrintedAt: new Date() } : {}), ...(reportError ? { reportError } : {}) } },
+      ).exec()
+
+      return { session: updated, fiscalStatus, zReportNumber, report, ...(reportError ? { reportError } : {}) }
     },
     {
       isSignIn: true,

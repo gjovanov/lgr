@@ -214,5 +214,40 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     // The Z-report ran on the device: a closure more, and a report recorded.
     expect(afterClose.closure).toBe(afterStorno.closure + 1)
     expect(afterClose.reports.length).toBeGreaterThan(afterStorno.reports.length)
+
+    // Then LGR's own figures, as a text receipt on the same device: a Z counts only the device's
+    // fiscal receipts. The card sale and its storno cancel out; the joined sale's cash is the day.
+    expect(closed.reportError).toBeUndefined()
+    expect(closed.report).toMatchObject({ sessionNumber: opened.sessionNumber, counts: { sales: 2, stornos: 1 } })
+    expect(closed.report.total).toBeCloseTo(joined.total, 2)
+    expect(closed.report.byMethod.cash).toBeCloseTo(joined.total, 2)
+    expect(closed.report.byMethod.card).toBeCloseTo(0, 2)
+    expect(afterClose.textReceipts).toBe(afterStorno.textReceipts + 1)
+    expect(afterClose.nonFiscalLines.join('\n')).toContain(opened.sessionNumber)
+  })
+
+  test('the closed session\'s report prints again from POS Sessions', async ({ page }) => {
+    const { session } = await ok(cashier, 'GET', `/trade/pos/session/${till.id}`)
+    const before = await device()
+
+    await loginForApp(page)
+    await page.goto('/pos/sessions')
+    const row = page.locator('.v-data-table tbody tr').filter({ hasText: session.sessionNumber })
+    await expect(row).toBeVisible({ timeout: 15000 })
+    await row.getByTestId('session-report-open').click()
+    const dialog = page.getByRole('dialog').filter({ has: page.getByTestId('session-report') })
+    await expect(dialog.getByTestId('session-report')).toContainText(session.sessionNumber)
+    await expect(dialog.getByTestId('session-report-total')).toContainText(joined.total.toFixed(2))
+
+    const printing = page.waitForResponse(r => r.url().includes(`/trade/pos/session/${till.id}/report/print`))
+    await dialog.getByRole('button', { name: 'Print report' }).click()
+    expect((await printing).status()).toBe(200)
+    await expect(page.getByText('The session report was printed on the fiscal device.')).toBeVisible()
+    const after = await device()
+    expect(after.textReceipts).toBe(before.textReceipts + 1)
+    expect(after.nonFiscalLines.join('\n')).toContain(session.sessionNumber)
+    // Only a text receipt: a reprint never touches the device's fiscal day.
+    expect(after.closure).toBe(before.closure)
+    expect(after.receipts.length).toBe(before.receipts.length)
   })
 })

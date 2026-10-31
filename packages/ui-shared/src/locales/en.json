@@ -1540,7 +1540,36 @@
       "notConnected": "Connect the fiscal printer to sell.",
       "notConfigured": "No fiscal printer is set up for this warehouse. Ask an admin to set one up."
     },
-    "sessionDocuments": "Cash sales of session {number}"
+    "sessionDocuments": "Cash sales of session {number}",
+    "sessionReport": {
+      "title": "Session report",
+      "view": "Session report",
+      "print": "Print report",
+      "printed": "The session report was printed on the fiscal device.",
+      "notPrinted": "The session report did not print: {error}. The session is closed; print it again from here or from POS Sessions.",
+      "sales": "Sales",
+      "stornos": "Stornos",
+      "voided": "Voided stornos",
+      "fiscal": "Fiscal receipts",
+      "text": "Text receipts",
+      "unprinted": "Not printed",
+      "vatRate": "VAT {rate}%",
+      "net": "Net",
+      "vat": "VAT",
+      "gross": "Gross",
+      "total": "Total",
+      "cash": "Cash",
+      "card": "Card",
+      "other": "Other",
+      "change": "Change given",
+      "opening": "Opening float",
+      "expected": "Expected cash",
+      "counted": "Counted",
+      "difference": "Difference",
+      "documents": "Documents",
+      "receipts": "Receipts",
+      "z": "Z-report No."
+    }
   },
   "cashRegister": {
     "title": "Cash Register Sales",
