@@ -12,9 +12,9 @@ The system follows a **multi-app architecture** (Google Workspace model): a Port
 
 ```bash
 # Development
-bun run dev                  # Unified API (4001) + the 8 UI dev servers (portal + 7 apps); `bun run dev -- api portal` starts a subset
+bun run dev                  # Unified API (4001) + the 7 UI dev servers (portal + 6 SPAs; POS is in invoicing); `bun run dev -- api portal` starts a subset
 bun run start                # Production: unified API (4001) serving all built UIs
-bun run build                # Build all 9 UIs (portal, the 7 apps, desktop-ui)
+bun run build                # Build all 8 UIs (portal, the 6 domain SPAs, desktop-ui)
 bun run seed                 # Seed database (Acme Corp + Beta Inc)
 bun run migrate              # Apply pending versioned migrations (--status lists them; FR-20.19)
 
@@ -24,7 +24,6 @@ bun run dev:accounting-ui    # Accounting UI (port 4011)
 bun run dev:invoicing-ui     # Invoicing UI (port 4021)
 bun run dev:inventory-ui     # Inventory UI (port 4031)
 bun run dev:payroll-ui       # Payroll UI (port 4041)
-bun run dev:pos-ui           # POS UI (port 4091)
 bun run dev:reports-ui       # Reports UI (port 4101)
 bun run dev:files-ui         # Files UI (port 4111)
 
@@ -81,7 +80,9 @@ packages/
   inventory-ui/        → Products, stock, movements, valuations (served at /inventory/*)
   invoicing-ui/        → Contacts, invoices, bills, cash sales, payments (served at /invoicing/*)
   accounting-ui/       → 10 accounting views + store
-  pos-ui/              → Point-of-sale terminal, transactions, devices (served at /pos/*)
+  (pos)                → POS lives in invoicing-ui/src/pos since FR-24 Phase 0, served at /invoicing/pos/*;
+                         /pos/* answers 302 there (desktops hold startPath /pos/). Still its own App Hub
+                         app (pos.read, OrgApp, the PIN scope): APP_NAV_META.pos.spa = 'invoicing'
   payroll-ui/          → 5 payroll views + store
   files-ui/            → Document ingest: upload, analyze, commit, reconcile (served at /files/*)
   reports-ui/          → Report card hub + generic runner + the two moved invoicing report
@@ -1724,7 +1725,7 @@ in LGR while the device still had it open.
 - `GET /session/:id/close-preview` feeds the dialog: expected per method, the device and its
   connection state, and how many other sessions are open on the warehouse (a Z-report zeroes
   the **device's** day, not one session).
-- UI: `pos-ui/src/components/CloseSessionDialog.vue` — per-method expected/counted/difference
+- UI: `invoicing-ui/src/pos/components/CloseSessionDialog.vue` — per-method expected/counted/difference
   rows modeled on the legacy screen, three visually distinct outcomes.
 - `erp.service.closePOSSession` was the old duplicate, `@deprecated` with only its own tests as
   callers. It and the other `erp.service` POS functions were deleted in FR-21 R3, once
@@ -2425,10 +2426,10 @@ master** (`portal-api/src/controllers/local-auth.controller.ts`).
   to `PIN_SCOPE_ORG`, or a till breaks on it. ⚠ Keep `/auth/switch` out: it would mint a FULL
   session from a PIN session.
 - **The UI** (P1-5b) appears only where `GET /auth/local/methods` says `pin: true`:
-  - pos-ui's `/pin` (`PosPinView`) opens when a tab has no session there, and from the POS menu
+  - The till's `/invoicing/pos/pin` (`PosPinView`) opens when a tab has no session there, and from the POS menu
     ("Switch operator");
   - a "Till PIN" card under the portal's account (`TillPinCard`, hidden on a 404).
-  - ⚠ Those calls use plain `fetch` (`pos-ui/src/composables/useTillPin.ts`), never the shared
+  - ⚠ Those calls use plain `fetch` (`invoicing-ui/src/pos/composables/useTillPin.ts`), never the shared
     HTTP client. They run with no session, or with the last operator's, and the client's 401
     recovery would sign the tab out or send it to the portal.
 - ⚠ **A master's PASSWORD sign-in backs off too.** There the password is the person's local

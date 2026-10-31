@@ -121,7 +121,7 @@ async function submit() {
   const failure = await signInWithPin(operatorCode.value, pin.value)
   busy.value = false
   if (!failure) {
-    const to = typeof route.query.to === 'string' && route.query.to.startsWith('/') && !route.query.to.startsWith('//') ? route.query.to : '/terminal'
+    const to = typeof route.query.to === 'string' && route.query.to.startsWith('/') && !route.query.to.startsWith('//') ? route.query.to : '/pos/terminal'
     window.location.replace(`${import.meta.env.BASE_URL.replace(/\/$/, '')}${to}`)
     return
   }

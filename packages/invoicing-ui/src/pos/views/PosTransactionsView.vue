@@ -12,7 +12,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useAppStore } from '../store/app.store'
+import { useAppStore } from '../../store/app.store'
 import CashRegisterJournal from 'ui-shared/components/cash-register/CashRegisterJournal.vue'
 import { jwtRole, jwtUserId } from 'ui-shared/composables/useStorageIdentity'
 

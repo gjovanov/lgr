@@ -184,7 +184,7 @@ describe('the analytics tag is lgrai.app\'s alone (AC 66)', () => {
   })
 
   it('no SPA\'s index.html carries an origin of its own, so no build does', () => {
-    for (const ui of ['portal', 'accounting', 'inventory', 'invoicing', 'pos', 'payroll', 'reports', 'files']) {
+    for (const ui of ['portal', 'accounting', 'inventory', 'invoicing', 'payroll', 'reports', 'files']) {
       const html = readFileSync(join(REPO_ROOT, 'packages', `${ui}-ui`, 'index.html'), 'utf8')
       expect({ ui, hits: foreignOriginHits('index.html', html) }).toEqual({ ui, hits: [] })
     }

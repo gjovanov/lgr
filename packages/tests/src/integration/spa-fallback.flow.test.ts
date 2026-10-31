@@ -89,6 +89,25 @@ for (const alwaysStatic of [true, false]) {
       expect((await get(app, '/api/health')).status).toBe(200)
     })
 
+    // FR-24 Phase 0: the POS pages are routes of the invoicing SPA. Desktops hold `startPath: /pos/`.
+    it('answers the old POS addresses with a 302 to /invoicing/pos/*, query kept, and nothing else', async () => {
+      const app = await server(alwaysStatic)
+      for (const [path, to] of [
+        ['/pos', '/invoicing/pos'],
+        ['/pos/', '/invoicing/pos/'],
+        ['/pos/terminal', '/invoicing/pos/terminal'],
+        ['/pos/orders?session=abc&q=CS-1', '/invoicing/pos/orders?session=abc&q=CS-1'],
+        ['/pos/devices/123', '/invoicing/pos/devices/123'],
+      ]) {
+        const res = await app.handle(new Request(`http://localhost${path}`, { redirect: 'manual' }))
+        expect({ path, status: res.status, location: res.headers.get('location') }).toEqual({ path, status: 302, location: to })
+      }
+      // Not POS: a path that only starts with the letters, and a POST.
+      expect((await get(app, '/posts')).body).toBe(PORTAL)
+      const post = await app.handle(new Request('http://localhost/pos/terminal', { method: 'POST' }))
+      expect(post.status).not.toBe(302)
+    })
+
     // FR-20.72 (plan step P0a-8): a sibling subdomain may load none of these as a subresource.
     it('puts the isolation headers on every answer, through a listening server as well', async () => {
       const app = await server(alwaysStatic)

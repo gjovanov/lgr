@@ -44,6 +44,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppShell from 'ui-shell/components/AppShell'
 import { appHomeHref, portalHref } from 'ui-shared/nav/navigate'
+import { routerPathFor } from 'ui-shared/nav/open-page'
 import TopMenuBar from 'ui-shell/components/TopMenuBar'
 import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
 import { useAppStore } from '../store/app.store'
@@ -111,7 +112,7 @@ const menuItems = computed<TopMenuItem[]>(() => [
 
 function handleRestore(entry: PendingChangeEntry) {
   pendingChangesOpen.value = false
-  if (entry.appId === 'invoicing' && entry.routeName) {
+  if ((entry.appId === 'invoicing' || entry.appId === 'pos') && entry.routeName) {
     router.push({ name: entry.routeName, params: entry.routeParams, query: { restore: entry.id } })
   } else if (entry.routePath) {
     window.location.href = `/${entry.appId}${entry.routePath}?restore=${entry.id}`
@@ -142,6 +143,9 @@ onMounted(async () => {
 })
 
 function handleAppNavigate(app: AppInfo) {
+  // POS and invoicing are one SPA (FR-24): a router push keeps the tab's printer connected.
+  const inHere = routerPathFor(app.path, router)
+  if (inHere) { router.push(inHere); return }
   window.location.href = appHomeHref(app)
 }
 

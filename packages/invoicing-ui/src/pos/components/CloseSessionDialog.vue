@@ -141,7 +141,7 @@ import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { useAppStore } from '../store/app.store'
+import { useAppStore } from '../../store/app.store'
 import SessionReportCard, { type SessionReportData } from './SessionReportCard.vue'
 
 /**

@@ -5,7 +5,7 @@
     :status="!isNew && device.status ? { steps: ['offline', 'online', 'error'], current: device.status } : undefined"
     :actions="formActions"
     :loading="loading"
-    back-to="/devices"
+    back-to="/pos/devices"
     back-label="Devices"
   >
     <v-form ref="formRef" @submit.prevent="handleSave">
@@ -357,7 +357,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useAppStore } from '../store/app.store'
+import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
@@ -416,7 +416,9 @@ const device = reactive({
 })
 
 const { markSaved, tryRestore } = usePendingChanges({
-  appId: 'pos',
+  // The SPA this route lives in (FR-24): `routePath` is the router's `/pos/devices/…`, and a
+  // restore from another app builds `/<appId><routePath>`, which is `/invoicing/pos/devices/…`.
+  appId: 'invoicing',
   entityType: 'posDevice',
   icon: 'mdi-printer-pos',
   getFormData: () => ({ ...device }),

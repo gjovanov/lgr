@@ -9,17 +9,16 @@
     :user-id="userId"
     :back-route="{ name: 'pos.orders' }"
     :related-route="(row: any) => ({ name: 'pos.orders.detail', params: { id: row.id } })"
-    :document-route="(row: any) => (row.store === 'invoice' ? appHref('invoicing', `/invoicing/cash-sales/${row.id}/edit`) : null)"
+    :document-route="(row: any) => (row.store === 'invoice' ? { name: 'invoicing.cash-sales.edit', params: { id: row.id } } : null)"
   />
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { useAppStore } from '../store/app.store'
+import { useAppStore } from '../../store/app.store'
 import CashRegisterDocument from 'ui-shared/components/cash-register/CashRegisterDocument.vue'
 import { jwtRole, jwtUserId } from 'ui-shared/composables/useStorageIdentity'
-import { appHref } from 'ui-shared/nav/navigate'
 
 const route = useRoute()
 const appStore = useAppStore()

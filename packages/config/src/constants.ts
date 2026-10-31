@@ -129,7 +129,7 @@ export const APP_REGISTRY: Record<AppId, {
   accounting: { name: 'Accounting', icon: 'mdi-chart-bar',     color: '#4caf50', devPort: 4011, path: '/accounting/', requiredPermission: 'accounting.read', description: 'Chart of accounts, journal entries, financial statements' },
   inventory:  { name: 'Inventory',  icon: 'mdi-warehouse',     color: '#ff9800', devPort: 4031, path: '/inventory/', requiredPermission: 'inventory.read', description: 'Products, stock, movements, valuations' },
   invoicing:  { name: 'Invoicing',  icon: 'mdi-receipt-text',  color: '#2196f3', devPort: 4021, path: '/invoicing/', requiredPermission: 'invoicing.read', description: 'Contacts, invoices, payments' },
-  pos:        { name: 'POS',        icon: 'mdi-point-of-sale', color: '#e91e63', devPort: 4091, path: '/pos/',       requiredPermission: 'pos.read', description: 'Point of sale, sessions, fiscal' },
+  pos:        { name: 'POS',        icon: 'mdi-point-of-sale', color: '#e91e63', devPort: 4021, path: '/invoicing/pos/', requiredPermission: 'pos.read', description: 'Point of sale, sessions, fiscal' },
   payroll:    { name: 'Payroll',    icon: 'mdi-cash-multiple',  color: '#9c27b0', devPort: 4041, path: '/payroll/',  requiredPermission: 'payroll.read', description: 'Employees, payroll runs, payslips, timesheets' },
   // FR-6.1/6.2 (#14): P1 gated this tile on `invoicing.read` to avoid a backfill. P2
   // introduces the real `reports.read` — the SUPTO tables are not an invoicing concern,

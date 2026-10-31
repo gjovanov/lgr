@@ -38,9 +38,23 @@ export function portalShellFor(html: string, role: 'global' | 'master'): string 
   return html.replace('</head>', `  ${tag}\n  </head>`)
 }
 
-/** The SPAs the unified server serves, by URL prefix. `portal` is the root and the default. */
-export const UI_MODULES = ['portal', 'accounting', 'inventory', 'invoicing', 'pos', 'payroll', 'reports', 'files'] as const
+/**
+ * The SPAs the unified server serves, by URL prefix. `portal` is the root and the default.
+ * POS is not one of them since FR-24 Phase 0: its pages are routes of the invoicing SPA.
+ */
+export const UI_MODULES = ['portal', 'accounting', 'inventory', 'invoicing', 'payroll', 'reports', 'files'] as const
 export type UiModule = (typeof UI_MODULES)[number]
+
+/**
+ * Where an address of a moved SPA lives now, or null. FR-24 Phase 0 moved the POS pages under
+ * `/invoicing/pos/*`. The old `/pos/*` stays a 302 (never a 301, so a rollback still works),
+ * with its query, because desktops hold `startPath: /pos/` (FR-14.16) and people hold bookmarks
+ * and favourites. `/posts` and the like are not POS.
+ */
+export function movedUiLocation(pathname: string, search = ''): string | null {
+  if (pathname !== '/pos' && !pathname.startsWith('/pos/')) return null
+  return `/invoicing${pathname}${search}`
+}
 
 /** One SPA's built files, mounted under its prefix. */
 export function uiStaticPlugin(ui: { assets: string; prefix: string }, opts: { alwaysStatic?: boolean } = {}) {
@@ -121,7 +135,15 @@ export function spaErrorHandler(indexHtmlMap: Partial<Record<UiModule, string>>)
       return { code: 'series_frozen', message: err.message }
     }
     if (code === 'NOT_FOUND') {
-      const pathname = new URL(request.url).pathname
+      const url = new URL(request.url)
+      const pathname = url.pathname
+      const moved = request.method === 'GET' || request.method === 'HEAD' ? movedUiLocation(pathname, url.search) : null
+      if (moved) {
+        // Both, as the shell below: each alone keeps the error's 404 in one of the static plugin's modes.
+        set.status = 302
+        set.headers['location'] = moved
+        return new Response(null, { status: 302, headers: { location: moved, 'cache-control': 'no-store' } })
+      }
       if (!pathname.startsWith('/api/') && !pathname.match(/\.\w{2,}$/)) {
         // The module's own SPA, or the portal (app hub) for a path no module claims.
         const moduleName = UI_MODULES.find(m => m !== 'portal' && pathname.startsWith(`/${m}`))

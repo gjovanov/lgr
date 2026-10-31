@@ -27,7 +27,6 @@ const SERVICES: Service[] = [
   { name: 'inventory', cwd: 'packages/inventory-ui', port: 4031, color: '\x1b[33m' },
   { name: 'invoicing', cwd: 'packages/invoicing-ui', port: 4021, color: '\x1b[35m' },
   { name: 'accounting', cwd: 'packages/accounting-ui', port: 4011, color: '\x1b[34m' },
-  { name: 'pos', cwd: 'packages/pos-ui', port: 4091, color: '\x1b[91m' },
   { name: 'payroll', cwd: 'packages/payroll-ui', port: 4041, color: '\x1b[95m' },
   { name: 'reports', cwd: 'packages/reports-ui', port: 4101, color: '\x1b[96m' },
   { name: 'files', cwd: 'packages/files-ui', port: 4111, color: '\x1b[92m' },

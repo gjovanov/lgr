@@ -44,10 +44,11 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppShell from 'ui-shell/components/AppShell'
 import { appHomeHref, portalHref } from 'ui-shared/nav/navigate'
+import { routerPathFor } from 'ui-shared/nav/open-page'
 import TopMenuBar from 'ui-shell/components/TopMenuBar'
 import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
 import { useAppStore } from '../store/app.store'
-import { pinOffered } from '../composables/useTillPin'
+import { pinOffered } from './composables/useTillPin'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'
 import type { AppInfo } from 'ui-shell/components/types'
@@ -69,37 +70,37 @@ const menuItems = computed<TopMenuItem[]>(() => [
     label: t('nav.pos') || 'POS',
     icon: 'mdi-point-of-sale',
     children: [
-      { label: t('nav.terminal') || 'Terminal', icon: 'mdi-point-of-sale', to: '/terminal' },
+      { label: t('nav.terminal') || 'Terminal', icon: 'mdi-point-of-sale', to: '/pos/terminal' },
       // FR-20.40: the next operator signs in with a PIN, where the server offers one.
-      ...(pinAtTill.value ? [{ label: t('pos.pin.switchOperator'), icon: 'mdi-account-switch', to: '/pin' }] : []),
+      ...(pinAtTill.value ? [{ label: t('pos.pin.switchOperator'), icon: 'mdi-account-switch', to: '/pos/pin' }] : []),
     ],
   },
   {
     label: t('nav.orders') || 'Orders',
     icon: 'mdi-receipt',
     children: [
-      { label: t('cashRegister.title') || 'Cash Register Sales', icon: 'mdi-receipt', to: '/orders' },
+      { label: t('cashRegister.title') || 'Cash Register Sales', icon: 'mdi-receipt', to: '/pos/orders' },
     ],
   },
   {
     label: t('nav.sessions') || 'Sessions',
     icon: 'mdi-clock-outline',
     children: [
-      { label: t('nav.sessions') || 'Sessions', icon: 'mdi-clock-outline', to: '/sessions' },
+      { label: t('nav.sessions') || 'Sessions', icon: 'mdi-clock-outline', to: '/pos/sessions' },
     ],
   },
   {
     label: t('nav.configuration') || 'Configuration',
     icon: 'mdi-cog',
     children: [
-      { label: t('nav.devices') || 'Devices', icon: 'mdi-printer-pos', to: '/devices' },
+      { label: t('nav.devices') || 'Devices', icon: 'mdi-printer-pos', to: '/pos/devices' },
     ],
   },
 ])
 
 function handleRestore(entry: PendingChangeEntry) {
   pendingChangesOpen.value = false
-  if (entry.appId === 'pos' && entry.routeName) {
+  if ((entry.appId === 'pos' || entry.appId === 'invoicing') && entry.routeName) {
     router.push({ name: entry.routeName, params: entry.routeParams, query: { restore: entry.id } })
   } else if (entry.routePath) {
     window.location.href = `/${entry.appId}${entry.routePath}?restore=${entry.id}`
@@ -130,6 +131,9 @@ onMounted(async () => {
 })
 
 function handleAppNavigate(app: AppInfo) {
+  // POS and invoicing are one SPA (FR-24): a router push keeps the tab's printer connected.
+  const inHere = routerPathFor(app.path, router)
+  if (inHere) { router.push(inHere); return }
   window.location.href = appHomeHref(app)
 }
 

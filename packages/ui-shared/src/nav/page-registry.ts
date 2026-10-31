@@ -24,11 +24,17 @@ export interface PageDef {
   need?: readonly string[]
 }
 
-export const APP_NAV_META: Record<string, { base: string; devPort: number; nameKey: string; permission: string; color: string }> = {
+/**
+ * `spa` names the SPA that serves the app's pages when that is another app's (FR-24 Phase 0):
+ * POS is still its own app (its App Hub tile, `pos.read`, the PIN session's scope), but its pages
+ * are routes of the invoicing SPA under `/invoicing/pos/*`, so moving between the two is a router
+ * push and the tab's Web Serial printer stays connected. Unset means the app is its own SPA.
+ */
+export const APP_NAV_META: Record<string, { base: string; devPort: number; nameKey: string; permission: string; color: string; spa?: string }> = {
   invoicing: { base: '/invoicing', devPort: 4021, nameKey: 'apps.invoicing', permission: 'invoicing.read', color: '#2196f3' },
   inventory: { base: '/inventory', devPort: 4031, nameKey: 'apps.inventory', permission: 'inventory.read', color: '#ff9800' },
   accounting: { base: '/accounting', devPort: 4011, nameKey: 'apps.accounting', permission: 'accounting.read', color: '#4caf50' },
-  pos: { base: '/pos', devPort: 4091, nameKey: 'apps.pos', permission: 'pos.read', color: '#e91e63' },
+  pos: { base: '/invoicing/pos', devPort: 4021, nameKey: 'apps.pos', permission: 'pos.read', color: '#e91e63', spa: 'invoicing' },
   payroll: { base: '/payroll', devPort: 4041, nameKey: 'apps.payroll', permission: 'payroll.read', color: '#9c27b0' },
   reports: { base: '/reports', devPort: 4101, nameKey: 'apps.reports', permission: 'reports.read', color: '#8e24aa' },
   files: { base: '/files', devPort: 4111, nameKey: 'apps.files', permission: 'admin.settings', color: '#607d8b' },
@@ -141,6 +147,11 @@ export const PAGE_REGISTRY: PageDef[] = [
 export const LEGACY_PAGE_IDS: Record<string, string> = {
   '/invoicing/aging-report': '/reports/aging',
   '/invoicing/reporting/export': '/reports/export',
+  // FR-24 Phase 0: the POS pages moved into the invoicing SPA.
+  '/pos/terminal': '/invoicing/pos/terminal',
+  '/pos/orders': '/invoicing/pos/orders',
+  '/pos/sessions': '/invoicing/pos/sessions',
+  '/pos/devices': '/invoicing/pos/devices',
 }
 
 /** Map a stored page id onto its current one. Unknown ids pass through untouched. */

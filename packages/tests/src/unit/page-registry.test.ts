@@ -4,12 +4,13 @@ import {
   NEW_DOCUMENT_MENU,
   PAGE_REGISTRY,
   canOpenPage,
+  currentPageId,
   matchPage,
   newDocumentMenu,
   pageById,
   type PageViewer,
 } from 'ui-shared/nav/page-registry'
-import { appRelativePath, routerAppId } from 'ui-shared/nav/open-page'
+import { appRelativePath, routerAppId, routerPathFor, spaOf } from 'ui-shared/nav/open-page'
 import { APP_REGISTRY, DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
 import { writeRuleFor } from 'services/biz/route-permission'
 
@@ -49,7 +50,7 @@ describe('page-registry matchPage', () => {
   })
 
   it('pageById round-trips', () => {
-    expect(pageById('/pos/terminal')?.appId).toBe('pos')
+    expect(pageById('/invoicing/pos/terminal')?.appId).toBe('pos')
     expect(pageById('/nope')).toBeNull()
   })
 })
@@ -111,13 +112,13 @@ describe('canOpenPage — the permissions ★ and „+ Нов" read (FR-22 §5.8
 
   it('a PIN session reaches the till and nothing else, even an admin’s', () => {
     const pin: PageViewer = { role: 'admin', permissions: DEFAULT_ROLE_PERMISSIONS.admin, amr: ['pin'] }
-    expect(canOpenPage(page('/pos/terminal'), pin)).toBe(true)
+    expect(canOpenPage(page('/invoicing/pos/terminal'), pin)).toBe(true)
     expect(canOpenPage(page('/invoicing/invoices/new'), pin)).toBe(false)
     expect(canOpenPage(page('/inventory/products'), pin)).toBe(false)
   })
 
   it('nobody signed in opens nothing', () => {
-    expect(canOpenPage(page('/pos/terminal'), null)).toBe(false)
+    expect(canOpenPage(page('/invoicing/pos/terminal'), null)).toBe(false)
   })
 })
 
@@ -202,6 +203,35 @@ describe('open-page helpers', () => {
   it('appRelativePath is the path inside the page’s own app', () => {
     expect(appRelativePath(page('/invoicing/invoices/new?type=credit_note'))).toBe('/invoices/new?type=credit_note')
     expect(appRelativePath(page('/inventory/movements/new'))).toBe('/movements/new')
-    expect(appRelativePath({ appId: 'pos', path: '/pos' })).toBe('/')
+    // FR-24 Phase 0: a POS page is a route of the invoicing SPA, named as that router names it.
+    expect(appRelativePath({ appId: 'pos', path: '/invoicing/pos' })).toBe('/pos')
+    expect(appRelativePath(page('/invoicing/pos/terminal'))).toBe('/pos/terminal')
+  })
+
+  // FR-24 Phase 0: one document serves POS and invoicing, so the till's printer survives the hop.
+  it('POS is served by the invoicing SPA; every other app by its own', () => {
+    expect(spaOf('pos')).toBe('invoicing')
+    for (const id of Object.keys(APP_NAV_META).filter(id => id !== 'pos')) expect(spaOf(id)).toBe(id)
+  })
+
+  it('routerPathFor keeps a path of this SPA inside the router, and hands any other back', () => {
+    // The two things routerPathFor reads: the history base, and whether the path resolves here.
+    const known = new Set(['/pos/', '/pos/terminal', '/', '/invoices'])
+    const router = {
+      options: { history: { base: '/invoicing/' } },
+      resolve: (p: string) => ({ matched: known.has(p) ? [{}] : [] }),
+    } as any
+    expect(routerPathFor('/invoicing/pos/', router)).toBe('/pos/')
+    expect(routerPathFor('/invoicing/pos/terminal', router)).toBe('/pos/terminal')
+    expect(routerPathFor('/invoicing/', router)).toBe('/')
+    expect(routerPathFor('/invoicing/invoices', router)).toBe('/invoices')
+    expect(routerPathFor('/inventory/', router)).toBeNull()
+    expect(routerPathFor('/invoicingX/', router)).toBeNull()
+  })
+
+  it('remaps favourites pinned on the old /pos/* pages', () => {
+    for (const old of ['/pos/terminal', '/pos/orders', '/pos/sessions', '/pos/devices']) {
+      expect(pageById(currentPageId(old))?.appId).toBe('pos')
+    }
   })
 })
