@@ -10,7 +10,7 @@ import {
   pageById,
   type PageViewer,
 } from 'ui-shared/nav/page-registry'
-import { appRelativePath, routerAppId, routerPathFor, spaOf } from 'ui-shared/nav/open-page'
+import { routerPathFor } from 'ui-shared/nav/open-page'
 import { APP_REGISTRY, DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
 import { writeRuleFor } from 'services/biz/route-permission'
 
@@ -179,12 +179,11 @@ describe('newDocumentMenu — „+ Нов" (FR-22.49)', () => {
 })
 
 describe('APP_NAV_META mirrors APP_REGISTRY', () => {
-  it('in base path, dev port, permission and colour', () => {
+  it('in base path, permission and colour', () => {
     for (const [id, meta] of Object.entries(APP_NAV_META)) {
       const reg = APP_REGISTRY[id as keyof typeof APP_REGISTRY]
       expect(reg, id).toBeDefined()
       expect(`${meta.base}/`).toBe(reg.path)
-      expect(meta.devPort).toBe(reg.devPort)
       expect(meta.permission).toBe(reg.requiredPermission)
       expect(meta.color).toBe(reg.color)
     }
@@ -193,27 +192,6 @@ describe('APP_NAV_META mirrors APP_REGISTRY', () => {
 })
 
 describe('open-page helpers', () => {
-  it('routerAppId names the app a router serves, from its history base', () => {
-    expect(routerAppId('/invoicing')).toBe('invoicing')
-    expect(routerAppId('/inventory/')).toBe('inventory')
-    expect(routerAppId('')).toBeNull() // the portal
-    expect(routerAppId('/invoicingX')).toBeNull()
-  })
-
-  it('appRelativePath is the path inside the page’s own app', () => {
-    expect(appRelativePath(page('/invoicing/invoices/new?type=credit_note'))).toBe('/invoices/new?type=credit_note')
-    expect(appRelativePath(page('/inventory/movements/new'))).toBe('/movements/new')
-    // FR-24 Phase 0: a POS page is a route of the invoicing SPA, named as that router names it.
-    expect(appRelativePath({ appId: 'pos', path: '/invoicing/pos' })).toBe('/pos')
-    expect(appRelativePath(page('/invoicing/pos/terminal'))).toBe('/pos/terminal')
-  })
-
-  // FR-24 Phase 0: one document serves POS and invoicing, so the till's printer survives the hop.
-  it('POS is served by the invoicing SPA; every other app by its own', () => {
-    expect(spaOf('pos')).toBe('invoicing')
-    for (const id of Object.keys(APP_NAV_META).filter(id => id !== 'pos')) expect(spaOf(id)).toBe(id)
-  })
-
   it('routerPathFor keeps a path of this SPA inside the router, and hands any other back', () => {
     // The two things routerPathFor reads: the history base, and whether the path resolves here.
     const known = new Set(['/pos/', '/pos/terminal', '/', '/invoices'])

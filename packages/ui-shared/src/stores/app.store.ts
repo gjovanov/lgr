@@ -290,9 +290,7 @@ export const useAppStore = defineStore('app', () => {
       return
     }
     try {
-      // Per-app Vite dev serves another origin than the unified API on 4001.
-      const portalBase = window.location.hostname === 'localhost' ? 'http://localhost:4001/api' : ''
-      const { data } = await httpClient.get(`${portalBase}/auth/me`)
+      const { data } = await httpClient.get(`/auth/me`)
       applyProfile(data)
     } catch {
       if (!getToken()) window.location.href = portalHref('/')

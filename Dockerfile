@@ -7,16 +7,8 @@ COPY . /app
 WORKDIR /app
 RUN bun install --frozen-lockfile
 
-# ── Build all UIs ──
+# ── Build the web app (FR-24.21: one SPA; FR-24.15 keeps it within its budget) ──
 FROM base AS ui-builder
-RUN cd /app/packages/portal-ui && bun run build
-RUN cd /app/packages/accounting-ui && bun run build
-RUN cd /app/packages/inventory-ui && bun run build
-RUN cd /app/packages/invoicing-ui && bun run build
-RUN cd /app/packages/payroll-ui && bun run build
-RUN cd /app/packages/reports-ui && bun run build
-RUN cd /app/packages/files-ui && bun run build
-# FR-24.13: the one SPA, beside the eight until Phase 3; FR-24.15 keeps it within its budget.
 RUN cd /app/packages/web && bun run build && cd /app && bun scripts/check-web-bundle.ts
 
 # ── Runtime: single unified process ──
@@ -33,13 +25,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tini \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ui-builder /app/packages/portal-ui/dist /app/packages/portal-ui/dist
-COPY --from=ui-builder /app/packages/accounting-ui/dist /app/packages/accounting-ui/dist
-COPY --from=ui-builder /app/packages/inventory-ui/dist /app/packages/inventory-ui/dist
-COPY --from=ui-builder /app/packages/invoicing-ui/dist /app/packages/invoicing-ui/dist
-COPY --from=ui-builder /app/packages/payroll-ui/dist /app/packages/payroll-ui/dist
-COPY --from=ui-builder /app/packages/reports-ui/dist /app/packages/reports-ui/dist
-COPY --from=ui-builder /app/packages/files-ui/dist /app/packages/files-ui/dist
 COPY --from=ui-builder /app/packages/web/dist /app/packages/web/dist
 
 ENV HOST=0.0.0.0

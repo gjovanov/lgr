@@ -1,14 +1,12 @@
-import type { Component } from 'vue'
 import type { RouteRecordRaw } from 'vue-router'
 
 /**
- * FR-24.3: what a UI module is, as data. Each package exports one (`src/manifest.ts`), and a router
- * is composed from manifests: today each SPA's own (POS inside invoicing's), from Phase 2 the one
- * SPA's.
+ * FR-24.3: what a UI module is, as data. Each package exports one (`src/manifest.ts`), and the one
+ * SPA's router is composed from them (`packages/web/src/router.ts`).
  *
  * ⚠ Paths in `routes`, `menu`, breadcrumbs and back-to values are relative to the MODULE
  * ("/orders"), never to a router's base. Where the module sits in a router is the path of its
- * shell record (`moduleRoutes`), and `inModule` (ui-shared/nav/open-page) adds it.
+ * shell record (`packages/web/src/router.ts`), and `inModule` (ui-shared/nav/open-page) adds it.
  */
 export interface ModuleMenuItem {
   /** i18n key of the label. */
@@ -40,20 +38,3 @@ export interface ModuleManifest {
   pendingChanges: boolean
 }
 
-/**
- * The route records a module contributes to a router whose history base is `routerBase`: its
- * outside routes and one shell record, `{ path: <prefix>, meta: { module } }`, holding its routes.
- * The prefix is the module's base minus the router's ("" for its own SPA, "/pos" inside invoicing).
- */
-export function moduleRoutes(manifest: ModuleManifest, layout: Component | (() => Promise<unknown>), routerBase: string): RouteRecordRaw[] {
-  const base = routerBase.replace(/\/+$/, '')
-  if (manifest.base !== base && !manifest.base.startsWith(`${base}/`)) {
-    throw new Error(`Module ${manifest.id} (${manifest.base}) is not under this router's base ${routerBase}`)
-  }
-  const prefix = manifest.base.slice(base.length)
-  const outside = (manifest.outside ?? []).map(r => ({ ...r, path: `${prefix}/${r.path}` }) as RouteRecordRaw)
-  return [
-    ...outside,
-    { path: prefix || '/', component: layout as any, meta: { module: manifest.id }, children: manifest.routes } as RouteRecordRaw,
-  ]
-}

@@ -3,7 +3,6 @@ export interface AppInfo {
   name: string
   icon: string
   color: string
-  devPort: number
   path: string
   description: string
   enabled: boolean

@@ -161,9 +161,15 @@ describe('S-07: CORS answers only the origins this app is served from', () => {
     expect(res.headers.get('access-control-allow-credentials')).toBe('true')
   })
 
-  it('answers a per-app Vite dev port outside production', async () => {
+  it('answers the web app\'s Vite dev port outside production', async () => {
+    const res = await preflight('http://localhost:4200')
+    expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:4200')
+  })
+
+  // FR-24.21: the per-app Vite dev servers are gone, and so are their ports from the list.
+  it('no longer answers a deleted per-app dev port', async () => {
     const res = await preflight('http://localhost:4021')
-    expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:4021')
+    expect(res.headers.get('access-control-allow-origin')).not.toBe('http://localhost:4021')
   })
 })
 
