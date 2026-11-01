@@ -43,6 +43,7 @@ import { IdempotencyError, LEASE_MS, assertSameRequest, keepLease, takeLease, wa
 import { exchangeRateFor, fromPosTransaction } from './mapping.js'
 import { unitsOf } from './copy.js'
 import type { RegisterPrinter } from './printer.js'
+import { saleInDoubt } from './in-doubt.js'
 import { provedNotPrinted, verdictOfFailedPrint } from './print-verdict.js'
 import { PENDING_NUMBER, isPendingNumber } from './pending-number.js'
 
@@ -779,6 +780,15 @@ export async function stornoRefusal(original: any): Promise<RegisterRefusal | nu
   if (original.register?.stornoState === 'full') {
     const held = await stornoInDoubtOf(original)
     return held ? new RegisterRefusal(409, stornoInDoubtRefusal(held)) : new RegisterRefusal(400, { message: 'Original transaction is already cancelled' })
+  }
+  // ⚠ Read as not printed it refunds with no storno on the device, which #281 forbids: a person says
+  // first. Still `pending` it may be printing right now, and that is no sale to reverse either.
+  if (saleInDoubt(original) || (original.register?.isFiscal && original.register?.fiscal?.state === 'pending')) {
+    return new RegisterRefusal(409, {
+      code: 'sale_receipt_in_doubt',
+      receipt: { id: String(original._id), number: original.invoiceNumber },
+      message: `Nothing can prove whether the receipt of sale ${original.invoiceNumber} printed, so a storno cannot say what it reverses. Nothing was reversed. Check the device, then settle it on its page in the cash-register journal.`,
+    })
   }
   if (originOf(original) === 'import') {
     return new RegisterRefusal(409, {

@@ -1109,7 +1109,17 @@
         "notPrinted": "Der Storno ist nicht auf dem Gerät. Er wird mit seiner Nummer ungültig, und der Verkauf bleibt, wie er war. Das lässt sich nicht rückgängig machen."
       },
       "stornoSettled": "Storno geklärt",
-      "openOnDevice": "Auf dem Fiskalgerät ist noch ein Beleg offen, daher ist noch nichts endgültig. Drucken Sie auf der Geräteseite einen X-Bericht, der ihn bereinigt, und prüfen Sie das Gerät erneut: Was dann gedruckt wurde, ist gedruckt."
+      "openOnDevice": "Auf dem Fiskalgerät ist noch ein Beleg offen, daher ist noch nichts endgültig. Drucken Sie auf der Geräteseite einen X-Bericht, der ihn bereinigt, und prüfen Sie das Gerät erneut: Was dann gedruckt wurde, ist gedruckt.",
+      "saleInDoubt": "Nichts kann belegen, ob der Fiskalbeleg dieses Verkaufs gedruckt wurde. Sein Geld bleibt, und sein Storno wartet, bis jemand das Gerät prüft und angibt, was zutrifft.",
+      "saleInDoubtRefused": "Nichts kann belegen, ob der Beleg des Verkaufs {number} gedruckt wurde, daher weiß ein Storno nicht, was es rückgängig macht. Nichts wurde rückgängig gemacht. Prüfen Sie das Gerät und klären Sie den Verkauf auf seiner Seite unter Kassenverkäufe.",
+      "settleConfirmSale": {
+        "printed": "Der Beleg ist auf dem Gerät. Geben Sie seine Nummer vom Bon ein: das Storno dieses Verkaufs zitiert sie. Das lässt sich nicht rückgängig machen.",
+        "notPrinted": "Der Beleg ist nicht auf dem Gerät. Der Verkauf und sein Geld bleiben, und sein Storno druckt nichts. Das lässt sich nicht rückgängig machen."
+      },
+      "saleSettled": "Verkauf geklärt",
+      "receiptNumber": "Belegnummer",
+      "numberRequired": "Ein gedruckter Verkauf braucht seine Belegnummer vom Bon, in Ziffern: sein Storno zitiert sie.",
+      "numberTaken": "Diese Belegnummer gehört auf diesem Gerät zu {number}. Prüfen Sie den Bon."
     },
     "origin": {
       "pos": "Kasse",

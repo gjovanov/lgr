@@ -43,8 +43,8 @@ const CLOSE = 0x38
 const PAYMENT = 0x35
 const LINE = 0x31
 
-const settle = (w: TillWorld, id: string, printed: boolean, as?: string) =>
-  w.call('POST', `/cash-register/documents/${id}/settle`, { printed }, undefined, as)
+const settle = (w: TillWorld, id: string, printed: boolean, as?: string, receiptNumber?: string) =>
+  w.call('POST', `/cash-register/documents/${id}/settle`, { printed, ...(receiptNumber ? { receiptNumber } : {}) }, undefined, as)
 const stornoOf = (w: TillWorld): Promise<any> => Invoice.findOne({ type: 'cash_storno', orgId: w.oid }).sort({ _id: -1 }).lean().exec()
 const read = (id: unknown): Promise<any> => Invoice.findById(id).lean().exec()
 const stornosOnDevice = (w: TillWorld) => w.sim!.receipts.filter(r => r.kind === 'storno' && !r.voided)
@@ -547,6 +547,188 @@ describe('a session and its stornos in doubt (finding 1)', () => {
     })
 
     expect((await w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 112 } })).status).toBe(200)
+  })
+})
+
+describe('a sale that went unknown is refunded with no storno on the device: not any more (finding 4)', () => {
+  /** A sale of 12 whose close went through with its answer lost and the line gone: `unknown`, no number. */
+  async function saleInDoubt(w: TillWorld, key?: string) {
+    w.sim!.dropAfter = CLOSE
+    const r = await w.call('POST', `/trade/pos/session/${w.sessionId}/transaction`, w.saleBody(1), key)
+    w.sim!.disconnected = false
+    expect(r.status).toBe(200)
+    expect(r.json.transaction.fiscal.state).toBe('unknown')
+    expect(r.json.transaction.fiscalReceiptNumber).toBeUndefined()
+    return String(r.json.transaction.id)
+  }
+
+  it('the door refuses it before the claim, and says what to do: nothing is left behind', async () => {
+    const w = await tillWorld(app)
+    const saleId = await saleInDoubt(w)
+
+    const r = await w.storno(saleId)
+    const journal = await w.call('POST', `/cash-register/documents/${saleId}/storno`, { reason: 'customer_return', sessionId: w.sessionId })
+
+    for (const answer of [r, journal]) {
+      expect(answer.status).toBe(409)
+      expect(answer.json.code).toBe('sale_receipt_in_doubt')
+      expect(answer.json.message).toContain('Check the device')
+    }
+    expect((await read(saleId)).register.stornoState).not.toBe('full')
+    expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_storno' })).toBe(0)
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 12, totalReturns: 0 })
+    expect((await w.stock()).quantity).toBe(9)
+    expect(w.sim!.receipts.filter(x => x.kind === 'storno')).toHaveLength(0)
+  })
+
+  it('a text sale prints nothing to reverse, and is unaffected', async () => {
+    const w = await tillWorld(app)
+    const sale = await w.sell(1, { nonFiscal: true })
+    await Invoice.updateOne({ _id: sale.json.transaction.id }, { $set: { 'register.fiscal.state': 'unknown' } })
+
+    const r = await w.storno(sale.json.transaction.id)
+
+    expect(r.status).toBe(200)
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+  })
+
+  it('it printed: the number off the slip goes on the sale, and the storno cites it', async () => {
+    const w = await tillWorld(app)
+    const saleId = await saleInDoubt(w)
+    const onDevice = w.sim!.receipts.at(-1)!.number!
+
+    const answer = await settle(w, saleId, true, undefined, onDevice)
+
+    expect(answer.status).toBe(200)
+    expect(answer.json.document.row.status).toBe('completed')
+    const sale = await read(saleId)
+    expect(sale.register.fiscal.state).toBe('printed')
+    expect(sale.register.fiscalReceiptNumber).toBe(onDevice)
+    expect(sale.register.receiptError).toBeUndefined()
+    expect(sale.register.settled).toMatchObject({ printed: true, by: w.user._id, receiptNumber: onDevice })
+    const audit: any = await AuditLog.findOne({ orgId: w.oid, action: 'settle_receipt' }).lean().exec()
+    expect(String(audit.entityId)).toBe(saleId)
+    expect(JSON.stringify(audit.changes)).toContain(onDevice)
+    // Its money did not move: it stood already.
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 12 })
+
+    const storno = await w.storno(saleId)
+    expect(storno.status).toBe(200)
+    const printed = w.sim!.receipts.filter(x => x.kind === 'storno' && !x.voided)
+    expect(printed).toHaveLength(1)
+    expect(printed[0].header[5]).toBe(onDevice)
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+  })
+
+  it('printed needs that number: no digits, no settling, whatever the driver would have said later', async () => {
+    const w = await tillWorld(app)
+    const saleId = await saleInDoubt(w)
+
+    for (const typed of [undefined, '', 'ФБ-12', '12 34']) {
+      const r = await settle(w, saleId, true, undefined, typed)
+      expect(r.status).toBe(typed === undefined || typed === '' ? 422 : 422)
+      expect(r.json.code).toBe('receipt_number_required')
+    }
+    expect((await read(saleId)).register.fiscal.state).toBe('unknown')
+    expect((await read(saleId)).register.settled).toBeUndefined()
+  })
+
+  it('a number this device already gave another document is a slip misread', async () => {
+    const w = await tillWorld(app)
+    const other = await w.sell(1)
+    const taken = other.json.transaction.fiscalReceiptNumber
+    const saleId = await saleInDoubt(w)
+
+    const r = await settle(w, saleId, true, undefined, String(Number(taken)))
+
+    expect(r.status).toBe(422)
+    expect(r.json.code).toBe('receipt_number_taken')
+    expect((await read(saleId)).register.fiscal.state).toBe('unknown')
+  })
+
+  it('it did not: failed, the money stands, and its storno prints nothing, which is true', async () => {
+    const w = await tillWorld(app)
+    const saleId = await saleInDoubt(w)
+
+    expect((await settle(w, saleId, false)).status).toBe(200)
+
+    const sale = await read(saleId)
+    expect(sale.register.fiscal.state).toBe('failed')
+    expect(sale.register.settled).toMatchObject({ printed: false })
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 12 })
+    const commands = w.sim!.executed.length
+
+    const storno = await w.storno(saleId)
+
+    expect(storno.status).toBe(200)
+    expect(storno.json.transaction.isFiscal).toBe(false)
+    expect(w.sim!.executed.slice(commands).filter(c => c.cmd === 0x90)).toHaveLength(0)
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+    expect((await w.stock()).quantity).toBe(10)
+  })
+
+  it('the same rights as a storno, and a second settle changes nothing', async () => {
+    const w = await tillWorld(app)
+    const saleId = await saleInDoubt(w)
+    const onDevice = w.sim!.receipts.at(-1)!.number!
+
+    expect((await settle(w, saleId, true, await w.tokenAs('sales'), onDevice)).status).toBe(403)
+    expect((await settle(w, saleId, true, undefined, onDevice)).status).toBe(200)
+
+    const again = await settle(w, saleId, false)
+    expect(again.status).toBe(409)
+    expect(again.json.code).toBe('receipt_not_in_doubt')
+    expect((await read(saleId)).register.fiscal.state).toBe('printed')
+    expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'settle_receipt' })).toBe(1)
+  })
+
+  it('the device still holds its receipt open: not final, for a sale either', async () => {
+    const w = await tillWorld(app)
+    w.sim!.beforeCommand = cmd => { if (cmd === PAYMENT) w.sim!.disconnected = true }
+    const sold = await w.sell(1)
+    w.sim!.beforeCommand = null
+    w.sim!.disconnected = false
+    expect(sold.json.transaction.fiscal.state).toBe('unknown')
+
+    expect((await settle(w, sold.json.transaction.id, false)).json.code).toBe('receipt_open_on_device')
+  })
+
+  it('a sale whose request died, still pending: a storno is refused, and a person settling it finishes it', async () => {
+    const w = await tillWorld(app)
+    const sale = await w.sell(1)
+    const saleId = String(sale.json.transaction.id)
+    const onDevice = w.sim!.receipts.at(-1)!.number!
+    await w.call('POST', `/trade/pos/session/${w.sessionId}/close-preview`).catch(() => undefined)
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { totalCash: 0, totalSales: 0, transactionCount: 0 } })
+    await Invoice.updateOne({ _id: saleId }, {
+      $set: { 'register.fiscal': { state: 'pending', mode: 'fiscal', attemptedAt: new Date(), counterBefore: 1 }, leaseUntil: new Date(Date.now() - 1000) },
+      $unset: { completedAt: 1, 'register.fiscalReceiptNumber': 1, 'register.sessionTotalsApplied': 1, 'register.movementId': 1, 'register.printedAt': 1 },
+    })
+
+    expect((await w.storno(saleId)).json.code).toBe('sale_receipt_in_doubt')
+
+    const page = await listJournal({ orgId: w.orgId, kind: 'sale' })
+    expect(page.rows[0]).toMatchObject({ status: 'inDoubt', fiscal: expect.objectContaining({ inDoubt: true }) })
+
+    expect((await settle(w, saleId, true, undefined, onDevice)).status).toBe(200)
+
+    const done = await read(saleId)
+    expect(done.completedAt).toBeTruthy()
+    expect(done.register.fiscalReceiptNumber).toBe(onDevice)
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 12 })
+  })
+
+  it('one still printing, its lease alive, is no sale to reverse and nobody\'s to settle yet', async () => {
+    const w = await tillWorld(app)
+    const sale = await w.sell(1)
+    const saleId = String(sale.json.transaction.id)
+    await Invoice.updateOne({ _id: saleId }, {
+      $set: { 'register.fiscal': { state: 'pending', mode: 'fiscal', attemptedAt: new Date(), counterBefore: 1 }, leaseUntil: new Date(Date.now() + 60_000) },
+      $unset: { completedAt: 1, 'register.fiscalReceiptNumber': 1 },
+    })
+
+    expect((await w.storno(saleId)).status).toBe(409)
+    expect((await settle(w, saleId, false)).json.code).toBe('receipt_not_in_doubt')
   })
 })
 

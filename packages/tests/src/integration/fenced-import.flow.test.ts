@@ -252,7 +252,7 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
     const held = String(w.ids.held)
     expect(await receiptInDoubt(w.orgId, held)).toMatchObject({ invoiceNumber: `CS-${year}-00011` })
     expect(await freezeRefusal(w.orgId, held)).toMatchObject({ code: 'receipt_in_doubt' })
-    const settled = await settleInDoubt(deviceless(w.orgId, { id: String(w.admin._id), operatorCode: '0001' } as any), String(w.ids.dead), false)
+    const settled = await settleInDoubt(deviceless(w.orgId, { id: String(w.admin._id), operatorCode: '0001' } as any), String(w.ids.dead), { printed: false })
     expect(settled.status).toBe('voided')
     expect(((await Invoice.collection.findOne({ _id: w.ids.held } as any)) as any).receiptHolds ?? []).toHaveLength(0)
     expect(await freezeRefusal(w.orgId, held)).toBeNull()
@@ -270,7 +270,7 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
     const sale: any = await Invoice.collection.findOne({ _id: w.ids.cashSale } as any)
     expect(sale.register.stornoState).toBe('full')
 
-    const settled = await settleInDoubt(deviceless(w.orgId, { id: String(w.admin._id), operatorCode: '0001' } as any), String(w.ids.deadStorno), true)
+    const settled = await settleInDoubt(deviceless(w.orgId, { id: String(w.admin._id), operatorCode: '0001' } as any), String(w.ids.deadStorno), { printed: true })
 
     expect(settled.completedAt).toBeTruthy()
     expect(settled.register.settled).toMatchObject({ printed: true })

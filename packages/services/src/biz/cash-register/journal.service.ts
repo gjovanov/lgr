@@ -14,6 +14,7 @@
  */
 import { Contact, Invoice, POSSession, StockMovement, User, Warehouse } from 'db/models'
 import { localDayWindow, BULGARIAN_TIME_ZONE } from '../local-day.js'
+import { saleInDoubt } from './in-doubt.js'
 import { PAYMENT_RECEIPT, TILL_DOCUMENT_TYPES } from './pos-union.js'
 import { invoicedCashSaleIds, invoicingByCashSale } from '../cash-sale-invoice.service.js'
 
@@ -215,7 +216,7 @@ function documentMatch(q: JournalQuery, invoiced: any[] | null): Record<string, 
 
 function documentStatus(doc: any): JournalStatus {
   if (doc.status === 'voided') return 'voided'
-  if (doc.register?.fiscal?.inDoubt) return 'inDoubt'
+  if (doc.register?.fiscal?.inDoubt || saleInDoubt(doc)) return 'inDoubt'
   if (doc.register?.stornoState === 'full') return 'stornoed'
   return 'completed'
 }
@@ -262,7 +263,7 @@ function fromDocument(doc: any, moved: Set<string>): JournalRow {
       ...(reg.fiscalReceiptNumber ? { receiptNumber: reg.fiscalReceiptNumber } : {}),
       ...(reg.fiscalDeviceNumber ? { deviceNumber: reg.fiscalDeviceNumber } : {}),
       ...(reg.printedAt ? { printedAt: new Date(reg.printedAt).toISOString() } : {}),
-      ...(reg.fiscal?.inDoubt ? { inDoubt: true } : {}),
+      ...(reg.fiscal?.inDoubt || saleInDoubt(doc) ? { inDoubt: true } : {}),
     },
     stock: reg.stockError ? 'error' : moved.has(id) || reg.movementId ? 'moved' : 'none',
     ...(doc.reference ? { reference: doc.reference } : {}),

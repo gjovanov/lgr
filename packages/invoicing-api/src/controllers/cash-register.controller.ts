@@ -106,7 +106,7 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
       try {
         // What the device says, when it is here. Nothing that follows reaches it.
         const { printer } = await documentContext(orgId, user, held)
-        const settled = await settleInDoubt(deviceless(orgId, user), id, body.printed, printer)
+        const settled = await settleInDoubt(deviceless(orgId, user), id, body, printer)
         if (!settled) return status(409, { code: 'receipt_not_in_doubt', message: 'This document is not waiting to be settled.' })
       } catch (e: any) {
         if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
@@ -114,7 +114,7 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
       }
       return { document: await getJournalDocument(orgId, id) }
     },
-    { isSignIn: true, fiscalDevice: deviceFromJournalDocument, body: t.Object({ printed: t.Boolean() }) },
+    { isSignIn: true, fiscalDevice: deviceFromJournalDocument, body: t.Object({ printed: t.Boolean(), receiptNumber: t.Optional(t.String({ maxLength: 20 })) }) },
   )
   .post(
     '/documents/:id/storno',

@@ -1809,7 +1809,17 @@
         "notPrinted": "The storno is not on the device. It is voided with its number, and the sale stands as it did. This cannot be undone."
       },
       "stornoSettled": "Storno settled",
-      "openOnDevice": "A receipt is still open on the fiscal device, so nothing is final yet. Print an X report on the device page, which clears it, then look at the device again: whatever printed then, printed."
+      "openOnDevice": "A receipt is still open on the fiscal device, so nothing is final yet. Print an X report on the device page, which clears it, then look at the device again: whatever printed then, printed.",
+      "saleInDoubt": "Nothing can prove whether this sale's fiscal receipt printed. Its money stands, and its storno waits until someone checks the device and says which.",
+      "saleInDoubtRefused": "Nothing can prove whether the receipt of sale {number} printed, so a storno cannot say what it reverses. Nothing was reversed. Check the device, then settle it on its page under Cash Register Sales.",
+      "settleConfirmSale": {
+        "printed": "The receipt is on the device. Type its number off the slip: the storno of this sale cites it. This cannot be undone.",
+        "notPrinted": "The receipt is not on the device. The sale and its money stand, and its storno prints nothing. This cannot be undone."
+      },
+      "saleSettled": "Sale settled",
+      "receiptNumber": "Receipt number",
+      "numberRequired": "A sale that printed needs its receipt number off the slip, in digits: its storno cites it.",
+      "numberTaken": "That receipt number on this device is {number}'s. Check the slip."
     },
     "origin": {
       "pos": "Till",

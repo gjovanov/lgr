@@ -18,8 +18,10 @@ export const STORNO_ROLES = ['admin', 'manager'] as const
  * A completed SALE (a POS row), by someone allowed to reverse it. A storno is not itself
  * reversible, and a cancelled sale is already reversed (or being reversed).
  */
-export function canStornoTransaction(txn: { type?: string; status?: string } | null | undefined, role: string | undefined): boolean {
+export function canStornoTransaction(txn: { type?: string; status?: string; isFiscal?: boolean; fiscal?: { state?: string } } | null | undefined, role: string | undefined): boolean {
   if (!txn || !role) return false
+  // FR-23: nothing can prove its fiscal receipt printed, so a person settles it first.
+  if (txn.isFiscal && (txn.fiscal?.state === 'unknown' || txn.fiscal?.state === 'pending')) return false
   return txn.type === 'sale' && txn.status === 'completed' && (STORNO_ROLES as readonly string[]).includes(role)
 }
 

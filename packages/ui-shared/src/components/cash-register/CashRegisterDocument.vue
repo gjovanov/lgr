@@ -33,7 +33,7 @@
     <template v-if="doc">
       <!-- FR-23: nothing could prove whether this receipt or storno printed. Someone looks at the device and says. -->
       <v-alert v-if="doc.row.fiscal.inDoubt" type="warning" variant="tonal" class="mb-4" data-testid="receipt-in-doubt">
-        {{ $t(isStorno ? 'cashRegister.receipt.stornoInDoubt' : 'cashRegister.receipt.inDoubt') }}
+        {{ $t(`cashRegister.receipt.${settleWords.inDoubt}`) }}
         <div v-if="canSettle" class="mt-2 d-flex flex-wrap ga-2">
           <v-btn size="small" variant="outlined" data-testid="receipt-settle-printed" @click="settling = 'printed'">{{ $t('cashRegister.receipt.settlePrinted') }}</v-btn>
           <v-btn size="small" variant="outlined" data-testid="receipt-settle-not-printed" @click="settling = 'notPrinted'">{{ $t('cashRegister.receipt.settleNotPrinted') }}</v-btn>
@@ -44,11 +44,23 @@
       <v-dialog :model-value="!!settling" max-width="480" @update:model-value="settling = null">
         <v-card>
           <v-card-title>{{ doc.row.number }}</v-card-title>
-          <v-card-text>{{ settling ? $t(`cashRegister.receipt.${isStorno ? 'settleConfirmStorno' : 'settleConfirm'}.${settling}`) : '' }}</v-card-text>
+          <v-card-text>
+            {{ settling ? $t(`cashRegister.receipt.${settleWords.confirm}.${settling}`) : '' }}
+            <!-- A storno cites it, and only the slip knows it. -->
+            <v-text-field
+              v-if="settling === 'printed' && doc.row.kind === 'sale'"
+              v-model="settleNumber"
+              :label="$t('cashRegister.receipt.receiptNumber')"
+              inputmode="numeric"
+              class="mt-3"
+              hide-details
+              data-testid="receipt-settle-number"
+            />
+          </v-card-text>
           <v-card-actions>
             <v-spacer />
             <v-btn variant="text" :disabled="settlingNow" @click="settling = null">{{ $t('common.cancel') }}</v-btn>
-            <v-btn color="primary" variant="flat" :loading="settlingNow" data-testid="receipt-settle-confirm" @click="settle">{{ $t('common.confirm') }}</v-btn>
+            <v-btn color="primary" variant="flat" :loading="settlingNow" :disabled="settling === 'printed' && doc.row.kind === 'sale' && !/^\d+$/.test(settleNumber.trim())" data-testid="receipt-settle-confirm" @click="settle">{{ $t('common.confirm') }}</v-btn>
           </v-card-actions>
         </v-card>
       </v-dialog>
@@ -259,15 +271,22 @@ function statusColor(s: string) {
 
 // ── FR-23: a receipt in doubt ──
 // It decides what happened to money, so the same people as a storno, and asked twice.
-const isStorno = computed(() => doc.value?.row.kind === 'storno')
+const settleWords = computed(() => (({
+  storno: { inDoubt: 'stornoInDoubt', confirm: 'settleConfirmStorno', done: 'stornoSettled' },
+  sale: { inDoubt: 'saleInDoubt', confirm: 'settleConfirmSale', done: 'saleSettled' },
+} as Record<string, { inDoubt: string; confirm: string; done: string }>)[doc.value?.row.kind] ?? { inDoubt: 'inDoubt', confirm: 'settleConfirm', done: 'settled' }))
+const settleNumber = ref('')
 const canSettle = computed(() => !!props.role && (STORNO_ROLES as readonly string[]).includes(props.role))
 const settling = ref<'printed' | 'notPrinted' | null>(null)
 const settlingNow = ref(false)
 async function settle() {
   settlingNow.value = true
   try {
-    await httpClient.post(`${props.orgUrl}/cash-register/documents/${props.id}/settle`, { printed: settling.value === 'printed' })
-    showSuccess(t(isStorno.value ? 'cashRegister.receipt.stornoSettled' : 'cashRegister.receipt.settled'))
+    const printed = settling.value === 'printed'
+    await httpClient.post(`${props.orgUrl}/cash-register/documents/${props.id}/settle`, {
+      printed, ...(printed && doc.value?.row.kind === 'sale' ? { receiptNumber: settleNumber.value.trim() } : {}),
+    })
+    showSuccess(t(`cashRegister.receipt.${settleWords.value.done}`))
   } catch (e: any) {
     showSnackbar(receiptRefusalMessage(t, e, t('common.operationFailed')), 'error', 12000)
   } finally {
