@@ -5,6 +5,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { useInvoicingExport, type CompanionDoc } from 'ui-shared/composables/useInvoicingExport'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
@@ -1458,7 +1459,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       await loadDocument()
     } catch (e: any) {
       receiptOverlap.value = id ? receiptOverlapOf(e, id) : null
-      if (!receiptOverlap.value) showError(e?.response?.data?.message || t('common.operationFailed'))
+      if (!receiptOverlap.value) showError(stockRefusalMessage(e, t))
       // Saved but not received: show what was saved, still a draft.
       if (route.params.id) await loadDocument()
     } finally {

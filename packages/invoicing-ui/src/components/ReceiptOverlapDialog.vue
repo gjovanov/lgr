@@ -124,7 +124,7 @@ async function receiveAnyway() {
     close()
     emit('received', data?.invoice)
   } catch (e: any) {
-    error.value = e?.response?.data?.message || t('common.operationFailed')
+    error.value = stockRefusalMessage(e, t)
   } finally {
     receiving.value = false
   }

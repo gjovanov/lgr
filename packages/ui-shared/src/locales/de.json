@@ -2112,7 +2112,9 @@
       "bill_on_order": "Die Rechnung gehört zu einer Lieferantenbestellung: Ihre Zeilen buchen die Lieferung auf die Bestellung und können nicht ersetzt werden.",
       "bill_not_draft": "Die Rechnung ist kein Entwurf mehr.",
       "bill_already_linked": "Die Rechnung ist bereits mit einer Lieferung verknüpft.",
-      "nothing_to_bill": "Die Wareneingänge enthalten keine abzurechnenden Mengen."
+      "nothing_to_bill": "Die Wareneingänge enthalten keine abzurechnenden Mengen.",
+      "stock_line_without_warehouse": "Die Bestandszeilen dieser Rechnung nennen kein Lager, die Ware käme nicht in den Bestand. Wählen Sie das Lager auf der Rechnung und empfangen Sie sie dann.",
+      "stock_line_without_product": "Eine Zeile dieser Rechnung hat eine Menge, aber kein Produkt: Sie würde bezahlt, und die Ware käme nie in den Bestand. Wählen Sie das Produkt in der Zeile und empfangen Sie die Rechnung dann."
     },
     "supply": {
       "reserved": "Reserviert",

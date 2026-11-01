@@ -2,7 +2,7 @@ import { FiscalRoute, deviceFromAuthorSession } from 'fiscal/fiscal-route'
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
-import { createInvoiceStockMovement, reverseInvoiceStockMovement, validateStockAvailability } from 'services/biz/invoicing.service'
+import { createInvoiceStockMovement, reverseInvoiceStockMovement, stockBookingRefusal, validateStockAvailability } from 'services/biz/invoicing.service'
 import { syncOrderForInvoice } from 'services/biz/reservation.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
@@ -1426,7 +1426,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (invoice.direction !== 'incoming') return status(400, { message: 'Only incoming invoices can be received' })
     if (invoice.status !== 'draft') return status(400, { message: 'Invoice is not in draft status' })
 
-    // Before the number is drawn: a bill refused here is the draft it was (FR-22.31c).
+    // Before the number is drawn: a bill refused here is the draft it was. Booking it would refuse
+    // the same thing after the bill was written as received, with no stock and no way back. A bill
+    // that cannot book at all is told so before it is asked what to do about its goods.
+    const unbookable = await stockBookingRefusal(invoice as any)
+    if (unbookable) return status(422, { ...unbookable })
     const overlap = await receiptsOverlapping(orgId, invoice)
     if (overlap && !body?.acknowledgeOverlap) return status(409, receiptOverlapRefusal(invoice, overlap))
 

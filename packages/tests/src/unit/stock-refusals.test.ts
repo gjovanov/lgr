@@ -12,7 +12,7 @@ import { STOCK_REFUSAL_CODES, stockRefusalMessage } from 'ui-shared/composables/
 
 const PACKAGES = join(import.meta.dir, '..', '..', '..')
 const read = (path: string) => readFileSync(join(PACKAGES, path), 'utf8')
-const SERVER = read('services/src/biz/receipt-bill.service.ts') + read('config/src/movement-warehouses.ts')
+const SERVER = read('services/src/biz/receipt-bill.service.ts') + read('services/src/biz/invoicing.service.ts') + read('config/src/movement-warehouses.ts')
 const CATALOGS = ['en', 'bg', 'de', 'mk'].map(locale => [locale, JSON.parse(read(`ui-shared/src/locales/${locale}.json`))] as const)
 
 /** What can reach the movement page's „why not" (`receiptBillingFor`): the page words each. */

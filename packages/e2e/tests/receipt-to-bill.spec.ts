@@ -418,6 +418,47 @@ test.describe('receiving warns before it double-books (FR-22.31c)', () => {
   })
 })
 
+test.describe('a bill that cannot book its goods stays a draft', () => {
+  test('„Склад" cleared on the form: refused in Bulgarian, no number drawn, and it receives once one is chosen', async ({ page }) => {
+    const w = await world('nowh')
+    const bill = await typedBill(w, 2, `NW-${w.stamp}`)
+
+    await signInForUx(page)
+    await page.goto(`/invoicing/bills/${bill.id}/edit`, { waitUntil: 'networkidle' })
+    const field = page.locator('.v-autocomplete').filter({ hasText: 'Склад' }).first()
+    await field.locator('.v-field').hover()
+    await field.locator('.v-field__clearable .v-icon').click()
+    await actions(page).getByRole('button', { name: 'Запази и получи' }).click()
+
+    await expect(snackbar(page)).toContainText('не посочват склад')
+    const refused = await billOf(w, bill.id)
+    expect([refused.status, refused.invoiceNumber]).toEqual(['draft', bill.number])
+    expect(await stockOf(w)).toBe(0)
+    await expect(page.locator('.doc-banner-meta .v-chip')).toHaveText('Чернова')
+
+    await field.locator('input').click()
+    await page.getByRole('option', { name: w.warehouse.name, exact: true }).click()
+    await actions(page).getByRole('button', { name: 'Запази и получи' }).click()
+    await expect(snackbar(page)).toContainText('Фактурата е получена')
+    expect(await stockOf(w)).toBe(2)
+  })
+
+  test('from the list: refused in Bulgarian, and the row is still a draft', async ({ page }) => {
+    const w = await world('nowh-list')
+    const { invoice } = await w.api.post('/invoices', {
+      type: 'invoice', direction: 'incoming', contactId: w.supplier._id, issueDate: today(), dueDate: today(), currency: 'EUR', reference: `NL-${w.stamp}`,
+      lines: [{ productId: w.article._id, description: w.article.name, quantity: 2, unit: 'pcs', unitPrice: 2.75, taxRate: 20 }],
+      subtotal: 5.5, total: 6.6,
+    })
+
+    await signInForUx(page)
+    await page.goto(`/invoicing/bills?q=${encodeURIComponent(`NL-${w.stamp}`)}`, { waitUntil: 'networkidle' })
+    await (await rowAction(rowOf(page, invoice.invoiceNumber), 'receive')).click()
+    await expect(snackbar(page)).toContainText('не посочват склад')
+    expect((await billOf(w, String(invoice.id || invoice._id))).status).toBe('draft')
+  })
+})
+
 test.describe('a movement\'s warehouses fit its type (#168)', () => {
   const fromField = (page: Page) => page.getByTestId('from-warehouse')
   const toField = (page: Page) => page.getByTestId('to-warehouse')

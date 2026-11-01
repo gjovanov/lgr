@@ -1111,6 +1111,59 @@ describe('a bill is received once, whoever else asks at the same moment', () => 
   }, 60_000)
 })
 
+describe('a bill that cannot book its goods is refused before it is received', () => {
+  it('no warehouse on its stock lines: 422, still the draft it was, no number drawn, and it receives once one is chosen', async () => {
+    const w = await world()
+    const typed = await w.typedBill([[w.bolt, 5, 5]], { noWarehouse: true })
+    const draft = await w.load(typed.id)
+
+    const refused = await w.receiveBill(typed)
+    expect([refused.status, refused.json.code]).toEqual([422, 'stock_line_without_warehouse'])
+    const still = await w.load(typed.id)
+    expect([still.status, still.invoiceNumber, still.draftNumber]).toEqual(['draft', draft.invoiceNumber, draft.draftNumber])
+    expect(await w.stock(w.bolt)).toBe(0)
+    expect(await w.movementCount()).toBe(0)
+
+    const lines = still.lines.map((l: any) => ({
+      productId: String(l.productId), description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, taxRate: l.taxRate, warehouseId: String(w.warehouse._id),
+    }))
+    expect((await w.call('PUT', `/invoices/${typed.id}`, { lines })).status).toBe(200)
+    const received = await w.receiveBill(typed)
+    expect(received.status).toBe(200)
+    // The first number of the series: the refusal above drew none.
+    expect(received.json.invoice.invoiceNumber).toMatch(/^BILL-\d{4}-0*1$/)
+    expect(await w.stock(w.bolt)).toBe(5)
+  }, 60_000)
+
+  it('a quantity read off paper with no article behind it: 422, whatever else the bill would book', async () => {
+    const w = await world()
+    const created = await w.call('POST', '/invoices', {
+      type: 'invoice', direction: 'incoming', contactId: String(w.supplier._id), issueDate: '2026-10-21', currency: 'EUR', subtotal: 60, total: 72,
+      lines: [
+        { productId: String(w.bolt._id), warehouseId: String(w.warehouse._id), description: w.bolt.name, quantity: 2, unitPrice: 5, taxRate: 20 },
+        { description: 'Гайка неразпозната', sourceText: 'Гайка неразпозната', quantity: 10, unitPrice: 5, taxRate: 20 },
+      ],
+    })
+    expect(created.status).toBe(200)
+    const refused = await w.receiveBill(created.json.invoice, { acknowledgeOverlap: true })
+    expect([refused.status, refused.json.code]).toEqual([422, 'stock_line_without_product'])
+    expect((await w.load(created.json.invoice.id)).status).toBe('draft')
+    expect(await w.stock(w.bolt)).toBe(0)
+  }, 60_000)
+
+  it('asks nothing of a bill made from a receipt, or of one with only services: they book no stock', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 2, 5]], { noWarehouse: true })
+    const made = await w.fromReceipt([r._id])
+    expect(made.json.invoice.lines[0].warehouseId).toBeFalsy()
+    expect((await w.receiveBill(made.json.invoice)).status).toBe(200)
+
+    const service = await createTestProduct(w.org._id, { sku: 'SRV-1', name: 'Транспорт', trackInventory: false, taxRate: 20 } as any)
+    const typed = await w.typedBill([[service, 1, 50]], { noWarehouse: true })
+    expect((await w.receiveBill(typed)).status).toBe(200)
+  }, 60_000)
+})
+
 describe('a billed receipt keeps its own day in the reports', () => {
   it('the warehouse report and the digest count it on the day the goods came, not the bill\'s', async () => {
     const w = await world()

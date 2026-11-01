@@ -171,6 +171,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
@@ -425,7 +426,7 @@ async function receiveInvoice(item: Invoice) {
     await refresh()
   } catch (e: any) {
     receiptOverlap.value = receiptOverlapOf(e, item._id)
-    if (!receiptOverlap.value) showError(e?.response?.data?.message || t('common.operationFailed'))
+    if (!receiptOverlap.value) showError(stockRefusalMessage(e, t))
   } finally {
     receivingRows.delete(item._id)
   }

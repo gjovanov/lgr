@@ -2112,7 +2112,9 @@
       "bill_on_order": "The bill is written against a supplier order: its lines book the delivery onto the order, so they cannot be replaced.",
       "bill_not_draft": "The bill is no longer a draft.",
       "bill_already_linked": "The bill is already linked to a delivery.",
-      "nothing_to_bill": "The receipts carry no quantities to bill."
+      "nothing_to_bill": "The receipts carry no quantities to bill.",
+      "stock_line_without_warehouse": "The stock lines of this bill name no warehouse, so nothing would reach stock. Choose the warehouse on the bill, then receive it.",
+      "stock_line_without_product": "A line of this bill has a quantity but no product: it would be paid for and never reach stock. Choose the product on the line, then receive it."
     },
     "supply": {
       "reserved": "Reserved",
