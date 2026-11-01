@@ -230,7 +230,8 @@ them into PRs.
     - `POST /invoicing/bills/from-receipt` takes an optional `contactId`. It is required when a
       named receipt has no supplier (422 `receipt_without_supplier`). It must be an active
       supplier-or-both contact of this org (422 `supplier_not_found`), and it must not contradict a
-      receipt that names another supplier (422 `supplier_mismatch`).
+      receipt that names another supplier (422 `supplier_mismatch`). A supplier the receipts already
+      name needs no proving: one since deactivated can still be billed for its own delivery.
     - The supplier is written onto the receipt in the claim's own compare-and-set, and only onto one
       that has none. Of two conversions naming different suppliers, one wins and the receipt keeps
       that supplier. Each write is audit-logged.
@@ -272,7 +273,8 @@ them into PRs.
       a movement a site already booked (`importMovement`), where a refusal would drop goods that
       moved. And `/receive` reaches it after it has written the bill as received.
     - A booked document stays as it is, and reads as it was booked. `PUT` takes `null` to clear a
-      warehouse, so a draft saved before the rule can be repaired.
+      warehouse, so a draft saved before the rule can be repaired, and to clear a draft receipt's
+      supplier, so a wrong pick need not be confirmed.
     - The form clears the warehouse the new type does not use when the USER changes the type (a
       watcher would also fire on loading a booked document), and offers no such field, unless the
       movement already names one.
@@ -324,7 +326,7 @@ them into PRs.
       question is different. That save is the person's own, it stands, and linking from the question
       afterwards leaves the product as that save wrote it.
     - A bill written against a supplier order keeps its lines (422 `bill_on_order`): they book the
-      delivery onto the order.
+      delivery onto the order. The form does not offer it „Свържи с доставка".
     - A fenced or a kept import brings a receipt a bill lists in like any other delivery, claim and
       all. The bill moved no stock on the site and books none on the way in, so reading the receipt's
       `invoiceId` as „made by its sale" would lose the goods. It holds for any document that lists a
