@@ -314,10 +314,23 @@ describe.skipIf(!enabled)('a device whose holder moves between pods (FR-23, FR-2
     expect((await raw(id))).toMatchObject({ status: 'sent', amountPaid: 0 })
     expect(closedOnDevice().length).toBe(before)
 
-    // A person looks at the device: it took the money.
+    // A person looks at the device. It holds the receipt open, so nothing is final yet: told so, whichever
+    // way they answer.
+    for (const printed of [true, false]) {
+      const refused = await api(holder, 'POST', `/cash-register/documents/${receipt._id}/settle`, { printed })
+      expect(refused.status).toBe(409)
+      expect(refused.json.code).toBe('receipt_open_on_device')
+    }
+    expect((await raw(id))).toMatchObject({ status: 'sent', amountPaid: 0 })
+
+    // The X report it asks for clears it. It took the money, so it finishes, on paper, once.
+    expect((await api(holder, 'POST', `/fiscal/device/${deviceId}/x-report`)).status).toBe(200)
+    expect(closedOnDevice().length).toBe(before + 1)
+
     const settled = await api(holder, 'POST', `/cash-register/documents/${receipt._id}/settle`, { printed: true })
     expect(settled.status).toBe(200)
     expect((await raw(id))).toMatchObject({ status: 'paid', amountPaid: 12 })
+    expect(closedOnDevice().length).toBe(before + 1)
     void down
   }, 180_000)
 })
