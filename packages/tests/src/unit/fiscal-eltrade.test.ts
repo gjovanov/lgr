@@ -1146,6 +1146,22 @@ describe('cash on delivery (FiscalPaymentType "cash_on_delivery")', () => {
     expect(sim.receipts[0].payments).toEqual([{ mode: 'R', amount: 24 }])
   })
 
+  it('a Tremol over TCP refuses a storno with no number to cite, as over the bridge: never a literal undefined', async () => {
+    const sent: unknown[] = []
+    const driver = new TremolFiscalPrinter({ type: 'tcp', tcp: { ip: '127.0.0.1', port: 1 } } as any, 't')
+    ;(driver as any).transport.sendCommand = async (...a: unknown[]) => { sent.push(a); return '' }
+
+    for (const number of [undefined, '', 'unknown']) {
+      const e = await captureRejection(driver.printStornoReceipt(
+        '0001', 'Op', UNP, number as any, new Date(), UNP, 'customer_return',
+        [{ name: 'A', quantity: 1, price: 10, vatGroup: 'Б' }], { type: 'cash', amount: 10 },
+      ))
+      expectRejection(e, /no fiscal receipt number on record/)
+      expect((e as any).printStage).toBe('refused')
+    }
+    expect(sent).toEqual([])
+  })
+
   it('every driver without a slot refuses it before sending anything — never prints it as cash', async () => {
     const sent: unknown[] = []
     const send = async (frame: Buffer) => { sent.push(frame); return Buffer.alloc(0) }
