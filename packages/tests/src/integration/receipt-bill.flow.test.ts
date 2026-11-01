@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { describe, it, expect, beforeAll, afterAll, afterEach, spyOn } from 'bun:test'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
@@ -8,11 +8,12 @@ import { receiptBillController } from 'invoicing-api/src/controllers/receipt-bil
 import { movementController } from 'warehouse-api/src/controllers/movement.controller'
 import { productController } from 'warehouse-api/src/controllers/product.controller'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
-import { planDeleteDocFiles } from 'services/biz/files/doc-delete.service'
+import { deleteDocFiles, planDeleteDocFiles } from 'services/biz/files/doc-delete.service'
 import { getProductLedger } from 'services/biz/product-ledger.service'
+import { RECEIPT_OVERLAP_WINDOW_DAYS, receiptsOverlapping } from 'services/biz/receipt-bill.service'
 import { reportById, validateParams } from 'services/biz/report-registry'
 import { buildDailyDigest } from 'services/biz/digest/daily-digest.service'
-import { DocFile, Invoice, Product, StockLevel, StockMovement } from 'db/models'
+import { AuditLog, Contact, DocFile, Invoice, JournalEntry, Product, StockLevel, StockMovement } from 'db/models'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 
@@ -68,11 +69,11 @@ async function world() {
   }
 
   /** A completed goods receipt into the warehouse, as the receipt form books it. */
-  async function receipt(lines: Array<[any, number, number]>, opts: { contactId?: string | null; date?: string; confirm?: boolean } = {}) {
+  async function receipt(lines: Array<[any, number, number]>, opts: { contactId?: string | null; date?: string; confirm?: boolean; noWarehouse?: boolean } = {}) {
     const ls = lines.map(([p, q, cost]) => ({ productId: String(p._id), quantity: q, unitCost: cost, totalCost: q * cost }))
     const contactId = opts.contactId === null ? undefined : (opts.contactId ?? String(supplier._id))
     const created = await call('POST', '/warehouse/movement', {
-      type: 'receipt', date: opts.date || '2026-10-20', toWarehouseId: String(warehouse._id),
+      type: 'receipt', date: opts.date || '2026-10-20', ...(opts.noWarehouse ? {} : { toWarehouseId: String(warehouse._id) }),
       ...(contactId ? { contactId } : {}), lines: ls, totalAmount: ls.reduce((s, l) => s + l.totalCost, 0),
     })
     expect(created.status).toBe(200)
@@ -81,8 +82,25 @@ async function world() {
     return StockMovement.findById(id).lean().exec() as Promise<any>
   }
 
+  /** A supplier bill typed by hand: it receives its own goods unless it is linked. */
+  async function typedBill(lines: Array<[any, number, number]>, opts: Record<string, any> = {}) {
+    const ls = lines.map(([p, q, price]) => ({
+      productId: String(p._id), ...(opts.noWarehouse ? {} : { warehouseId: String(warehouse._id) }), description: p.name, quantity: q, unitPrice: price, taxRate: 20,
+    }))
+    const subtotal = ls.reduce((s, l) => s + l.quantity * l.unitPrice, 0)
+    const { noWarehouse: _skip, contactId, ...rest } = opts
+    const created = await call('POST', '/invoices', {
+      type: 'invoice', direction: 'incoming', ...(contactId === null ? {} : { contactId: contactId ?? String(supplier._id) }),
+      issueDate: '2026-10-21', currency: 'EUR', lines: ls, subtotal, total: +(subtotal * 1.2).toFixed(2), ...rest,
+    })
+    expect(created.status).toBe(200)
+    return created.json.invoice
+  }
+  const receiveBill = (bill: any, body?: any) => call('POST', `/invoices/${bill.id || bill._id}/receive`, body)
   const fromReceipt = (movementIds: unknown[], extra: Record<string, any> = {}) =>
     call('POST', '/invoicing/bills/from-receipt', { movementIds: movementIds.map(String), ...extra })
+  const linkReceipts = (bill: any, movementIds: unknown[], extra: Record<string, any> = {}) =>
+    call('POST', `/invoicing/bills/${bill.id || bill._id}/link-receipts`, { movementIds: movementIds.map(String), ...extra })
   const stock = async (product: any) =>
     Number(((await StockLevel.findOne({ orgId, productId: product._id, warehouseId: warehouse._id }).lean().exec()) as any)?.quantity ?? 0)
   const load = (id: unknown) => Invoice.findById(id).lean().exec() as Promise<any>
@@ -95,7 +113,7 @@ async function world() {
     return call('POST', `/invoices/${bill.id}/receive`)
   }
 
-  return { org, orgId, user, supplier, other, warehouse, bolt, nut, call, receipt, fromReceipt, stock, load, mv, movementCount, receive }
+  return { org, orgId, user, supplier, other, warehouse, bolt, nut, call, receipt, typedBill, receiveBill, fromReceipt, linkReceipts, stock, load, mv, movementCount, receive }
 }
 
 describe('a bill made from a goods receipt (FR-22.31)', () => {
@@ -276,8 +294,11 @@ describe('a bill made from a goods receipt (FR-22.31)', () => {
     const putForged = await w.call('PUT', `/invoices/${forged.json.invoice.id}`, { stockSource: { marker: 'movement:x', detectedBy: 'manual' } })
     expect(putForged.status).toBe(200)
     expect((await w.load(forged.json.invoice.id)).stockSource?.marker).toBeUndefined()
-    // Not linked, so it receives its own goods, as every plain bill does.
-    expect((await w.call('POST', `/invoices/${forged.json.invoice.id}/receive`)).status).toBe(200)
+    // Not linked, so it receives its own goods, as every plain bill does: asked first, since the
+    // receipt is the same supplier's (FR-22.31c), and booked when the user says so.
+    const forgedBill = forged.json.invoice
+    expect((await w.receiveBill(forgedBill)).json.code).toBe('receipt_overlap')
+    expect((await w.receiveBill(forgedBill, { acknowledgeOverlap: true })).status).toBe(200)
     expect(await w.stock(w.bolt)).toBe(13)
 
     const r2 = await w.receipt([[w.nut, 4, 2]])
@@ -368,6 +389,645 @@ describe('„Свържи с доставка" (FR-22.32)', () => {
     const received = await w.call('POST', `/invoicing/bills/${bill._id}/link-receipts`, { movementIds: [String(r2._id)] })
     expect(received.status).toBe(422)
     expect((await w.mv(r2._id)).invoiceId).toBeUndefined()
+  }, 60_000)
+})
+
+/** An audit entry is written after the response: wait for it. */
+async function auditRow(filter: Record<string, unknown>): Promise<any> {
+  for (let i = 0; i < 100; i++) {
+    const row = await AuditLog.findOne(filter).lean().exec()
+    if (row) return row
+    await Bun.sleep(20)
+  }
+  return null
+}
+
+/**
+ * Run `meanwhile` just before the claim's compare-and-set on `target` reaches the database: what a
+ * concurrent request would have done between the read and the write, without leaving it to timing.
+ */
+function beforeClaimOf(target: any, meanwhile: () => Promise<unknown>) {
+  const real = StockMovement.updateOne.bind(StockMovement)
+  let fired = false
+  return spyOn(StockMovement, 'updateOne').mockImplementation(((filter: any, update: any) => {
+    const query: any = real(filter, update)
+    if (fired || String(filter?._id) !== String(target._id)) return query
+    fired = true
+    const exec = query.exec.bind(query)
+    query.exec = async () => {
+      await meanwhile()
+      return exec()
+    }
+    return query
+  }) as any)
+}
+
+describe('a receipt that names no supplier (FR-22.31a)', () => {
+  it('asks for the supplier, then bills it: the receipt takes the supplier, stock stays, links both ways', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 10, 5], [w.nut, 4, 2]], { contactId: null })
+    expect([await w.stock(w.bolt), await w.stock(w.nut)]).toEqual([10, 4])
+    const movements = await w.movementCount()
+
+    const page = (await w.call('GET', `/warehouse/movement/${r._id}`)).json.stockMovement
+    expect(page).toMatchObject({ billable: true, needsSupplier: true })
+    expect(page.notBillable).toBeUndefined()
+
+    const refused = await w.fromReceipt([r._id])
+    expect([refused.status, refused.json.code]).toEqual([422, 'receipt_without_supplier'])
+    expect(await Invoice.countDocuments({ orgId: w.orgId }).exec()).toBe(0)
+    expect((await w.mv(r._id)).invoiceId).toBeUndefined()
+
+    const res = await w.fromReceipt([r._id], { contactId: String(w.supplier._id) })
+    expect(res.status).toBe(200)
+    const bill = await w.load(res.json.invoice.id)
+    expect(String(bill.contactId)).toBe(String(w.supplier._id))
+    expect(bill.lines.map((l: any) => [l.description, l.quantity, l.unitPrice])).toEqual([['Болт М8', 10, 5], ['Гайка М8', 4, 2]])
+    expect(bill.stockSource.supplierGivenTo.map(String)).toEqual([String(r._id)])
+    const claimed = await w.mv(r._id)
+    expect(String(claimed.contactId)).toBe(String(w.supplier._id))
+    expect(String(claimed.invoiceId)).toBe(String(bill._id))
+
+    const audit = await auditRow({ orgId: w.org._id, entityType: 'stock_movement', entityId: r._id, action: 'update' })
+    expect(audit?.changes?.[0]).toMatchObject({ field: 'contactId', newValue: String(w.supplier._id) })
+
+    const received = await w.receive(res.json.invoice)
+    expect(received.status).toBe(200)
+    expect(received.json.invoice.status).toBe('received')
+    expect([await w.stock(w.bolt), await w.stock(w.nut)]).toEqual([10, 4])
+    expect(await w.movementCount()).toBe(movements)
+
+    expect((await w.call('GET', `/invoices/${bill._id}`)).json.invoice.receipts.map((x: any) => x.number)).toEqual([r.movementNumber])
+    const after = (await w.call('GET', `/warehouse/movement/${r._id}`)).json.stockMovement
+    expect(after).toMatchObject({ billable: false, bill: { id: String(bill._id) } })
+    expect(after.needsSupplier).toBeUndefined()
+  }, 60_000)
+
+  it('names the supplier in what reads the receipt, and leaves its journal entry alone', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 10, 5]], { contactId: null })
+    const entries = await JournalEntry.find({ orgId: w.orgId, sourceId: r._id }).lean().exec()
+    expect((await w.fromReceipt([r._id], { contactId: String(w.supplier._id) })).status).toBe(200)
+
+    const ledger = await getProductLedger(w.orgId, String(w.bolt._id))
+    expect(ledger.entries.find((e: any) => e.documentRef === r.movementNumber)?.contactId).toBe(String(w.supplier._id))
+    expect(await JournalEntry.find({ orgId: w.orgId, sourceId: r._id }).lean().exec()).toEqual(entries)
+  }, 60_000)
+
+  it('of two conversions naming different suppliers one wins, and the receipt keeps that one', async () => {
+    const w = await world()
+    for (const product of [w.bolt, w.nut]) {
+      const r = await w.receipt([[product, 7, 3]], { contactId: null })
+      const raced = await Promise.all([
+        w.fromReceipt([r._id], { contactId: String(w.supplier._id) }),
+        w.fromReceipt([r._id], { contactId: String(w.other._id) }),
+      ])
+      expect(raced.map(x => x.status).sort()).toEqual([200, 409])
+      const won = raced.find(x => x.status === 200)!
+      const bills = await Invoice.find({ orgId: w.orgId, 'stockSource.movementIds': r._id }).lean().exec() as any[]
+      expect(bills.map(b => String(b._id))).toEqual([String(won.json.invoice.id)])
+      const m = await w.mv(r._id)
+      expect(String(m.contactId)).toBe(String(bills[0].contactId))
+      expect(String(m.invoiceId)).toBe(String(bills[0]._id))
+    }
+  }, 60_000)
+
+  it('does not overwrite a supplier that reached the receipt after it was read', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 7, 3]], { contactId: null })
+    const spy = beforeClaimOf(r, () => StockMovement.collection.updateOne({ _id: r._id }, { $set: { contactId: w.other._id } }))
+    try {
+      const lost = await w.fromReceipt([r._id], { contactId: String(w.supplier._id) })
+      expect([lost.status, lost.json.code]).toEqual([409, 'receipt_already_billed'])
+    } finally {
+      spy.mockRestore()
+    }
+    expect(String((await w.mv(r._id)).contactId)).toBe(String(w.other._id))
+    expect(await Invoice.countDocuments({ orgId: w.orgId }).exec()).toBe(0)
+  }, 60_000)
+
+  it('a claim lost on the second receipt gives the first its claim back, and takes its supplier off', async () => {
+    const w = await world()
+    const first = await w.receipt([[w.bolt, 7, 3]], { contactId: null })
+    const second = await w.receipt([[w.nut, 2, 2]], { contactId: null })
+    const elsewhere = new Invoice()._id
+    const [lower, higher] = [first, second].sort((a, b) => String(a._id).localeCompare(String(b._id)))
+    const spy = beforeClaimOf(higher, () => StockMovement.collection.updateOne({ _id: higher._id }, { $set: { invoiceId: elsewhere } }))
+    try {
+      const lost = await w.fromReceipt([first._id, second._id], { contactId: String(w.supplier._id) })
+      expect([lost.status, lost.json.code]).toEqual([409, 'receipt_already_billed'])
+    } finally {
+      spy.mockRestore()
+    }
+    const back = await w.mv(lower._id)
+    expect(back.invoiceId).toBeUndefined()
+    expect(back.contactId).toBeUndefined()
+    expect(await Invoice.countDocuments({ orgId: w.orgId }).exec()).toBe(0)
+  }, 60_000)
+
+  it('refuses a supplier that is no supplier of this org, and one that contradicts a receipt', async () => {
+    const w = await world()
+    const anonymous = await w.receipt([[w.bolt, 1, 5]], { contactId: null })
+    const named = await w.receipt([[w.nut, 1, 2]])
+    const customer = await createTestContact(w.org._id, { companyName: 'Клиент ООД', type: 'customer' } as any)
+    const both = await createTestContact(w.org._id, { companyName: 'И двете АД', type: 'both' } as any)
+    const gone = await createTestContact(w.org._id, { companyName: 'Закрит ЕООД', type: 'supplier', isActive: false } as any)
+    const otherOrg = await createTestOrg()
+    const foreign = await createTestContact(otherOrg._id, { companyName: 'Чужд доставчик', type: 'supplier' } as any)
+
+    for (const contactId of [String(customer._id), String(gone._id), String(foreign._id), 'not-an-id', '6a0000000000000000000000']) {
+      const res = await w.fromReceipt([anonymous._id], { contactId })
+      expect([res.status, res.json.code]).toEqual([422, 'supplier_not_found'])
+    }
+    const contradiction = await w.fromReceipt([named._id], { contactId: String(w.other._id) })
+    expect([contradiction.status, contradiction.json.code]).toEqual([422, 'supplier_mismatch'])
+    const mixed = await w.fromReceipt([anonymous._id, named._id], { contactId: String(w.other._id) })
+    expect([mixed.status, mixed.json.code]).toEqual([422, 'supplier_mismatch'])
+
+    expect(await Invoice.countDocuments({ orgId: w.orgId }).exec()).toBe(0)
+    expect((await w.mv(anonymous._id)).contactId).toBeUndefined()
+    expect((await w.mv(anonymous._id)).invoiceId).toBeUndefined()
+    expect(String((await w.mv(named._id)).contactId)).toBe(String(w.supplier._id))
+
+    // A contact that is both a customer and a supplier is a supplier.
+    expect((await w.fromReceipt([anonymous._id], { contactId: String(both._id) })).status).toBe(200)
+    expect(String((await w.mv(anonymous._id)).contactId)).toBe(String(both._id))
+  }, 60_000)
+
+  it('bills a named and an unnamed receipt together, and only the unnamed one takes the supplier', async () => {
+    const w = await world()
+    const anonymous = await w.receipt([[w.bolt, 1, 5]], { contactId: null })
+    const named = await w.receipt([[w.nut, 1, 2]])
+    expect((await w.fromReceipt([anonymous._id, named._id])).json.code).toBe('receipt_without_supplier')
+
+    const res = await w.fromReceipt([anonymous._id, named._id], { contactId: String(w.supplier._id) })
+    expect(res.status).toBe(200)
+    const bill = await w.load(res.json.invoice.id)
+    expect(bill.stockSource.supplierGivenTo.map(String)).toEqual([String(anonymous._id)])
+
+    // Voiding gives each back as it was: the unnamed one names nobody, the named one its supplier.
+    expect((await w.call('POST', `/invoices/${bill._id}/void`)).status).toBe(200)
+    expect((await w.mv(anonymous._id)).contactId).toBeUndefined()
+    expect(String((await w.mv(named._id)).contactId)).toBe(String(w.supplier._id))
+  }, 60_000)
+
+  it('a wrong supplier stays correctable: void or delete the bill, and another supplier can bill the receipt', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 3, 5]], { contactId: null })
+
+    const wrong = (await w.fromReceipt([r._id], { contactId: String(w.other._id) })).json.invoice
+    expect((await w.call('DELETE', `/invoices/${wrong.id}`)).status).toBe(200)
+    const deleted = await w.mv(r._id)
+    expect([deleted.invoiceId, deleted.contactId]).toEqual([undefined, undefined])
+    expect((await w.call('GET', `/warehouse/movement/${r._id}`)).json.stockMovement).toMatchObject({ billable: true, needsSupplier: true })
+
+    const wrongAgain = (await w.fromReceipt([r._id], { contactId: String(w.other._id) })).json.invoice
+    expect((await w.receive(wrongAgain)).status).toBe(200)
+    expect((await w.call('POST', `/invoices/${wrongAgain.id}/void`)).status).toBe(200)
+    const voided = await w.mv(r._id)
+    expect([voided.invoiceId, voided.contactId]).toEqual([undefined, undefined])
+    const audit = await auditRow({ orgId: w.org._id, entityId: r._id, correlationId: wrongAgain.id, 'changes.newValue': null })
+    expect(audit?.changes?.[0]).toMatchObject({ field: 'contactId', oldValue: String(w.other._id) })
+
+    const right = await w.fromReceipt([r._id], { contactId: String(w.supplier._id) })
+    expect(right.status).toBe(200)
+    expect((await w.receive(right.json.invoice, 'F-2')).status).toBe(200)
+    expect(String((await w.mv(r._id)).contactId)).toBe(String(w.supplier._id))
+    expect(await w.stock(w.bolt)).toBe(3)
+  }, 60_000)
+
+  it('a Files rollback that voids the bill gives the receipt back the same way', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 3, 5]], { contactId: null })
+    const typed = await w.typedBill([[w.bolt, 3, 5]])
+    expect((await w.linkReceipts(typed, [r._id], { replaceLines: true })).status).toBe(200)
+    expect(String((await w.mv(r._id)).contactId)).toBe(String(w.supplier._id))
+    const doc = await DocFile.create({
+      orgId: w.org._id, docType: 'invoicem', docNumber: '0000000301', docDate: '2026-10-21',
+      originalName: 'bill_0000000301.pdf', currentPath: '/nowhere', currentChecksum: 'x',
+      mimeType: 'application/pdf', size: 1, uploadedBy: w.user._id, status: 'committed', committedIds: [typed.id],
+      uploadedAt: new Date(Date.now() - 3_600_000),
+    } as any)
+
+    await deleteDocFiles(w.orgId, String(w.user._id), [String(doc._id)], { rollback: true, execute: true })
+    expect((await w.load(typed.id)).status).toBe('voided')
+    const m = await w.mv(r._id)
+    expect([m.invoiceId, m.contactId]).toEqual([undefined, undefined])
+    expect((await w.fromReceipt([r._id], { contactId: String(w.other._id) })).status).toBe(200)
+    expect(await w.stock(w.bolt)).toBe(3)
+  }, 60_000)
+
+  it('„Свържи с доставка" lists them after the supplier\'s own, marked, and linking one gives it the bill\'s supplier', async () => {
+    const w = await world()
+    const anonymous = await w.receipt([[w.bolt, 5, 5]], { contactId: null, date: '2026-10-22' })
+    const own = await w.receipt([[w.bolt, 2, 5]], { date: '2026-10-01' })
+    const elsewhere = await w.receipt([[w.bolt, 1, 5]], { contactId: String(w.other._id) })
+
+    const listed = (await w.call('GET', `/invoicing/bills/billable-receipts?contactId=${w.supplier._id}`)).json.receipts
+    expect(listed.map((x: any) => [x.number, !!x.noSupplier])).toEqual([[own.movementNumber, false], [anonymous.movementNumber, true]])
+    expect(listed.map((x: any) => x.number)).not.toContain(elsewhere.movementNumber)
+
+    const empty = await w.call('POST', '/invoices', {
+      type: 'invoice', direction: 'incoming', contactId: String(w.supplier._id), issueDate: '2026-10-23', currency: 'EUR', lines: [], subtotal: 0, total: 0,
+    })
+    const linked = await w.linkReceipts(empty.json.invoice, [own._id, anonymous._id])
+    expect(linked.status).toBe(200)
+    expect(String((await w.mv(anonymous._id)).contactId)).toBe(String(w.supplier._id))
+    expect((await w.load(empty.json.invoice.id)).stockSource.supplierGivenTo.map(String)).toEqual([String(anonymous._id)])
+    expect(await auditRow({ orgId: w.org._id, entityId: anonymous._id, action: 'update', 'changes.field': 'contactId' })).toBeTruthy()
+    expect((await w.call('GET', `/invoicing/bills/billable-receipts?contactId=${w.supplier._id}`)).json.receipts).toEqual([])
+  }, 60_000)
+
+  it('a contact already on the bill is proved only when a receipt is about to take it', async () => {
+    const w = await world()
+    const customer = await createTestContact(w.org._id, { companyName: 'Клиент ООД', type: 'customer' } as any)
+    const named = await w.receipt([[w.bolt, 2, 5]], { contactId: String(customer._id) })
+    const bill = await w.call('POST', '/invoices', {
+      type: 'invoice', direction: 'incoming', contactId: String(customer._id), issueDate: '2026-10-23', currency: 'EUR', lines: [], subtotal: 0, total: 0,
+    })
+    expect((await w.linkReceipts(bill.json.invoice, [named._id], { contactId: String(customer._id) })).status).toBe(200)
+
+    const anonymous = await w.receipt([[w.nut, 2, 2]], { contactId: null })
+    const other = await w.call('POST', '/invoices', {
+      type: 'invoice', direction: 'incoming', contactId: String(customer._id), issueDate: '2026-10-23', currency: 'EUR', lines: [], subtotal: 0, total: 0,
+    })
+    const refused = await w.linkReceipts(other.json.invoice, [anonymous._id])
+    expect([refused.status, refused.json.code]).toEqual([422, 'supplier_not_found'])
+    expect((await w.mv(anonymous._id)).contactId).toBeUndefined()
+  }, 60_000)
+
+  it('linking takes the supplier the user sees: a bill with none saved takes it, one that differs is refused', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 5, 5]], { contactId: null })
+    const blank = await w.call('POST', '/invoices', {
+      type: 'invoice', direction: 'incoming', issueDate: '2026-10-23', currency: 'EUR', lines: [], subtotal: 0, total: 0,
+    })
+    expect(blank.status).toBe(200)
+    const nobody = await w.linkReceipts(blank.json.invoice, [r._id])
+    expect([nobody.status, nobody.json.code]).toEqual([422, 'receipt_without_supplier'])
+    const customer = await createTestContact(w.org._id, { companyName: 'Клиент ООД', type: 'customer' } as any)
+    expect((await w.linkReceipts(blank.json.invoice, [r._id], { contactId: String(customer._id) })).json.code).toBe('supplier_not_found')
+
+    // The form shows another supplier than the bill saved: this receipt must not take the saved one.
+    const saved = await w.call('POST', '/invoices', {
+      type: 'invoice', direction: 'incoming', contactId: String(w.other._id), issueDate: '2026-10-23', currency: 'EUR', lines: [], subtotal: 0, total: 0,
+    })
+    const stale = await w.linkReceipts(saved.json.invoice, [r._id], { contactId: String(w.supplier._id) })
+    expect([stale.status, stale.json.code]).toEqual([422, 'supplier_mismatch'])
+    const m = await w.mv(r._id)
+    expect([m.contactId, m.invoiceId]).toEqual([undefined, undefined])
+
+    const linked = await w.linkReceipts(blank.json.invoice, [r._id], { contactId: String(w.supplier._id) })
+    expect(linked.status).toBe(200)
+    expect(String((await w.load(blank.json.invoice.id)).contactId)).toBe(String(w.supplier._id))
+    expect(String((await w.mv(r._id)).contactId)).toBe(String(w.supplier._id))
+  }, 60_000)
+})
+
+describe('a receipt that still cannot be billed says why (FR-22.31a)', () => {
+  const page = async (w: any, m: any) => (await w.call('GET', `/warehouse/movement/${m._id}`)).json.stockMovement
+
+  it('a draft, and a voided document\'s own receipt', async () => {
+    const w = await world()
+    const draft = await w.receipt([[w.bolt, 1, 5]], { confirm: false })
+    expect(await page(w, draft)).toMatchObject({ billable: false, notBillable: { code: 'receipt_not_completed' } })
+
+    const plain = await w.typedBill([[w.nut, 2, 2]])
+    expect((await w.receiveBill(plain)).status).toBe(200)
+    const own: any = await StockMovement.findOne({ orgId: w.orgId, invoiceId: plain.id, type: 'receipt' }).lean().exec()
+    expect(await page(w, own)).toMatchObject({ billable: false, bill: { id: plain.id } })
+    expect((await page(w, own)).notBillable).toBeUndefined()
+
+    expect((await w.call('POST', `/invoices/${plain.id}/void`)).status).toBe(200)
+    const number = (await w.load(plain.id)).invoiceNumber
+    expect(await page(w, own)).toMatchObject({ billable: false, notBillable: { code: 'receipt_not_billable', number } })
+    expect((await page(w, own)).bill).toBeUndefined()
+  }, 60_000)
+
+  it('the mirror of a removed document is no delivery: no bill, in no list, overlapping nothing', async () => {
+    const w = await world()
+    await w.receipt([[w.bolt, 10, 5]])
+    const line = { productId: String(w.bolt._id), quantity: 6, unitCost: 5, totalCost: 30 }
+    const out = await w.call('POST', '/warehouse/movement', { type: 'transfer', date: '2026-10-20', fromWarehouseId: String(w.warehouse._id), lines: [line], totalAmount: 30 })
+    const outId = out.json.stockMovement._id || out.json.stockMovement.id
+    expect((await w.call('POST', `/warehouse/movement/${outId}/confirm`, {})).status).toBe(200)
+    const doc = await DocFile.create({
+      orgId: w.org._id, docType: 'sklrazp', docNumber: '0000000777', docDate: '2026-10-20',
+      originalName: 'sklrazp_0000000777.pdf', currentPath: '/nowhere', currentChecksum: 'x',
+      mimeType: 'application/pdf', size: 1, uploadedBy: w.user._id, status: 'committed', committedIds: [outId],
+      uploadedAt: new Date(Date.now() - 3_600_000),
+    } as any)
+
+    // The real rollback books the mirror: a `receipt` that names no supplier.
+    await deleteDocFiles(w.orgId, String(w.user._id), [String(doc._id)], { rollback: true, execute: true })
+    const mirror: any = await StockMovement.findOne({ orgId: w.orgId, type: 'receipt', status: 'completed', contactId: null }).lean().exec()
+    expect(mirror).toBeTruthy()
+    expect(await w.stock(w.bolt)).toBe(10)
+
+    expect(await page(w, mirror)).toMatchObject({ billable: false, notBillable: { code: 'receipt_is_reversal' } })
+    expect((await w.fromReceipt([mirror._id], { contactId: String(w.supplier._id) })).json.code).toBe('receipt_is_reversal')
+    const listed = (await w.call('GET', `/invoicing/bills/billable-receipts?contactId=${w.supplier._id}`)).json.receipts
+    expect(listed.map((x: any) => x.id)).not.toContain(String(mirror._id))
+    await StockMovement.deleteMany({ orgId: w.orgId, contactId: { $ne: null } }).exec()
+    const bill = await w.typedBill([[w.bolt, 6, 5]])
+    expect((await w.receiveBill(bill)).status).toBe(200)
+  }, 60_000)
+
+  it('a reversal pointing at a sale that is gone was never a claim, so it is not free', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 6, 5]], { contactId: null })
+    await StockMovement.updateOne({ _id: r._id }, { $set: { invoiceId: new Invoice()._id } }).exec()
+    expect(await page(w, r)).toMatchObject({ billable: false, notBillable: { code: 'receipt_not_billable' } })
+
+    // A claim left by a crash names its supplier, and stays free as it was.
+    const named = await w.receipt([[w.nut, 1, 2]])
+    await StockMovement.updateOne({ _id: named._id }, { $set: { invoiceId: new Invoice()._id } }).exec()
+    expect((await page(w, named)).billable).toBe(true)
+  }, 60_000)
+})
+
+describe('a typed draft bill takes a delivery (FR-22.32a)', () => {
+  it('replaces the typed lines when told to; the bill keeps its own number, dates and payment method', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 10, 5], [w.nut, 4, 2]])
+    expect([await w.stock(w.bolt), await w.stock(w.nut)]).toEqual([10, 4])
+    const movements = await w.movementCount()
+    const typed = await w.typedBill([[w.bolt, 10, 5.4]], { reference: 'F-77', dueDate: '2026-12-01', paymentMethod: 'bank_transfer', notes: 'по договор' })
+    const before = await w.load(typed.id)
+
+    const refused = await w.linkReceipts(typed, [r._id])
+    expect([refused.status, refused.json.code]).toEqual([422, 'bill_not_empty'])
+    expect((await w.mv(r._id)).invoiceId).toBeUndefined()
+
+    const linked = await w.linkReceipts(typed, [r._id], { replaceLines: true })
+    expect(linked.status).toBe(200)
+    const bill = await w.load(typed.id)
+    expect(bill.lines.map((l: any) => [l.description, l.quantity, l.unitPrice])).toEqual([['Болт М8', 10, 5], ['Гайка М8', 4, 2]])
+    expect([bill.subtotal, bill.taxTotal, bill.total, bill.amountDue]).toEqual([58, 11.6, 69.6, 69.6])
+    expect(bill.stockSource.marker).toBe(`movement:${r._id}`)
+    expect(bill.status).toBe('draft')
+    expect(bill.invoiceNumber).toBe(before.invoiceNumber)
+    expect(bill.reference).toBe('F-77')
+    expect(bill.paymentMethod).toBe('bank_transfer')
+    expect(bill.notes).toBe('по договор')
+    expect(bill.issueDate).toEqual(before.issueDate)
+    expect(bill.dueDate).toEqual(before.dueDate)
+    expect(String((await w.mv(r._id)).invoiceId)).toBe(String(bill._id))
+    expect((await w.call('GET', `/warehouse/movement/${r._id}`)).json.stockMovement.bill.id).toBe(String(bill._id))
+
+    const received = await w.receiveBill(typed)
+    expect(received.status).toBe(200)
+    expect(received.json.invoice.status).toBe('received')
+    expect([await w.stock(w.bolt), await w.stock(w.nut)]).toEqual([10, 4])
+    expect(await w.movementCount()).toBe(movements)
+  }, 60_000)
+
+  it('asking on a bill with no lines changes nothing, and a received bill stays refused', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 2, 5]])
+    const empty = await w.call('POST', '/invoices', {
+      type: 'invoice', direction: 'incoming', contactId: String(w.supplier._id), issueDate: '2026-10-23', currency: 'EUR', lines: [], subtotal: 0, total: 0,
+    })
+    expect((await w.linkReceipts(empty.json.invoice, [r._id], { replaceLines: true })).status).toBe(200)
+
+    const r2 = await w.receipt([[w.nut, 1, 2]])
+    const received = await w.typedBill([[w.bolt, 1, 5]])
+    expect((await w.receiveBill(received, { acknowledgeOverlap: true })).status).toBe(200)
+    const late = await w.linkReceipts(received, [r2._id], { replaceLines: true })
+    expect([late.status, late.json.code]).toEqual([422, 'bill_not_draft'])
+    expect((await w.mv(r2._id)).invoiceId).toBeUndefined()
+  }, 60_000)
+
+  it('keeps the lines of a bill written against a supplier order: they book the delivery onto it', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 2, 5]])
+    const onOrder = await w.typedBill([[w.bolt, 2, 5]])
+    await Invoice.updateOne({ _id: onOrder.id }, { $set: { 'lines.0.orderRef': { orderId: new Invoice()._id } } }).exec()
+    const refused = await w.linkReceipts(onOrder, [r._id], { replaceLines: true })
+    expect([refused.status, refused.json.code]).toEqual([422, 'bill_on_order'])
+    expect((await w.load(onOrder.id)).lines).toHaveLength(1)
+    expect((await w.load(onOrder.id)).stockSource?.marker).toBeUndefined()
+    expect((await w.mv(r._id)).invoiceId).toBeUndefined()
+  }, 60_000)
+
+  it('a claim lost after the lines were replaced puts the typed lines back', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 2, 5]])
+    const typed = await w.typedBill([[w.nut, 3, 2.5]], { reference: 'F-78' })
+    const spy = beforeClaimOf(r, () => StockMovement.collection.updateOne({ _id: r._id }, { $set: { invoiceId: new Invoice()._id } }))
+    try {
+      const lost = await w.linkReceipts(typed, [r._id], { replaceLines: true })
+      expect([lost.status, lost.json.code]).toEqual([409, 'receipt_already_billed'])
+    } finally {
+      spy.mockRestore()
+    }
+    const bill = await w.load(typed.id)
+    expect(bill.lines.map((l: any) => [l.description, l.quantity, l.unitPrice])).toEqual([['Гайка М8', 3, 2.5]])
+    expect([bill.subtotal, bill.total]).toEqual([typed.subtotal, typed.total])
+    expect(bill.stockSource?.marker).toBeUndefined()
+  }, 60_000)
+})
+
+describe('receiving a bill warns before it double-books (FR-22.31c)', () => {
+  it('names the receipts, books nothing, draws no number, and receives when told to', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 10, 5]])
+    const typed = await w.typedBill([[w.bolt, 10, 5], [w.nut, 1, 2]])
+    const number = (await w.load(typed.id)).invoiceNumber
+    const movements = await w.movementCount()
+
+    const asked = await w.receiveBill(typed)
+    expect([asked.status, asked.json.code]).toEqual([409, 'receipt_overlap'])
+    expect(asked.json.message).toContain(r.movementNumber)
+    expect(asked.json.typedLines).toBe(2)
+    expect(asked.json.receipts).toEqual([expect.objectContaining({ id: String(r._id), number: r.movementNumber, lineCount: 1, total: 50 })])
+    expect(asked.json.receipts[0].noSupplier).toBeUndefined()
+    expect(await w.stock(w.bolt)).toBe(10)
+    expect(await w.movementCount()).toBe(movements)
+    const still = await w.load(typed.id)
+    expect([still.status, still.invoiceNumber]).toEqual(['draft', number])
+
+    // The first number of the series: the refusal above drew none.
+    const received = await w.receiveBill(typed, { acknowledgeOverlap: true })
+    expect(received.status).toBe(200)
+    expect(received.json.invoice.status).toBe('received')
+    expect(received.json.invoice.invoiceNumber).toMatch(/^BILL-\d{4}-0*1$/)
+    expect([await w.stock(w.bolt), await w.stock(w.nut)]).toEqual([20, 1])
+
+    const audit = await auditRow({ orgId: w.org._id, action: 'receive_overlap_acknowledged', entityId: (await w.load(typed.id))._id })
+    expect(audit?.changes?.[0]).toMatchObject({ field: 'receipts', newValue: r.movementNumber })
+  }, 60_000)
+
+  it('takes no body when there is nothing to ask, and records no acknowledgement for nothing', async () => {
+    const w = await world()
+    const quiet = await w.typedBill([[w.bolt, 1, 5]])
+    expect((await w.receiveBill(quiet)).status).toBe(200)
+    const told = await w.typedBill([[w.nut, 1, 2]])
+    expect((await w.receiveBill(told, { acknowledgeOverlap: true })).status).toBe(200)
+    const empty = await w.typedBill([[w.nut, 2, 2]], { reference: 'F-3' })
+    expect((await w.receiveBill(empty, {})).status).toBe(200)
+    await Bun.sleep(100)
+    expect(await AuditLog.countDocuments({ orgId: w.org._id, action: 'receive_overlap_acknowledged' }).exec()).toBe(0)
+  }, 60_000)
+
+  it('with no supplier on the receipt, only the same article at the same quantity on one line', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 10, 5], [w.nut, 3, 2]], { contactId: null })
+
+    const differs = await w.typedBill([[w.bolt, 9, 5]])
+    expect((await w.receiveBill(differs)).status).toBe(200)
+
+    const same = await w.typedBill([[w.bolt, 10, 5.5]])
+    const asked = await w.receiveBill(same)
+    expect([asked.status, asked.json.code]).toEqual([409, 'receipt_overlap'])
+    expect(asked.json.receipts).toEqual([expect.objectContaining({ number: r.movementNumber, noSupplier: true })])
+
+    // Summed quantities are no match: 4 + 6 is two lines of 10 only by accident.
+    const split = await w.typedBill([[w.bolt, 4, 5], [w.bolt, 6, 5]], { reference: 'F-4' })
+    expect((await w.receiveBill(split)).status).toBe(200)
+  }, 60_000)
+
+  it('puts the supplier\'s own receipts first, and a bill with no supplier sees only unnamed ones', async () => {
+    const w = await world()
+    const unnamed = await w.receipt([[w.bolt, 5, 5]], { contactId: null, date: '2026-10-21' })
+    const own = await w.receipt([[w.bolt, 2, 5]], { date: '2026-10-02' })
+
+    const typed = await w.typedBill([[w.bolt, 5, 5]])
+    expect((await w.receiveBill(typed)).json.receipts.map((x: any) => x.number)).toEqual([own.movementNumber, unnamed.movementNumber])
+
+    const nobody = await w.typedBill([[w.bolt, 5, 5]], { contactId: null, reference: 'F-5' })
+    expect((await w.receiveBill(nobody)).json.receipts.map((x: any) => x.number)).toEqual([unnamed.movementNumber])
+  }, 60_000)
+
+  it('counts a window of a named constant around the issue date, both ways, ends included', async () => {
+    const w = await world()
+    expect(RECEIPT_OVERLAP_WINDOW_DAYS).toBe(60)
+    const inBefore = await w.receipt([[w.bolt, 1, 5]], { date: '2026-08-22' }) // 60 days before 10-21
+    const inAfter = await w.receipt([[w.bolt, 1, 5]], { date: '2026-12-20' }) // 60 days after
+    await w.receipt([[w.bolt, 1, 5]], { date: '2026-08-21' }) // 61
+    await w.receipt([[w.bolt, 1, 5]], { date: '2026-12-21' }) // 61
+    const typed = await w.typedBill([[w.bolt, 1, 5]])
+    const asked = await w.receiveBill(typed)
+    expect(asked.json.receipts.map((x: any) => x.number).sort()).toEqual([inBefore.movementNumber, inAfter.movementNumber].sort())
+
+    const lonely = await world()
+    await lonely.receipt([[lonely.bolt, 1, 5]], { date: '2026-08-21' })
+    await lonely.receipt([[lonely.bolt, 1, 5]], { date: '2026-12-21' })
+    expect((await lonely.receiveBill(await lonely.typedBill([[lonely.bolt, 1, 5]]))).status).toBe(200)
+  }, 60_000)
+
+  describe('its false friends', () => {
+    it('a receipt claimed by another bill', async () => {
+      const w = await world()
+      const r = await w.receipt([[w.bolt, 10, 5]])
+      expect((await w.fromReceipt([r._id])).status).toBe(200)
+      const typed = await w.typedBill([[w.bolt, 10, 5]])
+      expect((await w.receiveBill(typed)).status).toBe(200)
+      expect(await w.stock(w.bolt)).toBe(20)
+    }, 60_000)
+
+    it('the receipt a received bill booked for itself, and the same receipt once that bill is voided', async () => {
+      const w = await world()
+      const first = await w.typedBill([[w.bolt, 10, 5]])
+      expect((await w.receiveBill(first)).status).toBe(200)
+      const second = await w.typedBill([[w.bolt, 10, 5]])
+      expect((await w.receiveBill(second)).status).toBe(200)
+      expect(await w.stock(w.bolt)).toBe(20)
+
+      expect((await w.call('POST', `/invoices/${first.id}/void`)).status).toBe(200)
+      expect(await w.stock(w.bolt)).toBe(10)
+      const third = await w.typedBill([[w.bolt, 10, 5]])
+      expect((await w.receiveBill(third)).status).toBe(200)
+    }, 60_000)
+
+    it('…while a receipt a voided bill gave back is free again, and is named', async () => {
+      const w = await world()
+      const r = await w.receipt([[w.bolt, 10, 5]])
+      const linked = (await w.fromReceipt([r._id])).json.invoice
+      expect((await w.call('POST', `/invoices/${linked.id}/void`)).status).toBe(200)
+      const typed = await w.typedBill([[w.bolt, 10, 5]])
+      const asked = await w.receiveBill(typed)
+      expect([asked.status, asked.json.receipts?.map((x: any) => x.number)]).toEqual([409, [r.movementNumber]])
+    }, 60_000)
+
+    it('an article that holds no stock', async () => {
+      const w = await world()
+      const service = await createTestProduct(w.org._id, { sku: 'SRV-1', name: 'Монтаж', purchasePrice: 5, sellingPrice: 9, taxRate: 20, trackInventory: false } as any)
+      await w.receipt([[service, 1, 5]])
+      const typed = await w.typedBill([[service, 1, 5]])
+      expect((await w.receiveBill(typed)).status).toBe(200)
+      expect(await StockMovement.countDocuments({ orgId: w.orgId, invoiceId: typed.id }).exec()).toBe(0)
+    }, 60_000)
+
+    it('another supplier\'s receipt, and a draft one', async () => {
+      const w = await world()
+      await w.receipt([[w.bolt, 10, 5]], { contactId: String(w.other._id) })
+      await w.receipt([[w.bolt, 10, 5]], { confirm: false })
+      const typed = await w.typedBill([[w.bolt, 10, 5]])
+      expect((await w.receiveBill(typed)).status).toBe(200)
+    }, 60_000)
+
+    it('a receipt that put nothing in stock: no warehouse, or a price-only line', async () => {
+      const w = await world()
+      await w.receipt([[w.bolt, 10, 5]], { noWarehouse: true })
+      await w.receipt([[w.nut, 0, 2], [w.bolt, 0, 5]])
+      const typed = await w.typedBill([[w.bolt, 10, 5], [w.nut, 1, 2]])
+      expect((await w.receiveBill(typed)).status).toBe(200)
+    }, 60_000)
+
+    it('a bill line that will not book: no warehouse on it', async () => {
+      const w = await world()
+      await w.receipt([[w.nut, 10, 2]])
+      const typed = await w.typedBill([[w.bolt, 1, 5]])
+      await Invoice.updateOne({ _id: typed.id }, {
+        $push: { lines: { productId: w.nut._id, description: 'Гайка М8', quantity: 10, unitPrice: 2, taxRate: 20 } },
+      }).exec()
+      expect((await w.receiveBill(typed)).status).toBe(200)
+    }, 60_000)
+
+    it('anything but an unlinked supplier bill', async () => {
+      const w = await world()
+      await w.receipt([[w.bolt, 10, 5]])
+      const typed = await w.load((await w.typedBill([[w.bolt, 10, 5]])).id)
+      expect(await receiptsOverlapping(w.orgId, typed)).toMatchObject({ typedLines: 1 })
+      expect(await receiptsOverlapping(w.orgId, { ...typed, type: 'credit_note' })).toBeNull()
+      expect(await receiptsOverlapping(w.orgId, { ...typed, type: 'debit_note' })).toBeNull()
+      expect(await receiptsOverlapping(w.orgId, { ...typed, direction: 'outgoing' })).toBeNull()
+      expect(await receiptsOverlapping(w.orgId, { ...typed, status: 'received' })).toBeNull()
+      expect(await receiptsOverlapping(w.orgId, { ...typed, stockSource: { marker: 'stokrazp:1' } })).toBeNull()
+    }, 60_000)
+  })
+
+  it('stands at `/send` too: a bill issued there books its goods all the same', async () => {
+    const w = await world()
+    await w.receipt([[w.bolt, 10, 5]])
+    const typed = await w.typedBill([[w.bolt, 10, 5]])
+    const asked = await w.call('POST', `/invoices/${typed.id}/send`, {})
+    expect([asked.status, asked.json.code]).toEqual([409, 'receipt_overlap'])
+    expect((await w.load(typed.id)).status).toBe('draft')
+    expect(await w.stock(w.bolt)).toBe(10)
+
+    const sent = await w.call('POST', `/invoices/${typed.id}/send`, { acknowledgeOverlap: true })
+    expect(sent.status).toBe(200)
+    expect(sent.json.invoice.status).toBe('received')
+    expect(await w.stock(w.bolt)).toBe(20)
+    expect(await auditRow({ orgId: w.org._id, action: 'receive_overlap_acknowledged', entityId: (await w.load(typed.id))._id })).toBeTruthy()
+  }, 60_000)
+
+  it('the way out it offers: linked to the delivery, the same bill receives and moves nothing', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 10, 5]], { contactId: null })
+    const typed = await w.typedBill([[w.bolt, 10, 5.5]], { reference: 'F-9' })
+    const asked = await w.receiveBill(typed)
+    expect(asked.json.code).toBe('receipt_overlap')
+    const movements = await w.movementCount()
+
+    expect((await w.linkReceipts(typed, asked.json.receipts.map((x: any) => x.id), { replaceLines: true })).status).toBe(200)
+    expect(String((await w.mv(r._id)).contactId)).toBe(String(w.supplier._id))
+    const received = await w.receiveBill(typed)
+    expect(received.status).toBe(200)
+    expect(await w.stock(w.bolt)).toBe(10)
+    expect(await w.movementCount()).toBe(movements)
   }, 60_000)
 })
 

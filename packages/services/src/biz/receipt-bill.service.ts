@@ -1,5 +1,5 @@
 import { mongoose } from 'db/connection'
-import { Invoice, Org, Product, StockMovement } from 'db/models'
+import { Contact, Invoice, Org, Product, StockMovement } from 'db/models'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 import { createAuditEntry } from './audit-log.service.js'
@@ -26,6 +26,18 @@ import { getNextDraftInvoiceNumber, getNextInvoiceNumber } from './invoice-numbe
  * One bill may cover several receipts, all from ONE supplier (D-2). Voiding or deleting the bill
  * releases the claims — the receipt can be billed again — and moves nothing either way (§5.3).
  * A receipt a live bill claims cannot be rolled back under it (§5.4, `doc-delete.service.ts`).
+ *
+ * A receipt that names no supplier is billed too (FR-22.31a): a completed receipt can no longer be
+ * edited, so it would otherwise stay unbillable for ever. The bill's supplier is written onto it in
+ * the claim's own compare-and-set, and only there, so two bills racing for it cannot overwrite each
+ * other. The bill remembers which receipts it named (`stockSource.supplierGivenTo`), and releasing
+ * the claim takes the supplier off again: a wrong choice must stay correctable, or the receipt would
+ * be refused every other supplier from then on. The supplier feeds no journal entry (a receipt's
+ * valuation entry carries no contact); the ledgers and reports read it, and name it from then on.
+ *
+ * A bill typed by hand for goods a receipt already booked is what this module exists to prevent, so
+ * receiving an unlinked bill is refused while such a receipt stands unclaimed (FR-22.31c,
+ * `receiptsOverlapping`). The refusal is a question: `acknowledgeOverlap` answers it.
  *
  * Prices (D-2): the bill keeps the supplier's prices as typed and the form shows the difference
  * to the receipt's cost per line. Receiving the bill moves the product's `purchasePrice` to the
@@ -56,6 +68,19 @@ export const MOVEMENT_MARKER = 'movement:'
 const RELEASED = ['voided', 'cancelled']
 /** Quantities are compared at this precision — the form's number fields carry floats. */
 const EPS = 1e-6
+/**
+ * How far from a bill's issue date, either way, a goods receipt can still be the delivery that bill
+ * is for (FR-22.31c). Goods usually come first, days ahead of the invoice; a bill can also come
+ * first, when it is paid in advance. Two months each way covers the slowest supplier invoicing at
+ * the end of the following month. A wider window only finds an older delivery of the same article,
+ * which is what a supplier who delivers often has anyway.
+ */
+export const RECEIPT_OVERLAP_WINDOW_DAYS = 60
+const DAY_MS = 24 * 60 * 60 * 1000
+/** Receipts read per bill: a limit on the work, not on the answer. */
+const OVERLAP_SCAN_LIMIT = 200
+/** Receipts one refusal names: a person reads them. */
+const OVERLAP_REPORT_LIMIT = 20
 
 function num(v: unknown): number {
   const n = Number(v)
@@ -92,18 +117,30 @@ export function linkedMovementIds(invoice: any): string[] {
 export interface ReceiptBillingState {
   /** The receipt may be billed now. */
   billable: boolean
+  /** It may, once someone says whose goods they were: the receipt names no supplier. */
+  needsSupplier?: boolean
   /** Why not, when it may not be. */
-  reason?: 'not_a_receipt' | 'receipt_not_completed' | 'receipt_without_supplier' | 'receipt_already_billed' | 'receipt_not_billable'
+  reason?: 'not_a_receipt' | 'receipt_not_completed' | 'receipt_is_reversal' | 'receipt_already_billed' | 'receipt_not_billable'
   /** The live document that holds it (its bill, or the bill whose own receipt it is). */
   invoice?: { id: string; number: string; status: string; type: string; direction: string }
 }
+
+/**
+ * The note `reverseMovement` (`doc-delete.service.ts`) leaves on the mirror of a removed document.
+ * Mirroring a dispatch or a write-off it books a `receipt`: goods put back, not delivered, and no
+ * supplier billed them. It names no supplier, so nothing else tells it from a delivery.
+ */
+const REMOVAL_REVERSAL_MARKER = '(docdelete:'
+const isRemovalReversal = (m: any) => String(m.notes || '').includes(REMOVAL_REVERSAL_MARKER)
 
 /**
  * Whether a movement can be billed, and if not, who holds it.
  *
  * `invoices` maps the ids its `invoiceId` may point at to those invoices (lean). A movement whose
  * `invoiceId` names:
- *   - no document at all — a claim left by a crash between delete and release — is free;
+ *   - no document at all — a claim left by a crash between delete and release — is free, provided
+ *     it names a supplier: a claim always has one, so a movement without one was never claimed.
+ *     It is what a rolled-back till sale leaves behind, its reversal pointing at a sale that is gone;
  *   - a live document — billed (a receipt linked to a bill, or the bill's own receipt);
  *   - a voided document that LISTS it (a claim the void did not release) — free;
  *   - a voided document that does not list it — that document booked it and its void reversed
@@ -112,14 +149,15 @@ export interface ReceiptBillingState {
 export function billingStateOf(movement: any, invoices: Map<string, any>): ReceiptBillingState {
   if (movement.type !== 'receipt') return { billable: false, reason: 'not_a_receipt' }
   if (movement.status !== 'completed') return { billable: false, reason: 'receipt_not_completed' }
-  if (!movement.contactId) return { billable: false, reason: 'receipt_without_supplier' }
+  if (isRemovalReversal(movement)) return { billable: false, reason: 'receipt_is_reversal' }
+  const free: ReceiptBillingState = movement.contactId ? { billable: true } : { billable: true, needsSupplier: true }
   const invId = idOf(movement.invoiceId)
-  if (!invId) return { billable: true }
+  if (!invId) return free
   const inv = invoices.get(invId)
-  if (!inv) return { billable: true }
+  if (!inv) return movement.contactId ? free : { billable: false, reason: 'receipt_not_billable' }
   const ref = { id: invId, number: inv.invoiceNumber, status: inv.status, type: inv.type, direction: inv.direction }
   if (!RELEASED.includes(inv.status)) return { billable: false, reason: 'receipt_already_billed', invoice: ref }
-  if (linkedMovementIds(inv).includes(idOf(movement._id))) return { billable: true }
+  if (linkedMovementIds(inv).includes(idOf(movement._id))) return free
   return { billable: false, reason: 'receipt_not_billable', invoice: ref }
 }
 
@@ -148,9 +186,14 @@ export async function billingByMovement(orgId: string, movements: any[]): Promis
 const REFUSAL: Record<string, { status: number; message: (m: any, s: ReceiptBillingState) => string }> = {
   not_a_receipt: { status: 422, message: m => `${m.movementNumber} is not a goods receipt` },
   receipt_not_completed: { status: 422, message: m => `${m.movementNumber} is not booked yet — confirm it first` },
-  receipt_without_supplier: { status: 422, message: m => `${m.movementNumber} names no supplier` },
+  receipt_is_reversal: { status: 422, message: m => `${m.movementNumber} puts back the goods of a removed document — no supplier billed it` },
   receipt_already_billed: { status: 409, message: (m, s) => `${m.movementNumber} is already billed by ${s.invoice?.number}` },
-  receipt_not_billable: { status: 409, message: (m, s) => `${m.movementNumber} was booked by ${s.invoice?.number}, which is voided — it is no receipt of its own` },
+  receipt_not_billable: {
+    status: 409,
+    message: (m, s) => (s.invoice
+      ? `${m.movementNumber} was booked by ${s.invoice.number}, which is voided — it is no receipt of its own`
+      : `${m.movementNumber} reverses a document that is gone — it is no receipt of its own`),
+  },
 }
 
 /** Load `movementIds` and refuse unless every one may be billed, by one bill, from one supplier. */
@@ -173,11 +216,52 @@ async function loadBillableReceipts(orgId: string, movementIds: string[]): Promi
       ...(state.invoice ? { invoiceId: state.invoice.id, invoiceNumber: state.invoice.number } : {}),
     })
   }
-  const suppliers = new Set(movements.map(m => idOf(m.contactId)))
+  // A receipt that names no supplier takes the bill's, so only the ones that name one can clash.
+  const suppliers = new Set(movements.map(m => idOf(m.contactId)).filter(Boolean))
   if (suppliers.size > 1) {
     throw new ReceiptBillError(422, 'mixed_suppliers', 'One bill covers the receipts of one supplier — these name different suppliers')
   }
   return movements
+}
+
+/**
+ * A contact that may be named on a receipt: an active supplier (or `both`) of this org. Another
+ * org's contact reads as one that does not exist.
+ */
+async function assertSupplier(orgId: string, contactId: string): Promise<void> {
+  const known = isId(contactId) && await Contact.exists({
+    orgId, _id: contactId, type: { $in: ['supplier', 'both'] }, isActive: { $ne: false },
+  } as any).exec()
+  if (!known) throw new ReceiptBillError(422, 'supplier_not_found', 'Choose a supplier of this organization')
+}
+
+interface SettledSupplier {
+  supplierId: string
+  /** The receipts that name none, and take this one with their claim. */
+  unnamed: any[]
+}
+
+/**
+ * The supplier of a bill for these receipts: the one they name, or `chosen`. `chosen` must not
+ * contradict a receipt, and is needed the moment one of them names nobody.
+ *
+ * `check` proves `chosen` even when no receipt takes it: `from-receipt` makes the bill out to it.
+ * A link keeps the bill's own contact, which is proved only when a receipt is about to take it.
+ */
+async function settleSupplier(orgId: string, movements: any[], chosen: string | undefined, check: boolean): Promise<SettledSupplier> {
+  const named = idOf(movements.find(m => m.contactId)?.contactId)
+  if (chosen && named && idOf(chosen) !== named) {
+    throw new ReceiptBillError(422, 'supplier_mismatch', 'The receipts are from another supplier')
+  }
+  const unnamed = movements.filter(m => !m.contactId)
+  if (unnamed.length && !chosen) {
+    const first = unnamed[0]
+    throw new ReceiptBillError(422, 'receipt_without_supplier', `${first.movementNumber} names no supplier — choose it`, {
+      movementId: idOf(first._id), movementNumber: first.movementNumber,
+    })
+  }
+  if (chosen && (check || unnamed.length)) await assertSupplier(orgId, idOf(chosen))
+  return { supplierId: named || idOf(chosen), unnamed }
 }
 
 // ── The bill's lines ────────────────────────────────────────────────────────────────────────
@@ -239,11 +323,12 @@ export function billTotalsOf(lines: any[]): { subtotal: number; taxTotal: number
   return { subtotal: round2(subtotal), taxTotal: round2(tax), total: round2(round2(subtotal) + round2(tax)) }
 }
 
-function stockSourceFor(movements: any[]): Record<string, any> {
+function stockSourceFor(movements: any[], unnamed: any[]): Record<string, any> {
   return {
     marker: `${MOVEMENT_MARKER}${movements.map(m => idOf(m._id)).join(',')}`,
     docNumber: movements.map(m => m.movementNumber).join(', '),
     movementIds: movements.map(m => m._id),
+    ...(unnamed.length ? { supplierGivenTo: unnamed.map(m => m._id) } : {}),
     detectedBy: 'manual',
     linkedAt: new Date(),
   }
@@ -254,50 +339,88 @@ function statusEntry(status: string, fromStatus: string | undefined, userId: str
 }
 
 /**
+ * Give claims back: only the ones `billId` still holds, never another bill's. `givenTo` are the
+ * receipts that bill named: they go back to naming nobody, as they were before it.
+ */
+async function releaseClaims(orgId: string, billId: unknown, ids: unknown[], givenTo: unknown[]): Promise<number> {
+  const given = new Set(givenTo.map(idOf))
+  const named = ids.filter(id => given.has(idOf(id)))
+  const others = ids.filter(id => !given.has(idOf(id)))
+  let released = 0
+  if (named.length) {
+    released += (await StockMovement.updateMany({ orgId, _id: { $in: named }, invoiceId: billId } as any, { $unset: { invoiceId: 1, contactId: 1 } }).exec()).modifiedCount
+  }
+  if (others.length) {
+    released += (await StockMovement.updateMany({ orgId, _id: { $in: others }, invoiceId: billId } as any, { $unset: { invoiceId: 1 } }).exec()).modifiedCount
+  }
+  return released
+}
+
+/**
  * Claim the receipts for `billId`: one compare-and-set per receipt on the `invoiceId` it was read
  * with, in `_id` order (so two requests for overlapping sets meet on the same first receipt, and
- * one of them takes none). Returns the ids it claimed; on a lost race it gives them back and
- * throws 409.
+ * one of them takes none). A receipt that names no supplier takes `supplierId` in the same update,
+ * guarded on still naming none: of two bills naming different suppliers, one writes its supplier
+ * and the other loses the claim. On a lost race it gives back what it took and throws 409.
  */
-async function claimReceipts(orgId: string, billId: unknown, movements: any[]): Promise<void> {
-  const claimed: unknown[] = []
+async function claimReceipts(orgId: string, billId: unknown, movements: any[], supplierId: string): Promise<void> {
+  const claimed: any[] = []
   const sorted = [...movements].sort((a, b) => idOf(a._id).localeCompare(idOf(b._id)))
   for (const m of sorted) {
+    const unnamed = !m.contactId
     const res = await StockMovement.updateOne(
-      { _id: m._id, orgId, type: 'receipt', status: 'completed', invoiceId: m.invoiceId ?? null } as any,
-      { $set: { invoiceId: billId } },
+      { _id: m._id, orgId, type: 'receipt', status: 'completed', invoiceId: m.invoiceId ?? null, ...(unnamed ? { contactId: null } : {}) } as any,
+      { $set: { invoiceId: billId, ...(unnamed ? { contactId: supplierId } : {}) } },
     ).exec()
     if (res.modifiedCount === 1) {
-      claimed.push(m._id)
+      claimed.push(m)
       continue
     }
-    if (claimed.length) {
-      await StockMovement.updateMany({ orgId, _id: { $in: claimed }, invoiceId: billId } as any, { $unset: { invoiceId: 1 } }).exec()
-    }
+    await releaseClaims(orgId, billId, claimed.map(c => c._id), claimed.filter(c => !c.contactId).map(c => c._id))
     throw new ReceiptBillError(409, 'receipt_already_billed', `${m.movementNumber} was billed by another document just now`, {
       movementId: idOf(m._id), movementNumber: m.movementNumber,
     })
   }
 }
 
-/** Give the receipts a bill claims back. Only the claims it still holds: never another bill's. */
-export async function releaseReceiptLinks(orgId: string, bill: any): Promise<number> {
+/** One audit entry per receipt that took (or gave back) a supplier. Nothing else records it. */
+function auditSupplier(orgId: string, userId: string, billId: string, movements: any[], change: { oldValue: string | null; newValue: string | null }): void {
+  for (const m of movements) {
+    createAuditEntry({
+      orgId, userId, action: 'update', module: 'warehouse', entityType: 'stock_movement',
+      entityId: idOf(m._id), entityName: m.movementNumber, correlationId: billId,
+      changes: [{ field: 'contactId', ...change }],
+    })
+  }
+}
+
+/**
+ * Give the receipts a bill claims back. Only the claims it still holds: never another bill's.
+ * A supplier this bill wrote goes with its claim: a receipt the wrong supplier was chosen for has
+ * no other way back, because a completed receipt cannot be edited.
+ */
+export async function releaseReceiptLinks(orgId: string, bill: any, userId?: string): Promise<number> {
   const ids = linkedMovementIds(bill)
   if (!ids.length) return 0
-  const res = await StockMovement.updateMany(
-    { orgId, _id: { $in: ids }, invoiceId: idOf(bill._id ?? bill.id) } as any,
-    { $unset: { invoiceId: 1 } },
-  ).exec()
-  if (res.modifiedCount) {
-    logger.info({ orgId, billId: idOf(bill._id ?? bill.id), released: res.modifiedCount }, 'receipt-bill: receipts released by their bill')
+  const billId = idOf(bill._id ?? bill.id)
+  const givenTo: unknown[] = bill.stockSource?.supplierGivenTo || []
+  const held: any[] = givenTo.length
+    ? await StockMovement.find({ orgId, _id: { $in: givenTo }, invoiceId: billId } as any, { movementNumber: 1 }).lean().exec()
+    : []
+  const released = await releaseClaims(orgId, billId, ids, givenTo)
+  if (released) {
+    logger.info({ orgId, billId, released }, 'receipt-bill: receipts released by their bill')
+    if (userId) auditSupplier(orgId, userId, billId, held, { oldValue: idOf(bill.contactId), newValue: null })
   }
-  return res.modifiedCount
+  return released
 }
 
 // ── Making the bill ─────────────────────────────────────────────────────────────────────────
 
 export interface BillFromReceiptsInput {
   movementIds: string[]
+  /** The supplier, for receipts that name none. It must not contradict one that does. */
+  contactId?: string
   /** The supplier's own invoice number, when the user already typed it. */
   reference?: string
   issueDate?: string
@@ -329,6 +452,7 @@ function plusOneMonth(d: Date): Date {
  */
 export async function createBillFromReceipts(orgId: string, actor: Actor, input: BillFromReceiptsInput): Promise<any> {
   const movements = await loadBillableReceipts(orgId, input.movementIds)
+  const { supplierId, unnamed } = await settleSupplier(orgId, movements, input.contactId, true)
   const [defaults, products] = await Promise.all([
     orgDefaults(orgId),
     productsOf(orgId, movements.flatMap(m => (m.lines || []).map((l: any) => idOf(l.productId)))),
@@ -352,7 +476,7 @@ export async function createBillFromReceipts(orgId: string, actor: Actor, input:
         status: 'draft',
         statusHistory: [statusEntry('draft', undefined, actor.id, `from_receipt ${numbers}`)],
         numberHistory: [{ number: invoiceNumber, allocatedAt: new Date(), status: 'draft' }],
-        contactId: movements[0].contactId,
+        contactId: supplierId,
         issueDate,
         dueDate: input.dueDate ? new Date(input.dueDate) : plusOneMonth(issueDate),
         currency: defaults.currency,
@@ -369,7 +493,7 @@ export async function createBillFromReceipts(orgId: string, actor: Actor, input:
         amountPaid: 0,
         amountDue: totals.total,
         billingAddress: { street: '-', city: '-', postalCode: '-', country: '-' },
-        stockSource: stockSourceFor(movements),
+        stockSource: stockSourceFor(movements, unnamed),
         createdBy: actor.id,
       } as any)).toObject()
     } catch (e: any) {
@@ -381,7 +505,7 @@ export async function createBillFromReceipts(orgId: string, actor: Actor, input:
   if (!bill) throw new ReceiptBillError(409, 'number_unavailable', 'Could not allocate the bill number after 3 attempts')
 
   try {
-    await claimReceipts(orgId, bill._id, movements)
+    await claimReceipts(orgId, bill._id, movements, supplierId)
   } catch (e) {
     // Lost to a concurrent bill: this one never was.
     await Invoice.deleteOne({ _id: bill._id, orgId } as any).exec()
@@ -393,6 +517,7 @@ export async function createBillFromReceipts(orgId: string, actor: Actor, input:
     orgId, userId: actor.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: id,
     entityName: bill.invoiceNumber, changes: [{ field: 'receipts', oldValue: null, newValue: numbers }],
   })
+  auditSupplier(orgId, actor.id, id, unnamed, { oldValue: null, newValue: supplierId })
   for (const m of movements) {
     createAuditEntry({
       orgId, userId: actor.id, action: 'billed', module: 'warehouse', entityType: 'stock_movement',
@@ -404,14 +529,29 @@ export async function createBillFromReceipts(orgId: string, actor: Actor, input:
   return getRepos().invoices.findOne({ id, orgId } as any)
 }
 
+export interface LinkReceiptsOptions {
+  /**
+   * The user was told the bill's typed lines go. Without it a bill with lines stays refused, so a
+   * client that does not know this stays as it was (FR-22.32a).
+   */
+  replaceLines?: boolean
+  /** The supplier the user sees, when the bill may not have one saved. */
+  contactId?: string
+}
+
 /**
  * FR-22.32 — „Свържи с доставка": put the receipts on a bill that already exists.
  *
- * Only an EMPTY draft bill: a bill linked to receipts moves no stock at all, so a line the user
- * had typed before linking would silently never be received. The receipts' lines become the
- * bill's lines, as on a bill made from the receipt.
+ * A bill linked to receipts moves no stock at all, so a line typed before linking would silently
+ * never be received. So the receipts' lines become the bill's, as on a bill made from the receipt:
+ * on an empty draft outright, on a draft with lines only when asked to replace them. What the bill
+ * says about itself stays: its number, reference, dates, payment method and notes.
+ *
+ * A bill written against a supplier order is the exception. Its lines carry the `orderRef` that
+ * books the delivery onto the order, and replacing them would leave the order waiting for goods
+ * that came. It stays refused, and the receipt-overlap question still offers „receive anyway".
  */
-export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: string, movementIds: string[]): Promise<any> {
+export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: string, movementIds: string[], opts: LinkReceiptsOptions = {}): Promise<any> {
   if (!isId(billId)) throw new ReceiptBillError(404, 'not_found', 'Bill not found')
   const bill: any = await Invoice.findOne({ _id: billId, orgId } as any).lean().exec()
   if (!bill) throw new ReceiptBillError(404, 'not_found', 'Bill not found')
@@ -422,14 +562,18 @@ export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: st
   if (bill.stockSource?.marker) {
     throw new ReceiptBillError(409, 'bill_already_linked', `${bill.invoiceNumber} is already linked to ${bill.stockSource.docNumber}`)
   }
-  const filled = (bill.lines || []).filter((l: any) => l.productId || String(l.description || '').trim())
-  if (filled.length) {
+  const filled = filledLinesOf(bill)
+  if (filled.length && !opts.replaceLines) {
     throw new ReceiptBillError(422, 'bill_not_empty', `${bill.invoiceNumber} already has lines — a bill linked to a delivery takes the delivery's lines`)
   }
-  const movements = await loadBillableReceipts(orgId, movementIds)
-  if (bill.contactId && idOf(bill.contactId) !== idOf(movements[0].contactId)) {
-    throw new ReceiptBillError(422, 'supplier_mismatch', 'The receipts are from another supplier than the bill')
+  if (filled.length && (bill.orderId || filled.some((l: any) => Object.values(l.orderRef || {}).some(Boolean)))) {
+    throw new ReceiptBillError(422, 'bill_on_order', `${bill.invoiceNumber} is written against a supplier order — its lines book the delivery onto that order`)
   }
+  const movements = await loadBillableReceipts(orgId, movementIds)
+  if (opts.contactId && bill.contactId && idOf(opts.contactId) !== idOf(bill.contactId)) {
+    throw new ReceiptBillError(422, 'supplier_mismatch', `${bill.invoiceNumber} names another supplier — save the bill first`)
+  }
+  const { supplierId, unnamed } = await settleSupplier(orgId, movements, idOf(bill.contactId) || opts.contactId, false)
   const [defaults, products] = await Promise.all([
     orgDefaults(orgId),
     productsOf(orgId, movements.flatMap(m => (m.lines || []).map((l: any) => idOf(l.productId)))),
@@ -452,7 +596,7 @@ export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: st
     { _id: billId, orgId, status: 'draft', 'stockSource.marker': { $in: [null, ''] } } as any,
     {
       $set: {
-        contactId: movements[0].contactId,
+        contactId: supplierId,
         lines,
         subtotal: totals.subtotal,
         discountTotal: 0,
@@ -460,14 +604,14 @@ export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: st
         total: totals.total,
         totalBase: round2(totals.total * (num(bill.exchangeRate) || 1)),
         amountDue: round2(totals.total - num(bill.amountPaid)),
-        stockSource: stockSourceFor(movements),
+        stockSource: stockSourceFor(movements, unnamed),
       },
     },
     { new: true },
   ).lean().exec()
   if (!linked) throw new ReceiptBillError(409, 'bill_already_linked', `${bill.invoiceNumber} changed meanwhile — reload it`)
   try {
-    await claimReceipts(orgId, bill._id, movements)
+    await claimReceipts(orgId, bill._id, movements, supplierId)
   } catch (e) {
     await Invoice.updateOne({ _id: billId, orgId } as any, { $set: before, $unset: unsetOnUndo }).exec()
     throw e
@@ -476,8 +620,13 @@ export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: st
   const numbers = movements.map(m => m.movementNumber).join(', ')
   createAuditEntry({
     orgId, userId: actor.id, action: 'update', module: 'invoicing', entityType: 'invoice', entityId: billId,
-    entityName: bill.invoiceNumber, changes: [{ field: 'receipts', oldValue: null, newValue: numbers }],
+    entityName: bill.invoiceNumber,
+    changes: [
+      { field: 'receipts', oldValue: null, newValue: numbers },
+      ...(filled.length ? [{ field: 'lines', oldValue: filled.length, newValue: lines.length }] : []),
+    ],
   })
+  auditSupplier(orgId, actor.id, billId, unnamed, { oldValue: null, newValue: supplierId })
   for (const m of movements) {
     createAuditEntry({
       orgId, userId: actor.id, action: 'billed', module: 'warehouse', entityType: 'stock_movement',
@@ -486,6 +635,11 @@ export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: st
     })
   }
   return getRepos().invoices.findOne({ id: billId, orgId } as any)
+}
+
+/** The lines of a bill that say something: the form keeps a blank one at the bottom. */
+function filledLinesOf(bill: any): any[] {
+  return (bill.lines || []).filter((l: any) => l.productId || String(l.description || '').trim())
 }
 
 // ── The receipts a supplier has not billed yet (FR-22.32's picker) ───────────────────────────
@@ -497,26 +651,103 @@ export interface BillableReceipt {
   warehouseId?: string
   lineCount: number
   total: number
+  /** It names no supplier, and takes the bill's. */
+  noSupplier?: boolean
 }
 
+/** What deciding on a receipt reads: `billingStateOf` and `asBillable`. */
+const RECEIPT_FIELDS = { movementNumber: 1, date: 1, toWarehouseId: 1, lines: 1, totalAmount: 1, invoiceId: 1, type: 1, status: 1, contactId: 1, notes: 1 }
+
+function asBillable(m: any): BillableReceipt {
+  return {
+    id: idOf(m._id),
+    number: m.movementNumber,
+    date: m.date,
+    warehouseId: m.toWarehouseId ? idOf(m.toWarehouseId) : undefined,
+    lineCount: (m.lines || []).filter((l: any) => num(l.quantity) > 0).length,
+    total: round2(num(m.totalAmount)),
+    ...(m.contactId ? {} : { noSupplier: true }),
+  }
+}
+
+/**
+ * The receipts a bill of this supplier can take: the supplier's own, then the ones that name no
+ * supplier (which take the bill's). Each group newest first, up to `limit`.
+ */
 export async function billableReceiptsOf(orgId: string, contactId: string, limit = 50): Promise<BillableReceipt[]> {
   if (!isId(contactId)) return []
+  const unbilled = async (supplier: string | null) => {
+    const rows: any[] = await StockMovement.find({ orgId, contactId: supplier, type: 'receipt', status: 'completed' } as any, RECEIPT_FIELDS)
+      .sort({ date: -1, _id: -1 }).limit(limit * 3).lean().exec()
+    const states = await billingByMovement(orgId, rows)
+    return rows.filter(m => states.get(idOf(m._id))?.billable).slice(0, limit).map(asBillable)
+  }
+  return [...await unbilled(contactId), ...await unbilled(null)]
+}
+
+// ── Before a bill books its own goods (FR-22.31c) ────────────────────────────────────────────
+
+export interface ReceiptOverlap {
+  /** The bill's lines a link would replace. */
+  typedLines: number
+  receipts: BillableReceipt[]
+}
+
+/**
+ * The unclaimed receipts a bill may be for, when receiving it would book its goods a second time.
+ *
+ * Only a draft supplier bill that will book stock: one linked to anything moves none, and a line
+ * books only with a product that holds stock, a warehouse and a quantity. A receipt counts when it
+ * put goods in stock (it names a warehouse), lies within `RECEIPT_OVERLAP_WINDOW_DAYS` of the
+ * bill's issue date, nobody has claimed it (`billingStateOf`: a live bill's receipt, a voided
+ * document's own and a reversal are out) and it shares a line with the bill:
+ *
+ *   - naming the bill's supplier, any stock-held article in common;
+ *   - naming no supplier, an article in common at the same quantity on one line. Articles alone
+ *     are no evidence there: a store whose receipts carry no supplier stocks the same articles
+ *     every week, and would be asked about nearly every bill;
+ *   - naming another supplier, never.
+ */
+export async function receiptsOverlapping(orgId: string, bill: any): Promise<ReceiptOverlap | null> {
+  if (bill.type !== 'invoice' || bill.direction !== 'incoming' || bill.status !== 'draft' || bill.stockSource?.marker) return null
+  const booking = (bill.lines || []).filter((l: any) => l.productId && l.warehouseId && num(l.quantity) > 0)
+  if (!booking.length) return null
+  const products = await productsOf(orgId, booking.map((l: any) => idOf(l.productId)))
+  const quantities = new Map<string, number[]>()
+  for (const l of booking) {
+    const id = idOf(l.productId)
+    const p = products.get(id)
+    if (p && p.trackInventory !== false) quantities.set(id, [...(quantities.get(id) || []), num(l.quantity)])
+  }
+  if (!quantities.size) return null
+
+  const at = new Date(bill.issueDate ?? Date.now()).getTime()
+  const span = RECEIPT_OVERLAP_WINDOW_DAYS * DAY_MS
+  const supplier = idOf(bill.contactId)
   const rows: any[] = await StockMovement.find(
-    { orgId, contactId, type: 'receipt', status: 'completed' } as any,
-    { movementNumber: 1, date: 1, toWarehouseId: 1, lines: 1, totalAmount: 1, invoiceId: 1, type: 1, status: 1, contactId: 1 },
-  ).sort({ date: -1, _id: -1 }).limit(limit * 3).lean().exec()
+    {
+      orgId, type: 'receipt', status: 'completed',
+      date: { $gte: new Date(at - span), $lte: new Date(at + span) },
+      toWarehouseId: { $ne: null },
+      'lines.productId': { $in: [...quantities.keys()] },
+      contactId: supplier ? { $in: [supplier, null] } : null,
+    } as any,
+    RECEIPT_FIELDS,
+  ).sort({ date: -1, _id: -1 }).limit(OVERLAP_SCAN_LIMIT).lean().exec()
+
+  const shares = (m: any) => (m.lines || []).some((l: any) => {
+    const billed = quantities.get(idOf(l.productId))
+    const q = num(l.quantity)
+    if (!billed || !(q > 0)) return false
+    return !!m.contactId || billed.some(b => Math.abs(b - q) <= EPS)
+  })
   const states = await billingByMovement(orgId, rows)
-  return rows
-    .filter(m => states.get(idOf(m._id))?.billable)
-    .slice(0, limit)
-    .map(m => ({
-      id: idOf(m._id),
-      number: m.movementNumber,
-      date: m.date,
-      warehouseId: m.toWarehouseId ? idOf(m.toWarehouseId) : undefined,
-      lineCount: (m.lines || []).filter((l: any) => num(l.quantity) > 0).length,
-      total: round2(num(m.totalAmount)),
-    }))
+  const receipts = rows
+    .filter(m => states.get(idOf(m._id))?.billable && shares(m))
+    .sort((a, b) => Number(!a.contactId) - Number(!b.contactId))
+    .slice(0, OVERLAP_REPORT_LIMIT)
+    .map(asBillable)
+  return receipts.length ? { typedLines: filledLinesOf(bill).length, receipts } : null
 }
 
 // ── What a linked bill may become ───────────────────────────────────────────────────────────
@@ -663,8 +894,23 @@ export async function linkedReceiptsOf(orgId: string, bill: any): Promise<Linked
   })
 }
 
+export interface ReceiptBillingForPage {
+  billable: boolean
+  /** It may be billed, and the page asks for the supplier first. */
+  needsSupplier?: boolean
+  /** Why it may not, when nothing else on the page says so: a held receipt names its bill. */
+  notBillable?: { code: NonNullable<ReceiptBillingState['reason']>; number?: string }
+  bill?: ReceiptBillingState['invoice']
+}
+
 /** For the movement page: the document that holds the receipt, and whether it may be billed. */
-export async function receiptBillingFor(orgId: string, movement: any): Promise<{ billable: boolean; bill?: ReceiptBillingState['invoice'] }> {
+export async function receiptBillingFor(orgId: string, movement: any): Promise<ReceiptBillingForPage> {
   const state = await receiptBillingState(orgId, movement)
-  return { billable: state.billable, ...(state.invoice && !RELEASED.includes(state.invoice.status) ? { bill: state.invoice } : {}) }
+  const held = !!state.invoice && !RELEASED.includes(state.invoice.status)
+  return {
+    billable: state.billable,
+    ...(state.needsSupplier ? { needsSupplier: true } : {}),
+    ...(state.reason && !held ? { notBillable: { code: state.reason, ...(state.invoice ? { number: state.invoice.number } : {}) } } : {}),
+    ...(held ? { bill: state.invoice } : {}),
+  }
 }

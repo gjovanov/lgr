@@ -85,7 +85,7 @@ export interface IStockMovement extends TenantEntity {
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/` | Yes | List movements (filters: `type`, `status`, `warehouseId`, `productId`, `dateFrom`, `dateTo`; pagination: `page`, `size`, `sortBy`, `sortOrder`). Response enriches records with `fromWarehouseName`, `toWarehouseName`, `contactName`. |
-| POST | `/` | Yes | Create movement (status defaults to `draft`; `movementNumber` auto-generated if not provided) |
+| POST | `/` | Yes | Create movement (status defaults to `draft`; `movementNumber` auto-generated if not provided). A `dispatch` naming To, or a `receipt` naming From, answers 422 (FR-22.31b) |
 | GET | `/:id` | Yes | Get movement by ID (lines enriched with `productName`, `productSku`) |
-| PUT | `/:id` | Yes | Update movement (only allowed when status is `draft`) |
-| POST | `/:id/confirm` | Yes | Confirm a draft movement -- triggers stock level updates via the warehouse business service |
+| PUT | `/:id` | Yes | Update movement (only allowed when status is `draft`). `fromWarehouseId` / `toWarehouseId` take `null` to clear; left out, they stay |
+| POST | `/:id/confirm` | Yes | Confirm a draft movement -- triggers stock level updates via the warehouse business service. Refuses a draft whose warehouses do not fit its type (422) |

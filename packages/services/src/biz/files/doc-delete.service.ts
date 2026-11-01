@@ -3,6 +3,7 @@ import { getRepos } from '../../context.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { reverseInvoiceStockMovement } from '../invoicing.service.js'
 import { liveInvoiceNumbersFor } from '../cash-sale-invoice.service.js'
+import { releaseReceiptLinks } from '../receipt-bill.service.js'
 import { syncOrderForInvoice } from '../reservation.service.js'
 import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from '../cash-register/immutability.js'
 import { confirmMovement } from '../warehouse.service.js'
@@ -236,6 +237,8 @@ async function voidInvoice(orgId: string, userId: string, invId: string): Promis
   const history = [...(inv.statusHistory || []), { status: 'voided', fromStatus: inv.status, changedAt: new Date(), changedBy: userId, reason: 'source document removed' }]
   const updated = await r.invoices.update(invId, { status: 'voided', voidedAt: new Date(), statusHistory: history } as any)
   try { await syncOrderForInvoice(orgId, updated || inv, userId) } catch { /* no order linkage on migration invoices */ }
+  // A bill linked to goods receipts gives them back, and a supplier it gave them, as the void route does.
+  await releaseReceiptLinks(orgId, inv, userId)
 }
 
 /** Plan only — reads nothing but the manifest. */

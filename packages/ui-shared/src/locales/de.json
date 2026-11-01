@@ -1537,8 +1537,11 @@
     "linkDelivery": {
       "action": "Mit Lieferung verknüpfen",
       "hint": "Ware schon eingebucht?",
-      "dialogHint": "Wareneingänge dieses Lieferanten, die noch keine Rechnung bezahlt. Ihre Zeilen werden die Zeilen der Rechnung; die Rechnung bewegt keinen Bestand.",
-      "none": "Von diesem Lieferanten gibt es keinen offenen Wareneingang.",
+      "dialogHint": "Wareneingänge dieses Lieferanten, die noch keine Rechnung bezahlt, und Wareneingänge ohne Lieferant. Ihre Zeilen werden die Zeilen der Rechnung; die Rechnung bewegt keinen Bestand.",
+      "none": "Es gibt keinen offenen Wareneingang von diesem Lieferanten oder ohne Lieferant.",
+      "noSupplier": "ohne Lieferant",
+      "replaceWarning": "Die erfasste Zeile dieser Rechnung wird durch die Zeilen der Lieferung ersetzt. Nummer, Daten und Zahlungsart bleiben. | Die {count} erfassten Zeilen dieser Rechnung werden durch die Zeilen der Lieferung ersetzt. Nummer, Daten und Zahlungsart bleiben.",
+      "replaceConfirm": "Zeilen ersetzen und verknüpfen",
       "receiptLines": "{n} Zeilen",
       "confirm": "Verknüpfen",
       "linked": "Die Rechnung ist mit der Lieferung verknüpft",
@@ -1546,6 +1549,13 @@
       "noStock": "Die Ware wurde mit dem Wareneingang eingebucht: diese Rechnung bewegt keinen Bestand.",
       "receiptCost": "Wareneingang: {price}",
       "received": "Rechnung empfangen — die Ware kam mit dem Wareneingang"
+    },
+    "receiptOverlap": {
+      "title": "Diese Ware ist vielleicht schon im Bestand",
+      "text": "Für dieselbe Ware gibt es Wareneingänge ohne Rechnung. Wird diese Rechnung so empfangen, kommt die Ware ein zweites Mal in den Bestand.",
+      "link": "Mit der Lieferung verknüpfen",
+      "receiveAnyway": "Trotzdem empfangen",
+      "linked": "Die Rechnung ist mit der Lieferung verknüpft. Prüfen Sie die Preise und empfangen Sie sie dann."
     },
     "stockReceipt": {
       "print": "Wareneingangsschein",
@@ -1974,6 +1984,31 @@
     "incomingInvoice": "Eingangsrechnung",
     "billed": "Abgerechnet",
     "billedBy": "Abgerechnet mit der Eingangsrechnung",
+    "billSupplier": {
+      "title": "Wer hat diese Ware geliefert?",
+      "hint": "Dieser Wareneingang nennt keinen Lieferanten. Die Rechnung lautet auf den gewählten Lieferanten, und der Wareneingang behält ihn.",
+      "confirm": "Rechnung erstellen"
+    },
+    "notBillable": {
+      "receipt_not_completed": "Eine Eingangsrechnung entsteht aus einem abgeschlossenen Wareneingang.",
+      "receipt_not_billable": "Dieser Wareneingang wurde von {number} gebucht, das storniert ist. Er ist keine Lieferung und wird nicht abgerechnet.",
+      "orphan": "Dieser Wareneingang gibt die Ware eines Dokuments zurück, das es nicht mehr gibt. Er ist keine Lieferung und wird nicht abgerechnet.",
+      "receipt_is_reversal": "Dieser Wareneingang gibt die Ware eines entfernten Dokuments zurück. Er ist keine Lieferung und wird nicht abgerechnet."
+    },
+    "refusals": {
+      "dispatch_with_to_warehouse": "Ein Abgang nimmt Ware aus einem Lager: Wählen Sie es unter „Von Lager“ und lassen Sie „Zu Lager“ leer.",
+      "receipt_with_from_warehouse": "Ein Zugang bringt Ware in ein Lager: Wählen Sie es unter „Zu Lager“ und lassen Sie „Von Lager“ leer.",
+      "receipt_without_supplier": "Wareneingang {movementNumber} nennt keinen Lieferanten: Wählen Sie ihn.",
+      "supplier_not_found": "Wählen Sie einen Lieferanten dieser Organisation.",
+      "supplier_mismatch": "Die Wareneingänge stammen von einem anderen Lieferanten.",
+      "mixed_suppliers": "Eine Rechnung deckt die Wareneingänge eines Lieferanten ab, diese stammen von verschiedenen.",
+      "receipt_already_billed": "Wareneingang {movementNumber} ist bereits abgerechnet.",
+      "bill_not_empty": "Die Rechnung hat bereits Zeilen. Öffnen Sie sie erneut und bestätigen Sie das Ersetzen.",
+      "bill_on_order": "Die Rechnung gehört zu einer Lieferantenbestellung: Ihre Zeilen buchen die Lieferung auf die Bestellung und können nicht ersetzt werden.",
+      "bill_not_draft": "Die Rechnung ist kein Entwurf mehr.",
+      "bill_already_linked": "Die Rechnung ist bereits mit einer Lieferung verknüpft.",
+      "nothing_to_bill": "Die Wareneingänge enthalten keine abzurechnenden Mengen."
+    },
     "supply": {
       "reserved": "Reserviert",
       "available": "Verfügbar",

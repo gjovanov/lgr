@@ -22,6 +22,7 @@ import { appHref } from 'ui-shared/nav/navigate'
 import type { FormAction, SmartButtonDef, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import type { DocumentTypeConfig } from './types'
 import { useDocumentIssue } from '../useDocumentIssue'
+import { receiptOverlapOf, type ReceiptOverlap } from '../receipt-overlap'
 import {
   buildPayload as buildPayloadPure,
   buildProductUpdates,
@@ -1434,20 +1435,24 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
    * the bill, which now reads as received. Receiving was a list-row icon only.
    */
   const receiving = ref(false)
+  /** FR-22.31c: the server asked first; `ReceiptOverlapDialog` carries the answer. */
+  const receiptOverlap = ref<ReceiptOverlap | null>(null)
   async function onSaveAndReceive() {
     if (!(await validate())) return
     receiving.value = true
+    let id: string | null = null
     try {
       // On the saved bill before receiving it: should receiving fail, pressing again receives
       // this one rather than saving a second.
-      const id = await persist(buildPayload(), { quiet: true })
+      id = await persist(buildPayload(), { quiet: true })
       if (!id) return
       const { data: received } = await httpClient.post(`${orgUrl()}/invoices/${id}/receive`)
       // A bill made from receipts books no stock: its receipts did (FR-22.31).
       showSuccess(t(received?.invoice?.stockSource?.marker ? 'invoicing.linkDelivery.received' : 'invoicing.invoiceReceived'))
       await loadDocument()
     } catch (e: any) {
-      showError(e?.response?.data?.message || t('common.operationFailed'))
+      receiptOverlap.value = id ? receiptOverlapOf(e, id) : null
+      if (!receiptOverlap.value) showError(e?.response?.data?.message || t('common.operationFailed'))
       // Saved but not received: show what was saved, still a draft.
       if (route.params.id) await loadDocument()
     } finally {
@@ -1911,6 +1916,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     // FR-22.33: save and receive; and what a linker needs to reload the bill it changed
     onSaveAndReceive,
     receiving,
+    receiptOverlap,
+    saveIfNeeded,
     loadDocument,
     markSaved,
     /** A linker that made this new document itself tells the view it is the same document (FR-22.16). */

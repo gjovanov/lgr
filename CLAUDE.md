@@ -2049,13 +2049,13 @@ receives its own goods, so a bill typed in for them booked the stock twice (FR-2
 `services/biz/receipt-bill.service.ts`, routes `/org/:orgId/invoicing/bills/{from-receipt,
 billable-receipts,:id/link-receipts}`.
 
-- „Входяща фактура" on a completed receipt with a supplier makes a DRAFT bill from it (one bill may
+- „Входяща фактура" on a completed receipt makes a DRAFT bill from it (one bill may
   cover several receipts of ONE supplier, D-2). The bill carries `stockSource { marker:
   'movement:<ids>', detectedBy: 'manual' }`, so receive, issue, void and the Files rollback move no
   stock (`movesNoStock`). The receipt's `invoiceId` is the CLAIM, a compare-and-set: a receipt is
   billed once (409), and the product ledger names the bill next to it.
-- ⚠ Void and DELETE of such a bill give the receipts back (`releaseReceiptLinks`, only the claims
-  that bill still holds). A Files rollback of a receipt a live document stands on is blocked — for
+- ⚠ Void, DELETE and a Files rollback of such a bill give the receipts back (`releaseReceiptLinks`,
+  only the claims that bill still holds). A Files rollback of a receipt a live document stands on is blocked — for
   ANY `stockSource` link (§5.4).
 - ⚠ PUT keeps the bill to what was received (D-2: billed once and whole): every stock-tracked
   quantity must equal the receipts' (422 `receipt_quantity_mismatch`), the supplier cannot change.
@@ -2064,8 +2064,34 @@ billable-receipts,:id/link-receipts}`.
   equals the receipts' cost (a newer price stays); avgCost and cost layers are never re-costed, and
   posting is unchanged (FR-22's D-2 note).
 - `POST`/`PUT /invoices` strip `stockSource` (Elysia's schema already drops it; this is defence in
-  depth). `link-receipts` takes only an EMPTY draft: lines already on a bill would silently never be
-  received once it is linked.
+  depth). `link-receipts` takes an EMPTY draft, or a draft with lines given `replaceLines: true`
+  (FR-22.32a): lines left on a bill would silently never be received once it is linked. A bill on a
+  supplier order keeps its lines (`bill_on_order`): they book the delivery onto the order.
+- A receipt with no supplier is billable (FR-22.31a): `from-receipt` takes `contactId`, required
+  then. ⚠ The supplier is written in the claim's own compare-and-set, guarded on the receipt still
+  naming none, never in a second write. ⚠ Releasing the claim takes it off again
+  (`stockSource.supplierGivenTo`): a completed receipt cannot be edited, so a supplier that stayed
+  would refuse every other one for ever. ⚠ Link with the `contactId` the form shows: a saved bill may
+  name someone else, and the receipt would silently take the wrong supplier.
+- ⚠ **No supplier does not mean a delivery.** `billingStateOf` keeps two receipts out that name
+  nobody: the mirror of a removed document (`(docdelete:` in its notes, `reverseMovement`) and a
+  no-supplier receipt whose `invoiceId` names nothing (a claim always writes a supplier, so that was
+  never a claim: it is what a rolled-back till sale leaves).
+- ⚠ **`/receive` and `/send` ask before a bill books goods a receipt may have booked** (FR-22.31c,
+  `receiptsOverlapping`): 409 `receipt_overlap`, answered by `{ acknowledgeOverlap: true }` or by
+  linking. ⚠ It runs BEFORE the issued number is drawn. An API client or script that receives a bill
+  now has to expect this answer; the imports do not get it (`persist.ts`, `bills/import`).
+- ⚠ **A movement's warehouses must fit its type** (FR-22.31b, `config/movement-warehouses`): a
+  `dispatch` never names To, a `receipt` never names From, because `confirmMovement` ignores `type`
+  and a dispatch naming To ADDS stock. ⚠ The rule stands at the doors a user comes through (`POST`,
+  `/with-update`, `PUT`, `/confirm`, `/doc-import/convert`), NOT inside `confirmMovement`, which
+  replays what a site already booked (`importMovement`) and is reached after `/receive` wrote the
+  bill. A new door that confirms a user's draft calls `movementWarehouseRefusal` itself.
+- ⚠ `PUT /warehouse/movement/:id` takes `null` to clear a warehouse. Left out, it stays: sending
+  `undefined` for an emptied field silently kept the old warehouse.
+- ⚠ The form clears the unused warehouse in the type field's own `update:model-value`, never in a
+  `watch` on `form.type`: loading a movement changes that too, and a booked document would lose a
+  warehouse on screen. A field the type does not use still shows when the movement names one.
 - ⚠ The warehouse report and the digest date a billed receipt by its OWN date
   (`warehouse-operations.report.ts#EFFECTIVE_DATE`): the bill's issueDate would move the delivery to
   the day its invoice came, and the digest would count it twice.
@@ -2078,8 +2104,9 @@ billable-receipts,:id/link-receipts}`.
   org default; the product-update switch remembered (`lgr:gr-with-update:<user>:<org>`, both via
   `ui-shared/composables/useUserDefaults`); „Запази и потвърди" first; „Наличност" reads the
   destination on a receipt. `useGridNavigation` lives in ui-shared now.
-- Tests: `integration/receipt-bill.flow` (13), `quick-product.flow` (2); walks P2 (17 clicks · 12
-  typed · 0 hops) and P3 (3 · 1 · 1, stock unchanged).
+- Tests: `integration/receipt-bill.flow`, `movement-warehouses.flow`, `quick-product.flow` (2);
+  `e2e/receipt-to-bill.spec`; walks P2 (17 clicks · 12 typed · 0 hops) and P3 (3 · 1 · 1, stock
+  unchanged).
 
 ## Issue, print and get paid on the document (2026-10-26, FR-22 slice 2a: FR-22.16–.22)
 

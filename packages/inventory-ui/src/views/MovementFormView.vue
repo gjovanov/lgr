@@ -21,18 +21,22 @@
       {{ $t('warehouse.billedBy') }}
       <a :href="billHref(movement.bill.id)" class="font-weight-medium" data-testid="receipt-bill-link">{{ movement.bill.number }}</a>
     </v-alert>
+    <!-- A receipt that no bill can be made from says why, rather than just not offering one. -->
+    <v-alert v-else-if="notBillableText" type="info" variant="tonal" density="compact" class="mb-3" data-testid="receipt-not-billable">
+      {{ notBillableText }}
+    </v-alert>
 
     <v-form ref="formRef" @submit.prevent="handleSubmit">
       <v-row>
         <v-col cols="12" md="3">
-          <v-select v-model="form.type" :label="`${$t('common.type')} *`" :items="movementTypeItems" :rules="[rules.required]" :disabled="isEdit" density="compact" />
+          <v-select :model-value="form.type" :label="`${$t('common.type')} *`" :items="movementTypeItems" :rules="[rules.required]" :disabled="isEdit" density="compact" @update:model-value="onTypeChange" />
         </v-col>
         <!-- Empty is `null`, never '': Vuetify treats '' as a selected value, which floated the
              label away and left a blank "selection" — the field read as nothing at all. -->
-        <v-col cols="12" md="3">
+        <v-col v-if="showWarehouse.from" cols="12" md="3">
           <v-select v-model="form.fromWarehouseId" :label="$t('warehouse.fromWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" data-testid="from-warehouse" />
         </v-col>
-        <v-col cols="12" md="3">
+        <v-col v-if="showWarehouse.to" cols="12" md="3">
           <v-select v-model="form.toWarehouseId" :label="$t('warehouse.toWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" data-testid="to-warehouse" />
         </v-col>
         <v-col cols="12" md="3">
@@ -235,6 +239,36 @@
       </v-card>
     </v-dialog>
 
+    <!-- FR-22.31a: a receipt that names no supplier is billed once someone says whose goods they were. -->
+    <v-dialog v-model="billSupplierDialog" max-width="520">
+      <v-card data-testid="bill-supplier-dialog">
+        <v-card-title>{{ $t('warehouse.billSupplier.title') }}</v-card-title>
+        <v-card-text>
+          <div class="text-body-2 text-medium-emphasis mb-3">{{ $t('warehouse.billSupplier.hint') }}</div>
+          <v-defaults-provider :defaults="{ VAutocomplete: { density: 'compact' } }">
+            <ContactAutocompleteWithCreate
+              v-model="billSupplierId"
+              :contacts="billSuppliers.contacts.value"
+              :loading="billSuppliers.loading.value"
+              :label="$t('invoicing.supplier')"
+              :org-url="appStore.orgUrl()"
+              new-contact-type="supplier"
+              data-testid="bill-supplier"
+              @update:search="billSuppliers.onSearch"
+              @contact-created="billSuppliers.add"
+            />
+          </v-defaults-provider>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="billSupplierDialog = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="primary" variant="flat" :disabled="!billSupplierId" :loading="billing" data-testid="bill-supplier-confirm" @click="createBill(billSupplierId)">
+            {{ $t('warehouse.billSupplier.confirm') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Single-document import: OCR one разписка and merge it into THIS movement.
          Nothing is booked — the user still has to save and confirm. -->
     <DocImportDialog
@@ -256,6 +290,8 @@ import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
+import { unusedWarehouseSide } from 'config/movement-warehouses'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useGridNavigation } from 'ui-shared/composables/useGridNavigation'
 import { pinnedWarehouseId, rememberedFlag } from 'ui-shared/composables/useUserDefaults'
@@ -285,6 +321,10 @@ interface MovementState {
   inventoryCountId?: string
   /** FR-22.31: a supplier bill may be made from it (a completed receipt nobody has billed). */
   billable?: boolean
+  /** FR-22.31a: it may, once the user says who the supplier is: the receipt names none. */
+  needsSupplier?: boolean
+  /** FR-22.31a: why no bill can be made from it. */
+  notBillable?: { code: string; number?: string }
   /** FR-22.31: the live bill that holds it. */
   bill?: { id: string; number: string }
 }
@@ -337,6 +377,34 @@ const form = ref({
 const movementTypeItems = computed(() =>
   ['receipt', 'dispatch', 'transfer', 'adjustment'].map(value => ({ title: t(`warehouse.movementTypes.${value}`), value })),
 )
+
+// ── which warehouses a type names (`config/movement-warehouses`) ──
+/**
+ * A dispatch has no To warehouse and a receipt no From, so the field is not offered. A movement that
+ * already names one keeps showing it: a booked document reads as it was booked, and a draft saved
+ * before the rule needs the field to clear it.
+ */
+const showWarehouse = computed(() => {
+  const unused = unusedWarehouseSide(form.value.type)
+  return { from: unused !== 'from' || !!form.value.fromWarehouseId, to: unused !== 'to' || !!form.value.toWarehouseId }
+})
+
+function clearUnusedWarehouse() {
+  const unused = unusedWarehouseSide(form.value.type)
+  if (unused === 'from') form.value.fromWarehouseId = null
+  if (unused === 'to') form.value.toWarehouseId = null
+}
+
+/**
+ * The user changed the type. ⚠ Not a watcher on `form.type`: loading a movement changes that too,
+ * and would clear a warehouse off a booked document on screen. A new movement starts as a receipt
+ * with its To warehouse filled in, and a dispatch keeping it added stock (#168).
+ */
+function onTypeChange(type: string) {
+  form.value.type = type
+  clearUnusedWarehouse()
+  if (!isEdit.value) applyNewReceiptDefaults()
+}
 
 // ── the partner: the supplier on a receipt, any contact otherwise ──
 /**
@@ -428,12 +496,21 @@ const { markSaved, tryRestore } = usePendingChanges({
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
 
+/** FR-22.31a: why this receipt cannot be billed, in the words of the page. */
+const notBillableText = computed(() => {
+  const why = movement.value.notBillable
+  if (!why) return ''
+  // A voided document names itself; one that is gone has nothing to name.
+  if (why.code === 'receipt_not_billable' && !why.number) return t('warehouse.notBillable.orphan')
+  return t(`warehouse.notBillable.${why.code}`, { number: why.number || '' })
+})
+
 /**
  * FR-22.29: an editable movement's primary action books it — „Запази и потвърди" saves and
  * confirms in one go (it was Save, then a separate „Потвърди" on the draft it left). Plain Save
  * keeps a draft. FR-22.52: Ctrl+Enter runs „Запази и потвърди", Ctrl+S the plain Save. FR-22.31: a
- * completed receipt that names a supplier and is not billed yet offers „Входяща фактура" — its
- * supplier's bill, made from it.
+ * completed receipt that is not billed yet offers „Входяща фактура" — its supplier's bill, made
+ * from it. One that names no supplier asks for it first (FR-22.31a).
  */
 const formActions = computed<FormAction[]>(() => {
   const actions: FormAction[] = []
@@ -449,7 +526,7 @@ const formActions = computed<FormAction[]>(() => {
       handler: () => { importDialogOpen.value = true },
     })
   } else if (movement.value.billable) {
-    actions.push({ label: t('warehouse.incomingInvoice'), color: 'primary', icon: 'mdi-receipt-text-plus-outline', handler: createBill, loading: billing.value })
+    actions.push({ label: t('warehouse.incomingInvoice'), color: 'primary', icon: 'mdi-receipt-text-plus-outline', handler: onIncomingInvoice, loading: billing.value })
   }
   return actions
 })
@@ -491,6 +568,8 @@ function applyImportedMovement(payload: { fields: Record<string, any>; lines: an
       grWithUpdate.value = true
     }
   }
+  // The document may have changed the type: it names its warehouse, and not the one it leaves open.
+  clearUnusedWarehouse()
   showSuccess(t('docImport.applied'))
 }
 
@@ -515,6 +594,8 @@ async function fetchItem() {
       status: detail.status || 'draft',
       inventoryCountId: detail.inventoryCountId || undefined,
       billable: !!detail.billable,
+      needsSupplier: !!detail.needsSupplier,
+      notBillable: detail.notBillable || undefined,
       bill: detail.bill || undefined,
     }
     form.value = {
@@ -561,8 +642,11 @@ async function save(): Promise<string | null> {
   }
 
   if (isEdit.value) {
-    // Draft edit: type is immutable after create — PUT does not accept it.
+    // Draft edit: type is immutable after create — PUT does not accept it. An emptied warehouse is
+    // sent as `null`: left out, PUT keeps the one the draft has, and clearing it did nothing.
     const { type: _type, ...updateBody } = basePayload
+    updateBody.fromWarehouseId = form.value.fromWarehouseId || null
+    updateBody.toWarehouseId = form.value.toWarehouseId || null
     await httpClient.put(`${appStore.orgUrl()}/warehouse/movement/${route.params.id}`, updateBody)
     markSaved()
     return route.params.id as string
@@ -596,7 +680,7 @@ async function handleSubmit() {
     showSuccess(t('common.savedSuccessfully'))
     await showSaved(id)
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(stockRefusalMessage(e, t))
   } finally {
     saving.value = false
   }
@@ -620,7 +704,7 @@ async function saveAndConfirm() {
     )
     showSuccess(t('common.completedSuccessfully'))
   } catch (e: any) {
-    showError(e?.response?.data?.message || e?.message || t('common.operationFailed'))
+    showError(stockRefusalMessage(e, t))
   } finally {
     try {
       if (id) await showSaved(id)
@@ -633,12 +717,15 @@ async function saveAndConfirm() {
 /**
  * FR-22.31 (#168): the supplier's bill for this receipt. The server makes it — a draft, linked,
  * so it will move no stock — and the user continues on it in invoicing: the supplier's invoice
- * number, then „Запази и получи".
+ * number, then „Запази и получи". `contactId` is the supplier of a receipt that names none.
  */
-async function createBill() {
+async function createBill(contactId?: string) {
   billing.value = true
   try {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/bills/from-receipt`, { movementIds: [route.params.id] })
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/bills/from-receipt`, {
+      movementIds: [route.params.id],
+      ...(contactId ? { contactId } : {}),
+    })
     goTo(billHref(data.invoice.id || data.invoice._id))
   } catch (e: any) {
     const res = e?.response?.data
@@ -647,9 +734,34 @@ async function createBill() {
       goTo(billHref(res.invoiceId))
       return
     }
-    showError(res?.message || t('common.operationFailed'))
     billing.value = false
+    // Its bill was voided in another tab, and took its supplier with it.
+    if (res?.code === 'receipt_without_supplier') {
+      askBillSupplier()
+      return
+    }
+    showError(stockRefusalMessage(e, t))
   }
+}
+
+// ── FR-22.31a: the supplier of a receipt that names none ──
+const billSupplierDialog = ref(false)
+const billSupplierId = ref<string | undefined>(undefined)
+const billSuppliers = useContactSearch({
+  orgUrl: () => appStore.orgUrl(),
+  type: () => 'supplier',
+  selected: () => [billSupplierId.value],
+})
+
+function askBillSupplier() {
+  billSupplierId.value = undefined
+  billSupplierDialog.value = true
+  void billSuppliers.search()
+}
+
+function onIncomingInvoice() {
+  if (movement.value.needsSupplier) askBillSupplier()
+  else void createBill()
 }
 
 function billHref(id: string) {

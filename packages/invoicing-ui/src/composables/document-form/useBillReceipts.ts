@@ -3,6 +3,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { appHref } from 'ui-shared/nav/navigate'
 import type { useDocumentForm } from './useDocumentForm'
 
@@ -13,7 +14,8 @@ import type { useDocumentForm } from './useDocumentForm'
  * (`services/biz/receipt-bill.service.ts`): the bill then moves no stock. This side shows it — the
  * receipts as links into inventory, and each line's price against the cost it was received at
  * (D-2: the bill keeps the supplier's prices; a difference is shown, never applied) — and offers
- * „Свържи с доставка" on a bill that has no lines yet.
+ * „Свържи с доставка" on a draft bill. A bill with typed lines takes the delivery's lines instead,
+ * and the user is told first (FR-22.32a).
  */
 
 export interface LinkedReceipt {
@@ -31,6 +33,8 @@ export interface BillableReceipt {
   date: string
   lineCount: number
   total: number
+  /** It names no supplier, and takes the bill's (FR-22.31a). */
+  noSupplier?: boolean
 }
 
 /** Per article: what the receipts received, and at what average cost. */
@@ -70,17 +74,17 @@ export function useBillReceipts(doc: DocForm) {
   }
 
   // ── „Свържи с доставка" (FR-22.32) ──
-  const hasFilledLines = computed(() => doc.form.lines.some((l: any) => l.productId || String(l.description || '').trim()))
+  /** The lines the user typed: linking replaces them, and says so first (FR-22.32a). */
+  const filledLines = computed(() => doc.form.lines.filter((l: any) => l.productId || String(l.description || '').trim()).length)
   /**
-   * Offered on a bill that has a supplier and no lines yet, while it is still a draft: a bill
-   * linked to receipts moves no stock at all, so a line typed before linking would never be
-   * received. The receipts' lines become the bill's.
+   * Offered on a bill that has a supplier, while it is still a draft. A bill linked to receipts
+   * moves no stock at all, so a line typed before linking could never be received: the receipts'
+   * lines become the bill's.
    */
   const canLinkDelivery = computed(() =>
     enabled
     && !!doc.form.contactId
     && !linkedReceipts.value.length
-    && !hasFilledLines.value
     && (!doc.isEdit.value || doc.invoiceStatus.value === 'draft'),
   )
 
@@ -98,7 +102,8 @@ export function useBillReceipts(doc: DocForm) {
     try {
       const { data } = await httpClient.get(`${doc.orgUrl()}/invoicing/bills/billable-receipts`, { params: { contactId: doc.form.contactId } })
       billable.value = data.receipts || []
-      if (billable.value.length === 1) selected.value = [billable.value[0].id]
+      // The supplier's one receipt is chosen for the user. One that names nobody is theirs to choose.
+      if (billable.value.length === 1 && !billable.value[0].noSupplier) selected.value = [billable.value[0].id]
     } catch (e: any) {
       showError(e?.response?.data?.message || t('common.operationFailed'))
     } finally {
@@ -111,11 +116,24 @@ export function useBillReceipts(doc: DocForm) {
     linking.value = true
     try {
       if (doc.isEdit.value) {
-        await httpClient.post(`${doc.orgUrl()}/invoicing/bills/${doc.route.params.id}/link-receipts`, { movementIds: selected.value })
+        // What the form holds and the bill does not would go with the reload below: the supplier's
+        // number, the dates, the notes. Replacing lines keeps what the bill says about itself.
+        const id = await doc.saveIfNeeded()
+        // Not saved: the form says why, and the dialog would cover it.
+        if (!id) {
+          dialogOpen.value = false
+          return
+        }
+        await httpClient.post(`${doc.orgUrl()}/invoicing/bills/${id}/link-receipts`, {
+          movementIds: selected.value,
+          contactId: doc.form.contactId,
+          ...(filledLines.value ? { replaceLines: true } : {}),
+        })
       } else {
         // A bill not saved yet: the server makes it from the receipts, with what was typed so far.
         const { data } = await httpClient.post(`${doc.orgUrl()}/invoicing/bills/from-receipt`, {
           movementIds: selected.value,
+          contactId: doc.form.contactId,
           ...(doc.form.supplierInvoiceNumber ? { reference: doc.form.supplierInvoiceNumber } : {}),
           ...(doc.form.issueDate ? { issueDate: doc.form.issueDate } : {}),
           ...(doc.form.dueDate ? { dueDate: doc.form.dueDate } : {}),
@@ -131,10 +149,21 @@ export function useBillReceipts(doc: DocForm) {
       await doc.loadDocument()
       showSuccess(t('invoicing.linkDelivery.linked'))
     } catch (e: any) {
-      showError(e?.response?.data?.message || t('common.operationFailed'))
+      showError(stockRefusalMessage(e, t))
     } finally {
       linking.value = false
     }
+  }
+
+  // ── FR-22.31c: the two ways out of the question „Запази и получи" can end in ──
+  async function onOverlapLinked() {
+    await doc.loadDocument()
+    showSuccess(t('invoicing.receiptOverlap.linked'))
+  }
+
+  async function onOverlapReceived() {
+    await doc.loadDocument()
+    showSuccess(t('invoicing.invoiceReceived'))
   }
 
   return {
@@ -143,6 +172,7 @@ export function useBillReceipts(doc: DocForm) {
     receiptHref,
     receiptCostOf,
     canLinkDelivery,
+    filledLines,
     dialogOpen,
     loading,
     linking,
@@ -150,5 +180,7 @@ export function useBillReceipts(doc: DocForm) {
     selected,
     openLinkDelivery,
     linkDelivery,
+    onOverlapLinked,
+    onOverlapReceived,
   }
 }

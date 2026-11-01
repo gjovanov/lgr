@@ -434,8 +434,9 @@
     <ProductPickerDialog v-model="productPickerOpen" :org-url="orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
     <ContactPickerDialog v-model="contactPickerOpen" :org-url="orgUrl()" :type="(config.contactFetchParams as any)?.type" @select="onContactPicked" />
 
-    <!-- FR-22.32: the supplier's receipts this bill can pay for. -->
-    <v-dialog v-model="billReceipts.dialogOpen.value" max-width="640">
+    <!-- FR-22.32: the supplier's receipts this bill can pay for. The list scrolls: the receipts that
+         name no supplier can run long, and what linking does must stay in view beside its button. -->
+    <v-dialog v-model="billReceipts.dialogOpen.value" max-width="640" scrollable>
       <v-card data-testid="link-delivery-dialog">
         <v-card-title>{{ $t('invoicing.linkDelivery.action') }}</v-card-title>
         <v-card-text>
@@ -447,11 +448,18 @@
               <template #prepend>
                 <v-checkbox-btn v-model="billReceipts.selected.value" :value="r.id" />
               </template>
-              <v-list-item-title>{{ r.number }} · {{ String(r.date || '').slice(0, 10) }}</v-list-item-title>
+              <v-list-item-title>
+                {{ r.number }} · {{ String(r.date || '').slice(0, 10) }}
+                <v-chip v-if="r.noSupplier" size="x-small" label class="ml-1" data-testid="receipt-no-supplier">{{ $t('invoicing.linkDelivery.noSupplier') }}</v-chip>
+              </v-list-item-title>
               <v-list-item-subtitle>{{ $t('invoicing.linkDelivery.receiptLines', { n: r.lineCount }) }} · {{ doc.fmtCurrency(r.total) }}</v-list-item-subtitle>
             </v-list-item>
           </v-list>
         </v-card-text>
+        <!-- FR-22.32a: a bill with typed lines takes the delivery's: said before it happens. -->
+        <v-alert v-if="billReceipts.filledLines.value && billReceipts.billable.value.length" type="warning" variant="tonal" density="compact" class="mx-4 mt-2 flex-grow-0" data-testid="replace-lines-warning">
+          {{ $t('invoicing.linkDelivery.replaceWarning', billReceipts.filledLines.value) }}
+        </v-alert>
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="billReceipts.dialogOpen.value = false">{{ $t('common.cancel') }}</v-btn>
@@ -463,11 +471,21 @@
             data-testid="link-delivery-confirm"
             @click="billReceipts.linkDelivery"
           >
-            {{ $t('invoicing.linkDelivery.confirm') }}
+            {{ $t(billReceipts.filledLines.value ? 'invoicing.linkDelivery.replaceConfirm' : 'invoicing.linkDelivery.confirm') }}
           </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- FR-22.31c: „Запази и получи" on goods a receipt may already have booked. -->
+    <ReceiptOverlapDialog
+      v-model:overlap="doc.receiptOverlap.value"
+      :org-url="orgUrl()"
+      :base-currency="baseCurrency"
+      :locale="localeCode"
+      @received="billReceipts.onOverlapReceived"
+      @linked="billReceipts.onOverlapLinked"
+    />
 
     <!-- Single-document import: OCR one PDF and merge the reviewed fields into THIS form.
          No draft is created — the user still has to save. -->
@@ -511,6 +529,7 @@ import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
 import AttachToCashSaleDialog from '../AttachToCashSaleDialog.vue'
+import ReceiptOverlapDialog from '../ReceiptOverlapDialog.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import BankInfoRow from '../BankInfoRow.vue'

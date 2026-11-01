@@ -35,7 +35,8 @@ import {
   RegisterRefusal, insertRegisterDocument, originOf, runSaleSteps, settleKeyedDocument, type RegisterContext,
 } from 'services/biz/cash-register/register.service'
 import {
-  ReceiptBillError, applyLinkedBillPrices, checkLinkedBillEdit, isReceiptLinked, linkedReceiptsOf, releaseReceiptLinks,
+  ReceiptBillError, applyLinkedBillPrices, checkLinkedBillEdit, isReceiptLinked, linkedReceiptsOf, receiptsOverlapping, releaseReceiptLinks,
+  type ReceiptOverlap,
 } from 'services/biz/receipt-bill.service'
 import { REGISTER_TYPES } from 'services/biz/cash-register/pos-union'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
@@ -437,6 +438,27 @@ export async function getNextCompanionNumber(orgId: string, kind: CompanionDocKi
   const seqPart = numberFromService.split('-').pop()!
   const display = await resolveSequencePrefix(orgId, group, 'issued')
   return `${display}-${year}-${seqPart}`
+}
+
+/**
+ * FR-22.31c: the receipts an unlinked bill may be for. The answer to it is `{ acknowledgeOverlap:
+ * true }`, or linking the bill to one of them; the UI offers both (`ReceiptOverlapDialog.vue`).
+ */
+function receiptOverlapRefusal(bill: any, overlap: ReceiptOverlap) {
+  const numbers = overlap.receipts.map(r => r.number).join(', ')
+  return {
+    code: 'receipt_overlap',
+    message: `${bill.invoiceNumber} may be for goods already in stock (${numbers}): link it to the delivery, or receive it anyway`,
+    ...overlap,
+  }
+}
+
+/** Someone was shown these receipts and booked the goods again anyway: that stays on the record. */
+function auditOverlapAcknowledged(orgId: string, userId: string, id: string, number: string, overlap: ReceiptOverlap) {
+  createAuditEntry({
+    orgId, userId, action: 'receive_overlap_acknowledged', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: number,
+    changes: [{ field: 'receipts', oldValue: null, newValue: overlap.receipts.map(r => r.number).join(', ') }],
+  })
 }
 
 export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
@@ -1231,7 +1253,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     // Deleting a draft conversion invoice re-opens the order reservations it consumed.
     await syncOrderForInvoice(orgId, existing, user.id)
     // …and a draft bill made from goods receipts gives them back, to be billed again (FR-22.31).
-    await releaseReceiptLinks(orgId, existing)
+    await releaseReceiptLinks(orgId, existing, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (existing as any)?.invoiceNumber })
 
@@ -1283,6 +1305,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     // Refused here, before the claim and the dispatch, never at the allocation after them.
     const frozen = await issuableRefusal(orgId, invoice.direction as string, invoice.type as string)
     if (frozen) return status(409, { code: frozen.code, message: frozen.message })
+
+    // A bill issued here books its goods as `/receive` does, so it answers the same question first.
+    const overlap = await receiptsOverlapping(orgId, invoice)
+    if (overlap && !(body as any)?.acknowledgeOverlap) return status(409, receiptOverlapRefusal(invoice, overlap))
 
     /**
      * ⚠ CLAIM the draft before anything moves. Two Issue clicks (or a retry) used to both pass
@@ -1367,6 +1393,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (invoice.direction === 'incoming') await applyLinkedBillPrices(orgId, updated || invoice, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'send', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: issuedNumber, changes: { draftNumber: { from: draftNumber, to: null }, invoiceNumber: { from: draftNumber, to: issuedNumber } } })
+    if (overlap) auditOverlapAcknowledged(orgId, user.id, id, issuedNumber, overlap)
 
     // The sale's revenue belongs to its cash sale: an invoice for one posts no second entry.
     if (forCashSale) return { invoice: updated }
@@ -1390,7 +1417,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     return { invoice: updated }
   }, { isSignIn: true })
-  .post('/:id/receive', async ({ params: { orgId, id }, user, status }) => {
+  .post('/:id/receive', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
 
@@ -1398,6 +1425,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (!invoice) return status(404, { message: 'Invoice not found' })
     if (invoice.direction !== 'incoming') return status(400, { message: 'Only incoming invoices can be received' })
     if (invoice.status !== 'draft') return status(400, { message: 'Invoice is not in draft status' })
+
+    // Before the number is drawn: a bill refused here is the draft it was (FR-22.31c).
+    const overlap = await receiptsOverlapping(orgId, invoice)
+    if (overlap && !body?.acknowledgeOverlap) return status(409, receiptOverlapRefusal(invoice, overlap))
 
     // Allocate the issued BILL-* number, preserve the prior draft number for audit history.
     const draftNumber = (invoice as any).invoiceNumber
@@ -1426,9 +1457,14 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     await applyLinkedBillPrices(orgId, updated || invoice, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'receive', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: issuedNumber, changes: { invoiceNumber: { from: draftNumber, to: issuedNumber } } })
+    if (overlap) auditOverlapAcknowledged(orgId, user.id, id, issuedNumber, overlap)
 
     return { invoice: updated }
-  }, { isSignIn: true })
+  }, {
+    isSignIn: true,
+    // Optional: every caller before FR-22.31c sends none, and a bill with no overlap needs none.
+    body: t.Optional(t.Object({ acknowledgeOverlap: t.Optional(t.Boolean()) })),
+  })
   .post(
     '/:id/payments',
     async ({ params: { orgId, id }, body, user, status, headers }) => {
@@ -1604,7 +1640,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     await syncOrderForInvoice(orgId, updated || invoice, user.id)
     // FR-22 §5.3: a voided bill made from goods receipts gives them back — they can be billed
     // again. Nothing moved above (its `stockSource` stops the reversal) and nothing moves here.
-    await releaseReceiptLinks(orgId, invoice)
+    await releaseReceiptLinks(orgId, invoice, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'void', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
 
