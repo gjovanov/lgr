@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
-import { createBackOfficeCashSale } from './helpers/cash-register'
-import { appears } from './helpers/vuetify'
+import { apiLogin } from './helpers/api'
+import { closeTillSession, createBackOfficeCashSale, openTillSession, ownCashier } from './helpers/cash-register'
 
 const apiBase = process.env.BASE_URL || 'http://localhost:4001'
 
@@ -34,7 +34,7 @@ test.describe('Cash Register Sales', () => {
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
   })
 
-  test('should navigate to the POS-style new cash sale screen', async ({ page }) => {
+  test('Create opens the till, where a new cash sale is rung up', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/cash-sales')
 
@@ -45,39 +45,37 @@ test.describe('Cash Register Sales', () => {
     await page.locator('a.v-btn', { hasText: /create/i }).first().click()
     await page.waitForURL('**/cash-sales/new')
 
-    // FR-03: the detail page is a terminal — product catalog left, cart right.
-    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
-    await expect(page.locator('.register-catalog')).toBeVisible({ timeout: 10000 })
-    await expect(page.getByRole('button', { name: /^save$/i }).first()).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'CS Terminal' })).toBeVisible({ timeout: 10000 })
   })
 
-  test('should create a cash register sale by clicking a product card', async ({ page }) => {
-    await loginForApp(page)
-    await page.goto('/invoicing/cash-sales/new')
+  // The till rings into the cashier's OWN session, so the `sales` user rather than the admin, whose
+  // session `pos-terminal.spec.ts` opens itself.
+  test('should ring up a cash register sale by clicking a product card', async ({ page }) => {
+    const cashier = await apiLogin('acme-corp', 'sales', 'test123')
+    const till = await openTillSession(cashier)
+    try {
+      await loginForApp(page, 'acme-corp', 'sales', 'test123')
+      await page.goto('/invoicing/cash-sales/new')
 
-    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
+      // FR-03: lines are added by clicking product cards — there is no free-text line editor.
+      const card = page.getByTestId('register-card').first()
+      await expect(card).toBeVisible({ timeout: 10000 })
+      await card.click()
 
-    // FR-03: lines are added by clicking product cards — there is no free-text line editor.
-    const card = page.getByTestId('register-card').first()
-    test.skip(!(await appears(card, 10000)), 'no products seeded — nothing to sell')
+      await expect(page.locator('[data-testid^="cart-line-"]').first()).toBeVisible()
+      await page.getByTestId('complete-sale').click()
 
-    await card.click()
-
-    // The cart shows the line with its qty stepper; Save becomes enabled.
-    await expect(page.locator('[data-testid^="cart-line-"]').first()).toBeVisible()
-    const saveBtn = page.getByRole('button', { name: /^save$/i }).first()
-    await expect(saveBtn).toBeEnabled()
-    await saveBtn.click()
-
-    // Either straight back to the list, or the stock-transfer dialog intervenes on short stock.
-    await expect(
-      page.getByRole('heading', { name: 'Cash Register Sales' }).or(page.locator('.v-dialog')),
-    ).toBeVisible({ timeout: 10000 })
+      const number = page.getByTestId('last-sale-number')
+      await expect(number).toBeVisible({ timeout: 10000 })
+      await expect(page.locator('[data-testid^="cart-line-"]')).toHaveCount(0)
+    } finally {
+      await closeTillSession(till.id, cashier)
+    }
   })
 
-  // #134: a cart line prices from a dropdown listing EVERY named price, the filterless
-  // „Цена N" slots included — which the invoice dropdown does not show.
-  test('a cart line offers every named price in its dropdown', async ({ page }) => {
+  // #134 / #145: a cart line's price list names EVERY named price, the filterless „Цена N" slots
+  // included — which the invoice dropdown does not show.
+  test('a cart line offers every named price', async ({ page }) => {
     const { token, orgId } = await getAuthToken()
     const sku = `E2E-CSP-${Date.now()}`
     const created = await apiCall('POST', `/org/${orgId}/warehouse/product`, token, {
@@ -90,26 +88,32 @@ test.describe('Cash Register Sales', () => {
     })
     expect(created.product?.id || created.product?._id).toBeTruthy()
 
-    await loginForApp(page)
-    await page.goto('/invoicing/cash-sales/new')
-    await expect(page.locator('.register-catalog')).toBeVisible({ timeout: 10000 })
-    await page.locator('.register-catalog input').first().fill(sku)
-    await page.getByTestId('register-card').filter({ hasText: sku }).click()
+    // Its own: the seed's `sales` session is closed by whichever spec finishes with it next.
+    const cashier = await ownCashier('price')
+    const till = await openTillSession(cashier.session)
+    try {
+      await loginForApp(page, 'acme-corp', cashier.username, cashier.password)
+      await page.goto('/invoicing/cash-sales/new')
+      await expect(page.locator('.register-catalog')).toBeVisible({ timeout: 10000 })
+      await page.locator('.register-catalog input').first().fill(sku)
+      await page.getByTestId('register-card').filter({ hasText: sku }).click()
 
-    const row = page.locator('[data-testid^="cart-line-"]', { hasText: sku })
-    const price = row.getByTestId('price-combobox')
-    await expect(price).toBeVisible()
-    // The selling price applies until the cashier picks another.
-    await expect(price).toContainText('10.00000')
+      const row = page.locator('[data-testid^="cart-line-"]', { hasText: sku })
+      // The selling price applies until the cashier picks another.
+      await expect(row).toContainText('10.00')
 
-    // Click the field wrapper, not the input (tests/helpers/vuetify.ts explains why).
-    await price.locator('.v-field').first().click()
-    const options = page.getByRole('option')
-    await expect(options.filter({ hasText: 'Цена 1' })).toBeVisible()
-    await expect(options.filter({ hasText: 'Цена 2' })).toBeVisible()
+      await row.getByRole('button', { name: 'Select price' }).click()
+      const options = page.locator('.v-overlay--active .v-list-item')
+      await expect(options.filter({ hasText: 'Цена 1' })).toBeVisible()
+      await expect(options.filter({ hasText: 'Цена 2' })).toBeVisible()
 
-    await options.filter({ hasText: 'Цена 2' }).click()
-    await expect(price).toContainText('8.00000')
+      await options.filter({ hasText: 'Цена 2' }).click()
+      await expect(row).toContainText('8.00')
+      await expect(row).toContainText('Цена 2')
+    } finally {
+      await closeTillSession(till.id, cashier.session)
+      await cashier.drop()
+    }
   })
 
   // FR-21.13: the page is the cash-register journal. A paid cash sale reads "Completed" — or

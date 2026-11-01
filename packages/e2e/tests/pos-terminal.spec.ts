@@ -1,18 +1,21 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { apiLogin } from './helpers/api'
+import { closeTillSession, openTillSession } from './helpers/cash-register'
+import { appears, openSelect } from './helpers/vuetify'
 
-test.describe('POS Terminal', () => {
-  test('should navigate to POS Terminal and verify heading renders', async ({ page }) => {
+test.describe('CS Terminal', () => {
+  test('should navigate to the terminal and verify heading renders', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/pos/terminal')
+    await page.goto('/invoicing/cash-sales/new')
     await page.waitForLoadState('networkidle')
 
-    await expect(page.getByRole('heading', { name: /POS Terminal/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'CS Terminal' })).toBeVisible()
   })
 
   test('should show "Open Session" button when no active session', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/pos/terminal')
+    await page.goto('/invoicing/cash-sales/new')
     await page.waitForLoadState('networkidle')
 
     // When there is no active session, the "Open Session" button should be visible
@@ -21,7 +24,7 @@ test.describe('POS Terminal', () => {
 
   test('should open session dialog with warehouse select when clicking "Open Session"', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/pos/terminal')
+    await page.goto('/invoicing/cash-sales/new')
     await page.waitForLoadState('networkidle')
 
     // Click "Open Session" button
@@ -46,11 +49,11 @@ test.describe('POS Terminal', () => {
 
   test('should verify catalog filter controls are present when session is active', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/pos/terminal')
+    await page.goto('/invoicing/cash-sales/new')
     await page.waitForLoadState('networkidle')
 
     // Check if there is already an active session (catalog visible) or no session
-    const hasOpenSessionBtn = await page.getByRole('button', { name: /Open Session/i }).isVisible({ timeout: 5000 }).catch(() => false)
+    const hasOpenSessionBtn = await appears(page.getByRole('button', { name: /Open Session/i }), 5000)
 
     if (hasOpenSessionBtn) {
       // No active session — open one to see catalog controls
@@ -60,10 +63,9 @@ test.describe('POS Terminal', () => {
       await expect(dialog).toBeVisible({ timeout: 5000 })
 
       // Select first warehouse if available
-      const warehouseSelect = dialog.getByRole('combobox', { name: /Warehouse/i })
-      await warehouseSelect.click({ force: true })
+      await openSelect(dialog, /Warehouse/i)
       const firstOption = page.getByRole('option').first()
-      const hasOption = await firstOption.isVisible({ timeout: 3000 }).catch(() => false)
+      const hasOption = await appears(firstOption, 3000)
 
       if (hasOption) {
         await firstOption.click()
@@ -85,5 +87,10 @@ test.describe('POS Terminal', () => {
     await expect(page.getByRole('textbox', { name: /Search Products/i })).toBeVisible({ timeout: 10000 })
     await expect(page.getByRole('combobox', { name: /Category/i })).toBeVisible()
     await expect(page.getByRole('combobox', { name: /Type/i })).toBeVisible()
+
+    // Close what it opened: left open, the next run finds no "Open Session" button (the tests above).
+    const admin = await apiLogin()
+    const till = await openTillSession(admin)
+    await closeTillSession(till.id, admin)
   })
 })

@@ -3,7 +3,7 @@ import { apiLogin } from './helpers/api'
 import { loginForApp } from './helpers/login'
 
 /**
- * POS → Devices → an Eltrade: every report the device has prints from its card and reaches the
+ * Configuration → Devices → an Eltrade: every report the device has prints from its card and reaches the
  * device; what its protocol lacks (reading operators back, an operator report, the electronic
  * journal) is disabled with the reason, instead of answering "not supported" after a click; and an
  * admin names the reserve payment slot „НАЛОЖЕН ПЛАТЕЖ" for cash on delivery in one click.
@@ -87,7 +87,7 @@ test.describe('the device page on an Eltrade', () => {
 
   test('every report the device has prints from its card, and the device records it', async ({ page }) => {
     await loginForApp(page)
-    await page.goto(`/pos/devices/${deviceId}`, { waitUntil: 'networkidle' })
+    await page.goto(`/invoicing/configuration/devices/${deviceId}`, { waitUntil: 'networkidle' })
     await page.getByRole('tab', { name: /Reports/i }).click()
     const card = (feature: string) => page.getByTestId(`report-${feature}`)
 
@@ -133,7 +133,7 @@ test.describe('the device page on an Eltrade', () => {
 
   test('what the Eltrade protocol lacks is disabled, with the reason — not offered and refused', async ({ page }) => {
     await loginForApp(page)
-    await page.goto(`/pos/devices/${deviceId}`, { waitUntil: 'networkidle' })
+    await page.goto(`/invoicing/configuration/devices/${deviceId}`, { waitUntil: 'networkidle' })
     await page.getByRole('tab', { name: /Reports/i }).click()
     const frames = (await device()).frames
 
@@ -157,7 +157,7 @@ test.describe('the device page on an Eltrade', () => {
 
   test('an operator programmed from the page reaches the device', async ({ page }) => {
     await loginForApp(page)
-    await page.goto(`/pos/devices/${deviceId}`, { waitUntil: 'networkidle' })
+    await page.goto(`/invoicing/configuration/devices/${deviceId}`, { waitUntil: 'networkidle' })
     await page.getByRole('tab', { name: /Operators/i }).click()
     const row = page.getByTestId('operators').locator('tbody tr').nth(15)
     await expect(row.locator('td').first()).toHaveText('16')
@@ -170,7 +170,7 @@ test.describe('the device page on an Eltrade', () => {
 
   test('payment types: read from the device; one click names the reserve slot „НАЛОЖЕН ПЛАТЕЖ"', async ({ page }) => {
     await loginForApp(page)
-    await page.goto(`/pos/devices/${deviceId}`, { waitUntil: 'networkidle' })
+    await page.goto(`/invoicing/configuration/devices/${deviceId}`, { waitUntil: 'networkidle' })
     await page.getByRole('tab', { name: /Reports/i }).click()
     const card = page.getByTestId('payment-types')
 
