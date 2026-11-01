@@ -131,6 +131,10 @@ test.describe('FR-23 — a storno that may have printed', () => {
     await expect(message).toContainText('may have printed')
     await expect(message).toContainText('Do not press storno again')
     await expect(confirm).toBeDisabled()
+    // The page reads the sale again behind the dialog. What it said stays, and so does the button.
+    await expect(page.getByTestId('journal-document-status')).toContainText('Stornoed')
+    await expect(message).toContainText('Do not press storno again')
+    await expect(confirm).toBeDisabled()
 
     const { row } = await ok(manager, 'GET', `/cash-register/documents/${stornoId}`)
     expect(row).toMatchObject({ kind: 'storno', status: 'inDoubt', fiscal: { state: 'unknown', inDoubt: true } })

@@ -147,8 +147,10 @@ async function findTargetSession() {
   }
 }
 
-watch(() => [props.modelValue, props.sale?.id], ([open]) => {
-  if (open) {
+// ⚠ On opening, or on another sale: not on the sale's row being read again, as it is once a storno
+// in doubt comes back, which took the message off the screen and the button back with it.
+watch(() => (props.modelValue ? props.sale?.id : null), (id) => {
+  if (id) {
     reason.value = 'customer_return'
     void findTargetSession()
   }
