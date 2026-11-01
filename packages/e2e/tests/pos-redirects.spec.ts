@@ -185,6 +185,22 @@ test.describe('A pending change from before the move', () => {
     await expect.poll(() => page.evaluate((key: string) => localStorage.getItem(key), `lgr_pending_changes_${session.orgId}_${userId}`)).toBe('[]')
   })
 
+  test('on a portal page too', async ({ page }) => {
+    const session = await apiLogin()
+    const { id: userId } = claimsOf(session)
+    await seedEntry(page, {}, session)
+    await page.route('**/api/auth/me', (route: any) => route.fulfill({ status: 500, json: { message: 'no' } }))
+    await loginForApp(page)
+    await page.goto('/apps')
+
+    await page.locator('button:has(.mdi-content-save-alert-outline)').click()
+    const entry = page.locator('.v-navigation-drawer--right .v-list-item').filter({ hasText: NAME })
+    await expect(entry).toBeVisible({ timeout: 15000 })
+    await entry.locator('button:has(.mdi-close)').click()
+
+    await expect.poll(() => page.evaluate((key: string) => localStorage.getItem(key), `lgr_pending_changes_${session.orgId}_${userId}`)).toBe('[]')
+  })
+
   // The form is up before the shell has the person's profile. Left in that window it went into a
   // list that was not loaded yet: nothing was written, and the load then replaced it.
   test('a form left before the profile has answered is kept', async ({ page }) => {
