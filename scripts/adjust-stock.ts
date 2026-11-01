@@ -45,6 +45,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { assertTokenOrg } from './lib/token-org.js'
+import { loadBookedDocNumbers } from './lib/doc-marker.js'
 
 function parseArgs(argv: string[]) {
   const o: Record<string, string | boolean> = {}
@@ -192,11 +193,17 @@ async function main() {
   let totalUnmatched = 0, booked = 0, skipped = 0
   const mvBefore = (await http('GET', org('/warehouse/movement?page=0&size=1'))).total ?? 0
 
+  // By document NUMBER, not marker spelling: `sklisk:0000000130` (PDF era) and `sklisk:130` (API
+  // flow) are the same искане — see lib/doc-marker.ts.
+  const alreadyBooked = await loadBookedDocNumbers(async (page, size) => {
+    const d = await http('GET', org(`/warehouse/movement?type=adjustment&page=${page}&size=${size}&sortBy=_id&sortOrder=asc`))
+    return { movements: d.stockMovements || [], total: d.total }
+  }, 'sklisk')
+
   for (const t of docs) {
     const marker = `sklisk:${t.number}`
-    const dedup = await http('GET', org(`/warehouse/movement?type=adjustment&search=${encodeURIComponent(marker)}&page=0&size=50`))
-    const dup = (dedup.stockMovements || []).find((m: any) => String(m.notes || '').includes(marker))
-    if (dup) { console.log(`= ${t.number} (${t.date}) already booked: ${dup.movementNumber || dup.number} — skip`); skipped++; continue }
+    const dupNumber = alreadyBooked.get(Number(t.number))
+    if (dupNumber) { console.log(`= ${t.number} (${t.date}) already booked: ${dupNumber} — skip`); skipped++; continue }
 
     if (t.total != null && t.lines.every(l => l.value != null)) {
       const sum = t.lines.reduce((s, l) => s + (l.value || 0), 0)

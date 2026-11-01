@@ -28,7 +28,18 @@
  *   --snapshot <path>   exact storeAvailability_*.json to true up against (required)
  *   --date <ISO>        date to stamp the correction movements with (required — use the snapshot's own date)
  *   --warehouse <code>  warehouse code (default: org default)
+ *   --zero-lgr-only      ALSO bring LGR products that hold stock but have NO counterpart in the
+ *                       snapshot down to zero (own tagged batch, `<marker>:lgr-only`). See below.
  *   --execute            actually book + confirm (default: dry-run, prints the plan only)
+ *
+ * `--zero-lgr-only` (added 2026-11-01 for regal-pz, where it is a real class): PlusMinus can remove
+ * an item outright — a clean-up of a bogus opening balance, a merge — and its stock goes with it
+ * without any document (regal-pz: over a hundred seeded items, gone from BOTH the mobile API
+ * snapshot and the GUI "Наличност" report). LGR keeps what it was seeded with. Only products whose
+ * name has no twin in the snapshot even after dropping a `<label>:` prefix and quote marks and
+ * folding Latin/Cyrillic look-alikes are touched (those twins are a naming artifact, not a gap), and
+ * the flag refuses a snapshot that holds under 80 % of LGR's product count — a partial export would
+ * otherwise zero the catalogue. The batch has its own marker so it can be reversed on its own.
  *
  * Credentials (env): LGR_TOKEN, or LGR_USERNAME + LGR_PASSWORD.
  */
@@ -53,12 +64,17 @@ const warehouseCode = args.warehouse as string | undefined
 const snapPath = args.snapshot as string | undefined
 const date = args.date as string | undefined
 const EXECUTE = !!args.execute
+const ZERO_LGR_ONLY = !!args['zero-lgr-only']
 if (!snapPath) { console.error('Required: --snapshot <path to storeAvailability_*.json>'); process.exit(2) }
 if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) { console.error('Required: --date YYYY-MM-DD (use the snapshot\'s own date)'); process.exit(2) }
 const MARKER = `snapshot-reconcile:${date}`
 
 const collapse = (s: string) => s.replace(/\s+/g, ' ').trim().toLocaleLowerCase('bg')
 const round2 = (v: number) => +v.toFixed(2)
+/** Latin look-alikes of Cyrillic letters (PlusMinus and LGR spell the same article with either). */
+const CYR2LAT: Record<string, string> = { 'а': 'a', 'в': 'b', 'е': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't', 'х': 'x', 'у': 'y' }
+/** Loosest name key: no `<label>:` prefix, no quote marks, homoglyphs folded. Used ONLY to decide "has a twin", never to match. */
+const loose = (s: string) => [...collapse(s.replace(/^[^:]+:/, '').replace(/["']/g, ''))].map(c => CYR2LAT[c] ?? c).join('')
 
 let TOKEN = process.env.LGR_TOKEN || ''
 let ORG_ID = ''
@@ -153,14 +169,50 @@ async function main() {
     if (diff > 0) increase.push(entry); else decrease.push(entry)
   }
 
+  // ── --zero-lgr-only: stock LGR still holds for a product PlusMinus no longer has ──
+  const zeroDown: any[] = [] // LGR positive -> lower to 0
+  const zeroUp: any[] = []   // LGR negative -> raise to 0
+  if (ZERO_LGR_ONLY) {
+    if (byName.size < 0.8 * products.length) {
+      console.error(`--zero-lgr-only refused: the snapshot holds ${byName.size} names against ${products.length} LGR products (under 80 %) — it looks partial, and zeroing against it would wipe the catalogue.`)
+      process.exit(2)
+    }
+    // loose key -> the snapshot's exact keys that fold to it
+    const looseToExact = new Map<string, string[]>()
+    for (const key of byName.keys()) { const lk = loose(key); looseToExact.set(lk, [...(looseToExact.get(lk) ?? []), key]) }
+    let namingTwins = 0
+    for (const p of products) {
+      const pid = String(p._id || p.id)
+      const q = qtyById.get(pid) ?? 0
+      if (Math.abs(q) <= 0.001) continue
+      const name = String(p.name || '')
+      if (byName.has(collapse(name))) continue   // matched product: handled by the batches above
+      // A snapshot row that differs only by a prefix / quote marks / Latin-vs-Cyrillic look-alikes.
+      //  - another LGR product already carries that row's EXACT name → this one is a DUPLICATE FORK
+      //    (LGR created the same article a second time), its stock is surplus → fall through, zero it;
+      //  - nobody does → this IS the article under a different spelling: a naming artifact for a
+      //    person to settle (rename / merge), never zeroed.
+      const twins = looseToExact.get(loose(name))
+      if (twins?.length && !twins.some(k => prodByName.has(k))) { namingTwins++; continue }
+      const unitCost = Number(p.avgCost) || Number(p.purchasePrice) || 0
+      const entry = { productId: pid, sku: p.sku, name: p.name, quantity: round2(Math.abs(q)), unitCost, totalCost: round2(Math.abs(q) * unitCost), _before: q, _snapshot: 0 }
+      if (q > 0) zeroDown.push(entry); else zeroUp.push(entry)
+    }
+    if (namingTwins) console.log(`--zero-lgr-only: ${namingTwins} product(s) with stock left alone — the article exists in the snapshot under a different spelling and no other LGR product holds it (rename/merge by hand)`)
+  }
+
   console.log(`no-match (skipped — not matched to any LGR product by exact name): ${noMatch}`)
   console.log(`\nINCREASE batch (LGR too low): ${increase.length} lines, Σqty ${round2(increase.reduce((s, l) => s + l.quantity, 0))}, Σcost ${round2(increase.reduce((s, l) => s + l.totalCost, 0))}`)
-  for (const l of increase) console.log(`  + ${l.sku}  "${l.name}"  ${l._before} -> ${l._snapshot}  (+${l.quantity})`)
+  for (const l of increase) console.log(`  + ${l.sku}  "${l.name}"  ${l._before} -> ${l._snapshot}  (+${l.quantity}) @${l.unitCost}`)
   console.log(`\nDECREASE batch (LGR too high): ${decrease.length} lines, Σqty ${round2(decrease.reduce((s, l) => s + l.quantity, 0))}, Σcost ${round2(decrease.reduce((s, l) => s + l.totalCost, 0))}`)
-  for (const l of decrease) console.log(`  - ${l.sku}  "${l.name}"  ${l._before} -> ${l._snapshot}  (-${l.quantity})`)
+  for (const l of decrease) console.log(`  - ${l.sku}  "${l.name}"  ${l._before} -> ${l._snapshot}  (-${l.quantity}) @${l.unitCost}`)
+  if (ZERO_LGR_ONLY) {
+    console.log(`\nZERO-OUT (LGR holds stock for a product PlusMinus no longer has): lower ${zeroDown.length} (Σqty ${round2(zeroDown.reduce((s, l) => s + l.quantity, 0))}, Σcost ${round2(zeroDown.reduce((s, l) => s + l.totalCost, 0))}), raise ${zeroUp.length} (Σqty ${round2(zeroUp.reduce((s, l) => s + l.quantity, 0))})`)
+    for (const l of [...zeroDown, ...zeroUp]) console.log(`  0 ${l.sku}  "${l.name}"  ${l._before} -> 0 @${l.unitCost}`)
+  }
 
-  if (!EXECUTE) { console.log('\nDry-run only. Re-run with --execute to book + confirm both movements.'); return }
-  if (!increase.length && !decrease.length) { console.log('\nNothing to book.'); return }
+  if (!EXECUTE) { console.log('\nDry-run only. Re-run with --execute to book + confirm the movements.'); return }
+  if (!increase.length && !decrease.length && !zeroDown.length && !zeroUp.length) { console.log('\nNothing to book.'); return }
 
   const strip = (l: any) => ({ productId: l.productId, quantity: l.quantity, unitCost: l.unitCost, totalCost: l.totalCost })
 
@@ -186,6 +238,30 @@ async function main() {
     const mv = created.stockMovement || created.movement || created
     await http('POST', org(`/warehouse/movement/${mv._id || mv.id}/confirm`))
     console.log(`✓ DECREASE adjustment ${mv.movementNumber} confirmed (${decrease.length} lines)`)
+  }
+  // own tagged batches, so the zero-out can be reversed without touching the matched true-up
+  if (zeroDown.length) {
+    const created = await http('POST', org('/warehouse/movement'), {
+      type: 'adjustment', date, fromWarehouseId: wh._id,
+      totalAmount: round2(zeroDown.reduce((s, l) => s + l.totalCost, 0)),
+      notes: `Снапшот реконсилиация ${date} — артикулът вече не съществува в PlusMinus (${MARKER}:lgr-only)`,
+      lines: zeroDown.map(strip),
+      allowNegativeStock: true,
+    })
+    const mv = created.stockMovement || created.movement || created
+    await http('POST', org(`/warehouse/movement/${mv._id || mv.id}/confirm`))
+    console.log(`✓ ZERO-OUT (lower) adjustment ${mv.movementNumber} confirmed (${zeroDown.length} lines)`)
+  }
+  if (zeroUp.length) {
+    const created = await http('POST', org('/warehouse/movement'), {
+      type: 'adjustment', date, toWarehouseId: wh._id,
+      totalAmount: round2(zeroUp.reduce((s, l) => s + l.totalCost, 0)),
+      notes: `Снапшот реконсилиация ${date} — артикулът вече не съществува в PlusMinus (${MARKER}:lgr-only)`,
+      lines: zeroUp.map(strip),
+    })
+    const mv = created.stockMovement || created.movement || created
+    await http('POST', org(`/warehouse/movement/${mv._id || mv.id}/confirm`))
+    console.log(`✓ ZERO-OUT (raise) adjustment ${mv.movementNumber} confirmed (${zeroUp.length} lines)`)
   }
 }
 main().catch(e => { console.error('FAILED', e); process.exit(1) })
