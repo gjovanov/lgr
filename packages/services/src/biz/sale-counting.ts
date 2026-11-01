@@ -57,13 +57,14 @@ export async function printsHere(orgId: string): Promise<boolean> {
 
 /**
  * FR-23: what the header of a document says about money. Where LGR prints, the receipt and its payment
- * are the settlement, so a cash or card header on an invoice or a debit note says how it is to be
- * paid, never that it was: whatever no payment row covers is unpaid. ⚠ `prints` says so per org, read
- * once by whoever walks the documents (`printsHere`). Where nothing prints such a document was never
- * more than its header, a debit note issued in cash included: there the header stays the money.
+ * are the settlement, so a cash or card header on an invoice, a debit note or a credit note says how it
+ * is to be paid, never that it was: whatever no payment row covers is unpaid. A credit note's money
+ * is its refund row, which R2 adds. ⚠ `prints` says so per org, read once by whoever walks the documents
+ * (`printsHere`). Where nothing prints such a document was never more than its header, a debit note
+ * issued in cash included: there the header stays the money.
  */
 export function headerIsNoMoney(doc: { type?: string; paymentMethod?: string }, prints: boolean): boolean {
-  return prints && (doc.type === 'invoice' || doc.type === 'debit_note') && Object.hasOwn(SETTLED_ON_ISSUE, String(doc.paymentMethod))
+  return prints && (doc.type === 'invoice' || doc.type === 'debit_note' || doc.type === 'credit_note') && Object.hasOwn(SETTLED_ON_ISSUE, String(doc.paymentMethod))
 }
 
 /** Statuses of an invoice that is not (or no longer) a document. */

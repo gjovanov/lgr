@@ -3797,6 +3797,64 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
     expect(await row(part.id)).toMatchObject({ total: 24, paidCash: 10, paidCard: 0, bank: 14 })
   })
 
+  describe('a credit note with a cash header (the second review, finding 7)', () => {
+    /** An invoice whose receipt failed, and a credit note against it in cash, on a day no money moved. */
+    async function noMoneyMoved(w: TillWorld) {
+      const d = await draftOf(w)
+      w.sim!.paper = false
+      await send(w, d.id)
+      w.sim!.paper = true
+      const note = await draftOf(w, { type: 'credit_note', extra: { relatedInvoiceId: d.id, contactId: d.contactId } })
+      await send(w, note.id)
+      expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0, paymentMethod: 'cash' })
+      return { d, note }
+    }
+
+    it('sales history: the two foot to nothing, and no money shows, where LGR prints', async () => {
+      const w = await tillWorld(app)
+      await noMoneyMoved(w)
+
+      const out = await report('sales-history', w.orgId, { period: around(), includeNonRegister: true, source: 'documents' })
+
+      expect(out.meta.summary[0]).toMatchObject({ total: 0, cash: 0, unpaid: 0 })
+    })
+
+    it('the register: its open part goes to „По банка", never В брой', async () => {
+      const w = await tillWorld(app)
+      const { d, note } = await noMoneyMoved(w)
+
+      const out = await report('sales-documents', w.orgId, { period: around() })
+
+      expect(out.rows.find((r: any) => r.invoiceId === note.id)).toMatchObject({ total: -24, paidCash: 0, bank: -24 })
+      expect(out.rows.find((r: any) => r.invoiceId === d.id)).toMatchObject({ total: 24, paidCash: 0, bank: 24 })
+      expect(out.totals).toMatchObject({ total: 0, paidCash: 0, bank: 0 })
+    })
+
+    it('the digest skips the header of a credit note too', async () => {
+      const w = await tillWorld(app)
+      await noMoneyMoved(w)
+      const now = new Date()
+      const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      await Invoice.updateMany({ orgId: w.oid }, { $set: { issueDate: new Date(`${date}T12:00:00`) } })
+
+      const digest: any = await buildDailyDigest(w.orgId, date)
+
+      expect(digest.kpis.byMethod.find((m: any) => m.method === 'cash')?.amount ?? 0).toBe(0)
+    })
+
+    it('where LGR does not print nothing changes: the header stays the money', async () => {
+      const w = await tillWorld(app, { device: false })
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      const note = await draftOf(w, { type: 'credit_note', extra: { relatedInvoiceId: d.id, contactId: d.contactId } })
+      await send(w, note.id)
+
+      const out = await report('sales-documents', w.orgId, { period: around() })
+
+      expect(out.rows.find((r: any) => r.invoiceId === note.id)).toMatchObject({ total: -24, paidCash: -24, bank: 0 })
+    })
+  })
+
   it('an old invoice paid with no payment row keeps its column, where LGR prints too', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w, { method: 'bank_transfer' })
