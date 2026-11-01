@@ -6,13 +6,16 @@ import {
   clerkSale, clerkSession, draftOf, gate, line, pay, raw, receiptsOf, send, sessionOf, shown, until,
 } from '../helpers/receipt-world'
 import { AuditLog, FiscalDevice, Invoice, POSSession } from 'db/models'
-import { paymentReceiptDocument } from 'services/biz/cash-register/payment-receipt.service'
+import { paymentReceiptDocument, recordPayment } from 'services/biz/cash-register/payment-receipt.service'
 import { receiptBody } from 'services/biz/cash-register/receipt-lines'
 import { applySessionTotals } from 'services/biz/cash-register/register.service'
 import { requestHash } from 'services/biz/hot-path-key'
 import { deviceFromCounter, deviceFromDeadReceipt } from 'fiscal/fiscal-route'
-import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
+import { getPrinter, registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { WsTremolFiscalPrinter } from 'fiscal/ws-tremol-printer'
+import { EltradeFiscalPrinter } from 'fiscal/eltrade'
+import { EltradeSimulator } from '../helpers/eltrade-simulator'
+import { createTestFiscalDevice, createTestWarehouse } from '../helpers/factories'
 import { TREMOL_CMD } from 'fiscal/tremol'
 import { decodeCp1251 } from 'fiscal/cp1251'
 
@@ -307,6 +310,29 @@ describe('the lease of a receipt that is printing (ruling 5)', () => {
     stop()
   })
 
+  it('a print that runs on keeps its lease, so nobody reads it as a request that died', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    const held = gate()
+    w.sim!.beforeCommand = cmd => (cmd === CLOSE ? held.closed : undefined)
+    // The renewal's clock, in the test's time.
+    const real = globalThis.setInterval
+    globalThis.setInterval = ((run: () => void, ms?: number) => real(run, Math.min(ms ?? 0, 15))) as typeof setInterval
+    try {
+      const paying = pay(w, d.id, 24)
+      await until(() => w.sim!.executed.some(c => c.cmd === PAYMENT), 'the print to reach its payment')
+      await Invoice.updateOne({ type: 'payment_receipt' }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+
+      await until(async () => new Date((await receiptsOf(d.id))[0].leaseUntil).getTime() > Date.now(), 'the lease to be renewed')
+
+      held.open()
+      expect((await paying).status).toBe(200)
+    } finally {
+      globalThis.setInterval = real
+      held.open()
+    }
+  })
+
   it('a voided receipt takes no write and books no money, whoever comes back to it', async () => {
     const { setRegister } = await import('services/biz/cash-register/register.service')
     const w = await tillWorld(app)
@@ -315,8 +341,11 @@ describe('the lease of a receipt that is printing (ruling 5)', () => {
     await Invoice.updateOne({ _id: r._id }, { $set: { status: 'voided' } })
 
     await setRegister(r._id, { 'fiscal.state': 'printed' })
+    await recordPayment({ orgId: w.orgId, user: { id: String(w.user._id) } } as any, await reread(r))
 
     expect((await reread(r)).register.fiscal.state).toBe('pending')
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect((await raw(d.id)).payments).toHaveLength(0)
   })
 })
 
@@ -387,7 +416,6 @@ describe('a receipt whose request died (ruling 6)', () => {
     const w = await tillWorld(app)
     const d = await onBank(w)
     const r = await dead(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber })
-    const { getPrinter } = await import('fiscal/fiscal-device.service')
     await getPrinter(w.deviceId).openFiscalReceipt('0001', 'Иван Петров', 'ED123456-0001-0000098')
 
     expect((await pay(w, d.id, 24, 'bank_transfer')).json.code).toBe('receipt_in_doubt')
@@ -431,6 +459,37 @@ describe('a receipt whose request died (ruling 6)', () => {
     expect(retry.status).toBe(409)
     expect(retry.json.code).toBe('receipt_in_doubt')
     expect((await raw(d.id)).amountPaid).toBe(0)
+    expect((await reread(r)).register.fiscal.inDoubt).toBe(true)
+  })
+
+  it('a keyed retry the device does not answer: held, and nothing printed', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    const key = 'dead-keyed-retry-3'
+    const hash = requestHash(`invoice.payment:${d.id}`, { date: new Date().toISOString().slice(0, 10), amount: 24, method: 'cash' })
+    const r = await dead(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber }, { key, hash })
+    w.sim!.beforeCommand = (cmd) => { if (cmd === 0x71) throw new Error('no answer') }
+
+    const retry = await pay(w, d.id, 24, 'cash', key)
+
+    expect(retry.json.code).toBe('receipt_in_doubt')
+    expect(closedOnDevice(w)).toHaveLength(0)
+    expect((await reread(r)).register.fiscal.inDoubt).toBe(true)
+  })
+
+  it('a keyed retry with a receipt open on the device: held, and what is open is left alone', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    const key = 'dead-keyed-retry-4'
+    const hash = requestHash(`invoice.payment:${d.id}`, { date: new Date().toISOString().slice(0, 10), amount: 24, method: 'cash' })
+    const r = await dead(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber }, { key, hash })
+    await getPrinter(w.deviceId).openFiscalReceipt('0001', 'Иван Петров', 'ED123456-0001-0000098')
+
+    const retry = await pay(w, d.id, 24, 'cash', key)
+
+    expect(retry.json.code).toBe('receipt_in_doubt')
+    expect(w.sim!.executed.filter(c => c.cmd === 0x90)).toHaveLength(1)
+    expect(w.sim!.executed.some(c => c.cmd === VOID)).toBe(false)
     expect((await reread(r)).register.fiscal.inDoubt).toBe(true)
   })
 
@@ -693,15 +752,29 @@ describe('a session and its unfinished receipts (ruling 7)', () => {
 describe('which device a door follows (FR-24.50)', () => {
   it('a dead receipt\'s own device comes first: only it can say anything about that receipt', async () => {
     const w = await tillWorld(app)
-    const clerk = await tillWorld(app)
-    void clerk
     const d = await onBank(w)
     await dead(w, d, { attemptedAt: new Date(), counterBefore: 1 })
-    const params = { orgId: w.orgId, id: d.id }
-    const own = { orgId: w.orgId, deviceId: w.deviceId, deviceNumber: 'ED123456' }
+    // Whoever touches the document has a session of their own, on another device, at another store.
+    const store = await createTestWarehouse(w.oid)
+    const theirs = await createTestFiscalDevice(w.oid, store._id, { deviceNumber: 'ED654321', manufacturer: 'eltrade', connectionType: 'browser', status: 'online' } as any)
+    registerPrinter(String(theirs._id), new EltradeFiscalPrinter(new EltradeSimulator().exchange, String(theirs._id)))
+    try {
+      const opened = await w.call('POST', '/trade/pos/session', { warehouseId: String(store._id), openingBalance: 0, currency: 'EUR' }, undefined, w.clerkToken)
+      expect(opened.status).toBe(200)
+      const params = { orgId: w.orgId, id: d.id }
+      const user = { id: String(w.clerk._id) }
 
-    expect(await deviceFromCounter({ params, user: { id: String(w.clerk._id) }, body: {} })).toEqual(own)
-    expect(await deviceFromDeadReceipt({ params, user: {}, body: {} })).toEqual(own)
+      const own = { orgId: w.orgId, deviceId: w.deviceId, deviceNumber: 'ED123456' }
+      expect(await deviceFromCounter({ params, user, body: {} })).toEqual(own)
+      expect(await deviceFromDeadReceipt({ params, user: {}, body: {} })).toEqual(own)
+
+      // With no dead receipt the same person's door is their own device.
+      const clean = await onBank(w)
+      expect(await deviceFromCounter({ params: { orgId: w.orgId, id: clean.id }, user, body: {} }))
+        .toEqual({ orgId: w.orgId, deviceId: String(theirs._id), deviceNumber: 'ED654321' })
+    } finally {
+      unregisterPrinter(String(theirs._id))
+    }
   })
 
   it('one held for a person reaches no device, so it sends nobody anywhere', async () => {
