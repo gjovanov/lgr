@@ -176,6 +176,8 @@ export interface TwoPods {
   readonly mongoUri: string
   /** Shared by both pods: what a test signs a session with. */
   readonly jwtSecret: string
+  /** Shared by both pods: what a test signs a desktop's credential with. */
+  readonly desktopTokenSecret: string
   stop(): Promise<void>
 }
 
@@ -192,6 +194,7 @@ export async function startTwoPods(): Promise<TwoPods> {
     b,
     mongoUri,
     jwtSecret: shared.JWT_SECRET,
+    desktopTokenSecret: shared.DESKTOP_TOKEN_SECRET,
     async stop() {
       await Promise.all([a.stop().catch(() => undefined), b.stop().catch(() => undefined)])
       await mongo.stop()
