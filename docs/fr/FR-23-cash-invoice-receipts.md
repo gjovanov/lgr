@@ -117,7 +117,7 @@ The till's print-once machinery (#155) is reused unchanged: `register.fiscal.sta
 | Session: expected cash, close preview, session report (#391), Z-report check | counts: the cash is in the drawer | counts negative |
 | Session close JE (FR-21 D-6) | excluded: `payment.recorded` posted the cash | excluded |
 | Stock | none | none |
-| SUPTO tables that list receipts (18.2–18.5) | listed. **This changes the SUPTO database structure: FR-20.50's declaration rule applies.** | listed |
+| SUPTO tables that list receipts (18.2–18.5) | listed. **This changes the SUPTO database structure: FR-20.50's declaration rule applies.** R1 is SUPTO version 2 (`config/supto.json`); `declared` stays empty until the owner declares it. | listed |
 | Digest "sales with no movement" (FR-11.10) | excluded: no movement is right | excluded |
 | Invoice PDF | lists the receipts that paid it (УНП and number), as R0's PDF lists its sale's | — |
 
