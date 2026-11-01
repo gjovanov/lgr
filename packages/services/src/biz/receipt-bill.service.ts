@@ -308,7 +308,8 @@ async function settleSupplier(orgId: string, movements: any[], chosen: string | 
       movementId: idOf(first._id), movementNumber: first.movementNumber,
     })
   }
-  if (chosen && (check || unnamed.length)) await assertSupplier(orgId, idOf(chosen))
+  // A supplier the receipts already name needs no proving: one since deactivated still delivered them.
+  if (chosen && idOf(chosen) !== named && (check || unnamed.length)) await assertSupplier(orgId, idOf(chosen))
   return { supplierId: named || idOf(chosen), unnamed }
 }
 

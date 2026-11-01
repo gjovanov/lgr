@@ -558,6 +558,19 @@ describe('a receipt that names no supplier (FR-22.31a)', () => {
     expect(String((await w.mv(anonymous._id)).contactId)).toBe(String(both._id))
   }, 60_000)
 
+  it('a deactivated supplier can still be billed for the receipt that names it, and takes no other', async () => {
+    const w = await world()
+    const own = await w.receipt([[w.bolt, 7, 3]])
+    const unnamed = await w.receipt([[w.nut, 2, 2]], { contactId: null })
+    await Contact.updateOne({ _id: w.supplier._id }, { $set: { isActive: false } }).exec()
+
+    const refused = await w.fromReceipt([unnamed._id], { contactId: String(w.supplier._id) })
+    expect([refused.status, refused.json.code]).toEqual([422, 'supplier_not_found'])
+    const billed = await w.fromReceipt([own._id], { contactId: String(w.supplier._id) })
+    expect(billed.status).toBe(200)
+    expect(String((await w.load(billed.json.invoice.id)).contactId)).toBe(String(w.supplier._id))
+  }, 60_000)
+
   it('bills a named and an unnamed receipt together, and only the unnamed one takes the supplier', async () => {
     const w = await world()
     const anonymous = await w.receipt([[w.bolt, 1, 5]], { contactId: null })
