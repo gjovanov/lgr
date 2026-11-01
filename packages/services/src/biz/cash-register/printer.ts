@@ -51,8 +51,12 @@ export interface RegisterPrinter {
   readonly lineNameMax?: number
   /** Print the sale as a non-fiscal text receipt. */
   printText(doc: RegisterDocument): Promise<void>
-  /** Print the storno receipt of `original`. Returns its receipt number. */
-  printStorno(storno: RegisterDocument, original: RegisterDocument): Promise<string>
+  /**
+   * Print a storno's receipt: its own lines, its own total, citing what `storno.register.storno` names.
+   * `original`, the sale it reverses, says how it is paid when the storno itself does not. Returns its
+   * receipt number.
+   */
+  printStorno(storno: RegisterDocument, original?: RegisterDocument): Promise<string>
   /**
    * Get a half-printed fiscal receipt off the device, or it refuses everything after it: voided, or
    * finished if it can no longer be voided. Best effort. `closed` says a driver with no cancel fell

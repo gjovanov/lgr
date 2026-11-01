@@ -52,8 +52,10 @@ export { PENDING_NUMBER, isPendingNumber }
  * stock failure is recorded on it, never rolled back (D-4), so it leaves no gap.
  */
 const numbersAfterStock = (doc: any) => doc?.type === 'cash_sale' && !doc?.register?.sessionId
+/** The money of a document on the device: a payment's receipt, or a refund's storno (FR-23). */
+const isMoneyDocument = (doc: any) => doc?.type === 'payment_receipt' || doc?.type === 'payment_storno'
 /** A receipt waits the same way, for the hold on its invoice (FR-23): one that gives way draws none. */
-const numbersLater = (doc: any) => numbersAfterStock(doc) || doc?.type === 'payment_receipt'
+const numbersLater = (doc: any) => numbersAfterStock(doc) || isMoneyDocument(doc)
 
 type ObjectId = InstanceType<typeof Invoice.base.Types.ObjectId>
 const oid = (v: unknown): ObjectId => new Invoice.base.Types.ObjectId(String(v))
@@ -259,8 +261,8 @@ export async function numberPending(orgId: string, doc: any): Promise<any | null
  *   one included: on a shared device that may be another document's receipt, and booked as this
  *   one's it hands a customer someone else's number, or refunds a storno the device never saw. A
  *   second fiscal receipt for one sale is the failure this exists to prevent, so the document goes
- *   `unknown` and the cashier checks the device. A payment's receipt is held for a person instead
- *   (`holdInDoubt`), because here the reading decides whether money is booked.
+ *   `unknown` and the cashier checks the device. A payment's receipt or a refund's storno is held
+ *   for a person instead (`holdInDoubt`), because here the reading decides whether money is booked.
  */
 async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promise<string>): Promise<any> {
   const fiscal = doc.register?.fiscal || {}
@@ -269,7 +271,7 @@ async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promis
     const { now, open } = await readDevice(printer)
     if (!provedNotPrinted({ before, now, open })) {
       logger.warn({ documentId: String(doc._id), before, now, open }, 'Interrupted fiscal receipt: device cannot confirm it — not reprinting')
-      if (doc.type === 'payment_receipt') return holdInDoubt(doc)
+      if (isMoneyDocument(doc)) return holdInDoubt(doc)
       return setRegister(doc._id, {
         'fiscal.state': 'unknown',
         receiptError: 'The receipt was interrupted and the device cannot confirm whether it printed. Check the device; do not ring the sale up again.',
@@ -299,12 +301,12 @@ async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promis
 }
 
 /**
- * A payment's receipt says the moment it prints, whatever it said when it was written: it may have
+ * A payment's receipt or a refund's storno says the moment it prints, whatever it said when it was written: it may have
  * waited its turn past midnight, or come back with its key the next morning, and the device, the
  * session and the row say one day. A till sale is written as it prints.
  */
 async function datedAsItPrints(doc: any): Promise<void> {
-  if (doc.type !== 'payment_receipt') return
+  if (!isMoneyDocument(doc)) return
   const now = new Date()
   await Invoice.updateOne({ _id: doc._id }, { $set: { issueDate: now, dueDate: now, paidAt: now, 'payments.0.date': now } }).exec()
 }
@@ -401,7 +403,7 @@ export async function printSaleStep(c: RegisterContext, doc: any): Promise<any> 
   if (doc.register?.fiscal?.mode === 'text') {
     if (!printer.printsText) {
       // A payment's receipt prints text because the device said so, and nobody has a switch for that.
-      const receiptError = doc.type === 'payment_receipt'
+      const receiptError = isMoneyDocument(doc)
         ? 'This fiscal device is not fiscalized and cannot print a text receipt, so the receipt was not printed.'
         : 'This fiscal device cannot print non-fiscal receipts — switch "Non-fiscal" off to issue a fiscal receipt.'
       return setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': receiptError, receiptError })
@@ -422,7 +424,7 @@ export async function printSaleStep(c: RegisterContext, doc: any): Promise<any> 
     }
   }
   return printOnce(printer, doc, async () => {
-    const receiptNo = await printer.printSale(doc)
+    const receiptNo = doc.type === 'payment_storno' ? await printer.printStorno(doc) : await printer.printSale(doc)
     await printer.reached()
     logger.info({ documentId: String(doc._id), unp: doc.register?.unp, receiptNo }, 'Fiscal receipt printed')
     return receiptNo
@@ -493,6 +495,21 @@ export async function applySessionTotals(doc: any, sessionId: string, inc: Recor
   } finally {
     await s.endSession()
   }
+}
+
+/**
+ * H1 + #145: a storno's increments. The refund leaves the drawer by the method it is paid out in, so the
+ * close screen expects what is actually left: the same buckets as a sale, reversed. Its `payments` are
+ * the refund: the operator's, or what the sale kept (cash tendered minus its change).
+ */
+export function stornoIncrements(doc: any): Record<string, number> {
+  const refund = stornoRefundBuckets(doc.payments, {})
+  const inc: Record<string, number> = { totalReturns: Number(doc.total) || 0, transactionCount: 1 }
+  if (refund.cash) inc.totalCash = -refund.cash
+  if (refund.card) inc.totalCard = -refund.card
+  if (refund.other) inc.totalOther = -refund.other
+  if (refund.cashOnDelivery) inc.totalCashOnDelivery = -refund.cashOnDelivery
+  return inc
 }
 
 /** A sale's increments: the same buckets, and the same rule, the close screen reconciles. */
@@ -729,6 +746,11 @@ export async function settleKeyedDocument(
 
 // ── Storno (D-2, §3.5) ───────────────────────────────────────────────────────
 
+const REFUNDED_SALE = () => new RegisterRefusal(409, {
+  code: 'cash_sale_refunded',
+  message: 'A credit note already refunded part of this sale on a storno receipt, so the whole sale cannot be stornoed.',
+})
+
 /** Why a sale cannot be stornoed, or null when it can. */
 export async function stornoRefusal(original: any): Promise<RegisterRefusal | null> {
   if (!original) return new RegisterRefusal(404, { message: 'Original transaction not found' })
@@ -736,6 +758,9 @@ export async function stornoRefusal(original: any): Promise<RegisterRefusal | nu
   if (original.type !== 'cash_sale') return new RegisterRefusal(404, { message: 'Original transaction not found' })
   if (original.status !== 'paid') return new RegisterRefusal(400, { code: 'storno_not_paid', message: 'Only a completed sale can be stornoed' })
   if (original.register?.stornoState === 'full') return new RegisterRefusal(400, { message: 'Original transaction is already cancelled' })
+  // FR-23: a credit note's refund took part of what its receipt printed, and until R3 a storno here
+  // is the whole sale. It would give that part back a second time.
+  if (original.register?.refundClaims?.length) return REFUNDED_SALE()
   if (originOf(original) === 'import') {
     return new RegisterRefusal(409, {
       code: 'storno_imported_day',
@@ -862,7 +887,8 @@ export function stornoDocument(input: StornoInput): Record<string, any> {
  */
 export async function claimForStorno(original: any, stornoId: ObjectId): Promise<boolean> {
   const claimed = await Invoice.findOneAndUpdate(
-    { _id: original._id, orgId: original.orgId, type: 'cash_sale', status: 'paid', 'register.stornoState': { $ne: 'full' } },
+    // No refund has taken from it: of the two at once one gives way (`takeBudget` asks the reverse).
+    { _id: original._id, orgId: original.orgId, type: 'cash_sale', status: 'paid', 'register.stornoState': { $ne: 'full' }, 'register.refundClaims.0': { $exists: false } },
     { $set: { 'register.stornoState': 'full', 'register.cancelledAt': new Date() }, $push: { 'register.stornoedBy': stornoId } },
     { new: true },
   ).exec()
@@ -983,16 +1009,7 @@ export async function runStornoSteps(c: RegisterContext, id: string): Promise<an
 
   const sessionId = doc.register?.sessionId ? String(doc.register.sessionId) : undefined
   if (sessionId && !doc.register?.sessionTotalsApplied) {
-    // H1 + #145: the refund leaves the drawer by the method it is paid out in, so the close screen
-    // expects what is actually left — the same buckets as a sale, reversed. The storno's payments
-    // are the refund: the operator's, or what the sale kept (cash tendered minus its change).
-    const refund = stornoRefundBuckets(doc.payments, {})
-    const inc: Record<string, number> = { totalReturns: Number(original.total) || 0, transactionCount: 1 }
-    if (refund.cash) inc.totalCash = -refund.cash
-    if (refund.card) inc.totalCard = -refund.card
-    if (refund.other) inc.totalOther = -refund.other
-    if (refund.cashOnDelivery) inc.totalCashOnDelivery = -refund.cashOnDelivery
-    await applySessionTotals(doc, sessionId, inc)
+    await applySessionTotals(doc, sessionId, stornoIncrements(doc))
     doc = await Invoice.findById(doc._id).lean().exec()
   }
 

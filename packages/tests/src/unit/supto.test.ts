@@ -30,9 +30,9 @@ describe('a SUPTO version travels only once declared (FR-20.50)', () => {
     expect(suptoOffer(' 2\n', ['2'])).toEqual({ version: '2', declared: true, enforced: true })
   })
 
-  it('FR-23 changed the database structure (a `payment_receipt` in 18.1–18.3 and 18.5), and that is a new version', () => {
+  it('FR-23 changed the database structure twice (R1: a `payment_receipt`; R2: a `payment_storno` in 18.2, 18.4 and 18.5, and `register.refundClaims`), and each is a new version', () => {
     // By hand, in the commit that makes such a change (the file's own rule). Declaring it is the owner's act.
-    expect(SUPTO_VERSION).toBe('2')
+    expect(SUPTO_VERSION).toBe('3')
     expect(SUPTO_DECLARED).toEqual([])
   })
 

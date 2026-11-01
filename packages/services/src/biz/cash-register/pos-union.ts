@@ -30,8 +30,18 @@ export const REGISTER_TYPES = ['cash_sale', 'cash_storno'] as const
  */
 export const PAYMENT_RECEIPT = 'payment_receipt'
 
+/**
+ * FR-23 R2 — the storno receipt of a refund on a credit note. The same kind of document, the other way:
+ * the credit note is the return of the sale, and this is the money going back, a storno on the device.
+ * Everything said above of a receipt holds for it.
+ */
+export const PAYMENT_STORNO = 'payment_storno'
+
+/** The money of a document on the device: taken for an invoice or a debit note, given back for a credit note. */
+export const MONEY_DOCUMENT_TYPES = [PAYMENT_RECEIPT, PAYMENT_STORNO] as const
+
 /** Every document of a register: what the journal lists, and what a session's own figures read. */
-export const TILL_DOCUMENT_TYPES = [...REGISTER_TYPES, PAYMENT_RECEIPT] as const
+export const TILL_DOCUMENT_TYPES = [...REGISTER_TYPES, ...MONEY_DOCUMENT_TYPES] as const
 
 export interface PosUnionFilter {
   orgId: string
@@ -40,8 +50,8 @@ export interface PosUnionFilter {
   sessionId?: string
   ids?: string[]
   /**
-   * The receipts of payments on invoices too (FR-23): the session's own figures and the SUPTO tables
-   * ask for them. Left out by default: the session journal entry and sales history read through
+   * The receipts of payments on invoices and the stornos of refunds on credit notes too (FR-23): the
+   * session's own figures and the SUPTO tables ask for them. Left out by default: the session journal entry and sales history read through
    * here, and the invoice posted that money.
    */
   withReceipts?: boolean

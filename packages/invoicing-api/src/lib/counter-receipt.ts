@@ -19,7 +19,7 @@ import { Invoice, POSSession } from 'db/models'
 import { takeLease } from 'services/biz/hot-path-key'
 import { outstandingOf } from 'services/biz/invoice-payment'
 import { logger } from 'services/logger'
-import { PAYMENT_RECEIPT } from 'services/biz/cash-register/pos-union'
+import { MONEY_DOCUMENT_TYPES } from 'services/biz/cash-register/pos-union'
 import {
   finishInterruptedReceipt, interruptedReceipts, paymentReceiptDocument, printsAtCounter, receiptsOf, runReceiptSteps,
   type ReceiptTender,
@@ -152,11 +152,11 @@ export function settleKeyedReceipt(orgId: string, user: RegisterUser, receipt: a
   return settleKeyedDocument(receipt, hash, () => receiptContext(orgId, user, receipt), (c, id) => runReceiptSteps(c, id))
 }
 
-/** The receipt holding this key, if a request with it already made one. */
+/** The receipt holding this key, if a request with it already made one; or the first storno of a refund. */
 export async function keyedReceipt(orgId: string, key: string): Promise<any | null> {
   // ⚠ `$type` is what reaches the partial index: on an equality alone the planner cannot prove its
   // filter, and walks the org's documents by another index.
-  return Invoice.findOne({ orgId, clientKey: { $eq: key, $type: 'string' }, type: PAYMENT_RECEIPT }).lean().exec()
+  return Invoice.findOne({ orgId, clientKey: { $eq: key, $type: 'string' }, type: { $in: MONEY_DOCUMENT_TYPES } }).lean().exec()
 }
 
 /**

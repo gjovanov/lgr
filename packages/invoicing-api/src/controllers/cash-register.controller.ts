@@ -6,7 +6,7 @@ import { getJournalDocument, listJournal } from 'services/biz/cash-register/jour
 import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import { readIdempotencyKey, requestHash } from 'services/biz/hot-path-key'
 import { Invoice, POSSession } from 'db/models'
-import { PAYMENT_RECEIPT } from 'services/biz/cash-register/pos-union'
+import { MONEY_DOCUMENT_TYPES } from 'services/biz/cash-register/pos-union'
 import { settleReceipt } from 'services/biz/cash-register/payment-receipt.service'
 import { RegisterRefusal } from 'services/biz/cash-register/register.service'
 import { STORNO_ROLES, stornoDoor } from '../lib/cash-register-till.js'
@@ -67,7 +67,7 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
       isSignIn: true,
       query: t.Object({
         search: t.Optional(t.String()),
-        kind: literal('sale', 'storno', 'payment'),
+        kind: literal('sale', 'storno', 'payment', 'refund'),
         origin: literal('pos', 'backoffice', 'import'),
         status: literal('completed', 'stornoed', 'voided'),
         fiscalState: t.Optional(t.String()),
@@ -92,7 +92,7 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
     if (!doc) return status(404, { message: 'Cash-register document not found' })
     return doc
   }, { isSignIn: true })
-  // FR-23: a person who looked at the device says whether a receipt nothing could prove printed.
+  // FR-23: a person who looked at the device says whether a receipt, or a refund's storno, nothing could prove printed.
   .post(
     '/documents/:id/settle',
     async ({ params: { orgId, id }, body, user, status }) => {
@@ -102,7 +102,7 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
         return status(403, { message: 'Settling a receipt requires manager or admin authorization' })
       }
       const receipt = Invoice.base.Types.ObjectId.isValid(id)
-        ? await Invoice.exists({ _id: id, orgId, type: PAYMENT_RECEIPT }).exec()
+        ? await Invoice.exists({ _id: id, orgId, type: { $in: MONEY_DOCUMENT_TYPES } }).exec()
         : null
       if (!receipt) return status(404, { message: 'Receipt not found' })
       try {

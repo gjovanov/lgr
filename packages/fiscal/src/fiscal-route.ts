@@ -203,18 +203,21 @@ async function deviceOfOpenSession(orgId: string, userId: unknown): Promise<Fisc
 }
 
 /**
- * FR-23: a payment's receipt whose request died is finished by the next request on its document,
- * on the device it was printing on: that device's counter says whether it printed. It is the only
+ * FR-23: a payment's receipt or a refund's storno whose request died is finished by the next request on
+ * its document, on the device it was printing on: that device's counter says whether it printed. It is the only
  * way `PUT /invoices/:id` and `/void` reach a device, so with none unfinished they run where they are.
  *
  * ⚠ The receipt's own device, by number, never its warehouse's: a warehouse can hold two, and the pod
  * this request reached would otherwise decide where it ran.
  */
 export const deviceFromDeadReceipt: FiscalResolver = async ({ params }) => {
-  const paidInvoiceId = oid(params?.id)
-  if (!paidInvoiceId) return null
+  const documentId = oid(params?.id)
+  if (!documentId) return null
   const receipt: any = await Invoice.findOne(
-    { orgId: params.orgId, type: 'payment_receipt', 'register.paidInvoiceId': paidInvoiceId, completedAt: { $exists: false }, 'register.fiscal.inDoubt': { $ne: true } },
+    {
+      orgId: params.orgId, completedAt: { $exists: false }, 'register.fiscal.inDoubt': { $ne: true },
+      $or: [{ type: 'payment_receipt', 'register.paidInvoiceId': documentId }, { type: 'payment_storno', 'register.refundOf': documentId }],
+    },
     { 'register.fiscalDeviceNumber': 1 },
   ).sort({ _id: 1 }).lean().exec()
   const deviceNumber = receipt?.register?.fiscalDeviceNumber

@@ -41,9 +41,18 @@ export function posRowSign(row: PosRowLike): 1 | -1 | 0 {
  * it has no sign, because it is no sale and `posRowSign` is what the session's journal entry and sales
  * history sum.
  */
-export function receiptTookMoney(row: PosRowLike & { fiscal?: { state?: string; inDoubt?: boolean } }): boolean {
-  return row.type === 'payment_receipt' && (row.fiscal?.state === 'printed' || row.fiscal?.state === 'unknown') && !row.fiscal?.inDoubt && row.status === 'completed'
+export function receiptTookMoney(row: MoneyRow): boolean {
+  return row.type === 'payment_receipt' && moved(row)
 }
+
+/** FR-23 R2: the same of a refund's storno, which gave the money back: a session counts it negative. */
+export function refundGaveMoney(row: MoneyRow): boolean {
+  return row.type === 'payment_storno' && moved(row)
+}
+
+type MoneyRow = PosRowLike & { fiscal?: { state?: string; inDoubt?: boolean } }
+
+const moved = (row: MoneyRow) => (row.fiscal?.state === 'printed' || row.fiscal?.state === 'unknown') && !row.fiscal?.inDoubt && row.status === 'completed'
 
 export interface MethodTotals {
   cash: number

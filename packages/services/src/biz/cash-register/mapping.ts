@@ -210,14 +210,16 @@ export function toPosTransaction(doc: any): Record<string, any> {
   const reg = doc.register || {}
   const isStorno = doc.type === 'cash_storno'
   const isReceipt = doc.type === 'payment_receipt'
+  const isRefund = doc.type === 'payment_storno'
   const cancelled = doc.status === 'voided' || (!isStorno && reg.stornoState === 'full')
   const row: Record<string, any> = {
     _id: doc._id,
     orgId: doc.orgId,
     sessionId: reg.sessionId,
     transactionNumber: doc.invoiceNumber,
-    // FR-23: a receipt keeps its own type, which `posRowSign` does not know: it is not a sale.
-    type: reg.legacy?.type || (isStorno ? 'storno' : isReceipt ? doc.type : 'sale'),
+    // FR-23: a receipt keeps its own type, which `posRowSign` does not know: it is not a sale. Nor is
+    // a refund's storno the reversal of one: its credit note is.
+    type: reg.legacy?.type || (isStorno ? 'storno' : isReceipt || isRefund ? doc.type : 'sale'),
     status: cancelled ? 'cancelled' : 'completed',
     customerId: doc.contactId,
     lines: (doc.lines || []).map((l: any) => ({
@@ -252,7 +254,7 @@ export function toPosTransaction(doc: any): Record<string, any> {
     printedAt: reg.printedAt,
     isFiscal: !!reg.isFiscal,
     fiscal: reg.fiscal,
-    ...(isStorno
+    ...(isStorno || isRefund
       ? {
           originalTransactionId: reg.storno?.originalId ?? doc.relatedInvoiceId,
           originalUNP: reg.storno?.originalUnp,
@@ -262,6 +264,7 @@ export function toPosTransaction(doc: any): Record<string, any> {
         }
       : {}),
     ...(isReceipt ? { paidInvoiceId: reg.paidInvoiceId, paidInvoiceNumber: reg.paidInvoiceNumber } : {}),
+    ...(isRefund ? { refundOf: reg.refundOf, refundOfNumber: reg.refundOfNumber } : {}),
     clientKey: doc.clientKey,
     requestHash: doc.requestHash,
     completedAt: doc.completedAt,

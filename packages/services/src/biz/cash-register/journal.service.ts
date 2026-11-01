@@ -3,7 +3,8 @@
  *
  * What it lists: every `cash_sale` and `cash_storno` document — the till's
  * (`register.origin: 'pos'`), the back office's and the PlusMinus imports' — and the receipt of
- * every payment on an invoice (`payment_receipt`, FR-23): number, УНП, amount and the invoice it paid.
+ * every payment on an invoice (`payment_receipt`, FR-23): number, УНП, amount and the invoice it paid;
+ * and the storno of every refund on a credit note (`payment_storno`): the credit note, and what it cites.
  *
  * Until R4 it also listed the POS rows no document had copied yet. Since R3 every row has its
  * document and `postransactions` is frozen, so the journal reads the documents only (FR-21.27);
@@ -14,10 +15,10 @@
  */
 import { Contact, Invoice, POSSession, StockMovement, User, Warehouse } from 'db/models'
 import { localDayWindow, BULGARIAN_TIME_ZONE } from '../local-day.js'
-import { PAYMENT_RECEIPT, TILL_DOCUMENT_TYPES } from './pos-union.js'
+import { PAYMENT_RECEIPT, PAYMENT_STORNO, TILL_DOCUMENT_TYPES } from './pos-union.js'
 import { invoicedCashSaleIds, invoicingByCashSale } from '../cash-sale-invoice.service.js'
 
-export type JournalKind = 'sale' | 'storno' | 'payment'
+export type JournalKind = 'sale' | 'storno' | 'payment' | 'refund'
 export type JournalOrigin = 'pos' | 'backoffice' | 'import'
 export type JournalStatus = 'completed' | 'stornoed' | 'voided'
 export type JournalStock = 'moved' | 'error' | 'none'
@@ -96,13 +97,13 @@ export interface JournalRow {
   }
   stock: JournalStock
   reference?: string
-  /** On a storno: the sale it reverses. */
+  /** On a storno: the sale it reverses. On a refund's storno: the receipt it cites. */
   relatedId?: string
-  /** On a sale: the stornos that reverse it. */
+  /** On a sale: the stornos that reverse it. On a receipt or a sale a refund cites: those too. */
   stornoedBy?: string[]
   /**
    * #171: on a cash sale held as a document, the invoices issued for it and how far it is invoiced.
-   * FR-23: on a payment's receipt, the invoice it paid.
+   * FR-23: on a payment's receipt, the invoice it paid. On a refund's storno, the credit note.
    */
   invoices?: Array<{ id: string; number: string; status: string }>
   invoicingState?: 'none' | 'partial' | 'full'
@@ -153,8 +154,8 @@ function fiscalStateMatch(state: string, stateField: string, receiptField: strin
 
 // ── The document side ───────────────────────────────────────────────────────
 
-const KIND_TYPE: Record<JournalKind, string> = { sale: 'cash_sale', storno: 'cash_storno', payment: PAYMENT_RECEIPT }
-const kindOf = (doc: any): JournalKind => (doc.type === 'cash_storno' ? 'storno' : doc.type === PAYMENT_RECEIPT ? 'payment' : 'sale')
+const KIND_TYPE: Record<JournalKind, string> = { sale: 'cash_sale', storno: 'cash_storno', payment: PAYMENT_RECEIPT, refund: PAYMENT_STORNO }
+const kindOf = (doc: any): JournalKind => (doc.type === 'cash_storno' ? 'storno' : doc.type === PAYMENT_RECEIPT ? 'payment' : doc.type === PAYMENT_STORNO ? 'refund' : 'sale')
 
 function documentMatch(q: JournalQuery, invoiced: any[] | null): Record<string, any> | null {
   const and: Record<string, any>[] = [{ orgId: oid(q.orgId) }, { type: { $in: TILL_DOCUMENT_TYPES } }]
@@ -265,12 +266,17 @@ function fromDocument(doc: any, moved: Set<string>): JournalRow {
     },
     stock: reg.stockError ? 'error' : moved.has(id) || reg.movementId ? 'moved' : 'none',
     ...(doc.reference ? { reference: doc.reference } : {}),
-    ...(doc.type === 'cash_storno' && (reg.storno?.originalId || doc.relatedInvoiceId)
+    ...((doc.type === 'cash_storno' || doc.type === PAYMENT_STORNO) && (reg.storno?.originalId || doc.relatedInvoiceId)
       ? { relatedId: String(reg.storno?.originalId || doc.relatedInvoiceId) }
       : {}),
-    ...(reg.stornoedBy?.length ? { stornoedBy: reg.stornoedBy.map(String) } : {}),
+    ...(reg.stornoedBy?.length || reg.refundClaims?.length
+      ? { stornoedBy: [...new Set([...(reg.stornoedBy ?? []), ...(reg.refundClaims ?? []).map((c: any) => c.stornoId)].map(String))] }
+      : {}),
     ...(doc.type === PAYMENT_RECEIPT
       ? { invoices: [{ id: String(reg.paidInvoiceId), number: reg.paidInvoiceNumber || '', status: 'paid' }], invoicingState: 'full' as const }
+      : {}),
+    ...(doc.type === PAYMENT_STORNO
+      ? { invoices: [{ id: String(reg.refundOf), number: reg.refundOfNumber || '', status: 'paid' }], invoicingState: 'full' as const }
       : {}),
   }
 }
