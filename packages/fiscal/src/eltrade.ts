@@ -57,6 +57,8 @@ import {
   parseDeviceDateTime,
 } from './zoned-time.js'
 import { logger } from 'services/logger'
+import { stagedPrint } from './print-stage.js'
+import type { AbandonOutcome } from 'services/biz/cash-register/print-verdict'
 
 export const ELTRADE_CMD = {
   OPEN_NON_FISCAL: 0x26,
@@ -65,6 +67,7 @@ export const ELTRADE_CMD = {
   SALE: 0x31,
   SUBTOTAL: 0x33,
   TOTAL: 0x35,
+  PRINT_FISCAL_TEXT: 0x36,
   CLOSE_FISCAL: 0x38,
   CANCEL_FISCAL: 0x3C,
   SET_DATE_TIME: 0x3D,
@@ -90,6 +93,7 @@ const COMMAND_NAME: Record<number, string> = {
   0x31: 'register sale',
   0x33: 'subtotal',
   0x35: 'payment',
+  0x36: 'print fiscal text',
   0x38: 'close fiscal receipt',
   0x3C: 'cancel fiscal receipt',
   0x3D: 'set date/time',
@@ -684,6 +688,11 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     return n === undefined ? undefined : Number(n)
   }
 
+  async isReceiptOpen(): Promise<boolean> {
+    const status = await this.readStatus()
+    return status.fiscalReceiptOpen || status.nonFiscalReceiptOpen
+  }
+
   private async readLastDocumentNumber(): Promise<string | undefined> {
     const { data } = await this.request(ELTRADE_CMD.LAST_DOCUMENT_NUMBER, '', { check: false })
     const n = data.trim()
@@ -750,8 +759,8 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
    *
    * ⚠ `forServiceReceipt`: a service receipt never clears a sale THIS driver is printing, or a
    * session report reprinted during a sale voids the customer's receipt. It is refused, as a report
-   * is (`report()`). Two sales on one driver still clear each other: `abandonReceipt` would void
-   * the first once the second was refused, so that needs its own fix.
+   * is (`report()`). Two sales on one driver are kept apart by `deviceTurn`, not here: refused here, the
+   * second one's `abandonReceipt` would void the first.
    */
   private ensureNoOpenReceipt(forServiceReceipt = false): Promise<void> {
     return this.serialize(async () => {
@@ -785,20 +794,47 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     }
   }
 
-  async cancelFiscalReceipt(): Promise<void> {
-    this.receipt = null
-    await this.serialize(() => this.voidFiscalReceipt())
+  /** What a new document clears as it opens, for a caller that must read the counter after it. */
+  async clearLeftovers(): Promise<void> {
+    await this.ensureNoOpenReceipt()
   }
 
-  /** 3Ch, or the receipt finished in cash where 3Ch is refused. Only ever runs inside `serialize`. */
-  private async voidFiscalReceipt(): Promise<void> {
+  /**
+   * ⚠ Reads the open flag FIRST. After a close whose answer was lost no receipt is open, 3Ch does
+   * nothing and the status reads not open, so "voided" read off the cancel alone would book a real
+   * receipt as failed and print it again. Nothing open: there is nothing to cancel, and it says nothing.
+   * A flag it cannot read is no sight of a receipt: it cancels as it always did, and never says voided.
+   */
+  async cancelFiscalReceipt(): Promise<AbandonOutcome | undefined> {
+    this.receipt = null
+    return this.serialize(async () => {
+      const open = await this.primedTransact(ELTRADE_CMD.GET_STATUS, 'X', { check: false }).then(r => r.status.fiscalReceiptOpen, () => undefined)
+      if (open === false) return undefined
+      const outcome = await this.voidFiscalReceipt()
+      return outcome === 'voided' && !open ? undefined : outcome
+    })
+  }
+
+  /**
+   * 3Ch, or the receipt finished in cash where 3Ch is refused. Says which: `finished` from the moment
+   * the fallback starts and until its close says otherwise, because a close whose answer is lost may
+   * have gone through. Nothing, when the close was refused and the receipt is still open. Only ever
+   * runs inside `serialize`.
+   */
+  private async voidFiscalReceipt(): Promise<AbandonOutcome | undefined> {
     const { status } = await this.primedTransact(ELTRADE_CMD.CANCEL_FISCAL, '', { check: false, timeoutMs: TIMEOUT_MS.print })
-    if (!status.fiscalReceiptOpen) return
+    if (!status.fiscalReceiptOpen) return 'voided'
     // 3Ch is refused once a payment has gone through; such a receipt can only be finished.
     // Leaving it open would block the device, so settle the remainder in cash and close it.
     logger.error({ deviceId: this.deviceId }, 'Eltrade: receipt could not be voided after a payment — completing it with the remainder in cash')
-    await this.transact(ELTRADE_CMD.TOTAL, '\t', { check: false, timeoutMs: TIMEOUT_MS.print })
-    await this.transact(ELTRADE_CMD.CLOSE_FISCAL, '', { check: false, timeoutMs: TIMEOUT_MS.print })
+    try {
+      await this.transact(ELTRADE_CMD.TOTAL, '\t', { check: false, timeoutMs: TIMEOUT_MS.print })
+      const closed = await this.transact(ELTRADE_CMD.CLOSE_FISCAL, '', { check: false, timeoutMs: TIMEOUT_MS.print })
+      return closed.status.fiscalReceiptOpen ? undefined : 'finished'
+    } catch (e: any) {
+      logger.error({ deviceId: this.deviceId, error: e?.message }, 'Eltrade: the fallback lost its answer — the receipt may be on the device')
+      return 'finished'
+    }
   }
 
   private operatorLabel(name: string, code: string): string {
@@ -862,6 +898,18 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     const receipt = this.receipt ?? (this.receipt = { expected: 0, remaining: null, lastPaidCode: null })
     const amount = round2(Number(price.toFixed(2)) * quantity)
     receipt.expected = round2(receipt.expected + amount - (discount ? round2((amount * discount) / 100) : 0))
+  }
+
+  /**
+   * 36h: a line of free text in the open fiscal receipt, framed in '#' like 2Ah's and cut after 46
+   * characters (protocol v1.1.1, "36h (54) PRINTING A FREE FISCAL TEXT"). Refused, with the
+   * not-allowed bit, when no fiscal receipt is open. ErpNet.FP's ISL drivers send comments the same
+   * way, and its Eltrade driver does not override it. ⚠ Not run on a physical device yet.
+   */
+  async printFiscalText(text: string): Promise<void> {
+    await this.request(ELTRADE_CMD.PRINT_FISCAL_TEXT, sanitizeDeviceText(text).slice(0, FREE_TEXT_MAX), {
+      prints: true, timeoutMs: TIMEOUT_MS.print,
+    })
   }
 
   async printSubtotal(): Promise<{ subtotal: number }> {
@@ -965,42 +1013,46 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     lines: { name: string; quantity: number; price: number; vatGroup: VatGroup; taxRate?: number }[],
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
-    // A reversal carries the ORIGINAL sale's УНП — it is an operation on that sale.
-    const unp = originalUNP || unpNumber
-    this.assertUnp(unp)
-    const receiptNumber = String(originalReceiptNumber || '').trim()
-    if (!/^\d+$/.test(receiptNumber)) {
-      throw new EltradeError(`Storno needs the original fiscal receipt number, got "${originalReceiptNumber}"`, 'input', ELTRADE_CMD.OPEN_FISCAL)
-    }
-    await this.ensureNoOpenReceipt()
-    const diag = await this.readDiagnostics()
-    if (!diag.fiscalMemoryNumber) {
-      throw new EltradeError('Storno needs the fiscal memory number, which the device did not report', 'protocol', ELTRADE_CMD.DIAGNOSTIC_INFO)
-    }
-    const header = [
-      this.operatorLabel(operatorName, operatorCode),
-      unp,
-      'S',
-      diag.fiscalMemoryNumber,
-      STORNO_REASON[reason] ?? 'R',
-      receiptNumber,
-      formatDeviceIsoDateTime(originalDate, this.timeZone),
-    ].join(',')
-    await this.openReceipt(header, await this.unpHint(unp))
+    return stagedPrint(async (reached) => {
+      reached('refused')
+      // A reversal carries the ORIGINAL sale's УНП — it is an operation on that sale.
+      const unp = originalUNP || unpNumber
+      this.assertUnp(unp)
+      const receiptNumber = String(originalReceiptNumber || '').trim()
+      if (!/^\d+$/.test(receiptNumber)) {
+        throw new EltradeError('This sale has no fiscal receipt number on record, so its storno has nothing to cite. Nothing was sent to the device.', 'input', ELTRADE_CMD.OPEN_FISCAL)
+      }
+      reached('opening')
+      await this.ensureNoOpenReceipt()
+      const diag = await this.readDiagnostics()
+      if (!diag.fiscalMemoryNumber) {
+        throw new EltradeError('Storno needs the fiscal memory number, which the device did not report', 'protocol', ELTRADE_CMD.DIAGNOSTIC_INFO)
+      }
+      const header = [
+        this.operatorLabel(operatorName, operatorCode),
+        unp,
+        'S',
+        diag.fiscalMemoryNumber,
+        STORNO_REASON[reason] ?? 'R',
+        receiptNumber,
+        formatDeviceIsoDateTime(originalDate, this.timeZone),
+      ].join(',')
+      await this.openReceipt(header, await this.unpHint(unp))
+      reached('lines')
 
-    try {
+      // ⚠ No cancel of its own here. Its caller abandons a print that threw, as it does a sale's, and has
+      // to hear what that did: a cancel in here left the second one nothing to see (`AbandonOutcome`).
       // Quantities and amounts on a reversal are POSITIVE; the receipt type carries the sign.
       for (const line of lines) {
         await this.printSaleLine(line.name, Math.abs(line.quantity), Math.abs(line.price), line.vatGroup, undefined, line.taxRate)
       }
+      reached('paying')
       await this.printPayment(payment.type, Math.abs(payment.amount))
+      reached('closing')
       const result = await this.closeFiscalReceipt()
       logger.info({ deviceId: this.deviceId, stornoReceiptNumber: result.fiscalReceiptNumber, originalReceiptNumber, reason }, 'Eltrade storno receipt printed')
       return result
-    } catch (e) {
-      await this.cancelFiscalReceipt().catch(() => undefined)
-      throw e
-    }
+    })
   }
 
   // ── Non-fiscal (service) receipt ──

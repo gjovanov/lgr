@@ -5,6 +5,8 @@
  * (Datecs, Daisy, Eltrade, Incotex) and Tremol's ZFP. This interface abstracts the differences.
  */
 
+import type { AbandonOutcome } from 'services/biz/cash-register/print-verdict'
+
 /**
  * VAT groups used by Bulgarian fiscal printers (Н-18 чл. 27(1)): А 0 %/exempt, Б 20 %,
  * В liquid fuels, Г 9 %. See `vat-groups.ts`.
@@ -146,6 +148,20 @@ export interface IFiscalPrinter {
    */
   getLastReceiptNumber?(): Promise<number | undefined>
 
+  /**
+   * Whether a receipt is open on the device, of any kind. Optional. With the counter, it is what tells
+   * "nothing happened" from "a receipt is sitting there, maybe paid" (FR-23).
+   */
+  isReceiptOpen?(): Promise<boolean>
+
+  /**
+   * Get what an earlier document left open off the device: a service receipt closed, a fiscal one
+   * voided, or finished if it can no longer be voided. Optional, for a driver that clears anything as
+   * it opens a receipt (FR-23): a print reads the counter after this, or a leftover's close reads as
+   * its own.
+   */
+  clearLeftovers?(): Promise<void>
+
   /** Open a new fiscal receipt */
   openFiscalReceipt(operatorCode: string, operatorName: string, unpNumber: string): Promise<void>
 
@@ -161,6 +177,14 @@ export interface IFiscalPrinter {
   /** Print subtotal on the current fiscal receipt */
   printSubtotal(): Promise<{ subtotal: number }>
 
+  /**
+   * Print a line of free text inside the open fiscal receipt: what an invoice paid at the counter
+   * says under its lines, „Фактура № …" (FR-23 §2.2). Optional: a driver without it
+   * (`capabilities.ts`, `fiscalText`) has the invoice's number printed as a line's name instead.
+   * `printNonFiscalText` will not do: it works only on a non-fiscal receipt.
+   */
+  printFiscalText?(text: string): Promise<void>
+
   /** Print payment and close the fiscal receipt */
   printPayment(type: FiscalPaymentType, amount: number): Promise<void>
 
@@ -170,9 +194,10 @@ export interface IFiscalPrinter {
   /**
    * Abandon the current fiscal receipt after a failure, so the device is not left with an
    * open receipt that blocks every later command. Optional — callers fall back to
-   * `closeFiscalReceipt()` for drivers without it.
+   * `closeFiscalReceipt()` for drivers without it. Says what it did, when it knows: `voided` ONLY if it
+   * saw a receipt open before it cancelled (`AbandonOutcome`, `print-verdict.ts`).
    */
-  cancelFiscalReceipt?(): Promise<void>
+  cancelFiscalReceipt?(): Promise<AbandonOutcome | undefined>
 
   /** Print a storno (reversal) fiscal receipt. Line prices are VAT-inclusive, as in printSaleLine. */
   printStornoReceipt(

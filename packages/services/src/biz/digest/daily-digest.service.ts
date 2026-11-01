@@ -38,7 +38,7 @@ import {
 import { effectiveMethods, bucketFor } from '../reports/sales-history.report.js'
 import { EFFECTIVE_DATE } from '../reports/warehouse-operations.report.js'
 import { INVOICING_SEQUENCE_KEYS, closedSeriesOf, resolveDefPrefix } from '../sequence-registry.js'
-import { NOT_INVOICE_FOR_CASH_SALE } from '../sale-counting.js'
+import { NOT_INVOICE_FOR_CASH_SALE, NOT_PAYMENT_RECEIPT, NOT_UNPROVED_STORNO, printsHere } from '../sale-counting.js'
 import {
   DIGEST_CAPS,
   DIGEST_OPT_IN_SECTIONS,
@@ -99,8 +99,9 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
   const org = oid(orgId)
 
   const docs: any[] = await Invoice.find(
-    // An invoice issued for a cash sale is the same money as that cash sale (#171).
-    { orgId: org, issueDate: { $gte: from, $lte: to }, status: ISSUED_STATUSES, ...NOT_INVOICE_FOR_CASH_SALE },
+    // An invoice issued for a cash sale is the same money as that cash sale (#171), and a payment's
+    // receipt the same money as its invoice (FR-23).
+    { orgId: org, issueDate: { $gte: from, $lte: to }, status: ISSUED_STATUSES, ...NOT_INVOICE_FOR_CASH_SALE, ...NOT_PAYMENT_RECEIPT, ...NOT_UNPROVED_STORNO },
     { type: 1, direction: 1, status: 1, total: 1, currency: 1, paymentMethod: 1, payments: 1, amountPaid: 1 },
   ).lean().exec()
 
@@ -112,6 +113,7 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
 
   const currencies = new Set<string>()
   const methodTotals = new Map<string, { amount: number; count: number }>()
+  const prints = await printsHere(orgId)
 
   for (const d of docs) {
     if (d.currency) currencies.add(d.currency)
@@ -137,7 +139,8 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
     // Register split: reuse FR-08's precedence rather than inventing a second one — money is
     // attributed PER METHOD, so a split-tender document feeds two buckets.
     if (d.direction === 'outgoing') {
-      for (const m of effectiveMethods(d)) {
+      for (const m of effectiveMethods(d, prints)) {
+        if (!m.amount) continue
         const bucket = bucketFor(m.method)
         const cur = methodTotals.get(bucket) || { amount: 0, count: 0 }
         cur.amount += sign * m.amount
@@ -151,8 +154,9 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
   // invoice for a cash sale is born paid with rows marked `origin: 'cash_register'`, the cash sale's
   // own takings, which are the Cash register line. A cash sale carries no payment rows, so those rows
   // put the same money on this line too — and only for a cash sale someone invoiced (#171, R0 and §11).
+  // A receipt's own tender is the row on its invoice again (FR-23).
   const paid: any[] = await Invoice.aggregate([
-    { $match: { orgId: org, 'payments.date': { $gte: from, $lte: to } } },
+    { $match: { orgId: org, 'payments.date': { $gte: from, $lte: to }, ...NOT_PAYMENT_RECEIPT, ...NOT_UNPROVED_STORNO } },
     { $unwind: '$payments' },
     { $match: { 'payments.date': { $gte: from, $lte: to }, 'payments.origin': { $ne: 'cash_register' } } },
     { $group: { _id: null, count: { $sum: 1 }, total: { $sum: '$payments.amount' } } },
@@ -259,6 +263,8 @@ async function buildDocuments(orgId: string, date: string): Promise<DigestDocume
         id: { $toString: '$_id' },
         number: '$invoiceNumber',
         type: 1, direction: 1, status: 1, currency: 1, paymentMethod: 1,
+        // The register lists a storno nothing has proved, for its number, and counts nothing of it.
+        unproved: { $and: [{ $eq: ['$type', 'cash_storno'] }, { $in: ['$register.fiscal.state', ['pending', 'unknown']] }] },
         total: { $round: [{ $ifNull: ['$total', 0] }, 2] },
         contactName: {
           $ifNull: ['$contact.companyName', {
@@ -272,6 +278,8 @@ async function buildDocuments(orgId: string, date: string): Promise<DigestDocume
   const sales = rows.filter(r => r.direction === 'outgoing' && SALES_TYPES.includes(r.type))
   // The cash register's sales and stornos (FR-21.9) — one family, one number series.
   const cash = rows.filter(r => r.type === 'cash_sale' || r.type === 'cash_storno')
+  // FR-23: a payment's receipt is no sale of the day, but it holds a number of that series.
+  const receipts = rows.filter(r => r.type === 'payment_receipt')
   const purchases = rows.filter(r => r.direction === 'incoming')
 
   const pack = (list: any[], key: string, cap: number) => ({
@@ -291,7 +299,7 @@ async function buildDocuments(orgId: string, date: string): Promise<DigestDocume
     ...pack(cash, 'cash', DIGEST_CAPS.documents),
     // A storno counts against its sale and a voided document counts nothing (FR-21.9); every
     // document is still listed, with its number.
-    total: round2(cash.reduce((s, r) => s + (r.status === 'voided' ? 0 : (r.type === 'cash_storno' ? -1 : 1) * (r.total || 0)), 0)),
+    total: round2(cash.reduce((s, r) => s + (r.status === 'voided' || r.unproved ? 0 : (r.type === 'cash_storno' ? -1 : 1) * (r.total || 0)), 0)),
   }
 
   // FR-21.17: a copied till receipt keeps its TXN number; that closed series gets its own line.
@@ -302,7 +310,7 @@ async function buildDocuments(orgId: string, date: string): Promise<DigestDocume
   }
   const [salesSeq, cashSeq, ...closedSeqs] = await Promise.all([
     buildSequenceLine(orgId, 'SALES_DOC', sales.map(r => r.number)),
-    buildSequenceLine(orgId, 'CASH_SALE', cash.filter(r => !closedSeriesOf(r.number)).map(r => r.number)),
+    buildSequenceLine(orgId, 'CASH_SALE', [...cash, ...receipts].filter(r => !closedSeriesOf(r.number)).map(r => r.number)),
     ...[...closed].map(([key, numbers]) => buildSequenceLine(orgId, key, numbers, { closed: true })),
   ])
 

@@ -1,19 +1,25 @@
 import { routeKey } from '../route-class.js'
 
 /**
- * FR-20.55 — what an expired licence stops, on a master: **opening a POS session, and starting a new
- * sales document.** Every route here, and nothing else.
+ * FR-20.55 — what an expired licence stops, on a master: **a new sale, at the till or as a document.**
+ * Every route here, and nothing else.
  *
  * ⚠ Deliberately a short list of things to stop, never a list of things to allow. What expiry must
  * never block is everything else, and most of it is named in the requirement: reading, exports, the
  * SUPTO export, backups, the fiscal day close, a storno or credit note of an existing sale, a payment
  * against an existing document, and a move back to the cloud. Also left alone:
- * - **a session that is already open** keeps selling: only opening one is refused, and the
- *   restriction starts at a local midnight (`licence-state.ts`);
- * - **an existing draft** can still be issued (`/send`): it was started before;
+ * - **a session that was already open** keeps selling: the restriction starts at a local midnight
+ *   (`licence-state.ts`) so as never to land in the middle of one;
+ * - **opening a session.** ⚠ Where LGR prints, a payment on a document needs one: its receipt prints on
+ *   that session's device (FR-23), so refusing the session refused the payment this list promises.
+ *   A session opened under an expired licence takes that money and closes its day, and it rings up
+ *   nothing new: `/transaction` is here, for a session opened since the restriction began;
+ * - **an existing draft** can still be issued (`/send`), its receipt with it: it was started before;
  * - **bills, stock receipts, imports and master data**: the books a customer leaves with must stay
  *   complete;
- * - **debit notes**, which correct an existing sale as a credit note does.
+ * - **debit notes**, which correct an existing sale as a credit note does. ⚠ One written since prints
+ *   no receipt (`counter-receipt.ts`): its lines are whatever it was given, so that receipt would be a
+ *   new sale on the device.
  *
  * `licence-gate.flow.test.ts` holds every key here to a real route, so a renamed route fails a test
  * instead of quietly falling out of the gate.
@@ -36,7 +42,8 @@ export interface LicensedAction {
 const NEW_SALES_DOCUMENT_TYPES = new Set(['invoice', 'proforma', 'cash_sale'])
 
 export const LICENSED_ACTIONS: ReadonlyMap<string, LicensedAction> = new Map<string, LicensedAction>([
-  ['POST /api/org/:orgId/trade/pos/session', { what: 'opening a till session' }],
+  // Decided by the handler: it has the session, and one opened before the restriction keeps selling.
+  ['POST /api/org/:orgId/trade/pos/session/:id/transaction', { what: 'a new till sale', when: body => body?.type === 'sale' }],
   ['POST /api/org/:orgId/invoices', {
     what: 'a new invoice, proforma or cash sale',
     when: body => body?.direction === 'outgoing' && NEW_SALES_DOCUMENT_TYPES.has(body?.type),

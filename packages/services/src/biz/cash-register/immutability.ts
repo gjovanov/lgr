@@ -7,9 +7,10 @@
  * in any status (commit 1429c0a) — so they refuse it here, from R1 on: before any such document
  * exists, so that a rollback from R2 to R1 still protects the ones R2 wrote.
  *
- * What it covers: a till sale or storno (`register.origin: 'pos'`), every `cash_storno`, and any
- * sale a storno has claimed or reversed (`register.stornoState: 'full'`). Other back-office and
- * imported cash sales keep today's rules; FR-20.51 owns those.
+ * What it covers: a till sale or storno (`register.origin: 'pos'`), every `cash_storno`, every
+ * `payment_receipt` (FR-23), and any sale a storno has claimed or reversed
+ * (`register.stornoState: 'full'`). Other back-office and imported cash sales keep today's rules;
+ * FR-20.51 owns those.
  *
  * ⚠ A back-office sale can be stornoed from the journal since R2. Its storno already returned the
  * goods and counts its total negative, so a void (which reverses the dispatch) or a delete on top
@@ -26,5 +27,5 @@ export const REGISTER_DOCUMENT_IMMUTABLE = {
 export function isImmutableRegisterDocument(
   doc: { type?: string; register?: { origin?: string; stornoState?: string } } | null | undefined,
 ): boolean {
-  return !!doc && (doc.type === 'cash_storno' || doc.register?.origin === 'pos' || doc.register?.stornoState === 'full')
+  return !!doc && (doc.type === 'cash_storno' || doc.type === 'payment_receipt' || doc.register?.origin === 'pos' || doc.register?.stornoState === 'full')
 }

@@ -24,6 +24,10 @@ export interface PaymentRecordedEvent {
     amount: number
     method: string
     date?: string
+    /** The receipt that took it at the counter (FR-23): the payment row it is stamped on. */
+    receiptId?: string
+    /** The row's own id, for a payment no receipt took. */
+    paymentId?: string
   }
 }
 
@@ -96,7 +100,9 @@ class DomainEventBus {
   }
 
   removeAllListeners(eventType?: EventType): void {
-    this.emitter.removeAllListeners(eventType)
+    // ⚠ Node reads the argument count: an explicit undefined removes the listeners of an event of that name.
+    if (eventType) this.emitter.removeAllListeners(eventType)
+    else this.emitter.removeAllListeners()
   }
 }
 

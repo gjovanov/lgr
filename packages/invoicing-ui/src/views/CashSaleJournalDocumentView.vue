@@ -11,6 +11,7 @@
     :back-route="{ name: 'invoicing.cash-sales' }"
     :related-route="(row: any) => journalRoute(row, tillOnly)"
     :document-route="(row: any) => (!tillOnly && row.store === 'invoice' && row.kind === 'sale' ? { name: 'invoicing.cash-sales.edit', params: { id: row.id } } : null)"
+    :invoice-route="tillOnly ? undefined : (inv: any) => ({ name: 'invoicing.sales.edit', params: { id: inv.id } })"
   >
     <template #actions="{ row }">
       <v-btn v-if="!tillOnly && row.store === 'invoice'" variant="outlined" prepend-icon="mdi-printer" :loading="printing" @click="print(row)">

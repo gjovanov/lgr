@@ -733,6 +733,89 @@ describe('a receipt that names no supplier (FR-22.31a)', () => {
     }, 60_000)
   })
 
+  describe('a delete that loses gives nothing back (FR-23, and the rule of #422)', () => {
+    const bill = async (w: any) => {
+      const r = await w.receipt([[w.bolt, 7, 3]], { contactId: null })
+      const made = (await w.fromReceipt([r._id], { contactId: String(w.other._id) })).json.invoice
+      return { r, made }
+    }
+    /** What a release would have undone: the claim on the receipt, and the supplier the bill wrote on it. */
+    const stillClaimed = async (w: any, r: any, made: any) => {
+      const m = await w.mv(r._id)
+      expect(String(m.invoiceId)).toBe(String(made.id))
+      expect(String(m.contactId)).toBe(String(w.other._id))
+    }
+
+    it('an issue under way holds the draft: 409, and the receipt keeps its claim and its supplier', async () => {
+      const w = await world()
+      const { r, made } = await bill(w)
+      await Invoice.updateOne({ _id: made.id }, { $set: { issue: { leaseUntil: new Date(Date.now() + 60_000) } } }).exec()
+
+      const del = await w.call('DELETE', `/invoices/${made.id}`)
+
+      expect(del.status).toBe(409)
+      expect(del.json.code).toBe('issue_in_progress')
+      expect(await w.load(made.id)).toBeTruthy()
+      await stillClaimed(w, r, made)
+    }, 60_000)
+
+    it('a void or an attach holds it: the same', async () => {
+      const w = await world()
+      const { r, made } = await bill(w)
+      await Invoice.updateOne({ _id: made.id }, { $set: { voidingUntil: new Date(Date.now() + 60_000) } }).exec()
+
+      const del = await w.call('DELETE', `/invoices/${made.id}`)
+
+      expect(del.status).toBe(409)
+      expect(del.json.code).toBe('document_claimed')
+      await stillClaimed(w, r, made)
+    }, 60_000)
+
+    it('a Receive that finished after it read: it is no draft any more, and the receipt stays the bill\'s', async () => {
+      const w = await world()
+      const { r, made } = await bill(w)
+      // Right before the delete takes its claim, as `during` does it.
+      const real = Invoice.findOneAndUpdate
+      let received: any
+      let done = false
+      ;(Invoice as any).findOneAndUpdate = function (filter: any, update: any, ...rest: any[]) {
+        if (done || !update?.$set?.voidingUntil) return (real as any).call(Invoice, filter, update, ...rest)
+        done = true
+        return { exec: async () => {
+          ;(Invoice as any).findOneAndUpdate = real
+          received = await w.call('POST', `/invoices/${made.id}/receive`, {})
+          return (real as any).call(Invoice, filter, update, ...rest).exec()
+        } }
+      }
+      let del: any
+      try {
+        del = await w.call('DELETE', `/invoices/${made.id}`)
+      } finally {
+        ;(Invoice as any).findOneAndUpdate = real
+      }
+
+      expect(received.status).toBe(200)
+      expect(del.status).toBe(409)
+      expect(del.json.code).toBe('document_changed')
+      expect((await w.load(made.id)).status).toBe('received')
+      await stillClaimed(w, r, made)
+    }, 60_000)
+
+    it('a release that throws gives the claim back: pressing again is not told to wait', async () => {
+      const w = await world()
+      const { r, made } = await bill(w)
+      const dies = spyOn(StockMovement, 'updateMany').mockImplementationOnce((() => { throw new Error('the pod went away') }) as any)
+      const first = await w.call('DELETE', `/invoices/${made.id}`)
+      dies.mockRestore()
+
+      expect(first.status).toBe(500)
+      expect(((await w.load(made.id)) as any).voidingUntil ?? null).toBeNull()
+
+      expect((await w.call('DELETE', `/invoices/${made.id}`)).status).toBe(200)
+      expect((await w.mv(r._id)).invoiceId ?? null).toBeNull()
+    }, 60_000)
+  })
+
   it('a Files rollback that voids the bill gives the receipt back the same way', async () => {
     const w = await world()
     const r = await w.receipt([[w.bolt, 3, 5]], { contactId: null })

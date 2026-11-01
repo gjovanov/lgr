@@ -37,7 +37,8 @@ const dayDate = (h = 10) => new Date(`${DAY}T${String(h).padStart(2, '0')}:00:00
 
 /** A day with something of everything the digest is supposed to notice. */
 async function seedDay() {
-  const org = await createTestOrg({ settings: { locale: 'bg', timezone: 'Europe/Sofia' } } as any)
+  // An org that prints nothing, whose card invoices the fixture leaves with no payment row.
+  const org = await createTestOrg({ settings: { locale: 'bg', timezone: 'Europe/Sofia', cashRegister: { requireConnectedDevice: false } } } as any)
   const orgId = org._id as Types.ObjectId
   const customer = await createTestContact(orgId, { companyName: 'Buyer Ltd' })
   const wh = await createTestWarehouse(orgId, { name: 'Main' })
@@ -52,8 +53,8 @@ async function seedDay() {
     lines: [{ productId: bolt._id, warehouseId: wh._id, description: 'Bolt', quantity: 2, unit: 'pcs', unitPrice: 50, taxRate: 20, taxAmount: 20, lineTotal: 120 }] as any,
   })
   await createTestInvoice(orgId, customer._id as Types.ObjectId, {
-    invoiceNumber: 'INV-2026-00012', type: 'invoice', direction: 'outgoing', status: 'sent',
-    issueDate: dayDate(11), subtotal: 50, taxTotal: 10, total: 60, amountDue: 60,
+    invoiceNumber: 'INV-2026-00012', type: 'invoice', direction: 'outgoing', status: 'paid',
+    issueDate: dayDate(11), subtotal: 50, taxTotal: 10, total: 60, amountPaid: 60, amountDue: 0,
     paymentMethod: 'card',
     lines: [{ productId: nut._id, warehouseId: wh._id, description: 'Nut', quantity: 1, unit: 'pcs', unitPrice: 50, taxRate: 20, taxAmount: 10, lineTotal: 60 }] as any,
   })

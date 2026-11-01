@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import {
+  allowSalesWithoutPrinter,
   createTestOrg,
   createTestContact,
   createTestInvoice,
@@ -150,6 +151,7 @@ describe('document registers (sales-documents / purchase-documents / cash-regist
   it('takes a credit note off the totals, however it was stored', async () => {
     const org = await createTestOrg()
     const orgId = org._id as Types.ObjectId
+    await allowSalesWithoutPrinter(orgId)
     const c = await createTestContact(orgId)
     await createTestInvoice(orgId, c._id as Types.ObjectId, {
       invoiceNumber: 'INV-A', status: 'sent', issueDate: yesterday,
@@ -259,8 +261,9 @@ describe('document registers (sales-documents / purchase-documents / cash-regist
     it('puts a card or cash-on-delivery invoice in its column even before its payment is recorded', async () => {
       const org = await createTestOrg()
       const orgId = org._id as Types.ObjectId
+      // An org that prints nothing. Where LGR prints, the open part of a card header is „По банка" (FR-23).
+      await allowSalesWithoutPrinter(orgId)
       const c = await createTestContact(orgId)
-      // Only cash is settled on issue (cash-settlement.service.ts): these stay open.
       await createTestInvoice(orgId, c._id as Types.ObjectId, {
         invoiceNumber: 'INV-CARD', status: 'sent', issueDate: yesterday,
         total: 80, amountPaid: 0, amountDue: 80, paymentMethod: 'card',
@@ -339,6 +342,7 @@ describe('document registers (sales-documents / purchase-documents / cash-regist
     it('closes every column on a total, and the four add up to Общо', async () => {
       const org = await createTestOrg()
       const orgId = org._id as Types.ObjectId
+      await allowSalesWithoutPrinter(orgId)
       const c = await createTestContact(orgId)
       const docs: [string, number, string | undefined][] = [
         ['D-1', 120.1, 'cash'], ['D-2', 33.33, 'card'], ['D-3', 19.99, 'cash_on_delivery'],

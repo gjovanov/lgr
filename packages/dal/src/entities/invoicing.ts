@@ -134,6 +134,10 @@ export interface IInvoice extends TenantEntity {
   amountPaid: number
   amountDue: number
   payments: IInvoicePayment[]
+  /** FR-23: the money the receipts printing right now are taking. */
+  receiptHolds?: Array<{ receiptId: string; amount: number }>
+  voidingUntil?: Date | null
+  deliveryReceiptOwed?: boolean
   notes?: string
   terms?: string
   footer?: string

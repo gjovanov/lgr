@@ -77,6 +77,10 @@ export interface UserTokenized {
 /**
  * The settings a brand-new org starts with. One definition for every path that creates an org:
  * password registration and OAuth sign-up had drifted apart (the OAuth copy enabled no modules).
+ *
+ * ⚠ The printer gate is written off (owner, FR-23 finding 4): an org opts in when its sales print
+ * here. Explicit, because UNSET reads as ON and a real till depends on that: an org from before the
+ * gate must not lose it silently (`scripts/printer-gate-off.ts` sets the others, one by one).
  */
 export function defaultOrgSettings(opts: { baseCurrency?: string; locale?: string } = {}) {
   return {
@@ -102,6 +106,7 @@ export function defaultOrgSettings(opts: { baseCurrency?: string; locale?: strin
       pensionRate: 0,
     },
     modules: [...MODULES],
+    cashRegister: { requireConnectedDevice: false },
   }
 }
 

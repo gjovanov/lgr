@@ -58,6 +58,22 @@ export const ISSUED_KEY: Record<string, string> = {
   proforma: 'invoicing.proformaIssued',
 }
 
+/**
+ * FR-23: what the person reads when a document was issued and something about its receipt went wrong,
+ * and whether the Pay action is the way on. A receipt that may have printed stands (D-4), and one
+ * that printed through an error did print: nothing is left to pay, and only the device can say more.
+ * One in doubt comes here as `unknown` too, and nothing was booked for it, but the reason says so,
+ * and Pay is no way on: it waits for a person to settle it. A cash-on-delivery invoice owes the
+ * courier's money, not a payment at the counter: its receipt prints on its own, and Pay would record
+ * money nobody brought.
+ */
+export function issuedReceiptNotice(issued: { receiptError?: string; paymentMethod?: string; receipt?: { state?: string } } | null | undefined): { key: string; takesPayment: boolean } | null {
+  if (!issued?.receiptError) return null
+  if (issued.receipt?.state === 'unknown' || issued.receipt?.state === 'printed') return { key: 'cashRegister.receipt.issuedUnknown', takesPayment: false }
+  if (issued.paymentMethod === 'cash_on_delivery') return { key: 'cashRegister.receipt.issuedNoReceipt', takesPayment: false }
+  return { key: 'cashRegister.receipt.issuedNotPaid', takesPayment: true }
+}
+
 /** Ask whether the warehouses hold what `lines` take. */
 export async function checkStock(client: IssueClient, orgUrl: string, lines: StockCheckLine[]): Promise<StockCheck> {
   const { data } = await client.post(`${orgUrl}/invoicing/stock-availability/check`, { lines })
@@ -94,5 +110,6 @@ export async function sendIssue(
   headers: Record<string, string> = {},
 ): Promise<any> {
   const { data } = await client.post(`${orgUrl}/invoices/${id}/send`, body, { headers })
-  return data?.invoice
+  // FR-23: issued, and its receipt did not print. The issue stands; the caller says so.
+  return data?.receiptError ? { ...data.invoice, receiptError: data.receiptError, receipt: data.receipt } : data?.invoice
 }

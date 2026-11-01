@@ -9,6 +9,7 @@ import {
   getDeviceStatus,
   buildConnectionConfig,
   isDeviceConnected,
+  lastFiscalized,
 } from 'fiscal/fiscal-device.service'
 import { fiscalCapabilities } from 'fiscal/capabilities'
 import { FISCAL_ADMIN_ROLES, onDevice, printDeviceReport, type DeviceReportRequest, type DeviceRow, type Status } from 'fiscal/device-command'
@@ -87,6 +88,8 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
         // Held by this process, or by a live row on any pod.
         connected: isDeviceConnected(d.id) || live.has(String(d.deviceNumber)),
         bridgedBy: holderOf(live.get(String(d.deviceNumber))) ?? undefined,
+        // FR-23: what its status last said, for the terminal to show. A wrong reading must never be silent.
+        fiscalized: lastFiscalized(d.id),
         capabilities: fiscalCapabilities(d.manufacturer, d.connectionType),
       })),
       ...pageInfo,

@@ -214,13 +214,25 @@ const wsAuthMap = new WeakMap<any, { timer: ReturnType<typeof setTimeout> | null
 const socketKey = (ws: any) => ws?.raw ?? ws
 const sameSocket = (a: any, b: any) => !!a && !!b && socketKey(a) === socketKey(b)
 
+/** Sockets that closed. A printer outlives its socket in whatever still holds it. */
+const goneSockets = new WeakSet<object>()
+
 /**
  * Create a sendCommand function for a specific WS connection.
  * This is injected into the printer drivers.
+ *
+ * ⚠ A request mid-print or waiting its turn keeps the printer it started with, whoever holds the
+ * device by then, and a send into a closed socket throws nothing: each command would wait out its
+ * whole timeout, up to 75 s, with the device's turn held and the queue behind it (FR-23). A gone
+ * socket answers at once, so the print's verdict is read and the next in the queue is told.
  */
 function createSendCommand(ws: any): (frame: Buffer, opts?: FiscalExchangeOptions) => Promise<Buffer> {
   return (frame: Buffer, opts?: FiscalExchangeOptions): Promise<Buffer> => {
     return new Promise((resolve, reject) => {
+      if (goneSockets.has(socketKey(ws))) {
+        reject(new Error('Fiscal bridge disconnected'))
+        return
+      }
       const commandId = randomUUID()
       const timeoutMs = opts?.timeoutMs ? opts.timeoutMs + COMMAND_TIMEOUT_MARGIN_MS : COMMAND_TIMEOUT_MS
 
@@ -760,6 +772,7 @@ async function probeBridgeDevice(ws: any, device: any, printer: IFiscalPrinter):
  * Handle WS disconnect — clean up bridge registration.
  */
 export async function handleClose(ws: any) {
+  goneSockets.add(socketKey(ws))
   // Always drop the auth state, registered or not — an unauthenticated socket that goes away
   // must not leave its deadline timer holding the event loop open.
   const auth = wsAuthMap.get(socketKey(ws))

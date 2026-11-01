@@ -246,6 +246,11 @@ export function buildInvoiceHtml(
     inv.type === 'cash_storno' && inv.stornoRef?.reason
       ? `<tr><td class="k">${esc(L.reason)}:</td><td class="v">${esc((i18n.stornoReason as Record<string, string>)[inv.stornoRef.reason] || inv.stornoRef.reason)}</td></tr>`
       : '',
+    // FR-23: the fiscal receipts that paid it, each with its number and УНП.
+    ...((inv as any).paymentReceipts || []).map((r: any) =>
+      `<tr><td class="k">${esc(L.paidByReceipt)}:</td><td class="v">${esc(r.number)}${
+        r.unp ? ` · ${esc(L.unp)} ${esc(r.unp)}` : ''}${
+        r.receiptNumber ? ` · ${esc(L.receiptNo)} ${esc(r.receiptNumber)}` : ''}</td></tr>`),
   ].join('')
 
   // Whitespace-only text is no text: it must not open an empty block under the meta rows.

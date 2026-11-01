@@ -98,6 +98,10 @@
               <div class="text-caption text-medium-emphasis">{{ $t('reports.summary.otherPayments') }}</div>
               <div class="text-h6">{{ money(s.other, s.currency) }}</div>
             </div>
+            <div v-if="s.unpaid" data-testid="summary-unpaid">
+              <div class="text-caption text-medium-emphasis">{{ $t('reports.summary.unpaid') }}</div>
+              <div class="text-h6">{{ money(s.unpaid, s.currency) }}</div>
+            </div>
           </v-card-text>
         </v-card>
       </v-col>
@@ -577,6 +581,7 @@ async function doExport() {
           expectedCash: t('reports.summary.expectedCash'),
           cardPayments: t('reports.summary.cardPayments'),
           otherPayments: t('reports.summary.otherPayments'),
+          unpaid: t('reports.summary.unpaid'),
         },
         meta: activeFilterMeta.value,
         locale: appStore.locale,

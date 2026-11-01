@@ -4,7 +4,7 @@
       <v-btn icon="mdi-arrow-left" variant="text" :to="backRoute" :aria-label="$t('cashRegister.detail.back')" />
       <h1 class="text-h5" data-testid="journal-document-title">{{ doc?.row.number || '' }}</h1>
       <template v-if="doc">
-        <v-chip size="small" label :color="doc.row.kind === 'storno' ? 'error' : 'success'">{{ $t(`cashRegister.kind.${doc.row.kind}`) }}</v-chip>
+        <v-chip size="small" label :color="kindColor(doc.row.kind)">{{ $t(`cashRegister.kind.${doc.row.kind}`) }}</v-chip>
         <v-chip size="small" label :color="statusColor(doc.row.status)" data-testid="journal-document-status">{{ $t(`cashRegister.status.${doc.row.status}`) }}</v-chip>
         <v-chip size="small" variant="tonal">{{ $t(`cashRegister.origin.${doc.row.origin}`) }}</v-chip>
       </template>
@@ -31,6 +31,40 @@
     <v-alert v-if="notFound" type="warning" variant="tonal">{{ $t('cashRegister.detail.notFound') }}</v-alert>
 
     <template v-if="doc">
+      <!-- FR-23: nothing could prove whether this receipt or storno printed. Someone looks at the device and says. -->
+      <v-alert v-if="doc.row.fiscal.inDoubt" type="warning" variant="tonal" class="mb-4" data-testid="receipt-in-doubt">
+        {{ $t(`cashRegister.receipt.${settleWords.inDoubt}`) }}
+        <div v-if="canSettle" class="mt-2 d-flex flex-wrap ga-2">
+          <v-btn size="small" variant="outlined" data-testid="receipt-settle-printed" @click="settling = 'printed'">{{ $t('cashRegister.receipt.settlePrinted') }}</v-btn>
+          <v-btn size="small" variant="outlined" data-testid="receipt-settle-not-printed" @click="settling = 'notPrinted'">{{ $t('cashRegister.receipt.settleNotPrinted') }}</v-btn>
+        </div>
+        <div v-else class="mt-2 text-caption">{{ $t('cashRegister.receipt.settleWho') }}</div>
+      </v-alert>
+
+      <v-dialog :model-value="!!settling" max-width="480" @update:model-value="settling = null">
+        <v-card>
+          <v-card-title>{{ doc.row.number }}</v-card-title>
+          <v-card-text>
+            {{ settling ? $t(`cashRegister.receipt.${settleWords.confirm}.${settling}`) : '' }}
+            <!-- A storno cites it, and only the slip knows it. -->
+            <v-text-field
+              v-if="settling === 'printed' && doc.row.kind === 'sale'"
+              v-model="settleNumber"
+              :label="$t('cashRegister.receipt.receiptNumber')"
+              inputmode="numeric"
+              class="mt-3"
+              hide-details
+              data-testid="receipt-settle-number"
+            />
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer />
+            <v-btn variant="text" :disabled="settlingNow" @click="settling = null">{{ $t('common.cancel') }}</v-btn>
+            <v-btn color="primary" variant="flat" :loading="settlingNow" :disabled="settling === 'printed' && doc.row.kind === 'sale' && !/^\d+$/.test(settleNumber.trim())" data-testid="receipt-settle-confirm" @click="settle">{{ $t('common.confirm') }}</v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
       <v-card class="mb-4">
         <v-card-text>
           <v-row dense>
@@ -47,6 +81,12 @@
               <div>{{ $t(`cashRegister.fiscalState.${doc.row.fiscal.state}`) }}</div>
             </v-col>
             <v-col v-if="doc.row.reference" cols="12" sm="6" md="3"><div class="text-caption text-medium-emphasis">{{ $t('cashRegister.columns.reference') }}</div><div>{{ doc.row.reference }}</div></v-col>
+            <!-- FR-23: the invoice a payment's receipt took money for. -->
+            <v-col v-for="inv in doc.row.kind === 'payment' ? doc.row.invoices : []" :key="inv.id" cols="12" sm="6" md="3">
+              <div class="text-caption text-medium-emphasis">{{ $t('cashRegister.receipt.paidInvoice') }}</div>
+              <router-link v-if="invoiceRoute" :to="invoiceRoute(inv)" class="text-decoration-none" data-testid="journal-paid-invoice">{{ inv.number }}</router-link>
+              <span v-else data-testid="journal-paid-invoice">{{ inv.number }}</span>
+            </v-col>
           </v-row>
         </v-card-text>
       </v-card>
@@ -59,6 +99,7 @@
             <span class="text-caption text-medium-emphasis">{{ r.kind === 'storno' ? $t('cashRegister.detail.stornoedBy') : $t('cashRegister.detail.stornoOf') }}</span>
             <router-link :to="relatedRoute(r)" class="text-decoration-none">{{ r.number }}</router-link>
             <span>{{ fmtCurrency(r.kind === 'storno' ? -r.total : r.total, r.currency) }}</span>
+            <v-chip v-if="r.status === 'inDoubt'" size="x-small" label color="warning" data-testid="journal-related-in-doubt">{{ $t('cashRegister.status.inDoubt') }}</v-chip>
           </div>
         </v-card-text>
       </v-card>
@@ -145,6 +186,7 @@
       :user-id="userId"
       :locale="locale"
       @done="onStornoDone"
+      @held="load"
     />
   </v-container>
 </template>
@@ -163,7 +205,9 @@ import { httpClient } from '../../composables/useHttpClient'
 import { useCurrency } from '../../composables/useCurrency'
 import { useSnackbar } from '../../composables/useSnackbar'
 import { paymentMethodKey } from '../../composables/usePaymentMethods'
-import { canStornoJournalRow } from '../../cash-register/storno'
+import { STORNO_ROLES, canStornoJournalRow } from '../../cash-register/storno'
+import { kindColor } from '../../cash-register/journal-kind'
+import { receiptRefusalMessage } from '../../cash-register/receipt-refusal'
 
 const props = defineProps<{
   orgUrl: string
@@ -176,6 +220,8 @@ const props = defineProps<{
   relatedRoute: (row: any) => RouteLocationRaw
   /** The full document page for a row (print, email), or null where there is none. */
   documentRoute?: (row: any) => RouteLocationRaw | null
+  /** Where the invoice a payment's receipt paid opens. A reader with no such page gets its number alone. */
+  invoiceRoute?: (inv: { id: string; number: string }) => RouteLocationRaw
 }>()
 
 const { t } = useI18n()
@@ -202,7 +248,8 @@ async function load() {
 
 watch(() => [props.orgUrl, props.id], () => { if (props.id) void load() }, { immediate: true })
 
-const documentLink = computed(() => (doc.value && props.documentRoute ? props.documentRoute(doc.value.row) : null))
+// FR-23: a payment's receipt has no form of its own: it names the invoice it paid, on this page.
+const documentLink = computed(() => (doc.value && props.documentRoute && doc.value.row.kind !== 'payment' ? props.documentRoute(doc.value.row) : null))
 const canStorno = computed(() => canStornoJournalRow(doc.value?.row, props.role))
 
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[props.locale || 'en'] || 'en-US')
@@ -219,7 +266,34 @@ function fmtDate(row: any): string {
 }
 
 function statusColor(s: string) {
-  return ({ completed: 'success', stornoed: 'warning', voided: 'grey-darken-1' } as Record<string, string>)[s] || 'grey'
+  return ({ completed: 'success', stornoed: 'warning', voided: 'grey-darken-1', inDoubt: 'warning' } as Record<string, string>)[s] || 'grey'
+}
+
+// ── FR-23: a receipt in doubt ──
+// It decides what happened to money, so the same people as a storno, and asked twice.
+const settleWords = computed(() => (({
+  storno: { inDoubt: 'stornoInDoubt', confirm: 'settleConfirmStorno', done: 'stornoSettled' },
+  sale: { inDoubt: 'saleInDoubt', confirm: 'settleConfirmSale', done: 'saleSettled' },
+} as Record<string, { inDoubt: string; confirm: string; done: string }>)[doc.value?.row.kind] ?? { inDoubt: 'inDoubt', confirm: 'settleConfirm', done: 'settled' }))
+const settleNumber = ref('')
+const canSettle = computed(() => !!props.role && (STORNO_ROLES as readonly string[]).includes(props.role))
+const settling = ref<'printed' | 'notPrinted' | null>(null)
+const settlingNow = ref(false)
+async function settle() {
+  settlingNow.value = true
+  try {
+    const printed = settling.value === 'printed'
+    await httpClient.post(`${props.orgUrl}/cash-register/documents/${props.id}/settle`, {
+      printed, ...(printed && doc.value?.row.kind === 'sale' ? { receiptNumber: settleNumber.value.trim() } : {}),
+    })
+    showSuccess(t(`cashRegister.receipt.${settleWords.value.done}`))
+  } catch (e: any) {
+    showSnackbar(receiptRefusalMessage(t, e, t('common.operationFailed')), 'error', 12000)
+  } finally {
+    settlingNow.value = false
+    settling.value = null
+    void load()
+  }
 }
 
 // ── #145: STORNO ────────────────────────────────────────────────────────────────────────────

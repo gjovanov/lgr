@@ -10,6 +10,7 @@ import { DatecsFiscalPrinter } from './datecs.js'
 import { EltradeFiscalPrinter } from './eltrade.js'
 import { IslTcpTransport } from './isl-tcp.js'
 import { tracked } from './in-flight.js'
+import { PRINTING_COMMANDS, deviceTurn } from './device-turn.js'
 import { noteAnswered } from './device-reach.js'
 import { FiscalNotConnectedError } from './errors.js'
 import { resolveFiscalTcpTarget, fiscalTcpPolicy, type FiscalTcpPolicy } from './tcp-target.js'
@@ -109,7 +110,8 @@ const trackedPrinters = new WeakMap<IFiscalPrinter, IFiscalPrinter>()
  * Throws if the device is not connected.
  *
  * Each command given to it counts as in flight while it runs (`in-flight.ts`), so the API's
- * graceful stop waits for it (FR-20.23).
+ * graceful stop waits for it (FR-20.23), and each one that prints a document takes the device's
+ * turn (`device-turn.ts`), so it never lands inside another document.
  */
 export function getPrinter(deviceId: string): IFiscalPrinter {
   const printer = activeConnections.get(deviceId)
@@ -119,7 +121,11 @@ export function getPrinter(deviceId: string): IFiscalPrinter {
   let view = trackedPrinters.get(printer)
   if (!view) {
     // Each answer is the device reached (FR-20.49): what the two-hour rule reads.
-    view = tracked(printer, (method, result) => noteAnswered(deviceId, method, result))
+    view = tracked(
+      printer,
+      (method, result) => noteAnswered(deviceId, method, result),
+      (method, run) => (PRINTING_COMMANDS.has(method) ? deviceTurn(deviceId, async () => run()) : run()),
+    )
     trackedPrinters.set(printer, view)
   }
   return view
@@ -130,6 +136,14 @@ export function getPrinter(deviceId: string): IFiscalPrinter {
  */
 export function isDeviceConnected(deviceId: string): boolean {
   return activeConnections.has(deviceId)
+}
+
+/**
+ * What the device said of itself in the status every answer carries (FR-23): `false` is what makes a
+ * receipt print as text. Undefined when this process holds no answer from it. No command is sent.
+ */
+export function lastFiscalized(deviceId: string): boolean | undefined {
+  return (activeConnections.get(deviceId) as { lastStatus?: { fiscalized?: boolean } | null } | undefined)?.lastStatus?.fiscalized
 }
 
 /**

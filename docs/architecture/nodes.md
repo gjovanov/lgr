@@ -104,12 +104,12 @@ one.
 
 A data change a release needs is a versioned migration in `packages/migrations`, never a script
 run by hand.
-- **The registry.** `src/registry.ts` lists them in order. Today there are four:
-  `0000-baseline`, `0001-unp-per-device`, `0002-file-sha256` and `0003-relative-file-paths`.
+- **The registry.** `src/registry.ts` lists them in order.
 - **The runner** runs the pending ones under a lock, records each in `_migrations`, and takes only
   the orgs homed on this node.
 - **Running them:**
-  - `bun run migrate` runs them by hand, and `--status` lists them;
+  - `bun run migrate` runs them by hand, `--status` lists them, and `--dry-run` says what the pending
+    ones would do, for those that can say;
   - with `MIGRATIONS_AUTO=true`, the server runs them before it listens. That is off by default,
     so global runs them by hand after a deploy.
 - **Never edit a released migration.** The runner refuses to start when an applied one has
@@ -422,10 +422,15 @@ release.
   issued earlier never replaces a later one. An air-gapped master takes a file:
   `lgr-server licence import <file>`, which a sys-admin downloads from the Licences page.
 - **What it stops** (`licence-state.ts`, `licence-gate.ts`): nothing until the paid-through date plus
-  30 days of grace. From the next local midnight after that, the master opens no till session and
+  30 days of grace. From the next local midnight after that, the master rings up no new till sale and
   starts no new invoice, proforma, cash sale or client order (402 `licence_expired`). Everything else
   goes on: reading, exports, the SUPTO export, backups, closing the day, credit and debit notes,
   payments, bills, imports, issuing a draft, a session already open.
+- **A session still opens** (2026-11-01, FR-23 finding 9). A payment on an existing document prints on
+  a session's device where the org prints, so refusing the session refused the payment. One opened
+  under an expired licence takes that money, issues an existing draft and closes its day. A sale in it
+  answers 402, and so does a receipt for a document started since, which only a debit note can be. A
+  session opened before the restriction keeps selling, as it always did.
 - **No licence at all** is a 30-day evaluation from the master's first start, then the same.
 - ⚠ **Revoking a pilot stops renewals only.** A master verifies offline, so a licence it holds runs
   out on its own dates.

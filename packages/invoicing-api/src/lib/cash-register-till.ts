@@ -13,20 +13,29 @@ import { getRepos } from 'services/context'
 import { orgDao } from 'services/dao/org.dao'
 import { logger } from 'services/logger'
 import { toPosTransaction } from 'services/biz/cash-register/mapping'
+import { finishInterruptedReceipt, interruptedDocuments } from 'services/biz/cash-register/payment-receipt.service'
 import { asEntity } from 'services/biz/cash-register/pos-union'
+import { auditStoppedSettlement } from 'services/biz/cash-register/settle.service'
 import type { RegisterPrinter } from 'services/biz/cash-register/printer'
+import { takeLease } from 'services/biz/hot-path-key'
 import { livePresence } from 'services/biz/fiscal-presence.service'
 import {
-  RegisterRefusal, claimForStorno, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally, releaseStornoClaim,
-  runStornoSteps, settleKeyedDocument, stornoDocument, stornoRefusal,
+  RegisterRefusal, claimForStorno, finishInterruptedStorno, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally,
+  releaseStornoClaim, runStornoSteps, settleKeyedDocument, stornoDocument, stornoInDoubtRefusal, stornoRefusal,
   type RegisterContext, type RegisterSession, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
+import { fiscalUnitPrice } from 'services/biz/cash-register/receipt-lines'
 import { isDeviceConnected, getPrinter, type IFiscalPrinter } from 'fiscal/fiscal-device.service'
+import { maySaleOpen } from 'fiscal/device-reach'
 import { FiscalPaymentMethodError, toFiscalPaymentType } from 'fiscal/types'
-import { unsupportedReason } from 'fiscal/capabilities'
+import { lineNameMaxOf, unsupportedReason } from 'fiscal/capabilities'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
 import { fiscalOperation } from 'fiscal/in-flight'
+import { deviceTurn } from 'fiscal/device-turn'
+import { stagedPrint } from 'fiscal/print-stage'
 import { roundCents } from 'config/pos-totals'
+
+export { fiscalUnitPrice }
 
 /**
  * Who may reverse a sale (H4, #145), on top of the route's permission (`pos.write`, or the journal's
@@ -35,7 +44,14 @@ import { roundCents } from 'config/pos-totals'
  */
 export const STORNO_ROLES = ['admin', 'manager']
 
-export type FiscalCtx = { deviceId: string; deviceNumber: string; printer: IFiscalPrinter; cashOnDeliveryRefusal: string | null } | null
+export type FiscalCtx = {
+  deviceId: string
+  deviceNumber: string
+  printer: IFiscalPrinter
+  cashOnDeliveryRefusal: string | null
+  printsFiscalText: boolean
+  lineNameMax?: number
+} | null
 
 /**
  * Look up the active fiscal device for a warehouse.
@@ -45,10 +61,13 @@ export type FiscalCtx = { deviceId: string; deviceNumber: string; printer: IFisc
  * A warehouse can have more than one active device (e.g. a Tremol and an Eltrade while one
  * replaces the other). The CONNECTED one is used — picking an arbitrary one used to send a
  * sale to the unplugged device, which silently printed nothing.
+ *
+ * `deviceNumber`: that device and no other, wherever it stands now: what a document that started on a
+ * device needs, because no other device's counter says anything about it.
  */
-export async function getFiscalContext(orgId: string, warehouseId: string): Promise<FiscalCtx> {
+export async function getFiscalContext(orgId: string, warehouseId: string, deviceNumber?: string): Promise<FiscalCtx> {
   const r = getRepos()
-  const devices = await r.fiscalDevices.findMany({ orgId, warehouseId, isActive: true } as any) as any[]
+  const devices = await r.fiscalDevices.findMany((deviceNumber ? { orgId, deviceNumber } : { orgId, warehouseId, isActive: true }) as any) as any[]
   if (!devices?.length) return null
 
   const device = devices.find(d => isDeviceConnected(d.id))
@@ -79,20 +98,28 @@ export async function getFiscalContext(orgId: string, warehouseId: string): Prom
     deviceNumber: device.deviceNumber as string,
     printer: getPrinter(device.id),
     cashOnDeliveryRefusal: unsupportedReason(device.manufacturer, device.connectionType, 'cashOnDelivery'),
+    printsFiscalText: unsupportedReason(device.manufacturer, device.connectionType, 'fiscalText') === null,
+    lineNameMax: lineNameMaxOf(device.manufacturer, device.connectionType),
   }
-}
-
-/**
- * The VAT-inclusive unit price a fiscal device must be given. Till lines carry NET prices (the
- * cart adds tax on top); a fiscal device derives VAT from the gross amount per group, so sending
- * the net price would print — and book — every line without its VAT.
- */
-export function fiscalUnitPrice(netUnitPrice: number, taxRate: number | undefined): number {
-  return roundCents(netUnitPrice * (1 + (taxRate || 0) / 100))
 }
 
 /** What the customer handed over, per payment: the device computes the change itself. */
 const tendered = (doc: any) => (doc.payments || []).map((p: any) => ({ method: p.method, amount: Number(p.tendered ?? p.amount) || 0 }))
+
+/** `text` in lines of `width`, broken at its spaces. */
+function wrapped(text: string, width: number): string[] {
+  const out: string[] = []
+  let line = ''
+  for (const word of String(text).split(/\s+/).filter(Boolean)) {
+    if (line && line.length + 1 + word.length > width) {
+      out.push(line)
+      line = ''
+    }
+    line = line ? `${line} ${word}` : word
+  }
+  if (line) out.push(line)
+  return out
+}
 
 /**
  * Format receipt as text lines for non-fiscal printing (testing with non-fiscalized devices).
@@ -137,11 +164,14 @@ export function formatNonFiscalLines(body: any, transactionNumber: string, opera
   lines.push(`${l.operator} ${operatorName.substring(0, W - l.operator.length - 1)}`)
   lines.push(sep)
   for (const item of body.lines) {
-    lines.push(item.name.substring(0, W))
+    // A payment's receipt names the invoice in the line: that number is what must not be cut.
+    lines.push(...(body.keepNames ? wrapped(item.name, W) : [item.name.substring(0, W)]))
     const qty = ` ${item.quantity}x${item.unitPrice.toFixed(4)}`
     const total = fmt(item.quantity * item.unitPrice)
     lines.push(lr(qty, total))
   }
+  // FR-23: „Фактура № …", as a fiscal receipt says it under its lines.
+  if (body.receiptText) lines.push(...wrapped(body.receiptText, W))
   lines.push(sep)
   lines.push(lr(l.subtotal, fmt(body.subtotal)))
   lines.push(lr(l.vat, fmt(body.taxTotal)))
@@ -170,19 +200,36 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
     deviceId: fiscal.deviceId,
     deviceNumber: fiscal.deviceNumber,
     lastReceiptNumber: async () => (p.getLastReceiptNumber ? p.getLastReceiptNumber() : undefined),
+    receiptOpen: async () => p.isReceiptOpen?.(),
+    clearLeftovers: async () => p.clearLeftovers?.(),
+    async fiscalized() {
+      const status = await p.getStatus()
+      // A driver reports a read that failed as `connected: false`, which says nothing about the device.
+      if (status.connected === false) throw new Error(status.errors?.[0] || 'The device did not answer.')
+      return status.fiscalized
+    },
     printsText: !!p.openNonFiscalReceipt,
     cashOnDeliveryRefusal: fiscal.cashOnDeliveryRefusal,
+    printsFiscalText: fiscal.printsFiscalText,
+    lineNameMax: fiscal.lineNameMax,
     async printSale(doc) {
       // Read before the receipt opens: a payment no receipt can carry must not strand an open one.
       const payments = tendered(doc).map((t: any) => ({ type: toFiscalPaymentType(t.method), amount: t.amount }))
-      await p.openFiscalReceipt(operatorCode, operatorName, doc.register?.unp)
-      for (const line of doc.lines || []) {
-        const taxRate = line.taxRate ?? 0
-        await p.printSaleLine(line.description, line.quantity, fiscalUnitPrice(line.unitPrice, taxRate), mapTaxRateToVatGroup(taxRate), line.discount || undefined, taxRate)
-      }
-      for (const payment of payments) await p.printPayment(payment.type, payment.amount)
-      const { fiscalReceiptNumber } = await p.closeFiscalReceipt()
-      return fiscalReceiptNumber
+      return stagedPrint(async (reached) => {
+        await p.openFiscalReceipt(operatorCode, operatorName, doc.register?.unp)
+        reached('lines')
+        for (const line of doc.lines || []) {
+          const taxRate = line.taxRate ?? 0
+          await p.printSaleLine(line.description, line.quantity, fiscalUnitPrice(line.unitPrice, taxRate), mapTaxRateToVatGroup(taxRate), line.discount || undefined, taxRate)
+        }
+        // FR-23: the invoice a whole payment is for, under its lines. Only ever on a device that can.
+        if (doc.register?.receiptText) await p.printFiscalText?.(doc.register.receiptText)
+        reached('paying')
+        for (const payment of payments) await p.printPayment(payment.type, payment.amount)
+        reached('closing')
+        const { fiscalReceiptNumber } = await p.closeFiscalReceipt()
+        return fiscalReceiptNumber
+      })
     },
     async printText(doc) {
       const org = await orgDao.findById(orgId) as any
@@ -192,6 +239,8 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
         lines: (doc.lines || []).map((l: any) => ({ name: l.description, quantity: l.quantity, unitPrice: l.unitPrice })),
         subtotal: doc.subtotal, taxTotal: doc.taxTotal, total: doc.total,
         payments: tendered(doc), changeDue: doc.register?.changeDue || 0,
+        // FR-23: the same words a fiscal receipt of this payment prints.
+        ...(doc.type === 'payment_receipt' ? { keepNames: true, receiptText: doc.register?.receiptText } : {}),
       }
       await p.openNonFiscalReceipt!(operatorCode || '1')
       for (const line of formatNonFiscalLines(body, doc.invoiceNumber, operatorName, locale, currency)) await p.printNonFiscalText!(line)
@@ -217,9 +266,11 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
       return result.fiscalReceiptNumber
     },
     async abandonReceipt() {
-      // Drivers without a cancel keep the old best-effort close.
-      if (p.cancelFiscalReceipt) await p.cancelFiscalReceipt()
-      else await p.closeFiscalReceipt()
+      if (p.cancelFiscalReceipt) return p.cancelFiscalReceipt()
+      // Drivers without a cancel keep the old best-effort close. If it goes through, that receipt is
+      // real: it must not be recorded as failed.
+      await p.closeFiscalReceipt()
+      return 'finished'
     },
     async abandonText() {
       await p.closeNonFiscalReceipt?.()
@@ -230,7 +281,8 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
     async failed() {
       await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
     },
-    operation: fn => fiscalOperation(fn),
+    // Counted from the moment it is asked for, so a graceful stop waits for one still in the queue.
+    operation: fn => fiscalOperation(() => deviceTurn(fiscal.deviceId, fn)),
   }
 }
 
@@ -302,16 +354,36 @@ function assertStornoTender(refund: { method: string; amount: number }[] | undef
   assertDeviceTakes([method], printer)
 }
 
+/**
+ * FR-20.49 — Прил. 29 т. 8: no fiscal receipt opens on a device not reached in two hours (SUPTO
+ * production mode only). For a NEW document only: a retry of one that already opened must finish.
+ */
+export async function assertSaleMayOpen(orgId: string, warehouseId: unknown): Promise<void> {
+  const verdict = await maySaleOpen(orgId, warehouseId as any)
+  if (verdict.ok) return
+  throw new RegisterRefusal(409, {
+    code: 'fiscal_device_unreached',
+    message: `The fiscal device "${verdict.deviceName}" has not answered for more than 2 hours. A sale cannot open until it does (Н-18, Прил. 29 т. 8).`,
+    deviceName: verdict.deviceName,
+    lastCommunicationAt: verdict.lastCommunicationAt,
+  })
+}
+
+/** FR-21.31 (D-13): the user's own open session, which their back-office documents join. */
+export async function openSessionOf(orgId: string, userId: string): Promise<any | null> {
+  return POSSession.findOne({ orgId, cashierId: userId, status: 'open' }).sort({ openedAt: -1 }).lean().exec()
+}
+
 /** A session as the service reads it. */
 export const registerSession = (s: any): RegisterSession => ({
   id: String(s.id ?? s._id), warehouseId: String(s.warehouseId), cashierId: s.cashierId ? String(s.cashierId) : undefined, currency: s.currency,
 })
 
 /** The till's context for a session's warehouse: its device, if one is connected. */
-export async function tillContext(orgId: string, user: RegisterUser, session: any, opts: { needsOperator: boolean }): Promise<RegisterContext> {
+export async function tillContext(orgId: string, user: RegisterUser, session: any, opts: { needsOperator: boolean; deviceNumber?: string }): Promise<RegisterContext> {
   let fiscal: FiscalCtx = null
   try {
-    fiscal = await getFiscalContext(orgId, String(session.warehouseId))
+    fiscal = await getFiscalContext(orgId, String(session.warehouseId), opts.deviceNumber)
   } catch (e: any) {
     throw new RegisterRefusal(503, { message: e.message })
   }
@@ -327,6 +399,50 @@ export async function tillContext(orgId: string, user: RegisterUser, session: an
     allowNegative: true,
     audit: { module: 'trade', entityType: 'pos_transaction' },
   }
+}
+
+/** A context with no device: what cannot be proved stays held, and nothing prints. */
+export const deviceless = (orgId: string, user: RegisterUser): RegisterContext =>
+  ({ orgId, user, session: null, printer: null, audit: { module: 'trade', entityType: 'pos_transaction' } })
+
+/**
+ * What finishing a receipt or a storno takes, on any request: the device it was printing on, when that
+ * device is here. ⚠ Only that device. Another one's counter says nothing about it, and its УНП would be
+ * refused there. A device in error, or held by another pod, proves nothing either, which is no reason
+ * to fail the request: the document is held instead, and the person it reaches has a way out.
+ */
+export async function documentContext(orgId: string, user: RegisterUser, doc: any): Promise<RegisterContext> {
+  const session = doc.register?.sessionId ? await POSSession.findOne({ _id: doc.register.sessionId, orgId }).lean().exec() : null
+  if (!session || !doc.register?.fiscalDeviceNumber) return deviceless(orgId, user)
+  try {
+    return await tillContext(orgId, user, session, { needsOperator: false, deviceNumber: doc.register.fiscalDeviceNumber })
+  } catch (e) {
+    if (e instanceof RegisterRefusal) return deviceless(orgId, user)
+    throw e
+  }
+}
+
+/**
+ * Finish the receipts and stornos of a document, a session or a sale whose request died, before
+ * anything else is done with it: a receipt's hold must not outlive it, what printed must not be taken
+ * again, and a session must not close over either. True when one was. It prints nothing, and books
+ * nothing it cannot prove.
+ */
+export async function finishInterruptedDocuments(orgId: string, user: RegisterUser, where: string | { sessionId: string } | { ids: unknown[] }): Promise<boolean> {
+  let any = false
+  for (const doc of await interruptedDocuments(orgId, typeof where === 'string' ? { documentId: where } : where)) {
+    if (!(await takeLease(Invoice, orgId, doc._id))) continue
+    try {
+      const c = await documentContext(orgId, user, doc)
+      await auditStoppedSettlement(c, doc)
+      await (doc.type === 'cash_storno' ? finishInterruptedStorno(c, doc) : finishInterruptedReceipt(c, doc))
+      any = true
+    } catch (e: any) {
+      // What it holds stands, and the new request is told one is in progress. Nothing is lost.
+      logger.error({ orgId, documentId: String(doc._id), error: e?.message }, 'Interrupted fiscal document could not be finished')
+    }
+  }
+  return any
 }
 
 /**
@@ -348,13 +464,21 @@ export function saleResponse(doc: any) {
   }
 }
 
-/** What the till answers for a storno: the reversal, or the 503 of #145 when its receipt failed. */
-export function stornoResponse(doc: any): { status: number; body: Record<string, unknown> } | { transaction: any; stockError?: string } {
+/**
+ * What the till answers for a storno: the reversal; the 503 of #145 when its receipt is proved not to
+ * have printed; and the truth when nobody knows: 409 `storno_in_doubt`, never "was not printed".
+ */
+export function stornoResponse(doc: any): { status: number; body: Record<string, unknown> } | { transaction: any; stockError?: string; receiptError?: string } {
   const transaction: any = asEntity(toPosTransaction(doc))
+  if (doc.register?.fiscal?.inDoubt) return { status: 409, body: stornoInDoubtRefusal(doc) }
   if (doc.status === 'voided' && doc.register?.receiptError) {
     return { status: 503, body: { code: 'fiscal_error', message: `The storno receipt was not printed, so nothing was reversed: ${doc.register.receiptError}` } }
   }
-  return { transaction, ...(transaction.stockError ? { stockError: transaction.stockError } : {}) }
+  return {
+    transaction,
+    ...(transaction.receiptError ? { receiptError: transaction.receiptError } : {}),
+    ...(transaction.stockError ? { stockError: transaction.stockError } : {}),
+  }
 }
 
 export interface StornoDoorInput {
@@ -382,27 +506,38 @@ export interface StornoDoorInput {
  * `paid` with `stornoState: 'full'`. A sale an older release rang up is stornoed as its
  * copy, under the row's id (§6 edge 3).
  */
-export async function stornoDoor(input: StornoDoorInput): Promise<{ status: number; body: Record<string, unknown> } | { transaction: any; stockError?: string }> {
+export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typeof stornoResponse>> {
   const { orgId, user, key, hash } = input
   /** A back-office sale and its storno are invoicing's documents, audited as its own. */
   const backOffice = (): RegisterContext => ({ orgId, user, session: null, printer: null, audit: { module: 'invoicing', entityType: 'invoice' } })
-  const context = async (): Promise<RegisterContext> => {
+  /** ⚠ A retry goes back to the device it started on: no other device's counter says anything about it. */
+  const contextOf = (storno: any) => async (): Promise<RegisterContext> => {
     const original: any = await Invoice.findOne({ _id: input.originalId, orgId }).lean().exec()
     if (originOf(original) !== 'pos' || !input.session) return backOffice()
-    return tillContext(orgId, user, input.session, { needsOperator: printedFiscally(original) })
+    try {
+      return await tillContext(orgId, user, input.session, { needsOperator: printedFiscally(original), deviceNumber: storno.register?.fiscalDeviceNumber })
+    } catch (e) {
+      // A device in error, or held by another pod, proves nothing, which is no reason to fail the
+      // retry: with no device it is `failed` if it never started, and held if it did.
+      if (e instanceof RegisterRefusal && e.statusCode === 503) return backOffice()
+      throw e
+    }
   }
   const answer = (doc: any) => stornoResponse(doc)
 
   try {
     if (key) {
       const existing = await findKeyedTillDocument(orgId, key)
-      if (existing) return answer(await settleKeyedDocument(existing, hash!, context, runStornoSteps))
+      if (existing) return answer(await settleKeyedDocument(existing, hash!, contextOf(existing), runStornoSteps))
     }
 
     // A sale an older release rang up is its copy since 0008/0009, under the same id.
-    const original: any = Invoice.base.Types.ObjectId.isValid(input.originalId)
-      ? await Invoice.findOne({ _id: input.originalId, orgId }).lean().exec()
-      : null
+    const read = (): Promise<any> => Invoice.findOne({ _id: input.originalId, orgId }).lean().exec()
+    let original: any = Invoice.base.Types.ObjectId.isValid(input.originalId) ? await read() : null
+    // What a request that died left on this sale comes first: it may have printed, or be proved not to.
+    if (original?.register?.stornoState === 'full' && await finishInterruptedDocuments(orgId, user, { ids: original.register.stornoedBy ?? [] })) {
+      original = await read()
+    }
     const refusal = await stornoRefusal(original)
     if (refusal) {
       // ⚠ A duplicate sent at the same moment can read the sale AFTER the first request claimed it
@@ -414,7 +549,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<{ status: numb
           // request's own, found as "a paid storno" and missed as "my key", so it was refused.
           const reversed = await Invoice.exists({ orgId, type: 'cash_storno', relatedInvoiceId: original._id, status: 'paid' }).exec()
           const mine = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
-          if (mine) return answer(await settleKeyedDocument(mine, hash!, context, runStornoSteps))
+          if (mine) return answer(await settleKeyedDocument(mine, hash!, contextOf(mine), runStornoSteps))
           if (reversed) break
           await new Promise(res => setTimeout(res, 100))
         }
@@ -458,7 +593,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<{ status: numb
       if (key) {
         for (let i = 0; i < 40; i++) {
           const winner = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
-          if (winner) return answer(await settleKeyedDocument(winner, hash!, context, runStornoSteps))
+          if (winner) return answer(await settleKeyedDocument(winner, hash!, contextOf(winner), runStornoSteps))
           await new Promise(res => setTimeout(res, 100))
         }
       }
@@ -477,7 +612,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<{ status: numb
       const outcome = await insertRegisterDocument(orgId, { ...doc, _id: stornoId }, key ? { key, hash: hash! } : undefined)
       if ('existing' in outcome) {
         await releaseStornoClaim(original, stornoId)
-        return answer(await settleKeyedDocument(outcome.existing, hash!, context, runStornoSteps))
+        return answer(await settleKeyedDocument(outcome.existing, hash!, contextOf(outcome.existing), runStornoSteps))
       }
       inserted = outcome.inserted
     } catch (e) {
@@ -509,6 +644,9 @@ export async function tillSettings(orgId: string): Promise<{ baseCurrency?: stri
   }
 }
 
+/** The way out of the printer gate. Every refusal of it says so: an org with no printer has no other. */
+export const PRINTER_GATE_SWITCH = 'An organization that prints nothing here turns "A sale needs a connected fiscal printer" off in Settings → Organization → Cash register.'
+
 /**
  * No sale without a connected printer (2026-10-31): a sale that prints — every till sale, and a
  * back-office sale that asked its session's device for a receipt — is refused when nothing would
@@ -523,7 +661,7 @@ export async function assertPrinterConnected(orgId: string, warehouseId: string,
     code: 'fiscal_device_not_connected',
     deviceConfigured: configured,
     message: configured
-      ? 'The fiscal printer is not connected. Connect it before selling.'
-      : 'No fiscal printer is set up for this warehouse. Set one up and connect it before selling.',
+      ? `The fiscal printer is not connected. Connect it before selling. ${PRINTER_GATE_SWITCH}`
+      : `No fiscal printer is set up for this warehouse. Set one up and connect it before selling. ${PRINTER_GATE_SWITCH}`,
   })
 }

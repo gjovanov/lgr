@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestUser, createTestContact } from '../helpers/factories'
+import { allowSalesWithoutPrinter, createTestOrg, createTestUser, createTestContact } from '../helpers/factories'
 import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { convertDraftInvoice } from 'services/biz/doc-import/persist'
@@ -69,6 +69,8 @@ const ISSUE_DATE = '2026-10-05'
 
 async function world() {
   const org = await createTestOrg()
+  // This rule is for an org where LGR prints nothing: where it prints, the receipt settles (FR-23).
+  await allowSalesWithoutPrinter(org._id)
   const user = await createTestUser(org._id)
   const contact = await createTestContact(org._id)
   const token = await tokenFor({ id: String(user._id), orgId: String(org._id) })

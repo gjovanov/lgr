@@ -803,7 +803,7 @@
     "cashRegister": {
       "title": "Cash register",
       "requireConnectedDevice": "A sale needs a connected fiscal printer",
-      "requireConnectedDeviceHint": "Turn this off only for an organization with no fiscal device, such as a demo or a test one: its sales print nothing."
+      "requireConnectedDeviceHint": "On, a sale and a cash or card invoice need an open session and a connected fiscal printer, and LGR prints the fiscal receipt. Off, LGR prints nothing: cash and card invoices are paid as they are issued, with no receipt. A new organization starts off."
     }
   },
   "admin": {
@@ -1508,7 +1508,8 @@
       "portInUse": "The printer's port is in use by another tab, window or program, and only one can hold it. Close the other one (or unplug the printer and plug it back in), then connect again.",
       "deviceErrors": "Fiscal device problem: {errors}",
       "connectedVia": "Connected via {name}",
-      "waitingForDesktop": "waiting for its LGR Desktop"
+      "waitingForDesktop": "waiting for its LGR Desktop",
+      "printsText": "Not fiscalized: receipts print as text"
     },
     "filterByTags": "Filter by tags",
     "close": {
@@ -1564,8 +1565,8 @@
       "switchOperator": "Switch operator"
     },
     "printerRequired": {
-      "notConnected": "Connect the fiscal printer to sell.",
-      "notConfigured": "No fiscal printer is set up for this warehouse. Ask an admin to set one up."
+      "notConnected": "Connect the fiscal printer to sell. An organization that prints nothing here turns \"A sale needs a connected fiscal printer\" off in Settings → Organization → Cash register.",
+      "notConfigured": "No fiscal printer is set up for this warehouse. Ask an admin to set one up. An organization that prints nothing here turns \"A sale needs a connected fiscal printer\" off in Settings → Organization → Cash register."
     },
     "sessionDocuments": "Cash sales of session {number}",
     "deviceReport": {
@@ -1592,6 +1593,7 @@
       "printed": "The session report was printed on the fiscal device.",
       "notPrinted": "The session report did not print: {error}. The session is closed; print it again from here or from CR Sessions.",
       "sales": "Sales",
+      "payments": "Invoice payments",
       "stornos": "Stornos",
       "voided": "Voided stornos",
       "fiscal": "Fiscal receipts",
@@ -1773,7 +1775,63 @@
     },
     "kind": {
       "sale": "Sale",
-      "storno": "Storno"
+      "storno": "Storno",
+      "payment": "Invoice payment"
+    },
+    "receipt": {
+      "noSession": "Open a session at the till first: a payment at the counter prints its receipt on that session's device. An organization that prints nothing here turns \"A sale needs a connected fiscal printer\" off in Settings → Organization → Cash register.",
+      "inProgress": "Another payment on this document is printing. Wait for it to finish, then try again.",
+      "documentClaimed": "This document is being voided or attached to a cash sale right now. Try again in a moment.",
+      "documentChanged": "This document changed while you were working on it. Open it again.",
+      "fiscallyPaid": "A receipt has printed for this document, so its total can no longer change and it cannot be voided. Correct it with a credit or a debit note.",
+      "currency": "The till's device prints in another currency than this document's. Take this payment by bank.",
+      "notPrintable": "This document's money cannot be split per VAT rate for a receipt. Take this payment by bank.",
+      "notIssued": "Issue this document first: its receipt names its number.",
+      "willPrint": "Saving prints a receipt on your session's device.",
+      "printAgain": "Print again",
+      "printed": "Payment recorded, receipt {number} printed",
+      "unknown": "Payment recorded, but check the device: {reason}",
+      "issuedNotPaid": "Issued, but the receipt did not print, so it is still unpaid: {reason}",
+      "takePayment": "Take the payment",
+      "issuedNoReceipt": "Issued, but the receipt did not print: {reason}",
+      "issuedUnknown": "Issued, but check the device: {reason}",
+      "deliveryMissing": "The receipt of this cash-on-delivery invoice has not printed.",
+      "printIt": "Print the receipt",
+      "deliveryPrinted": "Receipt {number} printed",
+      "noneOwed": "This document has no receipt left to print.",
+      "paidInvoice": "Invoice paid",
+      "inDoubt": "Nothing can prove whether this receipt printed, so its money is neither booked nor free. Check the device's journal, then say which.",
+      "inDoubtDocument": "Nothing can prove whether receipt {number} printed. Its money is neither booked nor free until someone settles it.",
+      "inDoubtRefused": "Nothing can prove whether receipt {number} printed, so this cannot go on. Check the device, then settle it under Cash Register Sales.",
+      "settleIt": "Settle it",
+      "settlePrinted": "It printed",
+      "settleNotPrinted": "It did not print",
+      "settleWho": "A manager or an admin settles it.",
+      "settleConfirm": {
+        "printed": "The receipt is on the device. Its money is recorded on the invoice and in the session. This cannot be undone.",
+        "notPrinted": "The receipt is not on the device. It is voided with its number, and the amount is due again. This cannot be undone."
+      },
+      "settled": "Receipt settled",
+      "deliveryOwed": "This cash-on-delivery invoice has no fiscal receipt: its print failed. Print the receipt first.",
+      "unfinished": "Receipts {numbers} are not finished, so this session cannot close. Wait for one that is printing, and settle one in doubt under Cash Register Sales.",
+      "stornoInDoubt": "Nothing can prove whether this storno printed, so nothing was reversed: no refund, no stock. Check the device's journal, then say which.",
+      "stornoInDoubtRefused": "Storno {number} may have printed, and nothing was reversed. Check the device, then settle it on its page under Cash Register Sales. Do not press storno again.",
+      "settleConfirmStorno": {
+        "printed": "The storno is on the device. The refund leaves the session and the goods come back. This cannot be undone.",
+        "notPrinted": "The storno is not on the device. It is voided with its number, and the sale stands as it did. This cannot be undone."
+      },
+      "stornoSettled": "Storno settled",
+      "openOnDevice": "A receipt is still open on the fiscal device, so nothing is final yet. Print an X report on the device page, which clears it, then look at the device again: whatever printed then, printed.",
+      "saleInDoubt": "Nothing can prove whether this sale's fiscal receipt printed. Its money stands, and its storno waits until someone checks the device and says which.",
+      "saleInDoubtRefused": "Nothing can prove whether the receipt of sale {number} printed, so a storno cannot say what it reverses. Nothing was reversed. Check the device, then settle it on its page under Cash Register Sales.",
+      "settleConfirmSale": {
+        "printed": "The receipt is on the device. Type its number off the slip: the storno of this sale cites it. This cannot be undone.",
+        "notPrinted": "The receipt is not on the device. The sale and its money stand, and its storno prints nothing. This cannot be undone."
+      },
+      "saleSettled": "Sale settled",
+      "receiptNumber": "Receipt number",
+      "numberRequired": "A sale that printed needs its receipt number off the slip, in digits: its storno cites it.",
+      "numberTaken": "That receipt number on this device is {number}'s. Check the slip."
     },
     "origin": {
       "pos": "Till",
@@ -1783,7 +1841,8 @@
     "status": {
       "completed": "Completed",
       "stornoed": "Stornoed",
-      "voided": "Voided"
+      "voided": "Voided",
+      "inDoubt": "In doubt"
     },
     "stock": {
       "moved": "Moved",
@@ -3208,7 +3267,8 @@
       "systemSales": "Sales in the system",
       "expectedCash": "Expected cash",
       "cardPayments": "Card payments",
-      "otherPayments": "Other payments"
+      "otherPayments": "Other payments",
+      "unpaid": "Not yet paid"
     },
     "exportDialog": {
       "xlsxHint": "Every row in one sheet — sort, filter and total it yourself.",
@@ -3443,10 +3503,10 @@
     "saved": "Saved"
   },
   "licence": {
-    "evaluation": "This server has no licence for this organization yet and runs on a 30-day evaluation. New till sessions and sales documents stop on {date} unless it is linked to lgrai.app or given a licence file.",
-    "grace": "This server's licence ran out on {paid}. New till sessions and sales documents stop on {date} unless it is renewed on lgrai.app.",
-    "restricted": "This server's licence has run out: since {date} no new till sessions are opened and no new sales documents are issued. Reading, exports, closing the day, credit notes and payments still work. An administrator renews it on lgrai.app.",
-    "restrictedEvaluation": "This server holds no licence for this organization and its 30-day evaluation has ended: since {date} no new till sessions are opened and no new sales documents are issued. Reading, exports, closing the day, credit notes and payments still work.",
+    "evaluation": "This server has no licence for this organization yet and runs on a 30-day evaluation. New till sales and sales documents stop on {date} unless it is linked to lgrai.app or given a licence file.",
+    "grace": "This server's licence ran out on {paid}. New till sales and sales documents stop on {date} unless it is renewed on lgrai.app.",
+    "restricted": "This server's licence has run out: since {date} no new sales are rung up at the till and no new sales documents are issued. A till session still opens, to take payments on existing documents. Reading, exports, closing the day, credit notes and payments still work. An administrator renews it on lgrai.app.",
+    "restrictedEvaluation": "This server holds no licence for this organization and its 30-day evaluation has ended: since {date} no new sales are rung up at the till and no new sales documents are issued. A till session still opens, to take payments on existing documents. Reading, exports, closing the day, credit notes and payments still work.",
     "problem": "A licence file is there and was not used: {why}.",
     "problems": {
       "malformed": "it is not a licence",

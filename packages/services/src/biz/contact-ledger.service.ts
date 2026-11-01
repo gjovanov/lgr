@@ -1,5 +1,5 @@
 import { Invoice, Product } from 'db/models'
-import { saleScopeFilter } from './sale-counting.js'
+import { NOT_PAYMENT_RECEIPT, NOT_UNPROVED_STORNO, saleScopeFilter } from './sale-counting.js'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
 
@@ -64,6 +64,9 @@ export async function getContactLedger(
     // #171: the sale is this customer's on the invoice issued to them; a cash sale of theirs that
     // was invoiced (to them or anyone) no longer counts here.
     ...(await saleScopeFilter(orgId, contactId)),
+    // FR-23: nor does the receipt of a payment on an invoice: the invoice is that sale.
+    ...NOT_PAYMENT_RECEIPT,
+    ...NOT_UNPROVED_STORNO,
   }
 
   if (options.documentTypes?.length) {
@@ -196,7 +199,8 @@ export async function getContactLedger(
 
   // Compute profitability based on purchasePrice of products sold
   const costPipeline: any[] = [
-    { $match: { ...matchStage, direction: 'outgoing', type: { $nin: ['credit_note'] } } },
+    // After the spread: this `type` replaces the one `matchStage` carries, so it names the receipt too.
+    { $match: { ...matchStage, direction: 'outgoing', type: { $nin: ['credit_note', 'payment_receipt'] } } },
     { $unwind: '$lines' },
     {
       $lookup: {

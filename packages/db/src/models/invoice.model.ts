@@ -80,9 +80,16 @@ export interface IInvoicePayment {
   /**
    * Set when the system, not a person, recorded it: `cash_on_issue` / `card_on_issue` (paid at the
    * counter as the invoice was issued — services/biz/cash-settlement), or `cash_register` — the
-   * money of an invoice for a cash sale, which that cash sale took.
+   * money of an invoice for a cash sale, which that cash sale took. `payment_receipt`: taken at the
+   * counter on a printed receipt (FR-23), `receiptId`.
    */
   origin?: string
+  /**
+   * FR-23: the `payment_receipt` that took this money. The link between the two lives here, on a
+   * key that survives: the paths that rewrite the array through the repository (the settlement rule,
+   * an attach to a cash sale) give every row a new `_id`.
+   */
+  receiptId?: Types.ObjectId
   /** The `Idempotency-Key` that recorded this payment, and its request hash (#155). */
   clientKey?: string
   requestHash?: string
@@ -95,8 +102,8 @@ export interface IInvoicePayment {
 }
 
 /**
- * FR-21 (D-3) — the cash-register block, on `cash_sale` and `cash_storno` documents only: what a
- * POS transaction carries and an invoice does not. A till sale copied from `postransactions` keeps
+ * FR-21 (D-3) — the cash-register block, on `cash_sale`, `cash_storno` and `payment_receipt`
+ * (FR-23) documents only: what a POS transaction carries and an invoice does not. A till sale copied from `postransactions` keeps
  * every field it had here, so the readers that still speak POS rows read it back unchanged
  * (`services/biz/cash-register/mapping.ts`).
  */
@@ -134,6 +141,13 @@ export interface IInvoiceRegister {
   stockError?: string
   /** The dispatch (sale) or return (storno) the till booked for it. */
   movementId?: Types.ObjectId
+  /** On a `payment_receipt` (FR-23): the invoice or debit note it took money for. */
+  paidInvoiceId?: Types.ObjectId
+  /** What the person who settled a receipt in doubt said, and who it was. */
+  settled?: { printed: boolean; by: Types.ObjectId; at: Date }
+  paidInvoiceNumber?: string
+  /** On a `payment_receipt`: the free text printed under its lines, „Фактура № …". */
+  receiptText?: string
   /** On a `cash_storno`: the sale it reverses, as its fiscal receipt names it. */
   storno?: {
     originalId?: Types.ObjectId
@@ -200,6 +214,20 @@ export interface IInvoice extends Document {
   amountPaid: number
   amountDue: number
   payments: IInvoicePayment[]
+  /**
+   * FR-23: the money the receipts printing right now are taking, each until its payment is recorded
+   * or its print fails. Part of what is due in every payment's check, so a payment recorded while a
+   * receipt prints cannot take the same money. On the document, because that check is one atomic
+   * update; a receipt is a document of its own, and two of them could not see each other.
+   */
+  receiptHolds?: Array<{ receiptId: Types.ObjectId; amount: number }>
+  /** FR-23: a void has claimed this document until then, so no receipt takes a hold on it meanwhile. */
+  voidingUntil?: Date | null
+  /**
+   * FR-23: this cash-on-delivery invoice was issued where LGR prints, so it owes a receipt. Written by
+   * the issue, in the issue's own write, and never by a client.
+   */
+  deliveryReceiptOwed?: boolean
   // ── Idempotency (FR-20.37, #155) ──
   /** The `Idempotency-Key` that created this document, and the hash of that request. */
   clientKey?: string
@@ -315,7 +343,7 @@ export interface IInvoice extends Document {
   companionNote?: string
   /** Append-only log of every number this document has carried, in allocation order. */
   numberHistory?: Array<{ number: string; allocatedAt: Date; status: string }>
-  /** FR-21: the cash-register block, on `cash_sale` and `cash_storno` only. */
+  /** FR-21: the cash-register block, on `cash_sale`, `cash_storno` and `payment_receipt` only. */
   register?: IInvoiceRegister
   createdBy: Types.ObjectId
   createdAt: Date
@@ -339,7 +367,10 @@ const invoiceSchema = new Schema<IInvoice>(
   {
     invoiceNumber: { type: String, required: true },
     // `cash_storno` (FR-21, D-2): a storno of a cash sale, stored positive — the sign is the type.
-    type: { type: String, required: true, enum: ['invoice', 'proforma', 'credit_note', 'debit_note', 'cash_sale', 'cash_storno'] },
+    // `payment_receipt` (FR-23): the fiscal receipt of a payment on an invoice or a debit note. Not a
+    // sale: its invoice is. ⚠ A reader that names no type counts it beside its invoice, unless it says
+    // `NOT_PAYMENT_RECEIPT`.
+    type: { type: String, required: true, enum: ['invoice', 'proforma', 'credit_note', 'debit_note', 'cash_sale', 'cash_storno', 'payment_receipt'] },
     direction: { type: String, required: true, enum: ['outgoing', 'incoming'] },
     status: {
       type: String,
@@ -423,11 +454,18 @@ const invoiceSchema = new Schema<IInvoice>(
         reference: String,
         bankAccountId: { type: Schema.Types.ObjectId, ref: 'BankAccount' },
         journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
-        origin: { type: String, enum: ['cash_on_issue', 'card_on_issue', 'cash_register'] },
+        origin: { type: String, enum: ['cash_on_issue', 'card_on_issue', 'cash_register', 'payment_receipt'] },
+        receiptId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
         clientKey: String,
         requestHash: String,
       },
     ],
+    voidingUntil: Date,
+    deliveryReceiptOwed: Boolean,
+    receiptHolds: {
+      type: [{ _id: false, receiptId: { type: Schema.Types.ObjectId, ref: 'Invoice', required: true }, amount: { type: Number, required: true } }],
+      default: undefined,
+    },
     clientKey: String,
     requestHash: String,
     leaseUntil: Date,
@@ -569,12 +607,19 @@ const invoiceSchema = new Schema<IInvoice>(
             receiptNo: String,
             printedAt: Date,
             error: String,
+            /** FR-23: nothing can prove whether it printed: no money booked, until a person settles it. */
+            inDoubt: Boolean,
           },
+          /** What the person who settled a document in doubt said, and who it was. A sale's number comes off its slip. */
+          settled: { printed: Boolean, by: { type: Schema.Types.ObjectId, ref: 'User' }, at: Date, receiptNumber: String },
           changeDue: Number,
           sessionTotalsApplied: Boolean,
           receiptError: String,
           stockError: String,
           movementId: { type: Schema.Types.ObjectId, ref: 'StockMovement' },
+          paidInvoiceId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
+          paidInvoiceNumber: String,
+          receiptText: String,
           storno: {
             originalId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
             originalUnp: String,
@@ -631,6 +676,8 @@ invoiceSchema.index({ invoiceNumber: 'text', notes: 'text', reference: 'text' })
 invoiceSchema.index({ orgId: 1, type: 1, issueDate: -1 })
 invoiceSchema.index({ orgId: 1, 'register.sessionId': 1 }, { partialFilterExpression: { 'register.sessionId': { $exists: true } } })
 invoiceSchema.index({ orgId: 1, 'register.unp': 1 }, { partialFilterExpression: { 'register.unp': { $type: 'string' } } })
+// FR-23: the receipts that paid a document.
+invoiceSchema.index({ orgId: 1, 'register.paidInvoiceId': 1 }, { partialFilterExpression: { 'register.paidInvoiceId': { $exists: true } } })
 
 replicate(invoiceSchema, { class: 'R' })
 

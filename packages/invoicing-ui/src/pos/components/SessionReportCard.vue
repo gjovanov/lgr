@@ -6,6 +6,7 @@
     <v-table density="compact">
       <tbody>
         <tr><td>{{ $t('pos.sessionReport.sales') }}</td><td class="text-end">{{ report.counts.sales }}</td></tr>
+        <tr v-if="report.counts.payments" data-testid="session-report-payments"><td>{{ $t('pos.sessionReport.payments') }}</td><td class="text-end">{{ report.counts.payments }}</td></tr>
         <tr><td>{{ $t('pos.sessionReport.stornos') }}</td><td class="text-end">{{ report.counts.stornos }}</td></tr>
         <tr v-if="report.counts.voided"><td>{{ $t('pos.sessionReport.voided') }}</td><td class="text-end">{{ report.counts.voided }}</td></tr>
         <tr><td>{{ $t('pos.sessionReport.fiscal') }}</td><td class="text-end">{{ report.counts.fiscal }}</td></tr>
@@ -43,7 +44,7 @@ import { useAppStore } from '../../store/app.store'
 export interface SessionReportData {
   sessionNumber: string
   currency: string
-  counts: { sales: number; stornos: number; voided: number; fiscal: number; text: number; unprinted: number }
+  counts: { sales: number; stornos: number; voided: number; fiscal: number; text: number; unprinted: number; payments?: number }
   vat: Array<{ rate: number; net: number; vat: number; gross: number }>
   total: number
   byMethod: { cash: number; card: number; other: number; cashOnDelivery?: number }

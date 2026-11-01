@@ -1,8 +1,10 @@
+import { Invoice } from 'db/models'
 import { getRepos } from '../context.js'
 import { eventBus } from '../events/event-bus.js'
 import { logger } from '../logger/logger.js'
 import { createAuditEntry } from './audit-log.service.js'
 import { voidJournalEntry } from './accounting.service.js'
+import { notBeingVoided } from './invoice-payment.js'
 
 /**
  * A sales invoice paid at the counter — in cash or by card — is paid the moment it is issued.
@@ -28,6 +30,20 @@ import { voidJournalEntry } from './accounting.service.js'
  *    can no longer be issued or voided. It is settled when it is issued.
  * Bank transfer and cash on delivery (наложен платеж) are deliberately not settled here: the
  * money comes later, from the bank or the courier.
+ *
+ * ⚠ FR-23: where LGR prints (`settings.cashRegister.requireConnectedDevice` not off) a printed
+ * receipt and its payment are the settlement, because money taken at the counter goes through the
+ * payment action, which prints. So the caller says who settles (`settles`). `/send` does not call
+ * this for a document a person issues, and `PUT` calls it with `settles: false`: an edit never adds or
+ * shrinks a payment, withdraws only this rule's own rows the method no longer says, and derives
+ * status and due. The import conversion settles as it always did, in every org: another system
+ * printed that receipt. Printing never lives in here, because the conversion comes through here.
+ *
+ * ⚠ What it read is a check, and its write is what makes it hold: conditional, as a money-moving `PUT` is,
+ * on the `amountPaid` it read and no hold. A payment forced between the read and an unconditional write
+ * left a row of 10 on `amountPaid` 0, and the next payment took the whole total: rows of 46 on a total of
+ * 36. A write that lost reads again and runs the rule once more. If that loses too the document is left
+ * alone: every payment derives what is due in its own write, so it stands as the last one left it.
  */
 
 /** Marks the cash payments this rule records, so it can tell them from ones a person entered. */
@@ -56,6 +72,8 @@ export interface CashSettlementResult {
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 const sum = (ps: any[]) => round2(ps.reduce((s, p) => s + (Number(p.amount) || 0), 0))
 const NONE: CashSettlementResult = { action: 'none', amount: 0 }
+/** Something got between the read and the write. */
+const LOST = Symbol('settlement lost its race')
 
 /** Status from the amounts, for a document whose payments just changed under it. */
 function statusFor(total: number, paid: number): string {
@@ -79,7 +97,17 @@ async function retireAll(payments: any[]): Promise<void> {
 /** For a caller that replaces automatic payments (an invoice attached to a cash sale): their entries go. */
 export const retireAutomaticPayments = retireAll
 
-export async function syncCashSettlement(orgId: string, invoiceId: string, userId: string): Promise<CashSettlementResult> {
+export async function syncCashSettlement(orgId: string, invoiceId: string, userId: string, opts: { settles?: boolean } = {}): Promise<CashSettlementResult> {
+  const first = await applySettlement(orgId, invoiceId, userId, opts)
+  if (first !== LOST) return first
+  const second = await applySettlement(orgId, invoiceId, userId, opts)
+  if (second !== LOST) return second
+  logger.warn({ orgId, invoiceId }, 'Counter settlement lost its race twice: the document is left as it stands')
+  return NONE
+}
+
+async function applySettlement(orgId: string, invoiceId: string, userId: string, opts: { settles?: boolean }): Promise<CashSettlementResult | typeof LOST> {
+  const settles = opts.settles !== false
   const r = getRepos()
   const inv: any = await r.invoices.findOne({ id: invoiceId, orgId } as any)
   if (!inv || inv.direction !== 'outgoing' || inv.type !== 'invoice' || !ISSUED.includes(inv.status)) return NONE
@@ -88,7 +116,7 @@ export async function syncCashSettlement(orgId: string, invoiceId: string, userI
   if (inv.cashSaleRef?.cashSaleId) return NONE
 
   const total = round2(inv.total)
-  if (total <= 0) return NONE
+  if (settles && total <= 0) return NONE
   const payments: any[] = inv.payments || []
   /** The origin the invoice's method settles under; none for a method paid later. */
   const origin: string | undefined = SETTLED_ON_ISSUE[inv.paymentMethod]
@@ -107,7 +135,7 @@ export async function syncCashSettlement(orgId: string, invoiceId: string, userI
     removed += sum(stale)
     await retireAll(stale)
   }
-  if (origin) {
+  if (origin && settles) {
     const outstanding = round2(total - sum(next))
     if (outstanding > 0) {
       // Issued at the counter, or its total went up: the rest was taken there too.
@@ -121,26 +149,38 @@ export async function syncCashSettlement(orgId: string, invoiceId: string, userI
       next = added ? [...manual, autoPayment(inv, added, origin)] : manual
     }
   }
-  if (!added && !removed) return NONE
+  if (settles && !added && !removed) return NONE
+  // Not settling, only what this rule would have kept in line where nothing prints is its business.
+  if (!settles && !origin && !auto.length) return NONE
 
-  const action: CashSettlementAction = !origin ? 'unsettled' : auto.length ? 'adjusted' : 'settled'
-  const paid = sum(next)
-  const status = statusFor(total, paid)
-  const reason = !origin
+  // A rule that moved no money leaves what was paid as it was: a paid old document may have no rows.
+  const paid = added || removed ? sum(next) : round2(inv.amountPaid)
+  // What is owed now. A total lowered below what was taken stays paid, and that stays recorded for a
+  // person to correct; with nothing paid and nothing withdrawn the status is not this rule's to move.
+  const status = paid > 0 || removed ? statusFor(total, paid) : inv.status
+  const amountDue = settles ? round2(total - paid) : Math.max(0, round2(total - paid))
+  if (!settles && !removed && status === inv.status && amountDue === round2(inv.amountDue)) return NONE
+
+  const withdrawn = removed > 0 && (!origin || !settles)
+  const action: CashSettlementAction = withdrawn ? 'unsettled' : !settles || auto.length ? 'adjusted' : 'settled'
+  const reason = withdrawn
     ? `${[...new Set(stale.map(p => METHOD_OF_ORIGIN[p.origin]))].join(', ')} payment withdrawn: method is now ${inv.paymentMethod || 'none'}`
-    : `paid ${origin === CARD_ON_ISSUE ? 'by card' : 'in cash'} on issue`
+    : settles ? `paid ${origin === CARD_ON_ISSUE ? 'by card' : 'in cash'} on issue` : 'total edited'
   const statusHistory = status === inv.status
     ? inv.statusHistory || []
     : [...(inv.statusHistory || []), { status, fromStatus: inv.status, changedAt: new Date(), changedBy: userId, reason }]
-  await r.invoices.update(invoiceId, {
-    payments: next,
+  const written = await r.invoices.updateInOrg(invoiceId, orgId, {
+    ...(added || removed ? { payments: next } : {}),
     amountPaid: paid,
-    amountDue: round2(total - paid),
+    amountDue,
     status,
-    // Paid when the money was taken: the issue date, never the moment this ran.
-    paidAt: status === 'paid' ? (inv.status === 'paid' && inv.paidAt ? inv.paidAt : paymentDate(inv)) : null,
+    // Paid when the money was taken: the issue date, never the moment this ran. Not settling, that is
+    // on a receipt: a total raised and lowered again is paid once more, and needs a date to say so.
+    paidAt: status !== 'paid' ? null : settles ? (inv.status === 'paid' && inv.paidAt ? inv.paidAt : paymentDate(inv)) : inv.paidAt ?? new Date(),
     statusHistory,
-  } as any)
+  } as any, { 'receiptHolds.0': { $exists: false }, amountPaid: inv.amountPaid ?? null, ...notBeingVoided() })
+  if (!written) return LOST
+  if (!added && !removed) return { action, amount: 0 }
 
   const changes: Array<{ field: string; oldValue: unknown; newValue: unknown }> = []
   for (const o of AUTO_ORIGINS) {
@@ -157,6 +197,7 @@ export async function syncCashSettlement(orgId: string, invoiceId: string, userI
     // Same event a hand-recorded payment emits: the ledger entry, when the org keeps one.
     eventBus.emit('payment.recorded', {
       invoiceId, orgId, userId, amount: added, method: METHOD_OF_ORIGIN[origin!], date: paymentDate(inv).toISOString(),
+      paymentId: String(next[next.length - 1]._id),
     })
   }
   logger.info({ orgId, invoiceId, invoiceNumber: inv.invoiceNumber, method: inv.paymentMethod, action, added, removed }, 'counter settlement')
@@ -168,5 +209,6 @@ function paymentDate(inv: any): Date {
 }
 
 function autoPayment(inv: any, amount: number, origin: string) {
-  return { date: paymentDate(inv), amount, method: METHOD_OF_ORIGIN[origin], origin }
+  // Its own id, so that its journal entry finds this row and no other (`payment.recorded`).
+  return { _id: new (Invoice.base as any).Types.ObjectId(), date: paymentDate(inv), amount, method: METHOD_OF_ORIGIN[origin], origin }
 }

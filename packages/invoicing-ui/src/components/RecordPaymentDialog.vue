@@ -3,6 +3,10 @@
     <v-card>
       <v-card-title>{{ $t('invoicing.recordPayment') }}</v-card-title>
       <v-card-text>
+        <!-- FR-23: why the receipt did not print. Nothing was recorded, so saving again is the retry. -->
+        <v-alert v-if="refusal" :type="printFailed ? 'error' : 'warning'" variant="tonal" density="compact" class="mb-3" data-testid="payment-refusal">
+          {{ refusal }}
+        </v-alert>
         <v-form ref="formRef">
           <v-text-field
             v-model.number="form.amount"
@@ -20,14 +24,18 @@
             persistent-placeholder
             :rules="[rules.required]"
           />
-          <DateField v-model="form.date" :label="$t('common.date')" :rules="[rules.required]" />
+          <!-- FR-23: what prints is dated by the device, as it prints. -->
+          <DateField v-model="form.date" :label="$t('common.date')" :rules="[rules.required]" :disabled="prints" />
           <v-text-field v-model="form.reference" :label="$t('invoicing.reference')" />
         </v-form>
+        <div v-if="prints" class="text-caption text-medium-emphasis" data-testid="payment-prints">
+          <v-icon icon="mdi-printer-pos-outline" size="small" class="mr-1" />{{ $t('cashRegister.receipt.willPrint') }}
+        </div>
       </v-card-text>
       <v-card-actions>
         <v-spacer />
         <v-btn @click="emit('update:modelValue', false)">{{ $t('common.cancel') }}</v-btn>
-        <v-btn color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
+        <v-btn color="primary" :loading="saving" data-testid="payment-save" @click="save">{{ printFailed ? $t('cashRegister.receipt.printAgain') : $t('common.save') }}</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -48,12 +56,13 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
 import DateField from 'ui-shared/components/DateField.vue'
+import { isFailedPrint, receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import { defaultPaymentMethod, outstandingAmount, type PayableDoc } from '../composables/payment-defaults'
 
 const props = defineProps<{
   modelValue: boolean
-  /** The list row being paid: its id, total, `amountPaid`, `paymentMethod` and currency. */
-  document: (PayableDoc & { _id: string; currency?: string }) | null
+  /** The document being paid: its id, total, `amountPaid`, `paymentMethod`, currency, and which methods print. */
+  document: (PayableDoc & { _id: string; currency?: string; printsOnPayment?: string[] }) | null
 }>()
 const emit = defineEmits<{ 'update:modelValue': [open: boolean]; recorded: [] }>()
 
@@ -67,6 +76,12 @@ const formRef = ref()
 const saving = ref(false)
 const today = () => new Date().toISOString().split('T')[0]
 const form = ref({ amount: 0, method: 'bank_transfer', date: today(), reference: '' })
+/** FR-23: why the last attempt did not go through, and whether it was the print that failed. */
+const refusal = ref('')
+const printFailed = ref(false)
+
+/** FR-23: whether saving prints a receipt. The server answers it, per document and by method. */
+const prints = computed(() => (props.document?.printsOnPayment ?? []).includes(form.value.method))
 
 const outstanding = computed(() => outstandingAmount(props.document))
 
@@ -75,6 +90,8 @@ watch(
   () => props.modelValue,
   (open) => {
     if (!open || !props.document) return
+    refusal.value = ''
+    printFailed.value = false
     form.value = {
       amount: outstanding.value,
       method: defaultPaymentMethod(props.document, paymentMethods.value.map((m) => m.value)),
@@ -105,14 +122,22 @@ async function save() {
   if (!valid || !props.document) return
   const id = props.document._id
   saving.value = true
+  refusal.value = ''
+  printFailed.value = false
   try {
-    await attempt.run({ id, ...form.value }, (headers) =>
+    const { data } = await attempt.run({ id, ...form.value }, (headers) =>
       httpClient.post(`${appStore.orgUrl()}/invoices/${id}/payments`, form.value, { headers }))
-    showSuccess(t('invoicing.paymentRecorded'))
+    // An interrupted print the device cannot confirm: the payment stands, and someone checks it.
+    if (data?.receiptError) showError(t('cashRegister.receipt.unknown', { reason: data.receiptError }))
+    else showSuccess(data?.receipt?.number ? t('cashRegister.receipt.printed', { number: data.receipt.number }) : t('invoicing.paymentRecorded'))
     emit('update:modelValue', false)
     emit('recorded')
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    // A definitive answer ends the attempt (`createIdempotentAction`): saving again is a new one.
+    const message = receiptRefusalMessage(t, e, t('common.operationFailed'))
+    refusal.value = message
+    printFailed.value = isFailedPrint(e?.response?.data)
+    showError(message)
   } finally {
     saving.value = false
   }

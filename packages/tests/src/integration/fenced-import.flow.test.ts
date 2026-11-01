@@ -13,6 +13,7 @@ import { forgetAllHomes } from 'db/home/home'
 import { fencedExportPath, fencedExportsOf, receiveFencedChunk, writeFencedExport } from 'services/biz/move/fenced-export.service'
 import { fencedImportTick, requestFencedImport } from 'services/biz/move/fenced-import.service'
 import { receiptBillingState } from 'services/biz/receipt-bill.service'
+import { freezeRefusal, receiptInDoubt } from 'services/biz/cash-register/payment-receipt.service'; import { settleInDoubt } from 'services/biz/cash-register/settle.service'; import { deviceless, finishInterruptedDocuments } from 'invoicing-api/src/lib/cash-register-till'
 
 /**
  * The audited import of a fenced export (FR-20.84, plan step P3-6e, second half): a replaced
@@ -63,7 +64,7 @@ const line = (productId: unknown, warehouseId: unknown, quantity: number, unitPr
  * lgrai.app after a promotion, and what the replaced server did after the cutoff, as its export.
  * `more` adds documents the site held beside the usual ones.
  */
-async function world(more?: (r: any) => { invoices?: any[]; stockmovements?: any[] }) {
+async function world(o: { deadReceipt?: boolean; deadFiscal?: Record<string, unknown>; deadNumber?: string; deadStorno?: Record<string, unknown>; more?: (r: any) => { invoices?: any[]; stockmovements?: any[] } } = {}) {
   const org = await createTestOrg({ slug: `fenced-import-${n}` } as any)
   const orgId = org._id as any
   const admin = await createTestUser(orgId, { role: 'admin' } as any)
@@ -94,7 +95,7 @@ async function world(more?: (r: any) => { invoices?: any[]; stockmovements?: any
   const site = (mongoose.connection as any).client.db(siteDbName)
   const ids = {
     newCustomer: oid(), newProduct: oid(), session: oid(), invoice50: oid(), cashSale: oid(), draft: oid(), clash: oid(),
-    missing: oid(), paid52: oid(), saleMovement: oid(), receipt: oid(), doc: oid(), audit: oid(), je: oid(), gone: oid(), payment: oid(),
+    missing: oid(), paid52: oid(), saleMovement: oid(), receipt: oid(), doc: oid(), audit: oid(), je: oid(), gone: oid(), payment: oid(), held: oid(), dead: oid(), deadStorno: oid(),
   }
   const at = new Date()
   const newCustomer = { _id: ids.newCustomer, orgId, companyName: 'Sold to after the cutoff', type: 'customer', isActive: true }
@@ -104,7 +105,10 @@ async function world(more?: (r: any) => { invoices?: any[]; stockmovements?: any
   const cashSale = {
     _id: ids.cashSale, orgId, type: 'cash_sale', direction: 'outgoing', invoiceNumber: `CS-${year}-00010`, status: 'paid', issueDate: at, currency: 'EUR', exchangeRate: 1, subtotal: 30, taxTotal: 6, total: 36, amountPaid: 36, amountDue: 0,
     lines: [line(ids.newProduct, wh._id, 3)], payments: [{ _id: oid(), method: 'cash', amount: 36, date: at }],
-    register: { origin: 'pos', sessionId: ids.session, warehouseId: wh._id, unp: 'ED123456-0001-0000007', fiscal: { mode: 'fiscal', state: 'printed' }, movementId: ids.saleMovement, sessionTotalsApplied: true },
+    register: {
+      origin: 'pos', sessionId: ids.session, warehouseId: wh._id, unp: 'ED123456-0001-0000007', fiscal: { mode: 'fiscal', state: 'printed' }, movementId: ids.saleMovement, sessionTotalsApplied: true,
+      ...(o.deadStorno ? { stornoState: 'full', stornoedBy: [ids.deadStorno] } : {}),
+    },
     completedAt: at,
   }
   const draft = { _id: ids.draft, orgId, type: 'invoice', direction: 'outgoing', invoiceNumber: `DRF-INV-${year}-00003`, status: 'draft', issueDate: at, contactId: customer._id, currency: 'EUR', total: 0, lines: [], payments: [] }
@@ -121,20 +125,28 @@ async function world(more?: (r: any) => { invoices?: any[]; stockmovements?: any
   await site.collection('contacts').insertOne(newCustomer)
   await site.collection('products').insertOne(newProduct)
   await site.collection('possessions').insertOne(session)
-  const added = more?.({ orgId, wh, bolt, customer, at, ids }) ?? {}
+  const added = o.more?.({ orgId, wh, bolt, customer, at, ids }) ?? {}
   await site.collection('invoices').insertMany([invoice50, cashSale, draft, clash, missing, paid52, ...(added.invoices ?? [])])
   await site.collection('stockmovements').insertMany([saleMovement, receipt, ...(added.stockmovements ?? [])])
   await site.collection('docfiles').insertOne(doc)
   await site.collection('auditlogs').insertOne(audit)
   await site.collection('journalentries').insertOne(je)
-  const journal: Array<[string, unknown, string?]> = [
+  const dead = { _id: ids.dead, orgId, type: 'payment_receipt', direction: 'outgoing', invoiceNumber: o.deadNumber ?? `CS-${year}-00011`, status: 'paid', issueDate: at, createdAt: at, currency: 'EUR', exchangeRate: 1, total: 24, paymentMethod: 'cash', payments: [{ _id: oid(), date: at, method: 'cash', amount: 24 }], leaseUntil: at, register: { origin: 'invoice', sessionId: ids.session, warehouseId: wh._id, paidInvoiceId: ids.held, paidInvoiceNumber: `INV-${year}-00053`, unp: 'ED123456-0001-0000008', tendered: { method: 'cash', amount: 24, date: at }, fiscal: o.deadFiscal ?? { mode: 'fiscal', state: 'pending', attemptedAt: at, counterBefore: 7 } } }; if (o.deadReceipt) await site.collection('invoices').insertMany([{ ...invoice50, _id: ids.held, invoiceNumber: `INV-${year}-00053`, receiptHolds: [{ receiptId: ids.dead, amount: 24 }] }, dead]); const journal: Array<[string, unknown, string?]> = [
     ['contacts', ids.newCustomer], ['products', ids.newProduct], ['possessions', ids.session],
     ['invoices', ids.invoice50], ['invoices', ids.cashSale], ['invoices', ids.draft], ['invoices', ids.clash], ['invoices', ids.missing], ['invoices', ids.paid52],
     ['stockmovements', ids.saleMovement], ['stockmovements', ids.receipt], ['docfiles', ids.doc], ['auditlogs', ids.audit], ['journalentries', ids.je],
     ...(added.invoices ?? []).map((d: any) => ['invoices', d._id] as [string, unknown]),
     ...(added.stockmovements ?? []).map((d: any) => ['stockmovements', d._id] as [string, unknown]),
-    ['contacts', ids.gone, 'delete'],
+    ['contacts', ids.gone, 'delete'], ...(o.deadReceipt ? [['invoices', ids.held], ['invoices', ids.dead]] as Array<[string, unknown]> : []),
   ]
+  if (o.deadStorno) {
+    await site.collection('invoices').insertOne({
+      _id: ids.deadStorno, orgId, type: 'cash_storno', direction: 'outgoing', invoiceNumber: o.deadNumber ?? `CS-${year}-00012`, status: 'paid', issueDate: at, createdAt: at, currency: 'EUR', exchangeRate: 1,
+      subtotal: 30, taxTotal: 6, total: 36, amountPaid: 36, amountDue: 0, lines: [line(ids.newProduct, wh._id, 3)], payments: [{ _id: oid(), date: at, method: 'cash', amount: 36 }], relatedInvoiceId: ids.cashSale, leaseUntil: at,
+      register: { origin: 'pos', sessionId: ids.session, warehouseId: wh._id, unp: 'ED123456-0001-0000009', isFiscal: true, fiscal: o.deadStorno, storno: { originalId: ids.cashSale, reason: 'customer_return' } },
+    })
+    journal.push(['invoices', ids.deadStorno])
+  }
   await site.collection('repl_journal').insertMany(journal.map(([coll, docId, op], i) => ({ orgId, coll, docId, seq: 11 + i, op: op ?? 'upsert', changedFields: [], clusterTime: at, journalEpoch: 1, updatedAt: at })))
   await site.collection('repl_orgs').insertOne({ orgId, enabled: true, seq: 11 + journal.length, pages: [] })
   ;(config.upload as any).dir = join(root, 'site')
@@ -236,6 +248,152 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
     expect(await AuditLog.exists({ orgId: w.oid, entityType: 'fenced_export', action: 'import', entityId: w.ex._id })).toBeTruthy()
   }, 120_000)
 
+  it('a receipt whose request died on the site arrives for a person to settle: its device stayed behind', async () => {
+    const w = await world({ deadReceipt: true })
+    await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
+    await runToEnd(w.ex._id)
+
+    const receipt: any = await Invoice.collection.findOne({ _id: w.ids.dead } as any)
+    expect(receipt.register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
+    expect(receipt.leaseUntil).toBeUndefined()
+    // Its hold came with its invoice, and a person can now see why, and let go of it.
+    const held = String(w.ids.held)
+    expect(await receiptInDoubt(w.orgId, held)).toMatchObject({ invoiceNumber: `CS-${year}-00011` })
+    expect(await freezeRefusal(w.orgId, held)).toMatchObject({ code: 'receipt_in_doubt' })
+    const settled = await settleInDoubt(deviceless(w.orgId, { id: String(w.admin._id), operatorCode: '0001' } as any), String(w.ids.dead), { printed: false })
+    expect(settled.status).toBe('voided')
+    expect(((await Invoice.collection.findOne({ _id: w.ids.held } as any)) as any).receiptHolds ?? []).toHaveLength(0)
+    expect(await freezeRefusal(w.orgId, held)).toBeNull()
+  })
+
+  it('a storno whose request died on the site arrives held, books nothing, and a person settling it books it here', async () => {
+    const w = await world({ deadStorno: { mode: 'fiscal', state: 'pending', attemptedAt: new Date(), counterBefore: 7 } })
+    await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
+    await runToEnd(w.ex._id)
+
+    const storno: any = await Invoice.collection.findOne({ _id: w.ids.deadStorno } as any)
+    expect(storno.register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
+    expect(storno.leaseUntil).toBeUndefined()
+    expect(await StockMovement.exists({ orgId: w.oid, invoiceId: w.ids.deadStorno })).toBeNull()
+    const sale: any = await Invoice.collection.findOne({ _id: w.ids.cashSale } as any)
+    expect(sale.register.stornoState).toBe('full')
+
+    const settled = await settleInDoubt(deviceless(w.orgId, { id: String(w.admin._id), operatorCode: '0001' } as any), String(w.ids.deadStorno), { printed: true })
+
+    expect(settled.completedAt).toBeTruthy()
+    expect(settled.register.settled).toMatchObject({ printed: true })
+    expect(await StockMovement.exists({ orgId: w.oid, invoiceId: w.ids.deadStorno, type: 'return' })).toBeTruthy()
+  })
+
+  // The second review's finding 7, proved here first: it booked under its placeholder.
+  describe('one that died under its placeholder, its number never drawn', () => {
+    const NUMBER = /^CS-\d{4}-\d+$/
+    const user = (w: any) => deviceless(w.orgId, { id: String(w.admin._id), operatorCode: '0001' } as any)
+
+    it('a receipt settled as printed is numbered first, and the money is booked under that number', async () => {
+      const w = await world({ deadReceipt: true, deadNumber: '~pending:doc:died-on-the-site' })
+      await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
+      await runToEnd(w.ex._id)
+      expect(((await Invoice.collection.findOne({ _id: w.ids.dead } as any)) as any).invoiceNumber).toBe('~pending:doc:died-on-the-site')
+
+      const settled = await settleInDoubt(user(w), String(w.ids.dead), { printed: true })
+
+      expect(settled.invoiceNumber).toMatch(NUMBER)
+      expect(settled.numberHistory.at(-1).number).toBe(settled.invoiceNumber)
+      expect(settled.completedAt).toBeTruthy()
+      const invoice: any = await Invoice.collection.findOne({ _id: w.ids.held } as any)
+      expect(invoice.payments.map((p: any) => String(p.receiptId))).toContain(String(w.ids.dead))
+      expect(invoice.receiptHolds ?? []).toHaveLength(0)
+    })
+
+    it('one settled as not printed leaves nothing behind and draws no number', async () => {
+      const w = await world({ deadReceipt: true, deadNumber: '~pending:doc:died-on-the-site' })
+      await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
+      await runToEnd(w.ex._id)
+
+      await settleInDoubt(user(w), String(w.ids.dead), { printed: false })
+
+      expect(await Invoice.collection.findOne({ _id: w.ids.dead } as any)).toBeNull()
+      expect(((await Invoice.collection.findOne({ _id: w.ids.held } as any)) as any).receiptHolds ?? []).toHaveLength(0)
+    })
+
+    it('a storno settled as printed is numbered too', async () => {
+      const w = await world({ deadStorno: { mode: 'fiscal', state: 'pending', attemptedAt: new Date(), counterBefore: 7 }, deadNumber: '~pending:doc:storno-died-there' })
+      await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
+      await runToEnd(w.ex._id)
+
+      const settled = await settleInDoubt(user(w), String(w.ids.deadStorno), { printed: true })
+
+      expect(settled.invoiceNumber).toMatch(NUMBER)
+      expect(settled.completedAt).toBeTruthy()
+    })
+  })
+
+  it('one that had printed before its request died arrives finishable, and the next touch finishes it', async () => {
+    const w = await world({ deadStorno: { mode: 'fiscal', state: 'printed', attemptedAt: new Date(), printedAt: new Date() } })
+    await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
+    await runToEnd(w.ex._id)
+
+    const storno: any = await Invoice.collection.findOne({ _id: w.ids.deadStorno } as any)
+    expect(storno.register.fiscal.inDoubt).toBeUndefined()
+    expect(new Date(storno.leaseUntil).getTime()).toBeLessThan(Date.now())
+    const user = { id: String(w.admin._id), operatorCode: '0001' } as any
+
+    expect(await finishInterruptedDocuments(w.orgId, user, { ids: [w.ids.deadStorno] })).toBe(true)
+
+    expect(((await Invoice.collection.findOne({ _id: w.ids.deadStorno } as any)) as any).completedAt).toBeTruthy()
+  })
+
+  // Finding 8: past the print nothing is left to prove, and only the money waits. Its lease does not
+  // travel, and with neither a lease nor a doubt nothing could ever finish it.
+  describe('a receipt that got further before its request died arrives finishable', () => {
+    const after = async (fiscal: Record<string, unknown>) => {
+      const w = await world({ deadReceipt: true, deadFiscal: { mode: 'fiscal', attemptedAt: new Date(), ...fiscal } })
+      await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
+      await runToEnd(w.ex._id)
+      const receipt: any = await Invoice.collection.findOne({ _id: w.ids.dead } as any)
+      expect(receipt.register.fiscal.inDoubt).toBeUndefined()
+      expect(new Date(receipt.leaseUntil).getTime()).toBeLessThan(Date.now())
+      const user = { id: String(w.admin._id), operatorCode: '0001' } as any
+      expect(await finishInterruptedDocuments(w.orgId, user, String(w.ids.held))).toBe(true)
+      return {
+        w,
+        receipt: await Invoice.collection.findOne({ _id: w.ids.dead } as any) as any,
+        invoice: await Invoice.collection.findOne({ _id: w.ids.held } as any) as any,
+      }
+    }
+
+    it('printed: the next touch books the money it took, with no device', async () => {
+      const { w, receipt, invoice } = await after({ state: 'printed', printedAt: new Date() })
+      expect(receipt.completedAt).toBeTruthy()
+      expect(invoice.receiptHolds ?? []).toHaveLength(0)
+      expect(invoice.payments.map((p: any) => String(p.receiptId))).toContain(String(w.ids.dead))
+    })
+
+    it('unknown: the money stands, as it did on the site', async () => {
+      const { w, receipt, invoice } = await after({ state: 'unknown' })
+      expect(receipt.completedAt).toBeTruthy()
+      expect(invoice.receiptHolds ?? []).toHaveLength(0)
+      expect(invoice.payments.map((p: any) => String(p.receiptId))).toContain(String(w.ids.dead))
+    })
+
+    it('failed: it is given up, and the hold goes', async () => {
+      const { receipt, invoice } = await after({ state: 'failed' })
+      expect(receipt.status).toBe('voided')
+      expect(invoice.receiptHolds ?? []).toHaveLength(0)
+      expect((invoice.payments ?? []).some((p: any) => p.receiptId)).toBe(false)
+    })
+
+    it('already in doubt: it stays a person\'s, and travels with what they need', async () => {
+      const w = await world({ deadReceipt: true, deadFiscal: { mode: 'fiscal', state: 'unknown', inDoubt: true, attemptedAt: new Date() } })
+      await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
+      await runToEnd(w.ex._id)
+      const receipt: any = await Invoice.collection.findOne({ _id: w.ids.dead } as any)
+      expect(receipt.register.fiscal.inDoubt).toBe(true)
+      expect(await receiptInDoubt(w.orgId, String(w.ids.held))).toBeTruthy()
+    })
+  })
+
   it('a receipt its bill lists is the site\'s own delivery: the bill moved nothing, so the goods come in here, claim and all (#168)', async () => {
     const claimed = oid()
     const behind = oid()
@@ -244,7 +402,7 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
     const behindBill = oid()
     const ownBill = oid()
     const invoiceForCash = oid()
-    const w = await world(({ orgId, wh, bolt, customer, at, ids }) => {
+    const w = await world({ more: ({ orgId, wh, bolt, customer, at, ids }) => {
       const bill = (id: unknown, number: string, rest: any) => ({
         _id: id, orgId, type: 'invoice', direction: 'incoming', invoiceNumber: number, status: 'received', issueDate: at, contactId: customer._id, currency: 'EUR', exchangeRate: 1,
         subtotal: 10, taxTotal: 2, total: 12, amountPaid: 0, amountDue: 12, payments: [], lines: [line(bolt._id, wh._id, 7)], ...rest,
@@ -274,7 +432,7 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
           delivery(ownReceipt, `SM-${year}-00063`, 20, ownBill),
         ],
       }
-    })
+    } })
     await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
     await runToEnd(w.ex._id)
     const outcome = async (coll: string, id: unknown) => ((await FencedImportItem.findOne({ exportId: w.ex._id, coll, docKey: String(id) }).lean()) as any)

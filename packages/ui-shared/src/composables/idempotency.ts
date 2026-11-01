@@ -18,13 +18,16 @@ function newKey(): string {
 
 /**
  * Whether the server may have acted on a request that failed: no answer at all (network,
- * timeout), a proxy that gave up (408/502/504), or the server saying the same key is still
- * being processed. Anything else is the server's own definitive answer.
+ * timeout), a proxy that gave up (408/502/504), the pod holding the printer not answering the pod
+ * that forwarded to it (FR-24.51: the connection can die mid-print, so the receipt may be out), or
+ * the server saying the same key is still being processed. Anything else is the server's own
+ * definitive answer.
  */
 export function isOutcomeUnknown(err: any): boolean {
   const res = err?.response
   if (!res) return true
   if ([408, 502, 504].includes(res.status)) return true
+  if (res.status === 503 && res.data?.code === 'fiscal_holder_unreachable') return true
   return res.status === 409 && res.data?.code === 'idempotency_in_progress'
 }
 

@@ -897,7 +897,8 @@ part of that module ("The till lives in Invoicing" below); Phase 1 made every mo
 - **Phase 6: the request goes to the printer** (FR-24.50–24.54). A route that reaches a fiscal device
   declares it: `.use(FiscalRoute)` (after its auth plugin) and `{ fiscalDevice: <resolver> }`
   (`fiscal/fiscal-route.ts`: `deviceFromParams`, `deviceFromSession`, `deviceFromBodyWarehouse`,
-  `deviceFromJournalDocument`, `deviceFromAuthorSession`). Before the handler, a device held by ANOTHER
+  `deviceFromJournalDocument`, `deviceFromAuthorSession`, FR-23's `deviceFromCounter` and
+  `deviceFromDeadReceipt`). Before the handler, a device held by ANOTHER
   pod's live row sends the whole request there with `forwardHttp` as a fiscal hop (`FISCAL_HOP`, its own
   HMAC label), raw body and all; the answer is the answer.
   - Holder unreachable: 503 `fiscal_holder_unreachable`, nothing written. A hop is never forwarded
@@ -2483,6 +2484,216 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
   `checkPendingTransfers` refuses the whole list (422 `pending_transfer_invalid`) before a sale
   draws its number.
 
+## A fiscal receipt for every payment on an invoice (2026-10-31, FR-23 R1)
+
+Spec: `docs/fr/FR-23-cash-invoice-receipts.md`; §6 lists what the build decided. R2 (`payment_storno`,
+credit-note refunds) and R3 (the till's partial storno, #363) are not built.
+
+**The invoice is the sale** (Q-1): it moves the stock and posts the revenue, as it always did. A
+`payment_receipt` is the money: an `Invoice` row of its own type, in the register's `CS`/`CSR` series,
+on the open session of whoever issues or pays (D-13), printed on that session's device. It moves no
+stock and posts no revenue. It prints for an invoice or a debit note issued in cash or by card, a cash
+or card payment on one (whole or in parts), and an invoice on cash on delivery (at issue, slot R, the
+invoice still due until the courier pays).
+
+- ⚠ **There is one switch, the printer gate's** (`settings.cashRegister.requireConnectedDevice`, #390).
+  Off, LGR prints nothing and cash invoices behave as they always did. On, a cash invoice with no open
+  session or no connected device is refused before anything is written: 409
+  `fiscal_device_not_connected` (`noSession: true` for the first), no number, no УНП, no claim on the
+  draft. Each refusal names the switch and where it lives (Settings → Organization → Cash register).
+- ⚠ **Off unless the org opts in, and unset still reads as ON** (owner, 2026-11-01). Every path that
+  creates an org writes `false` explicitly (`defaultOrgSettings`; `new-org-printer-gate.flow.test.ts`
+  walks them, and a new `Org.create` fails it until it is named). Never change the reading: `regal`'s real
+  till depends on unset being on. This narrows #390's "every org", the till's gate with the invoices'.
+- **Existing orgs are `0011-printer-gate-off`**: off on every org with no active fiscal device whose
+  switch is unset, node by node, `bun run migrate --dry-run` to read it first. ⚠ `MIGRATIONS_AUTO` is off
+  on lgrai.app, so it runs by hand BEFORE the new image serves; a master runs it before it listens.
+  `scripts/printer-gate-off.ts` is the one thing no data can say, `regal-pz`, which has a device and whose
+  till is still PlusMinus. ⚠ It refuses `regal`.
+- ⚠ **An imported document NEVER prints.** `syncCashSettlement` is called by `/send`, `PUT` and
+  `convertDraftInvoice`, so printing lives in the doors (`invoicing-api/lib/counter-receipt.ts`,
+  `prepareReceipt`), never in that function. The conversion settles as it always did, with the switch
+  on too. `printsAtCounter` also refuses a document a person issues or pays by hand that an import
+  wrote. ⚠ `isImportedDocument` is `ocr_import` on its FIRST status entry and nothing else, because a
+  copy does not carry that and no route writes it. The `ocr-import` tag is copied by „Копирай" and a
+  user can type it; `importedFrom` is LGR moving its own document between nodes, which prints like
+  any other.
+- ⚠ **Where LGR prints, `PUT` never settles**: `syncCashSettlement` takes one input, `settles`, and with
+  `settles: false` it never adds or shrinks a payment and only says what is owed, so a raised total is
+  payable where a stale `paid` would refuse the payment. It still withdraws its own row under a method
+  the invoice no longer says, with its journal entry (no general route can remove a row), and adds none
+  in its place, a move between two settled methods included. An imported invoice keeps the rule:
+  nothing else would settle it.
+- ⚠ **R1's rollback is clean only while no receipt exists** (FR-23 §3). The previous image has none of the
+  filters below, so it counts every receipt again beside its invoice, and it rewrites `payments` without
+  `receiptId`. Prefer fixing forward.
+- ⚠ **A new `Invoice` type reaches every reader that has no `type` in its filter.** Those are
+  `GET /invoices`, `getInvoiceSummary` (paid in 30 days), the digest's KPIs, `byMethod` and
+  `paymentsTotal`, the contact ledger with its cost, `/stats/*`, the contact's summary. Each spreads
+  `NOT_PAYMENT_RECEIPT` (`sale-counting.ts`). A reader that names its types needs nothing. The digest's
+  CS sequence line still takes the receipts' numbers, or every one reads as a gap.
+- ⚠ **`REGISTER_TYPES` stays the two sales.** `loadPosRows` leaves receipts out unless asked
+  (`withReceipts`): the session journal entry and sales history read through it, and the invoice posted
+  that money. The session's report and SUPTO ask. `TILL_DOCUMENT_TYPES` is what the journal and the device
+  witness read.
+- **The session counts it, its close JE does not.** Its increments are a sale's (`saleIncrements`), so
+  `totalSales` is what the device rang and agrees with the Z-report. `counts.payments` on the report is
+  absent when zero, so an older report keeps its shape.
+- **The steps** (`payment-receipt.service.ts`, `runReceiptSteps`): hold → number → in its turn, how it
+  prints and its УНП → print once → session totals → payment → complete. ⚠ The hold (`Invoice.receiptHolds`) is taken before the number, in
+  one atomic update with the check that the amount fits, so a loser burns no number; `fitsDue` counts it
+  in every payment, so a bank payment recorded during the print cannot take the same money.
+- ⚠ **One turn per device** (`fiscal/device-turn.ts`): from the counter read to the close, for a sale, a
+  storno, a receipt and every report. `deviceTurn` is a queue in the process holding the device; a nested
+  call runs inside the turn it is in, and a wait past `TURN_WAIT_MS` (longer than the slowest report)
+  answers 409 `device_busy`, which a sale reads as nothing printed. It exists because `clearOpenReceipt`
+  of one request voided another's open receipt, and FR-23 sent back-office payments to the till's device.
+- ⚠ **The turn lives in the process holding the device, and prod runs two pods**, so the holder moves
+  under it. `tests/two-node/two-pods-roll.test.ts` is a release gate with `two-pods.test.ts`
+  (`LGR_TWO_NODE=1`). A graceful stop finishes the queue before it closes the bridges. A device taken
+  over mid-queue costs the waiting request its print: a request keeps the printer it started with, and
+  ⚠ a send into a closed Bun socket throws nothing, so `createSendCommand` answers for a gone socket at
+  once, or each command waits out its timeout with the turn held. ⚠ Elysia cuts a request at 30 s
+  (`idleTimeout`), hops included, so a print waiting behind a slow report loses its connection and keeps
+  its place; the `Idempotency-Key` finds what it did. After a crash the lease (120 s) outlives the
+  presence row (20 s): the document reads as printing until it lapses, then is proved or held.
+- ⚠ **What proves a print: all of it lives in `print-verdict.ts`, table-tested.** In the document's turn the
+  counter is evidence, because nothing else printed since it was read. **Out of a turn nothing that
+  moved proves anything, for any document**, because the device is shared: a resumed sale or storno goes
+  `unknown` and a receipt is held, a counter moved by exactly one included. ⚠ Never bring back "+1 on a
+  resume is ours": it recorded a sale under a payment's receipt number, and a storno refunded money with
+  no storno on the device. An answer genuinely lost now means a look at the device.
+- **A print that throws in its turn** (`verdictOfFailedPrint`). First what the driver saw:
+  `cancelFiscalReceipt` says `voided`, `finished` or nothing (`AbandonOutcome`). Voided is `failed` at every
+  stage, whatever the counter reads, so whether a real 71h numbers a voided receipt does not matter
+  there. Finished is its fallback closing the receipt: `printed` past the money on +1, otherwise `unknown`,
+  never `failed`. ⚠ **It may say voided only if it SAW a receipt open before it cancelled**: after a close
+  whose answer was lost nothing is open, 3Ch does nothing and the status reads not open, and read as voided
+  that books a real receipt as failed and prints it again. So it reads the open flag first, and not open
+  or unreadable says neither. With no word: before the money it is `failed`, whatever the counter says;
+  past it +1 is `printed`, and unmoved and idle is `failed`: the receipt is voided with its number (18.5
+  lists it), no payment, and the document stays as it was; `/payments` answers 503 `fiscal_error`, `/send`
+  200 with `receiptError`, because issued is issued. ⚠ Anything else is `unknown`: never printed again,
+  because a real receipt voided and printed again is two fiscal receipts for one payment. What an earlier
+  document left open is cleared BEFORE the counter is read (`clearLeftovers`), in the same turn. A driver
+  with no `cancelFiscalReceipt` closes the receipt on failure, and a close that goes through says finished.
+  A driver says how far it got (`stagedPrint`), a storno too; `refused` means it sent nothing, so the device
+  is not marked and nothing is read.
+- ⚠ **`unknown` means a person must look at the device: nothing reads it as `failed` and nothing reads it
+  as `printed`.** A receipt's money stands when its print was in its own turn; a sale's always does (D-4).
+  A storno's never does.
+- ⚠ **A storno that may have printed is held, never voided** (`runStornoSteps`). Only `failed` voids it and
+  gives the sale back. An `unknown` one keeps its claim, books no refund, no stock and no session totals, and
+  answers 409 `storno_in_doubt`, as does every press after it: voided, the next press printed a second
+  fiscal storno. ⚠ The claim (`stornoState: 'full'`, `claimForStorno`) has no lease and nothing lapses it;
+  the lease on the storno document says who is working on that document. A dead storno is found by its
+  lapsed lease, by the sale's next storno and by the close, and a storno in doubt holds the close. It
+  counts nowhere until settled: `posRowSign` and `NOT_UNPROVED_STORNO`, which ⚠ a new reader that sums
+  `cash_storno` must spread, and SUPTO's 18.2, 18.4, 18.5.
+- ⚠ **A fiscal sale still `unknown` or `pending` cannot be stornoed** (409 `sale_receipt_in_doubt`, before the
+  claim): read as not printed it refunds with no storno on the device (#281). A text sale prints nothing
+  to reverse.
+- **The settle door** (`settle.service.ts`, `POST /cash-register/documents/:id/settle`, `STORNO_ROLES`) takes a
+  receipt, a storno and a sale, by the table `FINISHES`; R2's `payment_storno` is one more row. A sale's
+  "printed" needs `receiptNumber` off the slip, because its storno cites it and the drivers refuse one with
+  no digits. A sale's money stands either way. ⚠ Where the device can be asked the door refuses while a
+  receipt is open on it (409 `receipt_open_on_device`): the next document voids it, or finishes it in cash
+  if it took money, which prints it, so nothing is final yet. An X report clears it.
+- **`printed` keeps the error** (`receiptError`): a driver that finishes a part-paid receipt tenders the rest
+  in cash, so the device's payment types may differ from the document's.
+- ⚠ **A request that died** (`finishInterruptedReceipt`, `finishInterruptedStorno`, which NEVER print). A lease lapsed is not a
+  dead request by itself: `keepLease` renews it for as long as a print waits or runs. A dead receipt is
+  given up only if it never reached the device, or the device confirms the counter unmoved AND nothing
+  open. A moved counter proves nothing, and no device is no proof: such a receipt goes `unknown` +
+  `register.fiscal.inDoubt`. **In doubt books nothing and prints nothing**, keeps its hold, so the document
+  answers 409 `receipt_in_doubt` to payment, edit of the total and void, and a person settles it
+  (`POST /cash-register/documents/:id/settle {printed}`, the storno's roles, audited as `settle_receipt`,
+  `register.settled`), from the journal. It reaches no device. A keyed retry of the same request may print
+  only when the proof holds on the device it started on (`documentContext`). ⚠ A settle is durable from its
+  claim, which leaves a lease, so one that stops halfway is finished by the next touch or the close, and
+  whatever finishes it writes the audit row if it is missing. The doors and the context follow
+  `register.fiscalDeviceNumber`, never the warehouse: it can hold two.
+- **A session cannot close over an unfinished receipt or storno.** The close finishes what it can prove,
+  refuses the rest with 409 `receipts_unfinished` naming them, re-checks once it holds the claim (each checks
+  the session in its turn, so one of them sees the other), and takes `expected` from the claimed session. It
+  applies to `closeWithoutFiscal` too. `applySessionTotals` never increments a closed session.
+- **`setRegister` and `recordPayment` refuse a voided receipt**, so a live print coming back to a receipt
+  given up writes nothing and books nothing.
+- ⚠ **`payment.recorded` never writes the `payments` array back.** The array it read is stale by then:
+  that lost a receipt's row while `amountPaid` kept the money. Its handler stamps in place, on `receiptId`
+  or `paymentId` (the row's own id, which the route and the settlement rule choose before writing).
+  ⚠ `payments[].receiptId` stays the link: other paths still rewrite the array through the repository.
+- ⚠ **The freeze and a void are claims, not checks.** `voidingUntil` is the one claim on a document's money,
+  taken by `/void` and by attach, lapsing, and honoured in `fitsDue` (`notBeingVoided`), so a payment of any
+  method gives way. `/send` and `/void` respect each other's claim. A money-moving `PUT` is a conditional
+  write on no hold, the `amountPaid` it read and no claim, and so is the settlement write after it, which
+  reads again once and otherwise leaves the document alone. Attach re-reads what got in before its claim,
+  because its last step replaces `payments`, and pays from the document as claimed.
+- ⚠ **A draft has the same mechanism** (`unclaimedDraft`, `invoice.controller.ts`): its `PUT` and `DELETE` are
+  conditional on still being a draft with no issue under way and no claim. `/send` goes on from what it
+  read, so its claim is a compare-and-set on `updatedAt`: changed since, 409 `document_changed`, nothing
+  moved and no number drawn. Left out, an edit inside `/send` rang one amount and booked another, and bank
+  to cash settled with no receipt. `/receive` honours it too. ⚠ A `DELETE` takes the claim first, releases a
+  bill's receipts, then deletes: the bill is the only record of the supplier it wrote on them, so they go
+  first, and a delete that lost must not have released them.
+- **Whether a COD invoice owes a receipt is a fact of its issue** (`deliveryReceiptOwed`, in the issue's own
+  write, never by a client), because an issue can leave no receipt document at all.
+- **What it prints** (`receipt-lines.ts`, pure): a whole payment at issue, the document's lines and
+  `printFiscalText` „Фактура № …"; anything else, one line per VAT rate, „Плащане по фактура № …", pro
+  rata of what is left of each rate, so the last takes the remainder and the receipts add up exactly.
+  ⚠ A whole payment prints per rate too when the device would total its lines differently (a price
+  rounded to the cent × a thousand), or has no text line (`capabilities.ts`, `fiscalText`); the line is
+  then named „Фактура № …". Lines are checked before printing, never after.
+- **COD:** the receipt pays nothing. A later payment on it prints nothing, by any method: `prepareReceipt`
+  stops at a live delivery receipt, which took all that was owed. ⚠ A second receipt would book the sale
+  on the device twice.
+  ⚠ A print that fails at issue is NOT retried by Pay: the money is the courier's, and Pay would record
+  it as received and print nothing. `POST /invoices/:id/receipt` prints it alone (`owesDeliveryReceipt`,
+  `receiptToPrint` on the document), for what is still owed, and the invoice stays due. Until it has,
+  `/payments` refuses the courier's money (409 `delivery_receipt_owed`) so the sale cannot end with no
+  receipt or part of one; a bank or card payment may go first, and the receipt prints what is left. The
+  PDF lists a COD receipt only once the invoice is paid: it paid nothing before.
+- **A receipt is dated as it prints**, in its turn (`datedAsItPrints`), whatever the form said and however
+  long it waited: the device, the session and the row say one day. A bank transfer keeps its date.
+- **A cash or card header on an unpaid invoice or debit note is no money, where LGR prints**
+  (`headerIsNoMoney`, `sale-counting.ts`, read by `effectiveMethods` and `splitTotal`). ⚠ Only there: an
+  org with the switch off behaves as it always did, a debit note issued in cash included, because such
+  a document stays unpaid there. Sales history keeps the row's total, because it is issued revenue, and
+  `meta.summary` gains `unpaid`, so total = cash + card + other + unpaid and the card foots. The digest
+  skips the header. The sales register puts its open part in „По банка", never В брой or Карта (the
+  operator's rule: the columns partition Общо, and „По банка" takes anything unpaid), and cash on
+  delivery keeps its own column.
+- **A refused `/send` cancels the draft transfers made for it** (`discardPendingTransfers`), since the
+  dialog draws them up before it issues.
+- ⚠ **A device that is not fiscalized prints text, and the device decides, never a switch** (owner,
+  2026-11-01, §6). `receiptMode` (`receipt-mode.ts`, R2 uses it too) reads `fiscalized === false` from the
+  device's own status, fresh, in the turn, with no cache; `undefined` or `true` is fiscal, so a Tremol
+  never gets text and a fiscalized device can never print it. ⚠ A status read that fails is never "not
+  fiscalized": it is the path of a device that went away. No request field, org setting or screen
+  selects it, and the till's „Нефискален" has no say. The УНП is drawn in the turn, by `decideMode`, so a
+  text receipt has none. It stays out of what a text sale stays out of: no УНП, nothing fiscal on its
+  18.1–18.3 rows, on no witness, no Z, no receipt range, and the invoice PDF does not call it a fiscal
+  receipt. It freezes its document all the same. A text print that fails is `failed`, with no verdict:
+  the device holds no money on one. One that started fiscally stays fiscal.
+- ⚠ **A Tremol truncates a line's name at 34 and keeps no free text**, so `receipt-lines.ts` picks the
+  wording that fits `lineNameMax` and keeps the number. "unknown" is never stored as a receipt number.
+- **A number-clash re-issue prints nothing** (`stockSource.detectedBy`): its money was taken under the
+  number it replaces.
+- ⚠ **The doors declare their device** (FR-24.50): `/send`, `/payments` and `/receipt` the open session
+  of whoever issues or pays, `PUT` and `/void` a dead receipt's, the only way they reach a device.
+- **The freeze** (§2.7): a live receipt (printing, printed, unknown) makes `PUT` answer 409
+  `fiscally_paid` to a changed total, a move between VAT rates, or a changed currency, and refuses
+  `/void` and `attach-to-cash-sale`. Everything else stays editable. The receipt itself is immutable.
+- ⚠ **`bookingOf` (fenced import) answers `none` for a receipt.** As `register`, the import would dispatch
+  its lines.
+- **SUPTO:** 18.1–18.3 list it under its own type, 18.5 a failed one. The invoice is in none of them.
+  This is SUPTO version 2 (`config/supto.json`), and `declared` is the owner's to fill.
+- ⚠ 36h is from Eltrade's protocol v1.1.1 and the simulator; it has not run on a device. Neither has any
+  of the proof above: `isReceiptOpen`, the verdicts and `deviceTurn` were driven on the simulator and on
+  the Tremol driver over a fake transport.
+- ⚠ **`resetEventHandlers` removed nothing until FR-23** (Node reads the argument count, and the bus
+  passed an explicit `undefined`), so a test file's listeners piled up between tests.
+
 ## An article starts its documents: „Заприходи", „Продай", „Резервирай" (2026-10-26, FR-22.47)
 
 - **Where**: the Products list's row menu (one ⋮ now — Edit, Stock, the three, Delete apart) and the
@@ -2844,8 +3055,13 @@ An org on its own server runs under a licence global signs (`docs/architecture/n
   `lgr-server licence import <file>`), and the API verifies it again on every change
   (`master-licence.service.ts`). It must name this org AND this master.
 - **What it stops**, from the local midnight after paid-through + 30 days (or after a 30-day
-  evaluation when there is no licence): opening a till session, a new invoice / proforma / cash sale,
-  a new client order, and the three converts (`licence-gate.ts`, 402 `licence_expired`). Nothing else.
+  evaluation when there is no licence): a new till sale, a new invoice / proforma / cash sale, a new
+  client order, and the three converts (`licence-gate.ts`, 402 `licence_expired`). Nothing else.
+- ⚠ **A session still opens** (FR-23, owner 2026-11-01). Where LGR prints, a payment on a document
+  needs a session, so refusing one refused the payment the gate promises to leave alone. The sale is
+  what stops: `/transaction` answers 402 in a session opened on or after `restrictedFrom`, and one
+  opened before keeps selling (`licenceGate`'s `started`). A receipt for a document started since is
+  refused too (`prepareReceipt`): only a debit note can be one, and its lines are whatever it was given.
 - ⚠ **The auth plugins never read a body** for this: naming `body` in a shared Elysia hook makes
   every route parse its body, and the Stripe webhook needs its raw one. `POST /invoices`, which
   decides on its body (credit notes go through), asks `licenceGate` in its handler.

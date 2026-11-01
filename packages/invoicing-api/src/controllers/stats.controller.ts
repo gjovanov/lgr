@@ -1,6 +1,7 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
+import { NOT_PAYMENT_RECEIPT } from 'services/biz/sale-counting'
 
 /**
  * Stats endpoints for smart buttons — returns all counts in a single response per entity.
@@ -40,7 +41,7 @@ export const statsController = new Elysia({ prefix: '/org/:orgId/stats' })
     const [stockLevelsResult, movementCount, invoiceCount] = await Promise.all([
       r.stockLevels.findAll({ orgId, productId } as any, { page: 0, size: 1000 }),
       r.stockMovements.count({ orgId, 'lines.productId': productId } as any),
-      r.invoices.count({ orgId, 'lines.productId': productId } as any),
+      r.invoices.count({ orgId, 'lines.productId': productId, ...NOT_PAYMENT_RECEIPT } as any),
     ])
 
     const totalOnHand = stockLevelsResult.items.reduce((s: number, sl: any) => s + (sl.quantity || 0), 0)
@@ -63,7 +64,7 @@ export const statsController = new Elysia({ prefix: '/org/:orgId/stats' })
 
     // Batch: 3 parallel queries
     const [invoiceResult, movementCount] = await Promise.all([
-      r.invoices.findAll({ orgId, contactId } as any, { page: 0, size: 10000 }),
+      r.invoices.findAll({ orgId, contactId, ...NOT_PAYMENT_RECEIPT } as any, { page: 0, size: 10000 }),
       r.stockMovements.count({ orgId, contactId } as any),
     ])
 

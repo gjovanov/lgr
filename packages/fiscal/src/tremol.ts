@@ -26,6 +26,7 @@ import type {
 } from './types.js'
 import { paymentCode } from './types.js'
 import { logger } from 'services/logger'
+import { stagedPrint } from './print-stage.js'
 
 // Tremol protocol constants
 const STX = 0x02
@@ -389,38 +390,47 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
     lines: { name: string; quantity: number; price: number; vatGroup: VatGroup }[],
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
-    // A payment this driver cannot print is refused before the storno receipt is opened.
-    paymentCode(PAYMENT_CODE, payment.type, DRIVER)
-    // Command 30h with storno format:
-    // OpNum;OpPass;ReceiptFormat;PrintVAT;StornoRcpPrintType;StornoReason;RelatedToRcpNum;RelatedToRcpDateTime;FMNum$UNP
-    const dd = String(originalDate.getDate()).padStart(2, '0')
-    const mm = String(originalDate.getMonth() + 1).padStart(2, '0')
-    const yy = String(originalDate.getFullYear()).slice(-2)
-    const hh = String(originalDate.getHours()).padStart(2, '0')
-    const min = String(originalDate.getMinutes()).padStart(2, '0')
-    const ss = String(originalDate.getSeconds()).padStart(2, '0')
-    const dateTimeStr = `${dd}-${mm}-${yy} ${hh}:${min}:${ss}`
-    const reasonCode = STORNO_REASON[reason]
+    return stagedPrint(async (reached) => {
+      reached('refused')
+      // A payment this driver cannot print is refused before the storno receipt is opened.
+      paymentCode(PAYMENT_CODE, payment.type, DRIVER)
+      // This driver closes a sale before it can ask for its number, so a sale may have none to cite.
+      if (!/^\d+$/.test(String(originalReceiptNumber ?? ''))) throw new Error('This sale has no fiscal receipt number on record, so its storno has nothing to cite. Nothing was sent to the device.')
+      reached('opening')
+      // Command 30h with storno format:
+      // OpNum;OpPass;ReceiptFormat;PrintVAT;StornoRcpPrintType;StornoReason;RelatedToRcpNum;RelatedToRcpDateTime;FMNum$UNP
+      const dd = String(originalDate.getDate()).padStart(2, '0')
+      const mm = String(originalDate.getMonth() + 1).padStart(2, '0')
+      const yy = String(originalDate.getFullYear()).slice(-2)
+      const hh = String(originalDate.getHours()).padStart(2, '0')
+      const min = String(originalDate.getMinutes()).padStart(2, '0')
+      const ss = String(originalDate.getSeconds()).padStart(2, '0')
+      const dateTimeStr = `${dd}-${mm}-${yy} ${hh}:${min}:${ss}`
+      const reasonCode = STORNO_REASON[reason]
 
-    const stornoData = `1;0000;1;1;E;${reasonCode};${originalReceiptNumber};${dateTimeStr};$${unpNumber}`
-    await this.transport.sendCommand(TREMOL_CMD.OPEN_FISCAL_RECEIPT, stornoData)
+      const stornoData = `1;0000;1;1;E;${reasonCode};${originalReceiptNumber};${dateTimeStr};$${unpNumber}`
+      await this.transport.sendCommand(TREMOL_CMD.OPEN_FISCAL_RECEIPT, stornoData)
+      reached('lines')
 
-    for (const line of lines) {
-      await this.printSaleLine(line.name, -line.quantity, line.price, line.vatGroup)
-    }
+      for (const line of lines) {
+        await this.printSaleLine(line.name, -line.quantity, line.price, line.vatGroup)
+      }
 
-    await this.printPayment(payment.type, -payment.amount)
-    await this.transport.sendCommand(TREMOL_CMD.CLOSE_RECEIPT)
+      reached('paying')
+      await this.printPayment(payment.type, -payment.amount)
+      reached('closing')
+      await this.transport.sendCommand(TREMOL_CMD.CLOSE_RECEIPT)
 
-    let receiptNumber = 'unknown'
-    try {
-      const info = await this.transport.sendCommand(TREMOL_CMD.READ_RECEIPT_INFO)
-      receiptNumber = info.split(';')[0] || 'unknown'
-    } catch { /* best-effort */ }
+      let receiptNumber = 'unknown'
+      try {
+        const info = await this.transport.sendCommand(TREMOL_CMD.READ_RECEIPT_INFO)
+        receiptNumber = info.split(';')[0] || 'unknown'
+      } catch { /* best-effort */ }
 
-    const result: FiscalStornoResult = { fiscalReceiptNumber: receiptNumber, dateTime: new Date() }
-    logger.info({ deviceId: this.deviceId, receiptNumber, reason }, 'Tremol storno receipt printed')
-    return result
+      const result: FiscalStornoResult = { fiscalReceiptNumber: receiptNumber, dateTime: new Date() }
+      logger.info({ deviceId: this.deviceId, receiptNumber, reason }, 'Tremol storno receipt printed')
+      return result
+    })
   }
 
   async printDailyZReport(): Promise<ZReportResult> {

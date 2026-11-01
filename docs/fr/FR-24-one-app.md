@@ -228,12 +228,12 @@ A forwarded request adds none of that. Everything the fiscal code assumes about 
     - `cash-register.controller.ts`: the journal's storno.
     - `invoice.controller.ts`: `POST /invoices`, for a back-office cash sale that joins its author's open session (FR-21.31). This route is why the resolver needs `user` and `body`: the device follows from the author's session, not from the path.
     - `fiscal-device.controller.ts`: `PUT /:id` (it rebinds the driver) and everything under `/:id/` that reaches the device: `connect`, `disconnect`, `status`, `z-report`, `x-report`, `sync-time`, `operator-report`, `fm-report`, `ej-report`, `program-operator`, `read-operator`, `payment-names`.
-    - FR-23 adds invoice issue and payment when it lands.
+    - `invoice.controller.ts`, FR-23: `/:id/send`, `/:id/payments` and `/:id/receipt`, on the device of the open session of whoever issues or pays (`deviceFromCounter`). `PUT /:id` and `/:id/void` reach a device only to finish a receipt whose request died, on that receipt's own device (`deviceFromDeadReceipt`).
   - **Exempt: `numbering.controller.ts`.** Its witness reads every device of an org in one request, and `not_connected` is its documented answer for a device on another pod (`device-witness.service.ts`). It is evidence for a person, never a lock, so it stays local.
 - **FR-24.51** The hop MUST reuse `forwardHttp` with its own key label. A hop is never forwarded again. The holder unreachable answers 503 `fiscal_holder_unreachable` with nothing written, and the client retries under the same `Idempotency-Key`: the sale, the close and the storno already carry one (`ui-shared/composables/idempotency`, `hot-path-key`, #155).
 - **FR-24.52** ⚠ "Held elsewhere" MUST never read as "offline". `getFiscalContext`'s proceed-without-a-receipt path stays reachable only when no live row exists anywhere. A route that missed FR-24.50 reaching a device held by another pod answers 503. It never skips the receipt. A hop arriving where the device has just left answers 409 `fiscal_holder_moved`, and the client retries once.
 - **FR-24.53** A test MUST walk the real route table and fail when a route reaching `getPrinter` or `getFiscalContext` has no declaration and is not on the exempt list, as `tenant-isolation.flow.test.ts` does for the guard.
-- **FR-24.54** `tests/two-node` gains a two-pod till lane: a simulated Eltrade (`helpers/eltrade-simulator.ts`) bridged to pod A, with every flow requested on pod B: sale, storno, close with Z-report, device report, takeover, revocation, pod A killed mid-day.
+- **FR-24.54** `tests/two-node` gains a two-pod till lane: a simulated Eltrade (`helpers/eltrade-simulator.ts`) bridged to pod A, with every flow requested on pod B: sale, storno, close with Z-report, device report, takeover, revocation, an invoice issued and paid at the counter (FR-23), pod A killed mid-day.
 - **FR-24.55** `replicas: 2`, same node, `POD_IP` from the downward API. No storage change: a `ReadWriteOnce` hostPath serves two pods on one node.
 - **FR-24.56** An HPA MAY follow once a CPU signal justifies it. Two fixed replicas is the target.
 
@@ -263,7 +263,7 @@ A forwarded request adds none of that. Everything the fiscal code assumes about 
 - **FR-20.** A master stays one process, and all of §6 must be a no-op there. `fiscal_presence` is class `N`. New code that sweeps across orgs is scoped by `homeScope()`. A master serves no third-party script.
 - **FR-14.** The native bridge's protocol stays compatible with field versions. `/connect` keeps refusing `browser` and `desktop` with 422. "Registration routes on the signature" and "a desktop can never evict" stay as they are.
 - **FR-19.** A tab keeps its own org. Nothing here touches `session.ts`, except that the `?token=` reader goes.
-- **FR-21 / FR-23.** The till's and the journal's fiscal routes are FR-24.50 routes. FR-23's new print paths declare themselves when they land.
+- **FR-21 / FR-23.** The till's and the journal's fiscal routes are FR-24.50 routes. FR-23's new print paths declare themselves when they land. A device's turn (`fiscal/device-turn.ts`) is a queue in the process holding it, so what hops there waits there, and a sale and a payment asked of two pods still print one at a time. `tests/two-node/two-pods-roll.test.ts` moves the holder under those prints: a roll, a takeover, a crash.
 - **FR-05.** Route names stay, because Playwright and `useGridColumns` key on them.
 - **The global constraints in `docs/fr/README.md`** hold: `/bills/import/*` and the invoice payload stay byte-compatible.
 - **Deploys.** No phase changes data. Phases 3, 5 and 6 still follow the protocol on #171: nothing while `deploy-prod.sh` runs, and a line on the issue when a deploy matters to others.

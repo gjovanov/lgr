@@ -96,6 +96,25 @@ export async function takeLease(model: Model<any>, orgId: string, id: unknown): 
   ).lean().exec()
 }
 
+/**
+ * Keep a lease for as long as the work under it runs, renewed at once and then every `everyMs`.
+ * Returns what stops it. A print queued behind a Z takes minutes, and a lease set once at the insert
+ * lapses under it: a lapsed lease reads as a dead request, and what finishes a dead request would
+ * then finish a live one. A process that dies stops renewing, which is what a lease is for.
+ */
+export function keepLease(model: Model<any>, id: unknown, everyMs = LEASE_MS / 3): () => void {
+  const renew = () => {
+    model.updateOne(
+      { _id: id, completedAt: { $exists: false }, leaseUntil: { $exists: true } },
+      { $set: { leaseUntil: new Date(Date.now() + LEASE_MS) } },
+    ).exec().catch(() => { /* the next one, or the lease lapses, which is the safe way round */ })
+  }
+  renew()
+  const timer = setInterval(renew, everyMs)
+  timer.unref?.()
+  return () => clearInterval(timer)
+}
+
 /** How long a duplicate waits for the request doing the work before answering 409. */
 export const WAIT_MS = 30_000
 

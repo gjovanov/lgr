@@ -192,8 +192,46 @@ export const deviceFromJournalDocument: FiscalResolver = async ({ params, body }
  */
 export const deviceFromAuthorSession: FiscalResolver = async ({ params, user, body }) => {
   if (body?.type !== 'cash_sale') return null
-  const cashierId = oid(String(user?.id ?? ''))
-  if (!cashierId) return null
-  const s: any = await POSSession.findOne({ orgId: params.orgId, cashierId, status: 'open' }, { warehouseId: 1 }).sort({ openedAt: -1 }).lean().exec()
-  return s ? deviceForWarehouse(params.orgId, s.warehouseId) : null
+  return deviceOfOpenSession(params.orgId, user?.id)
 }
+
+async function deviceOfOpenSession(orgId: string, userId: unknown): Promise<FiscalTarget | null> {
+  const cashierId = oid(String(userId ?? ''))
+  if (!cashierId) return null
+  const s: any = await POSSession.findOne({ orgId, cashierId, status: 'open' }, { warehouseId: 1 }).sort({ openedAt: -1 }).lean().exec()
+  return s ? deviceForWarehouse(orgId, s.warehouseId) : null
+}
+
+/**
+ * FR-23: a payment's receipt whose request died is finished by the next request on its document,
+ * on the device it was printing on: that device's counter says whether it printed. It is the only
+ * way `PUT /invoices/:id` and `/void` reach a device, so with none unfinished they run where they are.
+ *
+ * ⚠ The receipt's own device, by number, never its warehouse's: a warehouse can hold two, and the pod
+ * this request reached would otherwise decide where it ran.
+ */
+export const deviceFromDeadReceipt: FiscalResolver = async ({ params }) => {
+  const paidInvoiceId = oid(params?.id)
+  if (!paidInvoiceId) return null
+  const receipt: any = await Invoice.findOne(
+    { orgId: params.orgId, type: 'payment_receipt', 'register.paidInvoiceId': paidInvoiceId, completedAt: { $exists: false }, 'register.fiscal.inDoubt': { $ne: true } },
+    { 'register.fiscalDeviceNumber': 1 },
+  ).sort({ _id: 1 }).lean().exec()
+  const deviceNumber = receipt?.register?.fiscalDeviceNumber
+  if (!deviceNumber) return null
+  const device: any = await FiscalDevice.findOne({ orgId: params.orgId, deviceNumber }, { deviceNumber: 1 }).lean().exec()
+  return device ? { orgId: params.orgId, deviceId: String(device._id), deviceNumber: String(device.deviceNumber) } : null
+}
+
+/**
+ * FR-23: `/invoices/:id/send`, `/payments` and `/receipt`. What a person issues or pays at the counter
+ * prints on the device of THEIR open session (D-13), so the device follows from the user, whichever
+ * document it is. One that turns out to print nothing, a bank transfer, runs there all the same: a
+ * hop, no more.
+ *
+ * ⚠ A dead receipt on the document comes first. Only its own device can prove anything about it, and
+ * it is finished before the request does anything else. A print on another device then answers 503
+ * from `getFiscalContext`, with nothing written, and the retry finds that receipt gone.
+ */
+export const deviceFromCounter: FiscalResolver = async (ctx) =>
+  (await deviceFromDeadReceipt(ctx)) ?? deviceOfOpenSession(ctx.params.orgId, ctx.user?.id)

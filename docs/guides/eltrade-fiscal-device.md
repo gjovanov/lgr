@@ -56,6 +56,27 @@ Status*.
   receipt number saved on the transaction.
 - If a receipt does not print, the sale is still saved and the cashier sees why (out of paper, not
   in „Регистрация“, …) instead of "Sale completed".
+- **A storno that may have printed** is held: nothing is refunded, and pressing Storno again prints
+  nothing and says so. Check the device, then settle it on its page in the cash-register journal. If a
+  receipt is still open on the device, LGR says so first: an X report clears it, and whatever prints
+  then has printed. **A sale that may have printed** can't be stornoed until it is settled the same way:
+  "it printed" asks for the number off the slip, which its storno cites.
+- **A cash-on-delivery invoice** prints in slot R as it is issued, and stays due until the courier
+  pays. If that print fails, the invoice's form offers „Print the receipt": it prints alone, and
+  records no money.
+- **A payment on an invoice** prints on the device of the session of whoever takes it (FR-23): an
+  invoice issued in cash or by card its lines and „Фактура № …“, any other payment a line per VAT
+  rate, „Плащане по фактура № …“. With no open session or no connected device the payment is
+  refused, and the refusal says where the switch is: „A sale needs a connected fiscal printer“ in
+  Settings → Organization → Cash register. A new organization starts with it off, and turns it on
+  when its sales print here.
+- **A receipt in doubt.** If the connection or LGR died during a print and nothing can prove what the
+  device did, LGR books no money and prints nothing: the document says so, and payment, a change of its
+  total and void wait. Look at the device's journal, then open the receipt in „Касови продажби“ and
+  press „Отпечатан е“ or „Не е отпечатан“ (a manager or an admin). The session does not close until
+  it is done.
+- **The device does one thing at a time.** A second print waits its turn, and a report can make it wait
+  for minutes; past five and a half it is refused with „device busy“, and nothing printed.
 - Closing the POS session runs the **Z-report** on the device.
 
 ## 5. The device page (Invoicing → Configuration → Devices → the device)
@@ -76,6 +97,7 @@ server what the device's driver supports (`capabilities` on `GET /fiscal/device/
 | Electronic Journal (KLEN) | **no** — not in the protocol | — |
 | Payment types → Read from Device | yes, the 11 slots P N C D I J K L M Q R | 55h `<slot>` |
 | Payment types → Name R „НАЛОЖЕН ПЛАТЕЖ“ | yes, admin only, audited | 55h `R,НАЛОЖЕН ПЛАТЕЖ` |
+| Free text inside a fiscal receipt („Фактура № …“, FR-23) | yes, no control on the page | 36h, up to 46 characters |
 
 The same reports print from **POS Sessions**, from a session's row: an X while the session is open,
 the fiscal memory by date (prefilled with the session's days) or by Z number (prefilled with its
@@ -109,7 +131,11 @@ print zeros.
 Run in this order — only step 5 creates a fiscal record.
 
 1. *Device Status → Read Status*: serial and fiscal-memory numbers are right, the clock is close to
-   real time, no errors.
+   real time, no errors. ⚠ **On a fiscalized device it must read Fiscalized: Yes, before it sells.** LGR
+   prints a payment's receipt as text when the device says it is not fiscalized (FR-23), and only the
+   not-fiscalized side of that reading has been seen on hardware. If it reads wrong on your device,
+   every receipt prints as text with its money booked, so stop and report it. A terminal on such a
+   device shows a chip saying receipts print as text.
 2. Sell something with **Non-fiscal ON** → a service receipt prints.
 3. *Reports → Daily X-Report* → prints and does not close the day.
 4. Check the product you will sell has the VAT rate you expect (20 % for most goods).
@@ -136,12 +162,20 @@ attach those lines when reporting a problem.
 
 ## 8. What is verified, and what is not
 
+**Fiscalized or not rests on status bit S5.3 reading 1 on a fiscalized unit.** That is from the protocol.
+Only a unit that reads 0 has been seen in the field, so step 1 of the checklist above is owed on the first
+fiscalized device.
+
 Built from Eltrade's own protocol document (v1.1.1, re-checked against v1.1.7) and cross-checked
 against ErpNet.FP's Eltrade driver, which runs against real devices. Tested against
 `packages/tests/src/helpers/eltrade-simulator.ts`, a device simulator built from the same document.
 Status, diagnostics, the clock and a non-fiscal sale were field-verified on a non-fiscalized A3
-(2026-09-26); **the reports, operator programming and payment type names have not been run on a
-physical A3.** Deliberately handled both ways because the document is not specific:
+(2026-09-26); **the reports, operator programming, payment type names and the free text of a fiscal
+receipt (36h) have not been run on a physical A3.** 36h is „PRINTING A FREE FISCAL TEXT“ in the
+protocol v1.1.1 (up to 46 bytes, framed in `#`, refused with S1.1 when no fiscal receipt is open), and
+ErpNet.FP's ISL drivers send comments with it, its Eltrade driver not overriding it. A check on the
+device is still owed: where the line lands on the receipt, and that it prints between the sale lines
+and the payment. Deliberately handled both ways because the document is not specific:
 
 - the field layout of the diagnostic answer (serial / fiscal memory are found by shape);
 - whether amounts come back with a decimal point or in cents;

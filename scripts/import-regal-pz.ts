@@ -193,6 +193,8 @@ async function bootstrapOrg() {
         },
         payroll: { payFrequency: 'monthly', socialSecurityRate: 24.7, healthInsuranceRate: 8, pensionRate: 5 },
         modules: [...MODULES],
+        // Written, because unset reads as on: its till is still PlusMinus (FR-23).
+        cashRegister: { requireConnectedDevice: false },
       },
       subscription: { plan: 'professional', maxUsers: 50 },
     })
