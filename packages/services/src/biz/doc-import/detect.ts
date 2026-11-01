@@ -9,6 +9,7 @@
  *    sale) or the ПОЛУЧАТЕЛ (→ incoming bill)? Decided by matching the org's ЕИК against
  *    the extracted parties.
  */
+import { CORRECTION_PARTNER } from 'config/movement-notes'
 import type { DocKind, DocumentExtraction, Party } from './types.js'
 
 export const clean = (v: unknown): string => (v == null ? '' : String(v)).trim()
@@ -25,7 +26,7 @@ export const num = (v: unknown, d = 0): number => {
  */
 const KIND_PATTERNS: Array<{ kind: DocKind; test: RegExp }> = [
   // stokrazp printed as "Тип на документа: 2000 КОРЕКЦИЯ" — quantities may be negative
-  { kind: 'correction', test: /2000\s+КОРЕКЦИЯ/i },
+  { kind: 'correction', test: CORRECTION_PARTNER },
   // искане за отпускане на материали (sklisk) — internal write-off
   { kind: 'issue_note', test: /ИСКАНЕ\s*(?:\r?\n|\s)*За\s+отпускане|За\s+отпускане\s+на\s+материали/i },
   // складова разписка (sklrazp) — store-to-store transfer

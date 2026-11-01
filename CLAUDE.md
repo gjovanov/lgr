@@ -2068,14 +2068,17 @@ receives its own goods, so a bill typed in for them booked the stock twice (FR-2
 `services/biz/receipt-bill.service.ts`, routes `/org/:orgId/invoicing/bills/{from-receipt,
 billable-receipts,:id/link-receipts}`.
 
-- „Входяща фактура" on a completed receipt with a supplier makes a DRAFT bill from it (one bill may
+- „Входяща фактура" on a completed receipt makes a DRAFT bill from it (one bill may
   cover several receipts of ONE supplier, D-2). The bill carries `stockSource { marker:
   'movement:<ids>', detectedBy: 'manual' }`, so receive, issue, void and the Files rollback move no
   stock (`movesNoStock`). The receipt's `invoiceId` is the CLAIM, a compare-and-set: a receipt is
   billed once (409), and the product ledger names the bill next to it.
-- ⚠ Void and DELETE of such a bill give the receipts back (`releaseReceiptLinks`, only the claims
-  that bill still holds). A Files rollback of a receipt a live document stands on is blocked — for
-  ANY `stockSource` link (§5.4).
+- ⚠ Void, DELETE and a Files rollback of such a bill give the receipts back (`releaseReceiptLinks`,
+  only the claims that bill still holds). A Files rollback of a receipt a live document stands on is blocked — for
+  ANY `stockSource` link (§5.4). ⚠ DELETE releases BEFORE it deletes: the bill is the only record of
+  the supplier it wrote. A void writes first, so a crash leaves a voided bill listing a receipt it still
+  holds: the next touch of that receipt finishes the release (`finishReleases`: its page, a bill or a
+  link naming it), which is why a GET can write here.
 - ⚠ PUT keeps the bill to what was received (D-2: billed once and whole): every stock-tracked
   quantity must equal the receipts' (422 `receipt_quantity_mismatch`), the supplier cannot change.
   Prices, text and lines that hold no stock (a fee, a service) stay free.
@@ -2083,8 +2086,57 @@ billable-receipts,:id/link-receipts}`.
   equals the receipts' cost (a newer price stays); avgCost and cost layers are never re-costed, and
   posting is unchanged (FR-22's D-2 note).
 - `POST`/`PUT /invoices` strip `stockSource` (Elysia's schema already drops it; this is defence in
-  depth). `link-receipts` takes only an EMPTY draft: lines already on a bill would silently never be
-  received once it is linked.
+  depth). `link-receipts` takes an EMPTY draft, or a draft with lines given `replaceLines: true`
+  (FR-22.32a): lines left on a bill would silently never be received once it is linked. A bill on a
+  supplier order keeps its lines (`bill_on_order`): they book the delivery onto the order. ⚠ A bill
+  in another currency is not linked (`bill_foreign_currency`): the delivery's lines carry costs in the
+  org's. ⚠ The undo after a lost claim holds on the draft still carrying the marker it just wrote: it
+  restores lines read several awaits earlier. ⚠ The audit entry keeps the typed lines and old totals,
+  because the bill no longer does. ⚠ The save before a link sends no `productUpdates`, from lines about
+  to be replaced; „Запази и получи" that ends in the question is the person's own save and does.
+- A receipt with no supplier is billable (FR-22.31a): `from-receipt` takes `contactId`, required
+  then. ⚠ The supplier is written in the claim's own compare-and-set, guarded on the receipt still
+  naming none, never in a second write. ⚠ Releasing the claim takes it off again
+  (`stockSource.supplierGivenTo`): a completed receipt cannot be edited, so a supplier that stayed
+  would refuse every other one for ever. ⚠ Link with the `contactId` the form shows: a saved bill may
+  name someone else, and the receipt would silently take the wrong supplier.
+- ⚠ **No supplier does not mean a delivery**, and linking a real bill to a receipt that is none means
+  the real delivery is never booked. `billingStateOf` keeps out what names nobody: the mirror of a
+  removed document (`(docdelete:`, `reverseMovement`); a no-supplier receipt whose notes mark a
+  correction, a reconcile delta, a day's aggregate or the back half of a transfer or write-off note
+  (`receipt_not_a_delivery`, `config/movement-notes`: ⚠ every writer of those notes imports it, so
+  they cannot drift from the reader); and one whose `invoiceId` names nothing (a claim always writes
+  a supplier, so that was never a claim: it is what a rolled-back till sale leaves). A receipt rolled
+  back with its document stays `completed`, so `reverseMovement` stamps it (`reversedBy`,
+  `receipt_rolled_back`). Own-store and „склад" разписки carry no mark: the dialogs show their notes
+  on the row. ⚠ Neither dialog ever ticks a receipt that names nobody (`preselectedReceipts`).
+- ⚠ **`/receive` leaves draft once**: a compare-and-set on `status: 'draft'` and on `/send`'s lease, and
+  the loser answers 409 `bill_not_draft` with nothing booked. ⚠ What booking refuses is checked before
+  the number is drawn (`stockBookingRefusal`, shared with `createInvoiceStockMovement`).
+- ⚠ **`/receive` and `/send` ask before a bill books goods a receipt may have booked** (FR-22.31c,
+  `receiptsOverlapping`): 409 `receipt_overlap`, answered by `{ acknowledgeOverlap: true }` or by
+  linking. ⚠ It runs BEFORE the issued number is drawn. An API client or script that receives a bill
+  now has to expect this answer; the imports do not get it (`persist.ts`, `bills/import`), so an
+  imported bill can still book goods a receipt booked.
+- ⚠ **A movement's warehouses must fit its type** (FR-22.31b, `config/movement-warehouses`): a
+  `dispatch` never names To, a `receipt` never names From, a `transfer` naming To names From too, and
+  an `adjustment` names one side, because `confirmMovement` ignores `type` and each of those ADDS
+  stock or books it out and straight back. A to-only adjustment stays legal: a count and a true-up write
+  one. ⚠ The rule stands at the doors a user comes through (`POST`, `/with-update`, `PUT`, `/confirm`,
+  `/doc-import/convert`, `/doc-import/commit`), NOT inside `confirmMovement`, which replays what a site
+  already booked (`importMovement`). A new door that confirms a user's draft calls
+  `movementWarehouseRefusal` itself.
+- ⚠ `PUT /warehouse/movement/:id` takes `null` to clear a warehouse or the partner. Left out, it stays:
+  sending `undefined` for an emptied field silently kept the old one.
+- ⚠ The form clears the unused warehouse in the type field's own `update:model-value`, never in a
+  `watch` on `form.type`: loading a movement changes that too, and a booked document would lose a
+  warehouse on screen. A field the type does not use still shows when the movement names one.
+  ⚠ A new movement's To is the form's guess for a receipt (`form.toGuessed`), and goes when the type
+  changes: left there, a write-off typed in the form added stock. A To the person picked stays.
+- ⚠ A fenced or kept import reads a movement with an `invoiceId` as made by its sale, whose import
+  books it again, EXCEPT one that document lists in `stockSource.movementIds`: that document moved
+  nothing, so the goods would vanish. ⚠ Match the pair (`isListedByItsDocument`), never the movement
+  alone: an invoice for a cash sale lists the sale's dispatch, whose `invoiceId` names the sale.
 - ⚠ The warehouse report and the digest date a billed receipt by its OWN date
   (`warehouse-operations.report.ts#EFFECTIVE_DATE`): the bill's issueDate would move the delivery to
   the day its invoice came, and the digest would count it twice.
@@ -2097,8 +2149,9 @@ billable-receipts,:id/link-receipts}`.
   org default; the product-update switch remembered (`lgr:gr-with-update:<user>:<org>`, both via
   `ui-shared/composables/useUserDefaults`); „Запази и потвърди" first; „Наличност" reads the
   destination on a receipt. `useGridNavigation` lives in ui-shared now.
-- Tests: `integration/receipt-bill.flow` (13), `quick-product.flow` (2); walks P2 (17 clicks · 12
-  typed · 0 hops) and P3 (3 · 1 · 1, stock unchanged).
+- Tests: `integration/receipt-bill.flow`, `movement-warehouses.flow`, `quick-product.flow` (2);
+  `e2e/receipt-to-bill.spec`; walks P2 (17 clicks · 12 typed · 0 hops) and P3 (3 · 1 · 1, stock
+  unchanged).
 
 ## Issue, print and get paid on the document (2026-10-26, FR-22 slice 2a: FR-22.16–.22)
 

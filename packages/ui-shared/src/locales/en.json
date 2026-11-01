@@ -1234,8 +1234,11 @@
     "linkDelivery": {
       "action": "Link to a delivery",
       "hint": "Goods already received?",
-      "dialogHint": "This supplier's goods receipts that no bill pays for yet. Their lines become the bill's lines, and the bill moves no stock.",
-      "none": "This supplier has no goods receipt left to bill.",
+      "dialogHint": "This supplier's goods receipts that no bill pays for yet, and receipts that name no supplier. Their lines become the bill's lines, and the bill moves no stock.",
+      "none": "No goods receipt left to bill, from this supplier or from none.",
+      "noSupplier": "no supplier",
+      "replaceWarning": "The line typed on this bill and its price will be replaced by the delivery's lines, at the prices on the receipt. The bill's number, dates and payment method stay. | The {count} lines typed on this bill and their prices will be replaced by the delivery's lines, at the prices on the receipt. The bill's number, dates and payment method stay.",
+      "replaceConfirm": "Replace the lines and link",
       "receiptLines": "{n} lines",
       "confirm": "Link",
       "linked": "The bill is linked to the delivery",
@@ -1243,6 +1246,14 @@
       "noStock": "The goods were put in stock by the receipt: this bill moves no stock.",
       "receiptCost": "Receipt: {price}",
       "received": "Bill received — the stock came in on its receipt"
+    },
+    "receiptOverlap": {
+      "chooseSupplier": "This bill names no supplier. Choose it, and linking writes it on the bill and on the receipt.",
+      "title": "These goods may already be in stock",
+      "text": "Goods receipts for the same goods have no bill yet. Received as it is, this bill puts the goods in stock a second time.",
+      "link": "Link to the delivery",
+      "receiveAnyway": "Receive anyway",
+      "linked": "The bill is linked to the delivery. Check the prices, then receive it."
     },
     "stockReceipt": {
       "print": "Stock receipt",
@@ -2079,6 +2090,40 @@
     "incomingInvoice": "Supplier bill",
     "billed": "Billed",
     "billedBy": "Billed by the supplier's bill",
+    "billSupplier": {
+      "title": "Who delivered these goods?",
+      "hint": "This receipt names no supplier. The bill is made out to the one you choose, and the receipt keeps it.",
+      "confirm": "Make the bill"
+    },
+    "notBillable": {
+      "receipt_rolled_back": "This receipt was rolled back with its document: the goods left again, and no bill pays for it.",
+      "receipt_not_a_delivery": "This receipt is a correction or a day's total, not one supplier's delivery, so no bill pays for it.",
+      "receipt_not_completed": "A supplier bill is made from a completed receipt.",
+      "receipt_not_billable": "This receipt was booked by {number}, which is voided. It is no delivery, and no bill pays for it.",
+      "orphan": "This receipt gives back the goods of a document that no longer exists. It is no delivery, and no bill pays for it.",
+      "receipt_is_reversal": "This receipt gives back the goods of a removed document. It is no delivery, and no bill pays for it."
+    },
+    "refusals": {
+      "transfer_without_from_warehouse": "A transfer takes goods out of a warehouse: choose „From Warehouse“ too. Goods arriving from outside are a receipt.",
+      "adjustment_with_both_warehouses": "An adjustment changes one warehouse: choose „From Warehouse“ to take goods out or „To Warehouse“ to add them, not both. Goods moving between warehouses are a transfer.",
+      "receipt_rolled_back": "Receipt {movementNumber} was rolled back with its document: the goods left again, and no bill pays for it.",
+      "bill_foreign_currency": "This bill is in {currency}, and the delivery's prices are in {baseCurrency}: a bill in another currency is not linked to a delivery.",
+      "receipt_not_a_delivery": "Receipt {movementNumber} is a correction or a day's total, not one supplier's delivery, so no bill pays for it.",
+      "dispatch_with_to_warehouse": "A dispatch takes goods out of a warehouse: choose it as „From Warehouse“ and leave „To Warehouse“ empty.",
+      "receipt_with_from_warehouse": "A receipt brings goods into a warehouse: choose it as „To Warehouse“ and leave „From Warehouse“ empty.",
+      "receipt_without_supplier": "Receipt {movementNumber} names no supplier: choose it.",
+      "supplier_not_found": "Choose a supplier of this organization.",
+      "supplier_mismatch": "The receipts are from another supplier.",
+      "mixed_suppliers": "One bill covers the receipts of one supplier, and these are from different suppliers.",
+      "receipt_already_billed": "Receipt {movementNumber} is already billed.",
+      "bill_not_empty": "The bill already has lines. Open it again and confirm replacing them.",
+      "bill_on_order": "The bill is written against a supplier order: its lines book the delivery onto the order, so they cannot be replaced.",
+      "bill_not_draft": "The bill is no longer a draft.",
+      "bill_already_linked": "The bill is already linked to a delivery.",
+      "nothing_to_bill": "The receipts carry no quantities to bill.",
+      "stock_line_without_warehouse": "The stock lines of this bill name no warehouse, so nothing would reach stock. Choose the warehouse on the bill, then receive it.",
+      "stock_line_without_product": "A line of this bill has a quantity but no product: it would be paid for and never reach stock. Choose the product on the line, then receive it."
+    },
     "supply": {
       "reserved": "Reserved",
       "available": "Available",

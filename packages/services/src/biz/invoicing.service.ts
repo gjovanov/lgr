@@ -358,10 +358,17 @@ export function unbookableStockMessage(invoice: IInvoice, unresolved: any[]): st
     + `Create the article, or point the line at an existing one, then book it again.`
 }
 
-export async function createInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
-  const r = repos ?? getRepos()
-  if (movesNoStock(invoice, 'book')) return
+export interface StockBookingRefusal {
+  code: 'stock_line_without_product' | 'stock_line_without_warehouse'
+  message: string
+}
 
+/**
+ * The lines a document would book, or why booking it is refused. ONE definition, so a caller that
+ * must refuse BEFORE it writes anything (`/receive`, which draws a number) and the booking itself
+ * cannot disagree.
+ */
+async function stockBooking(invoice: IInvoice): Promise<{ refusal: StockBookingRefusal; lines?: undefined } | { refusal: null; lines: IInvoice['lines'] }> {
   /**
    * A line that claims a quantity but names no PRODUCT moves nothing, while its money still
    * counts toward the document's total. That is the same failure as the warehouseId case below —
@@ -400,19 +407,42 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
    * the ten documents already carrying such a line can still be voided and corrected.
    */
   const unresolved = unbookableStockLines(invoice)
-  if (unresolved.length) throw new Error(unbookableStockMessage(invoice, unresolved))
+  if (unresolved.length) return { refusal: { code: 'stock_line_without_product', message: unbookableStockMessage(invoice, unresolved) } }
 
   const tracked = await stockTrackedIds(invoice.orgId, invoice.lines as any)
-  const productLines = invoice.lines.filter(l => l.productId && l.warehouseId && tracked.has(String(l.productId)))
-  if (!productLines.length) {
+  const lines = invoice.lines.filter(l => l.productId && l.warehouseId && tracked.has(String(l.productId)))
+  if (!lines.length) {
     // Loud by design: a document WITH product lines but none carrying a warehouseId used
     // to no-op here — the document got issued while the stock never moved (Files-pipeline
     // passed no warehouse). Silence made that invisible; fail so the caller can fix it.
     // Service lines are exempt: they legitimately move nothing.
     const stockLines = invoice.lines.filter(l => l.productId && tracked.has(String(l.productId)))
-    if (stockLines.length) throw new Error(`Refusing to book stock for ${invoice.invoiceNumber || invoice.id}: ${stockLines.length} product line(s) carry no warehouseId`)
-    return
+    if (stockLines.length) {
+      return {
+        refusal: {
+          code: 'stock_line_without_warehouse',
+          message: `Refusing to book stock for ${invoice.invoiceNumber || invoice.id}: ${stockLines.length} product line(s) carry no warehouseId`,
+        },
+      }
+    }
   }
+  return { refusal: null, lines }
+}
+
+/** Why booking this document's stock would be refused, or null when it would not (or it books none). */
+export async function stockBookingRefusal(invoice: IInvoice): Promise<StockBookingRefusal | null> {
+  if (movesNoStock(invoice, 'book')) return null
+  return (await stockBooking(invoice)).refusal
+}
+
+export async function createInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
+  const r = repos ?? getRepos()
+  if (movesNoStock(invoice, 'book')) return
+
+  const booking = await stockBooking(invoice)
+  if (booking.refusal) throw new Error(booking.refusal.message)
+  const productLines = booking.lines
+  if (!productLines.length) return
 
   const orgId = invoice.orgId
 

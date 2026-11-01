@@ -5,6 +5,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { useInvoicingExport, type CompanionDoc } from 'ui-shared/composables/useInvoicingExport'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaymentMethods } from 'ui-shared/composables/usePaymentMethods'
@@ -22,6 +23,7 @@ import { appHref } from 'ui-shared/nav/navigate'
 import type { FormAction, SmartButtonDef, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import type { DocumentTypeConfig } from './types'
 import { useDocumentIssue } from '../useDocumentIssue'
+import { receiptOverlapOf, type ReceiptOverlap } from '../receipt-overlap'
 import {
   buildPayload as buildPayloadPure,
   buildProductUpdates,
@@ -1399,11 +1401,17 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     }
   }
 
-  /** The document as the form shows it, stored: its id, or null when it is invalid or was refused. */
-  async function saveIfNeeded(): Promise<string | null> {
+  /**
+   * The document as the form shows it, stored: its id, or null when it is invalid or was refused.
+   * `noProductUpdates`: its lines are about to be thrown away, so what they staged for their products
+   * must not reach the catalog on the way.
+   */
+  async function saveIfNeeded(opts: { noProductUpdates?: boolean } = {}): Promise<string | null> {
     if (isEdit.value && !isDirtyNow.value) return String(route.params.id)
     if (!(await validate())) return null
-    return persist(buildPayload(), { quiet: true })
+    const payload = buildPayload()
+    if (opts.noProductUpdates) delete payload.productUpdates
+    return persist(payload, { quiet: true })
   }
 
   async function onSave() {
@@ -1438,20 +1446,26 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
    * the bill, which now reads as received. Receiving was a list-row icon only.
    */
   const receiving = ref(false)
+  /** FR-22.31c: the server asked first; `ReceiptOverlapDialog` carries the answer. */
+  const receiptOverlap = ref<ReceiptOverlap | null>(null)
   async function onSaveAndReceive() {
-    if (!(await validate())) return
+    // The keyboard reaches a button that shows its spinner: Enter again would receive it again.
+    if (receiving.value) return
     receiving.value = true
+    let id: string | null = null
     try {
+      if (!(await validate())) return
       // On the saved bill before receiving it: should receiving fail, pressing again receives
       // this one rather than saving a second.
-      const id = await persist(buildPayload(), { quiet: true })
+      id = await persist(buildPayload(), { quiet: true })
       if (!id) return
       const { data: received } = await httpClient.post(`${orgUrl()}/invoices/${id}/receive`)
       // A bill made from receipts books no stock: its receipts did (FR-22.31).
       showSuccess(t(received?.invoice?.stockSource?.marker ? 'invoicing.linkDelivery.received' : 'invoicing.invoiceReceived'))
       await loadDocument()
     } catch (e: any) {
-      showError(e?.response?.data?.message || t('common.operationFailed'))
+      receiptOverlap.value = id ? receiptOverlapOf(e, id) : null
+      if (!receiptOverlap.value) showError(stockRefusalMessage(e, t))
       // Saved but not received: show what was saved, still a draft.
       if (route.params.id) await loadDocument()
     } finally {
@@ -1915,6 +1929,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     // FR-22.33: save and receive; and what a linker needs to reload the bill it changed
     onSaveAndReceive,
     receiving,
+    receiptOverlap,
+    saveIfNeeded,
     loadDocument,
     markSaved,
     /** A linker that made this new document itself tells the view it is the same document (FR-22.16). */
