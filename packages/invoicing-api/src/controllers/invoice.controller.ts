@@ -1428,7 +1428,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const invoice = await r.invoices.findOne({ id, orgId } as any)
     if (!invoice) return status(404, { message: 'Invoice not found' })
     if (invoice.direction !== 'incoming') return status(400, { message: 'Only incoming invoices can be received' })
-    if (invoice.status !== 'draft') return status(400, { message: 'Invoice is not in draft status' })
+    if (invoice.status !== 'draft') return status(400, { code: 'bill_not_draft', message: 'Invoice is not in draft status' })
 
     // Before the number is drawn: a bill refused here is the draft it was. Booking it would refuse
     // the same thing after the bill was written as received, with no stock and no way back. A bill

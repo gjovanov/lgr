@@ -669,6 +669,21 @@ describe('a receipt that names no supplier (FR-22.31a)', () => {
       expect(audit.changes[0]).toMatchObject({ field: 'contactId', newValue: null })
     }, 60_000)
 
+    it('the page still reads when the release cannot be finished here: it only reads', async () => {
+      const w = await world()
+      const { r } = await voidedWithNoRelease(w, w.other)
+      const spy = spyOn(StockMovement, 'updateMany').mockImplementation((() => { throw new Error('this node is not the org\'s home') }) as any)
+      let res: any
+      try {
+        res = await w.call('GET', `/warehouse/movement/${r._id}`)
+      } finally {
+        spy.mockRestore()
+      }
+      expect(res.status).toBe(200)
+      expect(res.json.stockMovement.billable).toBe(true)
+      expect(String(res.json.stockMovement.contactId)).toBe(String(w.other._id))
+    }, 60_000)
+
     it('a bill for the right supplier finishes it on its way, instead of refusing it for ever', async () => {
       const w = await world()
       const { r } = await voidedWithNoRelease(w, w.other)
@@ -1450,8 +1465,14 @@ describe('a bill is received once, whoever else asks at the same moment', () => 
     const typed = await w.typedBill([[w.nut, 4, 2]])
     const answers = await Promise.all([w.receiveBill(typed), w.receiveBill(typed), w.receiveBill(typed)])
     expect(answers.filter(a => a.status === 200)).toHaveLength(1)
-    for (const a of answers.filter(a => a.status !== 200)) expect([400, 409]).toContain(a.status)
+    // Depending on how far the first had got: both answers say the same, in the user's language.
+    for (const a of answers.filter(a => a.status !== 200)) {
+      expect([400, 409]).toContain(a.status)
+      expect(a.json.code).toBe('bill_not_draft')
+    }
     expect(await w.stock(w.nut)).toBe(4)
+    const late = await w.receiveBill(typed)
+    expect([late.status, late.json.code]).toEqual([400, 'bill_not_draft'])
   }, 60_000)
 
   it('an issue under way on `/send` holds the draft too', async () => {
