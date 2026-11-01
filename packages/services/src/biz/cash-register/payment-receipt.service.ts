@@ -48,7 +48,7 @@ import { eventBus } from '../../events/event-bus.js'
 import { logger } from '../../logger/logger.js'
 import { generateUNP } from '../sequence.service.js'
 import { LEASE_MS, takeLease } from '../hot-path-key.js'
-import { fitsDue, isBeingVoided, outstandingOf, overpays, paymentPipeline, type PaymentRow } from '../invoice-payment.js'
+import { fitsDue, heldOn, isBeingVoided, outstandingOf, overpays, paymentPipeline, type PaymentRow } from '../invoice-payment.js'
 import { printsHere } from '../sale-counting.js'
 import { SETTLED_ON_ISSUE } from '../cash-settlement.service.js'
 import { receiptTookMoney } from './counting.js'
@@ -342,22 +342,26 @@ async function releaseHold(doc: any): Promise<void> {
   ).exec()
 }
 
-/** Why a hold was refused, as the payment's route answers it. */
-async function holdRefusal(doc: any): Promise<RegisterRefusal> {
-  const invoice: any = await Invoice.findOne({ _id: doc.register.paidInvoiceId, orgId: doc.orgId }, { total: 1, amountPaid: 1, status: 1, voidingUntil: 1 }).lean().exec()
-  const amount = Number(doc.total) || 0
-  if (isBeingVoided(invoice)) return new RegisterRefusal(409, { ...DOCUMENT_CLAIMED })
-  if (!invoice || ['voided', 'cancelled', 'paid'].includes(invoice.status) || overpays(invoice, amount)) {
-    const outstanding = invoice ? outstandingOf(invoice) : 0
-    return new RegisterRefusal(422, {
-      code: 'overpayment',
-      outstanding,
-      message: `Payment ${round2(amount)} is more than the ${outstanding} still due on this document`,
-    })
+/**
+ * Why this document takes no payment of `amount` now, or null when it does. One answer for one
+ * condition, whichever door lost the race: the route's check, its atomic update, or a receipt's hold.
+ * An overpayment is nothing anyone posts on purpose: the dialog offers the outstanding amount, the
+ * settlement rule takes exactly the total, and no import records payments through this route. An
+ * amount above what is owed was a typing slip that left the document paid with a negative amount due.
+ */
+export async function paymentRefusal(orgId: string, doc: any, amount: number): Promise<RegisterRefusal | null> {
+  if (!doc || ['voided', 'cancelled', 'paid'].includes(doc.status)) return new RegisterRefusal(400, { message: 'Cannot record payment on this invoice' })
+  if (isBeingVoided(doc)) return new RegisterRefusal(409, { ...DOCUMENT_CLAIMED })
+  if (overpays(doc, amount)) {
+    const outstanding = outstandingOf(doc)
+    return new RegisterRefusal(422, { code: 'overpayment', outstanding, message: `Payment ${round2(amount)} is more than the ${outstanding} still due on this document` })
   }
-  const doubt = await receiptInDoubt(String(doc.orgId), String(doc.register.paidInvoiceId))
-  if (doubt) return new RegisterRefusal(409, inDoubtRefusal(doubt))
-  return new RegisterRefusal(409, { ...PAYMENT_IN_PROGRESS })
+  // It would fit, but a receipt is taking that money: printing right now, or held for a person.
+  if (overpays({ total: doc.total, amountPaid: (Number(doc.amountPaid) || 0) + heldOn(doc) }, amount)) {
+    const doubt = await receiptInDoubt(orgId, String(doc._id ?? doc.id))
+    return new RegisterRefusal(409, doubt ? inDoubtRefusal(doubt) : { ...PAYMENT_IN_PROGRESS })
+  }
+  return null
 }
 
 /**
@@ -460,9 +464,10 @@ export async function runReceiptSteps(c: RegisterContext, id: string, opts: { ne
   // The money before the number: a receipt that gives way here draws none.
   if (isPendingNumber(doc.invoiceNumber) && doc.register?.fiscal?.state === 'pending') {
     if (!(await holdAmount(doc))) {
-      const refusal = await holdRefusal(doc)
+      const invoice: any = await Invoice.findOne({ _id: doc.register.paidInvoiceId, orgId: doc.orgId }).lean().exec()
+      const refusal = await paymentRefusal(String(doc.orgId), invoice, Number(doc.total) || 0)
       await rollBack(doc)
-      throw refusal
+      throw refusal ?? new RegisterRefusal(409, { ...PAYMENT_IN_PROGRESS })
     }
     const numbered = await numberPending(c.orgId, doc)
     if (!numbered) {

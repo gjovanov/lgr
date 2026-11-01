@@ -1121,6 +1121,25 @@ describe('a payment recorded later (§2.2)', () => {
     expect(w.sim!.receipts[0].total).toBe(10)
   })
 
+  it('a document that closed as the receipt took its hold answers as a closed document does, by either door', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    const undo = during(u => !!u?.$push?.receiptHolds, () => Invoice.updateOne({ _id: d.id }, { $set: { status: 'paid', amountPaid: 24, amountDue: 0 } }))
+    let lost: any
+    try {
+      lost = await pay(w, d.id, 24)
+    } finally {
+      undo()
+    }
+
+    const atTheDoor = await pay(w, d.id, 24, 'bank_transfer')
+
+    expect(lost.status).toBe(atTheDoor.status)
+    expect(lost.json.message).toBe(atTheDoor.json.message)
+    expect(await receiptsOf(d.id)).toHaveLength(0)
+  })
+
   it('more than is due is refused before anything is written', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w, { method: 'bank_transfer' })

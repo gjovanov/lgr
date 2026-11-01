@@ -23,10 +23,10 @@ import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement } from 'services/biz/cash-settlement.service'
-import { fitsDue, heldOn, isBeingVoided, notBeingVoided, outstandingOf, overpays, paymentPipeline } from 'services/biz/invoice-payment'
+import { fitsDue, heldOn, isBeingVoided, notBeingVoided, outstandingOf, paymentPipeline } from 'services/biz/invoice-payment'
 import {
   DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, inDoubtRefusal, isImportedDocument, owesDeliveryReceipt,
-  printsOnPayment, receiptFacts, receiptInDoubt,
+  paymentRefusal, printsOnPayment, receiptFacts, receiptInDoubt,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { movesPrintedMoney } from 'services/biz/cash-register/receipt-lines'
 import { NOT_PAYMENT_RECEIPT, printsHere } from 'services/biz/sale-counting'
@@ -354,21 +354,6 @@ const PAYMENT_METHODS = ['cash', 'bank_transfer', 'card', 'cash_on_delivery', 'o
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 
-/**
- * The refusal of an overpayment. Nothing posts one on purpose: the dialog offers the outstanding
- * amount, the cash rule settles exactly the total, and no import records payments through this
- * route. An amount above what is owed was a typing slip that left the document paid with a
- * negative amount due.
- */
-function overpayment(status: Status, doc: { total?: number; amountPaid?: number }, amount: number) {
-  const outstanding = outstandingOf(doc)
-  return status(422, {
-    code: 'overpayment',
-    outstanding,
-    message: `Payment ${round2(amount)} is more than the ${outstanding} still due on this document`,
-  })
-}
-
 const ISSUE_IN_PROGRESS = { code: 'issue_in_progress', message: 'This document is already being issued' }
 
 /** FR-23: it would fit, but a receipt is taking that money: printing right now, or held for a person. */
@@ -393,8 +378,6 @@ async function whoHolds(status: Status, orgId: string, id: string) {
  * into a 200 with a `receiptError`, as a refusal of the receipt is once the document is issued.
  */
 const answersForTheKey = (e: RegisterRefusal) => e.body.code === 'idempotency_in_progress' || e.body.code === 'idempotency_key_reused'
-const holdsTheRoom = (doc: { total?: number; amountPaid?: number; receiptHolds?: { amount?: number }[] }, amount: number) =>
-  overpays({ total: doc.total, amountPaid: (Number(doc.amountPaid) || 0) + heldOn(doc) }, amount)
 
 /**
  * Filter documents by payment method. A document matches when any of its recorded
@@ -1585,10 +1568,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // FR-23: what a request that died left on this document comes first: its receipt may have
       // printed, and then this money is already taken.
       if (await finishInterruptedReceipts(orgId, user, id)) invoice = (await r.invoices.findOne({ id, orgId } as any))!
-      if (['voided', 'cancelled', 'paid'].includes(invoice.status))
-        return status(400, { message: 'Cannot record payment on this invoice' })
-      if (overpays(invoice, body.amount)) return overpayment(status, invoice, body.amount)
-      if (holdsTheRoom(invoice as any, body.amount)) return receiptPrinting(status, orgId, id)
+      const refused = await paymentRefusal(orgId, invoice, body.amount)
+      if (refused) return status(refused.statusCode, refused.body)
       // FR-23 §2.2: the courier's money does not go past a receipt that never printed, or the sale
       // ends with none, or with part of one.
       if (body.method === 'cash_on_delivery' && await owesDeliveryReceipt(orgId, invoice)) return status(409, { ...DELIVERY_RECEIPT_OWED })
@@ -1642,12 +1623,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           const replayed = await replayPayment(current)
           if (replayed) return replayed
         }
-        if (current && !['voided', 'cancelled', 'paid'].includes(current.status) && isBeingVoided(current)) return status(409, { ...DOCUMENT_CLAIMED })
-        if (current && !['voided', 'cancelled', 'paid'].includes(current.status) && overpays(current, body.amount)) {
-          return overpayment(status, current, body.amount)
-        }
-        if (current && !['voided', 'cancelled', 'paid'].includes(current.status) && holdsTheRoom(current, body.amount)) return receiptPrinting(status, orgId, id)
-        return status(400, { message: 'Cannot record payment on this invoice' })
+        const lost = await paymentRefusal(orgId, current, body.amount)
+        return lost ? status(lost.statusCode, lost.body) : status(400, { message: 'Cannot record payment on this invoice' })
       }
       const updated = await r.invoices.findOne({ id, orgId } as any)
 
