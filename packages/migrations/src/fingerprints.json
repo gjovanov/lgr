@@ -9,5 +9,6 @@
   "0007-cash-sale-line-totals-gross": "3bb815db21266ce52470580a7bd866ca8d8a15c569ef97f597b78034d27be840",
   "0008-cash-register-copy": "202c2a36354b6acdf77b2314409bce23fd93047f8d24f4cf7360ba140799bb28",
   "0009-cash-register-freeze": "a93767d3548d202f9b22507b5b2586a1084107f6171ed9cdb0df7c995b233f81",
-  "0010-invoice-number-clash": "bbe54e2c9ebb32b71cfe49acc0aba8e064807a12d9ce489cb085e89a28b9b9b9"
+  "0010-invoice-number-clash": "bbe54e2c9ebb32b71cfe49acc0aba8e064807a12d9ce489cb085e89a28b9b9b9",
+  "0011-printer-gate-off": "48e2f55d3048d4eb60b360539ed835d6fcc5be90185605af8c9bea0658adf759"
 }

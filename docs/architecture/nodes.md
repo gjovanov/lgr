@@ -104,12 +104,12 @@ one.
 
 A data change a release needs is a versioned migration in `packages/migrations`, never a script
 run by hand.
-- **The registry.** `src/registry.ts` lists them in order. Today there are four:
-  `0000-baseline`, `0001-unp-per-device`, `0002-file-sha256` and `0003-relative-file-paths`.
+- **The registry.** `src/registry.ts` lists them in order.
 - **The runner** runs the pending ones under a lock, records each in `_migrations`, and takes only
   the orgs homed on this node.
 - **Running them:**
-  - `bun run migrate` runs them by hand, and `--status` lists them;
+  - `bun run migrate` runs them by hand, `--status` lists them, and `--dry-run` says what the pending
+    ones would do, for those that can say;
   - with `MIGRATIONS_AUTO=true`, the server runs them before it listens. That is off by default,
     so global runs them by hand after a deploy.
 - **Never edit a released migration.** The runner refuses to start when an applied one has

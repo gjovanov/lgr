@@ -8,7 +8,7 @@ import { mongoose } from 'db/connection'
 import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
 import {
-  runMigrations, migrationStatus, checksumOf, assertRegistryOrder, holderIsGone,
+  runMigrations, migrationStatus, previewMigrations, checksumOf, assertRegistryOrder, holderIsGone,
   MigrationChecksumError, MigrationLockError, COLLECTION,
 } from 'migrations/runner'
 import { MIGRATIONS } from 'migrations/registry'
@@ -43,6 +43,88 @@ function counting(id: string, sink: string[], extra: Partial<Migration> = {}): M
     ...extra,
   }
 }
+
+describe('0011-printer-gate-off (FR-23)', () => {
+  const GATE = 'settings.cashRegister.requireConnectedDevice'
+  const gate = async (id: unknown) => ((await db().collection('orgs').findOne({ _id: id as any })) as any)?.settings?.cashRegister?.requireConnectedDevice
+  const migration = MIGRATIONS.find(m => m.id === '0011-printer-gate-off')!
+  const ctx = (orgFilter: Record<string, unknown> = {}) => ({ db: db(), log: () => {}, orgFilter })
+
+  /** An org with its switch `value`, and a device or not. */
+  async function org(slug: string, o: { value?: boolean; device?: 'active' | 'inactive' } = {}) {
+    const row = await createTestOrg({ slug } as any)
+    await db().collection('orgs').updateOne({ _id: row._id as any }, o.value === undefined ? { $unset: { [GATE]: 1 } } : { $set: { [GATE]: o.value } })
+    if (o.device) await db().collection('fiscaldevices').insertOne({ orgId: row._id, deviceNumber: `ED${slug}`, isActive: o.device === 'active' } as any)
+    return row._id
+  }
+  async function world() {
+    return {
+      unset: await org('no-device'),
+      active: await org('with-device', { device: 'active' }),
+      gone: await org('deactivated', { device: 'inactive' }),
+      on: await org('switched-on', { value: true }),
+      off: await org('switched-off', { value: false }),
+    }
+  }
+
+  it('off on an org with no active device whose switch is unset, and nowhere else', async () => {
+    const w = await world()
+
+    await migration.up(ctx())
+
+    expect(await gate(w.unset)).toBe(false)
+    expect(await gate(w.gone)).toBe(false)
+    // A till depends on unset reading as on, and a value somebody set is theirs.
+    expect(await gate(w.active)).toBeUndefined()
+    expect(await gate(w.on)).toBe(true)
+    expect(await gate(w.off)).toBe(false)
+  })
+
+  it('takes only the orgs homed on this node, by id on `orgs` and by org on the devices', async () => {
+    const w = await world()
+
+    await migration.up(ctx({ orgId: { $in: [w.active, w.gone] } }))
+
+    expect(await gate(w.gone)).toBe(false)
+    expect(await gate(w.unset)).toBeUndefined()
+    expect(await gate(w.active)).toBeUndefined()
+  })
+
+  it('a dry run says what it would do, and writes nothing', async () => {
+    const w = await world()
+
+    const lines = await migration.preview!(ctx())
+
+    expect(lines.map(l => l.split(' ')[1]).sort()).toEqual(['deactivated', 'no-device'])
+    expect(await gate(w.unset)).toBeUndefined()
+    expect(await gate(w.gone)).toBeUndefined()
+    await migration.up(ctx())
+    expect(await migration.preview!(ctx())).toEqual(['nothing to change'])
+  })
+
+  it('previewMigrations leaves the pending ones pending, and takes no lock', async () => {
+    const w = await world()
+    await runMigrations({ db: db(), migrations: MIGRATIONS.filter(m => m.id < migration.id), appVersion: 'v-test' })
+
+    const pending = await previewMigrations({ db: db() })
+
+    expect(pending.map(p => p.id)).toEqual([migration.id])
+    expect(pending[0].lines).toHaveLength(2)
+    expect(await gate(w.unset)).toBeUndefined()
+    expect(await db().collection(COLLECTION).findOne({ _id: migration.id as any })).toBeNull()
+    expect(await db().collection(COLLECTION).findOne({ _id: '__lock__' as any })).toBeNull()
+  })
+
+  it('run twice it writes nothing the second time', async () => {
+    const w = await world()
+    await migration.up(ctx())
+    await db().collection('orgs').updateOne({ _id: w.unset as any }, { $set: { [GATE]: true } })
+
+    await migration.up(ctx())
+
+    expect(await gate(w.unset)).toBe(true)
+  })
+})
 
 describe('the runner', () => {
   it('applies pending migrations in order, records each, and applies nothing the second time', async () => {

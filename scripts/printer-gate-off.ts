@@ -1,16 +1,16 @@
 /**
- * FR-23 (owner, 2026-11-01): the printer gate of the orgs that already exist.
+ * FR-23 (owner, 2026-11-01): the one org a migration cannot decide for.
  *
- * A new org is written with the gate off (`defaultOrgSettings`), and an org opts in when its sales
- * print here. ⚠ An org from before has the setting UNSET, and unset reads as ON: `regal`'s till depends
- * on that, so the reading stays and this script writes the others, one explicit value at a time.
+ * `0011-printer-gate-off` turns the printer gate off on every org with no active fiscal device whose
+ * switch is unset, on every node. What is left is an org that HAS a device and is not printing here
+ * yet: `regal-pz`, whose till is still PlusMinus. Nothing in the data says that, so it is a named step.
+ * Unset reads as ON, so left alone, a cash invoice there would need an LGR device.
  *
  *   bun run scripts/printer-gate-off.ts             # what it would do, nothing written
  *   bun run scripts/printer-gate-off.ts --execute
  *
- * Sets `settings.cashRegister.requireConnectedDevice: false` on every org with no active fiscal
- * device, and on `regal-pz`, which has one and whose till is still PlusMinus. It touches that one
- * path, only where it differs, and only on orgs homed here. Run it BEFORE FR-23 deploys.
+ * Sets `settings.cashRegister.requireConnectedDevice: false` on the orgs in `ALWAYS_OFF`, that one path,
+ * only where it differs, and only on orgs homed here.
  *
  * ⚠ `regal` is never touched: it is out of the plan whatever it holds, out of the write's own filter,
  * and naming it stops the script. Its gate going off silently would let a real till sell with no
@@ -30,34 +30,25 @@ type Db = NonNullable<typeof mongoose.connection.db>
 interface OrgRow { _id: unknown; slug?: string; settings?: { cashRegister?: { requireConnectedDevice?: boolean } } }
 
 export interface GatePlan {
-  /** Orgs whose gate goes off, and why. */
-  off: Array<{ org: OrgRow; why: 'no active fiscal device' | 'named' }>
+  /** Orgs whose gate goes off. */
+  off: OrgRow[]
   /** Orgs already off, so nothing is written. */
   already: string[]
-  /** Orgs with an active device: their gate stays as it is. */
+  /** Everything else: its gate stays as it is. */
   kept: string[]
 }
 
 /**
- * What this run would do, from the orgs and which of them hold an active device. Pure.
- * ⚠ `regal` falls in no list that writes, whatever it holds.
+ * What this run would do. Pure. ⚠ `regal` falls in no list that writes, whatever it holds, and an org
+ * this script does not name stays as it is: that is `0011-printer-gate-off`'s, which reads the data.
  */
-export function planGateOff(orgs: OrgRow[], withDevice: Set<string>): GatePlan {
+export function planGateOff(orgs: OrgRow[]): GatePlan {
   const plan: GatePlan = { off: [], already: [], kept: [] }
   for (const org of orgs) {
     const slug = org.slug ?? String(org._id)
-    if (org.slug === NEVER) {
-      plan.kept.push(slug)
-      continue
-    }
-    const named = ALWAYS_OFF.includes(slug)
-    if (!named && withDevice.has(String(org._id))) {
-      plan.kept.push(slug)
-    } else if (org.settings?.cashRegister?.requireConnectedDevice === false) {
-      plan.already.push(slug)
-    } else {
-      plan.off.push({ org, why: named ? 'named' : 'no active fiscal device' })
-    }
+    if (org.slug === NEVER || !ALWAYS_OFF.includes(slug)) plan.kept.push(slug)
+    else if (org.settings?.cashRegister?.requireConnectedDevice === false) plan.already.push(slug)
+    else plan.off.push(org)
   }
   return plan
 }
@@ -84,12 +75,11 @@ export async function printerGateOff(db: Db, opts: { execute: boolean; only?: st
     { projection: { slug: 1, [GATE]: 1 } },
   ).toArray() as unknown as Array<OrgRow & { _id: unknown }>
   const here = await keepHomeOrgs(all as Array<{ _id: unknown; slug?: string }>, { named: !!opts.only }) as OrgRow[]
-  const active = await db.collection('fiscaldevices').distinct('orgId', { isActive: { $ne: false } })
-  const plan = planGateOff(here, new Set(active.map(String)))
+  const plan = planGateOff(here)
 
   let written = 0
   if (opts.execute) {
-    for (const { org } of plan.off) written += await writeGateOff(db, org._id)
+    for (const org of plan.off) written += await writeGateOff(db, org._id)
   }
   return { ...plan, written }
 }
@@ -104,7 +94,7 @@ async function main() {
   await mongoose.connect(uri, { autoIndex: false, autoCreate: false })
   try {
     const run = await printerGateOff(mongoose.connection.db!, { execute, ...(only ? { only } : {}) })
-    for (const { org, why } of run.off) console.log(`${execute ? 'off' : 'would turn off'}: ${org.slug} (${why})`)
+    for (const org of run.off) console.log(`${execute ? 'off' : 'would turn off'}: ${org.slug}`)
     console.log(`Already off: ${run.already.join(', ') || 'none'}`)
     console.log(`Left as they are: ${run.kept.join(', ') || 'none'}`)
     console.log(execute ? `${run.written} org(s) written.` : `Dry run: nothing written. ${run.off.length} org(s) would change. --execute to write.`)

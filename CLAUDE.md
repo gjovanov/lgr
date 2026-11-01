@@ -2321,8 +2321,11 @@ invoice still due until the courier pays).
   creates an org writes `false` explicitly (`defaultOrgSettings`; `new-org-printer-gate.flow.test.ts`
   walks them, and a new `Org.create` fails it until it is named). Never change the reading: `regal`'s real
   till depends on unset being on. This narrows #390's "every org", the till's gate with the invoices'.
-- **Existing orgs are `scripts/printer-gate-off.ts`**, which runs BEFORE FR-23 deploys: dry-run by
-  default, off on every org with no active fiscal device and on `regal-pz` by name. ⚠ It refuses `regal`.
+- **Existing orgs are `0011-printer-gate-off`**: off on every org with no active fiscal device whose
+  switch is unset, node by node, `bun run migrate --dry-run` to read it first. ⚠ `MIGRATIONS_AUTO` is off
+  on lgrai.app, so it runs by hand BEFORE the new image serves; a master runs it before it listens.
+  `scripts/printer-gate-off.ts` is the one thing no data can say, `regal-pz`, which has a device and whose
+  till is still PlusMinus. ⚠ It refuses `regal`.
 - ⚠ **An imported document NEVER prints.** `syncCashSettlement` is called by `/send`, `PUT` and
   `convertDraftInvoice`, so printing lives in the doors (`invoicing-api/lib/counter-receipt.ts`,
   `prepareReceipt`), never in that function. The conversion settles as it always did, with the switch

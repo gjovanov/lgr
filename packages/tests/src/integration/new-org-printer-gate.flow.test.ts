@@ -21,8 +21,10 @@ import { captureRejection } from '../helpers/capture-rejection'
  *
  * Every path that creates an org writes the printer gate OFF, explicitly, and the reading of an unset
  * value stays ON, because a real till depends on it: `regal`'s gate is unset, and a default flipped
- * under it would let it sell with no fiscal receipt. Existing orgs are a data step
- * (`scripts/printer-gate-off.ts`), and that script may never touch `regal`.
+ * under it would let it sell with no fiscal receipt. Existing orgs are a migration
+ * (`0011-printer-gate-off`, `migrations.flow.test.ts`), but for the one org with a device that does not
+ * print here, which is the named step `scripts/printer-gate-off.ts`, and that script may never touch
+ * `regal`.
  *
  * NOTE: no `.rejects` / `.resolves` (Bun-on-Windows deadlock, see Known Issues).
  */
@@ -171,22 +173,21 @@ describe('scripts/printer-gate-off', () => {
 
     const run = await printerGateOff(db(), { execute: false })
 
-    expect(run.off.map(x => x.org.slug).sort()).toEqual(['device-gone', 'no-device', 'no-device-on', 'regal-pz'])
+    expect(run.off.map(x => x.slug)).toEqual(['regal-pz'])
     expect(run.written).toBe(0)
-    expect(await gateOf('no-device')).toBeUndefined()
-    expect(await gateOf('no-device-on')).toBe(true)
     expect(await gateOf('regal-pz')).toBeUndefined()
   })
 
-  it('off on every org with no active device, and on regal-pz by name, device and all', async () => {
+  it('off on regal-pz by name, device and all, and on nothing else: the rest is the migration\'s', async () => {
     await theOrgs()
 
     const run = await printerGateOff(db(), { execute: true })
 
-    expect(run.written).toBe(4)
-    for (const slug of ['no-device', 'no-device-on', 'device-gone', 'regal-pz']) expect(await gateOf(slug)).toBe(false)
-    expect(run.off.find(x => x.org.slug === 'regal-pz')!.why).toBe('named')
-    expect(run.already).toEqual(['already-off'])
+    expect(run.written).toBe(1)
+    expect(await gateOf('regal-pz')).toBe(false)
+    expect(await gateOf('no-device')).toBeUndefined()
+    expect(await gateOf('device-gone')).toBeUndefined()
+    expect(await gateOf('no-device-on')).toBe(true)
   })
 
   it('an org with an active device keeps what it has: it may be a real till', async () => {
@@ -195,12 +196,19 @@ describe('scripts/printer-gate-off', () => {
     expect(await gateOf('real-till')).toBeUndefined()
   })
 
+  it('an org already off is left alone', async () => {
+    await createTestOrg({ slug: 'regal-pz', ...gate(false) } as any)
+    const run = await printerGateOff(db(), { execute: true })
+    expect(run.already).toEqual(['regal-pz'])
+    expect(run.written).toBe(0)
+  })
+
   it('⚠ regal is never touched: not with a device, not with none', async () => {
     await theOrgs({ regalDevice: false })
 
     const run = await printerGateOff(db(), { execute: true })
 
-    expect(run.off.map(x => x.org.slug)).not.toContain(NEVER)
+    expect(run.off.map(x => x.slug)).not.toContain(NEVER)
     expect(run.kept).toContain(NEVER)
     expect(await gateOf('regal')).toBeUndefined()
   })
@@ -208,16 +216,16 @@ describe('scripts/printer-gate-off', () => {
   it('⚠ and naming it stops the script before anything is read or written', async () => {
     await theOrgs()
 
-    const refused = await captureRejection(printerGateOff(db(), { execute: true, only: ['no-device', NEVER] }))
+    const refused = await captureRejection(printerGateOff(db(), { execute: true, only: ['regal-pz', NEVER] }))
 
     expect(String(refused)).toContain('Refusing to touch regal')
-    expect(await gateOf('no-device')).toBeUndefined()
+    expect(await gateOf('regal-pz')).toBeUndefined()
     expect(await gateOf('regal')).toBeUndefined()
   })
 
   it('⚠ the write refuses it too, whatever a plan says', async () => {
     const regal = await createTestOrg({ slug: 'regal' } as any)
-    const forged = planGateOff([{ _id: regal._id, slug: 'regal' }], new Set())
+    const forged = planGateOff([{ _id: regal._id, slug: 'regal' }])
     expect(forged.off).toHaveLength(0)
     expect(ALWAYS_OFF).not.toContain(NEVER)
 
@@ -227,13 +235,13 @@ describe('scripts/printer-gate-off', () => {
 
   it('touches that one path, only where it differs: the rest of the org is as it was, and a second run writes nothing', async () => {
     await theOrgs()
-    await Org.collection.updateOne({ slug: 'no-device' }, { $set: { 'settings.cashRegister.allowNegativeStock': true } })
-    const before = await stored('no-device')
+    await Org.collection.updateOne({ slug: 'regal-pz' }, { $set: { 'settings.cashRegister.allowNegativeStock': true } })
+    const before = await stored('regal-pz')
     const untouched = await stored('already-off')
 
     await printerGateOff(db(), { execute: true })
 
-    const after = await stored('no-device')
+    const after = await stored('regal-pz')
     expect(after.settings.cashRegister).toEqual({ allowNegativeStock: true, requireConnectedDevice: false })
     delete after.settings.cashRegister.requireConnectedDevice
     expect(after).toEqual(before)
@@ -243,13 +251,13 @@ describe('scripts/printer-gate-off', () => {
   })
 
   it('an org homed elsewhere is left to its home', async () => {
-    const { empty } = await theOrgs()
-    await OrgHome.create({ orgId: empty._id, home: 'node-shop-1', epoch: 1 } as any)
-    await Org.updateOne({ _id: empty._id }, { $set: { homeEpochHighWater: 1 } }).exec()
+    const { pz } = await theOrgs()
+    await OrgHome.create({ orgId: pz._id, home: 'node-shop-1', epoch: 1 } as any)
+    await Org.updateOne({ _id: pz._id }, { $set: { homeEpochHighWater: 1 } }).exec()
     forgetAllHomes()
 
     await printerGateOff(db(), { execute: true })
 
-    expect(await gateOf('no-device')).toBeUndefined()
+    expect(await gateOf('regal-pz')).toBeUndefined()
   })
 })

@@ -10,6 +10,7 @@ import { cashSaleLineTotalsGross } from './migrations/0007-cash-sale-line-totals
 import { cashRegisterCopy } from './migrations/0008-cash-register-copy.js'
 import { cashRegisterFreeze } from './migrations/0009-cash-register-freeze.js'
 import { invoiceNumberClash } from './migrations/0010-invoice-number-clash.js'
+import { printerGateOff } from './migrations/0011-printer-gate-off.js'
 import FINGERPRINTS from './fingerprints.json' with { type: 'json' }
 
 /**
@@ -33,6 +34,7 @@ export const RELEASED: Migration[] = [
   cashRegisterCopy,
   cashRegisterFreeze,
   invoiceNumberClash,
+  printerGateOff,
 ]
 
 /** {@link RELEASED}, each carrying its file's fingerprint, which the runner checksums. */
