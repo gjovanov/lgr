@@ -1,3 +1,5 @@
+import { FISCAL_ADMIN_ROLES } from 'config/constants'
+
 /**
  * Cross-app registry of the favouritable PAGES/functions surfaced by the global top-bar ★ menu.
  * Mirrors each app's top-menu `menuItems` (same i18n label key + mdi icon + `to`). The `path`
@@ -22,6 +24,8 @@ export interface PageDef {
    * the server would refuse to save (FR-22 §5.8).
    */
   need?: readonly string[]
+  /** Who may open it by role, whatever they hold, where the server's own rule is a role. */
+  roles?: readonly string[]
   /** A page of the till, inside the invoicing app: all a PIN session reaches (`canOpenPage`). */
   till?: boolean
 }
@@ -53,8 +57,8 @@ const WRITE_TILL = ['pos.write'] as const
 const READ_TILL = ['pos.read', 'pos.write'] as const
 const READ_JOURNAL = [...APP_NAV_META.invoicing.reads!, ...READ_TILL] as const
 
-function tillPage(to: string, labelKey: string, icon: string, need: readonly string[]): PageDef {
-  return { ...page('invoicing', to, labelKey, icon, need), till: true }
+function tillPage(to: string, labelKey: string, icon: string, need: readonly string[], roles?: readonly string[]): PageDef {
+  return { ...page('invoicing', to, labelKey, icon, need), till: true, ...(roles ? { roles } : {}) }
 }
 
 export const PAGE_REGISTRY: PageDef[] = [
@@ -115,7 +119,8 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('accounting', '/fixed-assets', 'nav.fixedAssets', 'mdi-office-building'),
   // ── The till, inside Invoicing ──
   tillPage('/cash-register/sessions', 'nav.crSessions', 'mdi-clock-outline', READ_TILL),
-  tillPage('/configuration/devices', 'nav.devices', 'mdi-printer-pos', READ_TILL),
+  // The server reads `fiscal` for any member and writes it by role: who runs a device holds no `pos.*`.
+  tillPage('/configuration/devices', 'nav.devices', 'mdi-printer-pos', READ_TILL, FISCAL_ADMIN_ROLES),
   // ── Payroll ──
   page('payroll', '/employees', 'payroll.employees', 'mdi-account-multiple'),
   page('payroll', '/runs', 'payroll.payrollRuns', 'mdi-cash-register'),
@@ -242,6 +247,7 @@ export function canOpenPage(page: PageDef, who: PageViewer | null | undefined): 
   if (!who) return false
   if (who.amr?.includes('pin') && !page.till) return false
   if (who.role === 'admin') return true
+  if (who.role && page.roles?.includes(who.role)) return true
   const need = page.need ?? APP_NAV_META[page.appId]?.reads ?? [APP_NAV_META[page.appId]?.permission]
   const held = who.permissions ?? []
   return need.some((p) => !!p && held.includes(p))

@@ -203,6 +203,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { FISCAL_ADMIN_ROLES } from 'config/constants'
 import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -296,7 +297,7 @@ type ReportKind = 'x' | 'fm_date' | 'fm_number' | 'ej' | 'operator'
 interface ReportDevice { name: string; connected: boolean; capabilities: { features: Record<string, boolean>; maxOperators: number } }
 
 /** The roles of the device page's report routes: not a cashier. The server refuses them too. */
-const runsDevices = computed(() => ['admin', 'manager', 'warehouse_manager'].includes(appStore.user?.role || jwtRole()))
+const runsDevices = computed(() => FISCAL_ADMIN_ROLES.includes(appStore.user?.role || jwtRole()))
 
 const REPORT_LABEL: Record<ReportKind, string> = {
   x: 'pos.deviceReport.x',

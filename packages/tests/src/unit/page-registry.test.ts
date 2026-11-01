@@ -326,9 +326,9 @@ describe('APP_NAV_META mirrors APP_REGISTRY', () => {
 
   // The App Hub reads `APP_REGISTRY`, the pages read `canOpenPage`, and ui-shared cannot import
   // config. One permission at a time, so neither can come to hold one the other does not.
-  it('the Invoicing tile opens for exactly the permissions that open a page of it', () => {
+  it('the Invoicing tile opens for exactly the permissions that read its journal', () => {
     const { requiredPermission, alsoOpenedBy } = APP_REGISTRY.invoicing
-    const opens = PERMISSIONS.filter(p => PAGE_REGISTRY.some(x => x.appId === 'invoicing' && canOpenPage(x, { role: 'x', permissions: [p] })))
+    const opens = PERMISSIONS.filter(p => canOpenPage(pageById('/invoicing/cash-sales')!, { role: 'x', permissions: [p] }))
     expect([requiredPermission, ...(alsoOpenedBy ?? [])].sort()).toEqual([...opens].sort())
   })
 })

@@ -38,6 +38,9 @@ export const CURRENCIES = [
 
 export const SUBSCRIPTION_PLANS = ['free', 'starter', 'professional', 'enterprise'] as const
 
+/** Who runs a fiscal device: its connection, its operators and its reports. */
+export const FISCAL_ADMIN_ROLES: readonly string[] = ['admin', 'manager', 'warehouse_manager']
+
 export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   admin: ['admin.users', 'admin.settings', ...PERMISSIONS.filter(p => !p.startsWith('admin.'))],
   manager: PERMISSIONS.filter(p => !p.startsWith('admin.')).slice(),

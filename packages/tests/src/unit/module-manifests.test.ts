@@ -5,7 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { visibleMenu, type ModuleManifest, type ModuleMenuItem } from '../../../ui-shell/src/module'
 import { inModule, pendingRestoreUrl } from 'ui-shared/nav/open-page'
 import { APP_NAV_META, canOpenPage, isTillOnly, matchPage, PAGE_REGISTRY, type PageViewer } from 'ui-shared/nav/page-registry'
-import { APP_REGISTRY, DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
+import { APP_REGISTRY, DEFAULT_ROLE_PERMISSIONS, FISCAL_ADMIN_ROLES, type Role } from 'config/constants'
 import { manifest as accounting } from '../../../accounting-ui/src/manifest'
 import { manifest as inventory } from '../../../inventory-ui/src/manifest'
 import { manifest as invoicing } from '../../../invoicing-ui/src/manifest'
@@ -314,6 +314,9 @@ describe('who may open what', () => {
     // Nothing of invoicing or the till: no landing to give, so the server's refusals stand, as on
     // any app they hold nothing of. A warehouse manager still runs the devices by address.
     ['neither, by address', role('warehouse_manager'), false, INVOICES, { [TERMINAL]: TERMINAL, [DEVICES]: DEVICES, [INVOICES]: INVOICES }],
+    // Who runs a device is the server's roles, not `pos.*`: these used to land on the journal.
+    ['a warehouse manager who reads invoicing too', { role: 'warehouse_manager', permissions: ['invoicing.read', 'inventory.read'] }, true, INVOICES, { [DEVICES]: DEVICES, [`${DEVICES}/6a1b`]: `${DEVICES}/6a1b`, [TERMINAL]: JOURNAL, [SESSIONS]: JOURNAL }],
+    ['a manager on a set of their own', { role: 'manager', permissions: ['invoicing.read'] }, true, INVOICES, { [DEVICES]: DEVICES, [TERMINAL]: JOURNAL }],
   ]
 
   const session = (who: PageViewer): TillSession => ({ hasOrg: true, who, pinOffered: async () => false })
@@ -330,11 +333,13 @@ describe('who may open what', () => {
         expect(await guarded('/invoicing/', session(who))).toBe(home)
       })
 
-      it('has the tile exactly if a page of the app opens for them', () => {
+      // The tile is for who has somewhere to start. A page opened by another right (the devices by
+      // a role) earns none: the app's home would refuse them.
+      it('has the tile exactly if the journal, which the whole app reads, opens for them', () => {
         const { requiredPermission, alsoOpenedBy } = APP_REGISTRY.invoicing
         const held = who.permissions ?? []
         expect([requiredPermission, ...(alsoOpenedBy ?? [])].some(p => held.includes(p))).toBe(tile)
-        expect(PAGE_REGISTRY.filter(p => p.appId === 'invoicing').some(p => canOpenPage(p, who))).toBe(tile)
+        expect(canOpenPage(matchPage(JOURNAL)!, who)).toBe(tile)
       })
 
       it('is offered exactly the pages `canOpenPage` opens', () => {
@@ -352,6 +357,19 @@ describe('who may open what', () => {
       })
     })
   }
+
+  // The server's rule is roles, and `fiscal` reads are any member's. The menu hid the page from the
+  // people who run the devices, and a guard took some of them off it.
+  it('the devices open for the roles the server lets run them, and the menu offers them', () => {
+    const devices = matchPage(DEVICES)!
+    for (const r of FISCAL_ADMIN_ROLES) {
+      expect({ r, opens: canOpenPage(devices, { role: r, permissions: [] }) }).toEqual({ r, opens: true })
+      expect(menuPaths(visibleMenu(invoicing.menu!, { role: r, permissions: [] }))).toContain('/configuration/devices')
+    }
+    expect(canOpenPage(devices, set('pos.read'))).toBe(true)
+    expect(canOpenPage(devices, set('invoicing.read'))).toBe(false)
+    expect(canOpenPage(devices, role('accountant'))).toBe(false)
+  })
 
   it('the till starts on the terminal, on the journal for someone who cannot sell, and nowhere for someone who cannot read it', () => {
     expect(tillLanding(set('pos.write'))).toEqual({ name: 'invoicing.cash-sales.new' })
