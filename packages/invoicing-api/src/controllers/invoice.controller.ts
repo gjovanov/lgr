@@ -1458,6 +1458,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     }
     if (pendingTransferIds?.length) updateData.pendingTransferIds = pendingTransferIds
     if (forCashSale) Object.assign(updateData, await issueFieldsFor(orgId, invoice))
+    // FR-23: in the issue's own write, so whatever happens to its receipt the fact stands.
+    if (counter?.tender.method === 'cash_on_delivery') updateData.deliveryReceiptOwed = true
     const updated = await r.invoices.updateInOrg(id, orgId, updateData)
 
     // ORD-linked documents: re-derive the order's reservation/receipt state

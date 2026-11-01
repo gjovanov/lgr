@@ -223,6 +223,11 @@ export interface IInvoice extends Document {
   receiptHolds?: Array<{ receiptId: Types.ObjectId; amount: number }>
   /** FR-23: a void has claimed this document until then, so no receipt takes a hold on it meanwhile. */
   voidingUntil?: Date | null
+  /**
+   * FR-23: this cash-on-delivery invoice was issued where LGR prints, so it owes a receipt. Written by
+   * the issue, in the issue's own write, and never by a client.
+   */
+  deliveryReceiptOwed?: boolean
   // ── Idempotency (FR-20.37, #155) ──
   /** The `Idempotency-Key` that created this document, and the hash of that request. */
   clientKey?: string
@@ -453,6 +458,7 @@ const invoiceSchema = new Schema<IInvoice>(
       },
     ],
     voidingUntil: Date,
+    deliveryReceiptOwed: Boolean,
     receiptHolds: {
       type: [{ _id: false, receiptId: { type: Schema.Types.ObjectId, ref: 'Invoice', required: true }, amount: { type: Number, required: true } }],
       default: undefined,

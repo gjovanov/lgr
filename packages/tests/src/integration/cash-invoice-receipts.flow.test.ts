@@ -1288,6 +1288,54 @@ describe('cash on delivery on an invoice (Q-2)', () => {
       expect(w.sim!.executed.length).toBe(device)
     })
 
+    it('an issue that left no receipt behind still owes one: a claim refused its hold, and it was rolled back', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'cash_on_delivery' })
+      const undo = during(u => !!u?.$push?.receiptHolds, () => Invoice.updateOne({ _id: d.id }, { $set: { voidingUntil: new Date(Date.now() + 60_000) } }))
+      let r: any
+      try {
+        r = await send(w, d.id)
+      } finally {
+        undo()
+      }
+      expect(r.status).toBe(200)
+      expect(r.json.receiptError).toBeTruthy()
+      expect(await receiptsOf(d.id)).toHaveLength(0)
+      await Invoice.updateOne({ _id: d.id }, { $unset: { voidingUntil: 1 } })
+
+      expect((await shown(w, d.id)).receiptToPrint).toBe(true)
+      expect((await pay(w, d.id, 24, 'cash_on_delivery')).json.code).toBe('delivery_receipt_owed')
+      expect((await printIt(w, d.id)).status).toBe(200)
+      expect((await shown(w, d.id)).receiptToPrint).toBe(false)
+      expect((await pay(w, d.id, 24, 'cash_on_delivery')).status).toBe(200)
+      expect(w.sim!.receipts.filter(x => !x.voided)).toHaveLength(1)
+    })
+
+    it('a process that died between the issue and its receipt: the same, and the courier\'s money waits', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'cash_on_delivery' })
+      const dies = spyOn(Invoice, 'create').mockImplementationOnce(() => { throw new Error('the pod went away') })
+      const r = await send(w, d.id)
+      dies.mockRestore()
+      expect(r.status).toBe(500)
+      expect((await raw(d.id)).status).toBe('sent')
+      expect(await receiptsOf(d.id)).toHaveLength(0)
+
+      expect((await shown(w, d.id)).receiptToPrint).toBe(true)
+      expect((await pay(w, d.id, 24, 'cash_on_delivery')).status).toBe(409)
+      expect((await printIt(w, d.id)).status).toBe(200)
+    })
+
+    it('whether it is owed is the server\'s to write: no client can say so, on a form or on a copy', async () => {
+      const w = await tillWorld(app)
+      const created = await draftOf(w, { method: 'bank_transfer', extra: { deliveryReceiptOwed: true } })
+      await send(w, created.id)
+      await w.call('PUT', `/invoices/${created.id}`, { paymentMethod: 'cash_on_delivery', deliveryReceiptOwed: true })
+
+      expect((await raw(created.id)).deliveryReceiptOwed).toBeUndefined()
+      expect((await shown(w, created.id)).receiptToPrint).toBe(false)
+    })
+
     it('voided, it is no longer owed: there is nothing left to print for', async () => {
       const w = await tillWorld(app)
       const voided = await failedAtIssue(w)

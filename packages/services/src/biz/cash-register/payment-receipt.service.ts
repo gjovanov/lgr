@@ -161,17 +161,19 @@ export async function freezeRefusal(orgId: string, documentId: string): Promise<
  * A cash-on-delivery invoice with no receipt, whose print failed as it was issued. The courier owes
  * the money, so there is no payment to take again, and one recorded by hand would leave the sale with
  * no receipt or part of one: the receipt prints on its own (`POST /invoices/:id/receipt`), for what
- * is still owed, and nothing recorded on delivery goes past it. An invoice that never tried to print
- * owes none: it was issued before LGR printed, or where it does not.
+ * is still owed, and nothing recorded on delivery goes past it.
+ *
+ * ⚠ Whether it owes one is a fact the issue wrote (`deliveryReceiptOwed`), never read from whether a
+ * print was tried. An issue can leave no receipt document at all: its hold refused and rolled back, a
+ * number that could not be drawn, a process that died before the insert. Read as "never tried", such
+ * an invoice could not print one, and the courier's money went through with no receipt. An invoice
+ * issued before LGR printed, or where it does not, carries no such fact and owes none.
  */
 export async function owesDeliveryReceipt(orgId: string, doc: any): Promise<boolean> {
-  if (doc?.paymentMethod !== 'cash_on_delivery' || !['sent', 'overdue', 'partially_paid'].includes(doc.status)) return false
+  if (!doc?.deliveryReceiptOwed || doc.paymentMethod !== 'cash_on_delivery' || !['sent', 'overdue', 'partially_paid'].includes(doc.status)) return false
   if (!printsAtCounter(doc, doc.paymentMethod, true)) return false
-  const tried: any[] = await Invoice.find(
-    { orgId: oid(orgId), type: PAYMENT_RECEIPT, 'register.paidInvoiceId': oid(doc._id ?? doc.id) },
-    { status: 1, paymentMethod: 1 },
-  ).lean().exec()
-  if (!tried.length || tried.some(r => r.status !== 'voided' && r.paymentMethod === 'cash_on_delivery')) return false
+  const live = await Invoice.exists({ ...liveReceipts(orgId, doc._id ?? doc.id), paymentMethod: 'cash_on_delivery' }).exec()
+  if (live) return false
   const org: any = await Org.findById(orgId, { 'settings.cashRegister': 1 }).lean().exec()
   return org?.settings?.cashRegister?.requireConnectedDevice !== false
 }
