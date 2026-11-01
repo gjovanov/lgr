@@ -104,6 +104,14 @@ export class EltradeSimulator {
   nakNext = 0
   loseNextAnswers = 0
   silent = false
+  /** What a serial line costs per command: how two requests get to interleave. */
+  latencyMs = 0
+  /** Runs before a command executes, with its code: a fault, or a wait, at an exact point. */
+  beforeCommand: ((cmd: number) => void | Promise<void>) | null = null
+  /** This command executes, then the connection drops before its answer: the bridge went away. */
+  dropAfter: number | null = null
+  /** The connection is gone: nothing reaches the device. */
+  disconnected = false
   /** Bytes prepended to the next answer once (e.g. a stale frame from an earlier command). */
   prependOnce: Uint8Array | null = null
   synPrefix = 0
@@ -140,6 +148,8 @@ export class EltradeSimulator {
   exchange = async (frame: Buffer | Uint8Array): Promise<Buffer> => {
     this.frames++
     const f = new Uint8Array(frame)
+    if (this.latencyMs) await new Promise(r => setTimeout(r, this.latencyMs))
+    if (this.disconnected) throw new Error('Bridge disconnected')
     if (this.silent) throw new Error('Serial read timeout — no answer from the device')
     if (this.nakNext > 0) {
       this.nakNext--
@@ -154,9 +164,15 @@ export class EltradeSimulator {
     } else {
       const cmd = f[3]
       const data = f.subarray(4, f.length - 6)
+      await this.beforeCommand?.(cmd)
       answer = this.execute(seq, cmd, data)
       this.lastSeq = seq
       this.lastAnswer = answer
+      if (this.dropAfter === cmd) {
+        this.dropAfter = null
+        this.disconnected = true
+        throw new Error('Bridge disconnected')
+      }
     }
 
     if (this.loseNextAnswers > 0) {

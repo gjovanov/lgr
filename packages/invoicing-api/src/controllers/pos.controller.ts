@@ -20,6 +20,7 @@ import { buildSessionReport, formatSessionReport, type SessionReport } from 'ser
 import { fiscalCapabilities } from 'fiscal/capabilities'
 import { DEVICE_REPORT_KINDS, FISCAL_ADMIN_ROLES, printDeviceReport } from 'fiscal/device-command'
 import { fiscalFailure } from 'fiscal/errors'
+import { deviceTurn } from 'fiscal/device-turn'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
@@ -114,12 +115,15 @@ async function printSessionReport(orgId: string, deviceId: string, report: Sessi
       return 'This fiscal device cannot print a text receipt'
     }
     const org: any = await Org.findById(orgId, { 'settings.locale': 1, 'settings.timezone': 1 }).lean().exec()
-    await printer.openNonFiscalReceipt(operatorCode || '1')
-    opened = true
-    for (const line of formatSessionReport(report, org?.settings?.locale || 'en', org?.settings?.timezone || 'Europe/Sofia')) {
-      await printer.printNonFiscalText(line)
-    }
-    await printer.closeNonFiscalReceipt()
+    // One turn on the device: a service receipt moves its counter, like any document.
+    await deviceTurn(deviceId, async () => {
+      await printer.openNonFiscalReceipt(operatorCode || '1')
+      opened = true
+      for (const line of formatSessionReport(report, org?.settings?.locale || 'en', org?.settings?.timezone || 'Europe/Sofia')) {
+        await printer.printNonFiscalText(line)
+      }
+      await printer.closeNonFiscalReceipt()
+    })
     return undefined
   } catch (e: any) {
     // A failed line leaves the receipt open on the device, and every later sale would have to clear
@@ -722,7 +726,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
           // #394: the driver refused the Z because a sale is printing on it right now. Nothing
           // failed: the device stays as it is, the session goes back to open and keeps no failure,
           // and closing again once the sale has finished works.
-          if (fiscalFailure(e).code === 'receipt_open') {
+          if (['receipt_open', 'device_busy'].includes(fiscalFailure(e).code)) {
             await release()
             logger.info({ orgId, sessionId: id, deviceId: device.id }, 'Z-report waits for a sale printing on the device — session left open')
             return status(409, { code: 'receipt_open', message: 'A sale is printing on this device. Wait for it to finish, then close again.' })

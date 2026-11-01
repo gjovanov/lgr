@@ -28,6 +28,7 @@ import { FiscalPaymentMethodError, toFiscalPaymentType } from 'fiscal/types'
 import { unsupportedReason } from 'fiscal/capabilities'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
 import { fiscalOperation } from 'fiscal/in-flight'
+import { deviceTurn } from 'fiscal/device-turn'
 import { roundCents } from 'config/pos-totals'
 
 export { fiscalUnitPrice }
@@ -229,7 +230,8 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
     async failed() {
       await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
     },
-    operation: fn => fiscalOperation(fn),
+    // Counted from the moment it is asked for, so a graceful stop waits for one still in the queue.
+    operation: fn => fiscalOperation(() => deviceTurn(fiscal.deviceId, fn)),
   }
 }
 
