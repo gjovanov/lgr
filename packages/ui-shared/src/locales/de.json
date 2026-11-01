@@ -924,7 +924,15 @@
         "noDriver": "LGR kann dieses {brand}-Gerät über diese Verbindung nicht öffnen"
       },
       "operators": {
-        "eltradePassword": "Bei Eltrade bestätigt das Passwort die Änderung: Geben Sie das Passwort des Bedieners am Gerät ein (4–8 Ziffern). Drei falsche Passwörter sperren das Gerät, bis es aus- und wieder eingeschaltet wird."
+        "eltradePassword": "Bei Eltrade bestätigt das Passwort die Änderung: Geben Sie das Passwort des Bedieners am Gerät ein (4–8 Ziffern). Drei falsche Passwörter sperren das Gerät, bis es aus- und wieder eingeschaltet wird.",
+        "password": "Passwort",
+        "program": "Auf Gerät programmieren",
+        "read": "Vom Gerät lesen",
+        "programmed": "Bediener {n} auf dem Gerät programmiert",
+        "wasRead": "Bediener {n} vom Gerät gelesen",
+        "programFailed": "Bediener {n} konnte nicht programmiert werden",
+        "readFailed": "Bediener {n} konnte nicht gelesen werden",
+        "numbered": "Bediener {n}"
       },
       "paymentTypes": {
         "title": "Zahlungsarten",
@@ -943,7 +951,99 @@
         "nameCod": "{code} „{name}“ benennen",
         "codHint": "Eine Nachnahme wird als {code} gedruckt. Benennen Sie es, damit der Beleg „{name}“ zeigt.",
         "named": "{code} heißt auf dem Gerät jetzt „{name}“",
-        "adminOnly": "Nur ein Administrator kann eine Zahlungsart benennen."
+        "adminOnly": "Nur ein Administrator kann eine Zahlungsart benennen.",
+        "readFailed": "Zahlungsarten konnten nicht gelesen werden",
+        "nameFailed": "Zahlungsart konnte nicht benannt werden"
+      },
+      "newTitle": "Neues POS-Gerät",
+      "title": "POS-Gerät",
+      "new": "Neues Gerät",
+      "tabs": {
+        "general": "Allgemein",
+        "operators": "Bediener",
+        "reports": "Berichte"
+      },
+      "number": "Gerätenummer",
+      "numberHint": "Die Seriennummer des Geräts (ИН на ФУ), wie sie auf seinen Belegen steht, z. B. ED123456 — jede УНП beginnt damit",
+      "numberLength": "Muss 8 Zeichen lang sein",
+      "manufacturer": "Hersteller",
+      "connectionType": "Verbindungsart",
+      "ip": "IP-Adresse oder Host",
+      "ipHint": "Vom LGR-Server erreichbar. Ein Drucker im eigenen Netz des Geschäfts wird stattdessen über den Browser oder LGR Desktop verbunden.",
+      "port": "Port",
+      "lastCommunication": "Letzte Kommunikation",
+      "connect": "Verbinden",
+      "disconnect": "Trennen",
+      "connected": "Verbunden mit {device}",
+      "reconnected": "Gerät {device} wieder verbunden",
+      "disconnected": "Gerät getrennt",
+      "connectFailed": "Verbindung fehlgeschlagen",
+      "created": "Gerät erstellt",
+      "saved": "Gerät gespeichert",
+      "saveFailed": "Gerät konnte nicht gespeichert werden",
+      "loadFailed": "Gerät konnte nicht geladen werden",
+      "noNotes": "Keine Notizen",
+      "states": {
+        "online": "online",
+        "offline": "offline",
+        "error": "Fehler"
+      },
+      "status": {
+        "title": "Gerätestatus",
+        "hint": "Liest Seriennummer, Fiskalstatus, Uhrzeit und Fehlerflags direkt vom Gerät (es muss verbunden sein).",
+        "responding": "Antwortet",
+        "model": "Modell",
+        "serial": "Seriennummer",
+        "mismatch": "stimmt nicht mit der Gerätenummer {device} überein",
+        "fiscalMemory": "Fiskalspeicher",
+        "firmware": "Firmware",
+        "fiscalized": "Fiskalisiert",
+        "notFiscalized": "Nein — Belege werden als Servicedokumente gedruckt",
+        "clock": "Geräteuhr",
+        "lastDocument": "Letzte Belegnr.",
+        "paper": "Papier",
+        "paperOk": "OK",
+        "paperOut": "Kein Papier",
+        "errors": "Fehler",
+        "warnings": "Warnungen",
+        "read": "Status lesen",
+        "readFailed": "Gerätestatus konnte nicht gelesen werden"
+      },
+      "reports": {
+        "x": "Täglicher X-Bericht",
+        "xHint": "Druckt den täglichen X-Bericht (ohne den Tag abzuschließen).",
+        "z": "Täglicher Z-Bericht",
+        "zHint": "Druckt den täglichen Z-Bericht (schließt den Fiskaltag ab).",
+        "operator": "Bedienerbericht",
+        "fmByDate": "FS-Bericht nach Datum",
+        "fmByNumber": "FS-Bericht nach Nummer",
+        "startNumber": "Startnummer",
+        "endNumber": "Endnummer",
+        "ej": "Elektronisches Journal (KLEN)",
+        "xPrinted": "X-Bericht gedruckt",
+        "xFailed": "X-Bericht konnte nicht gedruckt werden",
+        "zPrinted": "Z-Bericht gedruckt",
+        "zFailed": "Z-Bericht konnte nicht gedruckt werden",
+        "operatorPrinted": "Bedienerbericht gedruckt",
+        "operatorFailed": "Bedienerbericht konnte nicht gedruckt werden",
+        "fmPrinted": "FS-Bericht gedruckt",
+        "fmFailed": "FS-Bericht konnte nicht gedruckt werden",
+        "ejPrinted": "Bericht des elektronischen Journals gedruckt",
+        "ejFailed": "Bericht des elektronischen Journals konnte nicht gedruckt werden"
+      }
+    },
+    "sessions": {
+      "paymentDistribution": "Zahlungsverteilung",
+      "sales": "Sitzungsverkäufe",
+      "number": "Sitzung Nr.",
+      "totalReturns": "Retouren gesamt",
+      "transactions": "Transaktionen",
+      "openedAt": "Geöffnet am",
+      "closedAt": "Geschlossen am",
+      "salesSeries": "Verkäufe",
+      "states": {
+        "open": "offen",
+        "closed": "geschlossen"
       }
     }
   },

@@ -32,7 +32,7 @@
     <v-row v-if="items.length > 0" class="mb-4">
       <v-col cols="12" md="6">
         <v-card>
-          <v-card-title class="text-subtitle-1">Payment Distribution</v-card-title>
+          <v-card-title class="text-subtitle-1">{{ $t('pos.sessions.paymentDistribution') }}</v-card-title>
           <v-card-text>
             <ChartView type="pie" :data="paymentPieData" :height="250" />
           </v-card-text>
@@ -40,7 +40,7 @@
       </v-col>
       <v-col cols="12" md="6">
         <v-card>
-          <v-card-title class="text-subtitle-1">Session Sales</v-card-title>
+          <v-card-title class="text-subtitle-1">{{ $t('pos.sessions.sales') }}</v-card-title>
           <v-card-text>
             <ChartView type="bar" :data="salesBarData" :height="250" />
           </v-card-text>
@@ -63,7 +63,7 @@
           hover
         >
           <template #item.status="{ item }">
-            <StatusPipeline :steps="['open', 'closed']" :current="item.status" />
+            <StatusPipeline :steps="[$t('pos.sessions.states.open'), $t('pos.sessions.states.closed')]" :current="$t(`pos.sessions.states.${item.status}`)" />
           </template>
           <template #item.openingBalance="{ item }">
             {{ fmtCurrency(item.openingBalance) }}
@@ -227,7 +227,7 @@ const statusFilter = ref<string | null>(null)
 const dateFrom = ref<string | null>(null)
 const dateTo = ref<string | null>(null)
 
-const statusOptions = ['open', 'closed']
+const statusOptions = computed(() => ['open', 'closed'].map(value => ({ title: t(`pos.sessions.states.${value}`), value })))
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
@@ -244,14 +244,14 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
 })
 
 const headers = computed(() => [
-  { title: 'Session #', key: 'sessionNumber', sortable: true },
+  { title: t('pos.sessions.number'), key: 'sessionNumber', sortable: true },
   { title: t('common.status'), key: 'status', sortable: true },
-  { title: 'Opening Balance', key: 'openingBalance', align: 'end' as const, sortable: true },
-  { title: 'Total Sales', key: 'totalSales', align: 'end' as const, sortable: true },
-  { title: 'Total Returns', key: 'totalReturns', align: 'end' as const, sortable: true },
-  { title: 'Transactions', key: 'transactionCount', align: 'end' as const, sortable: true },
-  { title: 'Opened At', key: 'openedAt', sortable: true },
-  { title: 'Closed At', key: 'closedAt', sortable: true },
+  { title: t('pos.openingBalance'), key: 'openingBalance', align: 'end' as const, sortable: true },
+  { title: t('pos.totalSales'), key: 'totalSales', align: 'end' as const, sortable: true },
+  { title: t('pos.sessions.totalReturns'), key: 'totalReturns', align: 'end' as const, sortable: true },
+  { title: t('pos.sessions.transactions'), key: 'transactionCount', align: 'end' as const, sortable: true },
+  { title: t('pos.sessions.openedAt'), key: 'openedAt', sortable: true },
+  { title: t('pos.sessions.closedAt'), key: 'closedAt', sortable: true },
   { title: '', key: 'actions', sortable: false, align: 'end' as const },
 ])
 
@@ -440,7 +440,7 @@ const salesBarData = computed(() => {
   return {
     labels: last10.map((s: any) => s.sessionNumber || `#${s.id?.slice(-4)}`),
     datasets: [{
-      label: 'Sales',
+      label: t('pos.sessions.salesSeries'),
       data: last10.map((s: any) => s.totalSales || 0),
       backgroundColor: 'rgba(33,150,243,0.6)',
     }],

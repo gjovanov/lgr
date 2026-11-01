@@ -1625,7 +1625,15 @@
         "noDriver": "LGR cannot open this {brand} device over this connection"
       },
       "operators": {
-        "eltradePassword": "On an Eltrade the password authorises the change: enter the operator's password on the device (4–8 digits). Three wrong passwords lock the device until it is switched off and on."
+        "eltradePassword": "On an Eltrade the password authorises the change: enter the operator's password on the device (4–8 digits). Three wrong passwords lock the device until it is switched off and on.",
+        "password": "Password",
+        "program": "Program on Device",
+        "read": "Read from Device",
+        "programmed": "Operator {n} programmed on device",
+        "wasRead": "Operator {n} read from device",
+        "programFailed": "Failed to program operator {n}",
+        "readFailed": "Failed to read operator {n}",
+        "numbered": "Operator {n}"
       },
       "paymentTypes": {
         "title": "Payment types",
@@ -1644,7 +1652,99 @@
         "nameCod": "Name {code} \"{name}\"",
         "codHint": "A cash-on-delivery payment prints in {code}. Name it so the receipt says \"{name}\".",
         "named": "{code} is now named \"{name}\" on the device",
-        "adminOnly": "Only an admin can name a payment type."
+        "adminOnly": "Only an admin can name a payment type.",
+        "readFailed": "Failed to read the payment types",
+        "nameFailed": "Failed to name the payment type"
+      },
+      "newTitle": "New POS Device",
+      "title": "POS Device",
+      "new": "New Device",
+      "tabs": {
+        "general": "General",
+        "operators": "Operators",
+        "reports": "Reports"
+      },
+      "number": "Device Number",
+      "numberHint": "The device's serial number (ИН на ФУ) as printed on its receipts, e.g. ED123456 — every УНП starts with it",
+      "numberLength": "Must be 8 characters",
+      "manufacturer": "Manufacturer",
+      "connectionType": "Connection Type",
+      "ip": "IP address or host",
+      "ipHint": "Reachable from the LGR server. A printer on the shop's own network is connected through the browser or LGR Desktop instead.",
+      "port": "Port",
+      "lastCommunication": "Last Communication",
+      "connect": "Connect",
+      "disconnect": "Disconnect",
+      "connected": "Connected to {device}",
+      "reconnected": "Device {device} reconnected",
+      "disconnected": "Device disconnected",
+      "connectFailed": "Connection failed",
+      "created": "Device created",
+      "saved": "Device saved",
+      "saveFailed": "Failed to save device",
+      "loadFailed": "Failed to load device",
+      "noNotes": "No notes",
+      "states": {
+        "online": "online",
+        "offline": "offline",
+        "error": "error"
+      },
+      "status": {
+        "title": "Device Status",
+        "hint": "Read the serial number, fiscal state, clock and error flags straight from the device (it must be connected).",
+        "responding": "Responding",
+        "model": "Model",
+        "serial": "Serial number",
+        "mismatch": "does not match Device Number {device}",
+        "fiscalMemory": "Fiscal memory",
+        "firmware": "Firmware",
+        "fiscalized": "Fiscalized",
+        "notFiscalized": "No — receipts print as service documents",
+        "clock": "Device clock",
+        "lastDocument": "Last document no.",
+        "paper": "Paper",
+        "paperOk": "OK",
+        "paperOut": "Out of paper",
+        "errors": "Errors",
+        "warnings": "Warnings",
+        "read": "Read Status",
+        "readFailed": "Failed to read device status"
+      },
+      "reports": {
+        "x": "Daily X-Report",
+        "xHint": "Print daily X-report (without closing the day).",
+        "z": "Daily Z-Report",
+        "zHint": "Print daily Z-report (closes the fiscal day).",
+        "operator": "Operator Report",
+        "fmByDate": "FM Report by Date",
+        "fmByNumber": "FM Report by Number",
+        "startNumber": "Start Number",
+        "endNumber": "End Number",
+        "ej": "Electronic Journal (KLEN)",
+        "xPrinted": "X-Report printed",
+        "xFailed": "Failed to print X-Report",
+        "zPrinted": "Z-Report printed",
+        "zFailed": "Failed to print Z-Report",
+        "operatorPrinted": "Operator report printed",
+        "operatorFailed": "Failed to print operator report",
+        "fmPrinted": "FM report printed",
+        "fmFailed": "Failed to print FM report",
+        "ejPrinted": "Electronic journal report printed",
+        "ejFailed": "Failed to print EJ report"
+      }
+    },
+    "sessions": {
+      "paymentDistribution": "Payment Distribution",
+      "sales": "Session Sales",
+      "number": "Session #",
+      "totalReturns": "Total Returns",
+      "transactions": "Transactions",
+      "openedAt": "Opened At",
+      "closedAt": "Closed At",
+      "salesSeries": "Sales",
+      "states": {
+        "open": "open",
+        "closed": "closed"
       }
     }
   },

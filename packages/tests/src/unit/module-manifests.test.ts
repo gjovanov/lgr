@@ -472,6 +472,42 @@ describe('what a person reads about the till', () => {
   })
 })
 
+describe('the till\'s pages', () => {
+  const VIEWS = ['invoicing-ui/src/pos/views', 'invoicing-ui/src/pos/components', 'ui-shared/src/components/cash-register'].flatMap(dir =>
+    readdirSync(join(PACKAGES, dir)).filter(f => f.endsWith('.vue')).map(f => ({
+      view: f,
+      src: readFileSync(join(PACKAGES, dir, f), 'utf8').replace(/<style[\s\S]*$/, '').replace(/<!--[\s\S]*?-->/g, ''),
+    })))
+
+  const LITERALS = [
+    /\s(?:label|hint|back-label|placeholder|title)="[^"]*[A-Za-z]{3}[^"]*"/g,
+    />\s*[A-Z][a-z]+[A-Za-z #.-]*\s*<\/(?:v-|th|td|div|span|p)/g,
+    /(?:showError|showSuccess|showSnackbar)\((?:'|`)/g,
+    /\|\|\s*(?:'|`)[A-Z][a-z]/g,
+    /\btitle: '[A-Z]/g,
+    /\? '[A-Z][a-z]+' : '[A-Z]/g,
+  ]
+
+  // The till is used in Bulgarian, and a literal reads in English there.
+  it('hold no text of their own', () => {
+    for (const { view, src } of VIEWS) {
+      expect({ view, literals: LITERALS.flatMap(re => [...src.matchAll(re)].map(m => m[0].trim())) }).toEqual({ view, literals: [] })
+    }
+  })
+
+  // A missing key prints the key.
+  it('name only what all four catalogues hold', () => {
+    const has = (messages: any, key: string) => key.split('.').reduce((at, part) => at?.[part], messages) !== undefined
+    for (const l of ['en', 'bg', 'de', 'mk']) {
+      const messages = JSON.parse(readFileSync(join(PACKAGES, 'ui-shared', 'src', 'locales', `${l}.json`), 'utf8'))
+      for (const { view, src } of VIEWS) {
+        const keys = [...src.matchAll(/\$?\bt\('([A-Za-z0-9_.]+)'/g)].map(m => m[1])
+        expect({ l, view, missing: keys.filter(k => !has(messages, k)) }).toEqual({ l, view, missing: [] })
+      }
+    }
+  })
+})
+
 describe('where a row of the journal opens', () => {
   const row = (origin: string, kind = 'sale') => ({ id: '6a1b', store: 'invoice', kind, origin })
   const view = { name: 'invoicing.cash-sales.view', params: { id: '6a1b' } }
