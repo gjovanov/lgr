@@ -251,7 +251,7 @@ test.describe('A draft of a new cash sale, left on the old form', () => {
     const main = warehouses.find((w: any) => w.code === 'WH-01') ?? warehouses[0]
     const warehouseId = main.id || main._id
     const { products } = await apiGet(admin, `/trade/pos/catalog?warehouseId=${warehouseId}&type=goods&size=100&sortOrder=desc`)
-    const product = products.find((p: any) => (p.stockAvailable ?? 0) >= 2 && p.unitPrice > 0)
+    const product = products.find((p: any) => (p.stockAvailable ?? 0) >= 5 && p.unitPrice > 0)
     await seedPendingChange(page, session, {
       id: 'old-cash-draft', entityType: 'cashSale', mode: 'create', appId: 'invoicing',
       routeName: 'invoicing.cash-sales.new', routeParams: {}, routePath: '/invoicing/cash-sales/new',
@@ -313,6 +313,29 @@ test.describe('A draft of a new cash sale, left on the old form', () => {
     await page.getByRole('button', { name: /^save$/i }).first().click()
     await expect(page).toHaveURL(/\/invoicing\/cash-sales$/, { timeout: 15000 })
     expect(await stockOf(product)).toBe(before - 2)
+  })
+
+  // The form's own wiring of the rule the invoices have.
+  test('a price typed on the form stays through a quantity, and is the price issued', async ({ page }) => {
+    const session = await apiLogin('acme-corp', 'accountant', 'test123')
+    const product = await seedDraft(page, session)
+    await loginForApp(page, 'acme-corp', 'accountant', 'test123')
+    await page.goto('/invoicing/invoices')
+    await restoreEntry(page, NOTE)
+    await restoredOnTheForm(page, product)
+
+    const price = page.getByTestId('price-combobox').locator('input').first()
+    await price.fill('12.5')
+    await price.press('Tab')
+    await page.getByRole('button', { name: 'Increase quantity' }).click()
+    await expect(page.getByTestId('cart-qty').locator('input')).toHaveValue('3')
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByTestId('price-combobox')).toContainText('12.50000')
+
+    await page.getByRole('button', { name: /^save$/i }).first().click()
+    await expect(page).toHaveURL(/\/invoicing\/cash-sales$/, { timeout: 15000 })
+    const { invoices } = await apiGet(session, '/invoices?type=cash_sale&sortBy=createdAt&sortOrder=desc&size=1')
+    expect(invoices[0].lines[0].unitPrice).toBe(12.5)
   })
 
   test('reopens on the form from the terminal too', async ({ page }) => {

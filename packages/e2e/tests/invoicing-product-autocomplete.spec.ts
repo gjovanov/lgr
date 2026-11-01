@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
-import { apiGet, apiLogin } from './helpers/api'
+import { apiGet, apiLogin, apiPost } from './helpers/api'
 import { lineDescription, lineQuantity, lineUnitPrice, restoreEntry } from './helpers/document-form'
 
 /**
@@ -16,6 +16,37 @@ import { lineDescription, lineQuantity, lineUnitPrice, restoreEntry } from './he
 test.use({ viewport: { width: 1280, height: 1200 } })
 
 test.describe('Invoicing Product Autocomplete', () => {
+  // The other half of the pin: a price nobody typed goes on resolving. Pinned, tiers stop working.
+  test('a resolved price follows the quantity, a focus on the field changing nothing', async ({ page }) => {
+    const sku = `E2E-TIER-${Date.now()}`
+    const created = await apiPost(await apiLogin(), '/warehouse/product', {
+      sku, name: `Tiered ${sku}`, category: 'Test', type: 'goods', unit: 'pcs', sellingPrice: 10, taxRate: 20,
+      priceTiers: [{ name: 'Bulk', percent: 0, finalPrice: 8, manualOverride: true, contactIds: [], tags: [], minQuantity: 5 }],
+    })
+    expect(created.ok).toBe(true)
+    await loginForApp(page)
+    await page.goto('/invoicing/invoices/new')
+    await expect(page.getByRole('heading', { name: /new invoice/i })).toBeVisible({ timeout: 10000 })
+
+    await page.locator('.v-autocomplete input').first().click({ force: true })
+    await page.locator('.v-overlay .v-list-item').first().click()
+    await page.getByRole('button', { name: /add line/i }).click()
+    const row = page.locator('.v-table tbody tr').first()
+    await lineDescription(row).locator('input').first().fill(sku)
+    const found = page.locator('.pld-overlay .pld-item').first()
+    await expect(found).toBeVisible({ timeout: 5000 })
+    await found.scrollIntoViewIfNeeded()
+    await found.click({ force: true })
+    await expect(row.getByTestId('price-combobox')).toContainText('10.00000', { timeout: 5000 })
+
+    await lineUnitPrice(row).click()
+    await lineUnitPrice(row).press('Tab')
+
+    await lineQuantity(row).fill('5')
+    await lineQuantity(row).press('Tab')
+    await expect(row.getByTestId('price-combobox')).toContainText('8.00000', { timeout: 5000 })
+  })
+
   // A resolved price comes back by itself; one the person typed must not be replaced by it.
   test('a typed price stays through a quantity and a draft, and is the price issued', async ({ page }) => {
     await loginForApp(page)
