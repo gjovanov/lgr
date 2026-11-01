@@ -243,18 +243,20 @@ them into PRs.
     - The supplier feeds no journal entry: a receipt's valuation entry carries no contact. The
       product ledger, the reports and the contact's movement count name it from then on.
     - A receipt that still cannot be billed says why on its page (`notBillable`): not completed yet,
-      a voided document's own, a reversal, or no delivery at all. Neither a reversal nor these can be
-      billed or overlap a bill, because a bill linked to one moves no stock and the real delivery is
-      never booked:
+      a voided document's own, a reversal, or no delivery at all. None of the following can be billed
+      or overlap a bill, because a bill linked to one moves no stock and the real delivery is never
+      booked:
       - `reverseMovement` (Files rollback) books the mirror of a dispatch as a `receipt`;
       - a receipt rolled back with its document stays `completed`, but its goods have left again.
         `reverseMovement` stamps it (`reversedBy`, `reversedAt`), and it answers
         `receipt_rolled_back`;
       - a rolled-back till sale that named no customer leaves one pointing at a document that is gone.
         One that named a customer reads as a claim a crash left behind, and stays free;
-      - a receipt naming no supplier whose notes mark a correction, a reconcile delta or a day's
-        aggregate (`receipt_not_a_delivery`, `config/movement-notes`, which the writers and this
-        reader share). A day's aggregate holds several suppliers, and a bill takes a receipt whole.
+      - a receipt naming no supplier whose notes mark a correction (its `corr:` marker, or the partner
+        „2000 КОРЕКЦИЯ", which is all the API scripts leave), a reconcile delta, a day's aggregate, or
+        the goods coming back on a negative line of a transfer or write-off note
+        (`receipt_not_a_delivery`, `config/movement-notes`, which the writers and this reader share).
+        A day's aggregate holds several suppliers, and a bill takes a receipt whole.
     - Own-store and „склад" разписки carry no such mark, so the two dialogs show a no-supplier
       receipt's notes on its row, and never tick one for the person. Only a lone receipt naming the
       supplier is ticked, however many that name nobody stand beside it.
