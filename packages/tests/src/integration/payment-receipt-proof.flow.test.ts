@@ -326,6 +326,28 @@ describe('what a leftover on the device says about this document (finding 1)', (
     expect((await Invoice.findOne({ type: 'cash_storno', orgId: w.oid }).lean().exec() as any).status).toBe('voided')
   })
 
+  it('a paid leftover that cannot be cleared says nothing about this document: failed, and nothing abandoned on its behalf', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    w.sim!.receipt = { kind: 'fiscal', header: [], sales: [], texts: [], payments: [{ mode: 'P', amount: 5 }], total: 5, paid: 5 }
+    let once = true
+    w.sim!.beforeCommand = cmd => {
+      if (cmd === VOID && once) {
+        once = false
+        throw new Error('Bridge disconnected')
+      }
+    }
+
+    const r = await pay(w, d.id, 24)
+
+    expect(r.status).toBe(503)
+    expect(r.json.code).toBe('fiscal_error')
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    // It is still there for the next document to deal with: nobody finished it in this one's name.
+    expect(w.sim!.receipt).not.toBeNull()
+    expect(closedOnDevice(w)).toHaveLength(0)
+  })
+
   it('a device that cannot be cleared answers as one that cannot open: nothing reached it for this document', async () => {
     const w = await tillWorld(app)
     const d = await onBank(w)

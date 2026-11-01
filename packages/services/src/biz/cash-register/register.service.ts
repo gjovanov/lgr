@@ -324,7 +324,11 @@ async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promis
   try {
     await printer.clearLeftovers?.()
   } catch (e: any) {
-    return afterFailedPrint(printer, doc, undefined, Object.assign(e, { printStage: 'opening' }))
+    // Nothing of this document reached the device. ⚠ Not `afterFailedPrint`: abandoning here would act on
+    // the earlier document's receipt, and its fallback finishing THAT one says nothing about this one.
+    logger.error({ documentId: String(doc._id), error: e?.message }, 'Fiscal device could not be cleared: nothing of this document reached it')
+    await printer.failed().catch(() => {})
+    return setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': e?.message, receiptError: e?.message })
   }
   // The counter goes on the record BEFORE this document touches the device.
   const counterBefore = await printer.lastReceiptNumber().catch(() => undefined)
