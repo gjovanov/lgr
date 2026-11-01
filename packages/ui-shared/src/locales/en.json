@@ -1576,6 +1576,7 @@
       "printed": "The session report was printed on the fiscal device.",
       "notPrinted": "The session report did not print: {error}. The session is closed; print it again from here or from POS Sessions.",
       "sales": "Sales",
+      "payments": "Invoice payments",
       "stornos": "Stornos",
       "voided": "Voided stornos",
       "fiscal": "Fiscal receipts",

@@ -814,7 +814,7 @@ describe('a debit note (§2.2)', () => {
   })
 })
 
-describe('cash on delivery on an invoice (Q-2, as proposed)', () => {
+describe('cash on delivery on an invoice (Q-2)', () => {
   it('prints at issue in slot R, and the invoice stays due until the courier pays', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w, { method: 'cash_on_delivery' })

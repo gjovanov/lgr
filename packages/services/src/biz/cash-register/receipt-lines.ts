@@ -16,8 +16,7 @@ import { roundCents } from 'config/pos-totals'
  * printed as lines: such a payment prints the per-rate shape, which is exact by construction. So does
  * a device with no text line inside a fiscal receipt, and the number is then the line's name.
  *
- * The wording is Bulgarian on every org's receipt, as the device's own text is. The accountant
- * confirms it against Н-18 (Q-3).
+ * The wording is Bulgarian on every org's receipt, as the device's own text is (Q-3).
  *
  * Import-pure: the receipt's document, the freeze and their unit tests all read it.
  */

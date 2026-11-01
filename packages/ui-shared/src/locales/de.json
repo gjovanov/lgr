@@ -875,6 +875,7 @@
       "printed": "Der Sitzungsbericht wurde auf dem Fiskalgerät gedruckt.",
       "notPrinted": "Der Sitzungsbericht wurde nicht gedruckt: {error}. Die Sitzung ist geschlossen; drucken Sie ihn hier oder unter POS-Sitzungen erneut.",
       "sales": "Verkäufe",
+      "payments": "Rechnungszahlungen",
       "stornos": "Stornos",
       "voided": "Ungültige Stornos",
       "fiscal": "Fiskalbelege",
