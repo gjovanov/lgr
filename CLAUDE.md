@@ -2355,8 +2355,8 @@ invoice still due until the courier pays).
 - **The session counts it, its close JE does not.** Its increments are a sale's (`saleIncrements`), so
   `totalSales` is what the device rang and agrees with the Z-report. `counts.payments` on the report is
   absent when zero, so an older report keeps its shape.
-- **The steps** (`payment-receipt.service.ts`, `runReceiptSteps`): hold → number → УНП → print once →
-  session totals → payment → complete. ⚠ The hold (`Invoice.receiptHolds`) is taken before the number, in
+- **The steps** (`payment-receipt.service.ts`, `runReceiptSteps`): hold → number → in its turn, how it
+  prints and its УНП → print once → session totals → payment → complete. ⚠ The hold (`Invoice.receiptHolds`) is taken before the number, in
   one atomic update with the check that the amount fits, so a loser burns no number; `fitsDue` counts it
   in every payment, so a bank payment recorded during the print cannot take the same money.
 - ⚠ **One turn per device** (`fiscal/device-turn.ts`): from the counter read to the close, for a sale, a

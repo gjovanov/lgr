@@ -9,7 +9,11 @@
  *
  * The steps are the till's (#155), resumable, each recorded on the document:
  *
- *   hold the amount → number → УНП → print once → session totals → payment → complete → audit
+ *   hold the amount → number → in its turn: how it prints, УНП → print once → session totals →
+ *   payment → complete → audit
+ *
+ * **How it prints** is the device's to say (`receiptMode`): a device that is not fiscalized prints a
+ * text receipt, which has no УНП, moves no fiscal day and takes the money all the same.
  *
  * **The hold.** The amount is held on the invoice before anything else is drawn, in one atomic
  * update with the check that it fits (`receiptHolds`), so of two payments at once one gives way with
