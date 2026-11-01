@@ -2982,6 +2982,19 @@ describe('§2.7 — once a receipt has printed, the total is the receipt\'s', ()
   })
 })
 
+describe('a notes edit on a paid document with no payment rows (the second review, finding 8)', () => {
+  it('moves no money, so amountPaid stays, and the register keeps its column', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    await Invoice.updateOne({ _id: d.id }, { $set: { paymentMethod: 'cash', status: 'paid', amountPaid: 24, amountDue: 0, payments: [] } })
+
+    expect((await w.call('PUT', `/invoices/${d.id}`, { notes: 'a note' })).status).toBe(200)
+
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24, amountDue: 0, notes: 'a note' })
+  })
+})
+
 describe('the write that follows a money-moving edit (the second review, finding 5)', () => {
   /** A cash invoice whose receipt failed: issued, unpaid, its total free to move. */
   async function unpaidCash(w: TillWorld) {

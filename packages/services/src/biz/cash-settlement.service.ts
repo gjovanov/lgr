@@ -153,7 +153,8 @@ async function applySettlement(orgId: string, invoiceId: string, userId: string,
   // Not settling, only what this rule would have kept in line where nothing prints is its business.
   if (!settles && !origin && !auto.length) return NONE
 
-  const paid = sum(next)
+  // A rule that moved no money leaves what was paid as it was: a paid old document may have no rows.
+  const paid = added || removed ? sum(next) : round2(inv.amountPaid)
   // What is owed now. A total lowered below what was taken stays paid, and that stays recorded for a
   // person to correct; with nothing paid and nothing withdrawn the status is not this rule's to move.
   const status = paid > 0 || removed ? statusFor(total, paid) : inv.status
