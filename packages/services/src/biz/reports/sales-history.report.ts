@@ -74,7 +74,7 @@ export function effectiveMethods(doc: {
   const total = Number(doc.total) || 0
   // FR-23: where LGR prints, a cash or card invoice whose receipt failed is issued and unpaid. Its
   // header says how it is to be paid, not that it was: the document stays listed, and no money counts.
-  if (doc.amountPaid === 0 && UNPAID_UNTIL_PRINTED.has(String(doc.paymentMethod)) && doc.type !== 'cash_sale' && doc.type !== 'cash_storno') {
+  if (doc.amountPaid === 0 && (doc.type === 'invoice' || doc.type === 'debit_note') && UNPAID_UNTIL_PRINTED.has(String(doc.paymentMethod))) {
     return [{ method: String(doc.paymentMethod), amount: 0 }]
   }
   if (doc.paymentMethod) return [{ method: String(doc.paymentMethod), amount: total }]

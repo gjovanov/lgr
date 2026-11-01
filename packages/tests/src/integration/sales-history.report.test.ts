@@ -50,6 +50,16 @@ async function seed() {
 // ── the precedence rule, in isolation ───────────────────────────────────────
 
 describe('effectiveMethods (FR-8.4)', () => {
+  it('a cash or card header on an unpaid invoice is not money yet (FR-23): its receipt did not print', () => {
+    for (const type of ['invoice', 'debit_note']) {
+      expect(effectiveMethods({ type, paymentMethod: 'cash', total: 50, amountPaid: 0 })).toEqual([{ method: 'cash', amount: 0 }])
+      expect(effectiveMethods({ type, paymentMethod: 'card', total: 50, amountPaid: 0 })).toEqual([{ method: 'card', amount: 0 }])
+    }
+    // What is not printed for stays as it was: a credit note's header still counts against the bucket.
+    expect(effectiveMethods({ type: 'credit_note', paymentMethod: 'cash', total: 50, amountPaid: 0 })).toEqual([{ method: 'cash', amount: 50 }])
+    expect(effectiveMethods({ type: 'invoice', paymentMethod: 'bank_transfer', total: 50, amountPaid: 0 })).toEqual([{ method: 'bank_transfer', amount: 50 }])
+  })
+
   it('prefers payment rows over the header method', () => {
     expect(effectiveMethods({
       type: 'invoice', paymentMethod: 'cash', total: 100,
