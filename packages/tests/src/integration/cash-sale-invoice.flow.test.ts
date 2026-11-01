@@ -288,7 +288,9 @@ describe('an invoice for a cash sale', () => {
     expect(changed.status).toBe(422)
     expect(changed.json.code).toBe('invoice_for_cash_sale_issued')
 
-    const redated = await w.call('PUT', `/${inv._id}`, { issueDate: '2026-11-01' })
+    // A day the invoice is NOT on. It was issued today, so a fixed date became a no-op on 2026-11-01.
+    const otherDay = new Date(new Date(inv.issueDate).getTime() + 86_400_000).toISOString().slice(0, 10)
+    const redated = await w.call('PUT', `/${inv._id}`, { issueDate: otherDay })
     expect(redated.status).toBe(422)
 
     const ok = await w.call('PUT', `/${inv._id}`, { contactId: String(w.other._id), notes: 'Към касова бележка', total: 1, lines })

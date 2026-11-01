@@ -14,28 +14,36 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { config } from 'config'
 
 const MAX_SKEW_S = 30
-let key: Buffer | null = null
+/** The tunnel's hop (FR-20.73). */
+export const TUNNEL_HOP = 'lgr-tunnel-hop/1'
+/** FR-24.51: a till request forwarded to the pod holding its printer. Its own key: neither passes for the other. */
+export const FISCAL_HOP = 'lgr-fiscal-hop/1'
+const keys = new Map<string, Buffer>()
 
-function mac(ts: number, method: string, host: string, path: string, client: string): string {
-  key ??= createHmac('sha256', config.jwt.secret).update('lgr-tunnel-hop/1').digest()
+function mac(ts: number, method: string, host: string, path: string, client: string, label = TUNNEL_HOP): string {
+  let key = keys.get(label)
+  if (!key) {
+    key = createHmac('sha256', config.jwt.secret).update(label).digest()
+    keys.set(label, key)
+  }
   return createHmac('sha256', key).update(`${ts}\n${method.toUpperCase()}\n${host.toLowerCase()}\n${path}\n${client}`).digest('base64url')
 }
 
 /** The headers that make a forwarded request a hop. `path` includes the query. */
-export function hopHeaders(method: string, host: string, path: string, client: string | null, now = Date.now()): Record<string, string> {
+export function hopHeaders(method: string, host: string, path: string, client: string | null, now = Date.now(), label = TUNNEL_HOP): Record<string, string> {
   const ts = Math.floor(now / 1000)
-  return { 'x-lgr-hop': `${ts}.${mac(ts, method, host, path, client ?? '')}`, 'x-lgr-hop-client': client ?? '' }
+  return { 'x-lgr-hop': `${ts}.${mac(ts, method, host, path, client ?? '', label)}`, 'x-lgr-hop-client': client ?? '' }
 }
 
 /** The browser's address when this request is a hop from another pod; null when it is not one. */
-export function verifyHop(request: Request, now = Date.now()): { clientIp: string | null } | null {
+export function verifyHop(request: Request, now = Date.now(), label = TUNNEL_HOP): { clientIp: string | null } | null {
   const m = /^(\d{1,12})\.([A-Za-z0-9_-]{43})$/.exec(request.headers.get('x-lgr-hop') ?? '')
   if (!m) return null
   const ts = Number(m[1])
   if (Math.abs(now / 1000 - ts) > MAX_SKEW_S) return null
   const url = new URL(request.url)
   const client = request.headers.get('x-lgr-hop-client') ?? ''
-  const want = Buffer.from(mac(ts, request.method, request.headers.get('host') ?? url.host, url.pathname + url.search, client))
+  const want = Buffer.from(mac(ts, request.method, request.headers.get('host') ?? url.host, url.pathname + url.search, client, label))
   const got = Buffer.from(m[2])
   if (want.length !== got.length || !timingSafeEqual(want, got)) return null
   return { clientIp: client || null }
@@ -43,5 +51,5 @@ export function verifyHop(request: Request, now = Date.now()): { clientIp: strin
 
 /** Tests only: a new secret makes a new key. */
 export function forgetHopKey(): void {
-  key = null
+  keys.clear()
 }

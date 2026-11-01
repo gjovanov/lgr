@@ -13,7 +13,7 @@
  * - The other pod unreachable: the router answers that the server is not connected.
  */
 import { NodePresence } from 'db/models'
-import { hopHeaders } from './hop.js'
+import { TUNNEL_HOP, hopHeaders } from './hop.js'
 import { podAddr } from './pod.js'
 
 /** The uplink's own liveness rule (`uplink.ts`): a row silent this long holds nothing. */
@@ -34,7 +34,7 @@ export async function holderOf(nodeId: string, now = Date.now()): Promise<string
   return row.podAddr !== podAddr() ? String(row.podAddr) : null
 }
 
-function forwardedHeaders(request: Request, client: string | null, extraDrop: (name: string) => boolean): Record<string, string> {
+function forwardedHeaders(request: Request, client: string | null, extraDrop: (name: string) => boolean, label = TUNNEL_HOP): Record<string, string> {
   const url = new URL(request.url)
   const host = request.headers.get('host') ?? url.host
   const out: Record<string, string> = {}
@@ -44,14 +44,14 @@ function forwardedHeaders(request: Request, client: string | null, extraDrop: (n
     out[n] = value
   })
   out.host = host
-  return Object.assign(out, hopHeaders(request.method, host, url.pathname + url.search, client))
+  return Object.assign(out, hopHeaders(request.method, host, url.pathname + url.search, client, Date.now(), label))
 }
 
 /** The request, through the other pod. Null when that pod cannot be reached. */
-export async function forwardHttp(to: string, request: Request, client: string | null): Promise<Response | null> {
+export async function forwardHttp(to: string, request: Request, client: string | null, opts: { hopLabel?: string } = {}): Promise<Response | null> {
   const url = new URL(request.url)
   // The body is streamed, so its length is the transfer's to state.
-  const headers = forwardedHeaders(request, client, n => n === 'content-length')
+  const headers = forwardedHeaders(request, client, n => n === 'content-length', opts.hopLabel)
   const body = request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body ?? undefined
   let res: Response
   try {
