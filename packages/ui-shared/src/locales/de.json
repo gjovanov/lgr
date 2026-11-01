@@ -1645,7 +1645,7 @@
       "dialogHint": "Wareneingänge dieses Lieferanten, die noch keine Rechnung bezahlt, und Wareneingänge ohne Lieferant. Ihre Zeilen werden die Zeilen der Rechnung; die Rechnung bewegt keinen Bestand.",
       "none": "Es gibt keinen offenen Wareneingang von diesem Lieferanten oder ohne Lieferant.",
       "noSupplier": "ohne Lieferant",
-      "replaceWarning": "Die erfasste Zeile dieser Rechnung wird durch die Zeilen der Lieferung ersetzt. Nummer, Daten und Zahlungsart bleiben. | Die {count} erfassten Zeilen dieser Rechnung werden durch die Zeilen der Lieferung ersetzt. Nummer, Daten und Zahlungsart bleiben.",
+      "replaceWarning": "Die erfasste Zeile dieser Rechnung und ihr Preis werden durch die Zeilen der Lieferung ersetzt, zu den Preisen des Wareneingangs. Nummer, Daten und Zahlungsart bleiben. | Die {count} erfassten Zeilen dieser Rechnung und ihre Preise werden durch die Zeilen der Lieferung ersetzt, zu den Preisen des Wareneingangs. Nummer, Daten und Zahlungsart bleiben.",
       "replaceConfirm": "Zeilen ersetzen und verknüpfen",
       "receiptLines": "{n} Zeilen",
       "confirm": "Verknüpfen",

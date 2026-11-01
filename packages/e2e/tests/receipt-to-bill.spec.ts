@@ -172,6 +172,9 @@ test.describe('a receipt with no supplier (FR-22.31a)', () => {
     await row(anonymous.number).locator('input[type="checkbox"]').check()
     await page.getByTestId('link-delivery-confirm').click()
     await expect(page.getByTestId('bill-receipts')).toContainText(anonymous.number)
+    // No prices were typed on this bill, so there are none to read again.
+    await expect(snackbar(page)).toContainText('свързана с доставката')
+    await expect(snackbar(page)).not.toContainText('Прегледайте цените')
     expect((await movementOf(w, anonymous.id)).contactId).toBe(w.supplier._id)
   })
 
@@ -253,7 +256,9 @@ test.describe('a typed bill takes a delivery (FR-22.32a)', () => {
     await page.goto(`/invoicing/bills/${bill.id}/edit`, { waitUntil: 'networkidle' })
     await page.getByTestId('link-delivery-btn').click()
     const dialog = page.getByTestId('link-delivery-dialog')
-    await expect(dialog.getByTestId('replace-lines-warning')).toContainText('ще бъде заменен с редовете на доставката')
+    await expect(dialog.getByTestId('replace-lines-warning')).toContainText('ще бъдат заменени с редовете на доставката')
+    await expect(dialog.getByTestId('replace-lines-warning')).toContainText('цената му')
+    await expect(dialog.getByTestId('replace-lines-warning')).toContainText('на цените от разписката')
     await expect(dialog.getByTestId('replace-lines-warning')).toContainText('Номерът, датите и начинът на плащане остават')
     await expect(page.getByTestId('link-delivery-confirm')).toHaveText(/Замени редовете и свържи/)
     // However long the list runs, what linking does stays in view beside its button.
@@ -263,7 +268,7 @@ test.describe('a typed bill takes a delivery (FR-22.32a)', () => {
     await page.getByTestId('link-delivery-confirm').click()
 
     await expect(page.getByTestId('bill-receipts')).toContainText(r.number)
-    await expect(snackbar(page)).toContainText('свързана с доставката')
+    await expect(snackbar(page)).toContainText('Прегледайте цените')
     const linked = await billOf(w, bill.id)
     expect(linked.lines.map((l: any) => [l.quantity, l.unitPrice])).toEqual([[5, 2.5]])
     expect([linked.invoiceNumber, linked.reference, linked.issueDate, linked.dueDate]).toEqual([before.invoiceNumber, before.reference, before.issueDate, before.dueDate])
@@ -375,7 +380,7 @@ test.describe('receiving warns before it double-books (FR-22.31c)', () => {
     const dialog = page.getByTestId('receipt-overlap-dialog')
     await expect(dialog).toContainText('Тази стока може вече да е в склада')
     await expect(dialog.getByTestId('receipt-overlap-row')).toContainText(r.number)
-    await expect(dialog.getByTestId('replace-lines-warning')).toContainText('ще бъде заменен')
+    await expect(dialog.getByTestId('replace-lines-warning')).toContainText('ще бъдат заменени')
     expect((await billOf(w, bill.id)).status).toBe('draft')
     expect(await stockOf(w)).toBe(stock)
 

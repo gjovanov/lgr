@@ -643,7 +643,14 @@ export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: st
     entityName: bill.invoiceNumber,
     changes: [
       { field: 'receipts', oldValue: null, newValue: numbers },
-      ...(filled.length ? [{ field: 'lines', oldValue: filled.length, newValue: lines.length }] : []),
+      // The bill no longer holds the supplier's figures, and this is the only record of them.
+      ...(filled.length ? [
+        { field: 'lines', oldValue: filled.map(auditedLine), newValue: lines.map(auditedLine) },
+        { field: 'subtotal', oldValue: num(bill.subtotal), newValue: totals.subtotal },
+        { field: 'taxTotal', oldValue: num(bill.taxTotal), newValue: totals.taxTotal },
+        { field: 'total', oldValue: num(bill.total), newValue: totals.total },
+      ] : []),
+      ...(bill.contactId ? [] : [{ field: 'contactId', oldValue: null, newValue: supplierId }]),
     ],
   })
   auditSupplier(orgId, actor.id, billId, unnamed, { oldValue: null, newValue: supplierId })
@@ -655,6 +662,11 @@ export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: st
     })
   }
   return getRepos().invoices.findOne({ id: billId, orgId } as any)
+}
+
+/** A bill line as the audit trail keeps it: the article, how many, at what price. */
+function auditedLine(l: any) {
+  return { productId: idOf(l.productId) || null, description: l.description, quantity: num(l.quantity), unitPrice: num(l.unitPrice) }
 }
 
 /** The lines of a bill that say something: the form keeps a blank one at the bottom. */

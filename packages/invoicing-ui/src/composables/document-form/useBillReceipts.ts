@@ -116,6 +116,9 @@ export function useBillReceipts(doc: DocForm) {
   async function linkDelivery() {
     if (!selected.value.length) return
     linking.value = true
+    // Read now: the reload below shows the delivery's lines. They carry the receipt's costs in place
+    // of the prices typed, so the bill needs reading against the supplier's paper before it is received.
+    const replaced = filledLines.value > 0
     try {
       if (doc.isEdit.value) {
         // What the form holds and the bill does not would go with the reload below: the supplier's
@@ -153,7 +156,7 @@ export function useBillReceipts(doc: DocForm) {
       }
       dialogOpen.value = false
       await doc.loadDocument()
-      showSuccess(t('invoicing.linkDelivery.linked'))
+      showSuccess(t(replaced ? 'invoicing.receiptOverlap.linked' : 'invoicing.linkDelivery.linked'))
     } catch (e: any) {
       showError(stockRefusalMessage(e, t))
     } finally {

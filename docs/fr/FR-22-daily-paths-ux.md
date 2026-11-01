@@ -299,8 +299,12 @@ them into PRs.
   - **FR-22.32a (MUST)** A draft bill with typed lines can take a delivery.
     - `POST /:id/link-receipts` takes `replaceLines: true`; without it, 422 `bill_not_empty` stands,
       so an older client changes nothing. Only drafts: `bill_not_draft` stands.
-    - The form says first that the typed lines are replaced by the delivery's lines. The bill keeps
-      its own number, reference, dates, payment method and notes.
+    - The form says first that the typed lines and their prices are replaced by the delivery's lines,
+      at the receipt's costs. The bill keeps its own number, reference, dates, payment method and
+      notes. After a replacement both doors say to check the prices, then receive it: the user reads
+      them against the supplier's paper (D-2).
+    - The audit entry keeps what the bill no longer holds: the typed lines (article, quantity, price),
+      the old and new totals, and a supplier the link wrote.
     - The save before a link sends no product updates: the typed lines' staged prices must not reach
       the catalog from lines about to be thrown away. „Запази и получи" that ends in the overlap
       question is different. That save is the person's own, it stands, and linking from the question

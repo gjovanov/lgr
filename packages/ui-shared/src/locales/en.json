@@ -1237,7 +1237,7 @@
       "dialogHint": "This supplier's goods receipts that no bill pays for yet, and receipts that name no supplier. Their lines become the bill's lines, and the bill moves no stock.",
       "none": "No goods receipt left to bill, from this supplier or from none.",
       "noSupplier": "no supplier",
-      "replaceWarning": "The line typed on this bill will be replaced by the delivery's lines. The bill's number, dates and payment method stay. | The {count} lines typed on this bill will be replaced by the delivery's lines. The bill's number, dates and payment method stay.",
+      "replaceWarning": "The line typed on this bill and its price will be replaced by the delivery's lines, at the prices on the receipt. The bill's number, dates and payment method stay. | The {count} lines typed on this bill and their prices will be replaced by the delivery's lines, at the prices on the receipt. The bill's number, dates and payment method stay.",
       "replaceConfirm": "Replace the lines and link",
       "receiptLines": "{n} lines",
       "confirm": "Link",

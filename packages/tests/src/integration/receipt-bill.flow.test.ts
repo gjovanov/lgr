@@ -987,6 +987,37 @@ describe('a typed draft bill takes a delivery (FR-22.32a)', () => {
     expect((await w.mv(r._id)).invoiceId).toBeUndefined()
   }, 60_000)
 
+  it('the audit trail keeps what the bill no longer holds: the typed lines, the old totals, a supplier it wrote', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 10, 5]], { contactId: null })
+    const created = await w.call('POST', '/invoices', {
+      type: 'invoice', direction: 'incoming', issueDate: '2026-10-21', currency: 'EUR', subtotal: 54, taxTotal: 10.8, total: 64.8,
+      lines: [{ productId: String(w.bolt._id), warehouseId: String(w.warehouse._id), description: w.bolt.name, quantity: 10, unitPrice: 5.4, taxRate: 20 }],
+    })
+    const id = created.json.invoice.id
+    const linked = await w.linkReceipts(created.json.invoice, [r._id], { replaceLines: true, contactId: String(w.supplier._id) })
+    expect(linked.status).toBe(200)
+
+    const audit = await auditRow({ orgId: w.org._id, module: 'invoicing', entityType: 'invoice', action: 'update', entityId: (await w.load(id))._id })
+    const field = (name: string) => audit.changes.find((c: any) => c.field === name)
+    expect(field('receipts').newValue).toBe(r.movementNumber)
+    expect(field('lines').oldValue).toEqual([{ productId: String(w.bolt._id), description: w.bolt.name, quantity: 10, unitPrice: 5.4 }])
+    expect(field('lines').newValue).toEqual([{ productId: String(w.bolt._id), description: w.bolt.name, quantity: 10, unitPrice: 5 }])
+    expect([field('subtotal').oldValue, field('subtotal').newValue]).toEqual([54, 50])
+    expect([field('taxTotal').oldValue, field('taxTotal').newValue]).toEqual([10.8, 10])
+    expect([field('total').oldValue, field('total').newValue]).toEqual([64.8, 60])
+    expect([field('contactId').oldValue, String(field('contactId').newValue)]).toEqual([null, String(w.supplier._id)])
+  }, 60_000)
+
+  it('a bill that had no lines and kept its supplier has nothing more to record', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 10, 5]])
+    const empty = await w.call('POST', '/invoices', { type: 'invoice', direction: 'incoming', contactId: String(w.supplier._id), issueDate: '2026-10-21', currency: 'EUR', lines: [], subtotal: 0, total: 0 })
+    expect((await w.linkReceipts(empty.json.invoice, [r._id])).status).toBe(200)
+    const audit = await auditRow({ orgId: w.org._id, module: 'invoicing', entityType: 'invoice', action: 'update', entityId: (await w.load(empty.json.invoice.id))._id })
+    expect(audit.changes.map((c: any) => c.field)).toEqual(['receipts'])
+  }, 60_000)
+
   it('a claim lost after the lines were replaced puts the typed lines back', async () => {
     const w = await world()
     const r = await w.receipt([[w.bolt, 2, 5]])
