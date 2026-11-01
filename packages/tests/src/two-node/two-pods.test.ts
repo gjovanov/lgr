@@ -3,6 +3,7 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { PERMISSIONS } from 'config/constants'
 import { mongoose } from 'db/connection'
+import { Invoice } from 'db/models'
 import { createTestContact, createTestOrg, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { IslResponseCollector } from 'ui-shared/composables/fiscalIslResponse'
@@ -13,6 +14,10 @@ import { startTwoPods, type TwoPods } from './harness'
  * simulated Eltrade bridged to pod A, and the till's requests sent to pod B. Each must print on the
  * device through A, exactly once; with A gone, B refuses with nothing done. Runs with `LGR_TWO_NODE=1`
  * (CI, beside two-node.test.ts).
+ *
+ * FR-23's doors are in it: an invoice issued, a payment and a delivery receipt, asked of pod B. With
+ * pod A gone no receipt is skipped and no money is booked without one (FR-24.52): held elsewhere is
+ * never offline, and once the row has lapsed and it is, the printer gate refuses instead.
  */
 
 const enabled = process.env.LGR_TWO_NODE === '1'
@@ -24,8 +29,10 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
   let warehouseId = ''
   let contactId = ''
   let token = ''
-  /** An issued invoice, part paid on pod B, that pod B still owes a receipt for when pod A dies. */
+  /** What pod A's crash leaves to ask of pod B: a part-paid invoice, a delivery receipt owed, a cash draft. */
   let stillDue = ''
+  let owedReceipt = ''
+  let cashDraft = ''
   const sim = new EltradeSimulator()
   let bridge: WebSocket | null = null
 
@@ -137,6 +144,30 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
     stillDue = id
   })
 
+  it('a cash-on-delivery print that failed prints on its own, asked of pod B, and books no money (FR-23)', async () => {
+    const failsAtIssue = async () => {
+      const id = await invoiceOnPodB('cash_on_delivery')
+      sim.paper = false
+      const res = await api('b', 'POST', `/invoices/${id}/send`, {})
+      sim.paper = true
+      expect(res.status).toBe(200)
+      expect(res.json.receipt.state).toBe('failed')
+      return id
+    }
+    owedReceipt = await failsAtIssue()
+    const id = await failsAtIssue()
+    const before = sim.receipts.length
+
+    const res = await api('b', 'POST', `/invoices/${id}/receipt`, {})
+
+    expect(res.status).toBe(200)
+    expect(res.json.receipt.state).toBe('printed')
+    expect(res.json.invoice).toMatchObject({ status: 'sent', amountPaid: 0, amountDue: 12 })
+    expect(sim.receipts.length).toBe(before + 1)
+    expect(sim.receipts.at(-1)!.payments).toEqual([{ mode: 'R', amount: 12 }])
+    cashDraft = await invoiceOnPodB('cash')
+  })
+
   it('pod A crashed: pod B refuses with nothing done, never prints elsewhere or skips the receipt (FR-24.51/24.52)', async () => {
     const before = sim.reports.length
     // A crash, not a graceful stop: a graceful stop releases the presence row (Phase 5), and pod B then
@@ -146,14 +177,55 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
     expect(res.status).toBe(503)
     expect(res.json.code).toBe('fiscal_holder_unreachable')
     expect(sim.reports.length).toBe(before)
-    // A payment at the counter likewise: its receipt never prints somewhere else, or not at all.
-    const receipts = sim.receipts.length
-    const paid = await api('b', 'POST', `/invoices/${stillDue}/payments`, { date: new Date().toISOString().slice(0, 10), amount: 8, method: 'cash' })
-    expect(paid.status).toBe(503)
-    expect(paid.json.code).toBe('fiscal_holder_unreachable')
-    expect(sim.receipts.length).toBe(receipts)
-    expect((await api('b', 'GET', `/invoices/${stillDue}`)).json.invoice).toMatchObject({ status: 'partially_paid', amountPaid: 4 })
+
+    // FR-23's doors likewise: no receipt prints somewhere else or not at all, and no money is booked.
+    const books = await theBooks()
+    for (const answer of await theDoors()) {
+      expect(answer.status).toBe(503)
+      expect(answer.json.code).toBe('fiscal_holder_unreachable')
+    }
+    expect(await theBooks()).toEqual(books)
   }, 60_000)
+
+  it('its row lapsed: "offline" at last, and the printer gate still refuses, so no money is booked without a receipt (FR-24.52)', async () => {
+    // A crashed pod's row is dead after 20 s. Only now may a device read as offline at all.
+    const deadline = Date.now() + 45_000
+    for (;;) {
+      const { json } = await api('b', 'GET', '/fiscal/device')
+      if (!json.fiscalDevices.find((x: any) => String(x._id ?? x.id) === deviceId).connected) break
+      expect(Date.now()).toBeLessThan(deadline)
+      await new Promise(r => setTimeout(r, 1000))
+    }
+
+    const books = await theBooks()
+    for (const answer of await theDoors()) {
+      expect(answer.status).toBe(409)
+      expect(answer.json.code).toBe('fiscal_device_not_connected')
+    }
+    expect(await theBooks()).toEqual(books)
+  }, 70_000)
+
+  /** Issue a cash draft, pay part of an invoice, print a delivery receipt: all of it asked of pod B. */
+  const theDoors = async () => [
+    await api('b', 'POST', `/invoices/${cashDraft}/send`, {}),
+    await api('b', 'POST', `/invoices/${stillDue}/payments`, { date: new Date().toISOString().slice(0, 10), amount: 8, method: 'cash' }),
+    await api('b', 'POST', `/invoices/${owedReceipt}/receipt`, {}),
+  ]
+
+  /** What a refused door must leave as it was: the documents, their money, and the device's paper. */
+  async function theBooks() {
+    const money = async (id: string) => {
+      const d: any = await Invoice.findById(id).lean().exec()
+      return { status: d.status, number: d.invoiceNumber, paid: d.amountPaid, due: d.amountDue, payments: d.payments.length, holds: (d.receiptHolds ?? []).length }
+    }
+    return {
+      printed: sim.receipts.length,
+      documents: await Invoice.countDocuments({ orgId }),
+      draft: await money(cashDraft),
+      partPaid: await money(stillDue),
+      owed: await money(owedReceipt),
+    }
+  }
 
   /** A draft of one free line, 12 gross at 20 %, as the form saves it: it moves no stock. */
   async function invoiceOnPodB(paymentMethod: string) {

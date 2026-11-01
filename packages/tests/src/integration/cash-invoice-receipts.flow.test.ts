@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test'
 import { Elysia } from 'elysia'
 import ExcelJS from 'exceljs'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
@@ -1056,7 +1056,7 @@ describe('FR-24.50: a door that reaches a printer runs where the printer is', ()
   const forwarded: Array<{ to: string; method: string; path: string }> = []
   let reachable = true
 
-  beforeAll(() => {
+  beforeEach(() => {
     setFiscalForwarding({
       async forward(to, request) {
         forwarded.push({ to, method: request.method, path: new URL(request.url).pathname })
@@ -1066,8 +1066,8 @@ describe('FR-24.50: a door that reaches a printer runs where the printer is', ()
       clientIp: () => '203.0.113.7',
     })
   })
-  afterAll(() => setFiscalForwarding(null))
   afterEach(() => {
+    setFiscalForwarding(null)
     forwarded.splice(0)
     reachable = true
   })
@@ -1119,6 +1119,24 @@ describe('FR-24.50: a door that reaches a printer runs where the printer is', ()
     expect(r.json.code).toBe('fiscal_holder_unreachable')
     expect(await footprint(w)).toEqual(before)
     expect((await raw(d.id)).status).toBe('draft')
+  })
+
+  it('a request that reaches this pod with no hop to take: held elsewhere is never offline (FR-24.52)', async () => {
+    const w = await tillWorld(app)
+    const cash = await draftOf(w)
+    const bank = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, bank.id)
+    await heldOnPodB(w)
+    setFiscalForwarding(null)
+    const before = await footprint(w)
+
+    const answers = [await send(w, cash.id), await pay(w, bank.id, 24)]
+
+    expect(answers.map(a => a.status)).toEqual([503, 503])
+    for (const a of answers) expect(a.json.message).toContain('another server process')
+    expect(await footprint(w)).toEqual(before)
+    expect((await raw(cash.id)).status).toBe('draft')
+    expect(await raw(bank.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
   })
 
   it('someone with no session and nothing to finish runs here: no printer is theirs to go to', async () => {
