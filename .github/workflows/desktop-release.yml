@@ -719,20 +719,11 @@ jobs:
       # ⚠ After signing, so the attestation describes the bytes that ship. Attesting the unsigned
       # build would bind a provenance statement to a digest no user ever sees.
       #
-      # ⚠ **It cannot succeed on this repository, and it must not fail the release.** The first
-      # tag to get this far answered:
-      #
-      #     Failed to persist attestation: Feature not available for user-owned private
-      #     repositories. To enable this feature, please make this repository public.
-      #
-      # `gjovanov/lgr` is a user-owned private repository, so the attestations API is closed to
-      # it — nothing in the workflow can change that. The alternatives are to move the repo into
-      # an organisation or make it public, neither of which is a release-pipeline decision. So
-      # the step is allowed to fail and the next one says so out loud: signing is what protects
-      # a user here, and every artifact is signed and verified above whatever this does.
+      # ⚠ Not allowed to fail, like `Build provenance` in server-release.yml: the release notes
+      # below tell a user to run `gh attestation verify`, so a leg without it would make them
+      # false. It was `continue-on-error` while the repository was private, when GitHub answered
+      # "Feature not available for user-owned private repositories".
       - name: Attest build provenance
-        id: attest
-        continue-on-error: true
         uses: actions/attest-build-provenance@8beda2b7ed98355c0e97c0a63bec38ae472e66c4 # v4
         with:
           subject-path: |
@@ -741,13 +732,6 @@ jobs:
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
             packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
-
-      # Loud, once per leg, rather than a silently missing attestation. ⚠ If this warning ever
-      # stops appearing the release notes' `gh attestation verify` line becomes true again.
-      - name: Say that provenance was not attested
-        if: steps.attest.outcome == 'failure'
-        run: |
-          echo "::warning title=No build provenance::attest-build-provenance failed on ${{ matrix.label }} - the attestations API is not available for user-owned private repositories. The artifacts are still Authenticode-signed / notarised / GPG-signed and verified in this job; only 'gh attestation verify' is unavailable."
 
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -924,6 +908,8 @@ jobs:
             linux)         WIN=0 LIN=1 MAC=0 ;;
           esac
 
+          # ⚠ File names as a user finds them on the page: GitHub turns the space in `LGR Desktop_…`
+          # into a dot on upload. The `gpg` line below has to match them too.
           cat > "$N" <<EOF
           ## LGR Desktop ${VERSION}
 
@@ -952,20 +938,20 @@ jobs:
 
           if [ "$WIN" = 1 ]; then
             cat >> "$N" <<EOF
-          | Windows | \`LGR-Desktop_${VERSION}_x64-setup.exe\` | **per-user** — no admin rights needed, updates itself |
-          | Windows (managed) | \`LGR-Desktop_${VERSION}_x64_en-US.msi\` | **per-machine** — for AppLocker/WDAC machines, deployed by IT; updates are IT-managed |
+          | Windows | \`LGR.Desktop_${VERSION}_x64-setup.exe\` | **per-user** — no admin rights needed, updates itself |
+          | Windows (managed) | \`LGR.Desktop_${VERSION}_x64_en-US.msi\` | **per-machine** — for AppLocker/WDAC machines, deployed by IT; updates are IT-managed |
           EOF
           fi
           if [ "$MAC" = 1 ]; then
             cat >> "$N" <<EOF
-          | macOS (Apple Silicon) | \`LGR-Desktop_${VERSION}_aarch64.dmg\` | per-user |
-          | macOS (Intel) | \`LGR-Desktop_${VERSION}_x64.dmg\` | per-user |
+          | macOS (Apple Silicon) | \`LGR.Desktop_${VERSION}_aarch64.dmg\` | per-user |
+          | macOS (Intel) | \`LGR.Desktop_${VERSION}_x64.dmg\` | per-user |
           EOF
           fi
           if [ "$LIN" = 1 ]; then
             cat >> "$N" <<EOF
-          | Linux (Debian/Ubuntu) | \`lgr-desktop_${VERSION}_amd64.deb\` | per-machine |
-          | Linux (Fedora/RHEL) | \`lgr-desktop-${VERSION}-1.x86_64.rpm\` | per-machine |
+          | Linux (Debian/Ubuntu) | \`LGR.Desktop_${VERSION}_amd64.deb\` | per-machine |
+          | Linux (Fedora/RHEL) | \`LGR.Desktop-${VERSION}-1.x86_64.rpm\` | per-machine |
           EOF
           fi
 
@@ -1006,17 +992,15 @@ jobs:
             key `roomler-release-pubkey.asc` published in this release:
             ```
             gpg --import roomler-release-pubkey.asc
-            gpg --verify lgr-desktop_*.deb.asc lgr-desktop_*.deb
+            gpg --verify LGR.Desktop_*.deb.asc LGR.Desktop_*.deb
             ```
           EOF
           fi
 
           cat >> "$N" <<'EOF'
-          - **All platforms** — the signatures above are the guarantee. ⚠ SLSA build provenance
-            is *attempted* but cannot be published from this repository (GitHub's attestations
-            API is closed to user-owned private repositories), so `gh attestation verify` will
-            not find a statement for these files. Each build's own run log records the commit
-            and the workflow run that produced it.
+          - **All platforms** — each installer also has SLSA build provenance, which ties its
+            bytes to this repository and the workflow run that built them:
+            `gh attestation verify <file> --repo gjovanov/lgr`
 
           ### First Launch
 
