@@ -68,7 +68,7 @@ test.describe('Invoicing Product Autocomplete', () => {
     await found.scrollIntoViewIfNeeded()
     await found.click({ force: true })
     await expect(lineDescription(row).locator('.v-chip')).toBeVisible({ timeout: 3000 })
-    await expect(row.getByTestId('price-combobox')).not.toContainText('0.00000', { timeout: 5000 })
+    await expect(row.getByTestId('price-combobox')).toContainText(/[1-9]/, { timeout: 5000 }) // the product's price has arrived
 
     await lineUnitPrice(row).fill('123.45')
     await lineUnitPrice(row).press('Tab')
