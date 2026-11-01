@@ -786,7 +786,8 @@
       "portInUse": "Der Anschluss des Druckers wird von einem anderen Tab, Fenster oder Programm verwendet, und nur eines kann ihn nutzen. Schließen Sie das andere (oder stecken Sie den Drucker aus und wieder ein) und verbinden Sie erneut.",
       "deviceErrors": "Problem am Fiskalgerät: {errors}",
       "connectedVia": "Verbunden über {name}",
-      "waitingForDesktop": "wartet auf seinen LGR Desktop"
+      "waitingForDesktop": "wartet auf seinen LGR Desktop",
+      "printsText": "Nicht fiskalisiert: Belege werden als Text gedruckt"
     },
     "noFiscalDevice": "Kein Fiskalgerät für Browser konfiguriert. Wenden Sie sich an den Administrator.",
     "saleCompleted": "Verkauf abgeschlossen",

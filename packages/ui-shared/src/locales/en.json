@@ -1497,7 +1497,8 @@
       "portInUse": "The printer's port is in use by another tab, window or program, and only one can hold it. Close the other one (or unplug the printer and plug it back in), then connect again.",
       "deviceErrors": "Fiscal device problem: {errors}",
       "connectedVia": "Connected via {name}",
-      "waitingForDesktop": "waiting for its LGR Desktop"
+      "waitingForDesktop": "waiting for its LGR Desktop",
+      "printsText": "Not fiscalized: receipts print as text"
     },
     "filterByTags": "Filter by tags",
     "close": {

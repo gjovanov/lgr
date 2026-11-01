@@ -139,6 +139,14 @@ export function isDeviceConnected(deviceId: string): boolean {
 }
 
 /**
+ * What the device said of itself in the status every answer carries (FR-23): `false` is what makes a
+ * receipt print as text. Undefined when this process holds no answer from it. No command is sent.
+ */
+export function lastFiscalized(deviceId: string): boolean | undefined {
+  return (activeConnections.get(deviceId) as { lastStatus?: { fiscalized?: boolean } | null } | undefined)?.lastStatus?.fiscalized
+}
+
+/**
  * Get status of a connected fiscal device.
  */
 export async function getDeviceStatus(deviceId: string): Promise<FiscalDeviceStatus> {

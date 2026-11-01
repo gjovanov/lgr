@@ -142,6 +142,13 @@ test.describe('FR-23 — a cash invoice on a device that is not fiscalized', () 
     await expect(row.getByTestId('journal-kind-chip')).toContainText('Invoice payment')
   })
 
+  test('a terminal on that device says it prints text: a wrong reading is never silent', async ({ page }) => {
+    await loginForApp(page, 'acme-corp', cashierName, PASSWORD)
+    await page.goto('/invoicing/cash-sales/new')
+    await expect(page.getByTestId('terminal-prints-text')).toBeVisible({ timeout: 15000 })
+    await expect(page.getByTestId('terminal-prints-text')).toContainText('Not fiscalized')
+  })
+
   test('the session report counts it as a text receipt, and the drawer expects its money', async ({ page }) => {
     const { expected, report } = await ok(cashier, 'GET', `/trade/pos/session/${till.id}/close-preview`)
     expect(expected.cash).toBeCloseTo(invoiceTotal, 2)
