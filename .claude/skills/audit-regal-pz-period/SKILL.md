@@ -109,7 +109,16 @@ product (an aliased line — see pitfalls); link that line with `PUT /invoices/:
 **d. Content drift** — `repair-invoices-from-plusminus.ts --dir <union of the pulls> --only <numbers>`
 (dry-run default). It reuses the importer's own mapping and applies contact, lines and totals onto the
 existing invoice. It moves **no stock and re-posts nothing**; the stock a wrong invoice dispatched is settled
-by the true-up. It refuses `paid` invoices whose total would change.
+by the true-up. It refuses `paid` invoices whose total would change. Nothing goes stale in a ledger either:
+regal-pz keeps no accounting (no `settings.accounting` defaults; 0 accounts, journals and journal entries, and
+no invoice carries a `journalEntryId` — checked 2026-11-01), so `invoice.posted` returns before it posts.
+
+**e. Tag the products an import created** — an import that meets an article LGR does not have yet creates it in
+„Общи" with no tags, and nothing re-tags it. By 2026-11-01, 199 products created since August (the last run was
+the July seed) were still untagged. After any run that created products, run the `assign-din-tags` skill's
+script from a host that reaches the prod Mongo: `bun run scripts/assign-din-tags.ts --org regal-pz`, read the
+counts, then `--execute`. It is additive and idempotent: the rerun must say `needing tag updates: 0`. A name
+with nothing to derive (a bit set) rightly stays untagged in „Общи".
 
 ## 5. The till
 
@@ -162,5 +171,6 @@ no tunnel.
 1 347 invoices: 1 283 as `INV-<n>`, 64 hand-entered, 0 missing; 543 receipts, 174 transfers, 7 write-offs —
 22 post-baseline documents had never been booked (several found only by number: backdated); all pre-baseline
 ones correctly `ALREADY`. Stock: 485 matched-product differences → 298 after the documents → **0** after the
-true-up, 129 products PlusMinus no longer carries zeroed. Open: 2 annulled-but-live invoices, 3 trading days
-without a cash-sale document, one −0.005 float residue on a service item.
+true-up, 129 products PlusMinus no longer carries zeroed. The untagged-product backlog (§4e) was cleared straight
+afterwards. Open: 2 annulled-but-live invoices, 3 trading days without a cash-sale document, one −0.005 float residue
+on a service item.
