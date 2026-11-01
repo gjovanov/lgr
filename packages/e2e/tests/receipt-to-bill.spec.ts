@@ -326,6 +326,85 @@ test.describe('receiving warns before it double-books (FR-22.31c)', () => {
     expect(await stockOf(w)).toBe(stock + 3)
   })
 
+  /** Hold every Receive of this bill until told, and count them. */
+  async function holdReceives(page: Page, billId: string) {
+    const posts: unknown[] = []
+    let release = () => {}
+    const released = new Promise<void>((resolve) => { release = resolve })
+    await page.route(`**/invoices/${billId}/receive`, async (route) => {
+      posts.push(route.request().postDataJSON())
+      await released
+      await route.continue()
+    })
+    return { posts, release }
+  }
+
+  test('Enter pressed twice on „Запази и получи" receives once', async ({ page }) => {
+    const w = await world('enter')
+    const bill = await typedBill(w, 2, `EN-${w.stamp}`)
+
+    await signInForUx(page)
+    await page.goto(`/invoicing/bills/${bill.id}/edit`, { waitUntil: 'networkidle' })
+    const held = await holdReceives(page, bill.id)
+    const button = actions(page).getByRole('button', { name: 'Запази и получи' })
+    await button.focus()
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => held.posts.length).toBeGreaterThan(0)
+    await page.waitForTimeout(500)
+    expect(held.posts).toHaveLength(1)
+
+    held.release()
+    await expect(snackbar(page)).toContainText('Фактурата е получена')
+    expect(await stockOf(w)).toBe(2)
+  })
+
+  test('the menu of a list row reopened while Receive is on its way does not send it again', async ({ page }) => {
+    const w = await world('reopen')
+    const bill = await typedBill(w, 2, `RO-${w.stamp}`)
+
+    await signInForUx(page)
+    await page.goto(`/invoicing/bills?q=${encodeURIComponent(`RO-${w.stamp}`)}`, { waitUntil: 'networkidle' })
+    const held = await holdReceives(page, bill.id)
+    const row = rowOf(page, bill.number)
+    await (await rowAction(row, 'receive')).click()
+    await expect.poll(() => held.posts.length).toBe(1)
+    await (await rowAction(row, 'receive')).click()
+    await page.waitForTimeout(300)
+    expect(held.posts).toHaveLength(1)
+
+    held.release()
+    await expect(snackbar(page)).toContainText('Фактурата е получена')
+    await expect(snackbar(page)).not.toContainText('чернова')
+    expect(await stockOf(w)).toBe(2)
+  })
+
+  test('Enter pressed twice on „Получи въпреки това" receives once', async ({ page }) => {
+    const w = await world('enter-any')
+    await receipt(w, 3)
+    const bill = await typedBill(w, 3, `EA-${w.stamp}`)
+    const stock = await stockOf(w)
+
+    await signInForUx(page)
+    await page.goto(`/invoicing/bills/${bill.id}/edit`, { waitUntil: 'networkidle' })
+    await actions(page).getByRole('button', { name: 'Запази и получи' }).click()
+    const dialog = page.getByTestId('receipt-overlap-dialog')
+    await expect(dialog).toBeVisible()
+
+    const held = await holdReceives(page, bill.id)
+    await dialog.getByTestId('receipt-overlap-receive').focus()
+    await page.keyboard.press('Enter')
+    await expect.poll(() => held.posts.length).toBe(1)
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(300)
+    expect(held.posts).toEqual([{ acknowledgeOverlap: true }])
+
+    held.release()
+    await expect(snackbar(page)).toContainText('Фактурата е получена')
+    expect(await stockOf(w)).toBe(stock + 3)
+  })
+
   test('a bill with nothing to overlap receives without a question', async ({ page }) => {
     const w = await world('quiet')
     const bill = await typedBill(w, 2, `Q-${w.stamp}`)

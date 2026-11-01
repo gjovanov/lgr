@@ -96,7 +96,7 @@ function onToggle(open: boolean) {
 
 async function link() {
   const overlap = props.overlap
-  if (!overlap || !selected.value.length) return
+  if (!overlap || !selected.value.length || busy.value) return
   linking.value = true
   error.value = ''
   try {
@@ -115,7 +115,8 @@ async function link() {
 
 async function receiveAnyway() {
   const overlap = props.overlap
-  if (!overlap) return
+  // The keyboard reaches a button that shows its spinner: Enter again would receive it again.
+  if (!overlap || busy.value) return
   receiving.value = true
   error.value = ''
   try {

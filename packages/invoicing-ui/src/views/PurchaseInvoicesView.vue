@@ -413,7 +413,11 @@ function openPaymentDialog(item: Invoice) {
   paymentDialog.value = true
 }
 
+/** The row's menu opens again while the answer is on its way, and a second Receive would only earn an error. */
+const receivingRows = new Set<string>()
 async function receiveInvoice(item: Invoice) {
+  if (receivingRows.has(item._id)) return
+  receivingRows.add(item._id)
   try {
     const { data } = await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/receive`)
     // A bill made from goods receipts books no stock: its receipts did (FR-22.31).
@@ -422,6 +426,8 @@ async function receiveInvoice(item: Invoice) {
   } catch (e: any) {
     receiptOverlap.value = receiptOverlapOf(e, item._id)
     if (!receiptOverlap.value) showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    receivingRows.delete(item._id)
   }
 }
 

@@ -1442,10 +1442,12 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   /** FR-22.31c: the server asked first; `ReceiptOverlapDialog` carries the answer. */
   const receiptOverlap = ref<ReceiptOverlap | null>(null)
   async function onSaveAndReceive() {
-    if (!(await validate())) return
+    // The keyboard reaches a button that shows its spinner: Enter again would receive it again.
+    if (receiving.value) return
     receiving.value = true
     let id: string | null = null
     try {
+      if (!(await validate())) return
       // On the saved bill before receiving it: should receiving fail, pressing again receives
       // this one rather than saving a second.
       id = await persist(buildPayload(), { quiet: true })
