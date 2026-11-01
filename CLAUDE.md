@@ -2358,6 +2358,15 @@ invoice still due until the courier pays).
   call runs inside the turn it is in, and a wait past `TURN_WAIT_MS` (longer than the slowest report)
   answers 409 `device_busy`, which a sale reads as nothing printed. It exists because `clearOpenReceipt`
   of one request voided another's open receipt, and FR-23 sent back-office payments to the till's device.
+- ⚠ **The turn lives in the process holding the device, and prod runs two pods**, so the holder moves
+  under it. `tests/two-node/two-pods-roll.test.ts` is a release gate with `two-pods.test.ts`
+  (`LGR_TWO_NODE=1`). A graceful stop finishes the queue before it closes the bridges. A device taken
+  over mid-queue costs the waiting request its print: a request keeps the printer it started with, and
+  ⚠ a send into a closed Bun socket throws nothing, so `createSendCommand` answers for a gone socket at
+  once, or each command waits out its timeout with the turn held. ⚠ Elysia cuts a request at 30 s
+  (`idleTimeout`), hops included, so a print waiting behind a slow report loses its connection and keeps
+  its place; the `Idempotency-Key` finds what it did. After a crash the lease (120 s) outlives the
+  presence row (20 s): the document reads as printing until it lapses, then is proved or held.
 - ⚠ **What proves a print.** In the document's turn the counter is evidence, because nothing else printed
   since it was read; `verdictOfFailedPrint` (`print-verdict.ts`, table-tested) reads it with how far the
   receipt got. **Out of a turn nothing that moved proves anything**, because the device is shared.
