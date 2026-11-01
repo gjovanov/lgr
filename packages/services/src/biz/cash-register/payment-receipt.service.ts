@@ -219,7 +219,7 @@ export function paymentReceiptDocument(input: PaymentReceiptInput): Record<strin
     status: 'paid',
     statusHistory: [{ status: 'paid', changedAt: now, changedBy: oid(user.id), reason: 'payment_receipt' }],
     ...(invoice.contactId ? { contactId: invoice.contactId } : {}),
-    // The moment of the payment, as a till document's is.
+    // Until it prints, which dates it (`datedAsItPrints`).
     issueDate: now,
     dueDate: now,
     currency: invoice.currency,

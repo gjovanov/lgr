@@ -513,7 +513,66 @@ describe('a driver with no cancel (ruling 1)', () => {
   })
 })
 
-describe('a driver that refuses before anything is sent (finding C)', () => {
+describe('a receipt is dated as it prints', () => {
+    const yesterday = () => new Date(Date.now() - 36 * 3_600_000)
+    const days = (at: unknown) => new Date(at as string).toISOString().slice(0, 10)
+    const agoWritten = () => {
+      const at = yesterday()
+      return { $set: { issueDate: at, dueDate: at, paidAt: at, 'payments.0.date': at } }
+    }
+
+    it('a payment that waited for the device past midnight says the day it printed, on the row too', async () => {
+      const w = await tillWorld(app)
+      const d = await onBank(w)
+      const held = gate()
+      w.sim!.beforeCommand = cmd => (cmd === CLOSE ? held.closed : undefined)
+      const sale = w.sell(1)
+      await until(() => w.sim!.executed.some(c => c.cmd === PAYMENT), 'the sale to hold the device')
+
+      const paying = pay(w, d.id, 24)
+      await until(async () => (await receiptsOf(d.id)).length === 1, 'the receipt to wait its turn')
+      await Invoice.updateOne({ type: 'payment_receipt' }, agoWritten())
+      w.sim!.beforeCommand = null
+      held.open()
+      await sale
+
+      expect((await paying).status).toBe(200)
+      const [receipt] = await receiptsOf(d.id)
+      expect(days(receipt.issueDate)).toBe(TODAY())
+      expect(days(receipt.payments[0].date)).toBe(TODAY())
+      expect(days((await raw(d.id)).payments[0].date)).toBe(TODAY())
+    })
+
+    it('a keyed retry the next morning prints under that morning', async () => {
+      const w = await tillWorld(app)
+      const d = await onBank(w)
+      const key = 'next-morning-0001'
+      const hash = requestHash(`invoice.payment:${d.id}`, { date: TODAY(), amount: 24, method: 'cash' })
+      const r = await dead(w, d, {}, { key, hash })
+      await Invoice.updateOne({ _id: r._id }, agoWritten())
+
+      expect((await pay(w, d.id, 24, 'cash', key)).status).toBe(200)
+
+      const after = await reread(r)
+      expect(after.register.fiscal.state).toBe('printed')
+      expect(days(after.issueDate)).toBe(TODAY())
+      expect(days((await raw(d.id)).payments[0].date)).toBe(TODAY())
+    })
+
+    it('one that cannot print keeps the date it had: nothing printed to date it', async () => {
+      const w = await tillWorld(app)
+      const d = await onBank(w)
+      const r = await dead(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber - 1 })
+      const before = yesterday()
+      await Invoice.updateOne({ _id: r._id }, { $set: { issueDate: before } })
+
+      await pay(w, d.id, 24, 'bank_transfer')
+
+      expect(new Date((await reread(r)).issueDate).getTime()).toBe(before.getTime())
+    })
+  })
+
+  describe('a driver that refuses before anything is sent (finding C)', () => {
     /** A real `WsTremolFiscalPrinter` on a device that answers ACK: a sale it closes has no number. */
     function tremolOn(w: TillWorld) {
       const sent: number[] = []

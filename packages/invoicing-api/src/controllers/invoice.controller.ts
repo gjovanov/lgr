@@ -1600,8 +1600,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // FR-23 §2.2: cash or card at the counter prints, and the receipt records the payment. Refused
       // here when it cannot, with nothing written.
       try {
-        // In cents: a fiscal receipt has no others. Dated as it prints: the device says today, and so
-        // do the session and the row, or one payment lands on two days.
+        // In cents: a fiscal receipt has no others. Its date is the print's, which dates it in its
+        // turn on the device: the device, the session and the row say one day.
         const tender = { method: body.method, amount: round2(body.amount), date: new Date(), ...(body.reference ? { reference: body.reference } : {}) }
         const prepared = await prepareReceipt(orgId, user, invoice, tender, false)
         if (prepared) {

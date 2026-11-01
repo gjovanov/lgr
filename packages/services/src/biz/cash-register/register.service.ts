@@ -297,6 +297,7 @@ async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promis
   // The counter goes on the record BEFORE this document touches the device.
   const counterBefore = await printer.lastReceiptNumber().catch(() => undefined)
   await setRegister(doc._id, { 'fiscal.attemptedAt': new Date(), 'fiscal.counterBefore': counterBefore })
+  await datedAsItPrints(doc)
   let receiptNo: string
   try {
     receiptNo = await print()
@@ -304,6 +305,17 @@ async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promis
     return afterFailedPrint(printer, doc, counterBefore, e)
   }
   return recordPrinted(doc, receiptNo)
+}
+
+/**
+ * A payment's receipt says the moment it prints, whatever it said when it was written: it may have
+ * waited its turn past midnight, or come back with its key the next morning, and the device, the
+ * session and the row say one day. A till sale is written as it prints.
+ */
+async function datedAsItPrints(doc: any): Promise<void> {
+  if (doc.type !== 'payment_receipt') return
+  const now = new Date()
+  await Invoice.updateOne({ _id: doc._id }, { $set: { issueDate: now, dueDate: now, paidAt: now, 'payments.0.date': now } }).exec()
 }
 
 /** What the device says now, as far as it can. */
