@@ -27,7 +27,7 @@ export interface PosRowLike {
  * that sums stornos skips it. The same rule as a filter: `NOT_UNPROVED_STORNO` (`sale-counting.ts`).
  */
 export function stornoUnproved(row: PosRowLike): boolean {
-  return row.type === 'storno' && (row.fiscal?.state === 'pending' || row.fiscal?.state === 'unknown')
+  return row.type === 'storno' && row.status !== 'cancelled' && (row.fiscal?.state === 'pending' || row.fiscal?.state === 'unknown')
 }
 
 /** +1, −1 or 0: what a POS row contributes to a sum of sales. */

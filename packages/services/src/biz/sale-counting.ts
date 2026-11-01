@@ -46,7 +46,7 @@ export const NOT_PAYMENT_RECEIPT: Record<string, any> = { type: { $ne: 'payment_
  * the same rule in `posRowSign`.
  */
 export const NOT_UNPROVED_STORNO: Record<string, any> = {
-  $nor: [{ type: 'cash_storno', 'register.fiscal.state': { $in: ['pending', 'unknown'] } }],
+  $nor: [{ type: 'cash_storno', status: { $ne: 'voided' }, 'register.fiscal.state': { $in: ['pending', 'unknown'] } }],
 }
 
 /** Whether LGR prints this org's sales: the printer gate's one switch (#390). ⚠ Unset reads as on. */

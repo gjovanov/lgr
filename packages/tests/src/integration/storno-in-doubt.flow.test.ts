@@ -17,7 +17,10 @@ import { listJournal } from 'services/biz/cash-register/journal.service'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { exportCancelledSales, exportPaymentDetails, exportReversedSales } from 'services/biz/supto-export.service'
 import { postPosSessionJournal } from 'services/events/handlers'
-import { createTestContact } from '../helpers/factories'
+import { createTestContact, createTestFiscalDevice } from '../helpers/factories'
+import { EltradeSimulator } from '../helpers/eltrade-simulator'
+import { EltradeFiscalPrinter } from 'fiscal/eltrade'
+import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import ExcelJS from 'exceljs'
 
 /**
@@ -186,6 +189,59 @@ describe('a storno that may have printed is held, not voided (finding 1)', () =>
     expect((await read(dead._id)).status).toBe('voided')
     expect(stornosOnDevice(w)).toHaveLength(1)
     expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+  })
+
+  it('a storno with no key has a lease too: it is how a dead one is found', async () => {
+    const w = await tillWorld(app)
+    const sale = await w.sell(1)
+    const held = gate()
+    w.sim!.beforeCommand = cmd => (cmd === 0x90 ? held.closed : undefined)
+    const stornoing = w.storno(String(sale.json.transaction.id))
+    await until(async () => (await stornoOf(w))?.register?.fiscal?.attemptedAt, 'the storno to reach the device')
+
+    expect((await stornoOf(w)).leaseUntil).toBeTruthy()
+
+    w.sim!.beforeCommand = null
+    held.open()
+    expect((await stornoing).status).toBe(200)
+    expect((await stornoOf(w)).leaseUntil).toBeUndefined()
+  })
+
+  it('a retry goes back to the device it started on: with two in the warehouse no other counter says anything', async () => {
+    const w = await tillWorld(app)
+    // The warehouse finds this one first, and the storno started on the other.
+    const second = await createTestFiscalDevice(w.oid, w.warehouse._id, { name: 'Second', deviceNumber: 'ED654321', manufacturer: 'eltrade', connectionType: 'browser', status: 'online' } as any)
+    const sim = new EltradeSimulator()
+    sim.serial = 'ED654321'
+    sim.lastDocNumber = 500
+    registerPrinter(String(second._id), new EltradeFiscalPrinter(sim.exchange, String(second._id)))
+    try {
+      const sale = await w.sell(1)
+      const saleId = String(sale.json.transaction.id)
+      const key = 'storno-own-device'
+      expect((await w.storno(saleId, key)).status).toBe(200)
+      const storno = await stornoOf(w)
+      expect(storno.register.fiscalDeviceNumber).toBe('ED654321')
+      const others = sim.receipts.filter(r => r.kind === 'storno').length
+      // As the process died before its print on the world's own device, whose counter did not move.
+      await Invoice.updateOne({ _id: storno._id }, {
+        $set: {
+          'register.fiscalDeviceNumber': 'ED123456', 'register.unp': 'ED123456-0001-0000001', 'register.storno.originalUnp': 'ED123456-0001-0000001',
+          'register.fiscal': { state: 'pending', mode: 'fiscal', attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber },
+          leaseUntil: new Date(Date.now() - 1000),
+        },
+        $unset: { completedAt: 1, 'register.sessionTotalsApplied': 1, 'register.movementId': 1, 'register.fiscalReceiptNumber': 1 },
+      })
+
+      const r = await w.storno(saleId, key)
+
+      // The proof holds on its own device, so it prints there. Read on the other it could only be held.
+      expect(r.status).toBe(200)
+      expect(w.sim!.receipts.filter(x => x.kind === 'storno')).toHaveLength(1)
+      expect(sim.receipts.filter(x => x.kind === 'storno')).toHaveLength(others)
+    } finally {
+      unregisterPrinter(String(second._id))
+    }
   })
 
   it('a lapsed lease frees nothing: the claim is on the sale and has none, and no new storno takes it', async () => {
@@ -852,6 +908,25 @@ describe('a storno in doubt counts nowhere until it is settled (finding 1)', () 
     const report = buildSessionReport({ sessionNumber: 'S', currency: 'EUR', openingBalance: 0 }, rows)
     expect(report.byMethod.cash).toBe(12)
     expect(report.counts).toMatchObject({ sales: 1, stornos: 0, voided: 0 })
+  })
+
+  it('an old storno the old code voided as unknown stays what it was: listed, and voided', async () => {
+    const w = await tillWorld(app)
+    const sale = await w.sell(1)
+    const old: any = await Invoice.create({
+      orgId: w.oid, invoiceNumber: 'CS-OLD-0001', type: 'cash_storno', direction: 'outgoing', status: 'voided',
+      issueDate: new Date(), dueDate: new Date(), currency: 'EUR', exchangeRate: 1, total: 12, completedAt: new Date(),
+      lines: [{ description: 'x', quantity: 1, unit: 'бр.', unitPrice: 10, taxRate: 20, taxAmount: 2, lineTotal: 12 }],
+      billingAddress: { street: '-' }, relatedInvoiceId: sale.json.transaction.id, createdBy: w.user._id,
+      register: { origin: 'pos', sessionId: w.sessionId, isFiscal: true, fiscal: { state: 'unknown', mode: 'fiscal' } },
+    })
+
+    const register = await report('cash-register', w.orgId, { period: around() })
+    expect(register.rows.some((r: any) => r.number === old.invoiceNumber)).toBe(true)
+    const rows = await loadPosRows({ orgId: w.orgId, sessionId: w.sessionId })
+    expect(buildSessionReport({ sessionNumber: 'S', currency: 'EUR', openingBalance: 0 }, rows).counts.voided).toBe(1)
+    expect((await exportReversedSales({ orgId: w.orgId, ...window() } as any)).map((t: any) => t.transactionNumber)).toEqual([old.invoiceNumber])
+    expect((await exportCancelledSales({ orgId: w.orgId, ...window() } as any)).map((t: any) => t.transactionNumber)).toEqual([old.invoiceNumber])
   })
 
   it('the journal lists it, says so, and offers the sale no storno', async () => {

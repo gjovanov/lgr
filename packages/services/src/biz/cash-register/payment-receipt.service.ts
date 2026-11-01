@@ -561,7 +561,7 @@ export async function interruptedDocuments(orgId: string, where: { documentId?: 
     ...(where.documentId ? { 'register.paidInvoiceId': oid(where.documentId) } : {}),
     ...(where.sessionId ? { 'register.sessionId': oid(where.sessionId) } : {}),
     ...(where.ids ? { _id: { $in: where.ids } } : {}),
-    completedAt: { $exists: false }, leaseUntil: { $lt: new Date() }, 'register.fiscal.inDoubt': { $ne: true },
+    completedAt: { $exists: false }, status: { $ne: 'voided' }, leaseUntil: { $lt: new Date() }, 'register.fiscal.inDoubt': { $ne: true },
   }).sort({ _id: 1 }).lean().exec()
 }
 
