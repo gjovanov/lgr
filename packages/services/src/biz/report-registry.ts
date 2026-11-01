@@ -274,7 +274,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     handler: runSalesHistory,
     drilldown: (row) =>
       row.rowType === 'pos'
-        ? `/invoicing/pos/orders/${row.posId}`
+        ? `/invoicing/cash-sales/${row.posId}/view`
         : row.invoiceId
           // A cash sale opens on its own page; the invoice form would show it as an invoice (FR-21.3),
           // and a storno on the journal's, where it reads as a storno.

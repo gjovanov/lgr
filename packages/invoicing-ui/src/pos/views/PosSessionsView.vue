@@ -1,7 +1,7 @@
 <template>
   <v-container fluid>
     <div class="d-flex align-center mb-4">
-      <h1 class="text-h5">POS Sessions</h1>
+      <h1 class="text-h5">{{ $t('nav.crSessions') }}</h1>
     </div>
 
     <!-- Filters -->
@@ -78,7 +78,7 @@
           <template #item.transactionCount="{ item }">
             <entity-link
               :label="String(item.transactionCount ?? 0)"
-              :to="{ name: 'pos.orders', query: { session: item._id || item.id } }"
+              :to="{ name: 'invoicing.cash-sales', query: { session: item._id || item.id } }"
               :aria-label="$t('pos.sessionDocuments', { number: item.sessionNumber })"
               data-testid="session-documents"
             />

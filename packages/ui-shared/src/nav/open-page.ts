@@ -11,9 +11,9 @@ type MatchedLike = { path: string; meta?: Record<string | number | symbol, unkno
 /**
  * FR-24.4: an app-relative path ("/orders", from a menu, a breadcrumb or a back-to) as the router
  * names it here. The prefix is the path of the module's shell record in the current route: "" for
- * a module that is its own SPA, "/pos" for POS inside invoicing, and "/invoicing" once every module
- * is one SPA. So no menu or breadcrumb names its router's base. A path that is not absolute, and a
- * route outside any module, pass through.
+ * a module that is its own SPA, and "/invoicing" once every module is one SPA. So no menu or
+ * breadcrumb names its router's base. A path that is not absolute, and a route outside any module,
+ * pass through.
  */
 export function inModule(route: { matched: ReadonlyArray<MatchedLike> }, to: string): string {
   if (!to.startsWith('/')) return to
@@ -24,8 +24,9 @@ export function inModule(route: { matched: ReadonlyArray<MatchedLike> }, to: str
 
 /**
  * FR-24.7: where a Pending-changes entry reopens. `routePath` was the route's path in the app it
- * was made in ("/devices/1" under /pos) and, since FR-24, may be the path inside a bigger SPA
- * ("/pos/devices/1" under /invoicing) or a full one; every form lands on the same page.
+ * was made in ("/devices/1" under /pos, which the server still answers) and, since FR-24, may be the
+ * path inside a bigger SPA ("/pos/devices/1" under /invoicing, which that router redirects) or a full
+ * one; every form lands on the same page.
  */
 export function pendingRestoreUrl(entry: { appId: string; routePath?: string; id: string }): string | null {
   if (!entry.routePath) return null

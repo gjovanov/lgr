@@ -4,7 +4,7 @@
     <v-card class="mb-4" v-if="!activeSession">
       <v-card-text class="d-flex align-center justify-space-between">
         <div>
-          <h1 class="text-h5">{{ $t('invoicing.posTerminal') }}</h1>
+          <h1 class="text-h5">{{ $t('nav.csTerminal') }}</h1>
           <p class="text-body-2 text-medium-emphasis">{{ $t('pos.noActiveSession') }}</p>
         </div>
         <v-btn color="primary" @click="openSessionDialog = true">{{ $t('pos.openSession') }}</v-btn>
@@ -15,7 +15,7 @@
     <template v-if="activeSession">
       <div class="d-flex align-center justify-space-between mb-4">
         <div>
-          <h1 class="text-h5">{{ $t('invoicing.posTerminal') }}</h1>
+          <h1 class="text-h5">{{ $t('nav.csTerminal') }}</h1>
           <span class="text-caption text-medium-emphasis">
             {{ $t('pos.session') }}: {{ activeSession.sessionNumber }} | {{ activeSession.openedAt?.split('T')[0] }}
           </span>
@@ -175,6 +175,19 @@
       </v-card>
     </v-dialog>
 
+    <!-- The menu, ★, „+ Нов" and Back are a click from here, and the cart lives in this view. -->
+    <v-dialog :model-value="leaveAsked" max-width="440" persistent data-testid="leave-cart-dialog">
+      <v-card>
+        <v-card-title>{{ $t('pos.leaveCart.title') }}</v-card-title>
+        <v-card-text>{{ $t('pos.leaveCart.body', { n: cart.length }) }}</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn data-testid="leave-cart-go" @click="answerLeave(true)">{{ $t('pos.leaveCart.leave') }}</v-btn>
+          <v-btn color="primary" variant="flat" data-testid="leave-cart-stay" @click="answerLeave(false)">{{ $t('pos.leaveCart.stay') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- FR-09 (#18): the real end-of-day close — expected vs counted per method, then the
          fiscal Z-report. Replaces a single-number dialog that never touched the device. -->
     <CloseSessionDialog
@@ -192,6 +205,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { onBeforeRouteLeave } from 'vue-router'
 import { computePosTotals } from 'config/pos-totals'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -199,7 +213,7 @@ import { createIdempotentAction, isOutcomeUnknown } from 'ui-shared/composables/
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { paymentMethodKey } from 'ui-shared/composables/usePaymentMethods'
-import { registerSwitchGuard } from 'ui-shared/session/switch-guards'
+import { registerSwitchGuard, registerUnsavedCheck } from 'ui-shared/session/switch-guards'
 import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
 import RegisterTerminal from 'ui-shared/components/cash-register/RegisterTerminal.vue'
 import { fetchPriceOptions, priceOptionLabel, type PriceOption } from 'ui-shared/composables/usePriceOptions'
@@ -610,12 +624,35 @@ async function completeSale() {
   finally { loading.value = false }
 }
 
+/** A cart with something in it, or a sale on its way to the server. */
+const saleInHand = () => cart.value.length > 0 || loading.value
+
+// Nobody loses a cart without being asked, and whoever means to leave can.
+const leaveAsked = ref(false)
+let settleLeave: ((leave: boolean) => void) | null = null
+
+function answerLeave(leave: boolean) {
+  leaveAsked.value = false
+  settleLeave?.(leave)
+  settleLeave = null
+}
+
+onBeforeRouteLeave(() => {
+  if (cart.value.length === 0) return true
+  settleLeave?.(false) // a second move while the first is asked about replaces it
+  leaveAsked.value = true
+  return new Promise<boolean>((resolve) => { settleLeave = resolve })
+})
+
 let unregisterSwitchGuard: (() => void) | null = null
+let unregisterUnsaved: (() => void) | null = null
 
 onMounted(async () => {
   // A sale in progress would be lost (or, mid-completion, half-done) if the org menu reloaded
   // this tab into another org.
-  unregisterSwitchGuard = registerSwitchGuard(() => (cart.value.length > 0 || loading.value ? 'orgSwitcher.blockedSale' : null))
+  unregisterSwitchGuard = registerSwitchGuard(() => (saleInHand() ? 'orgSwitcher.blockedSale' : null))
+  // The same goes for the page load a new build asks for (`web/src/stale.ts`).
+  unregisterUnsaved = registerUnsavedCheck(saleInHand)
   document.addEventListener('visibilitychange', onVisibilityChange)
   connectedElsewhereTimer = setInterval(refreshConnectedElsewhere, 15000)
   await Promise.all([fetchSessions(), fetchWarehouses()])
@@ -623,6 +660,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   unregisterSwitchGuard?.()
+  unregisterUnsaved?.()
   document.removeEventListener('visibilitychange', onVisibilityChange)
   clearInterval(connectedElsewhereTimer)
 })

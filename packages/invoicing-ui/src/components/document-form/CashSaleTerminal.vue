@@ -319,6 +319,9 @@ import type { DocumentTypeConfig } from '../../composables/document-form/types'
  *
  * FR-21.29: the catalog, the cart and the totals are `ui-shared`'s RegisterTerminal, the one the till
  * sells through. This form keeps its document header, its customer-aware prices and its Save.
+ *
+ * Only `/cash-sales/:id/edit` mounts it now: a new sale is rung up on the till (`/cash-sales/new`),
+ * so what serves a sale that does not exist yet is unreachable here.
  */
 const props = defineProps<{
   config: DocumentTypeConfig

@@ -1,15 +1,25 @@
 import type { ModuleManifest } from 'ui-shell/module'
+import { pinShown, withTillRules } from './pos/till-rules'
 
 /**
  * FR-24.3: the invoicing module as data. Paths are relative to the module (`/invoicing`), never to a
  * router's base: the one SPA's router composes them under the module's shell record.
+ *
+ * The till is part of it (goran, 2026-10-31): its sources stay in `src/pos/`, its routes are here.
+ * `meta.till` marks the till's pages, the ones a PIN signs in to and all a till-only session sees
+ * (`pos/till-rules.ts`). They keep their `pos.*` names: a pending change and a saved grid preference
+ * name them.
  */
 export const manifest: ModuleManifest = {
   id: 'invoicing',
   base: '/invoicing',
   titleKey: 'apps.invoicing',
   pendingChanges: true,
-  menu: [
+  // FR-20.40: the till's PIN pad, outside the shell: whoever stands at it has no session yet.
+  outside: [
+    { path: 'pin', name: 'pos.pin', component: () => import('./pos/views/PosPinView.vue'), meta: { till: true } },
+  ],
+  menu: withTillRules([
   {
     labelKey: 'nav.outgoingDocs',
     icon: 'mdi-file-export-outline',
@@ -17,8 +27,13 @@ export const manifest: ModuleManifest = {
       // FR-01: invoices + credit/debit notes live in one merged grid.
       { labelKey: 'nav.salesDocs', icon: 'mdi-receipt-text-outline', to: '/invoices' },
       { labelKey: 'nav.proforma', icon: 'mdi-file-document-outline', to: '/proforma' },
-      // FR-03: cash sales are outgoing documents too — the Cash Register group is gone.
-      { labelKey: 'invoicing.cashSales', icon: 'mdi-cash-register', to: '/cash-sales' },
+      // FR-03: cash sales are outgoing documents too — the Cash Register group is gone, and the till
+      // lives here since POS stopped being an app of its own.
+      { labelKey: '', divider: true },
+      { labelKey: 'nav.csTerminal', icon: 'mdi-point-of-sale', to: '/cash-sales/new' },
+      { labelKey: 'nav.crSales', icon: 'mdi-cash-register', to: '/cash-sales' },
+      { labelKey: 'nav.crSessions', icon: 'mdi-clock-outline', to: '/cash-register/sessions' },
+      { labelKey: 'pos.pin.switchOperator', icon: 'mdi-account-switch', to: '/pin', when: pinShown },
     ],
   },
   {
@@ -53,9 +68,10 @@ export const manifest: ModuleManifest = {
     children: [
       { labelKey: 'nav.contacts', icon: 'mdi-contacts', to: '/contacts' },
       { labelKey: 'nav.sequences', icon: 'mdi-numeric', to: '/configuration/sequences' },
+      { labelKey: 'nav.devices', icon: 'mdi-printer-pos', to: '/configuration/devices' },
     ],
   },
-],
+]),
   routes: [
       { path: '', redirect: { name: 'invoicing.sales' } },
 
@@ -111,11 +127,15 @@ export const manifest: ModuleManifest = {
       { path: 'debit-notes/:id/edit', name: 'invoicing.debit-notes.edit', redirect: (to) => ({ name: 'invoicing.sales.edit', params: { id: to.params.id } }) },
 
       // ── Cash Sales ──
-      { path: 'cash-sales', name: 'invoicing.cash-sales', component: () => import('./views/CashSalesView.vue'), meta: { breadcrumb: [{ title: 'Cash Sales' }] } },
-      { path: 'cash-sales/new', name: 'invoicing.cash-sales.new', component: () => import('./views/CashSaleFormView.vue'), meta: { breadcrumb: [{ title: 'Cash Sales', to: '/cash-sales' }, { title: 'New' }] } },
+      { path: 'cash-sales', name: 'invoicing.cash-sales', component: () => import('./views/CashSalesView.vue'), meta: { till: true, breadcrumb: [{ title: 'Cash Sales' }] } },
+      // A new cash sale is rung up on the till. The back-office form lives on for a sale that exists,
+      // and for a draft left on it when it stood at `new`: `tillRedirect` brings `?restore=` here.
+      { path: 'cash-sales/new', name: 'invoicing.cash-sales.new', component: () => import('./pos/views/PosTerminalView.vue'), meta: { till: true, breadcrumb: [{ title: 'Cash Sales', to: '/cash-sales' }, { title: 'Terminal' }] } },
+      { path: 'cash-sales/draft', name: 'invoicing.cash-sales.draft', component: () => import('./views/CashSaleFormView.vue'), meta: { breadcrumb: [{ title: 'Cash Sales', to: '/cash-sales' }, { title: 'New' }] } },
       { path: 'cash-sales/:id/edit', name: 'invoicing.cash-sales.edit', component: () => import('./views/CashSaleFormView.vue'), meta: { breadcrumb: [{ title: 'Cash Sales', to: '/cash-sales' }, { title: 'Edit' }] } },
       // FR-21.13: a till sale the journal lists that is not a document yet (until R2 copies it).
-      { path: 'cash-sales/:id/view', name: 'invoicing.cash-sales.view', component: () => import('./views/CashSaleJournalDocumentView.vue'), meta: { breadcrumb: [{ title: 'Cash Sales', to: '/cash-sales' }, { title: 'Detail' }] } },
+      { path: 'cash-sales/:id/view', name: 'invoicing.cash-sales.view', component: () => import('./views/CashSaleJournalDocumentView.vue'), meta: { till: true, breadcrumb: [{ title: 'Cash Sales', to: '/cash-sales' }, { title: 'Detail' }] } },
+      { path: 'cash-register/sessions', name: 'pos.sessions', component: () => import('./pos/views/PosSessionsView.vue'), meta: { till: true, breadcrumb: [{ title: 'Sessions' }] } },
 
       // ── Payments ──
       { path: 'payment-orders', name: 'invoicing.payment-orders', component: () => import('./views/PaymentOrdersView.vue'), meta: { breadcrumb: [{ title: 'Payment Orders' }] } },
@@ -131,5 +151,23 @@ export const manifest: ModuleManifest = {
 
       // ── Configuration ──
       { path: 'configuration/sequences', name: 'invoicing.configuration.sequences', component: () => import('./views/SequencesConfigView.vue'), meta: { breadcrumb: [{ title: 'Configuration' }, { title: 'Sequences' }] } },
+      { path: 'configuration/devices', name: 'pos.devices', component: () => import('./pos/views/PosDevicesView.vue'), meta: { till: true, breadcrumb: [{ title: 'Configuration' }, { title: 'Devices' }] } },
+      { path: 'configuration/devices/new', name: 'pos.devices.new', component: () => import('./pos/views/PosDeviceDetailView.vue'), meta: { till: true, breadcrumb: [{ title: 'Devices', to: '/configuration/devices' }, { title: 'New' }] } },
+      { path: 'configuration/devices/:id', name: 'pos.devices.detail', component: () => import('./pos/views/PosDeviceDetailView.vue'), meta: { till: true, breadcrumb: [{ title: 'Devices', to: '/configuration/devices' }, { title: 'Detail' }] } },
+
+      // ── The till's first home here, `/invoicing/pos/*` (FR-24 Phase 0) ──
+      // Named redirects, as the credit notes' above: a bookmark, a desktop's start path, a sign-in's
+      // return and the three names no page carries any more all still land. `/pos/*` is the server's
+      // to answer (`portal-api/src/lib/pos-redirect.ts`), and it sends each to the same page.
+      { path: 'pos', redirect: { name: 'invoicing.cash-sales.new' } },
+      { path: 'pos/terminal', name: 'pos.terminal', redirect: { name: 'invoicing.cash-sales.new' } },
+      { path: 'pos/orders', name: 'pos.orders', redirect: { name: 'invoicing.cash-sales' } },
+      { path: 'pos/orders/:id', name: 'pos.orders.detail', redirect: { name: 'invoicing.cash-sales.view' } },
+      { path: 'pos/sessions', redirect: { name: 'pos.sessions' } },
+      { path: 'pos/devices', redirect: { name: 'pos.devices' } },
+      { path: 'pos/devices/new', redirect: { name: 'pos.devices.new' } },
+      { path: 'pos/devices/:id', redirect: { name: 'pos.devices.detail' } },
+      { path: 'pos/pin', redirect: { name: 'pos.pin' } },
+      { path: 'pos/:rest(.*)', redirect: { name: 'invoicing.cash-sales.new', params: {} } },
     ],
 }

@@ -16,7 +16,7 @@ import { APP_NAV_META } from './page-registry'
 /** Where a return may go: an app (from the registry) or one of the portal's own pages. */
 const RETURN_ROOTS: readonly string[] = [
   ...Object.values(APP_NAV_META).map((m) => m.base),
-  // FR-24 Phase 0: the old POS root. The server answers it with a 302 to `/invoicing/pos/*`, and a
+  // No app any more, and still an address: the server answers it with a 302 into Invoicing, and a
   // sign-in that began on an old link or a desktop's `startPath: /pos/` still returns there.
   '/pos',
   '/apps',

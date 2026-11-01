@@ -83,12 +83,34 @@ describe('App Hub Flow', () => {
       const userId = String(user._id)
 
       // Delete some OrgApp records to simulate a pre-freemium org
-      await OrgApp.deleteMany({ orgId, appId: { $in: ['inventory', 'invoicing', 'pos', 'payroll'] } })
+      await OrgApp.deleteMany({ orgId, appId: { $in: ['inventory', 'invoicing', 'payroll'] } })
 
       // getAvailableApps should lazy-activate the missing ones
       const apps = await getAvailableApps(orgId, ALL_APP_PERMISSIONS, userId)
       expect(apps).toHaveLength(APP_IDS.length)
       expect(apps.every(a => a.enabled)).toBe(true)
+    })
+
+    // The till lives in the invoicing app, so its permission opens that tile.
+    it('pos.read opens the invoicing tile, and there is no POS tile of its own', async () => {
+      const { org } = await registerAdmin()
+      const orgId = String(org._id)
+
+      expect((await getAvailableApps(orgId, ['pos.read'])).map(a => a.id)).toEqual(['invoicing'])
+      expect((await getAvailableApps(orgId, ['invoicing.read'])).map(a => a.id)).toEqual(['invoicing'])
+      expect((await getAvailableApps(orgId, ['pos.read', 'invoicing.read'])).map(a => a.id)).toEqual(['invoicing'])
+      expect(APP_IDS as readonly string[]).not.toContain('pos')
+    })
+
+    // An org enabled POS when it was an app: its row stays, read by nobody.
+    it('an old OrgApp row for pos changes nothing', async () => {
+      const { org } = await registerAdmin()
+      const orgId = String(org._id)
+      await OrgApp.create({ orgId, appId: 'pos', enabled: true })
+
+      const apps = await getAvailableApps(orgId, ALL_APP_PERMISSIONS)
+      expect(apps.map(a => a.id).sort()).toEqual([...APP_IDS].sort())
+      expect(await OrgApp.countDocuments({ orgId, appId: 'pos' })).toBe(1)
     })
 
     it('should return empty array for no matching permissions', async () => {
@@ -201,7 +223,7 @@ describe('App Hub Flow', () => {
       const { org, user } = await registerAdmin()
       const orgId = String(org._id)
 
-      // All 7 apps auto-activated on registration
+      // Every app auto-activated on registration
       const apps = await orgAppDao.findByOrg(orgId)
       expect(apps).toHaveLength(APP_IDS.length)
     })

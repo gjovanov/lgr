@@ -133,7 +133,8 @@ setupDesktopWS(app as any)
 // FR-20.52 (P2-2a): a registered master's uplink. Global only: a master registers nowhere.
 if (nodeRole() === 'global') setupUplinkWS(app as any)
 
-// FR-24.10: the SPA's files live under `/ui/` (its asset directory).
+// FR-24.10: the SPA's files live under `/ui/` (its asset directory). The till's pages are its routes,
+// and `/pos/*` answers 302 (`lib/pos-redirect.ts`).
 if (oneSpa) {
   try {
     // ⚠ Awaited. The plugin is async, and unawaited it registers its routes after `listen`:

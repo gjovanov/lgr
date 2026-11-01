@@ -1,20 +1,24 @@
 <template>
-  <!-- FR-21.13: the cash-register journal („Касови продажби"), the same page as the POS app's
-       /pos/orders — the till's sales, the back office's and the imports'. This app adds what it
-       always offered on cash sales: export (list or per-product aggregate), import, create, email. -->
+  <!-- FR-21.13: the cash-register journal („Касови продажби") — the till's sales, the back office's
+       and the imports'. This app adds what it always offered on cash sales: export (list or
+       per-product aggregate), import, create, email. A till-only session gets the journal itself:
+       those need invoicing's own rights, as does a sale's document page. -->
   <CashRegisterJournal
     ref="journal"
     :org-url="appStore.orgUrl()"
     :locale="appStore.locale"
     :role="role"
     :user-id="userId"
-    :detail-route="journalRoute"
-    :invoice-link="(inv: any) => ({ name: 'invoicing.sales.edit', params: { id: inv.id } })"
+    :detail-route="(row: any) => journalRoute(row, tillOnly)"
+    :invoice-link="(inv: any) => (tillOnly ? undefined : { name: 'invoicing.sales.edit', params: { id: inv.id } })"
   >
     <template #actions="{ filters }">
-      <v-btn variant="outlined" prepend-icon="mdi-download" :loading="exportLoading" @click="openExport(filters)">{{ $t('common.export') }}</v-btn>
-      <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
-      <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'invoicing.cash-sales.new' }">
+      <template v-if="!tillOnly">
+        <v-btn variant="outlined" prepend-icon="mdi-download" :loading="exportLoading" @click="openExport(filters)">{{ $t('common.export') }}</v-btn>
+        <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
+      </template>
+      <!-- A new sale is rung up on the till, and not everyone who reads this journal sells. -->
+      <responsive-btn v-if="canSell" color="primary" icon="mdi-plus" :to="{ name: 'invoicing.cash-sales.new' }">
         {{ $t('common.create') }}
       </responsive-btn>
     </template>
@@ -22,7 +26,7 @@
     <template #row-actions="{ item }">
       <!-- #171: „Издай фактура" for a sale held as a document, until it is invoiced in full. -->
       <v-btn
-        v-if="item.store === 'invoice' && item.kind === 'sale' && item.status === 'completed' && item.invoicingState !== 'full'"
+        v-if="!tillOnly && item.store === 'invoice' && item.kind === 'sale' && item.status === 'completed' && item.invoicingState !== 'full'"
         icon="mdi-file-document-plus-outline"
         size="small"
         variant="text"
@@ -34,7 +38,7 @@
       <!-- Print the document — a sale or its storno, which prints as „Сторно на касова продажба"
            naming the sale it reverses — as the document page's Печат does. -->
       <v-btn
-        v-if="item.store === 'invoice'"
+        v-if="!tillOnly && item.store === 'invoice'"
         icon="mdi-printer"
         size="small"
         variant="text"
@@ -45,7 +49,7 @@
       />
       <!-- FR-10 (#19): email a cash sale or a storno held as a document. Tooltip on a wrapper span
            — a disabled v-btn has `pointer-events: none`, so a tooltip on the button itself never fires. -->
-      <v-tooltip v-if="item.store === 'invoice'" location="top" :text="$t('invoicing.sendEmail.action')">
+      <v-tooltip v-if="!tillOnly && item.store === 'invoice'" location="top" :text="$t('invoicing.sendEmail.action')">
         <template #activator="{ props: tip }">
           <span v-bind="tip">
             <v-btn
@@ -62,34 +66,36 @@
     </template>
   </CashRegisterJournal>
 
-  <ExportDialog
-    v-model="showExportDialog"
-    :loading="exportLoading"
-    doc-type="cash_sale"
-    default-format="pdf"
-    show-aggregate
-    default-aggregate
-    @confirm="onExport"
-  />
+  <template v-if="!tillOnly">
+    <ExportDialog
+      v-model="showExportDialog"
+      :loading="exportLoading"
+      doc-type="cash_sale"
+      default-format="pdf"
+      show-aggregate
+      default-aggregate
+      @confirm="onExport"
+    />
 
-  <DocImportDialog
-    v-model="showImportDialog"
-    :org-url="appStore.orgUrl()"
-    target="cash_sale"
-    mode="batch"
-    @committed="onImported"
-  />
+    <DocImportDialog
+      v-model="showImportDialog"
+      :org-url="appStore.orgUrl()"
+      target="cash_sale"
+      mode="batch"
+      @committed="onImported"
+    />
 
-  <CashSaleInvoiceDialog v-if="invoiceFor" v-model="invoiceDialog" :cash-sale-id="invoiceFor" @issued="onInvoiceIssued" />
+    <CashSaleInvoiceDialog v-if="invoiceFor" v-model="invoiceDialog" :cash-sale-id="invoiceFor" @issued="onInvoiceIssued" />
 
-  <SendEmailDialog
-    v-model="emailDialog"
-    :default-to="emailTo"
-    :default-subject="emailSubject"
-    :document-number="emailDocNumber"
-    :loading="emailLoading"
-    @confirm="sendRowEmail"
-  />
+    <SendEmailDialog
+      v-model="emailDialog"
+      :default-to="emailTo"
+      :default-subject="emailSubject"
+      :document-number="emailDocNumber"
+      :loading="emailLoading"
+      @confirm="sendRowEmail"
+    />
+  </template>
 </template>
 
 <script setup lang="ts">
@@ -98,7 +104,8 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { jwtRole, jwtUserId } from 'ui-shared/composables/useStorageIdentity'
+import { jwtRole, jwtUserId, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { canOpenPage, isTillOnly, pageById } from 'ui-shared/nav/page-registry'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import ExportDialog from 'ui-shared/components/ExportDialog'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
@@ -107,6 +114,7 @@ import CashRegisterJournal from 'ui-shared/components/cash-register/CashRegister
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { useRowEmail } from '../composables/useRowEmail'
 import CashSaleInvoiceDialog from '../components/CashSaleInvoiceDialog.vue'
+import { journalRoute } from '../pos/till-rules'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -115,17 +123,9 @@ const { showSuccess, showError } = useSnackbar()
 const role = computed(() => appStore.user?.role || jwtRole())
 const userId = computed(() => appStore.user?.id || jwtUserId())
 const journal = ref<{ fetchItems: () => Promise<void> } | null>(null)
-
-/**
- * A sale held as a document opens on its page (print, email); a storno on the journal's, where it
- * reads as a storno and prints — the cash-sale form would show it as a sale. A till sale that is
- * not a document yet opens on the journal's page too.
- */
-function journalRoute(row: any) {
-  return row.store === 'invoice' && row.kind === 'sale'
-    ? { name: 'invoicing.cash-sales.edit', params: { id: row.id } }
-    : { name: 'invoicing.cash-sales.view', params: { id: row.id } }
-}
+const viewer = sessionViewer()
+const tillOnly = isTillOnly(viewer)
+const canSell = canOpenPage(pageById('/invoicing/cash-sales/new')!, viewer)
 
 // FR-10 (#19): the row-level "send by email" action.
 const {

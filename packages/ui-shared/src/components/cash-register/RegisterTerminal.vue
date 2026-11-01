@@ -1,8 +1,8 @@
 <template>
   <!-- FR-21.29: one selling surface for every cash-register document — the till's
-       (`/pos/terminal`) and the back office's (`/invoicing/cash-sales/new`). Each app keeps what is
-       its own (the till: session, fiscal bridge, last sale, payment; the back office: the document
-       header and its save) and hands it in through the slots. -->
+       (`/invoicing/cash-sales/new`) and the back-office form a saved sale opens on
+       (`/invoicing/cash-sales/:id/edit`). Each keeps what is its own (the till: session, fiscal
+       bridge, last sale, payment; the form: the document header) and hands it in through the slots. -->
   <v-row dense class="register-terminal">
     <!-- ── Left: the catalog ── -->
     <v-col v-if="!readonly" cols="12" md="7">

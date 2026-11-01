@@ -1535,6 +1535,12 @@
         "cashOnDelivery": "Cash on delivery"
       }
     },
+    "leaveCart": {
+      "title": "Leave this sale?",
+      "body": "The cart holds {n} line(s) that are not sold yet. Leaving drops them.",
+      "stay": "Stay at the till",
+      "leave": "Leave and drop the cart"
+    },
     "pin": {
       "title": "Sign in at the till",
       "operatorCode": "Operator code",

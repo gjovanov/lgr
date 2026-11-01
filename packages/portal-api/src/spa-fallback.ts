@@ -1,5 +1,6 @@
 import staticPlugin from '@elysiajs/static'
 import { logger } from 'services/logger'
+import { posRedirect } from './lib/pos-redirect.js'
 
 /**
  * Serving the built SPAs from the API process: their files, and their shell for every browser
@@ -40,20 +41,9 @@ export function portalShellFor(html: string, role: 'global' | 'master'): string 
 
 /**
  * The modules' URL prefixes. A path under one is a module's page; anything else is the portal's
- * (sign-in, the App Hub, settings). POS lives under `/invoicing/pos` since FR-24 Phase 0.
+ * (sign-in, the App Hub, settings). The till is part of invoicing.
  */
 export const MODULE_PREFIXES = ['accounting', 'inventory', 'invoicing', 'payroll', 'reports', 'files'] as const
-
-/**
- * Where an address of a moved SPA lives now, or null. FR-24 Phase 0 moved the POS pages under
- * `/invoicing/pos/*`. The old `/pos/*` stays a 302 (never a 301, so a rollback still works),
- * with its query, because desktops hold `startPath: /pos/` (FR-14.16) and people hold bookmarks
- * and favourites. `/posts` and the like are not POS.
- */
-export function movedUiLocation(pathname: string, search = ''): string | null {
-  if (pathname !== '/pos' && !pathname.startsWith('/pos/')) return null
-  return `/invoicing${pathname}${search}`
-}
 
 /**
  * FR-24.13 let a browser choose the one SPA or the eight with the `lgr_ui` cookie (`/__ui/one`,
@@ -117,8 +107,8 @@ export function validationMessage(err: any): string {
 }
 
 /**
- * The app's `onError`: 422 for validation, the SPA shell for a browser route nothing else
- * answered, 404 for anything else unknown, 500 for the rest.
+ * The app's `onError`: 422 for validation, a 302 for one of the POS app's old addresses, the SPA
+ * shell for a browser route nothing else answered, 404 for anything else unknown, 500 for the rest.
  *
  * ⚠ The shell answer sets `set.status = 200` AND returns a `Response` carrying 200. Each alone
  * is 200 in only one of `@elysiajs/static`'s two modes, and the mode follows `NODE_ENV`
@@ -168,7 +158,9 @@ export function spaErrorHandler(given?: OneSpaShell | Record<string, never> | nu
     if (code === 'NOT_FOUND') {
       const url = new URL(request.url)
       const pathname = url.pathname
-      const moved = request.method === 'GET' || request.method === 'HEAD' ? movedUiLocation(pathname, url.search) : null
+      // No SPA claims `/pos` any more: without this the portal's shell would answer a till's stored
+      // start path.
+      const moved = request.method === 'GET' || request.method === 'HEAD' ? posRedirect(pathname, url.search) : null
       if (moved) {
         // Both, as the shell below: each alone keeps the error's 404 in one of the static plugin's modes.
         set.status = 302

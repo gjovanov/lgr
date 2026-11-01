@@ -5,7 +5,7 @@
     :status="!isNew && device.status ? { steps: ['offline', 'online', 'error'], current: device.status } : undefined"
     :actions="formActions"
     :loading="loading"
-    back-to="/devices"
+    back-to="/configuration/devices"
     back-label="Devices"
   >
     <v-form ref="formRef" @submit.prevent="handleSave">
@@ -414,8 +414,6 @@ const device = reactive({
 })
 
 const { markSaved, tryRestore } = usePendingChanges({
-  // The SPA this route lives in (FR-24): `routePath` is the router's `/pos/devices/…`, and a
-  // restore from another app builds `/<appId><routePath>`, which is `/invoicing/pos/devices/…`.
   appId: 'invoicing',
   entityType: 'posDevice',
   icon: 'mdi-printer-pos',

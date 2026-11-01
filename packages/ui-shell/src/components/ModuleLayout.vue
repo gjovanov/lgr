@@ -34,7 +34,7 @@
       />
     </template>
 
-    <!-- FR-24.17: this tab holds a printer. Read only: the shell never opens a port. -->
+    <!-- FR-24.17: this tab holds a printer. The chip only reads the bridge's status. -->
     <v-chip
       v-if="bridge.status.value !== 'disconnected'"
       class="lgr-bridge-chip"
@@ -68,11 +68,12 @@ import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { useFiscalBridgeAlerts } from 'ui-shared/composables/useFiscalBridgeAlerts'
 import { useAppStore } from 'ui-shared/stores/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { jwtUserId, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'
 import type { PendingChangeEntry } from 'ui-shared/stores/pending-changes.types'
 import { APP_REGISTRY, type AppId } from 'config/constants'
 import type { AppInfo } from './types'
-import type { ModuleManifest, ModuleMenuItem } from '../module'
+import { visibleMenu, type ModuleManifest, type ModuleMenuItem } from '../module'
 
 const props = defineProps<{ manifest: ModuleManifest }>()
 
@@ -87,6 +88,7 @@ const bridge = useFiscalBridge()
 useFiscalBridgeAlerts()
 
 function child(item: ModuleMenuItem): TopMenuChild {
+  if (item.divider) return { label: '', divider: true }
   return {
     label: t(item.labelKey),
     ...(item.subtitleKey ? { subtitle: t(item.subtitleKey) } : {}),
@@ -97,18 +99,18 @@ function child(item: ModuleMenuItem): TopMenuChild {
 
 const menuItems = computed<TopMenuItem[] | null>(() => {
   if (!props.manifest.menu) return null
-  const shown = (items: ModuleMenuItem[]) => items.filter(i => !i.when || i.when())
-  return shown(props.manifest.menu).map(item => ({
+  return visibleMenu(props.manifest.menu, sessionViewer()).map(item => ({
     label: t(item.labelKey),
     ...(item.icon ? { icon: item.icon } : {}),
     ...(item.to ? { to: inModule(route, item.to) } : {}),
-    ...(item.children ? { children: shown(item.children).map(child) } : {}),
+    ...(item.children ? { children: item.children.map(child) } : {}),
   }))
 })
 
 function handleRestore(entry: PendingChangeEntry) {
   pendingChangesOpen.value = false
-  // A route this router knows (its own module, POS inside invoicing, every module in one SPA).
+  // A route this router knows: its own module's, or any module's in one SPA. By name, so an entry
+  // from before a page moved (`appId: 'pos'`, the till's old paths) reopens at the page's new home.
   if (entry.routeName && router.hasRoute(entry.routeName)) {
     router.push({ name: entry.routeName, params: entry.routeParams, query: { restore: entry.id } })
     return
@@ -127,9 +129,10 @@ onMounted(async () => {
   }
   if (appStore.currentOrg?.id) {
     // Loaded whatever module this shell first shows: in one SPA it goes on to show the others.
-    // /auth/me returns the JWT-shaped user (`id`, no `_id`) — fall back so the
-    // pending-changes storage key stays stable and persist() actually writes.
-    pendingChangesStore.load(appStore.currentOrg.id, (appStore.user as any)?._id || (appStore.user as any)?.id || '')
+    // Keyed on the session, as a form's restore is, and never on `/auth/me`'s answer: with that
+    // refused the key was empty, the panel came up empty, and what a save removed stayed in the
+    // real list, to come back on the next healthy load.
+    pendingChangesStore.load(appStore.currentOrg.id, jwtUserId())
     try {
       const { data } = await httpClient.get(`/org/${appStore.currentOrg.id}/apps`)
       apps.value = data.apps

@@ -1,7 +1,7 @@
 <template>
   <v-container fluid>
     <div class="d-flex align-center mb-4">
-      <h1 class="text-h5">POS Devices</h1>
+      <h1 class="text-h5">{{ $t('nav.devices') }}</h1>
       <v-spacer />
       <v-btn color="primary" prepend-icon="mdi-plus" :to="{ name: 'pos.devices.new' }">
         New Device

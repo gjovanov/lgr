@@ -47,7 +47,7 @@ export async function getAvailableApps(orgId: string, userPermissions: string[],
   return APP_IDS
     .filter(appId => {
       const reg = APP_REGISTRY[appId]
-      return userPermissions.includes(reg.requiredPermission)
+      return [reg.requiredPermission, ...(reg.alsoOpenedBy ?? [])].some(p => userPermissions.includes(p))
     })
     .map(appId => ({
       id: appId,

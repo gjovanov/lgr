@@ -834,6 +834,12 @@
         "cashOnDelivery": "Nachnahme"
       }
     },
+    "leaveCart": {
+      "title": "Diesen Verkauf verlassen?",
+      "body": "Der Warenkorb enthält {n} Position(en), die noch nicht verkauft sind. Beim Verlassen werden sie verworfen.",
+      "stay": "An der Kasse bleiben",
+      "leave": "Verlassen und Warenkorb verwerfen"
+    },
     "pin": {
       "title": "An der Kasse anmelden",
       "operatorCode": "Bedienernummer",

@@ -75,7 +75,7 @@ export interface IDesktop extends Document {
   // ── What an admin assigns to it ───────────────────────────────────────────────────────────
   /** Which fiscal devices this desktop may bridge (FR-14.26). */
   fiscalDeviceIds: Types.ObjectId[]
-  /** Where "Open LGR" lands, e.g. `/pos/` for a till (FR-14.16). */
+  /** Where "Open LGR" lands, e.g. `/invoicing/cash-sales/new` for a till (FR-14.16). */
   startPath?: string
 
   createdAt: Date
