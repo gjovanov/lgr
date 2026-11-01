@@ -3,7 +3,7 @@ import { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
 import {
-  clerkSale, clerkSession, draftOf, gate, line, pay, raw, receiptsOf, send, sessionOf, shown, until,
+  clerkSession, draftOf, gate, pay, raw, receiptsOf, send, sessionOf, shown, until,
 } from '../helpers/receipt-world'
 import { AuditLog, FiscalDevice, Invoice, POSSession } from 'db/models'
 import { paymentReceiptDocument, recordPayment, runReceiptSteps } from 'services/biz/cash-register/payment-receipt.service'
@@ -861,6 +861,3 @@ describe('which device a door follows (FR-24.50)', () => {
     expect((await reread(r)).register.fiscal.inDoubt).toBe(true)
   })
 })
-
-void line
-void clerkSale

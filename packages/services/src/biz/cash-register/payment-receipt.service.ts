@@ -33,7 +33,7 @@
  * looked at the device settles it (`settleReceipt`).
  *
  * **Cash on delivery** prints at issue, in the device's slot for it, and pays nothing: the courier
- * still owes the invoice. No later payment prints again, because every cent of it has its receipt.
+ * still owes the invoice. No later payment prints again, because that receipt took all that was owed.
  * If that print fails there is no payment to take again, so the receipt prints on its own
  * (`owesDeliveryReceipt`).
  *
