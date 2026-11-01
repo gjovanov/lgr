@@ -30,7 +30,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
  * fiscal-memory report, `eltrade.ts#TIMEOUT_MS`), so a sale behind a slow Z prints when the Z is done
  * and is not refused. It exists for a holder that never ends: a transport that hangs for good.
  */
-export const TURN_WAIT_MS = 330_000
+const TURN_WAIT_MS = 330_000
 
 /** The device did not come free in time. Nothing was sent to it. */
 export class DeviceBusyError extends Error {
@@ -56,7 +56,7 @@ const tails = new Map<string, Promise<unknown>>()
 const holding = new AsyncLocalStorage<ReadonlySet<string>>()
 
 /** Whether this async context holds the device's turn. */
-export function inDeviceTurn(deviceId: string): boolean {
+function inDeviceTurn(deviceId: string): boolean {
   return !!holding.getStore()?.has(deviceId)
 }
 

@@ -758,8 +758,8 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
    *
    * ⚠ `forServiceReceipt`: a service receipt never clears a sale THIS driver is printing, or a
    * session report reprinted during a sale voids the customer's receipt. It is refused, as a report
-   * is (`report()`). Two sales on one driver are kept apart by `deviceTurn`, not here: `abandonReceipt` would void
-   * the first once the second was refused, so that needs its own fix.
+   * is (`report()`). Two sales on one driver are kept apart by `deviceTurn`, not here: refused here, the
+   * second one's `abandonReceipt` would void the first.
    */
   private ensureNoOpenReceipt(forServiceReceipt = false): Promise<void> {
     return this.serialize(async () => {

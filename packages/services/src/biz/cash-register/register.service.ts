@@ -214,10 +214,10 @@ export async function setRegister(id: unknown, set: Record<string, unknown>): Pr
  * amount still held on the invoice, until a person settles it (`settleReceipt`). Its lease goes, so it
  * no longer reads as a request that died.
  */
-export async function holdInDoubt(doc: any, receiptError: string): Promise<any> {
+export async function holdInDoubt(doc: any): Promise<any> {
   const held = await Invoice.findOneAndUpdate(
     { _id: doc._id, status: { $ne: 'voided' }, completedAt: { $exists: false } },
-    { $set: { 'register.fiscal.state': 'unknown', 'register.fiscal.inDoubt': true, 'register.receiptError': receiptError }, $unset: { leaseUntil: 1 } },
+    { $set: { 'register.fiscal.state': 'unknown', 'register.fiscal.inDoubt': true, 'register.receiptError': IN_DOUBT }, $unset: { leaseUntil: 1 } },
     { new: true },
   ).lean().exec()
   return held ?? Invoice.findById(doc._id).lean().exec()
@@ -269,7 +269,7 @@ async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promis
     const { now, open } = await readDevice(printer)
     if (!provedNotPrinted({ before, now, open })) {
       logger.warn({ documentId: String(doc._id), before, now, open }, 'Interrupted fiscal receipt: device cannot confirm it — not reprinting')
-      if (doc.type === 'payment_receipt') return holdInDoubt(doc, IN_DOUBT)
+      if (doc.type === 'payment_receipt') return holdInDoubt(doc)
       return setRegister(doc._id, {
         'fiscal.state': 'unknown',
         receiptError: 'The receipt was interrupted and the device cannot confirm whether it printed. Check the device; do not ring the sale up again.',
@@ -317,7 +317,7 @@ export async function readDevice(printer: RegisterPrinter): Promise<{ now?: numb
 }
 
 /** What a receipt in doubt says: nothing was booked, and who does what next. */
-export const IN_DOUBT = 'The receipt was interrupted and nothing can prove whether it printed, so nothing was booked. Check the device, then settle it in the cash-register journal.'
+const IN_DOUBT = 'The receipt was interrupted and nothing can prove whether it printed, so nothing was booked. Check the device, then settle it in the cash-register journal.'
 
 /**
  * The receipt printed. ⚠ Its number only when the device gave one: a Tremol closes before it can be

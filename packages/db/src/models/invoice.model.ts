@@ -86,8 +86,8 @@ export interface IInvoicePayment {
   origin?: string
   /**
    * FR-23: the `payment_receipt` that took this money. The link between the two lives here, on a
-   * key that survives: `payment.recorded` writes the array back through the repository, which gives
-   * every row a new `_id`.
+   * key that survives: the paths that rewrite the array through the repository (the settlement rule,
+   * an attach to a cash sale) give every row a new `_id`.
    */
   receiptId?: Types.ObjectId
   /** The `Idempotency-Key` that recorded this payment, and its request hash (#155). */

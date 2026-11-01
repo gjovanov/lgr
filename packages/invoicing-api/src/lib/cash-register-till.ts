@@ -559,15 +559,15 @@ export async function tillSettings(orgId: string): Promise<{ baseCurrency?: stri
   }
 }
 
+/** The way out of the printer gate. Every refusal of it says so: an org with no printer has no other. */
+export const PRINTER_GATE_SWITCH = 'An organization that prints nothing here turns "A sale needs a connected fiscal printer" off in Settings → Organization → Cash register.'
+
 /**
  * No sale without a connected printer (2026-10-31): a sale that prints — every till sale, and a
  * back-office sale that asked its session's device for a receipt — is refused when nothing would
  * print it, unless the org turned the rule off (a demo or test org with no device). Called before
  * anything is written, so a refused sale draws no number and no УНП.
  */
-/** The way out of the printer gate. Every refusal of it says so: an org with no printer has no other. */
-export const PRINTER_GATE_SWITCH = 'An organization that prints nothing here turns "A sale needs a connected fiscal printer" off in Settings → Organization → Cash register.'
-
 export async function assertPrinterConnected(orgId: string, warehouseId: string, ctx: { printer?: unknown } | null): Promise<void> {
   if (ctx?.printer) return
   if (!(await tillSettings(orgId)).requireConnectedDevice) return

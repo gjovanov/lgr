@@ -6,7 +6,7 @@ import { Invoice } from 'db/models'
  */
 
 /** Half a cent: money is compared at the cent, never at floating-point precision. */
-export const PAYMENT_TOLERANCE = 0.005
+const PAYMENT_TOLERANCE = 0.005
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 

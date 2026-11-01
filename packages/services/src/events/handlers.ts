@@ -144,9 +144,9 @@ export async function postPosSessionJournal(payload: { orgId: string; sessionId:
 }
 
 /**
- * One payment's journal entry, stamped on THAT payment. `payment.recorded` stamps the last payment of
- * the invoice, which is the one just recorded; the fenced import (FR-20.84) posts every payment an
- * imported invoice arrived with. Idempotent: a payment that has a `journalEntryId` gets no second.
+ * One payment's journal entry, stamped on THAT payment: what the fenced import (FR-20.84) posts for
+ * every payment an imported invoice arrived with. Idempotent: a payment that has a `journalEntryId`
+ * gets no second. `payment.recorded` does the same in place, on the row its event names.
  */
 export async function postPaymentJournal(payload: { orgId: string; invoiceId: string; paymentId: string; userId: string }): Promise<void> {
   const r = getRepos()
@@ -228,8 +228,8 @@ export function registerEventHandlers(): void {
       // ⚠ Stamped in place, on the row the event names. The array read above is never written back:
       // that lost whatever another payment wrote in between, a receipt's row included, while
       // `amountPaid` kept the money. "The last row" was not even this payment by then.
-      const row = payload.receiptId ? { 'payments.receiptId': payload.receiptId } : payload.paymentId ? { 'payments._id': payload.paymentId } : null
-      if (row) await Invoice.updateOne(
+      const row = payload.receiptId ? { 'payments.receiptId': payload.receiptId } : { 'payments._id': payload.paymentId }
+      await Invoice.updateOne(
         { _id: payload.invoiceId, orgId: payload.orgId, ...row },
         { $set: { 'payments.$.journalEntryId': je.id } },
       ).exec()

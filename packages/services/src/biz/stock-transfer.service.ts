@@ -267,10 +267,6 @@ export async function checkPendingTransfers(orgId: string, transferIds: unknown,
 }
 
 /**
- * Confirm the transfers a document depends on, before it dispatches: a sale's create, an
- * invoice's issue. Checked as `checkPendingTransfers` checks them; a completed one is left alone.
- */
-/**
  * Transfers drawn up for an issue that was refused. They are made first and confirmed by the issue,
  * so a refusal leaves them: they moved nothing, and the next attempt draws up its own. Only drafts of
  * this org: a confirmed one is a real movement, and may be another document's.
@@ -282,6 +278,10 @@ export async function discardPendingTransfers(orgId: string, transferIds: unknow
   await StockMovement.updateMany({ _id: { $in: ids }, orgId, type: 'transfer', status: 'draft' }, { $set: { status: 'cancelled' } }).exec()
 }
 
+/**
+ * Confirm the transfers a document depends on, before it dispatches: a sale's create, an
+ * invoice's issue. Checked as `checkPendingTransfers` checks them; a completed one is left alone.
+ */
 export async function confirmTransferMovements(orgId: string, transferIds: string[], opts: { forDocumentId?: string } = {}): Promise<void> {
   const ids = await checkPendingTransfers(orgId, transferIds, opts)
   const r = getRepos()

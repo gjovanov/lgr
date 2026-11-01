@@ -58,7 +58,7 @@ import { provedNotPrinted } from './print-verdict.js'
 import type { RegisterPrinter } from './printer.js'
 import type { ReceiptBody } from './receipt-lines.js'
 import {
-  IN_DOUBT, RegisterRefusal, applySessionTotals, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, readDevice, rollBack,
+  RegisterRefusal, applySessionTotals, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, readDevice, rollBack,
   saleIncrements, setRegister, type RegisterContext, type RegisterSession, type RegisterUser,
 } from './register.service.js'
 
@@ -67,7 +67,7 @@ const oid = (v: unknown): ObjectId => new Invoice.base.Types.ObjectId(String(v))
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 
 /** §2.7: a printed receipt cannot change, so what it printed cannot either. */
-export const FISCALLY_PAID = {
+const FISCALLY_PAID = {
   code: 'fiscally_paid',
   message: 'A fiscal receipt has printed for this document, so its total can no longer change and it cannot be voided. Correct it with a credit or a debit note.',
 } as const
@@ -256,7 +256,7 @@ export interface ReceiptTender {
   reference?: string
 }
 
-export interface PaymentReceiptInput {
+interface PaymentReceiptInput {
   invoice: any
   body: ReceiptBody
   tender: ReceiptTender
@@ -434,7 +434,7 @@ async function giveUp(c: RegisterContext, doc: any): Promise<any> {
 /** The print, in the receipt's turn. What cannot print: failed if it never reached the device, else in doubt. */
 async function printReceiptStep(c: RegisterContext, doc: any): Promise<any> {
   const couldNot = (reason: string) => (doc.register?.fiscal?.attemptedAt
-    ? holdInDoubt(doc, IN_DOUBT)
+    ? holdInDoubt(doc)
     : setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': reason, receiptError: reason }))
   if (!c.printer) return couldNot('The fiscal device is no longer connected, so the receipt was not printed.')
   try {
@@ -568,7 +568,7 @@ export async function finishInterruptedReceipt(c: RegisterContext, doc: any): Pr
       || (!!c.printer && provedNotPrinted({ before: fiscal.counterBefore, ...(await readDevice(c.printer)) }))
     if (!neverPrinted) {
       logger.warn({ documentId: String(fresh._id) }, 'Interrupted payment receipt cannot be proved either way — held for a person')
-      return holdInDoubt(fresh, IN_DOUBT)
+      return holdInDoubt(fresh)
     }
     logger.warn({ documentId: String(fresh._id) }, 'Interrupted payment receipt did not print — given up')
     const receiptError = 'The payment was interrupted before its receipt printed.'
