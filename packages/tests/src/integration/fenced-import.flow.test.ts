@@ -59,7 +59,7 @@ const line = (productId: unknown, warehouseId: unknown, quantity: number, unitPr
 })
 
 /** lgrai.app after a promotion, and what the replaced server did after the cutoff, as its export. */
-async function world(o: { deadReceipt?: boolean; deadFiscal?: Record<string, unknown> } = {}) {
+async function world(o: { deadReceipt?: boolean; deadFiscal?: Record<string, unknown>; deadStorno?: boolean } = {}) {
   const org = await createTestOrg({ slug: `fenced-import-${n}` } as any)
   const orgId = org._id as any
   const admin = await createTestUser(orgId, { role: 'admin' } as any)
@@ -122,7 +122,7 @@ async function world(o: { deadReceipt?: boolean; deadFiscal?: Record<string, unk
   await site.collection('docfiles').insertOne(doc)
   await site.collection('auditlogs').insertOne(audit)
   await site.collection('journalentries').insertOne(je)
-  const dead = { _id: ids.dead, orgId, type: 'payment_receipt', direction: 'outgoing', invoiceNumber: `CS-${year}-00011`, status: 'paid', issueDate: at, createdAt: at, currency: 'EUR', exchangeRate: 1, total: 24, paymentMethod: 'cash', payments: [{ _id: oid(), date: at, method: 'cash', amount: 24 }], leaseUntil: at, register: { origin: 'invoice', sessionId: ids.session, warehouseId: wh._id, paidInvoiceId: ids.held, paidInvoiceNumber: `INV-${year}-00053`, unp: 'ED123456-0001-0000008', tendered: { method: 'cash', amount: 24, date: at }, fiscal: o.deadFiscal ?? { mode: 'fiscal', state: 'pending', attemptedAt: at, counterBefore: 7 } } }; if (o.deadReceipt) await site.collection('invoices').insertMany([{ ...invoice50, _id: ids.held, invoiceNumber: `INV-${year}-00053`, receiptHolds: [{ receiptId: ids.dead, amount: 24 }] }, dead]); const journal: Array<[string, unknown, string?]> = [
+  const dead = { _id: ids.dead, orgId, type: o.deadStorno ? 'payment_storno' : 'payment_receipt', direction: 'outgoing', invoiceNumber: `CS-${year}-00011`, status: 'paid', issueDate: at, createdAt: at, currency: 'EUR', exchangeRate: 1, total: 24, paymentMethod: 'cash', payments: [{ _id: oid(), date: at, method: 'cash', amount: 24 }], leaseUntil: at, register: { origin: 'invoice', sessionId: ids.session, warehouseId: wh._id, ...(o.deadStorno ? { refundOf: ids.held, refundOfNumber: `INV-${year}-00053`, storno: { originalId: ids.gone, originalUnp: 'ED123456-0001-0000001', originalReceiptNumber: '0000101', reason: 'customer_return' } } : { paidInvoiceId: ids.held, paidInvoiceNumber: `INV-${year}-00053` }), unp: 'ED123456-0001-0000008', tendered: { method: 'cash', amount: 24, date: at }, fiscal: o.deadFiscal ?? { mode: 'fiscal', state: 'pending', attemptedAt: at, counterBefore: 7 } } }; if (o.deadReceipt) await site.collection('invoices').insertMany([{ ...invoice50, _id: ids.held, invoiceNumber: `INV-${year}-00053`, receiptHolds: [{ receiptId: ids.dead, amount: 24 }] }, dead]); const journal: Array<[string, unknown, string?]> = [
     ['contacts', ids.newCustomer], ['products', ids.newProduct], ['possessions', ids.session],
     ['invoices', ids.invoice50], ['invoices', ids.cashSale], ['invoices', ids.draft], ['invoices', ids.clash], ['invoices', ids.missing], ['invoices', ids.paid52],
     ['stockmovements', ids.saleMovement], ['stockmovements', ids.receipt], ['docfiles', ids.doc], ['auditlogs', ids.audit], ['journalentries', ids.je],
@@ -245,6 +245,22 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
     expect(settled.status).toBe('voided')
     expect(((await Invoice.collection.findOne({ _id: w.ids.held } as any)) as any).receiptHolds ?? []).toHaveLength(0)
     expect(await freezeRefusal(w.orgId, held)).toBeNull()
+  })
+
+  it('a refund\'s storno that died on the site arrives the same way: held, its hold on the credit note, for a person to let go of', async () => {
+    const w = await world({ deadReceipt: true, deadStorno: true })
+    await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
+    await runToEnd(w.ex._id)
+
+    const storno: any = await Invoice.collection.findOne({ _id: w.ids.dead } as any)
+    expect(storno.type).toBe('payment_storno')
+    expect(storno.register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
+    expect(storno.leaseUntil).toBeUndefined()
+    const held = String(w.ids.held)
+    expect(await receiptInDoubt(w.orgId, held)).toMatchObject({ invoiceNumber: `CS-${year}-00011` })
+    const settled = await settleReceipt(deviceless(w.orgId, { id: String(w.admin._id), operatorCode: '0001' } as any), String(w.ids.dead), false)
+    expect(settled.status).toBe('voided')
+    expect(((await Invoice.collection.findOne({ _id: w.ids.held } as any)) as any).receiptHolds ?? []).toHaveLength(0)
   })
 
   // Finding 8: past the print nothing is left to prove, and only the money waits. Its lease does not

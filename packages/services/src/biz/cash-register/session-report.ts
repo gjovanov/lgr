@@ -1,4 +1,4 @@
-import { cashOnDeliveryOf, keptByMethod, posRowSign, receiptTookMoney } from './counting.js'
+import { cashOnDeliveryOf, keptByMethod, posRowSign, receiptTookMoney, refundGaveMoney } from './counting.js'
 
 /**
  * A till session's own figures, as LGR counts them: what it sold and gave back, by VAT rate and
@@ -10,7 +10,9 @@ import { cashOnDeliveryOf, keptByMethod, posRowSign, receiptTookMoney } from './
  * till rows (`loadPosRows`) and the rules are the session journal entry's (`counting.ts`), so the
  * report and the entry never differ. But for one thing, on purpose: the money of a payment on an
  * invoice (FR-23). Its receipt is on the device and its cash is in the drawer, so the report counts
- * it, and the Z-report agrees; the entry does not, because the invoice's payment posted it.
+ * it, and the Z-report agrees; the entry does not, because the invoice's payment posted it. A refund's
+ * storno on a credit note is the same money going back: it counts negative here, and its credit
+ * note's payment posted it.
  *
  * Import-pure: the close, the reprint and their tests all build it from rows they already hold.
  */
@@ -19,7 +21,7 @@ export interface SessionReport {
   currency: string
   openedAt?: string
   closedAt?: string
-  counts: { sales: number; stornos: number; voided: number; fiscal: number; text: number; unprinted: number; payments?: number }
+  counts: { sales: number; stornos: number; voided: number; fiscal: number; text: number; unprinted: number; payments?: number; refunds?: number }
   /** Per VAT rate: net, VAT and gross — sales less stornos. */
   vat: Array<{ rate: number; net: number; vat: number; gross: number }>
   total: number
@@ -68,16 +70,18 @@ export function buildSessionReport(
     // Every document the session numbered is in its range, a voided storno too.
     if (row.transactionNumber) numbers.push(String(row.transactionNumber))
     const payment = row.type === 'payment_receipt'
-    const sign = payment ? (receiptTookMoney(row) ? 1 : 0) : posRowSign(row)
+    const refund = row.type === 'payment_storno'
+    const sign = payment ? (receiptTookMoney(row) ? 1 : 0) : refund ? (refundGaveMoney(row) ? -1 : 0) : posRowSign(row)
     const reversal = row.type === 'storno' || row.type === 'return'
     if (!sign) {
       // A storno whose receipt failed reverses nothing, and a receipt that failed took nothing;
       // anything else unsigned is not a sale.
-      if (reversal || (payment && row.status === 'cancelled')) counts.voided++
+      if (reversal || ((payment || refund) && row.status === 'cancelled')) counts.voided++
       continue
     }
     if (reversal) counts.stornos++
     else if (payment) counts.payments = (counts.payments || 0) + 1
+    else if (refund) counts.refunds = (counts.refunds || 0) + 1
     else counts.sales++
     counts[receiptOf(row)]++
 
@@ -126,28 +130,28 @@ export function buildSessionReport(
 
 const LABELS: Record<string, Record<string, string>> = {
   en: {
-    title: 'SESSION REPORT', opened: 'Opened', closed: 'Closed', sales: 'Sales', payments: 'Invoice payments', stornos: 'Stornos', voided: 'Voided',
+    title: 'SESSION REPORT', opened: 'Opened', closed: 'Closed', sales: 'Sales', payments: 'Invoice payments', refunds: 'Credit note refunds', stornos: 'Stornos', voided: 'Voided',
     fiscal: 'Fiscal receipts', text: 'Text receipts', unprinted: 'Not printed', vat: 'VAT', net: 'Net', gross: 'Gross',
     total: 'TOTAL', cash: 'Cash', card: 'Card', other: 'Other', cod: 'Cash on delivery', change: 'Change given', opening: 'Opening float',
     expected: 'Expected cash', counted: 'Counted', difference: 'Difference', documents: 'Documents', receipts: 'Receipts',
     z: 'Z-report No.',
   },
   bg: {
-    title: 'ОТЧЕТ ЗА СЕСИЯ', opened: 'Отворена', closed: 'Затворена', sales: 'Продажби', payments: 'Плащания по фактури', stornos: 'Сторно', voided: 'Анулирани',
+    title: 'ОТЧЕТ ЗА СЕСИЯ', opened: 'Отворена', closed: 'Затворена', sales: 'Продажби', payments: 'Плащания по фактури', refunds: 'Върнато по кр. известия', stornos: 'Сторно', voided: 'Анулирани',
     fiscal: 'Фискални бонове', text: 'Служебни бонове', unprinted: 'Неотпечатани', vat: 'ДДС', net: 'Основа', gross: 'Сума',
     total: 'ОБЩО', cash: 'В брой', card: 'Карта', other: 'Други', cod: 'Наложен платеж', change: 'Върнато ресто', opening: 'Начална сума',
     expected: 'Очаквано в брой', counted: 'Преброено', difference: 'Разлика', documents: 'Документи', receipts: 'Бонове',
     z: 'Z-отчет №',
   },
   de: {
-    title: 'SITZUNGSBERICHT', opened: 'Geöffnet', closed: 'Geschlossen', sales: 'Verkäufe', payments: 'Rechnungszahlungen', stornos: 'Stornos', voided: 'Ungültig',
+    title: 'SITZUNGSBERICHT', opened: 'Geöffnet', closed: 'Geschlossen', sales: 'Verkäufe', payments: 'Rechnungszahlungen', refunds: 'Gutschrift-Erstattungen', stornos: 'Stornos', voided: 'Ungültig',
     fiscal: 'Fiskalbelege', text: 'Textbelege', unprinted: 'Nicht gedruckt', vat: 'MwSt', net: 'Netto', gross: 'Brutto',
     total: 'GESAMT', cash: 'Bar', card: 'Karte', other: 'Sonstige', cod: 'Nachnahme', change: 'Rückgeld', opening: 'Anfangsbestand',
     expected: 'Erwartetes Bargeld', counted: 'Gezählt', difference: 'Differenz', documents: 'Belege', receipts: 'Bons',
     z: 'Z-Bericht Nr.',
   },
   mk: {
-    title: 'ИЗВЕШТАЈ ЗА СЕСИЈА', opened: 'Отворена', closed: 'Затворена', sales: 'Продажби', payments: 'Плаќања по фактури', stornos: 'Сторно', voided: 'Поништени',
+    title: 'ИЗВЕШТАЈ ЗА СЕСИЈА', opened: 'Отворена', closed: 'Затворена', sales: 'Продажби', payments: 'Плаќања по фактури', refunds: 'Вратено по кр. известув.', stornos: 'Сторно', voided: 'Поништени',
     fiscal: 'Фискални сметки', text: 'Службени сметки', unprinted: 'Неотпечатени', vat: 'ДДВ', net: 'Основица', gross: 'Износ',
     total: 'ВКУПНО', cash: 'Готовина', card: 'Картичка', other: 'Друго', cod: 'При достава', change: 'Вратен кусур', opening: 'Почетна сума',
     expected: 'Очекувана готовина', counted: 'Избројано', difference: 'Разлика', documents: 'Документи', receipts: 'Сметки',
@@ -180,6 +184,7 @@ export function formatSessionReport(report: SessionReport, locale = 'en', timeZo
   lines.push(sep)
   lines.push(lr(l.sales, String(report.counts.sales)))
   if (report.counts.payments) lines.push(lr(l.payments, String(report.counts.payments)))
+  if (report.counts.refunds) lines.push(lr(l.refunds, String(report.counts.refunds)))
   lines.push(lr(l.stornos, String(report.counts.stornos)))
   if (report.counts.voided) lines.push(lr(l.voided, String(report.counts.voided)))
   lines.push(lr(l.fiscal, String(report.counts.fiscal)))

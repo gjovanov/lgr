@@ -35,9 +35,10 @@ export const NOT_INVOICE_FOR_CASH_SALE: Record<string, any> = { [CASH_SALE_REF_I
  * FR-23: leave out the receipts of payments on invoices, for a reader with no `type` in its filter.
  * The invoice is the sale and its payment row is the money; a receipt is both again, and it names
  * the customer and, printed whole, the invoice's products. A reader that names its types never
- * sees one.
+ * sees one. The same goes for the storno of a refund (R2): the credit note is the return, and its
+ * payment row is the money going back.
  */
-export const NOT_PAYMENT_RECEIPT: Record<string, any> = { type: { $ne: 'payment_receipt' } }
+export const NOT_PAYMENT_RECEIPT: Record<string, any> = { type: { $nin: ['payment_receipt', 'payment_storno'] } }
 
 /** Whether LGR prints this org's sales: the printer gate's one switch (#390). ⚠ Unset reads as on. */
 export async function printsHere(orgId: string): Promise<boolean> {
@@ -48,12 +49,13 @@ export async function printsHere(orgId: string): Promise<boolean> {
 /**
  * FR-23: what the header of a document says about money. Where LGR prints, the receipt and its payment
  * are the settlement, so a cash or card header on an invoice or a debit note says how it is to be
- * paid, never that it was: whatever no payment row covers is unpaid. ⚠ `prints` says so per org, read
+ * paid, never that it was: whatever no payment row covers is unpaid. A credit note the same way: its
+ * storno is the refund, and until one prints no money went back. ⚠ `prints` says so per org, read
  * once by whoever walks the documents (`printsHere`). Where nothing prints such a document was never
  * more than its header, a debit note issued in cash included: there the header stays the money.
  */
 export function headerIsNoMoney(doc: { type?: string; paymentMethod?: string }, prints: boolean): boolean {
-  return prints && (doc.type === 'invoice' || doc.type === 'debit_note') && Object.hasOwn(SETTLED_ON_ISSUE, String(doc.paymentMethod))
+  return prints && (doc.type === 'invoice' || doc.type === 'debit_note' || doc.type === 'credit_note') && Object.hasOwn(SETTLED_ON_ISSUE, String(doc.paymentMethod))
 }
 
 /** Statuses of an invoice that is not (or no longer) a document. */

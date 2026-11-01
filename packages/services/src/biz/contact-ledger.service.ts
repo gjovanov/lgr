@@ -199,7 +199,7 @@ export async function getContactLedger(
   // Compute profitability based on purchasePrice of products sold
   const costPipeline: any[] = [
     // After the spread: this `type` replaces the one `matchStage` carries, so it names the receipt too.
-    { $match: { ...matchStage, direction: 'outgoing', type: { $nin: ['credit_note', 'payment_receipt'] } } },
+    { $match: { ...matchStage, direction: 'outgoing', type: { $nin: ['credit_note', 'payment_receipt', 'payment_storno'] } } },
     { $unwind: '$lines' },
     {
       $lookup: {

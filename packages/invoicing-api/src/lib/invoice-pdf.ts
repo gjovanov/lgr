@@ -65,7 +65,7 @@ export async function stornoRefOf(orgId: string, storno: any) {
  * debit note the fiscal receipts that paid it (FR-23), as an invoice for a cash sale names that sale.
  */
 export async function printableDocument(orgId: string, invoice: any): Promise<any> {
-  const stornoRef = invoice.type === 'cash_storno' ? await stornoRefOf(orgId, invoice) : undefined
+  const stornoRef = invoice.type === 'cash_storno' || invoice.type === 'payment_storno' ? await stornoRefOf(orgId, invoice) : undefined
   const receipts = invoice.type === 'invoice' || invoice.type === 'debit_note' ? await paidByReceipts(orgId, String(invoice._id)) : []
   // A cash-on-delivery receipt has paid nothing while the courier still owes: "Платена с касов бон"
   // on a document wholly due is a false statement on a tax document. So is it of a text receipt: no

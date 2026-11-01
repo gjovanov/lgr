@@ -69,11 +69,12 @@ export async function getInvoiceSummary(
         paid30d: [
           // An invoice for a cash sale (#171) is paid with that cash sale's money: counted once.
           { $match: { status: 'paid', paidAt: { $gte: since30 }, ...NOT_INVOICE_FOR_CASH_SALE } },
-          // A cash-sale storno is stored positive and gives the money back (FR-21.9).
+          // A cash-sale storno is stored positive and gives the money back (FR-21.9). So is a credit
+          // note fully refunded (FR-23 R2).
           {
             $group: {
               _id: null,
-              amount: { $sum: { $cond: [{ $eq: ['$type', 'cash_storno'] }, { $multiply: ['$total', -1] }, '$total'] } },
+              amount: { $sum: { $cond: [{ $in: ['$type', ['cash_storno', 'credit_note']] }, { $multiply: ['$total', -1] }, '$total'] } },
               count: { $sum: 1 },
             },
           },

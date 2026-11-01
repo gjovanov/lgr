@@ -19,6 +19,7 @@ export interface InvoiceDocI18n {
     cash_sale: string
     cash_storno: string
     payment_receipt: string
+    payment_storno: string
   }
   /** Why a cash sale was reversed (the fiscal storno's reason). */
   stornoReason: { operator_error: string; customer_return: string; price_reduction: string; tax_base_reduction: string }
@@ -90,6 +91,7 @@ const bg: InvoiceDocI18n = {
     cash_sale: 'КАСОВА ПРОДАЖБА',
     cash_storno: 'СТОРНО НА КАСОВА ПРОДАЖБА',
     payment_receipt: 'ПЛАЩАНЕ ПО ФАКТУРА',
+    payment_storno: 'ВРЪЩАНЕ ПО КРЕДИТНО ИЗВЕСТИЕ',
   },
   stornoReason: {
     operator_error: 'Операторска грешка',
@@ -162,6 +164,7 @@ const en: InvoiceDocI18n = {
     cash_sale: 'CASH SALE',
     cash_storno: 'CASH SALE STORNO',
     payment_receipt: 'PAYMENT RECEIPT',
+    payment_storno: 'REFUND STORNO',
   },
   stornoReason: {
     operator_error: 'Operator error',
@@ -233,6 +236,7 @@ const de: InvoiceDocI18n = {
     cash_sale: 'BARVERKAUF',
     cash_storno: 'STORNO BARVERKAUF',
     payment_receipt: 'ZAHLUNGSBELEG',
+    payment_storno: 'ERSTATTUNGSSTORNO',
   },
   stornoReason: {
     operator_error: 'Bedienerfehler',
@@ -304,6 +308,7 @@ const mk: InvoiceDocI18n = {
     cash_sale: 'КАСОВА ПРОДАЖБА',
     cash_storno: 'СТОРНО НА КАСОВА ПРОДАЖБА',
     payment_receipt: 'УПЛАТА ПО ФАКТУРА',
+    payment_storno: 'ВРАЌАЊЕ ПО КРЕДИТНО ИЗВЕСТУВАЊЕ',
   },
   stornoReason: {
     operator_error: 'Грешка на операторот',

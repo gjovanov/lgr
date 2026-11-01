@@ -122,8 +122,9 @@ function sourceText(ctx: Ctx): string {
 export function bookingOf(doc: Doc): 'none' | 'sale' | 'bill' | 'register' {
   if (doc.status === 'draft' || DEAD.has(String(doc.status)) || doc.type === 'proforma') return 'none'
   // FR-23: a payment's receipt books nothing. Its invoice comes in with the stock, the entry and the
-  // payment row; `createInvoiceStockMovement` below would dispatch its lines a second time.
-  if (doc.type === 'payment_receipt') return 'none'
+  // payment row; `createInvoiceStockMovement` below would dispatch its lines a second time. A refund's
+  // storno the same: its credit note comes in with the return and the payment row.
+  if (doc.type === 'payment_receipt' || doc.type === 'payment_storno') return 'none'
   if (doc.type === 'cash_sale' || doc.type === 'cash_storno') return 'register'
   return doc.direction === 'incoming' ? 'bill' : 'sale'
 }
@@ -173,7 +174,7 @@ function asKept(doc: Doc, ctx: Ctx, number?: string): Doc {
     // finishable, or its invoice stays locked for good. Its device stayed behind, so one that was
     // still printing cannot be proved, and a person settles it, as anything that cannot be. Past the
     // print only the money is left, and a lapsed lease is what lets the next touch finish that.
-    if (out.type === 'payment_receipt' && !out.completedAt) {
+    if ((out.type === 'payment_receipt' || out.type === 'payment_storno') && !out.completedAt) {
       if (out.register.fiscal?.state === 'pending') out.register.fiscal = { ...out.register.fiscal, state: 'unknown', inDoubt: true }
       else if (!out.register.fiscal?.inDoubt) out.leaseUntil = ctx.at
     }
