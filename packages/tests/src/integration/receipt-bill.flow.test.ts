@@ -1064,6 +1064,43 @@ describe('a typed draft bill takes a delivery (FR-22.32a)', () => {
     expect((await w.mv(r._id)).invoiceId).toBeUndefined()
   }, 60_000)
 
+  it('the undo after a lost claim touches only the draft it wrote: a bill received meanwhile stays as it stands', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 2, 5]])
+    const typed = await w.typedBill([[w.nut, 3, 2.5]], { reference: 'F-79' })
+    const spy = beforeClaimOf(r, async () => {
+      // Another request sees the link just written, and receives the bill.
+      await Invoice.updateOne({ _id: typed.id }, { $set: { status: 'received', invoiceNumber: 'BILL-RIVAL-1' } }).exec()
+      await StockMovement.collection.updateOne({ _id: r._id }, { $set: { invoiceId: new Invoice()._id } })
+    })
+    try {
+      const lost = await w.linkReceipts(typed, [r._id], { replaceLines: true })
+      expect([lost.status, lost.json.code]).toEqual([409, 'receipt_already_billed'])
+    } finally {
+      spy.mockRestore()
+    }
+    const bill = await w.load(typed.id)
+    expect([bill.status, bill.invoiceNumber]).toEqual(['received', 'BILL-RIVAL-1'])
+    expect(bill.stockSource?.marker).toBe(`movement:${r._id}`)
+    expect(bill.lines.map((l: any) => [l.description, l.quantity])).toEqual([[w.bolt.name, 2]])
+  }, 60_000)
+
+  it('…and one whose link another request replaced stays as that request left it', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 2, 5]])
+    const typed = await w.typedBill([[w.nut, 3, 2.5]], { reference: 'F-80' })
+    const spy = beforeClaimOf(r, async () => {
+      await Invoice.updateOne({ _id: typed.id }, { $set: { 'stockSource.marker': 'movement:another' } }).exec()
+      await StockMovement.collection.updateOne({ _id: r._id }, { $set: { invoiceId: new Invoice()._id } })
+    })
+    try {
+      await w.linkReceipts(typed, [r._id], { replaceLines: true })
+    } finally {
+      spy.mockRestore()
+    }
+    expect((await w.load(typed.id)).stockSource?.marker).toBe('movement:another')
+  }, 60_000)
+
   it('the audit trail keeps what the bill no longer holds: the typed lines, the old totals, a supplier it wrote', async () => {
     const w = await world()
     const r = await w.receipt([[w.bolt, 10, 5]], { contactId: null })

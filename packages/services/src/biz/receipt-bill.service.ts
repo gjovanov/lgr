@@ -651,6 +651,7 @@ export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: st
   const unsetOnUndo: Record<string, 1> = { stockSource: 1 }
   if (bill.contactId) before.contactId = bill.contactId
   else unsetOnUndo.contactId = 1
+  const link = stockSourceFor(movements, unnamed)
   const linked = await Invoice.findOneAndUpdate(
     { _id: billId, orgId, status: 'draft', 'stockSource.marker': { $in: [null, ''] } } as any,
     {
@@ -664,7 +665,7 @@ export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: st
         // In the org's currency, whatever a stale rate on the bill says.
         totalBase: totals.total,
         amountDue: round2(totals.total - num(bill.amountPaid)),
-        stockSource: stockSourceFor(movements, unnamed),
+        stockSource: link,
       },
     },
     { new: true },
@@ -673,7 +674,9 @@ export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: st
   try {
     await claimReceipts(orgId, bill._id, movements, supplierId)
   } catch (e) {
-    await Invoice.updateOne({ _id: billId, orgId } as any, { $set: before, $unset: unsetOnUndo }).exec()
+    // Only the draft this request linked: what was read before the link is older than anything another
+    // request did since, and a bill received or linked meanwhile must not get those old lines back.
+    await Invoice.updateOne({ _id: billId, orgId, status: 'draft', 'stockSource.marker': link.marker } as any, { $set: before, $unset: unsetOnUndo }).exec()
     throw e
   }
 
