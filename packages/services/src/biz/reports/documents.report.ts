@@ -138,7 +138,7 @@ function salesColumn(method: unknown): SalesMethodKey {
  * of the document, so it is left out rather than pushed into a column as a negative.
  */
 function splitTotal(
-  doc: { docType?: string; paymentMethod?: string; payments?: { method?: string; amount?: number }[] },
+  doc: { docType?: string; paymentMethod?: string; amountPaid?: number; payments?: { method?: string; amount?: number }[] },
   total: number,
   prints: boolean,
 ): Record<SalesMethodKey, number> {
@@ -150,7 +150,9 @@ function splitTotal(
     out[salesColumn(p.method)] += amount
     open -= amount
   }
-  if (open > 0) out[headerIsNoMoney({ type: doc.docType, paymentMethod: doc.paymentMethod }, prints) ? 'bank' : salesColumn(doc.paymentMethod)] += open
+  // Paid with no payment row, an old document's header is all that says how.
+  const headerSaysMoney = !doc.payments?.length && Number(doc.amountPaid) > 0
+  if (open > 0) out[!headerSaysMoney && headerIsNoMoney({ type: doc.docType, paymentMethod: doc.paymentMethod }, prints) ? 'bank' : salesColumn(doc.paymentMethod)] += open
 
   // Back onto the document's sign and onto cents. „По банка" takes the rounding, so the four
   // add up to the total exactly rather than to within a cent.

@@ -70,7 +70,7 @@ export function effectiveMethods(doc: {
     return rows.map(p => ({ method: String(p.method || 'other'), amount: Number(p.amount) || 0 }))
   }
   const total = Number(doc.total) || 0
-  if (headerIsNoMoney(doc, prints)) return [{ method: String(doc.paymentMethod), amount: 0 }]
+  if (!Number(doc.amountPaid) && headerIsNoMoney(doc, prints)) return [{ method: String(doc.paymentMethod), amount: 0 }]
   if (doc.paymentMethod) return [{ method: String(doc.paymentMethod), amount: total }]
   // A cash sale with no payment row was paid in cash at the till; its storno refunds in cash.
   if ((doc.type === 'cash_sale' || doc.type === 'cash_storno') && Number(doc.amountPaid) > 0) return [{ method: 'cash', amount: total }]

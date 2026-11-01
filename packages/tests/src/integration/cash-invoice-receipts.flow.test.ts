@@ -3288,6 +3288,17 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
     expect(await row(part.id)).toMatchObject({ total: 24, paidCash: 10, paidCard: 0, bank: 14 })
   })
 
+  it('an old invoice paid with no payment row keeps its column, where LGR prints too', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    await Invoice.updateOne({ _id: d.id }, { $set: { paymentMethod: 'cash', status: 'paid', amountPaid: 24, amountDue: 0 } })
+
+    const out = await report('sales-documents', w.orgId, { period: around() })
+
+    expect(out.rows.find((r: any) => r.invoiceId === d.id)).toMatchObject({ total: 24, paidCash: 24, bank: 0 })
+  })
+
   it('cash on delivery keeps its own column, paid or not', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w, { method: 'cash_on_delivery' })

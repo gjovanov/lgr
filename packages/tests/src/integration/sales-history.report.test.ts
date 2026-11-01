@@ -60,6 +60,10 @@ describe('effectiveMethods (FR-8.4)', () => {
     expect(effectiveMethods({ type: 'invoice', paymentMethod: 'bank_transfer', total: 50, amountPaid: 0 }, true)).toEqual([{ method: 'bank_transfer', amount: 50 }])
   })
 
+  it('paid with no payment row, an old document keeps what its header says, wherever', () => {
+    expect(effectiveMethods({ type: 'invoice', paymentMethod: 'cash', total: 50, amountPaid: 50 }, true)).toEqual([{ method: 'cash', amount: 50 }])
+  })
+
   it('where it does not, the header is the money, a debit note in cash included: such a document stays unpaid there', () => {
     for (const type of ['invoice', 'debit_note']) {
       expect(effectiveMethods({ type, paymentMethod: 'cash', total: 50, amountPaid: 0 }, false)).toEqual([{ method: 'cash', amount: 50 }])
