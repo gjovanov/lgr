@@ -11,6 +11,7 @@ import { mongoose } from 'db/connection'
 import { AuditLog, FencedExport, FencedImportItem, Invoice, Journal, JournalEntry, OrgHome, OrgMove, POSSession, Sequence, StockLevel, StockMovement } from 'db/models'
 import { forgetAllHomes } from 'db/home/home'
 import { fencedExportPath, fencedExportsOf, receiveFencedChunk, writeFencedExport } from 'services/biz/move/fenced-export.service'
+import { finishInterruptedReceipts } from 'invoicing-api/src/lib/counter-receipt'
 import { fencedImportTick, requestFencedImport } from 'services/biz/move/fenced-import.service'; import { freezeRefusal, receiptInDoubt, settleReceipt } from 'services/biz/cash-register/payment-receipt.service'; import { deviceless } from 'invoicing-api/src/lib/counter-receipt'
 
 /**
@@ -59,7 +60,7 @@ const line = (productId: unknown, warehouseId: unknown, quantity: number, unitPr
 })
 
 /** lgrai.app after a promotion, and what the replaced server did after the cutoff, as its export. */
-async function world(o: { deadReceipt?: boolean } = {}) {
+async function world(o: { deadReceipt?: boolean; deadFiscal?: Record<string, unknown> } = {}) {
   const org = await createTestOrg({ slug: `fenced-import-${n}` } as any)
   const orgId = org._id as any
   const admin = await createTestUser(orgId, { role: 'admin' } as any)
@@ -122,7 +123,7 @@ async function world(o: { deadReceipt?: boolean } = {}) {
   await site.collection('docfiles').insertOne(doc)
   await site.collection('auditlogs').insertOne(audit)
   await site.collection('journalentries').insertOne(je)
-  const dead = { _id: ids.dead, orgId, type: 'payment_receipt', direction: 'outgoing', invoiceNumber: `CS-${year}-00011`, status: 'paid', issueDate: at, createdAt: at, currency: 'EUR', exchangeRate: 1, total: 24, paymentMethod: 'cash', payments: [], leaseUntil: at, register: { origin: 'invoice', sessionId: ids.session, warehouseId: wh._id, paidInvoiceId: ids.held, paidInvoiceNumber: `INV-${year}-00053`, unp: 'ED123456-0001-0000008', tendered: { method: 'cash', amount: 24, date: at }, fiscal: { mode: 'fiscal', state: 'pending', attemptedAt: at, counterBefore: 7 } } }; if (o.deadReceipt) await site.collection('invoices').insertMany([{ ...invoice50, _id: ids.held, invoiceNumber: `INV-${year}-00053`, receiptHolds: [{ receiptId: ids.dead, amount: 24 }] }, dead]); const journal: Array<[string, unknown, string?]> = [
+  const dead = { _id: ids.dead, orgId, type: 'payment_receipt', direction: 'outgoing', invoiceNumber: `CS-${year}-00011`, status: 'paid', issueDate: at, createdAt: at, currency: 'EUR', exchangeRate: 1, total: 24, paymentMethod: 'cash', payments: [{ _id: oid(), date: at, method: 'cash', amount: 24 }], leaseUntil: at, register: { origin: 'invoice', sessionId: ids.session, warehouseId: wh._id, paidInvoiceId: ids.held, paidInvoiceNumber: `INV-${year}-00053`, unp: 'ED123456-0001-0000008', tendered: { method: 'cash', amount: 24, date: at }, fiscal: o.deadFiscal ?? { mode: 'fiscal', state: 'pending', attemptedAt: at, counterBefore: 7 } } }; if (o.deadReceipt) await site.collection('invoices').insertMany([{ ...invoice50, _id: ids.held, invoiceNumber: `INV-${year}-00053`, receiptHolds: [{ receiptId: ids.dead, amount: 24 }] }, dead]); const journal: Array<[string, unknown, string?]> = [
     ['contacts', ids.newCustomer], ['products', ids.newProduct], ['possessions', ids.session],
     ['invoices', ids.invoice50], ['invoices', ids.cashSale], ['invoices', ids.draft], ['invoices', ids.clash], ['invoices', ids.missing], ['invoices', ids.paid52],
     ['stockmovements', ids.saleMovement], ['stockmovements', ids.receipt], ['docfiles', ids.doc], ['auditlogs', ids.audit], ['journalentries', ids.je],
@@ -245,6 +246,56 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
     expect(settled.status).toBe('voided')
     expect(((await Invoice.collection.findOne({ _id: w.ids.held } as any)) as any).receiptHolds ?? []).toHaveLength(0)
     expect(await freezeRefusal(w.orgId, held)).toBeNull()
+  })
+
+  // Finding 8: past the print nothing is left to prove, and only the money waits. Its lease does not
+  // travel, and with neither a lease nor a doubt nothing could ever finish it.
+  describe('a receipt that got further before its request died arrives finishable', () => {
+    const after = async (fiscal: Record<string, unknown>) => {
+      const w = await world({ deadReceipt: true, deadFiscal: { mode: 'fiscal', attemptedAt: new Date(), ...fiscal } })
+      await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
+      await runToEnd(w.ex._id)
+      const receipt: any = await Invoice.collection.findOne({ _id: w.ids.dead } as any)
+      expect(receipt.register.fiscal.inDoubt).toBeUndefined()
+      expect(new Date(receipt.leaseUntil).getTime()).toBeLessThan(Date.now())
+      const user = { id: String(w.admin._id), operatorCode: '0001' } as any
+      expect(await finishInterruptedReceipts(w.orgId, user, String(w.ids.held))).toBe(true)
+      return {
+        w,
+        receipt: await Invoice.collection.findOne({ _id: w.ids.dead } as any) as any,
+        invoice: await Invoice.collection.findOne({ _id: w.ids.held } as any) as any,
+      }
+    }
+
+    it('printed: the next touch books the money it took, with no device', async () => {
+      const { w, receipt, invoice } = await after({ state: 'printed', printedAt: new Date() })
+      expect(receipt.completedAt).toBeTruthy()
+      expect(invoice.receiptHolds ?? []).toHaveLength(0)
+      expect(invoice.payments.map((p: any) => String(p.receiptId))).toContain(String(w.ids.dead))
+    })
+
+    it('unknown: the money stands, as it did on the site', async () => {
+      const { w, receipt, invoice } = await after({ state: 'unknown' })
+      expect(receipt.completedAt).toBeTruthy()
+      expect(invoice.receiptHolds ?? []).toHaveLength(0)
+      expect(invoice.payments.map((p: any) => String(p.receiptId))).toContain(String(w.ids.dead))
+    })
+
+    it('failed: it is given up, and the hold goes', async () => {
+      const { receipt, invoice } = await after({ state: 'failed' })
+      expect(receipt.status).toBe('voided')
+      expect(invoice.receiptHolds ?? []).toHaveLength(0)
+      expect((invoice.payments ?? []).some((p: any) => p.receiptId)).toBe(false)
+    })
+
+    it('already in doubt: it stays a person\'s, and travels with what they need', async () => {
+      const w = await world({ deadReceipt: true, deadFiscal: { mode: 'fiscal', state: 'unknown', inDoubt: true, attemptedAt: new Date() } })
+      await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
+      await runToEnd(w.ex._id)
+      const receipt: any = await Invoice.collection.findOne({ _id: w.ids.dead } as any)
+      expect(receipt.register.fiscal.inDoubt).toBe(true)
+      expect(await receiptInDoubt(w.orgId, String(w.ids.held))).toBeTruthy()
+    })
   })
 
   it('repeats nothing when a crash cuts it short, and never twice', async () => {
