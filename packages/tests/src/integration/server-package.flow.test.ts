@@ -26,7 +26,15 @@ const PKG = configured ? (isAbsolute(configured) ? configured : join(REPO_ROOT, 
 const enabled = !!PKG && existsSync(join(PKG, MANIFEST))
 
 const random = () => Buffer.from(crypto.getRandomValues(new Uint8Array(48))).toString('base64')
-const PORT = 43000 + Math.floor(Math.random() * 2000)
+// Never a random one: on a shared runner it was taken once in a while, the server died at once with
+// EADDRINUSE, and the boot read as a 90 s hang with nothing listening.
+const freePort = () => {
+  const s = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } })
+  const { port } = s
+  s.stop(true)
+  return port
+}
+const PORT = freePort()
 const BASE = `http://127.0.0.1:${PORT}`
 
 function env(extra: Record<string, string | undefined> = {}): Record<string, string> {
