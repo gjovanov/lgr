@@ -10,6 +10,7 @@ export const STOCK_REFUSAL_CODES = [
   'dispatch_with_to_warehouse',
   'receipt_with_from_warehouse',
   'receipt_without_supplier',
+  'receipt_not_a_delivery',
   'supplier_not_found',
   'supplier_mismatch',
   'mixed_suppliers',

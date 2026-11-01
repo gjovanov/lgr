@@ -5,6 +5,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { appHref } from 'ui-shared/nav/navigate'
+import { preselectedReceipts } from '../receipt-overlap'
 import type { useDocumentForm } from './useDocumentForm'
 
 /**
@@ -35,6 +36,8 @@ export interface BillableReceipt {
   total: number
   /** It names no supplier, and takes the bill's (FR-22.31a). */
   noSupplier?: boolean
+  /** Its notes, when it names no supplier: all there is to tell whose goods they were. */
+  notes?: string
 }
 
 /** Per article: what the receipts received, and at what average cost. */
@@ -102,8 +105,7 @@ export function useBillReceipts(doc: DocForm) {
     try {
       const { data } = await httpClient.get(`${doc.orgUrl()}/invoicing/bills/billable-receipts`, { params: { contactId: doc.form.contactId } })
       billable.value = data.receipts || []
-      // The supplier's one receipt is chosen for the user. One that names nobody is theirs to choose.
-      if (billable.value.length === 1 && !billable.value[0].noSupplier) selected.value = [billable.value[0].id]
+      selected.value = preselectedReceipts(billable.value)
     } catch (e: any) {
       showError(e?.response?.data?.message || t('common.operationFailed'))
     } finally {

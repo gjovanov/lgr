@@ -2095,12 +2095,14 @@
       "confirm": "Rechnung erstellen"
     },
     "notBillable": {
+      "receipt_not_a_delivery": "Dieser Wareneingang ist eine Korrektur oder eine Tagessumme, keine Lieferung eines Lieferanten, und wird nicht abgerechnet.",
       "receipt_not_completed": "Eine Eingangsrechnung entsteht aus einem abgeschlossenen Wareneingang.",
       "receipt_not_billable": "Dieser Wareneingang wurde von {number} gebucht, das storniert ist. Er ist keine Lieferung und wird nicht abgerechnet.",
       "orphan": "Dieser Wareneingang gibt die Ware eines Dokuments zurück, das es nicht mehr gibt. Er ist keine Lieferung und wird nicht abgerechnet.",
       "receipt_is_reversal": "Dieser Wareneingang gibt die Ware eines entfernten Dokuments zurück. Er ist keine Lieferung und wird nicht abgerechnet."
     },
     "refusals": {
+      "receipt_not_a_delivery": "Wareneingang {movementNumber} ist eine Korrektur oder eine Tagessumme, keine Lieferung eines Lieferanten, und wird nicht abgerechnet.",
       "dispatch_with_to_warehouse": "Ein Abgang nimmt Ware aus einem Lager: Wählen Sie es unter „Von Lager“ und lassen Sie „Zu Lager“ leer.",
       "receipt_with_from_warehouse": "Ein Zugang bringt Ware in ein Lager: Wählen Sie es unter „Zu Lager“ und lassen Sie „Von Lager“ leer.",
       "receipt_without_supplier": "Wareneingang {movementNumber} nennt keinen Lieferanten: Wählen Sie ihn.",

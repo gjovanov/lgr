@@ -1,3 +1,4 @@
+import { isRemovalReversalNote, noteSaysNoDelivery } from 'config/movement-notes'
 import { mongoose } from 'db/connection'
 import { Contact, Invoice, Org, Product, StockMovement } from 'db/models'
 import { getRepos } from '../context.js'
@@ -124,21 +125,19 @@ export interface ReceiptBillingState {
   /** It may, once someone says whose goods they were: the receipt names no supplier. */
   needsSupplier?: boolean
   /** Why not, when it may not be. */
-  reason?: 'not_a_receipt' | 'receipt_not_completed' | 'receipt_is_reversal' | 'receipt_already_billed' | 'receipt_not_billable'
+  reason?: 'not_a_receipt' | 'receipt_not_completed' | 'receipt_is_reversal' | 'receipt_not_a_delivery' | 'receipt_already_billed' | 'receipt_not_billable'
   /** The live document that holds it (its bill, or the bill whose own receipt it is). */
   invoice?: { id: string; number: string; status: string; type: string; direction: string }
 }
 
 /**
- * The note `reverseMovement` (`doc-delete.service.ts`) leaves on the mirror of a removed document.
- * Mirroring a dispatch or a write-off it books a `receipt`: goods put back, not delivered, and no
- * supplier billed them. It names no supplier, so nothing else tells it from a delivery.
- */
-const REMOVAL_REVERSAL_MARKER = '(docdelete:'
-const isRemovalReversal = (m: any) => String(m.notes || '').includes(REMOVAL_REVERSAL_MARKER)
-
-/**
  * Whether a movement can be billed, and if not, who holds it.
+ *
+ * A `receipt` that names no supplier is not always a delivery, and linking a real bill to one means
+ * the bill moves no stock, so the real delivery is never booked. Its notes are all that tells them
+ * apart (`config/movement-notes`): the mirror of a removed document (goods put back), and a
+ * correction, a reconcile delta or a day's aggregate. A receipt that names a supplier was given one
+ * by someone, and is billable whatever its notes say.
  *
  * `invoices` maps the ids its `invoiceId` may point at to those invoices (lean). A movement whose
  * `invoiceId` names:
@@ -153,7 +152,8 @@ const isRemovalReversal = (m: any) => String(m.notes || '').includes(REMOVAL_REV
 export function billingStateOf(movement: any, invoices: Map<string, any>): ReceiptBillingState {
   if (movement.type !== 'receipt') return { billable: false, reason: 'not_a_receipt' }
   if (movement.status !== 'completed') return { billable: false, reason: 'receipt_not_completed' }
-  if (isRemovalReversal(movement)) return { billable: false, reason: 'receipt_is_reversal' }
+  if (isRemovalReversalNote(movement.notes)) return { billable: false, reason: 'receipt_is_reversal' }
+  if (!movement.contactId && noteSaysNoDelivery(movement.notes)) return { billable: false, reason: 'receipt_not_a_delivery' }
   const free: ReceiptBillingState = movement.contactId ? { billable: true } : { billable: true, needsSupplier: true }
   const invId = idOf(movement.invoiceId)
   if (!invId) return free
@@ -191,6 +191,7 @@ const REFUSAL: Record<string, { status: number; message: (m: any, s: ReceiptBill
   not_a_receipt: { status: 422, message: m => `${m.movementNumber} is not a goods receipt` },
   receipt_not_completed: { status: 422, message: m => `${m.movementNumber} is not booked yet — confirm it first` },
   receipt_is_reversal: { status: 422, message: m => `${m.movementNumber} puts back the goods of a removed document — no supplier billed it` },
+  receipt_not_a_delivery: { status: 422, message: m => `${m.movementNumber} is a correction or a day's aggregate — no one supplier's bill pays for it` },
   receipt_already_billed: { status: 409, message: (m, s) => `${m.movementNumber} is already billed by ${s.invoice?.number}` },
   receipt_not_billable: {
     status: 409,
@@ -657,6 +658,8 @@ export interface BillableReceipt {
   total: number
   /** It names no supplier, and takes the bill's. */
   noSupplier?: boolean
+  /** Its notes, when it names no supplier: all there is to tell whose goods they were. */
+  notes?: string
 }
 
 /** What deciding on a receipt reads: `billingStateOf` and `asBillable`. */
@@ -670,7 +673,7 @@ function asBillable(m: any): BillableReceipt {
     warehouseId: m.toWarehouseId ? idOf(m.toWarehouseId) : undefined,
     lineCount: (m.lines || []).filter((l: any) => num(l.quantity) > 0).length,
     total: round2(num(m.totalAmount)),
-    ...(m.contactId ? {} : { noSupplier: true }),
+    ...(m.contactId ? {} : { noSupplier: true, ...(m.notes ? { notes: m.notes } : {}) }),
   }
 }
 

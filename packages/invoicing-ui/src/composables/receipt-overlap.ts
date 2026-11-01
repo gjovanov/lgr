@@ -13,6 +13,7 @@ export interface OverlappingReceipt {
   lineCount: number
   total: number
   noSupplier?: boolean
+  notes?: string
 }
 
 export interface ReceiptOverlap {
@@ -20,6 +21,16 @@ export interface ReceiptOverlap {
   /** The bill's lines a link would replace. */
   typedLines: number
   receipts: OverlappingReceipt[]
+}
+
+/**
+ * What is ticked for the person: the one receipt that names the bill's supplier, among however many
+ * name nobody. One that names nobody is theirs to choose, even alone: it may be another store's
+ * goods, and a bill linked to it moves no stock, so a wrong tick loses the real delivery.
+ */
+export function preselectedReceipts(rows: Array<{ id: string; noSupplier?: boolean }>): string[] {
+  const named = rows.filter(r => !r.noSupplier)
+  return named.length === 1 ? [named[0].id] : []
 }
 
 /** The question in this refusal, or null when `e` is any other failure. */

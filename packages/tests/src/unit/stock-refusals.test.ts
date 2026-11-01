@@ -16,7 +16,7 @@ const SERVER = read('services/src/biz/receipt-bill.service.ts') + read('services
 const CATALOGS = ['en', 'bg', 'de', 'mk'].map(locale => [locale, JSON.parse(read(`ui-shared/src/locales/${locale}.json`))] as const)
 
 /** What can reach the movement page's „why not" (`receiptBillingFor`): the page words each. */
-const PAGE_REASONS = ['receipt_not_completed', 'receipt_not_billable', 'orphan', 'receipt_is_reversal']
+const PAGE_REASONS = ['receipt_not_completed', 'receipt_not_billable', 'orphan', 'receipt_is_reversal', 'receipt_not_a_delivery']
 
 describe('the refusals of a movement and of a bill made from receipts', () => {
   it('names only codes the server sends', () => {

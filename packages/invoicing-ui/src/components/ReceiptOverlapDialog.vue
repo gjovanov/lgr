@@ -18,6 +18,7 @@
               <v-chip v-if="r.noSupplier" size="x-small" label class="ml-1" data-testid="receipt-no-supplier">{{ $t('invoicing.linkDelivery.noSupplier') }}</v-chip>
             </v-list-item-title>
             <v-list-item-subtitle>{{ $t('invoicing.linkDelivery.receiptLines', { n: r.lineCount }) }} · {{ formatCurrency(r.total, baseCurrency, locale) }}</v-list-item-subtitle>
+            <div v-if="r.notes" class="text-caption text-medium-emphasis" data-testid="receipt-notes">{{ r.notes }}</div>
           </v-list-item>
         </v-list>
       </v-card-text>
@@ -46,7 +47,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { appHref } from 'ui-shared/nav/navigate'
-import type { ReceiptOverlap } from '../composables/receipt-overlap'
+import { preselectedReceipts, type ReceiptOverlap } from '../composables/receipt-overlap'
 
 /**
  * FR-22.31c: a bill about to book goods that may already be in stock. The two ways out are linking
@@ -80,8 +81,7 @@ const busy = computed(() => linking.value || receiving.value)
 
 watch(() => props.overlap, (o) => {
   error.value = ''
-  // One candidate is chosen for the user, as „Свържи с доставка" does. Several are for them to pick.
-  selected.value = o?.receipts.length === 1 ? [o.receipts[0].id] : []
+  selected.value = preselectedReceipts(o?.receipts ?? [])
 })
 
 const receiptHref = (id: string) => appHref('inventory', `/inventory/movements/${id}`)

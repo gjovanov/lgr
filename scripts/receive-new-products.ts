@@ -47,6 +47,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { assertTokenOrg } from './lib/token-org.js'
+import { deliveryNote, movementMarker } from '../packages/config/src/movement-notes.js'
 
 const TIER_NAMES = ['Доставна цена', 'Цена на едро', 'Цена 0', 'Цена 1', 'Цена 2', 'Цена 3', 'Цена 4', 'Цена 5', 'Цена 6', 'Цена 7', 'Цена 8', 'Цена 9', 'Цена 10']
 const UNIT_MAP: Record<string, string> = { 'БР': 'pcs', 'БР.': 'pcs', 'М': 'm', 'КГ': 'kg', 'Л': 'l', 'ЧФ': 'pair', 'К-Т': 'set', 'ОП': 'pack' }
@@ -86,7 +87,7 @@ for (const [i, it] of input.items.entries()) {
     if (!TIER_NAMES.includes(k) || k === 'Доставна цена') { console.error(`item[${i}] "${it.name}": unknown tier "${k}" (allowed: ${TIER_NAMES.slice(1).join(', ')})`); process.exit(2) }
   }
 }
-const marker = input.receipt ? `stokrazp:${input.receipt}` : `new-products:${input.date}`
+const marker = input.receipt ? movementMarker('goods_receipt', input.receipt) : `new-products:${input.date}`
 
 let TOKEN = process.env.LGR_TOKEN || ''
 let ORG_ID = ''
@@ -332,7 +333,7 @@ async function main() {
   const mvBefore = (await http('GET', org('/warehouse/movement?page=0&size=1'))).total ?? 0
   const createdMv = await http('POST', org('/warehouse/movement'), {
     type: 'receipt', date: input.date, toWarehouseId: wh._id, totalAmount,
-    notes: `Доставки — ${input.date}${input.supplier ? ` — ${input.supplier}` : ''} (${marker})`,
+    notes: deliveryNote(input.date, marker, input.supplier),
     lines: lines.map(({ _name, _existing, ...l }) => l),
   })
   const mv = createdMv.stockMovement || createdMv.movement || createdMv

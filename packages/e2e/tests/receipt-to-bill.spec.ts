@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { signInForUx, uxApi } from './helpers/ux-budget'
 import { chooseOption, openSelect } from './helpers/vuetify'
 import { rowAction, rowOf } from './helpers/row-actions'
+import { deliveryNote, movementMarker } from '../../config/src/movement-notes'
 
 /**
  * #168 in the Bulgarian UI: goods on a receipt become a bill, and the bill never books them twice.
@@ -43,10 +44,16 @@ async function world(tag: string): Promise<World> {
 
 const today = () => new Date().toISOString().split('T')[0]
 
+/** The world's supplier becomes one of its own: what `/billable-receipts` lists is then this test's alone. */
+async function ownSupplier(w: World) {
+  const { contact } = await w.api.post('/invoicing/contact', { type: 'supplier', companyName: `Доставчик ${w.stamp}` })
+  w.supplier = { ...contact, _id: contact._id || contact.id }
+}
+
 /** A completed receipt into the warehouse. `supplier: false` leaves it naming nobody. */
-async function receipt(w: World, quantity: number, opts: { supplier?: boolean } = {}) {
+async function receipt(w: World, quantity: number, opts: { supplier?: boolean; notes?: string } = {}) {
   const { stockMovement } = await w.api.post('/warehouse/movement', {
-    type: 'receipt', date: today(), toWarehouseId: w.warehouse._id,
+    type: 'receipt', date: today(), toWarehouseId: w.warehouse._id, ...(opts.notes ? { notes: opts.notes } : {}),
     ...(opts.supplier === false ? {} : { contactId: w.supplier._id }),
     lines: [{ productId: w.article._id, quantity, unitCost: 2.5, totalCost: quantity * 2.5 }], totalAmount: quantity * 2.5,
   })
@@ -159,6 +166,54 @@ test.describe('a receipt with no supplier (FR-22.31a)', () => {
     await page.getByTestId('link-delivery-confirm').click()
     await expect(page.getByTestId('bill-receipts')).toContainText(anonymous.number)
     expect((await movementOf(w, anonymous.id)).contactId).toBe(w.supplier._id)
+  })
+
+  test('a day\'s aggregate or a correction says why too, and offers no bill', async ({ page }) => {
+    const w = await world('aggregate')
+    const r = await receipt(w, 4, { supplier: false, notes: deliveryNote(today(), movementMarker('store_operations', today())) })
+
+    await signInForUx(page)
+    await page.goto(`/inventory/movements/${r.id}`, { waitUntil: 'networkidle' })
+    await expect(page.getByTestId('receipt-not-billable')).toContainText('сбор за деня')
+    await expect(actions(page).getByRole('button', { name: 'Входяща фактура' })).toHaveCount(0)
+  })
+
+  test('„Свържи с доставка": the one naming the supplier is ticked beside any that name nobody, whose notes show', async ({ page }) => {
+    const w = await world('tick')
+    await ownSupplier(w)
+    const own = await receipt(w, 2)
+    const stray = await receipt(w, 3, { supplier: false, notes: deliveryNote(today(), movementMarker('goods_receipt', w.stamp), `ДРУГ ОБЕКТ ${w.stamp}`) })
+    const { invoice } = await w.api.post('/invoices', {
+      type: 'invoice', direction: 'incoming', contactId: w.supplier._id, issueDate: today(), dueDate: today(), currency: 'EUR', lines: [], subtotal: 0, total: 0,
+    })
+
+    await signInForUx(page)
+    await page.goto(`/invoicing/bills/${invoice.id || invoice._id}/edit`, { waitUntil: 'networkidle' })
+    await page.getByTestId('link-delivery-btn').click()
+    const dialog = page.getByTestId('link-delivery-dialog')
+    const row = (number: string) => dialog.locator('.v-list-item').filter({ hasText: number })
+    await expect(row(own.number).locator('input[type="checkbox"]')).toBeChecked()
+    await expect(row(stray.number).locator('input[type="checkbox"]')).not.toBeChecked()
+    await expect(row(stray.number).getByTestId('receipt-notes')).toContainText(`ДРУГ ОБЕКТ ${w.stamp}`)
+    await expect(row(own.number).getByTestId('receipt-notes')).toHaveCount(0)
+    await expect(page.getByTestId('link-delivery-confirm')).toBeEnabled()
+  })
+
+  test('„Свържи с доставка": one that names nobody is never ticked for the person, even alone', async ({ page }) => {
+    const w = await world('alone')
+    await ownSupplier(w)
+    const stray = await receipt(w, 3, { supplier: false })
+    const { invoice } = await w.api.post('/invoices', {
+      type: 'invoice', direction: 'incoming', contactId: w.supplier._id, issueDate: today(), dueDate: today(), currency: 'EUR', lines: [], subtotal: 0, total: 0,
+    })
+
+    await signInForUx(page)
+    await page.goto(`/invoicing/bills/${invoice.id || invoice._id}/edit`, { waitUntil: 'networkidle' })
+    await page.getByTestId('link-delivery-btn').click()
+    const dialog = page.getByTestId('link-delivery-dialog')
+    const row = dialog.locator('.v-list-item').filter({ hasText: stray.number })
+    await expect(row.locator('input[type="checkbox"]')).not.toBeChecked()
+    await expect(page.getByTestId('link-delivery-confirm')).toBeDisabled()
   })
 
   test('a receipt that cannot be billed says why', async ({ page }) => {
@@ -302,6 +357,9 @@ test.describe('receiving warns before it double-books (FR-22.31c)', () => {
     await expect(dialog.getByTestId('receipt-no-supplier')).toHaveText('без доставчик')
     expect((await billOf(w, bill.id)).status).toBe('draft')
 
+    // Nothing is ticked for the person: it names nobody, so choosing it is theirs.
+    await expect(dialog.getByTestId('receipt-overlap-link')).toBeDisabled()
+    await dialog.getByTestId('receipt-overlap-row').locator('input[type="checkbox"]').check()
     await dialog.getByTestId('receipt-overlap-link').click()
     await page.waitForURL(new RegExp(`/invoicing/bills/${bill.id}/edit`))
     await expect(page.getByTestId('bill-receipts')).toContainText(r.number)
@@ -324,6 +382,23 @@ test.describe('receiving warns before it double-books (FR-22.31c)', () => {
     await expect(snackbar(page)).toContainText('Фактурата е получена')
     await expect.poll(async () => (await billOf(w, bill.id)).status).toBe('received')
     expect(await stockOf(w)).toBe(stock + 3)
+  })
+
+  test('the question ticks the one naming the supplier beside any that name nobody, whose notes show', async ({ page }) => {
+    const w = await world('q-tick')
+    const own = await receipt(w, 5)
+    const stray = await receipt(w, 5, { supplier: false, notes: deliveryNote(today(), movementMarker('goods_receipt', w.stamp), `ДРУГ ОБЕКТ ${w.stamp}`) })
+    const bill = await typedBill(w, 5, `QT-${w.stamp}`)
+
+    await signInForUx(page)
+    await page.goto(`/invoicing/bills/${bill.id}/edit`, { waitUntil: 'networkidle' })
+    await actions(page).getByRole('button', { name: 'Запази и получи' }).click()
+    const dialog = page.getByTestId('receipt-overlap-dialog')
+    const row = (number: string) => dialog.getByTestId('receipt-overlap-row').filter({ hasText: number })
+    await expect(row(own.number).locator('input[type="checkbox"]')).toBeChecked()
+    await expect(row(stray.number).locator('input[type="checkbox"]')).not.toBeChecked()
+    await expect(row(stray.number).getByTestId('receipt-notes')).toContainText(`ДРУГ ОБЕКТ ${w.stamp}`)
+    await expect(row(own.number).getByTestId('receipt-notes')).toHaveCount(0)
   })
 
   /** Hold every Receive of this bill until told, and count them. */

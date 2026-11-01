@@ -6,6 +6,7 @@ import { liveInvoiceNumbersFor } from '../cash-sale-invoice.service.js'
 import { releaseReceiptLinks } from '../receipt-bill.service.js'
 import { syncOrderForInvoice } from '../reservation.service.js'
 import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from '../cash-register/immutability.js'
+import { removalReversalNote } from 'config/movement-notes'
 import { confirmMovement } from '../warehouse.service.js'
 import { stockMovementDao } from '../../dao/warehouse/stock-movement.dao.js'
 import { trashDocumentFile } from './doc-store.service.js'
@@ -222,7 +223,7 @@ async function reverseMovement(orgId: string, userId: string, mvId: string, docN
   const rev: any = await StockMovement.create({
     orgId, movementNumber: num, status: 'draft', date: new Date(), ...mirror,
     totalAmount: mv.totalAmount, lines, createdBy: userId,
-    notes: `Reversal of ${mv.movementNumber} — document removed (docdelete:${docNumber})`,
+    notes: removalReversalNote(mv.movementNumber, docNumber),
   })
   await confirmMovement(String(rev._id))
   return rev.movementNumber

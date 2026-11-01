@@ -9,6 +9,9 @@ import { movementController } from 'warehouse-api/src/controllers/movement.contr
 import { productController } from 'warehouse-api/src/controllers/product.controller'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { deleteDocFiles, planDeleteDocFiles } from 'services/biz/files/doc-delete.service'
+import { mapMovementExtraction, mapStoreOperations } from 'services/biz/doc-import/map-movement'
+import { persistMovement } from 'services/biz/doc-import/persist-movement'
+import { deliveryNote, movementMarker } from 'config/movement-notes'
 import { getProductLedger } from 'services/biz/product-ledger.service'
 import { RECEIPT_OVERLAP_WINDOW_DAYS, receiptsOverlapping } from 'services/biz/receipt-bill.service'
 import { reportById, validateParams } from 'services/biz/report-registry'
@@ -752,6 +755,95 @@ describe('a receipt that still cannot be billed says why (FR-22.31a)', () => {
     const named = await w.receipt([[w.nut, 1, 2]])
     await StockMovement.updateOne({ _id: named._id }, { $set: { invoiceId: new Invoice()._id } }).exec()
     expect((await page(w, named)).billable).toBe(true)
+  }, 60_000)
+})
+
+describe('a receipt naming no supplier that says it is no delivery (FR-22.31a)', () => {
+  const page = async (w: any, m: any) => (await w.call('GET', `/warehouse/movement/${m._id}`)).json.stockMovement
+  /** Booked the way the importer books what it mapped. */
+  const booked = async (w: any, mapped: any) => w.mv((await persistMovement(w.orgId, String(w.user._id), mapped)).id)
+
+  /** No bill, in no list, and a bill for the same goods is asked nothing. */
+  async function expectNoDelivery(w: any, m: any, product: any, quantity: number) {
+    expect(m.type).toBe('receipt')
+    expect(m.contactId).toBeUndefined()
+    expect(await page(w, m)).toMatchObject({ billable: false, notBillable: { code: 'receipt_not_a_delivery' } })
+    const refused = await w.fromReceipt([m._id], { contactId: String(w.supplier._id) })
+    expect([refused.status, refused.json.code]).toEqual([422, 'receipt_not_a_delivery'])
+    const listed = (await w.call('GET', `/invoicing/bills/billable-receipts?contactId=${w.supplier._id}`)).json.receipts
+    expect(listed.map((x: any) => x.id)).not.toContain(String(m._id))
+    const typed = await w.typedBill([[product, quantity, 5]])
+    const empty = await w.call('POST', '/invoices', { type: 'invoice', direction: 'incoming', contactId: String(w.supplier._id), issueDate: '2026-10-21', currency: 'EUR', lines: [], subtotal: 0, total: 0 })
+    expect((await w.linkReceipts(empty.json.invoice, [m._id])).json.code).toBe('receipt_not_a_delivery')
+    expect((await w.receiveBill(typed)).status).toBe(200)
+  }
+
+  it('the positive half of a КОРЕКЦИЯ, as the import maps it', async () => {
+    const w = await world()
+    const { movements } = await mapMovementExtraction(w.orgId, {
+      document_number: '3000000101', issue_date: '2026-10-20', supplier: { name: '2000 КОРЕКЦИЯ' },
+      line_items: [{ description: w.bolt.name, quantity: 5, unit_price: 5 }, { description: w.nut.name, quantity: -2, unit_price: 2 }],
+    } as any, 'correction', { warehouseId: String(w.warehouse._id), date: '2026-10-20' })
+    const plus = movements.find(m => m.type === 'receipt')!
+    await expectNoDelivery(w, await booked(w, plus), w.bolt, 5)
+  }, 60_000)
+
+  it('a КОРЕКЦИЯ the API scripts booked: their marker is an ordinary one, and only the partner says so', async () => {
+    const w = await world()
+    const created = await w.call('POST', '/warehouse/movement', {
+      type: 'receipt', date: '2026-10-20', toWarehouseId: String(w.warehouse._id), totalAmount: 25,
+      notes: deliveryNote('2026-10-20', movementMarker('goods_receipt', '3000000102'), '2000 КОРЕКЦИЯ'),
+      lines: [{ productId: String(w.bolt._id), quantity: 5, unitCost: 5, totalCost: 25 }],
+    })
+    const id = created.json.stockMovement._id || created.json.stockMovement.id
+    await w.call('POST', `/warehouse/movement/${id}/confirm`, {})
+    await expectNoDelivery(w, await w.mv(id), w.bolt, 5)
+  }, 60_000)
+
+  it('a day\'s `Доставки`: several suppliers, and a bill takes a receipt whole', async () => {
+    const w = await world()
+    const { movements } = await mapStoreOperations(w.orgId, {
+      warehouse: null, periodStart: '2026-10-20', rows: [{ name: w.bolt.name, unit: 'БР', qty: 5, price: 5 }],
+    } as any, { date: '2026-10-20', warehouseId: String(w.warehouse._id) })
+    await expectNoDelivery(w, await booked(w, movements[0]), w.bolt, 5)
+  }, 60_000)
+
+  it('the goods coming back on a negative line of a transfer note', async () => {
+    const w = await world()
+    const { movements } = await mapMovementExtraction(w.orgId, {
+      document_number: '0000000103', issue_date: '2026-10-20', line_items: [{ description: w.bolt.name, quantity: -3, unit_price: 5 }],
+    } as any, 'transfer_note', { warehouseId: String(w.warehouse._id), date: '2026-10-20' })
+    const back = movements.find(m => m.type === 'receipt')!
+    await expectNoDelivery(w, await booked(w, back), w.bolt, 3)
+  }, 60_000)
+
+  it('a plain разписка stays billable, and its row carries its notes for the person to read', async () => {
+    const w = await world()
+    // The document names another of the org's own stores: nothing marks that, so a person decides.
+    const { movements } = await mapMovementExtraction(w.orgId, {
+      document_number: '3000000104', issue_date: '2026-10-20', supplier: { name: 'МАГАЗИН ДРУГ ОБЕКТ' },
+      line_items: [{ description: w.bolt.name, quantity: 5, unit_price: 5 }],
+    } as any, 'goods_receipt', { warehouseId: String(w.warehouse._id), date: '2026-10-20' })
+    const m = await booked(w, movements[0])
+    expect(await page(w, m)).toMatchObject({ billable: true, needsSupplier: true })
+
+    const listed = (await w.call('GET', `/invoicing/bills/billable-receipts?contactId=${w.supplier._id}`)).json.receipts
+    expect(listed.find((x: any) => x.id === String(m._id))).toMatchObject({ noSupplier: true, notes: movements[0].notes })
+    const typed = await w.typedBill([[w.bolt, 5, 5]])
+    const asked = await w.receiveBill(typed)
+    expect(asked.json.receipts[0]).toMatchObject({ id: String(m._id), noSupplier: true, notes: movements[0].notes })
+  }, 60_000)
+
+  it('naming a supplier, the same notes behave as they always did, and carry none on the row', async () => {
+    const w = await world()
+    const { movements } = await mapStoreOperations(w.orgId, {
+      warehouse: null, periodStart: '2026-10-20', rows: [{ name: w.bolt.name, unit: 'БР', qty: 5, price: 5 }],
+    } as any, { date: '2026-10-20', warehouseId: String(w.warehouse._id) })
+    const m = await booked(w, { ...movements[0], contactId: String(w.supplier._id) })
+    expect((await page(w, m)).billable).toBe(true)
+    const listed = (await w.call('GET', `/invoicing/bills/billable-receipts?contactId=${w.supplier._id}`)).json.receipts
+    expect(listed.find((x: any) => x.id === String(m._id)).notes).toBeUndefined()
+    expect((await w.fromReceipt([m._id])).status).toBe(200)
   }, 60_000)
 })
 

@@ -453,6 +453,7 @@
                 <v-chip v-if="r.noSupplier" size="x-small" label class="ml-1" data-testid="receipt-no-supplier">{{ $t('invoicing.linkDelivery.noSupplier') }}</v-chip>
               </v-list-item-title>
               <v-list-item-subtitle>{{ $t('invoicing.linkDelivery.receiptLines', { n: r.lineCount }) }} · {{ doc.fmtCurrency(r.total) }}</v-list-item-subtitle>
+              <div v-if="r.notes" class="text-caption text-medium-emphasis" data-testid="receipt-notes">{{ r.notes }}</div>
             </v-list-item>
           </v-list>
         </v-card-text>

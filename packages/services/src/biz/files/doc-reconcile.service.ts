@@ -1,6 +1,7 @@
 import { DocFile, StockMovement, StockLevel, Product, Warehouse } from 'db/models'
 import { createAuditEntry } from '../audit-log.service.js'
 import { analyzeDocFile, targetForDocType } from './doc-pipeline.service.js'
+import { reconcileNote } from 'config/movement-notes'
 import { confirmMovement } from '../warehouse.service.js'
 import { stockMovementDao } from '../../dao/warehouse/stock-movement.dao.js'
 
@@ -152,7 +153,7 @@ export async function reconcileDocFile(orgId: string, userId: string, docFileId:
     const lines: any[] = []
     for (const d of set) { const { avgCost } = await stockQty(orgId, d.productId, wh._id); lines.push({ productId: d.productId, quantity: Math.abs(d.delta), unitCost: avgCost, totalCost: round2(Math.abs(d.delta) * avgCost) }) }
     const num = await stockMovementDao.getNextMovementNumber(orgId)
-    const mv: any = await StockMovement.create({ orgId, movementNumber: num, type, status: 'draft', date: bookDate, [whField]: wh._id, totalAmount: round2(lines.reduce((s, l) => s + l.totalCost, 0)), notes: `Reconcile ${doc.originalName} v${doc.version} (${marker})`, lines, createdBy: userId })
+    const mv: any = await StockMovement.create({ orgId, movementNumber: num, type, status: 'draft', date: bookDate, [whField]: wh._id, totalAmount: round2(lines.reduce((s, l) => s + l.totalCost, 0)), notes: reconcileNote(doc.originalName, doc.version, marker), lines, createdBy: userId })
     await confirmMovement(String(mv._id))
     bookedNow.push(mv.movementNumber)
   }

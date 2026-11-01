@@ -2095,12 +2095,14 @@
       "confirm": "Make the bill"
     },
     "notBillable": {
+      "receipt_not_a_delivery": "This receipt is a correction or a day's total, not one supplier's delivery, so no bill pays for it.",
       "receipt_not_completed": "A supplier bill is made from a completed receipt.",
       "receipt_not_billable": "This receipt was booked by {number}, which is voided. It is no delivery, and no bill pays for it.",
       "orphan": "This receipt gives back the goods of a document that no longer exists. It is no delivery, and no bill pays for it.",
       "receipt_is_reversal": "This receipt gives back the goods of a removed document. It is no delivery, and no bill pays for it."
     },
     "refusals": {
+      "receipt_not_a_delivery": "Receipt {movementNumber} is a correction or a day's total, not one supplier's delivery, so no bill pays for it.",
       "dispatch_with_to_warehouse": "A dispatch takes goods out of a warehouse: choose it as „From Warehouse“ and leave „To Warehouse“ empty.",
       "receipt_with_from_warehouse": "A receipt brings goods into a warehouse: choose it as „To Warehouse“ and leave „From Warehouse“ empty.",
       "receipt_without_supplier": "Receipt {movementNumber} names no supplier: choose it.",
