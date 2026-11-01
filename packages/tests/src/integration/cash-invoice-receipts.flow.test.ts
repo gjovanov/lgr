@@ -2848,6 +2848,44 @@ describe('§2.7 — once a receipt has printed, the total is the receipt\'s', ()
       expect(inv.voidingUntil ?? null).toBeNull()
     })
 
+    it('a total moved as it claimed: it pays what the document says now, and nothing is left due on a paid invoice', async () => {
+      const w = await tillWorld(app)
+      const { d, cashSaleId } = await attachable(w)
+      let edit: any
+      const undo = during(update => !!update?.$set?.cashSaleRef, async () => { edit = await w.call('PUT', `/invoices/${d.id}`, { total: 30 }) })
+      let r: any
+      try {
+        r = await attach(w, d.id, cashSaleId)
+      } finally {
+        undo()
+      }
+
+      expect(edit.status).toBe(200)
+      expect(r.status).toBe(200)
+      const inv = await raw(d.id)
+      expect(inv).toMatchObject({ status: 'paid', total: 30, amountPaid: 30, amountDue: 0 })
+      expect(inv.payments.reduce((s: number, p: any) => s + p.amount, 0)).toBe(30)
+    })
+
+    it('an automatic row that came in as it claimed: its entry is retired with the rows it replaces', async () => {
+      const w = await tillWorld(app)
+      const { d, cashSaleId } = await attachable(w)
+      const entryId = new (Invoice.base as any).Types.ObjectId()
+      await JournalEntry.collection.insertOne({ _id: entryId, orgId: w.oid, entryNumber: 'JE-AUTO-1', status: 'draft', date: new Date(), lines: [] } as any)
+      const undo = during(update => !!update?.$set?.cashSaleRef, () => Invoice.updateOne({ _id: d.id }, {
+        $push: { payments: { date: new Date(), amount: 24, method: 'cash', origin: 'cash_on_issue', journalEntryId: entryId } },
+      }))
+      let r: any
+      try {
+        r = await attach(w, d.id, cashSaleId)
+      } finally {
+        undo()
+      }
+
+      expect(r.status).toBe(200)
+      expect(((await JournalEntry.collection.findOne({ _id: entryId } as any)) as any).status).toBe('voided')
+    })
+
     it('a hand payment that came in as it claimed stops it too: the final write would have dropped it', async () => {
       const w = await tillWorld(app)
       const { d, cashSaleId } = await attachable(w)
