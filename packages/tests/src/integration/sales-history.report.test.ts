@@ -51,12 +51,13 @@ async function seed() {
 
 describe('effectiveMethods (FR-8.4)', () => {
   it('where LGR prints, a cash or card header on an unpaid invoice is not money yet (FR-23): its receipt did not print', () => {
-    for (const type of ['invoice', 'debit_note']) {
+    // A credit note's money is its refund row, which R2 adds: until one says so its header is none either.
+    for (const type of ['invoice', 'debit_note', 'credit_note']) {
       expect(effectiveMethods({ type, paymentMethod: 'cash', total: 50, amountPaid: 0 }, true)).toEqual([{ method: 'cash', amount: 0 }])
       expect(effectiveMethods({ type, paymentMethod: 'card', total: 50, amountPaid: 0 }, true)).toEqual([{ method: 'card', amount: 0 }])
     }
-    // What is not printed for stays as it was: a credit note's header still counts against the bucket.
-    expect(effectiveMethods({ type: 'credit_note', paymentMethod: 'cash', total: 50, amountPaid: 0 }, true)).toEqual([{ method: 'cash', amount: 50 }])
+    // Where nothing prints the header stays the money, a credit note's too.
+    expect(effectiveMethods({ type: 'credit_note', paymentMethod: 'cash', total: 50, amountPaid: 0 }, false)).toEqual([{ method: 'cash', amount: 50 }])
     expect(effectiveMethods({ type: 'invoice', paymentMethod: 'bank_transfer', total: 50, amountPaid: 0 }, true)).toEqual([{ method: 'bank_transfer', amount: 50 }])
   })
 
