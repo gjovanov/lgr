@@ -36,12 +36,13 @@ export function posRowSign(row: PosRowLike): 1 | -1 | 0 {
 }
 
 /**
- * FR-23: a payment's receipt took its money once it printed, or may have (D-4). One that failed, or
- * is still printing, took nothing. A session's figures count it; it has no sign, because it is no
- * sale and `posRowSign` is what the session's journal entry and sales history sum.
+ * FR-23: a payment's receipt took its money once it printed, or may have (D-4). One that failed, is
+ * still printing, or is held for a person to settle took nothing yet. A session's figures count it;
+ * it has no sign, because it is no sale and `posRowSign` is what the session's journal entry and sales
+ * history sum.
  */
-export function receiptTookMoney(row: PosRowLike & { fiscal?: { state?: string } }): boolean {
-  return row.type === 'payment_receipt' && (row.fiscal?.state === 'printed' || row.fiscal?.state === 'unknown') && row.status === 'completed'
+export function receiptTookMoney(row: PosRowLike & { fiscal?: { state?: string; inDoubt?: boolean } }): boolean {
+  return row.type === 'payment_receipt' && (row.fiscal?.state === 'printed' || row.fiscal?.state === 'unknown') && !row.fiscal?.inDoubt && row.status === 'completed'
 }
 
 export interface MethodTotals {

@@ -686,6 +686,11 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     return n === undefined ? undefined : Number(n)
   }
 
+  async isReceiptOpen(): Promise<boolean> {
+    const status = await this.readStatus()
+    return status.fiscalReceiptOpen || status.nonFiscalReceiptOpen
+  }
+
   private async readLastDocumentNumber(): Promise<string | undefined> {
     const { data } = await this.request(ELTRADE_CMD.LAST_DOCUMENT_NUMBER, '', { check: false })
     const n = data.trim()
@@ -752,7 +757,7 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
    *
    * ⚠ `forServiceReceipt`: a service receipt never clears a sale THIS driver is printing, or a
    * session report reprinted during a sale voids the customer's receipt. It is refused, as a report
-   * is (`report()`). Two sales on one driver still clear each other: `abandonReceipt` would void
+   * is (`report()`). Two sales on one driver are kept apart by `deviceTurn`, not here: `abandonReceipt` would void
    * the first once the second was refused, so that needs its own fix.
    */
   private ensureNoOpenReceipt(forServiceReceipt = false): Promise<void> {

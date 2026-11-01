@@ -20,6 +20,8 @@ import { buildSessionReport, formatSessionReport, type SessionReport } from 'ser
 import { fiscalCapabilities } from 'fiscal/capabilities'
 import { DEVICE_REPORT_KINDS, FISCAL_ADMIN_ROLES, printDeviceReport } from 'fiscal/device-command'
 import { fiscalFailure } from 'fiscal/errors'
+import { unfinishedReceipts, unfinishedRefusal } from 'services/biz/cash-register/payment-receipt.service'
+import { finishInterruptedReceipts } from '../lib/counter-receipt.js'
 import { deviceTurn } from 'fiscal/device-turn'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
@@ -497,6 +499,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       // What the session sold so far, as its report will print it at close.
       report: buildSessionReport(session, await loadPosRows({ orgId, sessionId: id, withReceipts: true })),
       openSessionsOnWarehouse: openOnWarehouse,
+      unfinishedReceipts: unfinishedRefusal(await unfinishedReceipts(orgId, id)).receipts,
       fiscalDevice: device
         ? { id: device.id, name: device.name, deviceNumber: device.deviceNumber, connected: isDeviceConnected(device.id) || !!(await livePresence({ orgId, deviceNumber: String(device.deviceNumber) })) }
         : null,
@@ -667,7 +670,12 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
       // Legacy single-number body maps onto the cash line.
       const counted = b.counted ?? { cash: Number(b.closingBalance) || 0 }
-      const expected = expectedTotals(session)
+
+      // FR-23: a session does not close over a receipt nobody finished. Its money would land after
+      // the day was counted, on a device whose Z already has it, or the drawer would read as over.
+      await finishInterruptedReceipts(orgId, user, { sessionId: id })
+      const unfinished = await unfinishedReceipts(orgId, id)
+      if (unfinished.length) return status(409, unfinishedRefusal(unfinished))
 
       /**
        * A conditional transition, not a read-then-write: two tills hitting Close at once
@@ -698,6 +706,16 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
           },
         ).exec()
       }
+
+      // Again, now that nothing new can join it: a receipt checks the session in its turn, so either
+      // it finds this claim and gives way, or this finds it.
+      const late = await unfinishedReceipts(orgId, id)
+      if (late.length) {
+        await release()
+        return status(409, unfinishedRefusal(late))
+      }
+      // The session as claimed: what was finished above is in it.
+      const expected = expectedTotals(claimed)
 
       const device = await resolveFiscalDeviceForClose(orgId, String(session.warehouseId))
 

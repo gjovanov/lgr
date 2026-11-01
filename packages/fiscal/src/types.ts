@@ -146,6 +146,12 @@ export interface IFiscalPrinter {
    */
   getLastReceiptNumber?(): Promise<number | undefined>
 
+  /**
+   * Whether a receipt is open on the device, of any kind. Optional. With the counter, it is what tells
+   * "nothing happened" from "a receipt is sitting there, maybe paid" (FR-23).
+   */
+  isReceiptOpen?(): Promise<boolean>
+
   /** Open a new fiscal receipt */
   openFiscalReceipt(operatorCode: string, operatorName: string, unpNumber: string): Promise<void>
 

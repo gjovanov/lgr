@@ -110,6 +110,10 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   ): Promise<FiscalStornoResult> {
     // A payment this driver cannot print is refused before the storno receipt is opened.
     paymentCode(PAYMENT_CODE, payment.type, DRIVER)
+    // This driver closes a sale before it can ask for its number, so a sale may have none to cite.
+    if (!/^\d+$/.test(String(originalReceiptNumber ?? ''))) {
+      throw new Error(`Storno needs the original fiscal receipt number, got "${originalReceiptNumber}". Read it from the receipt.`)
+    }
     const dd = String(originalDate.getDate()).padStart(2, '0')
     const mm = String(originalDate.getMonth() + 1).padStart(2, '0')
     const yy = String(originalDate.getFullYear()).slice(-2)

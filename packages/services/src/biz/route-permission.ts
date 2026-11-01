@@ -45,6 +45,8 @@ export const EXACT_WRITE_RULES: ReadonlyMap<string, WriteRule> = new Map<string,
   // FR-21.18: the journal's storno, from the POS app's /pos/orders or invoicing's /cash-sales. The
   // route also requires a storno role (admin, manager, warehouse_manager), as the till's does.
   ['POST cash-register/documents/:id/storno', { need: ['pos.write', 'invoicing.write'] }],
+  // FR-23: a person says whether a receipt nothing could prove printed. The storno's roles too.
+  ['POST cash-register/documents/:id/settle', { need: ['pos.write', 'invoicing.write'] }],
   // A device's reports, from POS Sessions: the device page's roles (a cashier holds `pos.write` and
   // prints none; a warehouse manager runs the devices and holds no `pos.write`).
   ['POST trade/pos/session/:id/device-report', { self: 'FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager' }],

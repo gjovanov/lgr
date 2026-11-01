@@ -23,6 +23,8 @@ export interface RegisterPrinter {
    * before printing and again on a resume: it is how print-once tells "printed" from "not printed".
    */
   lastReceiptNumber(): Promise<number | undefined>
+  /** Whether a receipt is open on the device, or `undefined` when it cannot say. */
+  receiptOpen?(): Promise<boolean | undefined>
   /**
    * Print the sale's fiscal receipt under `doc.register.unp`, with `doc.register.receiptText` under
    * its lines when it has one (FR-23). Returns the receipt number.
@@ -34,12 +36,18 @@ export interface RegisterPrinter {
   readonly cashOnDeliveryRefusal: string | null
   /** Whether it prints a text line inside a fiscal receipt (`fiscal/capabilities`, FR-23). */
   readonly printsFiscalText: boolean
+  /** The longest line name it keeps, when its driver cuts one (`fiscal/capabilities`). */
+  readonly lineNameMax?: number
   /** Print the sale as a non-fiscal text receipt. */
   printText(doc: RegisterDocument): Promise<void>
   /** Print the storno receipt of `original`. Returns its receipt number. */
   printStorno(storno: RegisterDocument, original: RegisterDocument): Promise<string>
-  /** Void a fiscal receipt left half-printed, or the device refuses everything after it. Best effort. */
-  abandonReceipt(): Promise<void>
+  /**
+   * Get a half-printed fiscal receipt off the device, or it refuses everything after it: voided, or
+   * finished if it can no longer be voided. Best effort. `closed` says a driver with no cancel fell
+   * back on closing it and the close went through: that receipt is real.
+   */
+  abandonReceipt(): Promise<{ closed?: boolean } | void>
   /** Close a text receipt left half-printed. Best effort. */
   abandonText(): Promise<void>
   /** The device answered: it is online. */

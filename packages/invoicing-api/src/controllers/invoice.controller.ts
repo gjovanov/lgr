@@ -24,7 +24,9 @@ import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from
 import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement, syncDueAfterEdit } from 'services/biz/cash-settlement.service'
 import { fitsDue, heldOn, outstandingOf, overpays, paymentPipeline } from 'services/biz/invoice-payment'
-import { FISCALLY_PAID, isFiscallyPaid, owesDeliveryReceipt, paidByReceipts } from 'services/biz/cash-register/payment-receipt.service'
+import {
+  DELIVERY_RECEIPT_OWED, freezeRefusal, inDoubtRefusal, isImportedDocument, owesDeliveryReceipt, paidByReceipts, receiptInDoubt,
+} from 'services/biz/cash-register/payment-receipt.service'
 import { movesPrintedMoney } from 'services/biz/cash-register/receipt-lines'
 import { NOT_PAYMENT_RECEIPT } from 'services/biz/sale-counting'
 import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from 'services/biz/cash-register/immutability'
@@ -38,7 +40,7 @@ import {
   cashSaleCandidates, attachInvoiceToCashSale,
 } from 'services/biz/cash-sale-invoice.service'
 import { logger } from 'services/logger'
-import { PendingTransferError, checkPendingTransfers, confirmTransferMovements } from 'services/biz/stock-transfer.service'
+import { PendingTransferError, checkPendingTransfers, confirmTransferMovements, discardPendingTransfers } from 'services/biz/stock-transfer.service'
 import {
   RegisterRefusal, insertRegisterDocument, originOf, runSaleSteps, settleKeyedDocument, type RegisterContext,
 } from 'services/biz/cash-register/register.service'
@@ -366,11 +368,26 @@ function overpayment(status: Status, doc: { total?: number; amountPaid?: number 
   })
 }
 
-/** FR-23: it would fit, but a receipt printing right now is taking that money. */
-const receiptPrinting = (status: Status) => status(409, {
-  code: 'payment_in_progress',
-  message: 'Another payment on this document is printing. Wait for it to finish, then try again.',
-})
+/** FR-23: it would fit, but a receipt is taking that money: printing right now, or held for a person. */
+async function receiptPrinting(status: Status, orgId: string, id: string) {
+  const doubt = await receiptInDoubt(orgId, id)
+  return status(409, doubt ? inDoubtRefusal(doubt) : {
+    code: 'payment_in_progress',
+    message: 'Another payment on this document is printing. Wait for it to finish, then try again.',
+  })
+}
+
+/** What the document form shows of a receipt in doubt: which one, and where to settle it. */
+async function inDoubtOf(orgId: string, id: string) {
+  const receipt = await receiptInDoubt(orgId, id)
+  return receipt ? { id: String(receipt._id), number: receipt.invoiceNumber } : null
+}
+
+/**
+ * A refusal that answers for the key: the client keeps or drops its key by it, so it is never turned
+ * into a 200 with a `receiptError`, as a refusal of the receipt is once the document is issued.
+ */
+const answersForTheKey = (e: RegisterRefusal) => e.body.code === 'idempotency_in_progress' || e.body.code === 'idempotency_key_reused'
 const holdsTheRoom = (doc: { total?: number; amountPaid?: number; receiptHolds?: { amount?: number }[] }, amount: number) =>
   overpays({ total: doc.total, amountPaid: (Number(doc.amountPaid) || 0) + heldOn(doc) }, amount)
 
@@ -1001,6 +1018,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // FR-23: the receipts that paid it.
         paymentReceipts: await paidByReceipts(orgId, id),
         receiptToPrint: await owesDeliveryReceipt(orgId, invoice),
+        receiptInDoubt: await inDoubtOf(orgId, id),
         statusHistory: synthesizeStatusHistory(invoice),
         contactId: contact ? { _id: contact.id, id: contact.id, companyName: (contact as any).companyName, firstName: (contact as any).firstName, lastName: (contact as any).lastName, email: (contact as any).email } : invoice.contactId,
       },
@@ -1024,7 +1042,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (movesPrintedMoney(existing as any, body as any)) {
         // A receipt whose request died is no reason to refuse, if it never printed.
         await finishInterruptedReceipts(orgId, user, id)
-        if (await isFiscallyPaid(orgId, id)) return status(409, { ...FISCALLY_PAID })
+        const frozen = await freezeRefusal(orgId, id)
+        if (frozen) return status(409, frozen)
       }
 
       // Inline product-master updates (purchase bills only) — extracted before the $set below.
@@ -1154,9 +1173,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // An issued invoice edited to cash (or its total changed while cash) is paid; one edited
       // away from cash gives back the payment that rule recorded. Drafts are untouched.
       // ⚠ FR-23: not where LGR prints. That money goes through the payment action, which prints; an
-      // edit must not settle silently.
+      // edit must not settle silently. An imported document never prints, so the rule stays its own.
       const { requireConnectedDevice: prints } = await tillSettings(orgId)
-      const settlement = await (prints ? syncDueAfterEdit : syncCashSettlement)(orgId, id, user.id)
+      const settles = !prints || isImportedDocument(updated ?? existing)
+      const settlement = await (settles ? syncCashSettlement : syncDueAfterEdit)(orgId, id, user.id)
       if (settlement.action !== 'none') updated = await r.invoices.findOne({ id, orgId } as any)
 
       return { invoice: updated }
@@ -1271,6 +1291,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         return await withReceipt(await printReceipt(orgId, prepared, doc, key ? { key, hash: hash! } : undefined))
       } catch (e: any) {
         if (!(e instanceof RegisterRefusal)) throw e
+        if (answersForTheKey(e)) return status(e.statusCode, e.body)
         return { invoice: await r.invoices.findOne({ id, orgId } as any), receiptError: e.message }
       }
     }
@@ -1286,6 +1307,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         if (prepared) return await printAtIssue(prepared)
       } catch (e: any) {
         if (!(e instanceof RegisterRefusal)) throw e
+        if (answersForTheKey(e)) return status(e.statusCode, e.body)
         return { invoice: await r.invoices.findOne({ id, orgId } as any), receiptError: e.message }
       }
       return { invoice: await r.invoices.findOne({ id, orgId } as any) }
@@ -1332,8 +1354,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     try {
       counter = await prepareIssueReceipt(orgId, user, invoice)
     } catch (e: any) {
-      if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
-      throw e
+      if (!(e instanceof RegisterRefusal)) throw e
+      await discardPendingTransfers(orgId, (body as any)?.pendingTransferIds)
+      return status(e.statusCode, e.body)
     }
 
     /**
@@ -1509,6 +1532,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       }
       /** FR-23: what a payment that printed answers, and one whose receipt failed: nothing was recorded. */
       const receiptAnswer = async (receipt: any) => {
+        if (receipt.register?.fiscal?.inDoubt) return status(409, inDoubtRefusal(receipt))
         if (receipt.register?.fiscal?.state === 'failed') {
           return status(503, {
             code: 'fiscal_error',
@@ -1541,13 +1565,17 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (['voided', 'cancelled', 'paid'].includes(invoice.status))
         return status(400, { message: 'Cannot record payment on this invoice' })
       if (overpays(invoice, body.amount)) return overpayment(status, invoice, body.amount)
-      if (holdsTheRoom(invoice as any, body.amount)) return receiptPrinting(status)
+      if (holdsTheRoom(invoice as any, body.amount)) return receiptPrinting(status, orgId, id)
+      // FR-23 §2.2: the courier's money does not go past a receipt that never printed, or the sale
+      // ends with none, or with part of one.
+      if (body.method === 'cash_on_delivery' && await owesDeliveryReceipt(orgId, invoice)) return status(409, { ...DELIVERY_RECEIPT_OWED })
 
       // FR-23 §2.2: cash or card at the counter prints, and the receipt records the payment. Refused
       // here when it cannot, with nothing written.
       try {
-        // In cents: a fiscal receipt has no others.
-        const tender = { method: body.method, amount: round2(body.amount), date: new Date(body.date), ...(body.reference ? { reference: body.reference } : {}) }
+        // In cents: a fiscal receipt has no others. Dated as it prints: the device says today, and so
+        // do the session and the row, or one payment lands on two days.
+        const tender = { method: body.method, amount: round2(body.amount), date: new Date(), ...(body.reference ? { reference: body.reference } : {}) }
         const prepared = await prepareReceipt(orgId, user, invoice, tender, false)
         if (prepared) {
           const doc = await Invoice.findOne({ _id: id, orgId }).lean().exec()
@@ -1560,7 +1588,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
       const { ObjectId } = (Invoice.base as any).Types
       const oid = (v: string) => new ObjectId(v)
+      // Its own id, so that its journal entry finds this row and no other (`payment.recorded`).
+      const paymentId = new ObjectId()
       const row = {
+        _id: paymentId,
         date: new Date(body.date),
         amount: body.amount,
         method: body.method,
@@ -1591,7 +1622,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         if (current && !['voided', 'cancelled', 'paid'].includes(current.status) && overpays(current, body.amount)) {
           return overpayment(status, current, body.amount)
         }
-        if (current && !['voided', 'cancelled', 'paid'].includes(current.status) && holdsTheRoom(current, body.amount)) return receiptPrinting(status)
+        if (current && !['voided', 'cancelled', 'paid'].includes(current.status) && holdsTheRoom(current, body.amount)) return receiptPrinting(status, orgId, id)
         return status(400, { message: 'Cannot record payment on this invoice' })
       }
       const updated = await r.invoices.findOne({ id, orgId } as any)
@@ -1606,6 +1637,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         amount: body.amount,
         method: body.method,
         date: body.date,
+        paymentId: String(paymentId),
       })
 
       return { invoice: updated }
@@ -1640,9 +1672,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       return status(e.statusCode, { code: e.code, message: e.message })
     }
     const hash = key ? requestHash(`invoice.receipt:${id}`, {}) : undefined
-    const answer = async (receipt: any) => (receipt.register?.fiscal?.state === 'failed'
-      ? status(503, { code: 'fiscal_error', receiptId: String(receipt._id), message: `The receipt was not printed: ${receipt.register.receiptError}` })
-      : { invoice: await r.invoices.findOne({ id, orgId } as any), ...receiptOutcome(receipt) })
+    const answer = async (receipt: any) => {
+      if (receipt.register?.fiscal?.inDoubt) return status(409, inDoubtRefusal(receipt))
+      if (receipt.register?.fiscal?.state === 'failed') {
+        return status(503, { code: 'fiscal_error', receiptId: String(receipt._id), message: `The receipt was not printed: ${receipt.register.receiptError}` })
+      }
+      return { invoice: await r.invoices.findOne({ id, orgId } as any), ...receiptOutcome(receipt) }
+    }
 
     if (!(await r.invoices.findOne({ id, orgId } as any))) return status(404, { message: 'Invoice not found' })
     try {
@@ -1653,7 +1689,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       await finishInterruptedReceipts(orgId, user, id)
       const doc: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
       const prepared = (await owesDeliveryReceipt(orgId, doc)) ? await prepareIssueReceipt(orgId, user, doc) : null
-      if (!prepared) return status(409, { code: 'no_receipt_owed', message: 'This document has no receipt left to print.' })
+      if (!prepared) {
+        const doubt = await receiptInDoubt(orgId, id)
+        return status(409, doubt ? inDoubtRefusal(doubt) : { code: 'no_receipt_owed', message: 'This document has no receipt left to print.' })
+      }
+
       return await answer(await printReceipt(orgId, prepared, doc, key ? { key, hash: hash! } : undefined))
     } catch (e: any) {
       if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
@@ -1669,23 +1709,45 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (isImmutableRegisterDocument(invoice as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
     // FR-23 §2.7: the receipt stands, so the document it paid does.
     await finishInterruptedReceipts(orgId, user, id)
-    if (await isFiscallyPaid(orgId, id)) return status(409, { ...FISCALLY_PAID })
+    const frozen = await freezeRefusal(orgId, id)
+    if (frozen) return status(409, frozen)
     // #171: an invoice for a cash sale is born paid, but the money is the cash sale's, so voiding
     // it gives nothing back — it only releases the sale's quantities for a new invoice.
     const voidable = (invoice as any).cashSaleRef?.cashSaleId ? ['draft', 'paid'] : ['draft', 'sent', 'received']
     if (!voidable.includes(invoice.status))
       return status(400, { message: 'Can only void draft, sent, or received invoices' })
 
+    // ⚠ FR-23: claimed before the stock moves, against the hold a receipt takes before it prints. Of
+    // a void and a payment at once one gives way: read and then written, both went through, and the
+    // payment turned the voided invoice back to paid with a fiscal receipt on it.
+    const now = new Date()
+    const claimed = await Invoice.findOneAndUpdate(
+      {
+        _id: id, orgId, status: invoice.status, 'receiptHolds.0': { $exists: false },
+        $or: [{ voidingUntil: { $exists: false } }, { voidingUntil: null }, { voidingUntil: { $lt: now } }],
+      },
+      { $set: { voidingUntil: new Date(now.getTime() + LEASE_MS) } },
+    ).exec()
+    if (!claimed) return receiptPrinting(status, orgId, id)
+    const release = () => Invoice.updateOne({ _id: id, orgId }, { $set: { voidingUntil: null } }).exec()
+    // A receipt written before the claim that had not taken its hold yet will now be refused one.
+    const late = await freezeRefusal(orgId, id)
+    if (late) {
+      await release()
+      return status(409, late)
+    }
+
     try {
       // ORD-linked bill voids reverse the very stock whose receipt backs the reservation
       // holds — allow the reversal and let the order sync re-balance afterwards.
       await reverseInvoiceStockMovement(invoice, user.id, undefined, (invoice as any).orderId ? { allowNegative: true } : undefined)
     } catch (e: any) {
+      await release()
       return status(400, { message: e.message })
     }
 
     const history = [...((invoice as any).statusHistory || []), statusEntry('voided', invoice.status, user.id)]
-    const updated = await r.invoices.updateInOrg(id, orgId, { status: 'voided', voidedAt: new Date(), statusHistory: history } as any)
+    const updated = await r.invoices.updateInOrg(id, orgId, { status: 'voided', voidedAt: new Date(), voidingUntil: null, statusHistory: history } as any)
 
     await syncOrderForInvoice(orgId, updated || invoice, user.id)
     // FR-22 §5.3: a voided bill made from goods receipts gives them back — they can be billed
@@ -1757,7 +1819,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       // FR-23 §2.7: its receipt took this money; a cash sale cannot be what paid it.
-      if (await isFiscallyPaid(orgId, id)) return status(409, { ...FISCALLY_PAID })
+      const frozen = await freezeRefusal(orgId, id)
+      if (frozen) return status(409, frozen)
       try {
         return { invoice: await attachInvoiceToCashSale(orgId, user, id, body.cashSaleId) }
       } catch (e: any) {

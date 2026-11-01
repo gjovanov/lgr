@@ -227,17 +227,22 @@ describe('what prints at the counter', () => {
     expect(printsAtCounter(sale({ stockSource: { marker: 'stokrazp:x', detectedBy: 'conversion' } }), 'cash', true)).toBe(true)
   })
 
-  it('never an imported document, however it came in', () => {
+  it('never an imported document: its first status says so', () => {
+    const marks = { statusHistory: [{ reason: 'ocr_import' }, { reason: 'issued' }] }
+    expect(isImportedDocument(sale(marks))).toBe(true)
+    expect(printsAtCounter(sale(marks), 'cash', true)).toBe(false)
+  })
+
+  it('and nothing else says so: not a tag a copy carries, not a document LGR moved itself', () => {
     for (const marks of [
-      { statusHistory: [{ reason: 'ocr_import' }] },
       { tags: ['ocr-import', 'dir:outgoing'] },
       { importedFrom: { kind: 'fenced_export' } },
+      { importedFrom: {} },
+      { statusHistory: [{ reason: 'created' }, { reason: 'ocr_import' }] },
     ]) {
-      expect(isImportedDocument(sale(marks))).toBe(true)
-      expect(printsAtCounter(sale(marks), 'cash', true)).toBe(false)
+      expect(isImportedDocument(sale(marks))).toBe(false)
+      expect(printsAtCounter(sale(marks), 'cash', true)).toBe(true)
     }
-    // Mongoose materialises an absent nested path as an empty object.
-    expect(isImportedDocument(sale({ importedFrom: {} }))).toBe(false)
   })
 })
 

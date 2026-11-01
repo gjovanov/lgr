@@ -261,6 +261,7 @@ function fromDocument(doc: any, moved: Set<string>): JournalRow {
       ...(reg.fiscalReceiptNumber ? { receiptNumber: reg.fiscalReceiptNumber } : {}),
       ...(reg.fiscalDeviceNumber ? { deviceNumber: reg.fiscalDeviceNumber } : {}),
       ...(reg.printedAt ? { printedAt: new Date(reg.printedAt).toISOString() } : {}),
+      ...(reg.fiscal?.inDoubt ? { inDoubt: true } : {}),
     },
     stock: reg.stockError ? 'error' : moved.has(id) || reg.movementId ? 'moved' : 'none',
     ...(doc.reference ? { reference: doc.reference } : {}),

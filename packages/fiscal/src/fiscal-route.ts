@@ -211,7 +211,7 @@ export const deviceFromDeadReceipt: FiscalResolver = async ({ params }) => {
   const paidInvoiceId = oid(params?.id)
   if (!paidInvoiceId) return null
   const receipt: any = await Invoice.findOne(
-    { orgId: params.orgId, type: 'payment_receipt', 'register.paidInvoiceId': paidInvoiceId, completedAt: { $exists: false } },
+    { orgId: params.orgId, type: 'payment_receipt', 'register.paidInvoiceId': paidInvoiceId, completedAt: { $exists: false }, 'register.fiscal.inDoubt': { $ne: true } },
     { 'register.warehouseId': 1 },
   ).sort({ _id: 1 }).lean().exec()
   return receipt ? deviceForWarehouse(params.orgId, receipt.register?.warehouseId) : null
@@ -221,7 +221,11 @@ export const deviceFromDeadReceipt: FiscalResolver = async ({ params }) => {
  * FR-23: `/invoices/:id/send`, `/payments` and `/receipt`. What a person issues or pays at the counter
  * prints on the device of THEIR open session (D-13), so the device follows from the user, whichever
  * document it is. One that turns out to print nothing, a bank transfer, runs there all the same: a
- * hop, no more. Someone with no session prints nothing, and can still have a dead receipt to finish.
+ * hop, no more.
+ *
+ * ⚠ A dead receipt on the document comes first. Only its own device can prove anything about it, and
+ * it is finished before the request does anything else. A print on another device then answers 503
+ * from `getFiscalContext`, with nothing written, and the retry finds that receipt gone.
  */
 export const deviceFromCounter: FiscalResolver = async (ctx) =>
-  (await deviceOfOpenSession(ctx.params.orgId, ctx.user?.id)) ?? deviceFromDeadReceipt(ctx)
+  (await deviceFromDeadReceipt(ctx)) ?? deviceOfOpenSession(ctx.params.orgId, ctx.user?.id)

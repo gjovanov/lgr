@@ -143,6 +143,8 @@ export interface IInvoiceRegister {
   movementId?: Types.ObjectId
   /** On a `payment_receipt` (FR-23): the invoice or debit note it took money for. */
   paidInvoiceId?: Types.ObjectId
+  /** What the person who settled a receipt in doubt said, and who it was. */
+  settled?: { printed: boolean; by: Types.ObjectId; at: Date }
   paidInvoiceNumber?: string
   /** On a `payment_receipt`: the free text printed under its lines, „Фактура № …". */
   receiptText?: string
@@ -219,6 +221,8 @@ export interface IInvoice extends Document {
    * update; a receipt is a document of its own, and two of them could not see each other.
    */
   receiptHolds?: Array<{ receiptId: Types.ObjectId; amount: number }>
+  /** FR-23: a void has claimed this document until then, so no receipt takes a hold on it meanwhile. */
+  voidingUntil?: Date | null
   // ── Idempotency (FR-20.37, #155) ──
   /** The `Idempotency-Key` that created this document, and the hash of that request. */
   clientKey?: string
@@ -448,6 +452,7 @@ const invoiceSchema = new Schema<IInvoice>(
         requestHash: String,
       },
     ],
+    voidingUntil: Date,
     receiptHolds: {
       type: [{ _id: false, receiptId: { type: Schema.Types.ObjectId, ref: 'Invoice', required: true }, amount: { type: Number, required: true } }],
       default: undefined,
@@ -591,7 +596,11 @@ const invoiceSchema = new Schema<IInvoice>(
             receiptNo: String,
             printedAt: Date,
             error: String,
+            /** FR-23: nothing can prove whether it printed: no money booked, until a person settles it. */
+            inDoubt: Boolean,
           },
+          /** What the person who settled a receipt in doubt said, and who it was. */
+          settled: { printed: Boolean, by: { type: Schema.Types.ObjectId, ref: 'User' }, at: Date },
           changeDue: Number,
           sessionTotalsApplied: Boolean,
           receiptError: String,

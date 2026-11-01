@@ -71,6 +71,8 @@ export interface FiscalCapabilities {
   maxOperators: number
   /** The payment slot cash on delivery prints in, and the name the device page gives it. */
   cashOnDeliverySlot?: { code: string; name: string }
+  /** The longest line name the driver sends, when it cuts one: what must fit for a name to survive. */
+  lineNameMax?: number
 }
 
 /** What the reserve slot is named, so a COD receipt says what it was. Printed — always Bulgarian. */
@@ -79,7 +81,7 @@ export const CASH_ON_DELIVERY_NAME = 'НАЛОЖЕН ПЛАТЕЖ'
 function driverCapabilities(
   on: readonly FiscalFeature[],
   notInProtocol: readonly FiscalFeature[],
-  extra: Pick<FiscalCapabilities, 'maxOperators' | 'cashOnDeliverySlot'>,
+  extra: Pick<FiscalCapabilities, 'maxOperators' | 'cashOnDeliverySlot' | 'lineNameMax'>,
 ): Omit<FiscalCapabilities, 'driver'> {
   const features = {} as Record<FiscalFeature, boolean>
   const missing: Partial<Record<FiscalFeature, FiscalMissing>> = {}
@@ -106,8 +108,14 @@ const DRIVERS: Record<FiscalDriver, Omit<FiscalCapabilities, 'driver'>> = {
   'tremol-bridge': driverCapabilities(
     ['zReport', 'xReport', 'operatorReport', 'fmReportByDate', 'fmReportByNumber', 'electronicJournal', 'readOperator', 'programOperator', 'textReceipt'],
     [],
-    { maxOperators: 8 },
+    { maxOperators: 8, lineNameMax: 34 },
   ),
+}
+
+/** The longest line name a device's driver sends, when it cuts one. */
+export function lineNameMaxOf(manufacturer: string, connectionType: string): number | undefined {
+  const driver = fiscalDriverFor(manufacturer, connectionType)
+  return driver ? DRIVERS[driver].lineNameMax : undefined
 }
 
 /** A bridge holds the port at the far end of a socket; the driver still runs on the server. */

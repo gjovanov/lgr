@@ -169,6 +169,12 @@ function asKept(doc: Doc, ctx: Ctx, number?: string): Doc {
     out.register = { ...out.register }
     delete out.register.movementId
     delete out.register.stockError
+    // FR-23: a receipt whose request died on the site. Its device stayed behind and its lease did not
+    // travel, so nothing here could ever finish it, and its hold would lock its invoice. A person
+    // settles it, as anything that cannot be proved.
+    if (out.type === 'payment_receipt' && !out.completedAt && out.register.fiscal?.state === 'pending') {
+      out.register.fiscal = { ...out.register.fiscal, state: 'unknown', inDoubt: true }
+    }
   }
   if (out.issue) {
     out.issue = { ...out.issue }

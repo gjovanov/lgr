@@ -16,7 +16,9 @@ import { roundCents } from 'config/pos-totals'
  * printed as lines: such a payment prints the per-rate shape, which is exact by construction. So does
  * a device with no text line inside a fiscal receipt, and the number is then the line's name.
  *
- * The wording is Bulgarian on every org's receipt, as the device's own text is (Q-3).
+ * The wording is Bulgarian on every org's receipt, as the device's own text is (Q-3). A line name
+ * has to survive the device: a driver that cuts one (a Tremol, at 34) would otherwise cut the number,
+ * and the receipt would name another document or none, so the longest wording that fits whole prints.
  *
  * Import-pure: the receipt's document, the freeze and their unit tests all read it.
  */
@@ -159,14 +161,18 @@ export function printsExactly(doc: ReceiptSource, gross: RateShare[]): boolean {
 const noun = (doc: ReceiptSource) => (doc.type === 'debit_note' ? 'дебитно известие' : 'фактура')
 const capitalized = (s: string) => s[0].toUpperCase() + s.slice(1)
 
+/** The first wording that fits whole, then the number alone: it is what must never be cut. */
+const firstThatFits = (wordings: string[], max: number | undefined) =>
+  wordings.find(w => max === undefined || w.length <= max) ?? wordings[wordings.length - 1]
+
 /** „Фактура № …": the document, as a text line or as the name of a line. */
-export function documentText(doc: ReceiptSource): string {
-  return `${capitalized(noun(doc))} № ${doc.invoiceNumber}`
+export function documentText(doc: ReceiptSource, max?: number): string {
+  return firstThatFits([`${capitalized(noun(doc))} № ${doc.invoiceNumber}`, `№ ${doc.invoiceNumber}`, String(doc.invoiceNumber)], max)
 }
 
 /** „Плащане по фактура № …". */
-export function paymentText(doc: ReceiptSource): string {
-  return `Плащане по ${noun(doc)} № ${doc.invoiceNumber}`
+export function paymentText(doc: ReceiptSource, max?: number): string {
+  return firstThatFits([`Плащане по ${noun(doc)} № ${doc.invoiceNumber}`, documentText(doc, max)], max)
 }
 
 /** One receipt line carrying `gross` at `rate`. VAT comes out of the gross, as a device takes it out. */
@@ -209,11 +215,13 @@ export interface ReceiptBodyInput {
   printsText: boolean
   /** The receipts already printed or printing for this document. */
   receipts: { lines?: SourceLine[] }[]
+  /** The longest line name the device keeps, when its driver cuts one. */
+  nameMax?: number
 }
 
 /** What the receipt of `amount` on `doc` prints. Null when the money cannot be split per rate. */
 export function receiptBody(input: ReceiptBodyInput): ReceiptBody | null {
-  const { doc, amount, whole, printsText, receipts } = input
+  const { doc, amount, whole, printsText, receipts, nameMax } = input
   const gross = grossByRate(doc)
   if (!gross) return null
 
@@ -229,7 +237,7 @@ export function receiptBody(input: ReceiptBodyInput): ReceiptBody | null {
 
   const shares = splitByRate(gross, receiptedByRate(receipts), amount)
   if (!shares?.length) return null
-  const name = whole ? documentText(doc) : paymentText(doc)
+  const name = whole ? documentText(doc, nameMax) : paymentText(doc, nameMax)
   const lines = shares.map(s => rateLine(name, s))
   const taxTotal = roundCents(sum(lines.map(l => l.taxAmount)))
   return { lines, taxTotal, discountTotal: 0, total: amount, subtotal: roundCents(amount - taxTotal) }

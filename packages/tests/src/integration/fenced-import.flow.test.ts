@@ -11,7 +11,7 @@ import { mongoose } from 'db/connection'
 import { AuditLog, FencedExport, FencedImportItem, Invoice, Journal, JournalEntry, OrgHome, OrgMove, POSSession, Sequence, StockLevel, StockMovement } from 'db/models'
 import { forgetAllHomes } from 'db/home/home'
 import { fencedExportPath, fencedExportsOf, receiveFencedChunk, writeFencedExport } from 'services/biz/move/fenced-export.service'
-import { fencedImportTick, requestFencedImport } from 'services/biz/move/fenced-import.service'
+import { fencedImportTick, requestFencedImport } from 'services/biz/move/fenced-import.service'; import { freezeRefusal, receiptInDoubt, settleReceipt } from 'services/biz/cash-register/payment-receipt.service'; import { deviceless } from 'invoicing-api/src/lib/counter-receipt'
 
 /**
  * The audited import of a fenced export (FR-20.84, plan step P3-6e, second half): a replaced
@@ -59,7 +59,7 @@ const line = (productId: unknown, warehouseId: unknown, quantity: number, unitPr
 })
 
 /** lgrai.app after a promotion, and what the replaced server did after the cutoff, as its export. */
-async function world() {
+async function world(o: { deadReceipt?: boolean } = {}) {
   const org = await createTestOrg({ slug: `fenced-import-${n}` } as any)
   const orgId = org._id as any
   const admin = await createTestUser(orgId, { role: 'admin' } as any)
@@ -90,7 +90,7 @@ async function world() {
   const site = (mongoose.connection as any).client.db(siteDbName)
   const ids = {
     newCustomer: oid(), newProduct: oid(), session: oid(), invoice50: oid(), cashSale: oid(), draft: oid(), clash: oid(),
-    missing: oid(), paid52: oid(), saleMovement: oid(), receipt: oid(), doc: oid(), audit: oid(), je: oid(), gone: oid(), payment: oid(),
+    missing: oid(), paid52: oid(), saleMovement: oid(), receipt: oid(), doc: oid(), audit: oid(), je: oid(), gone: oid(), payment: oid(), held: oid(), dead: oid(),
   }
   const at = new Date()
   const newCustomer = { _id: ids.newCustomer, orgId, companyName: 'Sold to after the cutoff', type: 'customer', isActive: true }
@@ -122,11 +122,11 @@ async function world() {
   await site.collection('docfiles').insertOne(doc)
   await site.collection('auditlogs').insertOne(audit)
   await site.collection('journalentries').insertOne(je)
-  const journal: Array<[string, unknown, string?]> = [
+  const dead = { _id: ids.dead, orgId, type: 'payment_receipt', direction: 'outgoing', invoiceNumber: `CS-${year}-00011`, status: 'paid', issueDate: at, createdAt: at, currency: 'EUR', exchangeRate: 1, total: 24, paymentMethod: 'cash', payments: [], leaseUntil: at, register: { origin: 'invoice', sessionId: ids.session, warehouseId: wh._id, paidInvoiceId: ids.held, paidInvoiceNumber: `INV-${year}-00053`, unp: 'ED123456-0001-0000008', tendered: { method: 'cash', amount: 24, date: at }, fiscal: { mode: 'fiscal', state: 'pending', attemptedAt: at, counterBefore: 7 } } }; if (o.deadReceipt) await site.collection('invoices').insertMany([{ ...invoice50, _id: ids.held, invoiceNumber: `INV-${year}-00053`, receiptHolds: [{ receiptId: ids.dead, amount: 24 }] }, dead]); const journal: Array<[string, unknown, string?]> = [
     ['contacts', ids.newCustomer], ['products', ids.newProduct], ['possessions', ids.session],
     ['invoices', ids.invoice50], ['invoices', ids.cashSale], ['invoices', ids.draft], ['invoices', ids.clash], ['invoices', ids.missing], ['invoices', ids.paid52],
     ['stockmovements', ids.saleMovement], ['stockmovements', ids.receipt], ['docfiles', ids.doc], ['auditlogs', ids.audit], ['journalentries', ids.je],
-    ['contacts', ids.gone, 'delete'],
+    ['contacts', ids.gone, 'delete'], ...(o.deadReceipt ? [['invoices', ids.held], ['invoices', ids.dead]] as Array<[string, unknown]> : []),
   ]
   await site.collection('repl_journal').insertMany(journal.map(([coll, docId, op], i) => ({ orgId, coll, docId, seq: 11 + i, op: op ?? 'upsert', changedFields: [], clusterTime: at, journalEpoch: 1, updatedAt: at })))
   await site.collection('repl_orgs').insertOne({ orgId, enabled: true, seq: 11 + journal.length, pages: [] })
@@ -228,6 +228,24 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
     expect(review).toMatchObject({ nodeName: null, import: { state: 'done' } })
     expect(await AuditLog.exists({ orgId: w.oid, entityType: 'fenced_export', action: 'import', entityId: w.ex._id })).toBeTruthy()
   }, 120_000)
+
+  it('a receipt whose request died on the site arrives for a person to settle: its device stayed behind', async () => {
+    const w = await world({ deadReceipt: true })
+    await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
+    await runToEnd(w.ex._id)
+
+    const receipt: any = await Invoice.collection.findOne({ _id: w.ids.dead } as any)
+    expect(receipt.register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
+    expect(receipt.leaseUntil).toBeUndefined()
+    // Its hold came with its invoice, and a person can now see why, and let go of it.
+    const held = String(w.ids.held)
+    expect(await receiptInDoubt(w.orgId, held)).toMatchObject({ invoiceNumber: `CS-${year}-00011` })
+    expect(await freezeRefusal(w.orgId, held)).toMatchObject({ code: 'receipt_in_doubt' })
+    const settled = await settleReceipt(deviceless(w.orgId, { id: String(w.admin._id), operatorCode: '0001' } as any), String(w.ids.dead), false)
+    expect(settled.status).toBe('voided')
+    expect(((await Invoice.collection.findOne({ _id: w.ids.held } as any)) as any).receiptHolds ?? []).toHaveLength(0)
+    expect(await freezeRefusal(w.orgId, held)).toBeNull()
+  })
 
   it('repeats nothing when a crash cuts it short, and never twice', async () => {
     const w = await world()

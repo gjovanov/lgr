@@ -42,6 +42,9 @@ export interface PreparedReceipt {
 
 const NOT_PRINTABLE = (message: string) => new RegisterRefusal(422, { code: 'receipt_not_printable', message })
 
+/** Whether the document still carries the number of a draft, whatever a payment did to its status. */
+const underDraftNumber = (doc: any) => doc.status === 'draft' || doc.numberHistory?.at(-1)?.status === 'draft'
+
 /**
  * What printing a receipt for `tender` on `doc` takes, every check done; null when nothing prints.
  * Throws the refusal, before anything is written, when something should print and cannot.
@@ -52,13 +55,16 @@ export async function prepareReceipt(orgId: string, user: RegisterUser, doc: any
   if (!settings.requireConnectedDevice) return null
 
   const receipts = await receiptsOf(orgId, String(doc._id ?? doc.id))
-  // Every cent of it has its receipt: the money a courier brings for a cash-on-delivery invoice. A
-  // second receipt would book the sale on the device twice.
+  // The money a courier brings for a cash-on-delivery invoice is on its receipt, which took all that
+  // was owed when it printed. A second receipt would book the sale on the device twice.
+  if (receipts.some(r => r.paymentMethod === 'cash_on_delivery')) return null
+  // Every cent of it has its receipt.
   const receipted = roundCents(receipts.reduce((s, r) => s + (Number(r.total) || 0), 0))
   if (roundCents((Number(doc.total) || 0) - receipted) <= 0) return null
 
-  // The API takes a payment on a draft. A receipt names the invoice's number, and a draft has none.
-  if (!atIssue && doc.status === 'draft') {
+  // The API takes a payment on a draft, which turns it `partially_paid` under its draft number. A
+  // receipt names the invoice's number, and such a document has none: it was never issued.
+  if (!atIssue && underDraftNumber(doc)) {
     throw new RegisterRefusal(422, { code: 'document_not_issued', message: 'Issue this document first: its receipt names its number.' })
   }
 
@@ -83,7 +89,7 @@ export async function prepareReceipt(orgId: string, user: RegisterUser, doc: any
     })
   }
   const whole = atIssue && !(Number(doc.amountPaid) > 0)
-  if (!receiptBody({ doc, amount: tender.amount, whole, printsText: !!context.printer?.printsFiscalText, receipts })) {
+  if (!receiptBody({ doc, amount: tender.amount, whole, printsText: !!context.printer?.printsFiscalText, receipts, nameMax: context.printer?.lineNameMax })) {
     throw NOT_PRINTABLE('This document\'s money cannot be split per VAT rate: a rate with a negative total does not print.')
   }
   return { context, tender, whole, receipts }
@@ -102,38 +108,56 @@ export function prepareIssueReceipt(orgId: string, user: RegisterUser, doc: any)
  */
 export async function printReceipt(orgId: string, prepared: PreparedReceipt, doc: any, keyed?: { key: string; hash: string }): Promise<any> {
   const { context: c, tender, whole, receipts } = prepared
-  const body = receiptBody({ doc, amount: tender.amount, whole, printsText: !!c.printer?.printsFiscalText, receipts })
+  const body = receiptBody({ doc, amount: tender.amount, whole, printsText: !!c.printer?.printsFiscalText, receipts, nameMax: c.printer?.lineNameMax })
   if (!body) throw NOT_PRINTABLE('This document\'s money cannot be split per VAT rate.')
   const document = paymentReceiptDocument({ invoice: doc, body, tender, session: c.session!, user: c.user, printer: c.printer! })
   const outcome = await insertRegisterDocument(orgId, document, keyed)
-  if ('existing' in outcome) return settleKeyedDocument(outcome.existing, keyed!.hash, async () => c, runReceiptSteps)
+  if ('existing' in outcome) return settleKeyedDocument(outcome.existing, keyed!.hash, async () => c, (ctx, id) => runReceiptSteps(ctx, id))
   return runReceiptSteps(c, String(outcome.inserted._id))
 }
 
-/** What finishing a receipt takes, on any request: its own session's device, when it is there. */
+/** A context with no device: what cannot be proved stays held, and nothing prints. */
+export const deviceless = (orgId: string, user: RegisterUser): RegisterContext =>
+  ({ orgId, user, session: null, printer: null, audit: { module: 'trade', entityType: 'pos_transaction' } })
+
+/**
+ * What finishing a receipt takes, on any request: the device it was printing on, when that device is
+ * here. ⚠ Only that device. Another one's counter says nothing about it, and its УНП would be refused
+ * there. A device in error, or held by another pod, proves nothing either, which is no reason to fail
+ * the request: the receipt is held instead, and the person it reaches has a way out.
+ */
 async function receiptContext(orgId: string, user: RegisterUser, receipt: any): Promise<RegisterContext> {
   const session = receipt.register?.sessionId ? await POSSession.findOne({ _id: receipt.register.sessionId, orgId }).lean().exec() : null
-  if (session) return tillContext(orgId, user, session, { needsOperator: false })
-  return { orgId, user, session: null, printer: null, audit: { module: 'trade', entityType: 'pos_transaction' } }
+  if (!session) return deviceless(orgId, user)
+  try {
+    const c = await tillContext(orgId, user, session, { needsOperator: false })
+    return c.printer?.deviceNumber === receipt.register?.fiscalDeviceNumber ? c : { ...c, printer: null }
+  } catch (e) {
+    if (e instanceof RegisterRefusal) return deviceless(orgId, user)
+    throw e
+  }
 }
 
 /** The receipt a keyed request already made: replay it, finish it, or wait for it. */
 export function settleKeyedReceipt(orgId: string, user: RegisterUser, receipt: any, hash: string): Promise<any> {
-  return settleKeyedDocument(receipt, hash, () => receiptContext(orgId, user, receipt), runReceiptSteps)
+  return settleKeyedDocument(receipt, hash, () => receiptContext(orgId, user, receipt), (c, id) => runReceiptSteps(c, id))
 }
 
 /** The receipt holding this key, if a request with it already made one. */
 export async function keyedReceipt(orgId: string, key: string): Promise<any | null> {
-  return Invoice.findOne({ orgId, clientKey: key, type: PAYMENT_RECEIPT }).lean().exec()
+  // ⚠ `$type` is what reaches the partial index: on an equality alone the planner cannot prove its
+  // filter, and walks the org's documents by another index.
+  return Invoice.findOne({ orgId, clientKey: { $eq: key, $type: 'string' }, type: PAYMENT_RECEIPT }).lean().exec()
 }
 
 /**
- * Finish the receipts of a document whose request died, before a new payment is looked at: their
- * holds must not outlive them, and what printed must not be taken again. True when one was.
+ * Finish the receipts of a document or a session whose request died, before anything else is done
+ * with it: their holds must not outlive them, and what printed must not be taken again. True when
+ * one was. It prints nothing, and books nothing it cannot prove (`finishInterruptedReceipt`).
  */
-export async function finishInterruptedReceipts(orgId: string, user: RegisterUser, documentId: string): Promise<boolean> {
+export async function finishInterruptedReceipts(orgId: string, user: RegisterUser, where: string | { sessionId: string }): Promise<boolean> {
   let any = false
-  for (const receipt of await interruptedReceipts(orgId, documentId)) {
+  for (const receipt of await interruptedReceipts(orgId, typeof where === 'string' ? { documentId: where } : where)) {
     if (!(await takeLease(Invoice, orgId, receipt._id))) continue
     try {
       await finishInterruptedReceipt(await receiptContext(orgId, user, receipt), receipt)

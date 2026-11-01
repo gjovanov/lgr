@@ -18,6 +18,10 @@
  * document (`register.stockError`, `register.receiptError`) and shown: the till's behaviour. A
  * receipt that printed cannot be taken back, and neither can the money in the drawer.
  *
+ * ⚠ A print runs in the document's turn on the device (`printer.operation`), from the counter read to
+ * the close. That is what makes the counter evidence, and why what a print that threw left behind is
+ * decided there (`print-verdict.ts`).
+ *
  * What only a door knows is handed in: the fiscal device (a `RegisterPrinter`, which the till builds
  * from `fiscal/*` — `services` must not import it), the session the sale rings into, the request's
  * key, and the user.
@@ -31,10 +35,11 @@ import { generateUNP } from '../sequence.service.js'
 import { getNextInvoiceNumber, issuableRefusal } from '../invoice-numbering.service.js'
 import { createInvoiceStockMovement, createNumberedMovement, reverseInvoiceStockMovement } from '../invoicing.service.js'
 import { confirmMovement } from '../warehouse.service.js'
-import { IdempotencyError, LEASE_MS, assertSameRequest, takeLease, waitForCompletion } from '../hot-path-key.js'
+import { IdempotencyError, LEASE_MS, assertSameRequest, keepLease, takeLease, waitForCompletion } from '../hot-path-key.js'
 import { exchangeRateFor, fromPosTransaction } from './mapping.js'
 import { unitsOf } from './copy.js'
 import type { RegisterPrinter } from './printer.js'
+import { verdictOfFailedPrint } from './print-verdict.js'
 
 /**
  * The number a keyed document holds between its insert and its real number. Never a valid prefix,
@@ -203,10 +208,28 @@ export async function tillSaleDocument(input: TillSaleInput): Promise<Record<str
 
 // ── The steps ────────────────────────────────────────────────────────────────
 
-/** Set fields of the register block, returning the document after the write. */
+/**
+ * Set fields of the register block, returning the document after the write. ⚠ A voided document takes
+ * none: whatever comes back to it (a print that outlived its lease) reads it as it stands.
+ */
 export async function setRegister(id: unknown, set: Record<string, unknown>): Promise<any> {
   const $set = Object.fromEntries(Object.entries(set).map(([k, v]) => [`register.${k}`, v]))
-  return Invoice.findByIdAndUpdate(id, { $set }, { new: true }).lean().exec()
+  const written = await Invoice.findOneAndUpdate({ _id: id, status: { $ne: 'voided' } }, { $set }, { new: true }).lean().exec()
+  return written ?? Invoice.findById(id).lean().exec()
+}
+
+/**
+ * Hold a receipt that nothing can prove (FR-23): `unknown`, booking no money and printing nothing, its
+ * amount still held on the invoice, until a person settles it (`settleReceipt`). Its lease goes, so it
+ * no longer reads as a request that died.
+ */
+export async function holdInDoubt(doc: any, receiptError: string): Promise<any> {
+  const held = await Invoice.findOneAndUpdate(
+    { _id: doc._id, status: { $ne: 'voided' }, completedAt: { $exists: false } },
+    { $set: { 'register.fiscal.state': 'unknown', 'register.fiscal.inDoubt': true, 'register.receiptError': receiptError }, $unset: { leaseUntil: 1 } },
+    { new: true },
+  ).lean().exec()
+  return held ?? Invoice.findById(doc._id).lean().exec()
 }
 
 /**
@@ -237,47 +260,116 @@ export async function numberPending(orgId: string, doc: any): Promise<any | null
  * number; this wraps it in the counter check and records the outcome on the document. Throws only
  * what `print` throws.
  *
- * - **First attempt:** store `attemptedAt` and the device's last document number, then print.
- * - **An interrupted attempt** (`attemptedAt` set, still `pending`): ask the device again.
- *   Unchanged → it did not print; print it. Exactly one more → that one is ours; record it.
- *   Anything else, or a device that cannot say (Tremol) → `unknown`, and NEVER reprinted: a second
+ * - **First attempt:** store `attemptedAt` and the device's last document number, then print. If the
+ *   print throws, what it left behind is decided here, in the turn (`afterFailedPrint`).
+ * - **An interrupted attempt** (`attemptedAt` set, still `pending`): ask the device again. Nothing
+ *   closed and nothing open → it did not print; print it. Exactly one more → that one is ours; record
+ *   it. Anything else, or a device that cannot say (Tremol) → `unknown`, and NEVER reprinted: a second
  *   fiscal receipt for one sale is the failure this exists to prevent. The cashier checks the device.
+ *
+ * ⚠ `strict`, a payment's receipt: a resume reads a counter that may have moved for any document on a
+ * shared device, and here the reading decides whether money is booked. So nothing but "it never
+ * printed" is believed, and anything else is held for a person (`holdInDoubt`).
  */
-async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promise<string>): Promise<any> {
+async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promise<string>, opts: { strict?: boolean } = {}): Promise<any> {
   const fiscal = doc.register?.fiscal || {}
   if (fiscal.attemptedAt) {
     const before = fiscal.counterBefore
     const now = await printer.lastReceiptNumber().catch(() => undefined)
-    if (before === undefined || before === null || now === undefined || (now !== before && now !== before + 1)) {
-      logger.warn({ documentId: String(doc._id), before, now }, 'Interrupted fiscal receipt: device cannot confirm it — not reprinting')
+    const open = await printer.receiptOpen?.().catch(() => undefined)
+    const known = before !== undefined && before !== null && now !== undefined
+    if (known && now === before + 1 && !opts.strict) {
+      const receiptNo = String(now).padStart(7, '0')
+      logger.info({ documentId: String(doc._id), receiptNo }, 'Interrupted fiscal receipt had printed — recorded, not reprinted')
+      return recordPrinted(doc, receiptNo)
+    }
+    if (!known || now !== before || open !== false) {
+      logger.warn({ documentId: String(doc._id), before, now, open }, 'Interrupted fiscal receipt: device cannot confirm it — not reprinting')
+      if (opts.strict) return holdInDoubt(doc, IN_DOUBT)
       return setRegister(doc._id, {
         'fiscal.state': 'unknown',
         receiptError: 'The receipt was interrupted and the device cannot confirm whether it printed. Check the device; do not ring the sale up again.',
       })
     }
-    if (now === before + 1) {
-      const receiptNo = String(now).padStart(7, '0')
-      logger.info({ documentId: String(doc._id), receiptNo }, 'Interrupted fiscal receipt had printed — recorded, not reprinted')
-      return setRegister(doc._id, {
-        'fiscal.state': 'printed', 'fiscal.receiptNo': receiptNo, 'fiscal.printedAt': new Date(),
-        fiscalReceiptNumber: receiptNo, printedAt: new Date(),
-      })
-    }
-    // now === before: it never printed. Print it.
+    // Nothing closed and nothing open: it never printed. Print it.
   }
 
   // The counter goes on the record BEFORE the device is touched.
   const counterBefore = await printer.lastReceiptNumber().catch(() => undefined)
   await setRegister(doc._id, { 'fiscal.attemptedAt': new Date(), 'fiscal.counterBefore': counterBefore })
-  const receiptNo = await print()
+  let receiptNo: string
+  try {
+    receiptNo = await print()
+  } catch (e: any) {
+    return afterFailedPrint(printer, doc, counterBefore, e)
+  }
+  return recordPrinted(doc, receiptNo)
+}
+
+/** What a receipt in doubt says: nothing was booked, and who does what next. */
+export const IN_DOUBT = 'The receipt was interrupted and nothing can prove whether it printed, so nothing was booked. Check the device, then settle it in the cash-register journal.'
+
+/**
+ * The receipt printed. ⚠ Its number only when the device gave one: a Tremol closes before it can be
+ * asked, and 'unknown' stored as a number printed on an invoice as „ФБ № unknown".
+ */
+function recordPrinted(doc: any, receiptNo: string | undefined): Promise<any> {
+  const known = receiptNo && receiptNo !== 'unknown' ? String(receiptNo) : undefined
   return setRegister(doc._id, {
-    'fiscal.state': 'printed', 'fiscal.receiptNo': receiptNo, 'fiscal.printedAt': new Date(),
-    fiscalReceiptNumber: receiptNo, printedAt: new Date(),
+    'fiscal.state': 'printed', 'fiscal.printedAt': new Date(), printedAt: new Date(),
+    ...(known ? { 'fiscal.receiptNo': known, fiscalReceiptNumber: known } : {}),
   })
 }
 
+/**
+ * A print threw. Still in the document's turn: get the receipt off the device, then read what is left
+ * (`print-verdict.ts`). A receipt that may be real is never voided and never printed again.
+ */
+async function afterFailedPrint(printer: RegisterPrinter, doc: any, before: number | undefined, e: any): Promise<any> {
+  const abandoned = await printer.abandonReceipt().catch(() => undefined)
+  const now = await printer.lastReceiptNumber().catch(() => undefined)
+  const open = await printer.receiptOpen?.().catch(() => undefined)
+  const verdict = verdictOfFailedPrint({ stage: e?.printStage, before, now, open, closed: !!abandoned?.closed })
+  logger.error({ documentId: String(doc._id), unp: doc.register?.unp, error: e?.message, stage: e?.printStage, before, now, open, verdict }, 'Fiscal receipt printing FAILED')
+  if (verdict === 'printed') return recordPrinted(doc, String(now).padStart(7, '0'))
+  await printer.failed().catch(() => {})
+  if (verdict === 'failed') return setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': e?.message, receiptError: e?.message })
+  return setRegister(doc._id, {
+    'fiscal.state': 'unknown', 'fiscal.error': e?.message,
+    receiptError: `The receipt may have printed, so it will not be printed again. Check the device: ${e?.message}`,
+  })
+}
+
+/**
+ * `step`, in the document's turn on the device, on the document as it stands when the turn comes: it
+ * may have been given up, or finished by a retry, while it waited. Its lease is renewed throughout.
+ */
+export async function inTurn(printer: RegisterPrinter, doc: any, step: (fresh: any) => Promise<any>): Promise<any> {
+  const stop = keepLease(Invoice, doc._id)
+  try {
+    return await printer.operation(async () => {
+      const fresh: any = await Invoice.findById(doc._id).lean().exec()
+      if (!fresh || fresh.status === 'voided' || fresh.register?.fiscal?.state !== 'pending') return fresh ?? doc
+      return step(fresh)
+    })
+  } finally {
+    stop()
+  }
+}
+
+/** A device that never came free printed nothing. A resume could not ask it, so that one is unknown. */
+async function printInTurn(printer: RegisterPrinter, doc: any, step: (fresh: any) => Promise<any>): Promise<any> {
+  try {
+    return await inTurn(printer, doc, step)
+  } catch (e: any) {
+    if (e?.code !== 'device_busy') throw e
+    const state = doc.register?.fiscal?.attemptedAt ? 'unknown' : 'failed'
+    return setRegister(doc._id, { 'fiscal.state': state, 'fiscal.error': e.message, receiptError: e.message })
+  }
+}
+
 /** The sale's receipt: fiscal or text, at most once. */
-export async function printSaleStep(c: RegisterContext, doc: any): Promise<any> {
+export async function printSaleStep(c: RegisterContext, doc: any, opts: { strict?: boolean } = {}): Promise<any> {
   const printer = c.printer
   if (!printer) {
     return setRegister(doc._id, { 'fiscal.state': 'unknown', receiptError: 'The fiscal device is no longer connected — check whether the receipt printed.' })
@@ -301,20 +393,12 @@ export async function printSaleStep(c: RegisterContext, doc: any): Promise<any> 
       return setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': e?.message, receiptError: e?.message })
     }
   }
-  try {
-    return await printOnce(printer, doc, async () => {
-      const receiptNo = await printer.printSale(doc)
-      await printer.reached()
-      logger.info({ documentId: String(doc._id), unp: doc.register?.unp, receiptNo }, 'Fiscal receipt printed')
-      return receiptNo
-    })
-  } catch (e: any) {
-    // Void the half-printed receipt, or the device refuses everything after it.
-    await printer.abandonReceipt().catch(() => {})
-    logger.error({ documentId: String(doc._id), unp: doc.register?.unp, error: e?.message }, 'Fiscal receipt printing FAILED')
-    await printer.failed().catch(() => {})
-    return setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': e?.message, receiptError: e?.message })
-  }
+  return printOnce(printer, doc, async () => {
+    const receiptNo = await printer.printSale(doc)
+    await printer.reached()
+    logger.info({ documentId: String(doc._id), unp: doc.register?.unp, receiptNo }, 'Fiscal receipt printed')
+    return receiptNo
+  }, opts)
 }
 
 /**
@@ -356,7 +440,13 @@ export function stornoRefundBuckets(
   }
 }
 
-/** The session's accumulators — claimed and applied in one Mongo transaction, so never twice. */
+/**
+ * The session's accumulators — claimed and applied in one Mongo transaction, so never twice.
+ *
+ * ⚠ Never on a closed session: its report and its close are final, and money arriving there would be
+ * posted a second time (the close counted the drawer that held it as cash over). The document stays
+ * unclaimed, and the money is on the payment that follows, in no session.
+ */
 export async function applySessionTotals(doc: any, sessionId: string, inc: Record<string, number>): Promise<void> {
   const s = await Invoice.startSession()
   try {
@@ -366,7 +456,11 @@ export async function applySessionTotals(doc: any, sessionId: string, inc: Recor
         { $set: { 'register.sessionTotalsApplied': true } },
         { session: s },
       ).exec()
-      if (claimed) await POSSession.updateOne({ _id: oid(sessionId) }, { $inc: inc }, { session: s }).exec()
+      if (!claimed) return
+      const moved = await POSSession.updateOne({ _id: oid(sessionId), status: { $ne: 'closed' } }, { $inc: inc }, { session: s }).exec()
+      if (moved.matchedCount) return
+      logger.error({ documentId: String(doc._id), sessionId }, 'Money for a closed session: not added to it')
+      await Invoice.updateOne({ _id: doc._id }, { $unset: { 'register.sessionTotalsApplied': 1 } }, { session: s }).exec()
     })
   } finally {
     await s.endSession()
@@ -461,7 +555,7 @@ export async function runSaleSteps(c: RegisterContext, id: string): Promise<any>
   // One fiscal operation from the first command to the last, so a graceful stop cannot land
   // between "open receipt" and "close receipt" (FR-20.23).
   if (doc.register?.fiscal?.state === 'pending') {
-    doc = c.printer ? await c.printer.operation(() => printSaleStep(c, doc)) : await printSaleStep(c, doc)
+    doc = c.printer ? await printInTurn(c.printer, doc, fresh => printSaleStep(c, fresh)) : await printSaleStep(c, doc)
   }
 
   const sessionId = doc.register?.sessionId ? String(doc.register.sessionId) : c.session?.id
@@ -648,9 +742,12 @@ export function originOf(doc: any): RegisterOrigin {
   return 'backoffice'
 }
 
-/** Whether the sale's receipt was a fiscal one, which its storno must reverse on the device. */
+/**
+ * Whether the sale's receipt was a fiscal one, which its storno must reverse on the device. A device
+ * that gave no number (a Tremol, which is busy printing when it could be asked) still printed one.
+ */
 export function printedFiscally(original: any): boolean {
-  return !!original.register?.isFiscal && !!original.register?.fiscalReceiptNumber
+  return !!original.register?.isFiscal && (!!original.register?.fiscalReceiptNumber || original.register?.fiscal?.state === 'printed')
 }
 
 export interface StornoInput {
@@ -832,20 +929,12 @@ export async function runStornoSteps(c: RegisterContext, id: string): Promise<an
       doc = await setRegister(doc._id, { 'fiscal.state': 'unknown', receiptError: 'The fiscal device is no longer connected — check whether the storno printed.' })
     } else {
       const printer = c.printer
-      try {
-        doc = await printer.operation(() => printOnce(printer, doc, async () => {
-          const receiptNo = await printer.printStorno(doc, original)
-          await printer.reached()
-          logger.info({ documentId: id, unp: doc.register?.unp, receiptNo }, 'Storno fiscal receipt printed')
-          return receiptNo
-        }))
-      } catch (e: any) {
-        // As for a sale: void the half-printed receipt, or the device refuses everything after it.
-        await printer.abandonReceipt().catch(() => {})
-        logger.error({ documentId: id, error: e?.message }, 'Storno fiscal receipt printing FAILED')
-        await printer.failed().catch(() => {})
-        doc = await setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': e?.message, receiptError: e?.message })
-      }
+      doc = await printInTurn(printer, doc, fresh => printOnce(printer, fresh, async () => {
+        const receiptNo = await printer.printStorno(fresh, original)
+        await printer.reached()
+        logger.info({ documentId: id, unp: fresh.register?.unp, receiptNo }, 'Storno fiscal receipt printed')
+        return receiptNo
+      }))
     }
   }
 

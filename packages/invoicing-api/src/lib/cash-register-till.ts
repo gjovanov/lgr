@@ -25,11 +25,12 @@ import { fiscalUnitPrice } from 'services/biz/cash-register/receipt-lines'
 import { isDeviceConnected, getPrinter, type IFiscalPrinter } from 'fiscal/fiscal-device.service'
 import { maySaleOpen } from 'fiscal/device-reach'
 import { FiscalPaymentMethodError, toFiscalPaymentType } from 'fiscal/types'
-import { unsupportedReason } from 'fiscal/capabilities'
+import { lineNameMaxOf, unsupportedReason } from 'fiscal/capabilities'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
 import { fiscalOperation } from 'fiscal/in-flight'
 import { deviceTurn } from 'fiscal/device-turn'
 import { roundCents } from 'config/pos-totals'
+import type { PrintStage } from 'services/biz/cash-register/print-verdict'
 
 export { fiscalUnitPrice }
 
@@ -40,7 +41,14 @@ export { fiscalUnitPrice }
  */
 export const STORNO_ROLES = ['admin', 'manager']
 
-export type FiscalCtx = { deviceId: string; deviceNumber: string; printer: IFiscalPrinter; cashOnDeliveryRefusal: string | null; printsFiscalText: boolean } | null
+export type FiscalCtx = {
+  deviceId: string
+  deviceNumber: string
+  printer: IFiscalPrinter
+  cashOnDeliveryRefusal: string | null
+  printsFiscalText: boolean
+  lineNameMax?: number
+} | null
 
 /**
  * Look up the active fiscal device for a warehouse.
@@ -85,6 +93,7 @@ export async function getFiscalContext(orgId: string, warehouseId: string): Prom
     printer: getPrinter(device.id),
     cashOnDeliveryRefusal: unsupportedReason(device.manufacturer, device.connectionType, 'cashOnDelivery'),
     printsFiscalText: unsupportedReason(device.manufacturer, device.connectionType, 'fiscalText') === null,
+    lineNameMax: lineNameMaxOf(device.manufacturer, device.connectionType),
   }
 }
 
@@ -167,22 +176,33 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
     deviceId: fiscal.deviceId,
     deviceNumber: fiscal.deviceNumber,
     lastReceiptNumber: async () => (p.getLastReceiptNumber ? p.getLastReceiptNumber() : undefined),
+    receiptOpen: async () => p.isReceiptOpen?.(),
     printsText: !!p.openNonFiscalReceipt,
     cashOnDeliveryRefusal: fiscal.cashOnDeliveryRefusal,
     printsFiscalText: fiscal.printsFiscalText,
+    lineNameMax: fiscal.lineNameMax,
     async printSale(doc) {
       // Read before the receipt opens: a payment no receipt can carry must not strand an open one.
       const payments = tendered(doc).map((t: any) => ({ type: toFiscalPaymentType(t.method), amount: t.amount }))
-      await p.openFiscalReceipt(operatorCode, operatorName, doc.register?.unp)
-      for (const line of doc.lines || []) {
-        const taxRate = line.taxRate ?? 0
-        await p.printSaleLine(line.description, line.quantity, fiscalUnitPrice(line.unitPrice, taxRate), mapTaxRateToVatGroup(taxRate), line.discount || undefined, taxRate)
+      // How far it got, on the error: from the first payment SENT the device may hold the money.
+      let stage: PrintStage = 'opening'
+      try {
+        await p.openFiscalReceipt(operatorCode, operatorName, doc.register?.unp)
+        stage = 'lines'
+        for (const line of doc.lines || []) {
+          const taxRate = line.taxRate ?? 0
+          await p.printSaleLine(line.description, line.quantity, fiscalUnitPrice(line.unitPrice, taxRate), mapTaxRateToVatGroup(taxRate), line.discount || undefined, taxRate)
+        }
+        // FR-23: the invoice a whole payment is for, under its lines. Only ever on a device that can.
+        if (doc.register?.receiptText) await p.printFiscalText?.(doc.register.receiptText)
+        stage = 'paying'
+        for (const payment of payments) await p.printPayment(payment.type, payment.amount)
+        stage = 'closing'
+        const { fiscalReceiptNumber } = await p.closeFiscalReceipt()
+        return fiscalReceiptNumber
+      } catch (e) {
+        throw Object.assign(e instanceof Error ? e : new Error(String(e)), { printStage: stage })
       }
-      // FR-23: the invoice a whole payment is for, under its lines. Only ever on a device that can.
-      if (doc.register?.receiptText) await p.printFiscalText?.(doc.register.receiptText)
-      for (const payment of payments) await p.printPayment(payment.type, payment.amount)
-      const { fiscalReceiptNumber } = await p.closeFiscalReceipt()
-      return fiscalReceiptNumber
     },
     async printText(doc) {
       const org = await orgDao.findById(orgId) as any
@@ -217,9 +237,14 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
       return result.fiscalReceiptNumber
     },
     async abandonReceipt() {
-      // Drivers without a cancel keep the old best-effort close.
-      if (p.cancelFiscalReceipt) await p.cancelFiscalReceipt()
-      else await p.closeFiscalReceipt()
+      if (p.cancelFiscalReceipt) {
+        await p.cancelFiscalReceipt()
+        return undefined
+      }
+      // Drivers without a cancel keep the old best-effort close. If it goes through, that receipt is
+      // real: it must not be recorded as failed.
+      await p.closeFiscalReceipt()
+      return { closed: true }
     },
     async abandonText() {
       await p.closeNonFiscalReceipt?.()

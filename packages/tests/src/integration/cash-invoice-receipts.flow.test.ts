@@ -3,8 +3,9 @@ import { Elysia } from 'elysia'
 import ExcelJS from 'exceljs'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
+import { gate, until } from '../helpers/receipt-world'
 import { allowSalesWithoutPrinter, createTestAccount, createTestContact } from '../helpers/factories'
-import { AuditLog, FiscalDevice, FiscalPresence, Invoice, Journal, JournalEntry, Org, POSSession, Sequence, StockMovement } from 'db/models'
+import { AuditLog, FiscalDevice, FiscalPresence, Invoice, Journal, JournalEntry, Org, POSSession, Product, Sequence, StockLevel, StockMovement } from 'db/models'
 import { deviceFromCounter, deviceFromDeadReceipt, setFiscalForwarding } from 'fiscal/fiscal-route'
 import { statsController } from 'invoicing-api/src/controllers/stats.controller'
 import { contactController } from 'invoicing-api/src/controllers/contact.controller'
@@ -169,6 +170,49 @@ describe('an invoice issued at the counter (§2.4)', () => {
     expect(invoice.payments[0]).toMatchObject({ method: 'card', origin: 'payment_receipt' })
     expect(receipt.paymentMethod).toBe('card')
     expect(await sessionOf(w)).toMatchObject({ totalCard: 24, totalCash: 0 })
+  })
+
+  it('a refused issue leaves no transfer behind: the next attempt draws up its own', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    const transfer: any = await StockMovement.create({
+      orgId: w.oid, movementNumber: 'SM-2026-90001', type: 'transfer', status: 'draft', date: new Date(),
+      fromWarehouseId: w.warehouse._id, toWarehouseId: w.warehouse._id, createdBy: w.user._id,
+      lines: [{ productId: w.product._id, quantity: 1, unitCost: 1, totalCost: 1 }],
+    })
+    const done: any = await StockMovement.create({
+      orgId: w.oid, movementNumber: 'SM-2026-90002', type: 'transfer', status: 'completed', date: new Date(),
+      fromWarehouseId: w.warehouse._id, toWarehouseId: w.warehouse._id, createdBy: w.user._id,
+      lines: [{ productId: w.product._id, quantity: 1, unitCost: 1, totalCost: 1 }],
+    })
+
+    // The clerk has no session.
+    const r = await w.call('POST', `/invoices/${d.id}/send`, { pendingTransferIds: [String(transfer._id), String(done._id)] }, undefined, w.clerkToken)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('fiscal_device_not_connected')
+    expect((await StockMovement.findById(transfer._id).lean().exec() as any).status).toBe('cancelled')
+    expect((await StockMovement.findById(done._id).lean().exec() as any).status).toBe('completed')
+  })
+
+  it('a retry while the first still prints is told so, so the client keeps its key', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    const held = gate()
+    w.sim!.beforeCommand = cmd => (cmd === 0x38 ? held.closed : undefined)
+
+    const first = send(w, d.id, 'issue-key-0001')
+    await until(async () => w.sim!.executed.some(c => c.cmd === 0x35), 'the print to reach the payment')
+
+    const second = await send(w, d.id, 'issue-key-0001')
+
+    expect(second.status).toBe(409)
+    expect(second.json.code).toBe('idempotency_in_progress')
+    expect(second.json.receiptError).toBeUndefined()
+    held.open()
+    expect((await first).status).toBe(200)
+    expect(w.sim!.receipts).toHaveLength(1)
+    expect((await raw(d.id)).status).toBe('paid')
   })
 
   it('a retry with the same key prints once and answers the same', async () => {
@@ -460,6 +504,77 @@ describe('an imported document never prints (§2.2)', () => {
     expect((await raw(String(draft.id))).status).toBe('paid')
     expect(w.sim!.executed).toHaveLength(0)
   })
+
+  it('a copy of one is not one: the tag comes along, the import does not, and it prints', async () => {
+    const w = await tillWorld(app)
+    // What "Копирай" sends: the original's tags, verbatim.
+    const d = await draftOf(w, { extra: { tags: ['ocr-import', 'dir:outgoing'] } })
+    expect((await raw(d.id)).tags).toContain('ocr-import')
+
+    const r = await send(w, d.id)
+
+    expect(r.status).toBe(200)
+    expect(w.sim!.receipts).toHaveLength(1)
+    expect((await raw(d.id)).payments[0]).toMatchObject({ origin: 'payment_receipt' })
+    expect((await sessionOf(w)).totalCash).toBe(24)
+  })
+
+  it('and asks for a session like any other: no cash on a copy without a receipt', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { extra: { tags: ['ocr-import', 'dir:outgoing'] } })
+
+    const r = await send(w, d.id, undefined, w.clerkToken)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('fiscal_device_not_connected')
+    expect(await raw(d.id)).toMatchObject({ status: 'draft', amountPaid: 0 })
+  })
+
+  it('a payment on a copy prints too', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer', extra: { tags: ['ocr-import'] } })
+    await send(w, d.id)
+
+    expect((await pay(w, d.id, 24)).status).toBe(200)
+
+    expect(w.sim!.receipts).toHaveLength(1)
+    expect((await raw(d.id)).payments[0]).toMatchObject({ origin: 'payment_receipt' })
+  })
+
+  it('a document LGR moved between its own nodes prints like any other: its payment', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    await Invoice.updateOne({ _id: d.id }, { $set: { importedFrom: { kind: 'fenced_export', nodeId: 'master-a' } } })
+
+    expect((await pay(w, d.id, 24)).status).toBe(200)
+
+    expect(w.sim!.receipts).toHaveLength(1)
+    expect((await sessionOf(w)).totalCash).toBe(24)
+  })
+
+  it('a document LGR moved between its own nodes prints like any other: its draft, issued in cash', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    await Invoice.updateOne({ _id: d.id }, { $set: { importedFrom: { kind: 'fenced_export', nodeId: 'master-a' } } })
+
+    expect((await send(w, d.id)).status).toBe(200)
+
+    expect(w.sim!.receipts).toHaveLength(1)
+    expect((await raw(d.id)).payments[0]).toMatchObject({ origin: 'payment_receipt' })
+  })
+
+  it('nobody gives a document the mark: not the form, not an edit', async () => {
+    const w = await tillWorld(app)
+    const mark = { statusHistory: [{ status: 'draft', changedAt: new Date(), reason: 'ocr_import' }] }
+    const d = await draftOf(w, { extra: mark })
+    expect((await w.call('PUT', `/invoices/${d.id}`, mark)).status).toBe(200)
+    expect((await raw(d.id)).statusHistory?.[0]?.reason).not.toBe('ocr_import')
+
+    expect((await send(w, d.id)).status).toBe(200)
+
+    expect(w.sim!.receipts).toHaveLength(1)
+  })
 })
 
 describe('the re-issue of a number issued twice (FR-20.51)', () => {
@@ -519,8 +634,18 @@ describe('an edit does not settle silently where LGR prints', () => {
     expect(w.sim!.receipts).toHaveLength(1)
   })
 
-  it('a total raised on a settled invoice with no receipt adds no payment: the rest is due, and payable', async () => {
-    const w = await tillWorld(app)
+  /** Paid in cash on issue the day before LGR printed: a row of the rule, and no receipt. */
+  async function fromBeforeLgrPrinted(w: TillWorld, method = 'cash') {
+    await allowSalesWithoutPrinter(w.oid)
+    const d = await draftOf(w, { method })
+    await send(w, d.id)
+    await Org.updateOne({ _id: w.oid }, { $set: { 'settings.cashRegister.requireConnectedDevice': true } })
+    expect(await receiptsOf(d.id)).toHaveLength(0)
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    return d
+  }
+
+  async function imported(w: TillWorld) {
     const draft = await persistInvoiceDraft(w.orgId, String(w.user._id), {
       type: 'invoice', direction: 'outgoing', reference: '3000100975', currency: 'EUR', exchangeRate: 1, issueDate: TODAY,
       lines: [line(w)], subtotal: 20, taxTotal: 4, total: 24, paymentMethod: 'cash', tags: ['ocr-import'],
@@ -529,6 +654,12 @@ describe('an edit does not settle silently where LGR prints', () => {
     const id = String(draft.id)
     await convertDraftInvoice(w.orgId, id, String(w.user._id))
     expect((await raw(id)).status).toBe('paid')
+    return id
+  }
+
+  it('a total raised on a settled invoice with no receipt adds no payment: the rest is due, and payable', async () => {
+    const w = await tillWorld(app)
+    const { id } = await fromBeforeLgrPrinted(w)
 
     const r = await w.call('PUT', `/invoices/${id}`, { lines: [line(w, 3)], subtotal: 30, taxTotal: 6, total: 36 })
 
@@ -542,13 +673,7 @@ describe('an edit does not settle silently where LGR prints', () => {
 
   it('a total lowered shrinks no payment', async () => {
     const w = await tillWorld(app)
-    const draft = await persistInvoiceDraft(w.orgId, String(w.user._id), {
-      type: 'invoice', direction: 'outgoing', reference: '3000100976', currency: 'EUR', exchangeRate: 1, issueDate: TODAY,
-      lines: [line(w)], subtotal: 20, taxTotal: 4, total: 24, paymentMethod: 'cash', tags: ['ocr-import'],
-      billingAddress: { street: '-', city: '-', postalCode: '-', country: '-' },
-    } as any)
-    const id = String(draft.id)
-    await convertDraftInvoice(w.orgId, id, String(w.user._id))
+    const { id } = await fromBeforeLgrPrinted(w)
 
     await w.call('PUT', `/invoices/${id}`, { lines: [line(w, 1)], subtotal: 10, taxTotal: 2, total: 12 })
 
@@ -556,6 +681,48 @@ describe('an edit does not settle silently where LGR prints', () => {
     expect(inv.payments).toHaveLength(1)
     expect(inv.payments[0].amount).toBe(24)
     expect(inv).toMatchObject({ status: 'paid', amountPaid: 24, amountDue: 0 })
+  })
+
+  it('raised and lowered again it is paid again, and says when: `paid30d` reads the date', async () => {
+    const w = await tillWorld(app)
+    const { id } = await fromBeforeLgrPrinted(w)
+
+    await w.call('PUT', `/invoices/${id}`, { lines: [line(w, 3)], subtotal: 30, taxTotal: 6, total: 36 })
+    expect((await raw(id)).paidAt).toBeNull()
+    await w.call('PUT', `/invoices/${id}`, { lines: [line(w, 2)], subtotal: 20, taxTotal: 4, total: 24 })
+
+    const inv = await raw(id)
+    expect(inv.status).toBe('paid')
+    expect(inv.paidAt).toBeTruthy()
+  })
+
+  it('moved off cash, the rule still takes its own payment back: nothing else can', async () => {
+    const w = await tillWorld(app)
+    const { id } = await fromBeforeLgrPrinted(w)
+
+    const r = await w.call('PUT', `/invoices/${id}`, { paymentMethod: 'bank_transfer' })
+
+    expect(r.status).toBe(200)
+    expect(await raw(id)).toMatchObject({ status: 'sent', amountPaid: 0, amountDue: 24 })
+    expect((await raw(id)).payments).toHaveLength(0)
+    // And when the transfer arrives it can be recorded.
+    expect((await pay(w, id, 24, 'bank_transfer')).status).toBe(200)
+    expect((await raw(id)).status).toBe('paid')
+    expect(w.sim!.executed).toHaveLength(0)
+  })
+
+  it('an imported invoice keeps the rule: it prints nothing, so nothing else would settle it', async () => {
+    const w = await tillWorld(app)
+    const id = await imported(w)
+
+    await w.call('PUT', `/invoices/${id}`, { lines: [line(w, 3)], subtotal: 30, taxTotal: 6, total: 36 })
+
+    expect(await raw(id)).toMatchObject({ status: 'paid', amountPaid: 36, amountDue: 0 })
+    expect(w.sim!.executed).toHaveLength(0)
+
+    await w.call('PUT', `/invoices/${id}`, { lines: [line(w, 1)], subtotal: 10, taxTotal: 2, total: 12 })
+    expect(await raw(id)).toMatchObject({ status: 'paid', amountPaid: 12, amountDue: 0 })
+    expect((await raw(id)).payments[0].amount).toBe(12)
   })
 
   it('with the switch off an edit settles as it always did', async () => {
@@ -638,6 +805,20 @@ describe('a payment recorded later (§2.2)', () => {
     expect(printed.sales.map(s => s.text.replace('\n', ' '))).toEqual([`Плащане по фактура № ${number}`])
     expect(printed.texts).toEqual([])
     expect((await receiptsOf(d.id))[0].lines[0].productId).toBeUndefined()
+  })
+
+  it('a keyed lookup reaches its partial index', async () => {
+    const { keyedReceipt } = await import('invoicing-api/src/lib/counter-receipt')
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    await pay(w, d.id, 24, 'cash', 'keyed-lookup-0001')
+
+    const found = await keyedReceipt(w.orgId, 'keyed-lookup-0001')
+
+    expect(found?.clientKey).toBe('keyed-lookup-0001')
+    const plan = JSON.stringify(await Invoice.find({ orgId: w.oid, clientKey: { $eq: 'keyed-lookup-0001', $type: 'string' }, type: 'payment_receipt' }).explain('queryPlanner'))
+    expect(plan).toContain('orgId_1_clientKey_1')
   })
 
   it('a retry with the same key prints once; the same key on another amount is refused', async () => {
@@ -770,6 +951,40 @@ describe('a payment recorded later (§2.2)', () => {
     expect(w.sim!.receipts).toHaveLength(1)
     expect(w.sim!.receipts[0].total).toBe(60)
     expect((await raw(d.id)).status).toBe('paid')
+  })
+
+  it('a bank payment does not issue a draft: cash on it is still refused, and nothing prints', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    expect((await pay(w, d.id, 4, 'bank_transfer')).status).toBe(200)
+    expect((await raw(d.id)).status).toBe('partially_paid')
+
+    const r = await pay(w, d.id, 20)
+
+    expect(r.status).toBe(422)
+    expect(r.json.code).toBe('document_not_issued')
+    expect(w.sim!.receipts).toHaveLength(0)
+    expect(await receiptsOf(d.id)).toHaveLength(0)
+    expect((await raw(d.id)).amountPaid).toBe(4)
+  })
+
+  it('dated yesterday it is today\'s: the device, the session and the row say one day', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
+
+    const r = await w.call('POST', `/invoices/${d.id}/payments`, { date: yesterday, amount: 10, method: 'cash' })
+
+    expect(r.status).toBe(200)
+    const row = (await raw(d.id)).payments[0]
+    expect(Date.now() - new Date(row.date).getTime()).toBeLessThan(60_000)
+    const [receipt] = await receiptsOf(d.id)
+    expect(Math.abs(new Date(receipt.issueDate).getTime() - new Date(row.date).getTime())).toBeLessThan(60_000)
+
+    // A bank transfer has no receipt, and arrived the day it says.
+    await w.call('POST', `/invoices/${d.id}/payments`, { date: yesterday, amount: 14, method: 'bank_transfer' })
+    expect(new Date((await raw(d.id)).payments[1].date).toISOString().slice(0, 10)).toBe(yesterday)
   })
 
   it('refuses a payment on a draft: its receipt would name no number', async () => {
@@ -981,18 +1196,70 @@ describe('cash on delivery on an invoice (Q-2)', () => {
       expect(w.sim!.executed.length).toBe(device)
     })
 
-    it('paid by the courier after all, or voided, it is no longer owed: there is nothing left to print for', async () => {
+    it('voided, it is no longer owed: there is nothing left to print for', async () => {
       const w = await tillWorld(app)
-      const paid = await failedAtIssue(w)
-      expect((await pay(w, paid.id, 24, 'cash_on_delivery')).status).toBe(200)
       const voided = await failedAtIssue(w)
       expect((await w.call('POST', `/invoices/${voided.id}/void`)).status).toBe(200)
 
-      for (const id of [paid.id, voided.id]) {
-        expect((await shown(w, id)).receiptToPrint).toBe(false)
-        expect((await printIt(w, id)).json.code).toBe('no_receipt_owed')
-      }
+      expect((await shown(w, voided.id)).receiptToPrint).toBe(false)
+      expect((await printIt(w, voided.id)).json.code).toBe('no_receipt_owed')
       expect(w.sim!.receipts.filter(x => !x.voided)).toHaveLength(0)
+    })
+
+    it('the courier\'s money does not go past a receipt that failed: it prints first, then it is recorded', async () => {
+      const w = await tillWorld(app)
+      const d = await failedAtIssue(w)
+
+      const r = await pay(w, d.id, 24, 'cash_on_delivery')
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('delivery_receipt_owed')
+      expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+      expect((await shown(w, d.id)).receiptToPrint).toBe(true)
+
+      expect((await printIt(w, d.id)).status).toBe(200)
+      expect((await pay(w, d.id, 24, 'cash_on_delivery')).status).toBe(200)
+      expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+      const printed = w.sim!.receipts.filter(x => !x.voided)
+      expect(printed).toHaveLength(1)
+      expect(printed[0].payments[0]).toMatchObject({ mode: 'R', amount: 24 })
+    })
+
+    it('part of the courier\'s money does not go past it either', async () => {
+      const w = await tillWorld(app)
+      const d = await failedAtIssue(w)
+      expect((await pay(w, d.id, 10, 'cash_on_delivery')).json.code).toBe('delivery_receipt_owed')
+      expect((await raw(d.id)).amountPaid).toBe(0)
+    })
+
+    it('part by bank, the receipt for the rest, and the courier\'s cash: recorded, and nothing more prints', async () => {
+      const w = await tillWorld(app)
+      const d = await failedAtIssue(w)
+      expect((await pay(w, d.id, 4, 'bank_transfer')).status).toBe(200)
+
+      expect((await printIt(w, d.id)).status).toBe(200)
+      const printed = w.sim!.receipts.filter(x => !x.voided)
+      expect(printed).toHaveLength(1)
+      expect(printed[0].payments[0]).toMatchObject({ mode: 'R', amount: 20 })
+
+      const r = await pay(w, d.id, 20)
+
+      expect(r.status).toBe(200)
+      expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24, amountDue: 0 })
+      expect(w.sim!.receipts.filter(x => !x.voided)).toHaveLength(1)
+    })
+
+    it('a card payment in part prints its own receipt, and the delivery receipt prints what is left', async () => {
+      const w = await tillWorld(app)
+      const d = await failedAtIssue(w)
+      expect((await pay(w, d.id, 4, 'card')).status).toBe(200)
+      expect((await shown(w, d.id)).receiptToPrint).toBe(true)
+
+      expect((await printIt(w, d.id)).status).toBe(200)
+
+      const printed = w.sim!.receipts.filter(x => !x.voided)
+      expect(printed.map(p => [p.payments[0].mode, p.payments[0].amount])).toEqual([['L', 4], ['R', 20]])
+      expect((await shown(w, d.id)).receiptToPrint).toBe(false)
     })
 
     it('with the switch turned off since, it is no longer owed', async () => {
@@ -1266,6 +1533,86 @@ describe('§2.7 — once a receipt has printed, the total is the receipt\'s', ()
     expect((await w.call('POST', `/invoices/${d.id}/void`)).status).toBe(200)
   })
 
+  it('a void while a payment prints gives way, and the payment stands', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    const held = gate()
+    w.sim!.beforeCommand = cmd => (cmd === 0x38 ? held.closed : undefined)
+
+    const paying = pay(w, d.id, 24)
+    await until(async () => w.sim!.executed.some(c => c.cmd === 0x35), 'the print to reach the payment')
+
+    const voiding = await w.call('POST', `/invoices/${d.id}/void`)
+
+    expect(voiding.status).toBe(409)
+    held.open()
+    expect((await paying).status).toBe(200)
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
+  it('a payment while a void is under way gives way: no receipt on a voided invoice', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    await Invoice.updateOne({ _id: d.id }, { $set: { voidingUntil: new Date(Date.now() + 60_000) } })
+
+    const r = await pay(w, d.id, 24)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('payment_in_progress')
+    expect(w.sim!.receipts).toHaveLength(0)
+    expect((await receiptsOf(d.id)).filter(x => x.status !== 'voided')).toHaveLength(0)
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+  })
+
+  it('a void that crashed holds nothing up for long: its claim lapses', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    await Invoice.updateOne({ _id: d.id }, { $set: { voidingUntil: new Date(Date.now() - 1000) } })
+
+    expect((await pay(w, d.id, 24)).status).toBe(200)
+
+    expect(w.sim!.receipts).toHaveLength(1)
+  })
+
+  it('a void that fails on the stock gives the document back', async () => {
+    const w = await tillWorld(app)
+    // A bill: voiding it takes back goods that left since.
+    const d = await draftOf(w, { method: 'bank_transfer', extra: { direction: 'incoming' } })
+    expect((await w.call('POST', `/invoices/${d.id}/receive`, {})).status).toBe(200)
+    await StockLevel.updateMany({ orgId: w.oid }, { $set: { quantity: 0 } })
+
+    const v = await w.call('POST', `/invoices/${d.id}/void`)
+
+    expect(v.status).toBe(400)
+    const inv = await raw(d.id)
+    expect(inv.status).toBe('received')
+    expect(inv.voidingUntil ?? null).toBeNull()
+  })
+
+  it('a void and a payment at once: never both', async () => {
+    const w = await tillWorld(app)
+    for (let i = 0; i < 8; i++) {
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      const before = w.sim!.receipts.filter(r => !r.voided).length
+
+      const [v, p] = await Promise.all([w.call('POST', `/invoices/${d.id}/void`), pay(w, d.id, 24)])
+
+      const inv = await raw(d.id)
+      const printed = w.sim!.receipts.filter(r => !r.voided).length - before
+      expect(v.status === 200 && p.status === 200).toBe(false)
+      if (inv.status === 'voided') {
+        expect(printed).toBe(0)
+        expect(inv.amountPaid).toBe(0)
+      }
+      if (p.status === 200) expect(inv).toMatchObject({ status: 'paid', amountPaid: 24 })
+      expect(inv.voidingUntil ?? null).toBeNull()
+    }
+  })
+
   it('void is refused, and leaves the stock where it is', async () => {
     const w = await tillWorld(app)
     const { id } = await issuedPaid(w)
@@ -1353,22 +1700,21 @@ describe('print-once, reused unchanged (#155)', () => {
     return d
   }
 
-  it('the next payment finds a receipt that printed and records it: no second receipt', async () => {
+  it('the next payment finds one that may have printed: nothing is booked and nothing prints, and a person settles it', async () => {
     const w = await tillWorld(app)
     const d = await issuedOnBank(w)
-    // It went out: the device's counter moved by one past what was noted before printing.
+    // The counter moved past the note, and that proves nothing: the device is shared.
     const r = await interrupted(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber - 1 })
 
     const next = await pay(w, d.id, 24, 'card')
 
-    // That money is taken: this one finds nothing left to pay.
-    expect(next.status).toBe(400)
+    expect(next.status).toBe(409)
+    expect(next.json.code).toBe('receipt_in_doubt')
+    expect(next.json.receipt.number).toBe(r.invoiceNumber)
     expect(w.sim!.receipts).toHaveLength(0)
-    const inv = await raw(d.id)
-    expect(inv).toMatchObject({ status: 'paid', amountPaid: 24 })
-    expect(inv.payments[0]).toMatchObject({ method: 'cash', origin: 'payment_receipt' })
-    expect((await Invoice.findById(r._id).lean().exec() as any).register.fiscal.state).toBe('printed')
-    expect((await sessionOf(w)).totalCash).toBe(24)
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect((await sessionOf(w)).totalCash).toBe(0)
+    expect((await Invoice.findById(r._id).lean().exec() as any).register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
   })
 
   it('printing a delivery receipt finds a dead request first: one the device never printed is given up, and this one prints', async () => {
@@ -1387,7 +1733,7 @@ describe('print-once, reused unchanged (#155)', () => {
     expect((await raw(d.id)).receiptHolds ?? []).toHaveLength(0)
   })
 
-  it('printing a delivery receipt finds a dead request first: one that printed is not printed again', async () => {
+  it('printing a delivery receipt finds a dead request first: one that may have printed is not printed again', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w, { method: 'cash_on_delivery' })
     w.sim!.paper = false
@@ -1398,7 +1744,7 @@ describe('print-once, reused unchanged (#155)', () => {
     const r = await printIt(w, d.id)
 
     expect(r.status).toBe(409)
-    expect(r.json.code).toBe('no_receipt_owed')
+    expect(r.json.code).toBe('receipt_in_doubt')
     expect(w.sim!.receipts).toHaveLength(0)
     expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
   })
@@ -1441,7 +1787,7 @@ describe('print-once, reused unchanged (#155)', () => {
     expect((await raw(d.id)).status).toBe('paid')
   })
 
-  it('a device that cannot say: unknown, never printed again, and the money stands with the doubt shown', async () => {
+  it('a keyed retry the device cannot answer: unknown, never printed again, and held with the money unbooked', async () => {
     const w = await tillWorld(app)
     const d = await issuedOnBank(w)
     const { requestHash } = await import('services/biz/hot-path-key')
@@ -1451,15 +1797,15 @@ describe('print-once, reused unchanged (#155)', () => {
 
     const r = await pay(w, d.id, 24, 'cash', 'retry-key-0002')
 
-    expect(r.status).toBe(200)
-    expect(r.json.receipt.state).toBe('unknown')
-    expect(r.json.receiptError).toContain('Check the device')
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_in_doubt')
     expect(w.sim!.receipts).toHaveLength(0)
-    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
-    expect((await sessionOf(w)).totalCash).toBe(24)
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect((await sessionOf(w)).totalCash).toBe(0)
 
-    // And it counts as printed for the freeze.
-    expect((await w.call('POST', `/invoices/${d.id}/void`)).json.code).toBe('fiscally_paid')
+    // And it stands in the way of the freeze's doors, with the way out named.
+    expect((await w.call('POST', `/invoices/${d.id}/void`)).json.code).toBe('receipt_in_doubt')
+    expect((await w.call('PUT', `/invoices/${d.id}`, { lines: [line(w, 3)], subtotal: 30, taxTotal: 6, total: 36 })).json.code).toBe('receipt_in_doubt')
   })
 })
 
@@ -1499,6 +1845,93 @@ describe('the ledger', () => {
     }
     await new Promise(r => setTimeout(r, 50))
   }
+
+  /**
+   * Holds the handler of `payment.recorded` between reading the invoice and posting its entry, which
+   * is where another payment lands: what a test can see is the row, before and after.
+   */
+  async function whileItsEntryPosts(during: () => Promise<void>, run: () => Promise<unknown>) {
+    const { getRepos } = await import('services/context')
+    const repos: any = getRepos()
+    const real = repos.invoices.findById
+    let once = false
+    repos.invoices.findById = async function (...args: any[]) {
+      const doc = await real.apply(this, args)
+      if (!once) {
+        once = true
+        await during()
+      }
+      return doc
+    }
+    try {
+      await run()
+      for (let i = 0; i < 200 && !once; i++) await new Promise(r => setTimeout(r, 10))
+    } finally {
+      repos.invoices.findById = real
+    }
+  }
+
+  it('a payment\'s entry finds its own row: a receipt recorded meanwhile keeps its row', async () => {
+    resetEventHandlers()
+    registerEventHandlers()
+    try {
+      const w = await tillWorld(app)
+      await books(w)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      await settled(w, 1)
+
+      await whileItsEntryPosts(
+        async () => { expect((await pay(w, d.id, 10)).status).toBe(200) },
+        async () => { expect((await pay(w, d.id, 14, 'bank_transfer')).status).toBe(200) },
+      )
+      await settled(w, 3)
+
+      for (let i = 0; i < 120; i++) {
+        const rows = (await raw(d.id)).payments
+        if (rows.every((p: any) => p.journalEntryId)) break
+        await new Promise(r => setTimeout(r, 25))
+      }
+      const inv = await raw(d.id)
+      expect(inv.payments.map((p: any) => [p.method, p.amount])).toEqual([['bank_transfer', 14], ['cash', 10]])
+      expect(inv).toMatchObject({ amountPaid: 24, status: 'paid' })
+      const [bankRow, cashRow] = inv.payments
+      expect(bankRow.journalEntryId).toBeTruthy()
+      expect(cashRow.journalEntryId).toBeTruthy()
+      expect(String(bankRow.journalEntryId)).not.toBe(String(cashRow.journalEntryId))
+      const bankEntry: any = await JournalEntry.findById(bankRow.journalEntryId).lean().exec()
+      expect(bankEntry.lines.map((l: any) => l.debit + l.credit)).toEqual([14, 14])
+    } finally {
+      resetEventHandlers()
+    }
+  })
+
+  it('the settlement rule\'s payment finds its row too', async () => {
+    resetEventHandlers()
+    registerEventHandlers()
+    try {
+      const w = await tillWorld(app)
+      await books(w)
+      await allowSalesWithoutPrinter(w.oid)
+      // The org's first entry opens its fiscal year: the two that follow must not race to.
+      const first = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, first.id)
+      await settled(w, 1)
+      const d = await draftOf(w)
+      await send(w, d.id)
+
+      for (let i = 0; i < 200; i++) {
+        if ((await raw(d.id)).payments?.[0]?.journalEntryId) break
+        await new Promise(r => setTimeout(r, 25))
+      }
+
+      const [row] = (await raw(d.id)).payments
+      expect(row.origin).toBe('cash_on_issue')
+      expect(row.journalEntryId).toBeTruthy()
+    } finally {
+      resetEventHandlers()
+    }
+  })
 
   it('a cash payment posts as today, once, stamped on its own row; the session\'s close posts none of it', async () => {
     resetEventHandlers()
@@ -1648,6 +2081,49 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
     expect(pos.rows.filter((r: any) => r.rowType === 'pos')).toHaveLength(1)
   })
 
+  it('a cash invoice whose receipt failed took no money: sales history lists it, and counts nothing', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    w.sim!.paper = false
+    await send(w, d.id)
+    w.sim!.paper = true
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0, paymentMethod: 'cash' })
+
+    const out = await report('sales-history', w.orgId, { period: around(), includeNonRegister: true })
+
+    const docs = out.rows.filter((r: any) => r.rowType === 'document')
+    expect(docs.map((r: any) => r.invoiceId)).toEqual([d.id])
+    const cash = out.meta.summary.find((s: any) => s.currency === 'EUR')
+    expect(cash?.cash ?? 0).toBe(0)
+  })
+
+  it('nor did it in the digest', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    w.sim!.paper = false
+    await send(w, d.id)
+    w.sim!.paper = true
+    const date = localDayOf(new Date(), 'Europe/Sofia')
+    await Invoice.updateMany({ orgId: w.oid }, { $set: { issueDate: new Date(`${date}T10:00:00Z`) } })
+
+    const digest: any = await buildDailyDigest(w.orgId, date)
+
+    expect(digest.kpis.byMethod.find((m: any) => m.method === 'cash')?.amount ?? 0).toBe(0)
+  })
+
+  it('and once it is paid, it counts', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    w.sim!.paper = false
+    await send(w, d.id)
+    w.sim!.paper = true
+    expect((await pay(w, d.id, 24)).status).toBe(200)
+
+    const out = await report('sales-history', w.orgId, { period: around(), includeNonRegister: true })
+
+    expect(out.meta.summary.find((s: any) => s.currency === 'EUR')?.cash).toBe(24)
+  })
+
   it('the digest: KPIs, payments and methods count it once; no gap in the CS series; no "no movement"', async () => {
     const w = await tillWorld(app)
     const d = await day(w)
@@ -1719,6 +2195,19 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
     expect(product.summary.totalInvoiceSales).toBe(24)
     expect(product.summary.totalCashRegisterSales).toBe(12)
     expect(product.entries.filter((e: any) => e.movementType === 'dispatch')).toHaveLength(2)
+  })
+
+  it('the customer\'s profitability counts the goods\' cost once: a receipt printed whole carries the lines too', async () => {
+    const w = await tillWorld(app)
+    await Product.updateOne({ _id: w.product._id }, { $set: { purchasePrice: 4 } })
+    const d = await draftOf(w)
+    await send(w, d.id)
+    expect((await receiptsOf(d.id))[0].lines).toHaveLength(1)
+
+    const ledger = await getContactLedger(w.orgId, d.contactId)
+
+    expect(ledger.summary.profitabilityGross).toBe(16)
+    expect(ledger.summary.profitabilityNet).toBe(12)
   })
 
   it('the dashboard and the list\'s KPIs: paid in the last 30 days counts it once', async () => {
@@ -1904,6 +2393,27 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
       expect(html).toContain(r.register.unp)
       expect(html).toContain(r.register.fiscalReceiptNumber)
     }
+  })
+
+  it('the PDF does not call a delivery receipt payment while the courier owes: it paid nothing yet', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'cash_on_delivery' })
+    await send(w, d.id)
+    const [receipt] = await receiptsOf(d.id)
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountDue: 24 })
+
+    const due = buildInvoiceHtml(await printableDocument(w.orgId, await raw(d.id)), { name: 'Org' } as any, {} as any, undefined, { locale: 'bg' }).html
+    expect(due).not.toContain('Платена с касов бон')
+    expect(due).not.toContain(receipt.invoiceNumber)
+
+    // GET still lists it: the document form shows what printed.
+    expect((await shown(w, d.id)).paymentReceipts).toHaveLength(1)
+
+    // The courier paid, and it did pay it.
+    await pay(w, d.id, 24, 'cash_on_delivery')
+    const paid = buildInvoiceHtml(await printableDocument(w.orgId, await raw(d.id)), { name: 'Org' } as any, {} as any, undefined, { locale: 'bg' }).html
+    expect(paid).toContain('Платена с касов бон')
+    expect(paid).toContain(receipt.invoiceNumber)
   })
 
   it('the PDF of an invoice with none prints no such row', async () => {
