@@ -126,7 +126,7 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     }
   }
 
-  async updateInOrg(id: string, orgId: string, data: Partial<T>): Promise<T | null> {
+  async updateInOrg(id: string, orgId: string, data: Partial<T>, where: Record<string, unknown> = {}): Promise<T | null> {
     if (!orgId) return null
     // ⚠ The body is DATA, never an update document. Passed through as one, `{"$set": {"orgId": B}}`
     // re-parents the document past the `orgId` strip below (and `$unset` / `$rename` likewise),
@@ -140,7 +140,7 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
       // Never re-parent: an `orgId` (or `_id`) in the body is dropped, whatever the route's schema.
       const { orgId: _o, _id: _i, ...rest } = (data ?? {}) as any
       const mongoData = { $set: toDocument(rest) }
-      const doc = await this.model.findOneAndUpdate({ _id: id, orgId }, mongoData, { new: true }).lean().exec()
+      const doc = await this.model.findOneAndUpdate({ ...where, _id: id, orgId }, mongoData, { new: true }).lean().exec()
       return doc ? toEntity<T>(doc) : null
     } catch (err: any) {
       if (err.name === 'CastError') return null

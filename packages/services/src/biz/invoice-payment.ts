@@ -26,13 +26,29 @@ export function overpays(doc: { total?: number; amountPaid?: number }, amount: n
 }
 
 /**
+ * No claim stands on the document's money (`voidingUntil`): a void's, or an attach to a cash sale's.
+ * Each takes it before it moves anything and it lapses, so one that died holds nothing up for long.
+ * `{ field: null }` matches a field that is missing too.
+ */
+export function notBeingVoided(now = new Date()): Record<string, unknown> {
+  return { $or: [{ voidingUntil: null }, { voidingUntil: { $lt: now } }] }
+}
+
+/** The same, read off a document in hand: why a write with `notBeingVoided` found nothing. */
+export function isBeingVoided(doc: { voidingUntil?: Date | string | null } | null | undefined, now = new Date()): boolean {
+  return !!doc?.voidingUntil && new Date(doc.voidingUntil).getTime() >= now.getTime()
+}
+
+/**
  * The filter that lets a payment through only while it fits, inside the update: two payments
  * recorded at once each fit what was owed when they were read, and must not overpay it between
  * them. Money a receipt is printing for counts as taken (FR-23), so a payment recorded meanwhile
- * cannot take it too.
+ * cannot take it too. ⚠ And no payment gets past a claim, by any method: both doors share this, so
+ * of a void and a payment one gives way, and a door added later gets that for nothing.
  */
-export function fitsDue(amount: number): Record<string, unknown> {
+export function fitsDue(amount: number, now = new Date()): Record<string, unknown> {
   return {
+    ...notBeingVoided(now),
     $expr: {
       $lte: [
         { $add: [{ $ifNull: ['$amountPaid', 0] }, { $sum: '$receiptHolds.amount' }, amount] },

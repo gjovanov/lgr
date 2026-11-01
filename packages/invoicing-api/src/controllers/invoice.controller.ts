@@ -23,9 +23,10 @@ import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement } from 'services/biz/cash-settlement.service'
-import { fitsDue, heldOn, outstandingOf, overpays, paymentPipeline } from 'services/biz/invoice-payment'
+import { fitsDue, heldOn, isBeingVoided, notBeingVoided, outstandingOf, overpays, paymentPipeline } from 'services/biz/invoice-payment'
 import {
-  DELIVERY_RECEIPT_OWED, PAYMENT_IN_PROGRESS, freezeRefusal, inDoubtRefusal, isImportedDocument, owesDeliveryReceipt, paidByReceipts, receiptInDoubt,
+  DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, inDoubtRefusal, isImportedDocument, owesDeliveryReceipt,
+  paidByReceipts, receiptInDoubt,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { movesPrintedMoney } from 'services/biz/cash-register/receipt-lines'
 import { NOT_PAYMENT_RECEIPT } from 'services/biz/sale-counting'
@@ -368,10 +369,23 @@ function overpayment(status: Status, doc: { total?: number; amountPaid?: number 
   })
 }
 
+const ISSUE_IN_PROGRESS = { code: 'issue_in_progress', message: 'This document is already being issued' }
+
 /** FR-23: it would fit, but a receipt is taking that money: printing right now, or held for a person. */
 async function receiptPrinting(status: Status, orgId: string, id: string) {
   const doubt = await receiptInDoubt(orgId, id)
   return status(409, doubt ? inDoubtRefusal(doubt) : { ...PAYMENT_IN_PROGRESS })
+}
+
+/** No issue is under way on the document: its claim is gone, finished, or lapsed. */
+const issueLeaseFree = (now: Date) => ({ $or: [{ 'issue.leaseUntil': null }, { 'issue.leaseUntil': { $lt: now } }] })
+
+/** Why a claim on this document was refused: who holds it now. */
+async function whoHolds(status: Status, orgId: string, id: string) {
+  const doc: any = await Invoice.findOne({ _id: id, orgId }, { voidingUntil: 1, 'issue.leaseUntil': 1 }).lean().exec()
+  if (doc?.issue?.leaseUntil && new Date(doc.issue.leaseUntil).getTime() >= Date.now()) return status(409, ISSUE_IN_PROGRESS)
+  if (isBeingVoided(doc)) return status(409, { ...DOCUMENT_CLAIMED })
+  return receiptPrinting(status, orgId, id)
 }
 
 /** What the document form shows of a receipt in doubt: which one, and where to settle it. */
@@ -1036,7 +1050,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (isImmutableRegisterDocument(existing as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
       // FR-23 §2.7: a printed receipt cannot change, so what it printed cannot either. Anything else
       // on the document stays editable, as on every other.
-      if (movesPrintedMoney(existing as any, body as any)) {
+      const movesMoney = movesPrintedMoney(existing as any, body as any)
+      if (movesMoney) {
         // A receipt whose request died is no reason to refuse, if it never printed.
         await finishInterruptedReceipts(orgId, user, id)
         const frozen = await freezeRefusal(orgId, id)
@@ -1157,6 +1172,21 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         updated = await r.invoices.findOne({ id, orgId } as any)
         for (const pid of updatedProductIds) {
           createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: pid, correlationId: id })
+        }
+      } else if (movesMoney) {
+        // ⚠ The read above is a check, and this is what makes it hold. A receipt that took its hold
+        // since prints the old total, and one that finished since has paid it, and both would leave
+        // the document disagreeing with the device. A payment fits the total it reads, so the other
+        // order is safe: of an edit and a payment one gives way.
+        updated = await r.invoices.updateInOrg(id, orgId, body as any, {
+          'receiptHolds.0': { $exists: false }, amountPaid: (existing as any).amountPaid ?? null, ...notBeingVoided(),
+        })
+        if (!updated) {
+          const frozen = await freezeRefusal(orgId, id)
+          if (frozen) return status(409, frozen)
+          const now: any = await Invoice.findOne({ _id: id, orgId }, { receiptHolds: 1, voidingUntil: 1 }).lean().exec()
+          if (heldOn(now) > 0) return receiptPrinting(status, orgId, id)
+          return status(409, { ...(isBeingVoided(now) ? DOCUMENT_CLAIMED : DOCUMENT_CHANGED) })
         }
       } else {
         updated = await r.invoices.updateInOrg(id, orgId, body as any)
@@ -1365,10 +1395,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
      */
     const now = new Date()
     const claimed = await Invoice.findOneAndUpdate(
-      {
-        _id: id, orgId, status: 'draft',
-        $or: [{ 'issue.leaseUntil': { $exists: false } }, { 'issue.leaseUntil': null }, { 'issue.leaseUntil': { $lt: now } }],
-      },
+      { _id: id, orgId, status: 'draft', $and: [issueLeaseFree(now), notBeingVoided(now)] },
       { $set: { issue: { clientKey: key, requestHash: hash, leaseUntil: new Date(now.getTime() + LEASE_MS) } } },
       { new: true },
     ).exec()
@@ -1377,7 +1404,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         const replayed = await replayIssue()
         if (replayed) return replayed
       }
-      return status(409, { code: 'issue_in_progress', message: 'This document is already being issued' })
+      return status(409, isBeingVoided(await Invoice.findOne({ _id: id, orgId }, { voidingUntil: 1 }).lean().exec() as any) ? { ...DOCUMENT_CLAIMED } : ISSUE_IN_PROGRESS)
     }
     /** Give the draft back — a failed issue must not leave it claimed. */
     const release = () => Invoice.updateOne({ _id: id, orgId, status: 'draft' }, { $unset: { issue: 1 } }).exec()
@@ -1617,6 +1644,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           const replayed = await replayPayment(current)
           if (replayed) return replayed
         }
+        if (current && !['voided', 'cancelled', 'paid'].includes(current.status) && isBeingVoided(current)) return status(409, { ...DOCUMENT_CLAIMED })
         if (current && !['voided', 'cancelled', 'paid'].includes(current.status) && overpays(current, body.amount)) {
           return overpayment(status, current, body.amount)
         }
@@ -1715,18 +1743,16 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (!voidable.includes(invoice.status))
       return status(400, { message: 'Can only void draft, sent, or received invoices' })
 
-    // ⚠ FR-23: claimed before the stock moves, against the hold a receipt takes before it prints. Of
-    // a void and a payment at once one gives way: read and then written, both went through, and the
-    // payment turned the voided invoice back to paid with a fiscal receipt on it.
+    // ⚠ FR-23: claimed before the stock moves, against the hold a receipt takes before it prints and
+    // against an issue under way. Of a void and a payment at once one gives way, by any method, and
+    // of a void and an issue: read and then written, a voided answer came back on a document that
+    // ended paid with a fiscal receipt on it. `fitsDue` and `/send` honour this claim.
     const now = new Date()
     const claimed = await Invoice.findOneAndUpdate(
-      {
-        _id: id, orgId, status: invoice.status, 'receiptHolds.0': { $exists: false },
-        $or: [{ voidingUntil: { $exists: false } }, { voidingUntil: null }, { voidingUntil: { $lt: now } }],
-      },
+      { _id: id, orgId, status: invoice.status, 'receiptHolds.0': { $exists: false }, $and: [issueLeaseFree(now), notBeingVoided(now)] },
       { $set: { voidingUntil: new Date(now.getTime() + LEASE_MS) } },
     ).exec()
-    if (!claimed) return receiptPrinting(status, orgId, id)
+    if (!claimed) return whoHolds(status, orgId, id)
     const release = () => Invoice.updateOne({ _id: id, orgId }, { $set: { voidingUntil: null } }).exec()
     // A receipt written before the claim that had not taken its hold yet will now be refused one.
     const late = await freezeRefusal(orgId, id)

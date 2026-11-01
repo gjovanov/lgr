@@ -48,7 +48,7 @@ import { eventBus } from '../../events/event-bus.js'
 import { logger } from '../../logger/logger.js'
 import { generateUNP } from '../sequence.service.js'
 import { LEASE_MS, takeLease } from '../hot-path-key.js'
-import { fitsDue, outstandingOf, overpays, paymentPipeline, type PaymentRow } from '../invoice-payment.js'
+import { fitsDue, isBeingVoided, outstandingOf, overpays, paymentPipeline, type PaymentRow } from '../invoice-payment.js'
 import { PAYMENT_RECEIPT } from './pos-union.js'
 import { provedNotPrinted } from './print-verdict.js'
 import type { RegisterPrinter } from './printer.js'
@@ -118,6 +118,18 @@ export async function isFiscallyPaid(orgId: string, documentId: string): Promise
 export const PAYMENT_IN_PROGRESS = {
   code: 'payment_in_progress',
   message: 'Another payment on this document is printing. Wait for it to finish, then try again.',
+} as const
+
+/** A void or an attach to a cash sale holds the document's money (`voidingUntil`). */
+export const DOCUMENT_CLAIMED = {
+  code: 'document_claimed',
+  message: 'This document is being voided or attached to a cash sale right now. Try again in a moment.',
+} as const
+
+/** An edit that moves its total, and a payment that came in since the edit read it. */
+export const DOCUMENT_CHANGED = {
+  code: 'document_changed',
+  message: 'A payment was recorded on this document while you edited it. Open it again.',
 } as const
 
 /** The courier's money, on an invoice whose receipt has not printed. */
@@ -247,8 +259,8 @@ export function paymentReceiptDocument(input: PaymentReceiptInput): Record<strin
 }
 
 /**
- * Hold the receipt's amount on its invoice, atomically. False when it does not fit, or a void has
- * claimed the invoice: of a void and a payment at once, one gives way (`POST /invoices/:id/void`).
+ * Hold the receipt's amount on its invoice, atomically. False when it does not fit, or a claim stands
+ * on the invoice (`fitsDue`): of a void and a payment at once, one gives way.
  */
 async function holdAmount(doc: any): Promise<boolean> {
   const invoiceId = doc.register.paidInvoiceId
@@ -257,7 +269,6 @@ async function holdAmount(doc: any): Promise<boolean> {
     {
       _id: invoiceId, orgId: doc.orgId, status: { $nin: ['draft', 'voided', 'cancelled', 'paid'] },
       'receiptHolds.receiptId': { $ne: doc._id }, ...fitsDue(amount),
-      $or: [{ voidingUntil: { $exists: false } }, { voidingUntil: null }, { voidingUntil: { $lt: new Date() } }],
     },
     { $push: { receiptHolds: { receiptId: doc._id, amount } } },
     { new: true },
@@ -274,8 +285,9 @@ async function releaseHold(doc: any): Promise<void> {
 
 /** Why a hold was refused, as the payment's route answers it. */
 async function holdRefusal(doc: any): Promise<RegisterRefusal> {
-  const invoice: any = await Invoice.findOne({ _id: doc.register.paidInvoiceId, orgId: doc.orgId }, { total: 1, amountPaid: 1, status: 1 }).lean().exec()
+  const invoice: any = await Invoice.findOne({ _id: doc.register.paidInvoiceId, orgId: doc.orgId }, { total: 1, amountPaid: 1, status: 1, voidingUntil: 1 }).lean().exec()
   const amount = Number(doc.total) || 0
+  if (isBeingVoided(invoice)) return new RegisterRefusal(409, { ...DOCUMENT_CLAIMED })
   if (!invoice || ['voided', 'cancelled', 'paid'].includes(invoice.status) || overpays(invoice, amount)) {
     const outstanding = invoice ? outstandingOf(invoice) : 0
     return new RegisterRefusal(422, {

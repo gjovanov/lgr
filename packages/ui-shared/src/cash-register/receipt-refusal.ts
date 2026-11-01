@@ -12,6 +12,8 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
       if (data.noSession) return 'cashRegister.receipt.noSession'
       return data.deviceConfigured === false ? 'pos.printerRequired.notConfigured' : 'pos.printerRequired.notConnected'
     case 'payment_in_progress': return 'cashRegister.receipt.inProgress'
+    case 'document_claimed': return 'cashRegister.receipt.documentClaimed'
+    case 'document_changed': return 'cashRegister.receipt.documentChanged'
     case 'fiscally_paid': return 'cashRegister.receipt.fiscallyPaid'
     case 'receipt_currency': return 'cashRegister.receipt.currency'
     case 'receipt_not_printable': return 'cashRegister.receipt.notPrintable'

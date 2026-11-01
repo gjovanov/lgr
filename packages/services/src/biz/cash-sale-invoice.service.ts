@@ -9,6 +9,8 @@ import { LEASE_MS, assertSameRequest, isDuplicateKey, takeLease, waitForCompleti
 import { CASH_SALE_REF_ID } from './sale-counting.js'
 import { reverseInvoiceStockMovement } from './invoicing.service.js'
 import { retireAutomaticPayments } from './cash-settlement.service.js'
+import { freezeRefusal } from './cash-register/payment-receipt.service.js'
+import { heldOn, notBeingVoided } from './invoice-payment.js'
 import { localDayEnd, localDayOf, localDayStart } from './local-day.js'
 import { upsertAmountInWords } from 'config/amount-in-words'
 
@@ -975,10 +977,13 @@ function attachRefusal(inv: any): { statusCode: number; code: string; message: s
   if ((inv.lines || []).some((l: any) => l.orderRef && (l.orderRef.orderId || l.orderRef.reservationId || l.orderRef.internalOrderId))) {
     return { statusCode: 422, code: 'invoice_serves_an_order', message: `${inv.invoiceNumber} delivers an order's reservation — its goods are not the till's` }
   }
-  if ((inv.payments || []).some((p: any) => num(p.amount) > 0 && !AUTO_PAYMENT_ORIGINS.has(p.origin))) {
-    return { statusCode: 422, code: 'invoice_has_payments', message: `${inv.invoiceNumber} has payments recorded by hand — the till took the money for this sale; remove them first` }
-  }
-  return null
+  return handPaymentRefusal(inv)
+}
+
+/** Attaching replaces the invoice's payments, so a payment recorded by hand stops it. */
+function handPaymentRefusal(inv: any): { statusCode: number; code: string; message: string } | null {
+  if (!(inv.payments || []).some((p: any) => num(p.amount) > 0 && !AUTO_PAYMENT_ORIGINS.has(p.origin))) return null
+  return { statusCode: 422, code: 'invoice_has_payments', message: `${inv.invoiceNumber} has payments recorded by hand — the till took the money for this sale; remove them first` }
 }
 
 /**
@@ -1091,6 +1096,11 @@ export async function cashSaleCandidates(orgId: string, invoiceId: string): Prom
  * `fitsAsLast`), and only then is the invoice's dispatch taken back and the link finished. A
  * request that stopped after its claim is resumed by the next one for the same pair, which takes
  * the lapsed lease first — so the dispatch is never taken back twice.
+ *
+ * ⚠ FR-23: the claim is on the document's money too (`voidingUntil`, the one a void takes), because
+ * the last step replaces its payments. No payment gets past it (`fitsDue`), and what got in before
+ * it is read after it: a receipt or a payment recorded in between would otherwise lose its row, or
+ * leave twice the total paid, with a fiscal receipt on the device.
  */
 export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoiceId: string, cashSaleId: string): Promise<any> {
   const r = getRepos()
@@ -1141,7 +1151,9 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
 
   // The claim, with a lease: the link and each line's cash-sale line, on the invoice.
   const lease = () => new Date(Date.now() + LEASE_MS)
+  let claimedDoc: any
   if (!resuming) {
+    const until = lease()
     const set: Record<string, unknown> = {
       cashSaleRef: {
         cashSaleId: cs._id,
@@ -1151,7 +1163,8 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
         ...(cs.register?.unp ? { unp: cs.register.unp } : {}),
         ...(cs.register?.fiscalReceiptNumber ? { receiptNumber: cs.register.fiscalReceiptNumber } : {}),
       },
-      leaseUntil: lease(),
+      leaseUntil: until,
+      voidingUntil: until,
     }
     const arrayFilters: Array<Record<string, unknown>> = []
     let i = 0
@@ -1160,32 +1173,48 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
       arrayFilters.push({ [`l${i}._id`]: new Types.ObjectId(lineId) })
       i++
     }
-    const claimed = await Invoice.findOneAndUpdate(
+    claimedDoc = await Invoice.findOneAndUpdate(
       {
         _id: inv._id, orgId, cashSaleRef: { $exists: false }, status: { $in: ATTACHABLE },
         'stockSource.marker': tillMarker ?? { $exists: false },
+        'receiptHolds.0': { $exists: false }, ...notBeingVoided(),
       } as any,
       { $set: set },
       { arrayFilters, new: true },
     ).lean().exec()
-    if (!claimed) throw new CashSaleInvoiceError(409, 'invoice_changed', `${inv.invoiceNumber} changed meanwhile — open it again`)
+    if (!claimedDoc) {
+      const now: any = await Invoice.findOne({ _id: inv._id, orgId } as any, { receiptHolds: 1 }).lean().exec()
+      if (heldOn(now) > 0) throw new CashSaleInvoiceError(409, 'payment_in_progress', `A payment on ${inv.invoiceNumber} is printing. Wait for it to finish, then try again.`)
+      throw new CashSaleInvoiceError(409, 'invoice_changed', `${inv.invoiceNumber} changed meanwhile — open it again`)
+    }
   } else {
     const now = new Date()
-    const taken = await Invoice.findOneAndUpdate(
+    const until = lease()
+    claimedDoc = await Invoice.findOneAndUpdate(
       {
         _id: inv._id, orgId, [CASH_SALE_REF_ID]: cs._id, 'stockSource.detectedBy': { $ne: 'cash_sale' }, status: { $in: ATTACHABLE },
-        $or: [{ leaseUntil: { $exists: false } }, { leaseUntil: null }, { leaseUntil: { $lt: now } }],
+        'receiptHolds.0': { $exists: false },
+        $and: [notBeingVoided(now), { $or: [{ leaseUntil: { $exists: false } }, { leaseUntil: null }, { leaseUntil: { $lt: now } }] }],
       } as any,
-      { $set: { leaseUntil: lease() } },
+      { $set: { leaseUntil: until, voidingUntil: until } },
       { new: true },
     ).lean().exec()
-    if (!taken) throw new CashSaleInvoiceError(409, 'attach_in_progress', `${inv.invoiceNumber} is being attached right now — try again in a moment`)
+    if (!claimedDoc) throw new CashSaleInvoiceError(409, 'attach_in_progress', `${inv.invoiceNumber} is being attached right now — try again in a moment`)
   }
   // A till day's marker from an earlier repair stays: only the claim goes.
   const undo = () => Invoice.updateOne(
     { _id: inv._id, orgId, [CASH_SALE_REF_ID]: cs._id, 'stockSource.detectedBy': { $ne: 'cash_sale' } } as any,
-    { $unset: { cashSaleRef: 1, leaseUntil: 1, 'lines.$[].cashSaleLineId': 1 } },
+    { $unset: { cashSaleRef: 1, leaseUntil: 1, voidingUntil: 1, 'lines.$[].cashSaleLineId': 1 } },
   ).exec()
+
+  // What got in before the claim: from here on nothing does.
+  const frozen = await freezeRefusal(orgId, own)
+  const paidByHand = handPaymentRefusal(claimedDoc)
+  if (frozen || paidByHand) {
+    await undo()
+    if (frozen) throw new CashSaleInvoiceError(409, String(frozen.code), String(frozen.message))
+    throw new CashSaleInvoiceError(paidByHand!.statusCode, paidByHand!.code, paidByHand!.message)
+  }
 
   // FR-21 D-14: the claim is written first and the sale's storno read after, as R0 does.
   const latest: any = await Invoice.findOne({ _id: cs._id, orgId } as any, { 'register.stornoState': 1 }).lean().exec()
@@ -1244,7 +1273,7 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
         status: 'paid',
         paidAt: paidOn,
       },
-      $unset: { leaseUntil: 1 },
+      $unset: { leaseUntil: 1, voidingUntil: 1 },
       $push: { statusHistory: { status: 'paid', fromStatus: inv.status, changedAt: now, changedBy: actor.id, reason: `attached to cash sale ${cs.invoiceNumber}` } },
     },
     { new: true },
