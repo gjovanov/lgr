@@ -45,6 +45,9 @@ const EXCLUDED_STATUSES = ['draft', 'voided', 'cancelled', 'converted']
 /** The import marker that means "this row has no true time of day" (map-cash-sale.ts). */
 const CSR_IMPORT_TAG = 'cash-register-import'
 
+/** The header methods LGR takes at the counter, by printing a receipt that records the payment. */
+const UNPAID_UNTIL_PRINTED = new Set(['cash', 'card'])
+
 export interface MethodAmount { method: string; amount: number }
 
 /**
@@ -69,6 +72,11 @@ export function effectiveMethods(doc: {
     return rows.map(p => ({ method: String(p.method || 'other'), amount: Number(p.amount) || 0 }))
   }
   const total = Number(doc.total) || 0
+  // FR-23: where LGR prints, a cash or card invoice whose receipt failed is issued and unpaid. Its
+  // header says how it is to be paid, not that it was: the document stays listed, and no money counts.
+  if (doc.amountPaid === 0 && UNPAID_UNTIL_PRINTED.has(String(doc.paymentMethod)) && doc.type !== 'cash_sale' && doc.type !== 'cash_storno') {
+    return [{ method: String(doc.paymentMethod), amount: 0 }]
+  }
   if (doc.paymentMethod) return [{ method: String(doc.paymentMethod), amount: total }]
   // A cash sale with no payment row was paid in cash at the till; its storno refunds in cash.
   if ((doc.type === 'cash_sale' || doc.type === 'cash_storno') && Number(doc.amountPaid) > 0) return [{ method: 'cash', amount: total }]

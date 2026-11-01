@@ -139,6 +139,7 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
     // attributed PER METHOD, so a split-tender document feeds two buckets.
     if (d.direction === 'outgoing') {
       for (const m of effectiveMethods(d)) {
+        if (!m.amount) continue
         const bucket = bucketFor(m.method)
         const cur = methodTotals.get(bucket) || { amount: 0, count: 0 }
         cur.amount += sign * m.amount

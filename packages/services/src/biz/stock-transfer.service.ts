@@ -1,4 +1,4 @@
-import { Invoice } from 'db/models'
+import { Invoice, StockMovement } from 'db/models'
 import { getRepos } from '../context.js'
 import { confirmMovement } from './warehouse.service.js'
 import { loadReservationBudgets } from './invoicing.service.js'
@@ -270,6 +270,18 @@ export async function checkPendingTransfers(orgId: string, transferIds: unknown,
  * Confirm the transfers a document depends on, before it dispatches: a sale's create, an
  * invoice's issue. Checked as `checkPendingTransfers` checks them; a completed one is left alone.
  */
+/**
+ * Transfers drawn up for an issue that was refused. They are made first and confirmed by the issue,
+ * so a refusal leaves them: they moved nothing, and the next attempt draws up its own. Only drafts of
+ * this org: a confirmed one is a real movement, and may be another document's.
+ */
+export async function discardPendingTransfers(orgId: string, transferIds: unknown): Promise<void> {
+  if (!Array.isArray(transferIds)) return
+  const ids = transferIds.filter(id => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id))
+  if (!ids.length) return
+  await StockMovement.updateMany({ _id: { $in: ids }, orgId, type: 'transfer', status: 'draft' }, { $set: { status: 'cancelled' } }).exec()
+}
+
 export async function confirmTransferMovements(orgId: string, transferIds: string[], opts: { forDocumentId?: string } = {}): Promise<void> {
   const ids = await checkPendingTransfers(orgId, transferIds, opts)
   const r = getRepos()

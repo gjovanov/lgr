@@ -52,8 +52,8 @@ async function seedDay() {
     lines: [{ productId: bolt._id, warehouseId: wh._id, description: 'Bolt', quantity: 2, unit: 'pcs', unitPrice: 50, taxRate: 20, taxAmount: 20, lineTotal: 120 }] as any,
   })
   await createTestInvoice(orgId, customer._id as Types.ObjectId, {
-    invoiceNumber: 'INV-2026-00012', type: 'invoice', direction: 'outgoing', status: 'sent',
-    issueDate: dayDate(11), subtotal: 50, taxTotal: 10, total: 60, amountDue: 60,
+    invoiceNumber: 'INV-2026-00012', type: 'invoice', direction: 'outgoing', status: 'paid',
+    issueDate: dayDate(11), subtotal: 50, taxTotal: 10, total: 60, amountPaid: 60, amountDue: 0,
     paymentMethod: 'card',
     lines: [{ productId: nut._id, warehouseId: wh._id, description: 'Nut', quantity: 1, unit: 'pcs', unitPrice: 50, taxRate: 20, taxAmount: 10, lineTotal: 60 }] as any,
   })
