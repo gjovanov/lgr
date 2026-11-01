@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { apiGet, apiLogin, type ApiSession } from './helpers/api'
+import { createBackOfficeCashSale } from './helpers/cash-register'
+import { restoreEntry } from './helpers/document-form'
 import { loginForApp } from './helpers/login'
 
 const API = process.env.BASE_URL || 'http://localhost:4001'
@@ -18,12 +20,6 @@ async function seedPendingChange(page: any, session: ApiSession, entry: Record<s
     key: `lgr_pending_changes_${session.orgId}_${userId}`,
     entry: { orgId: session.orgId, userId, capturedAt: new Date().toISOString(), ...entry },
   })
-}
-
-/** Open the Pending changes panel and reopen the entry that shows `text`. */
-async function restoreEntry(page: any, text: string) {
-  await page.locator('button:has(.mdi-content-save-alert-outline)').click()
-  await page.locator('.v-navigation-drawer--right .v-list-item').filter({ hasText: text }).click()
 }
 
 /**
@@ -198,6 +194,13 @@ test.describe('A pending change from before the move', () => {
  */
 test.describe('A draft of a new cash sale, left on the old form', () => {
   const NOTE = 'Half typed, before the till moved'
+  const PRICE = 10.5
+
+  /** The stock the catalog shows for the draft's article at the main warehouse. */
+  async function stockOf(product: any) {
+    const { products } = await apiGet(await apiLogin(), `/trade/pos/catalog?warehouseId=${product.warehouseId}&type=goods&size=100&sortOrder=desc`)
+    return products.find((p: any) => p.productId === product.productId).stockAvailable
+  }
 
   async function seedDraft(page: any, session: ApiSession) {
     // In stock, or the save stops at the form's transfer dialog. The catalog is `pos.read`: an admin
@@ -214,13 +217,13 @@ test.describe('A draft of a new cash sale, left on the old form', () => {
       formData: {
         issueDate: new Date().toISOString().slice(0, 10), currency: 'EUR', notes: NOTE, paymentMethod: 'cash', warehouseId,
         lines: [{
-          productId: product.productId, description: product.productName, quantity: 2, unit: product.unit || 'pcs', unitPrice: 10,
-          discount: 0, taxRate: 20, taxAmount: 4, lineTotal: 24, warehouseId, productUpdate: {}, priceTiers: [],
+          productId: product.productId, description: product.productName, quantity: 2, unit: product.unit || 'pcs', unitPrice: PRICE,
+          discount: 0, taxRate: 20, taxAmount: 4.2, lineTotal: 25.2, warehouseId, productUpdate: {}, priceTiers: [],
         }],
       },
-      previewFields: [{ label: 'Note', value: NOTE }],
+        previewFields: [{ label: 'Note', value: NOTE }],
     })
-    return product
+    return { ...product, warehouseId }
   }
 
   async function restoredOnTheForm(page: any, product: any) {
@@ -242,6 +245,29 @@ test.describe('A draft of a new cash sale, left on the old form', () => {
     await page.getByRole('button', { name: /^save$/i }).first().click()
     await expect(page).toHaveURL(/\/invoicing\/cash-sales$/, { timeout: 15000 })
     await expect.poll(() => page.evaluate((key: string) => localStorage.getItem(key), `lgr_pending_changes_${session.orgId}_${userId}`)).toBe('[]')
+  })
+
+  // The route is the same view with another address, so without a key the form stayed: it read New,
+  // kept the open sale's number and lines, and Save issued them again and moved their stock again.
+  test('reopens from an open sale with its own lines, and nothing moves until it is saved', async ({ page }) => {
+    const session = await apiLogin('acme-corp', 'accountant', 'test123')
+    const open = await createBackOfficeCashSale()
+    const product = await seedDraft(page, session)
+    await loginForApp(page, 'acme-corp', 'accountant', 'test123')
+    await page.goto(`/invoicing/cash-sales/${open.id}/edit`)
+    await expect(page.getByText(open.number).first()).toBeVisible({ timeout: 15000 })
+    const before = await stockOf(product)
+
+    await restoreEntry(page, NOTE)
+
+    await restoredOnTheForm(page, product)
+    await expect(page.getByText(open.number)).toHaveCount(0)
+    await expect(page.getByTestId('cart-qty').locator('input')).toHaveValue('2')
+    expect(await stockOf(product)).toBe(before)
+
+    await page.getByRole('button', { name: /^save$/i }).first().click()
+    await expect(page).toHaveURL(/\/invoicing\/cash-sales$/, { timeout: 15000 })
+    expect(await stockOf(product)).toBe(before - 2)
   })
 
   test('reopens on the form from the terminal too', async ({ page }) => {
