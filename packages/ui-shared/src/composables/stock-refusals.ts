@@ -17,6 +17,7 @@ export const STOCK_REFUSAL_CODES = [
   'receipt_already_billed',
   'bill_not_empty',
   'bill_on_order',
+  'bill_foreign_currency',
   'bill_not_draft',
   'bill_already_linked',
   'nothing_to_bill',

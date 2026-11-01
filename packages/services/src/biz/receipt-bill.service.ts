@@ -426,6 +426,8 @@ export interface BillFromReceiptsInput {
   movementIds: string[]
   /** The supplier, for receipts that name none. It must not contradict one that does. */
   contactId?: string
+  /** The currency of the form this bill is made from: a bill in another than the org's is refused. */
+  currency?: string
   /** The supplier's own invoice number, when the user already typed it. */
   reference?: string
   issueDate?: string
@@ -442,6 +444,15 @@ async function orgDefaults(orgId: string): Promise<{ currency: string; vat: numb
     currency: org?.settings?.baseCurrency || org?.baseCurrency || 'EUR',
     vat: num(org?.settings?.taxConfig?.defaultVatRate),
   }
+}
+
+/**
+ * A delivery's lines carry its costs in the org's currency, and nothing converts them. A bill in
+ * another currency keeping those numbers would owe them in the wrong money, so it is not linked.
+ */
+function refuseForeignBill(currency: string | undefined, baseCurrency: string, number?: string): void {
+  if (!currency || currency === baseCurrency) return
+  throw new ReceiptBillError(422, 'bill_foreign_currency', `${number || 'A bill'} in ${currency} cannot take a delivery's costs, which are in ${baseCurrency}`, { currency, baseCurrency })
 }
 
 /** A purchase bill is due a month after it is issued, as the bill form proposes. */
@@ -462,6 +473,7 @@ export async function createBillFromReceipts(orgId: string, actor: Actor, input:
     orgDefaults(orgId),
     productsOf(orgId, movements.flatMap(m => (m.lines || []).map((l: any) => idOf(l.productId)))),
   ])
+  refuseForeignBill(input.currency, defaults.currency)
   const lines = billLinesFrom(movements, products, defaults.vat)
   if (!lines.length) throw new ReceiptBillError(422, 'nothing_to_bill', 'The receipts carry no quantities to bill')
   const totals = billTotalsOf(lines)
@@ -574,15 +586,14 @@ export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: st
   if (filled.length && (bill.orderId || filled.some((l: any) => Object.values(l.orderRef || {}).some(Boolean)))) {
     throw new ReceiptBillError(422, 'bill_on_order', `${bill.invoiceNumber} is written against a supplier order — its lines book the delivery onto that order`)
   }
+  const defaults = await orgDefaults(orgId)
+  refuseForeignBill(bill.currency, defaults.currency, bill.invoiceNumber)
   const movements = await loadBillableReceipts(orgId, movementIds)
   if (opts.contactId && bill.contactId && idOf(opts.contactId) !== idOf(bill.contactId)) {
     throw new ReceiptBillError(422, 'supplier_mismatch', `${bill.invoiceNumber} names another supplier — save the bill first`)
   }
   const { supplierId, unnamed } = await settleSupplier(orgId, movements, idOf(bill.contactId) || opts.contactId, false)
-  const [defaults, products] = await Promise.all([
-    orgDefaults(orgId),
-    productsOf(orgId, movements.flatMap(m => (m.lines || []).map((l: any) => idOf(l.productId)))),
-  ])
+  const products = await productsOf(orgId, movements.flatMap(m => (m.lines || []).map((l: any) => idOf(l.productId))))
   const lines = billLinesFrom(movements, products, defaults.vat)
   if (!lines.length) throw new ReceiptBillError(422, 'nothing_to_bill', 'The receipts carry no quantities to bill')
   const totals = billTotalsOf(lines)
@@ -607,7 +618,8 @@ export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: st
         discountTotal: 0,
         taxTotal: totals.taxTotal,
         total: totals.total,
-        totalBase: round2(totals.total * (num(bill.exchangeRate) || 1)),
+        // In the org's currency, whatever a stale rate on the bill says.
+        totalBase: totals.total,
         amountDue: round2(totals.total - num(bill.amountPaid)),
         stockSource: stockSourceFor(movements, unnamed),
       },
@@ -831,6 +843,8 @@ export async function checkLinkedBillEdit(orgId: string, existing: any, body: { 
  */
 export async function applyLinkedBillPrices(orgId: string, bill: any, userId: string): Promise<string[]> {
   if (!isReceiptLinked(bill)) return []
+  // A linked bill's currency can still be edited, and a product's prices are in the org's.
+  if (bill.currency && bill.currency !== (await orgDefaults(orgId)).currency) return []
   const { cost } = await receivedByProduct(orgId, linkedMovementIds(bill))
   const billedPrice = new Map<string, number | null>()
   for (const l of bill.lines || []) {

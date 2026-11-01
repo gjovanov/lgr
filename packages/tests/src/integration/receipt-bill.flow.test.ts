@@ -758,6 +758,49 @@ describe('a receipt that still cannot be billed says why (FR-22.31a)', () => {
   }, 60_000)
 })
 
+describe('a bill in another currency is not linked to a delivery (FR-22.32a)', () => {
+  it('refuses it, whatever the door, and writes nothing', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 10, 5]])
+    const typed = await w.typedBill([[w.bolt, 10, 6]], { currency: 'USD', exchangeRate: 0.9 })
+    const before = await w.load(typed.id)
+
+    const refused = await w.linkReceipts(typed, [r._id], { replaceLines: true })
+    expect([refused.status, refused.json.code]).toEqual([422, 'bill_foreign_currency'])
+    expect([refused.json.currency, refused.json.baseCurrency]).toEqual(['USD', 'EUR'])
+    const still = await w.load(typed.id)
+    expect(still.lines.map((l: any) => l.unitPrice)).toEqual(before.lines.map((l: any) => l.unitPrice))
+    expect(still.stockSource?.marker).toBeUndefined()
+    expect((await w.mv(r._id)).invoiceId).toBeUndefined()
+
+    // The form of a bill not saved yet sends its currency, and the bill would have dropped it.
+    const fresh = await w.fromReceipt([r._id], { currency: 'USD' })
+    expect([fresh.status, fresh.json.code]).toEqual([422, 'bill_foreign_currency'])
+    expect(await Invoice.countDocuments({ orgId: w.orgId, 'stockSource.movementIds': r._id }).exec()).toBe(0)
+    expect((await w.fromReceipt([r._id], { currency: 'EUR' })).status).toBe(200)
+  }, 60_000)
+
+  it('in the org\'s currency the total in base is the total, whatever a stale rate says', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 10, 5]])
+    const typed = await w.typedBill([[w.bolt, 10, 6]], { currency: 'EUR', exchangeRate: 1.95583 })
+    expect((await w.linkReceipts(typed, [r._id], { replaceLines: true })).status).toBe(200)
+    const bill = await w.load(typed.id)
+    expect([bill.total, bill.totalBase]).toEqual([60, 60])
+  }, 60_000)
+
+  it('a linked bill edited into another currency carries no price to the products', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 10, 5]])
+    const made = (await w.fromReceipt([r._id])).json.invoice
+    const lines = made.lines.map((l: any) => ({ productId: String(l.productId), description: l.description, quantity: l.quantity, unitPrice: 7, taxRate: l.taxRate }))
+    expect((await w.call('PUT', `/invoices/${made.id}`, { currency: 'USD', exchangeRate: 0.9, lines })).status).toBe(200)
+
+    expect((await w.receiveBill(made)).status).toBe(200)
+    expect(((await Product.findById(w.bolt._id).lean().exec()) as any).purchasePrice).toBe(5)
+  }, 60_000)
+})
+
 describe('a receipt naming no supplier that says it is no delivery (FR-22.31a)', () => {
   const page = async (w: any, m: any) => (await w.call('GET', `/warehouse/movement/${m._id}`)).json.stockMovement
   /** Booked the way the importer books what it mapped. */

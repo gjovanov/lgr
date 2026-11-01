@@ -136,6 +136,8 @@ export function useBillReceipts(doc: DocForm) {
         const { data } = await httpClient.post(`${doc.orgUrl()}/invoicing/bills/from-receipt`, {
           movementIds: selected.value,
           contactId: doc.form.contactId,
+          // The bill this form was typing keeps none of its lines, so it may not change its money either.
+          ...(doc.form.currency ? { currency: doc.form.currency } : {}),
           ...(doc.form.supplierInvoiceNumber ? { reference: doc.form.supplierInvoiceNumber } : {}),
           ...(doc.form.issueDate ? { issueDate: doc.form.issueDate } : {}),
           ...(doc.form.dueDate ? { dueDate: doc.form.dueDate } : {}),

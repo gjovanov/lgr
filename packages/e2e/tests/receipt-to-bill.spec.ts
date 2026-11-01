@@ -270,6 +270,32 @@ test.describe('a typed bill takes a delivery (FR-22.32a)', () => {
   })
 })
 
+test.describe('a bill in another currency (FR-22.32a)', () => {
+  test('is not linked: the form says why in Bulgarian, and the bill keeps its lines', async ({ page }) => {
+    const w = await world('usd')
+    const r = await receipt(w, 2)
+    const { invoice } = await w.api.post('/invoices', {
+      type: 'invoice', direction: 'incoming', contactId: w.supplier._id, issueDate: today(), dueDate: today(), currency: 'USD', exchangeRate: 0.9, reference: `U-${w.stamp}`,
+      lines: [{ productId: w.article._id, warehouseId: w.warehouse._id, description: w.article.name, quantity: 2, unit: 'pcs', unitPrice: 3, taxRate: 20 }],
+      subtotal: 6, total: 7.2,
+    })
+    const id = String(invoice.id || invoice._id)
+
+    await signInForUx(page)
+    await page.goto(`/invoicing/bills/${id}/edit`, { waitUntil: 'networkidle' })
+    await page.getByTestId('link-delivery-btn').click()
+    const dialog = page.getByTestId('link-delivery-dialog')
+    await dialog.locator('.v-list-item').filter({ hasText: r.number }).locator('input[type="checkbox"]').check()
+    await page.getByTestId('link-delivery-confirm').click()
+
+    await expect(snackbar(page)).toContainText('фактура в друга валута не се свързва')
+    const bill = await billOf(w, id)
+    expect(bill.lines.map((l: any) => l.unitPrice)).toEqual([3])
+    expect(bill.stockSource?.marker).toBeFalsy()
+    expect((await movementOf(w, r.id)).billable).toBe(true)
+  })
+})
+
 test.describe('a bill the form cannot save (FR-22.32a)', () => {
   test('linking stops, and the dialog does not cover why', async ({ page }) => {
     const w = await world('invalid')

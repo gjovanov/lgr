@@ -41,6 +41,7 @@ export const receiptBillController = new Elysia({ prefix: '/org/:orgId/invoicing
       body: t.Object({
         movementIds: t.Array(t.String(), { minItems: 1, maxItems: 50 }),
         contactId: t.Optional(t.String()),
+        currency: t.Optional(t.String()),
         reference: t.Optional(t.String()),
         issueDate: t.Optional(t.String()),
         dueDate: t.Optional(t.String()),

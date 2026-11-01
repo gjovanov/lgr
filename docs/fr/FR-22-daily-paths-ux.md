@@ -293,6 +293,10 @@ them into PRs.
       its own number, reference, dates, payment method and notes.
     - A bill written against a supplier order keeps its lines (422 `bill_on_order`): they book the
       delivery onto the order.
+    - A bill in a currency other than the org's is not linked (422 `bill_foreign_currency`): the
+      delivery's lines carry its costs in the org's currency, and nothing converts them. In the org's
+      currency `totalBase` is the total, whatever a stale rate on the bill says. A linked bill's
+      currency can still be edited, and then receiving it carries no price to the products.
 - **FR-22.33 (MUST)** The bill form offers „Запази и получи". Payment method starts empty, then
   per FR-22.26.
 
