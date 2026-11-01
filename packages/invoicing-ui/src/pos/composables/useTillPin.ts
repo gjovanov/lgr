@@ -13,9 +13,12 @@ import { setSession } from 'ui-shared/session/session'
 
 let offered: Promise<boolean> | undefined
 
+/** How long the answer may take: the router waits for it, with nothing on screen. No answer is a no. */
+const PROBE_MS = 3000
+
 /** Whether the PIN pad may be shown here. Asked once per page load. */
 export function pinOffered(): Promise<boolean> {
-  offered ??= fetch('/api/auth/local/methods', { credentials: 'same-origin' })
+  offered ??= fetch('/api/auth/local/methods', { credentials: 'same-origin', signal: AbortSignal.timeout(PROBE_MS) })
     .then(async res => res.ok && (await res.json())?.pin === true)
     .catch(() => false)
   return offered

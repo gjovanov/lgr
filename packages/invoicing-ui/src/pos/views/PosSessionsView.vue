@@ -1,7 +1,7 @@
 <template>
   <v-container fluid>
     <div class="d-flex align-center mb-4">
-      <h1 class="text-h5">POS Sessions</h1>
+      <h1 class="text-h5">{{ $t('nav.crSessions') }}</h1>
     </div>
 
     <!-- Filters -->
@@ -32,7 +32,7 @@
     <v-row v-if="items.length > 0" class="mb-4">
       <v-col cols="12" md="6">
         <v-card>
-          <v-card-title class="text-subtitle-1">Payment Distribution</v-card-title>
+          <v-card-title class="text-subtitle-1">{{ $t('pos.sessions.paymentDistribution') }}</v-card-title>
           <v-card-text>
             <ChartView type="pie" :data="paymentPieData" :height="250" />
           </v-card-text>
@@ -40,7 +40,7 @@
       </v-col>
       <v-col cols="12" md="6">
         <v-card>
-          <v-card-title class="text-subtitle-1">Session Sales</v-card-title>
+          <v-card-title class="text-subtitle-1">{{ $t('pos.sessions.sales') }}</v-card-title>
           <v-card-text>
             <ChartView type="bar" :data="salesBarData" :height="250" />
           </v-card-text>
@@ -63,7 +63,7 @@
           hover
         >
           <template #item.status="{ item }">
-            <StatusPipeline :steps="['open', 'closed']" :current="item.status" />
+            <StatusPipeline :steps="[$t('pos.sessions.states.open'), $t('pos.sessions.states.closed')]" :current="$t(`pos.sessions.states.${item.status}`)" />
           </template>
           <template #item.openingBalance="{ item }">
             {{ fmtCurrency(item.openingBalance) }}
@@ -78,7 +78,7 @@
           <template #item.transactionCount="{ item }">
             <entity-link
               :label="String(item.transactionCount ?? 0)"
-              :to="{ name: 'pos.orders', query: { session: item._id || item.id } }"
+              :to="{ name: 'invoicing.cash-sales', query: { session: item._id || item.id } }"
               :aria-label="$t('pos.sessionDocuments', { number: item.sessionNumber })"
               data-testid="session-documents"
             />
@@ -150,7 +150,7 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn v-if="report" variant="outlined" prepend-icon="mdi-printer" :loading="reportPrinting" @click="printReport">
+          <v-btn v-if="report && canPrintReport" variant="outlined" prepend-icon="mdi-printer" :loading="reportPrinting" @click="printReport">
             {{ $t('pos.sessionReport.print') }}
           </v-btn>
           <v-btn variant="text" @click="reportOpen = false">{{ $t('common.close') }}</v-btn>
@@ -203,6 +203,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { FISCAL_ADMIN_ROLES } from 'config/constants'
 import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -210,7 +211,8 @@ import ChartView from 'ui-shared/components/ChartView.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { jwtRole } from 'ui-shared/composables/useStorageIdentity'
+import { jwtRole, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { canOpenPage, pageById } from 'ui-shared/nav/page-registry'
 import StatusPipeline from 'ui-shell/components/StatusPipeline'
 import SessionReportCard, { type SessionReportData } from '../components/SessionReportCard.vue'
 
@@ -225,7 +227,7 @@ const statusFilter = ref<string | null>(null)
 const dateFrom = ref<string | null>(null)
 const dateTo = ref<string | null>(null)
 
-const statusOptions = ['open', 'closed']
+const statusOptions = computed(() => ['open', 'closed'].map(value => ({ title: t(`pos.sessions.states.${value}`), value })))
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
@@ -242,14 +244,14 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
 })
 
 const headers = computed(() => [
-  { title: 'Session #', key: 'sessionNumber', sortable: true },
+  { title: t('pos.sessions.number'), key: 'sessionNumber', sortable: true },
   { title: t('common.status'), key: 'status', sortable: true },
-  { title: 'Opening Balance', key: 'openingBalance', align: 'end' as const, sortable: true },
-  { title: 'Total Sales', key: 'totalSales', align: 'end' as const, sortable: true },
-  { title: 'Total Returns', key: 'totalReturns', align: 'end' as const, sortable: true },
-  { title: 'Transactions', key: 'transactionCount', align: 'end' as const, sortable: true },
-  { title: 'Opened At', key: 'openedAt', sortable: true },
-  { title: 'Closed At', key: 'closedAt', sortable: true },
+  { title: t('pos.openingBalance'), key: 'openingBalance', align: 'end' as const, sortable: true },
+  { title: t('pos.totalSales'), key: 'totalSales', align: 'end' as const, sortable: true },
+  { title: t('pos.sessions.totalReturns'), key: 'totalReturns', align: 'end' as const, sortable: true },
+  { title: t('pos.sessions.transactions'), key: 'transactionCount', align: 'end' as const, sortable: true },
+  { title: t('pos.sessions.openedAt'), key: 'openedAt', sortable: true },
+  { title: t('pos.sessions.closedAt'), key: 'closedAt', sortable: true },
   { title: '', key: 'actions', sortable: false, align: 'end' as const },
 ])
 
@@ -295,8 +297,11 @@ async function printReport() {
 type ReportKind = 'x' | 'fm_date' | 'fm_number' | 'ej' | 'operator'
 interface ReportDevice { name: string; connected: boolean; capabilities: { features: Record<string, boolean>; maxOperators: number } }
 
+/** A reprint writes to the till, as a sale does: `pos.read` reads the report and prints nothing. The server refuses it too. */
+const canPrintReport = canOpenPage(pageById('/invoicing/cash-sales/new')!, sessionViewer())
+
 /** The roles of the device page's report routes: not a cashier. The server refuses them too. */
-const runsDevices = computed(() => ['admin', 'manager', 'warehouse_manager'].includes(appStore.user?.role || jwtRole()))
+const runsDevices = computed(() => FISCAL_ADMIN_ROLES.includes(appStore.user?.role || jwtRole()))
 
 const REPORT_LABEL: Record<ReportKind, string> = {
   x: 'pos.deviceReport.x',
@@ -435,7 +440,7 @@ const salesBarData = computed(() => {
   return {
     labels: last10.map((s: any) => s.sessionNumber || `#${s.id?.slice(-4)}`),
     datasets: [{
-      label: 'Sales',
+      label: t('pos.sessions.salesSeries'),
       data: last10.map((s: any) => s.totalSales || 0),
       backgroundColor: 'rgba(33,150,243,0.6)',
     }],

@@ -133,7 +133,8 @@ describe('a GET answers 403 to a member without its permissions', () => {
 
 /**
  * What each app reads, found by scanning every `*-ui` package for the routes it calls. A role
- * opens an app when it holds the app's `requiredPermission`; the shell is everyone's.
+ * opens an app when it holds the app's `requiredPermission`; the shell is everyone's. `pos` is the
+ * till's pages inside the invoicing app, whose tile `pos.read` opens too.
  */
 const APP_READS: Record<string, string[]> = {
   shell: ['', 'apps', 'notification', 'user'],
@@ -148,7 +149,7 @@ const APP_READS: Record<string, string[]> = {
     'warehouse/stock-level', 'warehouse/price-list', 'warehouse/cost-layer', 'warehouse/inventory-count',
     'invoicing/contact', 'invoicing/orders', 'tags',
   ],
-  pos: ['trade/pos/catalog', 'trade/pos/catalog/lookup', 'trade/pos/session','warehouse/product-category', 'warehouse/warehouse', 'fiscal/device', 'tags'],
+  pos: ['trade/pos/catalog', 'trade/pos/catalog/lookup', 'trade/pos/session', 'cash-register/documents', 'warehouse/product-category', 'warehouse/warehouse', 'fiscal/device', 'tags'],
   accounting: ['accounting/account', 'accounting/journal', 'accounting/exchange-rate', 'accounting/fiscal-year', 'accounting/report/trial-balance'],
   payroll: ['payroll/employee', 'payroll/payslip', 'payroll/run', 'payroll/timesheet'],
   reports: ['reports/catalog'],
@@ -159,7 +160,11 @@ describe('each default role still reaches what its apps read', () => {
     const broken: string[] = []
     for (const role of ROLES) {
       const held = DEFAULT_ROLE_PERMISSIONS[role]
-      const apps = ['shell', ...Object.entries(APP_REGISTRY).filter(([, a]) => held.includes(a.requiredPermission)).map(([id]) => id)]
+      const apps = [
+        'shell',
+        ...Object.entries(APP_REGISTRY).filter(([, a]) => held.includes(a.requiredPermission)).map(([id]) => id),
+        ...(held.includes('pos.read') ? ['pos'] : []),
+      ]
       for (const appId of apps) {
         for (const rest of APP_READS[appId] ?? []) {
           const { status } = await get(`/api/org/${orgId}${rest ? `/${rest}` : ''}`, tokens[role])

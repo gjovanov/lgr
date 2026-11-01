@@ -63,11 +63,39 @@ export async function openTillSession(session: ApiSession): Promise<{ id: string
 }
 
 /**
- * One item, paid by card, at the till. The seed has no fiscal device, so it records no receipt.
- * Totals are what the server computes (`computePosTotals`): prices are net, the gross is rounded
- * once and the VAT taken back out of it.
+ * A cashier of this test's own. The seed's `sales` user has one open session, which every spec shares
+ * and each one closes: under parallel workers a terminal can lose it mid-test. Pass this to
+ * `openTillSession` and `ringTillSale` when a test holds a session while it works a page.
  */
-export async function ringTillSale(session?: ApiSession): Promise<TillSale> {
+export interface OwnCashier {
+  session: ApiSession
+  username: string
+  password: string
+  /** Remove the user; close its session first. */
+  drop: () => Promise<void>
+}
+
+export async function ownCashier(name = 'cashier'): Promise<OwnCashier> {
+  const admin = await apiLogin()
+  const username = `e2e-${name}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+  const password = 'test12345'
+  const { user } = await call(admin, 'POST', '/user', {
+    email: `${username}@lgr.test`, username, password, firstName: 'E2E', lastName: name, role: 'sales',
+  })
+  return {
+    session: await apiLogin('acme-corp', username, password),
+    username,
+    password,
+    drop: async () => { await call(admin, 'DELETE', `/user/${user.id || user._id}`) },
+  }
+}
+
+/**
+ * One item at the till, paid by card unless `method` says otherwise. The seed has no fiscal device,
+ * so it records no receipt. Totals are what the server computes (`computePosTotals`): prices are
+ * net, the gross is rounded once and the VAT taken back out of it.
+ */
+export async function ringTillSale(session?: ApiSession, method = 'card'): Promise<TillSale> {
   const cashier = session || await apiLogin('acme-corp', 'sales', 'test123')
   const till = await openTillSession(cashier)
   const { products } = await call(cashier, 'GET', `/trade/pos/catalog?warehouseId=${till.warehouseId}&type=goods&size=100`)
@@ -85,13 +113,20 @@ export async function ringTillSale(session?: ApiSession): Promise<TillSale> {
       discount: 0, taxRate: rate, taxAmount: cents((net * rate) / 100), lineTotal: net,
     }],
     subtotal: cents(total - taxTotal), discountTotal: 0, taxTotal, total,
-    payments: [{ method: 'card', amount: total }],
+    payments: [{ method, amount: total }],
     changeDue: 0,
   })
   return {
     id: transaction.id || transaction._id, number: transaction.transactionNumber, total, sessionId: till.id,
     productId: product.productId, sku: product.sku, warehouseId: till.warehouseId, stockBefore: product.stockAvailable,
   }
+}
+
+/** Storno a sale through the journal, as a manager does: the refund leaves the sale's own session. */
+export async function stornoTillSale(sale: TillSale): Promise<string> {
+  const admin = await apiLogin()
+  const out = await call(admin, 'POST', `/cash-register/documents/${sale.id}/storno`, { reason: 'operator_error', sessionId: sale.sessionId })
+  return out.transaction.transactionNumber
 }
 
 /**

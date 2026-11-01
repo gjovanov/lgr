@@ -11,7 +11,7 @@
       <v-spacer />
       <!-- What the app around it offers on the document (the invoicing app: Печат). -->
       <slot v-if="doc" name="actions" :row="doc.row" />
-      <v-btn v-if="doc && documentLink" variant="outlined" prepend-icon="mdi-file-document-outline" :href="typeof documentLink === 'string' ? documentLink : undefined" :to="typeof documentLink === 'string' ? undefined : documentLink">
+      <v-btn v-if="doc && documentLink" variant="outlined" prepend-icon="mdi-file-document-outline" :to="documentLink">
         {{ $t('cashRegister.detail.openDocument') }}
       </v-btn>
       <!-- #145: STORNO from the document itself, as in the journal. -->
@@ -72,7 +72,8 @@
             <!-- FR-23: the invoice a payment's receipt took money for. -->
             <v-col v-for="inv in doc.row.kind === 'payment' ? doc.row.invoices : []" :key="inv.id" cols="12" sm="6" md="3">
               <div class="text-caption text-medium-emphasis">{{ $t('cashRegister.receipt.paidInvoice') }}</div>
-              <a :href="appHref('invoicing', `/invoicing/invoices/${inv.id}/edit`)" class="text-decoration-none" data-testid="journal-paid-invoice">{{ inv.number }}</a>
+              <router-link v-if="invoiceRoute" :to="invoiceRoute(inv)" class="text-decoration-none" data-testid="journal-paid-invoice">{{ inv.number }}</router-link>
+              <span v-else data-testid="journal-paid-invoice">{{ inv.number }}</span>
             </v-col>
           </v-row>
         </v-card-text>
@@ -192,7 +193,6 @@ import { useSnackbar } from '../../composables/useSnackbar'
 import { paymentMethodKey } from '../../composables/usePaymentMethods'
 import { STORNO_ROLES, canStornoJournalRow } from '../../cash-register/storno'
 import { kindColor } from '../../cash-register/journal-kind'
-import { appHref } from '../../nav/navigate'
 
 const props = defineProps<{
   orgUrl: string
@@ -204,7 +204,9 @@ const props = defineProps<{
   /** Where a row of the storno chain opens. */
   relatedRoute: (row: any) => RouteLocationRaw
   /** The full document page for a row (print, email), or null where there is none. */
-  documentRoute?: (row: any) => RouteLocationRaw | string | null
+  documentRoute?: (row: any) => RouteLocationRaw | null
+  /** Where the invoice a payment's receipt paid opens. A reader with no such page gets its number alone. */
+  invoiceRoute?: (inv: { id: string; number: string }) => RouteLocationRaw
 }>()
 
 const { t } = useI18n()

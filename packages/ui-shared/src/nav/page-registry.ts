@@ -1,12 +1,13 @@
+import { FISCAL_ADMIN_ROLES } from 'config/constants'
+
 /**
  * Cross-app registry of the favouritable PAGES/functions surfaced by the global top-bar ★ menu.
  * Mirrors each app's top-menu `menuItems` (same i18n label key + mdi icon + `to`). The `path`
  * is the full app-prefixed URL (app base + `to`, e.g. "/invoicing/invoices") and doubles as the
  * globally-unique `id`, so favorites/usage span every app.
  *
- * ui-shared has no dependency on the `config` package, so the app base paths, dev ports,
- * permissions and colours below intentionally duplicate `APP_REGISTRY`
- * (packages/config/src/constants.ts). `unit/page-registry.test.ts` fails when they drift.
+ * The app base paths, permissions and colours below duplicate `APP_REGISTRY`
+ * (packages/config/src/constants.ts), and `unit/page-registry.test.ts` fails when they drift.
  */
 
 export interface PageDef {
@@ -22,18 +23,21 @@ export interface PageDef {
    * the server would refuse to save (FR-22 §5.8).
    */
   need?: readonly string[]
+  /** Who may open it by role, whatever they hold, where the server's own rule is a role. */
+  roles?: readonly string[]
+  /** A page of the till, inside the invoicing app: all a PIN session reaches (`canOpenPage`). */
+  till?: boolean
 }
 
 /**
  * Each app's base path, name, permission and colour. Every app is a module of the one SPA (FR-24.21).
- * POS is still its own app (its App Hub tile, `pos.read`, the PIN session's scope), with its pages
- * under `/invoicing/pos/*` since FR-24 Phase 0.
+ * `reads`: every permission the server reads the app for, where that is more than its tile's
+ * (`route-permission.ts#PREFIX_READ_RULES`).
  */
-export const APP_NAV_META: Record<string, { base: string; nameKey: string; permission: string; color: string }> = {
-  invoicing: { base: '/invoicing', nameKey: 'apps.invoicing', permission: 'invoicing.read', color: '#2196f3' },
+export const APP_NAV_META: Record<string, { base: string; nameKey: string; permission: string; color: string; reads?: readonly string[] }> = {
+  invoicing: { base: '/invoicing', nameKey: 'apps.invoicing', permission: 'invoicing.read', color: '#2196f3', reads: ['invoicing.read', 'invoicing.write', 'invoicing.send'] },
   inventory: { base: '/inventory', nameKey: 'apps.inventory', permission: 'inventory.read', color: '#ff9800' },
   accounting: { base: '/accounting', nameKey: 'apps.accounting', permission: 'accounting.read', color: '#4caf50' },
-  pos: { base: '/invoicing/pos', nameKey: 'apps.pos', permission: 'pos.read', color: '#e91e63' },
   payroll: { base: '/payroll', nameKey: 'apps.payroll', permission: 'payroll.read', color: '#9c27b0' },
   reports: { base: '/reports', nameKey: 'apps.reports', permission: 'reports.read', color: '#8e24aa' },
   files: { base: '/files', nameKey: 'apps.files', permission: 'admin.settings', color: '#607d8b' },
@@ -46,24 +50,36 @@ function page(appId: string, to: string, labelKey: string, icon: string, need?: 
 
 const WRITE_INVOICING = ['invoicing.write'] as const
 const WRITE_INVENTORY = ['inventory.write'] as const
+// The till's pages, each named for what the server asks of it (`route-permission.ts`). An app's
+// own `invoicing.read` would hide them from a till-only role and show them to an accountant.
+const WRITE_TILL = ['pos.write'] as const
+const READ_TILL = ['pos.read', 'pos.write'] as const
+const READ_JOURNAL = [...APP_NAV_META.invoicing.reads!, ...READ_TILL] as const
+// What the server reads for the inventory app too (`route-permission.ts`): the orders a delivery is
+// booked against, and the contacts it picks a supplier from.
+const READ_WITH_INVENTORY = [...APP_NAV_META.invoicing.reads!, 'inventory.read', 'inventory.write', 'inventory.adjust'] as const
+
+function tillPage(to: string, labelKey: string, icon: string, need: readonly string[], roles?: readonly string[]): PageDef {
+  return { ...page('invoicing', to, labelKey, icon, need), till: true, ...(roles ? { roles } : {}) }
+}
 
 export const PAGE_REGISTRY: PageDef[] = [
   // ── Invoicing ──
   // FR-01: credit/debit notes merged into the sales/purchase document grids; their old
   // paths redirect, so stale favorites keep working while the rows themselves are gone.
   page('invoicing', '/invoices', 'nav.salesDocs', 'mdi-receipt-text-outline'),
-  page('invoicing', '/orders', 'nav.externalOrders', 'mdi-clipboard-list-outline'),
+  page('invoicing', '/orders', 'nav.externalOrders', 'mdi-clipboard-list-outline', READ_WITH_INVENTORY),
   page('invoicing', '/internal-orders', 'nav.internalOrders', 'mdi-account-clock-outline'),
   page('invoicing', '/reservations', 'nav.reservations', 'mdi-lock-clock'),
   page('invoicing', '/proforma', 'nav.proforma', 'mdi-file-document-outline'),
   page('invoicing', '/bills', 'nav.purchaseDocs', 'mdi-receipt-text'),
-  page('invoicing', '/cash-sales', 'invoicing.cashSales', 'mdi-cash-register'),
+  tillPage('/cash-sales', 'nav.crSales', 'mdi-cash-register', READ_JOURNAL),
   page('invoicing', '/payment-orders', 'nav.paymentOrders', 'mdi-bank-transfer'),
   page('invoicing', '/cash-orders', 'nav.cashOrders', 'mdi-cash'),
   // FR-06 (#14): the aging report and the export page moved to the Reports app — their rows
   // are under "Reports" below. The old paths still resolve (redirect stubs), and existing
   // favorites on them are remapped on load, see LEGACY_PAGE_IDS.
-  page('invoicing', '/contacts', 'nav.contacts', 'mdi-contacts'),
+  page('invoicing', '/contacts', 'nav.contacts', 'mdi-contacts', READ_WITH_INVENTORY),
   page('invoicing', '/configuration/sequences', 'nav.sequences', 'mdi-numeric'),
   // ── Inventory ──
   page('inventory', '/products', 'nav.products', 'mdi-package-variant'),
@@ -84,7 +100,8 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('invoicing', '/invoices/new?type=credit_note', 'nav.newDocPage.creditNote', 'mdi-receipt-text-minus-outline', WRITE_INVOICING),
   page('invoicing', '/invoices/new?type=debit_note', 'nav.newDocPage.debitNote', 'mdi-receipt-text-arrow-right-outline', WRITE_INVOICING),
   page('invoicing', '/proforma/new', 'nav.newDocPage.proforma', 'mdi-file-document-plus-outline', WRITE_INVOICING),
-  page('invoicing', '/cash-sales/new', 'nav.newDocPage.cashSale', 'mdi-cash-register', WRITE_INVOICING),
+  // The till's terminal: a cash sale is rung up there.
+  tillPage('/cash-sales/new', 'nav.csTerminal', 'mdi-point-of-sale', WRITE_TILL),
   page('invoicing', '/bills/new', 'nav.newDocPage.bill', 'mdi-receipt-text-arrow-left-outline', WRITE_INVOICING),
   page('inventory', '/movements/new', 'nav.newDocPage.goodsReceipt', 'mdi-truck-delivery-outline', WRITE_INVENTORY),
   page('invoicing', '/internal-orders/new', 'nav.newDocPage.customerOrder', 'mdi-clipboard-account-outline', WRITE_INVOICING),
@@ -102,11 +119,10 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('accounting', '/reconciliation', 'nav.reconciliation', 'mdi-bank-check'),
   page('accounting', '/exchange-rates', 'nav.exchangeRates', 'mdi-currency-usd'),
   page('accounting', '/fixed-assets', 'nav.fixedAssets', 'mdi-office-building'),
-  // ── POS ──
-  page('pos', '/terminal', 'nav.terminal', 'mdi-point-of-sale'),
-  page('pos', '/orders', 'cashRegister.title', 'mdi-receipt'),
-  page('pos', '/sessions', 'nav.sessions', 'mdi-clock-outline'),
-  page('pos', '/devices', 'nav.devices', 'mdi-printer-pos'),
+  // ── The till, inside Invoicing ──
+  tillPage('/cash-register/sessions', 'nav.crSessions', 'mdi-clock-outline', READ_TILL),
+  // The server reads `fiscal` for any member and writes it by role: who runs a device holds no `pos.*`.
+  tillPage('/configuration/devices', 'nav.devices', 'mdi-printer-pos', READ_TILL, FISCAL_ADMIN_ROLES),
   // ── Payroll ──
   page('payroll', '/employees', 'payroll.employees', 'mdi-account-multiple'),
   page('payroll', '/runs', 'payroll.payrollRuns', 'mdi-cash-register'),
@@ -138,19 +154,24 @@ export const PAGE_REGISTRY: PageDef[] = [
 
 /**
  * FR-6.5: a page's `id` IS its path, so moving a page orphans every ★ favorite pinned to
- * the old URL. These two moved with FR-06; the favorites composable rewrites stored ids
- * through this table on load, so a user who had starred either page keeps the star.
+ * the old URL. The first two moved with FR-06, the rest when POS moved into Invoicing; the
+ * favorites composable rewrites stored ids through this table on load, so a user who had starred
+ * one of these pages keeps the star. One hop only: each old id names the page's final home.
  *
  * Safe to delete once no stored favorites can plausibly still carry the old ids.
  */
 export const LEGACY_PAGE_IDS: Record<string, string> = {
   '/invoicing/aging-report': '/reports/aging',
   '/invoicing/reporting/export': '/reports/export',
-  // FR-24 Phase 0: the POS pages moved into the invoicing SPA.
-  '/pos/terminal': '/invoicing/pos/terminal',
-  '/pos/orders': '/invoicing/pos/orders',
-  '/pos/sessions': '/invoicing/pos/sessions',
-  '/pos/devices': '/invoicing/pos/devices',
+  '/pos/terminal': '/invoicing/cash-sales/new',
+  '/pos/orders': '/invoicing/cash-sales',
+  '/pos/sessions': '/invoicing/cash-register/sessions',
+  '/pos/devices': '/invoicing/configuration/devices',
+  // FR-24 Phase 0 had them under `/invoicing/pos/*`, and rewrote stored ids to that.
+  '/invoicing/pos/terminal': '/invoicing/cash-sales/new',
+  '/invoicing/pos/orders': '/invoicing/cash-sales',
+  '/invoicing/pos/sessions': '/invoicing/cash-register/sessions',
+  '/invoicing/pos/devices': '/invoicing/configuration/devices',
 }
 
 /** Map a stored page id onto its current one. Unknown ids pass through untouched. */
@@ -215,23 +236,51 @@ export interface PageViewer {
 /**
  * May this person open the page? ★ and „+ Нов" list only what this answers yes to (FR-22 §5.8).
  *
- * It mirrors the server rather than deciding anything: the App Hub's rule for an app's pages, the
+ * It mirrors the server rather than deciding anything: the read rule for an app's pages, the
  * write rule for a new-document form, an `admin` always (as `route-permission.ts#writeRefusal`),
  * and a PIN session the till only, whatever its role (`pinScopeRefusal`). Hiding an entry is
  * presentation — the server still answers every request on its own.
+ *
+ * ⚠ The ONE rule for who may open what. ★, „+ Нов", the invoicing menu, the till's guard and the
+ * landing after a PIN and after an org switch all ask it, so none of them can come to another answer.
  */
 export function canOpenPage(page: PageDef, who: PageViewer | null | undefined): boolean {
   if (!who) return false
-  if (who.amr?.includes('pin') && page.appId !== 'pos') return false
+  if (who.amr?.includes('pin') && !page.till) return false
   if (who.role === 'admin') return true
-  const need = page.need ?? [APP_NAV_META[page.appId]?.permission]
+  if (who.role && page.roles?.includes(who.role)) return true
+  const need = page.need ?? APP_NAV_META[page.appId]?.reads ?? [APP_NAV_META[page.appId]?.permission]
   const held = who.permissions ?? []
   return need.some((p) => !!p && held.includes(p))
 }
 
 /**
+ * Who has the till and nothing else of the invoicing app: a PIN session, whatever its role (the
+ * server holds it to the till, `pinScopeRefusal`), and someone holding `pos.*` with no right that
+ * opens another page of it. The invoicing router takes them to the till from any other page. An
+ * `admin` is refused nothing, whatever its set says.
+ */
+export function isTillOnly(who: PageViewer | null | undefined): boolean {
+  if (!who) return false
+  if (who.amr?.includes('pin')) return true
+  if (who.role === 'admin') return false
+  const held = who.permissions ?? []
+  const reads = (ps: readonly string[]) => ps.some((p) => held.includes(p))
+  return !reads(READ_WITH_INVENTORY) && reads(READ_TILL)
+}
+
+/**
+ * Whether this session reads the documents, `/invoices` and its prints. A till-only session does
+ * not, and neither does someone in on the till and inventory: a till sale's page is all they read
+ * of it, not the back-office form.
+ */
+export function readsDocuments(who: PageViewer | null | undefined): boolean {
+  return canOpenPage(pageById('/invoicing/invoices')!, who)
+}
+
+/**
  * FR-22.49: what „+ Нов" offers, in the groups the menu separates with a divider: selling, the
- * back-office till, buying, orders. Each entry names a PAGE_REGISTRY row, which carries the path,
+ * till, buying, orders. Each entry names a PAGE_REGISTRY row, which carries the path,
  * the icon and the permission the menu filters on. The label is the document alone ("Изходяща
  * фактура"): the menu itself already says "new".
  *

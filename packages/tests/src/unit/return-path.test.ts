@@ -22,6 +22,8 @@ describe('safeReturnPath — what it follows', () => {
     expect(safeReturnPath('/invoicing/invoices')).toBe('/invoicing/invoices')
     expect(safeReturnPath('/invoicing/invoices/new?type=credit_note')).toBe('/invoicing/invoices/new?type=credit_note')
     expect(safeReturnPath('/inventory/products/6a1/edit#prices')).toBe('/inventory/products/6a1/edit#prices')
+    expect(safeReturnPath('/invoicing/cash-sales/new')).toBe('/invoicing/cash-sales/new')
+    // No app any more, and still addresses that land: the server's redirect and the router's.
     expect(safeReturnPath('/pos/terminal')).toBe('/pos/terminal')
     expect(safeReturnPath('/invoicing/pos/terminal')).toBe('/invoicing/pos/terminal')
     expect(safeReturnPath('/reports/sales-history?dateFrom=2026-10-01')).toBe('/reports/sales-history?dateFrom=2026-10-01')

@@ -156,14 +156,12 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     const row = rows.find((r: any) => r.number === sale.transactionNumber)
     expect(row).toMatchObject({ origin: 'pos', fiscal: { isFiscal: true, unp: sale.unpNumber, deviceNumber: SERIAL } })
 
-    // Both apps' journals list the same sale, with the same number and total.
+    // The journal lists the same sale, with the same number and total.
     await loginForApp(page)
-    for (const path of ['/pos/orders', '/invoicing/cash-sales']) {
-      await page.goto(`${path}?q=${sale.transactionNumber}`)
-      const tr = page.locator('.v-data-table tbody tr').filter({ has: page.getByRole('link', { name: sale.transactionNumber, exact: true }) })
-      await expect(tr).toBeVisible({ timeout: 15000 })
-      await expect(tr).toContainText(t.total.toFixed(2))
-    }
+    await page.goto(`/invoicing/cash-sales?q=${sale.transactionNumber}`)
+    const tr = page.locator('.v-data-table tbody tr').filter({ has: page.getByRole('link', { name: sale.transactionNumber, exact: true }) })
+    await expect(tr).toBeVisible({ timeout: 15000 })
+    await expect(tr).toContainText(t.total.toFixed(2))
   })
 
   test('9. R5: a back-office sale by the cashier joins the open session and prints on its device', async () => {
@@ -197,7 +195,7 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     const before = (await device()).receipts.length
 
     await loginForApp(page, 'acme-corp', cashierName, 'test12345')
-    await page.goto('/pos/terminal')
+    await page.goto('/invoicing/cash-sales/new')
     // A fiscal receipt: the switch starts on, for a till with a device that is not fiscalized yet.
     const nonFiscal = page.getByLabel('Non-fiscal')
     await expect(nonFiscal).toBeVisible({ timeout: 15000 })
@@ -236,7 +234,7 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     await dialog.getByRole('button', { name: 'Cancel' }).click()
 
     // The journal filters by it, and its Payment column says it in words.
-    await page.goto('/pos/orders?method=cash_on_delivery')
+    await page.goto('/invoicing/cash-sales?method=cash_on_delivery')
     const row = page.locator('.v-data-table tbody tr').filter({ has: page.getByRole('link', { name: delivered.transactionNumber, exact: true }) })
     await expect(row).toContainText('Cash on delivery', { timeout: 15000 })
     await expect(page.getByRole('link', { name: sale.transactionNumber, exact: true })).toHaveCount(0)
@@ -247,7 +245,7 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     const before = await device()
 
     await loginForApp(page)
-    await page.goto('/pos/sessions')
+    await page.goto('/invoicing/cash-register/sessions')
     const row = page.locator('.v-data-table tbody tr').filter({ hasText: session.sessionNumber })
     await expect(row).toBeVisible({ timeout: 15000 })
     await row.getByTestId('session-device-report').click()
@@ -320,7 +318,7 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     const before = await device()
 
     await loginForApp(page)
-    await page.goto('/pos/sessions')
+    await page.goto('/invoicing/cash-register/sessions')
     const row = page.locator('.v-data-table tbody tr').filter({ hasText: session.sessionNumber })
     await expect(row).toBeVisible({ timeout: 15000 })
     await row.getByTestId('session-report-open').click()
@@ -348,7 +346,7 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     const z = Number(session.zReportNumber)
 
     await loginForApp(page)
-    await page.goto('/pos/sessions')
+    await page.goto('/invoicing/cash-register/sessions')
     const row = page.locator('.v-data-table tbody tr').filter({ hasText: session.sessionNumber })
     await expect(row).toBeVisible({ timeout: 15000 })
     await row.getByTestId('session-device-report').click()

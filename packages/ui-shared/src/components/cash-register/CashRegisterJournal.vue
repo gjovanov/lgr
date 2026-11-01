@@ -43,7 +43,7 @@
           <DateField v-model="dateTo" :label="$t('invoicing.dateTo')" />
         </v-col>
         <!-- From a session's „Касови продажби": that session's documents. Named by the rows' own
-             session number, which a reader without the POS app can see too. -->
+             session number, which a reader without `pos.*` can see too. -->
         <v-col v-if="session" cols="12" class="pt-0">
           <v-chip closable color="primary" variant="tonal" data-testid="journal-session-chip" @click:close="session = ''">
             {{ $t('cashRegister.filters.session', { number: items[0]?.sessionNumber || '…' }) }}
@@ -93,7 +93,7 @@
           size="x-small"
           variant="tonal"
           :color="item.invoicingState === 'full' ? 'primary' : 'warning'"
-          v-bind="linkProps(invoiceLink(inv))"
+          :to="invoiceLink(inv)"
           :title="item.kind === 'payment' ? $t('cashRegister.receipt.paidInvoice') : item.invoicingState === 'partial' ? $t('invoicing.cashSaleInvoice.statePartial') : $t('invoicing.cashSaleInvoice.stateFull')"
         >
           {{ inv.number }}
@@ -134,13 +134,11 @@
 
 <script setup lang="ts">
 /**
- * FR-21.13 — „Касови продажби": the cash-register journal, one page in two apps.
+ * FR-21.13 — „Касови продажби": the cash-register journal.
  *
- * The POS app mounts it at `/pos/orders` and invoicing at `/invoicing/cash-sales`: the same rows
- * (`GET /cash-register/documents` — the till's sales, the back office's and the imports'), the same
- * columns, filters and actions. Each app adds its own buttons through the slots, and says where a
- * row opens (`detailRoute`). Column choices are kept under one grid id rather than per route, so a
- * column turned on in one app is on in the other.
+ * Invoicing mounts it at `/invoicing/cash-sales`: the rows of `GET /cash-register/documents`, the
+ * till's sales, the back office's and the imports'. The app adds its own buttons through the slots,
+ * and says where a row opens (`detailRoute`). Column choices are kept under one grid id.
  */
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -158,7 +156,6 @@ import { useSnackbar } from '../../composables/useSnackbar'
 import { paymentMethodKey } from '../../composables/usePaymentMethods'
 import { canStornoJournalRow } from '../../cash-register/storno'
 import { kindColor } from '../../cash-register/journal-kind'
-import { appHref } from '../../nav/navigate'
 
 const props = defineProps<{
   orgUrl: string
@@ -167,18 +164,9 @@ const props = defineProps<{
   userId?: string
   /** Where a row opens. */
   detailRoute: (row: any) => RouteLocationRaw
-  /** Where an invoice issued for a sale opens (#171); invoicing's page by default, across apps. */
-  invoiceLink?: (inv: { id: string; number: string }) => RouteLocationRaw | string
+  /** Where an invoice issued for a sale opens (#171), or nothing where the reader has no such page. */
+  invoiceLink: (inv: { id: string; number: string }) => RouteLocationRaw | undefined
 }>()
-
-function invoiceLink(inv: { id: string; number: string }): RouteLocationRaw | string {
-  return props.invoiceLink ? props.invoiceLink(inv) : appHref('invoicing', `/invoicing/invoices/${inv.id}/edit`)
-}
-
-/** A route stays in this app; a string is another app's page. */
-function linkProps(link: RouteLocationRaw | string) {
-  return typeof link === 'string' ? { href: link } : { to: link }
-}
 
 const { t } = useI18n()
 const { formatCurrency } = useCurrency()

@@ -16,9 +16,9 @@ import { deviceless } from '../lib/counter-receipt.js'
  * FR-21.12 — the cash-register journal („Касови продажби").
  *
  * One list and one detail for every cash-register sale and storno: the till's, the back office's
- * and the PlusMinus imports'. The POS app shows it at `/pos/orders` and the invoicing app at
- * `/invoicing/cash-sales`, so its readers are either app's (`route-permission.ts`, `cash-register`),
- * and a till signed in with a PIN reaches it too.
+ * and the PlusMinus imports'. The invoicing app shows it at `/invoicing/cash-sales`, to whoever holds
+ * `pos.*` or `invoicing.*` (`route-permission.ts`, `cash-register`), and a till signed in with a
+ * PIN reaches it too.
  *
  * Its one write is the storno (FR-21.18): the till's own route needs the session in its path, but a
  * back-office sale has no receipt and no drawer, so it is reversed here without one. A till sale

@@ -157,6 +157,13 @@ test.describe('FR-23 — a receipt for a payment on an invoice', () => {
     await expect(row).toBeVisible({ timeout: 15000 })
     await expect(row.getByTestId('journal-kind-chip')).toContainText('Invoice payment')
     await expect(row).toContainText(invoice.invoiceNumber)
+
+    // Its page names the invoice, one move away: a page load would close the printer's port.
+    await row.getByRole('link', { name: number, exact: true }).click()
+    await page.evaluate(() => { (window as any).__samePage = true })
+    await page.getByTestId('journal-paid-invoice').click()
+    await expect(page).toHaveURL(new RegExp(`/invoicing/invoices/${id}/edit`))
+    expect(await page.evaluate(() => (window as any).__samePage)).toBe(true)
   })
 
   test('a part payment prints „Плащане по фактура № …" for that amount; the last one pays the invoice', async ({ page }) => {

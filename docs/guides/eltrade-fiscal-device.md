@@ -16,7 +16,7 @@ POS through the browser (USB → Web Serial). Driver: `packages/fiscal/src/eltra
    instead, install Eltrade's USB driver.
 3. Speed is 115200 (the device default). Leave the POS baud selector on **115200**.
 
-## 2. In LGR — POS → Devices → New Device
+## 2. In LGR — Invoicing → Configuration → Devices → New Device
 
 | Field | Value |
 |---|---|
@@ -44,7 +44,7 @@ Right after connecting, LGR reads the device and says one of:
   Number, otherwise every fiscal receipt is rejected.
 - **Fiscal device problem: …** — out of paper, clock not set, fiscal memory errors.
 
-The same reading is on demand under *POS → Devices → (device) → Reports → Device Status → Read
+The same reading is on demand under *Invoicing → Configuration → Devices → (device) → Reports → Device Status → Read
 Status*.
 
 ## 4. Printing
@@ -74,7 +74,7 @@ Status*.
   for minutes; past five and a half it is refused with „device busy“, and nothing printed.
 - Closing the POS session runs the **Z-report** on the device.
 
-## 5. The device page (POS → Devices → the device)
+## 5. The device page (Invoicing → Configuration → Devices → the device)
 
 What an Eltrade can do from here, and what its protocol (v1.1.7) does not have. The page asks the
 server what the device's driver supports (`capabilities` on `GET /fiscal/device/:id`, from

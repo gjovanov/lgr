@@ -203,7 +203,8 @@ With the app registered against the stub:
    and the app window stayed blank.
 4. `curl -X POST http://127.0.0.1:4100/__stub/online`
 5. **Expect:** within a minute, with nobody touching anything, the window navigates to
-   `http://127.0.0.1:4099/pos/`.
+   `http://127.0.0.1:4099/pos/`, which redirects to `/invoicing/cash-sales/new`, as the real
+   server does.
 
 Check the log at `%LOCALAPPDATA%\com.lgr.desktop\logs\lgr-desktop.log` for
 `lgr-web: server-unreachable` followed by `lgr-web: server-returned`.

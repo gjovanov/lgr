@@ -1,8 +1,8 @@
 <template>
   <!-- FR-21.29: one selling surface for every cash-register document — the till's
-       (`/pos/terminal`) and the back office's (`/invoicing/cash-sales/new`). Each app keeps what is
-       its own (the till: session, fiscal bridge, last sale, payment; the back office: the document
-       header and its save) and hands it in through the slots. -->
+       (`/invoicing/cash-sales/new`) and the back-office form a saved sale opens on
+       (`/invoicing/cash-sales/:id/edit`). Each keeps what is its own (the till: session, fiscal
+       bridge, last sale, payment; the form: the document header) and hands it in through the slots. -->
   <v-row dense class="register-terminal">
     <!-- ── Left: the catalog ── -->
     <v-col v-if="!readonly" cols="12" md="7">
@@ -208,7 +208,7 @@ const props = withDefaults(defineProps<{
   /**
    * FR-21.30: the cart's totals and each line's gross, from `config/pos-totals#computePosTotals` —
    * the one function the till, the server's check and the fiscal device's arithmetic share. The
-   * app computes them (ui-shared does not depend on `config`).
+   * door computes them: it holds the lines.
    */
   totals: { subtotal: number; taxTotal: number; total: number }
   lineGross: (line: RegisterLine) => number

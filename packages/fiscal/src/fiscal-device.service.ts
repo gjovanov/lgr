@@ -45,7 +45,7 @@ export function createPrinter(
       }
       throw new Error(
         `Eltrade over '${config.type}' is not opened by the server. Use connection type 'browser' `
-        + `(connect from the POS / Devices page) or 'tcp' through the serial-to-TCP bridge.`,
+        + `(connect from the CS Terminal or the Devices page) or 'tcp' through the serial-to-TCP bridge.`,
       )
     }
     case 'incotex':

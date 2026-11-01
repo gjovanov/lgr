@@ -10,20 +10,20 @@
  * manager; from POS Sessions it does not exist: a Z runs only through a session's close, and one run
  * outside it makes the next close print zeros.
  */
+import { FISCAL_ADMIN_ROLES } from 'config/constants'
 import { getPrinter, isDeviceConnected } from './fiscal-device.service.js'
 import { FEATURE_METHODS, fiscalCapabilities, unsupportedReason, type FiscalFeature } from './capabilities.js'
 import { fiscalFailure } from './errors.js'
 import type { IFiscalPrinter } from './types.js'
 
-/** Who runs a device: its connection, its operators and its reports. */
-export const FISCAL_ADMIN_ROLES = ['admin', 'manager', 'warehouse_manager']
+export { FISCAL_ADMIN_ROLES }
 
 export type Status = (code: number, body: Record<string, unknown>) => any
 export type DeviceRow = { id: string; name?: string; manufacturer: string; connectionType: string }
 
 /** Who opens a device's port, so a refusal can say what to do about it. */
 const NOT_CONNECTED_HINT: Record<string, string> = {
-  browser: 'connect it from the POS (Connect Printer) or from this device page, in Chrome or Edge',
+  browser: 'connect it from the CS Terminal (Connect Printer) or from this device page, in Chrome or Edge',
   desktop: 'it connects through its LGR Desktop, which is not running or cannot reach the server',
   tcp: 'the server has not opened it yet: connect it first',
 }

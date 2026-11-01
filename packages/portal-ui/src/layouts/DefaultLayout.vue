@@ -74,6 +74,7 @@ import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
 import { useAppStore } from '../store/app.store'
 import { useNotificationStore } from '../store/notification.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
 import { appHomeHref, goTo } from 'ui-shared/nav/navigate'
 import { pendingRestoreUrl } from 'ui-shared/nav/open-page'
 import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'
@@ -105,9 +106,9 @@ function handleRestore(entry: PendingChangeEntry) {
 
 onMounted(async () => {
   if (appStore.currentOrg?.id) {
-    // /auth/me returns the JWT-shaped user (`id`, no `_id`) — fall back so the
-    // pending-changes storage key stays stable and persist() actually writes.
-    pendingChangesStore.load(appStore.currentOrg.id, (appStore.user as any)?._id || (appStore.user as any)?.id || '')
+    // Keyed on the session, as ModuleLayout's is, and never on `/auth/me`'s answer: this list and
+    // that one are the same list.
+    pendingChangesStore.load(appStore.currentOrg.id, jwtUserId())
     try {
       const { data } = await httpClient.get(`/org/${appStore.currentOrg.id}/apps`)
       apps.value = data.apps

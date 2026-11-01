@@ -10,7 +10,7 @@
  * the server refuses it until that holds (`freeze-check.ts`, FR-21.28). A row's `store` is
  * always `'invoice'` now; the field stays for the UI that still branches on it.
  *
- * The same journal is mounted at `/pos/orders` and `/invoicing/cash-sales` (D-10).
+ * The journal is mounted at `/invoicing/cash-sales`, for the till and the back office alike (D-10).
  */
 import { Contact, Invoice, POSSession, StockMovement, User, Warehouse } from 'db/models'
 import { localDayWindow, BULGARIAN_TIME_ZONE } from '../local-day.js'

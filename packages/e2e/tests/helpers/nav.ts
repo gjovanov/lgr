@@ -59,3 +59,26 @@ export async function openNavDrawer(page: Page): Promise<Locator> {
   await drawer.locator('.v-list-item-title').first().waitFor({ state: 'visible' })
   return drawer
 }
+
+/** CR Sessions' files: a page nothing has opened by the time a test says they are gone. */
+export const SESSION_FILES = /\/ui\/PosSessionsView-[^/]+\.(js|css)$/
+
+/**
+ * A deploy: these files are gone from under this document, and the server serves another build. The
+ * next document has what it needs.
+ */
+export async function filesGone(page: Page, files: RegExp = SESSION_FILES) {
+  let deployed = true
+  page.on('request', (r) => { if (r.isNavigationRequest() && r.frame() === page.mainFrame()) deployed = false })
+  await page.route(files, route => (deployed ? route.abort() : route.continue()))
+  await page.route('**/api/health', async (route) => {
+    if (!deployed) return route.fallback()
+    const response = await route.fetch()
+    await route.fulfill({ response, headers: { ...response.headers(), 'x-lgr-build': 'the-next-build' } })
+  })
+}
+
+/** The same files failing with no deploy behind them: a blip. The next try may find them. */
+export async function filesBlip(page: Page, files: RegExp = SESSION_FILES) {
+  await page.route(files, route => route.abort())
+}
