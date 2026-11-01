@@ -4,7 +4,8 @@ import ExcelJS from 'exceljs'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
 import { allowSalesWithoutPrinter, createTestAccount, createTestContact } from '../helpers/factories'
-import { AuditLog, FiscalDevice, Invoice, Journal, JournalEntry, Org, POSSession, Sequence, StockMovement } from 'db/models'
+import { AuditLog, FiscalDevice, FiscalPresence, Invoice, Journal, JournalEntry, Org, POSSession, Sequence, StockMovement } from 'db/models'
+import { deviceFromCounter, deviceFromDeadReceipt, setFiscalForwarding } from 'fiscal/fiscal-route'
 import { statsController } from 'invoicing-api/src/controllers/stats.controller'
 import { contactController } from 'invoicing-api/src/controllers/contact.controller'
 import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller'
@@ -1048,6 +1049,121 @@ describe('what a whole receipt prints', () => {
     expect(r.status).toBe(422)
     expect(r.json.code).toBe('receipt_not_printable')
     expect(w.sim!.receipts).toHaveLength(0)
+  })
+})
+
+describe('FR-24.50: a door that reaches a printer runs where the printer is', () => {
+  const forwarded: Array<{ to: string; method: string; path: string }> = []
+  let reachable = true
+
+  beforeAll(() => {
+    setFiscalForwarding({
+      async forward(to, request) {
+        forwarded.push({ to, method: request.method, path: new URL(request.url).pathname })
+        return reachable ? new Response(JSON.stringify({ from: 'pod-b' }), { status: 200, headers: { 'content-type': 'application/json' } }) : null
+      },
+      isHop: () => false,
+      clientIp: () => '203.0.113.7',
+    })
+  })
+  afterAll(() => setFiscalForwarding(null))
+  afterEach(() => {
+    forwarded.splice(0)
+    reachable = true
+  })
+
+  /** This process lets go of the world's device, and a live row says pod B holds it. */
+  async function heldOnPodB(w: TillWorld) {
+    forgetDevices()
+    await FiscalPresence.init()
+    const now = new Date()
+    await FiscalPresence.create({
+      orgId: w.orgId, deviceNumber: 'ED123456', deviceId: w.deviceId, kind: 'user', label: 'Till on B',
+      podId: 'pod-b', podAddr: 'http://10.0.0.2:4001', connId: 'conn-b', connectedAt: now, heartbeatAt: now,
+    })
+  }
+  /** A receipt of this document that nobody finished, printing on the world's warehouse. */
+  const unfinished = (w: TillWorld, id: string) => Invoice.collection.insertOne({
+    orgId: w.oid, type: 'payment_receipt', register: { paidInvoiceId: new (Invoice.base as any).Types.ObjectId(id), warehouseId: w.warehouse._id },
+  } as any)
+
+  it('issuing, paying and printing a delivery receipt go to the pod with the printer, and nothing is written here', async () => {
+    const w = await tillWorld(app)
+    const cash = await draftOf(w)
+    const bank = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, bank.id)
+    const cod = await draftOf(w, { method: 'cash_on_delivery' })
+    await heldOnPodB(w)
+    const before = await footprint(w)
+
+    const answers = [await send(w, cash.id), await pay(w, bank.id, 24), await printIt(w, cod.id)]
+
+    expect(answers).toEqual(Array(3).fill({ status: 200, json: { from: 'pod-b' } }))
+    expect(forwarded.map(f => f.path)).toEqual([
+      `/org/${w.orgId}/invoices/${cash.id}/send`, `/org/${w.orgId}/invoices/${bank.id}/payments`, `/org/${w.orgId}/invoices/${cod.id}/receipt`,
+    ])
+    expect(await footprint(w)).toEqual(before)
+    expect((await raw(cash.id)).status).toBe('draft')
+  })
+
+  it('the holder unreachable: 503, nothing written, the draft a draft', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    await heldOnPodB(w)
+    reachable = false
+    const before = await footprint(w)
+
+    const r = await send(w, d.id)
+
+    expect(r.status).toBe(503)
+    expect(r.json.code).toBe('fiscal_holder_unreachable')
+    expect(await footprint(w)).toEqual(before)
+    expect((await raw(d.id)).status).toBe('draft')
+  })
+
+  it('someone with no session and nothing to finish runs here: no printer is theirs to go to', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await heldOnPodB(w)
+
+    expect((await send(w, d.id, undefined, w.clerkToken)).status).toBe(200)
+    expect((await pay(w, d.id, 24, 'bank_transfer', undefined, w.clerkToken)).status).toBe(200)
+
+    expect(forwarded).toHaveLength(0)
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
+  it('an edit and a void run here, unless a dead receipt is there to finish on its own device', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await heldOnPodB(w)
+
+    expect((await w.call('PUT', `/invoices/${d.id}`, { reference: 'one' })).json.invoice.reference).toBe('one')
+    expect(forwarded).toHaveLength(0)
+
+    await unfinished(w, d.id)
+    expect((await w.call('PUT', `/invoices/${d.id}`, { reference: 'two' })).json).toEqual({ from: 'pod-b' })
+    expect((await w.call('POST', `/invoices/${d.id}/void`)).json).toEqual({ from: 'pod-b' })
+    expect(forwarded.map(f => f.method)).toEqual(['PUT', 'POST'])
+    expect((await raw(d.id)).reference).toBe('one')
+  })
+
+  it('the resolvers: the user\'s open session; else what a dead receipt was printing on; else nothing', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    const params = { orgId: w.orgId, id: d.id }
+    const target = { orgId: w.orgId, deviceId: w.deviceId, deviceNumber: 'ED123456' }
+
+    expect(await deviceFromCounter({ params, user: { id: String(w.user._id) }, body: {} })).toEqual(target)
+    expect(await deviceFromCounter({ params, user: { id: String(w.clerk._id) }, body: {} })).toBeNull()
+    expect(await deviceFromDeadReceipt({ params, user: {}, body: {} })).toBeNull()
+
+    await unfinished(w, d.id)
+    expect(await deviceFromCounter({ params, user: { id: String(w.clerk._id) }, body: {} })).toEqual(target)
+    expect(await deviceFromDeadReceipt({ params, user: {}, body: {} })).toEqual(target)
+
+    await Invoice.collection.updateMany({ orgId: w.oid, type: 'payment_receipt' } as any, { $set: { completedAt: new Date() } })
+    expect(await deviceFromDeadReceipt({ params, user: {}, body: {} })).toBeNull()
   })
 })
 

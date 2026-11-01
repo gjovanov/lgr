@@ -3,7 +3,7 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { PERMISSIONS } from 'config/constants'
 import { mongoose } from 'db/connection'
-import { createTestOrg, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories'
+import { createTestContact, createTestOrg, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { IslResponseCollector } from 'ui-shared/composables/fiscalIslResponse'
 import { startTwoPods, type TwoPods } from './harness'
@@ -22,7 +22,10 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
   let orgId = ''
   let deviceId = ''
   let warehouseId = ''
+  let contactId = ''
   let token = ''
+  /** An issued invoice, part paid on pod B, that pod B still owes a receipt for when pod A dies. */
+  let stillDue = ''
   const sim = new EltradeSimulator()
   let bridge: WebSocket | null = null
 
@@ -45,6 +48,7 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
     orgId = String(org._id)
     deviceId = String(device._id)
     warehouseId = String(wh._id)
+    contactId = String((await createTestContact(org._id, { companyName: 'Клиент ООД', type: 'customer' } as any))._id)
     const signer = new Elysia().use(jwt({ name: 'jwt', secret: pods.jwtSecret })) as any
     token = await signer.decorator.jwt.sign({
       id: '000000000000000000000001', orgId, role: 'admin', firstName: 'Ana', lastName: 'Till',
@@ -105,6 +109,34 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
     expect(again.status).toBe(400) // "You already have an open session": the same database answered
   })
 
+  it('a cash invoice issued on pod B prints once, on the device pod A holds, and is paid (FR-23)', async () => {
+    const before = sim.receipts.length
+    const id = await invoiceOnPodB('cash')
+
+    const res = await api('b', 'POST', `/invoices/${id}/send`, {})
+
+    expect(res.status).toBe(200)
+    expect(res.json.receipt.state).toBe('printed')
+    expect(res.json.invoice).toMatchObject({ status: 'paid', amountPaid: 12 })
+    expect(sim.receipts.length).toBe(before + 1)
+    expect(sim.receipts.at(-1)).toMatchObject({ total: 12, texts: [`Фактура № ${res.json.invoice.invoiceNumber}`] })
+  })
+
+  it('a part payment asked of pod B prints once, through pod A, and the rest stays due (FR-23)', async () => {
+    const before = sim.receipts.length
+    const id = await invoiceOnPodB('bank_transfer')
+    expect((await api('b', 'POST', `/invoices/${id}/send`, {})).status).toBe(200)
+    expect(sim.receipts.length).toBe(before)
+
+    const res = await api('b', 'POST', `/invoices/${id}/payments`, { date: new Date().toISOString().slice(0, 10), amount: 4, method: 'cash' })
+
+    expect(res.status).toBe(200)
+    expect(res.json.invoice).toMatchObject({ status: 'partially_paid', amountPaid: 4 })
+    expect(sim.receipts.length).toBe(before + 1)
+    expect(sim.receipts.at(-1)!.total).toBe(4)
+    stillDue = id
+  })
+
   it('pod A crashed: pod B refuses with nothing done, never prints elsewhere or skips the receipt (FR-24.51/24.52)', async () => {
     const before = sim.reports.length
     // A crash, not a graceful stop: a graceful stop releases the presence row (Phase 5), and pod B then
@@ -114,5 +146,23 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
     expect(res.status).toBe(503)
     expect(res.json.code).toBe('fiscal_holder_unreachable')
     expect(sim.reports.length).toBe(before)
+    // A payment at the counter likewise: its receipt never prints somewhere else, or not at all.
+    const receipts = sim.receipts.length
+    const paid = await api('b', 'POST', `/invoices/${stillDue}/payments`, { date: new Date().toISOString().slice(0, 10), amount: 8, method: 'cash' })
+    expect(paid.status).toBe(503)
+    expect(paid.json.code).toBe('fiscal_holder_unreachable')
+    expect(sim.receipts.length).toBe(receipts)
+    expect((await api('b', 'GET', `/invoices/${stillDue}`)).json.invoice).toMatchObject({ status: 'partially_paid', amountPaid: 4 })
   }, 60_000)
+
+  /** A draft of one free line, 12 gross at 20 %, as the form saves it: it moves no stock. */
+  async function invoiceOnPodB(paymentMethod: string) {
+    const res = await api('b', 'POST', '/invoices', {
+      type: 'invoice', direction: 'outgoing', contactId, issueDate: new Date().toISOString().slice(0, 10), currency: 'EUR', paymentMethod,
+      lines: [{ description: 'Услуга', quantity: 1, unit: 'бр.', unitPrice: 10, taxRate: 20, taxAmount: 2, lineTotal: 12 }],
+      subtotal: 10, taxTotal: 2, total: 12,
+    })
+    expect(res.status).toBe(200)
+    return String(res.json.invoice.id)
+  }
 })

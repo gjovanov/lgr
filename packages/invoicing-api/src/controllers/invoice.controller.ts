@@ -1,4 +1,4 @@
-import { FiscalRoute, deviceFromAuthorSession } from 'fiscal/fiscal-route'
+import { FiscalRoute, deviceFromAuthorSession, deviceFromCounter, deviceFromDeadReceipt } from 'fiscal/fiscal-route'
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
@@ -1162,7 +1162,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       return { invoice: updated }
     },
     {
-      isSignIn: true,
+      isSignIn: true, fiscalDevice: deviceFromDeadReceipt,
       body: t.Object({
         contactId: t.Optional(t.String()),
         issueDate: t.Optional(t.String()),
@@ -1445,7 +1445,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (settlement.action !== 'none') return { invoice: await r.invoices.findOne({ id, orgId } as any) }
 
     return { invoice: updated }
-  }, { isSignIn: true })
+  }, { isSignIn: true, fiscalDevice: deviceFromCounter })
   .post('/:id/receive', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
@@ -1611,7 +1611,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       return { invoice: updated }
     },
     {
-      isSignIn: true,
+      isSignIn: true, fiscalDevice: deviceFromCounter,
       body: t.Object({
         date: t.String(),
         amount: t.Number({ minimum: 0.01 }),
@@ -1659,7 +1659,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
       throw e
     }
-  }, { isSignIn: true })
+  }, { isSignIn: true, fiscalDevice: deviceFromCounter })
   .post('/:id/void', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
@@ -1695,7 +1695,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     createAuditEntry({ orgId, userId: user.id, action: 'void', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
 
     return { invoice: updated }
-  }, { isSignIn: true })
+  }, { isSignIn: true, fiscalDevice: deviceFromDeadReceipt })
   // ── #171: an invoice for a cash sale („фактура към касова продажба") ──
   // What a cash sale still has to invoice, and the invoices it already has.
   .get('/:id/to-invoice', async ({ params: { orgId, id }, user, status }) => {

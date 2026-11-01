@@ -873,7 +873,8 @@ Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models`
 - **Phase 6: the request goes to the printer** (FR-24.50–24.54). A route that reaches a fiscal device
   declares it: `.use(FiscalRoute)` (after its auth plugin) and `{ fiscalDevice: <resolver> }`
   (`fiscal/fiscal-route.ts`: `deviceFromParams`, `deviceFromSession`, `deviceFromBodyWarehouse`,
-  `deviceFromJournalDocument`, `deviceFromAuthorSession`). Before the handler, a device held by ANOTHER
+  `deviceFromJournalDocument`, `deviceFromAuthorSession`, FR-23's `deviceFromCounter` and
+  `deviceFromDeadReceipt`). Before the handler, a device held by ANOTHER
   pod's live row sends the whole request there with `forwardHttp` as a fiscal hop (`FISCAL_HOP`, its own
   HMAC label), raw body and all; the answer is the answer.
   - Holder unreachable: 503 `fiscal_holder_unreachable`, nothing written. A hop is never forwarded
@@ -2363,6 +2364,8 @@ invoice still due until the courier pays).
   `receiptToPrint` on the document), and the invoice stays due.
 - **A number-clash re-issue prints nothing** (`stockSource.detectedBy`): its money was taken under the
   number it replaces.
+- ⚠ **The doors declare their device** (FR-24.50): `/send`, `/payments` and `/receipt` the open session
+  of whoever issues or pays, `PUT` and `/void` a dead receipt's, the only way they reach a device.
 - **The freeze** (§2.7): a live receipt (printing, printed, unknown) makes `PUT` answer 409
   `fiscally_paid` to a changed total, a move between VAT rates, or a changed currency, and refuses
   `/void` and `attach-to-cash-sale`. Everything else stays editable. The receipt itself is immutable.
