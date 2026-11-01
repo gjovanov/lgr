@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup.js'
 import { createTestOrg, createTestUser, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories.js'
 import { AuditLog, FiscalDevice } from 'db/models'
-import { isDeviceConnected } from 'fiscal/fiscal-device.service'
+import { getPrinter, isDeviceConnected } from 'fiscal/fiscal-device.service'
+import { captureRejection } from '../helpers/capture-rejection'
 import {
   handleMessage,
   handleOpen,
@@ -164,6 +165,22 @@ describe('fiscal bridge — an unauthenticated caller registers nothing', () => 
 
     await handleClose(ws)
   }, AUTH_DEADLINE_MS + 5000)
+})
+
+describe('fiscal bridge — a printer outlives its socket', () => {
+  it('a command through a socket that closed fails at once: a print waiting its turn holds that printer', async () => {
+    const { org, device, token } = await seed({ permissions: ['pos.write'] })
+    const ws = fakeWs()
+    await handleMessage(ws, registerMsg({ deviceNumber: device.deviceNumber, orgId: String(org._id), token }))
+    const printer = getPrinter(String(device._id))
+
+    await handleClose(ws)
+    const started = Date.now()
+    const failed = await captureRejection(printer.openFiscalReceipt('0001', 'Иван', 'ED123456-0001-0000001'))
+
+    expect(String(failed)).toContain('Fiscal bridge disconnected')
+    expect(Date.now() - started).toBeLessThan(2000)
+  })
 })
 
 describe('fiscal bridge — permission and tenancy', () => {
