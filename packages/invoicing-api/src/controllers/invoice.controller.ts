@@ -1248,12 +1248,15 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (isImmutableRegisterDocument(existing as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
     if (existing.status !== 'draft') return status(400, { message: 'Can only delete draft invoices' })
 
+    // A draft bill made from goods receipts gives them back, to be billed again (FR-22.31). Before it
+    // goes: it is the only record of the supplier it wrote on them, and a crash after the delete
+    // would leave a supplier on the receipt that nothing could take off again.
+    await releaseReceiptLinks(orgId, existing, user.id)
+
     await r.invoices.deleteInOrg(id, orgId)
 
     // Deleting a draft conversion invoice re-opens the order reservations it consumed.
     await syncOrderForInvoice(orgId, existing, user.id)
-    // …and a draft bill made from goods receipts gives them back, to be billed again (FR-22.31).
-    await releaseReceiptLinks(orgId, existing, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (existing as any)?.invoiceNumber })
 

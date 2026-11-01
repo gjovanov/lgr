@@ -319,7 +319,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
     // FR-22.31: the bill that holds this receipt, or whether one may be made from it.
     const billing = movement.type === 'receipt'
-      ? await receiptBillingFor(orgId, { ...movement, _id: movement.id })
+      ? await receiptBillingFor(orgId, { ...movement, _id: movement.id }, user.id)
       : { billable: false }
 
     return { stockMovement: { ...movement, number: movement.movementNumber, lines, ...billing } }

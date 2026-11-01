@@ -13,7 +13,8 @@ import { mapMovementExtraction, mapStoreOperations } from 'services/biz/doc-impo
 import { persistMovement } from 'services/biz/doc-import/persist-movement'
 import { deliveryNote, movementMarker } from 'config/movement-notes'
 import { getProductLedger } from 'services/biz/product-ledger.service'
-import { RECEIPT_OVERLAP_WINDOW_DAYS, receiptsOverlapping } from 'services/biz/receipt-bill.service'
+import { RECEIPT_OVERLAP_WINDOW_DAYS, receiptsOverlapping, releaseReceiptLinks } from 'services/biz/receipt-bill.service'
+import { getRepos } from 'services/context'
 import { reportById, validateParams } from 'services/biz/report-registry'
 import { buildDailyDigest } from 'services/biz/digest/daily-digest.service'
 import { AuditLog, Contact, DocFile, Invoice, JournalEntry, Product, StockLevel, StockMovement } from 'db/models'
@@ -607,6 +608,82 @@ describe('a receipt that names no supplier (FR-22.31a)', () => {
     const billed = await w.load((await w.fromReceipt([r._id])).json.invoice.id)
     expect(billed.stockSource.supplierGivenTo).toBeUndefined()
   }, 60_000)
+
+  describe('a release a void or a delete did not finish (the next touch does)', () => {
+    /** The void's own write, and nothing after it: what a crash between the two leaves. */
+    const voidedWithNoRelease = async (w: any, wrong: any) => {
+      const r = await w.receipt([[w.bolt, 7, 3]], { contactId: null })
+      const made = (await w.fromReceipt([r._id], { contactId: String(wrong._id) })).json.invoice
+      await Invoice.updateOne({ _id: made.id }, { $set: { status: 'voided' } }).exec()
+      const stuck = await w.mv(r._id)
+      expect(String(stuck.contactId)).toBe(String(wrong._id))
+      expect(String(stuck.invoiceId)).toBe(String(made.id))
+      return { r, made }
+    }
+
+    it('the receipt page finishes it: the wrong supplier goes, and the page asks again', async () => {
+      const w = await world()
+      const { r, made } = await voidedWithNoRelease(w, w.other)
+
+      const page = (await w.call('GET', `/warehouse/movement/${r._id}`)).json.stockMovement
+      expect(page).toMatchObject({ billable: true, needsSupplier: true })
+      expect(page.contactId ?? null).toBeNull()
+      expect(page.invoiceId ?? null).toBeNull()
+      const m = await w.mv(r._id)
+      expect([m.contactId, m.invoiceId]).toEqual([undefined, undefined])
+
+      const audit = await auditRow({ orgId: w.org._id, entityType: 'stock_movement', entityId: r._id, action: 'update', correlationId: new Invoice({ _id: made.id })._id, changes: { $elemMatch: { field: 'contactId', newValue: null } } })
+      expect(audit.changes[0]).toMatchObject({ field: 'contactId', newValue: null })
+    }, 60_000)
+
+    it('a bill for the right supplier finishes it on its way, instead of refusing it for ever', async () => {
+      const w = await world()
+      const { r } = await voidedWithNoRelease(w, w.other)
+      const right = await w.fromReceipt([r._id], { contactId: String(w.supplier._id) })
+      expect(right.status).toBe(200)
+      const m = await w.mv(r._id)
+      expect(String(m.contactId)).toBe(String(w.supplier._id))
+      expect(String(m.invoiceId)).toBe(String(right.json.invoice.id))
+    }, 60_000)
+
+    it('so does linking one', async () => {
+      const w = await world()
+      const { r } = await voidedWithNoRelease(w, w.other)
+      const empty = await w.call('POST', '/invoices', { type: 'invoice', direction: 'incoming', contactId: String(w.supplier._id), issueDate: '2026-10-23', currency: 'EUR', lines: [], subtotal: 0, total: 0 })
+      expect((await w.linkReceipts(empty.json.invoice, [r._id])).status).toBe(200)
+      expect(String((await w.mv(r._id)).contactId)).toBe(String(w.supplier._id))
+    }, 60_000)
+
+    it('only ever gives back what the voided bill holds: a receipt another bill took since stays taken', async () => {
+      const w = await world()
+      const { r, made } = await voidedWithNoRelease(w, w.other)
+      const live = new Invoice()._id
+      await StockMovement.updateOne({ _id: r._id }, { $set: { invoiceId: live } }).exec()
+      await releaseReceiptLinks(w.orgId, await w.load(made.id))
+      expect(String((await w.mv(r._id)).invoiceId)).toBe(String(live))
+    }, 60_000)
+
+    it('a delete gives the receipts back before the bill goes, so the record of who wrote the supplier cannot go first', async () => {
+      const w = await world()
+      const r = await w.receipt([[w.bolt, 7, 3]], { contactId: null })
+      const made = (await w.fromReceipt([r._id], { contactId: String(w.other._id) })).json.invoice
+      const repo = getRepos().invoices
+      const real = repo.deleteInOrg.bind(repo)
+      let atDelete: any = null
+      const spy = spyOn(repo, 'deleteInOrg').mockImplementation((async (...args: any[]) => {
+        atDelete = await w.mv(r._id)
+        return (real as any)(...args)
+      }) as any)
+      try {
+        expect((await w.call('DELETE', `/invoices/${made.id}`)).status).toBe(200)
+      } finally {
+        spy.mockRestore()
+      }
+      expect(atDelete).toBeTruthy()
+      expect([atDelete.contactId, atDelete.invoiceId]).toEqual([undefined, undefined])
+      expect(await w.load(made.id)).toBeNull()
+    }, 60_000)
+  })
 
   it('a Files rollback that voids the bill gives the receipt back the same way', async () => {
     const w = await world()

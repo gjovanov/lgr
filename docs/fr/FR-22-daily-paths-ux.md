@@ -236,7 +236,9 @@ them into PRs.
       that supplier. Each write is audit-logged.
     - Voiding or deleting the bill takes the supplier off again (`stockSource.supplierGivenTo`): a
       completed receipt cannot be edited, so a wrong choice would otherwise refuse every other
-      supplier for ever.
+      supplier for ever. A delete releases before it deletes, because the bill is the only record of
+      the supplier it wrote. A void that died before its release is finished by the next touch of
+      the receipt: its page, or a bill or a link naming it.
     - The supplier feeds no journal entry: a receipt's valuation entry carries no contact. The
       product ledger, the reports and the contact's movement count name it from then on.
     - A receipt that still cannot be billed says why on its page (`notBillable`): not completed yet,

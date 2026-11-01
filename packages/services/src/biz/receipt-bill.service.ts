@@ -173,14 +173,47 @@ async function invoicesOf(orgId: string, movements: any[]): Promise<Map<string, 
   if (!ids.length) return new Map()
   const rows: any[] = await Invoice.find(
     { orgId, _id: { $in: ids } } as any,
-    { invoiceNumber: 1, status: 1, type: 1, direction: 1, stockSource: 1 },
+    { invoiceNumber: 1, status: 1, type: 1, direction: 1, stockSource: 1, contactId: 1 },
   ).lean().exec()
   return new Map(rows.map(r => [idOf(r._id), r]))
 }
 
+/**
+ * A void writes the bill first and gives its receipts back after, so a crash between the two leaves a
+ * voided bill still listing a receipt that still names the supplier it wrote, and a completed receipt
+ * cannot be edited: every other supplier would be refused it for ever. The next touch of such a receipt
+ * finishes the release, the rule FR-23 follows too. True when one was finished.
+ */
+async function finishReleases(orgId: string, movements: any[], invoices: Map<string, any>, userId?: string): Promise<boolean> {
+  const unfinished = new Map<string, any>()
+  for (const m of movements) {
+    const bill = invoices.get(idOf(m.invoiceId))
+    if (bill && RELEASED.includes(bill.status) && linkedMovementIds(bill).includes(idOf(m._id))) unfinished.set(idOf(bill._id), bill)
+  }
+  for (const bill of unfinished.values()) await releaseReceiptLinks(orgId, bill, userId)
+  return unfinished.size > 0
+}
+
+/**
+ * The movement as it stands, and its state, once a release left unfinished is done. For a page that
+ * only reads, so a write it cannot make (another node is the org's home) leaves it reading as it was.
+ */
+async function settledBillingState(orgId: string, movement: any, userId?: string): Promise<{ current: any; state: ReceiptBillingState }> {
+  const invoices = await invoicesOf(orgId, [movement])
+  let finished = false
+  try {
+    finished = await finishReleases(orgId, [movement], invoices, userId)
+  } catch (e: any) {
+    logger.warn({ orgId, movement: idOf(movement._id), err: e?.message }, 'receipt-bill: an unfinished release could not be finished here')
+  }
+  if (!finished) return { current: movement, state: billingStateOf(movement, invoices) }
+  const current: any = (await StockMovement.findOne({ orgId, _id: movement._id } as any).lean().exec()) ?? movement
+  return { current, state: billingStateOf(current, await invoicesOf(orgId, [current])) }
+}
+
 /** The billing state of one movement (the receipt page's „Входяща фактура" and its bill link). */
-export async function receiptBillingState(orgId: string, movement: any): Promise<ReceiptBillingState> {
-  return billingStateOf(movement, await invoicesOf(orgId, [movement]))
+export async function receiptBillingState(orgId: string, movement: any, userId?: string): Promise<ReceiptBillingState> {
+  return (await settledBillingState(orgId, movement, userId)).state
 }
 
 /** Per movement id: the live invoice that holds it (the receipts list's „Фактурирана" marker). */
@@ -205,16 +238,23 @@ const REFUSAL: Record<string, { status: number; message: (m: any, s: ReceiptBill
 }
 
 /** Load `movementIds` and refuse unless every one may be billed, by one bill, from one supplier. */
-async function loadBillableReceipts(orgId: string, movementIds: string[]): Promise<any[]> {
+async function loadBillableReceipts(orgId: string, movementIds: string[], userId: string): Promise<any[]> {
   const ids = [...new Set((movementIds || []).map(String).filter(Boolean))]
   if (!ids.length) throw new ReceiptBillError(422, 'no_receipts', 'Choose at least one goods receipt')
   if (!ids.every(isId)) throw new ReceiptBillError(404, 'receipt_not_found', 'Goods receipt not found')
-  const rows: any[] = await StockMovement.find({ orgId, _id: { $in: ids } } as any).lean().exec()
-  if (rows.length !== ids.length) throw new ReceiptBillError(404, 'receipt_not_found', 'Goods receipt not found')
-  // The order the user named them in is the order their lines take on the bill.
-  const byId = new Map(rows.map(r => [idOf(r._id), r]))
-  const movements = ids.map(id => byId.get(id))
-  const invoices = await invoicesOf(orgId, movements)
+  const read = async () => {
+    const rows: any[] = await StockMovement.find({ orgId, _id: { $in: ids } } as any).lean().exec()
+    if (rows.length !== ids.length) throw new ReceiptBillError(404, 'receipt_not_found', 'Goods receipt not found')
+    // The order the user named them in is the order their lines take on the bill.
+    const byId = new Map(rows.map(r => [idOf(r._id), r]))
+    return ids.map(id => byId.get(id))
+  }
+  let movements = await read()
+  let invoices = await invoicesOf(orgId, movements)
+  if (await finishReleases(orgId, movements, invoices, userId)) {
+    movements = await read()
+    invoices = await invoicesOf(orgId, movements)
+  }
   for (const m of movements) {
     const state = billingStateOf(m, invoices)
     if (state.billable) continue
@@ -470,7 +510,7 @@ function plusOneMonth(d: Date): Date {
  * unit costs, linked to the receipts. The user adds the supplier's invoice number and receives it.
  */
 export async function createBillFromReceipts(orgId: string, actor: Actor, input: BillFromReceiptsInput): Promise<any> {
-  const movements = await loadBillableReceipts(orgId, input.movementIds)
+  const movements = await loadBillableReceipts(orgId, input.movementIds, actor.id)
   const { supplierId, unnamed } = await settleSupplier(orgId, movements, input.contactId, true)
   const [defaults, products] = await Promise.all([
     orgDefaults(orgId),
@@ -591,7 +631,7 @@ export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: st
   }
   const defaults = await orgDefaults(orgId)
   refuseForeignBill(bill.currency, defaults.currency, bill.invoiceNumber)
-  const movements = await loadBillableReceipts(orgId, movementIds)
+  const movements = await loadBillableReceipts(orgId, movementIds, actor.id)
   if (opts.contactId && bill.contactId && idOf(opts.contactId) !== idOf(bill.contactId)) {
     throw new ReceiptBillError(422, 'supplier_mismatch', `${bill.invoiceNumber} names another supplier — save the bill first`)
   }
@@ -937,13 +977,17 @@ export interface ReceiptBillingForPage {
   /** Why it may not, when nothing else on the page says so: a held receipt names its bill. */
   notBillable?: { code: NonNullable<ReceiptBillingState['reason']>; number?: string }
   bill?: ReceiptBillingState['invoice']
+  /** A release finished just now: the receipt as it now stands, in place of what the page read. */
+  contactId?: unknown
+  invoiceId?: unknown
 }
 
 /** For the movement page: the document that holds the receipt, and whether it may be billed. */
-export async function receiptBillingFor(orgId: string, movement: any): Promise<ReceiptBillingForPage> {
-  const state = await receiptBillingState(orgId, movement)
+export async function receiptBillingFor(orgId: string, movement: any, userId?: string): Promise<ReceiptBillingForPage> {
+  const { current, state } = await settledBillingState(orgId, movement, userId)
   const held = !!state.invoice && !RELEASED.includes(state.invoice.status)
   return {
+    ...(current === movement ? {} : { contactId: current.contactId ?? null, invoiceId: current.invoiceId ?? null }),
     billable: state.billable,
     ...(state.needsSupplier ? { needsSupplier: true } : {}),
     ...(state.reason && !held ? { notBillable: { code: state.reason, ...(state.invoice ? { number: state.invoice.number } : {}) } } : {}),
