@@ -125,6 +125,9 @@ const posSessionSchema = new Schema<IPOSSession>(
 
 posSessionSchema.plugin(tenantPlugin)
 posSessionSchema.index({ orgId: 1, cashierId: 1, openedAt: -1 })
+// FR-23: every `/send`, `/payments` and `/receipt` asks for whoever's open session, and with none open
+// the index above fetches every session they ever had, each with its stored report.
+posSessionSchema.index({ orgId: 1, cashierId: 1, openedAt: -1 }, { name: 'open_session_of_cashier', partialFilterExpression: { status: 'open' } })
 posSessionSchema.index(
   { orgId: 1, clientKey: 1 },
   { unique: true, partialFilterExpression: { clientKey: { $type: 'string' } } },

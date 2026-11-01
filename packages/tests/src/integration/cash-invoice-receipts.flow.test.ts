@@ -653,6 +653,38 @@ describe('the re-issue of a number issued twice (FR-20.51)', () => {
   })
 })
 
+describe('the reads FR-23 moved onto every request', () => {
+    it('a cashier with a long history and no open session costs `/payments` no document', async () => {
+      const w = await tillWorld(app)
+      const cashierId = w.clerk._id
+      const closed = Array.from({ length: 6 }, (_, i) => ({
+        orgId: w.oid, cashierId, warehouseId: w.warehouse._id, status: 'closed', sessionNumber: `S-${i}`, openedAt: new Date(2026, 0, i + 1), currency: 'EUR', openingBalance: 0,
+      }))
+      await POSSession.collection.insertMany(closed as any)
+
+      const plan: any = await POSSession.find({ orgId: w.oid, cashierId, status: 'open' }, { warehouseId: 1 }).sort({ openedAt: -1 }).explain('executionStats')
+
+      expect(plan.executionStats.totalDocsExamined).toBe(0)
+      expect(plan.executionStats.totalKeysExamined).toBe(0)
+    })
+
+    it('opening a contact counts its documents off the index, and still leaves its receipts out', async () => {
+      const w = await tillWorld(app)
+      const { contactId } = await issuedPaid(w)
+      await draftOf(w, { method: 'bank_transfer', extra: { contactId } })
+      const counted = spyOn(Invoice, 'countDocuments')
+
+      const r = await w.call('GET', `/invoicing/contact/${contactId}/summary`)
+
+      const filters = counted.mock.calls.map(([filter]) => filter as any)
+      counted.mockRestore()
+      expect(r.status).toBe(200)
+      expect(r.json.invoiceCount).toBe(2)
+      // An equality on the index it has, never a `$ne` that fetches every document the contact has.
+      expect(filters.some(f => f.type?.$ne)).toBe(false)
+    })
+  })
+
 describe('what the payment dialog is told: the server answers it, by method', () => {
     /** The document as the form reads it, and as the list row reads it: they must agree. */
     async function told(w: TillWorld, id: string) {
