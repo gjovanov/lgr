@@ -522,7 +522,14 @@ export async function runReceiptSteps(c: RegisterContext, id: string, opts: { ne
   if (doc.status === 'voided' || doc.register?.fiscal?.inDoubt) return doc
   if (doc.register?.fiscal?.state === 'failed') return giveUp(c, doc)
 
-  // Printed, or it may have: the money stands from here on (D-4).
+  // Printed, or it may have: the money stands from here on (D-4). One that never had its number and a
+  // person settled, which arrived through a move between nodes, is numbered first: it is booked under
+  // a real one, and a number that cannot be drawn leaves it for the next touch.
+  if (isPendingNumber(doc.invoiceNumber)) {
+    const numbered = await numberPending(c.orgId, doc)
+    if (!numbered) throw new RegisterRefusal(409, { message: 'Could not allocate the cash-register number after 3 attempts' })
+    doc = numbered
+  }
   const sessionId = doc.register?.sessionId ? String(doc.register.sessionId) : undefined
   if (sessionId && !doc.register?.sessionTotalsApplied) {
     await applySessionTotals(doc, sessionId, saleIncrements(doc))
