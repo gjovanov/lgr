@@ -84,15 +84,17 @@ test.describe('The printer, while the cashier moves around', () => {
   })
 
   test.afterAll(async () => {
-    // Each on its own: one left behind must not leave the others. The device first: with it gone
-    // no Z-report is owed, and a cashier may close, where `closeWithoutFiscal` asks for a manager.
+    // Each on its own: one left behind must not leave the others. In this order, each answered
+    // before the next starts: with the device gone no Z-report is owed, and a cashier may close,
+    // where `closeWithoutFiscal` asks for a manager.
     const steps = [
-      deviceId && call(admin, 'DELETE', `/fiscal/device/${deviceId}`),
-      sessionId && call(cashier, 'POST', `/trade/pos/session/${sessionId}/close`, { closingBalance: 0 }),
-      warehouseId && call(admin, 'DELETE', `/warehouse/warehouse/${warehouseId}`),
-      userId && call(admin, 'DELETE', `/user/${userId}`),
+      deviceId && (() => call(admin, 'DELETE', `/fiscal/device/${deviceId}`)),
+      sessionId && (() => call(cashier, 'POST', `/trade/pos/session/${sessionId}/close`, { closingBalance: 0 })),
+      warehouseId && (() => call(admin, 'DELETE', `/warehouse/warehouse/${warehouseId}`)),
+      userId && (() => call(admin, 'DELETE', `/user/${userId}`)),
     ]
-    const answers = await Promise.all(steps.map(async s => (s ? (await s).status : 200)))
+    const answers: number[] = []
+    for (const step of steps) if (step) answers.push((await step()).status)
     expect(answers.filter(s => s >= 300)).toEqual([])
   })
 

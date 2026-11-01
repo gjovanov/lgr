@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
-import { apiLogin } from './helpers/api'
 import { closeTillSession, createBackOfficeCashSale, openTillSession, ownCashier } from './helpers/cash-register'
 
 const apiBase = process.env.BASE_URL || 'http://localhost:4001'
@@ -48,13 +47,13 @@ test.describe('Cash Register Sales', () => {
     await expect(page.getByRole('heading', { name: 'CS Terminal' })).toBeVisible({ timeout: 10000 })
   })
 
-  // The till rings into the cashier's OWN session, so the `sales` user rather than the admin, whose
-  // session `pos-terminal.spec.ts` opens itself.
+  // The till rings into the cashier's OWN session. A cashier of its own: the seed's `sales` session
+  // is closed by whichever spec finishes with it next, which can be while this one rings.
   test('should ring up a cash register sale by clicking a product card', async ({ page }) => {
-    const cashier = await apiLogin('acme-corp', 'sales', 'test123')
-    const till = await openTillSession(cashier)
+    const cashier = await ownCashier('ring')
+    const till = await openTillSession(cashier.session)
     try {
-      await loginForApp(page, 'acme-corp', 'sales', 'test123')
+      await loginForApp(page, 'acme-corp', cashier.username, cashier.password)
       await page.goto('/invoicing/cash-sales/new')
 
       // FR-03: lines are added by clicking product cards — there is no free-text line editor.
@@ -69,7 +68,8 @@ test.describe('Cash Register Sales', () => {
       await expect(number).toBeVisible({ timeout: 10000 })
       await expect(page.locator('[data-testid^="cart-line-"]')).toHaveCount(0)
     } finally {
-      await closeTillSession(till.id, cashier)
+      await closeTillSession(till.id, cashier.session)
+      await cashier.drop()
     }
   })
 
