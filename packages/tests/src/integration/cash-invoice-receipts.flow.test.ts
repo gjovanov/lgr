@@ -1595,6 +1595,40 @@ describe('§2.7 — once a receipt has printed, the total is the receipt\'s', ()
     expect(await StockMovement.countDocuments({ orgId: w.oid })).toBe(movements)
   })
 
+  it('a receipt that printed between a void\'s check and its claim stops it: a delivery receipt leaves no hold behind', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    const { ObjectId } = (Invoice.base as any).Types
+    const real = Invoice.findOneAndUpdate
+    ;(Invoice as any).findOneAndUpdate = function (filter: any, update: any, ...rest: any[]) {
+      const query = (real as any).call(Invoice, filter, update, ...rest)
+      if (!update?.$set?.voidingUntil) return query
+      return {
+        exec: async () => {
+          await Invoice.collection.insertOne({
+            orgId: w.oid, type: 'payment_receipt', direction: 'outgoing', status: 'paid', invoiceNumber: 'CS-2026-90001',
+            issueDate: new Date(), currency: 'EUR', total: 24, paymentMethod: 'cash_on_delivery',
+            register: { paidInvoiceId: new ObjectId(d.id), fiscal: { state: 'printed' } },
+          } as any)
+          return query.exec()
+        },
+      }
+    }
+    let v: any
+    try {
+      v = await w.call('POST', `/invoices/${d.id}/void`)
+    } finally {
+      ;(Invoice as any).findOneAndUpdate = real
+    }
+
+    expect(v.status).toBe(409)
+    expect(v.json.code).toBe('fiscally_paid')
+    const inv = await raw(d.id)
+    expect(inv.status).toBe('sent')
+    expect(inv.voidingUntil ?? null).toBeNull()
+  })
+
   it('a payment while a void is under way gives way: no receipt on a voided invoice', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w, { method: 'bank_transfer' })
@@ -2152,7 +2186,7 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
 
     const digest: any = await buildDailyDigest(w.orgId, date)
 
-    expect(digest.kpis.byMethod.find((m: any) => m.method === 'cash')?.amount ?? 0).toBe(0)
+    expect(digest.kpis.byMethod.find((m: any) => m.method === 'cash')).toBeUndefined()
   })
 
   it('and once it is paid, it counts', async () => {
