@@ -1,14 +1,15 @@
 #!/usr/bin/env bun
 /**
- * Dev launcher — starts the unified API + every UI dev server in one process.
+ * Dev launcher — starts the unified API and the one SPA's Vite dev server in one process (FR-24.23).
+ * The Vite server proxies `/api` and `/ws` to the API (`packages/web/vite.config.ts`), so the app
+ * runs on one origin, as in production.
  *
  * Replaces the `a & b & c` chaining in package.json, which Bun's shell rejects
  * on Windows ("Background commands \"&\" are not supported yet").
  *
  * Usage:
- *   bun run dev                    # API + all 7 UIs
+ *   bun run dev                    # API + the web app
  *   bun run dev -- api             # just the API
- *   bun run dev -- api portal      # API + portal UI
  *   bun run dev -- --list          # show available services
  */
 
@@ -23,14 +24,7 @@ type Service = {
 
 const SERVICES: Service[] = [
   { name: 'api', cwd: 'packages/portal-api', port: 4001, color: '\x1b[36m' },
-  { name: 'portal', cwd: 'packages/portal-ui', port: 4000, color: '\x1b[32m' },
-  { name: 'inventory', cwd: 'packages/inventory-ui', port: 4031, color: '\x1b[33m' },
-  { name: 'invoicing', cwd: 'packages/invoicing-ui', port: 4021, color: '\x1b[35m' },
-  { name: 'accounting', cwd: 'packages/accounting-ui', port: 4011, color: '\x1b[34m' },
-  { name: 'payroll', cwd: 'packages/payroll-ui', port: 4041, color: '\x1b[95m' },
-  { name: 'reports', cwd: 'packages/reports-ui', port: 4101, color: '\x1b[96m' },
-  { name: 'files', cwd: 'packages/files-ui', port: 4111, color: '\x1b[92m' },
-  // FR-24: the one SPA, every module in one app (Phase 2 runs it beside the others).
+  // FR-24: the one SPA, the portal and every module in one app.
   { name: 'web', cwd: 'packages/web', port: 4200, color: '\x1b[97m' },
 ]
 
@@ -116,7 +110,7 @@ for (const s of selected) {
   const url = `http://localhost:${s.port}`
   console.log(`  ${s.color}${s.name.padEnd(width)}${RESET} ${url}`)
 }
-console.log(`\nOpen the Portal at http://localhost:4000 — Ctrl+C stops everything.\n`)
+console.log(`\nOpen the app at http://localhost:4200 — Ctrl+C stops everything.\n`)
 
 let shuttingDown = false
 

@@ -1,6 +1,6 @@
 import { defineComponent, h } from 'vue'
 import { createRouter, createWebHistory, RouterView, type RouteRecordRaw } from 'vue-router'
-import { consumeTokenHandoff, signInHref } from 'ui-shared/nav/navigate'
+import { signInHref } from 'ui-shared/nav/navigate'
 import { hasOrgSession } from 'ui-shared/session/session'
 import { getI18n } from 'ui-shared/plugins'
 import { portalGuard, portalRoutes } from '../../portal-ui/src/routes'
@@ -46,7 +46,6 @@ export const router = createRouter({
  * offers the till's PIN pad where the server does. The PIN pad itself is outside every rule.
  */
 router.beforeEach(async (to, from, next) => {
-  if (consumeTokenHandoff(to.query)) return
   if (staleNavigation(to, from)) return next(false)
   if (to.name === 'pos.pin') return next()
 

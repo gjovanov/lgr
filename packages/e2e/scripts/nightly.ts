@@ -56,16 +56,13 @@ async function waitForServer(server: ReturnType<typeof Bun.spawn>) {
 }
 
 /**
- * FR-24.16: the lane runs on the shell it names. A browser with no cookie gets the one SPA under
- * `LGR_UI_DEFAULT=one` (its assets under `/ui/`, FR-24.10), the split build otherwise. Without this
- * check, a lane that silently fell back to the split build would pass as the one SPA.
+ * FR-24.16/24.21: the suite runs against the one SPA (its assets under `/ui/`, FR-24.10). A server
+ * that answered no shell, or another one, would make every spec fail for a reason no spec names.
  */
 async function assertShell() {
-  const want = process.env.LGR_UI_DEFAULT === 'one' ? 'one' : 'split'
   const html = await fetch(`${BASE_URL}/invoicing/`).then(r => r.text())
-  const got = /(src|href)="\/ui\//.test(html) ? 'one' : 'split'
-  if (got !== want) throw new Error(`the server serves the ${got} shell, but this lane is the ${want} one`)
-  console.log(`nightly: serving the ${got} shell`)
+  if (!/(src|href)="\/ui\//.test(html)) throw new Error('the server does not serve the web app (packages/web): run `bun run build` first')
+  console.log('nightly: serving the web app')
 }
 
 let code = 1

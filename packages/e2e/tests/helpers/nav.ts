@@ -6,11 +6,11 @@ import type { Locator, Page } from '@playwright/test'
  * ⚠ NOT `page.locator('.v-navigation-drawer')`, which every spec used to write and which now
  * matches TWO elements — Vuetify strict mode then fails with "resolved to 2 elements" before
  * any assertion runs. `ui-shell/PendingChangesPanel.vue` is a second drawer (`location="right"`,
- * temporary) mounted by `DefaultLayout.vue` on every page, so the bare selector is ambiguous on
+ * temporary) mounted by the module layout (`ui-shell/ModuleLayout.vue`) on every page, so the bare selector is ambiguous on
  * every screen in the product.
  *
  * Scoped on Vuetify's own left/right modifier rather than a `data-testid`, because adding one
- * to `AppShell.vue` would mean rebuilding all seven UI bundles to run a test.
+ * to `AppShell.vue` would mean rebuilding the web app to run a test.
  */
 export function navDrawer(page: Page): Locator {
   return page.locator('.v-navigation-drawer--left')

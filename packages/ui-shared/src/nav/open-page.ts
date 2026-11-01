@@ -1,31 +1,7 @@
 import { loadRouteLocation, type Router } from 'vue-router'
 import { APP_NAV_META, type PageDef } from './page-registry'
 import { ref } from 'vue'
-import { appHref, goTo, routerPathFor } from './navigate'
-
-/** The app a router serves, from its history base ("/invoicing"); null for the portal's router. */
-export function routerAppId(base: string): string | null {
-  const b = base.replace(/\/+$/, '')
-  for (const [id, meta] of Object.entries(APP_NAV_META)) {
-    if (meta.base === b) return id
-  }
-  return null
-}
-
-/** The SPA that serves an app's pages: its own, or the one named by `spa` (POS → invoicing, FR-24). */
-export function spaOf(appId: string): string {
-  return APP_NAV_META[appId]?.spa ?? appId
-}
-
-/**
- * The page's path inside the SPA that serves it ("/invoices/new?type=credit_note", or
- * "/pos/terminal" for a POS page), as that SPA's router names it.
- */
-export function appRelativePath(page: Pick<PageDef, 'appId' | 'path'>): string {
-  const base = APP_NAV_META[spaOf(page.appId)]?.base ?? ''
-  if (!base || !page.path.startsWith(base)) return page.path
-  return page.path.slice(base.length) || '/'
-}
+import { goTo, routerPathFor } from './navigate'
 
 export { routerPathFor } from './navigate'
 
@@ -74,8 +50,7 @@ export const viewKey = ref(0)
 /**
  * Open a registry page from wherever the person is (★, „+ Нов", a favourite tile).
  *
- * Inside the same SPA it is a router push, with no page load. Into another SPA it is a page load
- * through `goTo`/`appHref`, which carries the dev handoff where one is needed.
+ * It is a router push, with no page load: one SPA serves every page (FR-24.21).
  *
  * A target that renders the SAME view component as the current route (from /invoices/123/edit to
  * /invoices/new) is a push too, followed by a remount (`viewKey`): Vue Router keeps the component
@@ -84,7 +59,6 @@ export const viewKey = ref(0)
  * which drops the till's printer (FR-24).
  */
 export async function openPage(page: PageDef, router?: Router | null): Promise<void> {
-  // This router serves the page: its own module, POS inside invoicing, or every page in one SPA.
   const inHere = router ? routerPathFor(page.path, router) : null
   if (router && inHere) {
     try {
@@ -103,5 +77,5 @@ export async function openPage(page: PageDef, router?: Router | null): Promise<v
       // Could not resolve or load the route here: the move below still gets there.
     }
   }
-  goTo(appHref(page.appId, page.path), { router })
+  goTo(page.path, { router })
 }

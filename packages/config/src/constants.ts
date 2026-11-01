@@ -121,27 +121,26 @@ export const APP_REGISTRY: Record<AppId, {
   name: string
   icon: string
   color: string
-  devPort: number
   path: string
   requiredPermission: string
   description: string
 }> = {
-  accounting: { name: 'Accounting', icon: 'mdi-chart-bar',     color: '#4caf50', devPort: 4011, path: '/accounting/', requiredPermission: 'accounting.read', description: 'Chart of accounts, journal entries, financial statements' },
-  inventory:  { name: 'Inventory',  icon: 'mdi-warehouse',     color: '#ff9800', devPort: 4031, path: '/inventory/', requiredPermission: 'inventory.read', description: 'Products, stock, movements, valuations' },
-  invoicing:  { name: 'Invoicing',  icon: 'mdi-receipt-text',  color: '#2196f3', devPort: 4021, path: '/invoicing/', requiredPermission: 'invoicing.read', description: 'Contacts, invoices, payments' },
-  pos:        { name: 'POS',        icon: 'mdi-point-of-sale', color: '#e91e63', devPort: 4021, path: '/invoicing/pos/', requiredPermission: 'pos.read', description: 'Point of sale, sessions, fiscal' },
-  payroll:    { name: 'Payroll',    icon: 'mdi-cash-multiple',  color: '#9c27b0', devPort: 4041, path: '/payroll/',  requiredPermission: 'payroll.read', description: 'Employees, payroll runs, payslips, timesheets' },
+  accounting: { name: 'Accounting', icon: 'mdi-chart-bar',     color: '#4caf50', path: '/accounting/', requiredPermission: 'accounting.read', description: 'Chart of accounts, journal entries, financial statements' },
+  inventory:  { name: 'Inventory',  icon: 'mdi-warehouse',     color: '#ff9800', path: '/inventory/', requiredPermission: 'inventory.read', description: 'Products, stock, movements, valuations' },
+  invoicing:  { name: 'Invoicing',  icon: 'mdi-receipt-text',  color: '#2196f3', path: '/invoicing/', requiredPermission: 'invoicing.read', description: 'Contacts, invoices, payments' },
+  pos:        { name: 'POS',        icon: 'mdi-point-of-sale', color: '#e91e63', path: '/invoicing/pos/', requiredPermission: 'pos.read', description: 'Point of sale, sessions, fiscal' },
+  payroll:    { name: 'Payroll',    icon: 'mdi-cash-multiple',  color: '#9c27b0', path: '/payroll/',  requiredPermission: 'payroll.read', description: 'Employees, payroll runs, payslips, timesheets' },
   // FR-6.1/6.2 (#14): P1 gated this tile on `invoicing.read` to avoid a backfill. P2
   // introduces the real `reports.read` — the SUPTO tables are not an invoicing concern,
   // and a warehouse_manager needs the app without invoicing rights.
   // ⚠ OPS: already-issued JWTs do not carry `reports.*` until re-login, and stored
   // PermissionSets need `scripts/backfill-reports-permissions.ts --execute` FIRST.
   // (Admin sets are exempt: `tokenize()` expands `isAdmin` to all PERMISSIONS.)
-  reports:    { name: 'Reports',    icon: 'mdi-file-chart',    color: '#8e24aa', devPort: 4101, path: '/reports/',  requiredPermission: 'reports.read', description: 'Reports & exports' },
+  reports:    { name: 'Reports',    icon: 'mdi-file-chart',    color: '#8e24aa', path: '/reports/',  requiredPermission: 'reports.read', description: 'Reports & exports' },
   // Files (#7) — document ingest for the migration workflow. Gated on `admin.settings`
   // (admin-only in practice; `manager` carries no admin.* perms). Switch to `inventory.write`
   // to include managers + warehouse managers without a backfill.
-  files:      { name: 'Files',      icon: 'mdi-folder-multiple', color: '#607d8b', devPort: 4111, path: '/files/',   requiredPermission: 'admin.settings', description: 'Document ingest, versions, audit' },
+  files:      { name: 'Files',      icon: 'mdi-folder-multiple', color: '#607d8b', path: '/files/',   requiredPermission: 'admin.settings', description: 'Document ingest, versions, audit' },
 }
 
 export const PLAN_APP_LIMITS: Record<string, number> = {

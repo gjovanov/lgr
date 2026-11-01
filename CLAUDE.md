@@ -12,20 +12,12 @@ The system follows a **multi-app architecture** (Google Workspace model): a Port
 
 ```bash
 # Development
-bun run dev                  # Unified API (4001) + the 7 UI dev servers (portal + 6 SPAs; POS is in invoicing); `bun run dev -- api portal` starts a subset
-bun run start                # Production: unified API (4001) serving all built UIs
-bun run build                # Build all 8 UIs (portal, the 6 domain SPAs, desktop-ui)
+bun run dev                  # Unified API (4001) + the web app's Vite server (4200, proxies /api and /ws); `bun run dev -- api` = API only
+bun run start                # Production: unified API (4001) serving the built web app
+bun run build                # Build the web app (packages/web: the portal + every module) and desktop-ui
+bun run check:web            # The web app's bundle budget (FR-24.15)
 bun run seed                 # Seed database (Acme Corp + Beta Inc)
 bun run migrate              # Apply pending versioned migrations (--status lists them; FR-20.19)
-
-# Individual UI dev servers (each proxies /api → unified API on 4001)
-bun run dev:portal-ui        # Portal UI (port 4000)
-bun run dev:accounting-ui    # Accounting UI (port 4011)
-bun run dev:invoicing-ui     # Invoicing UI (port 4021)
-bun run dev:inventory-ui     # Inventory UI (port 4031)
-bun run dev:payroll-ui       # Payroll UI (port 4041)
-bun run dev:reports-ui       # Reports UI (port 4101)
-bun run dev:files-ui         # Files UI (port 4111)
 
 # Desktop (a server-mode client - it opens the cloud app; no local mode, no local data)
 bun run dev:desktop-ui       # The shell's own pages (4081)
@@ -75,18 +67,20 @@ packages/
   migrations/          → Versioned data migrations, `bun run migrate` (FR-20.19)
   ocr-server/          → OCR + AI drafting sidecar (its own Deployment, `Dockerfile.ocr`)
 
-  # ── UI packages (each is a standalone Vue 3 + Vuetify 3 SPA) ──
-  portal-ui/           → Login, register, oauth-callback, app-hub, settings, admin, billing, audit log
-  inventory-ui/        → Products, stock, movements, valuations (served at /inventory/*)
-  invoicing-ui/        → Contacts, invoices, bills, cash sales, payments (served at /invoicing/*)
+  # ── The web app: ONE Vue 3 + Vuetify 3 SPA (FR-24.21) ──
+  web/                 → index.html, main.ts, the router composing every module (router.ts, modules.ts),
+                         the one shell (OneShell.vue → ui-shell ModuleLayout), stale-build handling (stale.ts)
+  # ── UI modules: views, stores and a manifest each (src/manifest.ts); no build of their own ──
+  portal-ui/           → Login, register, oauth-callback, app-hub, settings, admin, billing, audit log (routes.ts)
+  inventory-ui/        → Products, stock, movements, valuations (/inventory/*)
+  invoicing-ui/        → Contacts, invoices, bills, cash sales, payments (/invoicing/*)
   accounting-ui/       → 10 accounting views + store
-  (pos)                → POS lives in invoicing-ui/src/pos since FR-24 Phase 0, served at /invoicing/pos/*;
+  (pos)                → POS lives in invoicing-ui/src/pos since FR-24 Phase 0, at /invoicing/pos/*;
                          /pos/* answers 302 there (desktops hold startPath /pos/). Still its own App Hub
-                         app (pos.read, OrgApp, the PIN scope): APP_NAV_META.pos.spa = 'invoicing'
+                         app (pos.read, OrgApp, the PIN scope)
   payroll-ui/          → 5 payroll views + store
-  files-ui/            → Document ingest: upload, analyze, commit, reconcile (served at /files/*)
-  reports-ui/          → Report card hub + generic runner + the two moved invoicing report
-                         pages (served at /reports/*)
+  files-ui/            → Document ingest: upload, analyze, commit, reconcile (/files/*)
+  reports-ui/          → Report card hub + generic runner + the two moved invoicing report pages (/reports/*)
 
   # ── Shared UI library ──
   ui-shell/            → AppShell, AppSwitcher, OrgSwitcher (top-bar org menu), NewOrgDialog, OrgSelector, UserMenu, NotificationBell, sidebar
@@ -106,8 +100,9 @@ packages/
 All controllers (portal + 7 domains) are mounted in a single Elysia server at `packages/portal-api/src/unified.ts`:
 - **Port 4001** — single process, single MongoDB connection
 - All routes under `/api` (e.g., `/api/org/:orgId/accounting/accounts`)
-- Serves all 8 built UIs as static files: Portal at `/`, domain UIs at `/{module}/`
-- SPA fallback routes non-API, non-asset requests to the correct `index.html`
+- Serves the built web app (`packages/web/dist`, or a server package's `ui/web`): its files under `/ui/`
+- SPA fallback answers every non-API, non-asset path with its `index.html`: a module's path gets the
+  variant without lgrai.app's analytics tag (FR-24.18), `/pos/*` a 302 to `/invoicing/pos/*`
 - Swagger docs at `/swagger`
 - WebSocket server for real-time updates
 
@@ -115,7 +110,8 @@ Domain API packages (`accounting-api/`, `invoicing-api/`, etc.) export controlle
 
 ### Package dependency flow
 `config` ← `db` ← `services` ← `fiscal` ← `portal-api` (imports domain API controllers)
-Each `*-ui` imports `ui-shell` + `ui-shared`, communicates via HTTP/WS to unified API
+Each `*-ui` module imports `ui-shell` + `ui-shared`; `web` imports the modules' manifests and routes and
+talks HTTP/WS to the unified API on its own origin
 
 ## Multi-Tenancy
 
@@ -822,21 +818,31 @@ Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models`
   (`onPortal()`): a domain page goes to the portal's sign-in, the portal's router handles its own.
 - **A module is a manifest** (`<pkg>/src/manifest.ts`, POS: `invoicing-ui/src/pos/manifest.ts`;
   type `ui-shell/module`): id, base, menu (i18n keys, data), routes, `outside` routes, pendingChanges.
-  Routers are `moduleRoutes(manifest, layout, BASE_URL)`; each `DefaultLayout.vue` is `<ModuleLayout>`.
+  The one router composes them (`web/src/router.ts`); every module renders in `ui-shell` `<ModuleLayout>`.
 - ⚠ **Paths in routes, menus, breadcrumbs and back-to are relative to the MODULE** (`/orders`), never
   to a router base. `inModule(route, to)` adds the path of the module's shell record (`meta.module`).
   `unit/module-manifests.test.ts` resolves every one of them against its module's own routes.
-- ⚠ **Every move goes through `ui-shared/nav/navigate.ts#goTo`**: a router push when this SPA serves
+- ⚠ **Every move goes through `ui-shared/nav/navigate.ts#goTo`**: a router push when the router serves
   the path, a page load otherwise. A page load drops a browser till's printer. Plain `<a href>` into
-  this SPA follows the router (`installInAppLinks`, from `registerPlugins`). `unit/navigation-seam.test.ts`
+  the SPA follows the router (`installInAppLinks`, from `registerPlugins`). `unit/navigation-seam.test.ts`
   fails on any `window.location` assignment outside its list of deliberate page loads.
 - `openPage` to the same view is a push plus a remount (`viewKey`), never a page load.
-- **Phase 2: the one SPA, `packages/web`** (`bun run dev:web`, port 4200; `bun run build:web`). Its router is
-  `portal-ui/src/routes.ts` (the portal's routes and `portalGuard`, also used by the portal's own router) plus
-  every manifest (`web/src/modules.ts`) under ONE shell record (`OneShell` → `ModuleLayout`), so a move between
-  modules never remounts the layout. One guard: portal rules for portal routes, an org session for a module's.
-  - The server serves it per browser: cookie `lgr_ui` (`/__ui/one`, `/__ui/split`), else `LGR_UI_DEFAULT`
-    (`split` by default). Its files are under `/ui/`. A server package stays on the eight.
+- **The one SPA, `packages/web`** (Phase 2; since Phase 3 the ONLY web build, FR-24.21). Its router is
+  `portal-ui/src/routes.ts` (the portal's routes and `portalGuard`) plus every manifest (`web/src/modules.ts`)
+  under ONE shell record (`OneShell` → `ModuleLayout`), so a move between modules never remounts the layout.
+  One guard: portal rules for portal routes, an org session for a module's.
+  - Its files are under `/ui/`. Every page gets its `index.html` (`spa-fallback.ts`). `/__ui/one` and
+    `/__ui/split`, the Phase 2 switch, now only redirect home and clear the old `lgr_ui` cookie.
+  - **Phase 3 deleted the seven split builds** (2026-11-01): each module's `index.html`, `vite.config.ts`,
+    `main.ts`, `App.vue`, router and `DefaultLayout`; `UI_MODULES`/`moduleUiConfig`; the `dev:*-ui` /
+    `build:*-ui` scripts; `devPort`; `portalBase`; `routerAppId`; `MovedToReportsView` (now named router
+    redirects that keep the query); and the `?token=` dev handoff. ⚠ **Nothing reads a session token from a
+    query string** (AC 7), and `unit/token-handoff.test.ts` fails on a UI source that does.
+  - `appHref`, `portalHref` and `appHomeHref` still exist, and return the path: one origin, one SPA.
+  - Adding a module: its package with views and a `src/manifest.ts`, one line in `web/src/modules.ts`, its
+    `APP_REGISTRY` / `APP_NAV_META` rows (and `APP_IDS`, `PLAN_APP_LIMITS`), its prefix in
+    `spa-fallback.ts#MODULE_PREFIXES`, the `apps.*` / `appHub.*` i18n ×4, and `e2e/tests/app-hub.spec.ts`'s
+    `APP_COUNT`. No Vite config, no Dockerfile line, no server mount.
   - ⚠ Redirects in a manifest go by NAME: a path names a router's base (the products redirect broke in the
     one SPA). `unit/module-manifests.test.ts` refuses a path redirect.
   - Stale code (FR-24.14): `<meta name="lgr-build">` vs the server's `x-lgr-build`; the next move loads the
@@ -964,7 +970,7 @@ After every feature or fix, verify your changes:
 | Change type | Command | What it checks |
 |-------------|---------|----------------|
 | Backend (models, services, controllers) | `bun run test` | Integration tests (mongodb-memory-server) |
-| Frontend (views, stores, composables) | `bun run build` | TypeScript + Vite build (all 7 UIs) |
+| Frontend (views, stores, composables) | `bun run build` | TypeScript + Vite build (the web app + desktop-ui) |
 | Full-flow (auth, routes, UI+API) | `bun run test:e2e` | Playwright E2E tests |
 
 Run the **most specific** command first. If a backend change also affects the frontend, run both.
@@ -1253,11 +1259,11 @@ In-process typed event bus at `packages/services/src/events/event-bus.ts`. Handl
 
 Reusable state machine at `packages/services/src/mixins/state-machine.ts` — working but has zero instantiations (ORDO/ORDI transitions are hand-rolled in their controllers). There is no `packages/sales-api` SalesOrder module; the shipped order documents are the invoicing ORDO/ORDI pair above.
 
-### One app, several pods (FR-24, planned)
+### One app, several pods (FR-24, shipped 2026-11-01)
 
-The direction is the opposite of splitting the API by domain: `docs/fr/FR-24-one-app.md` merges the eight SPAs into one build at the same URLs, and makes the one API process safe to run as several pods. The domain `*-api` packages have no server of their own.
+The direction is the opposite of splitting the API by domain: `docs/fr/FR-24-one-app.md` merged the eight SPAs into one build at the same URLs (`packages/web`), and made the one API process safe to run as several pods. The domain `*-api` packages have no server of their own.
 
-⚠ **`replicas` must stay 1 until FR-24 Phase 6 ships.** A bridged printer lives on one pod, and `getFiscalContext` reads "not connected in this process" as offline: with two pods, sales landing on the other pod are refused by the printer gate, or go through with no receipt where the gate is off.
+Production runs **two pods** (`replicas: 2`, lgr-deploy #47) since Phase 6: a till request for a printer another pod holds is forwarded there (see "Ready for several pods"). ⚠ An image without Phase 6 must never run with `replicas: 2`: a sale landing on the pod without the printer would be refused by the printer gate, or go through with no receipt where the gate is off.
 
 ---
 
@@ -1684,9 +1690,8 @@ them (no other `*-ui` depends on `services`). **Adding a report = one entry + on
   their **old route names** via `MovedToReportsView.vue` stubs that `window.location.replace`
   and **forward the query string** (a router redirect cannot cross SPAs). Invoicing's
   "Reporting" nav group is gone — both children moved.
-- **Cross-SPA links must be hrefs, never route names.** New helper `appHref(appId, path)` in
-  `ui-shared/nav/navigate` returns what `navigateToPage` would navigate to, including the
-  per-app Vite dev port + token/org handoff.
+- (Then) **Cross-SPA links had to be hrefs**, via `appHref(appId, path)` (`ui-shared/nav/navigate`). Since
+  FR-24.21 one SPA serves every module, so route names work too, and `appHref` returns the path.
 - **Favorites**: moving a page re-keys its ★ favorite (`id === path`). `LEGACY_PAGE_IDS` in
   `page-registry.ts` remaps the two old ids on load (`usePageFavorites.syncFromStorage`), so
   stars and usage counts survive.
@@ -1696,11 +1701,8 @@ them (no other `*-ui` depends on `services`). **Adding a report = one entry + on
   `portal-api/src/controllers/export.controller.ts` stub (FR-6.21, zero consumers, returns a
   "not yet implemented" descriptor) left mounted; `/invoicing/reports/aging` still answers
   **anonymously** (pre-existing, and byte-compat per FR-6.20 — worth its own fix).
-- Touch points for the next app: `APP_IDS`/`MODULES`/`APP_REGISTRY`/`PLAN_APP_LIMITS`,
-  `unified.ts` (`uiModules` + `moduleUiConfig` + import/mount), root `package.json`,
-  `scripts/dev.ts`, `Dockerfile` (RUN + COPY), `page-registry.ts`, `apps.*` **and** the legacy
-  `appHub.*` i18n twin block ×4 (a missing key renders literally — there is no fallback), and
-  `e2e/tests/app-hub.spec.ts`'s `APP_COUNT`.
+- Touch points for the next app: see "Adding a module" under FR-24 (a manifest and its registry rows;
+  ⚠ the `apps.*` **and** legacy `appHub.*` i18n blocks ×4, since a missing key renders literally).
 
 ## FR-07 / FR-08 — the first two registry reports (2026-08-25)
 

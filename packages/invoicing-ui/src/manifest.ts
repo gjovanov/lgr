@@ -2,7 +2,7 @@ import type { ModuleManifest } from 'ui-shell/module'
 
 /**
  * FR-24.3: the invoicing module as data. Paths are relative to the module (`/invoicing`), never to a
- * router's base: the router composes them under the module's shell record (`moduleRoutes`).
+ * router's base: the one SPA's router composes them under the module's shell record.
  */
 export const manifest: ModuleManifest = {
   id: 'invoicing',
@@ -121,13 +121,13 @@ export const manifest: ModuleManifest = {
       { path: 'payment-orders', name: 'invoicing.payment-orders', component: () => import('./views/PaymentOrdersView.vue'), meta: { breadcrumb: [{ title: 'Payment Orders' }] } },
       { path: 'cash-orders', name: 'invoicing.cash-orders', component: () => import('./views/CashOrdersView.vue'), meta: { breadcrumb: [{ title: 'Cash Orders' }] } },
       // ── Moved to the Reports app (FR-06 #14) ──
-      // Both pages now live at /reports/*. These stubs keep the OLD ROUTE NAMES alive (the
+      // Both pages now live at /reports/*. These redirects keep the OLD ROUTE NAMES alive (the
       // repo-wide constraint: Playwright navigates by name and useGridColumns keys column
-      // prefs by route name) and forward the query string, so old bookmarks carrying grid
-      // state land on the moved page with that state intact. A router `redirect` cannot be
-      // used — /reports is a separate SPA.
-      { path: 'aging-report', name: 'invoicing.aging-report', component: () => import('./views/MovedToReportsView.vue'), props: { to: '/aging' }, meta: { breadcrumb: [{ title: 'Aging Report' }] } },
-      { path: 'reporting/export', name: 'invoicing.reporting.export', component: () => import('./views/MovedToReportsView.vue'), props: { to: '/export' }, meta: { breadcrumb: [{ title: 'Reporting' }, { title: 'Export' }] } },
+      // prefs by route name) and keep the query string, so old bookmarks carrying grid state
+      // land on the moved page with that state intact. One SPA serves /reports too, so a router
+      // redirect does it with no page load (FR-24.21 replaced the `MovedToReportsView` stub).
+      { path: 'aging-report', name: 'invoicing.aging-report', redirect: to => ({ name: 'reports.aging', query: to.query, hash: to.hash }) },
+      { path: 'reporting/export', name: 'invoicing.reporting.export', redirect: to => ({ name: 'reports.export', query: to.query, hash: to.hash }) },
 
       // ── Configuration ──
       { path: 'configuration/sequences', name: 'invoicing.configuration.sequences', component: () => import('./views/SequencesConfigView.vue'), meta: { breadcrumb: [{ title: 'Configuration' }, { title: 'Sequences' }] } },

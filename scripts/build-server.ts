@@ -10,7 +10,7 @@
  *   app/migrate.js         packages/migrations/src/cli.ts, bundled (`--status`, `--accept-changed`)
  *   app/scripts/<name>.js  the vetted scripts (`SCRIPT_ALLOW_LIST`), bundled
  *   app/<name>-<hash>.*    files a bundle imports (the PDF letterhead), beside it
- *   ui/<module>/           the built SPAs. Run the server with `LGR_UI_ROOT=<package>/ui`.
+ *   ui/web/                the built web app (FR-24.24). Run the server with `LGR_UI_ROOT=<package>/ui`.
  *
  * It copies the SPAs and does not build them: run `bun run build` first. `check-package.ts` then
  * says whether the result may ship. The same commit builds the same bytes: the manifest carries
@@ -55,15 +55,15 @@ if (import.meta.main) {
   }
   mkdirSync(OUT, { recursive: true })
 
-  const missing = UI_MODULES.filter(m => !existsSync(join(REPO_ROOT, 'packages', `${m}-ui`, 'dist', 'index.html')))
+  const missing = UI_MODULES.filter(m => !existsSync(join(REPO_ROOT, 'packages', m, 'dist', 'index.html')))
   if (missing.length) {
-    console.error(`Not built: ${missing.map(m => `${m}-ui`).join(', ')}. Run \`bun run build\` first.`)
+    console.error(`Not built: ${missing.map(m => `packages/${m}`).join(', ')}. Run \`bun run build\` first.`)
     process.exit(1)
   }
 
   for (const e of ENTRIES) await bundle(e.source, join(OUT, 'app'), e.name)
   for (const s of SCRIPT_ALLOW_LIST) await bundle(join('scripts', `${s}.ts`), join(OUT, 'app', 'scripts'), s)
-  for (const m of UI_MODULES) cpSync(join(REPO_ROOT, 'packages', `${m}-ui`, 'dist'), join(OUT, 'ui', m), { recursive: true })
+  for (const m of UI_MODULES) cpSync(join(REPO_ROOT, 'packages', m, 'dist'), join(OUT, 'ui', m), { recursive: true })
 
   const dirty = git('status', '--porcelain').length > 0
   const manifest: ServerManifest = {
