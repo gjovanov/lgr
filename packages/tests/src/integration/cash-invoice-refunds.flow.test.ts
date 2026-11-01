@@ -761,6 +761,26 @@ describe('a refund recorded later (/payments, §2.5)', () => {
       expect(await stornosOf(note.id)).toHaveLength(1)
     })
 
+    it('a first part that fails stops the rest: nothing prints after it, and nothing went back', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInParts(w, [14, 10])
+      const note = await issuedNote(w, inv)
+      const printed = w.sim!.receipts.length
+      // The driver tries a command three times. The line comes back for whatever follows them.
+      let opened = 0
+      w.sim!.beforeCommand = (cmd: number) => { if (cmd === 0x90 && ++opened <= 3) throw new Error('down') }
+
+      const r = await pay(w, note.id, 24)
+
+      w.sim!.beforeCommand = null
+      expect(r.status).toBe(503)
+      expect(r.json).toMatchObject({ code: 'fiscal_error', refunded: 0 })
+      expect(opened).toBe(3)
+      expect(w.sim!.receipts).toHaveLength(printed)
+      expect((await stornosOf(note.id)).map(s => s.status)).toEqual(['voided'])
+      expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    })
+
     it('a second part that fails: the first stands, the answer says how much went back, and nothing more is recorded', async () => {
       const w = await tillWorld(app)
       const inv = await paidInParts(w, [14, 10])
