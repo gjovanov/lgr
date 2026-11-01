@@ -219,6 +219,27 @@ test.describe('A filled cart', () => {
     await expect(page.getByRole('textbox', { name: /Search products/i })).toBeFocused()
   })
 
+  // The same page with another address: nothing leaves, so no leave guard runs, and `openPage`
+  // remounts the view all the same.
+  test('„+ Нов" from this page under another address asks too', async ({ page }) => {
+    await page.goto('/invoicing/cash-sales/new?from=a-bookmark')
+    await fillCart(page)
+
+    await page.getByTestId('new-document-menu').click()
+    await page.getByTestId('new-document-list').locator('.v-list-item').filter({ hasText: 'Cash sale' }).click()
+    await expect(dialog(page)).toBeVisible()
+    await page.getByTestId('leave-cart-stay').click()
+    await expect(dialog(page)).toHaveCount(0)
+    await expect(cartLine(page).first()).toBeVisible()
+    await expect(page).toHaveURL(/from=a-bookmark$/)
+
+    await page.getByTestId('new-document-menu').click()
+    await page.getByTestId('new-document-list').locator('.v-list-item').filter({ hasText: 'Cash sale' }).click()
+    await page.getByTestId('leave-cart-go').click()
+    await expect(page).toHaveURL(/\/invoicing\/cash-sales\/new$/)
+    await expect(cartLine(page)).toHaveCount(0)
+  })
+
   // A move refused for a sale that is printing. The person sees how it ended.
   test('a sale on its way cannot be left, and the question closes by itself', async ({ page }) => {
     await fillCart(page)

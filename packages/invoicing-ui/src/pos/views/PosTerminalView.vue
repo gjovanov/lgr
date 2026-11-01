@@ -210,7 +210,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { onBeforeRouteLeave } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { computePosTotals } from 'config/pos-totals'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -677,7 +677,7 @@ function answerLeave(leave: boolean) {
 // The sale has answered, so the refusal has nothing left to say.
 watch(selling, (now) => { if (!now && !settleLeave) leaveAsked.value = false })
 
-onBeforeRouteLeave(() => {
+function askBeforeLeaving() {
   if (selling.value) {
     leaveAsked.value = true
     return false
@@ -686,7 +686,11 @@ onBeforeRouteLeave(() => {
   settleLeave?.(false) // a second move while the first is asked about replaces it
   leaveAsked.value = true
   return new Promise<boolean>((resolve) => { settleLeave = resolve })
-})
+}
+
+onBeforeRouteLeave(askBeforeLeaving)
+// This page under another address: nothing leaves it, but `openPage` remounts the view.
+onBeforeRouteUpdate(askBeforeLeaving)
 
 /** The org this cart is rung up in. The tab's session can leave it: a switch, a sign-out, a dead token. */
 const ringingIn = getOrg()?.id
