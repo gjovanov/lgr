@@ -15,6 +15,7 @@ import { logger } from 'services/logger'
 import { toPosTransaction } from 'services/biz/cash-register/mapping'
 import { finishInterruptedReceipt, interruptedDocuments } from 'services/biz/cash-register/payment-receipt.service'
 import { asEntity } from 'services/biz/cash-register/pos-union'
+import { auditStoppedSettlement } from 'services/biz/cash-register/settle.service'
 import type { RegisterPrinter } from 'services/biz/cash-register/printer'
 import { takeLease } from 'services/biz/hot-path-key'
 import { livePresence } from 'services/biz/fiscal-presence.service'
@@ -433,6 +434,7 @@ export async function finishInterruptedDocuments(orgId: string, user: RegisterUs
     if (!(await takeLease(Invoice, orgId, doc._id))) continue
     try {
       const c = await documentContext(orgId, user, doc)
+      await auditStoppedSettlement(c, doc)
       await (doc.type === 'cash_storno' ? finishInterruptedStorno(c, doc) : finishInterruptedReceipt(c, doc))
       any = true
     } catch (e: any) {

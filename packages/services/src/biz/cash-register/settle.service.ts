@@ -24,7 +24,7 @@
  *
  * R2's `payment_storno` joins `FINISHES`, and needs nothing else here.
  */
-import { Invoice } from 'db/models'
+import { AuditLog, Invoice } from 'db/models'
 import { recordAuditEntry } from '../audit-log.service.js'
 import { LEASE_MS, takeLease } from '../hot-path-key.js'
 import { saleInDoubt, saleInDoubtFilter } from './in-doubt.js'
@@ -87,6 +87,31 @@ async function saleReceiptNumber(doc: any, typed: string | undefined): Promise<s
   return number
 }
 
+/** The trail of what a person said: on the settle itself, and on what finishes one that stopped. */
+function auditSettlement(c: RegisterContext, doc: any): Promise<boolean> {
+  const { settled } = doc.register
+  return recordAuditEntry({
+    // Whoever said it, which is not whoever finishes it.
+    orgId: c.orgId, userId: String(settled.by), operatorCode: String(settled.by) === c.user.id ? c.user.operatorCode : undefined,
+    action: 'settle_receipt', module: c.audit.module, entityType: c.audit.entityType,
+    entityId: String(doc._id), entityName: doc.invoiceNumber, unpNumber: doc.register?.unp,
+    changes: [
+      { field: 'printed', oldValue: 'unknown', newValue: settled.printed ? 'yes' : 'no' },
+      ...(settled.receiptNumber ? [{ field: 'receiptNumber', oldValue: null, newValue: settled.receiptNumber }] : []),
+    ],
+  })
+}
+
+/**
+ * A settle stopped between its claim and its audit row: whatever finishes it writes the row. What was
+ * said must be on the trail however it ended. One a crash stopped after the row has it already.
+ */
+export async function auditStoppedSettlement(c: RegisterContext, doc: any): Promise<void> {
+  if (!doc.register?.settled) return
+  const written = await AuditLog.exists({ orgId: oid(c.orgId), entityId: doc._id, action: 'settle_receipt' }).exec()
+  if (!written) await auditSettlement(c, doc)
+}
+
 /**
  * What a person says about a document in doubt. Answers what it became, or null when it is not in
  * doubt. What they said, and who said it, stays on the document and in the audit trail.
@@ -125,14 +150,7 @@ export async function settleInDoubt(c: RegisterContext, id: string, answer: Sett
     { new: true },
   ).lean().exec()
   if (!claimed) return resumeSettled(c, doc, printed)
-  await recordAuditEntry({
-    orgId: c.orgId, userId: c.user.id, operatorCode: c.user.operatorCode, action: 'settle_receipt', module: c.audit.module,
-    entityType: c.audit.entityType, entityId: String(claimed._id), entityName: claimed.invoiceNumber, unpNumber: claimed.register?.unp,
-    changes: [
-      { field: 'printed', oldValue: 'unknown', newValue: printed ? 'yes' : 'no' },
-      ...(receiptNumber ? [{ field: 'receiptNumber', oldValue: null, newValue: receiptNumber }] : []),
-    ],
-  })
+  await auditSettlement(c, claimed)
   if (claimed.completedAt) return claimed
   return FINISHES[claimed.type](c, String(claimed._id))
 }
@@ -154,5 +172,6 @@ async function resumeSettled(c: RegisterContext, doc: any, printed: boolean): Pr
     })
   }
   if (!(await takeLease(Invoice, c.orgId, stopped._id))) return null
+  await auditStoppedSettlement(c, stopped)
   return FINISHES[stopped.type](c, String(stopped._id))
 }

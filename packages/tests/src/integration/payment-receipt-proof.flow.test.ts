@@ -1134,8 +1134,11 @@ describe('a person settles a receipt in doubt (ruling 6)', () => {
   it('a document that is not there, or of another kind, is a 404', async () => {
     const w = await tillWorld(app)
     const sale = await w.sell(1)
+    const d = await onBank(w)
     expect((await settle(w, '64b000000000000000000000', true)).status).toBe(404)
-    expect((await settle(w, sale.json.transaction.id, true)).status).toBe(404)
+    expect((await settle(w, d.id, true)).status).toBe(404)
+    // A sale it takes, once nothing can prove its receipt: this one printed.
+    expect((await settle(w, sale.json.transaction.id, true)).json.code).toBe('receipt_not_in_doubt')
   })
 
   it('the document says it is in doubt, and the session\'s figures leave it out until it is settled', async () => {
@@ -1169,6 +1172,57 @@ describe('a settle that stops halfway (finding 3)', () => {
     release?.mockRestore()
     return answer
   }
+  /** The person said it, and the process dies before even its audit row. */
+  async function stoppedBeforeTheTrail(w: TillWorld, id: string, printed: boolean) {
+    const dies = spyOn(AuditLog, 'create').mockImplementationOnce((() => { throw new Error('the pod went away') }) as any)
+    const stops = spyOn(Invoice, 'startSession').mockImplementationOnce(() => { throw new Error('the pod went away') })
+    const answer = await settle(w, id, printed)
+    dies.mockRestore()
+    stops.mockRestore()
+    expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'settle_receipt' })).toBe(0)
+    return answer
+  }
+
+  it('a crash before its audit row: a second settle finishes it and writes the row, naming who said it, once', async () => {
+    const w = await tillWorld(app)
+    const { r } = await inDoubt(w)
+    await stoppedBeforeTheTrail(w, String(r._id), true)
+    await Invoice.updateOne({ _id: r._id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+
+    expect((await settle(w, String(r._id), true)).status).toBe(200)
+
+    const audits: any[] = await AuditLog.find({ orgId: w.oid, action: 'settle_receipt' }).lean().exec()
+    expect(audits).toHaveLength(1)
+    expect(String(audits[0].entityId)).toBe(String(r._id))
+    expect(String(audits[0].userId)).toBe(String(w.user._id))
+  })
+
+  it('the same when the next touch finishes it, and the row names who said it, not who came next', async () => {
+    const w = await tillWorld(app)
+    const { d, r } = await inDoubt(w)
+    await stoppedBeforeTheTrail(w, String(r._id), true)
+    await Invoice.updateOne({ _id: r._id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+
+    await pay(w, d.id, 24, 'bank_transfer', undefined, w.clerkToken)
+
+    expect((await reread(r)).completedAt).toBeTruthy()
+    const audits: any[] = await AuditLog.find({ orgId: w.oid, action: 'settle_receipt' }).lean().exec()
+    expect(audits).toHaveLength(1)
+    expect(String(audits[0].userId)).toBe(String(w.user._id))
+  })
+
+  it('one whose row was written before it stopped gets no second', async () => {
+    const w = await tillWorld(app)
+    const { d, r } = await inDoubt(w)
+    await stopped(w, String(r._id), true)
+    expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'settle_receipt' })).toBe(1)
+    await lapse(r)
+
+    await pay(w, d.id, 24, 'bank_transfer')
+
+    expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'settle_receipt' })).toBe(1)
+  })
+
   /** Only a lease the settle left: one it took away must not come back here. */
   const lapse = (r: any) => Invoice.updateOne({ _id: r._id, leaseUntil: { $exists: true } }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
 
