@@ -67,10 +67,12 @@ export const ISSUED_KEY: Record<string, string> = {
  * courier's money, not a payment at the counter: its receipt prints on its own, and Pay would record
  * money nobody brought.
  */
-export function issuedReceiptNotice(issued: { receiptError?: string; paymentMethod?: string; receipt?: { state?: string } } | null | undefined): { key: string; takesPayment: boolean } | null {
+export function issuedReceiptNotice(issued: { receiptError?: string; paymentMethod?: string; type?: string; receipt?: { state?: string } } | null | undefined): { key: string; takesPayment: boolean } | null {
   if (!issued?.receiptError) return null
   if (issued.receipt?.state === 'unknown' || issued.receipt?.state === 'printed') return { key: 'cashRegister.receipt.issuedUnknown', takesPayment: false }
   if (issued.paymentMethod === 'cash_on_delivery') return { key: 'cashRegister.receipt.issuedNoReceipt', takesPayment: false }
+  // R2: its storno did not print. Nothing went back, and the Refund action gives it.
+  if (issued.type === 'credit_note') return { key: 'cashRegister.receipt.issuedNotRefunded', takesPayment: true }
   return { key: 'cashRegister.receipt.issuedNotPaid', takesPayment: true }
 }
 

@@ -233,7 +233,7 @@
       {{ receiptError || $t('cashRegister.receipt.deliveryMissing') }}
       <template #append>
         <v-btn v-if="deliveryReceiptDue" size="small" variant="outlined" :loading="printingReceipt" data-testid="receipt-print" @click="printDeliveryReceipt">{{ $t('cashRegister.receipt.printIt') }}</v-btn>
-        <v-btn v-else-if="receiptTakesPayment" size="small" variant="outlined" data-testid="receipt-retry" @click="paymentDialog = true">{{ $t('cashRegister.receipt.takePayment') }}</v-btn>
+        <v-btn v-else-if="receiptTakesPayment" size="small" variant="outlined" data-testid="receipt-retry" @click="paymentDialog = true">{{ $t(payableDoc?.type === 'credit_note' ? 'cashRegister.receipt.takeRefund' : 'cashRegister.receipt.takePayment') }}</v-btn>
       </template>
     </v-alert>
 

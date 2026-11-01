@@ -1,7 +1,7 @@
 <template>
   <v-dialog :model-value="modelValue" max-width="500" @update:model-value="emit('update:modelValue', $event)">
     <v-card>
-      <v-card-title>{{ $t('invoicing.recordPayment') }}</v-card-title>
+      <v-card-title>{{ $t(refund ? 'invoicing.recordRefund' : 'invoicing.recordPayment') }}</v-card-title>
       <v-card-text>
         <!-- FR-23: why the receipt did not print. Nothing was recorded, so saving again is the retry. -->
         <v-alert v-if="refusal" :type="printFailed ? 'error' : 'warning'" variant="tonal" density="compact" class="mb-3" data-testid="payment-refusal">
@@ -29,7 +29,11 @@
           <v-text-field v-model="form.reference" :label="$t('invoicing.reference')" />
         </v-form>
         <div v-if="prints" class="text-caption text-medium-emphasis" data-testid="payment-prints">
-          <v-icon icon="mdi-printer-pos-outline" size="small" class="mr-1" />{{ $t('cashRegister.receipt.willPrint') }}
+          <v-icon icon="mdi-printer-pos-outline" size="small" class="mr-1" />{{ $t(refund ? 'cashRegister.receipt.refundWillPrint' : 'cashRegister.receipt.willPrint') }}
+        </div>
+        <!-- R2: what the invoice's receipts still hold, as the server says. It refuses what they do not. -->
+        <div v-if="prints && refund && document?.refundable !== undefined" class="text-caption text-medium-emphasis" data-testid="refund-holds">
+          {{ $t('cashRegister.receipt.refundable', { amount: fmt(document.refundable) }) }}
         </div>
       </v-card-text>
       <v-card-actions>
@@ -61,8 +65,8 @@ import { defaultPaymentMethod, outstandingAmount, type PayableDoc } from '../com
 
 const props = defineProps<{
   modelValue: boolean
-  /** The document being paid: its id, total, `amountPaid`, `paymentMethod`, currency, and which methods print. */
-  document: (PayableDoc & { _id: string; currency?: string; printsOnPayment?: string[] }) | null
+  /** The document being paid: its id, total, `amountPaid`, `paymentMethod`, currency, and which methods print. A credit note is refunded. */
+  document: (PayableDoc & { _id: string; type?: string; currency?: string; printsOnPayment?: string[]; refundable?: number }) | null
 }>()
 const emit = defineEmits<{ 'update:modelValue': [open: boolean]; recorded: [] }>()
 
@@ -80,6 +84,8 @@ const form = ref({ amount: 0, method: 'bank_transfer', date: today(), reference:
 const refusal = ref('')
 const printFailed = ref(false)
 
+/** FR-23 R2: a credit note's money goes back. */
+const refund = computed(() => props.document?.type === 'credit_note')
 /** FR-23: whether saving prints a receipt. The server answers it, per document and by method. */
 const prints = computed(() => (props.document?.printsOnPayment ?? []).includes(form.value.method))
 
@@ -129,15 +135,19 @@ async function save() {
       httpClient.post(`${appStore.orgUrl()}/invoices/${id}/payments`, form.value, { headers }))
     // An interrupted print the device cannot confirm: the payment stands, and someone checks it.
     if (data?.receiptError) showError(t('cashRegister.receipt.unknown', { reason: data.receiptError }))
+    else if (data?.stornos?.length) showSuccess(t('cashRegister.receipt.refundPrinted', { number: data.stornos.map((s: any) => s.number).join(', ') }))
     else showSuccess(data?.receipt?.number ? t('cashRegister.receipt.printed', { number: data.receipt.number }) : t('invoicing.paymentRecorded'))
     emit('update:modelValue', false)
     emit('recorded')
   } catch (e: any) {
     // A definitive answer ends the attempt (`createIdempotentAction`): saving again is a new one.
     const message = receiptRefusalMessage(t, e, t('common.operationFailed'))
-    refusal.value = message
+    // R2: a refund over two receipts can stop halfway. What printed stands, and the document has moved.
+    const refunded = Number(e?.response?.data?.refunded) || 0
+    refusal.value = refunded ? `${t('cashRegister.receipt.partlyRefunded', { amount: fmt(refunded) })} ${message}` : message
     printFailed.value = isFailedPrint(e?.response?.data)
     showError(message)
+    if (refunded) emit('recorded')
   } finally {
     saving.value = false
   }

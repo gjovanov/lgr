@@ -69,9 +69,9 @@
               <div>{{ $t(`cashRegister.fiscalState.${doc.row.fiscal.state}`) }}</div>
             </v-col>
             <v-col v-if="doc.row.reference" cols="12" sm="6" md="3"><div class="text-caption text-medium-emphasis">{{ $t('cashRegister.columns.reference') }}</div><div>{{ doc.row.reference }}</div></v-col>
-            <!-- FR-23: the invoice a payment's receipt took money for. -->
-            <v-col v-for="inv in doc.row.kind === 'payment' ? doc.row.invoices : []" :key="inv.id" cols="12" sm="6" md="3">
-              <div class="text-caption text-medium-emphasis">{{ $t('cashRegister.receipt.paidInvoice') }}</div>
+            <!-- FR-23: the invoice a payment's receipt took money for, or the credit note a refund's storno gave it back on. -->
+            <v-col v-for="inv in doc.row.kind === 'payment' || doc.row.kind === 'refund' ? doc.row.invoices : []" :key="inv.id" cols="12" sm="6" md="3">
+              <div class="text-caption text-medium-emphasis">{{ doc.row.kind === 'refund' ? $t('cashRegister.receipt.refundOf') : $t('cashRegister.receipt.paidInvoice') }}</div>
               <a :href="appHref('invoicing', `/invoicing/invoices/${inv.id}/edit`)" class="text-decoration-none" data-testid="journal-paid-invoice">{{ inv.number }}</a>
             </v-col>
           </v-row>
@@ -83,9 +83,9 @@
         <v-card-title class="text-subtitle-1">{{ $t('cashRegister.detail.related') }}</v-card-title>
         <v-card-text>
           <div v-for="r in doc.related" :key="r.id" class="d-flex align-center ga-2 mb-1" data-testid="journal-related">
-            <span class="text-caption text-medium-emphasis">{{ r.kind === 'storno' ? $t('cashRegister.detail.stornoedBy') : $t('cashRegister.detail.stornoOf') }}</span>
+            <span class="text-caption text-medium-emphasis">{{ givesBack(r.kind) ? $t('cashRegister.detail.stornoedBy') : $t('cashRegister.detail.stornoOf') }}</span>
             <router-link :to="relatedRoute(r)" class="text-decoration-none">{{ r.number }}</router-link>
-            <span>{{ fmtCurrency(r.kind === 'storno' ? -r.total : r.total, r.currency) }}</span>
+            <span>{{ fmtCurrency(givesBack(r.kind) ? -r.total : r.total, r.currency) }}</span>
           </div>
         </v-card-text>
       </v-card>
@@ -191,7 +191,7 @@ import { useCurrency } from '../../composables/useCurrency'
 import { useSnackbar } from '../../composables/useSnackbar'
 import { paymentMethodKey } from '../../composables/usePaymentMethods'
 import { STORNO_ROLES, canStornoJournalRow } from '../../cash-register/storno'
-import { kindColor } from '../../cash-register/journal-kind'
+import { givesBack, kindColor } from '../../cash-register/journal-kind'
 import { appHref } from '../../nav/navigate'
 
 const props = defineProps<{
@@ -231,8 +231,8 @@ async function load() {
 
 watch(() => [props.orgUrl, props.id], () => { if (props.id) void load() }, { immediate: true })
 
-// FR-23: a payment's receipt has no form of its own: it names the invoice it paid, on this page.
-const documentLink = computed(() => (doc.value && props.documentRoute && doc.value.row.kind !== 'payment' ? props.documentRoute(doc.value.row) : null))
+// FR-23: a payment's receipt has no form of its own: it names the invoice it paid, on this page. A refund's storno, the credit note.
+const documentLink = computed(() => (doc.value && props.documentRoute && doc.value.row.kind !== 'payment' && doc.value.row.kind !== 'refund' ? props.documentRoute(doc.value.row) : null))
 const canStorno = computed(() => canStornoJournalRow(doc.value?.row, props.role))
 
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[props.locale || 'en'] || 'en-US')
