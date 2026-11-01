@@ -581,15 +581,18 @@ describe('a person settles a receipt in doubt (ruling 6)', () => {
     expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'settle_receipt' })).toBe(1)
   })
 
-  it('only a manager or an admin', async () => {
+  it('only a manager or an admin: someone who may write invoices is not enough', async () => {
     const w = await tillWorld(app)
     const { r } = await inDoubt(w)
-    const cashier = await w.tokenAs('member')
 
-    const refused = await settle(w, String(r._id), true, cashier)
+    for (const role of ['member', 'accountant']) {
+      const refused = await settle(w, String(r._id), true, await w.tokenAs(role))
 
-    expect(refused.status).toBe(403)
-    expect((await reread(r)).register.fiscal.inDoubt).toBe(true)
+      expect(refused.status).toBe(403)
+      expect((await reread(r)).register.fiscal.inDoubt).toBe(true)
+    }
+    const accountant = await settle(w, String(r._id), true, await w.tokenAs('accountant'))
+    expect(accountant.json.message).toContain('manager or admin')
   })
 
   it('settles once, and only what is in doubt', async () => {
@@ -614,6 +617,8 @@ describe('a person settles a receipt in doubt (ruling 6)', () => {
     const { d, r } = await inDoubt(w)
 
     expect((await shown(w, d.id)).receiptInDoubt).toMatchObject({ id: String(r._id), number: r.invoiceNumber })
+    // It paid nothing yet, so neither the form nor the PDF says it did.
+    expect((await shown(w, d.id)).paymentReceipts ?? []).toHaveLength(0)
     const preview = (await w.call('GET', `/trade/pos/session/${w.sessionId}/close-preview`)).json
     expect(preview.report.counts.payments ?? 0).toBe(0)
     expect(preview.unfinishedReceipts.map((u: any) => u.number)).toEqual([r.invoiceNumber])
