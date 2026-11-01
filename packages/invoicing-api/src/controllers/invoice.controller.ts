@@ -25,7 +25,7 @@ import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement, syncDueAfterEdit } from 'services/biz/cash-settlement.service'
 import { fitsDue, heldOn, outstandingOf, overpays, paymentPipeline } from 'services/biz/invoice-payment'
 import {
-  DELIVERY_RECEIPT_OWED, freezeRefusal, inDoubtRefusal, isImportedDocument, owesDeliveryReceipt, paidByReceipts, receiptInDoubt,
+  DELIVERY_RECEIPT_OWED, PAYMENT_IN_PROGRESS, freezeRefusal, inDoubtRefusal, isImportedDocument, owesDeliveryReceipt, paidByReceipts, receiptInDoubt,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { movesPrintedMoney } from 'services/biz/cash-register/receipt-lines'
 import { NOT_PAYMENT_RECEIPT } from 'services/biz/sale-counting'
@@ -371,10 +371,7 @@ function overpayment(status: Status, doc: { total?: number; amountPaid?: number 
 /** FR-23: it would fit, but a receipt is taking that money: printing right now, or held for a person. */
 async function receiptPrinting(status: Status, orgId: string, id: string) {
   const doubt = await receiptInDoubt(orgId, id)
-  return status(409, doubt ? inDoubtRefusal(doubt) : {
-    code: 'payment_in_progress',
-    message: 'Another payment on this document is printing. Wait for it to finish, then try again.',
-  })
+  return status(409, doubt ? inDoubtRefusal(doubt) : { ...PAYMENT_IN_PROGRESS })
 }
 
 /** What the document form shows of a receipt in doubt: which one, and where to settle it. */

@@ -113,6 +113,12 @@ export async function isFiscallyPaid(orgId: string, documentId: string): Promise
   return !!(await Invoice.exists(liveReceipts(orgId, documentId)).exec())
 }
 
+/** Another receipt of this document holds the money right now. */
+export const PAYMENT_IN_PROGRESS = {
+  code: 'payment_in_progress',
+  message: 'Another payment on this document is printing. Wait for it to finish, then try again.',
+} as const
+
 /** The courier's money, on an invoice whose receipt has not printed. */
 export const DELIVERY_RECEIPT_OWED = {
   code: 'delivery_receipt_owed',
@@ -279,7 +285,7 @@ async function holdRefusal(doc: any): Promise<RegisterRefusal> {
   }
   const doubt = await receiptInDoubt(String(doc.orgId), String(doc.register.paidInvoiceId))
   if (doubt) return new RegisterRefusal(409, inDoubtRefusal(doubt))
-  return new RegisterRefusal(409, { code: 'payment_in_progress', message: 'Another payment on this document is printing. Wait for it to finish, then try again.' })
+  return new RegisterRefusal(409, { ...PAYMENT_IN_PROGRESS })
 }
 
 /**
