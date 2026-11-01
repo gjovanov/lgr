@@ -2633,7 +2633,9 @@ invoice still due until the courier pays).
   conditional on still being a draft with no issue under way and no claim. `/send` goes on from what it
   read, so its claim is a compare-and-set on `updatedAt`: changed since, 409 `document_changed`, nothing
   moved and no number drawn. Left out, an edit inside `/send` rang one amount and booked another, and bank
-  to cash settled with no receipt.
+  to cash settled with no receipt. `/receive` honours it too. ⚠ A `DELETE` takes the claim first, releases a
+  bill's receipts, then deletes: the bill is the only record of the supplier it wrote on them, so they go
+  first, and a delete that lost must not have released them.
 - **Whether a COD invoice owes a receipt is a fact of its issue** (`deliveryReceiptOwed`, in the issue's own
   write, never by a client), because an issue can leave no receipt document at all.
 - **What it prints** (`receipt-lines.ts`, pure): a whole payment at issue, the document's lines and
