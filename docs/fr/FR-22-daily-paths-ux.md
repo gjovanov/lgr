@@ -290,11 +290,23 @@ them into PRs.
     - `{ acknowledgeOverlap: true }` receives anyway, and is audit-logged
       (`receive_overlap_acknowledged`). The body stays optional.
     - `/send` books an incoming bill the same way, so it asks the same question.
+    - A bill leaves draft once. The write that takes it out holds on `status: 'draft'`, and on an issue
+      under way on `/send`. The loser answers 409 `bill_not_draft` with nothing booked. A number it drew
+      is a gap in an internal series, which is accepted. The form, the list and the question's buttons
+      send nothing while one is running.
+    - What booking would refuse is refused before the number is drawn, by the one function booking
+      itself uses (`stockBookingRefusal`): 422 `stock_line_without_warehouse` or
+      `stock_line_without_product`, in the user's language, and the bill stays the draft it was. It
+      used to be written as received first, with no stock, and a retry answered 400.
+    - On a bill with no supplier, the question offers the supplier picker: a link has to be told who.
     - The form's „Запази и получи" and the list's Receive icon show the receipts and offer both ways
       out. Linking stops short of receiving: the delivery's lines carry the receipt's costs, and the
       user reads them against the supplier's paper first (D-2). From the list it opens the bill.
-    - The import paths are not asked. `/bills/import/{extract,draft,convert}` stays byte-compatible,
-      and `/doc-import/commit` has its own duplicate and conversion checks.
+    - The import paths are not asked: a batch cannot answer a question.
+      `/bills/import/{extract,draft,convert}` stays byte-compatible, and `/doc-import/commit` has its
+      own duplicate and conversion checks. So `convertDraftInvoice` (`/doc-import/convert`,
+      `/doc-import/commit` with convert, `/bills/import/convert`) can still book goods a receipt
+      already booked.
 - **FR-22.32 (SHOULD)** The bill form has „Свържи с доставка": pick received, not-yet-billed
   receipts of the chosen supplier, with the same linkage. Receipts with no supplier follow, marked,
   and take the bill's supplier when linked (FR-22.31a).
