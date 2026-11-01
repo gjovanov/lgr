@@ -2547,8 +2547,94 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
 
     const docs = out.rows.filter((r: any) => r.rowType === 'document')
     expect(docs.map((r: any) => r.invoiceId)).toEqual([d.id])
-    const cash = out.meta.summary.find((s: any) => s.currency === 'EUR')
-    expect(cash?.cash ?? 0).toBe(0)
+    // The row keeps its total: it is issued revenue. The reconciliation foots on `unpaid`.
+    expect(docs[0].total).toBe(24)
+    const summary = out.meta.summary.find((s: any) => s.currency === 'EUR')
+    expect(summary).toMatchObject({ total: 24, cash: 0, card: 0, other: 0, unpaid: 24 })
+  })
+
+  it('a part-paid one foots too: what was taken is money, the rest is unpaid', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    w.sim!.paper = false
+    await send(w, d.id)
+    w.sim!.paper = true
+    expect((await pay(w, d.id, 10)).status).toBe(200)
+
+    const out = await report('sales-history', w.orgId, { period: around(), includeNonRegister: true })
+
+    expect(out.meta.summary.find((s: any) => s.currency === 'EUR')).toMatchObject({ total: 24, cash: 10, unpaid: 14 })
+  })
+
+  it('in an org that prints nothing the header is the money, as it always was, and the summary has no such line', async () => {
+    const w = await tillWorld(app)
+    await allowSalesWithoutPrinter(w.oid)
+    const invoice = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, invoice.id)
+    await Invoice.updateOne({ _id: invoice.id }, { $set: { paymentMethod: 'cash' } })
+
+    const out = await report('sales-history', w.orgId, { period: around(), includeNonRegister: true })
+
+    const summary = out.meta.summary.find((s: any) => s.currency === 'EUR')
+    expect(summary).toMatchObject({ total: 24, cash: 24 })
+    expect('unpaid' in summary).toBe(false)
+  })
+
+  it('a debit note issued in cash in an org that prints nothing keeps its money in the digest', async () => {
+    const w = await tillWorld(app)
+    const inv = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, inv.id)
+    await allowSalesWithoutPrinter(w.oid)
+    const note = await draftOf(w, { type: 'debit_note', extra: { relatedInvoiceId: inv.id, contactId: inv.contactId } })
+    await send(w, note.id)
+    expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0, paymentMethod: 'cash' })
+    const date = localDayOf(new Date(), 'Europe/Sofia')
+    await Invoice.updateMany({ orgId: w.oid }, { $set: { issueDate: new Date(`${date}T10:00:00Z`) } })
+
+    const digest: any = await buildDailyDigest(w.orgId, date)
+
+    expect(digest.kpis.byMethod.find((m: any) => m.method === 'cash')).toMatchObject({ amount: 24 })
+  })
+
+  it('the register: where LGR prints, the open part of a cash or card header goes to „По банка", never В брой or Карта', async () => {
+    const w = await tillWorld(app)
+    const cash = await draftOf(w)
+    const card = await draftOf(w, { method: 'card' })
+    const part = await draftOf(w)
+    w.sim!.paper = false
+    for (const d of [cash, card, part]) await send(w, d.id)
+    w.sim!.paper = true
+    expect((await pay(w, part.id, 10)).status).toBe(200)
+
+    const out = await report('sales-documents', w.orgId, { period: around() })
+
+    const row = async (id: string) => out.rows.find((r: any) => r.invoiceId === id)
+    expect(await row(cash.id)).toMatchObject({ total: 24, paidCash: 0, paidCard: 0, bank: 24 })
+    expect(await row(card.id)).toMatchObject({ total: 24, paidCash: 0, paidCard: 0, bank: 24 })
+    expect(await row(part.id)).toMatchObject({ total: 24, paidCash: 10, paidCard: 0, bank: 14 })
+  })
+
+  it('cash on delivery keeps its own column, paid or not', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'cash_on_delivery' })
+    await send(w, d.id)
+
+    const out = await report('sales-documents', w.orgId, { period: around() })
+
+    expect(out.rows.find((r: any) => r.invoiceId === d.id)).toMatchObject({ total: 24, paidCashOnDelivery: 24, bank: 0 })
+  })
+
+  it('the register of an org that prints nothing reads as it always did: an open cash header is В брой', async () => {
+    const w = await tillWorld(app)
+    const inv = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, inv.id)
+    await allowSalesWithoutPrinter(w.oid)
+    const note = await draftOf(w, { type: 'debit_note', extra: { relatedInvoiceId: inv.id, contactId: inv.contactId } })
+    await send(w, note.id)
+
+    const out = await report('sales-documents', w.orgId, { period: around() })
+
+    expect(out.rows.find((r: any) => r.invoiceId === note.id)).toMatchObject({ total: 24, paidCash: 24, bank: 0 })
   })
 
   it('nor did it in the digest', async () => {
@@ -2563,6 +2649,7 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
     const digest: any = await buildDailyDigest(w.orgId, date)
 
     expect(digest.kpis.byMethod.find((m: any) => m.method === 'cash')).toBeUndefined()
+    expect(digest.kpis.salesTotal).toBe(24)
   })
 
   it('and once it is paid, it counts', async () => {

@@ -3097,7 +3097,8 @@
       "systemSales": "Sales in the system",
       "expectedCash": "Expected cash",
       "cardPayments": "Card payments",
-      "otherPayments": "Other payments"
+      "otherPayments": "Other payments",
+      "unpaid": "Not yet paid"
     },
     "exportDialog": {
       "xlsxHint": "Every row in one sheet — sort, filter and total it yourself.",

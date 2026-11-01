@@ -2414,8 +2414,14 @@ invoice still due until the courier pays).
   PDF lists a COD receipt only once the invoice is paid: it paid nothing before.
 - **A receipt is dated as it prints**, whatever the form said: the device, the session and the row say
   one day. A bank transfer keeps the date it was made.
-- **A cash or card header on an unpaid invoice is not money** (`effectiveMethods`): sales history lists
-  the document at 0 and the digest skips it. Before FR-23 such a document could not exist.
+- **A cash or card header on an unpaid invoice or debit note is no money, where LGR prints**
+  (`headerIsNoMoney`, `sale-counting.ts`, read by `effectiveMethods` and `splitTotal`). ⚠ Only there: an
+  org with the switch off behaves as it always did, a debit note issued in cash included, because such
+  a document stays unpaid there. Sales history keeps the row's total, because it is issued revenue, and
+  `meta.summary` gains `unpaid`, so total = cash + card + other + unpaid and the card foots. The digest
+  skips the header. The sales register puts its open part in „По банка", never В брой or Карта (the
+  operator's rule: the columns partition Общо, and „По банка" takes anything unpaid), and cash on
+  delivery keeps its own column.
 - **A refused `/send` cancels the draft transfers made for it** (`discardPendingTransfers`), since the
   dialog draws them up before it issues.
 - ⚠ **A Tremol truncates a line's name at 34 and keeps no free text**, so `receipt-lines.ts` picks the

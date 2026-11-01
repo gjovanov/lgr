@@ -3097,7 +3097,8 @@
       "systemSales": "Verkäufe im System",
       "expectedCash": "Erwarteter Bargeldbestand",
       "cardPayments": "Kartenzahlungen",
-      "otherPayments": "Sonstige Zahlungen"
+      "otherPayments": "Sonstige Zahlungen",
+      "unpaid": "Noch nicht bezahlt"
     },
     "exportDialog": {
       "xlsxHint": "Alle Zeilen in einem Blatt — zum eigenen Sortieren, Filtern und Summieren.",

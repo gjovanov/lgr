@@ -37,7 +37,8 @@ const dayDate = (h = 10) => new Date(`${DAY}T${String(h).padStart(2, '0')}:00:00
 
 /** A day with something of everything the digest is supposed to notice. */
 async function seedDay() {
-  const org = await createTestOrg({ settings: { locale: 'bg', timezone: 'Europe/Sofia' } } as any)
+  // An org that prints nothing, whose card invoices the fixture leaves with no payment row.
+  const org = await createTestOrg({ settings: { locale: 'bg', timezone: 'Europe/Sofia', cashRegister: { requireConnectedDevice: false } } } as any)
   const orgId = org._id as Types.ObjectId
   const customer = await createTestContact(orgId, { companyName: 'Buyer Ltd' })
   const wh = await createTestWarehouse(orgId, { name: 'Main' })

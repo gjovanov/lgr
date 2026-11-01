@@ -41,7 +41,7 @@
  * (`invoice.controller.ts`), never in `syncCashSettlement`, which the import conversion calls too.
  * An imported document never prints: another system printed its receipt.
  */
-import { Invoice, Org, POSSession } from 'db/models'
+import { Invoice, POSSession } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
 import { createAuditEntry, recordAuditEntry } from '../audit-log.service.js'
 import { eventBus } from '../../events/event-bus.js'
@@ -49,6 +49,7 @@ import { logger } from '../../logger/logger.js'
 import { generateUNP } from '../sequence.service.js'
 import { LEASE_MS, takeLease } from '../hot-path-key.js'
 import { fitsDue, isBeingVoided, outstandingOf, overpays, paymentPipeline, type PaymentRow } from '../invoice-payment.js'
+import { printsHere } from '../sale-counting.js'
 import { PAYMENT_RECEIPT } from './pos-union.js'
 import { provedNotPrinted } from './print-verdict.js'
 import type { RegisterPrinter } from './printer.js'
@@ -173,9 +174,7 @@ export async function owesDeliveryReceipt(orgId: string, doc: any): Promise<bool
   if (!doc?.deliveryReceiptOwed || doc.paymentMethod !== 'cash_on_delivery' || !['sent', 'overdue', 'partially_paid'].includes(doc.status)) return false
   if (!printsAtCounter(doc, doc.paymentMethod, true)) return false
   const live = await Invoice.exists({ ...liveReceipts(orgId, doc._id ?? doc.id), paymentMethod: 'cash_on_delivery' }).exec()
-  if (live) return false
-  const org: any = await Org.findById(orgId, { 'settings.cashRegister': 1 }).lean().exec()
-  return org?.settings?.cashRegister?.requireConnectedDevice !== false
+  return !live && printsHere(orgId)
 }
 
 /** What the invoice PDF lists: the receipts that paid it. */

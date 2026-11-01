@@ -1,5 +1,6 @@
 import { mongoose } from 'db/connection'
-import { Invoice } from 'db/models'
+import { Invoice, Org } from 'db/models'
+import { SETTLED_ON_ISSUE } from './cash-settlement.service.js'
 
 const { Types } = mongoose
 
@@ -37,6 +38,23 @@ export const NOT_INVOICE_FOR_CASH_SALE: Record<string, any> = { [CASH_SALE_REF_I
  * sees one.
  */
 export const NOT_PAYMENT_RECEIPT: Record<string, any> = { type: { $ne: 'payment_receipt' } }
+
+/** Whether LGR prints this org's sales: the printer gate's one switch (#390). ⚠ Unset reads as on. */
+export async function printsHere(orgId: string): Promise<boolean> {
+  const org: any = await Org.findById(orgId, { 'settings.cashRegister.requireConnectedDevice': 1 }).lean().exec()
+  return org?.settings?.cashRegister?.requireConnectedDevice !== false
+}
+
+/**
+ * FR-23: what the header of a document says about money. Where LGR prints, the receipt and its payment
+ * are the settlement, so a cash or card header on an invoice or a debit note says how it is to be
+ * paid, never that it was: whatever no payment row covers is unpaid. ⚠ `prints` says so per org, read
+ * once by whoever walks the documents (`printsHere`). Where nothing prints such a document was never
+ * more than its header, a debit note issued in cash included: there the header stays the money.
+ */
+export function headerIsNoMoney(doc: { type?: string; paymentMethod?: string }, prints: boolean): boolean {
+  return prints && (doc.type === 'invoice' || doc.type === 'debit_note') && Object.hasOwn(SETTLED_ON_ISSUE, String(doc.paymentMethod))
+}
 
 /** Statuses of an invoice that is not (or no longer) a document. */
 const NOT_A_DOCUMENT = ['draft', 'voided', 'cancelled']

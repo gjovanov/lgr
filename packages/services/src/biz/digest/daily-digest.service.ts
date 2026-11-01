@@ -38,7 +38,7 @@ import {
 import { effectiveMethods, bucketFor } from '../reports/sales-history.report.js'
 import { EFFECTIVE_DATE } from '../reports/warehouse-operations.report.js'
 import { INVOICING_SEQUENCE_KEYS, closedSeriesOf, resolveDefPrefix } from '../sequence-registry.js'
-import { NOT_INVOICE_FOR_CASH_SALE, NOT_PAYMENT_RECEIPT } from '../sale-counting.js'
+import { NOT_INVOICE_FOR_CASH_SALE, NOT_PAYMENT_RECEIPT, printsHere } from '../sale-counting.js'
 import {
   DIGEST_CAPS,
   DIGEST_OPT_IN_SECTIONS,
@@ -113,6 +113,7 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
 
   const currencies = new Set<string>()
   const methodTotals = new Map<string, { amount: number; count: number }>()
+  const prints = await printsHere(orgId)
 
   for (const d of docs) {
     if (d.currency) currencies.add(d.currency)
@@ -138,7 +139,7 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
     // Register split: reuse FR-08's precedence rather than inventing a second one — money is
     // attributed PER METHOD, so a split-tender document feeds two buckets.
     if (d.direction === 'outgoing') {
-      for (const m of effectiveMethods(d)) {
+      for (const m of effectiveMethods(d, prints)) {
         if (!m.amount) continue
         const bucket = bucketFor(m.method)
         const cur = methodTotals.get(bucket) || { amount: 0, count: 0 }

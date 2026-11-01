@@ -40,6 +40,7 @@
  * as stored added every refund to Общо instead of taking it off.
  */
 
+import { headerIsNoMoney, printsHere } from '../sale-counting.js'
 import { Invoice } from 'db/models'
 import {
   rowCapFor,
@@ -126,16 +127,20 @@ function salesColumn(method: unknown): SalesMethodKey {
  *   1. `payments[]`, in the order they were recorded, up to the total — the record of how the
  *      money actually came in (a cash invoice's settlement on issue is one of these), so split
  *      tender feeds two columns;
- *   2. whatever is still open, by the document's own `paymentMethod`: a card or cash-on-delivery
- *      invoice is one whether or not anybody has recorded its payment (only cash is settled on
- *      issue), and an open invoice with a bank method, or none, is „По банка".
+ *   2. whatever is still open, by the document's own `paymentMethod`: a cash-on-delivery invoice is one
+ *      whether or not anybody has recorded its payment, and an open invoice with a bank method, or
+ *      none, is „По банка". So is the open part of a cash or card header where LGR prints
+ *      (`headerIsNoMoney`): cash and card are settled on issue only where nothing prints, and there
+ *      that money was taken. Here it was not, and the operator's rule of 2026-10-15 stands: the
+ *      columns partition Общо, and „По банка" takes anything unpaid.
  *
  * Tender beyond the total — the payment endpoint does not refuse an overpayment — is not part
  * of the document, so it is left out rather than pushed into a column as a negative.
  */
 function splitTotal(
-  doc: { paymentMethod?: string; payments?: { method?: string; amount?: number }[] },
+  doc: { docType?: string; paymentMethod?: string; payments?: { method?: string; amount?: number }[] },
   total: number,
+  prints: boolean,
 ): Record<SalesMethodKey, number> {
   const out: Record<SalesMethodKey, number> = { paidCash: 0, paidCard: 0, paidCashOnDelivery: 0, bank: 0 }
   let open = Math.abs(total)
@@ -145,7 +150,7 @@ function splitTotal(
     out[salesColumn(p.method)] += amount
     open -= amount
   }
-  if (open > 0) out[salesColumn(doc.paymentMethod)] += open
+  if (open > 0) out[headerIsNoMoney({ type: doc.docType, paymentMethod: doc.paymentMethod }, prints) ? 'bank' : salesColumn(doc.paymentMethod)] += open
 
   // Back onto the document's sign and onto cents. „По банка" takes the rounding, so the four
   // add up to the total exactly rather than to within a cent.
@@ -335,6 +340,7 @@ export function makeDocumentsReport(kind: DocumentKind) {
     const truncated = rows.length > cap
     const raw = truncated ? rows.slice(0, cap) : rows
     const split = SPLIT[kind]
+    const prints = split === 'total' && await printsHere(ctx.orgId)
 
     // Split each document across the four method columns (see the file head for what is
     // split where). In the paid split, tender under an unmapped method (`other`, or a
@@ -343,7 +349,7 @@ export function makeDocumentsReport(kind: DocumentKind) {
     const page = raw.map(r => {
       const { paymentMethod: _pm, payments: _pay, ...rest } = r
       for (const k of MONEY_FIELDS) rest[k] = signed(r.docType, rest[k])
-      if (split === 'total') return { ...rest, ...splitTotal(r, rest.total) }
+      if (split === 'total') return { ...rest, ...splitTotal(r, rest.total, prints) }
 
       const byMethod: Record<string, number> = { paidCash: 0, paidCard: 0, paidCashOnDelivery: 0, paidBank: 0 }
       for (const { method, amount } of paidByMethod(r)) {
