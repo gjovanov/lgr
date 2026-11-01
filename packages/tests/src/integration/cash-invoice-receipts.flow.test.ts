@@ -981,6 +981,20 @@ describe('cash on delivery on an invoice (Q-2)', () => {
       expect(w.sim!.executed.length).toBe(device)
     })
 
+    it('paid by the courier after all, or voided, it is no longer owed: there is nothing left to print for', async () => {
+      const w = await tillWorld(app)
+      const paid = await failedAtIssue(w)
+      expect((await pay(w, paid.id, 24, 'cash_on_delivery')).status).toBe(200)
+      const voided = await failedAtIssue(w)
+      expect((await w.call('POST', `/invoices/${voided.id}/void`)).status).toBe(200)
+
+      for (const id of [paid.id, voided.id]) {
+        expect((await shown(w, id)).receiptToPrint).toBe(false)
+        expect((await printIt(w, id)).json.code).toBe('no_receipt_owed')
+      }
+      expect(w.sim!.receipts.filter(x => !x.voided)).toHaveLength(0)
+    })
+
     it('with the switch turned off since, it is no longer owed', async () => {
       const w = await tillWorld(app)
       const d = await failedAtIssue(w)
@@ -1039,6 +1053,19 @@ describe('what a whole receipt prints', () => {
     expect(printed.total).toBe(21.6)
     expect(printed.sales[0]).toMatchObject({ quantity: 2, price: 12, percent: -10 })
     expect(printed.texts).toHaveLength(1)
+  })
+
+  it('a rate with a negative total at issue: refused with nothing written, the draft a draft with no number', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { lines: [freeLine(50, 20), { ...freeLine(-10, 9), quantity: 1 }] })
+    const before = await footprint(w)
+
+    const r = await send(w, d.id)
+
+    expect(r.status).toBe(422)
+    expect(r.json.code).toBe('receipt_not_printable')
+    expect(await footprint(w)).toEqual(before)
+    expect((await raw(d.id)).status).toBe('draft')
   })
 
   it('a rate with a negative total cannot be split: refused before anything is written', async () => {
@@ -1464,6 +1491,12 @@ describe('the ledger', () => {
       if (await JournalEntry.countDocuments({ orgId: w.oid }) >= count) break
       await new Promise(r => setTimeout(r, 25))
     }
+    // The handler creates the entry and then stamps the payment's row: the stamp is the end of it.
+    for (let i = 0; i < 80; i++) {
+      const unstamped = { orgId: w.oid, payments: { $elemMatch: { origin: 'payment_receipt', journalEntryId: { $exists: false } } } }
+      if (!(await Invoice.exists(unstamped).exec())) break
+      await new Promise(r => setTimeout(r, 25))
+    }
     await new Promise(r => setTimeout(r, 50))
   }
 
@@ -1517,7 +1550,11 @@ describe('the ledger', () => {
       const [first] = await receiptsOf(d.id)
       eventBus.emit('payment.recorded', { invoiceId: d.id, orgId: w.orgId, userId: String(w.user._id), amount: 10, method: 'cash', receiptId: String(first._id) })
       await settled(w, 4)
-      const after = (await raw(d.id)).payments
+      let after = (await raw(d.id)).payments
+      for (let i = 0; i < 120 && String(after[0].journalEntryId) === String(before[0].journalEntryId); i++) {
+        await new Promise(r => setTimeout(r, 25))
+        after = (await raw(d.id)).payments
+      }
       expect(String(after[1].journalEntryId)).toBe(String(before[1].journalEntryId))
       expect(String(after[0].journalEntryId)).not.toBe(String(before[0].journalEntryId))
       // The array was not written back: the rows are the same rows.
