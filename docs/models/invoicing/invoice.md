@@ -192,7 +192,7 @@ interface IInvoice extends Document {
 | DELETE | `/:id` | Delete invoice (draft only) | Yes | - |
 | POST | `/:id/send` | Mark invoice as sent + create stock movement | Yes | - |
 | POST | `/:id/receive` | Mark incoming invoice as received + create stock movement | Yes | - |
-| POST | `/:id/payments` | Record a payment on invoice. Cash or card on an issued sales invoice or debit note prints a `payment_receipt` where the org prints (FR-23) | Yes | - |
+| POST | `/:id/payments` | Record a payment on invoice. Cash or card on an issued sales invoice or debit note prints a `payment_receipt` where the org prints (FR-23); on a credit note it is a refund, and prints a `payment_storno` citing a receipt that paid its invoice | Yes | - |
 | POST | `/:id/void` | Void invoice + reverse stock movement | Yes | - |
 | POST | `/:id/convert` | Convert proforma to invoice | Yes | - |
 

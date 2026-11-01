@@ -2302,8 +2302,8 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
 
 ## A fiscal receipt for every payment on an invoice (2026-10-31, FR-23 R1)
 
-Spec: `docs/fr/FR-23-cash-invoice-receipts.md`; §6 lists what the build decided. R2 (`payment_storno`,
-credit-note refunds) and R3 (the till's partial storno, #363) are not built.
+Spec: `docs/fr/FR-23-cash-invoice-receipts.md`; §6 lists what the build decided, §7 what R2's did. R3
+(the till's partial storno, #363) is not built.
 
 **The invoice is the sale** (Q-1): it moves the stock and posts the revenue, as it always did. A
 `payment_receipt` is the money: an `Invoice` row of its own type, in the register's `CS`/`CSR` series,
@@ -2475,6 +2475,35 @@ invoice still due until the courier pays).
   the Tremol driver over a fake transport.
 - ⚠ **`resetEventHandlers` removed nothing until FR-23** (Node reads the argument count, and the bus
   passed an explicit `undefined`), so a test file's listeners piled up between tests.
+
+## A storno for every refund on a credit note (2026-11-01, FR-23 R2)
+
+Spec: `docs/fr/FR-23-cash-invoice-receipts.md` §2.5 and §7. A credit note refunded in cash or by card,
+at issue (`/send`) or later (`/payments`), prints a `payment_storno`: the same document as a
+`payment_receipt`, through the same steps (`runReceiptSteps`), the other way. The credit note is the
+return: it took the goods back, once, and posted it. The storno is the money going back. It links
+`register.refundOf` (the credit note) and `register.storno.original*` (the receipt it cites: for an
+invoice issued for a till sale, that sale's own). The door is `invoicing-api/src/lib/counter-refund.ts`.
+
+- ⚠ **The budget lives in one place, `cash-register/refund-budget.ts`, on the cited document**
+  (`register.refundClaims`: storno, rate, cents), taken in one conditional update with the check that it
+  fits. Not `_id` order: a claim that writes then reads cannot know what is written after its read, so
+  two pods could both pass (§7). R3's partial storno feeds it with `takeBudget`.
+- ⚠ **`unknown` on a storno is held, never voided, never printed again.** It keeps its claim and hold,
+  books nothing, and a person settles it. While one is in doubt no other refund by cash or card goes
+  through on that note, even a part that fits: a device must never end up with two. A receipt or a sale
+  that is `unknown` has no budget until a person says.
+- ⚠ **A storno prints on the device that printed its receipt:** the driver names its own fiscal memory.
+  Refused otherwise (`receipt_on_other_device`). One storno per receipt a refund draws on, keys
+  `<key>#2`, `#3`, so a retry goes on from what printed.
+- Refusals, before anything is written: 409 `no_receipt_to_storno` (says refund by bank), 422
+  `refund_exceeds_receipts` (with `left`), 403 `refund_requires_manager` (H4: `STORNO_ROLES`, this is a
+  storno door), and all of R1's.
+- ⚠ **A credit note's payment is money OUT:** `createPaymentJournalEntry` posts Dr receivable / Cr cash
+  on one, for a bank refund too. Before R2 it posted every outgoing document's as money in.
+- Readers: `NOT_PAYMENT_RECEIPT` names both types, `TILL_DOCUMENT_TYPES` and `MONEY_DOCUMENT_TYPES` carry
+  it, `refundGaveMoney` says when a session counts it negative. 18.2, 18.4 and 18.5 list it. SUPTO version 3.
+- Mutation-tested: `integration/cash-invoice-refunds.flow.test.ts`; e2e `cash-invoice-refunds.spec.ts`.
 
 ## An article starts its documents: „Заприходи", „Продай", „Резервирай" (2026-10-26, FR-22.47)
 
