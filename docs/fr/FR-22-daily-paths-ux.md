@@ -313,6 +313,11 @@ them into PRs.
       afterwards leaves the product as that save wrote it.
     - A bill written against a supplier order keeps its lines (422 `bill_on_order`): they book the
       delivery onto the order.
+    - A fenced or a kept import brings a receipt a bill lists in like any other delivery, claim and
+      all. The bill moved no stock on the site and books none on the way in, so reading the receipt's
+      `invoiceId` as „made by its sale" would lose the goods. It holds for any document that lists a
+      movement as its stock (`stockSource.movementIds`), and only for that document: an invoice for a
+      cash sale lists the sale's dispatch, whose `invoiceId` names the sale.
     - A bill in a currency other than the org's is not linked (422 `bill_foreign_currency`): the
       delivery's lines carry its costs in the org's currency, and nothing converts them. In the org's
       currency `totalBase` is the total, whatever a stale rate on the bill says. A linked bill's

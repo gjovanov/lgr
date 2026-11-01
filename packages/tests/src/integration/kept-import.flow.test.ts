@@ -59,8 +59,11 @@ const line = (productId: unknown, warehouseId: unknown, quantity: number, unitPr
   taxAmount: +(quantity * unitPrice * 0.2).toFixed(2), lineTotal: +(quantity * unitPrice * 1.2).toFixed(2),
 })
 
-/** An org on this server after a re-seed: lgrai.app's copy here, and what this server held before it, kept. */
-async function world(phase = 'active') {
+/**
+ * An org on this server after a re-seed: lgrai.app's copy here, and what this server held before it,
+ * kept. `more` adds documents only this server held.
+ */
+async function world(phase = 'active', more?: (r: any) => { invoices?: any[]; stockmovements?: any[] }) {
   const org = await createTestOrg({ slug: `kept-import-${n}` } as any)
   const orgId = org._id as any
   await OrgHome.collection.insertOne({ orgId, home: NODE, epoch: 1, state: 'active', since: new Date() } as any)
@@ -114,6 +117,9 @@ async function world(phase = 'active') {
     { _id: ids.draftMovement, orgId, movementNumber: `SM-${year}-00008`, type: 'receipt', status: 'draft', date: at, toWarehouseId: wh._id, lines: [{ productId: bolt._id, quantity: 1, unitCost: 4, totalCost: 4 }] },
   ])
   await db().collection('auditlogs').insertOne({ _id: ids.audit, orgId, userId: admin._id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: ids.invoice50, entityName: `INV-${year}-00050`, timestamp: at })
+  const added = more?.({ orgId, wh, bolt, customer, at }) ?? {}
+  if (added.invoices?.length) await db().collection('invoices').insertMany(added.invoices)
+  if (added.stockmovements?.length) await db().collection('stockmovements').insertMany(added.stockmovements)
 
   // ── the re-seed: everything kept, then lgrai.app's copy in its place ──
   const moveId = String(oid())
@@ -124,6 +130,8 @@ async function world(phase = 'active') {
     ['contacts', ids.newCustomer], ['contacts', ids.lonely], ['products', ids.newProduct], ['possessions', ids.session],
     ...[ids.invoice50, ids.cashSale, ids.draft, ids.clash, ids.missing, ids.paid52].map(id => ['invoices', id] as [string, unknown]),
     ['stockmovements', ids.saleMovement], ['stockmovements', ids.receipt], ['stockmovements', ids.draftMovement], ['auditlogs', ids.audit],
+    ...(added.invoices ?? []).map((d: any) => ['invoices', d._id] as [string, unknown]),
+    ...(added.stockmovements ?? []).map((d: any) => ['stockmovements', d._id] as [string, unknown]),
   ]
   for (const [coll, id] of only) await db().collection(coll).deleteOne({ _id: id })
   await db().collection('invoices').insertOne({ _id: ours42, orgId, type: 'invoice', direction: 'outgoing', invoiceNumber: `INV-${year}-00042`, status: 'sent', issueDate: new Date(), contactId: customer._id, currency: 'EUR', total: 12, subtotal: 10, taxTotal: 2, lines: [], payments: [] })
@@ -197,6 +205,50 @@ describe('what a re-seed kept, brought into the books on the server (FR-20.71, P
     expect(run).toMatchObject({ moveId: w.moveId, done: true, import: { state: 'done' } })
     expect(run.left.map((l: any) => l.reason).sort()).toEqual(['kept_draft', 'kept_draft', 'missing_reference'])
     expect(await AuditLog.exists({ orgId: w.oid, entityType: 'org_move', action: 'import', entityId: new mongoose.Types.ObjectId(w.moveId) })).toBeTruthy()
+  }, 120_000)
+
+  it('a receipt its bill lists comes in with its goods, also when the bill is a draft left for a person (#168)', async () => {
+    const claimed = oid()
+    const claimedByDraft = oid()
+    const billId = oid()
+    const draftBill = oid()
+    const ownReceipt = oid()
+    const ownBill = oid()
+    const w = await world('active', ({ orgId, wh, bolt, customer, at }) => {
+      const bill = (id: unknown, number: string, status: string, rest: any) => ({
+        _id: id, orgId, type: 'invoice', direction: 'incoming', invoiceNumber: number, status, issueDate: at, contactId: customer._id, currency: 'EUR', exchangeRate: 1,
+        subtotal: 10, taxTotal: 2, total: 12, amountPaid: 0, amountDue: 12, payments: [], lines: [line(bolt._id, wh._id, 7)], ...rest,
+      })
+      const link = (id: unknown) => ({ stockSource: { marker: `movement:${id}`, docNumber: 'SM', movementIds: [id], detectedBy: 'manual', linkedAt: at } })
+      const delivery = (id: unknown, number: string, quantity: number, invoiceId: unknown) => ({
+        _id: id, orgId, movementNumber: number, type: 'receipt', status: 'completed', date: at, toWarehouseId: wh._id, contactId: customer._id, invoiceId,
+        lines: [{ productId: bolt._id, quantity, unitCost: 1, totalCost: quantity }],
+      })
+      return {
+        invoices: [
+          bill(billId, `BILL-${year}-00061`, 'received', link(claimed)),
+          bill(draftBill, `DRF-BILL-${year}-00062`, 'draft', link(claimedByDraft)),
+          bill(ownBill, `BILL-${year}-00063`, 'received', { lines: [line(bolt._id, wh._id, 20)] }),
+        ],
+        stockmovements: [
+          delivery(claimed, `SM-${year}-00061`, 7, billId),
+          delivery(claimedByDraft, `SM-${year}-00062`, 30, draftBill),
+          delivery(ownReceipt, `SM-${year}-00063`, 20, ownBill),
+        ],
+      }
+    })
+    await requestKeptImport(w.orgId, w.moveId, { id: String(w.admin._id) })
+    await runToEnd(w.moveId)
+
+    // 11 as in the test above, + 7 and 30 (the two listed) + 20 (the bill's own, booked by its import).
+    expect(await stockOf(w.oid, w.bolt._id, w.wh._id)).toBe(68)
+    const kept: any = await StockMovement.collection.findOne({ _id: claimed } as any)
+    expect(kept.status).toBe('completed')
+    expect(String(kept.invoiceId)).toBe(String(billId))
+    const byDraft: any = await StockMovement.collection.findOne({ _id: claimedByDraft } as any)
+    expect(byDraft.status).toBe('completed')
+    expect(await Invoice.exists({ _id: draftBill })).toBeNull()
+    expect(await StockMovement.exists({ _id: ownReceipt })).toBeNull()
   }, 120_000)
 
   it('repeats nothing when a crash cuts it short, and is asked for once', async () => {

@@ -36,7 +36,7 @@ import { FencedImportItem, NodeState } from 'db/models'
 import { assertHomeIsHere, thisNode } from 'db/home/home'
 import { logger } from '../../logger/logger.js'
 import { recordAuditEntry } from '../audit-log.service.js'
-import { finishRun, importMovement, importPlain, importSale, importSession, keyOf, record, type Ctx, type Outcome } from './fenced-import.service.js'
+import { finishRun, importMovement, importPlain, importSale, importSession, isListedByItsDocument, keyOf, noteListedMovements, record, type Ctx, type Outcome } from './fenced-import.service.js'
 import { readMoveBundle } from './move-bundle.js'
 import { MoveError } from './move.service.js'
 
@@ -151,13 +151,16 @@ async function presentNow(coll: string, ids: unknown[], moveId: string): Promise
 }
 
 /** What only the kept copy holds: the candidates, whole, and the rest counted by kind. */
-async function onlyInKept(path: string, moveId: string): Promise<{ docs: Map<string, Map<string, Doc>>; counts: Record<string, number> }> {
+async function onlyInKept(path: string, moveId: string): Promise<{ docs: Map<string, Map<string, Doc>>; counts: Record<string, number>; listed: Set<string> }> {
   const docs = new Map<string, Map<string, Doc>>()
   const counts: Record<string, number> = {}
+  // Over the whole kept copy: a bill the copy holds too, or a draft left for a person, moved no stock either.
+  const listed = new Set<string>()
   let coll = ''
   let batch: Doc[] = []
   const flush = async () => {
     if (!batch.length) return
+    if (coll === 'invoices') for (const d of batch) noteListedMovements(d, listed)
     const here = await presentNow(coll, batch.map(d => d._id), moveId)
     for (const d of batch) {
       if (here.has(keyOf(d._id))) continue
@@ -182,7 +185,7 @@ async function onlyInKept(path: string, moveId: string): Promise<{ docs: Map<str
     batch.push(r.value.doc)
   }
   await flush()
-  return { docs, counts }
+  return { docs, counts, listed }
 }
 
 /** The ids a kept sale or movement names, by kind, among what may be imported with it. */
@@ -216,13 +219,13 @@ async function runKept(moveId: string, st: KeptImportState): Promise<{ counts: R
     await record(ctx, coll, docKey, await run(), sessionKey)
     done.add(`${coll}|${docKey}`)
   }
-  const { docs, counts: others } = await onlyInKept(keptFile(orgId, moveId), moveId)
+  const { docs, counts: others, listed } = await onlyInKept(keptFile(orgId, moveId), moveId)
   const only = (coll: string) => docs.get(coll) ?? new Map<string, Doc>()
   const keptOnly: Record<string, number> = { ...others }
 
   // What is brought in: the issued sales, their sessions, the movements that moved stock, and what they name.
   const sales = [...only('invoices').values()].filter(d => d.status !== 'draft')
-  const movements = [...only('stockmovements').values()].filter(d => !d.invoiceId && APPLIED.has(String(d.status)))
+  const movements = [...only('stockmovements').values()].filter(d => (!d.invoiceId || isListedByItsDocument(d, listed)) && APPLIED.has(String(d.status)))
   const wanted = new Map<string, Set<string>>()
   for (const d of [...sales, ...movements]) named(d, wanted)
   // A product brought in brings its category.
@@ -252,7 +255,7 @@ async function runKept(moveId: string, st: KeptImportState): Promise<{ counts: R
     if (doc.status !== 'draft') continue
     await handle('invoices', keyOf(doc._id), async () => ({ outcome: 'skipped', reason: 'kept_draft', detail: 'a draft only in the kept copy', ...(doc.invoiceNumber ? { number: String(doc.invoiceNumber) } : {}) }))
   }
-  for (const doc of movements) await handle('stockmovements', keyOf(doc._id), () => importMovement(ctx, doc))
+  for (const doc of movements) await handle('stockmovements', keyOf(doc._id), () => importMovement(ctx, doc, listed))
   for (const doc of only('stockmovements').values()) {
     // Made by a sale: the sale's import books its stock again.
     if (doc.invoiceId || APPLIED.has(String(doc.status))) continue
