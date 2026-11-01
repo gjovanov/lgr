@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import {
   apportion, documentText, fiscalUnitPrice, grossByRate, movesPrintedMoney, paymentText, printsExactly, receiptBody, receiptedByRate, splitByRate,
 } from 'services/biz/cash-register/receipt-lines'
-import { receiptRefusalKey, receiptRefusalMessage, isFailedPrint } from 'ui-shared/cash-register/receipt-refusal'
+import { receiptRefusalKey, receiptRefusalMessage, receiptRefusalParams, isFailedPrint } from 'ui-shared/cash-register/receipt-refusal'
 import { kindColor } from 'ui-shared/cash-register/journal-kind'
 import { issuedReceiptNotice } from '../../../invoicing-ui/src/composables/document-issue'
 import { isImportedDocument, printsAtCounter } from 'services/biz/cash-register/payment-receipt.service'
@@ -308,6 +308,11 @@ describe('the refusal, in words', () => {
     expect(receiptRefusalKey({ code: 'fiscal_device_not_connected', deviceConfigured: false })).toBe('pos.printerRequired.notConfigured')
     expect(receiptRefusalKey({ code: 'fiscally_paid' })).toBe('cashRegister.receipt.fiscallyPaid')
     expect(receiptRefusalKey({ code: 'no_receipt_owed' })).toBe('cashRegister.receipt.noneOwed')
+    expect(receiptRefusalKey({ code: 'receipt_in_doubt' })).toBe('cashRegister.receipt.inDoubtRefused')
+    expect(receiptRefusalKey({ code: 'delivery_receipt_owed' })).toBe('cashRegister.receipt.deliveryOwed')
+    expect(receiptRefusalKey({ code: 'receipts_unfinished' })).toBe('cashRegister.receipt.unfinished')
+    expect(receiptRefusalParams({ receipt: { number: 'CS-1' } }).number).toBe('CS-1')
+    expect(receiptRefusalParams({ receipts: [{ number: 'CS-1' }, { number: null, invoice: 'INV-2' }] }).numbers).toBe('CS-1, INV-2')
     expect(receiptRefusalKey({ code: 'overpayment' })).toBeNull()
   })
 

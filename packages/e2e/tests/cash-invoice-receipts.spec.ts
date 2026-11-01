@@ -291,6 +291,45 @@ test.describe('FR-23 — a receipt for a payment on an invoice', () => {
     expect((await device()).frames).toBe(before)
   })
 
+  test('a receipt nothing can prove: the document says why it waits, and the journal asks a manager, twice', async ({ page }) => {
+    // Only a process dying mid-print leaves one, so the state is the browser's here: this is the page.
+    // What the server does with it is `payment-receipt-proof.flow.test.ts`.
+    const { id, total } = await draft('bank_transfer')
+    await ok(cashier, 'POST', `/invoices/${id}/send`, {})
+    const { receipt } = await ok(cashier, 'POST', `/invoices/${id}/payments`, { date: new Date().toISOString().slice(0, 10), amount: total, method: 'cash' })
+    await page.route(`**/invoices/${id}`, async (route) => {
+      if (route.request().method() !== 'GET') return route.continue()
+      const response = await route.fetch()
+      const json = await response.json()
+      json.invoice.receiptInDoubt = { id: receipt.id, number: receipt.number }
+      return route.fulfill({ response, json })
+    })
+    await page.route(`**/cash-register/documents/${receipt.id}`, async (route) => {
+      const response = await route.fetch()
+      const json = await response.json()
+      json.row.fiscal.inDoubt = true
+      return route.fulfill({ response, json })
+    })
+    let said: unknown
+    await page.route(`**/cash-register/documents/${receipt.id}/settle`, (route) => {
+      said = route.request().postDataJSON()
+      return route.fulfill({ json: { document: {} } })
+    })
+
+    await loginForApp(page, 'acme-corp', cashierName, PASSWORD)
+    await page.goto(`/invoicing/invoices/${id}/edit`)
+    await expect(page.getByTestId('receipt-in-doubt')).toContainText(receipt.number)
+
+    await page.getByTestId('receipt-in-doubt-open').click()
+    await expect(page).toHaveURL(new RegExp(`/cash-sales/${receipt.id}/view`))
+    await expect(page.getByTestId('receipt-in-doubt')).toContainText('Nothing can prove')
+
+    await page.getByTestId('receipt-settle-not-printed').click()
+    expect(said).toBeUndefined()
+    await page.getByTestId('receipt-settle-confirm').click()
+    await expect.poll(() => said).toEqual({ printed: false })
+  })
+
   test('once printed, its total cannot change and it cannot be voided', async () => {
     const { id } = await draft('cash')
     await ok(cashier, 'POST', `/invoices/${id}/send`, {})
