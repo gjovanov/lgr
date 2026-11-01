@@ -12,6 +12,11 @@
  * - `Bun.serve({ unix })` serves HTTP on an AF_UNIX path, but not on a named pipe (ENOENT);
  * - a path longer than `sun_path` (108 bytes) fails with ENAMETOOLONG, so the supervisor's path
  *   is short (`<data>\run\api.sock`).
+ *
+ * ⚠ Measured on Bun 1.4.4, Linux and Windows: `server.timeout(request, n)` lifts the 10 s idle limit
+ * over TCP and does NOTHING on a unix socket, for any n. Only `idleTimeout` in `Bun.serve` does. Until
+ * that was found, a request held longer was cut at ~12 s with an empty EOF, which the supervisor reads
+ * as "the control socket's answer has no end of headers".
  */
 import { chmodSync, mkdirSync, rmSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -62,21 +67,19 @@ export function startControlSocket(path: string, secret: string, handlers: Contr
   mkdirSync(dirname(path), { recursive: true })
   // A socket left by a crash would make the bind fail, and its directory belongs to us alone.
   rmSync(path, { force: true })
-  const answer = async (request: Request, srv: { timeout: (req: Request, seconds: number) => void }): Promise<Response> => {
+  const answer = async (request: Request): Promise<Response> => {
     if (!secretMatches(request.headers.get(FRONT_HEADER), secret)) return json(403, { code: 'front_required' })
     const { pathname } = new URL(request.url)
     if (request.method === 'GET' && pathname === '/status') return json(200, await handlers.status())
     if (request.method === 'GET' && pathname === '/setup' && handlers.setup) return json(200, await handlers.setup())
     if (request.method === 'POST' && pathname === '/backup' && handlers.backup) {
-      // Awaited: the helper switches only on an answer that says the backup is done. ⚠ Bun closes a
-      // connection idle for 10 s, and a backup may take minutes: this one request has no idle limit.
-      srv.timeout(request, 0)
+      // Awaited: the helper switches only on an answer that says the backup is done.
       const result = await handlers.backup()
       return json(result.ok ? 200 : 500, result)
     }
     if (handlers.replication && (pathname === '/replication' || pathname.startsWith('/replication/'))) {
       try {
-        return await replicationRoute(request, pathname, handlers.replication, srv)
+        return await replicationRoute(request, pathname, handlers.replication)
       } catch (e: any) {
         // A malformed ask is the supervisor's bug, said back to it; anything else is the API's.
         if (e?.status === 400) return json(400, { code: 'bad_request', message: String(e.message ?? e) })
@@ -91,7 +94,9 @@ export function startControlSocket(path: string, secret: string, handlers: Contr
     return json(404, { code: 'not_found' })
   }
   // A handler, not an outbound call: named, so the FR-20.53 deadline scan does not read it as one.
-  const server = Bun.serve({ unix: path, fetch: answer, maxRequestBodySize: 1024 * 1024 })
+  // No idle limit: a backup takes minutes, a mirror page or a file's first chunk more than 10 s on a
+  // slow till PC. Only the supervisor reaches this socket, and it puts its own deadline on every call.
+  const server = Bun.serve({ unix: path, fetch: answer, maxRequestBodySize: 1024 * 1024, idleTimeout: 0 })
   // Its directory already keeps everyone else out; on Unix the socket says so too.
   if (process.platform !== 'win32') chmodSync(path, 0o600)
   return {
@@ -107,11 +112,10 @@ export function startControlSocket(path: string, secret: string, handlers: Contr
  * to send, 409 with the reason), `POST /replication/resend` (EJSON), `POST /replication/blob` (JSON
  * ask; a file chunk's frame, 404 when this server holds no such bytes for the org, 409 with the reason).
  */
-async function replicationRoute(request: Request, pathname: string, r: ReplicationHandlers, srv: { timeout: (req: Request, seconds: number) => void }): Promise<Response> {
+async function replicationRoute(request: Request, pathname: string, r: ReplicationHandlers): Promise<Response> {
   if (request.method === 'GET' && pathname === '/replication') return json(200, await r.status())
   if (request.method === 'POST' && pathname === '/replication/page') {
-    // A page of 1,000 documents is read in one snapshot: more than Bun's 10 s idle on a slow till PC.
-    srv.timeout(request, 60)
+    // A page of 1,000 documents is read in one snapshot.
     const answer = await r.page(await request.json().catch(() => null))
     if (answer.status === 204) return new Response(null, { status: 204 })
     if (answer.status === 409) return json(409, { refused: answer.refused, detail: answer.detail })
@@ -129,7 +133,6 @@ async function replicationRoute(request: Request, pathname: string, r: Replicati
   if (request.method === 'POST' && pathname === '/replication/resend') return json(200, await r.resend(await request.text()))
   if (request.method === 'POST' && pathname === '/replication/blob' && r.blob) {
     // The first chunk of a file hashes all of it: an archive unit may be hundreds of MB.
-    srv.timeout(request, 60)
     const answer = await r.blob(await request.json().catch(() => null))
     if (answer.status === 404) return json(404, { code: answer.code, detail: answer.detail })
     if (answer.status === 409) return json(409, { refused: answer.refused, detail: answer.detail })
