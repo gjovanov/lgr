@@ -503,6 +503,35 @@ describe('at issue: a credit note in cash or by card gives its money back as it 
     })
   })
 
+  it('a note that moved after its issue was decided: it rings what it says now, never one amount and books another', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await noteOn(w, inv)
+    const real = Invoice.findOneAndUpdate
+    ;(Invoice as any).findOneAndUpdate = function (filter: any, update: any, ...rest: any[]) {
+      const query = (real as any).call(Invoice, filter, update, ...rest)
+      if (!update?.$set?.issue?.leaseUntil) return query
+      return {
+        exec: async () => {
+          const claimed = await query.exec()
+          await Invoice.updateOne({ _id: note.id }, { $set: { total: 12, subtotal: 10, taxTotal: 2, lines: [line(w, 1)] } })
+          return claimed
+        },
+      }
+    }
+    let r: any
+    try {
+      r = await send(w, note.id)
+    } finally {
+      ;(Invoice as any).findOneAndUpdate = real
+    }
+    expect(r.status).toBe(200)
+    expect(r.json.receiptError).toBeUndefined()
+    expect(w.sim!.receipts.at(-1)).toMatchObject({ kind: 'storno', total: 12 })
+    expect(w.sim!.receipts.at(-1)!.payments).toEqual([{ mode: 'P', amount: 12 }])
+    expect(await raw(note.id)).toMatchObject({ total: 12, amountPaid: 12, amountDue: 0, status: 'paid' })
+  })
+
   describe('a retry', () => {
     it('with the same key prints once and answers the same', async () => {
       const w = await tillWorld(app)
@@ -600,6 +629,26 @@ describe('a refund recorded later (/payments, §2.5)', () => {
     const [storno] = await stornosOf(note.id)
     expect(new Date(storno.issueDate).toISOString().slice(0, 10)).not.toBe(yesterday)
     expect(new Date((await raw(note.id)).payments[0].date).toISOString().slice(0, 10)).not.toBe(yesterday)
+  })
+
+  it('one that waited its turn past midnight says the moment it printed, whatever it said when it was written', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    const yesterday = new Date(Date.now() - 86_400_000)
+    const real = Invoice.create
+    ;(Invoice as any).create = function (doc: any, ...rest: any[]) {
+      return (real as any).call(Invoice, { ...doc, issueDate: yesterday, dueDate: yesterday, paidAt: yesterday, payments: doc.payments.map((p: any) => ({ ...p, date: yesterday })) }, ...rest)
+    }
+    try {
+      expect((await pay(w, note.id, 24)).status).toBe(200)
+    } finally {
+      ;(Invoice as any).create = real
+    }
+    const [storno] = await stornosOf(note.id)
+    expect(new Date(storno.issueDate).getTime()).toBeGreaterThan(yesterday.getTime() + 3_600_000)
+    expect(new Date(storno.payments[0].date).getTime()).toBeGreaterThan(yesterday.getTime() + 3_600_000)
+    expect(new Date((await raw(note.id)).payments[0].date).getTime()).toBeGreaterThan(yesterday.getTime() + 3_600_000)
   })
 
   it('two rates: per rate, what the credit note says, and the budget per rate', async () => {
@@ -819,6 +868,29 @@ describe('a refund recorded later (/payments, §2.5)', () => {
       w.sim!.paper = true
       const note = await issuedNote(w, inv)
       expect((await pay(w, note.id, 24)).json.code).toBe('no_receipt_to_storno')
+    })
+
+    it('a dead receipt on the invoice is finished first: past its print only the money was left, and then it holds', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      // The process died after the print: unfinished, its lease lapsed.
+      await Invoice.updateOne({ _id: inv.receipt._id }, { $unset: { completedAt: 1 }, $set: { leaseUntil: new Date(Date.now() - 1000) } })
+      const note = await issuedNote(w, inv)
+
+      expect((await pay(w, note.id, 24)).status).toBe(200)
+
+      expect((await fresh(inv.receipt._id)).completedAt).toBeTruthy()
+      expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    })
+
+    it('a receipt still printing: told so, for what it may hold', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      await Invoice.updateOne({ _id: inv.receipt._id }, { $unset: { completedAt: 1 }, $set: { leaseUntil: new Date(Date.now() + 60_000) } })
+      const note = await issuedNote(w, inv)
+      const r = await pay(w, note.id, 24)
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('payment_in_progress')
     })
 
     it('a receipt that may have printed has no budget until a person says: it has no number to cite, and the money may never have been on the device', async () => {
