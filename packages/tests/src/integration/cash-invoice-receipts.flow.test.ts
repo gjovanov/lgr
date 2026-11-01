@@ -10,6 +10,7 @@ import { AuditLog, FiscalDevice, FiscalPresence, Invoice, Journal, JournalEntry,
 import { deviceFromCounter, deviceFromDeadReceipt, setFiscalForwarding } from 'fiscal/fiscal-route'
 import { deviceTurn } from 'fiscal/device-turn'
 import { statsController } from 'invoicing-api/src/controllers/stats.controller'
+import { fiscalDeviceController } from '../../../portal-api/src/controllers/fiscal-device.controller'
 import { contactController } from 'invoicing-api/src/controllers/contact.controller'
 import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller'
 import { agingReportController } from 'invoicing-api/src/controllers/aging-report.controller'
@@ -60,7 +61,7 @@ const TODAY = new Date().toISOString().slice(0, 10)
 let app: Elysia
 beforeAll(async () => {
   await setupTestDB()
-  app = tillApp().use(statsController).use(contactController).use(invoiceExportController).use(agingReportController) as any
+  app = tillApp().use(statsController).use(contactController).use(invoiceExportController).use(agingReportController).use(fiscalDeviceController) as any
 }, 60_000)
 afterAll(async () => { await teardownTestDB() }, 60_000)
 afterEach(async () => { forgetDevices(); await clearCollections() }, 30_000)
@@ -1339,6 +1340,18 @@ describe('a device that is not fiscalized: the device decides, never a switch (o
       expect(after.register.isFiscal).toBe(true)
       expect(after.register.fiscal).toMatchObject({ mode: 'fiscal', state: 'printed' })
       expect(w.sim!.receipts.filter(x => !x.voided)).toHaveLength(1)
+    })
+
+    it('the device list says what its status last said, with no command to the device: the terminal shows it', async () => {
+      const w = await theUnit()
+      const d = await draftOf(w)
+      await send(w, d.id)
+      const frames = w.sim!.frames
+
+      const { json } = await w.call('GET', '/fiscal/device?size=10')
+
+      expect(json.fiscalDevices.find((x: any) => String(x.id ?? x._id) === w.deviceId).fiscalized).toBe(false)
+      expect(w.sim!.frames).toBe(frames)
     })
 
     it('a device that prints no text fails with a message that makes sense in the back office', async () => {
