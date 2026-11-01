@@ -274,11 +274,13 @@ test.describe('FR-23 — a receipt for a payment on an invoice', () => {
   })
 
   test('no open session: the draft stays a draft and says what to do', async ({ page }) => {
-    // The admin has no session of their own.
+    // Someone who never opened one. The seeded admin may have: the specs share a database.
+    const clerk = `e2e-clerk-${Date.now().toString(36)}`
+    await ok(admin, 'POST', '/user', { email: `${clerk}@lgr.test`, username: clerk, password: PASSWORD, firstName: 'E2E', lastName: 'Clerk', role: 'manager' })
     const { id } = await draft('cash')
     const before = (await device()).frames
 
-    await loginForApp(page)
+    await loginForApp(page, 'acme-corp', clerk, PASSWORD)
     await page.goto(`/invoicing/invoices/${id}/edit`)
     const sending = issuing(page)
     await page.getByRole('button', { name: 'Issue', exact: true }).first().click()
