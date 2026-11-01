@@ -685,6 +685,50 @@ describe('the reads FR-23 moved onto every request', () => {
     })
   })
 
+describe('what a document load and an edit pay for', () => {
+    /** Every read of a document's receipts while `run` runs. */
+    async function receiptReads(run: () => Promise<unknown>) {
+      const spies = [spyOn(Invoice, 'find'), spyOn(Invoice, 'findOne'), spyOn(Invoice, 'exists')]
+      await run()
+      const reads = spies.flatMap(s => s.mock.calls).filter(([filter]: any) => filter?.type === 'payment_receipt' && filter?.['register.paidInvoiceId'])
+      for (const s of spies) s.mockRestore()
+      return reads.length
+    }
+
+    it('a document no receipt can land on pays for no read of them', async () => {
+      const w = await tillWorld(app)
+      const bill = await draftOf(w, { method: 'cash', extra: { direction: 'incoming' } })
+      expect(await receiptReads(() => shown(w, bill.id))).toBe(0)
+      const proforma = await draftOf(w, { type: 'proforma', method: 'cash' })
+      expect(await receiptReads(() => shown(w, proforma.id))).toBe(0)
+    })
+
+    it('one that can pays for one, and it says everything the form asks', async () => {
+      const w = await tillWorld(app)
+      const { id } = await issuedPaid(w)
+      expect(await receiptReads(() => shown(w, id))).toBe(1)
+      const inv = await shown(w, id)
+      expect(inv.paymentReceipts).toHaveLength(1)
+      expect(inv).toMatchObject({ receiptToPrint: false, receiptInDoubt: null, printsOnPayment: [] })
+    })
+
+    it('a draft saved with a new total reads one receipt range, the door asking where to run', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w)
+      const reads = await receiptReads(() => w.call('PUT', `/invoices/${d.id}`, { lines: [line(w, 3)], subtotal: 30, taxTotal: 6, total: 36 }))
+      expect(reads).toBe(1)
+      expect((await raw(d.id)).total).toBe(36)
+    })
+
+    it('the freeze takes one read', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      const { freezeRefusal } = await import('services/biz/cash-register/payment-receipt.service')
+      expect(await receiptReads(() => freezeRefusal(w.orgId, d.id))).toBe(1)
+    })
+  })
+
 describe('what the payment dialog is told: the server answers it, by method', () => {
     /** The document as the form reads it, and as the list row reads it: they must agree. */
     async function told(w: TillWorld, id: string) {
@@ -1657,7 +1701,7 @@ describe('FR-24.50: a door that reaches a printer runs where the printer is', ()
   }
   /** A receipt of this document that nobody finished, printing on the world's warehouse. */
   const unfinished = (w: TillWorld, id: string) => Invoice.collection.insertOne({
-    orgId: w.oid, type: 'payment_receipt', register: { paidInvoiceId: new (Invoice.base as any).Types.ObjectId(id), warehouseId: w.warehouse._id },
+    orgId: w.oid, type: 'payment_receipt', register: { paidInvoiceId: new (Invoice.base as any).Types.ObjectId(id), warehouseId: w.warehouse._id, fiscalDeviceNumber: 'ED123456' },
   } as any)
 
   it('issuing, paying and printing a delivery receipt go to the pod with the printer, and nothing is written here', async () => {

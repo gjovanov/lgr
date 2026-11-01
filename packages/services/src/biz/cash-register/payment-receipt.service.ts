@@ -50,6 +50,9 @@ import { generateUNP } from '../sequence.service.js'
 import { LEASE_MS, takeLease } from '../hot-path-key.js'
 import { fitsDue, isBeingVoided, outstandingOf, overpays, paymentPipeline, type PaymentRow } from '../invoice-payment.js'
 import { printsHere } from '../sale-counting.js'
+import { SETTLED_ON_ISSUE } from '../cash-settlement.service.js'
+import { receiptTookMoney } from './counting.js'
+import { toPosTransaction } from './mapping.js'
 import { PAYMENT_RECEIPT } from './pos-union.js'
 import { provedNotPrinted } from './print-verdict.js'
 import type { RegisterPrinter } from './printer.js'
@@ -69,8 +72,8 @@ export const FISCALLY_PAID = {
   message: 'A fiscal receipt has printed for this document, so its total can no longer change and it cannot be voided. Correct it with a credit or a debit note.',
 } as const
 
-/** The payment methods a receipt prints for at the counter (owner, Q-2). */
-const COUNTER_METHODS = ['cash', 'card']
+/** The payment methods a receipt prints for at the counter (owner, Q-2): those taken as a document is issued. */
+const COUNTER_METHODS = Object.keys(SETTLED_ON_ISSUE)
 
 /**
  * A document §2.2 means by imported: written by the Files app, the conversion or the API import
@@ -136,11 +139,6 @@ export async function receiptsOf(orgId: string, documentId: string): Promise<any
   return Invoice.find(liveReceipts(orgId, documentId)).sort({ _id: 1 }).lean().exec()
 }
 
-/** §2.7: whether the document's total is the receipts' now. A failed receipt printed nothing. */
-export async function isFiscallyPaid(orgId: string, documentId: string): Promise<boolean> {
-  return !!(await Invoice.exists(liveReceipts(orgId, documentId)).exec())
-}
-
 /** Another receipt of this document holds the money right now. */
 export const PAYMENT_IN_PROGRESS = {
   code: 'payment_in_progress',
@@ -177,11 +175,15 @@ export const inDoubtRefusal = (receipt: any) => ({
   message: `Nothing can prove whether receipt ${receipt.invoiceNumber} printed, so its money is neither booked nor free. Check the device, then settle it in the cash-register journal.`,
 })
 
-/** §2.7, with the reason that applies: a receipt in doubt has a way out the freeze does not. */
+/**
+ * §2.7: whether the document's total is the receipts' now, with the reason that applies: a receipt in
+ * doubt has a way out the freeze does not. A failed receipt printed nothing.
+ */
 export async function freezeRefusal(orgId: string, documentId: string): Promise<Record<string, unknown> | null> {
-  const doubt = await receiptInDoubt(orgId, documentId)
+  const live: any[] = await Invoice.find(liveReceipts(orgId, documentId), { invoiceNumber: 1, 'register.fiscal.inDoubt': 1 }).sort({ _id: 1 }).lean().exec()
+  const doubt = live.find(r => r.register?.fiscal?.inDoubt)
   if (doubt) return inDoubtRefusal(doubt)
-  return (await isFiscallyPaid(orgId, documentId)) ? { ...FISCALLY_PAID } : null
+  return live.length ? { ...FISCALLY_PAID } : null
 }
 
 /**
@@ -197,17 +199,22 @@ export async function freezeRefusal(orgId: string, documentId: string): Promise<
  * issued before LGR printed, or where it does not, carries no such fact and owes none.
  */
 export async function owesDeliveryReceipt(orgId: string, doc: any): Promise<boolean> {
-  if (!doc?.deliveryReceiptOwed || doc.paymentMethod !== 'cash_on_delivery' || !['sent', 'overdue', 'partially_paid'].includes(doc.status)) return false
-  if (!printsAtCounter(doc, doc.paymentMethod, true)) return false
+  if (!mayOweDeliveryReceipt(doc)) return false
   const live = await Invoice.exists({ ...liveReceipts(orgId, doc._id ?? doc.id), paymentMethod: 'cash_on_delivery' }).exec()
   return !live && printsHere(orgId)
 }
 
-/** What the invoice PDF lists: the receipts that paid it. */
-export async function paidByReceipts(orgId: string, documentId: string): Promise<Array<{ number: string; method?: string; unp?: string; receiptNumber?: string; date?: Date }>> {
-  const docs = await receiptsOf(orgId, documentId)
-  return docs
-    .filter(d => (d.register?.fiscal?.state === 'printed' || d.register?.fiscal?.state === 'unknown') && !d.register?.fiscal?.inDoubt)
+/** What the document alone says about it: the rest is whether one printed, and whether LGR still prints. */
+const mayOweDeliveryReceipt = (doc: any) => !!doc?.deliveryReceiptOwed && doc.paymentMethod === 'cash_on_delivery'
+  && PAYABLE.includes(doc.status) && printsAtCounter(doc, doc.paymentMethod, true)
+
+/** What a document's receipts are read for. A receipt printed whole holds the invoice's lines. */
+const RECEIPT_FIELDS = { type: 1, status: 1, invoiceNumber: 1, paymentMethod: 1, issueDate: 1, register: 1 }
+
+/** What the form and the PDF say of a document's receipts, of those that took money on it. */
+function paidBy(receipts: any[]): Array<{ number: string; method?: string; unp?: string; receiptNumber?: string; date?: Date }> {
+  return receipts
+    .filter(d => receiptTookMoney(toPosTransaction(d) as any))
     .map(d => ({
       number: d.invoiceNumber,
       method: d.paymentMethod,
@@ -215,6 +222,31 @@ export async function paidByReceipts(orgId: string, documentId: string): Promise
       ...(d.register?.fiscalReceiptNumber ? { receiptNumber: d.register.fiscalReceiptNumber } : {}),
       date: d.issueDate,
     }))
+}
+
+/** What the invoice PDF lists: the receipts that paid it. */
+export async function paidByReceipts(orgId: string, documentId: string): Promise<ReturnType<typeof paidBy>> {
+  return paidBy(await Invoice.find(liveReceipts(orgId, documentId), RECEIPT_FIELDS).sort({ _id: 1 }).lean().exec())
+}
+
+/**
+ * All the form asks about a document's receipts, from one read. A document no receipt can land on
+ * pays for none: a bill, a proforma, a cash sale, every other document anyone opens.
+ */
+export async function receiptFacts(orgId: string, doc: any) {
+  if (!printsAtCounter(doc, 'cash', false)) return { paymentReceipts: [], receiptToPrint: false, receiptInDoubt: null, printsOnPayment: [] as string[] }
+  const [live, prints]: [any[], boolean] = await Promise.all([
+    Invoice.find(liveReceipts(orgId, doc._id ?? doc.id), RECEIPT_FIELDS).sort({ _id: 1 }).lean().exec(),
+    printsHere(orgId),
+  ])
+  const doubt = live.find(r => r.register?.fiscal?.inDoubt)
+  const delivered = live.some(r => r.paymentMethod === 'cash_on_delivery')
+  return {
+    paymentReceipts: paidBy(live),
+    receiptToPrint: prints && !delivered && mayOweDeliveryReceipt(doc),
+    receiptInDoubt: doubt ? { id: String(doubt._id), number: doubt.invoiceNumber as string } : null,
+    printsOnPayment: prints && !delivered && PAYABLE.includes(doc.status) ? COUNTER_METHODS.filter(m => printsAtCounter(doc, m, false)) : [],
+  }
 }
 
 export interface ReceiptTender {

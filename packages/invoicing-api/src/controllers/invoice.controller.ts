@@ -26,10 +26,10 @@ import { syncCashSettlement } from 'services/biz/cash-settlement.service'
 import { fitsDue, heldOn, isBeingVoided, notBeingVoided, outstandingOf, overpays, paymentPipeline } from 'services/biz/invoice-payment'
 import {
   DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, inDoubtRefusal, isImportedDocument, owesDeliveryReceipt,
-  paidByReceipts, printsOnPayment, receiptInDoubt,
+  printsOnPayment, receiptFacts, receiptInDoubt,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { movesPrintedMoney } from 'services/biz/cash-register/receipt-lines'
-import { NOT_PAYMENT_RECEIPT } from 'services/biz/sale-counting'
+import { NOT_PAYMENT_RECEIPT, printsHere } from 'services/biz/sale-counting'
 import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from 'services/biz/cash-register/immutability'
 import {
   readIdempotencyKey, requestHash, assertSameRequest, isDuplicateKey, takeLease, waitForCompletion,
@@ -386,12 +386,6 @@ async function whoHolds(status: Status, orgId: string, id: string) {
   if (doc?.issue?.leaseUntil && new Date(doc.issue.leaseUntil).getTime() >= Date.now()) return status(409, ISSUE_IN_PROGRESS)
   if (isBeingVoided(doc)) return status(409, { ...DOCUMENT_CLAIMED })
   return receiptPrinting(status, orgId, id)
-}
-
-/** What the document form shows of a receipt in doubt: which one, and where to settle it. */
-async function inDoubtOf(orgId: string, id: string) {
-  const receipt = await receiptInDoubt(orgId, id)
-  return receipt ? { id: String(receipt._id), number: receipt.invoiceNumber } : null
 }
 
 /**
@@ -1029,11 +1023,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // The goods receipts a supplier bill booked — what its „Стокова разписка" prints; the
         // form offers the print only when there are some.
         ...(isSupplierBill(invoice) ? { stockMovements: await billStockReceipts(orgId, invoice) } : {}),
-        // FR-23: the receipts that paid it.
-        paymentReceipts: await paidByReceipts(orgId, id),
-        receiptToPrint: await owesDeliveryReceipt(orgId, invoice),
-        receiptInDoubt: await inDoubtOf(orgId, id),
-        printsOnPayment: (await printsOnPayment(orgId, [invoice])).get(String(invoice.id)) ?? [],
+        // FR-23: the receipts that paid it, and what they leave to do.
+        ...await receiptFacts(orgId, invoice),
         statusHistory: synthesizeStatusHistory(invoice),
         contactId: contact ? { _id: contact.id, id: contact.id, companyName: (contact as any).companyName, firstName: (contact as any).firstName, lastName: (contact as any).lastName, email: (contact as any).email } : invoice.contactId,
       },
@@ -1054,7 +1045,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (isImmutableRegisterDocument(existing as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
       // FR-23 §2.7: a printed receipt cannot change, so what it printed cannot either. Anything else
       // on the document stays editable, as on every other.
-      const movesMoney = movesPrintedMoney(existing as any, body as any)
+      const movesMoney = (existing as any).direction === 'outgoing' && existing.status !== 'draft' && movesPrintedMoney(existing as any, body as any)
       if (movesMoney) {
         // A receipt whose request died is no reason to refuse, if it never printed.
         await finishInterruptedReceipts(orgId, user, id)
@@ -1206,10 +1197,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // ⚠ FR-23: where LGR prints the rule does not settle. That money goes through the payment
       // action, which prints, and an edit must not take it silently. An imported document never
       // prints, so the rule stays its own.
-      const { requireConnectedDevice: prints } = await tillSettings(orgId)
-      const settles = !prints || isImportedDocument(updated ?? existing)
-      const settlement = await syncCashSettlement(orgId, id, user.id, { settles })
-      if (settlement.action !== 'none') updated = await r.invoices.findOne({ id, orgId } as any)
+      if ((existing as any).direction === 'outgoing' && existing.type === 'invoice' && existing.status !== 'draft') {
+        const settles = isImportedDocument(updated ?? existing) || !(await printsHere(orgId))
+        const settlement = await syncCashSettlement(orgId, id, user.id, { settles })
+        if (settlement.action !== 'none') updated = await r.invoices.findOne({ id, orgId } as any)
+      }
 
       return { invoice: updated }
     },
