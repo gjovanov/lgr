@@ -366,7 +366,8 @@ const invoiceSchema = new Schema<IInvoice>(
     invoiceNumber: { type: String, required: true },
     // `cash_storno` (FR-21, D-2): a storno of a cash sale, stored positive — the sign is the type.
     // `payment_receipt` (FR-23): the fiscal receipt of a payment on an invoice or a debit note. Not a
-    // sale: its invoice is. A reader that has not learned the type ignores it.
+    // sale: its invoice is. ⚠ A reader that names no type counts it beside its invoice, unless it says
+    // `NOT_PAYMENT_RECEIPT`.
     type: { type: String, required: true, enum: ['invoice', 'proforma', 'credit_note', 'debit_note', 'cash_sale', 'cash_storno', 'payment_receipt'] },
     direction: { type: String, required: true, enum: ['outgoing', 'incoming'] },
     status: {

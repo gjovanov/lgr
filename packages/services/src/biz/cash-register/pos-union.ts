@@ -21,8 +21,12 @@ export const REGISTER_TYPES = ['cash_sale', 'cash_storno'] as const
 /**
  * FR-23 — the fiscal receipt of a payment on an invoice or a debit note. A document of the register,
  * and NOT one of `REGISTER_TYPES`: those are the sales, and a receipt is the money of a sale its
- * invoice already counts. A reader that has not learned it ignores it, so the worst it can do is
- * miss money, where it shows (a drawer short at the close), never count it twice (§2.1).
+ * invoice already counts. A reader that names its types never sees one, so the worst it can do is
+ * miss money, where it shows (a drawer short at the close).
+ *
+ * ⚠ A reader with no `type` in its filter sees it as one more paid document, and counts the money
+ * twice with nothing to show for it: `NOT_PAYMENT_RECEIPT` (`sale-counting.ts`) is how each says so.
+ * The previous image has none of those, which is why FR-23 §3 says what a rollback needs.
  */
 export const PAYMENT_RECEIPT = 'payment_receipt'
 

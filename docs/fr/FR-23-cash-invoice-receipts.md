@@ -45,7 +45,9 @@ Today, an invoice paid in cash is settled on issue (`syncCashSettlement`, paymen
 | Revenue JE | none: the invoice posted it | none: the credit note posted it |
 | Money | `payment.recorded` on the invoice, as today | the refund recorded on the credit note |
 
-**Why new types, not a `cash_sale` with a flag.** Every report that counts sales filters on `cash_sale`. With a new type, a report that has not learned it ignores the receipt. The worst outcome is a drawer count that comes up short at the close, where it shows. With a flag, every one of those reports would have to learn it, and any that didn't would count the money twice, which nothing shows. This is FR-21 D-2's argument again.
+**Why new types, not a `cash_sale` with a flag.** Every report that counts sales names its types, so with a new type it never sees the receipt. The worst outcome there is a drawer count that comes up short at the close, where it shows. With a flag, every one of those reports would have to learn it, and any that didn't would count the money twice, which nothing shows. This is FR-21 D-2's argument again.
+
+⚠ That argument covers the readers that name their types, and no others. A reader with no `type` in its filter sees a receipt as one more paid document with a customer on it, and counts the money twice with nothing to show for it. Each of those says so (`NOT_PAYMENT_RECEIPT`), and §3 says what that means for a rollback.
 
 ### 2.2 What prints, and when
 
@@ -129,11 +131,20 @@ Once a receipt has printed for an invoice, its total can no longer change: `PUT`
 
 | | Contents | Rollback |
 |---|---|---|
-| **R1** | `payment_receipt`: cash at issue, cash later, part payments, debit notes; `printFiscalText`; the invoice PDF's receipt list; §2.7's freeze | Redeploy the previous image. A printed receipt stays a document, which older code ignores (new type). |
+| **R1** | `payment_receipt`: cash at issue, cash later, part payments, debit notes; `printFiscalText`; the invoice PDF's receipt list; §2.7's freeze | Clean only while no receipt exists. See below. |
 | **R2** | `payment_storno`: credit-note cash refunds, partial, the two refusals | same |
 | **R3** | The till's partial storno (#363) | same |
 
 Each release goes through Atanas's protocol on #171, and the SUPTO docs change in the PR that changes the structure (R1).
+
+**R1's rollback.** With no `payment_receipt` in the database, redeploying the previous image is all it takes. Once one exists it is not clean, and a receipt on a device cannot be taken back:
+
+- **The previous image counts every receipt again.** Its readers with no `type` have no `NOT_PAYMENT_RECEIPT`: `GET /invoices`, the invoice summary (paid in 30 days), the digest's KPIs, `byMethod` and `paymentsTotal`, the contact ledger with its cost, `/stats/*` and the contact's summary. A cash invoice of 24.00 reads as 48.00 paid, and a receipt printed whole adds its products to the customer's ledger and cost. Nothing marks those figures wrong.
+- **It loses the link.** On `payment.recorded` it writes the `payments` array back through its own schema, which has no `receiptId`. A payment recorded under it no longer points at its receipt after a roll forward.
+- **It does not know a hold or a claim.** A receipt in doubt reads as a paid document, and its money as neither booked nor held.
+- **Its till and its invoices print as they did:** no receipt for a cash invoice, which is a sale the device never saw if the org already opted in.
+
+So a rollback needs, in this order: settle every receipt in doubt; finish the sessions that hold receipts; turn the printer gate off on every org that opted in, so no cash invoice is issued in a way the old code cannot settle; say which reports are wrong and until when. The way back is a roll forward, not a repair: this release's readers are right about everything the old image wrote, but for the `receiptId` of a payment it recorded. Prefer fixing forward.
 
 ## 4. Tests
 

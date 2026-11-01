@@ -2340,6 +2340,9 @@ invoice still due until the courier pays).
   speak for: an imported invoice keeps the rule (nothing else would settle it), and the rule's own row
   under a method the invoice no longer says goes as it always did, with its journal entry (no general
   route can remove a row).
+- ⚠ **R1's rollback is clean only while no receipt exists** (FR-23 §3). The previous image has none of the
+  filters below, so it counts every receipt again beside its invoice, and it rewrites `payments` without
+  `receiptId`. Prefer fixing forward.
 - ⚠ **A new `Invoice` type reaches every reader that has no `type` in its filter.** Those are
   `GET /invoices`, `getInvoiceSummary` (paid in 30 days), the digest's KPIs, `byMethod` and
   `paymentsTotal`, the contact ledger with its cost, `/stats/*`, the contact's summary. Each spreads
