@@ -70,7 +70,7 @@ bun run scripts/audit-coverage-api.ts --org regal-pz --dir "$R/<chunk1>/api,$R/<
 
 | Section | What to do with it |
 |---|---|
-| 1 INVOICES `not under that number` → `hand-entered` | Expected (staff type in LGR too). They carry `INV-2026-<same number>`. Leave them. |
+| 1 INVOICES `not under that number` → `hand-entered` | Expected (staff type in LGR too). They carry `INV-2026-<same number>` and **no reference**. Leave them. The invoice importer now recognises that shape and skips them (`entered by hand in LGR as … — skip`); an older importer saw all 64 as NEW and a whole-folder run would have dispatched them twice. Never force with `--include-hand-entered`. |
 | …→ `DRAFT` | An unissued draft of a PlusMinus number (a blocked Files/OCR import). Fix its blocker, then issue it — §4c. |
 | …→ `MISSING` | Really absent. `import-sales-invoices-api.ts --only <n> --convert`. |
 | `DIFF` | Total or line count differs from the document — §4d. Sub-3-cent rounding and the credit-note sign are counted separately and are fine. |

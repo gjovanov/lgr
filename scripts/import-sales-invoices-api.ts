@@ -48,6 +48,8 @@
  *   --no-stock                convert WITHOUT dispatching stock
  *   --include-uncertain       also convert documents flagged needs-review (direction uncertain)
  *   --include-till-overlap    also convert documents flagged as till-overlap (see above — verify first)
+ *   --include-hand-entered    also import a number that LGR already holds as `INV-<year>-<number>` (typed in
+ *                             the app by hand). Skipped by default: importing it books the sale twice.
  *   --only <nums>             comma-separated invoice numbers to limit the run to
  *
  * Credentials (env): LGR_TOKEN, or LGR_USERNAME + LGR_PASSWORD (login via /api/auth/login).
@@ -55,6 +57,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { assertTokenOrg } from './lib/token-org.js'
+import { indexExistingInvoices } from './lib/invoice-index.js'
 import {
   plusminusInvoiceToExtraction,
   buildSyntheticRawText,
@@ -82,6 +85,7 @@ const doConvert = !!args.convert
 const noStock = !!args['no-stock']
 const includeUncertain = !!args['include-uncertain']
 const includeTillOverlap = !!args['include-till-overlap']
+const includeHandEntered = !!args['include-hand-entered']
 const only = args.only ? new Set(String(args.only).split(',').map(s => s.trim())) : null
 
 if (!dir) { console.error('Required: --dir <dir with invoicem_*.json>. See header for options.'); process.exit(2) }
@@ -227,20 +231,23 @@ async function main() {
 
   // ── dedup against existing invoices (repeatability) ──
   const existing = await fetchInvoices()
-  const byNum = new Map<string, any>()
-  for (const inv of existing) {
-    const ref = String(inv.reference ?? '')
-    if (/^\d+$/.test(ref)) byNum.set(ref, inv)
-    const m = /^INV-(\d{6,})$/.exec(inv.invoiceNumber ?? '')
-    if (m) byNum.set(m[1], inv)
-  }
+  const { byNum, handEntered } = indexExistingInvoices(existing)
   const todo: SrcFile[] = []
+  let heldByHand = 0
   for (const f of files) {
     const hit = byNum.get(f.num)
-    if (!hit) { todo.push(f); continue }
-    console.log(`  ✓ ${f.num} already imported (${hit.invoiceNumber}, ${hit.status}) — skip`)
+    if (hit) { console.log(`  ✓ ${f.num} already imported (${hit.invoiceNumber}, ${hit.status}) — skip`); continue }
+    // Typed into the LGR app as INV-<year>-<this number>, with no reference (regal-pz 2026-10-05..08: 64).
+    // Importing it would create the invoice a second time and dispatch its goods again.
+    const hand = handEntered.get(f.num)
+    if (hand && !includeHandEntered) {
+      console.log(`  ✓ ${f.num} entered by hand in LGR as ${hand.invoiceNumber} (${hand.status}) — skip (importing it would dispatch the same goods twice; --include-hand-entered to force)`)
+      heldByHand++
+      continue
+    }
+    todo.push(f)
   }
-  console.log(`New to import: ${todo.length} | already issued/drafted: ${files.length - todo.length}`)
+  console.log(`New to import: ${todo.length} | already issued/drafted: ${files.length - todo.length - heldByHand} | entered by hand: ${heldByHand}`)
 
   // ── pre-flight: refuse what this path cannot safely type ──
   const skipped: Array<{ num: string; reason: string }> = []
