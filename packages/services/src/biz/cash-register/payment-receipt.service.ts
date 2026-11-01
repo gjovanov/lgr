@@ -157,10 +157,10 @@ export const DOCUMENT_CLAIMED = {
   message: 'This document is being voided or attached to a cash sale right now. Try again in a moment.',
 } as const
 
-/** An edit that moves its total, and a payment that came in since the edit read it. */
+/** It is not what the request read: a payment came in since an edit read it, or an edit since `/send` did. */
 export const DOCUMENT_CHANGED = {
   code: 'document_changed',
-  message: 'A payment was recorded on this document while you edited it. Open it again.',
+  message: 'This document changed while you were working on it. Open it again.',
 } as const
 
 /** The courier's money, on an invoice whose receipt has not printed. */

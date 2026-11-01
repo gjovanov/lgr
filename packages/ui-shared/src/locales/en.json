@@ -1770,7 +1770,7 @@
       "noSession": "Open a session at the till first: a payment at the counter prints its receipt on that session's device. An organization that prints nothing here turns \"A sale needs a connected fiscal printer\" off in Settings → Organization → Cash register.",
       "inProgress": "Another payment on this document is printing. Wait for it to finish, then try again.",
       "documentClaimed": "This document is being voided or attached to a cash sale right now. Try again in a moment.",
-      "documentChanged": "A payment was recorded on this document while you edited it. Open it again.",
+      "documentChanged": "This document changed while you were working on it. Open it again.",
       "fiscallyPaid": "A receipt has printed for this document, so its total can no longer change and it cannot be voided. Correct it with a credit or a debit note.",
       "currency": "The till's device prints in another currency than this document's. Take this payment by bank.",
       "notPrintable": "This document's money cannot be split per VAT rate for a receipt. Take this payment by bank.",

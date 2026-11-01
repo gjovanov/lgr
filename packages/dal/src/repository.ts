@@ -44,7 +44,7 @@ export interface IRepository<T extends BaseEntity> {
   updateInOrg(id: string, orgId: string, data: Partial<T>, where?: Record<string, unknown>): Promise<T | null>
 
   /** Delete an entity by ID **within one org**; false when it is not that org's. */
-  deleteInOrg(id: string, orgId: string): Promise<boolean>
+  deleteInOrg(id: string, orgId: string, where?: Record<string, unknown>): Promise<boolean>
 
   /** Atomically find one entity matching the filter and update it. Returns null if no match. */
   findOneAndUpdate(filter: Filter<T>, data: Partial<T>): Promise<T | null>

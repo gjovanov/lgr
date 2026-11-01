@@ -2873,6 +2873,224 @@ describe('§2.7 — once a receipt has printed, the total is the receipt\'s', ()
   })
 })
 
+describe('a draft and the issue that claimed it (the second review, finding 3)', () => {
+  /** A `PUT` as the form sends one: every line and every total, at `quantity`. */
+  const editTo = (w: TillWorld, id: string, quantity: number, extra: Record<string, unknown> = {}) => {
+    const l = line(w, quantity)
+    return w.call('PUT', `/invoices/${id}`, {
+      lines: [l], subtotal: +(l.lineTotal - l.taxAmount).toFixed(2), taxTotal: l.taxAmount, total: l.lineTotal, ...extra,
+    })
+  }
+  const issueWrite = (update: any) => !!update?.$set?.['issue.completedAt']
+  const closedReceipts = (w: TillWorld) => w.sim!.receipts.filter(r => !r.voided)
+
+  /** Right before the driver's delete of a document, which `during` cannot see. */
+  function duringDelete(meanwhile: () => Promise<unknown>) {
+    const real = Invoice.findOneAndDelete
+    let done = false
+    ;(Invoice as any).findOneAndDelete = function (filter: any) {
+      if (done) return (real as any).call(Invoice, filter)
+      done = true
+      return { exec: async () => { await meanwhile(); return (real as any).call(Invoice, filter).exec() } }
+    }
+    return () => { (Invoice as any).findOneAndDelete = real }
+  }
+
+  it('PUT inside /send, the quantity up: refused, and what was rung is what is booked', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    let inside: any
+    const undo = during(issueWrite, async () => { inside = await editTo(w, d.id, 3) })
+    let issued: any
+    try {
+      issued = await send(w, d.id)
+    } finally {
+      undo()
+    }
+
+    expect(inside.status).toBe(409)
+    expect(inside.json.code).toBe('issue_in_progress')
+    expect(issued.status).toBe(200)
+    expect(issued.json.receipt.state).toBe('printed')
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', total: 24, amountPaid: 24, amountDue: 0 })
+    expect(closedReceipts(w).map(r => r.total)).toEqual([24])
+    expect(closedReceipts(w)[0].payments.reduce((s, p) => s + p.amount, 0)).toBe(24)
+    expect((await w.stock()).quantity).toBe(8)
+  })
+
+  it('PUT that read the draft, /send finishes, PUT writes: refused, and the freeze holds', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    let issued: any
+    const undo = during(update => update?.$set?.total === 12, async () => { issued = await send(w, d.id) })
+    let edit: any
+    try {
+      edit = await editTo(w, d.id, 1)
+    } finally {
+      undo()
+    }
+
+    expect(issued.status).toBe(200)
+    expect(edit.status).toBe(409)
+    expect(edit.json.code).toBe('document_changed')
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', total: 24, amountPaid: 24, amountDue: 0 })
+    expect(closedReceipts(w).map(r => r.total)).toEqual([24])
+  })
+
+  it('PUT inside /send, bank to cash: refused, and nothing settles with no receipt', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    let inside: any
+    const undo = during(issueWrite, async () => { inside = await w.call('PUT', `/invoices/${d.id}`, { paymentMethod: 'cash' }) })
+    let issued: any
+    try {
+      issued = await send(w, d.id)
+    } finally {
+      undo()
+    }
+
+    expect(inside.status).toBe(409)
+    expect(issued.status).toBe(200)
+    const inv = await raw(d.id)
+    expect(inv).toMatchObject({ status: 'sent', paymentMethod: 'bank_transfer', amountPaid: 0 })
+    expect(inv.payments).toHaveLength(0)
+    expect((await sessionOf(w)).totalCash).toBe(0)
+    expect(closedReceipts(w)).toHaveLength(0)
+  })
+
+  it('DELETE inside /send: refused, and the document stands with its number and its stock', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    let inside: any
+    const undo = during(issueWrite, async () => { inside = await w.call('DELETE', `/invoices/${d.id}`) })
+    let issued: any
+    try {
+      issued = await send(w, d.id)
+    } finally {
+      undo()
+    }
+
+    expect(inside.status).toBe(409)
+    expect(inside.json.code).toBe('issue_in_progress')
+    expect(issued.status).toBe(200)
+    expect((await raw(d.id)).status).toBe('sent')
+    expect((await w.stock()).quantity).toBe(8)
+  })
+
+  it('DELETE that read the draft, /send finishes, DELETE writes: refused', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    let issued: any
+    const undo = duringDelete(async () => { issued = await send(w, d.id) })
+    let del: any
+    try {
+      del = await w.call('DELETE', `/invoices/${d.id}`)
+    } finally {
+      undo()
+    }
+
+    expect(issued.status).toBe(200)
+    expect(del.status).toBe(409)
+    expect(del.json.code).toBe('document_changed')
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
+  it('DELETE of a draft a void or an attach holds gives way too', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    await Invoice.updateOne({ _id: d.id }, { $set: { voidingUntil: new Date(Date.now() + 60_000) } })
+
+    const r = await w.call('DELETE', `/invoices/${d.id}`)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('document_claimed')
+    expect(await raw(d.id)).toBeTruthy()
+  })
+
+  it('an issue that crashed stops no edit for long: its lease lapses', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    await Invoice.updateOne({ _id: d.id }, { $set: { issue: { leaseUntil: new Date(Date.now() - 1000) } } })
+
+    expect((await editTo(w, d.id, 1)).status).toBe(200)
+    expect((await w.call('DELETE', `/invoices/${d.id}`)).status).toBe(200)
+  })
+
+  it('a bill with product updates, its draft claimed: refused, and the product is as it was', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { extra: { direction: 'incoming' } })
+    await Invoice.updateOne({ _id: d.id }, { $set: { issue: { leaseUntil: new Date(Date.now() + 60_000) } } })
+
+    const r = await w.call('PUT', `/invoices/${d.id}`, {
+      notes: 'x', productUpdates: [{ productId: String(w.product._id), sellingPrice: 99 }],
+    })
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('issue_in_progress')
+    expect(((await Product.findById(w.product._id).lean().exec()) as any).sellingPrice).toBe(10)
+  })
+
+  describe('/send decided on what it read: a draft that changed before its claim', () => {
+    const claimWrite = (update: any) => !!update?.$set?.issue
+
+    it('the quantity up: 409, nothing moved and no number drawn, and the next press prints what it now says', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w)
+      const before = await footprint(w)
+      let edit: any
+      const undo = during(claimWrite, async () => { edit = await editTo(w, d.id, 3) })
+      let r: any
+      try {
+        r = await send(w, d.id)
+      } finally {
+        undo()
+      }
+
+      expect(edit.status).toBe(200)
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('document_changed')
+      expect(await footprint(w)).toEqual({ ...before, device: w.sim!.executed.length })
+      expect(closedReceipts(w)).toHaveLength(0)
+      expect((await raw(d.id)).issue?.leaseUntil ?? null).toBeNull()
+
+      const again = await send(w, d.id)
+      expect(again.status).toBe(200)
+      expect(closedReceipts(w).map(r => r.total)).toEqual([36])
+      expect(await raw(d.id)).toMatchObject({ status: 'paid', total: 36, amountPaid: 36 })
+      expect((await w.stock()).quantity).toBe(7)
+    })
+
+    it('bank to cash: 409, and the next press prints', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      const undo = during(claimWrite, () => w.call('PUT', `/invoices/${d.id}`, { paymentMethod: 'cash' }))
+      let r: any
+      try {
+        r = await send(w, d.id)
+      } finally {
+        undo()
+      }
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('document_changed')
+      expect(await raw(d.id)).toMatchObject({ status: 'draft', amountPaid: 0 })
+
+      expect((await send(w, d.id)).status).toBe(200)
+      expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+      expect(closedReceipts(w)).toHaveLength(1)
+    })
+
+    it('a draft nothing touched issues as it always did, and a crashed claim is taken over', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await Invoice.updateOne({ _id: d.id }, { $set: { issue: { leaseUntil: new Date(Date.now() - 1000) } } })
+
+      expect((await send(w, d.id)).status).toBe(200)
+      expect((await raw(d.id)).status).toBe('sent')
+    })
+  })
+})
+
 describe('print-once, reused unchanged (#155)', () => {
   /** A receipt its request left at `fiscal`, its lease lapsed: the process died there. */
   async function interrupted(w: TillWorld, d: { id: string; total: number }, fiscal: Record<string, unknown>, o: { key?: string; hash?: string; method?: string } = {}) {

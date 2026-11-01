@@ -20,7 +20,7 @@ import {
 import { computePosTotals } from 'config/pos-totals'
 import { assertHomeIsHere } from 'db/home/home'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
-import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
+import { InvoiceWriteLost, createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement } from 'services/biz/cash-settlement.service'
 import { fitsDue, heldOn, isBeingVoided, notBeingVoided, outstandingOf, paymentPipeline } from 'services/biz/invoice-payment'
@@ -365,13 +365,24 @@ async function receiptPrinting(status: Status, orgId: string, id: string) {
 /** No issue is under way on the document: its claim is gone, finished, or lapsed. */
 const issueLeaseFree = (now: Date) => ({ $or: [{ 'issue.leaseUntil': null }, { 'issue.leaseUntil': { $lt: now } }] })
 
-/** Why a claim on this document was refused: who holds it now. */
-async function whoHolds(status: Status, orgId: string, id: string) {
-  const doc: any = await Invoice.findOne({ _id: id, orgId }, { voidingUntil: 1, 'issue.leaseUntil': 1 }).lean().exec()
+/**
+ * A draft nothing has claimed: still a draft, no issue under way, no void or attach. ⚠ One mechanism, on
+ * every write that decides on a draft. `/send` reads a draft, claims it, and goes on from what it read:
+ * an edit inside that made the device, the stock and the books disagree, a bank draft edited to cash
+ * settled with no receipt, and a delete left a number drawn and the stock moved with no document.
+ */
+const unclaimedDraft = (now = new Date()) => ({ status: 'draft', $and: [issueLeaseFree(now), notBeingVoided(now)] })
+
+/** Why a claim on this document was refused: who holds it now. `otherwise`: nobody does. */
+async function whoHolds(status: Status, orgId: string, id: string, otherwise?: (doc: any) => Record<string, unknown>) {
+  const doc: any = await Invoice.findOne({ _id: id, orgId }, { status: 1, voidingUntil: 1, 'issue.leaseUntil': 1 }).lean().exec()
   if (doc?.issue?.leaseUntil && new Date(doc.issue.leaseUntil).getTime() >= Date.now()) return status(409, ISSUE_IN_PROGRESS)
   if (isBeingVoided(doc)) return status(409, { ...DOCUMENT_CLAIMED })
-  return receiptPrinting(status, orgId, id)
+  return otherwise ? status(409, otherwise(doc)) : receiptPrinting(status, orgId, id)
 }
+
+/** A draft's write that lost: an issue, a void or an attach holds it, or it is no longer the draft that was read. */
+const draftTaken = (status: Status, orgId: string, id: string) => whoHolds(status, orgId, id, () => ({ ...DOCUMENT_CHANGED }))
 
 /**
  * A refusal that answers for the key: the client keeps or drops its key by it, so it is never turned
@@ -1141,16 +1152,22 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // (bills touch stock only via /receive). Not reachable from desktop/SQLite.
         let updatedProductIds: string[] = []
         try {
-          const res = await updateInvoiceWithProductUpdates({ orgId, invoiceId: id, update: body as any, productUpdates })
+          const res = await updateInvoiceWithProductUpdates({
+            orgId, invoiceId: id, update: body as any, productUpdates, ...(existing.status === 'draft' ? { where: unclaimedDraft() } : {}),
+          })
           updatedProductIds = res.updatedProductIds
         } catch (e: any) {
           if (e instanceof GRValidationError) return status(422, { message: e.message })
+          if (e instanceof InvoiceWriteLost) return draftTaken(status, orgId, id)
           throw e
         }
         updated = await r.invoices.findOne({ id, orgId } as any)
         for (const pid of updatedProductIds) {
           createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: pid, correlationId: id })
         }
+      } else if (existing.status === 'draft') {
+        updated = await r.invoices.updateInOrg(id, orgId, body as any, unclaimedDraft())
+        if (!updated) return draftTaken(status, orgId, id)
       } else if (movesMoney) {
         // ⚠ The read above is a check, and this is what makes it hold. A receipt that took its hold
         // since prints the old total, and one that finished since has paid it, and both would leave
@@ -1263,7 +1280,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (isImmutableRegisterDocument(existing as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
     if (existing.status !== 'draft') return status(400, { message: 'Can only delete draft invoices' })
 
-    await r.invoices.deleteInOrg(id, orgId)
+    if (!(await r.invoices.deleteInOrg(id, orgId, unclaimedDraft()))) return draftTaken(status, orgId, id)
 
     // Deleting a draft conversion invoice re-opens the order reservations it consumed.
     await syncOrderForInvoice(orgId, existing, user.id)
@@ -1371,10 +1388,14 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
      * the `draft` check above, so both dispatched the stock, both drew an issued number and both
      * posted a journal entry. Exactly one request holds this claim; a crashed holder's lease
      * lapses and the next Issue finishes what it started.
+     *
+     * ⚠ And a compare-and-set on what it read: the tender, the stock and the receipt below are decided
+     * from that read, so a draft edited between the read and this claim is refused with nothing moved
+     * and no number drawn. From the claim on `unclaimedDraft` refuses the edit instead.
      */
     const now = new Date()
     const claimed = await Invoice.findOneAndUpdate(
-      { _id: id, orgId, status: 'draft', $and: [issueLeaseFree(now), notBeingVoided(now)] },
+      { _id: id, orgId, updatedAt: (invoice as any).updatedAt ?? null, ...unclaimedDraft(now) },
       { $set: { issue: { clientKey: key, requestHash: hash, leaseUntil: new Date(now.getTime() + LEASE_MS) } } },
       { new: true },
     ).exec()
@@ -1383,7 +1404,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         const replayed = await replayIssue()
         if (replayed) return replayed
       }
-      return status(409, isBeingVoided(await Invoice.findOne({ _id: id, orgId }, { voidingUntil: 1 }).lean().exec() as any) ? { ...DOCUMENT_CLAIMED } : ISSUE_IN_PROGRESS)
+      return whoHolds(status, orgId, id, doc => (doc?.status === 'draft' ? { ...DOCUMENT_CHANGED } : ISSUE_IN_PROGRESS))
     }
     /** Give the draft back — a failed issue must not leave it claimed. */
     const release = () => Invoice.updateOne({ _id: id, orgId, status: 'draft' }, { $unset: { issue: 1 } }).exec()
