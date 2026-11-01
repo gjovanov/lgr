@@ -243,7 +243,7 @@ test.describe('A draft of a new cash sale, left on the old form', () => {
     return products.find((p: any) => p.productId === product.productId).stockAvailable
   }
 
-  async function seedDraft(page: any, session: ApiSession) {
+  async function seedDraft(page: any, session: ApiSession, opts: { typedPrice?: boolean } = { typedPrice: true }) {
     // In stock, or the save stops at the form's transfer dialog. The catalog is `pos.read`: an admin
     // looks it up, for an accountant who holds none.
     const admin = await apiLogin()
@@ -261,7 +261,7 @@ test.describe('A draft of a new cash sale, left on the old form', () => {
           productId: product.productId, description: product.productName, quantity: 2, unit: product.unit || 'pcs', unitPrice: PRICE,
           discount: 0, taxRate: 20, taxAmount: 4.2, lineTotal: 25.2, warehouseId, productUpdate: {}, priceTiers: [],
           // A price the person typed, as a draft left before such a price was pinned records it.
-          priceExplanation: [{ type: 'base', label: 'Selling price', price: product.unitPrice }, { type: 'override', label: 'Manual override', price: PRICE }],
+          ...(opts.typedPrice ? { priceExplanation: [{ type: 'base', label: 'Selling price', price: product.unitPrice }, { type: 'override', label: 'Manual override', price: PRICE }] } : {}),
         }],
       },
         previewFields: [{ label: 'Note', value: NOTE }],
@@ -318,7 +318,7 @@ test.describe('A draft of a new cash sale, left on the old form', () => {
   // The form's own wiring of the rule the invoices have.
   test('a price typed on the form stays through a quantity, and is the price issued', async ({ page }) => {
     const session = await apiLogin('acme-corp', 'accountant', 'test123')
-    const product = await seedDraft(page, session)
+    const product = await seedDraft(page, session, { typedPrice: false })
     await loginForApp(page, 'acme-corp', 'accountant', 'test123')
     await page.goto('/invoicing/invoices')
     await restoreEntry(page, NOTE)

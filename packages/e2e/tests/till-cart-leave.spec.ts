@@ -293,8 +293,11 @@ test.describe('A filled cart', () => {
     await stayed(page)
 
     await page.unroute(SALE)
+    // The catalog comes back with the answer, its stock figures after the sale.
+    const fresh = page.waitForResponse((r: any) => r.url().includes('/trade/pos/catalog?'))
     await page.getByTestId('complete-sale').click()
     await expect(page.getByTestId('last-sale-number')).toBeVisible({ timeout: 15000 })
+    await fresh
     await expect(page.getByTestId('register-card').first()).toBeVisible()
     await expect(page.getByRole('textbox', { name: /Search products/i })).toBeFocused()
 

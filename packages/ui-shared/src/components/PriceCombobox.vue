@@ -207,8 +207,7 @@ function onValueChange(val: any) {
 
   if (isNaN(price) || price < 0) return
 
-  // A focus that leaves the field as it was changes nothing, and pins nothing.
-  if (price !== props.modelValue) emit('chosen')
+  emit('chosen')
   emit('update:modelValue', price)
 
   // Build full price explanation chain
