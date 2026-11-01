@@ -266,7 +266,7 @@ them into PRs.
       and write-offs stand, as do a count's and a true-up's to-only adjustments.
     - `confirmMovement` ignores `type`, so a dispatch naming only To added stock. The rule stands at
       the doors a user comes through: `POST /warehouse/movement`, `/with-update`, `PUT /:id`,
-      `/:id/confirm` and `/doc-import/convert`.
+      `/:id/confirm`, `/doc-import/convert` and `/doc-import/commit`.
     - It is deliberately not inside `confirmMovement`. Everything else that reaches it sets the side
       from the type (invoices, the till, stornos, imports, reversals, transfers, counts), or replays
       a movement a site already booked (`importMovement`), where a refusal would drop goods that

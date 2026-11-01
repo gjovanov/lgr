@@ -11,6 +11,7 @@ import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { confirmMovement } from 'services/biz/warehouse.service'
 import { createInvoiceStockMovement, reverseInvoiceStockMovement } from 'services/biz/invoicing.service'
 import { importMovement } from 'services/biz/move/fenced-import.service'
+import { commitDocuments } from 'services/biz/doc-import/commit'
 import { getRepos } from 'services/context'
 import { movementWarehouseRefusal, unusedWarehouseSide } from 'config/movement-warehouses'
 import { config } from 'config'
@@ -323,6 +324,30 @@ describe('at the doors', () => {
     expect(other.json.results[0]).toMatchObject({ id: foreign, ok: false })
     expect((await elsewhere.load(foreign)).status).toBe('draft')
     expect(await elsewhere.stock()).toBe(0)
+  }, 60_000)
+
+  it('/doc-import/commit refuses a movement its client shaped wrong, and books no part of the document', async () => {
+    const w = await world()
+    const main = String(w.main._id)
+    const mapped = (type: string, sides: Record<string, unknown>) => ({
+      type, date: '2026-10-20', ...sides, notes: 'x', marker: 'x', totalAmount: 20, newProducts: [],
+      lines: [{ productId: String(w.bolt._id), productName: 'x', quantity: 4, unitCost: 5 }],
+    })
+    const before = await StockMovement.countDocuments({ orgId: w.orgId }).exec()
+    const [refused] = await commitDocuments(w.orgId, String(w.user._id), 'movement', [{ mapped: mapped('dispatch', { toWarehouseId: main }) as any }])
+    expect(refused).toMatchObject({ ok: false, code: 'dispatch_with_to_warehouse' })
+
+    const [second] = await commitDocuments(w.orgId, String(w.user._id), 'movement', [{
+      mapped: mapped('receipt', { toWarehouseId: main }) as any,
+      extraMovements: [mapped('adjustment', { fromWarehouseId: main, toWarehouseId: String(w.second._id) }) as any],
+    }])
+    expect(second).toMatchObject({ ok: false, code: 'adjustment_with_both_warehouses' })
+    expect(await StockMovement.countDocuments({ orgId: w.orgId }).exec()).toBe(before)
+    expect(await w.stock()).toBe(0)
+
+    const [fine] = await commitDocuments(w.orgId, String(w.user._id), 'movement', [{ mapped: mapped('receipt', { toWarehouseId: main }) as any }])
+    expect(fine.ok).toBe(true)
+    expect(await w.stock()).toBe(4)
   }, 60_000)
 
   it('a dispatch can no longer add stock, and takes it out as a dispatch should', async () => {
