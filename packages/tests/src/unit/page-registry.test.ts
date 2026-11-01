@@ -331,8 +331,9 @@ describe('APP_NAV_META mirrors APP_REGISTRY', () => {
     expect(Object.keys(APP_NAV_META).sort()).toEqual(Object.keys(APP_REGISTRY).sort())
   })
 
-  // The App Hub reads `APP_REGISTRY`, the pages read `canOpenPage`, and ui-shared cannot import
-  // config. One permission at a time, so neither can come to hold one the other does not.
+  // The App Hub reads `APP_REGISTRY`, the pages read `canOpenPage`. One permission at a time, so
+  // neither can come to hold one the other does not. The journal, which the whole app reads, and not
+  // any page: one opened by another right earns no tile, because the app's home would refuse them.
   it('the Invoicing tile opens for exactly the permissions that read its journal', () => {
     const { requiredPermission, alsoOpenedBy } = APP_REGISTRY.invoicing
     const opens = PERMISSIONS.filter(p => canOpenPage(pageById('/invoicing/cash-sales')!, { role: 'x', permissions: [p] }))
@@ -345,24 +346,11 @@ describe('open-page helpers', () => {
     expect(Object.keys(APP_NAV_META)).not.toContain('pos')
   })
 
-  it('routerPathFor keeps a path of this SPA inside the router, and hands any other back', () => {
-    // The two things routerPathFor reads: the history base, and whether the path resolves here.
-    const known = new Set(['/cash-sales/new', '/pos/terminal', '/', '/invoices'])
-    const router = {
-      options: { history: { base: '/invoicing/' } },
-      resolve: (p: string) => ({ matched: known.has(p) ? [{}] : [] }),
-    } as any
-    expect(routerPathFor('/invoicing/cash-sales/new', router)).toBe('/cash-sales/new')
-    expect(routerPathFor('/invoicing/pos/terminal', router)).toBe('/pos/terminal')
-    expect(routerPathFor('/invoicing/', router)).toBe('/')
-    expect(routerPathFor('/invoicing/invoices', router)).toBe('/invoices')
-    expect(routerPathFor('/inventory/', router)).toBeNull()
-    expect(routerPathFor('/invoicingX/', router)).toBeNull()
-    expect(routerPathFor('/pos/terminal', router)).toBeNull() // the server's to redirect
-    // A root router (the portal's, the one SPA's) takes any path it resolves (FR-24 Phase 2).
-    const root = { options: { history: { base: '/' } }, resolve: (p: string) => ({ matched: ['/apps', '/invoicing/cash-sales/new'].includes(p) ? [{}] : [] }) } as any
+  it('routerPathFor keeps a path the SPA serves, and hands any other back', () => {
+    const root = { resolve: (p: string) => ({ matched: ['/apps', '/invoicing/cash-sales/new'].includes(p) ? [{}] : [] }) } as any
     expect(routerPathFor('/invoicing/cash-sales/new', root)).toBe('/invoicing/cash-sales/new')
     expect(routerPathFor('/apps', root)).toBe('/apps')
     expect(routerPathFor('/nowhere', root)).toBeNull()
+    expect(routerPathFor('//elsewhere.test/apps', root)).toBeNull()
   })
 })

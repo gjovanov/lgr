@@ -1,4 +1,5 @@
 import staticPlugin from '@elysiajs/static'
+import { APP_IDS } from 'config/constants'
 import { logger } from 'services/logger'
 import { posRedirect } from './lib/pos-redirect.js'
 
@@ -40,12 +41,6 @@ export function portalShellFor(html: string, role: 'global' | 'master'): string 
 }
 
 /**
- * The modules' URL prefixes. A path under one is a module's page; anything else is the portal's
- * (sign-in, the App Hub, settings). The till is part of invoicing.
- */
-export const MODULE_PREFIXES = ['accounting', 'inventory', 'invoicing', 'payroll', 'reports', 'files'] as const
-
-/**
  * FR-24.13 let a browser choose the one SPA or the eight with the `lgr_ui` cookie (`/__ui/one`,
  * `/__ui/split`). FR-24.21 deleted the eight, so those addresses now only send the browser home and
  * drop the cookie.
@@ -72,7 +67,7 @@ export function webBuildId(html: string | undefined): string | null {
 
 /** A module's page, rather than the portal's: its path is under a module's prefix. */
 export function isModulePath(pathname: string): boolean {
-  return MODULE_PREFIXES.some(m => pathname === `/${m}` || pathname.startsWith(`/${m}/`))
+  return APP_IDS.some(m => pathname === `/${m}` || pathname.startsWith(`/${m}/`))
 }
 
 /** The SPA's built files, mounted under a prefix. */
