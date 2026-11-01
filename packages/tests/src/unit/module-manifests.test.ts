@@ -452,6 +452,26 @@ describe('a draft of a new cash sale, made on the form that stood at this addres
   })
 })
 
+describe('what a person reads about the till', () => {
+  const LOCALES = ['en', 'bg', 'de', 'mk']
+  const strings = (node: unknown, path = ''): Array<[string, string]> => typeof node === 'string'
+    ? [[path, node]]
+    : Object.entries((node ?? {}) as Record<string, unknown>).flatMap(([k, v]) => strings(v, path ? `${path}.${k}` : k))
+
+  // The app is gone, and the page a message sends someone to is gone with it.
+  it('sends nobody to the POS app, which is gone', () => {
+    const gone = /POS\s*→|POS Sessions|POS-Sitzungen|POS сесии/
+    for (const l of LOCALES) {
+      const messages = JSON.parse(readFileSync(join(PACKAGES, 'ui-shared', 'src', 'locales', `${l}.json`), 'utf8'))
+      expect({ l, found: strings(messages).filter(([, s]) => gone.test(s)).map(([k]) => k) }).toEqual({ l, found: [] })
+    }
+    // The server's refusals, in its own words.
+    for (const file of ['portal-api/src/controllers/fiscal-device.controller.ts', 'fiscal/src/device-command.ts', 'fiscal/src/fiscal-device.service.ts']) {
+      expect({ file, found: readFileSync(join(PACKAGES, file), 'utf8').match(/(opened|connect it|connect) from the POS/) }).toEqual({ file, found: null })
+    }
+  })
+})
+
 describe('where a row of the journal opens', () => {
   const row = (origin: string, kind = 'sale') => ({ id: '6a1b', store: 'invoice', kind, origin })
   const view = { name: 'invoicing.cash-sales.view', params: { id: '6a1b' } }

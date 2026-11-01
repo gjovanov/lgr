@@ -23,7 +23,7 @@ export type DeviceRow = { id: string; name?: string; manufacturer: string; conne
 
 /** Who opens a device's port, so a refusal can say what to do about it. */
 const NOT_CONNECTED_HINT: Record<string, string> = {
-  browser: 'connect it from the POS (Connect Printer) or from this device page, in Chrome or Edge',
+  browser: 'connect it from the CS Terminal (Connect Printer) or from this device page, in Chrome or Edge',
   desktop: 'it connects through its LGR Desktop, which is not running or cannot reach the server',
   tcp: 'the server has not opened it yet: connect it first',
 }
