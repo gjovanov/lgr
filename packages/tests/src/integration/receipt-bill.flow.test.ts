@@ -1341,6 +1341,12 @@ describe('receiving a bill warns before it double-books (FR-22.31c)', () => {
     expect([asked.status, asked.json.code]).toEqual([409, 'receipt_overlap'])
     expect((await w.load(typed.id)).status).toBe('draft')
     expect(await w.stock(w.bolt)).toBe(10)
+    // The route has no schema: something merely truthy is no answer.
+    for (const answer of ['true', 1, {}]) {
+      const notAnAnswer = await w.call('POST', `/invoices/${typed.id}/send`, { acknowledgeOverlap: answer })
+      expect([notAnAnswer.status, notAnAnswer.json.code]).toEqual([409, 'receipt_overlap'])
+    }
+    expect(await w.stock(w.bolt)).toBe(10)
 
     const sent = await w.call('POST', `/invoices/${typed.id}/send`, { acknowledgeOverlap: true })
     expect(sent.status).toBe(200)

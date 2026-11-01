@@ -1311,7 +1311,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     // A bill issued here books its goods as `/receive` does, so it answers the same question first.
     const overlap = await receiptsOverlapping(orgId, invoice)
-    if (overlap && !(body as any)?.acknowledgeOverlap) return status(409, receiptOverlapRefusal(invoice, overlap))
+    // `/send` has no schema, so this reads the answer itself: only the answer counts as one.
+    if (overlap && (body as any)?.acknowledgeOverlap !== true) return status(409, receiptOverlapRefusal(invoice, overlap))
 
     /**
      * ⚠ CLAIM the draft before anything moves. Two Issue clicks (or a retry) used to both pass
