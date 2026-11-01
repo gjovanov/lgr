@@ -1040,6 +1040,77 @@ describe('receiving a bill warns before it double-books (FR-22.31c)', () => {
   }, 60_000)
 })
 
+describe('a bill is received once, whoever else asks at the same moment', () => {
+  /** Run `meanwhile` after the next `Product.find`'s query is built and before it runs: inside `/receive`'s window. */
+  function beforeTheNextProductRead(meanwhile: () => Promise<unknown>) {
+    const real = Product.find.bind(Product)
+    let fired = false
+    return spyOn(Product, 'find').mockImplementation(((...args: any[]) => {
+      const query: any = (real as any)(...args)
+      if (fired) return query
+      fired = true
+      const exec = query.exec.bind(query)
+      query.exec = async () => {
+        await meanwhile()
+        return exec()
+      }
+      return query
+    }) as any)
+  }
+
+  it('two at once: one receives, the other answers 409 and books nothing', async () => {
+    const w = await world()
+    const typed = await w.typedBill([[w.bolt, 10, 5]])
+    const movements = await w.movementCount()
+    let rival: any
+    // The second read a draft too, and takes the bill before this one writes.
+    const spy = beforeTheNextProductRead(async () => { rival = await w.receiveBill(typed) })
+    let late: any
+    try {
+      late = await w.receiveBill(typed)
+    } finally {
+      spy.mockRestore()
+    }
+
+    expect(rival.status).toBe(200)
+    expect([late.status, late.json.code]).toEqual([409, 'bill_not_draft'])
+    expect(await w.stock(w.bolt)).toBe(10)
+    expect(await w.movementCount()).toBe(movements + 1)
+    const bill = await w.load(typed.id)
+    expect(bill.status).toBe('received')
+    expect(bill.invoiceNumber).toBe(rival.json.invoice.invoiceNumber)
+    expect(bill.numberHistory.filter((n: any) => n.status === 'received')).toHaveLength(1)
+    expect(bill.statusHistory.filter((h: any) => h.status === 'received')).toHaveLength(1)
+  }, 60_000)
+
+  it('really at once, too: the goods are counted once', async () => {
+    const w = await world()
+    const typed = await w.typedBill([[w.nut, 4, 2]])
+    const answers = await Promise.all([w.receiveBill(typed), w.receiveBill(typed), w.receiveBill(typed)])
+    expect(answers.filter(a => a.status === 200)).toHaveLength(1)
+    for (const a of answers.filter(a => a.status !== 200)) expect([400, 409]).toContain(a.status)
+    expect(await w.stock(w.nut)).toBe(4)
+  }, 60_000)
+
+  it('an issue under way on `/send` holds the draft too', async () => {
+    const w = await world()
+    const typed = await w.typedBill([[w.bolt, 3, 5]])
+    const number = (await w.load(typed.id)).invoiceNumber
+    await Invoice.collection.updateOne({ _id: (await w.load(typed.id))._id }, { $set: { issue: { leaseUntil: new Date(Date.now() + 60_000) } } })
+
+    const held = await w.receiveBill(typed)
+    expect([held.status, held.json.code]).toEqual([409, 'bill_not_draft'])
+    const still = await w.load(typed.id)
+    expect([still.status, still.invoiceNumber]).toEqual(['draft', number])
+    expect(await w.stock(w.bolt)).toBe(0)
+
+    // A lease that lapsed is a crash: it holds nothing.
+    await Invoice.collection.updateOne({ _id: still._id }, { $set: { 'issue.leaseUntil': new Date(Date.now() - 1000) } })
+    expect((await w.receiveBill(typed)).status).toBe(200)
+    expect(await w.stock(w.bolt)).toBe(3)
+  }, 60_000)
+})
+
 describe('a billed receipt keeps its own day in the reports', () => {
   it('the warehouse report and the digest count it on the day the goods came, not the bill\'s', async () => {
     const w = await world()

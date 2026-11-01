@@ -1438,14 +1438,23 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       ...((invoice as any).numberHistory || []),
       { number: issuedNumber, allocatedAt: new Date(), status: 'received' },
     ]
-    const updated = await r.invoices.updateInOrg(id, orgId, {
-      status: 'received',
-      sentAt: new Date(),
-      statusHistory: history,
-      invoiceNumber: issuedNumber,
-      draftNumber,
-      numberHistory,
-    } as any)
+    /**
+     * ⚠ Out of draft once. Two Receives can both pass the check above, and each would book the goods
+     * and draw a number. Exactly one takes the bill here, and the other books nothing; an issue under
+     * way on `/send` holds the draft as well (a lease that lapsed is a crash, and holds nothing). The
+     * number the loser drew is a gap in an internal series, and is accepted: drawing it after this
+     * write would leave a received bill with no number if the request died in between.
+     */
+    const now = new Date()
+    const taken = await Invoice.findOneAndUpdate(
+      {
+        _id: id, orgId, status: 'draft',
+        $or: [{ 'issue.leaseUntil': { $exists: false } }, { 'issue.leaseUntil': null }, { 'issue.leaseUntil': { $lt: now } }],
+      },
+      { $set: { status: 'received', sentAt: now, statusHistory: history, invoiceNumber: issuedNumber, draftNumber, numberHistory } },
+    ).exec()
+    if (!taken) return status(409, { code: 'bill_not_draft', message: `${draftNumber} is no longer a draft: another request is receiving or issuing it` })
+    const updated = await r.invoices.findOne({ id, orgId } as any)
 
     await createInvoiceStockMovement(updated || invoice, user.id)
 
