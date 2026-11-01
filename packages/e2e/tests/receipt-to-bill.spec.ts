@@ -601,8 +601,78 @@ test.describe('a movement\'s warehouses fit its type (#168)', () => {
     await expect.poll(() => stockOf(w)).toBe(7)
   })
 
-  test('back on a receipt it starts where a receipt starts, and a transfer keeps both fields', async ({ page }) => {
+  /** The article on the first line, the quantity typed over what picking it prefills. */
+  const fillLine = async (page: Page, w: World, quantity: number, prefilled: boolean) => {
+    const line = page.locator('tbody tr').first()
+    await line.getByPlaceholder('Търсете продукти...').pressSequentially(w.article.sku, { delay: 10 })
+    await page.locator('.v-overlay--active .v-list-item').filter({ hasText: w.article.sku }).first().click()
+    const field = line.locator('input[type="number"]').first()
+    if (prefilled) await expect.poll(async () => Number(await field.inputValue())).toBeGreaterThan(0)
+    await field.fill(String(quantity))
+  }
+  const choose = async (page: Page, label: RegExp, name: string) => {
+    await openSelect(page, label)
+    await page.getByRole('option', { name, exact: true }).click()
+  }
+  const otherWarehouse = async (w: World) => (await w.api.get('/warehouse/warehouse?size=100')).warehouses.find((x: any) => x._id !== w.warehouse._id)
+  const stockIn = async (w: World, warehouseId: string) => {
+    const { stockLevels } = await w.api.get(`/warehouse/stock-level?productId=${w.article._id}&warehouseId=${warehouseId}&size=5`)
+    return stockLevels?.[0]?.quantity ?? 0
+  }
+
+  test('a write-off typed in the form takes goods out, and its count says so', async ({ page }) => {
+    const w = await world('writeoff')
+    await receipt(w, 10)
+
+    await signInForUx(page)
+    await page.goto('/inventory/movements/new', { waitUntil: 'networkidle' })
+    await expect(toField(page)).toContainText(w.warehouse.name)
+
+    await pickType(page, 'Корекция')
+    // The form's guess went with the receipt: nothing here adds stock unless the person says so.
+    await expect(toField(page).locator('.v-select__selection')).toHaveCount(0)
+    await expect(fromField(page).locator('.v-select__selection')).toHaveCount(0)
+
+    await choose(page, /От склад/, w.warehouse.name)
+    await fillLine(page, w, 4, true)
+    const confirmed = page.waitForResponse(r => r.request().method() === 'POST' && r.url().includes('/confirm'))
+    await actions(page).getByRole('button', { name: 'Запази и потвърди' }).click()
+    expect((await confirmed).status()).toBe(200)
+    await expect.poll(() => stockOf(w)).toBe(6)
+
+    await page.waitForURL(/\/inventory\/movements\/[0-9a-f]{24}/)
+    const movement = await movementOf(w, page.url().match(/movements\/([0-9a-f]{24})/)![1])
+    expect([Boolean(movement.toWarehouseId), movement.fromWarehouseId]).toEqual([false, w.warehouse._id])
+    const { inventoryCount } = await w.api.get(`/warehouse/inventory-count/${movement.inventoryCountId}`)
+    expect(inventoryCount.lines.map((l: any) => l.variance)).toEqual([-4])
+  })
+
+  test('a transfer starts with neither warehouse, keeps both the person chooses, and moves the goods', async ({ page }) => {
+    const w = await world('transfer')
+    const other = await otherWarehouse(w)
+    await receipt(w, 10)
+
+    await signInForUx(page)
+    await page.goto('/inventory/movements/new', { waitUntil: 'networkidle' })
+    await pickType(page, 'Прехвърляне')
+    await expect(toField(page).locator('.v-select__selection')).toHaveCount(0)
+    await expect(fromField(page).locator('.v-select__selection')).toHaveCount(0)
+
+    await choose(page, /От склад/, w.warehouse.name)
+    await choose(page, /Към склад/, other.name)
+    await expect(fromField(page)).toContainText(w.warehouse.name)
+    await expect(toField(page)).toContainText(other.name)
+    await fillLine(page, w, 3, true)
+    const confirmed = page.waitForResponse(r => r.request().method() === 'POST' && r.url().includes('/confirm'))
+    await actions(page).getByRole('button', { name: 'Запази и потвърди' }).click()
+    expect((await confirmed).status()).toBe(200)
+    await expect.poll(() => stockOf(w)).toBe(7)
+    expect(await stockIn(w, other._id)).toBe(3)
+  })
+
+  test('back on a receipt it starts where a receipt starts, and a To the person chose stays through the types', async ({ page }) => {
     const w = await world('back')
+    const other = await otherWarehouse(w)
     await signInForUx(page)
     await page.goto('/inventory/movements/new', { waitUntil: 'networkidle' })
 
@@ -610,10 +680,40 @@ test.describe('a movement\'s warehouses fit its type (#168)', () => {
     await pickType(page, 'Заприходяване')
     await expect(toField(page)).toContainText(w.warehouse.name)
     await expect(fromField(page)).toHaveCount(0)
-
     await pickType(page, 'Прехвърляне')
-    await expect(fromField(page)).toBeVisible()
+    await pickType(page, 'Заприходяване')
     await expect(toField(page)).toContainText(w.warehouse.name)
+
+    await choose(page, /Към склад/, other.name)
+    await pickType(page, 'Прехвърляне')
+    await expect(toField(page)).toContainText(other.name)
+    await pickType(page, 'Корекция')
+    await expect(toField(page)).toContainText(other.name)
+  })
+
+  test('a transfer naming only To and an adjustment naming both are refused in Bulgarian, with nothing moved', async ({ page }) => {
+    const w = await world('misfit')
+    const other = await otherWarehouse(w)
+    await receipt(w, 10)
+
+    await signInForUx(page)
+    await page.goto('/inventory/movements/new', { waitUntil: 'networkidle' })
+    await choose(page, /Към склад/, other.name)
+    await pickType(page, 'Прехвърляне')
+    await fillLine(page, w, 3, false)
+    await actions(page).getByRole('button', { name: 'Запази и потвърди' }).click()
+    await expect(snackbar(page)).toContainText('Прехвърлянето изважда стока от склад')
+    expect(await stockIn(w, other._id)).toBe(0)
+
+    await page.goto('/inventory/movements/new', { waitUntil: 'networkidle' })
+    await pickType(page, 'Корекция')
+    await choose(page, /От склад/, w.warehouse.name)
+    await choose(page, /Към склад/, other.name)
+    await fillLine(page, w, 3, true)
+    await actions(page).getByRole('button', { name: 'Запази и потвърди' }).click()
+    await expect(snackbar(page)).toContainText('Корекцията променя един склад')
+    expect(await stockOf(w)).toBe(10)
+    expect(await stockIn(w, other._id)).toBe(0)
   })
 
   test('the server refuses a dispatch naming To, and the screen says what to do in Bulgarian', async ({ page }) => {

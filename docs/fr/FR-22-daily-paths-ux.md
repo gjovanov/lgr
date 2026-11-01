@@ -257,8 +257,11 @@ them into PRs.
       supplier is ticked, however many that name nobody stand beside it.
   - **FR-22.31b (MUST)** A movement's warehouses fit its type (`config/movement-warehouses`).
     - A `dispatch` names From and never To; a `receipt` names To and never From (422
-      `dispatch_with_to_warehouse`, `receipt_with_from_warehouse`). Naming neither stays allowed.
-      Every other type is untouched, the imports' from-only transfers included.
+      `dispatch_with_to_warehouse`, `receipt_with_from_warehouse`). A `transfer` naming To with no
+      From is refused (422 `transfer_without_from_warehouse`): it adds stock from nowhere. An
+      `adjustment` naming both is refused (422 `adjustment_with_both_warehouses`): it takes the goods
+      out and puts them straight back. Naming neither stays allowed. The imports' from-only transfers
+      and write-offs stand, as do a count's and a true-up's to-only adjustments.
     - `confirmMovement` ignores `type`, so a dispatch naming only To added stock. The rule stands at
       the doors a user comes through: `POST /warehouse/movement`, `/with-update`, `PUT /:id`,
       `/:id/confirm` and `/doc-import/convert`.
@@ -271,6 +274,10 @@ them into PRs.
     - The form clears the warehouse the new type does not use when the USER changes the type (a
       watcher would also fire on loading a booked document), and offers no such field, unless the
       movement already names one.
+    - A new movement's To warehouse is the form's guess for a receipt, not a choice. Changing to any
+      other type clears it, so a write-off typed in the form takes goods out, and its count carries
+      the right sign. A To the person picked, a stored draft and a booked movement are untouched.
+      Going back to a receipt restores the guess.
   - **FR-22.31c (MUST)** Receiving an unlinked bill warns before it double-books.
     - `POST /invoices/:id/receive` answers 409 `receipt_overlap`, naming the receipts, when an
       unclaimed completed receipt that put goods in stock lies within

@@ -37,7 +37,7 @@
           <v-select v-model="form.fromWarehouseId" :label="$t('warehouse.fromWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" data-testid="from-warehouse" />
         </v-col>
         <v-col v-if="showWarehouse.to" cols="12" md="3">
-          <v-select v-model="form.toWarehouseId" :label="$t('warehouse.toWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" data-testid="to-warehouse" />
+          <v-select v-model="form.toWarehouseId" :label="$t('warehouse.toWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" data-testid="to-warehouse" @update:model-value="form.toGuessed = false" />
         </v-col>
         <v-col cols="12" md="3">
           <DateField v-model="form.date" :label="$t('common.date')" :rules="[rules.required]" :disabled="readonly" density="compact" />
@@ -372,6 +372,8 @@ const form = ref({
   type: 'receipt', fromWarehouseId: null as string | null, toWarehouseId: null as string | null, contactId: '' as string | undefined,
   date: new Date().toISOString().split('T')[0], notes: '',
   lines: [emptyLine()] as any[],
+  // The To warehouse is the form's guess for a receipt, not the person's choice (`applyNewReceiptDefaults`).
+  toGuessed: false,
 })
 
 const movementTypeItems = computed(() =>
@@ -398,11 +400,17 @@ function clearUnusedWarehouse() {
 /**
  * The user changed the type. ⚠ Not a watcher on `form.type`: loading a movement changes that too,
  * and would clear a warehouse off a booked document on screen. A new movement starts as a receipt
- * with its To warehouse filled in, and a dispatch keeping it added stock (#168).
+ * with its To warehouse filled in. That is the form's guess for a receipt, and on any other type it
+ * adds stock: a dispatch keeping it added stock, and a write-off booked goods in, with a count of the
+ * wrong sign (#168). So the guess goes with the receipt. A To the person chose stays.
  */
 function onTypeChange(type: string) {
   form.value.type = type
   clearUnusedWarehouse()
+  if (form.value.toGuessed) {
+    form.value.toWarehouseId = null
+    form.value.toGuessed = false
+  }
   if (!isEdit.value) applyNewReceiptDefaults()
 }
 
@@ -547,6 +555,7 @@ function applyImportedMovement(payload: { fields: Record<string, any>; lines: an
   for (const [k, v] of Object.entries(payload.fields || {})) {
     if (v === undefined || v === null || v === '') continue
     ;(form.value as any)[k] = v
+    if (k === 'toWarehouseId') form.value.toGuessed = false
   }
 
   if (payload.lineMode !== 'keep' && payload.lines?.length) {
@@ -599,7 +608,7 @@ async function fetchItem() {
       bill: detail.bill || undefined,
     }
     form.value = {
-      type: detail.type, fromWarehouseId: detail.fromWarehouseId || null, toWarehouseId: detail.toWarehouseId || null,
+      type: detail.type, fromWarehouseId: detail.fromWarehouseId || null, toWarehouseId: detail.toWarehouseId || null, toGuessed: false,
       contactId: detail.contactId || undefined, date: detail.date?.split('T')[0] || '', notes: detail.notes || '',
       lines: (detail.lines || []).map((l: any) => ({ productId: l.productId, productName: l.productName || '', quantity: l.quantity, unitCost: l.unitCost, stockQty: null, productUpdate: l.productUpdate || {}, priceTiers: l.priceTiers || [] })),
     }
@@ -988,7 +997,10 @@ function applyNewReceiptDefaults() {
   const candidate = (pinned && warehouses.value.some(w => w._id === pinned) ? pinned : '')
     || warehouses.value.find(w => w.isDefault)?._id
     || null
-  if (candidate && !form.value.toWarehouseId) form.value.toWarehouseId = candidate
+  if (candidate && !form.value.toWarehouseId) {
+    form.value.toWarehouseId = candidate
+    form.value.toGuessed = true
+  }
   if (grSwitchMemory.read()) grWithUpdate.value = true
 }
 

@@ -105,6 +105,18 @@ describe('the rule', () => {
     // `null` is how an edit clears a side; it is not a warehouse.
     ['dispatch', W, null, null],
     ['receipt', null, W, null],
+    // A transfer takes goods out of a warehouse: To alone adds them from nowhere.
+    ['transfer', W, W, null],
+    ['transfer', W, undefined, null],
+    ['transfer', undefined, undefined, null],
+    ['transfer', undefined, W, 'transfer_without_from_warehouse'],
+    ['transfer', null, W, 'transfer_without_from_warehouse'],
+    // An adjustment changes one warehouse: both takes the goods out and puts them straight back.
+    ['adjustment', W, undefined, null],
+    ['adjustment', undefined, W, null],
+    ['adjustment', undefined, undefined, null],
+    ['adjustment', W, null, null],
+    ['adjustment', W, W, 'adjustment_with_both_warehouses'],
   ]
   for (const [type, fromWarehouseId, toWarehouseId, code] of cases) {
     it(`${type} from ${fromWarehouseId ?? '—'} to ${toWarehouseId ?? '—'}: ${code ?? 'fits'}`, () => {
@@ -112,8 +124,12 @@ describe('the rule', () => {
     })
   }
 
+  it('only a dispatch and a receipt have a side they never name', () => {
+    for (const type of ['transfer', 'adjustment']) expect(unusedWarehouseSide(type)).toBeNull()
+  })
+
   it('leaves every other type alone, whatever it names', () => {
-    for (const type of ['transfer', 'adjustment', 'return', 'production_in', 'production_out']) {
+    for (const type of ['return', 'production_in', 'production_out']) {
       expect(unusedWarehouseSide(type)).toBeNull()
       for (const sides of [{}, { fromWarehouseId: W }, { toWarehouseId: W }, { fromWarehouseId: W, toWarehouseId: W }]) {
         expect(movementWarehouseRefusal({ type, ...sides })).toBeNull()
@@ -124,6 +140,8 @@ describe('the rule', () => {
   it('says what to do in words a storekeeper can act on', () => {
     expect(movementWarehouseRefusal({ type: 'dispatch', toWarehouseId: W })?.message).toContain('From warehouse')
     expect(movementWarehouseRefusal({ type: 'receipt', fromWarehouseId: W })?.message).toContain('To warehouse')
+    expect(movementWarehouseRefusal({ type: 'transfer', toWarehouseId: W })?.message).toContain('From warehouse')
+    expect(movementWarehouseRefusal({ type: 'adjustment', fromWarehouseId: W, toWarehouseId: W })?.message).toContain('one warehouse')
   })
 })
 
@@ -144,6 +162,54 @@ describe('at the doors', () => {
       expect(res.json.message).toBeTruthy()
     }
     expect(await StockMovement.countDocuments({ orgId: w.orgId }).exec()).toBe(0)
+  }, 60_000)
+
+  it('POST refuses a transfer naming only To and an adjustment naming both: neither adds a thing to stock', async () => {
+    const w = await world()
+    const main = String(w.main._id)
+    const second = String(w.second._id)
+    const before = await StockMovement.countDocuments({ orgId: w.orgId }).exec()
+    const transfer = await w.create('transfer', { toWarehouseId: main })
+    expect([transfer.status, transfer.json.code]).toEqual([422, 'transfer_without_from_warehouse'])
+    const adjustment = await w.create('adjustment', { fromWarehouseId: main, toWarehouseId: second })
+    expect([adjustment.status, adjustment.json.code]).toEqual([422, 'adjustment_with_both_warehouses'])
+    expect(await StockMovement.countDocuments({ orgId: w.orgId }).exec()).toBe(before)
+  }, 60_000)
+
+  it('PUT and /confirm hold them too, and an old draft can be repaired', async () => {
+    const w = await world()
+    const main = String(w.main._id)
+    const second = String(w.second._id)
+    await w.stocked(10)
+
+    // PUT judges what the movement would be.
+    const transfer = w.idOf(await w.create('transfer', { fromWarehouseId: main, toWarehouseId: second }))
+    const cleared = await w.call('PUT', `/warehouse/movement/${transfer}`, { fromWarehouseId: null })
+    expect([cleared.status, cleared.json.code]).toEqual([422, 'transfer_without_from_warehouse'])
+    const adjustment = w.idOf(await w.create('adjustment', { fromWarehouseId: main }))
+    const both = await w.call('PUT', `/warehouse/movement/${adjustment}`, { toWarehouseId: second })
+    expect([both.status, both.json.code]).toEqual([422, 'adjustment_with_both_warehouses'])
+
+    // The drafts a door would not take now: each moves nothing until corrected.
+    const oldTransfer = await w.oldDraft('transfer', { toWarehouseId: main })
+    const refused = await w.call('POST', `/warehouse/movement/${oldTransfer}/confirm`, {})
+    expect([refused.status, refused.json.code]).toEqual([422, 'transfer_without_from_warehouse'])
+    const oldAdjustment = await w.oldDraft('adjustment', { fromWarehouseId: main, toWarehouseId: second })
+    const refusedToo = await w.call('POST', `/warehouse/movement/${oldAdjustment}/confirm`, {})
+    expect([refusedToo.status, refusedToo.json.code]).toEqual([422, 'adjustment_with_both_warehouses'])
+    expect([await w.stock(), await w.stock(w.second)]).toEqual([10, 0])
+
+    expect((await w.call('PUT', `/warehouse/movement/${oldAdjustment}`, { toWarehouseId: null })).status).toBe(200)
+    expect((await w.call('POST', `/warehouse/movement/${oldAdjustment}/confirm`, {})).status).toBe(200)
+    expect([await w.stock(), await w.stock(w.second)]).toEqual([6, 0])
+  }, 60_000)
+
+  it('/doc-import/convert refuses them per id', async () => {
+    const w = await world()
+    const id = await w.oldDraft('adjustment', { fromWarehouseId: String(w.main._id), toWarehouseId: String(w.second._id) })
+    const res = await w.call('POST', '/doc-import/convert', { target: 'movement', ids: [id] })
+    expect(res.json.results[0]).toMatchObject({ id, ok: false, code: 'adjustment_with_both_warehouses' })
+    expect((await w.load(id)).status).toBe('draft')
   }, 60_000)
 
   it('POST takes every shape that fits: one side, or neither, and the other types as they were', async () => {

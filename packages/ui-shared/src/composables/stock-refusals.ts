@@ -9,6 +9,8 @@
 export const STOCK_REFUSAL_CODES = [
   'dispatch_with_to_warehouse',
   'receipt_with_from_warehouse',
+  'transfer_without_from_warehouse',
+  'adjustment_with_both_warehouses',
   'receipt_without_supplier',
   'receipt_not_a_delivery',
   'receipt_rolled_back',

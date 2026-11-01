@@ -2103,6 +2103,8 @@
       "receipt_is_reversal": "Dieser Wareneingang gibt die Ware eines entfernten Dokuments zurück. Er ist keine Lieferung und wird nicht abgerechnet."
     },
     "refusals": {
+      "transfer_without_from_warehouse": "Eine Umlagerung nimmt Ware aus einem Lager: Wählen Sie auch „Von Lager“. Ware von außen ist ein Zugang.",
+      "adjustment_with_both_warehouses": "Eine Korrektur ändert ein Lager: Wählen Sie „Von Lager“, um Ware abzubuchen, oder „Zu Lager“, um sie zuzubuchen, nicht beides. Ware zwischen Lagern ist eine Umlagerung.",
       "receipt_rolled_back": "Wareneingang {movementNumber} wurde mit seinem Dokument zurückgenommen: Die Ware ist wieder abgegangen, und er wird nicht abgerechnet.",
       "bill_foreign_currency": "Diese Rechnung lautet auf {currency}, die Preise der Lieferung auf {baseCurrency}: Eine Rechnung in anderer Währung wird nicht mit einer Lieferung verknüpft.",
       "receipt_not_a_delivery": "Wareneingang {movementNumber} ist eine Korrektur oder eine Tagessumme, keine Lieferung eines Lieferanten, und wird nicht abgerechnet.",
