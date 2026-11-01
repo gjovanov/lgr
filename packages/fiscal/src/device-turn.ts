@@ -81,6 +81,9 @@ export async function deviceTurn<T>(deviceId: string, run: () => Promise<T>, opt
   } finally {
     clearTimeout(timer)
     finish()
-    if (tails.get(deviceId) === tail) tails.delete(deviceId)
+    // ⚠ Only once what is ahead has settled, which is what `tail` waits for. A waiter that gave up can
+    // be last in the queue with the holder still running, and a forgotten queue lets the next caller
+    // in beside it.
+    void tail.then(() => { if (tails.get(deviceId) === tail) tails.delete(deviceId) })
   }
 }

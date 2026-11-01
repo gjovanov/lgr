@@ -208,9 +208,22 @@ describe('the turn itself', () => {
       error = e
     }
     expect(error).toBeInstanceOf(DeviceBusyError)
-    const third = deviceTurn('d1', async () => 'third')
+
+    // The one that gave up was last in the queue, and the holder is still running: the next one waits.
+    let thirdRan = false
+    const third = deviceTurn('d1', async () => { thirdRan = true; return 'third' })
+    await new Promise(r => setTimeout(r, 30))
+    expect(thirdRan).toBe(false)
+
     held.open()
     await first
     expect(await third).toBe('third')
+    expect(thirdRan).toBe(true)
+  })
+
+  it('a queue that has emptied is forgotten: the next turn starts at once', async () => {
+    await deviceTurn('d9', async () => undefined)
+    await new Promise(r => setTimeout(r, 0))
+    expect(await deviceTurn('d9', async () => 'next', { waitMs: 1 })).toBe('next')
   })
 })
