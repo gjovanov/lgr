@@ -125,7 +125,7 @@ export interface ReceiptBillingState {
   /** It may, once someone says whose goods they were: the receipt names no supplier. */
   needsSupplier?: boolean
   /** Why not, when it may not be. */
-  reason?: 'not_a_receipt' | 'receipt_not_completed' | 'receipt_is_reversal' | 'receipt_not_a_delivery' | 'receipt_already_billed' | 'receipt_not_billable'
+  reason?: 'not_a_receipt' | 'receipt_not_completed' | 'receipt_rolled_back' | 'receipt_is_reversal' | 'receipt_not_a_delivery' | 'receipt_already_billed' | 'receipt_not_billable'
   /** The live document that holds it (its bill, or the bill whose own receipt it is). */
   invoice?: { id: string; number: string; status: string; type: string; direction: string }
 }
@@ -152,6 +152,8 @@ export interface ReceiptBillingState {
 export function billingStateOf(movement: any, invoices: Map<string, any>): ReceiptBillingState {
   if (movement.type !== 'receipt') return { billable: false, reason: 'not_a_receipt' }
   if (movement.status !== 'completed') return { billable: false, reason: 'receipt_not_completed' }
+  // Rolled back with its document: it stays completed, and the goods have left again.
+  if (movement.reversedBy) return { billable: false, reason: 'receipt_rolled_back' }
   if (isRemovalReversalNote(movement.notes)) return { billable: false, reason: 'receipt_is_reversal' }
   if (!movement.contactId && noteSaysNoDelivery(movement.notes)) return { billable: false, reason: 'receipt_not_a_delivery' }
   const free: ReceiptBillingState = movement.contactId ? { billable: true } : { billable: true, needsSupplier: true }
@@ -190,6 +192,7 @@ export async function billingByMovement(orgId: string, movements: any[]): Promis
 const REFUSAL: Record<string, { status: number; message: (m: any, s: ReceiptBillingState) => string }> = {
   not_a_receipt: { status: 422, message: m => `${m.movementNumber} is not a goods receipt` },
   receipt_not_completed: { status: 422, message: m => `${m.movementNumber} is not booked yet — confirm it first` },
+  receipt_rolled_back: { status: 422, message: m => `${m.movementNumber} was rolled back with its document — the goods left again` },
   receipt_is_reversal: { status: 422, message: m => `${m.movementNumber} puts back the goods of a removed document — no supplier billed it` },
   receipt_not_a_delivery: { status: 422, message: m => `${m.movementNumber} is a correction or a day's aggregate — no one supplier's bill pays for it` },
   receipt_already_billed: { status: 409, message: (m, s) => `${m.movementNumber} is already billed by ${s.invoice?.number}` },
@@ -675,7 +678,7 @@ export interface BillableReceipt {
 }
 
 /** What deciding on a receipt reads: `billingStateOf` and `asBillable`. */
-const RECEIPT_FIELDS = { movementNumber: 1, date: 1, toWarehouseId: 1, lines: 1, totalAmount: 1, invoiceId: 1, type: 1, status: 1, contactId: 1, notes: 1 }
+const RECEIPT_FIELDS = { movementNumber: 1, date: 1, toWarehouseId: 1, lines: 1, totalAmount: 1, invoiceId: 1, type: 1, status: 1, contactId: 1, notes: 1, reversedBy: 1 }
 
 function asBillable(m: any): BillableReceipt {
   return {

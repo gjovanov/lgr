@@ -745,6 +745,39 @@ describe('a receipt that still cannot be billed says why (FR-22.31a)', () => {
     expect((await w.receiveBill(bill)).status).toBe(200)
   }, 60_000)
 
+  it('a receipt rolled back in Files holds no goods: no bill, in no list, overlapping nothing', async () => {
+    const w = await world()
+    for (const contactId of [undefined, null]) {
+      const product = contactId === null ? w.nut : w.bolt
+      const r = await w.receipt([[product, 6, 5]], { contactId })
+      const doc = await DocFile.create({
+        orgId: w.org._id, docType: 'stokrazp', docNumber: `000000077${contactId === null ? 1 : 2}`, docDate: '2026-10-20',
+        originalName: 'stokrazp.pdf', currentPath: '/nowhere', currentChecksum: 'x',
+        mimeType: 'application/pdf', size: 1, uploadedBy: w.user._id, status: 'committed', committedIds: [r._id],
+        uploadedAt: new Date(Date.now() - 3_600_000),
+      } as any)
+      await deleteDocFiles(w.orgId, String(w.user._id), [String(doc._id)], { rollback: true, execute: true })
+      expect(await w.stock(product)).toBe(0)
+
+      const original = await w.mv(r._id)
+      expect(original.status).toBe('completed')
+      const mirror: any = await StockMovement.findById(original.reversedBy).lean().exec()
+      expect(mirror.notes).toContain(r.movementNumber)
+      expect(original.reversedAt).toBeInstanceOf(Date)
+
+      expect(await page(w, r)).toMatchObject({ billable: false, notBillable: { code: 'receipt_rolled_back' } })
+      const refused = await w.fromReceipt([r._id], { contactId: String(w.supplier._id) })
+      expect([refused.status, refused.json.code]).toEqual([422, 'receipt_rolled_back'])
+      const listed = (await w.call('GET', `/invoicing/bills/billable-receipts?contactId=${w.supplier._id}`)).json.receipts
+      expect(listed.map((x: any) => x.id)).not.toContain(String(r._id))
+
+      // The bill for those goods books them: they are not in stock, and nothing asks otherwise.
+      const typed = await w.typedBill([[product, 6, 5]])
+      expect((await w.receiveBill(typed)).status).toBe(200)
+      expect(await w.stock(product)).toBe(6)
+    }
+  }, 60_000)
+
   it('a reversal pointing at a sale that is gone was never a claim, so it is not free', async () => {
     const w = await world()
     const r = await w.receipt([[w.bolt, 6, 5]], { contactId: null })

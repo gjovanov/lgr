@@ -15,6 +15,9 @@ export interface IStockMovementLine {
 }
 
 export interface IStockMovement extends TenantEntity {
+  /** The mirror that took its stock back when its document was removed. It stays `completed`. */
+  reversedBy?: string
+  reversedAt?: Date
   movementNumber: string
   type: string
   status: string

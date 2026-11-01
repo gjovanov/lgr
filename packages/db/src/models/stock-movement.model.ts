@@ -53,6 +53,13 @@ export interface IStockMovement extends Document {
    * dispatch. Readers that sum movements (SUPTO 18.8, FR-07, FR-11.7c) skip a record-only one.
    */
   recordOnly?: boolean
+  /**
+   * The mirror that took this movement's stock back when its document was removed (Files rollback,
+   * `reverseMovement`). The movement itself stays `completed`: it did happen. But a receipt rolled
+   * back holds no goods any more, so no bill pays for it (#168).
+   */
+  reversedBy?: Types.ObjectId
+  reversedAt?: Date
   createdBy: Types.ObjectId
   createdAt: Date
   updatedAt: Date
@@ -107,6 +114,8 @@ const stockMovementSchema = new Schema<IStockMovement>(
     // from a manual adjustment — the pair is always linked both ways.
     inventoryCountId: { type: Schema.Types.ObjectId, ref: 'InventoryCount' },
     recordOnly: Boolean,
+    reversedBy: { type: Schema.Types.ObjectId, ref: 'StockMovement' },
+    reversedAt: Date,
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true },

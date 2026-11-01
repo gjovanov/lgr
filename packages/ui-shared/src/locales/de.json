@@ -2095,6 +2095,7 @@
       "confirm": "Rechnung erstellen"
     },
     "notBillable": {
+      "receipt_rolled_back": "Dieser Wareneingang wurde mit seinem Dokument zurückgenommen: Die Ware ist wieder abgegangen, und er wird nicht abgerechnet.",
       "receipt_not_a_delivery": "Dieser Wareneingang ist eine Korrektur oder eine Tagessumme, keine Lieferung eines Lieferanten, und wird nicht abgerechnet.",
       "receipt_not_completed": "Eine Eingangsrechnung entsteht aus einem abgeschlossenen Wareneingang.",
       "receipt_not_billable": "Dieser Wareneingang wurde von {number} gebucht, das storniert ist. Er ist keine Lieferung und wird nicht abgerechnet.",
@@ -2102,6 +2103,7 @@
       "receipt_is_reversal": "Dieser Wareneingang gibt die Ware eines entfernten Dokuments zurück. Er ist keine Lieferung und wird nicht abgerechnet."
     },
     "refusals": {
+      "receipt_rolled_back": "Wareneingang {movementNumber} wurde mit seinem Dokument zurückgenommen: Die Ware ist wieder abgegangen, und er wird nicht abgerechnet.",
       "bill_foreign_currency": "Diese Rechnung lautet auf {currency}, die Preise der Lieferung auf {baseCurrency}: Eine Rechnung in anderer Währung wird nicht mit einer Lieferung verknüpft.",
       "receipt_not_a_delivery": "Wareneingang {movementNumber} ist eine Korrektur oder eine Tagessumme, keine Lieferung eines Lieferanten, und wird nicht abgerechnet.",
       "dispatch_with_to_warehouse": "Ein Abgang nimmt Ware aus einem Lager: Wählen Sie es unter „Von Lager“ und lassen Sie „Zu Lager“ leer.",

@@ -226,6 +226,8 @@ async function reverseMovement(orgId: string, userId: string, mvId: string, docN
     notes: removalReversalNote(mv.movementNumber, docNumber),
   })
   await confirmMovement(String(rev._id))
+  // After the mirror is booked: a mirror that could not be booked leaves the original as it was.
+  await StockMovement.updateOne({ orgId, _id: mv._id } as any, { $set: { reversedBy: rev._id, reversedAt: new Date() } })
   return rev.movementNumber
 }
 

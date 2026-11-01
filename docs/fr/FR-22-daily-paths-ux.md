@@ -244,6 +244,9 @@ them into PRs.
       billed or overlap a bill, because a bill linked to one moves no stock and the real delivery is
       never booked:
       - `reverseMovement` (Files rollback) books the mirror of a dispatch as a `receipt`;
+      - a receipt rolled back with its document stays `completed`, but its goods have left again.
+        `reverseMovement` stamps it (`reversedBy`, `reversedAt`), and it answers
+        `receipt_rolled_back`;
       - a rolled-back till sale that named no customer leaves one pointing at a document that is gone.
         One that named a customer reads as a claim a crash left behind, and stays free;
       - a receipt naming no supplier whose notes mark a correction, a reconcile delta or a day's
