@@ -31,6 +31,28 @@
     <v-alert v-if="notFound" type="warning" variant="tonal">{{ $t('cashRegister.detail.notFound') }}</v-alert>
 
     <template v-if="doc">
+      <!-- FR-23: nothing could prove whether this receipt printed. Someone looks at the device and says. -->
+      <v-alert v-if="doc.row.fiscal.inDoubt" type="warning" variant="tonal" class="mb-4" data-testid="receipt-in-doubt">
+        {{ $t('cashRegister.receipt.inDoubt') }}
+        <div v-if="canSettle" class="mt-2 d-flex flex-wrap ga-2">
+          <v-btn size="small" variant="outlined" data-testid="receipt-settle-printed" @click="settling = 'printed'">{{ $t('cashRegister.receipt.settlePrinted') }}</v-btn>
+          <v-btn size="small" variant="outlined" data-testid="receipt-settle-not-printed" @click="settling = 'notPrinted'">{{ $t('cashRegister.receipt.settleNotPrinted') }}</v-btn>
+        </div>
+        <div v-else class="mt-2 text-caption">{{ $t('cashRegister.receipt.settleWho') }}</div>
+      </v-alert>
+
+      <v-dialog :model-value="!!settling" max-width="480" @update:model-value="settling = null">
+        <v-card>
+          <v-card-title>{{ doc.row.number }}</v-card-title>
+          <v-card-text>{{ settling ? $t(`cashRegister.receipt.settleConfirm.${settling}`) : '' }}</v-card-text>
+          <v-card-actions>
+            <v-spacer />
+            <v-btn variant="text" :disabled="settlingNow" @click="settling = null">{{ $t('common.cancel') }}</v-btn>
+            <v-btn color="primary" variant="flat" :loading="settlingNow" data-testid="receipt-settle-confirm" @click="settle">{{ $t('common.confirm') }}</v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
       <v-card class="mb-4">
         <v-card-text>
           <v-row dense>
@@ -168,7 +190,7 @@ import { httpClient } from '../../composables/useHttpClient'
 import { useCurrency } from '../../composables/useCurrency'
 import { useSnackbar } from '../../composables/useSnackbar'
 import { paymentMethodKey } from '../../composables/usePaymentMethods'
-import { canStornoJournalRow } from '../../cash-register/storno'
+import { STORNO_ROLES, canStornoJournalRow } from '../../cash-register/storno'
 import { kindColor } from '../../cash-register/journal-kind'
 import { appHref } from '../../nav/navigate'
 
@@ -228,6 +250,25 @@ function fmtDate(row: any): string {
 
 function statusColor(s: string) {
   return ({ completed: 'success', stornoed: 'warning', voided: 'grey-darken-1' } as Record<string, string>)[s] || 'grey'
+}
+
+// ── FR-23: a receipt in doubt ──
+// It decides what happened to money, so the same people as a storno, and asked twice.
+const canSettle = computed(() => !!props.role && (STORNO_ROLES as readonly string[]).includes(props.role))
+const settling = ref<'printed' | 'notPrinted' | null>(null)
+const settlingNow = ref(false)
+async function settle() {
+  settlingNow.value = true
+  try {
+    await httpClient.post(`${props.orgUrl}/cash-register/documents/${props.id}/settle`, { printed: settling.value === 'printed' })
+    showSuccess(t('cashRegister.receipt.settled'))
+  } catch (e: any) {
+    showSnackbar(e?.response?.data?.message || t('common.operationFailed'), 'error', 8000)
+  } finally {
+    settlingNow.value = false
+    settling.value = null
+    void load()
+  }
 }
 
 // ── #145: STORNO ────────────────────────────────────────────────────────────────────────────

@@ -237,6 +237,15 @@
       </template>
     </v-alert>
 
+    <!-- FR-23: nothing can prove whether a receipt of this document printed. Its money is neither
+         booked nor free until someone settles it. -->
+    <v-alert v-if="receiptInDoubt" type="warning" variant="tonal" density="compact" class="mb-3" data-testid="receipt-in-doubt">
+      {{ $t('cashRegister.receipt.inDoubtDocument', { number: receiptInDoubt.number }) }}
+      <template #append>
+        <v-btn size="small" variant="outlined" data-testid="receipt-in-doubt-open" :to="{ name: 'invoicing.cash-sales.view', params: { id: receiptInDoubt.id } }">{{ $t('cashRegister.receipt.settleIt') }}</v-btn>
+      </template>
+    </v-alert>
+
     <RecordPaymentDialog v-model="paymentDialog" :document="payableDoc" @recorded="onPaymentRecorded" />
 
     <SendEmailDialog
@@ -631,6 +640,7 @@ const {
   receiptError,
   receiptTakesPayment,
   deliveryReceiptDue,
+  receiptInDoubt,
   printingReceipt,
   printDeliveryReceipt,
   paymentDialog,

@@ -24,7 +24,8 @@
             persistent-placeholder
             :rules="[rules.required]"
           />
-          <DateField v-model="form.date" :label="$t('common.date')" :rules="[rules.required]" />
+          <!-- FR-23: what prints is dated by the device, as it prints. -->
+          <DateField v-model="form.date" :label="$t('common.date')" :rules="[rules.required]" :disabled="prints" />
           <v-text-field v-model="form.reference" :label="$t('invoicing.reference')" />
         </v-form>
         <div v-if="prints" class="text-caption text-medium-emphasis" data-testid="payment-prints">
@@ -88,7 +89,8 @@ const prints = computed(() => {
   const d = props.document
   if (d?.direction !== 'outgoing' || (d?.type !== 'invoice' && d?.type !== 'debit_note')) return false
   if ((appStore.currentOrg as any)?.settings?.cashRegister?.requireConnectedDevice === false) return false
-  if (d.paymentMethod === 'cash_on_delivery' || d.tags?.includes('ocr-import')) return false
+  // The server's `isImportedDocument`: a tag does not say, because a copy carries it.
+  if (d.paymentMethod === 'cash_on_delivery' || d.statusHistory?.[0]?.reason === 'ocr_import') return false
   return form.value.method === 'cash' || form.value.method === 'card'
 })
 

@@ -1491,6 +1491,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   // ── the receipt of a cash-on-delivery invoice (FR-23) ──
   /** It did not print as the invoice was issued. The money is the courier's, so the receipt prints alone. */
   const deliveryReceiptDue = computed(() => !!invoiceData.value?.receiptToPrint)
+  /** A receipt nothing can prove: this document waits for someone to settle it in the journal. */
+  const receiptInDoubt = computed<{ id: string; number: string } | null>(() => invoiceData.value?.receiptInDoubt ?? null)
   const printingReceipt = ref(false)
   const deliveryReceipt = createIdempotentAction()
   async function printDeliveryReceipt() {

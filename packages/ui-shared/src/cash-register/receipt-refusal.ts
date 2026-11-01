@@ -17,6 +17,9 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'receipt_not_printable': return 'cashRegister.receipt.notPrintable'
     case 'document_not_issued': return 'cashRegister.receipt.notIssued'
     case 'no_receipt_owed': return 'cashRegister.receipt.noneOwed'
+    case 'receipt_in_doubt': return 'cashRegister.receipt.inDoubtRefused'
+    case 'delivery_receipt_owed': return 'cashRegister.receipt.deliveryOwed'
+    case 'receipts_unfinished': return 'cashRegister.receipt.unfinished'
     default: return null
   }
 }
@@ -26,9 +29,15 @@ export function isFailedPrint(data: { code?: string } | null | undefined): boole
   return data?.code === 'fiscal_error'
 }
 
+/** The receipts a refusal names: the one in doubt, or the ones a session cannot close over. */
+export function receiptRefusalParams(data: { receipt?: { number?: string }; receipts?: Array<{ number?: string | null; invoice?: string }> } | null | undefined): { number: string; numbers: string } {
+  const numbers = (data?.receipts ?? []).map(r => r.number ?? r.invoice ?? '').filter(Boolean).join(', ')
+  return { number: data?.receipt?.number ?? '', numbers }
+}
+
 /** The message for a refused request: the receipt's own, the server's, or `fallback`. */
-export function receiptRefusalMessage(t: (key: string) => string, e: any, fallback: string): string {
+export function receiptRefusalMessage(t: (key: string, params?: Record<string, unknown>) => string, e: any, fallback: string): string {
   const data = e?.response?.data
   const key = receiptRefusalKey(data)
-  return key ? t(key) : data?.message || fallback
+  return key ? t(key, receiptRefusalParams(data)) : data?.message || fallback
 }

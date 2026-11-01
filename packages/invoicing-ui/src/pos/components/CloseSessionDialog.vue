@@ -41,6 +41,19 @@
               {{ $t('pos.close.otherSessionsOpen', { n: preview.openSessionsOnWarehouse }) }}
             </v-alert>
 
+            <!-- FR-23: a session does not close over a receipt nobody finished. The close finishes
+                 what it can prove, so this warns and does not forbid. -->
+            <v-alert
+              v-if="unfinishedReceipts"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              data-testid="close-receipts-unfinished"
+            >
+              {{ $t('cashRegister.receipt.unfinished', { numbers: unfinishedReceipts }) }}
+            </v-alert>
+
             <v-alert
               v-if="preview && !preview.fiscalDevice"
               type="info"
@@ -141,6 +154,7 @@ import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import { useAppStore } from '../../store/app.store'
 import SessionReportCard, { type SessionReportData } from './SessionReportCard.vue'
 
@@ -223,6 +237,8 @@ function diffClass(method: string): string {
   return d > 0 ? 'text-success' : 'text-error'
 }
 
+const unfinishedReceipts = computed(() => (preview.value?.unfinishedReceipts ?? []).map((r: any) => r.number ?? r.invoice).join(', '))
+
 async function loadPreview() {
   loadingPreview.value = true
   result.value = null
@@ -281,7 +297,10 @@ async function submit() {
     result.value = refused?.code === 'receipt_open'
       // Not a failure: a sale is printing on the device, and closing again after it works.
       ? { kind: 'error', title: t('pos.close.receiptOpenTitle'), detail: t('pos.close.receiptOpen') }
-      : { kind: 'error', title: t('pos.close.fiscalFailed'), detail: refused?.message || t('common.operationFailed') }
+      : refused?.code === 'receipts_unfinished'
+        // FR-23: nothing failed and no Z printed. It says which receipts stand in the way.
+        ? { kind: 'error', title: t('pos.close.receiptOpenTitle'), detail: receiptRefusalMessage(t, e, refused.message) }
+        : { kind: 'error', title: t('pos.close.fiscalFailed'), detail: refused?.message || t('common.operationFailed') }
   } finally {
     submitting.value = false
   }

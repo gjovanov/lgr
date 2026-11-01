@@ -979,7 +979,21 @@
       "printIt": "Beleg drucken",
       "deliveryPrinted": "Beleg {number} gedruckt",
       "noneOwed": "Für dieses Dokument ist kein Beleg mehr zu drucken.",
-      "paidInvoice": "Bezahlte Rechnung"
+      "paidInvoice": "Bezahlte Rechnung",
+        "inDoubt": "Nichts kann belegen, ob dieser Beleg gedruckt wurde. Sein Geld ist weder gebucht noch frei. Prüfen Sie das Journal des Geräts und geben Sie dann an, was zutrifft.",
+        "inDoubtDocument": "Nichts kann belegen, ob Beleg {number} gedruckt wurde. Sein Geld ist weder gebucht noch frei, bis jemand ihn klärt.",
+        "inDoubtRefused": "Nichts kann belegen, ob Beleg {number} gedruckt wurde, daher geht dies nicht weiter. Prüfen Sie das Gerät und klären Sie den Beleg unter Kassenverkäufe.",
+        "settleIt": "Klären",
+        "settlePrinted": "Wurde gedruckt",
+        "settleNotPrinted": "Wurde nicht gedruckt",
+        "settleWho": "Das klärt ein Manager oder ein Administrator.",
+        "settleConfirm": {
+          "printed": "Der Beleg ist auf dem Gerät. Sein Geld wird auf der Rechnung und in der Sitzung erfasst. Das lässt sich nicht rückgängig machen.",
+          "notPrinted": "Der Beleg ist nicht auf dem Gerät. Er wird mit seiner Nummer storniert, und der Betrag ist wieder offen. Das lässt sich nicht rückgängig machen."
+        },
+        "settled": "Beleg geklärt",
+        "deliveryOwed": "Diese Nachnahme-Rechnung hat keinen Fiskalbeleg: Sein Druck ist fehlgeschlagen. Drucken Sie zuerst den Beleg.",
+        "unfinished": "Die Belege {numbers} sind nicht abgeschlossen, daher kann diese Sitzung nicht geschlossen werden. Warten Sie auf einen Beleg im Druck und klären Sie einen ungeklärten unter Kassenverkäufe."
     },
     "origin": {
       "pos": "Kasse",
