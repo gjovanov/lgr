@@ -806,7 +806,7 @@
       "textReceipt": "Ein nicht-fiskalischer Beleg wurde gedruckt",
       "notPrinted": "Es wurde nichts gedruckt: An dieser Kasse ist kein Fiskalgerät angeschlossen"
     },
-    "saleOutcomeUnknown": "Keine Antwort vom Server — der Verkauf ist möglicherweise schon gebucht. Erneut auf „Verkauf abschließen“ drücken: der Warenkorb wird nicht doppelt verbucht.",
+    "saleOutcomeUnknown": "Keine Antwort vom Server — der Verkauf ist möglicherweise schon gebucht. Erneut auf „Verkauf abschließen“ drücken: der Warenkorb wird nicht doppelt verbucht. Bis dahin bleibt der Warenkorb gesperrt.",
     "filterByTags": "Nach Tags filtern",
     "close": {
       "title": "Kassenabschluss",
@@ -838,7 +838,11 @@
       "title": "Diesen Verkauf verlassen?",
       "body": "Der Warenkorb enthält {n} Position(en), die noch nicht verkauft sind. Beim Verlassen werden sie verworfen.",
       "stay": "An der Kasse bleiben",
-      "leave": "Verlassen und Warenkorb verwerfen"
+      "leave": "Verlassen und Warenkorb verwerfen",
+      "printingTitle": "Der Verkauf wird gedruckt",
+      "printingBody": "Er ist auf dem Weg zum Server und zum Drucker, diese Seite kann noch nicht verlassen werden. Diese Meldung schließt sich von selbst, sobald der Verkauf abgeschlossen ist.",
+      "unknownTitle": "Dieser Verkauf ist möglicherweise schon gebucht",
+      "unknownBody": "Die Antwort des Servers kam nicht an. Prüfen Sie {journal}, bevor Sie ihn erneut erfassen."
     },
     "pin": {
       "title": "An der Kasse anmelden",

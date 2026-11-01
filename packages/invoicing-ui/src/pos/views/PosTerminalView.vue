@@ -29,6 +29,7 @@
             density="compact"
             hide-details
             class="flex-grow-0"
+            :disabled="basketFrozen"
           />
           <!-- Fiscal Bridge Status -->
           <template v-if="fiscalBridge.isSupported">
@@ -62,7 +63,7 @@
               </v-btn>
             </template>
           </template>
-          <v-btn color="error" variant="outlined" @click="closeSessionDialog = true">{{ $t('pos.closeSession') }}</v-btn>
+          <v-btn color="error" variant="outlined" :disabled="answerLost" @click="closeSessionDialog = true">{{ $t('pos.closeSession') }}</v-btn>
         </div>
       </div>
 
@@ -74,13 +75,14 @@
         :currency="currency"
         :warehouse-id="activeSession.warehouseId"
         :active="!!activeSession"
+        :readonly="answerLost"
         :lines="cart"
         :totals="totals"
         :line-gross="lineGross"
         :filters="{ type: true, tags: true }"
         @add="addToCart"
-        @quantity="(idx: number, q: number) => { cart[idx].quantity = q }"
-        @remove="(idx: number) => cart.splice(idx, 1)"
+        @quantity="(idx: number, q: number) => { if (!basketFrozen) cart[idx].quantity = q }"
+        @remove="(idx: number) => { if (!basketFrozen) cart.splice(idx, 1) }"
         @price="onLinePriceSelected"
       >
         <template #cart-top>
@@ -115,7 +117,7 @@
                 item-title="title"
                 item-value="value"
                 :loading="docPriceLoading"
-                :disabled="cart.length === 0 && !docPriceName"
+                :disabled="basketFrozen || (cart.length === 0 && !docPriceName)"
                 hide-details
                 clearable
                 class="mb-4"
@@ -123,7 +125,10 @@
                 @update:menu="(open: boolean) => open && loadDocPriceNames()"
                 @update:model-value="applyDocPrice"
               />
-              <v-select v-model="paymentMethod" :label="$t('pos.paymentMethod')" :items="paymentMethods" item-title="title" item-value="value" hide-details class="mb-4" />
+              <v-select v-model="paymentMethod" :label="$t('pos.paymentMethod')" :items="paymentMethods" item-title="title" item-value="value" hide-details class="mb-4" :disabled="basketFrozen" />
+              <v-alert v-if="answerLost" type="warning" variant="tonal" density="compact" class="mb-3" data-testid="sale-unknown">
+                {{ $t('pos.saleOutcomeUnknown') }}
+              </v-alert>
               <v-alert v-if="saleBlocked" type="warning" variant="tonal" density="compact" class="mb-3" data-testid="printer-required">
                 {{ warehouseHasDevice === false ? $t('pos.printerRequired.notConfigured') : $t('pos.printerRequired.notConnected') }}
               </v-alert>
@@ -178,11 +183,11 @@
     <!-- The menu, ★, „+ Нов" and Back are a click from here, and the cart lives in this view. -->
     <v-dialog :model-value="leaveAsked" max-width="440" persistent data-testid="leave-cart-dialog">
       <v-card>
-        <v-card-title>{{ $t('pos.leaveCart.title') }}</v-card-title>
-        <v-card-text>{{ $t('pos.leaveCart.body', { n: cart.length }) }}</v-card-text>
+        <v-card-title>{{ leaveWords.title }}</v-card-title>
+        <v-card-text>{{ leaveWords.body }}</v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn data-testid="leave-cart-go" @click="answerLeave(true)">{{ $t('pos.leaveCart.leave') }}</v-btn>
+          <v-btn v-if="!selling" data-testid="leave-cart-go" @click="answerLeave(true)">{{ $t('pos.leaveCart.leave') }}</v-btn>
           <v-btn color="primary" variant="flat" data-testid="leave-cart-stay" @click="answerLeave(false)">{{ $t('pos.leaveCart.stay') }}</v-btn>
         </v-card-actions>
       </v-card>
@@ -203,7 +208,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave } from 'vue-router'
 import { computePosTotals } from 'config/pos-totals'
@@ -234,6 +239,18 @@ const fiscalBridge = useFiscalBridge()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const loading = ref(false)
+/** A sale on its way to the server, and through it to the printer. */
+const selling = ref(false)
+/** The answer to a sale never came (`isOutcomeUnknown`): the sale may exist. Only a real answer ends this. */
+const answerLost = ref(false)
+/**
+ * A sale's basket holds still until its answer is in. A retry is the same sale only with the same
+ * body (`createIdempotentAction`): any other body is a new key, and so a second sale. That is what
+ * makes „Complete Sale will not ring it up twice" true of everything this screen then lets a cashier
+ * do. So the cart, the method and the receipt stay as they were sent, and with the answer lost the
+ * catalog goes too. The session stays as well: the key is good for that session only.
+ */
+const basketFrozen = computed(() => selling.value || answerLost.value)
 /** FR-21.29: the catalog, the cart and the totals (`ui-shared`), which the back office sells through too. */
 const terminal = ref<{ reset: () => Promise<void>; refresh: () => Promise<void> } | null>(null)
 const cart = ref<CartItem[]>([])
@@ -294,6 +311,7 @@ const total = computed(() => totals.value.total)
 const lineGross = (l: { quantity: number; unitPrice: number; taxRate?: number }) => computePosTotals([l]).total
 
 function addToCart(p: CatalogProduct) {
+  if (basketFrozen.value) return
   // The next customer's first article: the last sale's result has been seen.
   lastSale.value = null
   const existing = cart.value.find(c => c.productId === p.productId)
@@ -324,7 +342,7 @@ function optionValue(o: PriceOption) { return o.type === 'base' ? BASE_PRICE : o
 
 function onLinePriceSelected(idx: number, opt: PriceOption) {
   const line = cart.value[idx]
-  if (!line) return
+  if (!line || basketFrozen.value) return
   line.unitPrice = opt.price
   line.priceName = opt.type === 'base' ? undefined : opt.name
 }
@@ -555,6 +573,7 @@ function receiptOutcome(txn: any, receiptError?: string): { text: string; printe
 async function completeSale() {
   if (cart.value.length === 0 || !activeSession.value) return
   loading.value = true
+  selling.value = true
   try {
     const lines = cart.value.map(c => ({
       productId: c.productId, name: c.name, quantity: c.quantity, unitPrice: c.unitPrice,
@@ -572,11 +591,13 @@ async function completeSale() {
     try {
       ({ data } = await httpClient.post(`${orgUrl()}/trade/pos/session/${activeSession.value._id}/transaction`, body, { headers: saleAttempt.headers(body) }))
       saleAttempt.settle()
+      answerLost.value = false
     } catch (e: any) {
       saleAttempt.settle(e)
       // The answer never came: the sale may have happened. Pressing Complete again sends the
       // same key and gets that sale back, rather than ringing the basket up a second time.
-      if (isOutcomeUnknown(e)) throw Object.assign(e, { outcomeUnknown: true })
+      answerLost.value = isOutcomeUnknown(e)
+      if (answerLost.value) throw Object.assign(e, { outcomeUnknown: true })
       throw e
     }
     cart.value = []
@@ -585,7 +606,9 @@ async function completeSale() {
     // FR-22.54 (B-18): and on cash, with the cursor in an empty search — the method used to stay
     // on „card", so the next cash customer was booked as card, and the scanner typed into nowhere.
     paymentMethod.value = 'cash'
-    // An empty search, the cursor in it, and the catalog's stock figures after the sale.
+    // An empty search, the cursor in it, and the catalog's stock figures after the sale. After a
+    // lost answer the catalog comes back first: it left with the answer.
+    await nextTick()
     void terminal.value?.reset()
     // The sale is recorded either way; a receipt that did not print, or stock that did not
     // move, must not look like success.
@@ -621,15 +644,26 @@ async function completeSale() {
     }
     else showError(e?.outcomeUnknown ? t('pos.saleOutcomeUnknown') : (refused?.message || t('common.operationFailed')))
   }
-  finally { loading.value = false }
+  finally {
+    loading.value = false
+    selling.value = false
+  }
 }
 
 /** A cart with something in it, or a sale on its way to the server. */
 const saleInHand = () => cart.value.length > 0 || loading.value
 
-// Nobody loses a cart without being asked, and whoever means to leave can.
+// Nobody loses a cart without being asked, and whoever means to leave can, except from a sale on
+// its way: that stays until it has answered, and the person sees how it ended.
 const leaveAsked = ref(false)
 let settleLeave: ((leave: boolean) => void) | null = null
+
+/** What the question says. „Not sold yet" is true of a cart only until its sale is sent. */
+const leaveWords = computed(() => {
+  if (selling.value) return { title: t('pos.leaveCart.printingTitle'), body: t('pos.leaveCart.printingBody') }
+  if (answerLost.value) return { title: t('pos.leaveCart.unknownTitle'), body: t('pos.leaveCart.unknownBody', { journal: t('nav.crSales') }) }
+  return { title: t('pos.leaveCart.title'), body: t('pos.leaveCart.body', { n: cart.value.length }) }
+})
 
 function answerLeave(leave: boolean) {
   leaveAsked.value = false
@@ -637,7 +671,14 @@ function answerLeave(leave: boolean) {
   settleLeave = null
 }
 
+// The sale has answered, so the refusal has nothing left to say.
+watch(selling, (now) => { if (!now && !settleLeave) leaveAsked.value = false })
+
 onBeforeRouteLeave(() => {
+  if (selling.value) {
+    leaveAsked.value = true
+    return false
+  }
   if (cart.value.length === 0) return true
   settleLeave?.(false) // a second move while the first is asked about replaces it
   leaveAsked.value = true

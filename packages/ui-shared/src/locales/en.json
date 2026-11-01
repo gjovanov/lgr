@@ -1486,7 +1486,7 @@
       "textReceipt": "A non-fiscal receipt was printed",
       "notPrinted": "Nothing was printed: no fiscal device is connected to this till"
     },
-    "saleOutcomeUnknown": "No answer from the server — the sale may already be recorded. Press Complete Sale again: it will not ring the basket up twice.",
+    "saleOutcomeUnknown": "No answer from the server — the sale may already be recorded. Press Complete Sale again: it will not ring the basket up twice. The basket stays locked until then.",
     "printerDisconnected": "Disconnected",
     "receiptNotPrinted": "Sale saved, but the receipt was NOT printed: {reason}",
     "fiscalDeviceUnreached": "The fiscal device {device} has not answered for more than 2 hours. A sale cannot open until it does: check its cable and power (Н-18, Прил. 29 т. 8).",
@@ -1539,7 +1539,11 @@
       "title": "Leave this sale?",
       "body": "The cart holds {n} line(s) that are not sold yet. Leaving drops them.",
       "stay": "Stay at the till",
-      "leave": "Leave and drop the cart"
+      "leave": "Leave and drop the cart",
+      "printingTitle": "The sale is printing",
+      "printingBody": "It is on its way to the server and the printer, so this page cannot be left yet. This message closes by itself when the sale is done.",
+      "unknownTitle": "This sale may already be booked",
+      "unknownBody": "The server's answer never arrived. Check {journal} before ringing it again."
     },
     "pin": {
       "title": "Sign in at the till",
