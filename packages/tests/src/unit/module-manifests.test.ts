@@ -458,6 +458,16 @@ describe('what a person reads about the till', () => {
     ? [[path, node]]
     : Object.entries((node ?? {}) as Record<string, unknown>).flatMap(([k, v]) => strings(v, path ? `${path}.${k}` : k))
 
+  // Nothing reaches these since POS stopped being an app: `apps.${id}` reads the app ids.
+  it('holds no words for a page that is gone', () => {
+    const gone = ['apps.pos', 'apps.posDesc', 'appHub.pos', 'appHub.posDesc', 'nav.pos', 'nav.terminal', 'nav.sessions', 'nav.newDocPage.cashSale', 'invoicing.posTerminal']
+    for (const l of LOCALES) {
+      const messages = JSON.parse(readFileSync(join(PACKAGES, 'ui-shared', 'src', 'locales', `${l}.json`), 'utf8'))
+      const held = gone.filter(key => key.split('.').reduce((at: any, part) => at?.[part], messages) !== undefined)
+      expect({ l, held }).toEqual({ l, held: [] })
+    }
+  })
+
   // The app is gone, and the page a message sends someone to is gone with it.
   it('sends nobody to the POS app, which is gone', () => {
     const gone = /POS\s*→|POS Sessions|POS-Sitzungen|POS сесии/
