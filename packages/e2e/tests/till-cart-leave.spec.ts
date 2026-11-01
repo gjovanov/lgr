@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { apiGet, apiLogin } from './helpers/api'
 import { closeTillSession, openTillSession, ownCashier, type OwnCashier } from './helpers/cash-register'
 import { loginForApp } from './helpers/login'
-import { filesGone } from './helpers/nav'
+import { SESSION_FILES, filesBlip, filesGone } from './helpers/nav'
 import { BETA } from './helpers/org-switcher'
 
 /**
@@ -167,7 +167,7 @@ test.describe('A filled cart', () => {
   test('a page whose files are gone does not reload a filled cart away', async ({ page }) => {
     await fillCart(page)
     await page.evaluate(() => { (window as any).__walk = 'one document' })
-    await page.route(/\/ui\/PosSessionsView-[^/]+\.(js|css)$/, (route: any) => route.abort())
+    await filesGone(page)
 
     await menu(page, /Outgoing/, 'CR Sessions')
     await page.getByTestId('leave-cart-go').click()
@@ -187,6 +187,27 @@ test.describe('A filled cart', () => {
     await page.getByRole('button', { name: 'Reload' }).click()
     await expect.poll(() => asked).toBe('beforeunload')
     await reloadSpared(page)
+  })
+
+  // No deploy, only a file that did not arrive. Calling that a new version is what forced a page
+  // load on the next move, cart or none.
+  test('a chunk that fails with the same build is no new version', async ({ page }) => {
+    await fillCart(page)
+    await filesBlip(page)
+
+    await menu(page, /Outgoing/, 'CR Sessions')
+    await page.getByTestId('leave-cart-go').click()
+
+    await expect(page.getByTestId('move-failed')).toContainText('This page could not be loaded.', { timeout: 15000 })
+    await expect(page.getByTestId('new-build')).toHaveCount(0)
+    await expect(page).toHaveURL(/\/invoicing\/cash-sales\/new$/)
+    await expect(cartLine(page).first()).toBeVisible()
+
+    // The file is back, and the same click gets there.
+    await page.unroute(SESSION_FILES)
+    await menu(page, /Outgoing/, 'CR Sessions')
+    await page.getByTestId('leave-cart-go').click()
+    await expect(page).toHaveURL(/\/invoicing\/cash-register\/sessions$/, { timeout: 15000 })
   })
 
   // A move refused for a sale that is printing. The person sees how it ended.

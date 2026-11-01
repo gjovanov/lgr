@@ -17,30 +17,48 @@ const page = { template: '<div />' }
 
 const chromium = () => new TypeError('Failed to fetch dynamically imported module: https://lgr.test/ui/PosSessionsView-old.js')
 
+/** `/api/health`, answering, for the build this page came from or for another. */
+const THIS_BUILD = 'this-build'
+const health = (build: string) => new Response('{"ok":true}', { status: 200, headers: { 'x-lgr-build': build } })
+const sameBuild = async () => health(THIS_BUILD)
+const deployed = async () => health('the-next-build')
+const down = async (): Promise<Response> => { throw new TypeError('Failed to fetch') }
+
 /** A view whose lazy chunk rejects with `err`. */
 const failing = (err: () => unknown) => () => Promise.reject(err())
+
+/** Where this page's one load is counted (`stale.ts#spendPageLoad`). */
+const LOAD_SPENT = 'lgr_chunk_reload_this-build'
 
 let loads: string[]
 let reloads: number
 let listeners: Record<string, Array<(e: any) => void>>
-let serverAnswers: () => Promise<Response>
+let serverAnswers: (init?: RequestInit) => Promise<Response>
 let undo: Array<() => void>
 
-const real = { window: (globalThis as any).window, sessionStorage: (globalThis as any).sessionStorage, fetch: globalThis.fetch, error: console.error }
+const real = {
+  window: (globalThis as any).window,
+  document: (globalThis as any).document,
+  sessionStorage: (globalThis as any).sessionStorage,
+  fetch: globalThis.fetch,
+  timeout: AbortSignal.timeout,
+  error: console.error,
+}
 
 beforeEach(() => {
   loads = []
   reloads = 0
   listeners = {}
   undo = []
-  serverAnswers = async () => new Response('{"ok":true}', { status: 200 })
+  serverAnswers = sameBuild
+  ;(globalThis as any).document = { querySelector: () => ({ getAttribute: () => THIS_BUILD }) }
   const stored = new Map<string, string>()
   ;(globalThis as any).sessionStorage = { getItem: (k: string) => stored.get(k) ?? null, setItem: (k: string, v: string) => stored.set(k, v), removeItem: (k: string) => stored.delete(k) }
   ;(globalThis as any).window = {
     location: { href: 'https://lgr.test/here', assign: (href: string) => loads.push(href), reload: () => { reloads++ } },
     addEventListener: (type: string, fn: (e: any) => void) => { (listeners[type] ??= []).push(fn) },
   }
-  globalThis.fetch = (() => serverAnswers()) as any
+  globalThis.fetch = ((_url: string, init?: RequestInit) => serverAnswers(init)) as any
   console.error = () => {} // the rule logs what it caught; that is not what is tested here
   newBuild.value = false
   deadStart.value = false
@@ -51,8 +69,10 @@ beforeEach(() => {
 afterEach(() => {
   undo.forEach(u => u())
   ;(globalThis as any).window = real.window
+  ;(globalThis as any).document = real.document
   ;(globalThis as any).sessionStorage = real.sessionStorage
   globalThis.fetch = real.fetch
+  AbortSignal.timeout = real.timeout
   console.error = real.error
   fiscalBridgeStatus.value = 'disconnected'
 })
@@ -119,21 +139,21 @@ describe('a move whose chunk did not arrive', () => {
     ]
     for (const message of wordings) {
       loads = []
-      sessionStorage.removeItem('lgr_chunk_reload_')
+      sessionStorage.removeItem(LOAD_SPENT)
       const router = await tab([{ path: '/this', component: failing(() => new Error(message)) }])
       await move(router, '/this')
       expect({ message, loads }).toEqual({ message, loads: ['/this'] })
     }
   })
 
-  it('does so once per build: a second failure offers the reload, so a page that cannot load never loops', async () => {
+  it('does so once per build, so a page that cannot load never loops', async () => {
     const router = await tab()
     await move(router, '/gone')
     expect(loads).toEqual(['/gone'])
 
     await move(router, '/gone')
     expect(loads).toEqual(['/gone'])
-    expect(newBuild.value).toBe(true)
+    expect(moveFailed.value).toBe(true)
   })
 
   it('leaves a move that worked alone, and one a guard refused', async () => {
@@ -143,6 +163,131 @@ describe('a move whose chunk did not arrive', () => {
     expect(loads).toEqual([])
     expect(router.currentRoute.value.path).toBe('/there')
     expect(newBuild.value).toBe(false)
+  })
+})
+
+/**
+ * What comes of it, by what the server said and what is in the tab. `/api/health` carries the build
+ * it serves, and that alone says a deploy happened: a file that failed under the same build is a
+ * blip, and calling it a new version also armed a forced page load for the next move.
+ */
+describe('a chunk that did not arrive, by what the server says and what the tab holds', () => {
+  const ROWS: Array<[string, () => Promise<Response>, { printer?: boolean; spent?: boolean }, { loads: string[]; offered: boolean; says: boolean }]> = [
+    ['a deploy, nothing at stake', deployed, {}, { loads: ['/gone'], offered: true, says: false }],
+    ['a blip, nothing at stake', sameBuild, {}, { loads: ['/gone'], offered: false, says: false }],
+    ['a deploy, with a printer up', deployed, { printer: true }, { loads: [], offered: true, says: false }],
+    ['a blip, with a printer up', sameBuild, { printer: true }, { loads: [], offered: false, says: true }],
+    ['a deploy, its one load spent', deployed, { spent: true }, { loads: [], offered: true, says: false }],
+    ['a blip, its one load spent', sameBuild, { spent: true }, { loads: [], offered: false, says: true }],
+    ['the server down', down, {}, { loads: [], offered: false, says: true }],
+    ['the server down, with a printer up', down, { printer: true }, { loads: [], offered: false, says: true }],
+  ]
+
+  for (const [what, server, tabHolds, then] of ROWS) {
+    it(what, async () => {
+      serverAnswers = server
+      if (tabHolds.printer) fiscalBridgeStatus.value = 'connected'
+      if (tabHolds.spent) sessionStorage.setItem(LOAD_SPENT, '1')
+      const router = await tab()
+      await move(router, '/gone')
+      expect({ loads, offered: newBuild.value, says: moveFailed.value }).toEqual(then)
+    })
+  }
+
+  it('a blip leaves no page load behind for the next move', async () => {
+    fiscalBridgeStatus.value = 'connected'
+    const router = await tab()
+    await move(router, '/gone')
+    fiscalBridgeStatus.value = 'disconnected'
+    await move(router, '/there')
+    expect(loads).toEqual([])
+    expect(router.currentRoute.value.path).toBe('/there')
+  })
+})
+
+/** Asking the server takes a while, and the person goes on. What decides is read after the wait. */
+describe('while the server is being asked', () => {
+  /** The next questions wait until the function returned answers them all. */
+  function serverSlow(answer: () => Promise<Response> = sameBuild) {
+    const waiting: Array<() => void> = []
+    serverAnswers = () => new Promise(resolve => waiting.push(() => answer().then(resolve)))
+    return async () => {
+      waiting.forEach(go => go())
+      await settled()
+    }
+  }
+
+  it('a page the person reached is where they are: no load pulls them off it', async () => {
+    const answer = serverSlow()
+    const router = await tab()
+    await move(router, '/gone')
+    await router.push('/there')
+    await answer()
+    expect({ loads, reloads }).toEqual({ loads: [], reloads: 0 })
+    expect(router.currentRoute.value.path).toBe('/there')
+  })
+
+  it('a move the person has started since is where they are going', async () => {
+    const answer = serverSlow()
+    const router = await tab([{ path: '/slow', component: () => new Promise(() => {}) }])
+    await move(router, '/gone')
+    void router.push('/slow')
+    await settled()
+    await answer()
+    expect({ loads, reloads }).toEqual({ loads: [], reloads: 0 })
+  })
+
+  it('a second failing click is the one answered, not the first', async () => {
+    const answer = serverSlow()
+    const router = await tab([{ path: '/gone-too', component: failing(chromium) }])
+    await move(router, '/gone')
+    await move(router, '/gone-too')
+    await answer()
+    expect(loads).toEqual(['/gone-too'])
+  })
+
+  it('a first page that arrived is not replaced by the words for one that did not', async () => {
+    const answer = serverSlow()
+    sessionStorage.setItem(LOAD_SPENT, '1')
+    const router = routerFor()
+    installChunkRecovery(router)
+    await move(router, '/gone')
+    await router.push('/here')
+    await answer()
+    expect(deadStart.value).toBe(false)
+    expect(router.currentRoute.value.path).toBe('/here')
+  })
+
+  // The address of the empty start is the address of the app's root, so only the route tells.
+  it('nor when the page that arrived sits at the address the tab started on', async () => {
+    const answer = serverSlow()
+    sessionStorage.setItem(LOAD_SPENT, '1')
+    const router = routerFor([{ path: '/', component: page }])
+    installChunkRecovery(router)
+    await move(router, '/gone')
+    await router.push('/')
+    await answer()
+    expect(deadStart.value).toBe(false)
+  })
+
+  it('a server that takes the question and never answers is a server that is down', async () => {
+    AbortSignal.timeout = ((ms: number) => real.timeout.call(AbortSignal, Math.min(ms, 5))) as typeof AbortSignal.timeout
+    serverAnswers = init => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('timed out', 'TimeoutError')))
+    })
+    const router = await tab()
+    await router.push('/gone').catch(() => {})
+    await new Promise(resolve => setTimeout(resolve, 30))
+    expect({ loads, says: moveFailed.value }).toEqual({ loads: [], says: true })
+  })
+
+  it('and a question that hangs does not stop the next failure being answered', async () => {
+    serverAnswers = () => new Promise(() => {})
+    const router = await tab([{ path: '/gone-too', component: failing(chromium) }])
+    await move(router, '/gone')
+    serverAnswers = sameBuild
+    await move(router, '/gone-too')
+    expect(loads).toEqual(['/gone-too'])
   })
 })
 
@@ -167,7 +312,7 @@ describe('a move that failed for any other reason', () => {
 
 describe('with the server down', () => {
   const DOWN: Array<[string, () => Promise<Response>]> = [
-    ['nothing answers', async () => { throw new TypeError('Failed to fetch') }],
+    ['nothing answers', down],
     ['a gateway answers for it', async () => new Response('', { status: 503 })],
   ]
 
@@ -182,10 +327,10 @@ describe('with the server down', () => {
   }
 
   it('has not spent its one load: the same click works once the server is back', async () => {
-    serverAnswers = async () => { throw new TypeError('Failed to fetch') }
+    serverAnswers = down
     const router = await tab()
     await move(router, '/gone')
-    serverAnswers = async () => new Response('{"ok":true}', { status: 200 })
+    serverAnswers = sameBuild
     await move(router, '/gone')
     expect(loads).toEqual(['/gone'])
   })
@@ -194,6 +339,7 @@ describe('with the server down', () => {
 describe('with something a page load would lose', () => {
   for (const status of ['connected', 'connecting', 'error'] as const) {
     it(`asks first, with a printer ${status}`, async () => {
+      serverAnswers = deployed
       fiscalBridgeStatus.value = status
       const router = await tab()
       await move(router, '/gone')
@@ -203,6 +349,7 @@ describe('with something a page load would lose', () => {
   }
 
   it('asks first, with a sale in flight', async () => {
+    serverAnswers = deployed
     let selling = true
     undo.push(registerUnsavedCheck(() => selling))
     const router = await tab()
@@ -318,6 +465,7 @@ describe('vite:preloadError', () => {
   })
 
   it('by the same rule with a printer up: it asks', async () => {
+    serverAnswers = deployed
     fiscalBridgeStatus.value = 'connected'
     await tab()
     vitePreloadFailed(chromium())
@@ -342,7 +490,7 @@ describe('vite:preloadError', () => {
     let fail = (_: unknown) => {}
     const router = routerFor([{ path: '/slow', component: () => new Promise((_, r) => { fail = r }) }])
     installChunkRecovery(router)
-    sessionStorage.setItem('lgr_chunk_reload_', '1')
+    sessionStorage.setItem(LOAD_SPENT, '1')
     const first = router.push('/slow').catch(() => {})
     await settled()
 
@@ -408,7 +556,7 @@ describe('the first navigation, when there is nothing on screen yet', () => {
   it('and after that says so, rather than leaving a blank tab', async () => {
     const router = routerFor()
     installChunkRecovery(router)
-    sessionStorage.setItem('lgr_chunk_reload_', '1')
+    sessionStorage.setItem(LOAD_SPENT, '1')
     await move(router, '/gone')
     expect(loads).toEqual([])
     expect(deadStart.value).toBe(true)
@@ -423,7 +571,7 @@ describe('the first navigation, when there is nothing on screen yet', () => {
   })
 
   it('says so with the server down', async () => {
-    serverAnswers = async () => { throw new TypeError('Failed to fetch') }
+    serverAnswers = down
     const router = routerFor()
     installChunkRecovery(router)
     await move(router, '/gone')

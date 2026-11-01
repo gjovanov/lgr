@@ -16,9 +16,12 @@ import { hasUnsavedWork } from 'ui-shared/session/switch-guards'
  * ⚠ These are the one SPA's deliberate page loads (unit/navigation-seam.test.ts lists this file).
  */
 
-const mine = typeof document !== 'undefined'
-  ? document.querySelector('meta[name="lgr-build"]')?.getAttribute('content') ?? ''
-  : ''
+/** This page's build. */
+function mine(): string {
+  return typeof document !== 'undefined'
+    ? document.querySelector('meta[name="lgr-build"]')?.getAttribute('content') ?? ''
+    : ''
+}
 
 /** A newer build is being served; the shell offers to load it. */
 export const newBuild = ref(false)
@@ -30,7 +33,7 @@ export const moveFailed = ref(false)
 export const deadStart = ref(false)
 
 function note(served: unknown) {
-  if (mine && typeof served === 'string' && served && served !== mine) newBuild.value = true
+  if (mine() && typeof served === 'string' && served && served !== mine()) newBuild.value = true
 }
 
 /** What a page load would cost this tab: a form's edits, a sale in flight, the printer's port. */
@@ -73,19 +76,26 @@ function isChunkError(err: unknown): boolean {
   return /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Unable to preload CSS/i.test(msg)
 }
 
-/** A page load is only any use if something will answer it: else it replaces a working page. */
-async function serverAnswers(): Promise<boolean> {
+/** How long the server gets. One that takes the question and never answers is a server that is down. */
+const HEALTH_MS = 5000
+
+/**
+ * A page load is only any use if something will answer it: else it replaces a working page. And
+ * the answer says which build is served, which is the one thing that says a deploy happened.
+ */
+async function askServer(): Promise<{ up: boolean; build: string | null }> {
   try {
-    return (await fetch('/api/health', { cache: 'no-store' })).ok
+    const res = await fetch('/api/health', { cache: 'no-store', signal: AbortSignal.timeout(HEALTH_MS) })
+    return { up: res.ok, build: res.headers.get('x-lgr-build') }
   } catch {
-    return false
+    return { up: false, build: null }
   }
 }
 
 /** Each build gets one page load, so a page that cannot load never loops. False once it is spent. */
 function spendPageLoad(): boolean {
   try {
-    const key = `lgr_chunk_reload_${mine}`
+    const key = `lgr_chunk_reload_${mine()}`
     if (sessionStorage.getItem(key)) return false
     sessionStorage.setItem(key, '1')
     return true
@@ -109,7 +119,11 @@ export const ROUTER_GRACE_MS = 50
  *  - only with no work in the tab, as FR-24.14 asks: with a printer up, a sale in flight or a dirty
  *    form the shell offers the reload, and the person says when;
  *  - once per build. After that it offers too;
- *  - never for a move the person has already replaced with another.
+ *  - offered as a new version only when the server says it serves another build. A chunk that failed
+ *    with the same build is a blip: the tab says the page did not load, and the same click may work;
+ *  - never for a move the person has since replaced, or a page they have since reached. Asking the
+ *    server takes a while, so what the person did meanwhile is read after it. The newest failure is
+ *    the one answered.
  * A first navigation that fails has nothing on screen to protect, and nothing to fall back on: if
  * no load comes of it the tab says so (`deadStart`), rather than stay blank.
  *
@@ -121,8 +135,8 @@ export const ROUTER_GRACE_MS = 50
 export function installChunkRecovery(router: Router): void {
   /** The move under way. */
   let moving = ''
-  /** A burst of failures gets one answer. */
-  let answering = false
+  /** The newest failure. An answer that finds itself out of date leaves it to that one. */
+  let latest = 0
   /** The failures the router has reported, which the event need not. */
   const reported = new WeakSet<object>()
   const isObject = (err: unknown): err is object => typeof err === 'object' && err !== null
@@ -134,22 +148,22 @@ export function installChunkRecovery(router: Router): void {
   })
 
   async function answer(err: unknown, href: string | null) {
-    if (answering) return
-    const blank = router.currentRoute.value.matched.length === 0
+    const ticket = ++latest
+    const blank = () => router.currentRoute.value.matched.length === 0
     if (!isChunkError(err)) {
-      if (blank) deadStart.value = true
+      if (blank()) deadStart.value = true
       return
     }
-    answering = true
-    const up = await serverAnswers()
-    answering = false
+    const from = router.currentRoute.value.fullPath
+    const { up, build } = await askServer()
+    note(build)
+    if (ticket !== latest || router.currentRoute.value.fullPath !== from || (moving && moving !== href)) return
     if (up && !holdsWork() && spendPageLoad()) {
       // Nothing is on screen on a first navigation, and the address is already the page's.
-      if (href && !blank) window.location.assign(href)
+      if (href && !blank()) window.location.assign(href)
       else window.location.reload()
-    } else if (blank) deadStart.value = true
-    else if (up) newBuild.value = true
-    else moveFailed.value = true
+    } else if (blank()) deadStart.value = true
+    else if (!newBuild.value) moveFailed.value = true // a new build is the shell's to offer: it now does
   }
 
   router.onError((err, to, from) => {
