@@ -3264,6 +3264,38 @@ describe('a draft and the issue that claimed it (the second review, finding 3)',
     expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
   })
 
+  it('/receive of a bill a void or a delete holds gives way, with no number drawn and no stock booked', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { extra: { direction: 'incoming' } })
+    await Invoice.updateOne({ _id: d.id }, { $set: { voidingUntil: new Date(Date.now() + 60_000) } })
+    const before = await footprint(w)
+
+    const r = await w.call('POST', `/invoices/${d.id}/receive`, {})
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('document_claimed')
+    expect((await raw(d.id)).status).toBe('draft')
+    expect(await footprint(w)).toEqual(before)
+  })
+
+  it('/receive whose claim lands after its read: its write gives way too, and it books nothing', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { extra: { direction: 'incoming' } })
+    const stock = await w.stock()
+    const undo = during(update => update?.$set?.status === 'received', () => Invoice.updateOne({ _id: d.id }, { $set: { voidingUntil: new Date(Date.now() + 60_000) } }))
+    let r: any
+    try {
+      r = await w.call('POST', `/invoices/${d.id}/receive`, {})
+    } finally {
+      undo()
+    }
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('document_claimed')
+    expect((await raw(d.id)).status).toBe('draft')
+    expect((await w.stock()).quantity).toBe(stock.quantity)
+  })
+
   it('/send inside a DELETE, past its claim: /send gives way, and the draft goes', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w)

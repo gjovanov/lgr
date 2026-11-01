@@ -1548,6 +1548,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (!invoice) return status(404, { message: 'Invoice not found' })
     if (invoice.direction !== 'incoming') return status(400, { message: 'Only incoming invoices can be received' })
     if (invoice.status !== 'draft') return status(400, { code: 'bill_not_draft', message: 'Invoice is not in draft status' })
+    if (isBeingVoided(invoice as any)) return status(409, { ...DOCUMENT_CLAIMED })
 
     // Before the number is drawn: a bill refused here is the draft it was. Booking it would refuse
     // the same thing after the bill was written as received, with no stock and no way back. A bill
@@ -1568,19 +1569,20 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     /**
      * ⚠ Out of draft once. Two Receives can both pass the check above, and each would book the goods
      * and draw a number. Exactly one takes the bill here, and the other books nothing; an issue under
-     * way on `/send` holds the draft as well (a lease that lapsed is a crash, and holds nothing). The
-     * number the loser drew is a gap in an internal series, and is accepted: drawing it after this
-     * write would leave a received bill with no number if the request died in between.
+     * way on `/send` holds the draft as well, and so does a void's or a delete's claim (`unclaimedDraft`; a
+     * lease that lapsed is a crash, and holds nothing). The number the loser drew is a gap in an internal
+     * series, and is accepted: drawing it after this write would leave a received bill with no number if
+     * the request died in between.
      */
     const now = new Date()
     const taken = await Invoice.findOneAndUpdate(
-      {
-        _id: id, orgId, status: 'draft',
-        $or: [{ 'issue.leaseUntil': { $exists: false } }, { 'issue.leaseUntil': null }, { 'issue.leaseUntil': { $lt: now } }],
-      },
+      { _id: id, orgId, ...unclaimedDraft(now) },
       { $set: { status: 'received', sentAt: now, statusHistory: history, invoiceNumber: issuedNumber, draftNumber, numberHistory } },
     ).exec()
-    if (!taken) return status(409, { code: 'bill_not_draft', message: `${draftNumber} is no longer a draft: another request is receiving or issuing it` })
+    if (!taken) {
+      if (isBeingVoided(await Invoice.findOne({ _id: id, orgId }, { voidingUntil: 1 }).lean().exec() as any)) return status(409, { ...DOCUMENT_CLAIMED })
+      return status(409, { code: 'bill_not_draft', message: `${draftNumber} is no longer a draft: another request is receiving or issuing it` })
+    }
     const updated = await r.invoices.findOne({ id, orgId } as any)
 
     await createInvoiceStockMovement(updated || invoice, user.id)
