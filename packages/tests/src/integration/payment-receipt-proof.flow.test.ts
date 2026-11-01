@@ -513,6 +513,57 @@ describe('a driver with no cancel (ruling 1)', () => {
   })
 })
 
+describe('a driver that refuses before anything is sent (finding C)', () => {
+    /** A real `WsTremolFiscalPrinter` on a device that answers ACK: a sale it closes has no number. */
+    function tremolOn(w: TillWorld) {
+      const sent: number[] = []
+      unregisterPrinter(w.deviceId)
+      registerPrinter(w.deviceId, new WsTremolFiscalPrinter(async (frame: Buffer | Uint8Array) => {
+        sent.push(Buffer.from(frame)[3])
+        return Buffer.from([0x06])
+      }, w.deviceId) as any)
+      return sent
+    }
+
+    it('a storno of a sale with no number to cite: failed, nothing maybe printed, and a healthy device stays healthy', async () => {
+      const w = await tillWorld(app, { manufacturer: 'tremol' })
+      await FiscalDevice.updateOne({ _id: w.deviceId }, { $set: { manufacturer: 'tremol' } })
+      const sent = tremolOn(w)
+      const sale = await w.sell(1)
+      expect(sale.status).toBe(200)
+      expect(sale.json.transaction.fiscalReceiptNumber).toBeUndefined()
+      sent.length = 0
+
+      const r = await w.storno(sale.json.transaction.id)
+
+      expect(r.status).toBe(503)
+      expect(r.json.code).toBe('fiscal_error')
+      expect(r.json.message).toContain('no fiscal receipt number')
+      expect(r.json.message).not.toContain('may have printed')
+      const storno: any = await Invoice.findOne({ type: 'cash_storno', orgId: w.oid }).lean().exec()
+      expect(storno.register.fiscal.state).toBe('failed')
+      expect(storno.status).toBe('voided')
+      expect(sent.filter(cmd => cmd === TREMOL_CMD.OPEN_FISCAL_RECEIPT || cmd === TREMOL_CMD.CLOSE_RECEIPT)).toHaveLength(0)
+      expect((await FiscalDevice.findById(w.deviceId).lean().exec() as any).status).not.toBe('error')
+      expect((await Invoice.findById(sale.json.transaction.id).lean().exec() as any).register.stornoState).not.toBe('full')
+    })
+
+    it('an Eltrade reads the same', async () => {
+      const w = await tillWorld(app)
+      const sale = await w.sell(1)
+      await Invoice.updateOne({ _id: sale.json.transaction.id }, { $unset: { 'register.fiscalReceiptNumber': 1, 'register.fiscal.receiptNo': 1 } })
+      const before = w.sim!.frames
+
+      const r = await w.storno(sale.json.transaction.id)
+
+      expect(r.status).toBe(503)
+      expect(r.json.message).toContain('no fiscal receipt number')
+      expect((await FiscalDevice.findById(w.deviceId).lean().exec() as any).status).not.toBe('error')
+      expect(w.sim!.executed.filter(c => c.cmd === 0x90)).toHaveLength(1)
+      expect(w.sim!.frames).toBeGreaterThanOrEqual(before)
+    })
+  })
+
 describe('the lease of a receipt that is printing (ruling 5)', () => {
   it('a payment that finds its lease lapsed mid-print waits for the device, and never gives a live print up', async () => {
     const w = await tillWorld(app)

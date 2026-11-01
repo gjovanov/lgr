@@ -335,6 +335,12 @@ function recordPrinted(doc: any, receiptNo: string | undefined, warning?: { erro
  * (`print-verdict.ts`). A receipt that may be real is never voided and never printed again.
  */
 async function afterFailedPrint(printer: RegisterPrinter, doc: any, before: number | undefined, e: any): Promise<any> {
+  // The driver would not send it. The device never saw it and is as it was, so nothing is abandoned,
+  // nothing is read, and a healthy device is not marked in error.
+  if (e?.printStage === 'refused') {
+    logger.warn({ documentId: String(doc._id), error: e?.message }, 'Fiscal receipt refused before anything was sent')
+    return setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': e?.message, receiptError: e?.message })
+  }
   const abandoned = await printer.abandonReceipt().catch(() => undefined)
   const { now, open } = await readDevice(printer)
   const verdict = verdictOfFailedPrint({ stage: e?.printStage, before, now, open, closed: !!abandoned?.closed })

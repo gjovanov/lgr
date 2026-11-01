@@ -306,8 +306,10 @@ export class DatecsFiscalPrinter implements IFiscalPrinter {
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
     return stagedPrint(async (reached) => {
+      reached('refused')
       // A payment this driver cannot print is refused before the storno receipt is opened.
       paymentCode(PAYMENT_CODE, payment.type, DRIVER)
+      reached('opening')
       // Open storno receipt with reason and original receipt reference
       const dateStr = formatDatecsDate(originalDate)
       const reasonCode = STORNO_REASON_CODE[reason]

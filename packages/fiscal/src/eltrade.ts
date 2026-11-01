@@ -991,13 +991,15 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
     return stagedPrint(async (reached) => {
+      reached('refused')
       // A reversal carries the ORIGINAL sale's УНП — it is an operation on that sale.
       const unp = originalUNP || unpNumber
       this.assertUnp(unp)
       const receiptNumber = String(originalReceiptNumber || '').trim()
       if (!/^\d+$/.test(receiptNumber)) {
-        throw new EltradeError(`Storno needs the original fiscal receipt number, got "${originalReceiptNumber}"`, 'input', ELTRADE_CMD.OPEN_FISCAL)
+        throw new EltradeError('This sale has no fiscal receipt number on record, so its storno has nothing to cite. Nothing was sent to the device.', 'input', ELTRADE_CMD.OPEN_FISCAL)
       }
+      reached('opening')
       await this.ensureNoOpenReceipt()
       const diag = await this.readDiagnostics()
       if (!diag.fiscalMemoryNumber) {

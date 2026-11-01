@@ -145,8 +145,10 @@ export class WebSocketFiscalPrinter implements IFiscalPrinter {
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
     return stagedPrint(async (reached) => {
+      reached('refused')
       // A payment this driver cannot print is refused before the storno receipt is opened.
       paymentCode(PAYMENT_CODE, payment.type, DRIVER)
+      reached('opening')
       const dd = String(originalDate.getDate()).padStart(2, '0')
       const mm = String(originalDate.getMonth() + 1).padStart(2, '0')
       const yy = String(originalDate.getFullYear()).slice(-2)

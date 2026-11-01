@@ -391,8 +391,10 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
     return stagedPrint(async (reached) => {
+      reached('refused')
       // A payment this driver cannot print is refused before the storno receipt is opened.
       paymentCode(PAYMENT_CODE, payment.type, DRIVER)
+      reached('opening')
       // Command 30h with storno format:
       // OpNum;OpPass;ReceiptFormat;PrintVAT;StornoRcpPrintType;StornoReason;RelatedToRcpNum;RelatedToRcpDateTime;FMNum$UNP
       const dd = String(originalDate.getDate()).padStart(2, '0')
