@@ -25,7 +25,7 @@ unified API (portal-api, :4001) ─────── MongoDB (replica set rs0)
   /swagger    API docs
   /ui/*       the web app's files (packages/web)
   every other path   the web app's index.html: the portal at /, each module at its prefix
-                     (accounting · inventory · invoicing · invoicing/pos · payroll · reports · files)
+                     (accounting · inventory · invoicing · payroll · reports · files)
 ```
 
 - **The route table** is `createApiApp()` in `portal-api/src/api.ts`. The integration tests mount
@@ -43,8 +43,8 @@ unified API (portal-api, :4001) ─────── MongoDB (replica set rs0)
 
   Each authenticates in its first message.
 - **The built web app** is served by the same process: its files under `/ui/`, and its
-  `index.html` for every page (`portal-api/src/spa-fallback.ts`). `/pos/*` answers 302 to
-  `/invoicing/pos/*`, because desktops hold `startPath: /pos/`.
+  `index.html` for every page (`portal-api/src/spa-fallback.ts`). `/pos/*` answers 302 to the
+  till's pages under `/invoicing/` (`lib/pos-redirect.ts`), because desktops hold `startPath: /pos/`.
 
 The domain API packages export controllers and nothing else. None of them starts a server of its
 own.
@@ -55,8 +55,7 @@ One Vue 3 + Vuetify SPA, `packages/web`, holds the portal and every module, with
 Pinia (FR-24). Moving between modules is a router push, never a page load, so a browser till keeps
 its printer. Each module is a package of views and stores with a manifest (`src/manifest.ts`):
 - portal-ui: sign-in, the app hub, settings;
-- accounting-ui, inventory-ui, invoicing-ui (with POS under `/invoicing/pos`), payroll-ui,
-  reports-ui and files-ui.
+- accounting-ui, inventory-ui, invoicing-ui (the till lives there), payroll-ui, reports-ui and files-ui.
 
 Adding a module is its package, one line in `web/src/modules.ts` and its registry rows.
 
@@ -150,7 +149,7 @@ packages/
   portal-ui/       Portal module (sign-in, app hub, settings)
   accounting-ui/   Accounting module
   inventory-ui/    Inventory module
-  invoicing-ui/    Invoicing module, and POS (src/pos)
+  invoicing-ui/    Invoicing module, the till included (src/pos)
   payroll-ui/      Payroll module
   reports-ui/      Reports module
   files-ui/        Files module

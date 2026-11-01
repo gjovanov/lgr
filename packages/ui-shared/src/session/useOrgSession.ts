@@ -1,5 +1,6 @@
 import { httpClient } from '../composables/useHttpClient'
-import { APP_NAV_META } from '../nav/page-registry'
+import { sessionViewer } from '../composables/useStorageIdentity'
+import { APP_NAV_META, canOpenPage, matchPage, type PageViewer } from '../nav/page-registry'
 import { portalHref } from '../nav/navigate'
 import { getOrg, setSession, type SessionOrg } from './session'
 
@@ -68,37 +69,41 @@ export async function foundOrg(body: { name: string; slug: string; baseCurrency?
 
 /** The app a page belongs to: a domain app's id, or 'portal'. */
 export function currentAppId(pathname = window.location.pathname): string {
-  // The longest base wins: POS pages live under the invoicing SPA (`/invoicing/pos/*`, FR-24).
-  let best = 'portal'
-  let bestLength = -1
   for (const [id, meta] of Object.entries(APP_NAV_META)) {
-    if ((pathname === meta.base || pathname.startsWith(`${meta.base}/`)) && meta.base.length > bestLength) {
-      best = id
-      bestLength = meta.base.length
-    }
+    if (pathname === meta.base || pathname.startsWith(`${meta.base}/`)) return id
   }
-  return best
+  return 'portal'
 }
 
 /**
  * Where this tab goes once it is in another org: the same page when the page names nothing of the
- * old org's (no route params, and the query is dropped), else the app's home. The App Hub when
- * the app is not enabled for the person in the new org.
+ * old org's (no route params, and the query is dropped) and the person may open it there, else the
+ * app's home. The App Hub when the app is not enabled for the person in the new org.
  */
 export async function landingAfterSwitch(opts: { hasRouteParams: boolean }): Promise<string> {
-  const appId = currentAppId()
   const here = window.location.pathname
-  if (appId === 'portal') return opts.hasRouteParams ? '/apps' : here
-
-  try {
-    const orgId = getOrg()?.id
-    const { data } = await httpClient.get(`/org/${orgId}/apps`)
-    const app = (data.apps ?? []).find((a: { id: string; enabled: boolean }) => a.id === appId)
-    if (!app?.enabled) return portalHref('/apps')
-  } catch {
-    return portalHref('/apps')
+  const appId = currentAppId(here)
+  let appEnabled = false
+  if (appId !== 'portal') {
+    try {
+      const orgId = getOrg()?.id
+      const { data } = await httpClient.get(`/org/${orgId}/apps`)
+      appEnabled = !!(data.apps ?? []).find((a: { id: string; enabled: boolean }) => a.id === appId)?.enabled
+    } catch {
+      // The App Hub is where a person always lands.
+    }
   }
-  return opts.hasRouteParams ? `${APP_NAV_META[appId].base}/` : here
+  return switchLanding(here, { ...opts, appEnabled, who: sessionViewer() })
+}
+
+/** That choice, once the server has said whether the app is theirs in the new org. Pure. */
+export function switchLanding(here: string, opts: { hasRouteParams: boolean; appEnabled: boolean; who: PageViewer | null }): string {
+  const appId = currentAppId(here)
+  if (appId === 'portal') return opts.hasRouteParams ? '/apps' : here
+  if (!opts.appEnabled) return portalHref('/apps')
+  const page = matchPage(here)
+  const opens = !page || canOpenPage(page, opts.who)
+  return opts.hasRouteParams || !opens ? `${APP_NAV_META[appId].base}/` : here
 }
 
 const CYRILLIC: Record<string, string> = {

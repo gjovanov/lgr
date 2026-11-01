@@ -57,8 +57,8 @@
 
 <script setup lang="ts">
 /**
- * #145 / FR-21 — STORNO a sale from the cash-register journal, in the POS app or in invoicing: the
- * goods go back to the warehouse, and for a till sale the refund leaves the register and the fiscal
+ * #145 / FR-21 — STORNO a sale from the cash-register journal: the goods go back to the warehouse,
+ * and for a till sale the refund leaves the register and the fiscal
  * device prints the storno receipt (Н-18). All of that is the server's
  * `POST /cash-register/documents/:id/storno`; this picks the session (a till sale's) and the reason.
  * A back-office sale needs no session: it has no receipt to reverse.

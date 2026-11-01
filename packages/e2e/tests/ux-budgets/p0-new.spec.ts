@@ -5,9 +5,10 @@ import { startWalk } from '../helpers/ux-budget'
  * P0-new — from wherever the person is, a blank daily document in another app (FR-22.49).
  *
  * „+ Нов" sits in every app's top bar. Each leg starts on a page of one app and ends on the new
- * form of a document that lives in a different one; the budget is ≤ 2 clicks (FR-22 §3). On a
- * desktop the menu opens on hover (FR-05), so a leg costs one click, and the recorder counts a
- * second when hover did not open it. Crossing apps is a page load, which the leg records.
+ * form of a document that lives in a different one (the till's leg stays inside Invoicing, where
+ * the till lives now); the budget is ≤ 2 clicks (FR-22 §3). On a desktop the menu opens on hover
+ * (FR-05), so a leg costs one click, and the recorder counts a second when hover did not open it.
+ * Crossing apps is a page load, which the leg records.
  *
  * Nothing is saved, so the walk needs no data of its own.
  */
@@ -15,7 +16,7 @@ import { startWalk } from '../helpers/ux-budget'
 const LEGS = [
   { id: 'P0-new-inventory', from: 'Продукти', start: '/inventory/products', entry: 'Изходяща фактура', url: /\/invoicing\/invoices\/new$/ },
   { id: 'P0-new-invoicing', from: 'Документи за продажба', start: '/invoicing/invoices', entry: 'Стокова разписка', url: /\/inventory\/movements\/new$/ },
-  { id: 'P0-new-pos', from: 'Каса', start: '/pos/terminal', entry: 'Поръчка от клиент', url: /\/invoicing\/internal-orders\/new$/ },
+  { id: 'P0-new-pos', from: 'Каса', start: '/invoicing/cash-sales/new', entry: 'Поръчка от клиент', url: /\/invoicing\/internal-orders\/new$/ },
 ]
 
 for (const leg of LEGS) {

@@ -52,6 +52,8 @@ const BIN = process.env.LGR_DESKTOP_BIN || ''
 const CDP_PORT = Number(process.env.LGR_DESKTOP_CDP_PORT || 9222)
 const HUB_PORT = Number(process.env.LGR_STUB_PORT || 4099)
 const START_PATH = '/pos/'
+/** Where the hub redirects it, as the real one does (`portal-api/src/lib/pos-redirect.ts`). */
+const LANDS_ON = '/invoicing/cash-sales/new'
 /** Nine characters, `XXXX-XXXX`, uppercase and digits — what `is_enrollment_code` accepts. */
 const CODE = 'K7Y2-9QR4'
 
@@ -204,7 +206,7 @@ test.describe('Open LGR', () => {
 
     const web = await webPage(browser, hub.origin)
     await expect(web.locator('[data-testid="stub-hub"]')).toBeVisible({ timeout: 20_000 })
-    await expect(web.locator('[data-testid="stub-path"]')).toHaveText(START_PATH)
+    await expect(web.locator('[data-testid="stub-path"]')).toHaveText(LANDS_ON)
   })
 
   test('a successful open reports the server as CONNECTED, not stale', async () => {
@@ -320,7 +322,7 @@ test.describe('the server going away', () => {
     await hub.online()
     await waitForLog(/lgr-web: server-returned url=/, 120_000, shell.stderr(), since)
     const back = await webPage(browser, hub.origin, 60_000)
-    await expect(back.locator('[data-testid="stub-path"]')).toHaveText(START_PATH, { timeout: 30_000 })
+    await expect(back.locator('[data-testid="stub-path"]')).toHaveText(LANDS_ON, { timeout: 30_000 })
   })
 })
 

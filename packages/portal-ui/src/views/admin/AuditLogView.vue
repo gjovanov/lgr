@@ -303,9 +303,9 @@ async function fetchFilterOptions() {
 }
 
 // Entity URL mapping for clickable links.
-// Live apps (2026-04-21): /inventory, /invoicing, /pos. The former /trade
-// merger was removed — warehouse-ish entities live under /inventory, invoicing
-// entities under /invoicing.
+// Live apps: /inventory, /invoicing. The former /trade merger was removed —
+// warehouse-ish entities live under /inventory, invoicing entities under /invoicing,
+// and so does the till.
 const ENTITY_URL_MAP: Record<string, { base: string; path: string; hasDetail: boolean }> = {
   product: { base: '/inventory', path: 'products', hasDetail: true },
   contact: { base: '/invoicing', path: 'contacts', hasDetail: true },
@@ -321,9 +321,9 @@ const ENTITY_URL_MAP: Record<string, { base: string; path: string; hasDetail: bo
   price_list: { base: '/inventory', path: 'price-lists', hasDetail: false },
   cash_order: { base: '/invoicing', path: 'cash-orders', hasDetail: false },
   payment_order: { base: '/invoicing', path: 'payment-orders', hasDetail: false },
-  pos_transaction: { base: '/pos', path: 'orders', hasDetail: false },
-  pos_session: { base: '/pos', path: 'sessions', hasDetail: false },
-  pos_device: { base: '/pos', path: 'devices', hasDetail: false },
+  pos_transaction: { base: '/invoicing', path: 'cash-sales', hasDetail: false },
+  pos_session: { base: '/invoicing', path: 'cash-register/sessions', hasDetail: false },
+  pos_device: { base: '/invoicing', path: 'configuration/devices', hasDetail: false },
   account: { base: '/accounting', path: 'accounts', hasDetail: false },
   journal_entry: { base: '/accounting', path: 'journal-entries', hasDetail: true },
   fixed_asset: { base: '/accounting', path: 'fixed-assets', hasDetail: false },

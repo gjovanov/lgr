@@ -42,8 +42,8 @@ export const EXACT_WRITE_RULES: ReadonlyMap<string, WriteRule> = new Map<string,
   ['POST invoicing/export/kind/:kind', { self: 'canExport' }],
   ['POST invoicing/export/:id/email', { self: 'canWrite, and outgoing issued documents only' }],
   ['POST invoicing/stock-availability/check', { need: ['invoicing.read', 'inventory.read'] }],
-  // FR-21.18: the journal's storno, from the POS app's /pos/orders or invoicing's /cash-sales. The
-  // route also requires a storno role (admin, manager, warehouse_manager), as the till's does.
+  // FR-21.18: the journal's storno, from invoicing's /cash-sales. The route also requires a storno
+  // role (admin, manager, warehouse_manager), as the till's does.
   ['POST cash-register/documents/:id/storno', { need: ['pos.write', 'invoicing.write'] }],
   // A device's reports, from POS Sessions: the device page's roles (a cashier holds `pos.write` and
   // prints none; a warehouse manager runs the devices and holds no `pos.write`).
@@ -155,7 +155,7 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
 
   // The cash-sale terminal in the invoicing app sells from the POS catalog.
   ['trade/pos/catalog', { need: [...POS, ...INVOICING] }],
-  // FR-21.12: the cash-register journal is the POS app's /pos/orders AND invoicing's /cash-sales.
+  // FR-21.12: the cash-register journal, invoicing's /cash-sales, is the till's own journal too.
   ['cash-register', { need: [...POS, ...INVOICING] }],
   ['trade/pos', { need: POS }],
   ['pos', { need: POS }],
@@ -299,7 +299,7 @@ export function readRefusal(
 export const PIN_SCOPE_ORG: readonly string[] = [
   '', 'apps', 'notification', 'logo', 'licence', 'home', 'trade/pos', 'pos', 'fiscal', 'pricing', 'tags',
   'warehouse/product-category', 'warehouse/warehouse',
-  // FR-21.12: the till's own journal (/pos/orders), and its storno (FR-21.18): a manager's PIN
+  // FR-21.12: the till's own journal (/invoicing/cash-sales), and its storno (FR-21.18): a manager's PIN
   // reverses a sale there as it does at the till, the role still checked by the route.
   'cash-register',
 ]

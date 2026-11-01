@@ -1,10 +1,10 @@
 <template>
   <v-container fluid>
     <div class="d-flex align-center mb-4">
-      <h1 class="text-h5">POS Devices</h1>
+      <h1 class="text-h5">{{ $t('nav.devices') }}</h1>
       <v-spacer />
       <v-btn color="primary" prepend-icon="mdi-plus" :to="{ name: 'pos.devices.new' }">
-        New Device
+        {{ $t('pos.device.new') }}
       </v-btn>
     </div>
 
@@ -25,7 +25,7 @@
           <v-col cols="12" md="2">
             <v-select
               v-model="activeFilter"
-              label="Active"
+              :label="$t('common.active')"
               :items="activeOptions"
               clearable
               hide-details
@@ -54,7 +54,7 @@
             <entity-link :label="item.name" :to="{ name: 'pos.devices.detail', params: { id: item._id || item.id } }" />
           </template>
           <template #item.status="{ item }">
-            <v-chip size="small" label :color="deviceStatusColor(item.status)">{{ item.status }}</v-chip>
+            <v-chip size="small" label :color="deviceStatusColor(item.status)">{{ stateLabel(item.status) }}</v-chip>
           </template>
           <template #item.lastCommunication="{ item }">
             {{ item.lastCommunication ? formatDateTime(item.lastCommunication) : '-' }}
@@ -69,7 +69,7 @@
               :prepend-icon="connectedDeviceId === (item._id || item.id) ? 'mdi-printer-off' : 'mdi-printer'"
               @click="toggleConnection(item)"
             >
-              {{ connectedDeviceId === (item._id || item.id) ? 'Disconnect' : 'Connect' }}
+              {{ connectedDeviceId === (item._id || item.id) ? $t('pos.device.disconnect') : $t('pos.device.connect') }}
             </v-btn>
             <!--
               FR-14.27 — "connected via Till 2". `bridgedBy` is read from the hub's LIVE socket
@@ -109,7 +109,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import EntityLink from 'ui-shared/components/EntityLink'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const appStore = useAppStore()
 const fiscalBridge = useFiscalBridge()
 const { showSuccess, showError } = useSnackbar()
@@ -129,7 +129,7 @@ watch(() => fiscalBridge.status.value, async (val) => {
     await fetchItems()
   }
   if (val === 'connected' && fiscalBridge.deviceNumber.value) {
-    showSuccess(`Device ${fiscalBridge.deviceNumber.value} reconnected`)
+    showSuccess(t('pos.device.reconnected', { device: fiscalBridge.deviceNumber.value }))
     // Find the device by deviceNumber to restore connectedDeviceId and update DB
     const dev = items.value.find((d: any) => d.deviceNumber === fiscalBridge.deviceNumber.value)
     if (dev) {
@@ -144,11 +144,15 @@ watch(() => fiscalBridge.status.value, async (val) => {
 const statusFilter = ref<string | null>(null)
 const activeFilter = ref<string | null>(null)
 
-const statusOptions = ['online', 'offline', 'error']
-const activeOptions = [
-  { title: 'Yes', value: 'true' },
-  { title: 'No', value: 'false' },
-]
+/** A status the device was left in before these three would show as it is stored. */
+function stateLabel(state: string) {
+  return te(`pos.device.states.${state}`) ? t(`pos.device.states.${state}`) : state
+}
+const statusOptions = computed(() => ['online', 'offline', 'error'].map(value => ({ title: stateLabel(value), value })))
+const activeOptions = computed(() => [
+  { title: t('common.yes'), value: 'true' },
+  { title: t('common.no'), value: 'false' },
+])
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
@@ -165,12 +169,12 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
 
 const headers = computed(() => [
   { title: t('common.name'), key: 'name', sortable: true },
-  { title: 'Device Number', key: 'deviceNumber', sortable: true },
-  { title: 'Manufacturer', key: 'manufacturer', sortable: true },
-  { title: 'Connection Type', key: 'connectionType', sortable: true },
+  { title: t('pos.device.number'), key: 'deviceNumber', sortable: true },
+  { title: t('pos.device.manufacturer'), key: 'manufacturer', sortable: true },
+  { title: t('pos.device.connectionType'), key: 'connectionType', sortable: true },
   { title: t('common.status'), key: 'status', sortable: true },
-  { title: 'Last Communication', key: 'lastCommunication', sortable: true },
-  { title: 'Actions', key: 'actions', sortable: false, width: 160 },
+  { title: t('pos.device.lastCommunication'), key: 'lastCommunication', sortable: true },
+  { title: t('common.actions'), key: 'actions', sortable: false, width: 160 },
 ])
 
 function formatDateTime(dateStr: string) {
@@ -196,7 +200,7 @@ async function toggleConnection(item: any) {
     connectedDeviceId.value = null
     await updateDeviceStatus(id, 'offline')
     await fetchItems()
-    showSuccess('Device disconnected')
+    showSuccess(t('pos.device.disconnected'))
     return
   }
 
@@ -212,15 +216,15 @@ async function toggleConnection(item: any) {
     if (!connected) {
       const reason = fiscalBridge.errorMessage.value
       await fiscalBridge.disconnect() // release the port so a retry can open it again
-      showError(`Connection failed: ${reason}`)
+      showError(t('pos.connectFailed', { reason }))
       return
     }
     connectedDeviceId.value = id
     await updateDeviceStatus(id, 'online')
     await fetchItems()
-    showSuccess(`Connected to ${item.deviceNumber}`)
+    showSuccess(t('pos.device.connected', { device: item.deviceNumber }))
   } catch (e: any) {
-    showError(e.message || 'Connection failed')
+    showError(e.message || t('pos.device.connectFailed'))
   } finally {
     connectingDeviceId.value = null
   }

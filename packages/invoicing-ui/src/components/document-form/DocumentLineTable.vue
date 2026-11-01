@@ -209,6 +209,7 @@
                 class="flex-grow-1"
                 @update:model-value="onLinePriceChange(idx, $event)"
                 @update:price-explanation="line.priceExplanation = $event"
+                @chosen="line.pricePinned = true"
               />
               <v-text-field
                 v-else

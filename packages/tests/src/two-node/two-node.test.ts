@@ -29,6 +29,16 @@ describe.skipIf(!enabled)('a global and a master', () => {
     expect(await shell(`${nodes.master.url}/swagger`)).not.toContain('LGR Unified API')
   })
 
+  // A till stores `/pos/` as its start path whichever node it is paired with, and a master runs its
+  // own copy of the redirect: the shell only opens the path, on that node.
+  it("both roles answer the POS app's old address with a relative 302 into Invoicing", async () => {
+    for (const node of [nodes.global, nodes.master]) {
+      const res = await fetch(`${node.url}/pos/`, { redirect: 'manual' })
+      expect({ node: node.url, status: res.status, location: res.headers.get('location') })
+        .toEqual({ node: node.url, status: 302, location: '/invoicing/cash-sales/new' })
+    }
+  })
+
   it('each node keeps its own data: an org made on global is not on the master', async () => {
     const slug = `two-node-${Date.now()}`
     const reg = await fetch(`${nodes.global.url}/api/auth/register`, {

@@ -62,7 +62,7 @@ test.afterAll(async () => {
 
 test('with no printer connected the till takes a cart but will not complete the sale, and says why', async ({ page }) => {
   await loginForApp(page, 'beta-inc', 'admin', 'test123')
-  await page.goto('/pos/terminal')
+  await page.goto('/invoicing/cash-sales/new')
   await page.getByRole('textbox', { name: /Search products/i }).fill(productName)
   const card = page.getByTestId('register-card').filter({ hasText: productName })
   await expect(card).toBeVisible({ timeout: 15000 })
@@ -76,12 +76,12 @@ test('a session\'s transaction count opens its own cash-register documents', asy
   const sale = await ringTillSale()
   try {
     await loginForApp(page)
-    await page.goto('/pos/sessions')
+    await page.goto('/invoicing/cash-register/sessions')
     const link = page.locator(`[data-testid="session-documents"][href*="session=${sale.sessionId}"]`)
     await expect(link).toBeVisible({ timeout: 15000 })
     await link.click()
 
-    await expect(page).toHaveURL(new RegExp(`/pos/orders\\?.*session=${sale.sessionId}`))
+    await expect(page).toHaveURL(new RegExp(`/invoicing/cash-sales\\?.*session=${sale.sessionId}`))
     await expect(page.getByTestId('journal-session-chip')).toBeVisible()
     await expect(page.locator('.v-data-table tbody tr').filter({ hasText: sale.number })).toBeVisible({ timeout: 10000 })
   } finally {

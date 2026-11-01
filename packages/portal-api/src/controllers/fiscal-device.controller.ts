@@ -243,7 +243,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       return status(422, {
         message: device.connectionType === 'desktop'
           ? 'This device is opened by its LGR Desktop, not by the server. It connects by itself when the desktop is running.'
-          : 'This device is opened from the POS page in a browser, not by the server.',
+          : 'This device is opened from the CS Terminal in a browser, not by the server.',
       })
     }
 
