@@ -6,7 +6,7 @@ import {
   clerkSale, clerkSession, draftOf, gate, line, pay, raw, receiptsOf, send, sessionOf, shown, until,
 } from '../helpers/receipt-world'
 import { AuditLog, FiscalDevice, Invoice, POSSession } from 'db/models'
-import { paymentReceiptDocument, recordPayment } from 'services/biz/cash-register/payment-receipt.service'
+import { paymentReceiptDocument, recordPayment, runReceiptSteps } from 'services/biz/cash-register/payment-receipt.service'
 import { receiptBody } from 'services/biz/cash-register/receipt-lines'
 import { applySessionTotals } from 'services/biz/cash-register/register.service'
 import { requestHash } from 'services/biz/hot-path-key'
@@ -493,6 +493,33 @@ describe('a receipt whose request died (ruling 6)', () => {
     expect((await reread(r)).register.fiscal.inDoubt).toBe(true)
   })
 
+  it('a second retry of one held: refused again, and still nothing booked', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    const key = 'dead-keyed-retry-5'
+    const hash = requestHash(`invoice.payment:${d.id}`, { date: new Date().toISOString().slice(0, 10), amount: 24, method: 'cash' })
+    await dead(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber - 1 }, { key, hash })
+
+    expect((await pay(w, d.id, 24, 'cash', key)).json.code).toBe('receipt_in_doubt')
+    expect((await pay(w, d.id, 24, 'cash', key)).json.code).toBe('receipt_in_doubt')
+
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect((await sessionOf(w)).totalCash).toBe(0)
+  })
+
+  it('what finishes a dead request never prints, whatever it finds', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    const r = await dead(w, d, {})
+    let printed = 0
+    const printer = { deviceNumber: 'ED123456', operation: (run: any) => run(), printSale: async () => { printed++; return '1' } }
+
+    await runReceiptSteps({ orgId: w.orgId, user: { id: String(w.user._id) }, printer } as any, String(r._id), { neverPrint: true })
+
+    expect(printed).toBe(0)
+    expect((await reread(r)).register.fiscal.state).toBe('pending')
+  })
+
   it('a keyed retry may print when the device proves it never did: the same customer, at the same counter', async () => {
     const w = await tillWorld(app)
     const d = await onBank(w)
@@ -605,6 +632,19 @@ describe('a person settles a receipt in doubt (ruling 6)', () => {
     expect((await reread(r)).status).toBe('paid')
   })
 
+  it('a receipt that is not in doubt is not settled, however dead it looks', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    const r = await dead(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber })
+
+    const refused = await settle(w, String(r._id), true)
+
+    expect(refused.status).toBe(409)
+    expect(refused.json.code).toBe('receipt_not_in_doubt')
+    expect((await reread(r)).register.fiscal.state).toBe('pending')
+    expect(await raw(d.id)).toMatchObject({ amountPaid: 0 })
+  })
+
   it('a document that is not there, or of another kind, is a 404', async () => {
     const w = await tillWorld(app)
     const sale = await w.sell(1)
@@ -649,6 +689,27 @@ describe('a session and its unfinished receipts (ruling 7)', () => {
     expect(closed.status).toBe(200)
     expect((await sessionOf(w))).toMatchObject({ status: 'closed', totalCash: 36, difference: 0 })
     expect(w.sim!.reports).toHaveLength(1)
+  })
+
+  it('a refused close never touches the session: a receipt printing beside it finds it open', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    await dead(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber - 1 })
+    const real = POSSession.findOneAndUpdate
+    let claims = 0
+    ;(POSSession as any).findOneAndUpdate = function (...args: unknown[]) {
+      claims++
+      return (real as any).apply(POSSession, args)
+    }
+    let refused: any
+    try {
+      refused = await close(w, 100)
+    } finally {
+      ;(POSSession as any).findOneAndUpdate = real
+    }
+
+    expect(refused.json.code).toBe('receipts_unfinished')
+    expect(claims).toBe(0)
   })
 
   it('finishes one it can prove, and closes', async () => {

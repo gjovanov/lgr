@@ -195,6 +195,20 @@ describe('an invoice issued at the counter (§2.4)', () => {
     expect((await StockMovement.findById(done._id).lean().exec() as any).status).toBe('completed')
   })
 
+  it('a key another request used is refused as that: a 200 with a receipt error would drop it', async () => {
+    const w = await tillWorld(app)
+    const first = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, first.id)
+    expect((await pay(w, first.id, 24, 'cash', 'used-key-0001')).status).toBe(200)
+    const d = await draftOf(w)
+
+    const r = await send(w, d.id, 'used-key-0001')
+
+    expect(r.status).toBe(422)
+    expect(r.json.code).toBe('idempotency_key_reused')
+    expect(w.sim!.receipts).toHaveLength(1)
+  })
+
   it('a retry while the first still prints is told so, so the client keeps its key', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w)
@@ -1282,6 +1296,9 @@ describe('cash on delivery on an invoice (Q-2)', () => {
 
       expect(r.status).toBe(409)
       expect(r.json.code).toBe('no_receipt_owed')
+      expect((await shown(w, d.id)).receiptToPrint).toBe(false)
+      // And nothing stands in the courier's way.
+      expect((await pay(w, d.id, 24, 'cash_on_delivery')).status).toBe(200)
     })
 
     it('a document that is not there is a 404', async () => {
@@ -1560,6 +1577,22 @@ describe('§2.7 — once a receipt has printed, the total is the receipt\'s', ()
     held.open()
     expect((await paying).status).toBe(200)
     expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
+  it('a void finds a hold it did not see: it gives way, and moves no stock', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    // The hold lands between the void's check and its claim: no receipt to read yet.
+    await Invoice.updateOne({ _id: d.id }, { $push: { receiptHolds: { receiptId: new (Invoice.base as any).Types.ObjectId(), amount: 24 } } })
+    const movements = await StockMovement.countDocuments({ orgId: w.oid })
+
+    const v = await w.call('POST', `/invoices/${d.id}/void`)
+
+    expect(v.status).toBe(409)
+    expect(v.json.code).toBe('payment_in_progress')
+    expect((await raw(d.id)).status).toBe('sent')
+    expect(await StockMovement.countDocuments({ orgId: w.oid })).toBe(movements)
   })
 
   it('a payment while a void is under way gives way: no receipt on a voided invoice', async () => {
