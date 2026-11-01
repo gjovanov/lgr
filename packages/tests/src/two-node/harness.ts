@@ -34,7 +34,10 @@ export interface Node {
   readonly exited: Promise<number>
   /** The last of what it printed. */
   log(): string
+  /** SIGTERM: the server's graceful stop runs (bridges closed with 1012, presence released). */
   stop(): Promise<void>
+  /** SIGKILL: a crash. Nothing runs, so its presence rows stay live until their lease lapses. */
+  kill(): Promise<void>
 }
 
 export interface NodeOptions {
@@ -127,6 +130,10 @@ export async function startNode(role: 'global' | 'master', scratch: string, opts
       proc.kill()
       await proc.exited
       await mongo?.stop()
+    },
+    async kill() {
+      proc.kill('SIGKILL')
+      await proc.exited
     },
   }
 }

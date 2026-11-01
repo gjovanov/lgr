@@ -105,9 +105,11 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
     expect(again.status).toBe(400) // "You already have an open session": the same database answered
   })
 
-  it('pod A gone: pod B refuses with nothing done, never prints elsewhere or skips the receipt (FR-24.51/24.52)', async () => {
+  it('pod A crashed: pod B refuses with nothing done, never prints elsewhere or skips the receipt (FR-24.51/24.52)', async () => {
     const before = sim.reports.length
-    await pods.a.stop()
+    // A crash, not a graceful stop: a graceful stop releases the presence row (Phase 5), and pod B then
+    // rightly answers `not_connected`. Killed, the row still names pod A, whose address answers nothing.
+    await pods.a.kill()
     const res = await api('b', 'POST', `/fiscal/device/${deviceId}/x-report`)
     expect(res.status).toBe(503)
     expect(res.json.code).toBe('fiscal_holder_unreachable')
