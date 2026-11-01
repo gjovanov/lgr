@@ -2,6 +2,7 @@ import { ref, inject, watch, onMounted, onUnmounted, onActivated, onDeactivated 
 import { useRoute, useRouter, matchedRouteKey, type NavigationGuard, type RouteRecordNormalized } from 'vue-router'
 import { usePendingChangesStore } from '../stores/pending-changes.store'
 import { registerUnsavedCheck } from '../session/switch-guards'
+import { jwtUserId, orgIdFromStorage } from './useStorageIdentity'
 
 export interface PendingChangesConfig {
   appId: string
@@ -84,6 +85,9 @@ export function usePendingChanges(config: PendingChangesConfig) {
   function tryRestore() {
     const restoreId = route.query.restore as string
     if (!restoreId) return false
+    // From another SPA this is a page load, and a form mounts before the shell that loads the store:
+    // the entry would not be there yet, and the restore was lost with nothing said.
+    if (!store.currentOrgId) store.load(orgIdFromStorage(), jwtUserId())
     const entry = store.getById(restoreId)
     if (!entry) return false
     config.setFormData(entry.formData)
