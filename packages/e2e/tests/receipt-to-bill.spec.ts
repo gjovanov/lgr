@@ -64,10 +64,10 @@ async function receipt(w: World, quantity: number, opts: { supplier?: boolean; n
 }
 
 /** A supplier bill typed by hand, not received. */
-async function typedBill(w: World, quantity: number, reference: string) {
+async function typedBill(w: World, quantity: number, reference: string, extra: Record<string, unknown> = {}) {
   const subtotal = quantity * 2.75
   const { invoice } = await w.api.post('/invoices', {
-    type: 'invoice', direction: 'incoming', contactId: w.supplier._id, issueDate: today(), dueDate: today(), currency: 'EUR', reference,
+    type: 'invoice', direction: 'incoming', contactId: w.supplier._id, issueDate: today(), dueDate: today(), currency: 'EUR', reference, ...extra,
     lines: [{ productId: w.article._id, warehouseId: w.warehouse._id, description: w.article.name, quantity, unit: 'pcs', unitPrice: 2.75, taxRate: 20 }],
     subtotal, total: +(subtotal * 1.2).toFixed(2),
   })
@@ -279,6 +279,23 @@ test.describe('a typed bill takes a delivery (FR-22.32a)', () => {
     expect((await billOf(w, bill.id)).status).toBe('received')
     expect(await stockOf(w)).toBe(stock)
     expect(await movementsOf(w)).toBe(movements)
+  })
+})
+
+test.describe('a bill written against a supplier order (FR-22.32a)', () => {
+  test('is not offered „Свържи с доставка": its lines book the delivery onto the order', async ({ page }) => {
+    const w = await world('on-order')
+    const bill = await typedBill(w, 2, `O-${w.stamp}`, { orderId: '6ae7a88a7d8ae361bbbcf6aa' })
+
+    await signInForUx(page)
+    await page.goto(`/invoicing/bills/${bill.id}/edit`, { waitUntil: 'networkidle' })
+    await expect(actions(page).getByRole('button', { name: 'Запази и получи' })).toBeVisible()
+    await expect(page.getByTestId('link-delivery-btn')).toHaveCount(0)
+
+    // Its neighbour, the same bill on no order, is.
+    const free = await typedBill(w, 2, `F-${w.stamp}`)
+    await page.goto(`/invoicing/bills/${free.id}/edit`, { waitUntil: 'networkidle' })
+    await expect(page.getByTestId('link-delivery-btn')).toBeVisible()
   })
 })
 

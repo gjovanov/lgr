@@ -82,12 +82,15 @@ export function useBillReceipts(doc: DocForm) {
   /**
    * Offered on a bill that has a supplier, while it is still a draft. A bill linked to receipts
    * moves no stock at all, so a line typed before linking could never be received: the receipts'
-   * lines become the bill's.
+   * lines become the bill's. Not on lines written against a supplier order, which book the delivery
+   * onto the order: the server keeps them (`bill_on_order`).
    */
+  const onOrder = computed(() => !!doc.invoiceData.value?.orderId || doc.form.lines.some((l: any) => Object.values(l.orderRef || {}).some(Boolean)))
   const canLinkDelivery = computed(() =>
     enabled
     && !!doc.form.contactId
     && !linkedReceipts.value.length
+    && !(filledLines.value && onOrder.value)
     && (!doc.isEdit.value || doc.invoiceStatus.value === 'draft'),
   )
 
