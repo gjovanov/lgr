@@ -11,7 +11,7 @@
       <v-spacer />
       <!-- What the app around it offers on the document (the invoicing app: Печат). -->
       <slot v-if="doc" name="actions" :row="doc.row" />
-      <v-btn v-if="doc && documentLink" variant="outlined" prepend-icon="mdi-file-document-outline" :href="typeof documentLink === 'string' ? documentLink : undefined" :to="typeof documentLink === 'string' ? undefined : documentLink">
+      <v-btn v-if="doc && documentLink" variant="outlined" prepend-icon="mdi-file-document-outline" :to="documentLink">
         {{ $t('cashRegister.detail.openDocument') }}
       </v-btn>
       <!-- #145: STORNO from the document itself, as in the journal. -->
@@ -175,7 +175,7 @@ const props = defineProps<{
   /** Where a row of the storno chain opens. */
   relatedRoute: (row: any) => RouteLocationRaw
   /** The full document page for a row (print, email), or null where there is none. */
-  documentRoute?: (row: any) => RouteLocationRaw | string | null
+  documentRoute?: (row: any) => RouteLocationRaw | null
 }>()
 
 const { t } = useI18n()

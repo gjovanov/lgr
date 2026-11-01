@@ -31,7 +31,7 @@ test('a close that met a sale printing says to wait, and the session stays open 
     json: { code: 'receipt_open', message: 'A sale is printing on this device. Wait for it to finish, then close again.' },
   }))
   await loginForApp(page, 'acme-corp', 'sales', 'test123')
-  await page.goto('/pos/terminal')
+  await page.goto('/invoicing/cash-sales/new')
   await page.getByRole('button', { name: 'Close Session' }).click()
   const dialog = page.getByRole('dialog').filter({ hasText: 'Close the register' })
   const confirm = dialog.getByRole('button', { name: 'Close', exact: true })
@@ -46,7 +46,7 @@ test('a close that met a sale printing says to wait, and the session stays open 
 
 test('the close dialog shows the session report the close keeps', async ({ page }) => {
   await loginForApp(page, 'acme-corp', 'sales', 'test123')
-  await page.goto('/pos/terminal')
+  await page.goto('/invoicing/cash-sales/new')
   await page.getByRole('button', { name: 'Close Session' }).click()
   const dialog = page.getByRole('dialog').filter({ hasText: 'Close the register' })
   const confirm = dialog.getByRole('button', { name: 'Close', exact: true })
@@ -74,7 +74,7 @@ test('the close dialog shows the session report the close keeps', async ({ page 
 test('POS Sessions shows the report again, and says why it cannot print it', async ({ page }) => {
   expect(sessionNumber, 'the close above ran').toBeTruthy()
   await loginForApp(page)
-  await page.goto('/pos/sessions')
+  await page.goto('/invoicing/cash-register/sessions')
   const row = page.locator('.v-data-table tbody tr').filter({ hasText: sessionNumber })
   await expect(row).toBeVisible({ timeout: 15000 })
   await row.getByTestId('session-report-open').click()

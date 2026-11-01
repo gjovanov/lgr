@@ -62,18 +62,21 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute } from 'vue-router'
-import { portalHref } from 'ui-shared/nav/navigate'
+import { useRoute, useRouter } from 'vue-router'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { signInHref } from 'ui-shared/nav/navigate'
 import { pinOffered, signInWithPin } from '../composables/useTillPin'
+import { tillLanding } from '../till-rules'
 
 /**
  * The till's PIN pad (FR-20.40, plan step P1-5b): the operator's code, then their PIN. A screen or
  * a keyboard both work. On success this tab holds the operator's session and reloads into the
- * terminal, so the app starts again from that session.
+ * till, so the app starts again from that session.
  */
 
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 
 const codeRef = ref()
 const pinRef = ref()
@@ -85,7 +88,8 @@ const error = ref('')
 const waitSeconds = ref(0)
 let timer: ReturnType<typeof setInterval> | undefined
 
-const passwordHref = portalHref('/auth/login')
+/** The password way in comes back to the same page, as the portal's sign-in does (FR-22.53). */
+const passwordHref = signInHref(typeof route.query.to === 'string' ? route.query.to : null)
 
 function press(d: string) {
   if (field.value === 'code') {
@@ -114,6 +118,13 @@ function wait(seconds: number) {
   }, 1000)
 }
 
+/** Where the PIN leads: `?to=` as this router names it (the guard wrote it), else where the till starts. */
+function landing(): string {
+  const to = route.query.to
+  const asked = typeof to === 'string' && to.startsWith('/') && !to.startsWith('//') ? router.resolve(to) : null
+  return (asked?.matched.length ? asked : router.resolve(tillLanding(sessionViewer()) ?? { name: 'invoicing.cash-sales.new' })).href
+}
+
 async function submit() {
   if (!operatorCode.value || !pin.value || waitSeconds.value > 0 || busy.value) return
   busy.value = true
@@ -121,8 +132,7 @@ async function submit() {
   const failure = await signInWithPin(operatorCode.value, pin.value)
   busy.value = false
   if (!failure) {
-    const to = typeof route.query.to === 'string' && route.query.to.startsWith('/') && !route.query.to.startsWith('//') ? route.query.to : '/pos/terminal'
-    window.location.replace(`${import.meta.env.BASE_URL.replace(/\/$/, '')}${to}`)
+    window.location.replace(landing())
     return
   }
   pin.value = ''

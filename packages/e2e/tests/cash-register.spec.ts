@@ -4,10 +4,10 @@ import { apiLogin } from './helpers/api'
 import { cashRegisterExport, closeTillSession, createBackOfficeCashSale, journal, ringTillSale, stockOf } from './helpers/cash-register'
 
 /**
- * FR-21 (#171), R1 — one cash register, two journals.
+ * FR-21 (#171), R1 — one cash register, one journal.
  *
- * `/pos/orders` and `/invoicing/cash-sales` are one page: the till's sales (POS rows until R2
- * copies them), the back office's and the imports'. The till sale here is rung through the API by
+ * `/invoicing/cash-sales` is one page for the till's sales (POS rows until R2 copied them), the
+ * back office's and the imports'. The till sale here is rung through the API by
  * the seeded cashier, and the back-office sale saved as the invoicing terminal saves one
  * (`helpers/cash-register.ts`): the seed has neither.
  *
@@ -31,7 +31,7 @@ let stornoNumber = ''
 const rowOf = (page: any, number: string) =>
   page.locator('.v-data-table tbody tr').filter({ has: page.getByRole('link', { name: number, exact: true }) })
 
-test.describe('FR-21 — one cash register, two journals', () => {
+test.describe('FR-21 — one cash register, one journal', () => {
   test.beforeAll(async () => {
     sale = await ringTillSale()
     backOffice = await createBackOfficeCashSale()
@@ -43,18 +43,16 @@ test.describe('FR-21 — one cash register, two journals', () => {
     if (sale) await closeTillSession(sale.sessionId)
   })
 
-  test('a till sale and a back-office sale are in both journals, alike', async ({ page }) => {
+  test('a till sale and a back-office sale are in the journal, alike', async ({ page }) => {
     await loginForApp(page)
-    for (const path of ['/pos/orders', '/invoicing/cash-sales']) {
-      await page.goto(`${path}?q=${sale.number}`)
-      const till = rowOf(page, sale.number)
-      await expect(till).toBeVisible({ timeout: 10000 })
-      await expect(till).toContainText('Till')
-      await expect(till.getByTestId('journal-status-chip')).toHaveText('Completed')
+    await page.goto(`/invoicing/cash-sales?q=${sale.number}`)
+    const till = rowOf(page, sale.number)
+    await expect(till).toBeVisible({ timeout: 10000 })
+    await expect(till).toContainText('Till')
+    await expect(till.getByTestId('journal-status-chip')).toHaveText('Completed')
 
-      await page.goto(`${path}?q=${backOffice.number}`)
-      await expect(rowOf(page, backOffice.number)).toContainText('Back office', { timeout: 10000 })
-    }
+    await page.goto(`/invoicing/cash-sales?q=${backOffice.number}`)
+    await expect(rowOf(page, backOffice.number)).toContainText('Back office', { timeout: 10000 })
 
     // A document opens on its invoicing page, where it prints and emails.
     await rowOf(page, backOffice.number).getByRole('link', { name: backOffice.number, exact: true }).click()
@@ -108,12 +106,10 @@ test.describe('FR-21 — one cash register, two journals', () => {
     expect(storno, 'the storno is in the journal').toBeTruthy()
     stornoNumber = storno.number
 
-    for (const path of ['/pos/orders', '/invoicing/cash-sales']) {
-      await page.goto(`${path}?q=${stornoNumber}`)
-      await expect(rowOf(page, stornoNumber).getByTestId('journal-kind-chip')).toHaveText('Storno', { timeout: 10000 })
-      await page.goto(`${path}?q=${sale.number}`)
-      await expect(rowOf(page, sale.number).getByTestId('journal-status-chip')).toHaveText('Stornoed', { timeout: 10000 })
-    }
+    await page.goto(`/invoicing/cash-sales?q=${stornoNumber}`)
+    await expect(rowOf(page, stornoNumber).getByTestId('journal-kind-chip')).toHaveText('Storno', { timeout: 10000 })
+    await page.goto(`/invoicing/cash-sales?q=${sale.number}`)
+    await expect(rowOf(page, sale.number).getByTestId('journal-status-chip')).toHaveText('Stornoed', { timeout: 10000 })
     expect(await stockOf(admin, sale)).toBe(sale.stockBefore)
   })
 
@@ -151,7 +147,7 @@ test.describe('FR-21 — one cash register, two journals', () => {
   test('a cashier sees the till sale but no Storno button', async ({ page }) => {
     const another = await ringTillSale()
     await loginForApp(page, 'acme-corp', 'sales', 'test123')
-    await page.goto(`/pos/orders?q=${another.number}`)
+    await page.goto(`/invoicing/cash-sales?q=${another.number}`)
     const row = rowOf(page, another.number)
     await expect(row).toBeVisible({ timeout: 10000 })
     await expect(row.getByTestId('storno-button')).toHaveCount(0)
@@ -165,9 +161,9 @@ test.describe('FR-21 — one cash register, two journals', () => {
     await expect(rowOf(page, sale.number).getByTestId('storno-button')).toHaveCount(0)
   })
 
-  test('column choices are the same in both apps, and filters survive a reload', async ({ page }) => {
+  test('column choices and filters survive a reload', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/pos/orders')
+    await page.goto('/invoicing/cash-sales')
     const header = (name: string) => page.locator('.v-data-table').first().getByRole('columnheader', { name, exact: true })
     await expect(page.locator('.v-data-table tbody tr').first()).toBeVisible({ timeout: 10000 })
     await expect(header('Session')).toHaveCount(0)
@@ -179,8 +175,6 @@ test.describe('FR-21 — one cash register, two journals', () => {
     await expect(header('Session')).toBeVisible()
 
     await page.reload()
-    await expect(header('Session')).toBeVisible({ timeout: 10000 })
-    await page.goto('/invoicing/cash-sales')
     await expect(header('Session')).toBeVisible({ timeout: 10000 })
 
     await page.goto('/invoicing/cash-sales?kind=storno')

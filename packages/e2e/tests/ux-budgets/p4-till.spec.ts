@@ -79,7 +79,7 @@ test('P4-till: one counter sale paid by card', async ({ page, browser }, testInf
     const ctx = await browser.newContext({ baseURL: testInfo.project.use.baseURL, viewport: testInfo.project.use.viewport })
     const probe = await ctx.newPage()
     await signInForUx(probe)
-    await probe.goto('/pos/terminal', { waitUntil: 'networkidle' })
+    await probe.goto('/invoicing/cash-sales/new', { waitUntil: 'networkidle' })
     const s = probe.getByRole('textbox', { name: 'Търси продукти...' })
     const cartTitle = probe.locator('.v-card-title').filter({ hasText: /^Кошница/ })
     await s.click()
@@ -106,7 +106,7 @@ test('P4-till: one counter sale paid by card', async ({ page, browser }, testInf
   const walk = await startWalk(page, testInfo, {
     id: 'P4-till',
     title: 'Till — one counter sale (PRD-0016 ×1, PRD-0017 ×3) paid by card',
-    start: '/pos/terminal',
+    start: '/invoicing/cash-sales/new',
   })
   const search = page.getByRole('textbox', { name: 'Търси продукти...' })
   const cards = page.locator(CARD)

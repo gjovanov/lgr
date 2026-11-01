@@ -32,6 +32,12 @@ export function lineUnitPrice(row: Locator): Locator {
   return row.locator('input[role="combobox"]').last()
 }
 
+/** Open the Pending changes panel and reopen the entry that shows `text`. */
+export async function restoreEntry(page: Page, text: string | RegExp) {
+  await page.locator('button:has(.mdi-content-save-alert-outline)').click()
+  await page.locator('.v-navigation-drawer--right .v-list-item').filter({ hasText: text }).click()
+}
+
 /** The quantity field on a document line row — still the row's only number input. */
 export function lineQuantity(row: Locator): Locator {
   return row.locator('input[type="number"]').first()

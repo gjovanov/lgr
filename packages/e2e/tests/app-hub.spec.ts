@@ -3,11 +3,12 @@ import { test, expect } from '@playwright/test'
 const PORTAL_API = process.env.BASE_URL || 'http://localhost:4001'
 
 /**
- * Apps in APP_REGISTRY: accounting, inventory, invoicing, pos, payroll, reports.
- * This used to be a hard-coded `5` in three assertions; FR-06 (#14) added the sixth and
- * broke all three. Naming it means the next app is a one-line change here.
+ * Apps in APP_REGISTRY: accounting, inventory, invoicing, payroll, reports, files. POS is no app
+ * of its own: the till lives in Invoicing. This used to be a hard-coded `5` in three assertions;
+ * FR-06 (#14) added the sixth and broke all three. Naming it means the next app is a one-line
+ * change here.
  */
-const APP_COUNT = 7
+const APP_COUNT = 6
 
 // Use native fetch for API-only tests (Playwright's APIRequestContext has a
 // Set-Cookie URL parsing bug in v1.58)
@@ -201,10 +202,13 @@ test.describe('App Hub', () => {
     // Payroll stays out — no payroll.read from either permission source.
     expect(appIds).not.toContain('payroll')
 
-    // POS stays out too. The two sources of an accountant's permissions used to disagree: the
-    // seeded "Accountant" PermissionSet granted the legacy `trade.read`, which expanded to
-    // `pos.read`, while DEFAULT_ROLE_PERMISSIONS.accountant grants no POS access. The seeded set
-    // now follows the role's defaults, and `trade.*` is gone (migration 0005), so both agree.
-    expect(appIds).not.toContain('pos')
+    // None of the till's rights here. The two sources of an accountant's permissions used to
+    // disagree: the seeded "Accountant" PermissionSet granted the legacy `trade.read`, which expanded
+    // to `pos.read`, while DEFAULT_ROLE_PERMISSIONS.accountant grants no POS access. The seeded set
+    // now follows the role's defaults, and `trade.*` is gone (migration 0005), so both agree. Read
+    // off the token: no tile says it any more, since POS has none for anyone.
+    const { permissions } = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'))
+    expect(permissions).toContain('invoicing.read')
+    expect(permissions.filter((p: string) => p.startsWith('pos.'))).toEqual([])
   })
 })

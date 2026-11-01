@@ -93,23 +93,51 @@ for (const alwaysStatic of [true, false]) {
       expect((await get(app, '/api/health')).status).toBe(200)
     })
 
-    // FR-24 Phase 0: the POS pages are routes of the invoicing module. Desktops hold `startPath: /pos/`.
-    it('answers the old POS addresses with a 302 to /invoicing/pos/*, query kept, and nothing else', async () => {
+    // The POS app's old addresses, which the tills in the field open every morning: desktops hold
+    // `startPath: /pos/`.
+    it('answers an old POS address with a 302 into Invoicing, keeping the query', async () => {
       const app = await server(alwaysStatic)
-      for (const [path, to] of [
-        ['/pos', '/invoicing/pos'],
-        ['/pos/', '/invoicing/pos/'],
-        ['/pos/terminal', '/invoicing/pos/terminal'],
-        ['/pos/orders?session=abc&q=CS-1', '/invoicing/pos/orders?session=abc&q=CS-1'],
-        ['/pos/devices/123', '/invoicing/pos/devices/123'],
-      ]) {
+      const cases: Array<[string, string]> = [
+        ['/pos', '/invoicing/cash-sales/new'],
+        ['/pos/', '/invoicing/cash-sales/new'],
+        ['/pos/terminal', '/invoicing/cash-sales/new'],
+        ['/pos/orders?session=abc&q=CS-1', '/invoicing/cash-sales?session=abc&q=CS-1'],
+        ['/pos/orders/6a1b2c', '/invoicing/cash-sales/6a1b2c/view'],
+        ['/pos/sessions', '/invoicing/cash-register/sessions'],
+        ['/pos/devices/123', '/invoicing/configuration/devices/123'],
+        ['/pos/devices/new', '/invoicing/configuration/devices/new'],
+        ['/pos/pin?to=%2Fterminal', '/invoicing/pin'],
+        ['/pos/whatever', '/invoicing/cash-sales/new'],
+      ]
+      for (const [path, location] of cases) {
         const res = await app.handle(new Request(`http://localhost${path}`, { redirect: 'manual' }))
-        expect({ path, status: res.status, location: res.headers.get('location') }).toEqual({ path, status: 302, location: to })
+        expect({ path, status: res.status, location: res.headers.get('location') }).toEqual({ path, status: 302, location })
+        // ⚠ No cached redirect: a rollback has to bring the old app back.
+        expect(res.headers.get('cache-control')).toContain('no-store')
+        expect(res.headers.get('cross-origin-resource-policy')).toBe('same-origin')
       }
-      // Not POS: a path that only starts with the letters, and a POST.
-      expect((await get(app, '/posts')).body).toBe(SHELL.portal)
+    })
+
+    it('answers a HEAD the way it answers a GET, and leaves every other method alone', async () => {
+      const app = await server(alwaysStatic)
+      const head = await app.handle(new Request('http://localhost/pos/', { method: 'HEAD' }))
+      expect({ status: head.status, location: head.headers.get('location') }).toEqual({ status: 302, location: '/invoicing/cash-sales/new' })
       const post = await app.handle(new Request('http://localhost/pos/terminal', { method: 'POST' }))
       expect(post.status).not.toBe(302)
+    })
+
+    it('leaves what is not an old POS address to the fallback', async () => {
+      const app = await server(alwaysStatic)
+      expect((await get(app, '/pos/assets/index-old.js')).status).toBe(404)
+      expect((await get(app, '/api/pos/terminal')).status).toBe(404)
+      for (const path of ['/posts', '/posters']) expect((await get(app, path)).body, path).toBe(SHELL.portal)
+    })
+
+    // `/invoicing/pos/*` is the router's to redirect: the server hands it the SPA's shell.
+    it('serves the shell at the address FR-24 Phase 0 gave the till', async () => {
+      const app = await server(alwaysStatic)
+      const res = await get(app, '/invoicing/pos/terminal')
+      expect({ status: res.status, body: res.body }).toEqual({ status: 200, body: SHELL.module })
     })
 
     // FR-24.21: the shell switch of FR-24.13 is gone; its addresses go home and drop the old choice.

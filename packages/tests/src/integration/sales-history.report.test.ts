@@ -337,6 +337,8 @@ describe('sales-history — POS rows', () => {
     expect(row.rowType).toBe('pos')
     expect(row.status).toBe('paid')
     expect(res.columns.find(c => c.key === 'status')!.type).toBe('status')
+    // The journal's page, in the invoicing app: the till has no app of its own any more.
+    expect(entry().drilldown!(row)).toBe(`/invoicing/cash-sales/${row.posId}/view`)
   })
 })
 

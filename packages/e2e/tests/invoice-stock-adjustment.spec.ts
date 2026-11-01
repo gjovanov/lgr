@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { createBackOfficeCashSale } from './helpers/cash-register'
 
 /**
  * The form's warehouse selector.
@@ -31,9 +32,11 @@ test.describe('Invoice Stock Adjustment — Warehouse Selector', () => {
     await expectWarehouseSelector(page)
   })
 
+  // The form opens on a sale that exists: a new one is rung up on the till.
   test('should show warehouse selector on cash register sale form', async ({ page }) => {
+    const sale = await createBackOfficeCashSale()
     await loginForApp(page)
-    await page.goto('/invoicing/cash-sales/new')
+    await page.goto(`/invoicing/cash-sales/${sale.id}/edit`)
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
     await expectWarehouseSelector(page)
   })
@@ -65,7 +68,7 @@ test.describe('Invoice Stock Adjustment — Warehouse Selector', () => {
     await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
   })
 
-  test('should navigate from cash register sales list to new form', async ({ page }) => {
+  test('should navigate from cash register sales list to the terminal', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/cash-sales')
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10000 })
@@ -75,7 +78,7 @@ test.describe('Invoice Stock Adjustment — Warehouse Selector', () => {
     await expect(createBtn).toBeVisible()
     await createBtn.click()
     await page.waitForURL('**/cash-sales/new')
-    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole('heading', { name: 'CS Terminal' })).toBeVisible({ timeout: 10000 })
   })
 
   test('should navigate from proforma invoices list to new form', async ({ page }) => {

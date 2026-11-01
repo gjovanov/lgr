@@ -14,19 +14,11 @@ import { isPersonOnly, onSignedOutElsewhere } from '../session/session'
 /** The SPA's router, set once by `installInAppLinks` (`registerPlugins`). */
 let appRouter: Router | null = null
 
-/**
- * A full path ("/invoicing/pos/terminal") as THIS router names it ("/pos/terminal"), or null when
- * another SPA serves it.
- */
+/** A full path as the router names it, or null when no route of the router takes it. */
 export function routerPathFor(path: string, router: Router | null = appRouter): string | null {
   if (!router || !path.startsWith('/') || path.startsWith('//')) return null
-  // A root router (base "/": the portal's, or the one SPA's) takes any path it resolves.
-  const base = router.options.history.base.replace(/\/+$/, '')
-  const pathname = path.split(/[?#]/)[0]
-  if (base && pathname !== base && !pathname.startsWith(`${base}/`)) return null
-  const rel = path.slice(base.length) || '/'
   try {
-    return router.resolve(rel).matched.length ? rel : null
+    return router.resolve(path).matched.length ? path : null
   } catch {
     return null
   }

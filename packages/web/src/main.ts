@@ -12,5 +12,5 @@ installChunkRecovery(router)
 whenI18nReady().then(() => {
   app.mount('#app')
   // FR-24.14: the entry loaded; index.html's bounded retry starts over on the next failure.
-  sessionStorage.removeItem('lgr_boot_retry')
+  try { sessionStorage.removeItem('lgr_boot_retry') } catch { /* nothing was counted there either */ }
 })
