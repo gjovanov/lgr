@@ -119,8 +119,10 @@ export function useBillReceipts(doc: DocForm) {
     try {
       if (doc.isEdit.value) {
         // What the form holds and the bill does not would go with the reload below: the supplier's
-        // number, the dates, the notes. Replacing lines keeps what the bill says about itself.
-        const id = await doc.saveIfNeeded()
+        // number, the dates, the notes. Replacing lines keeps what the bill says about itself. What
+        // the typed lines staged for their products goes with them: those lines are about to be
+        // replaced, and a bill for a delivery updates no product.
+        const id = await doc.saveIfNeeded({ noProductUpdates: true })
         // Not saved: the form says why, and the dialog would cover it.
         if (!id) {
           dialogOpen.value = false

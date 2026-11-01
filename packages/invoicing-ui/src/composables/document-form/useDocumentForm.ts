@@ -1401,11 +1401,17 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     }
   }
 
-  /** The document as the form shows it, stored: its id, or null when it is invalid or was refused. */
-  async function saveIfNeeded(): Promise<string | null> {
+  /**
+   * The document as the form shows it, stored: its id, or null when it is invalid or was refused.
+   * `noProductUpdates`: its lines are about to be thrown away, so what they staged for their products
+   * must not reach the catalog on the way.
+   */
+  async function saveIfNeeded(opts: { noProductUpdates?: boolean } = {}): Promise<string | null> {
     if (isEdit.value && !isDirtyNow.value) return String(route.params.id)
     if (!(await validate())) return null
-    return persist(buildPayload(), { quiet: true })
+    const payload = buildPayload()
+    if (opts.noProductUpdates) delete payload.productUpdates
+    return persist(payload, { quiet: true })
   }
 
   async function onSave() {

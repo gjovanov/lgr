@@ -301,6 +301,10 @@ them into PRs.
       so an older client changes nothing. Only drafts: `bill_not_draft` stands.
     - The form says first that the typed lines are replaced by the delivery's lines. The bill keeps
       its own number, reference, dates, payment method and notes.
+    - The save before a link sends no product updates: the typed lines' staged prices must not reach
+      the catalog from lines about to be thrown away. „Запази и получи" that ends in the overlap
+      question is different. That save is the person's own, it stands, and linking from the question
+      afterwards leaves the product as that save wrote it.
     - A bill written against a supplier order keeps its lines (422 `bill_on_order`): they book the
       delivery onto the order.
     - A bill in a currency other than the org's is not linked (422 `bill_foreign_currency`): the

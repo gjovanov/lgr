@@ -83,6 +83,13 @@ const billOf = async (w: World, id: string) => (await w.api.get(`/invoices/${id}
 const movementOf = async (w: World, id: string) => (await w.api.get(`/warehouse/movement/${id}`)).stockMovement
 
 const actions = (page: Page) => page.locator('.form-actions-bar')
+/** The price field of a bill's first line, in the column of that name. */
+async function linePrice(page: Page) {
+  const heads = await page.locator('.line-table thead th').allInnerTexts()
+  const at = heads.findIndex(h => h.trim() === 'Единична цена')
+  expect(at).toBeGreaterThan(0)
+  return page.locator('.line-table tbody tr').first().locator('td').nth(at).locator('input[type="number"]')
+}
 const snackbar = (page: Page) => page.locator('.v-snackbar .v-snackbar__content')
 
 test.describe('a receipt with no supplier (FR-22.31a)', () => {
@@ -267,6 +274,42 @@ test.describe('a typed bill takes a delivery (FR-22.32a)', () => {
     expect((await billOf(w, bill.id)).status).toBe('received')
     expect(await stockOf(w)).toBe(stock)
     expect(await movementsOf(w)).toBe(movements)
+  })
+})
+
+test.describe('linking from a form with unsaved edits (FR-22.32a)', () => {
+  test('saves what the bill says about itself, and leaves the product master alone', async ({ page }) => {
+    const w = await world('dirty')
+    const r = await receipt(w, 5)
+    const bill = await typedBill(w, 5, `D-${w.stamp}`)
+    const article = async () => (await w.api.get(`/warehouse/product/${w.article._id}`)).product
+    const before = await article()
+
+    await signInForUx(page)
+    const puts: any[] = []
+    page.on('request', (q) => {
+      if (q.method() === 'PUT' && q.url().endsWith(`/invoices/${bill.id}`)) puts.push(q.postDataJSON())
+    })
+    await page.goto(`/invoicing/bills/${bill.id}/edit`, { waitUntil: 'networkidle' })
+    // A price typed on the line: the switch is on, so it stages the article's new purchase price.
+    const price = await linePrice(page)
+    await price.fill('9.75')
+    await price.blur()
+    await page.getByLabel('Покупна фактура №').fill(`D2-${w.stamp}`)
+
+    await page.getByTestId('link-delivery-btn').click()
+    const dialog = page.getByTestId('link-delivery-dialog')
+    await dialog.locator('.v-list-item').filter({ hasText: r.number }).locator('input[type="checkbox"]').check()
+    await page.getByTestId('link-delivery-confirm').click()
+    await expect(page.getByTestId('bill-receipts')).toContainText(r.number)
+
+    // The save happened, and carried the form's header, and nothing for the product.
+    expect(puts).toHaveLength(1)
+    expect(puts[0].productUpdates).toBeUndefined()
+    expect((await billOf(w, bill.id)).reference).toBe(`D2-${w.stamp}`)
+    const after = await article()
+    expect(after.purchasePrice).toBe(before.purchasePrice)
+    expect(after.priceTiers).toEqual(before.priceTiers)
   })
 })
 
