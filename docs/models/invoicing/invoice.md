@@ -122,6 +122,7 @@ interface IInvoice extends Document {
 | sentAt / sent_at | Date | TEXT | No | - | |
 | paidAt / paid_at | Date | TEXT | No | - | |
 | tags | [String] | TEXT (JSON) | No | `[]` | |
+| voidingUntil | Date | - | No | - | FR-23: a void under way holds the document until then, against the hold a receipt takes |
 | createdBy / created_by | ObjectId | TEXT | Yes | - | Ref: User |
 | createdAt / created_at | Date | TEXT | Yes | auto | |
 | updatedAt / updated_at | Date | TEXT | Yes | auto | |
@@ -156,7 +157,7 @@ interface IInvoice extends Document {
 | method | String | TEXT | Yes | - | `cash`, `bank_transfer`, `card`, `check`, `other` |
 | reference | String | TEXT | No | - | |
 | bankAccountId / bank_account_id | ObjectId | TEXT | No | - | Ref: BankAccount |
-| journalEntryId / journal_entry_id | ObjectId | TEXT | No | - | Ref: JournalEntry |
+| journalEntryId / journal_entry_id | ObjectId | TEXT | No | - | Ref: JournalEntry. Stamped in place by `payment.recorded`, on `receiptId` or on the row's own id |
 | sort_order | - | INTEGER | No | 0 | SQLite only |
 
 ## Relationships

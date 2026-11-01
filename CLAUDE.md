@@ -2320,11 +2320,16 @@ invoice still due until the courier pays).
   `convertDraftInvoice`, so printing lives in the doors (`invoicing-api/lib/counter-receipt.ts`,
   `prepareReceipt`), never in that function. The conversion settles as it always did, with the switch
   on too. `printsAtCounter` also refuses a document a person issues or pays by hand that an import
-  wrote (`isImportedDocument`: `ocr_import` on its first status entry, the `ocr-import` tag,
-  `importedFrom`).
+  wrote. ⚠ `isImportedDocument` is `ocr_import` on its FIRST status entry and nothing else, because a
+  copy does not carry that and no route writes it. The `ocr-import` tag is copied by „Копирай" and a
+  user can type it; `importedFrom` is LGR moving its own document between nodes, which prints like
+  any other.
 - ⚠ **Where LGR prints, `PUT` never settles**: `syncDueAfterEdit` runs instead of `syncCashSettlement`. It
   adds, shrinks and withdraws no payment, and only says what is owed, so a raised total is payable
-  where a stale `paid` would refuse the payment.
+  where a stale `paid` would refuse the payment. Two exceptions, both documents a receipt cannot
+  speak for: an imported invoice keeps the rule (nothing else would settle it), and the rule's own row
+  under a method the invoice no longer says goes as it always did, with its journal entry (no general
+  route can remove a row).
 - ⚠ **A new `Invoice` type reaches every reader that has no `type` in its filter.** Those are
   `GET /invoices`, `getInvoiceSummary` (paid in 30 days), the digest's KPIs, `byMethod` and
   `paymentsTotal`, the contact ledger with its cost, `/stats/*`, the contact's summary. Each spreads
@@ -2341,16 +2346,41 @@ invoice still due until the courier pays).
   session totals → payment → complete. ⚠ The hold (`Invoice.receiptHolds`) is taken before the number, in
   one atomic update with the check that the amount fits, so a loser burns no number; `fitsDue` counts it
   in every payment, so a bank payment recorded during the print cannot take the same money.
-- **Failed:** the receipt is voided with its number and УНП (18.5 lists it), no payment, and the
-  document stays as it was. `/payments` answers 503 `fiscal_error`; `/send` answers 200 with
-  `receiptError`, because issued is issued. **Unknown** (an interrupted print the device cannot confirm)
-  stands as the till's sale does: never reprinted, the money recorded, the doubt shown.
-- **A request that died** is finished by the next payment on the document (`finishInterruptedReceipts`).
-  That one never prints: it records what the device's counter says printed and gives up the rest. A keyed
-  retry of the same request may print.
-- ⚠ **The link is `payments[].receiptId`, not the row's `_id`:** the `payment.recorded` handler writes the
-  array back through the repository, which gives every row a new `_id`. It stamps a receipt's row in
-  place instead, so a part payment recorded a moment later is not lost.
+- ⚠ **One turn per device** (`fiscal/device-turn.ts`): from the counter read to the close, for a sale, a
+  storno, a receipt and every report. `deviceTurn` is a queue in the process holding the device; a nested
+  call runs inside the turn it is in, and a wait past `TURN_WAIT_MS` (longer than the slowest report)
+  answers 409 `device_busy`, which a sale reads as nothing printed. It exists because `clearOpenReceipt`
+  of one request voided another's open receipt, and FR-23 sent back-office payments to the till's device.
+- ⚠ **What proves a print.** In the document's turn the counter is evidence, because nothing else printed
+  since it was read; `verdictOfFailedPrint` (`print-verdict.ts`, table-tested) reads it with how far the
+  receipt got. **Out of a turn nothing that moved proves anything**, because the device is shared.
+- **A print that throws in its turn:** counter +1 is `printed`. Unmoved and the device idle, or stopped
+  before the money, is `failed`: the receipt is voided with its number and УНП (18.5 lists it), no payment,
+  and the document stays as it was; `/payments` answers 503 `fiscal_error`, `/send` 200 with `receiptError`,
+  because issued is issued. ⚠ Anything else is `unknown`: the money stands and it never prints again,
+  because a real receipt voided and printed again is two fiscal receipts for one payment. A driver with
+  no `cancelFiscalReceipt` closes the receipt on failure, and a close that goes through is `unknown`.
+- ⚠ **A request that died** (`finishInterruptedReceipt`, which NEVER prints). A lease lapsed is not a
+  dead request by itself: `keepLease` renews it for as long as a print waits or runs. A dead receipt is
+  given up only if it never reached the device, or the device confirms the counter unmoved AND nothing
+  open. A moved counter proves nothing, and no device is no proof: such a receipt goes `unknown` +
+  `register.fiscal.inDoubt`. **In doubt books nothing and prints nothing**, keeps its hold, so the document
+  answers 409 `receipt_in_doubt` to payment, edit of the total and void, and a person settles it
+  (`POST /cash-register/documents/:id/settle {printed}`, the storno's roles, audited as `settle_receipt`,
+  `register.settled`), from the journal. It reaches no device. A keyed retry of the same request may print
+  only when the proof holds on the device it started on (`receiptContext`).
+- **A session cannot close over an unfinished receipt.** The close finishes what it can prove, refuses the
+  rest with 409 `receipts_unfinished` naming them, re-checks once it holds the claim (a receipt checks the
+  session in its turn, so one of them sees the other), and takes `expected` from the claimed session. It
+  applies to `closeWithoutFiscal` too. `applySessionTotals` never increments a closed session.
+- **`setRegister` and `recordPayment` refuse a voided receipt**, so a live print coming back to a receipt
+  given up writes nothing and books nothing.
+- ⚠ **`payment.recorded` never writes the `payments` array back.** The array it read is stale by then:
+  that lost a receipt's row while `amountPaid` kept the money. Its handler stamps in place, on `receiptId`
+  or `paymentId` (the row's own id, which the route and the settlement rule choose before writing).
+  ⚠ `payments[].receiptId` stays the link: other paths still rewrite the array through the repository.
+- **`/void` claims before it moves stock** (`voidingUntil`, atomic against `receiptHolds`, lapsing), and
+  a receipt's hold refuses a claimed document, so of a void and a payment one gives way.
 - **What it prints** (`receipt-lines.ts`, pure): a whole payment at issue, the document's lines and
   `printFiscalText` „Фактура № …"; anything else, one line per VAT rate, „Плащане по фактура № …", pro
   rata of what is left of each rate, so the last takes the remainder and the receipts add up exactly.
@@ -2361,7 +2391,18 @@ invoice still due until the courier pays).
   stops at "every cent has its receipt". ⚠ A second receipt would book the sale on the device twice.
   ⚠ A print that fails at issue is NOT retried by Pay: the money is the courier's, and Pay would record
   it as received and print nothing. `POST /invoices/:id/receipt` prints it alone (`owesDeliveryReceipt`,
-  `receiptToPrint` on the document), and the invoice stays due.
+  `receiptToPrint` on the document), for what is still owed, and the invoice stays due. Until it has,
+  `/payments` refuses the courier's money (409 `delivery_receipt_owed`) so the sale cannot end with no
+  receipt or part of one; a bank or card payment may go first, and the receipt prints what is left. The
+  PDF lists a COD receipt only once the invoice is paid: it paid nothing before.
+- **A receipt is dated as it prints**, whatever the form said: the device, the session and the row say
+  one day. A bank transfer keeps the date it was made.
+- **A cash or card header on an unpaid invoice is not money** (`effectiveMethods`): sales history lists
+  the document at 0 and the digest skips it. Before FR-23 such a document could not exist.
+- **A refused `/send` cancels the draft transfers made for it** (`discardPendingTransfers`), since the
+  dialog draws them up before it issues.
+- ⚠ **A Tremol truncates a line's name at 34 and keeps no free text**, so `receipt-lines.ts` picks the
+  wording that fits `lineNameMax` and keeps the number. "unknown" is never stored as a receipt number.
 - **A number-clash re-issue prints nothing** (`stockSource.detectedBy`): its money was taken under the
   number it replaces.
 - ⚠ **The doors declare their device** (FR-24.50): `/send`, `/payments` and `/receipt` the open session
@@ -2372,7 +2413,11 @@ invoice still due until the courier pays).
 - ⚠ **`bookingOf` (fenced import) answers `none` for a receipt.** As `register`, the import would dispatch
   its lines.
 - **SUPTO:** 18.1–18.3 list it under its own type, 18.5 a failed one. The invoice is in none of them.
-- ⚠ 36h is from Eltrade's protocol v1.1.1 and the simulator; it has not run on a device.
+- ⚠ 36h is from Eltrade's protocol v1.1.1 and the simulator; it has not run on a device. Neither has any
+  of the proof above: `isReceiptOpen`, the verdicts and `deviceTurn` were driven on the simulator and on
+  the Tremol driver over a fake transport.
+- ⚠ **`resetEventHandlers` removed nothing until FR-23** (Node reads the argument count, and the bus
+  passed an explicit `undefined`), so a test file's listeners piled up between tests.
 
 ## An article starts its documents: „Заприходи", „Продай", „Резервирай" (2026-10-26, FR-22.47)
 

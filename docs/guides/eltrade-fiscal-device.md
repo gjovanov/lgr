@@ -63,6 +63,13 @@ Status*.
   invoice issued in cash or by card its lines and „Фактура № …“, any other payment a line per VAT
   rate, „Плащане по фактура № …“. With no open session or no connected device the payment is
   refused. An org on another till turns this off with „A sale needs a connected fiscal printer“.
+- **A receipt in doubt.** If the connection or LGR died during a print and nothing can prove what the
+  device did, LGR books no money and prints nothing: the document says so, and payment, a change of its
+  total and void wait. Look at the device's journal, then open the receipt in „Касови продажби“ and
+  press „Отпечатан е“ or „Не е отпечатан“ (a manager or an admin). The session does not close until
+  it is done.
+- **The device does one thing at a time.** A second print waits its turn, and a report can make it wait
+  for minutes; past five and a half it is refused with „device busy“, and nothing printed.
 - Closing the POS session runs the **Z-report** on the device.
 
 ## 5. The device page (POS → Devices → the device)

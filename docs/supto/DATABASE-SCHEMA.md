@@ -99,6 +99,8 @@
 | register.paidInvoiceId | ObjectId | Платената фактура или дебитно известие |
 | register.paidInvoiceNumber | String | Нейният номер, както е отпечатан в бона |
 | register.receiptText | String | Свободният текст в бона под редовете: „Фактура № …“ |
+| register.fiscal.inDoubt | Boolean | Прекъснат бон, за който нищо не доказва дали е отпечатан: сумата не се записва и нищо не се печата, докато лице не го уреди |
+| register.settled | Object | Кой е уредил такъв бон, кога и дали е отпечатан (`{ printed, by, at }`); записва се и в журнала на действията (`settle_receipt`) |
 
 Плащането се записва върху фактурата (`payments[]`, `origin: payment_receipt`, `receiptId` сочи бона), едва след като бонът е отпечатан. Докато бонът се печата, сумата му е заделена във фактурата (`receiptHolds[]`), така че никое друго плащане не може да вземе същите пари. Индекс: `{orgId, register.paidInvoiceId}`.
 
