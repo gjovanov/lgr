@@ -38,6 +38,11 @@ export interface RegisterPrinter {
   printSale(doc: RegisterDocument): Promise<string>
   /** Whether the device prints non-fiscal text (the till's „Нефискален" mode). */
   readonly printsText: boolean
+  /**
+   * What the device says of itself, read now: `false` when it is not fiscalized, `undefined` when it
+   * does not say (`fiscal/types.ts`). Throws when it cannot be read, which is no answer.
+   */
+  fiscalized(): Promise<boolean | undefined>
   /** Why this device cannot take a cash-on-delivery payment; null when it can (`fiscal/capabilities`). */
   readonly cashOnDeliveryRefusal: string | null
   /** Whether it prints a text line inside a fiscal receipt (`fiscal/capabilities`, FR-23). */

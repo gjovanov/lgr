@@ -103,6 +103,21 @@ export async function getFiscalContext(orgId: string, warehouseId: string, devic
 /** What the customer handed over, per payment: the device computes the change itself. */
 const tendered = (doc: any) => (doc.payments || []).map((p: any) => ({ method: p.method, amount: Number(p.tendered ?? p.amount) || 0 }))
 
+/** `text` in lines of `width`, broken at its spaces. */
+function wrapped(text: string, width: number): string[] {
+  const out: string[] = []
+  let line = ''
+  for (const word of String(text).split(/\s+/).filter(Boolean)) {
+    if (line && line.length + 1 + word.length > width) {
+      out.push(line)
+      line = ''
+    }
+    line = line ? `${line} ${word}` : word
+  }
+  if (line) out.push(line)
+  return out
+}
+
 /**
  * Format receipt as text lines for non-fiscal printing (testing with non-fiscalized devices).
  * Uses the org locale for translated labels and the given (session) currency for amounts.
@@ -146,11 +161,14 @@ export function formatNonFiscalLines(body: any, transactionNumber: string, opera
   lines.push(`${l.operator} ${operatorName.substring(0, W - l.operator.length - 1)}`)
   lines.push(sep)
   for (const item of body.lines) {
-    lines.push(item.name.substring(0, W))
+    // A payment's receipt names the invoice in the line: that number is what must not be cut.
+    lines.push(...(body.keepNames ? wrapped(item.name, W) : [item.name.substring(0, W)]))
     const qty = ` ${item.quantity}x${item.unitPrice.toFixed(4)}`
     const total = fmt(item.quantity * item.unitPrice)
     lines.push(lr(qty, total))
   }
+  // FR-23: „Фактура № …", as a fiscal receipt says it under its lines.
+  if (body.receiptText) lines.push(...wrapped(body.receiptText, W))
   lines.push(sep)
   lines.push(lr(l.subtotal, fmt(body.subtotal)))
   lines.push(lr(l.vat, fmt(body.taxTotal)))
@@ -181,6 +199,12 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
     lastReceiptNumber: async () => (p.getLastReceiptNumber ? p.getLastReceiptNumber() : undefined),
     receiptOpen: async () => p.isReceiptOpen?.(),
     clearLeftovers: async () => p.clearLeftovers?.(),
+    async fiscalized() {
+      const status = await p.getStatus()
+      // A driver reports a read that failed as `connected: false`, which says nothing about the device.
+      if (status.connected === false) throw new Error(status.errors?.[0] || 'The device did not answer.')
+      return status.fiscalized
+    },
     printsText: !!p.openNonFiscalReceipt,
     cashOnDeliveryRefusal: fiscal.cashOnDeliveryRefusal,
     printsFiscalText: fiscal.printsFiscalText,
@@ -212,6 +236,8 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
         lines: (doc.lines || []).map((l: any) => ({ name: l.description, quantity: l.quantity, unitPrice: l.unitPrice })),
         subtotal: doc.subtotal, taxTotal: doc.taxTotal, total: doc.total,
         payments: tendered(doc), changeDue: doc.register?.changeDue || 0,
+        // FR-23: the same words a fiscal receipt of this payment prints.
+        ...(doc.type === 'payment_receipt' ? { keepNames: true, receiptText: doc.register?.receiptText } : {}),
       }
       await p.openNonFiscalReceipt!(operatorCode || '1')
       for (const line of formatNonFiscalLines(body, doc.invoiceNumber, operatorName, locale, currency)) await p.printNonFiscalText!(line)

@@ -14,7 +14,7 @@
  *   FISCAL_TCP_ALLOW_LOOPBACK=1 bun packages/portal-api/src/unified.ts
  *
  * HTTP on the next port, for the spec: `GET /state` (receipts with their free text, reports, closures,
- * operators, payment type names), `POST /paper` (`{ "on": false }`: the roll runs out), `POST /reset` (a fresh device; `{ "rates": [А..З] }` programs its VAT groups).
+ * operators, payment type names), `POST /paper` (`{ "on": false }`: the roll runs out), `POST /reset` (a fresh device; `{ "rates": [А..З] }` programs its VAT groups, `{ "unfiscalized": true }` makes it the unit in the field).
  */
 import { createServer, type Socket } from 'node:net'
 import { EltradeSimulator } from '../../tests/src/helpers/eltrade-simulator'
@@ -27,9 +27,10 @@ const HTTP_PORT = PORT + 1
  * are its programmed VAT groups А..З, as a device's are: the driver refuses a line whose rate no
  * group carries (the seed's articles are at 18 %, a Bulgarian device's Б at 20 %).
  */
-const fresh = (rates?: number[]) => {
+const fresh = (rates?: number[], unfiscalized = false) => {
   const s = new EltradeSimulator()
   s.clock = new Date()
+  s.unfiscalizedUnit = unfiscalized
   if (Array.isArray(rates) && rates.length === 8 && rates.every(r => Number.isFinite(r))) s.rates = rates
   return s
 }
@@ -99,6 +100,7 @@ Bun.serve({
         frames: sim.frames,
         // The last text receipt's lines, and how many the device closed (27h): a session report.
         nonFiscalLines: sim.nonFiscalLines,
+        fiscalCommands: sim.executed.filter(e => [0x90, 0x31, 0x35, 0x36, 0x38].includes(e.cmd)).length,
         textReceipts: sim.executed.filter(e => e.cmd === 0x27).length,
         // Names only: an operator's password is not the spec's to read back.
         operators: Object.fromEntries(Object.entries(sim.operators).map(([n, op]) => [n, op.name])),
@@ -113,7 +115,7 @@ Bun.serve({
     }
     if (url.pathname === '/reset' && req.method === 'POST') {
       const body: any = await req.json().catch(() => ({}))
-      sim = fresh(body?.rates)
+      sim = fresh(body?.rates, body?.unfiscalized === true)
       return Response.json({ ok: true, rates: sim.rates })
     }
     return new Response('not found', { status: 404 })

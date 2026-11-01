@@ -68,8 +68,9 @@ export async function printableDocument(orgId: string, invoice: any): Promise<an
   const stornoRef = invoice.type === 'cash_storno' ? await stornoRefOf(orgId, invoice) : undefined
   const receipts = invoice.type === 'invoice' || invoice.type === 'debit_note' ? await paidByReceipts(orgId, String(invoice._id)) : []
   // A cash-on-delivery receipt has paid nothing while the courier still owes: "Платена с касов бон"
-  // on a document wholly due is a false statement on a tax document.
-  const paidBy = receipts.filter(r => r.method !== 'cash_on_delivery' || invoice.status === 'paid')
+  // on a document wholly due is a false statement on a tax document. So is it of a text receipt: no
+  // device recorded one, as an invoice for a text sale names no receipt either.
+  const paidBy = receipts.filter(r => !r.text && (r.method !== 'cash_on_delivery' || invoice.status === 'paid'))
   return { ...invoice, ...(stornoRef ? { stornoRef } : {}), ...(paidBy.length ? { paymentReceipts: paidBy } : {}) }
 }
 

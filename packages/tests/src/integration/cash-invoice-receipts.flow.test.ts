@@ -27,6 +27,12 @@ import {
   exportCancelledSales, exportItemizedSales, exportPaymentDetails, exportReversedSales, exportSummarizedSales,
 } from 'services/biz/supto-export.service'
 import { deviceEvidence } from 'services/biz/home/device-witness.service'
+import { paymentReceiptDocument } from 'services/biz/cash-register/payment-receipt.service'
+import { receiptBody } from 'services/biz/cash-register/receipt-lines'
+import { requestHash } from 'services/biz/hot-path-key'
+import { buildIslFrame } from 'fiscal/isl-frame'
+import { getPrinter, registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
+import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { buildSessionReport, formatSessionReport } from 'services/biz/cash-register/session-report'
 import { buildInvoiceHtml } from 'reporting/pdf/invoice.pdf'
 import { printableDocument } from 'invoicing-api/src/lib/invoice-pdf'
@@ -796,6 +802,479 @@ describe('what the payment dialog is told: the server answers it, by method', ()
       expect(await told(w, bill.id)).toEqual([])
     })
   })
+
+describe('a device that is not fiscalized: the device decides, never a switch (owner, 2026-11-01)', () => {
+  /** One status read, as a frame: `01 LEN SEQ 4A 'X' 05 BCC 03`. */
+  const buildFrame = () => Buffer.from(buildIslFrame(0x40, 0x4A, Buffer.from('X')))
+  /** Open, line, free text, payment, close: nothing of a fiscal receipt. */
+  const FISCAL = [0x90, 0x31, 0x36, 0x35, 0x38]
+  const fiscalCommands = (w: TillWorld) => w.sim!.executed.filter(c => FISCAL.includes(c.cmd))
+  const textPrinted = (w: TillWorld) => w.sim!.executed.filter(c => c.cmd === 0x2A).map(c => c.data).join(' ').replace(/\s+/g, ' ')
+  const closedTexts = (w: TillWorld) => w.sim!.executed.filter(c => c.cmd === 0x27).length
+  async function theUnit(o: { locale?: string } = {}) {
+    const w = await tillWorld(app)
+    w.sim!.unfiscalizedUnit = true
+    if (o.locale) await Org.updateOne({ _id: w.oid }, { $set: { 'settings.locale': o.locale } })
+    return w
+  }
+
+  it('the simulator is the unit in the field: it reports what it reports, and refuses a fiscal receipt', async () => {
+    const w = await theUnit()
+    expect(await getPrinter(w.deviceId).getStatus()).toMatchObject({ connected: true, fiscalized: false })
+    // The bytes the unit in the field answered with.
+    const answer = await w.sim!.exchange(buildFrame())
+    const status = [...answer].slice(answer.indexOf(0x04) + 1, answer.indexOf(0x05))
+    expect(status.slice(4)).toEqual([0x84, 0x90])
+    const refused = await w.sell(1)
+    expect(refused.json.transaction.fiscal.state).toBe('failed')
+    expect(w.sim!.receipts).toHaveLength(0)
+  })
+
+  it('a cash invoice prints text and pays: no fiscal command reached the device', async () => {
+    const w = await theUnit()
+    const d = await draftOf(w)
+
+    const r = await send(w, d.id)
+
+    expect(r.status).toBe(200)
+    expect(r.json.receiptError).toBeUndefined()
+    expect(r.json.receipt.state).toBe('printed')
+    expect(fiscalCommands(w)).toHaveLength(0)
+    expect(closedTexts(w)).toBe(1)
+    const inv = await raw(d.id)
+    expect(inv).toMatchObject({ status: 'paid', amountPaid: 24, amountDue: 0 })
+    expect(inv.payments).toEqual([expect.objectContaining({ method: 'cash', amount: 24, origin: 'payment_receipt' })])
+    const [receipt] = await receiptsOf(d.id)
+    expect(receipt.invoiceNumber).toMatch(/^CS-/)
+    expect(receipt.register).toMatchObject({ isFiscal: false, fiscal: expect.objectContaining({ state: 'printed', mode: 'text' }) })
+    expect(receipt.register.unp).toBeUndefined()
+    expect(receipt.register.fiscalReceiptNumber).toBeUndefined()
+    expect(receipt.completedAt).toBeTruthy()
+    // The same words, and the banner.
+    const printed = textPrinted(w)
+    expect(printed).toContain(`Фактура № ${inv.invoiceNumber}`)
+    expect(printed).toContain('Болт DIN 933 М8Х25')
+    expect(printed).toContain('* NON-FISCAL *')
+    expect(printed).toContain(receipt.invoiceNumber)
+    expect(printed).toContain('24.00')
+  })
+
+  it('money behaves as with a fiscal receipt: the session counts it, as a text receipt, and the posting is the same', async () => {
+    const w = await theUnit()
+    const d = await draftOf(w)
+    const emitted = spyOn(eventBus, 'emit')
+
+    await send(w, d.id)
+
+    const recorded = emitted.mock.calls.filter(([event]) => event === 'payment.recorded')
+    emitted.mockRestore()
+    expect(recorded).toHaveLength(1)
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 24, totalSales: 24, transactionCount: 1 })
+    const preview = (await w.call('GET', `/trade/pos/session/${w.sessionId}/close-preview`)).json
+    expect(preview.report.counts).toMatchObject({ payments: 1, text: 1, fiscal: 0, unprinted: 0 })
+    expect(preview.report.byMethod.cash).toBe(24)
+  })
+
+  it('part payments: each prints „Плащане по фактура № …", and the rates add up to the invoice', async () => {
+    const w = await theUnit()
+    const d = await draftOf(w, { method: 'bank_transfer', lines: [freeLine(60, 20), freeLine(40, 9, 'Друга услуга')] })
+    await send(w, d.id)
+    const number = (await raw(d.id)).invoiceNumber
+
+    for (const amount of [30, 30, 40]) expect((await pay(w, d.id, amount)).status).toBe(200)
+
+    expect(fiscalCommands(w)).toHaveLength(0)
+    expect(textPrinted(w)).toContain(`Плащане по фактура № ${number}`)
+    const receipts = await receiptsOf(d.id)
+    expect(receipts.map(x => x.total)).toEqual([30, 30, 40])
+    expect(receipts.every(x => x.register.fiscal.mode === 'text' && x.lines.length === 2)).toBe(true)
+    const atRate = (rate: number) => receipts.flatMap(x => x.lines).filter((l: any) => l.taxRate === rate).reduce((s: number, l: any) => s + l.lineTotal, 0)
+    expect(+atRate(20).toFixed(2)).toBe(60)
+    expect(+atRate(9).toFixed(2)).toBe(40)
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 100 })
+  })
+
+  it('a debit note names itself', async () => {
+    const w = await theUnit()
+    const inv = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, inv.id)
+    const note = await draftOf(w, { type: 'debit_note', extra: { relatedInvoiceId: inv.id, contactId: inv.contactId } })
+
+    expect((await send(w, note.id)).status).toBe(200)
+
+    expect(fiscalCommands(w)).toHaveLength(0)
+    expect(textPrinted(w)).toContain(`Дебитно известие № ${(await raw(note.id)).invoiceNumber}`)
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
+  it('cash on delivery: slot R\'s name on the slip, the invoice still due, and the courier\'s money prints nothing more', async () => {
+    const w = await theUnit({ locale: 'bg' })
+    const d = await draftOf(w, { method: 'cash_on_delivery' })
+
+    const r = await send(w, d.id)
+
+    expect(r.status).toBe(200)
+    expect(fiscalCommands(w)).toHaveLength(0)
+    expect(textPrinted(w)).toContain('НАЛОЖЕН ПЛАТЕЖ')
+    expect(textPrinted(w)).toContain('НЕФИСКАЛЕН')
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0, amountDue: 24 })
+    expect(await sessionOf(w)).toMatchObject({ totalCashOnDelivery: 24, totalCash: 0 })
+
+    const texts = closedTexts(w)
+    expect((await pay(w, d.id, 24, 'cash_on_delivery')).status).toBe(200)
+    expect(closedTexts(w)).toBe(texts)
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
+  it('a cash-on-delivery receipt that failed prints on its own, as text', async () => {
+    const w = await theUnit()
+    const d = await draftOf(w, { method: 'cash_on_delivery' })
+    w.sim!.paper = false
+    const issued = await send(w, d.id)
+    w.sim!.paper = true
+    expect(issued.json.receipt.state).toBe('failed')
+
+    expect((await printIt(w, d.id)).status).toBe(200)
+
+    expect(fiscalCommands(w)).toHaveLength(0)
+    expect((await receiptsOf(d.id)).filter(x => x.status !== 'voided')[0].register.fiscal.mode).toBe('text')
+  })
+
+  it('it stays out of what the till\'s text sale stays out of, and in what that is in', async () => {
+    const w = await theUnit()
+    const sale = await w.sell(1, { nonFiscal: true })
+    expect(sale.json.transaction.fiscal).toMatchObject({ state: 'printed', mode: 'text' })
+    const d = await draftOf(w)
+    await send(w, d.id)
+    const [receipt] = await receiptsOf(d.id)
+    const f = { orgId: w.orgId, dateFrom: new Date(Date.now() - 86_400_000), dateTo: new Date(Date.now() + 86_400_000) }
+
+    const listed = (rows: any[], id: string) => rows.filter(x => String(x.id ?? x._id) === id)
+    for (const rows of [(await exportSummarizedSales(f)).transactions, await exportPaymentDetails(f), await exportItemizedSales(f)]) {
+      const [till] = listed(rows, sale.json.transaction.id)
+      const [text] = listed(rows, String(receipt._id))
+      expect(till).toBeTruthy()
+      expect(text).toBeTruthy()
+      for (const row of [till, text]) {
+        expect(row.unpNumber).toBeUndefined()
+        expect(row.fiscalReceiptNumber).toBeUndefined()
+        expect(row.isFiscal).toBe(false)
+      }
+    }
+    expect(await exportReversedSales(f)).toHaveLength(0)
+    expect(await exportCancelledSales(f)).toHaveLength(0)
+
+    // No УНП was drawn for either, and the device's witness knows of no fiscal receipt.
+    expect(await Sequence.countDocuments({ orgId: w.oid, prefix: /^UNP/ })).toBe(0)
+    const [witness] = await deviceEvidence(w.orgId, async () => ({ state: 'read', lastDocument: w.sim!.lastDocNumber, readAt: new Date() }))
+    expect(witness.recorded).toBeNull()
+    // Nothing of it on the device's day, and the session's report keeps them apart from receipts.
+    expect(w.sim!.dayTotal).toBe(0)
+    const report = (await w.call('GET', `/trade/pos/session/${w.sessionId}/close-preview`)).json.report
+    expect(report.counts).toMatchObject({ sales: 1, payments: 1, text: 2, fiscal: 0 })
+    expect(report.receipts).toBeUndefined()
+  })
+
+  it('the invoice\'s printout does not call it a fiscal receipt: nothing on the device says so', async () => {
+    const w = await theUnit()
+    const d = await draftOf(w)
+    await send(w, d.id)
+
+    const printable = await printableDocument(w.orgId, await raw(d.id))
+
+    expect(printable.paymentReceipts).toBeUndefined()
+    expect(buildInvoiceHtml(printable as any, { name: 'Org' } as any, {} as any, undefined, { locale: 'bg' }).html).not.toContain('касов бон')
+    // The form still lists it: it took the money.
+    expect((await shown(w, d.id)).paymentReceipts).toHaveLength(1)
+  })
+
+  it('§2.7 holds: its money is on the document, the session and the slip', async () => {
+    const w = await theUnit()
+    const d = await draftOf(w)
+    await send(w, d.id)
+
+    const edited = await w.call('PUT', `/invoices/${d.id}`, { lines: [line(w, 3)], subtotal: 30, taxTotal: 6, total: 36 })
+    expect(edited.status).toBe(409)
+    expect(edited.json.code).toBe('fiscally_paid')
+    expect((await w.call('POST', `/invoices/${d.id}/void`)).status).toBe(409)
+  })
+
+  it('a session cannot close over an unfinished one, and a text print that failed is voided, with no money', async () => {
+    const w = await theUnit()
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    w.sim!.paper = false
+
+    const r = await pay(w, d.id, 24)
+
+    expect(r.status).toBe(503)
+    expect(r.json.code).toBe('fiscal_error')
+    const [receipt] = await receiptsOf(d.id)
+    expect(receipt.status).toBe('voided')
+    expect(receipt.register.fiscal).toMatchObject({ state: 'failed', mode: 'text' })
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect((await raw(d.id)).receiptHolds ?? []).toHaveLength(0)
+    expect((await sessionOf(w)).totalCash).toBe(0)
+    w.sim!.paper = true
+    // The next attempt is a new receipt, and prints.
+    expect((await pay(w, d.id, 24)).status).toBe(200)
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
+  it('it is dated as it prints, as a fiscal receipt is', async () => {
+    const w = await theUnit()
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    const held = gate()
+    w.sim!.beforeCommand = cmd => (cmd === 0x27 ? held.closed : undefined)
+    const sale = w.sell(1, { nonFiscal: true })
+    await until(() => w.sim!.executed.some(c => c.cmd === 0x2A), 'the sale to hold the device')
+    const paying = pay(w, d.id, 24)
+    await until(async () => (await receiptsOf(d.id)).length === 1, 'the receipt to wait its turn')
+    const before = new Date(Date.now() - 36 * 3_600_000)
+    await Invoice.updateOne({ type: 'payment_receipt' }, { $set: { issueDate: before, 'payments.0.date': before } })
+    w.sim!.beforeCommand = null
+    held.open()
+    await sale
+
+    expect((await paying).status).toBe(200)
+    const [receipt] = await receiptsOf(d.id)
+    expect(new Date(receipt.issueDate).toISOString().slice(0, 10)).toBe(TODAY)
+    expect(new Date((await raw(d.id)).payments[0].date).toISOString().slice(0, 10)).toBe(TODAY)
+  })
+
+  it('a retry with its key answers what it did: the slip prints once', async () => {
+    const w = await theUnit()
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    const a = await pay(w, d.id, 24, 'cash', 'text-key-0001')
+    const texts = closedTexts(w)
+
+    const b = await pay(w, d.id, 24, 'cash', 'text-key-0001')
+
+    expect(a.status).toBe(200)
+    expect(b.status).toBe(200)
+    expect(closedTexts(w)).toBe(texts)
+    expect((await raw(d.id)).payments).toHaveLength(1)
+  })
+
+  it('one whose request died after it reached the device books nothing: a person settles it', async () => {
+    const w = await theUnit()
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    const held = gate()
+    w.sim!.beforeCommand = cmd => (cmd === 0x27 ? held.closed : undefined)
+    const paying = pay(w, d.id, 24)
+    await until(() => w.sim!.executed.some(c => c.cmd === 0x2A), 'the slip to start')
+    const [running] = await receiptsOf(d.id)
+    expect(running.register.fiscal.attemptedAt).toBeTruthy()
+    // What the request left, seen after it died.
+    await Invoice.updateOne({ _id: running._id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+    w.sim!.beforeCommand = null
+    held.open()
+    await paying
+    const paid = await raw(d.id)
+    expect(paid.amountPaid).toBe(24)
+
+    const other = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, other.id)
+    const doc = await Invoice.create({
+      ...running, _id: undefined, id: undefined, invoiceNumber: 'CS-2026-88888', clientKey: undefined, completedAt: undefined,
+      leaseUntil: new Date(Date.now() - 1000),
+      register: { ...running.register, paidInvoiceId: other.id, fiscal: { state: 'pending', mode: 'text', attemptedAt: new Date() } },
+    } as any)
+    await Invoice.updateOne({ _id: other.id }, { $push: { receiptHolds: { receiptId: doc._id, amount: 24 } } })
+
+    const next = await pay(w, other.id, 24, 'bank_transfer')
+
+    expect(next.status).toBe(409)
+    expect(next.json.code).toBe('receipt_in_doubt')
+    expect((await raw(other.id)).amountPaid).toBe(0)
+  })
+
+  describe('the rule', () => {
+    it('a fiscalized device never prints text, whatever a request says', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+
+      const r = await w.call('POST', `/invoices/${d.id}/payments`, { date: TODAY, amount: 24, method: 'cash', nonFiscal: true, mode: 'text', isFiscal: false })
+
+      expect(r.status).toBe(200)
+      expect(w.sim!.receipts).toHaveLength(1)
+      expect(closedTexts(w)).toBe(0)
+      expect((await receiptsOf(d.id))[0].register).toMatchObject({ isFiscal: true, fiscal: expect.objectContaining({ mode: 'fiscal' }) })
+    })
+
+    it('no org setting selects it either: the switch is the gate, and the till\'s „Нефискален" is the till\'s', async () => {
+      const w = await tillWorld(app)
+      await Org.collection.updateOne({ _id: w.oid } as any, { $set: { 'settings.cashRegister.nonFiscal': true, 'settings.cashRegister.textReceipts': true } })
+      const d = await draftOf(w)
+
+      await send(w, d.id)
+
+      expect(w.sim!.receipts).toHaveLength(1)
+      expect(closedTexts(w)).toBe(0)
+    })
+
+    it('a device that does not report it never gets text', async () => {
+      const w = await tillWorld(app)
+      unregisterPrinter(w.deviceId)
+      const sim = w.sim!
+      const printer = new EltradeFiscalPrinter(sim.exchange, w.deviceId)
+      const status = printer.getStatus.bind(printer)
+      printer.getStatus = async () => { const s = await status(); delete (s as any).fiscalized; return s }
+      registerPrinter(w.deviceId, printer)
+      const d = await draftOf(w)
+
+      expect((await send(w, d.id)).status).toBe(200)
+
+      expect(sim.receipts).toHaveLength(1)
+      expect((await receiptsOf(d.id))[0].register.fiscal.mode).toBe('fiscal')
+    })
+
+    it('read fresh, in the turn: a unit fiscalized by service while connected goes fiscal on its next receipt', async () => {
+      const w = await theUnit()
+      const first = await draftOf(w)
+      await send(w, first.id)
+      expect((await receiptsOf(first.id))[0].register.fiscal.mode).toBe('text')
+
+      w.sim!.unfiscalizedUnit = false
+      const second = await draftOf(w)
+      await send(w, second.id)
+
+      const [receipt] = await receiptsOf(second.id)
+      expect(receipt.register).toMatchObject({ isFiscal: true, fiscal: expect.objectContaining({ state: 'printed', mode: 'fiscal' }) })
+      expect(receipt.register.unp).toBeTruthy()
+      expect(w.sim!.receipts).toHaveLength(1)
+    })
+
+    it('read in the turn, not before it: what a Z ahead of it changed is what counts', async () => {
+      const w = await theUnit()
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      const held = gate()
+      w.sim!.unfiscalizedUnit = false
+      w.sim!.beforeCommand = cmd => (cmd === 0x38 ? held.closed : undefined)
+      const sale = w.sell(1)
+      await until(() => w.sim!.executed.some(c => c.cmd === 0x35), 'the sale to hold the device')
+      w.sim!.unfiscalizedUnit = true
+      const paying = pay(w, d.id, 24)
+      await until(async () => (await receiptsOf(d.id)).length === 1, 'the receipt to wait its turn')
+      w.sim!.beforeCommand = null
+      held.open()
+      await sale
+
+      expect((await paying).status).toBe(200)
+      expect((await receiptsOf(d.id))[0].register.fiscal.mode).toBe('text')
+    })
+
+    it('a status read that fails is never "not fiscalized": nothing prints, and the money is not taken', async () => {
+      const w = await theUnit()
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      const device = w.sim!.executed.length
+      w.sim!.silent = true
+
+      const r = await pay(w, d.id, 24)
+
+      expect(r.status).toBe(503)
+      expect(r.json.code).toBe('fiscal_error')
+      expect(w.sim!.executed.length).toBe(device)
+      const [receipt] = await receiptsOf(d.id)
+      expect(receipt.register.fiscal.state).toBe('failed')
+      expect(receipt.register.fiscal.mode).toBe('fiscal')
+      expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    })
+
+    it('a receipt that started fiscally stays fiscal, whatever the device says now: it never turns into text', async () => {
+      const w = await theUnit()
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      const key = 'status-fails-0001'
+      const hash = requestHash(`invoice.payment:${d.id}`, { date: TODAY, amount: 24, method: 'cash' })
+      const body = receiptBody({ doc: await raw(d.id), amount: 24, whole: false, printsText: true, receipts: [] })!
+      const document = paymentReceiptDocument({
+        invoice: await raw(d.id), body, tender: { method: 'cash', amount: 24, date: new Date() },
+        session: { id: w.sessionId, warehouseId: String(w.warehouse._id) }, user: { id: String(w.user._id), operatorCode: '0001' }, printer: { deviceNumber: 'ED123456' } as any,
+      })
+      const dead: any = await Invoice.create({
+        ...document, invoiceNumber: 'CS-2026-77001', leaseUntil: new Date(Date.now() - 1000), clientKey: key, requestHash: hash,
+        register: { ...document.register, unp: 'ED123456-0001-0000077', fiscal: { state: 'pending', mode: 'fiscal', attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber } },
+      })
+      await Invoice.updateOne({ _id: d.id }, { $push: { receiptHolds: { receiptId: dead._id, amount: 24 } } })
+
+      // `printOnce` judges what it left: proved not printed, so it prints fiscally, and the unit refuses.
+      const r = await w.call('POST', `/invoices/${d.id}/payments`, { date: TODAY, amount: 24, method: 'cash' }, key)
+
+      expect(r.status).toBe(503)
+      expect(closedTexts(w)).toBe(0)
+      const after: any = await Invoice.findById(dead._id).lean().exec()
+      expect(after.register.isFiscal).toBe(true)
+      expect(after.register.fiscal).toMatchObject({ mode: 'fiscal', state: 'failed' })
+      expect(await raw(d.id)).toMatchObject({ amountPaid: 0 })
+    })
+
+    it('a text attempt on a device fiscalized since is held: its counter proves nothing, and nothing prints', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      const key = 'fiscalized-since-0001'
+      const hash = requestHash(`invoice.payment:${d.id}`, { date: TODAY, amount: 24, method: 'cash' })
+      const body = receiptBody({ doc: await raw(d.id), amount: 24, whole: false, printsText: true, receipts: [] })!
+      const document = paymentReceiptDocument({
+        invoice: await raw(d.id), body, tender: { method: 'cash', amount: 24, date: new Date() },
+        session: { id: w.sessionId, warehouseId: String(w.warehouse._id) }, user: { id: String(w.user._id), operatorCode: '0001' }, printer: { deviceNumber: 'ED123456' } as any,
+      })
+      const dead: any = await Invoice.create({
+        ...document, invoiceNumber: 'CS-2026-77002', leaseUntil: new Date(Date.now() - 1000), clientKey: key, requestHash: hash,
+        register: { ...document.register, isFiscal: false, fiscal: { state: 'pending', mode: 'text', attemptedAt: new Date() } },
+      })
+      await Invoice.updateOne({ _id: d.id }, { $push: { receiptHolds: { receiptId: dead._id, amount: 24 } } })
+
+      const r = await w.call('POST', `/invoices/${d.id}/payments`, { date: TODAY, amount: 24, method: 'cash' }, key)
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('receipt_in_doubt')
+      expect(w.sim!.receipts).toHaveLength(0)
+      expect(closedTexts(w)).toBe(0)
+    })
+
+    it('a device that prints no text fails with a message that makes sense in the back office', async () => {
+      const w = await theUnit()
+      const printer = new EltradeFiscalPrinter(w.sim!.exchange, w.deviceId)
+      unregisterPrinter(w.deviceId)
+      registerPrinter(w.deviceId, new Proxy(printer, {
+        get: (t: any, k) => (k === 'openNonFiscalReceipt' ? undefined : typeof t[k] === 'function' ? t[k].bind(t) : t[k]),
+      }))
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+
+      const r = await pay(w, d.id, 24)
+
+      expect(r.status).toBe(503)
+      expect(r.json.message).toContain('not fiscalized')
+      expect(r.json.message).not.toContain('switch')
+      expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+      expect(fiscalCommands(w)).toHaveLength(0)
+    })
+
+    it('someone with no operator code can pay on such a device, as a text sale can; on a fiscal one they cannot', async () => {
+      const w = await theUnit()
+      const token = await signed(w, { operatorCode: undefined })
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+
+      expect((await pay(w, d.id, 10, 'cash', undefined, token)).status).toBe(200)
+
+      w.sim!.unfiscalizedUnit = false
+      const refused = await pay(w, d.id, 10, 'cash', undefined, token)
+      expect(refused.status).toBe(400)
+      expect(refused.json.message).toContain('operator code')
+      expect(await raw(d.id)).toMatchObject({ amountPaid: 10 })
+    })
+  })
+})
 
 describe('scripts/settle-cash-invoices where LGR prints (finding 11)', () => {
   it('an org where LGR prints is refused by name, and skipped otherwise, and one that prints nothing is taken', async () => {
@@ -1857,8 +2336,6 @@ describe('§2.7 — once a receipt has printed, the total is the receipt\'s', ()
     const w = await tillWorld(app)
     const d = await draftOf(w, { method: 'bank_transfer' })
     await send(w, d.id)
-    const { paymentReceiptDocument } = await import('services/biz/cash-register/payment-receipt.service')
-    const { receiptBody } = await import('services/biz/cash-register/receipt-lines')
     const invoice = await raw(d.id)
     const document = paymentReceiptDocument({
       invoice, body: receiptBody({ doc: invoice, amount: 24, whole: false, printsText: true, receipts: [] })!,
@@ -2328,8 +2805,6 @@ describe('§2.7 — once a receipt has printed, the total is the receipt\'s', ()
 describe('print-once, reused unchanged (#155)', () => {
   /** A receipt its request left at `fiscal`, its lease lapsed: the process died there. */
   async function interrupted(w: TillWorld, d: { id: string; total: number }, fiscal: Record<string, unknown>, o: { key?: string; hash?: string; method?: string } = {}) {
-    const { paymentReceiptDocument } = await import('services/biz/cash-register/payment-receipt.service')
-    const { receiptBody } = await import('services/biz/cash-register/receipt-lines')
     const invoice = await raw(d.id)
     const body = receiptBody({ doc: invoice, amount: d.total, whole: false, printsText: true, receipts: [] })!
     const document = paymentReceiptDocument({

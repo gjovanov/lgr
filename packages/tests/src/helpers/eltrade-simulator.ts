@@ -87,6 +87,11 @@ export class EltradeSimulator {
   fiscalMemory = '44123456'
   rates: number[] = [0, 20, 20, 9, 0, 0, 0, 0]
   fiscalized = true
+  /**
+   * The unit in the field: serial set, nothing else. No ЕИК and a fiscal memory not formatted, so its
+   * status reads S4=84h, S5=90h, and 90h is refused until service sets it up. Text receipts print.
+   */
+  unfiscalizedUnit = false
   paper = true
   clockNotSet = false
   /** Mimic the ErpNet.FP #166 A1: "general error" + NRA-link bits raised on a healthy device. */
@@ -251,7 +256,7 @@ export class EltradeSimulator {
         return '0002'
 
       case 0x90: {
-        if (receiptOpen || this.nonFiscalOpen) { flags.notAllowed = true; return '' }
+        if (this.unfiscalizedUnit || receiptOpen || this.nonFiscalOpen) { flags.notAllowed = true; return '' }
         const header = text.split(',')
         const unp = header[1] || ''
         if (!/^[A-Z]{2}\d{6}-[0-9A-Za-z]{4}-\d{7}$/.test(unp) || unp.slice(0, 8) !== this.serial) {
@@ -391,9 +396,9 @@ export class EltradeSimulator {
     if (!this.paper) s[2] |= 0x01
     if (this.receipt) s[2] |= 0x08
     if (this.nonFiscalOpen) s[2] |= 0x20
-    s[4] |= 0x06 // serial + FM number set, EIK set
-    s[5] |= 0x12 // FM formatted, tax rates set
-    if (this.fiscalized) s[5] |= 0x08
+    s[4] |= this.unfiscalizedUnit ? 0x04 : 0x06 // serial set; with it, FM number and EIK
+    s[5] |= this.unfiscalizedUnit ? 0x10 : 0x12 // tax rates set; with it, FM formatted
+    if (this.fiscalized && !this.unfiscalizedUnit) s[5] |= 0x08
     return Uint8Array.from(s)
   }
 }

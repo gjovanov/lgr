@@ -400,11 +400,15 @@ export async function printSaleStep(c: RegisterContext, doc: any): Promise<any> 
   }
   if (doc.register?.fiscal?.mode === 'text') {
     if (!printer.printsText) {
-      const receiptError = 'This fiscal device cannot print non-fiscal receipts — switch "Non-fiscal" off to issue a fiscal receipt.'
+      // A payment's receipt prints text because the device said so, and nobody has a switch for that.
+      const receiptError = doc.type === 'payment_receipt'
+        ? 'This fiscal device is not fiscalized and cannot print a text receipt, so the receipt was not printed.'
+        : 'This fiscal device cannot print non-fiscal receipts — switch "Non-fiscal" off to issue a fiscal receipt.'
       return setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': receiptError, receiptError })
     }
     // A text receipt has no legal weight: an interrupted one is simply printed again.
     await setRegister(doc._id, { 'fiscal.attemptedAt': new Date() })
+    await datedAsItPrints(doc)
     try {
       await printer.printText(doc)
       await printer.reached()

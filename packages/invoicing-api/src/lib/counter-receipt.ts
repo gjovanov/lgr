@@ -25,6 +25,7 @@ import {
   type ReceiptTender,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { receiptBody } from 'services/biz/cash-register/receipt-lines'
+import { receiptMode } from 'services/biz/cash-register/receipt-mode'
 import {
   RegisterRefusal, insertRegisterDocument, settleKeyedDocument, type RegisterContext, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
@@ -79,8 +80,14 @@ export async function prepareReceipt(orgId: string, user: RegisterUser, doc: any
       message: `Open a session at the till first: a payment at the counter prints its receipt on that session's device. ${PRINTER_GATE_SWITCH}`,
     })
   }
-  const context = await tillContext(orgId, user, session, { needsOperator: true })
+  const context = await tillContext(orgId, user, session, { needsOperator: false })
   await assertPrinterConnected(orgId, String(session.warehouseId), context)
+  // A fiscal receipt names its operator, and a text one does not, as a text sale does not. Only for
+  // who has no code is the device asked here, so that it is refused before anything is written. The
+  // turn asks again, and decides: a device that cannot say counts as fiscal.
+  if (!user.operatorCode && (await receiptMode(context.printer!).catch(() => 'fiscal')) === 'fiscal') {
+    throw new RegisterRefusal(400, { message: 'User has no operator code. Contact admin to assign one before using POS with fiscal device.' })
+  }
   assertTillTender([tender], tender.amount, context.printer)
   await assertSaleMayOpen(orgId, session.warehouseId)
 

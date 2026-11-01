@@ -57,6 +57,7 @@ import { PAYMENT_RECEIPT } from './pos-union.js'
 import { provedNotPrinted } from './print-verdict.js'
 import type { RegisterPrinter } from './printer.js'
 import type { ReceiptBody } from './receipt-lines.js'
+import { receiptMode } from './receipt-mode.js'
 import {
   RegisterRefusal, applySessionTotals, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, readDevice, rollBack,
   saleIncrements, setRegister, type RegisterContext, type RegisterSession, type RegisterUser,
@@ -66,10 +67,10 @@ type ObjectId = InstanceType<typeof Invoice.base.Types.ObjectId>
 const oid = (v: unknown): ObjectId => new Invoice.base.Types.ObjectId(String(v))
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 
-/** §2.7: a printed receipt cannot change, so what it printed cannot either. */
+/** §2.7: a printed receipt cannot change, so what it printed cannot either. A text one holds its money the same way. */
 const FISCALLY_PAID = {
   code: 'fiscally_paid',
-  message: 'A fiscal receipt has printed for this document, so its total can no longer change and it cannot be voided. Correct it with a credit or a debit note.',
+  message: 'A receipt has printed for this document, so its total can no longer change and it cannot be voided. Correct it with a credit or a debit note.',
 } as const
 
 /** The payment methods a receipt prints for at the counter (owner, Q-2): those taken as a document is issued. */
@@ -212,7 +213,7 @@ const mayOweDeliveryReceipt = (doc: any) => !!doc?.deliveryReceiptOwed && doc.pa
 const RECEIPT_FIELDS = { type: 1, status: 1, invoiceNumber: 1, paymentMethod: 1, issueDate: 1, register: 1 }
 
 /** What the form and the PDF say of a document's receipts, of those that took money on it. */
-function paidBy(receipts: any[]): Array<{ number: string; method?: string; unp?: string; receiptNumber?: string; date?: Date }> {
+function paidBy(receipts: any[]): Array<{ number: string; method?: string; unp?: string; receiptNumber?: string; date?: Date; text?: true }> {
   return receipts
     .filter(d => receiptTookMoney(toPosTransaction(d) as any))
     .map(d => ({
@@ -220,6 +221,7 @@ function paidBy(receipts: any[]): Array<{ number: string; method?: string; unp?:
       method: d.paymentMethod,
       ...(d.register?.unp ? { unp: d.register.unp } : {}),
       ...(d.register?.fiscalReceiptNumber ? { receiptNumber: d.register.fiscalReceiptNumber } : {}),
+      ...(d.register?.fiscal?.mode === 'text' ? { text: true as const } : {}),
       date: d.issueDate,
     }))
 }
@@ -306,6 +308,7 @@ export function paymentReceiptDocument(input: PaymentReceiptInput): Record<strin
       cashierId: oid(user.id),
       fiscalDeviceNumber: printer.deviceNumber,
       ...(user.operatorCode ? { operatorCode: user.operatorCode } : {}),
+      // Until its turn on the device, which decides (`decideMode`).
       isFiscal: true,
       fiscal: { state: 'pending', mode: 'fiscal' },
       changeDue: 0,
@@ -431,23 +434,53 @@ async function giveUp(c: RegisterContext, doc: any): Promise<any> {
   return voided ?? Invoice.findById(doc._id).lean().exec()
 }
 
+/**
+ * How this receipt prints, decided in its turn, from what the device says now (`receiptMode`). A fiscal
+ * one draws its УНП here. A text one has none, as a text sale has none: nothing on a device cites it.
+ *
+ * ⚠ A receipt that started fiscally stays fiscal, whatever the device says now: what it may have left
+ * there is `printOnce`'s to judge. One that started as text is asked again, so a fiscalized device
+ * can never print text. It then goes to `printOnce`, which has no counter to read for it, and holds it.
+ */
+async function decideMode(c: RegisterContext, printer: RegisterPrinter, doc: any): Promise<any> {
+  const fiscal = doc.register?.fiscal
+  if (fiscal?.attemptedAt && fiscal.mode !== 'text') return doc
+  if ((await receiptMode(printer)) === 'text') {
+    return fiscal?.mode === 'text' ? doc : setRegister(doc._id, { isFiscal: false, 'fiscal.mode': 'text' })
+  }
+  const operatorCode = c.user.operatorCode ?? doc.register?.operatorCode
+  if (!operatorCode) throw new Error('This user has no operator code, and a fiscal receipt names its operator.')
+  return setRegister(doc._id, {
+    isFiscal: true, 'fiscal.mode': 'fiscal',
+    ...(doc.register?.unp ? {} : { unp: await generateUNP(c.orgId, printer.deviceNumber, operatorCode as string) }),
+  })
+}
+
 /** The print, in the receipt's turn. What cannot print: failed if it never reached the device, else in doubt. */
 async function printReceiptStep(c: RegisterContext, doc: any): Promise<any> {
-  const couldNot = (reason: string) => (doc.register?.fiscal?.attemptedAt
-    ? holdInDoubt(doc)
-    : setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': reason, receiptError: reason }))
-  if (!c.printer) return couldNot('The fiscal device is no longer connected, so the receipt was not printed.')
+  const couldNot = (receipt: any, reason: string) => (receipt.register?.fiscal?.attemptedAt
+    ? holdInDoubt(receipt)
+    : setRegister(receipt._id, { 'fiscal.state': 'failed', 'fiscal.error': reason, receiptError: reason }))
+  const printer = c.printer
+  if (!printer) return couldNot(doc, 'The fiscal device is no longer connected, so the receipt was not printed.')
   try {
-    return await inTurn(c.printer, doc, async (fresh) => {
+    return await inTurn(printer, doc, async (fresh) => {
       // In the turn, so that a close finds this receipt or this receipt finds the close: money that
       // lands after the day was counted is in no session's drawer (`pos.controller.ts`, the close).
       const open = await POSSession.exists({ _id: fresh.register?.sessionId, status: 'open' }).exec()
-      if (!open) return couldNot('The session closed before this receipt could print.')
-      return printSaleStep(c, fresh)
+      if (!open) return couldNot(fresh, 'The session closed before this receipt could print.')
+      let decided: any
+      try {
+        decided = await decideMode(c, printer, fresh)
+      } catch (e: any) {
+        // ⚠ Never text: the path of a device that went away.
+        return couldNot(fresh, `The device could not say how it prints, so the receipt was not printed: ${e?.message}`)
+      }
+      return printSaleStep(c, decided)
     })
   } catch (e: any) {
     if (e?.code !== 'device_busy') throw e
-    return couldNot(e.message)
+    return couldNot(doc, e.message)
   }
 }
 
@@ -478,9 +511,6 @@ export async function runReceiptSteps(c: RegisterContext, id: string, opts: { ne
     doc = numbered
   }
 
-  if (c.printer && doc.register?.fiscal?.state === 'pending' && !doc.register?.unp) {
-    doc = await setRegister(doc._id, { unp: await generateUNP(c.orgId, c.printer.deviceNumber, (c.user.operatorCode ?? doc.register?.operatorCode) as string) })
-  }
   if (doc.register?.fiscal?.state === 'pending') doc = await printReceiptStep(c, doc)
   // Given up, or a person's to settle: nothing more happens to it here.
   if (doc.status === 'voided' || doc.register?.fiscal?.inDoubt) return doc
