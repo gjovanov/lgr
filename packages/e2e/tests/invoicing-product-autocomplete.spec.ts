@@ -45,6 +45,11 @@ test.describe('Invoicing Product Autocomplete', () => {
     await lineQuantity(row).fill('5')
     await lineQuantity(row).press('Tab')
     await expect(row.getByTestId('price-combobox')).toContainText('8.00000', { timeout: 5000 })
+
+    // And back: the tier's price was resolved, not chosen, so it is not the line's to keep.
+    await lineQuantity(row).fill('1')
+    await lineQuantity(row).press('Tab')
+    await expect(row.getByTestId('price-combobox')).toContainText('10.00000', { timeout: 5000 })
   })
 
   // A resolved price comes back by itself; one the person typed must not be replaced by it.
