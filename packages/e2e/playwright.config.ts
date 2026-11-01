@@ -100,7 +100,7 @@ export default defineConfig({
       // ⚠ Run it with `--workers=1`: the specs print on the one stub and use its one device row.
       name: 'cash-register-fiscal',
       use: { ...devices['Desktop Chrome'], baseURL },
-      testMatch: ['cash-register-fiscal.spec.ts', 'cash-invoice-receipts.spec.ts', 'cash-invoice-text-receipts.spec.ts', 'eltrade-device-page.spec.ts'],
+      testMatch: ['cash-register-fiscal.spec.ts', 'cash-invoice-receipts.spec.ts', 'cash-invoice-refunds.spec.ts', 'cash-invoice-text-receipts.spec.ts', 'eltrade-device-page.spec.ts'],
       fullyParallel: false,
     },
     {

@@ -49,6 +49,7 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
   let stillDue = ''
   let owedReceipt = ''
   let cashDraft = ''
+  let refundDue = ''
   let token = ''
   const sim = new EltradeSimulator()
   const bridges: WebSocket[] = []
@@ -282,6 +283,75 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
     cashDraft = await invoiceOnPodB('cash')
   })
 
+  it('a credit note issued in cash on pod B prints one storno, through pod A, citing the receipt, and its retry none (FR-23 R2)', async () => {
+    const invoice = await invoiceOnPodB('cash')
+    expect((await api('b', 'POST', `/invoices/${invoice}/send`, {})).status).toBe(200)
+    const receipt: any = await Invoice.findOne({ type: 'payment_receipt', 'register.paidInvoiceId': invoice }).lean().exec()
+    const note = await invoiceOnPodB('cash', { type: 'credit_note', relatedInvoiceId: invoice })
+    const before = sim.receipts.length
+
+    const res = await api('b', 'POST', `/invoices/${note}/send`, {}, 'two-pods-refund-issue')
+
+    expect(res.status).toBe(200)
+    expect(res.json.receipt.state).toBe('printed')
+    expect(res.json.invoice).toMatchObject({ status: 'paid', amountPaid: 12, amountDue: 0 })
+    expect(sim.receipts.length).toBe(before + 1)
+    const storno = sim.receipts.at(-1)!
+    expect(storno.kind).toBe('storno')
+    expect(storno.header[1]).toBe(receipt.register.unp)
+    expect(storno.header[5]).toBe(receipt.register.fiscalReceiptNumber)
+    expect(storno.payments).toEqual([{ mode: 'P', amount: 12 }])
+
+    // The client retrying under the same key (FR-24.51): the first outcome, nothing printed again.
+    const again = await api('b', 'POST', `/invoices/${note}/send`, {}, 'two-pods-refund-issue')
+    expect(again.status).toBe(200)
+    expect(again.json.receipt.number).toBe(res.json.receipt.number)
+    expect(sim.receipts.length).toBe(before + 1)
+  })
+
+  it('a refund asked of pod B prints one storno through pod A, in part, and its retry none; what is left stays for the doors below (FR-23 R2)', async () => {
+    const invoice = await invoiceOnPodB('cash')
+    expect((await api('b', 'POST', `/invoices/${invoice}/send`, {})).status).toBe(200)
+    const note = await invoiceOnPodB('bank_transfer', { type: 'credit_note', relatedInvoiceId: invoice })
+    expect((await api('b', 'POST', `/invoices/${note}/send`, {})).status).toBe(200)
+    const before = sim.receipts.length
+    const refund = { date: new Date().toISOString().slice(0, 10), amount: 4, method: 'cash' }
+
+    const res = await api('b', 'POST', `/invoices/${note}/payments`, refund, 'two-pods-refund-part')
+
+    expect(res.status).toBe(200)
+    expect(res.json.invoice).toMatchObject({ status: 'partially_paid', amountPaid: 4 })
+    expect(sim.receipts.length).toBe(before + 1)
+    expect(sim.receipts.at(-1)).toMatchObject({ kind: 'storno', total: 4 })
+
+    const again = await api('b', 'POST', `/invoices/${note}/payments`, refund, 'two-pods-refund-part')
+    expect(again.status).toBe(200)
+    expect(again.json.invoice).toMatchObject({ amountPaid: 4 })
+    expect(sim.receipts.length).toBe(before + 1)
+    refundDue = note
+  })
+
+  it('a refund and a sale at once, asked of either pod, take turns on the device pod A holds (FR-23 R2)', async () => {
+    const invoice = await invoiceOnPodB('cash')
+    expect((await api('b', 'POST', `/invoices/${invoice}/send`, {})).status).toBe(200)
+    const note = await invoiceOnPodB('bank_transfer', { type: 'credit_note', relatedInvoiceId: invoice })
+    expect((await api('b', 'POST', `/invoices/${note}/send`, {})).status).toBe(200)
+    const sale = await invoiceOnPodB('bank_transfer')
+    expect((await api('b', 'POST', `/invoices/${sale}/send`, {})).status).toBe(200)
+    const before = sim.receipts.length
+    const today = new Date().toISOString().slice(0, 10)
+
+    const answers = await Promise.all([
+      api('a', 'POST', `/invoices/${note}/payments`, { date: today, amount: 12, method: 'cash' }),
+      api('b', 'POST', `/invoices/${sale}/payments`, { date: today, amount: 12, method: 'cash' }),
+    ])
+
+    expect(answers.map(a => a.status)).toEqual([200, 200])
+    const printed = sim.receipts.slice(before)
+    expect(printed.map(r => r.kind).sort()).toEqual(['fiscal', 'storno'])
+    expect(printed.every(r => !r.voided && r.total === 12)).toBe(true)
+  })
+
   it('closing the session on pod B prints its Z-report once, on the device pod A holds', async () => {
     const before = sim.reports.length
     const res = await api('b', 'POST', `/trade/pos/session/${sessionId}/close`, { counted: { cash: 0 } }, 'two-pods-close-001')
@@ -377,21 +447,23 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
   }, 70_000)
 
   /** A draft of one free line, 12 gross at 20 %, as the form saves it: it moves no stock. */
-  async function invoiceOnPodB(paymentMethod: string) {
+  async function invoiceOnPodB(paymentMethod: string, extra: Record<string, unknown> = {}) {
     const res = await api('b', 'POST', '/invoices', {
       type: 'invoice', direction: 'outgoing', contactId, issueDate: new Date().toISOString().slice(0, 10), currency: 'EUR', paymentMethod,
       lines: [{ description: 'Услуга', quantity: 1, unit: 'бр.', unitPrice: 10, taxRate: 20, taxAmount: 2, lineTotal: 12 }],
       subtotal: 10, taxTotal: 2, total: 12,
+      ...extra,
     })
     expect(res.status).toBe(200)
     return String(res.json.invoice.id)
   }
 
-  /** Issue a cash draft, pay part of an invoice, print a delivery receipt: all of it on the pod still up. */
+  /** Issue a cash draft, pay part of an invoice, print a delivery receipt, refund a credit note: all of it on the pod still up. */
   const theDoors = async () => [
     await api(other(holder), 'POST', `/invoices/${cashDraft}/send`, {}),
     await api(other(holder), 'POST', `/invoices/${stillDue}/payments`, { date: new Date().toISOString().slice(0, 10), amount: 8, method: 'cash' }),
     await api(other(holder), 'POST', `/invoices/${owedReceipt}/receipt`, {}),
+    await api(other(holder), 'POST', `/invoices/${refundDue}/payments`, { date: new Date().toISOString().slice(0, 10), amount: 8, method: 'cash' }),
   ]
 
   /** What a refused door must leave as it was: the documents, their money, and the device's paper. */
@@ -406,6 +478,7 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
       draft: await money(cashDraft),
       partPaid: await money(stillDue),
       owed: await money(owedReceipt),
+      refund: await money(refundDue),
     }
   }
 })
