@@ -745,6 +745,35 @@ describe('a sale that went unknown is refunded with no storno on the device: not
     expect((await w.stock()).quantity).toBe(stock.quantity)
   })
 
+  it('a sale that came into doubt as it was read: its number was never asked for, so it is not claimed', async () => {
+    const w = await tillWorld(app)
+    const saleId = await saleInDoubt(w)
+    await Invoice.updateOne({ _id: saleId }, { $set: { 'register.fiscal.state': 'pending', leaseUntil: new Date(Date.now() + 60_000) } })
+    // Its print ends as the settle reads it: `pending` and alive at the read, `unknown` at the claim.
+    const real = Invoice.findOne
+    let once = true
+    ;(Invoice as any).findOne = function (...args: any[]) {
+      const query = (real as any).apply(Invoice, args)
+      if (!once || typeof args[0]?._id === 'string' || String(args[0]?._id) !== saleId || !args[0]?.type?.$in) return query
+      once = false
+      return { lean: () => ({ exec: async () => {
+        const doc = await query.lean().exec()
+        await Invoice.updateOne({ _id: saleId }, { $set: { 'register.fiscal.state': 'unknown' } })
+        return doc
+      } }) }
+    }
+    let r: any
+    try {
+      r = await settle(w, saleId, true)
+    } finally {
+      ;(Invoice as any).findOne = real
+    }
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_not_in_doubt')
+    expect((await read(saleId)).register.fiscal.state).toBe('unknown')
+  })
+
   it('the same rights as a storno, and a second settle changes nothing', async () => {
     const w = await tillWorld(app)
     const saleId = await saleInDoubt(w)
