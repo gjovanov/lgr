@@ -847,8 +847,8 @@
       "switchOperator": "Bediener wechseln"
     },
     "printerRequired": {
-      "notConnected": "Verbinden Sie den Fiskaldrucker, um zu verkaufen.",
-      "notConfigured": "Für dieses Lager ist kein Fiskaldrucker eingerichtet. Wenden Sie sich an den Administrator."
+      "notConnected": "Verbinden Sie den Fiskaldrucker, um zu verkaufen. Eine Organisation, die hier nichts druckt, schaltet „Verkauf nur mit verbundenem Fiskaldrucker“ unter Einstellungen → Organisation → Kasse aus.",
+      "notConfigured": "Für dieses Lager ist kein Fiskaldrucker eingerichtet. Wenden Sie sich an den Administrator. Eine Organisation, die hier nichts druckt, schaltet „Verkauf nur mit verbundenem Fiskaldrucker“ unter Einstellungen → Organisation → Kasse aus."
     },
     "sessionDocuments": "Barverkäufe der Sitzung {number}",
     "deviceReport": {
@@ -961,7 +961,7 @@
       "payment": "Rechnungszahlung"
     },
     "receipt": {
-      "noSession": "Öffnen Sie zuerst eine Kassensitzung: Eine Zahlung an der Kasse druckt ihren Beleg auf dem Gerät dieser Sitzung.",
+      "noSession": "Öffnen Sie zuerst eine Kassensitzung: Eine Zahlung an der Kasse druckt ihren Beleg auf dem Gerät dieser Sitzung. Eine Organisation, die hier nichts druckt, schaltet „Verkauf nur mit verbundenem Fiskaldrucker“ unter Einstellungen → Organisation → Kasse aus.",
       "inProgress": "Eine andere Zahlung zu diesem Dokument wird gerade gedruckt. Warten Sie, bis sie fertig ist, und versuchen Sie es erneut.",
       "fiscallyPaid": "Für dieses Dokument wurde ein Fiskalbeleg gedruckt: Sein Betrag kann nicht mehr geändert und es kann nicht storniert werden. Korrigieren Sie es mit einer Gut- oder Lastschrift.",
       "currency": "Das Kassengerät druckt in einer anderen Währung als dieses Dokument. Nehmen Sie diese Zahlung per Bank an.",
@@ -1142,7 +1142,7 @@
     "cashRegister": {
       "title": "Kasse",
       "requireConnectedDevice": "Verkauf nur mit verbundenem Fiskaldrucker",
-      "requireConnectedDeviceHint": "Nur für eine Organisation ausschalten, deren Verkäufe hier nicht gedruckt werden: eine Demo- oder Testorganisation oder eine, die noch eine andere Kasse nutzt. Ausgeschaltet druckt LGR nichts: Bar- und Kartenrechnungen gelten bei der Ausstellung als bezahlt, ohne Beleg."
+      "requireConnectedDeviceHint": "Ein: Ein Verkauf und eine Bar- oder Kartenrechnung brauchen eine offene Sitzung und einen verbundenen Fiskaldrucker, und LGR druckt den Fiskalbeleg. Aus: LGR druckt nichts, Bar- und Kartenrechnungen gelten bei der Ausstellung als bezahlt, ohne Beleg. Eine neue Organisation beginnt mit Aus."
     }
   },
   "admin": {
@@ -3330,10 +3330,10 @@
     "saved": "Gespeichert"
   },
   "licence": {
-    "evaluation": "Dieser Server hat noch keine Lizenz für diese Organisation und läuft in einer 30-tägigen Testphase. Neue Kassensitzungen und Verkaufsbelege werden am {date} gestoppt, wenn er nicht mit lgrai.app verbunden wird oder eine Lizenzdatei erhält.",
-    "grace": "Die Lizenz dieses Servers ist am {paid} abgelaufen. Neue Kassensitzungen und Verkaufsbelege werden am {date} gestoppt, wenn sie nicht auf lgrai.app verlängert wird.",
-    "restricted": "Die Lizenz dieses Servers ist abgelaufen: Seit dem {date} werden keine neuen Kassensitzungen geöffnet und keine neuen Verkaufsbelege ausgestellt. Lesen, Exporte, Tagesabschluss, Gutschriften und Zahlungen funktionieren weiterhin. Ein Administrator verlängert sie auf lgrai.app.",
-    "restrictedEvaluation": "Dieser Server hat keine Lizenz für diese Organisation und die 30-tägige Testphase ist abgelaufen: Seit dem {date} werden keine neuen Kassensitzungen geöffnet und keine neuen Verkaufsbelege ausgestellt. Lesen, Exporte, Tagesabschluss, Gutschriften und Zahlungen funktionieren weiterhin.",
+    "evaluation": "Dieser Server hat noch keine Lizenz für diese Organisation und läuft in einer 30-tägigen Testphase. Neue Kassenverkäufe und Verkaufsbelege werden am {date} gestoppt, wenn er nicht mit lgrai.app verbunden wird oder eine Lizenzdatei erhält.",
+    "grace": "Die Lizenz dieses Servers ist am {paid} abgelaufen. Neue Kassenverkäufe und Verkaufsbelege werden am {date} gestoppt, wenn sie nicht auf lgrai.app verlängert wird.",
+    "restricted": "Die Lizenz dieses Servers ist abgelaufen: Seit dem {date} werden an der Kasse keine neuen Verkäufe erfasst und keine neuen Verkaufsbelege ausgestellt. Eine Kassensitzung lässt sich weiterhin öffnen, um Zahlungen auf bestehende Belege anzunehmen. Lesen, Exporte, Tagesabschluss, Gutschriften und Zahlungen funktionieren weiterhin. Ein Administrator verlängert sie auf lgrai.app.",
+    "restrictedEvaluation": "Dieser Server hat keine Lizenz für diese Organisation und die 30-tägige Testphase ist abgelaufen: Seit dem {date} werden an der Kasse keine neuen Verkäufe erfasst und keine neuen Verkaufsbelege ausgestellt. Eine Kassensitzung lässt sich weiterhin öffnen, um Zahlungen auf bestehende Belege anzunehmen. Lesen, Exporte, Tagesabschluss, Gutschriften und Zahlungen funktionieren weiterhin.",
     "problem": "Eine Lizenzdatei ist vorhanden und wurde nicht verwendet: {why}.",
     "problems": {
       "malformed": "sie ist keine Lizenz",

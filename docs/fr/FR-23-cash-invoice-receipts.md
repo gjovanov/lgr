@@ -69,7 +69,11 @@ Today, an invoice paid in cash is settled on issue (`syncCashSettlement`, paymen
 - **Through the issuing user's open session**, on that session's device (D-13). The cash goes into that drawer.
 - **No open session, or the device isn't connected:** refused before anything is written, the printer gate's 409 `fiscal_device_not_connected` (#390). Nothing is issued as paid, and no number or УНП is drawn.
 - **Orgs where LGR prints nothing:** with the gate's switch off (`settings.cashRegister.requireConnectedDevice: false`), cash invoices behave as today: settled on issue, no receipt. There is one switch, not two (owner, Q-4).
-- ⚠ **R1's deploy order:** the regal stores' till is still PlusMinus, so `regal-pz` and `regal-sf` get the switch set off BEFORE R1 deploys. Unset means required, and every cash invoice there would then need an LGR device. Each store turns it on when it moves to the LGR till.
+- **Off unless the org opts in (owner, 2026-11-01).** Every path that creates an org writes the switch off, explicitly: `defaultOrgSettings` (registration, OAuth, `POST /auth/orgs`), the demo seed and `import-regal-pz`. An org turns it on when its sales print here. ⚠ This narrows #390's "every org": the gate binds an org that opted in, or that predates this and was not turned off below. There is one switch, so it narrows the till's gate with the invoices'.
+- ⚠ **An UNSET value still reads as on.** `regal`'s real till depends on that, and a default flipped under it would stop its gate silently. New orgs get an explicit false instead, and the reading does not change.
+- **Existing orgs are a data step, not code:** `scripts/printer-gate-off.ts`, dry-run by default, native driver, no indexes or collections created. It sets the one path, only where it differs, on every org with no active fiscal device, plus `regal-pz` by name, which has a device and whose till is still PlusMinus. It refuses `regal`: out of its plan whatever it holds, out of its write's filter, and naming it stops the script.
+- ⚠ **R1's deploy order:** that script runs BEFORE R1 deploys, because every cash invoice in an org with the gate unset would then need an LGR device. Each store turns the switch on when it moves to the LGR till.
+- **Every refusal of the gate names the switch and where it lives** (Settings → Organization → Cash register), in all four languages and in the API's own message: an org with no printer has no other way out.
 
 ### 2.4 Order of operations
 
@@ -150,8 +154,9 @@ Each release goes through Atanas's protocol on #171, and the SUPTO docs change i
   - ✓ Answered 2026-10-31: a card payment at the counter prints as cash does.
   - ✓ Answered 2026-10-31: a COD invoice prints at issue on slot R.
 - **Q-3 — Wording.** ✓ Answered 2026-10-31: built as proposed, itemised lines plus „Фактура № …" for a whole payment at issue, and „Плащане по фактура № …" per VAT rate otherwise. The accountant reviews it in real time before go-live.
-- **Q-4 — Which orgs print.** ✓ Answered 2026-10-31: the printer gate's switch decides. Off means LGR prints nothing and cash invoices stay as today.
+- **Q-4 — Which orgs print.** ✓ Answered 2026-10-31: the printer gate's switch decides. Off means LGR prints nothing and cash invoices stay as today. ✓ Answered 2026-11-01: off unless the org opts in, with an unset value still reading as on (§2.3).
 - **Q-5 — Freeze.** ✓ Answered 2026-10-31: once a receipt has printed for an invoice, its total is corrected only by credit and debit notes.
+- **Q-6 — An expired licence.** ✓ Answered 2026-11-01: a session may open, and sales stay blocked. Refusing the session refused the payment `licence-gate.ts` promises to leave alone. Under `restricted` a session takes a cash or card payment on an existing document, issues an existing draft and closes its day; a new till sale and a new sales document answer 402.
 
 ## 6. R1 as built (2026-10-31)
 
@@ -183,4 +188,5 @@ Where the spec left a choice, what was chosen:
 - **A cash or card header on an unpaid invoice is no money** in sales history or the digest. The document stays listed.
 - **A refused `/send` cancels the draft transfers drawn up for it.**
 - **On a Tremol the number stays in the line's name.** The driver cuts a name at 34 characters and keeps no free text, so the wording shortens to fit (`lineNameMax`); `unknown` is never stored as a receipt number, and a storno of a sale with no number stays fiscal.
-- **Two of the review's items are the owner's to decide and are NOT built:** whether unset should still mean on for every org (finding 4), and whether an expired licence may refuse a counter payment (finding 9).
+- **Under an expired licence "started before" is the local date.** A till sale is refused in a session opened on or after `restrictedFrom`, and one already open keeps selling, as FR-20.55 promised. A debit note written since prints no receipt: its lines are whatever it was given, so that receipt would be a new sale on the device. It can still be issued on a bank transfer.
+- **A device's turn lives in the process holding it, so a move between pods is what can interrupt one.** A graceful stop finishes the queue before it closes the bridges, within `LGR_STOP_WAIT_MS`. A request that waits past the server's 30 s idle limit loses its connection and keeps its place; the `Idempotency-Key` finds what it did. After a crash the receipt's lease (120 s) outlives the presence row (20 s), so for up to two minutes the document answers "printing" on the pod that took the device over, and only then is the receipt proved or held. Nothing prints twice in that window.

@@ -62,7 +62,9 @@ Status*.
 - **A payment on an invoice** prints on the device of the session of whoever takes it (FR-23): an
   invoice issued in cash or by card its lines and „Фактура № …“, any other payment a line per VAT
   rate, „Плащане по фактура № …“. With no open session or no connected device the payment is
-  refused. An org on another till turns this off with „A sale needs a connected fiscal printer“.
+  refused, and the refusal says where the switch is: „A sale needs a connected fiscal printer“ in
+  Settings → Organization → Cash register. A new organization starts with it off, and turns it on
+  when its sales print here.
 - **A receipt in doubt.** If the connection or LGR died during a print and nothing can prove what the
   device did, LGR books no money and prints nothing: the document says so, and payment, a change of its
   total and void wait. Look at the device's journal, then open the receipt in „Касови продажби“ and

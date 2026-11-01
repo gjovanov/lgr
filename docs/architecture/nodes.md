@@ -422,10 +422,15 @@ release.
   issued earlier never replaces a later one. An air-gapped master takes a file:
   `lgr-server licence import <file>`, which a sys-admin downloads from the Licences page.
 - **What it stops** (`licence-state.ts`, `licence-gate.ts`): nothing until the paid-through date plus
-  30 days of grace. From the next local midnight after that, the master opens no till session and
+  30 days of grace. From the next local midnight after that, the master rings up no new till sale and
   starts no new invoice, proforma, cash sale or client order (402 `licence_expired`). Everything else
   goes on: reading, exports, the SUPTO export, backups, closing the day, credit and debit notes,
   payments, bills, imports, issuing a draft, a session already open.
+- **A session still opens** (2026-11-01, FR-23 finding 9). A payment on an existing document prints on
+  a session's device where the org prints, so refusing the session refused the payment. One opened
+  under an expired licence takes that money, issues an existing draft and closes its day. A sale in it
+  answers 402, and so does a receipt for a document started since, which only a debit note can be. A
+  session opened before the restriction keeps selling, as it always did.
 - **No licence at all** is a 30-day evaluation from the master's first start, then the same.
 - ⚠ **Revoking a pilot stops renewals only.** A master verifies offline, so a licence it holds runs
   out on its own dates.

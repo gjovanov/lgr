@@ -2313,11 +2313,16 @@ or card payment on one (whole or in parts), and an invoice on cash on delivery (
 invoice still due until the courier pays).
 
 - ⚠ **There is one switch, the printer gate's** (`settings.cashRegister.requireConnectedDevice`, #390).
-  **Unset means on.** Off, LGR prints nothing and cash invoices behave as they always did. On, a cash
-  invoice with no open session or no connected device is refused before anything is written: 409
+  Off, LGR prints nothing and cash invoices behave as they always did. On, a cash invoice with no open
+  session or no connected device is refused before anything is written: 409
   `fiscal_device_not_connected` (`noSession: true` for the first), no number, no УНП, no claim on the
-  draft. ⚠ An org still on another till (`regal-pz`, `regal-sf`) gets the switch OFF before this
-  deploys, and turns it on when it moves to LGR's till.
+  draft. Each refusal names the switch and where it lives (Settings → Organization → Cash register).
+- ⚠ **Off unless the org opts in, and unset still reads as ON** (owner, 2026-11-01). Every path that
+  creates an org writes `false` explicitly (`defaultOrgSettings`; `new-org-printer-gate.flow.test.ts`
+  walks them, and a new `Org.create` fails it until it is named). Never change the reading: `regal`'s real
+  till depends on unset being on. This narrows #390's "every org", the till's gate with the invoices'.
+- **Existing orgs are `scripts/printer-gate-off.ts`**, which runs BEFORE FR-23 deploys: dry-run by
+  default, off on every org with no active fiscal device and on `regal-pz` by name. ⚠ It refuses `regal`.
 - ⚠ **An imported document NEVER prints.** `syncCashSettlement` is called by `/send`, `PUT` and
   `convertDraftInvoice`, so printing lives in the doors (`invoicing-api/lib/counter-receipt.ts`,
   `prepareReceipt`), never in that function. The conversion settles as it always did, with the switch
@@ -2783,8 +2788,13 @@ An org on its own server runs under a licence global signs (`docs/architecture/n
   `lgr-server licence import <file>`), and the API verifies it again on every change
   (`master-licence.service.ts`). It must name this org AND this master.
 - **What it stops**, from the local midnight after paid-through + 30 days (or after a 30-day
-  evaluation when there is no licence): opening a till session, a new invoice / proforma / cash sale,
-  a new client order, and the three converts (`licence-gate.ts`, 402 `licence_expired`). Nothing else.
+  evaluation when there is no licence): a new till sale, a new invoice / proforma / cash sale, a new
+  client order, and the three converts (`licence-gate.ts`, 402 `licence_expired`). Nothing else.
+- ⚠ **A session still opens** (FR-23, owner 2026-11-01). Where LGR prints, a payment on a document
+  needs a session, so refusing one refused the payment the gate promises to leave alone. The sale is
+  what stops: `/transaction` answers 402 in a session opened on or after `restrictedFrom`, and one
+  opened before keeps selling (`licenceGate`'s `started`). A receipt for a document started since is
+  refused too (`prepareReceipt`): only a debit note can be one, and its lines are whatever it was given.
 - ⚠ **The auth plugins never read a body** for this: naming `body` in a shared Elysia hook makes
   every route parse its body, and the Stripe webhook needs its raw one. `POST /invoices`, which
   decides on its body (credit notes go through), asks `licenceGate` in its handler.

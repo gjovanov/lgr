@@ -807,7 +807,7 @@
     "cashRegister": {
       "title": "Cash register",
       "requireConnectedDevice": "A sale needs a connected fiscal printer",
-      "requireConnectedDeviceHint": "Turn this off only for an organization whose sales do not print here: a demo, a test one, or one still on another till. Off, LGR prints nothing: cash and card invoices are paid as they are issued, with no receipt."
+      "requireConnectedDeviceHint": "On, a sale and a cash or card invoice need an open session and a connected fiscal printer, and LGR prints the fiscal receipt. Off, LGR prints nothing: cash and card invoices are paid as they are issued, with no receipt. A new organization starts off."
     }
   },
   "admin": {
@@ -1548,8 +1548,8 @@
       "switchOperator": "Switch operator"
     },
     "printerRequired": {
-      "notConnected": "Connect the fiscal printer to sell.",
-      "notConfigured": "No fiscal printer is set up for this warehouse. Ask an admin to set one up."
+      "notConnected": "Connect the fiscal printer to sell. An organization that prints nothing here turns \"A sale needs a connected fiscal printer\" off in Settings → Organization → Cash register.",
+      "notConfigured": "No fiscal printer is set up for this warehouse. Ask an admin to set one up. An organization that prints nothing here turns \"A sale needs a connected fiscal printer\" off in Settings → Organization → Cash register."
     },
     "sessionDocuments": "Cash sales of session {number}",
     "deviceReport": {
@@ -1662,7 +1662,7 @@
       "payment": "Invoice payment"
     },
     "receipt": {
-      "noSession": "Open a session at the till first: a payment at the counter prints its receipt on that session's device.",
+      "noSession": "Open a session at the till first: a payment at the counter prints its receipt on that session's device. An organization that prints nothing here turns \"A sale needs a connected fiscal printer\" off in Settings → Organization → Cash register.",
       "inProgress": "Another payment on this document is printing. Wait for it to finish, then try again.",
       "fiscallyPaid": "A fiscal receipt has printed for this document, so its total can no longer change and it cannot be voided. Correct it with a credit or a debit note.",
       "currency": "The till's device prints in another currency than this document's. Take this payment by bank.",
@@ -3330,10 +3330,10 @@
     "saved": "Saved"
   },
   "licence": {
-    "evaluation": "This server has no licence for this organization yet and runs on a 30-day evaluation. New till sessions and sales documents stop on {date} unless it is linked to lgrai.app or given a licence file.",
-    "grace": "This server's licence ran out on {paid}. New till sessions and sales documents stop on {date} unless it is renewed on lgrai.app.",
-    "restricted": "This server's licence has run out: since {date} no new till sessions are opened and no new sales documents are issued. Reading, exports, closing the day, credit notes and payments still work. An administrator renews it on lgrai.app.",
-    "restrictedEvaluation": "This server holds no licence for this organization and its 30-day evaluation has ended: since {date} no new till sessions are opened and no new sales documents are issued. Reading, exports, closing the day, credit notes and payments still work.",
+    "evaluation": "This server has no licence for this organization yet and runs on a 30-day evaluation. New till sales and sales documents stop on {date} unless it is linked to lgrai.app or given a licence file.",
+    "grace": "This server's licence ran out on {paid}. New till sales and sales documents stop on {date} unless it is renewed on lgrai.app.",
+    "restricted": "This server's licence has run out: since {date} no new sales are rung up at the till and no new sales documents are issued. A till session still opens, to take payments on existing documents. Reading, exports, closing the day, credit notes and payments still work. An administrator renews it on lgrai.app.",
+    "restrictedEvaluation": "This server holds no licence for this organization and its 30-day evaluation has ended: since {date} no new sales are rung up at the till and no new sales documents are issued. A till session still opens, to take payments on existing documents. Reading, exports, closing the day, credit notes and payments still work.",
     "problem": "A licence file is there and was not used: {why}.",
     "problems": {
       "malformed": "it is not a licence",
