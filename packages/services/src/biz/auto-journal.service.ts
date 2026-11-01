@@ -195,6 +195,9 @@ export async function createPaymentJournalEntry(
   const repos = r ?? getRepos()
 
   const isOutgoing = invoice.direction === 'outgoing'
+  // FR-23 §2.5: a credit note's payment goes the other way. Ours is money OUT: it clears what we owe
+  // the customer, which its posting put against the receivable. A supplier's is money IN.
+  const moneyIn = isOutgoing !== (invoice.type === 'credit_note')
   const counterpartAccountId = isOutgoing ? accounts.receivableAccountId : accounts.payableAccountId
   // Cash/bank account from journal defaults
   const cashAccountId = journal.journalId
@@ -211,13 +214,14 @@ export async function createPaymentJournalEntry(
   const payDate = payment.date ? new Date(payment.date) : new Date()
   const lines: JELine[] = []
 
-  if (isOutgoing) {
-    // DR Cash/Bank / CR Receivable
+  const counterpart = isOutgoing ? 'receivable' : 'payable'
+  if (moneyIn) {
+    // DR Cash/Bank / CR Receivable (a sale's payment), or CR Payable (a supplier's refund)
     lines.push(buildLine(cashAccountId, `Payment received: ${invoice.invoiceNumber}`, payment.amount, 0, currency, rate))
-    lines.push(buildLine(counterpartAccountId, `Clear receivable: ${invoice.invoiceNumber}`, 0, payment.amount, currency, rate, invoice.contactId))
+    lines.push(buildLine(counterpartAccountId, `Clear ${counterpart}: ${invoice.invoiceNumber}`, 0, payment.amount, currency, rate, invoice.contactId))
   } else {
-    // DR Payable / CR Cash/Bank
-    lines.push(buildLine(counterpartAccountId, `Clear payable: ${invoice.invoiceNumber}`, payment.amount, 0, currency, rate, invoice.contactId))
+    // DR Payable / CR Cash/Bank (a bill's payment), or DR Receivable (a refund to a customer)
+    lines.push(buildLine(counterpartAccountId, `Clear ${counterpart}: ${invoice.invoiceNumber}`, payment.amount, 0, currency, rate, invoice.contactId))
     lines.push(buildLine(cashAccountId, `Payment sent: ${invoice.invoiceNumber}`, 0, payment.amount, currency, rate))
   }
 
@@ -233,7 +237,7 @@ export async function createPaymentJournalEntry(
       entryNumber,
       date: payDate,
       fiscalPeriodId,
-      description: `Payment ${isOutgoing ? 'received' : 'sent'}: ${invoice.invoiceNumber} (${payment.method})`,
+      description: `Payment ${moneyIn ? 'received' : 'sent'}: ${invoice.invoiceNumber} (${payment.method})`,
       type: 'standard',
       status: autoPost ? 'posted' : 'draft',
       lines: balanced,
