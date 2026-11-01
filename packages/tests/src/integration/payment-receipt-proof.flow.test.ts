@@ -205,6 +205,17 @@ describe('a driver with no cancel (ruling 1)', () => {
     expect((await receiptsOf(d.id))[0].status).toBe('paid')
   })
 
+  it('a failure at the payment, and the close refused too: it may have the money, so unknown, never failed', async () => {
+    const { w } = await onTremol(cmd => cmd === TREMOL_CMD.PAYMENT || cmd === TREMOL_CMD.CLOSE_RECEIPT)
+    const d = await onBank(w)
+
+    const r = await pay(w, d.id, 24)
+
+    expect(r.status).toBe(200)
+    expect(r.json.receipt.state).toBe('unknown')
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
   it('a failure at a line, and the close refused too: nothing took money, so it failed', async () => {
     const { w } = await onTremol(cmd => cmd === TREMOL_CMD.SELL_ARTICLE || cmd === TREMOL_CMD.CLOSE_RECEIPT)
     const d = await onBank(w)

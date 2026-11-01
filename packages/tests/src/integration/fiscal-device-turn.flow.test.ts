@@ -85,6 +85,18 @@ describe('a sale and a receipt on one device', () => {
     expect(receipt.register.fiscal.counterBefore).toBe(Number(printed.number) - 1)
   })
 
+  it('a session report asked during a sale waits its turn: its service receipt would find a receipt open', async () => {
+    const w = await tillWorld(app)
+    w.sim!.latencyMs = 15
+
+    const [sale, report] = await inOrder(w, () => w.sell(1), () => w.call('POST', `/trade/pos/session/${w.sessionId}/report/print`))
+
+    expect(sale.status).toBe(200)
+    expect(sale.json.receiptError).toBeUndefined()
+    expect(report.status).toBe(200)
+    expect(closedReceipts(w)).toHaveLength(1)
+  })
+
   it('two cashiers\' sales at once, on two sessions of one device', async () => {
     const w = await tillWorld(app)
     const clerk = await clerkSession(w)
