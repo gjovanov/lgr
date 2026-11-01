@@ -605,6 +605,8 @@ test.describe('receiving warns before it double-books (FR-22.31c)', () => {
     const row = rowOf(page, bill.number)
     await (await rowAction(row, 'receive')).click()
     await expect.poll(() => held.posts.length).toBe(1)
+    // The menu closes on its own click, and opened again while it closes the click meets it going away.
+    await expect(page.getByTestId('row-actions-list').filter({ visible: true })).toHaveCount(0)
     await (await rowAction(row, 'receive')).click()
     await page.waitForTimeout(300)
     expect(held.posts).toHaveLength(1)
