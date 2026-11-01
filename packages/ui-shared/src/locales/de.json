@@ -172,6 +172,9 @@
     "export": "Export",
     "payments": "Zahlungen",
     "terminal": "Terminal",
+    "csTerminal": "Kassenterminal",
+    "crSales": "Kassenverkäufe",
+    "crSessions": "Kassensitzungen",
     "transactions": "Transaktionen",
     "sessions": "Sitzungen",
     "devices": "Geräte",
@@ -334,6 +337,7 @@
   "common": {
     "newVersion": "Eine neue Version von LGR ist verfügbar.",
     "reload": "Neu laden",
+    "pageNotLoaded": "Diese Seite konnte nicht geladen werden. Prüfen Sie die Verbindung und versuchen Sie es erneut.",
     "save": "Speichern",
     "selectAll": "Alle auswählen",
     "selectNone": "Leeren",
@@ -3830,7 +3834,7 @@
     "fiscalDevices": "Fiskalgeräte",
     "fiscalDevicesHint": "Geräte, die dieser Desktop bedienen darf.",
     "startPath": "Startpfad",
-    "startPathHint": "Wohin „LGR öffnen“ führt, z. B. /pos/ für eine Kasse. Leer bedeutet App-Hub.",
+    "startPathHint": "Wohin „LGR öffnen“ führt, z. B. /invoicing/cash-sales/new für eine Kasse. Leer bedeutet App-Hub.",
     "lastSeen": "Zuletzt gesehen",
     "clock": "Uhr",
     "presence": {

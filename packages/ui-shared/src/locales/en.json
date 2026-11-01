@@ -172,6 +172,9 @@
     "export": "Export",
     "payments": "Payments",
     "terminal": "Terminal",
+    "csTerminal": "CS Terminal",
+    "crSales": "CR Sales",
+    "crSessions": "CR Sessions",
     "transactions": "Transactions",
     "sessions": "Sessions",
     "devices": "Devices",
@@ -334,6 +337,7 @@
   "common": {
     "newVersion": "A new version of LGR is available.",
     "reload": "Reload",
+    "pageNotLoaded": "This page could not be loaded. Check the connection and try again.",
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
@@ -3830,7 +3834,7 @@
     "fiscalDevices": "Fiscal devices",
     "fiscalDevicesHint": "Devices this desktop is allowed to bridge.",
     "startPath": "Start path",
-    "startPathHint": "Where Open LGR lands, e.g. /pos/ for a till. Blank means the app hub.",
+    "startPathHint": "Where Open LGR lands, e.g. /invoicing/cash-sales/new for a till. Blank means the app hub.",
     "lastSeen": "Last seen",
     "clock": "Clock",
     "presence": {

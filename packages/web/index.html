@@ -8,12 +8,37 @@
     <script>
       // FR-24.14: during a rollout this page and its entry script can come from pods on different
       // versions. An entry that fails to load reloads the page, a bounded number of times; a page
-      // that mounted clears the count (main.ts).
+      // that mounted clears the count (main.ts). Past that the tab says so here, the app never
+      // having started: a blank page is a dead tab, and no one can tell it from a slow one.
+      var LGR_BOOT_WORDS = {
+        en: ['LGR could not start. Check the connection and try again.', 'Try again'],
+        bg: ['LGR не успя да стартира. Проверете връзката и опитайте отново.', 'Опитай отново'],
+        de: ['LGR konnte nicht starten. Prüfen Sie die Verbindung und versuchen Sie es erneut.', 'Erneut versuchen'],
+        mk: ['LGR не можеше да стартува. Проверете ја врската и обидете се повторно.', 'Обиди се повторно'],
+      }
+      function lgrBootFailed() {
+        var words = LGR_BOOT_WORDS[(navigator.language || 'en').slice(0, 2)] || LGR_BOOT_WORDS.en
+        var box = document.createElement('div')
+        box.setAttribute('data-testid', 'boot-failed')
+        box.style.cssText = 'font-family:system-ui,sans-serif;max-width:28rem;margin:20vh auto;padding:0 16px;text-align:center'
+        var text = document.createElement('p')
+        text.textContent = words[0]
+        var again = document.createElement('button')
+        again.textContent = words[1]
+        again.onclick = function () {
+          sessionStorage.removeItem('lgr_boot_retry')
+          location.reload()
+        }
+        box.appendChild(text)
+        box.appendChild(again)
+        if (document.body) document.body.appendChild(box)
+        else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(box) })
+      }
       window.addEventListener('error', function (e) {
         var t = e.target
         if (!t || t.tagName !== 'SCRIPT' || t.type !== 'module') return
         var n = Number(sessionStorage.getItem('lgr_boot_retry') || 0)
-        if (n >= 3) return
+        if (n >= 3) return lgrBootFailed()
         sessionStorage.setItem('lgr_boot_retry', String(n + 1))
         setTimeout(function () { location.reload() }, 500 * (n + 1))
       }, true)
