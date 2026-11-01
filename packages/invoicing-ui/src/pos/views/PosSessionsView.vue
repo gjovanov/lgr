@@ -150,7 +150,7 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn v-if="report" variant="outlined" prepend-icon="mdi-printer" :loading="reportPrinting" @click="printReport">
+          <v-btn v-if="report && canPrintReport" variant="outlined" prepend-icon="mdi-printer" :loading="reportPrinting" @click="printReport">
             {{ $t('pos.sessionReport.print') }}
           </v-btn>
           <v-btn variant="text" @click="reportOpen = false">{{ $t('common.close') }}</v-btn>
@@ -211,7 +211,8 @@ import ChartView from 'ui-shared/components/ChartView.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { jwtRole } from 'ui-shared/composables/useStorageIdentity'
+import { jwtRole, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { canOpenPage, pageById } from 'ui-shared/nav/page-registry'
 import StatusPipeline from 'ui-shell/components/StatusPipeline'
 import SessionReportCard, { type SessionReportData } from '../components/SessionReportCard.vue'
 
@@ -295,6 +296,9 @@ async function printReport() {
 // ── The device's own reports ──
 type ReportKind = 'x' | 'fm_date' | 'fm_number' | 'ej' | 'operator'
 interface ReportDevice { name: string; connected: boolean; capabilities: { features: Record<string, boolean>; maxOperators: number } }
+
+/** A reprint writes to the till, as a sale does: `pos.read` reads the report and prints nothing. The server refuses it too. */
+const canPrintReport = canOpenPage(pageById('/invoicing/cash-sales/new')!, sessionViewer())
 
 /** The roles of the device page's report routes: not a cashier. The server refuses them too. */
 const runsDevices = computed(() => FISCAL_ADMIN_ROLES.includes(appStore.user?.role || jwtRole()))

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
 import { apiLogin, apiGet, apiPost } from './helpers/api'
-import { closeTillSession, openTillSession, ringTillSale } from './helpers/cash-register'
+import { closeTillSession, createBackOfficeCashSale, openTillSession, ringTillSale } from './helpers/cash-register'
 import { BETA, signInAsMultiInAcme, switchTo } from './helpers/org-switcher'
 
 const API = process.env.BASE_URL || 'http://localhost:4001'
@@ -162,6 +162,20 @@ test.describe('Who cannot use a till page', () => {
     await expect(page.locator('a.v-btn', { hasText: /create/i })).toHaveCount(0)
     expect(await menuTexts(page, /Outgoing/)).toEqual(['CR Sales', 'CR Sessions'])
     expect(refused).toEqual([])
+  })
+
+  // The report is theirs to read. Printing it writes to the till, and the server refuses that.
+  test('a read-only till session reads a session\'s report, and is not offered its print', async ({ page }) => {
+    const sale = await ringTillSale()
+    await closeTillSession(sale.sessionId)
+    const reader = `till-printless-${Date.now()}`
+    await userWith(reader, ['pos.read'])
+    await loginForApp(page, 'acme-corp', reader, PASSWORD)
+    await page.goto('/invoicing/cash-register/sessions')
+
+    await page.getByTestId('session-report-open').first().click()
+    await expect(page.getByRole('dialog').filter({ hasText: 'Session report' })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByRole('button', { name: 'Print report' })).toHaveCount(0)
   })
 
   test('pos.write alone has the tile, so the till is not reached by a typed address only', async () => {
