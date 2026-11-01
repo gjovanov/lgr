@@ -218,11 +218,19 @@ test.describe('a receipt with no supplier (FR-22.31a)', () => {
     })
 
     await signInForUx(page)
+    // Alone on the list: other tests leave receipts naming nobody in this database too.
+    await page.route('**/invoicing/bills/billable-receipts*', async (route) => {
+      const res = await route.fetch()
+      const json = await res.json()
+      json.receipts = json.receipts.filter((x: any) => x.id === stray.id)
+      await route.fulfill({ response: res, json })
+    })
     await page.goto(`/invoicing/bills/${invoice.id || invoice._id}/edit`, { waitUntil: 'networkidle' })
     await page.getByTestId('link-delivery-btn').click()
     const dialog = page.getByTestId('link-delivery-dialog')
     const row = dialog.locator('.v-list-item').filter({ hasText: stray.number })
     await expect(row.locator('input[type="checkbox"]')).not.toBeChecked()
+    await expect(dialog.locator('.v-list-item')).toHaveCount(1)
     await expect(page.getByTestId('link-delivery-confirm')).toBeDisabled()
   })
 
