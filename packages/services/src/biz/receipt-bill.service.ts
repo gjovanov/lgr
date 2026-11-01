@@ -77,7 +77,11 @@ const EPS = 1e-6
  */
 export const RECEIPT_OVERLAP_WINDOW_DAYS = 60
 const DAY_MS = 24 * 60 * 60 * 1000
-/** Receipts read per bill: a limit on the work, not on the answer. */
+/**
+ * Receipts read per bill, newest first, before they are judged. The question only needs one, and
+ * a bill sharing articles with more than this many deliveries in the window has met it long before
+ * the last. An older match past the cap goes unasked; the cost of asking is a read on every bill.
+ */
 const OVERLAP_SCAN_LIMIT = 200
 /** Receipts one refusal names: a person reads them. */
 const OVERLAP_REPORT_LIMIT = 20

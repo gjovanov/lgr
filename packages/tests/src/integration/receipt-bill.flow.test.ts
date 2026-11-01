@@ -596,6 +596,15 @@ describe('a receipt that names no supplier (FR-22.31a)', () => {
     expect(await w.stock(w.bolt)).toBe(3)
   }, 60_000)
 
+  it('adds nothing to a document whose receipts named their supplier: every other invoice reads as it did', async () => {
+    const w = await world()
+    const plain = await w.load((await w.typedBill([[w.bolt, 1, 5]])).id)
+    expect(plain.stockSource?.supplierGivenTo).toBeUndefined()
+    const r = await w.receipt([[w.nut, 1, 2]])
+    const billed = await w.load((await w.fromReceipt([r._id])).json.invoice.id)
+    expect(billed.stockSource.supplierGivenTo).toBeUndefined()
+  }, 60_000)
+
   it('a Files rollback that voids the bill gives the receipt back the same way', async () => {
     const w = await world()
     const r = await w.receipt([[w.bolt, 3, 5]], { contactId: null })
