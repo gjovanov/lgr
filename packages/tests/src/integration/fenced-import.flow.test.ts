@@ -11,7 +11,9 @@ import { mongoose } from 'db/connection'
 import { AuditLog, FencedExport, FencedImportItem, Invoice, Journal, JournalEntry, OrgHome, OrgMove, POSSession, Sequence, StockLevel, StockMovement } from 'db/models'
 import { forgetAllHomes } from 'db/home/home'
 import { fencedExportPath, fencedExportsOf, receiveFencedChunk, writeFencedExport } from 'services/biz/move/fenced-export.service'
-import { fencedImportTick, requestFencedImport } from 'services/biz/move/fenced-import.service'; import { freezeRefusal, receiptInDoubt } from 'services/biz/cash-register/payment-receipt.service'; import { settleInDoubt } from 'services/biz/cash-register/settle.service'; import { deviceless, finishInterruptedDocuments } from 'invoicing-api/src/lib/cash-register-till'
+import { fencedImportTick, requestFencedImport } from 'services/biz/move/fenced-import.service'
+import { receiptBillingState } from 'services/biz/receipt-bill.service'
+import { freezeRefusal, receiptInDoubt } from 'services/biz/cash-register/payment-receipt.service'; import { settleInDoubt } from 'services/biz/cash-register/settle.service'; import { deviceless, finishInterruptedDocuments } from 'invoicing-api/src/lib/cash-register-till'
 
 /**
  * The audited import of a fenced export (FR-20.84, plan step P3-6e, second half): a replaced
@@ -58,8 +60,11 @@ const line = (productId: unknown, warehouseId: unknown, quantity: number, unitPr
   taxAmount: +(quantity * unitPrice * 0.2).toFixed(2), lineTotal: +(quantity * unitPrice * 1.2).toFixed(2),
 })
 
-/** lgrai.app after a promotion, and what the replaced server did after the cutoff, as its export. */
-async function world(o: { deadReceipt?: boolean; deadFiscal?: Record<string, unknown>; deadNumber?: string; deadStorno?: Record<string, unknown> } = {}) {
+/**
+ * lgrai.app after a promotion, and what the replaced server did after the cutoff, as its export.
+ * `more` adds documents the site held beside the usual ones.
+ */
+async function world(o: { deadReceipt?: boolean; deadFiscal?: Record<string, unknown>; deadNumber?: string; deadStorno?: Record<string, unknown>; more?: (r: any) => { invoices?: any[]; stockmovements?: any[] } } = {}) {
   const org = await createTestOrg({ slug: `fenced-import-${n}` } as any)
   const orgId = org._id as any
   const admin = await createTestUser(orgId, { role: 'admin' } as any)
@@ -120,8 +125,9 @@ async function world(o: { deadReceipt?: boolean; deadFiscal?: Record<string, unk
   await site.collection('contacts').insertOne(newCustomer)
   await site.collection('products').insertOne(newProduct)
   await site.collection('possessions').insertOne(session)
-  await site.collection('invoices').insertMany([invoice50, cashSale, draft, clash, missing, paid52])
-  await site.collection('stockmovements').insertMany([saleMovement, receipt])
+  const added = o.more?.({ orgId, wh, bolt, customer, at, ids }) ?? {}
+  await site.collection('invoices').insertMany([invoice50, cashSale, draft, clash, missing, paid52, ...(added.invoices ?? [])])
+  await site.collection('stockmovements').insertMany([saleMovement, receipt, ...(added.stockmovements ?? [])])
   await site.collection('docfiles').insertOne(doc)
   await site.collection('auditlogs').insertOne(audit)
   await site.collection('journalentries').insertOne(je)
@@ -129,6 +135,8 @@ async function world(o: { deadReceipt?: boolean; deadFiscal?: Record<string, unk
     ['contacts', ids.newCustomer], ['products', ids.newProduct], ['possessions', ids.session],
     ['invoices', ids.invoice50], ['invoices', ids.cashSale], ['invoices', ids.draft], ['invoices', ids.clash], ['invoices', ids.missing], ['invoices', ids.paid52],
     ['stockmovements', ids.saleMovement], ['stockmovements', ids.receipt], ['docfiles', ids.doc], ['auditlogs', ids.audit], ['journalentries', ids.je],
+    ...(added.invoices ?? []).map((d: any) => ['invoices', d._id] as [string, unknown]),
+    ...(added.stockmovements ?? []).map((d: any) => ['stockmovements', d._id] as [string, unknown]),
     ['contacts', ids.gone, 'delete'], ...(o.deadReceipt ? [['invoices', ids.held], ['invoices', ids.dead]] as Array<[string, unknown]> : []),
   ]
   if (o.deadStorno) {
@@ -385,6 +393,76 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
       expect(await receiptInDoubt(w.orgId, String(w.ids.held))).toBeTruthy()
     })
   })
+
+  it('a receipt its bill lists is the site\'s own delivery: the bill moved nothing, so the goods come in here, claim and all (#168)', async () => {
+    const claimed = oid()
+    const behind = oid()
+    const ownReceipt = oid()
+    const billId = oid()
+    const behindBill = oid()
+    const ownBill = oid()
+    const invoiceForCash = oid()
+    const w = await world({ more: ({ orgId, wh, bolt, customer, at, ids }) => {
+      const bill = (id: unknown, number: string, rest: any) => ({
+        _id: id, orgId, type: 'invoice', direction: 'incoming', invoiceNumber: number, status: 'received', issueDate: at, contactId: customer._id, currency: 'EUR', exchangeRate: 1,
+        subtotal: 10, taxTotal: 2, total: 12, amountPaid: 0, amountDue: 12, payments: [], lines: [line(bolt._id, wh._id, 7)], ...rest,
+      })
+      const link = (id: unknown) => ({ stockSource: { marker: `movement:${id}`, docNumber: 'SM', movementIds: [id], detectedBy: 'manual', linkedAt: at } })
+      const delivery = (id: unknown, number: string, quantity: number, invoiceId: unknown) => ({
+        _id: id, orgId, movementNumber: number, type: 'receipt', status: 'completed', date: at, toWarehouseId: wh._id, contactId: customer._id, invoiceId,
+        lines: [{ productId: bolt._id, quantity, unitCost: 1, totalCost: quantity }],
+      })
+      return {
+        invoices: [
+          bill(billId, `BILL-${year}-00061`, link(claimed)),
+          // It names an article lgrai.app does not hold, so it stays behind. It moved no stock all the same.
+          bill(behindBill, `BILL-${year}-00062`, { ...link(behind), lines: [line(oid(), wh._id, 30)] }),
+          // Its own receipt, which its import books again, once.
+          bill(ownBill, `BILL-${year}-00063`, { lines: [line(bolt._id, wh._id, 20)] }),
+          // An invoice for the cash sale lists the sale's dispatch, whose `invoiceId` names the sale.
+          {
+            _id: invoiceForCash, orgId, type: 'invoice', direction: 'outgoing', invoiceNumber: `INV-${year}-00064`, status: 'paid', issueDate: at, contactId: customer._id, currency: 'EUR', exchangeRate: 1,
+            subtotal: 30, taxTotal: 6, total: 36, amountPaid: 36, amountDue: 0, payments: [], lines: [line(ids.newProduct, wh._id, 3)], cashSaleRef: { cashSaleId: ids.cashSale, number: 'CS' },
+            stockSource: { marker: `cash_sale:${ids.cashSale}`, docNumber: 'CS', movementIds: [ids.saleMovement], detectedBy: 'cash_sale', linkedAt: at },
+          },
+        ],
+        stockmovements: [
+          delivery(claimed, `SM-${year}-00061`, 7, billId),
+          delivery(behind, `SM-${year}-00062`, 30, behindBill),
+          delivery(ownReceipt, `SM-${year}-00063`, 20, ownBill),
+        ],
+      }
+    } })
+    await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
+    await runToEnd(w.ex._id)
+    const outcome = async (coll: string, id: unknown) => ((await FencedImportItem.findOne({ exportId: w.ex._id, coll, docKey: String(id) }).lean()) as any)
+
+    // 11 as in the test above, + 7 and 30 (the two listed) + 20 (the bill's own, booked by its import).
+    expect(await stockOf(w.oid, w.bolt._id, w.wh._id)).toBe(68)
+
+    const kept: any = await StockMovement.collection.findOne({ _id: claimed } as any)
+    expect(kept).toMatchObject({ status: 'completed', movementNumber: `SM-${year}-00061` })
+    expect(String(kept.invoiceId)).toBe(String(billId))
+    expect(kept.importedFrom).toMatchObject({ kind: 'fenced_export' })
+    expect(await outcome('stockmovements', claimed)).toMatchObject({ outcome: 'imported' })
+    // The claim reads as one here: the bill holds it, and nothing else can take it.
+    const held = await receiptBillingState(w.orgId, kept)
+    expect([held.reason, held.invoice?.number]).toEqual(['receipt_already_billed', `BILL-${year}-00061`])
+    expect(await StockMovement.countDocuments({ orgId: w.oid, invoiceId: billId })).toBe(1)
+
+    expect(await outcome('invoices', behindBill)).toMatchObject({ outcome: 'skipped', reason: 'missing_reference' })
+    expect(await outcome('stockmovements', behind)).toMatchObject({ outcome: 'imported' })
+    // What a sale or a bill made stays behind for its own import, whoever else lists it.
+    expect(await outcome('stockmovements', ownReceipt)).toMatchObject({ outcome: 'skipped', reason: 'made_by_its_sale' })
+    expect(await outcome('stockmovements', w.ids.saleMovement)).toMatchObject({ outcome: 'skipped', reason: 'made_by_its_sale' })
+    expect(await stockOf(w.oid, w.ids.newProduct, w.wh._id)).toBe(-3)
+
+    // A crash after it was booked repeats nothing.
+    await FencedImportItem.deleteOne({ exportId: w.ex._id, coll: 'stockmovements', docKey: String(claimed) })
+    await FencedExport.updateOne({ _id: w.ex._id }, { $set: { 'import.state': 'running', 'import.leaseUntil': null } })
+    await runToEnd(w.ex._id)
+    expect(await stockOf(w.oid, w.bolt._id, w.wh._id)).toBe(68)
+  }, 120_000)
 
   it('repeats nothing when a crash cuts it short, and never twice', async () => {
     const w = await world()

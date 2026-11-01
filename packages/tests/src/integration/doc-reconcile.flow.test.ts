@@ -4,6 +4,7 @@ import { createTestOrg, createTestProduct, createTestWarehouse, createTestUser, 
 import { DocFile, Product, StockLevel, StockMovement } from 'db/models'
 import { analyzeDocFile, commitDocFile } from 'services/biz/files/doc-pipeline.service'
 import { reconcileDocFile } from 'services/biz/files/doc-reconcile.service'
+import { receiptBillingState } from 'services/biz/receipt-bill.service'
 import ExcelJS from 'exceljs'
 import { uploadPath, useTempUploadDir } from '../helpers/upload-path'
 import { join } from 'path'
@@ -93,6 +94,13 @@ describe('Files — doc-reconcile (movement create/update/delete)', () => {
     expect(exec.bookedNow?.length).toBe(1)
     expect(await qtyAt(orgId, a._id, wh._id)).toBe(120)
     expect(await qtyAt(orgId, b._id, wh._id)).toBe(50)
+
+    // The +Δ is a `receipt` naming nobody, and no supplier's delivery (#168). Nor is the day it corrects.
+    const delta: any = await StockMovement.findOne({ orgId, movementNumber: exec.bookedNow![0] }).lean()
+    expect(delta.type).toBe('receipt')
+    expect((await receiptBillingState(orgId, delta)).reason).toBe('receipt_not_a_delivery')
+    const original: any = await StockMovement.findOne({ orgId, _id: committed!.committedIds![0] }).lean()
+    expect((await receiptBillingState(orgId, original)).reason).toBe('receipt_not_a_delivery')
 
     // ── idempotent: re-running the same version is a no-op (no double-book) ─────────────
     const again = await reconcileDocFile(orgId, uid, String(doc._id), { execute: true })

@@ -6,6 +6,7 @@
  * one failed and why. That was the single biggest gap in the old batch importer, which
  * collected per-item errors into an array nothing ever read.
  */
+import { movementWarehouseRefusal } from 'config/movement-warehouses'
 import { File as FileModel } from 'db/models'
 import { persistInvoiceDraft, persistCashSale, convertDraftInvoice } from './persist.js'
 import { persistMovement } from './persist-movement.js'
@@ -49,6 +50,8 @@ export interface CommitResult {
   duplicate?: boolean
   /** Set when the document was recognised as a складова-разписка conversion and moved no stock. */
   stockSource?: string
+  /** Why it was refused, when a person can be told in their language. */
+  code?: string
   error?: string
 }
 
@@ -138,6 +141,12 @@ async function commitMovement(
   const mapped = item.mapped as MappedMovement
   // A correction books two movements from one document; both must land or neither is useful.
   const all: MappedMovement[] = [mapped, ...((item.extraMovements as MappedMovement[]) || [])]
+  // The client shapes what it sends here (`/doc-import/commit` takes `mapped` as it comes), and
+  // confirming writes stock. Before anything books: both must land or neither is useful.
+  for (const m of all) {
+    const misfit = movementWarehouseRefusal(m)
+    if (misfit) return { fileId: item.fileId, ok: false, code: misfit.code, error: misfit.message }
+  }
   const numbers: string[] = []
   const allIds: string[] = []
   const createdProductIds: string[] = []

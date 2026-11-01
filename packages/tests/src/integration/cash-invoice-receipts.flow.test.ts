@@ -3150,6 +3150,9 @@ describe('a draft and the issue that claimed it (the second review, finding 3)',
   const issueWrite = (update: any) => !!update?.$set?.['issue.completedAt']
   const closedReceipts = (w: TillWorld) => w.sim!.receipts.filter(r => !r.voided)
 
+  /** Right before a delete takes its claim. */
+  const deleteClaim = (update: any) => !!update?.$set?.voidingUntil && !update?.$set?.status
+
   /** Right before the driver's delete of a document, which `during` cannot see. */
   function duringDelete(meanwhile: () => Promise<unknown>) {
     const real = Invoice.findOneAndDelete
@@ -3243,11 +3246,11 @@ describe('a draft and the issue that claimed it (the second review, finding 3)',
     expect((await w.stock()).quantity).toBe(8)
   })
 
-  it('DELETE that read the draft, /send finishes, DELETE writes: refused', async () => {
+  it('DELETE that read the draft, /send finishes, DELETE claims: refused', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w)
     let issued: any
-    const undo = duringDelete(async () => { issued = await send(w, d.id) })
+    const undo = during(deleteClaim, async () => { issued = await send(w, d.id) })
     let del: any
     try {
       del = await w.call('DELETE', `/invoices/${d.id}`)
@@ -3259,6 +3262,26 @@ describe('a draft and the issue that claimed it (the second review, finding 3)',
     expect(del.status).toBe(409)
     expect(del.json.code).toBe('document_changed')
     expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
+  it('/send inside a DELETE, past its claim: /send gives way, and the draft goes', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    const before = await footprint(w)
+    let inside: any
+    const undo = duringDelete(async () => { inside = await send(w, d.id) })
+    let del: any
+    try {
+      del = await w.call('DELETE', `/invoices/${d.id}`)
+    } finally {
+      undo()
+    }
+
+    expect(del.status).toBe(200)
+    expect(inside.status).toBe(409)
+    expect(inside.json.code).toBe('document_claimed')
+    expect(await raw(d.id)).toBeNull()
+    expect(await footprint(w)).toEqual({ ...before, documents: before.documents - 1 })
   })
 
   it('DELETE of a draft a void or an attach holds gives way too', async () => {

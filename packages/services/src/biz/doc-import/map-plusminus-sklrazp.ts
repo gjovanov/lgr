@@ -14,6 +14,7 @@
  */
 import { stripPartnerPrefix } from './map-plusminus-invoice.js'
 import type { PlusMinusDocument } from './map-plusminus-invoice.js'
+import { lineItemName } from './map-plusminus-line.js'
 
 export interface SklrazpLine {
   name: string
@@ -47,7 +48,7 @@ export function mapSklrazpDoc(doc: PlusMinusDocument): SklrazpMapped {
 
   const lines: SklrazpLine[] = []
   for (const l of (doc.lines || []) as any[]) {
-    const name = String(l.name || l.item || '').trim()
+    const name = lineItemName(l) // the stock item, not the display alias — see map-plusminus-line.ts
     if (!name) continue
     const qty = num(l.quantity)
     if (qty === 0) continue

@@ -15,6 +15,7 @@
  *   --org <slug>       org slug (default: regal-pz)
  *   --api <url>        API base (default: https://lgrai.app)
  *   --warehouse <c>    source warehouse code (default: org default)
+ *   --only <nums>      comma-separated document numbers to limit the run to
  *   --skip-unmatched   forwarded to transfer-stock.ts
  *   --execute          actually book (default: dry-run, no writes)
  *
@@ -42,6 +43,7 @@ const dir = args.dir as string
 const orgSlug = (args.org as string) || 'regal-pz'
 const api = ((args.api as string) || 'https://lgrai.app').replace(/\/$/, '')
 const warehouseCode = args.warehouse as string | undefined
+const only = args.only ? new Set(String(args.only).split(',').map(s => String(Number(s.trim())))) : null
 const skipUnmatched = !!args['skip-unmatched']
 const execute = !!args.execute
 
@@ -51,13 +53,14 @@ async function main() {
   const files = readdirSync(dir).filter(f => /^sklrazp_\d+\.json$/i.test(f)).sort()
   if (!files.length) { console.error('No sklrazp_*.json in dir.'); process.exit(1) }
 
-  console.log(`Transfer stock OUT (direct API) | dir: ${dir} | ${files.length} document(s)`)
+  console.log(`Transfer stock OUT (direct API) | dir: ${dir} | ${files.length} document(s)${only ? ` | --only ${[...only].join(',')}` : ''}`)
 
   const transfers: any[] = []
   for (const f of files) {
     const doc: PlusMinusDocument = JSON.parse(readFileSync(join(dir, f), 'utf8'))
     try {
       const m = mapSklrazpDoc(doc)
+      if (only && !only.has(String(Number(m.number)))) continue
       transfers.push({ number: m.number, date: m.date, destination: m.destination, total: m.total, lines: m.lines })
     } catch (e: any) {
       console.log(`✗ ${f}: ${e?.message || e} — skipped`)

@@ -3,8 +3,10 @@ import { getRepos } from '../../context.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { reverseInvoiceStockMovement } from '../invoicing.service.js'
 import { liveInvoiceNumbersFor } from '../cash-sale-invoice.service.js'
+import { releaseReceiptLinks } from '../receipt-bill.service.js'
 import { syncOrderForInvoice } from '../reservation.service.js'
 import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from '../cash-register/immutability.js'
+import { removalReversalNote } from 'config/movement-notes'
 import { confirmMovement } from '../warehouse.service.js'
 import { stockMovementDao } from '../../dao/warehouse/stock-movement.dao.js'
 import { trashDocumentFile } from './doc-store.service.js'
@@ -221,9 +223,11 @@ async function reverseMovement(orgId: string, userId: string, mvId: string, docN
   const rev: any = await StockMovement.create({
     orgId, movementNumber: num, status: 'draft', date: new Date(), ...mirror,
     totalAmount: mv.totalAmount, lines, createdBy: userId,
-    notes: `Reversal of ${mv.movementNumber} — document removed (docdelete:${docNumber})`,
+    notes: removalReversalNote(mv.movementNumber, docNumber),
   })
   await confirmMovement(String(rev._id))
+  // After the mirror is booked: a mirror that could not be booked leaves the original as it was.
+  await StockMovement.updateOne({ orgId, _id: mv._id } as any, { $set: { reversedBy: rev._id, reversedAt: new Date() } })
   return rev.movementNumber
 }
 
@@ -236,6 +240,8 @@ async function voidInvoice(orgId: string, userId: string, invId: string): Promis
   const history = [...(inv.statusHistory || []), { status: 'voided', fromStatus: inv.status, changedAt: new Date(), changedBy: userId, reason: 'source document removed' }]
   const updated = await r.invoices.update(invId, { status: 'voided', voidedAt: new Date(), statusHistory: history } as any)
   try { await syncOrderForInvoice(orgId, updated || inv, userId) } catch { /* no order linkage on migration invoices */ }
+  // A bill linked to goods receipts gives them back, and a supplier it gave them, as the void route does.
+  await releaseReceiptLinks(orgId, inv, userId)
 }
 
 /** Plan only — reads nothing but the manifest. */

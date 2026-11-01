@@ -50,6 +50,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { assertTokenOrg } from './lib/token-org.js'
+import { loadBookedDocNumbers } from './lib/doc-marker.js'
 
 function parseArgs(argv: string[]) {
   const o: Record<string, string | boolean> = {}
@@ -201,12 +202,18 @@ async function main() {
   let totalUnmatched = 0, booked = 0, skipped = 0
   const mvBefore = (await http('GET', org('/warehouse/movement?page=0&size=1'))).total ?? 0
 
+  // Dedup by the document NUMBER, not by the marker's spelling: the PDF-era flow wrote
+  // `sklrazp:0000012705`, the API flow writes `sklrazp:12705` (see lib/doc-marker.ts — a substring
+  // check on one spelling re-booked ~50 already-booked transfers in a dry-run on regal-pz).
+  const alreadyBooked = await loadBookedDocNumbers(async (page, size) => {
+    const d = await http('GET', org(`/warehouse/movement?type=transfer&page=${page}&size=${size}&sortBy=_id&sortOrder=asc`))
+    return { movements: d.stockMovements || [], total: d.total }
+  }, 'sklrazp')
+
   for (const t of transfers) {
-    // dedup by notes marker
     const marker = `sklrazp:${t.number}`
-    const dedup = await http('GET', org(`/warehouse/movement?type=transfer&search=${encodeURIComponent(marker)}&page=0&size=50`))
-    const dup = (dedup.stockMovements || []).find((m: any) => String(m.notes || '').includes(marker))
-    if (dup) { console.log(`= ${t.number} (${t.date}) already booked: ${dup.movementNumber || dup.number} — skip`); skipped++; continue }
+    const dupNumber = alreadyBooked.get(Number(t.number))
+    if (dupNumber) { console.log(`= ${t.number} (${t.date}) already booked: ${dupNumber} — skip`); skipped++; continue }
 
     // Σvalue cross-check
     if (t.total != null && t.lines.every(l => l.value != null)) {

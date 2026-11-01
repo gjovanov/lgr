@@ -22,6 +22,7 @@
  *     `notes` (`stokrazp:<n>`, `corr:<n>`, `sklrazp:<n>`, `sklisk:<n>`,
  *     `storeOperations:<date>`) — the same markers `check-doc-sequences` looks for.
  */
+import { deliveryNote, movementMarker as noteMarker } from 'config/movement-notes'
 import { Product, StockLevel, Warehouse } from 'db/models'
 import { normalizeUomBg } from '../uom.utils.js'
 import { clean, num } from './detect.js'
@@ -55,17 +56,8 @@ export const MOVEMENT_RULES: Record<string, { type: MovementType; side: 'to' | '
   store_operations: { type: 'receipt', side: 'to' },
 }
 
-/** Marker prefix per kind — what makes a re-import a no-op. */
-const MARKER_PREFIX: Record<string, string> = {
-  goods_receipt: 'stokrazp',
-  correction: 'corr',
-  transfer_note: 'sklrazp',
-  issue_note: 'sklisk',
-  store_operations: 'storeOperations',
-}
-
 export function movementMarker(kind: DocKind, key: string): string {
-  return `${MARKER_PREFIX[kind] || 'doc'}:${key}`
+  return noteMarker(kind, key)
 }
 
 export interface MapMovementOptions {
@@ -536,7 +528,7 @@ export async function mapStoreOperations(
     type: 'receipt',
     date: opts.date,
     toWarehouseId: warehouseId,
-    notes: `Доставки — ${opts.date} (${marker})`,
+    notes: deliveryNote(opts.date, marker),
     marker,
     ...(reference ? { reference } : {}),
     lines,

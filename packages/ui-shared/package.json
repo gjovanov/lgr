@@ -33,6 +33,7 @@
     "./components/ContactAutocompleteWithCreate": "./src/components/ContactAutocompleteWithCreate.vue",
     "./components/ContactAutocompleteWithCreate.vue": "./src/components/ContactAutocompleteWithCreate.vue",
     "./composables/useContactSearch": "./src/composables/useContactSearch.ts",
+    "./composables/stock-refusals": "./src/composables/stock-refusals.ts",
     "./composables/contact-payload": "./src/composables/contact-payload.ts",
     "./components/ProductPickerDialog": "./src/components/ProductPickerDialog.vue",
     "./components/ProductPickerDialog.vue": "./src/components/ProductPickerDialog.vue",

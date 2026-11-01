@@ -126,6 +126,16 @@
 
     <RecordPaymentDialog v-model="paymentDialog" :document="paymentDoc" @recorded="refresh" />
 
+    <!-- FR-22.31c: receiving a bill for goods a receipt may already have booked. -->
+    <ReceiptOverlapDialog
+      v-model:overlap="receiptOverlap"
+      :org-url="appStore.orgUrl()"
+      :base-currency="baseCurrency"
+      :locale="localeCode"
+      @received="onOverlapReceived"
+      @linked="onOverlapLinked"
+    />
+
     <!-- Delete Confirmation -->
     <v-dialog v-model="deleteDialog" max-width="400">
       <v-card>
@@ -156,10 +166,12 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
@@ -180,16 +192,19 @@ import type { StatCardDef } from 'ui-shared/components/StatCard.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import RecordPaymentDialog from '../components/RecordPaymentDialog.vue'
+import ReceiptOverlapDialog from '../components/ReceiptOverlapDialog.vue'
+import { receiptOverlapOf, type ReceiptOverlap } from '../composables/receipt-overlap'
 import { useRowPrint } from '../composables/useRowPrint'
 import * as can from '../composables/document-row-actions'
 interface Invoice { _id: string; number: string; type: string; supplierInvoiceNumber?: string; contactName: string; contactId?: string; issueDate: string; dueDate: string; status: string; total: number; amountPaid?: number; paymentMethod?: string; currency: string; exchangeRate?: number; notes?: string; lines?: any[] }
 
 const { t } = useI18n()
+const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => ({ en: 'en-US', bg: 'bg-BG', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 const { printRow } = useRowPrint()
 
 const { search, debouncedSearch } = useSearchDebounce()
@@ -399,15 +414,36 @@ function openPaymentDialog(item: Invoice) {
   paymentDialog.value = true
 }
 
+/** The row's menu opens again while the answer is on its way, and a second Receive would only earn an error. */
+const receivingRows = new Set<string>()
 async function receiveInvoice(item: Invoice) {
+  if (receivingRows.has(item._id)) return
+  receivingRows.add(item._id)
   try {
     const { data } = await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/receive`)
     // A bill made from goods receipts books no stock: its receipts did (FR-22.31).
     showSuccess(t(data?.invoice?.stockSource?.marker ? 'invoicing.linkDelivery.received' : (RECEIVED_KEY[item.type] || RECEIVED_KEY.invoice)))
     await refresh()
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    receiptOverlap.value = receiptOverlapOf(e, item._id)
+    if (!receiptOverlap.value) showError(stockRefusalMessage(e, t))
+  } finally {
+    receivingRows.delete(item._id)
   }
+}
+
+// ── FR-22.31c: the server asked first ──
+const receiptOverlap = ref<ReceiptOverlap | null>(null)
+
+async function onOverlapReceived() {
+  showSuccess(t(RECEIVED_KEY.invoice))
+  await refresh()
+}
+
+/** Linked, the bill holds the delivery's lines at the receipt's costs: read them on the bill itself. */
+function onOverlapLinked(id: string) {
+  showSuccess(t('invoicing.receiptOverlap.linked'))
+  void router.push({ name: 'invoicing.purchases.edit', params: { id } })
 }
 
 const VOIDED_KEY: Record<string, string> = {

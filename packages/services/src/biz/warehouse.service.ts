@@ -15,6 +15,16 @@ export interface ConfirmMovementOptions {
   layersRestored?: Set<string>
 }
 
+/**
+ * Book a draft movement: out of `fromWarehouseId`, into `toWarehouseId`, whatever its `type` says.
+ *
+ * ⚠ Whether those warehouses fit the type (`config/movement-warehouses`) is checked at the doors a
+ * user comes through, not here. Everything else that reaches this function sets the side from the
+ * type itself, or replays a movement that already happened: `importMovement` (fenced-import) books
+ * what a site really applied, and refusing it there would drop goods that moved. Callers also
+ * reach it late: `/receive` has written the bill as received by then, so a refusal here would
+ * strand a received bill with no stock.
+ */
 export async function confirmMovement(movementId: string, repos?: RepositoryRegistry, opts?: ConfirmMovementOptions): Promise<IStockMovement> {
   const r = repos ?? getRepos()
   const movement = await r.stockMovements.findById(movementId)
