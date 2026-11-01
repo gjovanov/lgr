@@ -184,6 +184,31 @@ test.describe('A pending change from before the move', () => {
 
     await expect.poll(() => page.evaluate((key: string) => localStorage.getItem(key), `lgr_pending_changes_${session.orgId}_${userId}`)).toBe('[]')
   })
+
+  // The form is up before the shell has the person's profile. Left in that window it went into a
+  // list that was not loaded yet: nothing was written, and the load then replaced it.
+  test('a form left before the profile has answered is kept', async ({ page }) => {
+    const session = await apiLogin()
+    const { id: userId } = claimsOf(session)
+    const NEW_NAME = 'Left while the profile was on its way'
+    await loginForApp(page)
+    let letGo = () => {}
+    const released = new Promise<void>((resolve) => { letGo = resolve })
+    await page.route('**/api/auth/me', async (route: any) => {
+      await released
+      await route.continue()
+    })
+
+    await page.goto('/inventory/categories/new')
+    const name = page.getByRole('textbox', { name: /^Name/ })
+    await expect(name).toBeVisible({ timeout: 15000 })
+    await page.waitForTimeout(700) // the form takes its clean state half a second after it mounts
+    await name.fill(NEW_NAME)
+    await page.reload()
+    letGo()
+
+    await expect.poll(() => page.evaluate((key: string) => localStorage.getItem(key), `lgr_pending_changes_${session.orgId}_${userId}`)).toContain(NEW_NAME)
+  })
 })
 
 /**

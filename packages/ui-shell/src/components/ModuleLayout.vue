@@ -124,15 +124,20 @@ function handleAppNavigate(app: AppInfo) {
 }
 
 onMounted(async () => {
+  // Loaded whatever module this shell first shows: in one SPA it goes on to show the others.
+  // Keyed on the session, as a form's restore is, and never on `/auth/me`'s answer: with that
+  // refused the key was empty, the panel came up empty, and what a save removed stayed in the
+  // real list, to come back on the next healthy load.
+  // Before anything is waited for: a form is up already, and what it leaves goes into this list.
+  const loadPending = () => {
+    if (appStore.currentOrg?.id && !pendingChangesStore.currentOrgId) pendingChangesStore.load(appStore.currentOrg.id, jwtUserId())
+  }
+  loadPending()
   if (!appStore.user && appStore.token) {
     await appStore.fetchProfile()
   }
   if (appStore.currentOrg?.id) {
-    // Loaded whatever module this shell first shows: in one SPA it goes on to show the others.
-    // Keyed on the session, as a form's restore is, and never on `/auth/me`'s answer: with that
-    // refused the key was empty, the panel came up empty, and what a save removed stayed in the
-    // real list, to come back on the next healthy load.
-    pendingChangesStore.load(appStore.currentOrg.id, jwtUserId())
+    loadPending()
     try {
       const { data } = await httpClient.get(`/org/${appStore.currentOrg.id}/apps`)
       apps.value = data.apps
