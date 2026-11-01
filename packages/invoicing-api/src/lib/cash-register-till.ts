@@ -29,8 +29,8 @@ import { lineNameMaxOf, unsupportedReason } from 'fiscal/capabilities'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
 import { fiscalOperation } from 'fiscal/in-flight'
 import { deviceTurn } from 'fiscal/device-turn'
+import { stagedPrint } from 'fiscal/print-stage'
 import { roundCents } from 'config/pos-totals'
-import type { PrintStage } from 'services/biz/cash-register/print-verdict'
 
 export { fiscalUnitPrice }
 
@@ -177,6 +177,7 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
     deviceNumber: fiscal.deviceNumber,
     lastReceiptNumber: async () => (p.getLastReceiptNumber ? p.getLastReceiptNumber() : undefined),
     receiptOpen: async () => p.isReceiptOpen?.(),
+    clearLeftovers: async () => p.clearLeftovers?.(),
     printsText: !!p.openNonFiscalReceipt,
     cashOnDeliveryRefusal: fiscal.cashOnDeliveryRefusal,
     printsFiscalText: fiscal.printsFiscalText,
@@ -184,25 +185,21 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
     async printSale(doc) {
       // Read before the receipt opens: a payment no receipt can carry must not strand an open one.
       const payments = tendered(doc).map((t: any) => ({ type: toFiscalPaymentType(t.method), amount: t.amount }))
-      // How far it got, on the error: from the first payment SENT the device may hold the money.
-      let stage: PrintStage = 'opening'
-      try {
+      return stagedPrint(async (reached) => {
         await p.openFiscalReceipt(operatorCode, operatorName, doc.register?.unp)
-        stage = 'lines'
+        reached('lines')
         for (const line of doc.lines || []) {
           const taxRate = line.taxRate ?? 0
           await p.printSaleLine(line.description, line.quantity, fiscalUnitPrice(line.unitPrice, taxRate), mapTaxRateToVatGroup(taxRate), line.discount || undefined, taxRate)
         }
         // FR-23: the invoice a whole payment is for, under its lines. Only ever on a device that can.
         if (doc.register?.receiptText) await p.printFiscalText?.(doc.register.receiptText)
-        stage = 'paying'
+        reached('paying')
         for (const payment of payments) await p.printPayment(payment.type, payment.amount)
-        stage = 'closing'
+        reached('closing')
         const { fiscalReceiptNumber } = await p.closeFiscalReceipt()
         return fiscalReceiptNumber
-      } catch (e) {
-        throw Object.assign(e instanceof Error ? e : new Error(String(e)), { printStage: stage })
-      }
+      })
     },
     async printText(doc) {
       const org = await orgDao.findById(orgId) as any

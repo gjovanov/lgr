@@ -176,6 +176,119 @@ describe('a print that throws, in its turn on the device (ruling 1)', () => {
   })
 })
 
+describe('what a leftover on the device says about this document (finding 1)', () => {
+  /** The roll runs out as `cmd` arrives, so that command is refused and the void still goes through. */
+  const paperOutAt = (w: TillWorld, at: number) => { w.sim!.beforeCommand = cmd => { if (cmd === at) w.sim!.paper = false } }
+  const leftPaidOpen = (w: TillWorld) => {
+    w.sim!.receipt = { kind: 'fiscal', header: [], sales: [], texts: [], payments: [{ mode: 'P', amount: 5 }], total: 10, paid: 5 }
+  }
+
+  it('a service receipt left open moves the counter as this receipt opens, and a line refused after that books nothing', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    w.sim!.nonFiscalOpen = true
+    const left = w.sim!.lastDocNumber + 1
+    paperOutAt(w, LINE)
+
+    const r = await pay(w, d.id, 24)
+
+    expect(r.status).toBe(503)
+    expect(r.json.code).toBe('fiscal_error')
+    const [receipt] = await receiptsOf(d.id)
+    expect(receipt.status).toBe('voided')
+    expect(receipt.register.fiscal).toMatchObject({ state: 'failed', counterBefore: left })
+    expect(receipt.register.fiscalReceiptNumber).toBeUndefined()
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0, receiptHolds: [] })
+    expect((await sessionOf(w)).totalCash).toBe(0)
+    expect(w.sim!.lastDocNumber).toBe(left)
+  })
+
+  it('a paid receipt left open is finished before the counter is read: the next document is not booked under its number', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    leftPaidOpen(w)
+    const left = w.sim!.lastDocNumber + 1
+    paperOutAt(w, LINE)
+
+    const r = await pay(w, d.id, 24)
+
+    expect(r.status).toBe(503)
+    expect((await receiptsOf(d.id))[0].register.fiscal).toMatchObject({ state: 'failed', counterBefore: left })
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect(closedOnDevice(w).map(x => x.number)).toEqual([String(left).padStart(7, '0')])
+  })
+
+  it('a device that numbers a voided receipt reads +1 on every failure at a line: still no print', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    w.sim!.numbersVoided = true
+    paperOutAt(w, LINE)
+
+    const r = await pay(w, d.id, 24)
+
+    expect(r.status).toBe(503)
+    expect((await receiptsOf(d.id))[0].status).toBe('voided')
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect((await sessionOf(w)).totalCash).toBe(0)
+  })
+
+  it('a device whose 90h is refused, with a leftover cleared before it: the same', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    w.sim!.nonFiscalOpen = true
+    paperOutAt(w, 0x90)
+
+    expect((await pay(w, d.id, 24)).status).toBe(503)
+    expect((await receiptsOf(d.id))[0].status).toBe('voided')
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+  })
+
+  it('a storno through the driver, with a leftover and a refused line: it did not print, and nothing is refunded', async () => {
+    const w = await tillWorld(app)
+    const sale = await w.sell(1)
+    expect(sale.status).toBe(200)
+    const cash = (await sessionOf(w)).totalCash
+    const stock = await w.stock()
+    w.sim!.nonFiscalOpen = true
+    paperOutAt(w, LINE)
+
+    const r = await w.storno(sale.json.transaction.id)
+
+    expect(r.status).toBe(503)
+    expect(r.json.code).toBe('fiscal_error')
+    expect((await sessionOf(w)).totalCash).toBe(cash)
+    expect((await w.stock()).quantity).toBe(stock.quantity)
+    expect((await Invoice.findById(sale.json.transaction.id).lean().exec() as any).register.stornoState).not.toBe('full')
+    const storno: any = await Invoice.findOne({ type: 'cash_storno', orgId: w.oid }).lean().exec()
+    expect(storno.status).toBe('voided')
+    expect(storno.register.fiscal.state).toBe('failed')
+  })
+
+  it('a storno on a device that numbers a voided receipt: a refused line reads +1, and the stage says it did not print', async () => {
+    const w = await tillWorld(app)
+    const sale = await w.sell(1)
+    const cash = (await sessionOf(w)).totalCash
+    w.sim!.numbersVoided = true
+    paperOutAt(w, LINE)
+
+    const r = await w.storno(sale.json.transaction.id)
+
+    expect(r.status).toBe(503)
+    expect((await sessionOf(w)).totalCash).toBe(cash)
+    expect((await Invoice.findOne({ type: 'cash_storno', orgId: w.oid }).lean().exec() as any).status).toBe('voided')
+  })
+
+  it('a device that cannot be cleared answers as one that cannot open: nothing reached it for this document', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    w.sim!.disconnected = true
+
+    expect((await pay(w, d.id, 24)).status).toBe(503)
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect((await receiptsOf(d.id))[0].register.fiscal.state).toBe('failed')
+  })
+})
+
 describe('a driver with no cancel (ruling 1)', () => {
   /** A real `WsTremolFiscalPrinter` on a device that answers ACK, as the bridge carries it. */
   function tremolOn(w: TillWorld, fail: (cmd: number) => boolean = () => false) {

@@ -26,6 +26,12 @@ export interface RegisterPrinter {
   /** Whether a receipt is open on the device, or `undefined` when it cannot say. */
   receiptOpen?(): Promise<boolean | undefined>
   /**
+   * Get what an earlier document left open off the device. That moves the counter, so it comes before
+   * the counter is read: it is no print of the document about to print. A driver that clears nothing
+   * has nothing to clear.
+   */
+  clearLeftovers?(): Promise<void>
+  /**
    * Print the sale's fiscal receipt under `doc.register.unp`, with `doc.register.receiptText` under
    * its lines when it has one (FR-23). Returns the receipt number.
    */

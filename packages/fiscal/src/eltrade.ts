@@ -57,6 +57,7 @@ import {
   parseDeviceDateTime,
 } from './zoned-time.js'
 import { logger } from 'services/logger'
+import { stagedPrint } from './print-stage.js'
 
 export const ELTRADE_CMD = {
   OPEN_NON_FISCAL: 0x26,
@@ -792,6 +793,11 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     }
   }
 
+  /** What a new document clears as it opens, for a caller that must read the counter after it. */
+  async clearLeftovers(): Promise<void> {
+    await this.ensureNoOpenReceipt()
+  }
+
   async cancelFiscalReceipt(): Promise<void> {
     this.receipt = null
     await this.serialize(() => this.voidFiscalReceipt())
@@ -984,42 +990,47 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     lines: { name: string; quantity: number; price: number; vatGroup: VatGroup; taxRate?: number }[],
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
-    // A reversal carries the ORIGINAL sale's УНП — it is an operation on that sale.
-    const unp = originalUNP || unpNumber
-    this.assertUnp(unp)
-    const receiptNumber = String(originalReceiptNumber || '').trim()
-    if (!/^\d+$/.test(receiptNumber)) {
-      throw new EltradeError(`Storno needs the original fiscal receipt number, got "${originalReceiptNumber}"`, 'input', ELTRADE_CMD.OPEN_FISCAL)
-    }
-    await this.ensureNoOpenReceipt()
-    const diag = await this.readDiagnostics()
-    if (!diag.fiscalMemoryNumber) {
-      throw new EltradeError('Storno needs the fiscal memory number, which the device did not report', 'protocol', ELTRADE_CMD.DIAGNOSTIC_INFO)
-    }
-    const header = [
-      this.operatorLabel(operatorName, operatorCode),
-      unp,
-      'S',
-      diag.fiscalMemoryNumber,
-      STORNO_REASON[reason] ?? 'R',
-      receiptNumber,
-      formatDeviceIsoDateTime(originalDate, this.timeZone),
-    ].join(',')
-    await this.openReceipt(header, await this.unpHint(unp))
-
-    try {
-      // Quantities and amounts on a reversal are POSITIVE; the receipt type carries the sign.
-      for (const line of lines) {
-        await this.printSaleLine(line.name, Math.abs(line.quantity), Math.abs(line.price), line.vatGroup, undefined, line.taxRate)
+    return stagedPrint(async (reached) => {
+      // A reversal carries the ORIGINAL sale's УНП — it is an operation on that sale.
+      const unp = originalUNP || unpNumber
+      this.assertUnp(unp)
+      const receiptNumber = String(originalReceiptNumber || '').trim()
+      if (!/^\d+$/.test(receiptNumber)) {
+        throw new EltradeError(`Storno needs the original fiscal receipt number, got "${originalReceiptNumber}"`, 'input', ELTRADE_CMD.OPEN_FISCAL)
       }
-      await this.printPayment(payment.type, Math.abs(payment.amount))
-      const result = await this.closeFiscalReceipt()
-      logger.info({ deviceId: this.deviceId, stornoReceiptNumber: result.fiscalReceiptNumber, originalReceiptNumber, reason }, 'Eltrade storno receipt printed')
-      return result
-    } catch (e) {
-      await this.cancelFiscalReceipt().catch(() => undefined)
-      throw e
-    }
+      await this.ensureNoOpenReceipt()
+      const diag = await this.readDiagnostics()
+      if (!diag.fiscalMemoryNumber) {
+        throw new EltradeError('Storno needs the fiscal memory number, which the device did not report', 'protocol', ELTRADE_CMD.DIAGNOSTIC_INFO)
+      }
+      const header = [
+        this.operatorLabel(operatorName, operatorCode),
+        unp,
+        'S',
+        diag.fiscalMemoryNumber,
+        STORNO_REASON[reason] ?? 'R',
+        receiptNumber,
+        formatDeviceIsoDateTime(originalDate, this.timeZone),
+      ].join(',')
+      await this.openReceipt(header, await this.unpHint(unp))
+      reached('lines')
+
+      try {
+        // Quantities and amounts on a reversal are POSITIVE; the receipt type carries the sign.
+        for (const line of lines) {
+          await this.printSaleLine(line.name, Math.abs(line.quantity), Math.abs(line.price), line.vatGroup, undefined, line.taxRate)
+        }
+        reached('paying')
+        await this.printPayment(payment.type, Math.abs(payment.amount))
+        reached('closing')
+        const result = await this.closeFiscalReceipt()
+        logger.info({ deviceId: this.deviceId, stornoReceiptNumber: result.fiscalReceiptNumber, originalReceiptNumber, reason }, 'Eltrade storno receipt printed')
+        return result
+      } catch (e) {
+        await this.cancelFiscalReceipt().catch(() => undefined)
+        throw e
+      }
+    })
   }
 
   // ── Non-fiscal (service) receipt ──

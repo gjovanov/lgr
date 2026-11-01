@@ -112,6 +112,8 @@ export class EltradeSimulator {
   dropAfter: number | null = null
   /** The connection is gone: nothing reaches the device. */
   disconnected = false
+  /** 3Ch moves 71h too. The protocol does not say whether it does, and no physical device has shown it. */
+  numbersVoided = false
   /** Bytes prepended to the next answer once (e.g. a stale frame from an earlier command). */
   prependOnce: Uint8Array | null = null
   synPrefix = 0
@@ -328,6 +330,7 @@ export class EltradeSimulator {
         if (!this.receipt || this.receipt.payments.length) { flags.notAllowed = true; return '' }
         this.receipts.push({ ...this.receipt, voided: true })
         this.receipt = null
+        if (this.numbersVoided) this.lastDocNumber++
         return ''
       case 0x45: {
         if (this.receipt || this.nonFiscalOpen) { flags.notAllowed = true; return '' }

@@ -152,6 +152,14 @@ export interface IFiscalPrinter {
    */
   isReceiptOpen?(): Promise<boolean>
 
+  /**
+   * Get what an earlier document left open off the device: a service receipt closed, a fiscal one
+   * voided, or finished if it can no longer be voided. Optional, for a driver that clears anything as
+   * it opens a receipt (FR-23): a print reads the counter after this, or a leftover's close reads as
+   * its own.
+   */
+  clearLeftovers?(): Promise<void>
+
   /** Open a new fiscal receipt */
   openFiscalReceipt(operatorCode: string, operatorName: string, unpNumber: string): Promise<void>
 

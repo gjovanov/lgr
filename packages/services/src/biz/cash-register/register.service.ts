@@ -294,7 +294,14 @@ async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promis
     // Nothing closed and nothing open: it never printed. Print it.
   }
 
-  // The counter goes on the record BEFORE the device is touched.
+  // What an earlier document left open goes first, in this turn: closing it moves the counter, and
+  // that is no print of this document. It touches nothing of this one, so it comes before the record.
+  try {
+    await printer.clearLeftovers?.()
+  } catch (e: any) {
+    return afterFailedPrint(printer, doc, undefined, Object.assign(e, { printStage: 'opening' }))
+  }
+  // The counter goes on the record BEFORE this document touches the device.
   const counterBefore = await printer.lastReceiptNumber().catch(() => undefined)
   await setRegister(doc._id, { 'fiscal.attemptedAt': new Date(), 'fiscal.counterBefore': counterBefore })
   let receiptNo: string
