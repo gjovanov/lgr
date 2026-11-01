@@ -8,6 +8,7 @@ import { allowSalesWithoutPrinter, createTestAccount, createTestContact } from '
 import { captureRejection } from '../helpers/capture-rejection'
 import { AuditLog, FiscalDevice, FiscalPresence, Invoice, Journal, JournalEntry, Org, POSSession, Product, Sequence, StockLevel, StockMovement } from 'db/models'
 import { deviceFromCounter, deviceFromDeadReceipt, setFiscalForwarding } from 'fiscal/fiscal-route'
+import { deviceTurn } from 'fiscal/device-turn'
 import { statsController } from 'invoicing-api/src/controllers/stats.controller'
 import { contactController } from 'invoicing-api/src/controllers/contact.controller'
 import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller'
@@ -122,6 +123,20 @@ function during(at: (update: any) => boolean, meanwhile: () => Promise<unknown>)
     return chain
   }
   return () => { (Invoice as any).findOneAndUpdate = real }
+}
+
+/** The same, right before the raw driver write of the hand door, which `during` cannot see. */
+function duringRawWrite(meanwhile: () => Promise<unknown>) {
+  const real = Invoice.collection.findOneAndUpdate
+  let done = false
+  ;(Invoice.collection as any).findOneAndUpdate = async function (...args: any[]) {
+    if (!done) {
+      done = true
+      await meanwhile()
+    }
+    return (real as any).apply(Invoice.collection, args)
+  }
+  return () => { (Invoice.collection as any).findOneAndUpdate = real }
 }
 
 /** Everything a refused request must leave as it was: no number, no УНП, no stock, no device command. */
@@ -940,6 +955,20 @@ describe('a device that is not fiscalized: the device decides, never a switch (o
     expect((await receiptsOf(d.id)).filter(x => x.status !== 'voided')[0].register.fiscal.mode).toBe('text')
   })
 
+  it('the till\'s own text slip prints as it did: a name cut to one line, and no invoice words', async () => {
+    const w = await theUnit()
+    const name = 'Анкер с дълго име DIN 933 М8Х25 поцинкован'
+    const body = w.saleBody(1, { nonFiscal: true })
+    body.lines[0].name = name
+
+    const sale = await w.call('POST', `/trade/pos/session/${w.sessionId}/transaction`, body)
+
+    expect(sale.status).toBe(200)
+    expect(w.sim!.nonFiscalLines).toContain(name.slice(0, 28))
+    expect(w.sim!.nonFiscalLines.join('\n')).not.toContain(name.slice(28).trim())
+    expect(w.sim!.nonFiscalLines.join('\n')).not.toContain('Фактура')
+  })
+
   it('it stays out of what the till\'s text sale stays out of, and in what that is in', async () => {
     const w = await theUnit()
     const sale = await w.sell(1, { nonFiscal: true })
@@ -1149,24 +1178,25 @@ describe('a device that is not fiscalized: the device decides, never a switch (o
       expect(w.sim!.receipts).toHaveLength(1)
     })
 
-    it('read in the turn, not before it: what a Z ahead of it changed is what counts', async () => {
+    it('read in the turn, not before it: what changed while it waited is what counts', async () => {
       const w = await theUnit()
       const d = await draftOf(w, { method: 'bank_transfer' })
       await send(w, d.id)
-      const held = gate()
       w.sim!.unfiscalizedUnit = false
-      w.sim!.beforeCommand = cmd => (cmd === 0x38 ? held.closed : undefined)
-      const sale = w.sell(1)
-      await until(() => w.sim!.executed.some(c => c.cmd === 0x35), 'the sale to hold the device')
-      w.sim!.unfiscalizedUnit = true
+      const held = gate()
+      const ahead = deviceTurn(w.deviceId, () => held.closed)
       const paying = pay(w, d.id, 24)
-      await until(async () => (await receiptsOf(d.id)).length === 1, 'the receipt to wait its turn')
-      w.sim!.beforeCommand = null
+      await until(async () => !!(await receiptsOf(d.id))[0]?.invoiceNumber, 'the receipt to wait its turn')
+      await new Promise(r => setTimeout(r, 200)) // a read that did not wait has answered by now
+      w.sim!.unfiscalizedUnit = true
       held.open()
-      await sale
+      await ahead
 
       expect((await paying).status).toBe(200)
-      expect((await receiptsOf(d.id))[0].register.fiscal.mode).toBe('text')
+      const [receipt] = await receiptsOf(d.id)
+      expect(receipt.register.fiscal.mode).toBe('text')
+      expect(receipt.register.unp).toBeUndefined()
+      expect(w.sim!.receipts).toHaveLength(0)
     })
 
     it('a status read that fails is never "not fiscalized": nothing prints, and the money is not taken', async () => {
@@ -2606,6 +2636,47 @@ describe('§2.7 — once a receipt has printed, the total is the receipt\'s', ()
   })
 
   describe('a claim, not a check (findings 5 and 9)', () => {
+    const aClaim = (id: string) => () => Invoice.updateOne({ _id: id }, { $set: { voidingUntil: new Date(Date.now() + 60_000) } })
+
+    it('a claim that lands after a printing payment read the document stops it at its hold: nothing prints', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      const undo = during(u => !!u?.$push?.receiptHolds, aClaim(d.id))
+      let r: any
+      try {
+        r = await pay(w, d.id, 24)
+      } finally {
+        undo()
+      }
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('document_claimed')
+      expect(w.sim!.receipts).toHaveLength(0)
+      const inv = await raw(d.id)
+      expect(inv).toMatchObject({ status: 'sent', amountPaid: 0 })
+      expect(inv.receiptHolds ?? []).toHaveLength(0)
+    })
+
+    it('a claim that lands after a hand payment read the document stops it at its write: no row', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      const undo = duringRawWrite(aClaim(d.id))
+      let r: any
+      try {
+        r = await pay(w, d.id, 24, 'bank_transfer')
+      } finally {
+        undo()
+      }
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('document_claimed')
+      const inv = await raw(d.id)
+      expect(inv).toMatchObject({ status: 'sent', amountPaid: 0 })
+      expect(inv.payments).toHaveLength(0)
+    })
+
     /** The write that moves the money, with what would have landed between the freeze's read and it. */
     const raising = async (w: TillWorld, id: string, meanwhile: () => Promise<unknown>) => {
       const undo = during(update => update?.$set?.total === 12, meanwhile)

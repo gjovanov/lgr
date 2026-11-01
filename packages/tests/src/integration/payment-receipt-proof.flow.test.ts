@@ -1316,7 +1316,7 @@ describe('which device a door follows (FR-24.50)', () => {
   })
 
   describe('two devices in one warehouse (a Tremol and an Eltrade while one replaces the other)', () => {
-    /** A second device, newer, connected here too: the one the warehouse's lookup finds first. */
+    /** A second device, newer, connected here too. */
     async function newer(w: TillWorld) {
       const device = await createTestFiscalDevice(w.oid, w.warehouse._id as any, { deviceNumber: 'ED654321', name: 'The new one', manufacturer: 'eltrade', connectionType: 'browser', status: 'online' } as any)
       const sim = new EltradeSimulator()
@@ -1333,6 +1333,20 @@ describe('which device a door follows (FR-24.50)', () => {
       try {
         expect(await deviceFromDeadReceipt({ params: { orgId: w.orgId, id: d.id }, user: {}, body: {} }))
           .toEqual({ orgId: w.orgId, deviceId: w.deviceId, deviceNumber: 'ED123456' })
+      } finally {
+        other.gone()
+      }
+    })
+
+    it('the door follows it to the device the warehouse finds last as well', async () => {
+      const w = await tillWorld(app)
+      const d = await onBank(w)
+      const r = await dead(w, d, { attemptedAt: new Date(), counterBefore: 0 })
+      const other = await newer(w)
+      await Invoice.updateOne({ _id: r._id }, { $set: { 'register.fiscalDeviceNumber': 'ED654321' } })
+      try {
+        expect(await deviceFromDeadReceipt({ params: { orgId: w.orgId, id: d.id }, user: {}, body: {} }))
+          .toEqual({ orgId: w.orgId, deviceId: other.id, deviceNumber: 'ED654321' })
       } finally {
         other.gone()
       }
