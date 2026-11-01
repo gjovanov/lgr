@@ -14,6 +14,7 @@ import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { getProductLedger } from 'services/biz/product-ledger.service'
 import { buildSessionReport } from 'services/biz/cash-register/session-report'
 import { listJournal } from 'services/biz/cash-register/journal.service'
+import { unfinishedRefusal } from 'services/biz/cash-register/payment-receipt.service'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { exportCancelledSales, exportPaymentDetails, exportReversedSales } from 'services/biz/supto-export.service'
 import { postPosSessionJournal } from 'services/events/handlers'
@@ -591,6 +592,13 @@ describe('a session and its stornos in doubt (finding 1)', () => {
     expect(stornosOnDevice(w)).toHaveLength(0)
   })
 
+  it('one that arrived under its placeholder is named by its id, never as "for undefined"', () => {
+    const refusal = unfinishedRefusal([{ _id: 'abc', type: 'cash_storno', invoiceNumber: '~pending:doc:x', register: { fiscal: { inDoubt: true } } }])
+    expect(refusal.message).toContain('abc')
+    expect(refusal.message).not.toContain('undefined')
+    expect(refusal.receipts[0]).toMatchObject({ number: null, kind: 'storno', inDoubt: true })
+  })
+
   it('a copied POS row with no finish of its own holds nothing', async () => {
     const w = await tillWorld(app)
     const sale = await w.sell(1)
@@ -721,6 +729,20 @@ describe('a sale that went unknown is refunded with no storno on the device: not
     expect(w.sim!.executed.slice(commands).filter(c => c.cmd === 0x90)).toHaveLength(0)
     expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
     expect((await w.stock()).quantity).toBe(10)
+  })
+
+  it('a sale already finished is only told what happened: settling it moves nothing again', async () => {
+    const w = await tillWorld(app)
+    const saleId = await saleInDoubt(w)
+    // A finished sale whose goods moved no movement it could find: only its steps running again would dispatch.
+    await StockMovement.deleteMany({ orgId: w.oid, invoiceId: saleId })
+    await Invoice.updateOne({ _id: saleId }, { $unset: { 'register.movementId': 1 } })
+    const stock = await w.stock()
+
+    expect((await settle(w, saleId, false)).status).toBe(200)
+
+    expect(await StockMovement.countDocuments({ orgId: w.oid, invoiceId: saleId })).toBe(0)
+    expect((await w.stock()).quantity).toBe(stock.quantity)
   })
 
   it('the same rights as a storno, and a second settle changes nothing', async () => {

@@ -574,7 +574,7 @@ export function unfinishedRefusal(receipts: any[]) {
     inDoubt: !!r.register?.fiscal?.inDoubt,
     kind: r.type === 'cash_storno' ? 'storno' : 'payment',
   }))
-  const list = named.map(r => r.number ?? `for ${r.invoice}`).join(', ')
+  const list = named.map(r => r.number ?? (r.invoice ? `for ${r.invoice}` : r.id)).join(', ')
   return {
     code: 'receipts_unfinished',
     receipts: named,

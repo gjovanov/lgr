@@ -131,7 +131,8 @@ export async function settleInDoubt(c: RegisterContext, id: string, answer: Sett
   }
   const receiptNumber = isSale && printed && inDoubt ? await saleReceiptNumber(doc, answer.receiptNumber) : undefined
   const receiptError = `A person who checked the device settled this ${NAMES[doc.type]} as not printed.`
-  const claimed: any = await Invoice.findOneAndUpdate(
+  // ⚠ A sale read as not in doubt can be by now: its number was never asked for, so it is not claimed.
+  const claimed: any = isSale && printed && !receiptNumber ? null : await Invoice.findOneAndUpdate(
     {
       _id: doc._id, orgId: oid(c.orgId), status: { $ne: 'voided' },
       ...(isSale ? saleInDoubtFilter(now) : { 'register.fiscal.inDoubt': true, completedAt: { $exists: false } }),

@@ -3067,6 +3067,26 @@ describe('the write that follows a money-moving edit (the second review, finding
     expect(inv.payments[0].receiptId).toBeTruthy()
   })
 
+  it('what the rule had to withdraw is withdrawn on its second read: a stale row does not outlive a payment in the gap', async () => {
+    const w = await tillWorld(app)
+    const d = await unpaidCash(w)
+    await Invoice.updateOne({ _id: d.id }, {
+      $set: { amountPaid: 12, amountDue: 12, status: 'partially_paid', payments: [{ date: new Date(), amount: 12, method: 'cash', origin: 'cash_on_issue' }] },
+    })
+    const undo = during(settlementWrite, () => pay(w, d.id, 5, 'bank_transfer'))
+    let edit: any
+    try {
+      edit = await w.call('PUT', `/invoices/${d.id}`, { paymentMethod: 'bank_transfer' })
+    } finally {
+      undo()
+    }
+
+    expect(edit.status).toBe(200)
+    const inv = await raw(d.id)
+    expect(inv.payments.map((p: any) => [p.amount, p.origin ?? null])).toEqual([[5, null]])
+    expect(inv).toMatchObject({ amountPaid: 5, amountDue: 19, status: 'partially_paid' })
+  })
+
   it('a second one in the second gap: the rule gives up, logs, and leaves the document as the payments left it', async () => {
     const w = await tillWorld(app)
     const d = await unpaidCash(w)

@@ -23,8 +23,8 @@
  * decided there (`print-verdict.ts`).
  *
  * ⚠ `unknown` means a person must look at the device: nothing reads it as `failed`, and nothing reads
- * it as `printed`. A sale's money stands either way (D-4). A storno's and a payment's wait on the answer
- * (`HELD_WHEN_UNPROVED`), and a person gives it at the journal's settle door (`settle.service.ts`).
+ * it as `printed`. A sale's money stands either way (D-4). A storno's and a dead receipt's wait on the
+ * answer (`holdInDoubt`), and a person gives it at the journal's settle door (`settle.service.ts`).
  *
  * What only a door knows is handed in: the fiscal device (a `RegisterPrinter`, which the till builds
  * from `fiscal/*` — `services` must not import it), the session the sale rings into, the request's
@@ -215,12 +215,6 @@ export async function setRegister(id: unknown, set: Record<string, unknown>): Pr
 }
 
 /**
- * The documents whose money waits on what the device did: a request that died and cannot be proved is
- * held for a person, never booked and never printed again. R2's `payment_storno` joins this list.
- */
-const HELD_WHEN_UNPROVED = ['payment_receipt', 'cash_storno']
-
-/**
  * Hold a document that nothing can prove (FR-23): `unknown`, booking no money and printing nothing, a
  * receipt's amount still held on its invoice and a storno's claim still on its sale, until a person
  * settles it (`settleInDoubt`). Its lease goes, so it no longer reads as a request that died.
@@ -300,8 +294,9 @@ export async function numberPending(orgId: string, doc: any): Promise<any | null
  *   one included: on a shared device that may be another document's receipt, and booked as this
  *   one's it hands a customer someone else's number, or refunds a storno the device never saw. A
  *   second fiscal receipt for one sale is the failure this exists to prevent, so the document goes
- *   `unknown` and the cashier checks the device. A payment's receipt and a storno are held for a person
- *   instead (`holdInDoubt`), because here the reading decides whether money is booked.
+ *   `unknown` and the cashier checks the device. A payment's receipt is held for a person instead
+ *   (`holdInDoubt`), because here the reading decides whether money is booked, and `runStornoSteps` holds
+ *   a storno that comes back `unknown`, whichever way it got there.
  */
 async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promise<string>): Promise<any> {
   const fiscal = doc.register?.fiscal || {}
@@ -310,7 +305,7 @@ async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promis
     const { now, open } = await readDevice(printer)
     if (!provedNotPrinted({ before, now, open })) {
       logger.warn({ documentId: String(doc._id), before, now, open }, 'Interrupted fiscal receipt: device cannot confirm it — not reprinting')
-      if (HELD_WHEN_UNPROVED.includes(doc.type)) return holdInDoubt(doc)
+      if (doc.type === 'payment_receipt') return holdInDoubt(doc)
       return setRegister(doc._id, {
         'fiscal.state': 'unknown',
         receiptError: 'The receipt was interrupted and the device cannot confirm whether it printed. Check the device; do not ring the sale up again.',
