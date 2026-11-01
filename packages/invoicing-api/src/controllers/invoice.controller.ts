@@ -1,3 +1,4 @@
+import { FiscalRoute, deviceFromAuthorSession } from 'fiscal/fiscal-route'
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
@@ -440,6 +441,8 @@ export async function getNextCompanionNumber(orgId: string, kind: CompanionDocKi
 
 export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   .use(AppAuthService)
+  // FR-24.50: the routes that reach a fiscal device say which; one held on another pod runs there.
+  .use(FiscalRoute)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
@@ -883,7 +886,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       return { invoice }
     },
     {
-      isSignIn: true,
+      isSignIn: true, fiscalDevice: deviceFromAuthorSession,
       body: t.Object({
         type: t.Union([
           t.Literal('invoice'),

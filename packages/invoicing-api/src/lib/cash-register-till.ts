@@ -15,6 +15,7 @@ import { logger } from 'services/logger'
 import { toPosTransaction } from 'services/biz/cash-register/mapping'
 import { asEntity } from 'services/biz/cash-register/pos-union'
 import type { RegisterPrinter } from 'services/biz/cash-register/printer'
+import { livePresence } from 'services/biz/fiscal-presence.service'
 import {
   RegisterRefusal, claimForStorno, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally, releaseStornoClaim,
   runStornoSteps, settleKeyedDocument, stornoDocument, stornoRefusal,
@@ -57,6 +58,17 @@ export async function getFiscalContext(orgId: string, warehouseId: string): Prom
     const failed = devices.find(d => d.status === 'error')
     if (failed) {
       throw new Error(`Fiscal device "${failed.name}" is in error state. Cannot process sale.`)
+    }
+    // ⚠ FR-24.52: "held elsewhere" is never "offline". A device another pod holds right now prints
+    // there; a request that reached this pod anyway (a route that did not declare its device,
+    // FR-24.50) is refused, and never completes without the receipt it should have.
+    for (const d of devices) {
+      if (await livePresence({ orgId, deviceNumber: String(d.deviceNumber) })) {
+        throw Object.assign(
+          new Error(`Fiscal device "${d.name}" is connected to another server process. Nothing was done; try again.`),
+          { code: 'fiscal_held_elsewhere' },
+        )
+      }
     }
     logger.warn({ deviceIds: devices.map(d => d.id), warehouseId }, 'Fiscal device offline, proceeding without fiscal receipt')
     return null

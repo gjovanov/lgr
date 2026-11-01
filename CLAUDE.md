@@ -870,6 +870,22 @@ Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models`
   reconnects (1 s → 30 s, 1012 at once, `bridge_in_use` retried, an eviction not); after a page load it
   reopens a granted port when exactly one matches the remembered USB ids (`resume`, FR-24.41).
 - ⚠ `replicas` stays 1 until Phase 6 (lgr-deploy says so on the field).
+- **Phase 6: the request goes to the printer** (FR-24.50–24.54). A route that reaches a fiscal device
+  declares it: `.use(FiscalRoute)` (after its auth plugin) and `{ fiscalDevice: <resolver> }`
+  (`fiscal/fiscal-route.ts`: `deviceFromParams`, `deviceFromSession`, `deviceFromBodyWarehouse`,
+  `deviceFromJournalDocument`, `deviceFromAuthorSession`). Before the handler, a device held by ANOTHER
+  pod's live row sends the whole request there with `forwardHttp` as a fiscal hop (`FISCAL_HOP`, its own
+  HMAC label), raw body and all; the answer is the answer.
+  - Holder unreachable: 503 `fiscal_holder_unreachable`, nothing written. A hop is never forwarded
+    again; one that finds the device gone: 409 `fiscal_holder_moved`.
+  - ⚠ `getFiscalContext` throws `fiscal_held_elsewhere` while another pod holds a warehouse's device:
+    "held elsewhere" is never "offline", so nothing completes without its receipt.
+  - ⚠ `unit/fiscal-route-declared.test.ts` walks every `*-api` and `fiscal` function to a fixpoint and
+    fails on a route that reaches the driver without `fiscalDevice` (the numbering witness is exempt).
+  - `POD_ID` is `<hostname>#<pid>`: two processes on one machine share a hostname.
+  - `two-node/two-pods.test.ts` (`LGR_TWO_NODE=1`, `startTwoPods`): one database, two processes, the
+    simulated Eltrade bridged to pod A, every request sent to pod B.
+  - ⚠ `replicas: 2` is lgr-deploy's, merged only after this image is live.
 
 ## Frontend Conventions
 

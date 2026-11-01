@@ -16,6 +16,10 @@ import { UI_MODULES, oneSpaShell, portalShellFor, spaErrorHandler, uiStaticPlugi
 // WebSocket
 import { setupWebSocket } from './websocket/ws.server.js'
 import { closeAllBridges, setupFiscalBridgeWS } from './websocket/fiscal-bridge.js'
+import { setFiscalForwarding } from 'fiscal/fiscal-route'
+import { forwardHttp } from './tunnel/forward.js'
+import { FISCAL_HOP, verifyHop } from './tunnel/hop.js'
+import { clientIp } from './auth/client-ip.js'
 import { setupDesktopWS } from './websocket/desktop.js'
 import { setupUplinkWS } from './websocket/uplink.js'
 
@@ -129,6 +133,14 @@ const app = new Elysia()
 
   // All routes under /api — the table itself is in `api.ts`
   .use(createApiApp())
+
+// FR-24.50/24.51: a till request for a printer another pod holds is forwarded there, as a fiscal hop.
+setFiscalForwarding({
+  forward: (to, request, client) => forwardHttp(to, request, client, { hopLabel: FISCAL_HOP }),
+  isHop: request => !!verifyHop(request, Date.now(), FISCAL_HOP),
+  clientIp: request =>
+    verifyHop(request, Date.now(), FISCAL_HOP)?.clientIp ?? clientIp(Object.fromEntries(request.headers as any)) ?? null,
+})
 
 // WebSocket
 setupWebSocket(app as any)

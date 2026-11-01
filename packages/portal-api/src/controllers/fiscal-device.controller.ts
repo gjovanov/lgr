@@ -1,3 +1,4 @@
+import { FiscalRoute, deviceFromParams } from 'fiscal/fiscal-route'
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
 import { getRepos } from 'services/context'
@@ -54,6 +55,8 @@ function sanitizeDevice(device: any, userRole: string) {
 
 export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/device' })
   .use(AuthService)
+  // FR-24.50: the routes that reach a fiscal device say which; one held on another pod runs there.
+  .use(FiscalRoute)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
@@ -180,7 +183,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
 
     return { fiscalDevice: updated }
   }, {
-    isSignIn: true,
+    isSignIn: true, fiscalDevice: deviceFromParams,
     body: t.Object({
       name: t.Optional(t.String()),
       // The device form always sent it; without it here Elysia dropped it, so a device saved
@@ -217,7 +220,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: existing.name })
 
     return { message: 'Fiscal device deactivated' }
-  }, { isSignIn: true })
+  }, { isSignIn: true, fiscalDevice: deviceFromParams })
   // ── Device operations ──
   .post('/:id/connect', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
@@ -260,7 +263,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       await r.fiscalDevices.updateInOrg(id, orgId, { status: 'error' } as any)
       return status(500, { message: `Connection failed: ${e.message}` })
     }
-  }, { isSignIn: true })
+  }, { isSignIn: true, fiscalDevice: deviceFromParams })
   .post('/:id/disconnect', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
@@ -274,7 +277,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     await r.fiscalDevices.updateInOrg(id, orgId, { status: 'offline' } as any)
 
     return { message: 'Disconnected', status: 'offline' }
-  }, { isSignIn: true })
+  }, { isSignIn: true, fiscalDevice: deviceFromParams })
   .get('/:id/status', async ({ params: { orgId, id }, user, status: httpStatus }) => {
     if (!user) return httpStatus(401, { message: 'Unauthorized' })
     const r = getRepos()
@@ -290,7 +293,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     }
 
     return { deviceStatus }
-  }, { isSignIn: true })
+  }, { isSignIn: true, fiscalDevice: deviceFromParams })
   .post('/:id/z-report', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!['admin', 'manager'].includes(user.role)) return status(403, { message: 'Admin or manager required for Z-reports' })
@@ -306,7 +309,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
 
       return { zReport: result }
     })
-  }, { isSignIn: true })
+  }, { isSignIn: true, fiscalDevice: deviceFromParams })
   /**
    * A person sets a device's clock from the server's (FR-20.22): the confirmation the automatic sync
    * waits for. ⚠ When the server's clock is not verified, or the device's would move by more than
@@ -350,7 +353,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       })
       return { message: 'Time synchronized', serverTime: now.toISOString(), stepMs, verified: trust.ok }
     })
-  }, { isSignIn: true, body: t.Optional(t.Object({ confirm: t.Optional(t.Boolean()) })) })
+  }, { isSignIn: true, fiscalDevice: deviceFromParams, body: t.Optional(t.Object({ confirm: t.Optional(t.Boolean()) })) })
   // ── Report and operator endpoints ──
   .post('/:id/x-report', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
@@ -361,7 +364,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
     return deviceReport(status, orgId, user.id, device, { kind: 'x' })
-  }, { isSignIn: true })
+  }, { isSignIn: true, fiscalDevice: deviceFromParams })
   .post('/:id/operator-report', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
@@ -372,7 +375,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
 
     return deviceReport(status, orgId, user.id, device, { kind: 'operator', operatorNumber: body.operatorNumber })
   }, {
-    isSignIn: true,
+    isSignIn: true, fiscalDevice: deviceFromParams,
     body: t.Object({
       operatorNumber: t.Optional(t.Number()),
     }),
@@ -388,7 +391,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     const { type, ...period } = body
     return deviceReport(status, orgId, user.id, device, { ...period, kind: type === 'by_date' ? 'fm_date' : 'fm_number' })
   }, {
-    isSignIn: true,
+    isSignIn: true, fiscalDevice: deviceFromParams,
     body: t.Object({
       type: t.Union([t.Literal('by_date'), t.Literal('by_number')]),
       // The page sends null (or '') for a field left empty. Checked by hand (`printDeviceReport`),
@@ -410,7 +413,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
 
     return deviceReport(status, orgId, user.id, device, { kind: 'ej', startDate: body.startDate, endDate: body.endDate })
   }, {
-    isSignIn: true,
+    isSignIn: true, fiscalDevice: deviceFromParams,
     body: t.Object({
       startDate: t.Optional(t.Union([t.String(), t.Null()])),
       endDate: t.Optional(t.Union([t.String(), t.Null()])),
@@ -439,7 +442,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       return { message: 'Operator programmed' }
     })
   }, {
-    isSignIn: true,
+    isSignIn: true, fiscalDevice: deviceFromParams,
     body: t.Object({
       operatorNumber: t.Number(),
       password: t.String(),
@@ -462,7 +465,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       check: () => Number.isInteger(n) && n >= 1 && n <= max ? null : `Operators on this device are numbered 1–${max}.`,
     }, async (printer) => ({ operator: await printer.readOperator!(n) }))
   }, {
-    isSignIn: true,
+    isSignIn: true, fiscalDevice: deviceFromParams,
     body: t.Object({
       operatorNumber: t.Number(),
     }),
@@ -483,7 +486,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     return onDevice(status, device, 'Reading payment types', { feature: 'paymentNames' }, async (printer) => ({
       paymentNames: await printer.readPaymentNames!(),
     }))
-  }, { isSignIn: true })
+  }, { isSignIn: true, fiscalDevice: deviceFromParams })
   /**
    * Name one payment slot — on an Eltrade, the reserve slot 'R' that cash on delivery prints in, as
    * „НАЛОЖЕН ПЛАТЕЖ". ⚠ Admin only: the name prints on every receipt paid through the slot, so
@@ -514,7 +517,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       return { paymentName }
     })
   }, {
-    isSignIn: true,
+    isSignIn: true, fiscalDevice: deviceFromParams,
     body: t.Object({
       code: t.String({ maxLength: 4 }),
       name: t.String({ maxLength: 100 }),
