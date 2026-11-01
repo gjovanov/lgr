@@ -602,6 +602,48 @@ describe('a session and its unfinished receipts (ruling 7)', () => {
     expect((await paying).status).toBe(200)
   })
 
+  it('one that slips in under the claim: the close gives way, and no Z prints', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    const real = POSSession.findOneAndUpdate
+    let slipped: any
+    ;(POSSession as any).findOneAndUpdate = function (...args: unknown[]) {
+      const query = (real as any).apply(POSSession, args)
+      return {
+        exec: async () => {
+          const claimed = await query.exec()
+          slipped = await dead(w, d, {})
+          return claimed
+        },
+      }
+    }
+    let refused: any
+    try {
+      refused = await close(w, 100)
+    } finally {
+      ;(POSSession as any).findOneAndUpdate = real
+    }
+
+    expect(refused.status).toBe(409)
+    expect(refused.json.code).toBe('receipts_unfinished')
+    expect(refused.json.receipts.map((x: any) => x.id)).toEqual([String(slipped._id)])
+    expect(w.sim!.reports).toHaveLength(0)
+    expect((await sessionOf(w)).status).toBe('open')
+  })
+
+  it('one its request left printed: the close records it first, and the drawer agrees', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    const r = await dead(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber })
+    await Invoice.updateOne({ _id: r._id }, { $set: { 'register.fiscal.state': 'printed' } })
+
+    const closed = await close(w, 124)
+
+    expect(closed.status).toBe(200)
+    expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 24, difference: 0 })
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
   it('a closing session takes no new receipt: it would land after the day was counted', async () => {
     const w = await tillWorld(app)
     const clerk = await clerkSession(w)

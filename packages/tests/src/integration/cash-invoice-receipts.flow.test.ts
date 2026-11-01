@@ -814,11 +814,22 @@ describe('a payment recorded later (§2.2)', () => {
     await send(w, d.id)
     await pay(w, d.id, 24, 'cash', 'keyed-lookup-0001')
 
-    const found = await keyedReceipt(w.orgId, 'keyed-lookup-0001')
+    // The filter as `keyedReceipt` writes it: what the planner proves is in its shape.
+    const real = Invoice.findOne
+    let filter: any
+    ;(Invoice as any).findOne = function (...args: any[]) {
+      filter = args[0]
+      return (real as any).apply(Invoice, args)
+    }
+    let found: any
+    try {
+      found = await keyedReceipt(w.orgId, 'keyed-lookup-0001')
+    } finally {
+      ;(Invoice as any).findOne = real
+    }
 
     expect(found?.clientKey).toBe('keyed-lookup-0001')
-    const plan = JSON.stringify(await Invoice.find({ orgId: w.oid, clientKey: { $eq: 'keyed-lookup-0001', $type: 'string' }, type: 'payment_receipt' }).explain('queryPlanner'))
-    expect(plan).toContain('orgId_1_clientKey_1')
+    expect(JSON.stringify(await Invoice.find(filter).explain('queryPlanner'))).toContain('orgId_1_clientKey_1')
   })
 
   it('a retry with the same key prints once; the same key on another amount is refused', async () => {
