@@ -2873,6 +2873,117 @@ describe('§2.7 — once a receipt has printed, the total is the receipt\'s', ()
   })
 })
 
+describe('the write that follows a money-moving edit (the second review, finding 5)', () => {
+  /** A cash invoice whose receipt failed: issued, unpaid, its total free to move. */
+  async function unpaidCash(w: TillWorld) {
+    const d = await draftOf(w)
+    w.sim!.paper = false
+    await send(w, d.id)
+    w.sim!.paper = true
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0, total: 24 })
+    return d
+  }
+  const raiseTotal = (w: TillWorld, id: string) => {
+    const l = line(w, 3)
+    return w.call('PUT', `/invoices/${id}`, { lines: [l], subtotal: +(l.lineTotal - l.taxAmount).toFixed(2), taxTotal: l.taxAmount, total: l.lineTotal })
+  }
+  /** The settlement's own write: what is due, and not the total the edit itself wrote. */
+  const settlementWrite = (update: any) => update?.$set?.amountDue !== undefined && update?.$set?.total === undefined
+  const rowsOf = async (id: string) => ((await raw(id)).payments as any[]).reduce((s, p) => s + p.amount, 0)
+
+  it('a bank payment forced into the gap: it is kept, what is due follows it, and the rows can never exceed the total', async () => {
+    const w = await tillWorld(app)
+    const d = await unpaidCash(w)
+    let inside: any
+    const undo = during(settlementWrite, async () => { inside = await pay(w, d.id, 10, 'bank_transfer') })
+    let edit: any
+    try {
+      edit = await raiseTotal(w, d.id)
+    } finally {
+      undo()
+    }
+
+    expect(inside.status).toBe(200)
+    expect(edit.status).toBe(200)
+    expect(await raw(d.id)).toMatchObject({ total: 36, amountPaid: 10, amountDue: 26, status: 'partially_paid' })
+    expect(await rowsOf(d.id)).toBe(10)
+
+    const whole = await pay(w, d.id, 36, 'bank_transfer')
+    expect(whole.status).toBe(422)
+    expect(whole.json.code).toBe('overpayment')
+    expect((await pay(w, d.id, 26, 'bank_transfer')).status).toBe(200)
+    expect(await raw(d.id)).toMatchObject({ amountPaid: 36, amountDue: 0, status: 'paid' })
+    expect(await rowsOf(d.id)).toBe(36)
+  })
+
+  it('a cash payment forced there, its receipt on the device: its row stays linked', async () => {
+    const w = await tillWorld(app)
+    const d = await unpaidCash(w)
+    const undo = during(settlementWrite, () => pay(w, d.id, 10))
+    try {
+      await raiseTotal(w, d.id)
+    } finally {
+      undo()
+    }
+
+    const inv = await raw(d.id)
+    expect(inv).toMatchObject({ total: 36, amountPaid: 10, amountDue: 26, status: 'partially_paid' })
+    expect(inv.payments).toHaveLength(1)
+    expect(inv.payments[0].receiptId).toBeTruthy()
+  })
+
+  it('a second one in the second gap: the rule gives up, logs, and leaves the document as the payments left it', async () => {
+    const w = await tillWorld(app)
+    const d = await unpaidCash(w)
+    let second: () => void = () => {}
+    const undo = during(settlementWrite, async () => {
+      await pay(w, d.id, 10, 'bank_transfer')
+      // A payment leaves what is due right, and then the rule has nothing to write: this gives it something.
+      await Invoice.updateOne({ _id: d.id }, { $set: { amountDue: 99 } })
+      second = during(settlementWrite, () => pay(w, d.id, 5, 'bank_transfer'))
+    })
+    let edit: any
+    try {
+      edit = await raiseTotal(w, d.id)
+    } finally {
+      second()
+      undo()
+    }
+
+    expect(edit.status).toBe(200)
+    expect(await raw(d.id)).toMatchObject({ total: 36, amountPaid: 15, amountDue: 21, status: 'partially_paid' })
+    expect(await rowsOf(d.id)).toBe(15)
+  })
+
+  it('a hold taken in the gap: nothing writes under it', async () => {
+    const w = await tillWorld(app)
+    const d = await unpaidCash(w)
+    const receiptId = new (Invoice.base as any).Types.ObjectId()
+    const undo = during(settlementWrite, () => Invoice.updateOne({ _id: d.id }, { $push: { receiptHolds: { receiptId, amount: 5 } } }))
+    let edit: any
+    try {
+      edit = await raiseTotal(w, d.id)
+    } finally {
+      undo()
+    }
+
+    expect(edit.status).toBe(200)
+    const inv = await raw(d.id)
+    expect(inv.total).toBe(36)
+    expect(inv.amountPaid).toBe(0)
+    expect(inv.receiptHolds).toHaveLength(1)
+  })
+
+  it('with nothing in the gap it writes as it did', async () => {
+    const w = await tillWorld(app)
+    const d = await unpaidCash(w)
+
+    expect((await raiseTotal(w, d.id)).status).toBe(200)
+
+    expect(await raw(d.id)).toMatchObject({ total: 36, amountPaid: 0, amountDue: 36, status: 'sent' })
+  })
+})
+
 describe('a draft and the issue that claimed it (the second review, finding 3)', () => {
   /** A `PUT` as the form sends one: every line and every total, at `quantity`. */
   const editTo = (w: TillWorld, id: string, quantity: number, extra: Record<string, unknown> = {}) => {
