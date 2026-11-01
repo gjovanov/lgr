@@ -361,6 +361,33 @@ test.describe('a bill in another currency (FR-22.32a)', () => {
   })
 })
 
+test.describe('a new bill in another currency (FR-22.32a)', () => {
+  test('makes no bill from the delivery: the form would lose its currency', async ({ page }) => {
+    const w = await world('usd-new')
+    const r = await receipt(w, 2)
+
+    await signInForUx(page)
+    const bills: string[] = []
+    page.on('response', (res) => {
+      if (res.request().method() === 'POST' && res.url().endsWith('/invoicing/bills/from-receipt')) bills.push(String(res.status()))
+    })
+    await page.goto('/invoicing/bills/new', { waitUntil: 'networkidle' })
+    await openSelect(page, /Доставчик/)
+    await page.getByRole('option').filter({ hasText: w.supplier.companyName }).first().click()
+    await openSelect(page, /Валута/)
+    await page.getByRole('option', { name: /USD/ }).first().click()
+
+    await page.getByTestId('link-delivery-btn').click()
+    const dialog = page.getByTestId('link-delivery-dialog')
+    await dialog.locator('.v-list-item').filter({ hasText: r.number }).locator('input[type="checkbox"]').check()
+    await page.getByTestId('link-delivery-confirm').click()
+
+    await expect(snackbar(page)).toContainText('фактура в друга валута не се свързва')
+    expect(bills).toEqual(['422'])
+    expect((await movementOf(w, r.id)).billable).toBe(true)
+  })
+})
+
 test.describe('a bill the form cannot save (FR-22.32a)', () => {
   test('linking stops, and the dialog does not cover why', async ({ page }) => {
     const w = await world('invalid')
@@ -604,6 +631,54 @@ test.describe('receiving warns before it double-books (FR-22.31c)', () => {
     held.release()
     await expect(snackbar(page)).toContainText('Фактурата е получена')
     expect(await stockOf(w)).toBe(stock + 3)
+  })
+
+  test('Enter pressed twice on the question\'s Link sends it once', async ({ page }) => {
+    const w = await world('enter-link')
+    await receipt(w, 3)
+    const bill = await typedBill(w, 3, `EL-${w.stamp}`)
+
+    await signInForUx(page)
+    await page.goto(`/invoicing/bills/${bill.id}/edit`, { waitUntil: 'networkidle' })
+    await actions(page).getByRole('button', { name: 'Запази и получи' }).click()
+    const dialog = page.getByTestId('receipt-overlap-dialog')
+    const link = dialog.getByTestId('receipt-overlap-link')
+    await expect(link).toBeEnabled()
+
+    const posts: string[] = []
+    let release = () => {}
+    const released = new Promise<void>((resolve) => { release = resolve })
+    await page.route(`**/invoicing/bills/${bill.id}/link-receipts`, async (route) => {
+      posts.push(route.request().url())
+      await released
+      await route.continue()
+    })
+    await link.focus()
+    await page.keyboard.press('Enter')
+    await expect.poll(() => posts.length).toBe(1)
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(300)
+    expect(posts).toHaveLength(1)
+    release()
+    await expect(dialog).toHaveCount(0)
+  })
+
+  test('a refusal of „Получи въпреки това" reads in Bulgarian, in the dialog', async ({ page }) => {
+    const w = await world('any-refused')
+    await receipt(w, 3)
+    const bill = await typedBill(w, 3, `AR-${w.stamp}`)
+
+    await signInForUx(page)
+    await page.goto(`/invoicing/bills/${bill.id}/edit`, { waitUntil: 'networkidle' })
+    await actions(page).getByRole('button', { name: 'Запази и получи' }).click()
+    const dialog = page.getByTestId('receipt-overlap-dialog')
+    await expect(dialog).toBeVisible()
+    // Another tab took the bill while the question stood open. Nothing here can stage that race, so the answer is staged.
+    await page.route(`**/invoices/${bill.id}/receive`, route => route.fulfill({
+      status: 409, contentType: 'application/json', body: JSON.stringify({ code: 'bill_not_draft', message: 'in English' }),
+    }))
+    await dialog.getByTestId('receipt-overlap-receive').click()
+    await expect(dialog.getByTestId('receipt-overlap-error')).toHaveText('Фактурата вече не е чернова.')
   })
 
   test('a bill with nothing to overlap receives without a question', async ({ page }) => {

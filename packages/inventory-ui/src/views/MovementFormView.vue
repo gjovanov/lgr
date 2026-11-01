@@ -555,7 +555,6 @@ function applyImportedMovement(payload: { fields: Record<string, any>; lines: an
   for (const [k, v] of Object.entries(payload.fields || {})) {
     if (v === undefined || v === null || v === '') continue
     ;(form.value as any)[k] = v
-    if (k === 'toWarehouseId') form.value.toGuessed = false
   }
 
   if (payload.lineMode !== 'keep' && payload.lines?.length) {
