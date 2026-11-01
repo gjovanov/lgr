@@ -25,8 +25,9 @@ import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../
  *
  * Global signs one per entitled org (an Enterprise subscription that is paid, or a sys-admin's
  * pilot) and sends it in the uplink's `welcome`, and again when it changes. The master verifies it
- * against keys built into the package and, once it has run out past its grace, stops opening till
- * sessions and starting sales documents, and nothing else.
+ * against keys built into the package and, once it has run out past its grace, stops new sales,
+ * at the till and as documents, and nothing else. A session still opens: a payment on an existing
+ * document prints on its device.
  */
 
 const ENROLL = 'https://lgrai.app/api/node/v1/enroll'
