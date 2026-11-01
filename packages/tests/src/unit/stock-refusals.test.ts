@@ -37,6 +37,22 @@ describe('the refusals of a movement and of a bill made from receipts', () => {
     for (const code of PAGE_REASONS.filter(r => r !== 'orphan')) expect(SERVER).toContain(`'${code}'`)
   })
 
+  it('calls each type of movement what the type select calls it, in every language', () => {
+    const SAYS_TYPE: Record<string, string> = {
+      dispatch_with_to_warehouse: 'dispatch',
+      receipt_with_from_warehouse: 'receipt',
+      transfer_without_from_warehouse: 'transfer',
+      adjustment_with_both_warehouses: 'adjustment',
+    }
+    for (const [locale, catalog] of CATALOGS) {
+      for (const [code, type] of Object.entries(SAYS_TYPE)) {
+        // Inflected in the sentence, so its stem.
+        const word = String(catalog.warehouse.movementTypes[type]).toLowerCase().slice(0, 5)
+        expect([locale, code, String(catalog.warehouse.refusals[code]).toLowerCase().includes(word)]).toEqual([locale, code, true])
+      }
+    }
+  })
+
   it('reads a known code from the catalogue, with what the refusal names', () => {
     const t = (key: string, params?: Record<string, unknown>) => `${key}|${params?.movementNumber ?? ''}`
     const e = { response: { data: { code: 'receipt_without_supplier', message: 'in English', movementNumber: 'SM-1' } } }
