@@ -55,8 +55,7 @@ One Vue 3 + Vuetify SPA, `packages/web`, holds the portal and every module, with
 Pinia (FR-24). Moving between modules is a router push, never a page load, so a browser till keeps
 its printer. Each module is a package of views and stores with a manifest (`src/manifest.ts`):
 - portal-ui: sign-in, the app hub, settings;
-- accounting-ui, inventory-ui, invoicing-ui (with POS under `/invoicing/pos`), payroll-ui,
-  reports-ui and files-ui.
+- accounting-ui, inventory-ui, invoicing-ui (the till lives there), payroll-ui, reports-ui and files-ui.
 
 Adding a module is its package, one line in `web/src/modules.ts` and its registry rows.
 
@@ -150,7 +149,7 @@ packages/
   portal-ui/       Portal module (sign-in, app hub, settings)
   accounting-ui/   Accounting module
   inventory-ui/    Inventory module
-  invoicing-ui/    Invoicing module, and POS (src/pos)
+  invoicing-ui/    Invoicing module, the till included (src/pos)
   payroll-ui/      Payroll module
   reports-ui/      Reports module
   files-ui/        Files module
