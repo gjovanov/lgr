@@ -2510,20 +2510,45 @@ invoice still due until the courier pays).
   `unknown` and a receipt is held, a counter moved by exactly one included. ⚠ Never bring back "+1 on a
   resume is ours": it recorded a sale under a payment's receipt number, and a storno refunded money with
   no storno on the device. An answer genuinely lost now means a look at the device.
-- **A print that throws in its turn** (`verdictOfFailedPrint`): before the money it is `failed`, ⚠ whatever
-  the counter says, because nothing at those stages can close the document. What an earlier document
-  left open is cleared BEFORE the counter is read (`clearLeftovers`), in the same turn. Whether a real
-  device's 71h numbers a voided receipt is not known. Past the money, +1 is `printed`, and unmoved and
-  idle is `failed`: the receipt is voided with its number (18.5 lists it), no payment, and the document
-  stays as it was; `/payments` answers 503 `fiscal_error`, `/send` 200 with `receiptError`, because issued
-  is issued. ⚠ Anything else is `unknown`: the money stands and it never prints again, because a real
-  receipt voided and printed again is two fiscal receipts for one payment. A driver with no
-  `cancelFiscalReceipt` closes the receipt on failure, and a close that goes through is `unknown`. A driver
-  says how far it got (`stagedPrint`), a storno too; `refused` means it sent nothing, so the device is not
-  marked and nothing is read.
+- **A print that throws in its turn** (`verdictOfFailedPrint`). First what the driver saw:
+  `cancelFiscalReceipt` says `voided`, `finished` or nothing (`AbandonOutcome`). Voided is `failed` at every
+  stage, whatever the counter reads, so whether a real 71h numbers a voided receipt does not matter
+  there. Finished is its fallback closing the receipt: `printed` past the money on +1, otherwise `unknown`,
+  never `failed`. ⚠ **It may say voided only if it SAW a receipt open before it cancelled**: after a close
+  whose answer was lost nothing is open, 3Ch does nothing and the status reads not open, and read as voided
+  that books a real receipt as failed and prints it again. So it reads the open flag first, and not open
+  or unreadable says neither. With no word: before the money it is `failed`, whatever the counter says;
+  past it +1 is `printed`, and unmoved and idle is `failed`: the receipt is voided with its number (18.5
+  lists it), no payment, and the document stays as it was; `/payments` answers 503 `fiscal_error`, `/send`
+  200 with `receiptError`, because issued is issued. ⚠ Anything else is `unknown`: never printed again,
+  because a real receipt voided and printed again is two fiscal receipts for one payment. What an earlier
+  document left open is cleared BEFORE the counter is read (`clearLeftovers`), in the same turn. A driver
+  with no `cancelFiscalReceipt` closes the receipt on failure, and a close that goes through says finished.
+  A driver says how far it got (`stagedPrint`), a storno too; `refused` means it sent nothing, so the device
+  is not marked and nothing is read.
+- ⚠ **`unknown` means a person must look at the device: nothing reads it as `failed` and nothing reads it
+  as `printed`.** A receipt's money stands when its print was in its own turn; a sale's always does (D-4).
+  A storno's never does.
+- ⚠ **A storno that may have printed is held, never voided** (`runStornoSteps`). Only `failed` voids it and
+  gives the sale back. An `unknown` one keeps its claim, books no refund, no stock and no session totals, and
+  answers 409 `storno_in_doubt`, as does every press after it: voided, the next press printed a second
+  fiscal storno. ⚠ The claim (`stornoState: 'full'`, `claimForStorno`) has no lease and nothing lapses it;
+  the lease on the storno document says who is working on that document. A dead storno is found by its
+  lapsed lease, by the sale's next storno and by the close, and a storno in doubt holds the close. It
+  counts nowhere until settled: `posRowSign` and `NOT_UNPROVED_STORNO`, which ⚠ a new reader that sums
+  `cash_storno` must spread, and SUPTO's 18.2, 18.4, 18.5.
+- ⚠ **A fiscal sale still `unknown` or `pending` cannot be stornoed** (409 `sale_receipt_in_doubt`, before the
+  claim): read as not printed it refunds with no storno on the device (#281). A text sale prints nothing
+  to reverse.
+- **The settle door** (`settle.service.ts`, `POST /cash-register/documents/:id/settle`, `STORNO_ROLES`) takes a
+  receipt, a storno and a sale, by the table `FINISHES`; R2's `payment_storno` is one more row. A sale's
+  "printed" needs `receiptNumber` off the slip, because its storno cites it and the drivers refuse one with
+  no digits. A sale's money stands either way. ⚠ Where the device can be asked the door refuses while a
+  receipt is open on it (409 `receipt_open_on_device`): the next document voids it, or finishes it in cash
+  if it took money, which prints it, so nothing is final yet. An X report clears it.
 - **`printed` keeps the error** (`receiptError`): a driver that finishes a part-paid receipt tenders the rest
   in cash, so the device's payment types may differ from the document's.
-- ⚠ **A request that died** (`finishInterruptedReceipt`, which NEVER prints). A lease lapsed is not a
+- ⚠ **A request that died** (`finishInterruptedReceipt`, `finishInterruptedStorno`, which NEVER print). A lease lapsed is not a
   dead request by itself: `keepLease` renews it for as long as a print waits or runs. A dead receipt is
   given up only if it never reached the device, or the device confirms the counter unmoved AND nothing
   open. A moved counter proves nothing, and no device is no proof: such a receipt goes `unknown` +
@@ -2531,12 +2556,13 @@ invoice still due until the courier pays).
   answers 409 `receipt_in_doubt` to payment, edit of the total and void, and a person settles it
   (`POST /cash-register/documents/:id/settle {printed}`, the storno's roles, audited as `settle_receipt`,
   `register.settled`), from the journal. It reaches no device. A keyed retry of the same request may print
-  only when the proof holds on the device it started on (`receiptContext`). ⚠ A settle is durable from its
-  claim, which leaves a lease, so one that stops halfway is finished by the next touch or the close. The
-  doors and the context follow `register.fiscalDeviceNumber`, never the warehouse: it can hold two.
-- **A session cannot close over an unfinished receipt.** The close finishes what it can prove, refuses the
-  rest with 409 `receipts_unfinished` naming them, re-checks once it holds the claim (a receipt checks the
-  session in its turn, so one of them sees the other), and takes `expected` from the claimed session. It
+  only when the proof holds on the device it started on (`documentContext`). ⚠ A settle is durable from its
+  claim, which leaves a lease, so one that stops halfway is finished by the next touch or the close, and
+  whatever finishes it writes the audit row if it is missing. The doors and the context follow
+  `register.fiscalDeviceNumber`, never the warehouse: it can hold two.
+- **A session cannot close over an unfinished receipt or storno.** The close finishes what it can prove,
+  refuses the rest with 409 `receipts_unfinished` naming them, re-checks once it holds the claim (each checks
+  the session in its turn, so one of them sees the other), and takes `expected` from the claimed session. It
   applies to `closeWithoutFiscal` too. `applySessionTotals` never increments a closed session.
 - **`setRegister` and `recordPayment` refuse a voided receipt**, so a live print coming back to a receipt
   given up writes nothing and books nothing.
@@ -2547,8 +2573,14 @@ invoice still due until the courier pays).
 - ⚠ **The freeze and a void are claims, not checks.** `voidingUntil` is the one claim on a document's money,
   taken by `/void` and by attach, lapsing, and honoured in `fitsDue` (`notBeingVoided`), so a payment of any
   method gives way. `/send` and `/void` respect each other's claim. A money-moving `PUT` is a conditional
-  write on no hold, the `amountPaid` it read and no claim. Attach re-reads what got in before its claim:
-  its last step replaces `payments`.
+  write on no hold, the `amountPaid` it read and no claim, and so is the settlement write after it, which
+  reads again once and otherwise leaves the document alone. Attach re-reads what got in before its claim,
+  because its last step replaces `payments`, and pays from the document as claimed.
+- ⚠ **A draft has the same mechanism** (`unclaimedDraft`, `invoice.controller.ts`): its `PUT` and `DELETE` are
+  conditional on still being a draft with no issue under way and no claim. `/send` goes on from what it
+  read, so its claim is a compare-and-set on `updatedAt`: changed since, 409 `document_changed`, nothing
+  moved and no number drawn. Left out, an edit inside `/send` rang one amount and booked another, and bank
+  to cash settled with no receipt.
 - **Whether a COD invoice owes a receipt is a fact of its issue** (`deliveryReceiptOwed`, in the issue's own
   write, never by a client), because an issue can leave no receipt document at all.
 - **What it prints** (`receipt-lines.ts`, pure): a whole payment at issue, the document's lines and
