@@ -337,6 +337,145 @@ describe('what a leftover on the device says about this document (finding 1)', (
   })
 })
 
+describe('what the driver did to the receipt, which comes before any counter (the second review, finding 2)', () => {
+  const refusedAt = (w: TillWorld, cmd: number) => {
+    w.sim!.beforeCommand = c => {
+      if (c === cmd) w.sim!.paper = false
+      if (c === VOID) w.sim!.paper = true
+    }
+  }
+
+  it('voided past the money, on a device that numbers a voided receipt: failed, whatever the counter reads, and nothing is booked', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    w.sim!.numbersVoided = true
+    const counter = w.sim!.lastDocNumber
+    refusedAt(w, PAYMENT)
+
+    const r = await pay(w, d.id, 24)
+
+    expect(w.sim!.lastDocNumber).toBe(counter + 1)
+    expect(r.status).toBe(503)
+    expect(r.json.code).toBe('fiscal_error')
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect((await receiptsOf(d.id))[0].status).toBe('voided')
+    expect(closedOnDevice(w)).toHaveLength(0)
+    expect((await sessionOf(w)).totalCash).toBe(0)
+  })
+
+  it('the same on a storno: the refund stays in the session, and the sale is given back', async () => {
+    const w = await tillWorld(app)
+    const sale = await w.sell(1)
+    const stock = await w.stock()
+    w.sim!.numbersVoided = true
+    refusedAt(w, PAYMENT)
+
+    const r = await w.storno(sale.json.transaction.id)
+
+    expect(r.status).toBe(503)
+    expect((await sessionOf(w)).totalCash).toBe(12)
+    expect((await w.stock()).quantity).toBe(stock.quantity)
+    expect((await Invoice.findById(sale.json.transaction.id).lean().exec() as any).register.stornoState).toBe('none')
+    expect(closedOnDevice(w).filter(x => x.kind === 'storno')).toHaveLength(0)
+  })
+
+  it('finished at a line: 3Ch refused, and the fallback closed a real receipt: unknown, never failed, and no second receipt', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    w.sim!.refuseVoids = 1
+    w.sim!.beforeCommand = c => { if (c === LINE) w.sim!.paper = false; else if (c === VOID) w.sim!.paper = true }
+
+    const r = await pay(w, d.id, 24)
+
+    expect(r.status).toBe(200)
+    expect(r.json.receipt.state).toBe('unknown')
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    w.sim!.beforeCommand = null
+    expect((await pay(w, d.id, 24, 'cash', 'a-new-attempt-key')).status).toBe(400)
+    expect(closedOnDevice(w)).toHaveLength(1)
+  })
+
+  it('the same on a storno: held, nothing refunded, and a second press prints nothing', async () => {
+    const w = await tillWorld(app)
+    const sale = await w.sell(1)
+    w.sim!.refuseVoids = 1
+    w.sim!.beforeCommand = c => { if (c === LINE) w.sim!.paper = false; else if (c === VOID) w.sim!.paper = true }
+
+    const r = await w.storno(sale.json.transaction.id)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('storno_in_doubt')
+    expect((await sessionOf(w)).totalCash).toBe(12)
+    w.sim!.beforeCommand = null
+    expect((await w.storno(sale.json.transaction.id)).json.code).toBe('storno_in_doubt')
+    expect(closedOnDevice(w).filter(x => x.kind === 'storno')).toHaveLength(1)
+  })
+
+  // ⚠ The reason it may only say voided if it SAW a receipt open. Read off the cancel alone, each of
+  // these is a real receipt booked as failed, and printed again.
+  describe('after a close whose answer was lost nothing is open: it says neither, and the counter decides', () => {
+    it('at the close: printed, booked once, and printed once', async () => {
+      const w = await tillWorld(app)
+      const d = await onBank(w)
+      const before = w.sim!.lastDocNumber
+      w.sim!.beforeCommand = c => {
+        if (c === CLOSE) w.sim!.loseNextAnswers = 99
+        else w.sim!.loseNextAnswers = 0
+      }
+
+      const r = await pay(w, d.id, 24)
+
+      expect(r.status).toBe(200)
+      expect(r.json.receipt.state).toBe('printed')
+      expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+      expect((await receiptsOf(d.id))[0].register.fiscalReceiptNumber).toBe(String(before + 1).padStart(7, '0'))
+      w.sim!.beforeCommand = null
+      expect((await pay(w, d.id, 24, 'cash', 'a-new-attempt-key')).status).toBe(400)
+      expect(closedOnDevice(w)).toHaveLength(1)
+      expect(w.sim!.receipts.filter(x => x.voided)).toHaveLength(0)
+    })
+
+    it('past the money: the receipt closed while the driver stood at its payment, and the same', async () => {
+      const w = await tillWorld(app)
+      const d = await onBank(w)
+      const printer: any = getPrinter(w.deviceId)
+      const real = printer.printPayment
+      printer.printPayment = async (type: any, amount: number) => {
+        await real.call(printer, type, amount)
+        await printer.closeFiscalReceipt()
+        throw new Error('Serial read timeout — the device stopped answering mid-response')
+      }
+
+      const r = await pay(w, d.id, 24)
+      delete printer.printPayment
+
+      expect(r.status).toBe(200)
+      expect(r.json.receipt.state).toBe('printed')
+      expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+      expect((await pay(w, d.id, 24, 'cash', 'a-new-attempt-key')).status).toBe(400)
+      expect(closedOnDevice(w)).toHaveLength(1)
+    })
+
+    it('on a storno at the close: the refund is booked, once, and no second storno ever prints', async () => {
+      const w = await tillWorld(app)
+      const sale = await w.sell(1)
+      w.sim!.beforeCommand = c => {
+        if (c === CLOSE) w.sim!.loseNextAnswers = 99
+        else w.sim!.loseNextAnswers = 0
+      }
+
+      const r = await w.storno(sale.json.transaction.id)
+
+      expect(r.status).toBe(200)
+      expect(r.json.transaction.fiscal.state).toBe('printed')
+      expect((await sessionOf(w)).totalCash).toBe(0)
+      w.sim!.beforeCommand = null
+      expect((await w.storno(sale.json.transaction.id)).status).toBe(400)
+      expect(closedOnDevice(w).filter(x => x.kind === 'storno')).toHaveLength(1)
+    })
+  })
+})
+
 describe('a counter read in another turn proves nothing, for any document (finding 6)', () => {
   /** A till document its request left at `attemptedAt`, with the counter as it read then. */
   const interrupted = (id: string, counterBefore: number, key: string, hash: string) => Invoice.updateOne({ _id: id }, {

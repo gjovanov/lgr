@@ -386,7 +386,7 @@ async function afterFailedPrint(printer: RegisterPrinter, doc: any, before: numb
   }
   const abandoned = await printer.abandonReceipt().catch(() => undefined)
   const { now, open } = await readDevice(printer)
-  const verdict = verdictOfFailedPrint({ stage: e?.printStage, before, now, open, closed: !!abandoned?.closed })
+  const verdict = verdictOfFailedPrint({ stage: e?.printStage, before, now, open, abandoned })
   logger.error({ documentId: String(doc._id), unp: doc.register?.unp, error: e?.message, stage: e?.printStage, before, now, open, verdict }, 'Fiscal receipt printing FAILED')
   // ⚠ `printed` stands, and the failure is not dropped: a driver that finishes a part-paid receipt
   // tenders the rest in cash, whatever LGR recorded, so the device's day may not read as the document.

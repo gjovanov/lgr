@@ -265,14 +265,11 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
       return result.fiscalReceiptNumber
     },
     async abandonReceipt() {
-      if (p.cancelFiscalReceipt) {
-        await p.cancelFiscalReceipt()
-        return undefined
-      }
+      if (p.cancelFiscalReceipt) return p.cancelFiscalReceipt()
       // Drivers without a cancel keep the old best-effort close. If it goes through, that receipt is
       // real: it must not be recorded as failed.
       await p.closeFiscalReceipt()
-      return { closed: true }
+      return 'finished'
     },
     async abandonText() {
       await p.closeNonFiscalReceipt?.()

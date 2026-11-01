@@ -10,6 +10,8 @@
  * Import-pure: types only.
  */
 
+import type { AbandonOutcome } from './print-verdict.js'
+
 /** A cash-register document as the service hands it to the device: the `Invoice` row. */
 export type RegisterDocument = Record<string, any>
 
@@ -55,10 +57,10 @@ export interface RegisterPrinter {
   printStorno(storno: RegisterDocument, original: RegisterDocument): Promise<string>
   /**
    * Get a half-printed fiscal receipt off the device, or it refuses everything after it: voided, or
-   * finished if it can no longer be voided. Best effort. `closed` says a driver with no cancel fell
-   * back on closing it and the close went through: that receipt is real.
+   * finished if it can no longer be voided. Best effort. Says which when it knows (`AbandonOutcome`),
+   * and `print-verdict.ts` takes it from there. R2's `payment_storno` gets this for nothing.
    */
-  abandonReceipt(): Promise<{ closed?: boolean } | void>
+  abandonReceipt(): Promise<AbandonOutcome | undefined>
   /** Close a text receipt left half-printed. Best effort. */
   abandonText(): Promise<void>
   /** The device answered: it is online. */

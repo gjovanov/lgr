@@ -17,7 +17,6 @@ import { listJournal } from 'services/biz/cash-register/journal.service'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { exportCancelledSales, exportPaymentDetails, exportReversedSales } from 'services/biz/supto-export.service'
 import { postPosSessionJournal } from 'services/events/handlers'
-import { localDayOf } from 'services/biz/local-day'
 import { createTestContact } from '../helpers/factories'
 import ExcelJS from 'exceljs'
 
@@ -564,7 +563,11 @@ describe('a storno in doubt counts nowhere until it is settled (finding 1)', () 
 
   /** What each reader says, on the world as it stands. Settled as printed, every one of them moves. */
   async function readings(w: TillWorld, contactId: string) {
-    const date = localDayOf(new Date(), 'Europe/Sofia')
+    // The digest's day is the process's: noon of it, so that nothing here depends on the hour it runs.
+    const now = new Date()
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const noon = new Date(`${date}T12:00:00`)
+    await Invoice.updateMany({ orgId: w.oid }, { $set: { issueDate: noon, 'payments.$[].date': noon } })
     const digest: any = await buildDailyDigest(w.orgId, date)
     const history = await report('sales-history', w.orgId, { period: around(), includeNonRegister: true })
     const register = await report('cash-register', w.orgId, { period: around() })

@@ -15,11 +15,13 @@
  * - **unknown**: anything else. The money may be on the device or on paper, so it is never voided and
  *   never printed again: a second fiscal receipt for one payment is what print-once exists to prevent.
  *
- * ⚠ Before its money nothing can close this document, so there the counter says nothing about it,
- * whatever it reads. Clearing what an earlier document left open moves it, which is why the counter is
- * read after that (`printOnce`), and a device whose 71h numbers a voided receipt would move it on every
- * failure at a line. Whether one does is not known: the simulator's 3Ch does not, and neither the
- * protocol nor a physical device has said.
+ * ⚠ Before its money only the driver's own fallback can close this document (`AbandonOutcome`), so with
+ * no such word the counter says nothing about it there, whatever it reads. Clearing what an earlier
+ * document left open moves it, which is why the counter is read after that (`printOnce`).
+ *
+ * ⚠ What the driver did to the receipt, when it knows, comes before any counter. Voided is `failed` at
+ * every stage, so whether a real device's 71h numbers a voided receipt, which neither the protocol nor
+ * a physical device has said, no longer matters where the driver saw it happen.
  */
 
 /**
@@ -30,6 +32,22 @@ export type PrintStage = 'refused' | 'opening' | 'lines' | 'paying' | 'closing'
 
 export type PrintVerdict = 'printed' | 'failed' | 'unknown'
 
+/**
+ * What abandoning a half-printed receipt did, as the driver saw it. No word at all is the third
+ * answer, and the counter decides as if it had said nothing.
+ *
+ * - **voided**: the driver SAW a receipt open, cancelled it, and the device says it is gone. Nothing of
+ *   this document is on the device.
+ * - **finished**: the cancel was refused, so it closed the receipt with the rest in cash, or it tried to
+ *   and lost the answer. A receipt may be on the device, whose lines and tenders may not be this
+ *   document's, at any stage.
+ *
+ * ⚠ It may say voided only if it saw a receipt open BEFORE it cancelled. After a close whose answer was
+ * lost nothing is open, the cancel does nothing and the status reads not open: read as voided, a real
+ * receipt would book as failed and print again. An open flag it could not read is no sight of one.
+ */
+export type AbandonOutcome = 'voided' | 'finished'
+
 export interface FailedPrint {
   /** Unset for a driver that does not say how far it got. */
   stage?: PrintStage
@@ -39,8 +57,8 @@ export interface FailedPrint {
   now?: number
   /** Whether a receipt is open on the device now; undefined when it cannot say. */
   open?: boolean
-  /** A driver with no cancel fell back on closing the receipt, and the close went through. */
-  closed?: boolean
+  /** What abandoning the receipt did, when the driver knows. */
+  abandoned?: AbandonOutcome
 }
 
 /**
@@ -54,11 +72,12 @@ export function provedNotPrinted(p: Pick<FailedPrint, 'before' | 'now' | 'open'>
 }
 
 export function verdictOfFailedPrint(p: FailedPrint): PrintVerdict {
+  if (p.abandoned === 'voided') return 'failed'
   const counted = p.before !== undefined && p.before !== null && p.now !== undefined
   const beforeTheMoney = p.stage === 'refused' || p.stage === 'opening' || p.stage === 'lines'
   const movedByOne = counted && p.now === p.before! + 1
-  // The fallback close went through: a receipt is on the device, and only past the money is it all of this one.
-  if (p.closed) return movedByOne && !beforeTheMoney ? 'printed' : 'unknown'
+  // Its fallback finished it: a receipt is on the device, and only past the money is it all of this one.
+  if (p.abandoned === 'finished') return movedByOne && !beforeTheMoney ? 'printed' : 'unknown'
   if (beforeTheMoney) return 'failed'
   if (movedByOne) return 'printed'
   return provedNotPrinted(p) ? 'failed' : 'unknown'

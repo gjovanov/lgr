@@ -343,6 +343,117 @@ describe('EltradeFiscalPrinter — fiscal receipt', () => {
     expect(sim.receipts.at(-1)!.payments).toEqual([{ mode: 'P', amount: 2 }, { mode: 'P', amount: 3 }])
   })
 
+  describe('what cancelling says it did (FR-23, the second review, finding 2)', () => {
+    const open = async (sim: EltradeSimulator) => {
+      const p = printerFor(sim)
+      await p.openFiscalReceipt('0001', 'Op', UNP)
+      await p.printSaleLine('A', 1, 5, 'Б', undefined, 20)
+      return p
+    }
+
+    it('voided: it saw a receipt open, and 3Ch took it', async () => {
+      const sim = new EltradeSimulator()
+      const p = await open(sim)
+      expect(await p.cancelFiscalReceipt()).toBe('voided')
+      expect(sim.receipts.at(-1)!.voided).toBe(true)
+    })
+
+    it('finished: it saw one open, 3Ch was refused, and the close went through', async () => {
+      const sim = new EltradeSimulator()
+      const p = await open(sim)
+      await p.printPayment('cash', 2)
+      expect(await p.cancelFiscalReceipt()).toBe('finished')
+      expect(sim.receipts.at(-1)!.voided).toBeFalsy()
+    })
+
+    it('finished at a line too: 3Ch refused with no payment made, and a real receipt closed', async () => {
+      const sim = new EltradeSimulator()
+      const p = await open(sim)
+      sim.refuseVoids = 1
+      expect(await p.cancelFiscalReceipt()).toBe('finished')
+      expect(sim.receipts.at(-1)!.voided).toBeFalsy()
+    })
+
+    it('neither: nothing is open, as after a close whose answer was lost, and 3Ch is never sent', async () => {
+      const sim = new EltradeSimulator()
+      const p = printerFor(sim)
+      await p.openFiscalReceipt('0001', 'Op', UNP)
+      await p.printSaleLine('A', 1, 5, 'Б', undefined, 20)
+      await p.printPayment('cash', 6)
+      await p.closeFiscalReceipt()
+      const before = sim.frames
+
+      expect(await p.cancelFiscalReceipt()).toBeUndefined()
+
+      expect(sim.frames).toBe(before + 1)
+      expect(sim.receipts.at(-1)!.voided).toBeFalsy()
+    })
+
+    it('neither: an open flag it cannot read is no sight of one, whatever 3Ch then does', async () => {
+      const sim = new EltradeSimulator()
+      let failStatus = false
+      const p = new EltradeFiscalPrinter(async (f) => {
+        if (failStatus && Buffer.from(f)[3] === 0x4A) throw new Error('Fiscal bridge disconnected')
+        return sim.exchange(f)
+      }, 'flaky')
+      await p.openFiscalReceipt('0001', 'Op', UNP)
+      await p.printSaleLine('A', 1, 5, 'Б', undefined, 20)
+      failStatus = true
+
+      expect(await p.cancelFiscalReceipt()).toBeUndefined()
+
+      expect(sim.receipts.at(-1)!.voided).toBe(true)
+    })
+
+    it('finished, though the flag could not be read: 3Ch said it is still open, so it was, and the fallback closed it', async () => {
+      const sim = new EltradeSimulator()
+      let failStatus = false
+      const p = new EltradeFiscalPrinter(async (f) => {
+        if (failStatus && Buffer.from(f)[3] === 0x4A) throw new Error('Fiscal bridge disconnected')
+        return sim.exchange(f)
+      }, 'flaky')
+      await p.openFiscalReceipt('0001', 'Op', UNP)
+      await p.printSaleLine('A', 1, 5, 'Б', undefined, 20)
+      await p.printPayment('cash', 2)
+      failStatus = true
+
+      expect(await p.cancelFiscalReceipt()).toBe('finished')
+    })
+
+    it('finished: the fallback lost its answer, so a receipt may be on the device', async () => {
+      const sim = new EltradeSimulator()
+      const p = await open(sim)
+      await p.printPayment('cash', 2)
+      sim.beforeCommand = (cmd) => { if (cmd === 0x38) sim.dropAfter = 0x38 }
+
+      expect(await p.cancelFiscalReceipt()).toBe('finished')
+    })
+
+    it('neither: the fallback\'s close was refused, and the receipt is still open', async () => {
+      const sim = new EltradeSimulator()
+      const p = await open(sim)
+      await p.printPayment('cash', 2)
+      sim.beforeCommand = (cmd) => { if (cmd === 0x38) sim.paper = false }
+
+      expect(await p.cancelFiscalReceipt()).toBeUndefined()
+      expect(sim.receipt).not.toBeNull()
+    })
+
+    it('a storno leaves it to its caller, who has to hear what cancelling did', async () => {
+      const sim = new EltradeSimulator()
+      const p = printerFor(sim)
+      sim.beforeCommand = (cmd) => { if (cmd === 0x35) sim.paper = false }
+
+      await captureRejection(p.printStornoReceipt(
+        '0001', 'Op', 'ED123456-0001-0000009', '0000101', new Date('2026-07-15T09:00:05Z'), UNP, 'customer_return',
+        [{ name: 'A', quantity: 1, price: 6, vatGroup: 'Б', taxRate: 20 }], { type: 'cash', amount: 6 },
+      ))
+
+      expect(sim.receipt).not.toBeNull()
+      expect(await p.cancelFiscalReceipt()).toBe('voided')
+    })
+  })
+
   it('refuses a malformed УНП before talking to the device', async () => {
     const sim = new EltradeSimulator()
     const err = await captureRejection(printerFor(sim).openFiscalReceipt('0001', 'Op', '12345678-1-1'))
