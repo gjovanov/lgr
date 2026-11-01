@@ -55,6 +55,19 @@ async function waitForServer(server: ReturnType<typeof Bun.spawn>) {
   throw new Error(`the server did not answer ${BASE_URL}/api/health within 120 s`)
 }
 
+/**
+ * FR-24.16: the lane runs on the shell it names. A browser with no cookie gets the one SPA under
+ * `LGR_UI_DEFAULT=one` (its assets under `/ui/`, FR-24.10), the split build otherwise. Without this
+ * check, a lane that silently fell back to the split build would pass as the one SPA.
+ */
+async function assertShell() {
+  const want = process.env.LGR_UI_DEFAULT === 'one' ? 'one' : 'split'
+  const html = await fetch(`${BASE_URL}/invoicing/`).then(r => r.text())
+  const got = /(src|href)="\/ui\//.test(html) ? 'one' : 'split'
+  if (got !== want) throw new Error(`the server serves the ${got} shell, but this lane is the ${want} one`)
+  console.log(`nightly: serving the ${got} shell`)
+}
+
 let code = 1
 try {
   const seed = Bun.spawn(['bun', '--env-file=.env.test', 'run', 'packages/tests/src/helpers/seed.ts'], {
@@ -66,6 +79,7 @@ try {
   start(['bun', 'packages/e2e/scripts/eltrade-tcp-stub.ts'])
   const server = start(['bun', '--env-file=../../.env.test', 'src/unified.ts'], join(ROOT, 'packages', 'portal-api'))
   await waitForServer(server)
+  await assertShell()
 
   // One worker: the suite shares this one seeded database, and specs that each pass alone fail
   // beside each other (CLAUDE.md, E2E gotcha 5).
