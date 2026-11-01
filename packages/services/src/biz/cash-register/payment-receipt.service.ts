@@ -382,8 +382,7 @@ async function printReceiptStep(c: RegisterContext, doc: any): Promise<any> {
 export async function runReceiptSteps(c: RegisterContext, id: string, opts: { neverPrint?: boolean } = {}): Promise<any> {
   let doc: any = await Invoice.findOne({ _id: oid(id), orgId: oid(c.orgId), type: PAYMENT_RECEIPT }).lean().exec()
   if (!doc) throw new RegisterRefusal(404, { message: 'Receipt not found' })
-  // Given up, or a person's to settle: nothing more happens to it here.
-  if (doc.status === 'voided' || doc.register?.fiscal?.inDoubt) return doc
+  if (doc.status === 'voided') return doc
   if (opts.neverPrint && doc.register?.fiscal?.state === 'pending') return doc
 
   // The money before the number: a receipt that gives way here draws none.
@@ -406,6 +405,7 @@ export async function runReceiptSteps(c: RegisterContext, id: string, opts: { ne
     doc = await setRegister(doc._id, { unp: await generateUNP(c.orgId, c.printer.deviceNumber, (c.user.operatorCode ?? doc.register?.operatorCode) as string) })
   }
   if (doc.register?.fiscal?.state === 'pending') doc = await printReceiptStep(c, doc)
+  // Given up, or a person's to settle: nothing more happens to it here.
   if (doc.status === 'voided' || doc.register?.fiscal?.inDoubt) return doc
   if (doc.register?.fiscal?.state === 'failed') return giveUp(c, doc)
 
