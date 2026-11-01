@@ -33,7 +33,14 @@ permissions:
 
 jobs:
   e2e:
-    name: e2e (playwright)
+    name: e2e (playwright, ${{ matrix.shell }} shell)
+    # FR-24.16: the suite passes on BOTH shells, with no spec changed for the one SPA. `one` is the
+    # API serving `packages/web` to a browser with no `lgr_ui` cookie (`LGR_UI_DEFAULT`), which is
+    # what Phase 3's flip makes the default. Each lane holds one of the two mars runners.
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [split, one]
     # Same routing as `ci.yml`: a pull request from a fork never runs on mars.
     runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-24.04"' || vars.LGR_LINUX_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 60
@@ -87,12 +94,13 @@ jobs:
           # Chrome's sandbox needs user namespaces this runner's AppArmor refuses, as in `ci.yml`.
           # Without it every PDF fails, and a spec reads that as a download that never comes.
           PDF_CHROME_NO_SANDBOX: '1'
+          LGR_UI_DEFAULT: ${{ matrix.shell }}
 
       - name: Upload the report
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shell }}
           path: |
             packages/e2e/playwright-report/
             packages/e2e/test-results/
@@ -122,7 +130,7 @@ jobs:
             "Run: $RUN_URL" \
             "Commit: $GITHUB_SHA" \
             "" \
-            "The report and traces are the run's \`playwright-report\` artifact, kept 7 days.")
+            "The report and traces are the run's \`playwright-report-<shell>\` artifacts (split, one), kept 7 days.")
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
           else
