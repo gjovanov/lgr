@@ -6,7 +6,7 @@ import { graceEndsAt, type LicenceClaims, type LicencePlan, type VerifyFailure }
  *
  * - **licensed** until the paid-through date;
  * - **grace** for 30 days after it, with nothing blocked (a banner says so);
- * - **restricted** from the first local midnight after the grace ends: no new POS sessions and no
+ * - **restricted** from the first local midnight after the grace ends: no new sale at the till and no
  *   new sales documents (`licence-gate.ts`). Never in the middle of a day, so never in the middle of
  *   a sale or of an open session;
  * - **evaluation**: an org with no licence here works for 30 days from the master's first start, then
@@ -33,7 +33,7 @@ export interface LicenceStatus {
   issuedAt?: string
   /** When the grace (a licence) or the evaluation ends. */
   endsAt: string
-  /** The first day, on the org's calendar, on which new sessions and documents are refused. */
+  /** The first day, on the org's calendar, on which new sales and documents are refused. */
   restrictedFrom: string
   /** Calendar days from today to `restrictedFrom`; 0 once restricted. */
   daysLeft: number

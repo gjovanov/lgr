@@ -5,10 +5,13 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { config } from 'config'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestUser } from '../helpers/factories'
+import { createTestContact, createTestFiscalDevice, createTestOrg, createTestProduct, createTestStockLevel, createTestUser, createTestWarehouse } from '../helpers/factories'
+import { EltradeSimulator } from '../helpers/eltrade-simulator'
+import { EltradeFiscalPrinter } from 'fiscal/eltrade'
+import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { makeNodeStub, nodeEnrollBody } from '../helpers/node-stub'
 import { createApiApp } from '../../../portal-api/src/api.js'
-import { OrgLicence } from 'db/models'
+import { Invoice, OrgLicence, POSSession } from 'db/models'
 import { forgetAllHomes, homeNewOrg } from 'db/home/home'
 import { enrollNode, issueNodeToken, mintNodeEnrollmentCode } from 'services/biz/node/node.service'
 import { entitlementsOf, issueLicences, issuerKey } from 'services/biz/licence/licence-issue.service'
@@ -49,13 +52,13 @@ afterEach(async () => {
 
 const jwt = async () => ((new Elysia().use((await import('@elysiajs/jwt')).default({ name: 'jwt', secret: config.jwt.secret })) as any).decorator.jwt)
 async function bearer(user: any, orgId: string) {
-  return (await jwt()).sign({ id: String(user._id), email: user.email, username: user.username, role: user.role, orgId, permissions: [] })
+  return (await jwt()).sign({ id: String(user._id), email: user.email, username: user.username, role: user.role, orgId, permissions: [], operatorCode: user.operatorCode })
 }
 
-function call(app: any, method: string, path: string, token?: string, body?: unknown) {
+function call(app: any, method: string, path: string, token?: string, body?: unknown, key?: string) {
   return app.handle(new Request(`http://localhost${path}`, {
     method,
-    headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+    headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...(key ? { 'idempotency-key': key } : {}) },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   }))
 }
@@ -194,9 +197,9 @@ describe('a master enforces it', () => {
     ;(config.licence as any).dir = tmp
     const org = await createTestOrg({ settings: { timezone: 'Europe/Sofia' } } as any)
     await homeNewOrg(String(org._id))
-    const admin = await createTestUser(org._id, { role: 'admin' } as any)
+    const admin = await createTestUser(org._id, { role: 'admin', operatorCode: '0001' } as any)
     const app = new Elysia().use(createApiApp())
-    return { orgId: String(org._id), slug: org.slug, token: await bearer(admin, String(org._id)), app }
+    return { orgId: String(org._id), oid: org._id, slug: org.slug, token: await bearer(admin, String(org._id)), app }
   }
 
   function licence(orgId: string, paidThrough: Date, node = NODE) {
@@ -206,22 +209,20 @@ describe('a master enforces it', () => {
     forgetLicences()
   }
 
-  const openTill = (m: any) => call(m.app, 'POST', `/api/org/${m.orgId}/trade/pos/session`, m.token, { warehouseId: '0123456789abcdef01234567', openingBalance: 0, currency: 'EUR' })
   const newDoc = (m: any, type: string) => call(m.app, 'POST', `/api/org/${m.orgId}/invoices`, m.token, { type, direction: 'outgoing', issueDate: '2026-10-25', currency: 'EUR', lines: [], subtotal: 0, total: 0 })
 
-  it('with no licence: a 30-day evaluation, then no new till sessions or sales documents', async () => {
+  it('with no licence: a 30-day evaluation, then no new sales documents', async () => {
     const m = await aMaster()
     ;(config.licence as any).nodeCreatedAt = Math.floor(Date.now() / 1000)
     const fresh = await (await call(m.app, 'GET', `/api/org/${m.orgId}/licence`, m.token)).json()
     expect(fresh).toMatchObject({ applies: true, state: 'evaluation', basis: 'evaluation' })
-    expect((await openTill(m)).status).not.toBe(402)
+    expect((await newDoc(m, 'invoice')).status).not.toBe(402)
 
     ;(config.licence as any).nodeCreatedAt = Math.floor((Date.now() - 60 * DAY) / 1000)
     expect((await licenceOf(m.orgId) as any).state).toBe('restricted')
-    const till = await openTill(m)
-    expect(till.status).toBe(402)
-    expect((await till.json())).toMatchObject({ code: 'licence_expired', action: 'opening a till session' })
-    expect((await newDoc(m, 'invoice')).status).toBe(402)
+    const refused = await newDoc(m, 'invoice')
+    expect(refused.status).toBe(402)
+    expect((await refused.json())).toMatchObject({ code: 'licence_expired', action: 'a new invoice, proforma or cash sale' })
     expect((await newDoc(m, 'cash_sale')).status).toBe(402)
     // A credit note of an existing sale, reading, the licence itself: never stopped.
     expect((await newDoc(m, 'credit_note')).status).not.toBe(402)
@@ -234,12 +235,11 @@ describe('a master enforces it', () => {
     ;(config.licence as any).nodeCreatedAt = Math.floor((Date.now() - 60 * DAY) / 1000)
     licence(m.orgId, new Date(Date.now() + 10 * DAY))
     expect(await (await call(m.app, 'GET', `/api/org/${m.orgId}/licence`, m.token)).json()).toMatchObject({ state: 'licensed', basis: 'licence', plan: 'pilot' })
-    expect((await openTill(m)).status).not.toBe(402)
     expect((await newDoc(m, 'invoice')).status).not.toBe(402)
 
     licence(m.orgId, new Date(Date.now() + 10 * DAY), 'master-bbbbbbbbbbbbbbbb')
     expect(await licenceOf(m.orgId)).toMatchObject({ state: 'restricted', basis: 'evaluation', problem: 'other_node' })
-    expect((await openTill(m)).status).toBe(402)
+    expect((await newDoc(m, 'invoice')).status).toBe(402)
 
     writeFileSync(join(tmp, `${m.orgId}.jws`), 'a.forged.licence')
     forgetLicences()
@@ -251,10 +251,188 @@ describe('a master enforces it', () => {
     ;(config.licence as any).nodeCreatedAt = Math.floor((Date.now() - 400 * DAY) / 1000)
     licence(m.orgId, new Date(Date.now() - 10 * DAY))
     expect(await licenceOf(m.orgId)).toMatchObject({ state: 'grace' })
-    expect((await openTill(m)).status).not.toBe(402)
+    expect((await newDoc(m, 'invoice')).status).not.toBe(402)
     licence(m.orgId, new Date(Date.now() - 40 * DAY))
     expect(await licenceOf(m.orgId)).toMatchObject({ state: 'restricted', basis: 'licence' })
-    expect((await openTill(m)).status).toBe(402)
+    expect((await newDoc(m, 'invoice')).status).toBe(402)
+  })
+
+  describe('a till under an expired licence (owner, 2026-11-01)', () => {
+    /** Before the restriction began, by far: what was started then is what "existing" means. */
+    const longAgo = () => new Date(Date.now() - 45 * DAY)
+    const today = () => new Date().toISOString().slice(0, 10)
+    const lines = [{ description: 'Услуга', quantity: 2, unit: 'бр.', unitPrice: 10, taxRate: 20, taxAmount: 4, lineTotal: 24 }]
+
+    /** A master with a till: its evaluation running, an Eltrade connected, an article in stock, a customer. */
+    async function aTill() {
+      const m = await aMaster()
+      ;(config.licence as any).nodeCreatedAt = Math.floor(Date.now() / 1000)
+      const warehouse = await createTestWarehouse(m.oid as any)
+      const product = await createTestProduct(m.oid as any, { name: 'Болт', sellingPrice: 10, purchasePrice: 4, taxRate: 20 } as any)
+      await createTestStockLevel(m.oid as any, product._id as any, warehouse._id as any, { quantity: 10, availableQuantity: 10 } as any)
+      const contact = await createTestContact(m.oid as any, { companyName: 'Клиент ООД', type: 'customer' } as any)
+      const device = await createTestFiscalDevice(m.oid as any, warehouse._id as any, {
+        deviceNumber: 'ED123456', manufacturer: 'eltrade', connectionType: 'browser', status: 'online',
+      } as any)
+      const sim = new EltradeSimulator()
+      registerPrinter(String(device._id), new EltradeFiscalPrinter(sim.exchange, String(device._id)))
+      tills.push(String(device._id))
+      const api = async (method: string, path: string, body?: unknown) => {
+        const r = await call(m.app, method, `/api/org/${m.orgId}${path}`, m.token, body)
+        return { status: r.status as number, json: await r.json().catch(() => null) as any }
+      }
+      return { ...m, warehouse, product, contact, sim, api }
+    }
+    type Till = Awaited<ReturnType<typeof aTill>>
+
+    const tills: string[] = []
+    afterEach(() => { for (const id of tills.splice(0)) unregisterPrinter(id) })
+
+    const expire = () => { ;(config.licence as any).nodeCreatedAt = Math.floor((Date.now() - 60 * DAY) / 1000) }
+    const openSession = (t: Till) => t.api('POST', '/trade/pos/session', { warehouseId: String(t.warehouse._id), openingBalance: 0, currency: 'EUR' })
+    const session = async (t: Till) => {
+      const r = await openSession(t)
+      expect(r.status).toBe(200)
+      return String(r.json.session.id ?? r.json.session._id)
+    }
+    const sale = (t: Till, sessionId: string, key?: string) => call(t.app, 'POST', `/api/org/${t.orgId}/trade/pos/session/${sessionId}/transaction`, t.token, {
+      type: 'sale',
+      lines: [{ productId: String(t.product._id), name: 'Болт', quantity: 1, unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 2, lineTotal: 10 }],
+      subtotal: 10, discountTotal: 0, taxTotal: 2, total: 12, payments: [{ method: 'cash', amount: 12 }], changeDue: 0, nonFiscal: false,
+    }, key)
+    /** A draft, as though it had been started before the restriction. */
+    async function fromBefore(t: Till, paymentMethod: string, type = 'invoice') {
+      const r = await t.api('POST', '/invoices', {
+        type, direction: 'outgoing', contactId: String(t.contact._id), issueDate: today(), currency: 'EUR', lines, subtotal: 20, taxTotal: 4, total: 24, paymentMethod,
+      })
+      expect(r.status).toBe(200)
+      const id = String(r.json.invoice.id)
+      await Invoice.collection.updateOne({ _id: new (Invoice.base as any).Types.ObjectId(id) }, { $set: { createdAt: longAgo() } })
+      return id
+    }
+    const printed = (t: Till) => t.sim.receipts.filter(r => !r.voided)
+
+    it('a session opens, a cash payment on a document from before prints, and the day closes', async () => {
+      const t = await aTill()
+      const id = await fromBefore(t, 'bank_transfer')
+      await session(t)
+      expect((await t.api('POST', `/invoices/${id}/send`, {})).status).toBe(200)
+      await POSSession.deleteMany({ orgId: t.oid })
+      expire()
+
+      const sessionId = await session(t)
+      const paid = await t.api('POST', `/invoices/${id}/payments`, { date: today(), amount: 24, method: 'cash' })
+
+      expect(paid.status).toBe(200)
+      expect(paid.json.invoice).toMatchObject({ status: 'paid', amountPaid: 24 })
+      expect(printed(t)).toHaveLength(1)
+      expect((await t.api('POST', `/trade/pos/session/${sessionId}/close`, { counted: { cash: 24 } })).status).toBe(200)
+      expect(t.sim.reports).toHaveLength(1)
+    })
+
+    it('⚠ a new till sale in that session is refused: nothing written, nothing printed', async () => {
+      const t = await aTill()
+      expire()
+      const sessionId = await session(t)
+
+      const refused = await sale(t, sessionId)
+
+      expect(refused.status).toBe(402)
+      expect(await refused.json()).toMatchObject({ code: 'licence_expired', action: 'a new till sale' })
+      expect(t.sim.receipts).toHaveLength(0)
+      expect(t.sim.executed.some(c => c.cmd === 0x90)).toBe(false)
+      expect(await Invoice.countDocuments({ orgId: t.oid })).toBe(0)
+    })
+
+    it('⚠ any new document is refused with it, the session open or not', async () => {
+      const t = await aTill()
+      expire()
+      await session(t)
+
+      for (const type of ['invoice', 'proforma', 'cash_sale']) {
+        const r = await t.api('POST', '/invoices', {
+          type, direction: 'outgoing', contactId: String(t.contact._id), issueDate: today(), currency: 'EUR', lines, subtotal: 20, taxTotal: 4, total: 24, paymentMethod: 'cash',
+        })
+        expect(r.status).toBe(402)
+        expect(r.json.code).toBe('licence_expired')
+      }
+      expect(printed(t)).toHaveLength(0)
+      expect(await Invoice.countDocuments({ orgId: t.oid })).toBe(0)
+    })
+
+    it('a draft from before issues in cash, and its receipt prints: it was started before', async () => {
+      const t = await aTill()
+      const id = await fromBefore(t, 'cash')
+      expire()
+      await session(t)
+
+      expect((await t.api('POST', `/invoices/${id}/send`, {})).status).toBe(200)
+
+      expect(printed(t)).toHaveLength(1)
+      expect((await t.api('GET', `/invoices/${id}`)).json.invoice).toMatchObject({ status: 'paid', amountPaid: 24 })
+    })
+
+    it('⚠ a debit note written since prints nothing: its receipt would be a new sale on the device', async () => {
+      const t = await aTill()
+      const invoice = await fromBefore(t, 'bank_transfer')
+      await session(t)
+      expect((await t.api('POST', `/invoices/${invoice}/send`, {})).status).toBe(200)
+      await POSSession.deleteMany({ orgId: t.oid })
+      expire()
+      await session(t)
+
+      const note = await t.api('POST', '/invoices', {
+        type: 'debit_note', direction: 'outgoing', contactId: String(t.contact._id), relatedInvoiceId: invoice, issueDate: today(), currency: 'EUR',
+        lines, subtotal: 20, taxTotal: 4, total: 24, paymentMethod: 'cash',
+      })
+      expect(note.status).toBe(200)
+      const id = String(note.json.invoice.id)
+
+      const refused = await t.api('POST', `/invoices/${id}/send`, {})
+
+      expect(refused.status).toBe(402)
+      expect(refused.json).toMatchObject({ code: 'licence_expired', action: 'a fiscal receipt for a new document' })
+      expect(printed(t)).toHaveLength(0)
+      expect((await t.api('GET', `/invoices/${id}`)).json.invoice.status).toBe('draft')
+
+      // On a bank transfer it goes through as ever: only the receipt stops, and a cash payment on it.
+      expect((await t.api('PUT', `/invoices/${id}`, { paymentMethod: 'bank_transfer' })).status).toBe(200)
+      expect((await t.api('POST', `/invoices/${id}/send`, {})).status).toBe(200)
+      const cash = await t.api('POST', `/invoices/${id}/payments`, { date: today(), amount: 24, method: 'cash' })
+      expect(cash.status).toBe(402)
+      expect(printed(t)).toHaveLength(0)
+    })
+
+    it('a session open when the restriction began keeps selling: it starts at a midnight for that', async () => {
+      const t = await aTill()
+      const sessionId = await session(t)
+      await POSSession.updateOne({ _id: sessionId }, { $set: { openedAt: longAgo() } })
+      expire()
+
+      expect((await sale(t, sessionId)).status).toBe(200)
+      expect(printed(t)).toHaveLength(1)
+    })
+
+    it('a retry of a sale made before is answered, not refused', async () => {
+      const t = await aTill()
+      const sessionId = await session(t)
+      expect((await sale(t, sessionId, 'sale-before-licence-1')).status).toBe(200)
+      expire()
+
+      expect((await sale(t, sessionId, 'sale-before-licence-1')).status).toBe(200)
+      expect(printed(t)).toHaveLength(1)
+    })
+
+    it('a licence lifts it: that same session sells', async () => {
+      const t = await aTill()
+      expire()
+      const sessionId = await session(t)
+      expect((await sale(t, sessionId)).status).toBe(402)
+
+      licence(t.orgId, new Date(Date.now() + 10 * DAY))
+
+      expect((await sale(t, sessionId)).status).toBe(200)
+    })
   })
 
   it('on global nothing applies', async () => {

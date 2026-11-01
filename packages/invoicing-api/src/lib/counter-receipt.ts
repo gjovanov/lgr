@@ -28,7 +28,8 @@ import { receiptBody } from 'services/biz/cash-register/receipt-lines'
 import {
   RegisterRefusal, insertRegisterDocument, settleKeyedDocument, type RegisterContext, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
-import { assertPrinterConnected, assertSaleMayOpen, assertTillTender, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
+import { licenceRefusal } from 'services/biz/licence/master-licence.service'
+import { PRINTER_GATE_SWITCH, assertPrinterConnected, assertSaleMayOpen, assertTillTender, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
 
 export interface PreparedReceipt {
   context: RegisterContext
@@ -53,6 +54,12 @@ export async function prepareReceipt(orgId: string, user: RegisterUser, doc: any
   const settings = await tillSettings(orgId)
   if (!settings.requireConnectedDevice) return null
 
+  // FR-20.55: under an expired licence a session opens for the money of what already exists. A
+  // document started since prints nothing: a debit note is what is left to write, and whatever its
+  // lines say, its receipt would be a new sale on the device.
+  const unlicensed = await licenceRefusal(orgId, 'a fiscal receipt for a new document', doc.createdAt ?? new Date(0))
+  if (unlicensed) throw new RegisterRefusal(402, unlicensed)
+
   const receipts = await receiptsOf(orgId, String(doc._id ?? doc.id))
   // The money a courier brings for a cash-on-delivery invoice is on its receipt, which took all that
   // was owed when it printed. A second receipt would book the sale on the device twice.
@@ -69,7 +76,7 @@ export async function prepareReceipt(orgId: string, user: RegisterUser, doc: any
     throw new RegisterRefusal(409, {
       code: 'fiscal_device_not_connected',
       noSession: true,
-      message: 'Open a session at the till first: a payment at the counter prints its receipt on that session\'s device.',
+      message: `Open a session at the till first: a payment at the counter prints its receipt on that session's device. ${PRINTER_GATE_SWITCH}`,
     })
   }
   const context = await tillContext(orgId, user, session, { needsOperator: true })

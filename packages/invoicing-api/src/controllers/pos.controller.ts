@@ -23,6 +23,7 @@ import { fiscalFailure } from 'fiscal/errors'
 import { unfinishedReceipts, unfinishedRefusal } from 'services/biz/cash-register/payment-receipt.service'
 import { finishInterruptedReceipts } from '../lib/counter-receipt.js'
 import { deviceTurn } from 'fiscal/device-turn'
+import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
@@ -908,6 +909,11 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         if (body.type !== 'sale') {
           return status(422, { code: 'register_type_unsupported', message: 'Only sales are rung up at the till; a sale is reversed by its storno' })
         }
+
+        // FR-20.55: a session opened under an expired licence takes the money of what already exists,
+        // and rings up nothing new. One already open when the restriction began keeps selling.
+        const unlicensed = await licenceGate('POST', '/api/org/:orgId/trade/pos/session/:id/transaction', orgId, body, session.openedAt)
+        if (unlicensed) return status(402, unlicensed)
 
         const c = await context()
         // No sale without a connected printer (2026-10-31): refused before anything is written, so

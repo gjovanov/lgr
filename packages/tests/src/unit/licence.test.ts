@@ -102,10 +102,12 @@ describe('the dates, on the org calendar', () => {
 })
 
 describe('what an expired licence stops', () => {
-  it('opening a session and starting a sales document; nothing that corrects or closes', () => {
-    expect(licensedAction('POST', '/api/org/:orgId/trade/pos/session')?.what).toBe('opening a till session')
-    // The route a cashier sells through in an open session, the close and the storno go through.
+  it('a new sale and a new sales document; nothing that corrects or closes', () => {
+    // A session opens: a payment on an existing document prints on its device (FR-23).
+    expect(licensedAction('POST', '/api/org/:orgId/trade/pos/session')).toBeNull()
+    // A sale is its handler's to decide: it has the session, and one opened before keeps selling.
     expect(licensedAction('POST', '/api/org/:orgId/trade/pos/session/:id/transaction')).toBeNull()
+    expect(licensedAction('POST', '/api/org/:orgId/trade/pos/session/:id/transaction', { type: 'sale' })?.what).toBe('a new till sale')
     expect(licensedAction('POST', '/api/org/:orgId/trade/pos/session/:id/close')).toBeNull()
     expect(licensedAction('POST', '/api/org/:orgId/trade/pos/session/:id/storno')).toBeNull()
     // A declared `/` keeps its slash in the route table.
