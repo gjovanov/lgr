@@ -219,6 +219,8 @@ test.describe('A draft of a new cash sale, left on the old form', () => {
         lines: [{
           productId: product.productId, description: product.productName, quantity: 2, unit: product.unit || 'pcs', unitPrice: PRICE,
           discount: 0, taxRate: 20, taxAmount: 4.2, lineTotal: 25.2, warehouseId, productUpdate: {}, priceTiers: [],
+          // A price the person typed, as a draft left before such a price was pinned records it.
+          priceExplanation: [{ type: 'base', label: 'Selling price', price: product.unitPrice }, { type: 'override', label: 'Manual override', price: PRICE }],
         }],
       },
         previewFields: [{ label: 'Note', value: NOTE }],
@@ -240,6 +242,7 @@ test.describe('A draft of a new cash sale, left on the old form', () => {
     await page.goto('/invoicing/invoices')
     await restoreEntry(page, NOTE)
     await restoredOnTheForm(page, product)
+    await expect(page.getByTestId('price-combobox')).toContainText('10.50000')
 
     // A cash sale is issued as it is saved, and the journal is where the next one starts.
     await page.getByRole('button', { name: /^save$/i }).first().click()
@@ -263,6 +266,7 @@ test.describe('A draft of a new cash sale, left on the old form', () => {
     await restoredOnTheForm(page, product)
     await expect(page.getByText(open.number)).toHaveCount(0)
     await expect(page.getByTestId('cart-qty').locator('input')).toHaveValue('2')
+    await expect(page.getByTestId('price-combobox')).toContainText('10.50000')
     expect(await stockOf(product)).toBe(before)
 
     await page.getByRole('button', { name: /^save$/i }).first().click()

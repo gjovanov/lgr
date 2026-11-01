@@ -221,6 +221,7 @@
               style="max-width: 160px"
               @update:model-value="onLinePriceChange(cartLines[i].idx, $event)"
               @update:price-explanation="line.priceExplanation = $event"
+              @chosen="line.pricePinned = true"
             />
             <PriceSelectButton
               :product-id="line.productId"

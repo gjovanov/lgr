@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
-import { lineDescription, lineUnitPrice } from './helpers/document-form'
+import { apiGet, apiLogin } from './helpers/api'
+import { lineDescription, lineQuantity, lineUnitPrice, restoreEntry } from './helpers/document-form'
 
 /**
  * ⚠ Taller viewport than the default 720.
@@ -15,6 +16,48 @@ import { lineDescription, lineUnitPrice } from './helpers/document-form'
 test.use({ viewport: { width: 1280, height: 1200 } })
 
 test.describe('Invoicing Product Autocomplete', () => {
+  // A resolved price comes back by itself; one the person typed must not be replaced by it.
+  test('a typed price stays through a quantity and a draft, and is the price issued', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/invoices/new')
+    await expect(page.getByRole('heading', { name: /new invoice/i })).toBeVisible({ timeout: 10000 })
+
+    await page.locator('.v-autocomplete input').first().click({ force: true })
+    await page.locator('.v-overlay .v-list-item').first().click()
+    await page.getByRole('button', { name: /add line/i }).click()
+    const row = page.locator('.v-table tbody tr').first()
+    await lineDescription(row).locator('input').first().fill('Te')
+    const found = page.locator('.pld-overlay .pld-item').first()
+    await expect(found).toBeVisible({ timeout: 5000 })
+    await found.scrollIntoViewIfNeeded()
+    await found.click({ force: true })
+    await expect(lineDescription(row).locator('.v-chip')).toBeVisible({ timeout: 3000 })
+    await expect(row.getByTestId('price-combobox')).not.toContainText('0.00000', { timeout: 5000 })
+
+    await lineUnitPrice(row).fill('123.45')
+    await lineUnitPrice(row).press('Tab')
+    await expect(row.getByTestId('price-combobox')).toContainText('123.45000')
+
+    await lineQuantity(row).fill('3')
+    await lineQuantity(row).press('Tab')
+    await page.waitForLoadState('networkidle')
+    await expect(row.getByTestId('price-combobox')).toContainText('123.45000')
+
+    // A page load leaves the form under Pending changes.
+    await page.reload()
+    await page.goto('/invoicing/invoices')
+    await restoreEntry(page, /EUR/)
+    await expect(page).toHaveURL(/\/invoicing\/invoices\/new/, { timeout: 15000 })
+    await page.waitForLoadState('networkidle')
+    await expect(row.getByTestId('price-combobox')).toContainText('123.45000')
+
+    await page.getByRole('button', { name: /^save$/i }).first().click()
+    await expect(page).toHaveURL(/\/invoicing\/invoices\/[^/]+\/edit/, { timeout: 15000 })
+    const id = new URL(page.url()).pathname.split('/').at(-2)
+    const { invoice } = await apiGet(await apiLogin(), `/invoices/${id}`)
+    expect(invoice.lines[0].unitPrice).toBe(123.45)
+  })
+
   test('should select a product from dropdown, show chip, auto-fill price, and clear', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/invoices/new')

@@ -310,7 +310,11 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       { label: 'Date', value: form.issueDate || '' },
       { label: 'Currency', value: form.currency || '' },
     ],
-    setFormData: (data) => Object.assign(form, data),
+    setFormData: (data) => {
+      Object.assign(form, data)
+      // A draft from before a typed price was pinned: its trail says the person set this price.
+      for (const l of form.lines) if (l.priceExplanation?.some((s: any) => s.type === 'override')) l.pricePinned = true
+    },
     isEdit: () => isEdit.value,
     entityId: () => route.params.id as string,
   })
