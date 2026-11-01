@@ -1975,6 +1975,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     receiptError,
     receiptTakesPayment,
     deliveryReceiptDue,
+    receiptInDoubt,
     printingReceipt,
     printDeliveryReceipt,
     paymentDialog,

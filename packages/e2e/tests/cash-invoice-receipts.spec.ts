@@ -299,16 +299,14 @@ test.describe('FR-23 — a receipt for a payment on an invoice', () => {
     const { receipt } = await ok(cashier, 'POST', `/invoices/${id}/payments`, { date: new Date().toISOString().slice(0, 10), amount: total, method: 'cash' })
     await page.route(`**/invoices/${id}`, async (route) => {
       if (route.request().method() !== 'GET') return route.continue()
-      const response = await route.fetch()
-      const json = await response.json()
+      const { json } = await call(cashier, 'GET', `/invoices/${id}`)
       json.invoice.receiptInDoubt = { id: receipt.id, number: receipt.number }
-      return route.fulfill({ response, json })
+      return route.fulfill({ json })
     })
     await page.route(`**/cash-register/documents/${receipt.id}`, async (route) => {
-      const response = await route.fetch()
-      const json = await response.json()
+      const { json } = await call(cashier, 'GET', `/cash-register/documents/${receipt.id}`)
       json.row.fiscal.inDoubt = true
-      return route.fulfill({ response, json })
+      return route.fulfill({ json })
     })
     let said: unknown
     await page.route(`**/cash-register/documents/${receipt.id}/settle`, (route) => {

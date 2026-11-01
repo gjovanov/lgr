@@ -238,6 +238,26 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
     stillDue = id
   })
 
+  it('a sale and a payment at once, asked of either pod, take turns on the device pod A holds (FR-23)', async () => {
+    const id = await invoiceOnPodB('bank_transfer')
+    expect((await api('b', 'POST', `/invoices/${id}/send`, {})).status).toBe(200)
+    const before = sim.receipts.length
+    sim.latencyMs = 15
+    try {
+      const [sale, payment] = await Promise.all([
+        api('b', 'POST', `/trade/pos/session/${sessionId}/transaction`, saleBody(1)),
+        api('a', 'POST', `/invoices/${id}/payments`, { date: new Date().toISOString().slice(0, 10), amount: 12, method: 'cash' }),
+      ])
+      expect(sale.status).toBe(200)
+      expect(sale.json.receiptError).toBeFalsy()
+      expect(payment.status).toBe(200)
+      expect(payment.json.invoice).toMatchObject({ status: 'paid', amountPaid: 12 })
+    } finally {
+      sim.latencyMs = 0
+    }
+    expect(sim.receipts.slice(before).map(r => [r.total, !!r.voided])).toEqual([[12, false], [12, false]])
+  })
+
   it('a cash-on-delivery print that failed prints on its own, asked of pod B, and books no money (FR-23)', async () => {
     const failsAtIssue = async () => {
       const id = await invoiceOnPodB('cash_on_delivery')
