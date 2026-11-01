@@ -25,6 +25,7 @@
  * base selling price; the bare `price` → cost (what `receive-new-products.ts` calls `cost`).
  */
 import type { PlusMinusDocument } from './map-plusminus-invoice.js'
+import { lineItemName } from './map-plusminus-line.js'
 
 export interface StokrazpItem {
   name: string
@@ -95,7 +96,7 @@ export function mapStokrazpDoc(doc: PlusMinusDocument): StokrazpMapped {
   const adjustmentLines: StokrazpAdjustmentLine[] = []
 
   for (const l of (doc.lines || []) as any[]) {
-    const name = String(l.name || l.item || '').trim()
+    const name = lineItemName(l) // the stock item, not the display alias — see map-plusminus-line.ts
     if (!name) continue
     const qty = num(l.quantity)
     if (qty === 0) continue

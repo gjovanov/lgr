@@ -89,4 +89,16 @@ describe('mapStokrazpDoc', () => {
     expect(m.receiptItems).toEqual([])
     expect(m.adjustmentLines).toEqual([])
   })
+
+  it('books a line on its stock ITEM, not on the display alias typed over it', () => {
+    const doc: PlusMinusDocument = {
+      ...PLAIN_RECEIPT,
+      lines: [
+        { name: 'ГАЙКА М10 - DIN 985 - А2 - Gleitmo', item: 'СТОКИ:ГАЙКА М10 - DIN 985 - А2', quantity: '200', price: '0.05' } as any,
+        { name: 'ПLAIN', quantity: '1', price: '1' } as any, // no item: the name is the fallback
+      ],
+    }
+    const m = mapStokrazpDoc(doc)
+    expect(m.receiptItems.map(i => i.name)).toEqual(['ГАЙКА М10 - DIN 985 - А2', 'ПLAIN'])
+  })
 })

@@ -61,4 +61,12 @@ describe('mapSklrazpDoc', () => {
     const bad: PlusMinusDocument = { date: '20261027', num: '1', header: { docDate: '20261027' }, lines: [] }
     expect(() => mapSklrazpDoc(bad)).toThrow(/no header\.docNumber/)
   })
+
+  it('matches a line on its stock ITEM — an alias missing the trailing dot must not leave the line unbooked', () => {
+    const aliased: PlusMinusDocument = {
+      ...ONE_LINE,
+      lines: [{ name: 'ШАЙБА - ПОДЛ. - Ф6Х24 - Ш.П', item: 'СТОКИ:ШАЙБА - ПОДЛ. - Ф6Х24 - Ш.П.', quantity: '1000', sum: '10' }],
+    }
+    expect(mapSklrazpDoc(aliased).lines[0].name).toBe('ШАЙБА - ПОДЛ. - Ф6Х24 - Ш.П.')
+  })
 })
