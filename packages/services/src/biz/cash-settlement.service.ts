@@ -1,3 +1,4 @@
+import { Invoice } from 'db/models'
 import { getRepos } from '../context.js'
 import { eventBus } from '../events/event-bus.js'
 import { logger } from '../logger/logger.js'
@@ -163,6 +164,7 @@ export async function syncCashSettlement(orgId: string, invoiceId: string, userI
     // Same event a hand-recorded payment emits: the ledger entry, when the org keeps one.
     eventBus.emit('payment.recorded', {
       invoiceId, orgId, userId, amount: added, method: METHOD_OF_ORIGIN[origin!], date: paymentDate(inv).toISOString(),
+      paymentId: String(next[next.length - 1]._id),
     })
   }
   logger.info({ orgId, invoiceId, invoiceNumber: inv.invoiceNumber, method: inv.paymentMethod, action, added, removed }, 'counter settlement')
@@ -184,6 +186,11 @@ export async function syncDueAfterEdit(orgId: string, invoiceId: string, userId:
   const payments: any[] = inv.payments || []
   // What this rule would have kept in line where nothing prints; every other document as today.
   if (!SETTLED_ON_ISSUE[inv.paymentMethod] && !payments.some(p => AUTO_ORIGINS.has(p.origin))) return NONE
+  // ⚠ This rule's own payment under a method the invoice no longer says: it was never received that
+  // way, and no route but the rule can take it back. No receipt is involved, because a receipt's
+  // payment is not this rule's, so it goes as it always did, with its journal entry.
+  const own = SETTLED_ON_ISSUE[inv.paymentMethod]
+  if (payments.some(p => AUTO_ORIGINS.has(p.origin) && p.origin !== own)) return syncCashSettlement(orgId, invoiceId, userId)
 
   const total = round2(inv.total)
   const paid = sum(payments)
@@ -194,7 +201,8 @@ export async function syncDueAfterEdit(orgId: string, invoiceId: string, userId:
     amountPaid: paid,
     amountDue,
     status,
-    paidAt: status === 'paid' ? inv.paidAt ?? null : null,
+    // Raised and lowered again it is paid once more, and a reader of "paid in 30 days" needs the date.
+    paidAt: status === 'paid' ? inv.paidAt ?? new Date() : null,
     statusHistory: status === inv.status
       ? inv.statusHistory || []
       : [...(inv.statusHistory || []), { status, fromStatus: inv.status, changedAt: new Date(), changedBy: userId, reason: 'total edited' }],
@@ -207,5 +215,6 @@ function paymentDate(inv: any): Date {
 }
 
 function autoPayment(inv: any, amount: number, origin: string) {
-  return { date: paymentDate(inv), amount, method: METHOD_OF_ORIGIN[origin], origin }
+  // Its own id, so that its journal entry finds this row and no other (`payment.recorded`).
+  return { _id: new (Invoice.base as any).Types.ObjectId(), date: paymentDate(inv), amount, method: METHOD_OF_ORIGIN[origin], origin }
 }

@@ -225,20 +225,14 @@ export function registerEventHandlers(): void {
     )
 
     if (je) {
-      // FR-23: a receipt's payment is stamped on its own row, which the receipt names. Written back
-      // whole, the array would lose a part payment recorded a moment later, at the same counter.
-      if (payload.receiptId) {
-        await Invoice.updateOne(
-          { _id: payload.invoiceId, orgId: payload.orgId, 'payments.receiptId': payload.receiptId },
-          { $set: { 'payments.$.journalEntryId': je.id } },
-        ).exec()
-      }
-      // Update the last payment entry with journalEntryId
-      const payments = invoice.payments || []
-      if (!payload.receiptId && payments.length > 0) {
-        payments[payments.length - 1].journalEntryId = je.id
-        await r.invoices.update(payload.invoiceId, { payments } as any)
-      }
+      // ⚠ Stamped in place, on the row the event names. The array read above is never written back:
+      // that lost whatever another payment wrote in between, a receipt's row included, while
+      // `amountPaid` kept the money. "The last row" was not even this payment by then.
+      const row = payload.receiptId ? { 'payments.receiptId': payload.receiptId } : payload.paymentId ? { 'payments._id': payload.paymentId } : null
+      if (row) await Invoice.updateOne(
+        { _id: payload.invoiceId, orgId: payload.orgId, ...row },
+        { $set: { 'payments.$.journalEntryId': je.id } },
+      ).exec()
 
       // Audit trail with correlation
       const correlationId = generateCorrelationId()

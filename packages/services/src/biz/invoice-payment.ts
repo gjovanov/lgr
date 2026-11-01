@@ -43,6 +43,8 @@ export function fitsDue(amount: number): Record<string, unknown> {
 }
 
 export interface PaymentRow {
+  /** Chosen by the caller when something has to find this row later. */
+  _id?: unknown
   date: Date
   amount: number
   method: string
