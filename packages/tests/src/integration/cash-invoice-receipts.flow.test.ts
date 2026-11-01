@@ -5,6 +5,7 @@ import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
 import { gate, until } from '../helpers/receipt-world'
 import { allowSalesWithoutPrinter, createTestAccount, createTestContact } from '../helpers/factories'
+import { captureRejection } from '../helpers/capture-rejection'
 import { AuditLog, FiscalDevice, FiscalPresence, Invoice, Journal, JournalEntry, Org, POSSession, Product, Sequence, StockLevel, StockMovement } from 'db/models'
 import { deviceFromCounter, deviceFromDeadReceipt, setFiscalForwarding } from 'fiscal/fiscal-route'
 import { statsController } from 'invoicing-api/src/controllers/stats.controller'
@@ -12,6 +13,7 @@ import { contactController } from 'invoicing-api/src/controllers/contact.control
 import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller'
 import { agingReportController } from 'invoicing-api/src/controllers/aging-report.controller'
 import { convertDraftInvoice, persistInvoiceDraft } from 'services/biz/doc-import/persist'
+import { orgsToSettle, unsettledInvoices } from 'services/biz/settlement-backlog'
 import { eventBus } from 'services/events/event-bus'
 import { postPosSessionJournal, registerEventHandlers, resetEventHandlers } from 'services/events/handlers'
 import { reportById, validateParams } from 'services/biz/report-registry'
@@ -19,6 +21,7 @@ import { buildDailyDigest } from 'services/biz/digest/daily-digest.service'
 import { getProductLedger } from 'services/biz/product-ledger.service'
 import { getContactLedger } from 'services/biz/contact-ledger.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
+import { listJournal } from 'services/biz/cash-register/journal.service'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import {
   exportCancelledSales, exportItemizedSales, exportPaymentDetails, exportReversedSales, exportSummarizedSales,
@@ -647,6 +650,39 @@ describe('the re-issue of a number issued twice (FR-20.51)', () => {
     const inv = await raw(reissue.id)
     expect(inv).toMatchObject({ status: 'paid', amountPaid: 24 })
     expect(inv.payments.map((p: any) => p.origin)).toEqual(['cash_on_issue'])
+  })
+})
+
+describe('scripts/settle-cash-invoices where LGR prints (finding 11)', () => {
+  it('an org where LGR prints is refused by name, and skipped otherwise, and one that prints nothing is taken', async () => {
+    const w = await tillWorld(app)
+    const quiet = await tillWorld(app, { device: false })
+    const orgs = [{ _id: w.oid, slug: 'prints' }, { _id: quiet.oid, slug: 'quiet' }]
+
+    expect((await orgsToSettle(orgs, false)).map(o => o.slug)).toEqual(['quiet'])
+    const refused = await captureRejection(orgsToSettle([orgs[0]], true))
+    expect(String(refused)).toContain('LGR prints for this org')
+    expect((await orgsToSettle([orgs[1]], true)).map(o => o.slug)).toEqual(['quiet'])
+  })
+
+  it('a document with a receipt tried is never selected, even with the switch turned off since', async () => {
+    const w = await tillWorld(app)
+    const failed = await draftOf(w)
+    const part = await draftOf(w)
+    w.sim!.paper = false
+    await send(w, failed.id)
+    await send(w, part.id)
+    w.sim!.paper = true
+    expect((await pay(w, part.id, 10)).status).toBe(200)
+    await allowSalesWithoutPrinter(w.oid)
+    // Nothing ever tried, in an org that prints nothing: the rule's own case.
+    const plain = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, plain.id)
+    await Invoice.updateOne({ _id: plain.id }, { $set: { paymentMethod: 'cash' } })
+
+    const due = await unsettledInvoices(w.oid, ['cash', 'card'])
+
+    expect(due.map(d => d.id)).toEqual([plain.id])
   })
 })
 
@@ -2682,6 +2718,19 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
     expect(digest.documents.cash.sequence.missing).toEqual([])
     expect(digest.documents.cash.count).toBe(1)
     expect(digest.documents.cash.total).toBe(12)
+  })
+
+  it('the field check holds on an org with a receipt: the journal lists them, and its invariant says so', async () => {
+    const w = await tillWorld(app)
+    await day(w)
+    const script = await Bun.file(new URL('../../../../scripts/cash-register-field-check.ts', import.meta.url)).text()
+    const formula = /row\.journalInvariant = (.+)/.exec(script)![1]
+    const count = (type: string) => Invoice.countDocuments({ orgId: w.oid, type }).exec()
+    const row = { pos: 0, copies: 0, cashSales: await count('cash_sale'), cashStornos: await count('cash_storno'), paymentReceipts: await count('payment_receipt') }
+    const all = await listJournal({ orgId: w.orgId, size: 1 })
+
+    expect(row.paymentReceipts).toBe(1)
+    expect(new Function('row', 'all', `return ${formula}`)(row, all)).toBe(true)
   })
 
   it('Reports: sales documents list the invoice, the cash register does not list the receipt', async () => {

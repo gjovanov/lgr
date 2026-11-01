@@ -11,8 +11,7 @@ import { mongoose } from 'db/connection'
 import { AuditLog, FencedExport, FencedImportItem, Invoice, Journal, JournalEntry, OrgHome, OrgMove, POSSession, Sequence, StockLevel, StockMovement } from 'db/models'
 import { forgetAllHomes } from 'db/home/home'
 import { fencedExportPath, fencedExportsOf, receiveFencedChunk, writeFencedExport } from 'services/biz/move/fenced-export.service'
-import { finishInterruptedReceipts } from 'invoicing-api/src/lib/counter-receipt'
-import { fencedImportTick, requestFencedImport } from 'services/biz/move/fenced-import.service'; import { freezeRefusal, receiptInDoubt, settleReceipt } from 'services/biz/cash-register/payment-receipt.service'; import { deviceless } from 'invoicing-api/src/lib/counter-receipt'
+import { fencedImportTick, requestFencedImport } from 'services/biz/move/fenced-import.service'; import { freezeRefusal, receiptInDoubt, settleReceipt } from 'services/biz/cash-register/payment-receipt.service'; import { deviceless, finishInterruptedReceipts } from 'invoicing-api/src/lib/counter-receipt'
 
 /**
  * The audited import of a fenced export (FR-20.84, plan step P3-6e, second half): a replaced
