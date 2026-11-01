@@ -8,7 +8,7 @@ module.exports = defineConfig({
   timeout: 30000,
   reporter: "html",
   use: {
-    baseURL: process.env.BASE_URL || "http://localhost:4000",
+    baseURL: process.env.BASE_URL || "http://localhost:4001",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     actionTimeout: 1e4
@@ -18,7 +18,7 @@ module.exports = defineConfig({
   ],
   webServer: process.env.CI ? undefined : {
     command: "cd ../.. && bun run start",
-    url: "http://localhost:4000",
+    url: "http://localhost:4001",
     reuseExistingServer: true,
     timeout: 30000
   }

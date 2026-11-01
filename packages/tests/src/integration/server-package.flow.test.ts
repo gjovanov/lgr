@@ -81,7 +81,7 @@ describe.skipIf(!enabled)('a built server package', () => {
     expect(result.out).toContain('JWT_SECRET is not set')
   }, 90_000)
 
-  it('boots, serves the SPAs from its ui/, signs in and prints an invoice', async () => {
+  it('boots, serves the web app from its ui/, signs in and prints an invoice', async () => {
     server = Bun.spawn(['bun', manifest.entries.server], { cwd: PKG, env: productionEnv(), stdout: 'ignore', stderr: 'ignore' })
     const deadline = Date.now() + 90_000
     for (;;) {
@@ -94,7 +94,8 @@ describe.skipIf(!enabled)('a built server package', () => {
     const shell = await fetch(`${BASE}/inventory/products`)
     expect({ step: 'shell', status: shell.status }).toEqual({ step: 'shell', status: 200 })
     const html = await shell.text()
-    const asset = html.match(/\/inventory\/assets\/[^"']+\.js/)?.[0]
+    // FR-24.24: the one SPA, its assets under /ui/, on a module's page too.
+    const asset = html.match(/\/ui\/[^"']+\.js/)?.[0]
     expect(asset).toBeDefined()
     expect({ step: asset, status: (await fetch(`${BASE}${asset}`)).status }).toEqual({ step: asset, status: 200 })
 

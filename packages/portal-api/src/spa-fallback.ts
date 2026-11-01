@@ -39,11 +39,10 @@ export function portalShellFor(html: string, role: 'global' | 'master'): string 
 }
 
 /**
- * The SPAs the unified server serves, by URL prefix. `portal` is the root and the default.
- * POS is not one of them since FR-24 Phase 0: its pages are routes of the invoicing SPA.
+ * The modules' URL prefixes. A path under one is a module's page; anything else is the portal's
+ * (sign-in, the App Hub, settings). POS lives under `/invoicing/pos` since FR-24 Phase 0.
  */
-export const UI_MODULES = ['portal', 'accounting', 'inventory', 'invoicing', 'payroll', 'reports', 'files'] as const
-export type UiModule = (typeof UI_MODULES)[number]
+export const MODULE_PREFIXES = ['accounting', 'inventory', 'invoicing', 'payroll', 'reports', 'files'] as const
 
 /**
  * Where an address of a moved SPA lives now, or null. FR-24 Phase 0 moved the POS pages under
@@ -57,11 +56,10 @@ export function movedUiLocation(pathname: string, search = ''): string | null {
 }
 
 /**
- * FR-24.13: the one SPA (`packages/web`) beside the eight, until Phase 3 flips the default and
- * deletes them. Which shell a browser gets: the `lgr_ui` cookie (`/__ui/one` sets it, `/__ui/split`
- * clears it), else `LGR_UI_DEFAULT` (`split` unless set). A server package stays on the split build.
+ * FR-24.13 let a browser choose the one SPA or the eight with the `lgr_ui` cookie (`/__ui/one`,
+ * `/__ui/split`). FR-24.21 deleted the eight, so those addresses now only send the browser home and
+ * drop the cookie.
  */
-export type UiShell = 'one' | 'split'
 export const UI_COOKIE = 'lgr_ui'
 
 /** The one SPA's shell as this node serves it, in its two variants (FR-24.18). */
@@ -77,24 +75,17 @@ export function oneSpaShell(html: string, role: 'global' | 'master'): OneSpaShel
   return { module: role === 'master' ? portalShellFor(html, 'master') : html, portal: portalShellFor(html, role) }
 }
 
-/** The shell this request asked for. */
-export function shellFor(request: Request, fallback: UiShell = 'split'): UiShell {
-  const cookie = request.headers.get('cookie') ?? ''
-  const m = cookie.match(/(?:^|;\s*)lgr_ui=(one|split)(?:;|$)/)
-  return (m?.[1] as UiShell | undefined) ?? fallback
-}
-
 /** The build id the one SPA's `index.html` carries (`<meta name="lgr-build">`), or null. */
 export function webBuildId(html: string | undefined): string | null {
   return html?.match(/<meta name="lgr-build" content="([^"]+)"/)?.[1] ?? null
 }
 
-/** A module's page, rather than the portal's: its path is under a module SPA's prefix. */
-function isModulePath(pathname: string): boolean {
-  return UI_MODULES.some(m => m !== 'portal' && (pathname === `/${m}` || pathname.startsWith(`/${m}/`)))
+/** A module's page, rather than the portal's: its path is under a module's prefix. */
+export function isModulePath(pathname: string): boolean {
+  return MODULE_PREFIXES.some(m => pathname === `/${m}` || pathname.startsWith(`/${m}/`))
 }
 
-/** One SPA's built files, mounted under its prefix. */
+/** The SPA's built files, mounted under a prefix. */
 export function uiStaticPlugin(ui: { assets: string; prefix: string }, opts: { alwaysStatic?: boolean } = {}) {
   return staticPlugin({
     assets: ui.assets,
@@ -140,10 +131,9 @@ export function validationMessage(err: any): string {
  *   - a `Response` alone: with `NODE_ENV` unset, the static plugin's catch-all route maps the
  *     handler's Response through `set`, whose status is that route's 404.
  */
-export function spaErrorHandler(
-  indexHtmlMap: Partial<Record<UiModule, string>>,
-  opts: { one?: OneSpaShell | null; defaultShell?: UiShell } = {},
-) {
+export function spaErrorHandler(given?: OneSpaShell | Record<string, never> | null) {
+  // The API-only harnesses pass `{}` (as they passed an empty index map before FR-24.21): no shell.
+  const shell = given && typeof (given as OneSpaShell).portal === 'string' ? (given as OneSpaShell) : null
   return ({ code, error: err, set, request }: { code: unknown; error: any; set: any; request: Request }) => {
     // A status THROWN on purpose (`throw status(403, …)`): an answer, not a failure. The
     // write-permission guard throws one, because it runs before validation in a transform hook,
@@ -185,37 +175,29 @@ export function spaErrorHandler(
         set.headers['location'] = moved
         return new Response(null, { status: 302, headers: { location: moved, 'cache-control': 'no-store' } })
       }
-      // FR-24.13: try the one SPA (`/__ui/one`) or go back to the eight (`/__ui/split`), on this browser.
-      const choice = pathname === '/__ui/one' ? 'one' : pathname === '/__ui/split' ? 'split' : null
-      if (choice && (request.method === 'GET' || request.method === 'HEAD')) {
-        const cookie = `${UI_COOKIE}=${choice}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly`
+      // FR-24.21: the addresses that used to choose a shell send the browser home, dropping the choice.
+      if ((pathname === '/__ui/one' || pathname === '/__ui/split') && (request.method === 'GET' || request.method === 'HEAD')) {
+        const cookie = `${UI_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly`
         set.status = 302
         set.headers['location'] = '/'
         set.headers['set-cookie'] = cookie
         return new Response(null, { status: 302, headers: { location: '/', 'set-cookie': cookie, 'cache-control': 'no-store' } })
       }
-      if (!pathname.startsWith('/api/') && !pathname.match(/\.\w{2,}$/)) {
-        // The one SPA, when this browser runs it: one shell for every path (FR-24.13).
-        const one = opts.one && shellFor(request, opts.defaultShell) === 'one' ? opts.one : null
-        // The module's own SPA, or the portal (app hub) for a path no module claims.
-        const moduleName = UI_MODULES.find(m => m !== 'portal' && pathname.startsWith(`/${m}`))
-        const html = one
-          ? (isModulePath(pathname) ? one.module : one.portal)
-          : indexHtmlMap[moduleName || 'portal'] || indexHtmlMap.portal
-        if (html) {
-          set.status = 200
-          return new Response(html, {
-            status: 200,
-            headers: {
-              'content-type': 'text/html; charset=utf-8',
-              // index.html must NOT be cached: it references the per-build hashed bundles, so a
-              // stale copy pins users to old JS after a deploy (the cause of the "hard refresh
-              // needed to see changes" issue). The hashed assets under /assets/* are
-              // content-addressed and stay cacheable.
-              'cache-control': 'no-cache, no-store, must-revalidate',
-            },
-          })
-        }
+      if (shell && !pathname.startsWith('/api/') && !pathname.match(/\.\w{2,}$/)) {
+        // One shell for every page (FR-24.21); a module's page never carries the analytics tag (FR-24.18).
+        const html = isModulePath(pathname) ? shell.module : shell.portal
+        set.status = 200
+        return new Response(html, {
+          status: 200,
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            // index.html must NOT be cached: it references the per-build hashed bundles, so a
+            // stale copy pins users to old JS after a deploy (the cause of the "hard refresh
+            // needed to see changes" issue). The hashed assets under /ui/* are
+            // content-addressed and stay cacheable.
+            'cache-control': 'no-cache, no-store, must-revalidate',
+          },
+        })
       }
       set.status = 404
       return { message: 'Not found' }

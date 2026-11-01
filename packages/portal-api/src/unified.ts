@@ -11,7 +11,7 @@ import { logger } from 'services/logger'
 // The whole API route table lives in `api.ts` so tests can mount it — see the header there.
 import { createApiApp } from './api.js'
 // Same reason for the SPA serving: `spa-fallback.flow.test.ts` drives it with the real plugins.
-import { UI_MODULES, oneSpaShell, portalShellFor, spaErrorHandler, uiStaticPlugin, webBuildId, type UiModule, type UiShell } from './spa-fallback.js'
+import { oneSpaShell, spaErrorHandler, uiStaticPlugin, webBuildId } from './spa-fallback.js'
 
 // WebSocket
 import { setupWebSocket } from './websocket/ws.server.js'
@@ -60,34 +60,18 @@ if (config.node.role === 'master') {
 }
 
 /**
- * Where a module's built SPA is. From the repository: `packages/<module>-ui/dist`, beside this
- * package (the server runs in `packages/portal-api`). A server package sets `LGR_UI_ROOT` to its
- * `ui/` directory, which holds one built SPA per module, named after it (FR-20 plan step P0b-9).
+ * Where the built SPA is (FR-24.21: one, `packages/web`). From the repository: `packages/web/dist`,
+ * beside this package (the server runs in `packages/portal-api`). A server package sets
+ * `LGR_UI_ROOT` to its `ui/` directory, which holds it as `ui/web` (FR-20 P0b-9, FR-24.24).
  */
 const uiRoot = process.env.LGR_UI_ROOT?.replace(/[\\/]+$/, '')
-const uiDir = (mod: string) => (uiRoot ? `${uiRoot}/${mod}` : `../${mod}-ui/dist`)
-
-// Pre-read index.html files for SPA fallback
-const indexHtmlMap: Partial<Record<UiModule, string>> = {}
-
-for (const mod of UI_MODULES) {
-  try {
-    indexHtmlMap[mod] = await Bun.file(`${uiDir(mod)}/index.html`).text()
-  } catch {
-    logger.info(`${mod}-ui dist not found, skipping static serving`)
-  }
-}
-// The analytics tag goes on lgrai.app's portal only (FR-20 AC 66).
-if (indexHtmlMap.portal) indexHtmlMap.portal = portalShellFor(indexHtmlMap.portal, nodeRole())
-
-// FR-24.13: the one SPA (`packages/web`), beside the eight until Phase 3. Not in a server package.
 const webDir = uiRoot ? `${uiRoot}/web` : '../web/dist'
 const webHtml = await Bun.file(`${webDir}/index.html`).text().catch(() => undefined)
+// The analytics tag goes on lgrai.app's portal pages only (FR-20 AC 66, FR-24.18).
 const oneSpa = webHtml ? oneSpaShell(webHtml, nodeRole()) : null
 const buildId = webBuildId(webHtml)
-/** `LGR_UI_DEFAULT`: the shell a browser without the `lgr_ui` cookie gets. */
-const defaultShell: UiShell = process.env.LGR_UI_DEFAULT === 'one' ? 'one' : 'split'
-if (oneSpa) logger.info({ defaultShell, buildId }, 'The one SPA is served beside the eight (FR-24)')
+if (oneSpa) logger.info({ buildId }, 'Serving the web app (FR-24)')
+else logger.info(`${webDir}/index.html not found: no web app is served`)
 
 const app = new Elysia()
   // FR-20.72–20.74 (P3-4b): an org's address, `<label>.lgrai.app`, is its server's: tunnelled before
@@ -102,7 +86,7 @@ const app = new Elysia()
   .use(isolationHeaders()) // FR-20.72: CORP same-origin + Origin-Agent-Cluster on every response
   .use(corsPlugin()) // S-07: an allow-list, not every origin a caller names
   // 422 / SPA shell / 404 / 500. The shell's status needs care: see spa-fallback.ts.
-  .onError(spaErrorHandler(indexHtmlMap, { one: oneSpa, defaultShell }))
+  .onError(spaErrorHandler(oneSpa))
   // FR-24.14: the one SPA's build on every answer, so an open tab sees a deploy happened.
   .onRequest(({ set }) => { if (buildId) set.headers['x-lgr-build'] = buildId })
   // API docs on lgrai.app only: the page loads its viewer from a CDN, and a master serves no
@@ -149,43 +133,20 @@ setupDesktopWS(app as any)
 // FR-20.52 (P2-2a): a registered master's uplink. Global only: a master registers nowhere.
 if (nodeRole() === 'global') setupUplinkWS(app as any)
 
-// Static files for all module UIs
-const moduleUiConfig = [
-  { name: 'portal', prefix: '' },
-  { name: 'accounting', prefix: '/accounting' },
-  { name: 'inventory', prefix: '/inventory' },
-  { name: 'invoicing', prefix: '/invoicing' },
-  // POS: routes of the invoicing SPA since FR-24 Phase 0; `/pos/*` answers 302 (spa-fallback.ts).
-  { name: 'payroll', prefix: '/payroll' },
-  { name: 'reports', prefix: '/reports' },
-  { name: 'files', prefix: '/files' },
-].map(ui => ({ ...ui, assets: uiDir(ui.name) }))
-
-for (const ui of moduleUiConfig) {
-  if (indexHtmlMap[ui.name as UiModule]) {
-    try {
-      // ⚠ Awaited. The plugin is async, and unawaited it registers its routes after `listen`:
-      // for the first ~180 ms every asset answered 404 while `/api/health` already said ready, so
-      // a page loaded during a rollout came up blank (measured on the server package, P0b-9).
-      app.use(await uiStaticPlugin(ui))
-    } catch {
-      logger.info(`Static plugin failed for ${ui.name}-ui`)
-    }
-  }
-}
-
-// FR-24.10: the one SPA's files live under `/ui/` (its own asset directory), so both builds coexist.
+// FR-24.10: the SPA's files live under `/ui/` (its asset directory).
 if (oneSpa) {
   try {
+    // ⚠ Awaited. The plugin is async, and unawaited it registers its routes after `listen`:
+    // for the first ~180 ms every asset answered 404 while `/api/health` already said ready, so
+    // a page loaded during a rollout came up blank (measured on the server package, P0b-9).
     app.use(await uiStaticPlugin({ assets: `${webDir}/ui`, prefix: '/ui' }))
   } catch {
-    logger.info('Static plugin failed for the one SPA')
+    logger.info('Static plugin failed for the web app')
   }
 }
 
-// SPA fallback is handled entirely by the onError NOT_FOUND handler above.
-// It checks pathname against module prefixes and serves the correct index.html,
-// while skipping paths that look like static assets (contain a file extension).
+// The SPA's shell is served by the onError NOT_FOUND handler above, for every path that is not
+// the API and does not look like a file (FR-24.21: one shell; `/pos/*` answers 302).
 
 // SUPTO mode banner
 if (config.supto.mode === 'production') {

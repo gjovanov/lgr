@@ -89,14 +89,14 @@ export const portalRoutes: RouteRecordRaw[] = [
       { path: 'register', name: 'auth.register', component: () => import('./views/auth/RegisterView.vue'), meta: { public: true } },
       { path: 'oauth-callback', name: 'auth.oauth-callback', component: () => import('./views/auth/OAuthCallbackView.vue'), meta: { public: true } },
       // S-06 — where an activation email lands. Like `desktop-redeem` below, its code rides in the
-      // URL FRAGMENT, so `consumeTokenHandoff` never sees it and no server log records it.
+      // URL FRAGMENT, so no server log records it.
       { path: 'activate', name: 'auth.activate', component: () => import('./views/auth/ActivateView.vue'), meta: { public: true } },
       // Phase 4 — forgot password. The reset link carries its token in the URL FRAGMENT, like activation.
       { path: 'forgot-password', name: 'auth.forgot-password', component: () => import('./views/auth/ForgotPasswordView.vue'), meta: { public: true } },
       { path: 'reset-password', name: 'auth.reset-password', component: () => import('./views/auth/ResetPasswordView.vue'), meta: { public: true } },
       // FR-14.14 — where `lgr-web` lands after an OAuth sign-in that ran in the system browser.
       // ⚠ Its credentials are in the URL FRAGMENT, which the router never sees and no log
-      // records; `consumeTokenHandoff` below is unaffected because there is no `?token=` here.
+      // records.
       { path: 'desktop-redeem', name: 'auth.desktop-redeem', component: () => import('./views/auth/DesktopRedeemView.vue'), meta: { public: true } },
     ],
   },

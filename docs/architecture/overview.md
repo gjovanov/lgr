@@ -23,8 +23,9 @@ unified API (portal-api, :4001) ─────── MongoDB (replica set rs0)
   /api/*      portal + every domain package's controllers
   /ws/*       tasks · fiscal-bridge · desktop
   /swagger    API docs
-  /           portal-ui
-  /<module>/  accounting · inventory · invoicing · pos · payroll · reports · files
+  /ui/*       the web app's files (packages/web)
+  every other path   the web app's index.html: the portal at /, each module at its prefix
+                     (accounting · inventory · invoicing · invoicing/pos · payroll · reports · files)
 ```
 
 - **The route table** is `createApiApp()` in `portal-api/src/api.ts`. The integration tests mount
@@ -41,17 +42,23 @@ unified API (portal-api, :4001) ─────── MongoDB (replica set rs0)
   - `/ws/desktop`: desktop presence.
 
   Each authenticates in its first message.
-- **The built SPAs** are served by the same process: the portal at `/`, and each module UI at its
-  prefix. The SPA fallback is `portal-api/src/spa-fallback.ts`.
+- **The built web app** is served by the same process: its files under `/ui/`, and its
+  `index.html` for every page (`portal-api/src/spa-fallback.ts`). `/pos/*` answers 302 to
+  `/invoicing/pos/*`, because desktops hold `startPath: /pos/`.
 
 The domain API packages export controllers and nothing else. None of them starts a server of its
 own.
 
 ### The UIs
 
-Each module has its own Vue 3 + Vuetify SPA, with its own router and Pinia store:
+One Vue 3 + Vuetify SPA, `packages/web`, holds the portal and every module, with one router and one
+Pinia (FR-24). Moving between modules is a router push, never a page load, so a browser till keeps
+its printer. Each module is a package of views and stores with a manifest (`src/manifest.ts`):
 - portal-ui: sign-in, the app hub, settings;
-- accounting-ui, inventory-ui, invoicing-ui, pos-ui, payroll-ui, reports-ui and files-ui.
+- accounting-ui, inventory-ui, invoicing-ui (with POS under `/invoicing/pos`), payroll-ui,
+  reports-ui and files-ui.
+
+Adding a module is its package, one line in `web/src/modules.ts` and its registry rows.
 
 `ui-shell` holds the shared top bar, app switcher and org menu, and `ui-shared` the shared
 composables and components.
@@ -139,14 +146,14 @@ packages/
   reports-api/     The report catalog and runner
   files-api/       Document ingest
 
-  portal-ui/       Portal frontend
-  accounting-ui/   Accounting frontend
-  inventory-ui/    Inventory frontend
-  invoicing-ui/    Invoicing frontend
-  pos-ui/          Point-of-sale frontend
-  payroll-ui/      Payroll frontend
-  reports-ui/      Reports frontend
-  files-ui/        Files frontend
+  web/             The web app: the one SPA that composes every module below
+  portal-ui/       Portal module (sign-in, app hub, settings)
+  accounting-ui/   Accounting module
+  inventory-ui/    Inventory module
+  invoicing-ui/    Invoicing module, and POS (src/pos)
+  payroll-ui/      Payroll module
+  reports-ui/      Reports module
+  files-ui/        Files module
   ui-shell/        Shared app shell components
   ui-shared/       Shared composables, components, the tab session
 

@@ -84,8 +84,11 @@ export const SCRIPT_ALLOW_LIST = [
 /** Scripts FR-20.26 names as never leaving the repository: they change issued documents. */
 export const NEVER_PACKAGED = ['fix-imported-invoice-lines', 'migrate-invoice-numbering'] as const
 
-/** The SPAs a package serves, each in `ui/<module>/` (the server reads `LGR_UI_ROOT`). */
-export const UI_MODULES = ['portal', 'accounting', 'inventory', 'invoicing', 'payroll', 'reports', 'files'] as const
+/**
+ * The SPAs a package serves, each in `ui/<name>/`, built from `packages/<name>/dist` (the server reads
+ * `LGR_UI_ROOT`). FR-24.24: one, the web app, since FR-24.21 deleted the eight.
+ */
+export const UI_MODULES = ['web'] as const
 
 /**
  * The names of the cloud's secrets: the keys of lgr-deploy's sealed `lgr-secret`, `mongodb-secret`

@@ -131,8 +131,7 @@ onMounted(async () => {
     // pending-changes storage key stays stable and persist() actually writes.
     pendingChangesStore.load(appStore.currentOrg.id, (appStore.user as any)?._id || (appStore.user as any)?.id || '')
     try {
-      const portalBase = window.location.hostname === 'localhost' ? 'http://localhost:4001/api' : ''
-      const { data } = await httpClient.get(`${portalBase}/org/${appStore.currentOrg.id}/apps`)
+      const { data } = await httpClient.get(`/org/${appStore.currentOrg.id}/apps`)
       apps.value = data.apps
     } catch {
       apps.value = (Object.keys(APP_REGISTRY) as AppId[]).map(id => ({ id, ...APP_REGISTRY[id], enabled: false }))

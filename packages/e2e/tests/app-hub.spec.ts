@@ -60,7 +60,8 @@ test.describe('App Hub', () => {
     expect(accounting.name).toBe('Accounting')
     expect(accounting.icon).toBe('mdi-chart-bar')
     expect(accounting.color).toBe('#4caf50')
-    expect(accounting.devPort).toBe(4011)
+    // FR-24.21: one SPA on one origin; no per-app dev server, so no dev port.
+    expect(accounting).not.toHaveProperty('devPort')
     expect(accounting.path).toBe('/accounting/')
     expect(accounting.enabled).toBe(true)
 

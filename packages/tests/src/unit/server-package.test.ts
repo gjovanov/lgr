@@ -183,9 +183,10 @@ describe('the analytics tag is lgrai.app\'s alone (AC 66)', () => {
     expect(portalShellFor(shell, 'master')).not.toContain(GLOBAL_ANALYTICS_TAG)
   })
 
-  it('no SPA\'s index.html carries an origin of its own, so no build does', () => {
-    for (const ui of ['portal', 'accounting', 'inventory', 'invoicing', 'payroll', 'reports', 'files']) {
-      const html = readFileSync(join(REPO_ROOT, 'packages', `${ui}-ui`, 'index.html'), 'utf8')
+  it('the SPA\'s index.html carries no origin of its own, so no build does', () => {
+    // FR-24.21: one SPA (`packages/web`), the shell every page is served.
+    for (const ui of ['web']) {
+      const html = readFileSync(join(REPO_ROOT, 'packages', ui, 'index.html'), 'utf8')
       expect({ ui, hits: foreignOriginHits('index.html', html) }).toEqual({ ui, hits: [] })
     }
   })

@@ -2,7 +2,7 @@ import type { ModuleManifest } from 'ui-shell/module'
 
 /**
  * FR-24.3: the reports module as data. Paths are relative to the module (`/reports`), never to a
- * router's base: the router composes them under the module's shell record (`moduleRoutes`).
+ * router's base: the one SPA's router composes them under the module's shell record.
  */
 export const manifest: ModuleManifest = {
   id: 'reports',
