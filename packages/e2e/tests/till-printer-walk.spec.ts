@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import { apiLogin } from './helpers/api'
 import { installFakeSerial, serialStats } from './helpers/fake-serial'
 import { loginForApp } from './helpers/login'
+import { SESSION_FILES, filesGone } from './helpers/nav'
 
 const API = process.env.BASE_URL || 'http://localhost:4001'
 const PASSWORD = 'test12345'
@@ -44,16 +45,6 @@ let userId = ''
 let warehouseId = ''
 let deviceId = ''
 let sessionId = ''
-
-/** CR Sessions' files: a page nothing here has opened by the time a test says they are gone. */
-const SESSION_FILES = /\/ui\/PosSessionsView-[^/]+\.(js|css)$/
-
-/** A deploy: these files are gone from under this document. The next document has what it needs. */
-async function filesGone(page: any, files: RegExp = SESSION_FILES) {
-  let deployed = true
-  page.on('request', (r: any) => { if (r.isNavigationRequest() && r.frame() === page.mainFrame()) deployed = false })
-  await page.route(files, (route: any) => (deployed ? route.abort() : route.continue()))
-}
 
 /** Through the menu, as a cashier gets there: `page.goto` would be the page load this looks for. */
 async function menu(page: any, group: RegExp, entry: string) {

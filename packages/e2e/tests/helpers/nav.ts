@@ -59,3 +59,13 @@ export async function openNavDrawer(page: Page): Promise<Locator> {
   await drawer.locator('.v-list-item-title').first().waitFor({ state: 'visible' })
   return drawer
 }
+
+/** CR Sessions' files: a page nothing has opened by the time a test says they are gone. */
+export const SESSION_FILES = /\/ui\/PosSessionsView-[^/]+\.(js|css)$/
+
+/** A deploy: these files are gone from under this document. The next document has what it needs. */
+export async function filesGone(page: Page, files: RegExp = SESSION_FILES) {
+  let deployed = true
+  page.on('request', (r) => { if (r.isNavigationRequest() && r.frame() === page.mainFrame()) deployed = false })
+  await page.route(files, route => (deployed ? route.abort() : route.continue()))
+}

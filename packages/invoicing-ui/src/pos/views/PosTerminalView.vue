@@ -219,6 +219,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { paymentMethodKey } from 'ui-shared/composables/usePaymentMethods'
 import { registerSwitchGuard, registerUnsavedCheck } from 'ui-shared/session/switch-guards'
+import { getOrg } from 'ui-shared/session/session'
 import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
 import RegisterTerminal from 'ui-shared/components/cash-register/RegisterTerminal.vue'
 import { fetchPriceOptions, priceOptionLabel, type PriceOption } from 'ui-shared/composables/usePriceOptions'
@@ -685,6 +686,26 @@ onBeforeRouteLeave(() => {
   return new Promise<boolean>((resolve) => { settleLeave = resolve })
 })
 
+/** The org this cart is rung up in. The tab's session can leave it: a switch, a sign-out, a dead token. */
+const ringingIn = getOrg()?.id
+
+/**
+ * F5, the tab closed, an address typed: the ways off this page only the browser can ask about, in
+ * its own words. A sale on its way or with its answer lost still has its lines in the cart, so it is
+ * asked about too.
+ *
+ * ⚠ The app's own page loads do not meet this question. A failed move (`web/src/stale.ts`) and an
+ * org switch both refuse a cart that holds lines (`registerUnsavedCheck`, `registerSwitchGuard`, below).
+ * The one way past them is a line added while a switch is on its way, and by then the tab's session
+ * is in the other org: „stay" would keep a page whose every call is refused. So once the session has
+ * left `ringingIn` nothing is asked. That also covers a sign-out and a session that died.
+ */
+function askBeforeUnload(e: BeforeUnloadEvent) {
+  if (cart.value.length === 0 || getOrg()?.id !== ringingIn) return
+  e.preventDefault()
+  e.returnValue = '' // what Chromium before 119 reads, and a webview can lag it
+}
+
 let unregisterSwitchGuard: (() => void) | null = null
 let unregisterUnsaved: (() => void) | null = null
 
@@ -694,6 +715,7 @@ onMounted(async () => {
   unregisterSwitchGuard = registerSwitchGuard(() => (saleInHand() ? 'orgSwitcher.blockedSale' : null))
   // The same goes for the page load a new build asks for (`web/src/stale.ts`).
   unregisterUnsaved = registerUnsavedCheck(saleInHand)
+  window.addEventListener('beforeunload', askBeforeUnload)
   document.addEventListener('visibilitychange', onVisibilityChange)
   connectedElsewhereTimer = setInterval(refreshConnectedElsewhere, 15000)
   await Promise.all([fetchSessions(), fetchWarehouses()])
@@ -702,6 +724,7 @@ onMounted(async () => {
 onUnmounted(() => {
   unregisterSwitchGuard?.()
   unregisterUnsaved?.()
+  window.removeEventListener('beforeunload', askBeforeUnload)
   document.removeEventListener('visibilitychange', onVisibilityChange)
   clearInterval(connectedElsewhereTimer)
 })

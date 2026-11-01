@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { apiGet } from './helpers/api'
+import { apiGet, apiLogin } from './helpers/api'
 import { closeTillSession, openTillSession, ownCashier, type OwnCashier } from './helpers/cash-register'
 import { loginForApp } from './helpers/login'
+import { filesGone } from './helpers/nav'
+import { BETA } from './helpers/org-switcher'
 
 /**
  * The terminal sits behind the same menu as everything else now, a click from any invoice, and its
@@ -56,6 +58,30 @@ const loseTheAnswer = (page: any) => onTheSale(page, async (route) => {
   await route.fetch()
   await route.abort('connectionreset')
 })
+
+/** What the browser asks from here on, each answered "leave": no question stops a load here. */
+function questions(page: any): string[] {
+  const asked: string[] = []
+  page.on('dialog', async (d: any) => {
+    asked.push(d.type())
+    await d.accept()
+  })
+  return asked
+}
+
+/** F5, and the browser's question answered. "stay" leaves the reload unfinished, so nothing waits on it. */
+async function f5(page: any, answer: 'stay' | 'leave') {
+  const question = page.waitForEvent('dialog', { timeout: 10000 })
+  page.reload().catch(() => {})
+  const asked = await question
+  expect(asked.type()).toBe('beforeunload')
+  await (answer === 'stay' ? asked.dismiss() : asked.accept())
+}
+
+const reloadSpared = async (page: any) => {
+  await expect(cartLine(page).first()).toBeVisible()
+  expect(await page.evaluate(() => (window as any).__walk)).toBe('one document')
+}
 
 test.describe('A filled cart', () => {
   test.beforeEach(async ({ page }) => {
@@ -150,6 +176,17 @@ test.describe('A filled cart', () => {
     await expect(page).toHaveURL(/\/invoicing\/cash-sales\/new$/)
     expect(await page.evaluate(() => (window as any).__walk)).toBe('one document')
     await expect(cartLine(page).first()).toBeVisible()
+
+    // Its Reload is a page load the person starts, and asked about as F5 is: the cart is still here.
+    // Answered from a handler: the question stalls the click that raises it.
+    let asked = ''
+    page.once('dialog', async (d: any) => {
+      asked = d.type()
+      await d.dismiss()
+    })
+    await page.getByRole('button', { name: 'Reload' }).click()
+    await expect.poll(() => asked).toBe('beforeunload')
+    await reloadSpared(page)
   })
 
   // A move refused for a sale that is printing. The person sees how it ended.
@@ -212,5 +249,132 @@ test.describe('A filled cart', () => {
 
     const { transactions } = await apiGet(cashier.session, `/trade/pos/session/${tillId}/transaction`)
     expect(transactions).toHaveLength(1)
+  })
+
+  // What only the browser can ask about: F5, the tab closed, an address typed.
+  test('F5 asks: staying keeps the cart, leaving reloads', async ({ page }) => {
+    await fillCart(page)
+    await page.evaluate(() => { (window as any).__walk = 'one document' })
+
+    await f5(page, 'stay')
+    await reloadSpared(page)
+
+    await f5(page, 'leave')
+    await expect(page.getByTestId('register-card').first()).toBeVisible({ timeout: 15000 })
+    await expect(cartLine(page)).toHaveCount(0)
+  })
+
+  test('F5 asks while a sale is on its way', async ({ page }) => {
+    await fillCart(page)
+    await page.evaluate(() => { (window as any).__walk = 'one document' })
+    const letGo = await holdTheSale(page)
+    await page.getByTestId('complete-sale').click()
+
+    await f5(page, 'stay')
+    await reloadSpared(page)
+
+    letGo()
+    await expect(page.getByTestId('last-sale-number')).toBeVisible({ timeout: 15000 })
+  })
+
+  test('F5 asks after a lost answer', async ({ page }) => {
+    await fillCart(page)
+    await page.evaluate(() => { (window as any).__walk = 'one document' })
+    await loseTheAnswer(page)
+    await page.getByTestId('complete-sale').click()
+    await expect(page.getByTestId('sale-unknown')).toBeVisible({ timeout: 15000 })
+
+    await f5(page, 'stay')
+    await reloadSpared(page)
+  })
+
+  test('F5 asks nothing of a cart emptied, or of a sale completed', async ({ page }) => {
+    const asked = questions(page)
+    await fillCart(page)
+    await cartLine(page).first().getByRole('button', { name: 'Delete' }).click()
+    await expect(cartLine(page)).toHaveCount(0)
+    await page.reload()
+
+    await fillCart(page)
+    await page.getByTestId('complete-sale').click()
+    await expect(page.getByTestId('last-sale-number')).toBeVisible({ timeout: 15000 })
+    await page.reload()
+
+    await expect(page.getByTestId('register-card').first()).toBeVisible({ timeout: 15000 })
+    expect(asked).toEqual([])
+  })
+
+  // The rule's page load: a filled cart stops it first (above), so an empty one goes unasked.
+  test('a page whose files are gone loads with no question, the cart being empty', async ({ page }) => {
+    const asked = questions(page)
+    await fillCart(page)
+    await cartLine(page).first().getByRole('button', { name: 'Delete' }).click()
+    await expect(cartLine(page)).toHaveCount(0)
+    await page.evaluate(() => { (window as any).__walk = 'one document' })
+    await filesGone(page)
+
+    await menu(page, /Outgoing/, 'CR Sessions')
+
+    await expect(page).toHaveURL(/\/invoicing\/cash-register\/sessions$/, { timeout: 15000 })
+    await expect(page.getByRole('heading', { name: 'CR Sessions' })).toBeVisible({ timeout: 15000 })
+    await expect.poll(() => page.evaluate(() => (window as any).__walk ?? 'replaced')).toBe('replaced')
+    expect(asked).toEqual([])
+  })
+})
+
+/**
+ * An org switch is the other page load the app starts itself. It is refused while a cart holds
+ * lines, so it never meets the browser's question, unless a line lands while the switch is on its
+ * way: by then the tab's session is in the other org, and „stay" would keep a page nothing answers.
+ */
+test.describe('A filled cart and an org switch', () => {
+  let multi: Awaited<ReturnType<typeof apiLogin>>
+  let till = ''
+  const SWITCH = '**/api/auth/switch'
+  const orgEntry = (page: any) => page.getByTestId('org-switcher-org').filter({ hasText: BETA })
+
+  test.beforeEach(async ({ page }) => {
+    multi = await apiLogin('acme-corp', 'multi', 'test123')
+    till = (await openTillSession(multi)).id
+    await loginForApp(page, 'acme-corp', 'multi', 'test123')
+    await page.goto('/invoicing/cash-sales/new')
+    await expect(page.getByTestId('register-card').first()).toBeVisible({ timeout: 15000 })
+  })
+
+  test.afterEach(async () => {
+    await closeTillSession(till, multi)
+  })
+
+  test('is refused, and nothing is asked', async ({ page }) => {
+    const asked = questions(page)
+    await fillCart(page)
+    await page.evaluate(() => { (window as any).__walk = 'one document' })
+
+    await page.getByTestId('org-switcher').click()
+    await orgEntry(page).click()
+
+    await expect(page.getByText(/sale/i).filter({ hasText: /finish|complete|progress/i }).first()).toBeVisible()
+    await page.keyboard.press('Escape')
+    await reloadSpared(page)
+    expect(asked).toEqual([])
+  })
+
+  test('that started with the cart empty is not stopped by a line added on its way', async ({ page }) => {
+    const asked = questions(page)
+    let letGo = () => {}
+    const released = new Promise<void>((resolve) => { letGo = resolve })
+    await page.route(SWITCH, async (route: any) => {
+      await released
+      await route.continue()
+    })
+
+    await page.getByTestId('org-switcher').click()
+    await orgEntry(page).click()
+    await page.getByTestId('register-card').first().click()
+    await expect(cartLine(page).first()).toBeVisible()
+    letGo()
+
+    await expect(page.getByTestId('org-switcher')).toContainText(BETA, { timeout: 15000 })
+    expect(asked).toEqual([])
   })
 })
