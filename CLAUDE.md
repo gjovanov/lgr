@@ -2388,7 +2388,8 @@ invoice still due until the courier pays).
   rounded to the cent × a thousand), or has no text line (`capabilities.ts`, `fiscalText`); the line is
   then named „Фактура № …". Lines are checked before printing, never after.
 - **COD:** the receipt pays nothing. A later payment on it prints nothing, by any method: `prepareReceipt`
-  stops at "every cent has its receipt". ⚠ A second receipt would book the sale on the device twice.
+  stops at a live delivery receipt, which took all that was owed. ⚠ A second receipt would book the sale
+  on the device twice.
   ⚠ A print that fails at issue is NOT retried by Pay: the money is the courier's, and Pay would record
   it as received and print nothing. `POST /invoices/:id/receipt` prints it alone (`owesDeliveryReceipt`,
   `receiptToPrint` on the document), for what is still owed, and the invoice stays due. Until it has,
