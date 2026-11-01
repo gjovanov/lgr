@@ -58,10 +58,13 @@ export type FiscalCtx = {
  * A warehouse can have more than one active device (e.g. a Tremol and an Eltrade while one
  * replaces the other). The CONNECTED one is used — picking an arbitrary one used to send a
  * sale to the unplugged device, which silently printed nothing.
+ *
+ * `deviceNumber`: that device and no other, wherever it stands now: what a document that started on a
+ * device needs, because no other device's counter says anything about it.
  */
-export async function getFiscalContext(orgId: string, warehouseId: string): Promise<FiscalCtx> {
+export async function getFiscalContext(orgId: string, warehouseId: string, deviceNumber?: string): Promise<FiscalCtx> {
   const r = getRepos()
-  const devices = await r.fiscalDevices.findMany({ orgId, warehouseId, isActive: true } as any) as any[]
+  const devices = await r.fiscalDevices.findMany((deviceNumber ? { orgId, deviceNumber } : { orgId, warehouseId, isActive: true }) as any) as any[]
   if (!devices?.length) return null
 
   const device = devices.find(d => isDeviceConnected(d.id))
@@ -351,10 +354,10 @@ export const registerSession = (s: any): RegisterSession => ({
 })
 
 /** The till's context for a session's warehouse: its device, if one is connected. */
-export async function tillContext(orgId: string, user: RegisterUser, session: any, opts: { needsOperator: boolean }): Promise<RegisterContext> {
+export async function tillContext(orgId: string, user: RegisterUser, session: any, opts: { needsOperator: boolean; deviceNumber?: string }): Promise<RegisterContext> {
   let fiscal: FiscalCtx = null
   try {
-    fiscal = await getFiscalContext(orgId, String(session.warehouseId))
+    fiscal = await getFiscalContext(orgId, String(session.warehouseId), opts.deviceNumber)
   } catch (e: any) {
     throw new RegisterRefusal(503, { message: e.message })
   }

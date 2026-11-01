@@ -133,8 +133,7 @@ async function receiptContext(orgId: string, user: RegisterUser, receipt: any): 
   const session = receipt.register?.sessionId ? await POSSession.findOne({ _id: receipt.register.sessionId, orgId }).lean().exec() : null
   if (!session) return deviceless(orgId, user)
   try {
-    const c = await tillContext(orgId, user, session, { needsOperator: false })
-    return c.printer?.deviceNumber === receipt.register?.fiscalDeviceNumber ? c : { ...c, printer: null }
+    return await tillContext(orgId, user, session, { needsOperator: false, deviceNumber: receipt.register?.fiscalDeviceNumber })
   } catch (e) {
     if (e instanceof RegisterRefusal) return deviceless(orgId, user)
     throw e

@@ -1205,6 +1205,64 @@ describe('which device a door follows (FR-24.50)', () => {
     }
   })
 
+  describe('two devices in one warehouse (a Tremol and an Eltrade while one replaces the other)', () => {
+    /** A second device, newer, connected here too: the one the warehouse's lookup finds first. */
+    async function newer(w: TillWorld) {
+      const device = await createTestFiscalDevice(w.oid, w.warehouse._id as any, { deviceNumber: 'ED654321', name: 'The new one', manufacturer: 'eltrade', connectionType: 'browser', status: 'online' } as any)
+      const sim = new EltradeSimulator()
+      sim.serial = 'ED654321'
+      registerPrinter(String(device._id), new EltradeFiscalPrinter(sim.exchange, String(device._id)))
+      return { id: String(device._id), sim, gone: () => unregisterPrinter(String(device._id)) }
+    }
+
+    it('the door follows the receipt\'s own device, not whichever the warehouse finds first', async () => {
+      const w = await tillWorld(app)
+      const d = await onBank(w)
+      await dead(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber })
+      const other = await newer(w)
+      try {
+        expect(await deviceFromDeadReceipt({ params: { orgId: w.orgId, id: d.id }, user: {}, body: {} }))
+          .toEqual({ orgId: w.orgId, deviceId: w.deviceId, deviceNumber: 'ED123456' })
+      } finally {
+        other.gone()
+      }
+    })
+
+    it('so its own device proves it: given up, where a look at the other one could only hold it', async () => {
+      const w = await tillWorld(app)
+      const d = await onBank(w)
+      const r = await dead(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber })
+      const other = await newer(w)
+      try {
+        const answer = await pay(w, d.id, 24, 'bank_transfer')
+
+        expect(answer.status).toBe(200)
+        expect((await reread(r)).status).toBe('voided')
+        expect(w.sim!.executed.some(c => c.cmd === 0x71)).toBe(true)
+        expect(other.sim.executed.some(c => c.cmd === 0x71)).toBe(false)
+      } finally {
+        other.gone()
+      }
+    })
+
+    it('and a keyed retry prints on the device it started on', async () => {
+      const w = await tillWorld(app)
+      const d = await onBank(w)
+      const key = 'two-devices-0001'
+      const hash = requestHash(`invoice.payment:${d.id}`, { date: TODAY(), amount: 24, method: 'cash' })
+      await dead(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber }, { key, hash })
+      const other = await newer(w)
+      try {
+        expect((await pay(w, d.id, 24, 'cash', key)).status).toBe(200)
+
+        expect(closedOnDevice(w)).toHaveLength(1)
+        expect(other.sim.receipts).toHaveLength(0)
+      } finally {
+        other.gone()
+      }
+    })
+  })
+
   it('one held for a person reaches no device, so it sends nobody anywhere', async () => {
     const w = await tillWorld(app)
     const d = await onBank(w)
