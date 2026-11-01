@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test'
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, spyOn } from 'bun:test'
 import { Elysia } from 'elysia'
 import ExcelJS from 'exceljs'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
@@ -723,6 +723,53 @@ describe('an edit does not settle silently where LGR prints', () => {
     expect((await pay(w, id, 24, 'bank_transfer')).status).toBe(200)
     expect((await raw(id)).status).toBe('paid')
     expect(w.sim!.executed).toHaveLength(0)
+  })
+
+  it('moved between two settled methods, its row goes and none takes its place: that money has to be taken, and print', async () => {
+    const w = await tillWorld(app)
+    const { id } = await fromBeforeLgrPrinted(w)
+    const emitted = spyOn(eventBus, 'emit')
+
+    const r = await w.call('PUT', `/invoices/${id}`, { paymentMethod: 'card' })
+
+    const recorded = emitted.mock.calls.filter(([event]) => event === 'payment.recorded')
+    emitted.mockRestore()
+    expect(r.status).toBe(200)
+    const inv = await raw(id)
+    expect(inv.payments).toHaveLength(0)
+    expect(inv).toMatchObject({ status: 'sent', amountPaid: 0, amountDue: 24, paidAt: null })
+    expect(recorded).toHaveLength(0)
+    expect(w.sim!.executed).toHaveLength(0)
+
+    // The way that money is taken now is the payment action, which prints.
+    expect((await pay(w, id, 24, 'card')).status).toBe(200)
+    expect(w.sim!.receipts).toHaveLength(1)
+    expect(await raw(id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
+  it('moved between two settled methods with a total raised, nothing nobody took is recorded', async () => {
+    const w = await tillWorld(app)
+    const { id } = await fromBeforeLgrPrinted(w)
+    await w.call('PUT', `/invoices/${id}`, { lines: [line(w, 3)], subtotal: 30, taxTotal: 6, total: 36 })
+
+    await w.call('PUT', `/invoices/${id}`, { paymentMethod: 'card' })
+
+    const inv = await raw(id)
+    expect(inv.payments).toHaveLength(0)
+    expect(inv).toMatchObject({ status: 'sent', amountPaid: 0, amountDue: 36 })
+  })
+
+  it('a move keeps a payment recorded by hand, and the status follows what is left', async () => {
+    const w = await tillWorld(app)
+    const { id } = await fromBeforeLgrPrinted(w)
+    await w.call('PUT', `/invoices/${id}`, { lines: [line(w, 3)], subtotal: 30, taxTotal: 6, total: 36 })
+    expect((await pay(w, id, 12, 'bank_transfer')).status).toBe(200)
+
+    await w.call('PUT', `/invoices/${id}`, { paymentMethod: 'card' })
+
+    const inv = await raw(id)
+    expect(inv.payments.map((p: any) => p.method)).toEqual(['bank_transfer'])
+    expect(inv).toMatchObject({ status: 'partially_paid', amountPaid: 12, amountDue: 24 })
   })
 
   it('an imported invoice keeps the rule: it prints nothing, so nothing else would settle it', async () => {

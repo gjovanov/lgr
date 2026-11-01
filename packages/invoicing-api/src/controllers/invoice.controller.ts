@@ -22,7 +22,7 @@ import { assertHomeIsHere } from 'db/home/home'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
-import { syncCashSettlement, syncDueAfterEdit } from 'services/biz/cash-settlement.service'
+import { syncCashSettlement } from 'services/biz/cash-settlement.service'
 import { fitsDue, heldOn, outstandingOf, overpays, paymentPipeline } from 'services/biz/invoice-payment'
 import {
   DELIVERY_RECEIPT_OWED, PAYMENT_IN_PROGRESS, freezeRefusal, inDoubtRefusal, isImportedDocument, owesDeliveryReceipt, paidByReceipts, receiptInDoubt,
@@ -1169,11 +1169,12 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
       // An issued invoice edited to cash (or its total changed while cash) is paid; one edited
       // away from cash gives back the payment that rule recorded. Drafts are untouched.
-      // ⚠ FR-23: not where LGR prints. That money goes through the payment action, which prints; an
-      // edit must not settle silently. An imported document never prints, so the rule stays its own.
+      // ⚠ FR-23: where LGR prints the rule does not settle. That money goes through the payment
+      // action, which prints, and an edit must not take it silently. An imported document never
+      // prints, so the rule stays its own.
       const { requireConnectedDevice: prints } = await tillSettings(orgId)
       const settles = !prints || isImportedDocument(updated ?? existing)
-      const settlement = await (settles ? syncCashSettlement : syncDueAfterEdit)(orgId, id, user.id)
+      const settlement = await syncCashSettlement(orgId, id, user.id, { settles })
       if (settlement.action !== 'none') updated = await r.invoices.findOne({ id, orgId } as any)
 
       return { invoice: updated }

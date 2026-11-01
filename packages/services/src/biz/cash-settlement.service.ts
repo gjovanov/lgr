@@ -31,10 +31,12 @@ import { voidJournalEntry } from './accounting.service.js'
  * money comes later, from the bank or the courier.
  *
  * ⚠ FR-23: where LGR prints (`settings.cashRegister.requireConnectedDevice` not off) a printed
- * receipt and its payment are the settlement, and neither `/send` nor `PUT` calls this rule for a
- * document a person issues: money taken at the counter goes through the payment action, which
- * prints. The import conversion still does, in every org: another system printed that receipt.
- * Printing never lives in here, because the conversion comes through here.
+ * receipt and its payment are the settlement, because money taken at the counter goes through the
+ * payment action, which prints. So the caller says who settles (`settles`). `/send` does not call
+ * this for a document a person issues, and `PUT` calls it with `settles: false`: an edit never adds or
+ * shrinks a payment, withdraws only this rule's own rows the method no longer says, and derives
+ * status and due. The import conversion settles as it always did, in every org: another system
+ * printed that receipt. Printing never lives in here, because the conversion comes through here.
  */
 
 /** Marks the cash payments this rule records, so it can tell them from ones a person entered. */
@@ -86,7 +88,8 @@ async function retireAll(payments: any[]): Promise<void> {
 /** For a caller that replaces automatic payments (an invoice attached to a cash sale): their entries go. */
 export const retireAutomaticPayments = retireAll
 
-export async function syncCashSettlement(orgId: string, invoiceId: string, userId: string): Promise<CashSettlementResult> {
+export async function syncCashSettlement(orgId: string, invoiceId: string, userId: string, opts: { settles?: boolean } = {}): Promise<CashSettlementResult> {
+  const settles = opts.settles !== false
   const r = getRepos()
   const inv: any = await r.invoices.findOne({ id: invoiceId, orgId } as any)
   if (!inv || inv.direction !== 'outgoing' || inv.type !== 'invoice' || !ISSUED.includes(inv.status)) return NONE
@@ -95,7 +98,7 @@ export async function syncCashSettlement(orgId: string, invoiceId: string, userI
   if (inv.cashSaleRef?.cashSaleId) return NONE
 
   const total = round2(inv.total)
-  if (total <= 0) return NONE
+  if (settles && total <= 0) return NONE
   const payments: any[] = inv.payments || []
   /** The origin the invoice's method settles under; none for a method paid later. */
   const origin: string | undefined = SETTLED_ON_ISSUE[inv.paymentMethod]
@@ -114,7 +117,7 @@ export async function syncCashSettlement(orgId: string, invoiceId: string, userI
     removed += sum(stale)
     await retireAll(stale)
   }
-  if (origin) {
+  if (origin && settles) {
     const outstanding = round2(total - sum(next))
     if (outstanding > 0) {
       // Issued at the counter, or its total went up: the rest was taken there too.
@@ -128,26 +131,36 @@ export async function syncCashSettlement(orgId: string, invoiceId: string, userI
       next = added ? [...manual, autoPayment(inv, added, origin)] : manual
     }
   }
-  if (!added && !removed) return NONE
+  if (settles && !added && !removed) return NONE
+  // Not settling, only what this rule would have kept in line where nothing prints is its business.
+  if (!settles && !origin && !auto.length) return NONE
 
-  const action: CashSettlementAction = !origin ? 'unsettled' : auto.length ? 'adjusted' : 'settled'
   const paid = sum(next)
-  const status = statusFor(total, paid)
-  const reason = !origin
+  // What is owed now. A total lowered below what was taken stays paid, and that stays recorded for a
+  // person to correct; with nothing paid and nothing withdrawn the status is not this rule's to move.
+  const status = paid > 0 || removed ? statusFor(total, paid) : inv.status
+  const amountDue = settles ? round2(total - paid) : Math.max(0, round2(total - paid))
+  if (!settles && !removed && status === inv.status && amountDue === round2(inv.amountDue)) return NONE
+
+  const withdrawn = removed > 0 && (!origin || !settles)
+  const action: CashSettlementAction = withdrawn ? 'unsettled' : !settles || auto.length ? 'adjusted' : 'settled'
+  const reason = withdrawn
     ? `${[...new Set(stale.map(p => METHOD_OF_ORIGIN[p.origin]))].join(', ')} payment withdrawn: method is now ${inv.paymentMethod || 'none'}`
-    : `paid ${origin === CARD_ON_ISSUE ? 'by card' : 'in cash'} on issue`
+    : settles ? `paid ${origin === CARD_ON_ISSUE ? 'by card' : 'in cash'} on issue` : 'total edited'
   const statusHistory = status === inv.status
     ? inv.statusHistory || []
     : [...(inv.statusHistory || []), { status, fromStatus: inv.status, changedAt: new Date(), changedBy: userId, reason }]
   await r.invoices.update(invoiceId, {
-    payments: next,
+    ...(added || removed ? { payments: next } : {}),
     amountPaid: paid,
-    amountDue: round2(total - paid),
+    amountDue,
     status,
-    // Paid when the money was taken: the issue date, never the moment this ran.
-    paidAt: status === 'paid' ? (inv.status === 'paid' && inv.paidAt ? inv.paidAt : paymentDate(inv)) : null,
+    // Paid when the money was taken: the issue date, never the moment this ran. Not settling, that is
+    // on a receipt: a total raised and lowered again is paid once more, and needs a date to say so.
+    paidAt: status !== 'paid' ? null : settles ? (inv.status === 'paid' && inv.paidAt ? inv.paidAt : paymentDate(inv)) : inv.paidAt ?? new Date(),
     statusHistory,
   } as any)
+  if (!added && !removed) return { action, amount: 0 }
 
   const changes: Array<{ field: string; oldValue: unknown; newValue: unknown }> = []
   for (const o of AUTO_ORIGINS) {
@@ -169,45 +182,6 @@ export async function syncCashSettlement(orgId: string, invoiceId: string, userI
   }
   logger.info({ orgId, invoiceId, invoiceNumber: inv.invoiceNumber, method: inv.paymentMethod, action, added, removed }, 'counter settlement')
   return { action, amount: round2(added - removed) }
-}
-
-/**
- * FR-23: an edit in an org where LGR prints. It moves no money: no payment is added, shrunk or
- * withdrawn, because that money goes through the payment action, which prints. It only says what
- * is owed now. So a total raised on a paid document leaves the rest due and payable, where a stale
- * `paid` would refuse the payment; a total lowered below what was paid stays paid, and what was
- * taken stays recorded for a person to correct.
- */
-export async function syncDueAfterEdit(orgId: string, invoiceId: string, userId: string): Promise<CashSettlementResult> {
-  const r = getRepos()
-  const inv: any = await r.invoices.findOne({ id: invoiceId, orgId } as any)
-  if (!inv || inv.direction !== 'outgoing' || inv.type !== 'invoice' || !ISSUED.includes(inv.status)) return NONE
-  if (inv.cashSaleRef?.cashSaleId) return NONE
-  const payments: any[] = inv.payments || []
-  // What this rule would have kept in line where nothing prints; every other document as today.
-  if (!SETTLED_ON_ISSUE[inv.paymentMethod] && !payments.some(p => AUTO_ORIGINS.has(p.origin))) return NONE
-  // ⚠ This rule's own payment under a method the invoice no longer says: it was never received that
-  // way, and no route but the rule can take it back. No receipt is involved, because a receipt's
-  // payment is not this rule's, so it goes as it always did, with its journal entry.
-  const own = SETTLED_ON_ISSUE[inv.paymentMethod]
-  if (payments.some(p => AUTO_ORIGINS.has(p.origin) && p.origin !== own)) return syncCashSettlement(orgId, invoiceId, userId)
-
-  const total = round2(inv.total)
-  const paid = sum(payments)
-  const amountDue = Math.max(0, round2(total - paid))
-  const status = paid > 0 ? statusFor(total, paid) : inv.status
-  if (status === inv.status && amountDue === round2(inv.amountDue)) return NONE
-  await r.invoices.update(invoiceId, {
-    amountPaid: paid,
-    amountDue,
-    status,
-    // Raised and lowered again it is paid once more, and a reader of "paid in 30 days" needs the date.
-    paidAt: status === 'paid' ? inv.paidAt ?? new Date() : null,
-    statusHistory: status === inv.status
-      ? inv.statusHistory || []
-      : [...(inv.statusHistory || []), { status, fromStatus: inv.status, changedAt: new Date(), changedBy: userId, reason: 'total edited' }],
-  } as any)
-  return { action: 'adjusted', amount: 0 }
 }
 
 function paymentDate(inv: any): Date {
