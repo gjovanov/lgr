@@ -47,7 +47,7 @@ import { createAuditEntry, recordAuditEntry } from '../audit-log.service.js'
 import { eventBus } from '../../events/event-bus.js'
 import { logger } from '../../logger/logger.js'
 import { generateUNP } from '../sequence.service.js'
-import { LEASE_MS } from '../hot-path-key.js'
+import { LEASE_MS, takeLease } from '../hot-path-key.js'
 import { fitsDue, outstandingOf, overpays, paymentPipeline, type PaymentRow } from '../invoice-payment.js'
 import { PAYMENT_RECEIPT } from './pos-union.js'
 import { provedNotPrinted } from './print-verdict.js'
@@ -510,6 +510,11 @@ export async function finishInterruptedReceipt(c: RegisterContext, doc: any): Pr
  * counts it and its payment is recorded. Not printed: it is voided with its number and УНП, and its
  * amount goes back to the invoice. Answers null when it is not in doubt. What they said, and who said
  * it, stays on the document and in the audit trail.
+ *
+ * ⚠ What they said is durable from the claim on, and the claim leaves a lease: a receipt is found by
+ * its lapsing until `completedAt`. A settle that stops before the money is booked is finished by the
+ * next touch of its document, or by its session's close, with no device. Unsetting the lease left a
+ * receipt nothing could find, with its hold on the invoice and its session unable to close.
  */
 export async function settleReceipt(c: RegisterContext, receiptId: string, printed: boolean): Promise<any | null> {
   const now = new Date()
@@ -519,19 +524,40 @@ export async function settleReceipt(c: RegisterContext, receiptId: string, print
     {
       $set: {
         'register.settled': { printed, by: oid(c.user.id), at: now },
+        leaseUntil: new Date(now.getTime() + LEASE_MS),
         ...(printed
           ? { 'register.fiscal.state': 'printed', 'register.fiscal.printedAt': now, 'register.printedAt': now }
           : { 'register.fiscal.state': 'failed', 'register.fiscal.error': receiptError, 'register.receiptError': receiptError }),
       },
-      $unset: { 'register.fiscal.inDoubt': 1, leaseUntil: 1, ...(printed ? { 'register.receiptError': 1 } : {}) },
+      $unset: { 'register.fiscal.inDoubt': 1, ...(printed ? { 'register.receiptError': 1 } : {}) },
     },
     { new: true },
   ).lean().exec()
-  if (!claimed) return null
+  if (!claimed) return resumeSettled(c, receiptId, printed)
   await recordAuditEntry({
     orgId: c.orgId, userId: c.user.id, operatorCode: c.user.operatorCode, action: 'settle_receipt', module: c.audit.module,
     entityType: c.audit.entityType, entityId: String(claimed._id), entityName: claimed.invoiceNumber, unpNumber: claimed.register?.unp,
     changes: [{ field: 'printed', oldValue: 'unknown', newValue: printed ? 'yes' : 'no' }],
   })
   return runReceiptSteps(c, String(claimed._id))
+}
+
+/**
+ * A second `/settle` of one that stopped halfway. What was said first stands: the same answer finishes
+ * it once its lease has lapsed, and the opposite is refused. Null when there is nothing to finish, or
+ * the first still holds it.
+ */
+async function resumeSettled(c: RegisterContext, receiptId: string, printed: boolean): Promise<any | null> {
+  const stopped: any = await Invoice.findOne({
+    _id: oid(receiptId), orgId: oid(c.orgId), type: PAYMENT_RECEIPT, 'register.settled': { $exists: true }, completedAt: { $exists: false },
+  }).lean().exec()
+  if (!stopped) return null
+  if (stopped.register.settled.printed !== printed) {
+    throw new RegisterRefusal(409, {
+      code: 'receipt_already_settled',
+      message: `This receipt was already settled as ${stopped.register.settled.printed ? 'printed' : 'not printed'}, and that stands.`,
+    })
+  }
+  if (!(await takeLease(Invoice, c.orgId, stopped._id))) return null
+  return runReceiptSteps(c, String(stopped._id))
 }

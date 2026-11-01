@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { describe, it, expect, beforeAll, afterAll, afterEach, spyOn } from 'bun:test'
 import { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
@@ -850,6 +850,132 @@ describe('a person settles a receipt in doubt (ruling 6)', () => {
     const preview = (await w.call('GET', `/trade/pos/session/${w.sessionId}/close-preview`)).json
     expect(preview.report.counts.payments ?? 0).toBe(0)
     expect(preview.unfinishedReceipts.map((u: any) => u.number)).toEqual([r.invoiceNumber])
+  })
+})
+
+describe('a settle that stops halfway (finding 3)', () => {
+  async function inDoubt(w: TillWorld) {
+    const d = await onBank(w)
+    const r = await dead(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber })
+    await w.sell(1)
+    await pay(w, d.id, 24, 'bank_transfer')
+    return { d, r }
+  }
+  /** The person said it; then the process dies before the money is booked. */
+  async function stopped(w: TillWorld, id: string, printed: boolean) {
+    const dies = spyOn(Invoice, 'startSession').mockImplementationOnce(() => { throw new Error('the pod went away') })
+    // Failing it, a settle that says "not printed" has to stop somewhere of its own.
+    const release = printed ? null : spyOn(Invoice, 'updateOne').mockImplementationOnce(() => { throw new Error('the pod went away') })
+    const answer = await settle(w, id, printed)
+    dies.mockRestore()
+    release?.mockRestore()
+    return answer
+  }
+  /** Only a lease the settle left: one it took away must not come back here. */
+  const lapse = (r: any) => Invoice.updateOne({ _id: r._id, leaseUntil: { $exists: true } }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+
+  it('the verdict is on the document before the money, and the receipt can still be found', async () => {
+    const w = await tillWorld(app)
+    const { d, r } = await inDoubt(w)
+
+    expect((await stopped(w, String(r._id), true)).status).toBe(500)
+
+    const after = await reread(r)
+    expect(after.register.settled).toMatchObject({ printed: true, by: w.user._id })
+    expect(after.register.fiscal.state).toBe('printed')
+    expect(after.completedAt).toBeUndefined()
+    expect(after.leaseUntil).toBeTruthy()
+    expect(await raw(d.id)).toMatchObject({ amountPaid: 0 })
+  })
+
+  it('printed: the next touch books it, with no device, and the document takes no second payment', async () => {
+    const w = await tillWorld(app)
+    const { d, r } = await inDoubt(w)
+    await stopped(w, String(r._id), true)
+    await lapse(r)
+    forgetDevices()
+
+    const next = await pay(w, d.id, 24, 'bank_transfer')
+
+    expect(next.status).toBe(400)
+    expect((await reread(r)).completedAt).toBeTruthy()
+    const inv = await raw(d.id)
+    expect(inv).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect(inv.receiptHolds).toHaveLength(0)
+    expect(inv.payments.map((p: any) => String(p.receiptId))).toEqual([String(r._id)])
+    expect((await sessionOf(w)).totalCash).toBe(36)
+  })
+
+  it('not printed: the next touch gives it up, and its money is free again', async () => {
+    const w = await tillWorld(app)
+    const { d, r } = await inDoubt(w)
+    await stopped(w, String(r._id), false)
+    await lapse(r)
+
+    expect((await pay(w, d.id, 24, 'bank_transfer')).status).toBe(200)
+
+    expect((await reread(r)).status).toBe('voided')
+    const inv = await raw(d.id)
+    expect(inv).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect(inv.receiptHolds).toHaveLength(0)
+    expect(inv.payments.map((p: any) => p.method)).toEqual(['bank_transfer'])
+  })
+
+  it('the close finishes it too, so the session is not stuck', async () => {
+    const w = await tillWorld(app)
+    const { r } = await inDoubt(w)
+    await stopped(w, String(r._id), true)
+    await lapse(r)
+
+    const closed = await w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 136 } })
+
+    expect(closed.status).toBe(200)
+    expect((await reread(r)).completedAt).toBeTruthy()
+    expect((await sessionOf(w))).toMatchObject({ status: 'closed', totalCash: 36, difference: 0 })
+  })
+
+  it('a second /settle saying the same finishes it, once', async () => {
+    const w = await tillWorld(app)
+    const { d, r } = await inDoubt(w)
+    await stopped(w, String(r._id), true)
+    await lapse(r)
+
+    expect((await settle(w, String(r._id), true)).status).toBe(200)
+
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect((await sessionOf(w)).totalCash).toBe(36)
+    expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'settle_receipt' })).toBe(1)
+    const again = await settle(w, String(r._id), true)
+    expect(again.status).toBe(409)
+    expect((await raw(d.id)).amountPaid).toBe(24)
+  })
+
+  it('a second /settle saying the opposite changes nothing: what was said stands', async () => {
+    const w = await tillWorld(app)
+    const { d, r } = await inDoubt(w)
+    await stopped(w, String(r._id), true)
+    await lapse(r)
+
+    const other = await settle(w, String(r._id), false)
+
+    expect(other.status).toBe(409)
+    expect(other.json.code).toBe('receipt_already_settled')
+    const after = await reread(r)
+    expect(after.register.settled).toMatchObject({ printed: true })
+    expect(after.status).toBe('paid')
+    expect(await raw(d.id)).toMatchObject({ amountPaid: 0 })
+  })
+
+  it('a second /settle while the first still holds it does nothing', async () => {
+    const w = await tillWorld(app)
+    const { d, r } = await inDoubt(w)
+    await stopped(w, String(r._id), true)
+
+    const second = await settle(w, String(r._id), true)
+
+    expect(second.status).toBe(409)
+    expect(await raw(d.id)).toMatchObject({ amountPaid: 0 })
+    expect((await sessionOf(w)).totalCash).toBe(12)
   })
 })
 

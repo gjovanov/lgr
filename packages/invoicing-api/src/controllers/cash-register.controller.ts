@@ -8,6 +8,7 @@ import { readIdempotencyKey, requestHash } from 'services/biz/hot-path-key'
 import { Invoice, POSSession } from 'db/models'
 import { PAYMENT_RECEIPT } from 'services/biz/cash-register/pos-union'
 import { settleReceipt } from 'services/biz/cash-register/payment-receipt.service'
+import { RegisterRefusal } from 'services/biz/cash-register/register.service'
 import { STORNO_ROLES, stornoDoor } from '../lib/cash-register-till.js'
 import { deviceless } from '../lib/counter-receipt.js'
 
@@ -104,8 +105,13 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
         ? await Invoice.exists({ _id: id, orgId, type: PAYMENT_RECEIPT }).exec()
         : null
       if (!receipt) return status(404, { message: 'Receipt not found' })
-      const settled = await settleReceipt(deviceless(orgId, user), id, body.printed)
-      if (!settled) return status(409, { code: 'receipt_not_in_doubt', message: 'This receipt is not waiting to be settled.' })
+      try {
+        const settled = await settleReceipt(deviceless(orgId, user), id, body.printed)
+        if (!settled) return status(409, { code: 'receipt_not_in_doubt', message: 'This receipt is not waiting to be settled.' })
+      } catch (e: any) {
+        if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
+        throw e
+      }
       return { document: await getJournalDocument(orgId, id) }
     },
     { isSignIn: true, body: t.Object({ printed: t.Boolean() }) },
