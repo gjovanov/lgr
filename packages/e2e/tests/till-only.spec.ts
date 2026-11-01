@@ -178,6 +178,31 @@ test.describe('Who cannot use a till page', () => {
     await expect(page.getByRole('button', { name: 'Print report' })).toHaveCount(0)
   })
 
+  // A sale of the back office, which someone without the documents opens on the journal's page: the
+  // form reads `/invoices`, and the server refuses them that.
+  test('the till and inventory: what the server reads for them, and the journal\'s own page', async ({ page }) => {
+    const sale = await createBackOfficeCashSale()
+    const stock = `till-stock-${Date.now()}`
+    await userWith(stock, ['pos.read', 'pos.write', 'inventory.read'])
+    await loginForApp(page, 'acme-corp', stock, PASSWORD)
+    const refused = refusalsOf(page)
+
+    await page.goto('/invoicing/orders')
+    await expect(page).toHaveURL(/\/invoicing\/orders$/)
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 15000 })
+    expect(await menuTexts(page, /Orders/)).toEqual([expect.stringContaining('Supplier Orders')])
+    await page.goto('/invoicing/contacts')
+    await expect(page).toHaveURL(/\/invoicing\/contacts$/)
+
+    await page.goto(`/invoicing/cash-sales?q=${sale.number}`)
+    const row = page.locator('.v-data-table tbody tr').filter({ has: page.getByRole('link', { name: sale.number, exact: true }) })
+    await expect(row).toBeVisible({ timeout: 15000 })
+    await row.getByRole('link', { name: sale.number, exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`/invoicing/cash-sales/${sale.id}/view$`))
+    await expect(page.getByTestId('journal-document-title')).toHaveText(sale.number)
+    expect(refused).toEqual([])
+  })
+
   test('pos.write alone has the tile, so the till is not reached by a typed address only', async () => {
     const seller = `till-seller-${Date.now()}`
     await userWith(seller, ['pos.write'])
