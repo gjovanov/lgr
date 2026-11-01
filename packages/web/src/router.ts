@@ -46,6 +46,12 @@ export const router = createRouter({
  * offers the till's PIN pad where the server does. The PIN pad itself is outside every rule.
  */
 router.beforeEach(async (to, from, next) => {
+  // AC 7: a `?token=` never signs anyone in (nothing reads it). It is dropped from the address all the
+  // same, in place, so a planted one cannot survive into a bookmark, the history or a shared link.
+  if ('token' in to.query) {
+    const { token: _dropped, ...query } = to.query
+    return next({ path: to.path, query, hash: to.hash, replace: true })
+  }
   if (staleNavigation(to, from)) return next(false)
   if (to.name === 'pos.pin') return next()
 

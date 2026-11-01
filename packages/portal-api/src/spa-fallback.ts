@@ -131,7 +131,9 @@ export function validationMessage(err: any): string {
  *   - a `Response` alone: with `NODE_ENV` unset, the static plugin's catch-all route maps the
  *     handler's Response through `set`, whose status is that route's 404.
  */
-export function spaErrorHandler(shell: OneSpaShell | null) {
+export function spaErrorHandler(given?: OneSpaShell | Record<string, never> | null) {
+  // The API-only harnesses pass `{}` (as they passed an empty index map before FR-24.21): no shell.
+  const shell = given && typeof (given as OneSpaShell).portal === 'string' ? (given as OneSpaShell) : null
   return ({ code, error: err, set, request }: { code: unknown; error: any; set: any; request: Request }) => {
     // A status THROWN on purpose (`throw status(403, …)`): an answer, not a failure. The
     // write-permission guard throws one, because it runs before validation in a transform hook,
