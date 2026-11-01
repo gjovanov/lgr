@@ -1373,6 +1373,16 @@ describe('which device a door follows (FR-24.50)', () => {
     })
   })
 
+  it('a receipt with no device on record is proved on none: it is held', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    const r = await dead(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber })
+    await Invoice.updateOne({ _id: r._id }, { $unset: { 'register.fiscalDeviceNumber': 1 } })
+
+    expect((await pay(w, d.id, 24, 'bank_transfer')).json.code).toBe('receipt_in_doubt')
+    expect((await reread(r)).register.fiscal.inDoubt).toBe(true)
+  })
+
   it('one held for a person reaches no device, so it sends nobody anywhere', async () => {
     const w = await tillWorld(app)
     const d = await onBank(w)

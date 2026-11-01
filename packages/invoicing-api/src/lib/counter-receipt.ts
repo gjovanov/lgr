@@ -138,9 +138,9 @@ export const deviceless = (orgId: string, user: RegisterUser): RegisterContext =
  */
 async function receiptContext(orgId: string, user: RegisterUser, receipt: any): Promise<RegisterContext> {
   const session = receipt.register?.sessionId ? await POSSession.findOne({ _id: receipt.register.sessionId, orgId }).lean().exec() : null
-  if (!session) return deviceless(orgId, user)
+  if (!session || !receipt.register?.fiscalDeviceNumber) return deviceless(orgId, user)
   try {
-    return await tillContext(orgId, user, session, { needsOperator: false, deviceNumber: receipt.register?.fiscalDeviceNumber })
+    return await tillContext(orgId, user, session, { needsOperator: false, deviceNumber: receipt.register.fiscalDeviceNumber })
   } catch (e) {
     if (e instanceof RegisterRefusal) return deviceless(orgId, user)
     throw e
