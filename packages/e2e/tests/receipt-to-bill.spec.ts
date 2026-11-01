@@ -475,6 +475,39 @@ test.describe('receiving warns before it double-books (FR-22.31c)', () => {
     await expect(row(own.number).getByTestId('receipt-notes')).toHaveCount(0)
   })
 
+  test('a bill with no supplier: the question asks who, and the link writes it on the bill and the receipt', async ({ page }) => {
+    const w = await world('no-sup-bill')
+    const r = await receipt(w, 6, { supplier: false })
+    const { invoice } = await w.api.post('/invoices', {
+      type: 'invoice', direction: 'incoming', issueDate: today(), dueDate: today(), currency: 'EUR', reference: `NB-${w.stamp}`,
+      lines: [{ productId: w.article._id, warehouseId: w.warehouse._id, description: w.article.name, quantity: 6, unit: 'pcs', unitPrice: 2.75, taxRate: 20 }],
+      subtotal: 16.5, total: 19.8,
+    })
+    const id = String(invoice.id || invoice._id)
+    const stock = await stockOf(w)
+
+    await signInForUx(page)
+    await page.goto(`/invoicing/bills?q=${encodeURIComponent(`NB-${w.stamp}`)}`, { waitUntil: 'networkidle' })
+    await (await rowAction(rowOf(page, invoice.invoiceNumber), 'receive')).click()
+    const dialog = page.getByTestId('receipt-overlap-dialog')
+    const link = dialog.getByTestId('receipt-overlap-link')
+    await dialog.getByTestId('receipt-overlap-row').locator('input[type="checkbox"]').check()
+    await expect(dialog).toContainText('не посочва доставчик')
+    await expect(link).toBeDisabled()
+
+    await openSelect(dialog, /Доставчик/)
+    await page.getByRole('option').filter({ hasText: w.supplier.companyName }).first().click()
+    await expect(link).toBeEnabled()
+    await link.click()
+
+    await page.waitForURL(new RegExp(`/invoicing/bills/${id}/edit`))
+    await expect(page.getByTestId('bill-receipts')).toContainText(r.number)
+    const bill = await billOf(w, id)
+    expect(bill.contactId?._id ?? bill.contactId).toBe(w.supplier._id)
+    expect((await movementOf(w, r.id)).contactId).toBe(w.supplier._id)
+    expect(await stockOf(w)).toBe(stock)
+  })
+
   /** Hold every Receive of this bill until told, and count them. */
   async function holdReceives(page: Page, billId: string) {
     const posts: unknown[] = []

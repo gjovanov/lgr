@@ -1231,7 +1231,17 @@ describe('receiving a bill warns before it double-books (FR-22.31c)', () => {
     expect((await w.receiveBill(typed)).json.receipts.map((x: any) => x.number)).toEqual([own.movementNumber, unnamed.movementNumber])
 
     const nobody = await w.typedBill([[w.bolt, 5, 5]], { contactId: null, reference: 'F-5' })
-    expect((await w.receiveBill(nobody)).json.receipts.map((x: any) => x.number)).toEqual([unnamed.movementNumber])
+    const asked = await w.receiveBill(nobody)
+    expect(asked.json.receipts.map((x: any) => x.number)).toEqual([unnamed.movementNumber])
+
+    // Linking it needs a supplier the bill does not have, so the question says so.
+    expect(asked.json.needsSupplier).toBe(true)
+    expect((await w.linkReceipts(nobody, [unnamed._id], { replaceLines: true })).json.code).toBe('receipt_without_supplier')
+    expect((await w.linkReceipts(nobody, [unnamed._id], { replaceLines: true, contactId: String(w.supplier._id) })).status).toBe(200)
+    expect(String((await w.load(nobody.id)).contactId)).toBe(String(w.supplier._id))
+    expect(String((await w.mv(unnamed._id)).contactId)).toBe(String(w.supplier._id))
+
+    expect((await w.receiveBill(typed)).json.needsSupplier).toBeUndefined()
   }, 60_000)
 
   it('counts a window of a named constant around the issue date, both ways, ends included', async () => {

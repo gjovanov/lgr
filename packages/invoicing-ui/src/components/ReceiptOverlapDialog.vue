@@ -21,6 +21,23 @@
             <div v-if="r.notes" class="text-caption text-medium-emphasis" data-testid="receipt-notes">{{ r.notes }}</div>
           </v-list-item>
         </v-list>
+        <!-- A bill with no supplier: a link would be refused for want of one, and the only other way out books the goods twice. -->
+        <template v-if="overlap.needsSupplier">
+          <div class="text-body-2 mt-2 mb-2">{{ $t('invoicing.receiptOverlap.chooseSupplier') }}</div>
+          <v-defaults-provider :defaults="{ VAutocomplete: { density: 'compact' } }">
+            <ContactAutocompleteWithCreate
+              v-model="supplierId"
+              :contacts="suppliers.contacts.value"
+              :loading="suppliers.loading.value"
+              :label="$t('invoicing.supplier')"
+              :org-url="orgUrl"
+              new-contact-type="supplier"
+              data-testid="receipt-overlap-supplier"
+              @update:search="suppliers.onSearch"
+              @contact-created="suppliers.add"
+            />
+          </v-defaults-provider>
+        </template>
       </v-card-text>
       <v-alert v-if="overlap.typedLines" type="warning" variant="tonal" density="compact" class="mx-4 mt-2 flex-grow-0" data-testid="replace-lines-warning">
         {{ $t('invoicing.linkDelivery.replaceWarning', overlap.typedLines) }}
@@ -32,7 +49,7 @@
         <v-btn color="warning" variant="outlined" :loading="receiving" :disabled="linking" data-testid="receipt-overlap-receive" @click="receiveAnyway">
           {{ $t('invoicing.receiptOverlap.receiveAnyway') }}
         </v-btn>
-        <v-btn color="primary" variant="flat" :loading="linking" :disabled="receiving || !selected.length" data-testid="receipt-overlap-link" @click="link">
+        <v-btn color="primary" variant="flat" :loading="linking" :disabled="receiving || !canLink" data-testid="receipt-overlap-link" @click="link">
           {{ $t('invoicing.receiptOverlap.link') }}
         </v-btn>
       </v-card-actions>
@@ -46,6 +63,8 @@ import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
+import { useContactSearch } from 'ui-shared/composables/useContactSearch'
+import ContactAutocompleteWithCreate from 'ui-shared/components/ContactAutocompleteWithCreate.vue'
 import { appHref } from 'ui-shared/nav/navigate'
 import { preselectedReceipts, type ReceiptOverlap } from '../composables/receipt-overlap'
 
@@ -79,9 +98,19 @@ const receiving = ref(false)
 const error = ref('')
 const busy = computed(() => linking.value || receiving.value)
 
+const supplierId = ref<string | undefined>(undefined)
+const suppliers = useContactSearch({
+  orgUrl: () => props.orgUrl,
+  type: () => 'supplier',
+  selected: () => [supplierId.value],
+})
+const canLink = computed(() => selected.value.length > 0 && (!props.overlap?.needsSupplier || !!supplierId.value))
+
 watch(() => props.overlap, (o) => {
   error.value = ''
   selected.value = preselectedReceipts(o?.receipts ?? [])
+  supplierId.value = undefined
+  if (o?.needsSupplier) void suppliers.search()
 })
 
 const receiptHref = (id: string) => appHref('inventory', `/inventory/movements/${id}`)
@@ -96,13 +125,14 @@ function onToggle(open: boolean) {
 
 async function link() {
   const overlap = props.overlap
-  if (!overlap || !selected.value.length || busy.value) return
+  if (!overlap || !canLink.value || busy.value) return
   linking.value = true
   error.value = ''
   try {
     await httpClient.post(`${props.orgUrl}/invoicing/bills/${overlap.billId}/link-receipts`, {
       movementIds: selected.value,
       ...(overlap.typedLines ? { replaceLines: true } : {}),
+      ...(overlap.needsSupplier ? { contactId: supplierId.value } : {}),
     })
     close()
     emit('linked', overlap.billId)

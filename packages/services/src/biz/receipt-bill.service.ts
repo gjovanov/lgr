@@ -769,6 +769,8 @@ export interface ReceiptOverlap {
   /** The bill's lines a link would replace. */
   typedLines: number
   receipts: BillableReceipt[]
+  /** The bill names no supplier, and neither do these receipts: a link has to be told who. */
+  needsSupplier?: boolean
 }
 
 /**
@@ -825,7 +827,7 @@ export async function receiptsOverlapping(orgId: string, bill: any): Promise<Rec
     .sort((a, b) => Number(!a.contactId) - Number(!b.contactId))
     .slice(0, OVERLAP_REPORT_LIMIT)
     .map(asBillable)
-  return receipts.length ? { typedLines: filledLinesOf(bill).length, receipts } : null
+  return receipts.length ? { typedLines: filledLinesOf(bill).length, receipts, ...(supplier ? {} : { needsSupplier: true }) } : null
 }
 
 // ── What a linked bill may become ───────────────────────────────────────────────────────────

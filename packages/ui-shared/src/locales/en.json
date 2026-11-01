@@ -1248,6 +1248,7 @@
       "received": "Bill received — the stock came in on its receipt"
     },
     "receiptOverlap": {
+      "chooseSupplier": "This bill names no supplier. Choose it, and linking writes it on the bill and on the receipt.",
       "title": "These goods may already be in stock",
       "text": "Goods receipts for the same goods have no bill yet. Received as it is, this bill puts the goods in stock a second time.",
       "link": "Link to the delivery",

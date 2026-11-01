@@ -1656,6 +1656,7 @@
       "received": "Rechnung empfangen — die Ware kam mit dem Wareneingang"
     },
     "receiptOverlap": {
+      "chooseSupplier": "Diese Rechnung nennt keinen Lieferanten. Wählen Sie ihn, und das Verknüpfen trägt ihn auf der Rechnung und dem Wareneingang ein.",
       "title": "Diese Ware ist vielleicht schon im Bestand",
       "text": "Für dieselbe Ware gibt es Wareneingänge ohne Rechnung. Wird diese Rechnung so empfangen, kommt die Ware ein zweites Mal in den Bestand.",
       "link": "Mit der Lieferung verknüpfen",

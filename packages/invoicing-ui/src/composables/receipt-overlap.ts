@@ -21,6 +21,8 @@ export interface ReceiptOverlap {
   /** The bill's lines a link would replace. */
   typedLines: number
   receipts: OverlappingReceipt[]
+  /** The bill names no supplier, and neither do these receipts: a link has to be told who. */
+  needsSupplier?: boolean
 }
 
 /**
@@ -37,5 +39,5 @@ export function preselectedReceipts(rows: Array<{ id: string; noSupplier?: boole
 export function receiptOverlapOf(e: any, billId: string): ReceiptOverlap | null {
   const body = e?.response?.data
   if (e?.response?.status !== 409 || body?.code !== 'receipt_overlap') return null
-  return { billId, typedLines: Number(body.typedLines) || 0, receipts: body.receipts || [] }
+  return { billId, typedLines: Number(body.typedLines) || 0, receipts: body.receipts || [], needsSupplier: !!body.needsSupplier }
 }
