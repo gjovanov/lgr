@@ -204,7 +204,7 @@ const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => ({ en: 'en-US', bg: 'bg-BG', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 const { printRow } = useRowPrint()
 
 const { search, debouncedSearch } = useSearchDebounce()

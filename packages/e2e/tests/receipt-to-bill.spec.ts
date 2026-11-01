@@ -429,6 +429,8 @@ test.describe('receiving warns before it double-books (FR-22.31c)', () => {
     const dialog = page.getByTestId('receipt-overlap-dialog')
     await expect(dialog.getByTestId('receipt-overlap-row')).toContainText(r.number)
     await expect(dialog.getByTestId('receipt-no-supplier')).toHaveText('без доставчик')
+    // The amount reads as it does from the form's door, in Bulgarian.
+    await expect(dialog.getByTestId('receipt-overlap-row')).toContainText(/\d,\d{2}\s€/)
     expect((await billOf(w, bill.id)).status).toBe('draft')
 
     // Nothing is ticked for the person: it names nobody, so choosing it is theirs.
