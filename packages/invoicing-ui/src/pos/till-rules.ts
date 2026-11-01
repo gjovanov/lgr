@@ -97,7 +97,8 @@ export async function tillRedirect(
   if (to.name === 'invoicing.cash-sales.new' && to.query.restore) return { name: 'invoicing.cash-sales.draft', query: to.query }
   if (!tab.hasOrg) return to.meta.till && (await tab.pinOffered()) ? { name: 'pos.pin', query: { to: to.fullPath } } : null
   if (!to.matched.some(r => r.meta.module === 'invoicing')) return null
-  const page = to.meta.till ? matchPage(to.path) : null
+  // Lower case as the registry's paths are: the router matched this address without regard to case.
+  const page = to.meta.till ? matchPage(to.path.toLowerCase()) : null
   const home = to.name === 'invoicing.sales'
   const usable = to.meta.till ? !page || canOpenPage(page, tab.who) : !isTillOnly(tab.who) && (!home || readsDocuments(tab.who))
   return usable ? null : tillLanding(tab.who)

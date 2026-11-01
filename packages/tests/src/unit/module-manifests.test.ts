@@ -390,6 +390,13 @@ describe('who may open what', () => {
     expect(readsDocuments(pin('admin'))).toBe(false)
   })
 
+  // The router matches without regard to case, and the registry's paths are lower case.
+  it('a capitalised address is the page the router opens for it', async () => {
+    expect(await guarded('/invoicing/Cash-Sales/New', session(role('accountant')))).toBe(JOURNAL)
+    expect(await guarded('/INVOICING/CONFIGURATION/DEVICES', session(role('accountant')))).toBe(JOURNAL)
+    expect(await guarded('/invoicing/Cash-Register/Sessions', session(role('sales')))).toBe('/invoicing/Cash-Register/Sessions')
+  })
+
   it('the till starts on the terminal, on the journal for someone who cannot sell, and nowhere for someone who cannot read it', () => {
     expect(tillLanding(set('pos.write'))).toEqual({ name: 'invoicing.cash-sales.new' })
     expect(tillLanding(set('pos.read'))).toEqual({ name: 'invoicing.cash-sales' })
