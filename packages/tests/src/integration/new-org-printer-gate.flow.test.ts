@@ -62,7 +62,7 @@ describe('every path that creates an org writes the gate off', () => {
     'packages/services/src/biz/auth.service.ts': 'settings: defaultOrgSettings(',
     'packages/services/src/biz/identity/account.service.ts': 'settings: defaultOrgSettings(',
     'packages/services/src/biz/oauth.service.ts': 'settings: defaultOrgSettings(',
-    'packages/tests/src/helpers/seed.ts': 'cashRegister: { requireConnectedDevice: false }',
+    'packages/tests/src/helpers/seed.ts': 'cashRegister: { requireConnectedDevice: ',
     'scripts/import-regal-pz.ts': 'cashRegister: { requireConnectedDevice: false }',
   }
   // Not an org's creation: fixtures, which leave it unset to stand for an org from before.
