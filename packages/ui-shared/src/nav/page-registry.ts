@@ -6,9 +6,8 @@ import { FISCAL_ADMIN_ROLES } from 'config/constants'
  * is the full app-prefixed URL (app base + `to`, e.g. "/invoicing/invoices") and doubles as the
  * globally-unique `id`, so favorites/usage span every app.
  *
- * ui-shared has no dependency on the `config` package, so the app base paths, dev ports,
- * permissions and colours below intentionally duplicate `APP_REGISTRY`
- * (packages/config/src/constants.ts). `unit/page-registry.test.ts` fails when they drift.
+ * The app base paths, permissions and colours below duplicate `APP_REGISTRY`
+ * (packages/config/src/constants.ts), and `unit/page-registry.test.ts` fails when they drift.
  */
 
 export interface PageDef {
@@ -242,9 +241,8 @@ export interface PageViewer {
  * and a PIN session the till only, whatever its role (`pinScopeRefusal`). Hiding an entry is
  * presentation — the server still answers every request on its own.
  *
- * ⚠ The ONE rule for who may open what. ★, „+ Нов", the invoicing menu, the till's guard, the landing
- * after a PIN and after an org switch all ask it, and `APP_REGISTRY.invoicing.alsoOpenedBy` is held
- * to it by a test (ui-shared cannot import config), so none of them can come to another answer.
+ * ⚠ The ONE rule for who may open what. ★, „+ Нов", the invoicing menu, the till's guard and the
+ * landing after a PIN and after an org switch all ask it, so none of them can come to another answer.
  */
 export function canOpenPage(page: PageDef, who: PageViewer | null | undefined): boolean {
   if (!who) return false

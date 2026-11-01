@@ -19,8 +19,8 @@ export const router = createRouter({
 
 /**
  * FR-24.12: one guard. A portal route follows the portal's rules (public, guest, person-only); a
- * module's route needs an org session in this tab, as each domain router asked, after the till's
- * rules, which invoicing's own router asks too. The PIN pad itself is outside every rule.
+ * module's route needs an org session in this tab, after the till's rules. The PIN pad itself is
+ * outside every rule.
  */
 router.beforeEach(async (to, from, next) => {
   // AC 7: a `?token=` never signs anyone in (nothing reads it). It is dropped from the address all the

@@ -6,8 +6,8 @@ import type { PageViewer } from 'ui-shared/nav/page-registry'
  * SPA's router is composed from them (`packages/web/src/routes.ts`).
  *
  * ⚠ Paths in `routes`, `menu`, breadcrumbs and back-to values are relative to the MODULE
- * ("/orders"), never to a router's base. Where the module sits in a router is the path of its
- * shell record (`packages/web/src/router.ts`), and `inModule` (ui-shared/nav/open-page) adds it.
+ * ("/orders"), never to a router's base. Where the module sits in the router is the path of its
+ * shell record (`packages/web/src/routes.ts`), and `inModule` (ui-shared/nav/open-page) adds it.
  */
 export interface ModuleMenuItem {
   /** i18n key of the label. Empty on a divider, which shows none. */

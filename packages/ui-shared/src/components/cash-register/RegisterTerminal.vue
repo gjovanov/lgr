@@ -208,7 +208,7 @@ const props = withDefaults(defineProps<{
   /**
    * FR-21.30: the cart's totals and each line's gross, from `config/pos-totals#computePosTotals` —
    * the one function the till, the server's check and the fiscal device's arithmetic share. The
-   * app computes them (ui-shared does not depend on `config`).
+   * door computes them: it holds the lines.
    */
   totals: { subtotal: number; taxTotal: number; total: number }
   lineGross: (line: RegisterLine) => number

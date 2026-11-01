@@ -25,7 +25,7 @@ unified API (portal-api, :4001) ─────── MongoDB (replica set rs0)
   /swagger    API docs
   /ui/*       the web app's files (packages/web)
   every other path   the web app's index.html: the portal at /, each module at its prefix
-                     (accounting · inventory · invoicing · invoicing/pos · payroll · reports · files)
+                     (accounting · inventory · invoicing · payroll · reports · files)
 ```
 
 - **The route table** is `createApiApp()` in `portal-api/src/api.ts`. The integration tests mount
@@ -43,8 +43,8 @@ unified API (portal-api, :4001) ─────── MongoDB (replica set rs0)
 
   Each authenticates in its first message.
 - **The built web app** is served by the same process: its files under `/ui/`, and its
-  `index.html` for every page (`portal-api/src/spa-fallback.ts`). `/pos/*` answers 302 to
-  `/invoicing/pos/*`, because desktops hold `startPath: /pos/`.
+  `index.html` for every page (`portal-api/src/spa-fallback.ts`). `/pos/*` answers 302 to the
+  till's pages under `/invoicing/` (`lib/pos-redirect.ts`), because desktops hold `startPath: /pos/`.
 
 The domain API packages export controllers and nothing else. None of them starts a server of its
 own.

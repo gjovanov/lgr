@@ -852,10 +852,16 @@ part of that module ("The till lives in Invoicing" below); Phase 1 made every mo
   - **A move that fails has one rule, `stale.ts#installChunkRecovery`.** A deploy takes the files of every page
     a tab has not opened, and only a page load brings the new build, so it loads the page: for a chunk that did not
     arrive (any engine's wording, and Vite's `Unable to preload CSS`, the first failure a real deploy gives),
-    once per build, with `/api/health` answering, and with no work in the tab (else it offers the reload). Never
-    for a thrown guard, a bug or an API call, nor for a move the person has replaced. A lazy part of a page comes
-    through `vite:preloadError`, which it never `preventDefault`s. ⚠ A first navigation that fails has
-    nothing on screen: the tab says so (`deadStart`, App.vue), as `index.html` does once its entry's retries are spent.
+    once per build, with `/api/health` answering, and with no work in the tab. Never for a thrown guard, a bug
+    or an API call. A lazy part of a page comes through `vite:preloadError`, which it never `preventDefault`s.
+    ⚠ Asking the server takes a while, so what decides is read AFTER the wait: the newest failure is the one
+    answered (a ticket per failure, never a latch, which a hung probe would hold), and a page the person reached
+    or a move they started meanwhile stands. The probe has a time limit.
+    ⚠ **"A new version" is the server's to say.** `/api/health` carries `x-lgr-build`, and only a build that differs
+    from the page's offers the reload. A chunk that failed under the same build is a blip: the tab says the page
+    did not load, and the same click may work. Calling that a new version also armed a forced load for the next
+    move. ⚠ A first navigation that fails has nothing on screen: the tab says so (`deadStart`, App.vue), as
+    `index.html` does once its entry's retries are spent, or at once with no storage to count them in.
   - ⚠ **Two shells trade places in one document** in the one SPA: the portal's layout and `ModuleLayout`. The new
     one renders before the old one's unmount runs, so a shell-wide slot is set by a setter that returns its own
     undo, never cleared with `null` (`setRefusalTranslator`).
@@ -1008,6 +1014,7 @@ Products support custom pricing based on contact tags. Each custom price entry c
 - **Product form "Pricing" tab**: 10-row compact tier table. Always-visible columns: Name / % / Final Price. Filter chips (Contact, Tags, Min Qty, Validity) reveal optional columns. Editing `purchasePrice` cascades into all non-overridden tiers; editing a tier's `finalPrice` sets `manualOverride=true` (shown with lock icon).
 - **Goods-receipt with product update**: `POST /warehouse/movement/with-update` — atomic via Mongo transaction. Updates product fields (purchasePrice, sellingPrice, priceTiers, type, category, unit) AND creates the stock movement in one session. Requires replica set. On failure, transaction aborts → full rollback, no partial state. Audit-log: one entry per product update + one for the movement, correlated by movement id.
 - **Invoice lines**: `priceExplanation: IPriceStep[]` persisted for audit trail (types: `base | category | tag | contact | tier | override`)
+- ⚠ **A price the person typed or picked is pinned, on every document** (`pricePinned`, `PriceCombobox#chosen`), so a resolved one does not come back over it on a quantity edit or a restored draft. `update:modelValue` cannot say so: a resolved price arrives by it too. A draft from before this has no pin, and its trail's `override` step stands in. A change of contact still re-resolves every line.
 - **Backfill**: `bun run scripts/backfill-price-tiers.ts [--execute] [--org slug]` — idempotent, seeds 10 default slots with `percent=0, finalPrice=sellingPrice`, no filters
 
 ---
@@ -2206,18 +2213,26 @@ stay in `invoicing-ui/src/pos/`, the routes are in `invoicing-ui/src/manifest.ts
   (`canOpenPage`), and the till's pages name the server's permissions (`need`), not the app's: the
   terminal needs `pos.write`, sessions and devices `pos.read | pos.write`, the journal either side.
 - ⚠ **`canOpenPage` is the one rule for who may open what.** ★, „+ Нов", the menu, `tillRedirect`, the
-  PIN's landing and the org switch's all ask it, and `APP_REGISTRY.invoicing.alsoOpenedBy` is held to
-  it by `page-registry.test.ts` (ui-shared cannot import config). `module-manifests.test.ts` is the
-  table: each kind of person, every page, on the real router. It mirrors the server: a page of the app
-  opens for every `invoicing.*`, as the server reads it (`APP_NAV_META.invoicing.reads`).
-- **`isTillOnly`** (`ui-shared/nav/page-registry.ts`): a PIN session, or `pos.*` with no `invoicing.*`.
-  No default role is one today. `CashSalesView` drops export, import, print, email and the document
-  page for them, all of which need invoicing's own rights.
+  PIN's landing and the org switch's all ask it. `module-manifests.test.ts` is the table: each kind of
+  person, every page, on the real router. It mirrors the server: a page of the app opens for every
+  `invoicing.*`, as the server reads it (`APP_NAV_META.invoicing.reads`); Orders and Contacts for
+  `inventory.*` too, which the server reads them for; Devices for `FISCAL_ADMIN_ROLES` as well
+  (`PageDef.roles`), since the server's rule there is a role. Writes stay the server's.
+- **The Invoicing tile follows the journal**, which the whole app reads: `page-registry.test.ts` holds
+  `APP_REGISTRY.invoicing.alsoOpenedBy` to it. A page opened by another right earns no tile, because
+  the app's home would refuse them.
+- **`isTillOnly`** (`ui-shared/nav/page-registry.ts`): a PIN session, or `pos.*` with no right that
+  opens another page of the app (`invoicing.*`, `inventory.*`). No default role is one today.
+  ⚠ **`readsDocuments` is another question**: whether a session reads `/invoices`. `CashSalesView`
+  drops export, import, print, email and the document page without it. `pos.*` + `inventory.*` is not
+  till-only and still reads no documents.
 - **`tillRedirect` holds the links the menu does not offer.** A till-only session on any other page of
   the module, and anyone on a till page `canOpenPage` refuses (an accountant's old bookmark of
   `/cash-sales/new`), go to `tillLanding`: the terminal, or the journal for someone who may only read
-  it (`pos.read`, a PIN of someone without `pos.write`). Never to a page they cannot use. Someone who
-  may read neither stays: the server answers them, and a warehouse manager reaches the devices by address.
+  it (`pos.read`, a PIN of someone without `pos.write`). So does someone with the till on the app's
+  home who cannot read it, which is where the tile leads. Never to a page they cannot use. Someone who
+  may read neither stays: the server answers them. ⚠ The router matches without regard to case, and the
+  registry's paths are lower case: the guard lowers the path before it asks.
 - **The menu's rules are `when`s.** `withTillRules` puts `canOpenPage` on every entry of the invoicing
   manifest. So an accountant keeps CR Sales and is offered no terminal. „Switch operator" adds its own
   `when` (`pinShown`).
@@ -2225,12 +2240,27 @@ stay in `invoicing-ui/src/pos/`, the routes are in `invoicing-ui/src/manifest.ts
   tender, its stock and its storno chain are there, and the back-office form shows none of them. A
   back-office sale or an import keeps its document page, `/edit`.
 - ⚠ **The PIN guard is for `meta.till` routes only.** Every other invoicing page keeps the portal's
-  sign-in. `tillRedirect` asks `pinOffered()` first, so a session-less till page costs a request.
-  The pad's password link carries `?to=` on as `?next=`, so that way in returns to the page too.
-- ⚠ **A filled cart is asked about.** The menu, ★, „+ Нов" and Back are a click from the terminal, and the
-  cart lives in the view, so `PosTerminalView` has a leave guard (`leave-cart-dialog`). It also counts as
-  work (`registerUnsavedCheck`), so a new build never reloads it away. A page load the person
-  starts themselves (F5, closing the tab) is not guarded.
+  sign-in. `tillRedirect` asks `pinOffered()` first, so a session-less till page costs a request, and
+  three seconds at most: the router waits for it, and no answer is a no. The pad's password link carries `?to=` on as `?next=`, so that way in returns to the page too.
+- ⚠ **A filled cart is asked about, and a sale on its way cannot be left.** The menu, ★, „+ Нов" and Back
+  are a click from the terminal, and the cart lives in the view, so `PosTerminalView` has a leave guard
+  (`leave-cart-dialog`), on update too: `openPage` remounts this page under another address, and no leave
+  guard runs for that. It also counts as work (`registerUnsavedCheck`), so a new build never reloads it away.
+  - **While a sale is on its way** (`selling`) a move is refused: no Leave button, a message that it is
+    printing, and it closes by itself. The person sees how it ended.
+  - ⚠ **A lost answer** (`answerLost`, `isOutcomeUnknown`): the sale may exist. The question says so and
+    sends them to CR Sales first. It never says "not sold yet". ⚠ The idempotency key dies with the view, so
+    someone who leaves and rings the same basket again books a second sale (reproduced): that is what the
+    question is for.
+  - ⚠ **The basket holds still from the moment it is sent until a real answer.** A retry is the same sale
+    only with the same body, and any other body is a new key: that is what keeps „Complete Sale will not ring
+    it up twice" true. So the lines, the method and the receipt type freeze, and with the answer lost the
+    catalog goes and Close Session is off (the key is good for that session only).
+  - **F5, a closed tab, an address typed, the shell's Reload** get the browser's own question while the cart
+    holds lines, those two states included. ⚠ The app's own page loads do not stop at it: a failed move and an
+    org switch both refuse a filled cart first. A line added while a switch is on its way gets past them, and
+    by then the tab's session has left the org the cart was rung in, so nothing is asked (`askBeforeUnload`).
+    A sign-out and a dead session go the same way, unasked.
 - ⚠ **Only the till's views ask for a port, and a page load reopens one anywhere.** Web Serial gives a
   port to ONE tab. `requestPort`, the browser's picker, is a gesture on the terminal or the device page.
   The state is a module singleton, so a bridge opened there stays open while the tab moves around, and
@@ -2242,11 +2272,17 @@ stay in `invoicing-ui/src/pos/`, the routes are in `invoicing-ui/src/manifest.ts
 - **`CashSaleFormView` serves `/cash-sales/:id/edit`, and `/cash-sales/draft` for a draft left on it.**
   It stood at `/cash-sales/new` until the terminal took that address, and a Pending-changes entry
   names that route: `tillRedirect` brings `?restore=` to `draft`, ahead of the till's permissions, since
-  the person who wrote it may hold no `pos.*`. Nothing links to it otherwise. The back office's
+  the person who wrote it may hold no `pos.*`. Nothing links to it otherwise. ⚠ It is keyed with
+  `useDocumentRouteKey`, as the other document views are: both addresses are one view, and left mounted
+  it showed an open sale's lines under a New title, and Save issued them a second time. The back office's
   `POST /invoices` for a cash sale stays: the import skills and the tests use it.
 - ⚠ **The till sells past stock by default** (FR-21.16: `allowNegative` comes from an org setting,
   default allowed), and CS Terminal is the only way to ring up a new cash sale now. The old form's
   availability check and transfer offer stay with its draft page.
+- ⚠ **A new cash sale has no customer, so customer-aware prices no longer apply by themselves.** The
+  terminal has no contact, so a contact tagged „Цена 4" gets the plain selling price unless the cashier
+  picks the tier. It follows from `/cash-sales/new` being the terminal (goran, 2026-10-31): nobody without
+  `pos.write` starts a new cash sale in the UI either.
 - Moved pages keep their stored state: `LEGACY_PAGE_IDS` remaps ★ and usage counts from `/pos/*` and
   from Phase 0's `/invoicing/pos/*` (one hop, so each names the final page). A pending change captured
   under `appId: 'pos'` still restores: `handleRestore` reopens it by route name, and an entry whose name
@@ -2319,8 +2355,8 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
 - **The journal**: `GET /org/:orgId/cash-register/documents` and `/:id`
   (`cash-register/journal.service.ts`), gated on `pos.read || invoicing.read` and readable by a
   PIN till. One component, `ui-shared/components/cash-register/CashRegisterJournal.vue`, is
-  `/invoicing/cash-sales`; a till row that is not a document yet opens at
-  `invoicing.cash-sales.view`. Its column choices live under ONE grid id
+  `/invoicing/cash-sales`; a till sale's row opens at `invoicing.cash-sales.view`
+  (`till-rules.ts#journalRoute`). Its column choices live under ONE grid id
   (`ListScaffold`'s `gridId` prop), and headers may be `defaultHidden` (`useGridColumns`).
   It also carries #249's invoices for a cash sale: the `invoiced=yes|no` filter (sales only),
   `invoices` and `invoicingState` on document sale rows (`invoicingByCashSale`), the Invoice column and
@@ -2340,10 +2376,10 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
   `backOfficeSale` posts as a clerk with no session, `cashierBackOfficeSale` as the till's cashier.
 - **One selling surface** (FR-21.29): `ui-shared/components/cash-register/RegisterTerminal.vue` is
   the catalog, the cart and the totals of the till (`/invoicing/cash-sales/new`) AND of the form a
-  saved sale opens on (`/invoicing/cash-sales/:id/edit`); each hands in its own parts through slots
-  (the till: session, bridge, last sale, payment; the form: header, `PriceCombobox`, notes, receipt,
-  Save). It takes `totals`/`lineGross` as props: ui-shared
-  does not depend on `config`.
+  saved sale opens on (`/invoicing/cash-sales/:id/edit`), which a restored draft opens on too
+  (`/invoicing/cash-sales/draft`); each hands in its own parts through slots (the till: session,
+  bridge, last sale, payment; the form: header, `PriceCombobox`, notes, receipt, Save). It takes
+  `totals`/`lineGross` as props, from the door that holds the lines.
 - ⚠ **One totals function** (FR-21.30): a cash sale is totalled with `config/pos-totals#computePosTotals`
   everywhere — the till, the form (`document-payload.ts#computeTotals` branches on `cash_sale`), and
   `POST /invoices`, which refuses a back-office cash sale off by more than 0.02 (422

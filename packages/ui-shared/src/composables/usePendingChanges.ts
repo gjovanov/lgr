@@ -85,8 +85,8 @@ export function usePendingChanges(config: PendingChangesConfig) {
   function tryRestore() {
     const restoreId = route.query.restore as string
     if (!restoreId) return false
-    // From another SPA this is a page load, and a form mounts before the shell that loads the store:
-    // the entry would not be there yet, and the restore was lost with nothing said.
+    // On a page load a form mounts before the shell that loads the store: the entry would not be
+    // there yet, and the restore was lost with nothing said.
     if (!store.currentOrgId) store.load(orgIdFromStorage(), jwtUserId())
     const entry = store.getById(restoreId)
     if (!entry) return false
