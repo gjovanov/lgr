@@ -255,6 +255,19 @@ test.describe('A move that fails', () => {
     await arrives(page)
   })
 
+  // Storage can throw: site data blocked, a locked-down webview. This script runs when nothing else
+  // can, and it counted its retries there, so it threw and left a blank page.
+  test('an entry that never arrives says so with no storage to count in', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'sessionStorage', { get() { throw new DOMException('denied', 'SecurityError') } })
+    })
+    await page.route(/\/ui\/index-[^/]+\.js$/, (route: any) => route.abort())
+
+    await page.goto('/invoicing/invoices')
+
+    await expect(page.getByTestId('boot-failed')).toBeVisible({ timeout: 20000 })
+  })
+
   test('an entry that never arrives says so too, once its retries are spent', async ({ page }) => {
     await loginForApp(page, 'acme-corp', 'sales', 'test123')
     const entry = /\/ui\/index-[^/]+\.js$/
