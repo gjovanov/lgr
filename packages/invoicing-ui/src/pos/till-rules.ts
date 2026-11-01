@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import type { RouteLocationNormalized, RouteLocationRaw } from 'vue-router'
 import type { ModuleMenuItem } from 'ui-shell/module'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
-import { APP_NAV_META, canOpenPage, isTillOnly, matchPage, pageById, type PageViewer } from 'ui-shared/nav/page-registry'
+import { APP_NAV_META, canOpenPage, isTillOnly, matchPage, pageById, readsDocuments, type PageViewer } from 'ui-shared/nav/page-registry'
 import { hasOrgSession } from 'ui-shared/session/session'
 import { pinOffered } from './composables/useTillPin'
 
@@ -85,8 +85,10 @@ export interface TillSession {
  *    Every other page keeps the portal's sign-in;
  *  - someone on a page of this module they cannot use: where the till starts for them. A till page
  *    asks `canOpenPage`. Any other page is refused to a till-only session and to nobody else: an
- *    invoicing page this person lacks a right on is the server's to answer, as it always was. A
- *    page the person may use stays, and so does anyone the till has no landing for.
+ *    invoicing page this person lacks a right on is the server's to answer, as it always was. The
+ *    app's home is the exception, being where its tile leads: someone with the till who cannot read
+ *    it starts on the till. A page the person may use stays, and so does anyone the till has no
+ *    landing for.
  */
 export async function tillRedirect(
   to: Pick<RouteLocationNormalized, 'name' | 'path' | 'query' | 'fullPath' | 'matched' | 'meta'>,
@@ -96,6 +98,7 @@ export async function tillRedirect(
   if (!tab.hasOrg) return to.meta.till && (await tab.pinOffered()) ? { name: 'pos.pin', query: { to: to.fullPath } } : null
   if (!to.matched.some(r => r.meta.module === 'invoicing')) return null
   const page = to.meta.till ? matchPage(to.path) : null
-  const usable = to.meta.till ? !page || canOpenPage(page, tab.who) : !isTillOnly(tab.who)
+  const home = to.name === 'invoicing.sales'
+  const usable = to.meta.till ? !page || canOpenPage(page, tab.who) : !isTillOnly(tab.who) && (!home || readsDocuments(tab.who))
   return usable ? null : tillLanding(tab.who)
 }

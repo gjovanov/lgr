@@ -4,7 +4,7 @@ import { join, relative } from 'path'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { visibleMenu, type ModuleManifest, type ModuleMenuItem } from '../../../ui-shell/src/module'
 import { inModule, pendingRestoreUrl } from 'ui-shared/nav/open-page'
-import { APP_NAV_META, canOpenPage, isTillOnly, matchPage, PAGE_REGISTRY, type PageViewer } from 'ui-shared/nav/page-registry'
+import { APP_NAV_META, canOpenPage, isTillOnly, matchPage, PAGE_REGISTRY, readsDocuments, type PageViewer } from 'ui-shared/nav/page-registry'
 import { APP_REGISTRY, DEFAULT_ROLE_PERMISSIONS, FISCAL_ADMIN_ROLES, type Role } from 'config/constants'
 import { manifest as accounting } from '../../../accounting-ui/src/manifest'
 import { manifest as inventory } from '../../../inventory-ui/src/manifest'
@@ -296,6 +296,8 @@ describe('who may open what', () => {
   const SESSIONS = '/invoicing/cash-register/sessions'
   const DEVICES = '/invoicing/configuration/devices'
   const INVOICES = '/invoicing/invoices'
+  const ORDER = '/invoicing/orders/6a1b/edit'
+  const CONTACTS = '/invoicing/contacts'
 
   /** [who, tile, the Invoicing tile's landing, then where each page ends up]. */
   const TABLE: Array<[string, PageViewer, boolean, string, Record<string, string>]> = [
@@ -317,6 +319,9 @@ describe('who may open what', () => {
     // Who runs a device is the server's roles, not `pos.*`: these used to land on the journal.
     ['a warehouse manager who reads invoicing too', { role: 'warehouse_manager', permissions: ['invoicing.read', 'inventory.read'] }, true, INVOICES, { [DEVICES]: DEVICES, [`${DEVICES}/6a1b`]: `${DEVICES}/6a1b`, [TERMINAL]: JOURNAL, [SESSIONS]: JOURNAL }],
     ['a manager on a set of their own', { role: 'manager', permissions: ['invoicing.read'] }, true, INVOICES, { [DEVICES]: DEVICES, [TERMINAL]: JOURNAL }],
+    // The server reads the orders and the contacts for the inventory app, so these pages are theirs.
+    ['the till and inventory', set('pos.read', 'pos.write', 'inventory.read'), true, TERMINAL, { [ORDER]: ORDER, [CONTACTS]: CONTACTS, [TERMINAL]: TERMINAL, [INVOICES]: TERMINAL }],
+    ['a warehouse manager, following a link from a product', role('warehouse_manager'), false, INVOICES, { [ORDER]: ORDER, [CONTACTS]: CONTACTS }],
   ]
 
   const session = (who: PageViewer): TillSession => ({ hasOrg: true, who, pinOffered: async () => false })
@@ -369,6 +374,20 @@ describe('who may open what', () => {
     expect(canOpenPage(devices, set('pos.read'))).toBe(true)
     expect(canOpenPage(devices, set('invoicing.read'))).toBe(false)
     expect(canOpenPage(devices, role('accountant'))).toBe(false)
+  })
+
+  // `route-permission.ts` reads `invoicing/orders` and `invoicing/contact` for `inventory.*` too.
+  // Asked of `invoicing.*` alone, a warehouse manager in on a link had an empty menu.
+  it('someone in on what inventory reads is offered it', () => {
+    expect(menuPaths(visibleMenu(invoicing.menu!, role('warehouse_manager')))).toEqual(['/orders', '/contacts', '/configuration/devices'])
+    expect(menuPaths(visibleMenu(invoicing.menu!, set('pos.read', 'pos.write', 'inventory.read')))).toEqual(['/cash-sales/new', '/cash-sales', '/cash-register/sessions', '/orders', '/contacts', '/configuration/devices'])
+  })
+
+  // Not the same question: the back-office form and the print of a sale read `/invoices`.
+  it('reading the orders is not reading the documents', () => {
+    expect(readsDocuments(set('pos.write', 'inventory.read'))).toBe(false)
+    expect(readsDocuments(role('accountant'))).toBe(true)
+    expect(readsDocuments(pin('admin'))).toBe(false)
   })
 
   it('the till starts on the terminal, on the journal for someone who cannot sell, and nowhere for someone who cannot read it', () => {

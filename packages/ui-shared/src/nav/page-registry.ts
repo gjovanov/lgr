@@ -56,6 +56,9 @@ const WRITE_INVENTORY = ['inventory.write'] as const
 const WRITE_TILL = ['pos.write'] as const
 const READ_TILL = ['pos.read', 'pos.write'] as const
 const READ_JOURNAL = [...APP_NAV_META.invoicing.reads!, ...READ_TILL] as const
+// What the server reads for the inventory app too (`route-permission.ts`): the orders a delivery is
+// booked against, and the contacts it picks a supplier from.
+const READ_WITH_INVENTORY = [...APP_NAV_META.invoicing.reads!, 'inventory.read', 'inventory.write', 'inventory.adjust'] as const
 
 function tillPage(to: string, labelKey: string, icon: string, need: readonly string[], roles?: readonly string[]): PageDef {
   return { ...page('invoicing', to, labelKey, icon, need), till: true, ...(roles ? { roles } : {}) }
@@ -66,7 +69,7 @@ export const PAGE_REGISTRY: PageDef[] = [
   // FR-01: credit/debit notes merged into the sales/purchase document grids; their old
   // paths redirect, so stale favorites keep working while the rows themselves are gone.
   page('invoicing', '/invoices', 'nav.salesDocs', 'mdi-receipt-text-outline'),
-  page('invoicing', '/orders', 'nav.externalOrders', 'mdi-clipboard-list-outline'),
+  page('invoicing', '/orders', 'nav.externalOrders', 'mdi-clipboard-list-outline', READ_WITH_INVENTORY),
   page('invoicing', '/internal-orders', 'nav.internalOrders', 'mdi-account-clock-outline'),
   page('invoicing', '/reservations', 'nav.reservations', 'mdi-lock-clock'),
   page('invoicing', '/proforma', 'nav.proforma', 'mdi-file-document-outline'),
@@ -77,7 +80,7 @@ export const PAGE_REGISTRY: PageDef[] = [
   // FR-06 (#14): the aging report and the export page moved to the Reports app — their rows
   // are under "Reports" below. The old paths still resolve (redirect stubs), and existing
   // favorites on them are remapped on load, see LEGACY_PAGE_IDS.
-  page('invoicing', '/contacts', 'nav.contacts', 'mdi-contacts'),
+  page('invoicing', '/contacts', 'nav.contacts', 'mdi-contacts', READ_WITH_INVENTORY),
   page('invoicing', '/configuration/sequences', 'nav.sequences', 'mdi-numeric'),
   // ── Inventory ──
   page('inventory', '/products', 'nav.products', 'mdi-package-variant'),
@@ -255,9 +258,9 @@ export function canOpenPage(page: PageDef, who: PageViewer | null | undefined): 
 
 /**
  * Who has the till and nothing else of the invoicing app: a PIN session, whatever its role (the
- * server holds it to the till, `pinScopeRefusal`), and someone holding `pos.*` with no `invoicing.*`
- * the server would read the app for. The invoicing router takes them to the till from any other
- * page. An `admin` is refused nothing, whatever its set says.
+ * server holds it to the till, `pinScopeRefusal`), and someone holding `pos.*` with no right that
+ * opens another page of it. The invoicing router takes them to the till from any other page. An
+ * `admin` is refused nothing, whatever its set says.
  */
 export function isTillOnly(who: PageViewer | null | undefined): boolean {
   if (!who) return false
@@ -265,7 +268,16 @@ export function isTillOnly(who: PageViewer | null | undefined): boolean {
   if (who.role === 'admin') return false
   const held = who.permissions ?? []
   const reads = (ps: readonly string[]) => ps.some((p) => held.includes(p))
-  return !reads(APP_NAV_META.invoicing.reads!) && reads(READ_TILL)
+  return !reads(READ_WITH_INVENTORY) && reads(READ_TILL)
+}
+
+/**
+ * Whether this session reads the documents, `/invoices` and its prints. A till-only session does
+ * not, and neither does someone in on the till and inventory: a till sale's page is all they read
+ * of it, not the back-office form.
+ */
+export function readsDocuments(who: PageViewer | null | undefined): boolean {
+  return canOpenPage(pageById('/invoicing/invoices')!, who)
 }
 
 /**

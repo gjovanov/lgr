@@ -105,7 +105,7 @@ import { useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { jwtRole, jwtUserId, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
-import { canOpenPage, isTillOnly, pageById } from 'ui-shared/nav/page-registry'
+import { canOpenPage, pageById, readsDocuments } from 'ui-shared/nav/page-registry'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import ExportDialog from 'ui-shared/components/ExportDialog'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
@@ -124,7 +124,7 @@ const role = computed(() => appStore.user?.role || jwtRole())
 const userId = computed(() => appStore.user?.id || jwtUserId())
 const journal = ref<{ fetchItems: () => Promise<void> } | null>(null)
 const viewer = sessionViewer()
-const tillOnly = isTillOnly(viewer)
+const tillOnly = !readsDocuments(viewer)
 const canSell = canOpenPage(pageById('/invoicing/cash-sales/new')!, viewer)
 
 // FR-10 (#19): the row-level "send by email" action.

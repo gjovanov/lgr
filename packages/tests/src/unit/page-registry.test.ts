@@ -217,10 +217,17 @@ describe('isTillOnly', () => {
     expect(isTillOnly({ role: 'x', permissions: ['pos.read', 'invoicing.write'] })).toBe(false)
   })
 
-  it('pos.* without invoicing.read', () => {
+  it('pos.* and nothing that opens another page of the app', () => {
     expect(isTillOnly({ role: 'cashier', permissions: ['pos.read', 'pos.write'] })).toBe(true)
     expect(isTillOnly({ role: 'cashier', permissions: ['pos.write'] })).toBe(true)
-    expect(isTillOnly({ role: 'cashier', permissions: ['pos.read', 'inventory.read'] })).toBe(true)
+    expect(isTillOnly({ role: 'cashier', permissions: ['pos.read', 'reports.read'] })).toBe(true)
+  })
+
+  // The server reads the orders and the contacts for the inventory app too.
+  it('never someone holding any inventory.*', () => {
+    for (const p of ['inventory.read', 'inventory.write', 'inventory.adjust']) {
+      expect(isTillOnly({ role: 'cashier', permissions: ['pos.read', p] })).toBe(false)
+    }
   })
 
   it('not with invoicing.read, and not without the till', () => {

@@ -26,7 +26,7 @@ import { useRoute } from 'vue-router'
 import { useAppStore } from '../store/app.store'
 import CashRegisterDocument from 'ui-shared/components/cash-register/CashRegisterDocument.vue'
 import { jwtRole, jwtUserId, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
-import { isTillOnly } from 'ui-shared/nav/page-registry'
+import { readsDocuments } from 'ui-shared/nav/page-registry'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { journalRoute } from '../pos/till-rules'
 
@@ -36,8 +36,8 @@ const appStore = useAppStore()
 const role = computed(() => appStore.user?.role || jwtRole())
 const userId = computed(() => appStore.user?.id || jwtUserId())
 const { loading: printing, exportOne } = useInvoicingExport(() => appStore.orgUrl())
-/** The journal's page is all of a sale a till-only session reads: no document page, no print. */
-const tillOnly = isTillOnly(sessionViewer())
+/** The journal's page is all of a sale someone without the documents reads: no document page, no print. */
+const tillOnly = !readsDocuments(sessionViewer())
 
 /** Печат: the document's PDF — a storno prints as „Сторно на касова продажба", naming its sale. */
 function print(row: any) {
