@@ -61,7 +61,7 @@ import type { RegisterPrinter } from './printer.js'
 import type { ReceiptBody } from './receipt-lines.js'
 import { receiptMode } from './receipt-mode.js'
 import {
-  RegisterRefusal, applySessionTotals, couldNotPrint, decideInterrupted, inTurn, isPendingNumber, numberPending, printSaleStep, rollBack,
+  RegisterRefusal, applySessionTotals, couldNotPrint, decideInterrupted, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, rollBack,
   saleIncrements, setRegister, type RegisterContext, type RegisterSession, type RegisterUser,
 } from './register.service.js'
 
@@ -445,7 +445,10 @@ async function giveUp(c: RegisterContext, doc: any): Promise<any> {
  *
  * ⚠ A receipt that started fiscally stays fiscal, whatever the device says now: what it may have left
  * there is `printOnce`'s to judge. One that started as text is asked again, so a fiscalized device
- * can never print text. It then goes to `printOnce`, which has no counter to read for it, and holds it.
+ * can never print text. And on a device fiscalized since it stays text on the record, and is held: a
+ * text attempt has no counter to read, and rewritten as fiscal, a person who said it printed booked a
+ * fiscal receipt with a УНП no device ever saw. A new attempt that never started prints as the device
+ * says now.
  */
 async function decideMode(c: RegisterContext, printer: RegisterPrinter, doc: any): Promise<any> {
   const fiscal = doc.register?.fiscal
@@ -453,6 +456,7 @@ async function decideMode(c: RegisterContext, printer: RegisterPrinter, doc: any
   if ((await receiptMode(printer)) === 'text') {
     return fiscal?.mode === 'text' ? doc : setRegister(doc._id, { isFiscal: false, 'fiscal.mode': 'text' })
   }
+  if (fiscal?.attemptedAt) return holdInDoubt(doc)
   const operatorCode = c.user.operatorCode ?? doc.register?.operatorCode
   if (!operatorCode) throw new Error('This user has no operator code, and a fiscal receipt names its operator.')
   return setRegister(doc._id, {
@@ -478,7 +482,7 @@ async function printReceiptStep(c: RegisterContext, doc: any): Promise<any> {
         // ⚠ Never text: the path of a device that went away.
         return couldNotPrint(fresh, `The device could not say how it prints, so the receipt was not printed: ${e?.message}`)
       }
-      return printSaleStep(c, decided)
+      return decided.register?.fiscal?.state === 'pending' ? printSaleStep(c, decided) : decided
     })
   } catch (e: any) {
     if (e?.code !== 'device_busy') throw e

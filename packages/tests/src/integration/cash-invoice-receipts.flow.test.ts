@@ -1268,6 +1268,77 @@ describe('a device that is not fiscalized: the device decides, never a switch (o
       expect(r.json.code).toBe('receipt_in_doubt')
       expect(w.sim!.receipts).toHaveLength(0)
       expect(closedTexts(w)).toBe(0)
+
+      // ⚠ It stays what it started as: no УНП a device never saw, and nothing fiscal on the record.
+      const held: any = await Invoice.findById(dead._id).lean().exec()
+      expect(held.register.isFiscal).toBe(false)
+      expect(held.register.fiscal).toMatchObject({ mode: 'text', state: 'unknown', inDoubt: true })
+      expect(held.register.unp).toBeUndefined()
+
+      // A person who saw the slip come out books a text receipt.
+      expect((await w.call('POST', `/cash-register/documents/${dead._id}/settle`, { printed: true })).status).toBe(200)
+
+      const settled: any = await Invoice.findById(dead._id).lean().exec()
+      expect(settled.register.isFiscal).toBe(false)
+      expect(settled.register.fiscal).toMatchObject({ mode: 'text', state: 'printed' })
+      expect(settled.register.unp).toBeUndefined()
+      expect(settled.register.fiscalReceiptNumber).toBeUndefined()
+      expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+
+      // Its documents say so: the form lists the money, and the PDF names no fiscal receipt.
+      expect((await shown(w, d.id)).paymentReceipts).toEqual([expect.objectContaining({ number: 'CS-2026-77002', text: true })])
+      const printable = await printableDocument(w.orgId, await raw(d.id))
+      expect(printable.paymentReceipts).toBeUndefined()
+      expect(buildInvoiceHtml(printable as any, { name: 'Org' } as any, {} as any, undefined, { locale: 'bg' }).html).not.toContain('касов бон')
+      // SUPTO lists it blank, as a text sale, and no device witness reads it.
+      const row = (await exportPaymentDetails({ orgId: w.orgId, dateFrom: new Date(Date.now() - 86_400_000), dateTo: new Date(Date.now() + 86_400_000) } as any))
+        .find((t: any) => t.transactionNumber === 'CS-2026-77002')
+      expect(row).toMatchObject({ isFiscal: false })
+      expect(row.unpNumber).toBeUndefined()
+      expect(row.fiscalReceiptNumber).toBeUndefined()
+    })
+
+    it('a new attempt on that device, which never started, prints fiscally', async () => {
+      const w = await theUnit()
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      w.sim!.unfiscalizedUnit = false
+
+      const r = await pay(w, d.id, 24)
+
+      expect(r.status).toBe(200)
+      expect(w.sim!.receipts.filter(x => !x.voided)).toHaveLength(1)
+      const [receipt] = await receiptsOf(d.id)
+      expect(receipt.register.isFiscal).toBe(true)
+      expect(receipt.register.fiscal.mode).toBe('fiscal')
+      expect(receipt.register.unp).toBeTruthy()
+    })
+
+    it('a text decided and never started, on a device fiscalized since: fiscal too', async () => {
+      const w = await theUnit()
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      const key = 'decided-text-0001'
+      const hash = requestHash(`invoice.payment:${d.id}`, { date: TODAY, amount: 24, method: 'cash' })
+      const body = receiptBody({ doc: await raw(d.id), amount: 24, whole: false, printsText: true, receipts: [] })!
+      const document = paymentReceiptDocument({
+        invoice: await raw(d.id), body, tender: { method: 'cash', amount: 24, date: new Date() },
+        session: { id: w.sessionId, warehouseId: String(w.warehouse._id) }, user: { id: String(w.user._id), operatorCode: '0001' }, printer: { deviceNumber: 'ED123456' } as any,
+      })
+      const dead: any = await Invoice.create({
+        ...document, invoiceNumber: 'CS-2026-77003', leaseUntil: new Date(Date.now() - 1000), clientKey: key, requestHash: hash,
+        register: { ...document.register, isFiscal: false, fiscal: { state: 'pending', mode: 'text' } },
+      })
+      await Invoice.updateOne({ _id: d.id }, { $push: { receiptHolds: { receiptId: dead._id, amount: 24 } } })
+      w.sim!.unfiscalizedUnit = false
+
+      const r = await w.call('POST', `/invoices/${d.id}/payments`, { date: TODAY, amount: 24, method: 'cash' }, key)
+
+      expect(r.status).toBe(200)
+      const after: any = await Invoice.findById(dead._id).lean().exec()
+      expect(after.register.isFiscal).toBe(true)
+      expect(after.register.fiscal).toMatchObject({ mode: 'fiscal', state: 'printed' })
+      expect(w.sim!.receipts.filter(x => !x.voided)).toHaveLength(1)
     })
 
     it('a device that prints no text fails with a message that makes sense in the back office', async () => {
