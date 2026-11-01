@@ -16,7 +16,6 @@
  * `printsAtCounter`: another system printed its receipt.
  */
 import { Invoice, POSSession } from 'db/models'
-import { roundCents } from 'config/pos-totals'
 import { takeLease } from 'services/biz/hot-path-key'
 import { outstandingOf } from 'services/biz/invoice-payment'
 import { logger } from 'services/logger'
@@ -58,9 +57,6 @@ export async function prepareReceipt(orgId: string, user: RegisterUser, doc: any
   // The money a courier brings for a cash-on-delivery invoice is on its receipt, which took all that
   // was owed when it printed. A second receipt would book the sale on the device twice.
   if (receipts.some(r => r.paymentMethod === 'cash_on_delivery')) return null
-  // Every cent of it has its receipt.
-  const receipted = roundCents(receipts.reduce((s, r) => s + (Number(r.total) || 0), 0))
-  if (roundCents((Number(doc.total) || 0) - receipted) <= 0) return null
 
   // The API takes a payment on a draft, which turns it `partially_paid` under its draft number. A
   // receipt names the invoice's number, and such a document has none: it was never issued.
