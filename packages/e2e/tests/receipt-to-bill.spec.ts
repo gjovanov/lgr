@@ -858,6 +858,27 @@ test.describe('a movement\'s warehouses fit its type (#168)', () => {
     await expect(snackbar(page)).toBeVisible()
   })
 
+  test('a draft receipt\'s supplier can be cleared, and clearing it reaches the server', async ({ page }) => {
+    const w = await world('clear')
+    const { stockMovement } = await w.api.post('/warehouse/movement', {
+      type: 'receipt', date: today(), toWarehouseId: w.warehouse._id, contactId: w.supplier._id,
+      lines: [{ productId: w.article._id, quantity: 4, unitCost: 2.5, totalCost: 10 }], totalAmount: 10,
+    })
+    const id = stockMovement._id || stockMovement.id
+
+    await signInForUx(page)
+    await page.goto(`/inventory/movements/${id}`, { waitUntil: 'networkidle' })
+    const partner = page.getByTestId('movement-partner')
+    await expect(partner).toContainText(w.supplier.companyName)
+    await partner.locator('.v-field').hover()
+    await partner.locator('.v-field__clearable .v-icon').click()
+
+    const put = page.waitForRequest(r => r.method() === 'PUT' && r.url().endsWith(`/warehouse/movement/${id}`))
+    await actions(page).getByRole('button', { name: 'Запази', exact: true }).click()
+    expect((await put).postDataJSON().contactId).toBeNull()
+    await expect.poll(async () => (await movementOf(w, id)).contactId ?? null).toBeNull()
+  })
+
   test('a booked movement reads as it was booked, even with a warehouse its type no longer takes', async ({ page }) => {
     const w = await world('hist')
     await receipt(w, 10)

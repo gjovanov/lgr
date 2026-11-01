@@ -558,6 +558,26 @@ describe('a receipt that names no supplier (FR-22.31a)', () => {
     expect(String((await w.mv(anonymous._id)).contactId)).toBe(String(both._id))
   }, 60_000)
 
+  it('a draft receipt\'s supplier can be cleared, so a wrong pick need not be confirmed', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 7, 3]], { confirm: false })
+    expect(String(r.contactId)).toBe(String(w.supplier._id))
+
+    const cleared = await w.call('PUT', `/warehouse/movement/${r._id}`, { contactId: null })
+    expect(cleared.status).toBe(200)
+    expect((await w.mv(r._id)).contactId ?? null).toBeNull()
+    // Left out, it stays.
+    await w.call('PUT', `/warehouse/movement/${r._id}`, { contactId: String(w.other._id) })
+    await w.call('PUT', `/warehouse/movement/${r._id}`, { notes: 'x' })
+    expect(String((await w.mv(r._id)).contactId)).toBe(String(w.other._id))
+
+    await w.call('PUT', `/warehouse/movement/${r._id}`, { contactId: null })
+    expect((await w.call('POST', `/warehouse/movement/${r._id}/confirm`, {})).status).toBe(200)
+    const billed = await w.fromReceipt([r._id], { contactId: String(w.supplier._id) })
+    expect(billed.status).toBe(200)
+    expect(String((await w.mv(r._id)).contactId)).toBe(String(w.supplier._id))
+  }, 60_000)
+
   it('a deactivated supplier can still be billed for the receipt that names it, and takes no other', async () => {
     const w = await world()
     const own = await w.receipt([[w.bolt, 7, 3]])

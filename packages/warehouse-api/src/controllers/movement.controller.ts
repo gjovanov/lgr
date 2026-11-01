@@ -376,10 +376,10 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       isSignIn: true,
       body: t.Object({
         date: t.Optional(t.String()),
-        // `null` clears the warehouse; left out, it stays as it is.
+        // `null` clears the warehouse or the partner; left out, it stays as it is.
         fromWarehouseId: t.Optional(t.Union([t.String(), t.Null()])),
         toWarehouseId: t.Optional(t.Union([t.String(), t.Null()])),
-        contactId: t.Optional(t.String()),
+        contactId: t.Optional(t.Union([t.String(), t.Null()])),
         lines: t.Optional(t.Array(t.Object({
           productId: t.String(),
           quantity: t.Number({ minimum: 0 }),

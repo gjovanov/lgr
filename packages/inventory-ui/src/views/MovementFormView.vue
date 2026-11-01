@@ -651,11 +651,13 @@ async function save(): Promise<string | null> {
   }
 
   if (isEdit.value) {
-    // Draft edit: type is immutable after create — PUT does not accept it. An emptied warehouse is
-    // sent as `null`: left out, PUT keeps the one the draft has, and clearing it did nothing.
+    // Draft edit: type is immutable after create — PUT does not accept it. An emptied warehouse or
+    // partner is sent as `null`: left out, PUT keeps the one the draft has, and clearing it did
+    // nothing. Once confirmed a receipt's wrong supplier refuses every other one for good.
     const { type: _type, ...updateBody } = basePayload
     updateBody.fromWarehouseId = form.value.fromWarehouseId || null
     updateBody.toWarehouseId = form.value.toWarehouseId || null
+    updateBody.contactId = form.value.contactId || null
     await httpClient.put(`${appStore.orgUrl()}/warehouse/movement/${route.params.id}`, updateBody)
     markSaved()
     return route.params.id as string
