@@ -101,6 +101,32 @@ export function printsAtCounter(doc: any, method: string | undefined, atIssue: b
   return COUNTER_METHODS.includes(String(method))
 }
 
+/** The statuses a payment that prints can land on: an issued document with money still to take. */
+const PAYABLE = ['sent', 'overdue', 'partially_paid']
+
+/**
+ * Which methods print a receipt on each of `docs`, as `/payments` will decide it: what the payment
+ * dialog reads, on the form and on a list row, so it never has a copy of a rule it cannot evaluate.
+ * The dialog said a print was coming and locked the date on a document that printed nothing, and let
+ * an unannounced receipt silently re-date a payment on one that did. Only documents with an answer are
+ * in the map. One read for the whole page.
+ */
+export async function printsOnPayment(orgId: string, docs: any[]): Promise<Map<string, string[]>> {
+  const idOf = (d: any) => String(d._id ?? d.id)
+  const out = new Map<string, string[]>()
+  const candidates = docs.filter(d => PAYABLE.includes(d.status) && printsAtCounter(d, 'cash', false))
+  if (!candidates.length || !(await printsHere(orgId))) return out
+  // Its delivery receipt took all that was owed: no payment on it prints.
+  const delivered = new Set((await Invoice.distinct('register.paidInvoiceId', {
+    orgId: oid(orgId), type: PAYMENT_RECEIPT, paymentMethod: 'cash_on_delivery', status: { $ne: 'voided' },
+    'register.paidInvoiceId': { $in: candidates.map(d => oid(idOf(d))) },
+  }).exec()).map(String))
+  for (const d of candidates) {
+    if (!delivered.has(idOf(d))) out.set(idOf(d), COUNTER_METHODS.filter(m => printsAtCounter(d, m, false)))
+  }
+  return out
+}
+
 const liveReceipts = (orgId: unknown, documentId: unknown) => ({
   orgId: oid(orgId), type: PAYMENT_RECEIPT, 'register.paidInvoiceId': oid(documentId), status: { $ne: 'voided' },
 })

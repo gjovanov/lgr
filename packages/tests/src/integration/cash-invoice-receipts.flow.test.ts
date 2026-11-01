@@ -653,6 +653,74 @@ describe('the re-issue of a number issued twice (FR-20.51)', () => {
   })
 })
 
+describe('what the payment dialog is told: the server answers it, by method', () => {
+    /** The document as the form reads it, and as the list row reads it: they must agree. */
+    async function told(w: TillWorld, id: string) {
+      const one = (await shown(w, id)).printsOnPayment
+      const row = (await w.call('GET', '/invoices?size=100')).json.invoices.find((i: any) => String(i.id) === id)
+      expect(row.printsOnPayment ?? []).toEqual(one)
+      return one
+    }
+
+    /** What it was told, held to what `/payments` then does. */
+    async function keepsItsWord(w: TillWorld, id: string, expected: string[]) {
+      expect(await told(w, id)).toEqual(expected)
+      const printedBefore = w.sim!.receipts.filter(r => !r.voided).length
+      expect((await pay(w, id, 1, 'cash')).status).toBe(200)
+      expect(w.sim!.receipts.filter(r => !r.voided).length - printedBefore).toBe(expected.includes('cash') ? 1 : 0)
+    }
+
+    it('an open invoice prints in cash and by card, and not by bank', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      await keepsItsWord(w, d.id, ['cash', 'card'])
+    })
+
+    it('a cash-on-delivery invoice whose receipt printed: nothing more prints, by any method', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'cash_on_delivery' })
+      await send(w, d.id)
+      await keepsItsWord(w, d.id, [])
+    })
+
+    it('a cash-on-delivery invoice whose receipt failed: a payment at the counter does print', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'cash_on_delivery' })
+      w.sim!.paper = false
+      await send(w, d.id)
+      w.sim!.paper = true
+      await keepsItsWord(w, d.id, ['cash', 'card'])
+    })
+
+    it('the re-issue of a number issued twice prints nothing, whatever its header', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      await Invoice.updateOne({ _id: d.id }, { $set: { 'stockSource.detectedBy': 'number_clash' } })
+      await keepsItsWord(w, d.id, [])
+    })
+
+    it('an org that prints nothing is told nothing prints', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      await allowSalesWithoutPrinter(w.oid)
+      await keepsItsWord(w, d.id, [])
+    })
+
+    it('a draft, a paid document, a credit note and a bill take nothing that prints', async () => {
+      const w = await tillWorld(app)
+      const draft = await draftOf(w, { method: 'bank_transfer' })
+      expect(await told(w, draft.id)).toEqual([])
+      const { id } = await issuedPaid(w)
+      expect(await told(w, id)).toEqual([])
+      const bill = await draftOf(w, { method: 'cash', extra: { direction: 'incoming' } })
+      await w.call('POST', `/invoices/${bill.id}/receive`, {})
+      expect(await told(w, bill.id)).toEqual([])
+    })
+  })
+
 describe('scripts/settle-cash-invoices where LGR prints (finding 11)', () => {
   it('an org where LGR prints is refused by name, and skipped otherwise, and one that prints nothing is taken', async () => {
     const w = await tillWorld(app)

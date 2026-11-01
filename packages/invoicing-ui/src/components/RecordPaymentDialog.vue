@@ -61,8 +61,8 @@ import { defaultPaymentMethod, outstandingAmount, type PayableDoc } from '../com
 
 const props = defineProps<{
   modelValue: boolean
-  /** The list row being paid: its id, total, `amountPaid`, `paymentMethod` and currency. */
-  document: (PayableDoc & { _id: string; currency?: string; type?: string; direction?: string; tags?: string[] }) | null
+  /** The document being paid: its id, total, `amountPaid`, `paymentMethod`, currency, and which methods print. */
+  document: (PayableDoc & { _id: string; currency?: string; printsOnPayment?: string[] }) | null
 }>()
 const emit = defineEmits<{ 'update:modelValue': [open: boolean]; recorded: [] }>()
 
@@ -80,19 +80,8 @@ const form = ref({ amount: 0, method: 'bank_transfer', date: today(), reference:
 const refusal = ref('')
 const printFailed = ref(false)
 
-/**
- * FR-23: whether saving prints a fiscal receipt, as the server decides it (`printsAtCounter`): the
- * dialog only says so. An imported document prints nothing, and a cash-on-delivery invoice printed
- * its receipt when it was issued.
- */
-const prints = computed(() => {
-  const d = props.document
-  if (d?.direction !== 'outgoing' || (d?.type !== 'invoice' && d?.type !== 'debit_note')) return false
-  if ((appStore.currentOrg as any)?.settings?.cashRegister?.requireConnectedDevice === false) return false
-  // The server's `isImportedDocument`: a tag does not say, because a copy carries it.
-  if (d.paymentMethod === 'cash_on_delivery' || d.statusHistory?.[0]?.reason === 'ocr_import') return false
-  return form.value.method === 'cash' || form.value.method === 'card'
-})
+/** FR-23: whether saving prints a receipt. The server answers it, per document and by method. */
+const prints = computed(() => (props.document?.printsOnPayment ?? []).includes(form.value.method))
 
 const outstanding = computed(() => outstandingAmount(props.document))
 

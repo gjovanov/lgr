@@ -26,7 +26,7 @@ import { syncCashSettlement } from 'services/biz/cash-settlement.service'
 import { fitsDue, heldOn, isBeingVoided, notBeingVoided, outstandingOf, overpays, paymentPipeline } from 'services/biz/invoice-payment'
 import {
   DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, inDoubtRefusal, isImportedDocument, owesDeliveryReceipt,
-  paidByReceipts, receiptInDoubt,
+  paidByReceipts, printsOnPayment, receiptInDoubt,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { movesPrintedMoney } from 'services/biz/cash-register/receipt-lines'
 import { NOT_PAYMENT_RECEIPT } from 'services/biz/sale-counting'
@@ -550,6 +550,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     // #171: a cash sale lists the invoices issued for it (the link lives only on the invoices).
     const cashSaleIds = result.items.filter((i: any) => i.type === 'cash_sale').map((i: any) => String(i.id))
     const invoicing = cashSaleIds.length ? await invoicingByCashSale(orgId, cashSaleIds) : new Map()
+    // FR-23: what a Pay on the row prints, as the server will decide it.
+    const printing = await printsOnPayment(orgId, result.items)
 
     // Manual batch lookups to replace .populate()
     const contactIds = new Set<string>()
@@ -591,6 +593,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           : {}),
         ...(item.cashSaleRef ? { cashSaleId: String(item.cashSaleRef.cashSaleId), cashSaleNumber: item.cashSaleRef.number } : {}),
         statusHistory: synthesizeStatusHistory(item),
+        printsOnPayment: printing.get(String(item.id)) ?? [],
       }
     })
     const { items: _raw, ...pagination } = result
@@ -1030,6 +1033,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         paymentReceipts: await paidByReceipts(orgId, id),
         receiptToPrint: await owesDeliveryReceipt(orgId, invoice),
         receiptInDoubt: await inDoubtOf(orgId, id),
+        printsOnPayment: (await printsOnPayment(orgId, [invoice])).get(String(invoice.id)) ?? [],
         statusHistory: synthesizeStatusHistory(invoice),
         contactId: contact ? { _id: contact.id, id: contact.id, companyName: (contact as any).companyName, firstName: (contact as any).firstName, lastName: (contact as any).lastName, email: (contact as any).email } : invoice.contactId,
       },
