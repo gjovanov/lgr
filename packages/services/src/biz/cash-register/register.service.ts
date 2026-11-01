@@ -318,13 +318,15 @@ export const IN_DOUBT = 'The receipt was interrupted and nothing can prove wheth
 
 /**
  * The receipt printed. ⚠ Its number only when the device gave one: a Tremol closes before it can be
- * asked, and 'unknown' stored as a number printed on an invoice as „ФБ № unknown".
+ * asked, and 'unknown' stored as a number printed on an invoice as „ФБ № unknown". `warning`: it
+ * printed through an error, and that stays on the document and in the answer.
  */
-function recordPrinted(doc: any, receiptNo: string | undefined): Promise<any> {
+function recordPrinted(doc: any, receiptNo: string | undefined, warning?: { error: string; receiptError: string }): Promise<any> {
   const known = receiptNo && receiptNo !== 'unknown' ? String(receiptNo) : undefined
   return setRegister(doc._id, {
     'fiscal.state': 'printed', 'fiscal.printedAt': new Date(), printedAt: new Date(),
     ...(known ? { 'fiscal.receiptNo': known, fiscalReceiptNumber: known } : {}),
+    ...(warning ? { 'fiscal.error': warning.error, receiptError: warning.receiptError } : {}),
   })
 }
 
@@ -337,7 +339,14 @@ async function afterFailedPrint(printer: RegisterPrinter, doc: any, before: numb
   const { now, open } = await readDevice(printer)
   const verdict = verdictOfFailedPrint({ stage: e?.printStage, before, now, open, closed: !!abandoned?.closed })
   logger.error({ documentId: String(doc._id), unp: doc.register?.unp, error: e?.message, stage: e?.printStage, before, now, open, verdict }, 'Fiscal receipt printing FAILED')
-  if (verdict === 'printed') return recordPrinted(doc, String(now).padStart(7, '0'))
+  // ⚠ `printed` stands, and the failure is not dropped: a driver that finishes a part-paid receipt
+  // tenders the rest in cash, whatever LGR recorded, so the device's day may not read as the document.
+  if (verdict === 'printed') {
+    return recordPrinted(doc, String(now).padStart(7, '0'), {
+      error: e?.message,
+      receiptError: `The receipt printed, but the device reported a problem, so its payment types may differ from this document's. Check the device: ${e?.message}`,
+    })
+  }
   await printer.failed().catch(() => {})
   if (verdict === 'failed') return setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': e?.message, receiptError: e?.message })
   return setRegister(doc._id, {

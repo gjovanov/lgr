@@ -116,6 +116,55 @@ describe('a print that throws, in its turn on the device (ruling 1)', () => {
     expect((await receiptsOf(d.id))[0].status).toBe('paid')
   })
 
+  it('a split tender the driver had to finish in cash: printed stands, and the operator is told the device may differ (finding 13)', async () => {
+    const w = await tillWorld(app)
+    let legs = 0
+    w.sim!.beforeCommand = cmd => {
+      if (cmd === PAYMENT && ++legs === 2) w.sim!.paper = false
+      if (cmd === VOID) w.sim!.paper = true
+    }
+
+    const r = await w.call('POST', `/trade/pos/session/${w.sessionId}/transaction`, {
+      ...w.saleBody(1), payments: [{ method: 'cash', amount: 5 }, { method: 'card', amount: 7 }],
+    })
+
+    expect(r.status).toBe(200)
+    expect(r.json.transaction.fiscal.state).toBe('printed')
+    expect(r.json.receiptError).toContain('out of paper')
+    expect(r.json.receiptError).toMatch(/may differ/)
+    const doc: any = await Invoice.findById(r.json.transaction.id).lean().exec()
+    expect(doc.register.receiptError).toBe(r.json.receiptError)
+    expect(doc.register.fiscalReceiptNumber).toBe(closedOnDevice(w)[0].number)
+    expect(closedOnDevice(w)[0].payments.map(p => p.mode)).toEqual(['P', 'P'])
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 5, totalCard: 7 })
+    expect((await FiscalDevice.findById(w.deviceId).lean().exec() as any).status).not.toBe('error')
+  })
+
+  it('a receipt the driver finished after an error says so too, in the answer of the payment', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    w.sim!.beforeCommand = cmd => { if (cmd === CLOSE) w.sim!.loseNextAnswers = 99; else w.sim!.loseNextAnswers = 0 }
+
+    const r = await pay(w, d.id, 24)
+
+    expect(r.status).toBe(200)
+    expect(r.json.receipt.state).toBe('printed')
+    expect(r.json.receiptError).toMatch(/may differ/)
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
+  it('a storno the device finished after an error keeps the error on the answer', async () => {
+    const w = await tillWorld(app)
+    const sale = await w.sell(1)
+    w.sim!.beforeCommand = cmd => { if (cmd === CLOSE) w.sim!.loseNextAnswers = 99; else w.sim!.loseNextAnswers = 0 }
+
+    const r = await w.storno(sale.json.transaction.id)
+
+    expect(r.status).toBe(200)
+    expect(r.json.transaction.fiscal.state).toBe('printed')
+    expect(r.json.receiptError).toMatch(/may differ/)
+  })
+
   it('the answer to the close was lost and the device still answers: the counter proves it, in its turn', async () => {
     const w = await tillWorld(app)
     const d = await onBank(w)
@@ -129,7 +178,6 @@ describe('a print that throws, in its turn on the device (ruling 1)', () => {
 
     expect(r.status).toBe(200)
     expect(r.json.receipt.state).toBe('printed')
-    expect(r.json.receiptError).toBeUndefined()
     expect((await receiptsOf(d.id))[0].register.fiscalReceiptNumber).toBe(String(before + 1).padStart(7, '0'))
     expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
   })

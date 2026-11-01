@@ -296,6 +296,9 @@ describe('issued, and the receipt did not print', () => {
   })
 
   it('nothing went wrong: nothing to say', () => {
+    // Printed, with a word of warning: it is paid, so the Pay button is no way on.
+    expect(issuedReceiptNotice({ receiptError: 'x', paymentMethod: 'cash', receipt: { state: 'printed' } }))
+      .toEqual({ key: 'cashRegister.receipt.issuedUnknown', takesPayment: false })
     expect(issuedReceiptNotice({ paymentMethod: 'cash' })).toBeNull()
     expect(issuedReceiptNotice(null)).toBeNull()
   })

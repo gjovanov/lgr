@@ -392,12 +392,16 @@ export function saleResponse(doc: any) {
 }
 
 /** What the till answers for a storno: the reversal, or the 503 of #145 when its receipt failed. */
-export function stornoResponse(doc: any): { status: number; body: Record<string, unknown> } | { transaction: any; stockError?: string } {
+export function stornoResponse(doc: any): { status: number; body: Record<string, unknown> } | { transaction: any; stockError?: string; receiptError?: string } {
   const transaction: any = asEntity(toPosTransaction(doc))
   if (doc.status === 'voided' && doc.register?.receiptError) {
     return { status: 503, body: { code: 'fiscal_error', message: `The storno receipt was not printed, so nothing was reversed: ${doc.register.receiptError}` } }
   }
-  return { transaction, ...(transaction.stockError ? { stockError: transaction.stockError } : {}) }
+  return {
+    transaction,
+    ...(transaction.receiptError ? { receiptError: transaction.receiptError } : {}),
+    ...(transaction.stockError ? { stockError: transaction.stockError } : {}),
+  }
 }
 
 export interface StornoDoorInput {
@@ -425,7 +429,7 @@ export interface StornoDoorInput {
  * `paid` with `stornoState: 'full'`. A sale an older release rang up is stornoed as its
  * copy, under the row's id (§6 edge 3).
  */
-export async function stornoDoor(input: StornoDoorInput): Promise<{ status: number; body: Record<string, unknown> } | { transaction: any; stockError?: string }> {
+export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typeof stornoResponse>> {
   const { orgId, user, key, hash } = input
   /** A back-office sale and its storno are invoicing's documents, audited as its own. */
   const backOffice = (): RegisterContext => ({ orgId, user, session: null, printer: null, audit: { module: 'invoicing', entityType: 'invoice' } })
