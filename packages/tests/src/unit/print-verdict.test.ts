@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { verdictOfFailedPrint, type FailedPrint, type PrintVerdict } from 'services/biz/cash-register/print-verdict'
+import { provedNotPrinted, verdictOfFailedPrint, type FailedPrint, type PrintVerdict } from 'services/biz/cash-register/print-verdict'
 
 /** FR-23, ruling 1: what a fiscal print that threw left behind, in the document's turn on the device. */
 describe('what a print that threw left behind', () => {
@@ -56,4 +56,26 @@ describe('what a print that threw left behind', () => {
     expect(verdictOfFailedPrint({ stage: 'closing', before: 0, now: 1 })).toBe('printed')
     expect(verdictOfFailedPrint({ stage: 'paying', before: 0, now: 0, open: false })).toBe('failed')
   })
+})
+
+/** Finding 6: a print read in a later turn, for any document. The device is shared, so a counter proves nothing but silence. */
+describe('what a print that stopped in an earlier turn proves', () => {
+  const table: Array<[string, { before?: number | null; now?: number; open?: boolean }, boolean]> = [
+    ['unmoved and idle: nothing closed, and nothing will', { before: 7, now: 7, open: false }, true],
+    ['a counter of zero, unmoved and idle', { before: 0, now: 0, open: false }, true],
+    ['moved by one: its print, or anybody else\'s', { before: 7, now: 8, open: false }, false],
+    ['moved by more', { before: 7, now: 9, open: false }, false],
+    ['moved backwards: a device replaced', { before: 7, now: 3, open: false }, false],
+    ['unmoved with a receipt open: it may be paid', { before: 7, now: 7, open: true }, false],
+    ['unmoved, and it cannot say what is open', { before: 7, now: 7 }, false],
+    ['no reading now', { before: 7, open: false }, false],
+    ['no reading before', { now: 7, open: false }, false],
+    ['null before: a device that could not say then', { before: null, now: 7, open: false }, false],
+    ['nothing at all', {}, false],
+  ]
+  for (const [name, reading, proved] of table) {
+    it(`${name}: ${proved ? 'it never printed' : 'nothing is proved'}`, () => {
+      expect(provedNotPrinted(reading)).toBe(proved)
+    })
+  }
 })

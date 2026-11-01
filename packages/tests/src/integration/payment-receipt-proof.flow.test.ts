@@ -3,7 +3,7 @@ import { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
 import {
-  clerkSession, draftOf, gate, pay, raw, receiptsOf, send, sessionOf, shown, until,
+  TODAY, clerkSession, draftOf, gate, pay, raw, receiptsOf, send, sessionOf, shown, until,
 } from '../helpers/receipt-world'
 import { AuditLog, FiscalDevice, Invoice, POSSession } from 'db/models'
 import { paymentReceiptDocument, recordPayment, runReceiptSteps } from 'services/biz/cash-register/payment-receipt.service'
@@ -286,6 +286,81 @@ describe('what a leftover on the device says about this document (finding 1)', (
     expect((await pay(w, d.id, 24)).status).toBe(503)
     expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
     expect((await receiptsOf(d.id))[0].register.fiscal.state).toBe('failed')
+  })
+})
+
+describe('a counter read in another turn proves nothing, for any document (finding 6)', () => {
+  /** A till document its request left at `attemptedAt`, with the counter as it read then. */
+  const interrupted = (id: string, counterBefore: number, key: string, hash: string) => Invoice.updateOne({ _id: id }, {
+    $set: {
+      'register.fiscal': { state: 'pending', mode: 'fiscal', attemptedAt: new Date(), counterBefore },
+      leaseUntil: new Date(Date.now() - 1000), clientKey: key, requestHash: hash,
+    },
+    $unset: { completedAt: 1 },
+  })
+
+  it('a sale that died before it printed is not booked under the next document\'s number', async () => {
+    const w = await tillWorld(app)
+    const key = 'died-sale-0001'
+    const body = w.saleBody(1)
+    const sale = await w.sell(1)
+    const counter = w.sim!.lastDocNumber
+    await Invoice.updateOne({ _id: sale.json.transaction.id }, { $unset: { 'register.fiscalReceiptNumber': 1, 'register.printedAt': 1 } })
+    await interrupted(sale.json.transaction.id, counter, key, requestHash(`pos.sale:${w.sessionId}`, body))
+    // Somebody else's document on the same device, between the turn that read and the retry.
+    const d = await onBank(w)
+    expect((await pay(w, d.id, 24)).status).toBe(200)
+    const others = closedOnDevice(w).at(-1)!.number
+
+    const r = await w.call('POST', `/trade/pos/session/${w.sessionId}/transaction`, body, key)
+
+    expect(r.status).toBe(200)
+    expect(r.json.transaction.fiscal.state).toBe('unknown')
+    expect(r.json.receiptError).toMatch(/cannot confirm/)
+    expect(r.json.transaction.fiscalReceiptNumber).not.toBe(others)
+    expect(closedOnDevice(w)).toHaveLength(2)
+  })
+
+  it('a storno that died before it printed refunds nothing on the next document\'s number', async () => {
+    const w = await tillWorld(app)
+    const sale = await w.sell(1)
+    const key = 'died-storno-0001'
+    const storno = await w.storno(sale.json.transaction.id, key)
+    expect(storno.status).toBe(200)
+    const stornoId = storno.json.transaction.id
+    const cash = (await sessionOf(w)).totalCash
+    await Invoice.updateOne({ _id: stornoId }, {
+      $unset: { 'register.fiscalReceiptNumber': 1, 'register.printedAt': 1, 'register.sessionTotalsApplied': 1, 'register.movementId': 1 },
+    })
+    await Invoice.updateOne({ _id: stornoId }, {
+      $set: { 'register.fiscal': { state: 'pending', mode: 'fiscal', attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber }, leaseUntil: new Date(Date.now() - 1000) },
+      $unset: { completedAt: 1 },
+    })
+    const d = await onBank(w)
+    expect((await pay(w, d.id, 24)).status).toBe(200)
+
+    const r = await w.storno(sale.json.transaction.id, key)
+
+    expect(r.status).toBe(503)
+    expect(r.json.code).toBe('fiscal_error')
+    const doc: any = await Invoice.findById(stornoId).lean().exec()
+    expect(doc.status).toBe('voided')
+    expect(doc.register.fiscalReceiptNumber).toBeUndefined()
+    expect((await sessionOf(w)).totalCash).toBe(cash + 24)
+  })
+
+  it('and a receipt is held for a person, not booked', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    const key = 'died-receipt-0001'
+    const hash = requestHash(`invoice.payment:${d.id}`, { date: TODAY(), amount: 24, method: 'cash' })
+    await dead(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber - 1 }, { key, hash })
+
+    const r = await w.call('POST', `/invoices/${d.id}/payments`, { date: TODAY(), amount: 24, method: 'cash' }, key)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_in_doubt')
+    expect(await raw(d.id)).toMatchObject({ amountPaid: 0 })
   })
 })
 

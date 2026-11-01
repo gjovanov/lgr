@@ -50,10 +50,11 @@ import { generateUNP } from '../sequence.service.js'
 import { LEASE_MS } from '../hot-path-key.js'
 import { fitsDue, outstandingOf, overpays, paymentPipeline, type PaymentRow } from '../invoice-payment.js'
 import { PAYMENT_RECEIPT } from './pos-union.js'
+import { provedNotPrinted } from './print-verdict.js'
 import type { RegisterPrinter } from './printer.js'
 import type { ReceiptBody } from './receipt-lines.js'
 import {
-  IN_DOUBT, RegisterRefusal, applySessionTotals, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, rollBack,
+  IN_DOUBT, RegisterRefusal, applySessionTotals, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, readDevice, rollBack,
   saleIncrements, setRegister, type RegisterContext, type RegisterSession, type RegisterUser,
 } from './register.service.js'
 
@@ -367,7 +368,7 @@ async function printReceiptStep(c: RegisterContext, doc: any): Promise<any> {
       // lands after the day was counted is in no session's drawer (`pos.controller.ts`, the close).
       const open = await POSSession.exists({ _id: fresh.register?.sessionId, status: 'open' }).exec()
       if (!open) return couldNot('The session closed before this receipt could print.')
-      return printSaleStep(c, fresh, { strict: true })
+      return printSaleStep(c, fresh)
     })
   } catch (e: any) {
     if (e?.code !== 'device_busy') throw e
@@ -487,14 +488,9 @@ export async function unfinishedReceipts(orgId: string, sessionId: string): Prom
 export async function finishInterruptedReceipt(c: RegisterContext, doc: any): Promise<any> {
   const decide = async (fresh: any) => {
     const fiscal = fresh.register?.fiscal
-    let provedNotPrinted = !fiscal?.attemptedAt
-    if (!provedNotPrinted && c.printer) {
-      const before = fiscal.counterBefore
-      const now = await c.printer.lastReceiptNumber().catch(() => undefined)
-      const open = await c.printer.receiptOpen?.().catch(() => undefined)
-      provedNotPrinted = before !== undefined && before !== null && now === before && open === false
-    }
-    if (!provedNotPrinted) {
+    const neverPrinted = !fiscal?.attemptedAt
+      || (!!c.printer && provedNotPrinted({ before: fiscal.counterBefore, ...(await readDevice(c.printer)) }))
+    if (!neverPrinted) {
       logger.warn({ documentId: String(fresh._id) }, 'Interrupted payment receipt cannot be proved either way — held for a person')
       return holdInDoubt(fresh, IN_DOUBT)
     }

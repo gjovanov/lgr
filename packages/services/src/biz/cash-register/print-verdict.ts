@@ -1,11 +1,12 @@
 /**
- * What a fiscal print that threw left behind. Import-pure: `register.service.ts` reads the device, and
- * the rule lives here where it can be held to the table.
+ * What proves a fiscal print, all of it. Import-pure: `register.service.ts` and
+ * `payment-receipt.service.ts` read the device, and the rules live here where they can be held to the
+ * table.
  *
- * ⚠ Only ever in the document's turn on the device (`fiscal/device-turn`). In a turn nothing else has
- * printed since the counter was read, so a counter that moved by one moved for this document. Out of
- * one the same reading proves nothing, and a dead receipt is decided another way
- * (`payment-receipt.service.ts`).
+ * ⚠ `verdictOfFailedPrint` only ever in the document's turn on the device (`fiscal/device-turn`). In a
+ * turn nothing else has printed since the counter was read, so a counter that moved by one moved for
+ * this document. Out of one a counter proves nothing, for any document: the device is shared, and
+ * what moved it may be anybody's. There `provedNotPrinted` is all that can be asked.
  *
  * - **printed**: the receipt got as far as its money and the counter moved by one. The close went
  *   through and only its answer was lost, or abandoning the receipt finished it.
@@ -42,6 +43,16 @@ export interface FailedPrint {
   closed?: boolean
 }
 
+/**
+ * A print that stopped in an earlier turn, read in this one: a request that died, whichever document
+ * it was. Nothing closed since it started and nothing is open, so it never printed, and only then.
+ * Anything else may be its print or anybody else's, a counter moved by exactly one included: the
+ * document is then `unknown`, or held for a person, and never printed again.
+ */
+export function provedNotPrinted(p: Pick<FailedPrint, 'before' | 'now' | 'open'>): boolean {
+  return p.before !== undefined && p.before !== null && p.now === p.before && p.open === false
+}
+
 export function verdictOfFailedPrint(p: FailedPrint): PrintVerdict {
   const counted = p.before !== undefined && p.before !== null && p.now !== undefined
   const beforeTheMoney = p.stage === 'refused' || p.stage === 'opening' || p.stage === 'lines'
@@ -50,5 +61,5 @@ export function verdictOfFailedPrint(p: FailedPrint): PrintVerdict {
   if (p.closed) return movedByOne && !beforeTheMoney ? 'printed' : 'unknown'
   if (beforeTheMoney) return 'failed'
   if (movedByOne) return 'printed'
-  return counted && p.now === p.before && p.open === false ? 'failed' : 'unknown'
+  return provedNotPrinted(p) ? 'failed' : 'unknown'
 }

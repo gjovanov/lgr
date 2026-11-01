@@ -39,7 +39,7 @@ import { IdempotencyError, LEASE_MS, assertSameRequest, keepLease, takeLease, wa
 import { exchangeRateFor, fromPosTransaction } from './mapping.js'
 import { unitsOf } from './copy.js'
 import type { RegisterPrinter } from './printer.js'
-import { verdictOfFailedPrint } from './print-verdict.js'
+import { provedNotPrinted, verdictOfFailedPrint } from './print-verdict.js'
 
 /**
  * The number a keyed document holds between its insert and its real number. Never a valid prefix,
@@ -262,30 +262,23 @@ export async function numberPending(orgId: string, doc: any): Promise<any | null
  *
  * - **First attempt:** store `attemptedAt` and the device's last document number, then print. If the
  *   print throws, what it left behind is decided here, in the turn (`afterFailedPrint`).
- * - **An interrupted attempt** (`attemptedAt` set, still `pending`): ask the device again. Nothing
- *   closed and nothing open → it did not print; print it. Exactly one more → that one is ours; record
- *   it. Anything else, or a device that cannot say (Tremol) → `unknown`, and NEVER reprinted: a second
- *   fiscal receipt for one sale is the failure this exists to prevent. The cashier checks the device.
- *
- * ⚠ `strict`, a payment's receipt: a resume reads a counter that may have moved for any document on a
- * shared device, and here the reading decides whether money is booked. So nothing but "it never
- * printed" is believed, and anything else is held for a person (`holdInDoubt`).
+ * - **An interrupted attempt** (`attemptedAt` set, still `pending`): ask the device again, in a turn
+ *   that is not the one the counter was read in. Nothing closed and nothing open → it did not print;
+ *   print it (`provedNotPrinted`). ⚠ Anything else is never printed again, a counter moved by exactly
+ *   one included: on a shared device that may be another document's receipt, and booked as this
+ *   one's it hands a customer someone else's number, or refunds a storno the device never saw. A
+ *   second fiscal receipt for one sale is the failure this exists to prevent, so the document goes
+ *   `unknown` and the cashier checks the device. A payment's receipt is held for a person instead
+ *   (`holdInDoubt`), because here the reading decides whether money is booked.
  */
-async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promise<string>, opts: { strict?: boolean } = {}): Promise<any> {
+async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promise<string>): Promise<any> {
   const fiscal = doc.register?.fiscal || {}
   if (fiscal.attemptedAt) {
     const before = fiscal.counterBefore
-    const now = await printer.lastReceiptNumber().catch(() => undefined)
-    const open = await printer.receiptOpen?.().catch(() => undefined)
-    const known = before !== undefined && before !== null && now !== undefined
-    if (known && now === before + 1 && !opts.strict) {
-      const receiptNo = String(now).padStart(7, '0')
-      logger.info({ documentId: String(doc._id), receiptNo }, 'Interrupted fiscal receipt had printed — recorded, not reprinted')
-      return recordPrinted(doc, receiptNo)
-    }
-    if (!known || now !== before || open !== false) {
+    const { now, open } = await readDevice(printer)
+    if (!provedNotPrinted({ before, now, open })) {
       logger.warn({ documentId: String(doc._id), before, now, open }, 'Interrupted fiscal receipt: device cannot confirm it — not reprinting')
-      if (opts.strict) return holdInDoubt(doc, IN_DOUBT)
+      if (doc.type === 'payment_receipt') return holdInDoubt(doc, IN_DOUBT)
       return setRegister(doc._id, {
         'fiscal.state': 'unknown',
         receiptError: 'The receipt was interrupted and the device cannot confirm whether it printed. Check the device; do not ring the sale up again.',
@@ -313,6 +306,13 @@ async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promis
   return recordPrinted(doc, receiptNo)
 }
 
+/** What the device says now, as far as it can. */
+export async function readDevice(printer: RegisterPrinter): Promise<{ now?: number; open?: boolean }> {
+  const now = await printer.lastReceiptNumber().catch(() => undefined)
+  const open = await printer.receiptOpen?.().catch(() => undefined)
+  return { now, open }
+}
+
 /** What a receipt in doubt says: nothing was booked, and who does what next. */
 export const IN_DOUBT = 'The receipt was interrupted and nothing can prove whether it printed, so nothing was booked. Check the device, then settle it in the cash-register journal.'
 
@@ -334,8 +334,7 @@ function recordPrinted(doc: any, receiptNo: string | undefined): Promise<any> {
  */
 async function afterFailedPrint(printer: RegisterPrinter, doc: any, before: number | undefined, e: any): Promise<any> {
   const abandoned = await printer.abandonReceipt().catch(() => undefined)
-  const now = await printer.lastReceiptNumber().catch(() => undefined)
-  const open = await printer.receiptOpen?.().catch(() => undefined)
+  const { now, open } = await readDevice(printer)
   const verdict = verdictOfFailedPrint({ stage: e?.printStage, before, now, open, closed: !!abandoned?.closed })
   logger.error({ documentId: String(doc._id), unp: doc.register?.unp, error: e?.message, stage: e?.printStage, before, now, open, verdict }, 'Fiscal receipt printing FAILED')
   if (verdict === 'printed') return recordPrinted(doc, String(now).padStart(7, '0'))
@@ -376,7 +375,7 @@ async function printInTurn(printer: RegisterPrinter, doc: any, step: (fresh: any
 }
 
 /** The sale's receipt: fiscal or text, at most once. */
-export async function printSaleStep(c: RegisterContext, doc: any, opts: { strict?: boolean } = {}): Promise<any> {
+export async function printSaleStep(c: RegisterContext, doc: any): Promise<any> {
   const printer = c.printer
   if (!printer) {
     return setRegister(doc._id, { 'fiscal.state': 'unknown', receiptError: 'The fiscal device is no longer connected — check whether the receipt printed.' })
@@ -405,7 +404,7 @@ export async function printSaleStep(c: RegisterContext, doc: any, opts: { strict
     await printer.reached()
     logger.info({ documentId: String(doc._id), unp: doc.register?.unp, receiptNo }, 'Fiscal receipt printed')
     return receiptNo
-  }, opts)
+  })
 }
 
 /**
