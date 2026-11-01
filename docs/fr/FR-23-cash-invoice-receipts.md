@@ -166,6 +166,8 @@ Where the spec left a choice, what was chosen:
 - **A debit note names itself:** „Дебитно известие № …", „Плащане по дебитно известие № …".
 - **A cash payment on an imported invoice prints nothing and is recorded**, as §2.2's "never" says. That cash is in no session.
 - **A later payment on a COD invoice prints nothing**, by any method: every cent of it has its receipt.
+- **A COD receipt that fails at issue prints on its own** (`POST /invoices/:id/receipt`). §2.4's "the user takes the payment again" cannot apply: the money is the courier's, and Pay would record money nobody brought, print nothing, and leave the sale with no receipt. The form offers the print from the document's own state (`receiptToPrint`), because an unpaid COD invoice looks like any other once the page is reloaded. The invoice stays due. An invoice that never tried to print is not offered it: it was issued before LGR printed, or where it does not.
+- **The re-issue of a number issued twice prints nothing** (FR-20.51). It copies the invoice's method, and its money was taken under the number it replaces: a second receipt would book the sale on the device twice, and with no session it would refuse a legal correction.
 - **A payment on a draft is refused** where LGR prints (422 `document_not_issued`): a receipt names a number.
 - **A document in another currency than the session is refused** (422 `receipt_currency`). The device prints in one currency.
 - **A rate with a negative total is refused** (422 `receipt_not_printable`). A device takes no negative line.

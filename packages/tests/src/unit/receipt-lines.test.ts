@@ -4,6 +4,7 @@ import {
 } from 'services/biz/cash-register/receipt-lines'
 import { receiptRefusalKey, receiptRefusalMessage, isFailedPrint } from 'ui-shared/cash-register/receipt-refusal'
 import { kindColor } from 'ui-shared/cash-register/journal-kind'
+import { issuedReceiptNotice } from '../../../invoicing-ui/src/composables/document-issue'
 import { isImportedDocument, printsAtCounter } from 'services/biz/cash-register/payment-receipt.service'
 import { isImmutableRegisterDocument } from 'services/biz/cash-register/immutability'
 import { sequenceGroupFor } from 'services/biz/sequence-registry'
@@ -222,6 +223,8 @@ describe('what prints at the counter', () => {
     }
     expect(printsAtCounter(sale({ direction: 'incoming' }), 'cash', true)).toBe(false)
     expect(printsAtCounter(sale({ cashSaleRef: { cashSaleId: 'x' } }), 'cash', true)).toBe(false)
+    expect(printsAtCounter(sale({ stockSource: { marker: 'number_clash:x', detectedBy: 'number_clash' } }), 'cash', true)).toBe(false)
+    expect(printsAtCounter(sale({ stockSource: { marker: 'stokrazp:x', detectedBy: 'conversion' } }), 'cash', true)).toBe(true)
   })
 
   it('never an imported document, however it came in', () => {
@@ -265,12 +268,41 @@ describe('the type, as the readers see it', () => {
   })
 })
 
+describe('issued, and the receipt did not print', () => {
+  it('paid at the counter: unpaid, and Pay takes the money again', () => {
+    for (const paymentMethod of ['cash', 'card']) {
+      expect(issuedReceiptNotice({ receiptError: 'x', paymentMethod, receipt: { state: 'failed' } }))
+        .toEqual({ key: 'cashRegister.receipt.issuedNotPaid', takesPayment: true })
+    }
+    // Refused on the way to the device: no receipt came of it.
+    expect(issuedReceiptNotice({ receiptError: 'x', paymentMethod: 'cash' })).toEqual({ key: 'cashRegister.receipt.issuedNotPaid', takesPayment: true })
+  })
+
+  it('a receipt that may have printed stands: the money is recorded, and there is none to take', () => {
+    for (const paymentMethod of ['cash', 'card', 'cash_on_delivery']) {
+      expect(issuedReceiptNotice({ receiptError: 'x', paymentMethod, receipt: { state: 'unknown' } }))
+        .toEqual({ key: 'cashRegister.receipt.issuedUnknown', takesPayment: false })
+    }
+  })
+
+  it('on delivery the money is the courier\'s: Pay would record what nobody brought', () => {
+    expect(issuedReceiptNotice({ receiptError: 'x', paymentMethod: 'cash_on_delivery', receipt: { state: 'failed' } }))
+      .toEqual({ key: 'cashRegister.receipt.issuedNoReceipt', takesPayment: false })
+  })
+
+  it('nothing went wrong: nothing to say', () => {
+    expect(issuedReceiptNotice({ paymentMethod: 'cash' })).toBeNull()
+    expect(issuedReceiptNotice(null)).toBeNull()
+  })
+})
+
 describe('the refusal, in words', () => {
   it('says what to do about a session and a device', () => {
     expect(receiptRefusalKey({ code: 'fiscal_device_not_connected', noSession: true })).toBe('cashRegister.receipt.noSession')
     expect(receiptRefusalKey({ code: 'fiscal_device_not_connected', deviceConfigured: true })).toBe('pos.printerRequired.notConnected')
     expect(receiptRefusalKey({ code: 'fiscal_device_not_connected', deviceConfigured: false })).toBe('pos.printerRequired.notConfigured')
     expect(receiptRefusalKey({ code: 'fiscally_paid' })).toBe('cashRegister.receipt.fiscallyPaid')
+    expect(receiptRefusalKey({ code: 'no_receipt_owed' })).toBe('cashRegister.receipt.noneOwed')
     expect(receiptRefusalKey({ code: 'overpayment' })).toBeNull()
   })
 

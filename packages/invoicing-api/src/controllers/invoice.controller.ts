@@ -23,7 +23,7 @@ import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from
 import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement, syncDueAfterEdit } from 'services/biz/cash-settlement.service'
 import { fitsDue, heldOn, outstandingOf, overpays, paymentPipeline } from 'services/biz/invoice-payment'
-import { FISCALLY_PAID, isFiscallyPaid, paidByReceipts } from 'services/biz/cash-register/payment-receipt.service'
+import { FISCALLY_PAID, isFiscallyPaid, owesDeliveryReceipt, paidByReceipts } from 'services/biz/cash-register/payment-receipt.service'
 import { movesPrintedMoney } from 'services/biz/cash-register/receipt-lines'
 import { NOT_PAYMENT_RECEIPT } from 'services/biz/sale-counting'
 import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from 'services/biz/cash-register/immutability'
@@ -979,6 +979,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         ...(isSupplierBill(invoice) ? { stockMovements: await billStockReceipts(orgId, invoice) } : {}),
         // FR-23: the receipts that paid it.
         paymentReceipts: await paidByReceipts(orgId, id),
+        receiptToPrint: await owesDeliveryReceipt(orgId, invoice),
         statusHistory: synthesizeStatusHistory(invoice),
         contactId: contact ? { _id: contact.id, id: contact.id, companyName: (contact as any).companyName, firstName: (contact as any).firstName, lastName: (contact as any).lastName, email: (contact as any).email } : invoice.contactId,
       },
@@ -1603,6 +1604,39 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       }),
     },
   )
+  // FR-23: the receipt of a cash-on-delivery invoice, when issuing it did not print one. The money
+  // is the courier's: there is no payment to take again, and Pay would record money nobody brought.
+  .post('/:id/receipt', async ({ params: { orgId, id }, user, status, headers }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
+
+    let key: string | undefined
+    try {
+      key = readIdempotencyKey(headers)
+    } catch (e: any) {
+      return status(e.statusCode, { code: e.code, message: e.message })
+    }
+    const hash = key ? requestHash(`invoice.receipt:${id}`, {}) : undefined
+    const answer = async (receipt: any) => (receipt.register?.fiscal?.state === 'failed'
+      ? status(503, { code: 'fiscal_error', receiptId: String(receipt._id), message: `The receipt was not printed: ${receipt.register.receiptError}` })
+      : { invoice: await r.invoices.findOne({ id, orgId } as any), ...receiptOutcome(receipt) })
+
+    if (!(await r.invoices.findOne({ id, orgId } as any))) return status(404, { message: 'Invoice not found' })
+    try {
+      const replay = key ? await keyedReceipt(orgId, key) : null
+      if (replay) return await answer(await settleKeyedReceipt(orgId, user, replay, hash!))
+
+      // What a request that died left comes first: its receipt may have printed.
+      await finishInterruptedReceipts(orgId, user, id)
+      const doc: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
+      const prepared = (await owesDeliveryReceipt(orgId, doc)) ? await prepareIssueReceipt(orgId, user, doc) : null
+      if (!prepared) return status(409, { code: 'no_receipt_owed', message: 'This document has no receipt left to print.' })
+      return await answer(await printReceipt(orgId, prepared, doc, key ? { key, hash: hash! } : undefined))
+    } catch (e: any) {
+      if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
+      throw e
+    }
+  }, { isSignIn: true })
   .post('/:id/void', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()

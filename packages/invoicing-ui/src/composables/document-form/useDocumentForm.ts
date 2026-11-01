@@ -1464,8 +1464,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const issuingWithPrint = ref(false)
   /** Why the document is still a draft after it was asked to be issued (FR-22 §5.2). */
   const issueError = issuer.lastError
-  /** FR-23: issued, and its receipt did not print: unpaid, and the Pay action takes the money again. */
+  /** FR-23: issued, and its receipt did not print. The Pay action takes the money again, when it is there to take. */
   const receiptError = issuer.lastReceiptError
+  const receiptTakesPayment = issuer.lastReceiptTakesPayment
 
   // ── a payment on the document (FR-23) ──
   const paymentDialog = ref(false)
@@ -1475,6 +1476,29 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     : null))
   async function onPaymentRecorded() {
     receiptError.value = ''
+    await loadDocument()
+  }
+
+  // ── the receipt of a cash-on-delivery invoice (FR-23) ──
+  /** It did not print as the invoice was issued. The money is the courier's, so the receipt prints alone. */
+  const deliveryReceiptDue = computed(() => !!invoiceData.value?.receiptToPrint)
+  const printingReceipt = ref(false)
+  const deliveryReceipt = createIdempotentAction()
+  async function printDeliveryReceipt() {
+    if (printingReceipt.value) return
+    const id = String(route.params.id)
+    printingReceipt.value = true
+    try {
+      const { data } = await deliveryReceipt.run({ id }, headers => httpClient.post(`${orgUrl()}/invoices/${id}/receipt`, {}, { headers }))
+      receiptError.value = ''
+      if (data?.receiptError) showError(t('cashRegister.receipt.issuedUnknown', { reason: data.receiptError }))
+      else showSuccess(t('cashRegister.receipt.deliveryPrinted', { number: data?.receipt?.number }))
+    } catch (e: any) {
+      receiptError.value = receiptRefusalMessage(t, e, t('common.operationFailed'))
+      showError(receiptError.value)
+    } finally {
+      printingReceipt.value = false
+    }
     await loadDocument()
   }
 
@@ -1937,6 +1961,10 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     issueFromForm,
     issueError,
     receiptError,
+    receiptTakesPayment,
+    deliveryReceiptDue,
+    printingReceipt,
+    printDeliveryReceipt,
     paymentDialog,
     payableDoc,
     onPaymentRecorded,

@@ -27,6 +27,7 @@ import { buildInvoiceHtml } from 'reporting/pdf/invoice.pdf'
 import { printableDocument } from 'invoicing-api/src/lib/invoice-pdf'
 import { bookingOf } from 'services/biz/move/fenced-import.service'
 import { fitsDue } from 'services/biz/invoice-payment'
+import { prepareClashCorrection } from 'services/biz/number-clash.service'
 import { localDayOf } from 'services/biz/local-day'
 import { config } from 'config'
 
@@ -85,6 +86,8 @@ async function draftOf(w: TillWorld, o: { method?: string; lines?: any[]; type?:
 const send = (w: TillWorld, id: string, key?: string, as?: string) => w.call('POST', `/invoices/${id}/send`, {}, key, as)
 const pay = (w: TillWorld, id: string, amount: number, method = 'cash', key?: string, as?: string) =>
   w.call('POST', `/invoices/${id}/payments`, { date: TODAY, amount, method }, key, as)
+const printIt = (w: TillWorld, id: string, key?: string, as?: string) => w.call('POST', `/invoices/${id}/receipt`, {}, key, as)
+const shown = async (w: TillWorld, id: string) => (await w.call('GET', `/invoices/${id}`)).json.invoice
 const raw = (id: string) => Invoice.findById(id).lean().exec() as Promise<any>
 const receiptsOf = (id: string) => Invoice.find({ type: 'payment_receipt', 'register.paidInvoiceId': id }).sort({ _id: 1 }).lean().exec() as Promise<any[]>
 const sessionOf = (w: TillWorld) => POSSession.findById(w.sessionId).lean().exec() as Promise<any>
@@ -458,6 +461,45 @@ describe('an imported document never prints (§2.2)', () => {
   })
 })
 
+describe('the re-issue of a number issued twice (FR-20.51)', () => {
+  /** Two cash invoices under one number, and the correction of the later one, prepared as drafts. */
+  async function correction(w: TillWorld) {
+    const contact = await createTestContact(w.oid, { companyName: 'Клиент ООД', type: 'customer' } as any)
+    const { ObjectId } = (Invoice.base as any).Types
+    const number = 'INV-2026-00007'
+    const sale = (over: Record<string, unknown> = {}) => ({
+      _id: new ObjectId(), orgId: w.oid, type: 'invoice', direction: 'outgoing', invoiceNumber: number, status: 'paid', paymentMethod: 'cash',
+      issueDate: new Date(), dueDate: new Date(), createdAt: new Date(), contactId: contact._id, currency: 'EUR', exchangeRate: 1,
+      subtotal: 20, taxTotal: 4, total: 24, amountPaid: 24, amountDue: 0, billingAddress: { street: 'Main 1', city: 'Sofia', country: 'BG' },
+      lines: [{ ...line(w), _id: new ObjectId(), productId: w.product._id, warehouseId: w.warehouse._id }], payments: [], ...over,
+    })
+    const earlier = sale({ issueDate: new Date(Date.now() - 86_400_000), createdAt: new Date(Date.now() - 86_400_000) })
+    await Invoice.collection.insertOne(earlier as any)
+    const later = sale({ numberClash: { withId: earlier._id, withNumber: number, source: 'fenced_export', at: new Date() } })
+    await Invoice.collection.insertOne(later as any)
+    return prepareClashCorrection(w.orgId, String(later._id), { id: String(w.user._id) })
+  }
+
+  it('prints nothing and asks for no session: its money was taken under the number it replaces', async () => {
+    const w = await tillWorld(app)
+    const { reissue } = await correction(w)
+    expect((await raw(reissue.id)).paymentMethod).toBe('cash')
+    const device = w.sim!.executed.length
+
+    // The clerk has no session: a receipt would be refused, and the correction with it.
+    const r = await send(w, reissue.id, undefined, w.clerkToken)
+
+    expect(r.status).toBe(200)
+    expect(r.json.receiptError).toBeUndefined()
+    expect(await receiptsOf(reissue.id)).toHaveLength(0)
+    expect(w.sim!.executed.length).toBe(device)
+    // Settled on issue, as it always was: the credit note gives that money back.
+    const inv = await raw(reissue.id)
+    expect(inv).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect(inv.payments.map((p: any) => p.origin)).toEqual(['cash_on_issue'])
+  })
+})
+
 describe('an edit does not settle silently where LGR prints', () => {
   it('an issued invoice edited to cash stays unpaid, and the Pay button prints', async () => {
     const w = await tillWorld(app)
@@ -825,6 +867,136 @@ describe('cash on delivery on an invoice (Q-2, as proposed)', () => {
     expect(w.sim!.receipts).toHaveLength(1)
   })
 
+  describe('a print that fails at issue', () => {
+    /** Issued on delivery with the paper out, and the paper back in. */
+    async function failedAtIssue(w: TillWorld) {
+      const d = await draftOf(w, { method: 'cash_on_delivery' })
+      w.sim!.paper = false
+      const r = await send(w, d.id)
+      expect(r.status).toBe(200)
+      expect(r.json.receipt.state).toBe('failed')
+      w.sim!.paper = true
+      return d
+    }
+
+    it('prints on its own: no money is recorded, the invoice stays due, the courier\'s slot and the invoice\'s lines', async () => {
+      const w = await tillWorld(app)
+      const d = await failedAtIssue(w)
+      expect((await shown(w, d.id)).receiptToPrint).toBe(true)
+
+      const r = await printIt(w, d.id)
+
+      expect(r.status).toBe(200)
+      expect(r.json.receipt.state).toBe('printed')
+      const printed = w.sim!.receipts.filter(x => !x.voided)
+      expect(printed).toHaveLength(1)
+      expect(printed[0]).toMatchObject({ total: 24, payments: [{ mode: 'R', amount: 24 }] })
+      expect(printed[0].texts).toHaveLength(1)
+      const inv = await raw(d.id)
+      expect(inv).toMatchObject({ status: 'sent', amountPaid: 0, amountDue: 24 })
+      expect(inv.payments).toHaveLength(0)
+      expect(inv.receiptHolds ?? []).toHaveLength(0)
+      expect(await sessionOf(w)).toMatchObject({ totalCashOnDelivery: 24, totalCash: 0 })
+      expect((await shown(w, d.id)).receiptToPrint).toBe(false)
+      expect((await shown(w, d.id)).paymentReceipts).toHaveLength(1)
+    })
+
+    it('a print that fails again says so, and is still owed', async () => {
+      const w = await tillWorld(app)
+      const d = await failedAtIssue(w)
+      w.sim!.paper = false
+
+      const r = await printIt(w, d.id)
+
+      expect(r.status).toBe(503)
+      expect(r.json.code).toBe('fiscal_error')
+      expect(r.json.message).toContain('out of paper')
+      expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0, amountDue: 24 })
+      expect((await shown(w, d.id)).receiptToPrint).toBe(true)
+      expect((await sessionOf(w)).totalCashOnDelivery ?? 0).toBe(0)
+    })
+
+    it('a retry with the same key prints once', async () => {
+      const w = await tillWorld(app)
+      const d = await failedAtIssue(w)
+
+      const a = await printIt(w, d.id, 'cod-receipt-key-1')
+      const b = await printIt(w, d.id, 'cod-receipt-key-1')
+
+      expect([a.status, b.status]).toEqual([200, 200])
+      expect(b.json.receipt.id).toBe(a.json.receipt.id)
+      expect(w.sim!.receipts.filter(x => !x.voided)).toHaveLength(1)
+    })
+
+    it('no session: refused, and nothing is written', async () => {
+      const w = await tillWorld(app)
+      const d = await failedAtIssue(w)
+      const before = await footprint(w)
+
+      const r = await printIt(w, d.id, undefined, w.clerkToken)
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('fiscal_device_not_connected')
+      expect(await footprint(w)).toEqual(before)
+    })
+
+    it('a customer who pays at the counter after all prints that payment, as any does', async () => {
+      const w = await tillWorld(app)
+      const d = await failedAtIssue(w)
+
+      expect((await pay(w, d.id, 24)).status).toBe(200)
+
+      const printed = w.sim!.receipts.filter(x => !x.voided)
+      expect(printed).toHaveLength(1)
+      expect(printed[0].payments).toEqual([{ mode: 'P', amount: 24 }])
+      expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+      expect((await shown(w, d.id)).receiptToPrint).toBe(false)
+    })
+
+    it('nothing is owed by one that printed, one that never tried, or one whose money is taken at the counter', async () => {
+      const w = await tillWorld(app)
+      const printed = await draftOf(w, { method: 'cash_on_delivery' })
+      await send(w, printed.id)
+
+      // Issued where LGR printed nothing yet: the courier's money, and no receipt ever tried.
+      await Org.updateOne({ _id: w.oid }, { $set: { 'settings.cashRegister.requireConnectedDevice': false } })
+      const never = await draftOf(w, { method: 'cash_on_delivery' })
+      await send(w, never.id)
+      await Org.updateOne({ _id: w.oid }, { $set: { 'settings.cashRegister.requireConnectedDevice': true } })
+
+      // A cash invoice whose print failed: Pay takes that money, and prints.
+      const cash = await draftOf(w)
+      w.sim!.paper = false
+      await send(w, cash.id)
+      w.sim!.paper = true
+
+      const device = w.sim!.executed.length
+      for (const id of [printed.id, never.id, cash.id]) {
+        const r = await printIt(w, id)
+        expect(r.status).toBe(409)
+        expect(r.json.code).toBe('no_receipt_owed')
+        expect((await shown(w, id)).receiptToPrint).toBe(false)
+      }
+      expect(w.sim!.executed.length).toBe(device)
+    })
+
+    it('with the switch turned off since, it is no longer owed', async () => {
+      const w = await tillWorld(app)
+      const d = await failedAtIssue(w)
+      await Org.updateOne({ _id: w.oid }, { $set: { 'settings.cashRegister.requireConnectedDevice': false } })
+
+      const r = await printIt(w, d.id)
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('no_receipt_owed')
+    })
+
+    it('a document that is not there is a 404', async () => {
+      const w = await tillWorld(app)
+      expect((await printIt(w, '64b000000000000000000000')).status).toBe(404)
+    })
+  })
+
   it('the freeze holds it: the receipt printed', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w, { method: 'cash_on_delivery' })
@@ -994,13 +1166,13 @@ describe('§2.7 — once a receipt has printed, the total is the receipt\'s', ()
 
 describe('print-once, reused unchanged (#155)', () => {
   /** A receipt its request left at `fiscal`, its lease lapsed: the process died there. */
-  async function interrupted(w: TillWorld, d: { id: string; total: number }, fiscal: Record<string, unknown>, o: { key?: string; hash?: string } = {}) {
+  async function interrupted(w: TillWorld, d: { id: string; total: number }, fiscal: Record<string, unknown>, o: { key?: string; hash?: string; method?: string } = {}) {
     const { paymentReceiptDocument } = await import('services/biz/cash-register/payment-receipt.service')
     const { receiptBody } = await import('services/biz/cash-register/receipt-lines')
     const invoice = await raw(d.id)
     const body = receiptBody({ doc: invoice, amount: d.total, whole: false, printsText: true, receipts: [] })!
     const document = paymentReceiptDocument({
-      invoice, body, tender: { method: 'cash', amount: d.total, date: new Date() },
+      invoice, body, tender: { method: o.method ?? 'cash', amount: d.total, date: new Date() },
       session: { id: w.sessionId, warehouseId: String(w.warehouse._id) },
       user: { id: String(w.user._id), operatorCode: '0001' },
       printer: { deviceNumber: 'ED123456' } as any,
@@ -1036,6 +1208,38 @@ describe('print-once, reused unchanged (#155)', () => {
     expect(inv.payments[0]).toMatchObject({ method: 'cash', origin: 'payment_receipt' })
     expect((await Invoice.findById(r._id).lean().exec() as any).register.fiscal.state).toBe('printed')
     expect((await sessionOf(w)).totalCash).toBe(24)
+  })
+
+  it('printing a delivery receipt finds a dead request first: one the device never printed is given up, and this one prints', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'cash_on_delivery' })
+    w.sim!.paper = false
+    await send(w, d.id)
+    w.sim!.paper = true
+    const dead = await interrupted(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber }, { method: 'cash_on_delivery' })
+
+    const r = await printIt(w, d.id)
+
+    expect(r.status).toBe(200)
+    expect((await Invoice.findById(dead._id).lean().exec() as any).status).toBe('voided')
+    expect(w.sim!.receipts.filter(x => !x.voided)).toHaveLength(1)
+    expect((await raw(d.id)).receiptHolds ?? []).toHaveLength(0)
+  })
+
+  it('printing a delivery receipt finds a dead request first: one that printed is not printed again', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'cash_on_delivery' })
+    w.sim!.paper = false
+    await send(w, d.id)
+    w.sim!.paper = true
+    await interrupted(w, d, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber - 1 }, { method: 'cash_on_delivery' })
+
+    const r = await printIt(w, d.id)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('no_receipt_owed')
+    expect(w.sim!.receipts).toHaveLength(0)
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
   })
 
   it('the next payment finds one the device never printed: it is given up, and this one prints', async () => {

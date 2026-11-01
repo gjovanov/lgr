@@ -2277,6 +2277,11 @@ invoice still due until the courier pays).
   then named „Фактура № …". Lines are checked before printing, never after.
 - **COD:** the receipt pays nothing. A later payment on it prints nothing, by any method: `prepareReceipt`
   stops at "every cent has its receipt". ⚠ A second receipt would book the sale on the device twice.
+  ⚠ A print that fails at issue is NOT retried by Pay: the money is the courier's, and Pay would record
+  it as received and print nothing. `POST /invoices/:id/receipt` prints it alone (`owesDeliveryReceipt`,
+  `receiptToPrint` on the document), and the invoice stays due.
+- **A number-clash re-issue prints nothing** (`stockSource.detectedBy`): its money was taken under the
+  number it replaces.
 - **The freeze** (§2.7): a live receipt (printing, printed, unknown) makes `PUT` answer 409
   `fiscally_paid` to a changed total, a move between VAT rates, or a changed currency, and refuses
   `/void` and `attach-to-cash-sale`. Everything else stays editable. The receipt itself is immutable.

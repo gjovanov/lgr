@@ -1671,6 +1671,12 @@
       "unknown": "Payment recorded, but check the device: {reason}",
       "issuedNotPaid": "Issued, but the receipt did not print, so it is still unpaid: {reason}",
       "takePayment": "Take the payment",
+      "issuedNoReceipt": "Issued, but the receipt did not print: {reason}",
+      "issuedUnknown": "Issued, but check the device: {reason}",
+      "deliveryMissing": "The receipt of this cash-on-delivery invoice has not printed.",
+      "printIt": "Print the receipt",
+      "deliveryPrinted": "Receipt {number} printed",
+      "noneOwed": "This document has no receipt left to print.",
       "paidInvoice": "Invoice paid"
     },
     "origin": {

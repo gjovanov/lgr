@@ -9,6 +9,7 @@ import {
   checkStock,
   createTransfers as createTransferMovements,
   ISSUED_KEY,
+  issuedReceiptNotice,
   prepareIssue,
   sendIssue,
   type StockCheck,
@@ -79,10 +80,11 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
    */
   const lastError = ref('')
   /**
-   * FR-23: the document was issued and its receipt did not print. It is issued and unpaid; the form
-   * shows why, and takes the payment again.
+   * FR-23: the document was issued and its receipt did not print. The form shows why, and, when the
+   * money is there to take, takes the payment again.
    */
   const lastReceiptError = ref('')
+  const lastReceiptTakesPayment = ref(false)
 
   /** The document waiting on the transfer dialog, and what its caller does once it is issued. */
   let pending: { id: string; type: string; then?: (invoice: any) => Promise<void> | void } | null = null
@@ -96,7 +98,9 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
 
   async function finish(invoice: any, type: string, then?: (invoice: any) => Promise<void> | void) {
     lastError.value = ''
-    lastReceiptError.value = invoice?.receiptError ? t('cashRegister.receipt.issuedNotPaid', { reason: invoice.receiptError }) : ''
+    const notice = issuedReceiptNotice(invoice)
+    lastReceiptError.value = notice ? t(notice.key, { reason: invoice.receiptError }) : ''
+    lastReceiptTakesPayment.value = !!notice?.takesPayment
     if (lastReceiptError.value) showError(lastReceiptError.value)
     await opts.onIssued?.(invoice, type)
     await then?.(invoice)
@@ -161,5 +165,5 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
     }
   }
 
-  return { transfer, issue, confirmTransfers, lastError, lastReceiptError }
+  return { transfer, issue, confirmTransfers, lastError, lastReceiptError, lastReceiptTakesPayment }
 }

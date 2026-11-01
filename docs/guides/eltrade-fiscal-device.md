@@ -56,6 +56,9 @@ Status*.
   receipt number saved on the transaction.
 - If a receipt does not print, the sale is still saved and the cashier sees why (out of paper, not
   in „Регистрация“, …) instead of "Sale completed".
+- **A cash-on-delivery invoice** prints in slot R as it is issued, and stays due until the courier
+  pays. If that print fails, the invoice's form offers „Print the receipt": it prints alone, and
+  records no money.
 - **A payment on an invoice** prints on the device of the session of whoever takes it (FR-23): an
   invoice issued in cash or by card its lines and „Фактура № …“, any other payment a line per VAT
   rate, „Плащане по фактура № …“. With no open session or no connected device the payment is

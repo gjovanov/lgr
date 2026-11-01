@@ -58,6 +58,19 @@ export const ISSUED_KEY: Record<string, string> = {
   proforma: 'invoicing.proformaIssued',
 }
 
+/**
+ * FR-23: what the person reads when a document was issued and its receipt did not print, and whether
+ * the Pay action is the way on. A receipt that may have printed stands (D-4): its money is recorded,
+ * and only the device can say more. A cash-on-delivery invoice owes the courier's money, not a
+ * payment at the counter: its receipt prints on its own, and Pay would record money nobody brought.
+ */
+export function issuedReceiptNotice(issued: { receiptError?: string; paymentMethod?: string; receipt?: { state?: string } } | null | undefined): { key: string; takesPayment: boolean } | null {
+  if (!issued?.receiptError) return null
+  if (issued.receipt?.state === 'unknown') return { key: 'cashRegister.receipt.issuedUnknown', takesPayment: false }
+  if (issued.paymentMethod === 'cash_on_delivery') return { key: 'cashRegister.receipt.issuedNoReceipt', takesPayment: false }
+  return { key: 'cashRegister.receipt.issuedNotPaid', takesPayment: true }
+}
+
 /** Ask whether the warehouses hold what `lines` take. */
 export async function checkStock(client: IssueClient, orgUrl: string, lines: StockCheckLine[]): Promise<StockCheck> {
   const { data } = await client.post(`${orgUrl}/invoicing/stock-availability/check`, { lines })

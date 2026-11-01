@@ -240,6 +240,39 @@ test.describe('FR-23 — a receipt for a payment on an invoice', () => {
     expect((await device()).receipts.filter((r: any) => !r.voided)).toHaveLength(before + 1)
   })
 
+  test('a cash-on-delivery print that fails at issue prints on its own: no money is taken, and the form asks until it has', async ({ page }) => {
+    const { id, total } = await draft('cash_on_delivery')
+    const before = (await device()).receipts.filter((r: any) => !r.voided).length
+
+    await loginForApp(page, 'acme-corp', cashierName, PASSWORD)
+    await page.goto(`/invoicing/invoices/${id}/edit`)
+    await paper(false)
+    const sending = issuing(page)
+    await page.getByRole('button', { name: 'Issue', exact: true }).first().click()
+    expect((await sending).status()).toBe(200)
+
+    await expect(page.getByTestId('receipt-error')).toContainText('the receipt did not print')
+    // The money is the courier's: nothing here offers to take it.
+    await expect(page.getByTestId('receipt-retry')).toHaveCount(0)
+
+    // An unpaid delivery invoice looks like any other, so the document says it, not this page's memory.
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(page.getByTestId('receipt-error')).toContainText('has not printed')
+
+    await paper(true)
+    const printing = page.waitForResponse((r: any) => /\/invoices\/[^/]+\/receipt$/.test(r.url()) && r.request().method() === 'POST')
+    await page.getByTestId('receipt-print').click()
+    expect((await printing).status()).toBe(200)
+    await expect(page.getByTestId('receipt-error')).toHaveCount(0)
+
+    const printed = (await device()).receipts.filter((r: any) => !r.voided).slice(before)
+    expect(printed).toHaveLength(1)
+    expect(printed[0].payments).toEqual([{ mode: 'R', amount: total }])
+    const { invoice } = await ok(cashier, 'GET', `/invoices/${id}`)
+    expect(invoice).toMatchObject({ status: 'sent', amountPaid: 0, receiptToPrint: false })
+    expect(invoice.paymentReceipts).toHaveLength(1)
+  })
+
   test('no open session: the draft stays a draft and says what to do', async ({ page }) => {
     // The admin has no session of their own.
     const { id } = await draft('cash')

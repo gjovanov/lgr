@@ -970,6 +970,12 @@
       "unknown": "Zahlung erfasst, aber prüfen Sie das Gerät: {reason}",
       "issuedNotPaid": "Ausgestellt, aber der Beleg wurde nicht gedruckt, daher ist es noch unbezahlt: {reason}",
       "takePayment": "Zahlung annehmen",
+      "issuedNoReceipt": "Ausgestellt, aber der Beleg wurde nicht gedruckt: {reason}",
+      "issuedUnknown": "Ausgestellt, aber prüfen Sie das Gerät: {reason}",
+      "deliveryMissing": "Der Beleg dieser Nachnahme-Rechnung wurde nicht gedruckt.",
+      "printIt": "Beleg drucken",
+      "deliveryPrinted": "Beleg {number} gedruckt",
+      "noneOwed": "Für dieses Dokument ist kein Beleg mehr zu drucken.",
       "paidInvoice": "Bezahlte Rechnung"
     },
     "origin": {

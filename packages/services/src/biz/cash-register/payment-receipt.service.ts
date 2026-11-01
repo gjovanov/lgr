@@ -26,6 +26,8 @@
  *
  * **Cash on delivery** prints at issue, in the device's slot for it, and pays nothing: the courier
  * still owes the invoice. No later payment prints again, because every cent of it has its receipt.
+ * If that print fails there is no payment to take again, so the receipt prints on its own
+ * (`owesDeliveryReceipt`).
  *
  * ⚠ What prints is decided at the doors, by a person issuing or paying at the counter
  * (`invoice.controller.ts`), never in `syncCashSettlement`, which the import conversion calls too.
@@ -67,13 +69,15 @@ export function isImportedDocument(doc: any): boolean {
 
 /**
  * Whether taking `method` on this document prints a receipt (§2.2): an outgoing invoice or debit
- * note, not one issued for a cash sale, whose money that sale's receipt took, and not an imported
- * one. Cash on delivery prints only as the invoice is issued; the money the courier brings later
- * was on that receipt. Bank transfer and `other` print nothing.
+ * note, not one issued for a cash sale, whose money that sale's receipt took, not an imported one,
+ * and not the re-issue of a number issued twice, whose money was taken under the number it replaces.
+ * Cash on delivery prints only as the invoice is issued; the money the courier brings later was on
+ * that receipt. Bank transfer and `other` print nothing.
  */
 export function printsAtCounter(doc: any, method: string | undefined, atIssue: boolean): boolean {
   if (doc?.direction !== 'outgoing' || (doc?.type !== 'invoice' && doc?.type !== 'debit_note')) return false
   if (doc.cashSaleRef?.cashSaleId || isImportedDocument(doc)) return false
+  if (doc.stockSource?.detectedBy === 'number_clash') return false
   if (method === 'cash_on_delivery') return atIssue && doc.type === 'invoice'
   return COUNTER_METHODS.includes(String(method))
 }
@@ -90,6 +94,23 @@ export async function receiptsOf(orgId: string, documentId: string): Promise<any
 /** §2.7: whether the document's total is the receipts' now. A failed receipt printed nothing. */
 export async function isFiscallyPaid(orgId: string, documentId: string): Promise<boolean> {
   return !!(await Invoice.exists(liveReceipts(orgId, documentId)).exec())
+}
+
+/**
+ * A cash-on-delivery invoice whose receipt did not print as it was issued. The courier owes the
+ * money, so there is no payment to take again, and one recorded by hand prints nothing and leaves
+ * the sale with no receipt at all: the receipt prints on its own (`POST /invoices/:id/receipt`). An
+ * invoice that never tried to print owes none: it was issued before LGR printed, or where it does
+ * not.
+ */
+export async function owesDeliveryReceipt(orgId: string, doc: any): Promise<boolean> {
+  if (doc?.paymentMethod !== 'cash_on_delivery' || !['sent', 'overdue', 'partially_paid'].includes(doc.status)) return false
+  if (!printsAtCounter(doc, doc.paymentMethod, true)) return false
+  const tried: any[] = await Invoice.find(
+    { orgId: oid(orgId), type: PAYMENT_RECEIPT, 'register.paidInvoiceId': oid(doc._id ?? doc.id) },
+    { status: 1 },
+  ).lean().exec()
+  return tried.length > 0 && tried.every(r => r.status === 'voided')
 }
 
 /** What the invoice PDF lists: the receipts that paid it. */

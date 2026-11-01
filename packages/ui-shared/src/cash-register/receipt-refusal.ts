@@ -16,6 +16,7 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'receipt_currency': return 'cashRegister.receipt.currency'
     case 'receipt_not_printable': return 'cashRegister.receipt.notPrintable'
     case 'document_not_issued': return 'cashRegister.receipt.notIssued'
+    case 'no_receipt_owed': return 'cashRegister.receipt.noneOwed'
     default: return null
   }
 }

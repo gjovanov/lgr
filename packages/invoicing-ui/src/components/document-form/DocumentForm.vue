@@ -218,20 +218,22 @@
       {{ $t('invoicing.issueFlow.notIssued', { reason: issueError }) }}
     </v-alert>
 
-    <!-- FR-23: issued and unpaid, because its receipt did not print. -->
+    <!-- FR-23: issued, and its receipt did not print. The money is taken again; on delivery it is the
+         courier's, so the receipt prints on its own, and this stays until it has. -->
     <v-alert
-      v-if="receiptError && !isDraftDoc"
+      v-if="(receiptError || deliveryReceiptDue) && !isDraftDoc"
       type="error"
       variant="tonal"
       density="compact"
       class="mb-3"
-      closable
+      :closable="!deliveryReceiptDue"
       data-testid="receipt-error"
       @click:close="receiptError = ''"
     >
-      {{ receiptError }}
+      {{ receiptError || $t('cashRegister.receipt.deliveryMissing') }}
       <template #append>
-        <v-btn size="small" variant="outlined" data-testid="receipt-retry" @click="paymentDialog = true">{{ $t('cashRegister.receipt.takePayment') }}</v-btn>
+        <v-btn v-if="deliveryReceiptDue" size="small" variant="outlined" :loading="printingReceipt" data-testid="receipt-print" @click="printDeliveryReceipt">{{ $t('cashRegister.receipt.printIt') }}</v-btn>
+        <v-btn v-else-if="receiptTakesPayment" size="small" variant="outlined" data-testid="receipt-retry" @click="paymentDialog = true">{{ $t('cashRegister.receipt.takePayment') }}</v-btn>
       </template>
     </v-alert>
 
@@ -627,6 +629,10 @@ const {
   lastPrint,
   issueError,
   receiptError,
+  receiptTakesPayment,
+  deliveryReceiptDue,
+  printingReceipt,
+  printDeliveryReceipt,
   paymentDialog,
   payableDoc,
   onPaymentRecorded,
