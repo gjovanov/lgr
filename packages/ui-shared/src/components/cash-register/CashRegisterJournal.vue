@@ -128,6 +128,7 @@
       :user-id="userId"
       :locale="locale"
       @done="onStornoDone"
+      @held="fetchItems"
     />
   </ListScaffold>
 </template>
@@ -294,7 +295,7 @@ function fmtDate(row: any): string {
 }
 
 function statusColor(s: string) {
-  return ({ completed: 'success', stornoed: 'warning', voided: 'grey-darken-1' } as Record<string, string>)[s] || 'grey'
+  return ({ completed: 'success', stornoed: 'warning', voided: 'grey-darken-1', inDoubt: 'warning' } as Record<string, string>)[s] || 'grey'
 }
 
 // ── #145: STORNO ────────────────────────────────────────────────────────────────────────────

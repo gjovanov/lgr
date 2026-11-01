@@ -35,7 +35,7 @@
           hide-details
           data-testid="storno-reason"
         />
-        <v-alert v-if="error" type="error" variant="tonal" density="compact" class="mt-3" data-testid="storno-error">{{ error }}</v-alert>
+        <v-alert v-if="error" :type="inDoubt ? 'warning' : 'error'" variant="tonal" density="compact" class="mt-3" data-testid="storno-error">{{ error }}</v-alert>
       </v-card-text>
       <v-card-actions>
         <v-spacer />
@@ -44,7 +44,7 @@
           color="error"
           variant="flat"
           :loading="submitting"
-          :disabled="(needsSession && !targetSession) || !reason"
+          :disabled="(needsSession && !targetSession) || !reason || inDoubt"
           data-testid="storno-confirm"
           @click="submit"
         >
@@ -63,14 +63,18 @@
  * `POST /cash-register/documents/:id/storno`; this picks the session (a till sale's) and the reason.
  * A back-office sale needs no session: it has no receipt to reverse.
  *
- * ⚠ A storno whose fiscal receipt fails to print reverses NOTHING (the server answers 503
+ * ⚠ A storno whose fiscal receipt is proved not to have printed reverses NOTHING (the server answers 503
  * `fiscal_error`) — the message is shown as is, so the operator knows to fix the printer and retry.
+ * ⚠ One that may have printed is another answer (409 `storno_in_doubt`): nothing was reversed, and a
+ * second press would print a second fiscal storno. It says so, in the org's language, and the button
+ * goes: a person checks the device and settles it on the document's page.
  */
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from '../../composables/useHttpClient'
 import { createIdempotentAction } from '../../composables/idempotency'
 import { useCurrency } from '../../composables/useCurrency'
+import { receiptRefusalMessage } from '../../cash-register/receipt-refusal'
 
 export interface StornoTarget {
   id: string
@@ -95,6 +99,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   done: [result: { transaction: any; receiptError?: string; stockError?: string }]
+  /** Nothing was reversed, but the sale reads differently now: a storno of it is in doubt. */
+  held: []
 }>()
 
 const { t } = useI18n()
@@ -105,6 +111,7 @@ const targetSession = ref<any | null>(null)
 const loadingSession = ref(false)
 const submitting = ref(false)
 const error = ref('')
+const inDoubt = ref(false)
 
 const reasons = computed(() => ['operator_error', 'customer_return', 'price_reduction', 'tax_base_reduction']
   .map(value => ({ value, title: t(`pos.storno.reasons.${value}`) })))
@@ -121,6 +128,7 @@ const needsSession = computed(() => props.sale?.origin !== 'backoffice')
 async function findTargetSession() {
   targetSession.value = null
   error.value = ''
+  inDoubt.value = false
   if (!needsSession.value || (!props.sale?.sessionId && !props.sale?.warehouseId)) return
   loadingSession.value = true
   try {
@@ -163,8 +171,12 @@ async function submit() {
   } catch (e: any) {
     // An unanswered attempt keeps its key: confirming again returns that storno, never a second.
     attempt.settle(e)
-    // 503 fiscal_error: nothing was reversed. 409: someone else is already reversing it.
-    error.value = e?.response?.data?.message || t('common.operationFailed')
+    // 503 fiscal_error: nothing was reversed. 409: someone else is already reversing it, or it may have printed.
+    error.value = receiptRefusalMessage(t, e, t('common.operationFailed'))
+    if (e?.response?.data?.code === 'storno_in_doubt') {
+      inDoubt.value = true
+      emit('held')
+    }
   } finally {
     submitting.value = false
   }

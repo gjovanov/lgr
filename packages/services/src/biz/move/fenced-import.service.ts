@@ -124,6 +124,9 @@ export function bookingOf(doc: Doc): 'none' | 'sale' | 'bill' | 'register' {
   // FR-23: a payment's receipt books nothing. Its invoice comes in with the stock, the entry and the
   // payment row; `createInvoiceStockMovement` below would dispatch its lines a second time.
   if (doc.type === 'payment_receipt') return 'none'
+  // A storno nothing has proved has booked nothing, and a person may yet say it never was. The settle
+  // door books it, here, as the till's would have.
+  if (doc.type === 'cash_storno' && ['pending', 'unknown'].includes(doc.register?.fiscal?.state)) return 'none'
   if (doc.type === 'cash_sale' || doc.type === 'cash_storno') return 'register'
   return doc.direction === 'incoming' ? 'bill' : 'sale'
 }
@@ -169,11 +172,12 @@ function asKept(doc: Doc, ctx: Ctx, number?: string): Doc {
     out.register = { ...out.register }
     delete out.register.movementId
     delete out.register.stockError
-    // FR-23: a receipt whose request died on the site, with its hold on its invoice. Every one arrives
-    // finishable, or its invoice stays locked for good. Its device stayed behind, so one that was
-    // still printing cannot be proved, and a person settles it, as anything that cannot be. Past the
-    // print only the money is left, and a lapsed lease is what lets the next touch finish that.
-    if (out.type === 'payment_receipt' && !out.completedAt) {
+    // FR-23: a receipt whose request died on the site, with its hold on its invoice, or a storno with
+    // its claim on its sale. Every one arrives finishable, or what it holds stays locked for good. Its
+    // device stayed behind, so one that was still printing cannot be proved, and a person settles it, as
+    // anything that cannot be. Past the print only the money is left, and a lapsed lease is what lets
+    // the next touch finish that. A copied POS row carries no `completedAt` of its own.
+    if ((out.type === 'payment_receipt' || out.type === 'cash_storno') && !out.completedAt && !out.register.legacy) {
       if (out.register.fiscal?.state === 'pending') out.register.fiscal = { ...out.register.fiscal, state: 'unknown', inDoubt: true }
       else if (!out.register.fiscal?.inDoubt) out.leaseUntil = ctx.at
     }

@@ -20,6 +20,8 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'document_not_issued': return 'cashRegister.receipt.notIssued'
     case 'no_receipt_owed': return 'cashRegister.receipt.noneOwed'
     case 'receipt_in_doubt': return 'cashRegister.receipt.inDoubtRefused'
+    case 'storno_in_doubt': return 'cashRegister.receipt.stornoInDoubtRefused'
+    case 'receipt_open_on_device': return 'cashRegister.receipt.openOnDevice'
     case 'delivery_receipt_owed': return 'cashRegister.receipt.deliveryOwed'
     case 'receipts_unfinished': return 'cashRegister.receipt.unfinished'
     default: return null

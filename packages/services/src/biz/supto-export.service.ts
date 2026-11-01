@@ -9,9 +9,9 @@ import type { RepositoryRegistry } from 'dal'
 import { getRepos } from '../context.js'
 import { isDateOnly, localDayEnd, localDayStart } from './local-day.js'
 import { loadPosRows, PAYMENT_RECEIPT } from './cash-register/pos-union.js'
-import { receiptTookMoney } from './cash-register/counting.js'
+import { receiptTookMoney, stornoUnproved } from './cash-register/counting.js'
 import { originOf } from './cash-register/register.service.js'
-import { User } from 'db/models'
+import { Invoice, User } from 'db/models'
 
 /**
  * The period the tables cover, from the query's `dateFrom` / `dateTo` (FR-21 B-7).
@@ -98,9 +98,9 @@ export async function exportSummarizedSales(filters: SuptoExportFilters, repos?:
   return { transactions, cashSales }
 }
 
-/** 18.2 — Payment details */
+/** 18.2 — Payment details. A storno nothing has proved paid nothing back yet, and lists once it is settled. */
 export async function exportPaymentDetails(filters: SuptoExportFilters, _repos?: RepositoryRegistry) {
-  return tillRows(filters, t => t.type !== PAYMENT_RECEIPT || receiptTookMoney(t))
+  return tillRows(filters, t => (t.type !== PAYMENT_RECEIPT || receiptTookMoney(t)) && !stornoUnproved(t))
 }
 
 /** 18.3 — Itemized sales (line-level detail) */
@@ -108,14 +108,20 @@ export async function exportItemizedSales(filters: SuptoExportFilters, _repos?: 
   return tillRows(filters, onTheDevice)
 }
 
-/** 18.4 — Reversed (storno) sales */
+/** 18.4 — Reversed (storno) sales. One nothing has proved lists once it is settled. */
 export async function exportReversedSales(filters: SuptoExportFilters, _repos?: RepositoryRegistry) {
-  return tillRows(filters, t => t.type === 'storno')
+  return tillRows(filters, t => t.type === 'storno' && !stornoUnproved(t))
 }
 
-/** 18.5 — Cancelled sales */
+/**
+ * 18.5 — Cancelled sales. A sale whose storno nothing has proved is claimed, not cancelled: it may yet
+ * be given back, and the storno's own day can be outside the period asked for, so it is asked for here.
+ */
 export async function exportCancelledSales(filters: SuptoExportFilters, _repos?: RepositoryRegistry) {
-  return tillRows(filters, t => t.status === 'cancelled', false)
+  const claimed = new Set((await Invoice.distinct('relatedInvoiceId', {
+    orgId: filters.orgId, type: 'cash_storno', status: { $ne: 'voided' }, 'register.fiscal.state': { $in: ['pending', 'unknown'] },
+  } as any).exec()).map(String))
+  return tillRows(filters, t => t.status === 'cancelled' && !claimed.has(String(t._id)), false)
 }
 
 /** 18.6 — Delivery summary (incoming stock movements) */

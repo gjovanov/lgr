@@ -13,12 +13,14 @@ import { getRepos } from 'services/context'
 import { orgDao } from 'services/dao/org.dao'
 import { logger } from 'services/logger'
 import { toPosTransaction } from 'services/biz/cash-register/mapping'
+import { finishInterruptedReceipt, interruptedDocuments } from 'services/biz/cash-register/payment-receipt.service'
 import { asEntity } from 'services/biz/cash-register/pos-union'
 import type { RegisterPrinter } from 'services/biz/cash-register/printer'
+import { takeLease } from 'services/biz/hot-path-key'
 import { livePresence } from 'services/biz/fiscal-presence.service'
 import {
-  RegisterRefusal, claimForStorno, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally, releaseStornoClaim,
-  runStornoSteps, settleKeyedDocument, stornoDocument, stornoRefusal,
+  RegisterRefusal, claimForStorno, finishInterruptedStorno, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally,
+  releaseStornoClaim, runStornoSteps, settleKeyedDocument, stornoDocument, stornoInDoubtRefusal, stornoRefusal,
   type RegisterContext, type RegisterSession, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
 import { fiscalUnitPrice } from 'services/biz/cash-register/receipt-lines'
@@ -401,6 +403,49 @@ export async function tillContext(orgId: string, user: RegisterUser, session: an
   }
 }
 
+/** A context with no device: what cannot be proved stays held, and nothing prints. */
+export const deviceless = (orgId: string, user: RegisterUser): RegisterContext =>
+  ({ orgId, user, session: null, printer: null, audit: { module: 'trade', entityType: 'pos_transaction' } })
+
+/**
+ * What finishing a receipt or a storno takes, on any request: the device it was printing on, when that
+ * device is here. ⚠ Only that device. Another one's counter says nothing about it, and its УНП would be
+ * refused there. A device in error, or held by another pod, proves nothing either, which is no reason
+ * to fail the request: the document is held instead, and the person it reaches has a way out.
+ */
+export async function documentContext(orgId: string, user: RegisterUser, doc: any): Promise<RegisterContext> {
+  const session = doc.register?.sessionId ? await POSSession.findOne({ _id: doc.register.sessionId, orgId }).lean().exec() : null
+  if (!session || !doc.register?.fiscalDeviceNumber) return deviceless(orgId, user)
+  try {
+    return await tillContext(orgId, user, session, { needsOperator: false, deviceNumber: doc.register.fiscalDeviceNumber })
+  } catch (e) {
+    if (e instanceof RegisterRefusal) return deviceless(orgId, user)
+    throw e
+  }
+}
+
+/**
+ * Finish the receipts and stornos of a document, a session or a sale whose request died, before
+ * anything else is done with it: a receipt's hold must not outlive it, what printed must not be taken
+ * again, and a session must not close over either. True when one was. It prints nothing, and books
+ * nothing it cannot prove.
+ */
+export async function finishInterruptedDocuments(orgId: string, user: RegisterUser, where: string | { sessionId: string } | { ids: unknown[] }): Promise<boolean> {
+  let any = false
+  for (const doc of await interruptedDocuments(orgId, typeof where === 'string' ? { documentId: where } : where)) {
+    if (!(await takeLease(Invoice, orgId, doc._id))) continue
+    try {
+      const c = await documentContext(orgId, user, doc)
+      await (doc.type === 'cash_storno' ? finishInterruptedStorno(c, doc) : finishInterruptedReceipt(c, doc))
+      any = true
+    } catch (e: any) {
+      // What it holds stands, and the new request is told one is in progress. Nothing is lost.
+      logger.error({ orgId, documentId: String(doc._id), error: e?.message }, 'Interrupted fiscal document could not be finished')
+    }
+  }
+  return any
+}
+
 /**
  * The document a keyed till request already made (FR-21.10, §6 edge 1). A key an older release put
  * on a POS row travelled with the row into its document (0008/0009 keep `clientKey`), so the
@@ -420,9 +465,13 @@ export function saleResponse(doc: any) {
   }
 }
 
-/** What the till answers for a storno: the reversal, or the 503 of #145 when its receipt failed. */
+/**
+ * What the till answers for a storno: the reversal; the 503 of #145 when its receipt is proved not to
+ * have printed; and the truth when nobody knows: 409 `storno_in_doubt`, never "was not printed".
+ */
 export function stornoResponse(doc: any): { status: number; body: Record<string, unknown> } | { transaction: any; stockError?: string; receiptError?: string } {
   const transaction: any = asEntity(toPosTransaction(doc))
+  if (doc.register?.fiscal?.inDoubt) return { status: 409, body: stornoInDoubtRefusal(doc) }
   if (doc.status === 'voided' && doc.register?.receiptError) {
     return { status: 503, body: { code: 'fiscal_error', message: `The storno receipt was not printed, so nothing was reversed: ${doc.register.receiptError}` } }
   }
@@ -462,23 +511,34 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
   const { orgId, user, key, hash } = input
   /** A back-office sale and its storno are invoicing's documents, audited as its own. */
   const backOffice = (): RegisterContext => ({ orgId, user, session: null, printer: null, audit: { module: 'invoicing', entityType: 'invoice' } })
-  const context = async (): Promise<RegisterContext> => {
+  /** ⚠ A retry goes back to the device it started on: no other device's counter says anything about it. */
+  const contextOf = (storno: any) => async (): Promise<RegisterContext> => {
     const original: any = await Invoice.findOne({ _id: input.originalId, orgId }).lean().exec()
     if (originOf(original) !== 'pos' || !input.session) return backOffice()
-    return tillContext(orgId, user, input.session, { needsOperator: printedFiscally(original) })
+    try {
+      return await tillContext(orgId, user, input.session, { needsOperator: printedFiscally(original), deviceNumber: storno.register?.fiscalDeviceNumber })
+    } catch (e) {
+      // A device in error, or held by another pod, proves nothing, which is no reason to fail the
+      // retry: with no device it is `failed` if it never started, and held if it did.
+      if (e instanceof RegisterRefusal && e.statusCode === 503) return backOffice()
+      throw e
+    }
   }
   const answer = (doc: any) => stornoResponse(doc)
 
   try {
     if (key) {
       const existing = await findKeyedTillDocument(orgId, key)
-      if (existing) return answer(await settleKeyedDocument(existing, hash!, context, runStornoSteps))
+      if (existing) return answer(await settleKeyedDocument(existing, hash!, contextOf(existing), runStornoSteps))
     }
 
     // A sale an older release rang up is its copy since 0008/0009, under the same id.
-    const original: any = Invoice.base.Types.ObjectId.isValid(input.originalId)
-      ? await Invoice.findOne({ _id: input.originalId, orgId }).lean().exec()
-      : null
+    const read = (): Promise<any> => Invoice.findOne({ _id: input.originalId, orgId }).lean().exec()
+    let original: any = Invoice.base.Types.ObjectId.isValid(input.originalId) ? await read() : null
+    // What a request that died left on this sale comes first: it may have printed, or be proved not to.
+    if (original?.register?.stornoState === 'full' && await finishInterruptedDocuments(orgId, user, { ids: original.register.stornoedBy ?? [] })) {
+      original = await read()
+    }
     const refusal = await stornoRefusal(original)
     if (refusal) {
       // ⚠ A duplicate sent at the same moment can read the sale AFTER the first request claimed it
@@ -490,7 +550,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
           // request's own, found as "a paid storno" and missed as "my key", so it was refused.
           const reversed = await Invoice.exists({ orgId, type: 'cash_storno', relatedInvoiceId: original._id, status: 'paid' }).exec()
           const mine = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
-          if (mine) return answer(await settleKeyedDocument(mine, hash!, context, runStornoSteps))
+          if (mine) return answer(await settleKeyedDocument(mine, hash!, contextOf(mine), runStornoSteps))
           if (reversed) break
           await new Promise(res => setTimeout(res, 100))
         }
@@ -534,7 +594,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
       if (key) {
         for (let i = 0; i < 40; i++) {
           const winner = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
-          if (winner) return answer(await settleKeyedDocument(winner, hash!, context, runStornoSteps))
+          if (winner) return answer(await settleKeyedDocument(winner, hash!, contextOf(winner), runStornoSteps))
           await new Promise(res => setTimeout(res, 100))
         }
       }
@@ -553,7 +613,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
       const outcome = await insertRegisterDocument(orgId, { ...doc, _id: stornoId }, key ? { key, hash: hash! } : undefined)
       if ('existing' in outcome) {
         await releaseStornoClaim(original, stornoId)
-        return answer(await settleKeyedDocument(outcome.existing, hash!, context, runStornoSteps))
+        return answer(await settleKeyedDocument(outcome.existing, hash!, contextOf(outcome.existing), runStornoSteps))
       }
       inserted = outcome.inserted
     } catch (e) {

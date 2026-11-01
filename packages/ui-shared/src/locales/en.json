@@ -1788,20 +1788,28 @@
       "deliveryPrinted": "Receipt {number} printed",
       "noneOwed": "This document has no receipt left to print.",
       "paidInvoice": "Invoice paid",
-        "inDoubt": "Nothing can prove whether this receipt printed, so its money is neither booked nor free. Check the device's journal, then say which.",
-        "inDoubtDocument": "Nothing can prove whether receipt {number} printed. Its money is neither booked nor free until someone settles it.",
-        "inDoubtRefused": "Nothing can prove whether receipt {number} printed, so this cannot go on. Check the device, then settle it under Cash Register Sales.",
-        "settleIt": "Settle it",
-        "settlePrinted": "It printed",
-        "settleNotPrinted": "It did not print",
-        "settleWho": "A manager or an admin settles it.",
-        "settleConfirm": {
-          "printed": "The receipt is on the device. Its money is recorded on the invoice and in the session. This cannot be undone.",
-          "notPrinted": "The receipt is not on the device. It is voided with its number, and the amount is due again. This cannot be undone."
-        },
-        "settled": "Receipt settled",
-        "deliveryOwed": "This cash-on-delivery invoice has no fiscal receipt: its print failed. Print the receipt first.",
-        "unfinished": "Receipts {numbers} are not finished, so this session cannot close. Wait for one that is printing, and settle one in doubt under Cash Register Sales."
+      "inDoubt": "Nothing can prove whether this receipt printed, so its money is neither booked nor free. Check the device's journal, then say which.",
+      "inDoubtDocument": "Nothing can prove whether receipt {number} printed. Its money is neither booked nor free until someone settles it.",
+      "inDoubtRefused": "Nothing can prove whether receipt {number} printed, so this cannot go on. Check the device, then settle it under Cash Register Sales.",
+      "settleIt": "Settle it",
+      "settlePrinted": "It printed",
+      "settleNotPrinted": "It did not print",
+      "settleWho": "A manager or an admin settles it.",
+      "settleConfirm": {
+        "printed": "The receipt is on the device. Its money is recorded on the invoice and in the session. This cannot be undone.",
+        "notPrinted": "The receipt is not on the device. It is voided with its number, and the amount is due again. This cannot be undone."
+      },
+      "settled": "Receipt settled",
+      "deliveryOwed": "This cash-on-delivery invoice has no fiscal receipt: its print failed. Print the receipt first.",
+      "unfinished": "Receipts {numbers} are not finished, so this session cannot close. Wait for one that is printing, and settle one in doubt under Cash Register Sales.",
+      "stornoInDoubt": "Nothing can prove whether this storno printed, so nothing was reversed: no refund, no stock. Check the device's journal, then say which.",
+      "stornoInDoubtRefused": "Storno {number} may have printed, and nothing was reversed. Check the device, then settle it on its page under Cash Register Sales. Do not press storno again.",
+      "settleConfirmStorno": {
+        "printed": "The storno is on the device. The refund leaves the session and the goods come back. This cannot be undone.",
+        "notPrinted": "The storno is not on the device. It is voided with its number, and the sale stands as it did. This cannot be undone."
+      },
+      "stornoSettled": "Storno settled",
+      "openOnDevice": "A receipt is still open on the fiscal device, so nothing is final yet. Print an X report on the device page, which clears it, then look at the device again: whatever printed then, printed."
     },
     "origin": {
       "pos": "Till",
@@ -1811,7 +1819,8 @@
     "status": {
       "completed": "Completed",
       "stornoed": "Stornoed",
-      "voided": "Voided"
+      "voided": "Voided",
+      "inDoubt": "In doubt"
     },
     "stock": {
       "moved": "Moved",

@@ -15,13 +15,11 @@
  * way, and an imported document that a person issues or pays by hand is refused by
  * `printsAtCounter`: another system printed its receipt.
  */
-import { Invoice, POSSession } from 'db/models'
-import { takeLease } from 'services/biz/hot-path-key'
+import { Invoice } from 'db/models'
 import { outstandingOf } from 'services/biz/invoice-payment'
-import { logger } from 'services/logger'
 import { PAYMENT_RECEIPT } from 'services/biz/cash-register/pos-union'
 import {
-  finishInterruptedReceipt, interruptedReceipts, paymentReceiptDocument, printsAtCounter, receiptsOf, runReceiptSteps,
+  paymentReceiptDocument, printsAtCounter, receiptsOf, runReceiptSteps,
   type ReceiptTender,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { receiptBody } from 'services/biz/cash-register/receipt-lines'
@@ -30,7 +28,7 @@ import {
   RegisterRefusal, insertRegisterDocument, settleKeyedDocument, type RegisterContext, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
 import { licenceRefusal } from 'services/biz/licence/master-licence.service'
-import { PRINTER_GATE_SWITCH, assertPrinterConnected, assertSaleMayOpen, assertTillTender, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
+import { PRINTER_GATE_SWITCH, assertPrinterConnected, assertSaleMayOpen, assertTillTender, documentContext, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
 
 export interface PreparedReceipt {
   context: RegisterContext
@@ -126,30 +124,9 @@ export async function printReceipt(orgId: string, prepared: PreparedReceipt, doc
   return runReceiptSteps(c, String(outcome.inserted._id))
 }
 
-/** A context with no device: what cannot be proved stays held, and nothing prints. */
-export const deviceless = (orgId: string, user: RegisterUser): RegisterContext =>
-  ({ orgId, user, session: null, printer: null, audit: { module: 'trade', entityType: 'pos_transaction' } })
-
-/**
- * What finishing a receipt takes, on any request: the device it was printing on, when that device is
- * here. ⚠ Only that device. Another one's counter says nothing about it, and its УНП would be refused
- * there. A device in error, or held by another pod, proves nothing either, which is no reason to fail
- * the request: the receipt is held instead, and the person it reaches has a way out.
- */
-async function receiptContext(orgId: string, user: RegisterUser, receipt: any): Promise<RegisterContext> {
-  const session = receipt.register?.sessionId ? await POSSession.findOne({ _id: receipt.register.sessionId, orgId }).lean().exec() : null
-  if (!session || !receipt.register?.fiscalDeviceNumber) return deviceless(orgId, user)
-  try {
-    return await tillContext(orgId, user, session, { needsOperator: false, deviceNumber: receipt.register.fiscalDeviceNumber })
-  } catch (e) {
-    if (e instanceof RegisterRefusal) return deviceless(orgId, user)
-    throw e
-  }
-}
-
 /** The receipt a keyed request already made: replay it, finish it, or wait for it. */
 export function settleKeyedReceipt(orgId: string, user: RegisterUser, receipt: any, hash: string): Promise<any> {
-  return settleKeyedDocument(receipt, hash, () => receiptContext(orgId, user, receipt), (c, id) => runReceiptSteps(c, id))
+  return settleKeyedDocument(receipt, hash, () => documentContext(orgId, user, receipt), (c, id) => runReceiptSteps(c, id))
 }
 
 /** The receipt holding this key, if a request with it already made one. */
@@ -157,26 +134,6 @@ export async function keyedReceipt(orgId: string, key: string): Promise<any | nu
   // ⚠ `$type` is what reaches the partial index: on an equality alone the planner cannot prove its
   // filter, and walks the org's documents by another index.
   return Invoice.findOne({ orgId, clientKey: { $eq: key, $type: 'string' }, type: PAYMENT_RECEIPT }).lean().exec()
-}
-
-/**
- * Finish the receipts of a document or a session whose request died, before anything else is done
- * with it: their holds must not outlive them, and what printed must not be taken again. True when
- * one was. It prints nothing, and books nothing it cannot prove (`finishInterruptedReceipt`).
- */
-export async function finishInterruptedReceipts(orgId: string, user: RegisterUser, where: string | { sessionId: string }): Promise<boolean> {
-  let any = false
-  for (const receipt of await interruptedReceipts(orgId, typeof where === 'string' ? { documentId: where } : where)) {
-    if (!(await takeLease(Invoice, orgId, receipt._id))) continue
-    try {
-      await finishInterruptedReceipt(await receiptContext(orgId, user, receipt), receipt)
-      any = true
-    } catch (e: any) {
-      // Its hold stands, and the new payment is told one is in progress. Nothing is lost.
-      logger.error({ orgId, receiptId: String(receipt._id), error: e?.message }, 'Interrupted payment receipt could not be finished')
-    }
-  }
-  return any
 }
 
 /** What an answer says about the receipt: its identity, and the doubt, when there is one. */

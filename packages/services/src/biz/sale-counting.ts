@@ -39,6 +39,16 @@ export const NOT_INVOICE_FOR_CASH_SALE: Record<string, any> = { [CASH_SALE_REF_I
  */
 export const NOT_PAYMENT_RECEIPT: Record<string, any> = { type: { $ne: 'payment_receipt' } }
 
+/**
+ * FR-23 (#145): leave out a storno nothing has proved yet, for a reader that sums documents: it is
+ * still printing, or a person has to settle it. It refunded nothing, and stored `paid`, it reads as the
+ * refund it may never have been. Settled as printed it counts from then on. A reader of POS rows has
+ * the same rule in `posRowSign`.
+ */
+export const NOT_UNPROVED_STORNO: Record<string, any> = {
+  $nor: [{ type: 'cash_storno', 'register.fiscal.state': { $in: ['pending', 'unknown'] } }],
+}
+
 /** Whether LGR prints this org's sales: the printer gate's one switch (#390). ⚠ Unset reads as on. */
 export async function printsHere(orgId: string): Promise<boolean> {
   const org: any = await Org.findById(orgId, { 'settings.cashRegister.requireConnectedDevice': 1 }).lean().exec()

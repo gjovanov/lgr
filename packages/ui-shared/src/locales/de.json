@@ -1088,20 +1088,28 @@
       "deliveryPrinted": "Beleg {number} gedruckt",
       "noneOwed": "Für dieses Dokument ist kein Beleg mehr zu drucken.",
       "paidInvoice": "Bezahlte Rechnung",
-        "inDoubt": "Nichts kann belegen, ob dieser Beleg gedruckt wurde. Sein Geld ist weder gebucht noch frei. Prüfen Sie das Journal des Geräts und geben Sie dann an, was zutrifft.",
-        "inDoubtDocument": "Nichts kann belegen, ob Beleg {number} gedruckt wurde. Sein Geld ist weder gebucht noch frei, bis jemand ihn klärt.",
-        "inDoubtRefused": "Nichts kann belegen, ob Beleg {number} gedruckt wurde, daher geht dies nicht weiter. Prüfen Sie das Gerät und klären Sie den Beleg unter Kassenverkäufe.",
-        "settleIt": "Klären",
-        "settlePrinted": "Wurde gedruckt",
-        "settleNotPrinted": "Wurde nicht gedruckt",
-        "settleWho": "Das klärt ein Manager oder ein Administrator.",
-        "settleConfirm": {
-          "printed": "Der Beleg ist auf dem Gerät. Sein Geld wird auf der Rechnung und in der Sitzung erfasst. Das lässt sich nicht rückgängig machen.",
-          "notPrinted": "Der Beleg ist nicht auf dem Gerät. Er wird mit seiner Nummer storniert, und der Betrag ist wieder offen. Das lässt sich nicht rückgängig machen."
-        },
-        "settled": "Beleg geklärt",
-        "deliveryOwed": "Diese Nachnahme-Rechnung hat keinen Fiskalbeleg: Sein Druck ist fehlgeschlagen. Drucken Sie zuerst den Beleg.",
-        "unfinished": "Die Belege {numbers} sind nicht abgeschlossen, daher kann diese Sitzung nicht geschlossen werden. Warten Sie auf einen Beleg im Druck und klären Sie einen ungeklärten unter Kassenverkäufe."
+      "inDoubt": "Nichts kann belegen, ob dieser Beleg gedruckt wurde. Sein Geld ist weder gebucht noch frei. Prüfen Sie das Journal des Geräts und geben Sie dann an, was zutrifft.",
+      "inDoubtDocument": "Nichts kann belegen, ob Beleg {number} gedruckt wurde. Sein Geld ist weder gebucht noch frei, bis jemand ihn klärt.",
+      "inDoubtRefused": "Nichts kann belegen, ob Beleg {number} gedruckt wurde, daher geht dies nicht weiter. Prüfen Sie das Gerät und klären Sie den Beleg unter Kassenverkäufe.",
+      "settleIt": "Klären",
+      "settlePrinted": "Wurde gedruckt",
+      "settleNotPrinted": "Wurde nicht gedruckt",
+      "settleWho": "Das klärt ein Manager oder ein Administrator.",
+      "settleConfirm": {
+        "printed": "Der Beleg ist auf dem Gerät. Sein Geld wird auf der Rechnung und in der Sitzung erfasst. Das lässt sich nicht rückgängig machen.",
+        "notPrinted": "Der Beleg ist nicht auf dem Gerät. Er wird mit seiner Nummer storniert, und der Betrag ist wieder offen. Das lässt sich nicht rückgängig machen."
+      },
+      "settled": "Beleg geklärt",
+      "deliveryOwed": "Diese Nachnahme-Rechnung hat keinen Fiskalbeleg: Sein Druck ist fehlgeschlagen. Drucken Sie zuerst den Beleg.",
+      "unfinished": "Die Belege {numbers} sind nicht abgeschlossen, daher kann diese Sitzung nicht geschlossen werden. Warten Sie auf einen Beleg im Druck und klären Sie einen ungeklärten unter Kassenverkäufe.",
+      "stornoInDoubt": "Nichts kann belegen, ob dieser Storno gedruckt wurde, daher wurde nichts rückgängig gemacht: weder Geld noch Ware. Prüfen Sie das Journal des Geräts und geben Sie dann an, was zutrifft.",
+      "stornoInDoubtRefused": "Storno {number} wurde möglicherweise gedruckt, und nichts wurde rückgängig gemacht. Prüfen Sie das Gerät und klären Sie den Storno auf seiner Seite unter Kassenverkäufe. Drücken Sie Storno nicht noch einmal.",
+      "settleConfirmStorno": {
+        "printed": "Der Storno ist auf dem Gerät. Der Betrag verlässt die Sitzung und die Ware kommt zurück. Das lässt sich nicht rückgängig machen.",
+        "notPrinted": "Der Storno ist nicht auf dem Gerät. Er wird mit seiner Nummer ungültig, und der Verkauf bleibt, wie er war. Das lässt sich nicht rückgängig machen."
+      },
+      "stornoSettled": "Storno geklärt",
+      "openOnDevice": "Auf dem Fiskalgerät ist noch ein Beleg offen, daher ist noch nichts endgültig. Drucken Sie auf der Geräteseite einen X-Bericht, der ihn bereinigt, und prüfen Sie das Gerät erneut: Was dann gedruckt wurde, ist gedruckt."
     },
     "origin": {
       "pos": "Kasse",
@@ -1111,7 +1119,8 @@
     "status": {
       "completed": "Abgeschlossen",
       "stornoed": "Storniert",
-      "voided": "Ungültig"
+      "voided": "Ungültig",
+      "inDoubt": "Ungeklärt"
     },
     "stock": {
       "moved": "Ausgebucht",

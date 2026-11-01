@@ -31,9 +31,9 @@
     <v-alert v-if="notFound" type="warning" variant="tonal">{{ $t('cashRegister.detail.notFound') }}</v-alert>
 
     <template v-if="doc">
-      <!-- FR-23: nothing could prove whether this receipt printed. Someone looks at the device and says. -->
+      <!-- FR-23: nothing could prove whether this receipt or storno printed. Someone looks at the device and says. -->
       <v-alert v-if="doc.row.fiscal.inDoubt" type="warning" variant="tonal" class="mb-4" data-testid="receipt-in-doubt">
-        {{ $t('cashRegister.receipt.inDoubt') }}
+        {{ $t(isStorno ? 'cashRegister.receipt.stornoInDoubt' : 'cashRegister.receipt.inDoubt') }}
         <div v-if="canSettle" class="mt-2 d-flex flex-wrap ga-2">
           <v-btn size="small" variant="outlined" data-testid="receipt-settle-printed" @click="settling = 'printed'">{{ $t('cashRegister.receipt.settlePrinted') }}</v-btn>
           <v-btn size="small" variant="outlined" data-testid="receipt-settle-not-printed" @click="settling = 'notPrinted'">{{ $t('cashRegister.receipt.settleNotPrinted') }}</v-btn>
@@ -44,7 +44,7 @@
       <v-dialog :model-value="!!settling" max-width="480" @update:model-value="settling = null">
         <v-card>
           <v-card-title>{{ doc.row.number }}</v-card-title>
-          <v-card-text>{{ settling ? $t(`cashRegister.receipt.settleConfirm.${settling}`) : '' }}</v-card-text>
+          <v-card-text>{{ settling ? $t(`cashRegister.receipt.${isStorno ? 'settleConfirmStorno' : 'settleConfirm'}.${settling}`) : '' }}</v-card-text>
           <v-card-actions>
             <v-spacer />
             <v-btn variant="text" :disabled="settlingNow" @click="settling = null">{{ $t('common.cancel') }}</v-btn>
@@ -87,6 +87,7 @@
             <span class="text-caption text-medium-emphasis">{{ r.kind === 'storno' ? $t('cashRegister.detail.stornoedBy') : $t('cashRegister.detail.stornoOf') }}</span>
             <router-link :to="relatedRoute(r)" class="text-decoration-none">{{ r.number }}</router-link>
             <span>{{ fmtCurrency(r.kind === 'storno' ? -r.total : r.total, r.currency) }}</span>
+            <v-chip v-if="r.status === 'inDoubt'" size="x-small" label color="warning" data-testid="journal-related-in-doubt">{{ $t('cashRegister.status.inDoubt') }}</v-chip>
           </div>
         </v-card-text>
       </v-card>
@@ -173,6 +174,7 @@
       :user-id="userId"
       :locale="locale"
       @done="onStornoDone"
+      @held="load"
     />
   </v-container>
 </template>
@@ -193,6 +195,7 @@ import { useSnackbar } from '../../composables/useSnackbar'
 import { paymentMethodKey } from '../../composables/usePaymentMethods'
 import { STORNO_ROLES, canStornoJournalRow } from '../../cash-register/storno'
 import { kindColor } from '../../cash-register/journal-kind'
+import { receiptRefusalMessage } from '../../cash-register/receipt-refusal'
 
 const props = defineProps<{
   orgUrl: string
@@ -251,11 +254,12 @@ function fmtDate(row: any): string {
 }
 
 function statusColor(s: string) {
-  return ({ completed: 'success', stornoed: 'warning', voided: 'grey-darken-1' } as Record<string, string>)[s] || 'grey'
+  return ({ completed: 'success', stornoed: 'warning', voided: 'grey-darken-1', inDoubt: 'warning' } as Record<string, string>)[s] || 'grey'
 }
 
 // ── FR-23: a receipt in doubt ──
 // It decides what happened to money, so the same people as a storno, and asked twice.
+const isStorno = computed(() => doc.value?.row.kind === 'storno')
 const canSettle = computed(() => !!props.role && (STORNO_ROLES as readonly string[]).includes(props.role))
 const settling = ref<'printed' | 'notPrinted' | null>(null)
 const settlingNow = ref(false)
@@ -263,9 +267,9 @@ async function settle() {
   settlingNow.value = true
   try {
     await httpClient.post(`${props.orgUrl}/cash-register/documents/${props.id}/settle`, { printed: settling.value === 'printed' })
-    showSuccess(t('cashRegister.receipt.settled'))
+    showSuccess(t(isStorno.value ? 'cashRegister.receipt.stornoSettled' : 'cashRegister.receipt.settled'))
   } catch (e: any) {
-    showSnackbar(e?.response?.data?.message || t('common.operationFailed'), 'error', 8000)
+    showSnackbar(receiptRefusalMessage(t, e, t('common.operationFailed')), 'error', 12000)
   } finally {
     settlingNow.value = false
     settling.value = null

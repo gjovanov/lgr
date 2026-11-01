@@ -389,10 +389,11 @@ describe('a counter read in another turn proves nothing, for any document (findi
 
     const r = await w.storno(sale.json.transaction.id, key)
 
-    expect(r.status).toBe(503)
-    expect(r.json.code).toBe('fiscal_error')
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('storno_in_doubt')
     const doc: any = await Invoice.findById(stornoId).lean().exec()
-    expect(doc.status).toBe('voided')
+    expect(doc.status).toBe('paid')
+    expect(doc.register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
     expect(doc.register.fiscalReceiptNumber).toBeUndefined()
     expect((await sessionOf(w)).totalCash).toBe(cash + 24)
   })

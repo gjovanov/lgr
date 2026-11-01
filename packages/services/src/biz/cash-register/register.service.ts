@@ -22,6 +22,10 @@
  * the close. That is what makes the counter evidence, and why what a print that threw left behind is
  * decided there (`print-verdict.ts`).
  *
+ * ⚠ `unknown` means a person must look at the device: nothing reads it as `failed`, and nothing reads
+ * it as `printed`. A sale's money stands either way (D-4). A storno's and a payment's wait on the answer
+ * (`HELD_WHEN_UNPROVED`), and a person gives it at the journal's settle door (`settle.service.ts`).
+ *
  * What only a door knows is handed in: the fiscal device (a `RegisterPrinter`, which the till builds
  * from `fiscal/*` — `services` must not import it), the session the sale rings into, the request's
  * key, and the user.
@@ -210,9 +214,15 @@ export async function setRegister(id: unknown, set: Record<string, unknown>): Pr
 }
 
 /**
- * Hold a receipt that nothing can prove (FR-23): `unknown`, booking no money and printing nothing, its
- * amount still held on the invoice, until a person settles it (`settleReceipt`). Its lease goes, so it
- * no longer reads as a request that died.
+ * The documents whose money waits on what the device did: a request that died and cannot be proved is
+ * held for a person, never booked and never printed again. R2's `payment_storno` joins this list.
+ */
+const HELD_WHEN_UNPROVED = ['payment_receipt', 'cash_storno']
+
+/**
+ * Hold a document that nothing can prove (FR-23): `unknown`, booking no money and printing nothing, a
+ * receipt's amount still held on its invoice and a storno's claim still on its sale, until a person
+ * settles it (`settleInDoubt`). Its lease goes, so it no longer reads as a request that died.
  */
 export async function holdInDoubt(doc: any): Promise<any> {
   const held = await Invoice.findOneAndUpdate(
@@ -221,6 +231,36 @@ export async function holdInDoubt(doc: any): Promise<any> {
     { new: true },
   ).lean().exec()
   return held ?? Invoice.findById(doc._id).lean().exec()
+}
+
+/** What cannot print at all: `failed` if it never reached the device, otherwise nothing can prove it and it is held. */
+export function couldNotPrint(doc: any, reason: string): Promise<any> {
+  return doc.register?.fiscal?.attemptedAt
+    ? holdInDoubt(doc)
+    : setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': reason, receiptError: reason })
+}
+
+/**
+ * A document whose request died, still `pending`, for the next person to touch it. ⚠ It NEVER prints:
+ * whoever is at the counter now is doing something else. What proves anything, read in the device's
+ * turn: it never reached the device, or the counter did not move and nothing is open. Those did not
+ * print. Anything else, no device to ask included, is held for a person.
+ */
+export async function decideInterrupted(c: RegisterContext, doc: any, receiptError: string): Promise<void> {
+  if (doc.register?.fiscal?.state !== 'pending') return
+  const decide = async (fresh: any) => {
+    const fiscal = fresh.register?.fiscal
+    const neverPrinted = !fiscal?.attemptedAt
+      || (!!c.printer && provedNotPrinted({ before: fiscal.counterBefore, ...(await readDevice(c.printer)) }))
+    if (!neverPrinted) {
+      logger.warn({ documentId: String(fresh._id), type: fresh.type }, 'Interrupted fiscal document cannot be proved either way — held for a person')
+      return holdInDoubt(fresh)
+    }
+    logger.warn({ documentId: String(fresh._id), type: fresh.type }, 'Interrupted fiscal document did not print')
+    return setRegister(fresh._id, { 'fiscal.state': 'failed', 'fiscal.error': receiptError, receiptError })
+  }
+  if (c.printer) await inTurn(c.printer, doc, decide)
+  else await decide(doc)
 }
 
 /**
@@ -259,8 +299,8 @@ export async function numberPending(orgId: string, doc: any): Promise<any | null
  *   one included: on a shared device that may be another document's receipt, and booked as this
  *   one's it hands a customer someone else's number, or refunds a storno the device never saw. A
  *   second fiscal receipt for one sale is the failure this exists to prevent, so the document goes
- *   `unknown` and the cashier checks the device. A payment's receipt is held for a person instead
- *   (`holdInDoubt`), because here the reading decides whether money is booked.
+ *   `unknown` and the cashier checks the device. A payment's receipt and a storno are held for a person
+ *   instead (`holdInDoubt`), because here the reading decides whether money is booked.
  */
 async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promise<string>): Promise<any> {
   const fiscal = doc.register?.fiscal || {}
@@ -269,7 +309,7 @@ async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promis
     const { now, open } = await readDevice(printer)
     if (!provedNotPrinted({ before, now, open })) {
       logger.warn({ documentId: String(doc._id), before, now, open }, 'Interrupted fiscal receipt: device cannot confirm it — not reprinting')
-      if (doc.type === 'payment_receipt') return holdInDoubt(doc)
+      if (HELD_WHEN_UNPROVED.includes(doc.type)) return holdInDoubt(doc)
       return setRegister(doc._id, {
         'fiscal.state': 'unknown',
         receiptError: 'The receipt was interrupted and the device cannot confirm whether it printed. Check the device; do not ring the sale up again.',
@@ -717,7 +757,8 @@ export async function settleKeyedDocument(
     throw e
   }
   const orgId = String(existing.orgId)
-  if (existing.completedAt) return existing
+  // Held for a person: nothing is left for a retry to do, and it takes no lease it would only leave behind.
+  if (existing.completedAt || existing.register?.fiscal?.inDoubt) return existing
   for (let round = 0; round < 2; round++) {
     if (await takeLease(Invoice, orgId, existing._id)) return run(await context(), String(existing._id))
     const { doc, leaseLapsed } = await waitForCompletion(Invoice, orgId, existing._id)
@@ -735,7 +776,10 @@ export async function stornoRefusal(original: any): Promise<RegisterRefusal | nu
   if (original.type === 'cash_storno') return new RegisterRefusal(400, { message: 'Cannot storno a storno transaction' })
   if (original.type !== 'cash_sale') return new RegisterRefusal(404, { message: 'Original transaction not found' })
   if (original.status !== 'paid') return new RegisterRefusal(400, { code: 'storno_not_paid', message: 'Only a completed sale can be stornoed' })
-  if (original.register?.stornoState === 'full') return new RegisterRefusal(400, { message: 'Original transaction is already cancelled' })
+  if (original.register?.stornoState === 'full') {
+    const held = await stornoInDoubtOf(original)
+    return held ? new RegisterRefusal(409, stornoInDoubtRefusal(held)) : new RegisterRefusal(400, { message: 'Original transaction is already cancelled' })
+  }
   if (originOf(original) === 'import') {
     return new RegisterRefusal(409, {
       code: 'storno_imported_day',
@@ -744,6 +788,24 @@ export async function stornoRefusal(original: any): Promise<RegisterRefusal | nu
   }
   return invoicedRefusal(original)
 }
+
+/** The storno of this sale that a person has to settle, if there is one. The sale names its stornos. */
+async function stornoInDoubtOf(original: any): Promise<any | null> {
+  const ids = original.register?.stornoedBy ?? []
+  if (!ids.length) return null
+  return Invoice.findOne({ _id: { $in: ids }, orgId: original.orgId, type: 'cash_storno', 'register.fiscal.inDoubt': true }, { invoiceNumber: 1 }).lean().exec()
+}
+
+/**
+ * What a storno that may have printed answers, the first time and every time after it: nothing was
+ * reversed, a person looks at the device, and pressing again would print a second fiscal storno. A
+ * 503 `fiscal_error` said "not printed", which nobody knows.
+ */
+export const stornoInDoubtRefusal = (storno: any) => ({
+  code: 'storno_in_doubt',
+  receipt: { id: String(storno._id), number: storno.invoiceNumber },
+  message: `Storno ${storno.invoiceNumber} may have printed, and nothing was reversed. Check the device, then settle it on its page in the cash-register journal. Do not press storno again.`,
+})
 
 /**
  * D-14: a quantity is corrected once. An invoiced sale is corrected through its invoice (a credit
@@ -831,6 +893,8 @@ export function stornoDocument(input: StornoInput): Record<string, any> {
     payments: refund,
     ...(methods.length === 1 ? { paymentMethod: methods[0] } : {}),
     relatedInvoiceId: original._id,
+    // Unkeyed too: a storno nobody finished is found by this lapsing (`interruptedDocuments`).
+    leaseUntil: new Date(now.getTime() + LEASE_MS),
     billingAddress: { street: '-', city: '-', postalCode: '-', country: '-' },
     attachments: [],
     register: {
@@ -859,6 +923,10 @@ export function stornoDocument(input: StornoInput): Record<string, any> {
 /**
  * Claim the sale for its storno, atomically. Read-then-write let two clicks (or two tills) both pass
  * an "is it stornoed?" check and refund the same sale twice. Exactly one caller wins this update.
+ *
+ * ⚠ The claim has no lease and nothing lapses it. Only `releaseStornoClaim` gives the sale back, and only
+ * for a storno proved not to have printed, or settled so by a person. The lease on the storno document
+ * says who is working on that document, and takes nothing over from the sale.
  */
 export async function claimForStorno(original: any, stornoId: ObjectId): Promise<boolean> {
   const claimed = await Invoice.findOneAndUpdate(
@@ -927,23 +995,40 @@ async function returnStornoStock(c: RegisterContext, storno: any, original: any)
 }
 
 /**
+ * A storno whose request died, for the next person to touch it: its sale's next storno, or its
+ * session's close. It prints nothing. What it can prove goes on as proved; anything else is held.
+ */
+export async function finishInterruptedStorno(c: RegisterContext, doc: any): Promise<any> {
+  await decideInterrupted(c, doc, 'The storno was interrupted before its receipt printed.')
+  return runStornoSteps({ ...c, printer: null }, String(doc._id))
+}
+
+/**
  * Run whatever the storno has not done yet, then mark it complete.
  *
- * ⚠ #145: a storno the fiscal device did not record is NOT a storno. Nothing moves: the sale is given
- * back, the storno is voided, and the operator is told to retry. An `unknown` outcome counts as not
- * recorded — the device has to be checked before anything is refunded.
+ * ⚠ #145: nothing is refunded until the device's answer is known.
+ * - **`failed`**, proved to have left nothing: the sale is given back, the storno is voided, and the
+ *   operator is told to retry.
+ * - **`unknown`** may be on the device, so it is neither of those: it keeps its claim on the sale, books
+ *   no refund, no stock and no session totals, and is held (`holdInDoubt`). Voided and given back, the
+ *   next press printed a second fiscal storno. A person settles it (`settleInDoubt`).
  */
 export async function runStornoSteps(c: RegisterContext, id: string): Promise<any> {
   let doc: any = await Invoice.findOne({ _id: oid(id), orgId: oid(c.orgId) }).lean().exec()
   if (!doc) throw new RegisterRefusal(404, { message: 'Storno not found' })
   const original: any = await Invoice.findOne({ _id: doc.relatedInvoiceId, orgId: doc.orgId }).lean().exec()
   if (!original) throw new RegisterRefusal(404, { message: 'Original transaction not found' })
+  // A person's to settle: nothing more happens to it here, whoever comes back to it.
+  if (doc.register?.fiscal?.inDoubt) return doc
 
   if (isPendingNumber(doc.invoiceNumber)) {
     const numbered = await numberPending(c.orgId, doc)
     if (!numbered) {
-      await releaseStornoClaim(original, doc._id)
-      await rollBack(doc)
+      // Past its print it stands, under its placeholder, for the next touch. Before it, it never was.
+      if (doc.register?.fiscal?.state === 'pending' || doc.register?.fiscal?.state === 'none') {
+        await releaseStornoClaim(original, doc._id)
+        await rollBack(doc)
+      }
       throw new RegisterRefusal(409, { message: 'Could not allocate the cash-register number after 3 attempts' })
     }
     doc = numbered
@@ -954,19 +1039,27 @@ export async function runStornoSteps(c: RegisterContext, id: string): Promise<an
       doc = await setRegister(doc._id, { unp: await generateUNP(c.orgId, c.printer.deviceNumber, c.user.operatorCode as string) })
     }
     if (!c.printer) {
-      doc = await setRegister(doc._id, { 'fiscal.state': 'unknown', receiptError: 'The fiscal device is no longer connected — check whether the storno printed.' })
+      doc = await couldNotPrint(doc, 'The fiscal device is no longer connected, so the storno was not printed.')
     } else {
       const printer = c.printer
-      doc = await printInTurn(printer, doc, fresh => printOnce(printer, fresh, async () => {
-        const receiptNo = await printer.printStorno(fresh, original)
-        await printer.reached()
-        logger.info({ documentId: id, unp: fresh.register?.unp, receiptNo }, 'Storno fiscal receipt printed')
-        return receiptNo
-      }))
+      doc = await printInTurn(printer, doc, async (fresh) => {
+        // In the turn, as a receipt does: a close finds this storno, or this storno finds the close.
+        // A refund that prints after the Z leaves a drawer that was already counted.
+        if (fresh.register?.sessionId && !(await POSSession.exists({ _id: fresh.register.sessionId, status: 'open' }).exec())) {
+          return couldNotPrint(fresh, 'The session closed before this storno could print.')
+        }
+        return printOnce(printer, fresh, async () => {
+          const receiptNo = await printer.printStorno(fresh, original)
+          await printer.reached()
+          logger.info({ documentId: id, unp: fresh.register?.unp, receiptNo }, 'Storno fiscal receipt printed')
+          return receiptNo
+        })
+      })
     }
   }
 
-  if (doc.register?.fiscal?.state === 'failed' || doc.register?.fiscal?.state === 'unknown') {
+  if (doc.register?.fiscal?.state === 'unknown') return holdInDoubt(doc)
+  if (doc.register?.fiscal?.state === 'failed') {
     await releaseStornoClaim(original, doc._id)
     const now = new Date()
     const voided: any = await Invoice.findOneAndUpdate(

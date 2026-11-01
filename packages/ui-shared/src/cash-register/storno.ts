@@ -43,6 +43,7 @@ export interface StornoableRow {
  */
 export function canStornoJournalRow(row: StornoableRow | null | undefined, role: string | undefined): boolean {
   if (!row || !role) return false
+  // `inDoubt` is a status of its own: a person settles it first, and the server refuses until then.
   return row.kind === 'sale'
     && row.status === 'completed'
     && (row.origin === 'pos' || row.origin === 'backoffice')

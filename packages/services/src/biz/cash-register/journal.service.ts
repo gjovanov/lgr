@@ -19,7 +19,7 @@ import { invoicedCashSaleIds, invoicingByCashSale } from '../cash-sale-invoice.s
 
 export type JournalKind = 'sale' | 'storno' | 'payment'
 export type JournalOrigin = 'pos' | 'backoffice' | 'import'
-export type JournalStatus = 'completed' | 'stornoed' | 'voided'
+export type JournalStatus = 'completed' | 'stornoed' | 'voided' | 'inDoubt'
 export type JournalStock = 'moved' | 'error' | 'none'
 
 export interface JournalQuery {
@@ -215,6 +215,7 @@ function documentMatch(q: JournalQuery, invoiced: any[] | null): Record<string, 
 
 function documentStatus(doc: any): JournalStatus {
   if (doc.status === 'voided') return 'voided'
+  if (doc.register?.fiscal?.inDoubt) return 'inDoubt'
   if (doc.register?.stornoState === 'full') return 'stornoed'
   return 'completed'
 }

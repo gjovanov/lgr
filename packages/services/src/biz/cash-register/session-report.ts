@@ -1,4 +1,4 @@
-import { cashOnDeliveryOf, keptByMethod, posRowSign, receiptTookMoney } from './counting.js'
+import { cashOnDeliveryOf, keptByMethod, posRowSign, receiptTookMoney, stornoUnproved } from './counting.js'
 
 /**
  * A till session's own figures, as LGR counts them: what it sold and gave back, by VAT rate and
@@ -73,7 +73,7 @@ export function buildSessionReport(
     if (!sign) {
       // A storno whose receipt failed reverses nothing, and a receipt that failed took nothing;
       // anything else unsigned is not a sale.
-      if (reversal || (payment && row.status === 'cancelled')) counts.voided++
+      if ((reversal && !stornoUnproved(row)) || (payment && row.status === 'cancelled')) counts.voided++
       continue
     }
     if (reversal) counts.stornos++

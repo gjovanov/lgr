@@ -12,9 +12,9 @@ import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumbe
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
 import { Invoice, Org, POSSession, Reservation, StockMovement } from 'db/models'
-import { assertJoinedSaleTender, assertPrinterConnected, openSessionOf, tillContext, tillSettings } from '../lib/cash-register-till.js'
+import { assertJoinedSaleTender, assertPrinterConnected, finishInterruptedDocuments, openSessionOf, tillContext, tillSettings } from '../lib/cash-register-till.js'
 import {
-  finishInterruptedReceipts, keyedReceipt, prepareIssueReceipt, prepareReceipt, printReceipt, receiptOutcome, settleKeyedReceipt,
+  keyedReceipt, prepareIssueReceipt, prepareReceipt, printReceipt, receiptOutcome, settleKeyedReceipt,
   type PreparedReceipt,
 } from '../lib/counter-receipt.js'
 import { computePosTotals } from 'config/pos-totals'
@@ -1031,7 +1031,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       const movesMoney = (existing as any).direction === 'outgoing' && existing.status !== 'draft' && movesPrintedMoney(existing as any, body as any)
       if (movesMoney) {
         // A receipt whose request died is no reason to refuse, if it never printed.
-        await finishInterruptedReceipts(orgId, user, id)
+        await finishInterruptedDocuments(orgId, user, id)
         const frozen = await freezeRefusal(orgId, id)
         if (frozen) return status(409, frozen)
       }
@@ -1567,7 +1567,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       }
       // FR-23: what a request that died left on this document comes first: its receipt may have
       // printed, and then this money is already taken.
-      if (await finishInterruptedReceipts(orgId, user, id)) invoice = (await r.invoices.findOne({ id, orgId } as any))!
+      if (await finishInterruptedDocuments(orgId, user, id)) invoice = (await r.invoices.findOne({ id, orgId } as any))!
       const refused = await paymentRefusal(orgId, invoice, body.amount)
       if (refused) return status(refused.statusCode, refused.body)
       // FR-23 §2.2: the courier's money does not go past a receipt that never printed, or the sale
@@ -1687,7 +1687,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (replay) return await answer(await settleKeyedReceipt(orgId, user, replay, hash!))
 
       // What a request that died left comes first: its receipt may have printed.
-      await finishInterruptedReceipts(orgId, user, id)
+      await finishInterruptedDocuments(orgId, user, id)
       const doc: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
       const prepared = (await owesDeliveryReceipt(orgId, doc)) ? await prepareIssueReceipt(orgId, user, doc) : null
       if (!prepared) {
@@ -1709,7 +1709,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (!invoice) return status(404, { message: 'Invoice not found' })
     if (isImmutableRegisterDocument(invoice as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
     // FR-23 §2.7: the receipt stands, so the document it paid does.
-    await finishInterruptedReceipts(orgId, user, id)
+    await finishInterruptedDocuments(orgId, user, id)
     const frozen = await freezeRefusal(orgId, id)
     if (frozen) return status(409, frozen)
     // #171: an invoice for a cash sale is born paid, but the money is the cash sale's, so voiding
