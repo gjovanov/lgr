@@ -101,6 +101,7 @@
 </template>
 
 <script setup lang="ts">
+import { goTo } from 'ui-shared/nav/navigate'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StatCard from 'ui-shared/components/StatCard.vue'
@@ -175,7 +176,7 @@ function fmtTime(ts?: string): string {
 }
 
 // Domain UIs are separate SPAs served at their own path → hard navigate.
-function go(path: string) { window.location.href = path }
+function go(path: string) { goTo(path) }
 
 async function load() {
   if (!appStore.currentOrg?.id) { loading.value = false; return }

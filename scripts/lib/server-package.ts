@@ -85,7 +85,7 @@ export const SCRIPT_ALLOW_LIST = [
 export const NEVER_PACKAGED = ['fix-imported-invoice-lines', 'migrate-invoice-numbering'] as const
 
 /** The SPAs a package serves, each in `ui/<module>/` (the server reads `LGR_UI_ROOT`). */
-export const UI_MODULES = ['portal', 'accounting', 'inventory', 'invoicing', 'pos', 'payroll', 'reports', 'files'] as const
+export const UI_MODULES = ['portal', 'accounting', 'inventory', 'invoicing', 'payroll', 'reports', 'files'] as const
 
 /**
  * The names of the cloud's secrets: the keys of lgr-deploy's sealed `lgr-secret`, `mongodb-secret`

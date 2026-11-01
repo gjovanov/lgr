@@ -259,7 +259,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useGridNavigation } from 'ui-shared/composables/useGridNavigation'
 import { pinnedWarehouseId, rememberedFlag } from 'ui-shared/composables/useUserDefaults'
-import { appHref } from 'ui-shared/nav/navigate'
+import { appHref, goTo } from 'ui-shared/nav/navigate'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import DateField from 'ui-shared/components/DateField.vue'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
@@ -274,7 +274,7 @@ import GRColumnPicker from '../components/GRColumnPicker.vue'
 import { useGRColumns } from '../composables/useGRColumns'
 // What a line stages for its product, and what reaches it — shared with the supplier bill's form.
 import {
-  buildProductUpdates, cascadePurchasePrice, needsSeed, seedFromProduct, setProductField, setTierPrice, tierPriceOf,
+  buildProductUpdates, cascadePurchasePrice, needsSeed, productsForSeed, seedFromProduct, setProductField, setTierPrice, tierPriceOf,
   type GRBase, type GRTier,
 } from 'ui-shared/composables/gr-product-update'
 
@@ -578,7 +578,7 @@ async function save(): Promise<string | null> {
 /** After a create, the page becomes the movement's own: its route, its number, its status. */
 async function showSaved(id: string | null) {
   if (!id) {
-    router.push('/movements')
+    router.push({ name: 'inventory.movements' })
     return
   }
   if (route.params.id !== id) await router.replace({ name: 'inventory.movements.view', params: { id } })
@@ -639,12 +639,12 @@ async function createBill() {
   billing.value = true
   try {
     const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/bills/from-receipt`, { movementIds: [route.params.id] })
-    window.location.href = billHref(data.invoice.id || data.invoice._id)
+    goTo(billHref(data.invoice.id || data.invoice._id))
   } catch (e: any) {
     const res = e?.response?.data
     // Billed meanwhile (a second click, another tab): go to that bill rather than refuse.
     if (res?.code === 'receipt_already_billed' && res.invoiceId) {
-      window.location.href = billHref(res.invoiceId)
+      goTo(billHref(res.invoiceId))
       return
     }
     showError(res?.message || t('common.operationFailed'))
@@ -761,18 +761,15 @@ async function seedLineProductUpdate(idx: number, costAtPick?: number) {
 
 /**
  * Seed the lines that name a product and stage nothing yet (a loaded draft, a reload after a
- * save): one request per article.
+ * save): all their articles are read at once.
  */
 async function seedUnseededLines() {
   const pending = form.value.lines.filter((l: any) => needsSeed(l))
   if (!pending.length) return
-  const products = new Map<string, any>()
-  await Promise.all([...new Set(pending.map((l: any) => String(l.productId)))].map(async (id) => {
-    try {
-      const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${id}`)
-      products.set(id, data.product || data)
-    } catch { /* that line stays as it is */ }
-  }))
+  const products = await productsForSeed(async (ids) => {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product`, { params: { ids: ids.join(','), size: ids.length } })
+    return data.products || []
+  }, [...new Set(pending.map((l: any) => String(l.productId)))])
   for (const line of pending) {
     const p = products.get(String(line.productId))
     // Staged meanwhile (a price typed while these loaded): that line keeps what was typed.

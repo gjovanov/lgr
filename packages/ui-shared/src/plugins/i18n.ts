@@ -1,8 +1,5 @@
 import { createI18n, type I18n } from 'vue-i18n'
 import en from '../locales/en.json'
-import mk from '../locales/mk.json'
-import de from '../locales/de.json'
-import bg from '../locales/bg.json'
 import vuetifyEn from 'vuetify/lib/locale/en.js'
 import vuetifyDe from 'vuetify/lib/locale/de.js'
 import vuetifyBg from 'vuetify/lib/locale/bg.js'
@@ -41,34 +38,58 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
 }
 
 /**
- * Factory function to create an i18n instance.
- * Accepts optional additional locale messages to merge on top of the base messages.
- * This allows each app to add its own domain-specific translations.
+ * The catalogues other than English, loaded when they are needed. English is the fallback, so it
+ * is always in the bundle; the other three (~600 KB, about 120 KB gzipped) used to be in every
+ * SPA's first load for a person who reads one of them at most (FR-24.15).
+ */
+const CATALOGS: Record<string, () => Promise<{ default: Record<string, unknown> }>> = {
+  mk: () => import('../locales/mk.json'),
+  de: () => import('../locales/de.json'),
+  bg: () => import('../locales/bg.json'),
+}
+const VUETIFY_LOCALES: Record<string, Record<string, unknown>> = { en: vuetifyEn, mk: vuetifyEn, de: vuetifyDe, bg: vuetifyBg }
+
+/** What each i18n instance merges onto a catalogue as it loads (an app's own messages). */
+const extraMessages = new WeakMap<object, LocaleMessages>()
+
+function catalogFor(locale: string, base: Record<string, unknown>, extra?: LocaleMessages): Record<string, unknown> {
+  const messages = { ...base, $vuetify: VUETIFY_LOCALES[locale] ?? vuetifyEn }
+  return extra?.[locale] ? deepMerge(messages, extra[locale]) : messages
+}
+
+/**
+ * Factory function to create an i18n instance, with English loaded. Accepts optional additional
+ * locale messages to merge on top of the base messages, now and as each language loads.
+ * `loadLocale` (registerPlugins calls it with the person's language) loads and selects a language.
  */
 export function createI18nPlugin(additionalMessages?: LocaleMessages): I18n {
-  const baseMessages: Record<string, Record<string, unknown>> = {
-    en: { ...en, $vuetify: vuetifyEn },
-    mk: { ...mk, $vuetify: vuetifyEn },
-    de: { ...de, $vuetify: vuetifyDe },
-    bg: { ...bg, $vuetify: vuetifyBg },
-  }
-
-  // Merge additional messages per locale if provided
-  const messages: Record<string, Record<string, unknown>> = {}
-  for (const locale of Object.keys(baseMessages)) {
-    if (additionalMessages && additionalMessages[locale]) {
-      messages[locale] = deepMerge(baseMessages[locale], additionalMessages[locale])
-    } else {
-      messages[locale] = baseMessages[locale]
-    }
-  }
-
-  return createI18n({
+  const i18n = createI18n({
     legacy: false,
-    locale: getInitialLocale(),
+    locale: DEFAULT_LOCALE,
     fallbackLocale: FALLBACK_LOCALE,
-    messages,
-  })
+    messages: { en: catalogFor('en', en as Record<string, unknown>, additionalMessages) },
+  }) as unknown as I18n
+  if (additionalMessages) extraMessages.set(i18n, additionalMessages)
+  return i18n
+}
+
+/** Load a language if it is not loaded yet, then make it the current one. */
+export async function loadLocale(i18n: I18n, locale: string): Promise<void> {
+  const global = i18n.global as any
+  if (!(SUPPORTED_LOCALES as readonly string[]).includes(locale)) locale = DEFAULT_LOCALE
+  if (!global.availableLocales.includes(locale)) {
+    const load = CATALOGS[locale]
+    if (!load) return
+    const base = (await load()).default
+    global.setLocaleMessage(locale, catalogFor(locale, base, extraMessages.get(i18n)))
+  }
+  if (typeof global.locale === 'object') global.locale.value = locale
+  else global.locale = locale
+}
+
+/** The language this browser starts in: the saved one, else the browser's, else English. */
+export function initialLocale(): string {
+  return getInitialLocale()
 }
 
 // Default singleton for backward compatibility

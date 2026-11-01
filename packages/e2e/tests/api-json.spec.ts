@@ -60,11 +60,38 @@ async function expectJsonResponse(res: Response, expectedKey?: string) {
   return parsed
 }
 
+/**
+ * A movement and a count for the tests below to read: the seed makes neither, so those tests
+ * used to skip, and the `id` they read was never tried. Both stay unconfirmed: no stock moves.
+ */
+async function createStockDocuments(auth: AuthContext) {
+  const api = (path: string, body?: unknown) =>
+    fetch(`${WAREHOUSE_API}/api/org/${auth.orgId}/warehouse${path}`, {
+      method: body ? 'POST' : 'GET',
+      headers: authHeaders(auth.token),
+      body: body ? JSON.stringify(body) : undefined,
+    })
+  const [product] = (await (await api('/product?size=1')).json()).products
+  const [warehouse] = (await (await api('/warehouse?size=1')).json()).warehouses
+  const productId = product.id || product._id
+  const warehouseId = warehouse.id || warehouse._id
+  const date = new Date().toISOString()
+  await expectJsonResponse(await api('/movement', {
+    type: 'receipt', date, toWarehouseId: warehouseId,
+    lines: [{ productId, quantity: 1, unitCost: 1, totalCost: 1 }], totalAmount: 1,
+  }), 'stockMovement')
+  await expectJsonResponse(await api('/inventory-count', {
+    warehouseId, date, type: 'partial',
+    lines: [{ productId, systemQuantity: 1, countedQuantity: 1, variance: 0, varianceCost: 0 }],
+  }), 'inventoryCount')
+}
+
 test.describe('API JSON Serialization', () => {
   let auth: AuthContext
 
   test.beforeAll(async () => {
     auth = await login()
+    await createStockDocuments(auth)
   })
 
   // ── Portal / Org ───────────────────────────────────────────────────
@@ -178,19 +205,16 @@ test.describe('API JSON Serialization', () => {
       headers: authHeaders(auth.token),
     })
     const listData = await listRes.json()
-    if (!listData.stockMovements?.length) return test.skip()
+    const first = listData.stockMovements[0]
 
-    const movId = listData.stockMovements[0]._id
-    const res = await fetch(`${WAREHOUSE_API}/api/org/${auth.orgId}/warehouse/movement/${movId}`, {
+    const res = await fetch(`${WAREHOUSE_API}/api/org/${auth.orgId}/warehouse/movement/${first.id || first._id}`, {
       headers: authHeaders(auth.token),
     })
     const data = await expectJsonResponse(res, 'stockMovement')
-    expect(data.stockMovement._id).toBeTruthy()
-    if (data.stockMovement.lines?.length > 0) {
-      const line = data.stockMovement.lines[0]
-      expect(line.productName).toBeTruthy()
-      expect(typeof line.productId).toBe('string') // ObjectId string, not populated object
-    }
+    expect(data.stockMovement.id || data.stockMovement._id).toBeTruthy()
+    const line = data.stockMovement.lines[0]
+    expect(line.productName).toBeTruthy()
+    expect(typeof line.productId).toBe('string') // ObjectId string, not populated object
   })
 
   // ── Warehouse: Inventory Counts ────────────────────────────────────
@@ -215,19 +239,16 @@ test.describe('API JSON Serialization', () => {
       headers: authHeaders(auth.token),
     })
     const listData = await listRes.json()
-    if (!listData.inventoryCounts?.length) return test.skip()
+    const first = listData.inventoryCounts[0]
 
-    const icId = listData.inventoryCounts[0]._id
-    const res = await fetch(`${WAREHOUSE_API}/api/org/${auth.orgId}/warehouse/inventory-count/${icId}`, {
+    const res = await fetch(`${WAREHOUSE_API}/api/org/${auth.orgId}/warehouse/inventory-count/${first.id || first._id}`, {
       headers: authHeaders(auth.token),
     })
     const data = await expectJsonResponse(res, 'inventoryCount')
-    expect(data.inventoryCount._id).toBeTruthy()
-    if (data.inventoryCount.lines?.length > 0) {
-      const line = data.inventoryCount.lines[0]
-      expect(line.productName).toBeTruthy()
-      expect(typeof line.productId).toBe('string')
-    }
+    expect(data.inventoryCount.id || data.inventoryCount._id).toBeTruthy()
+    const line = data.inventoryCount.lines[0]
+    expect(line.productName).toBeTruthy()
+    expect(typeof line.productId).toBe('string')
   })
 
   // ── Warehouse: Stock Levels ────────────────────────────────────────

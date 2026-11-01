@@ -10,7 +10,7 @@ import { eventBus } from 'services/events/event-bus'
 import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
-import { Invoice, POSSession, Reservation, StockMovement } from 'db/models'
+import { Invoice, Org, POSSession, Reservation, StockMovement } from 'db/models'
 import { assertJoinedSaleTender, assertPrinterConnected, openSessionOf, tillContext, tillSettings } from '../lib/cash-register-till.js'
 import {
   finishInterruptedReceipts, keyedReceipt, prepareIssueReceipt, prepareReceipt, printReceipt, receiptOutcome, settleKeyedReceipt,
@@ -47,6 +47,20 @@ import {
 import { REGISTER_TYPES } from 'services/biz/cash-register/pos-union'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { billStockReceipts, isSupplierBill } from 'services/biz/bill-stock-receipt.service'
+
+/**
+ * Why a bill in `currency` may not update its products, or null when it may. A product's prices
+ * are kept in the org's currency and nothing here converts, so a USD price would land on it as if
+ * it were EUR. Refused, not dropped: the form offers no update on such a bill, so a client that
+ * sends one should hear about it.
+ */
+async function foreignCurrencyRefusal(orgId: string, currency: string | undefined) {
+  if (!currency) return null
+  const org: any = await Org.findById(orgId, { 'settings.baseCurrency': 1 }).lean().exec()
+  const base = org?.settings?.baseCurrency
+  if (!base || currency === base) return null
+  return { code: 'foreign_currency_bill', message: `A bill in ${currency} updates no product: product prices are kept in ${base}` }
+}
 
 // ── Idempotent create, issue and payment (FR-20.37, #155) ───────────────────────────────────
 
@@ -645,6 +659,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (withProductUpdates && !(body.type === 'invoice' && body.direction === 'incoming')) {
         return status(422, { message: 'productUpdates is only supported for purchase bills' })
       }
+      if (withProductUpdates) {
+        const refusal = await foreignCurrencyRefusal(orgId, body.currency)
+        if (refusal) return status(422, refusal)
+      }
 
       // Reservation-consuming lines: sales invoices only, capped at the reserved quantity.
       const refErr = await validateReservationLineRefs(orgId, { type: body.type, direction: body.direction, lines: body.lines })
@@ -1105,6 +1123,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
             message: `${(existing as any).invoiceNumber} is made from goods receipts (${(existing as any).stockSource?.docNumber}) — it updates no product`,
           })
         }
+        const refusal = await foreignCurrencyRefusal(orgId, (body as any).currency ?? (existing as any).currency)
+        if (refusal) return status(422, refusal)
         // Bill $set + product bulk-update in one transaction; no stock movement here
         // (bills touch stock only via /receive). Not reachable from desktop/SQLite.
         let updatedProductIds: string[] = []

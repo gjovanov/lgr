@@ -1,6 +1,6 @@
 import type { ClientSession } from 'mongoose'
 import { MAX_PRICE_TIERS } from 'config/constants'
-import { Product } from 'db/models'
+import { Product, ProductCategory } from 'db/models'
 
 /** One price tier an update changes: its name, and the fields it sets on it. */
 export interface ProductUpdateTier {
@@ -133,6 +133,17 @@ export function sanitizeProductUpdates(
   return safeUpdates
 }
 
+/** The names of these categories, by id: the org's own only, and only what can be an id. */
+async function categoryNames(session: ClientSession, orgId: string, ids: unknown[]): Promise<Map<string, string>> {
+  const wanted = [...new Set(ids.filter(Boolean).map(String))].filter(id => /^[0-9a-f]{24}$/i.test(id))
+  if (!wanted.length) return new Map()
+  const rows: any[] = await ProductCategory.find({ _id: { $in: wanted }, orgId } as any)
+    .session(session)
+    .select({ name: 1 })
+    .lean()
+  return new Map(rows.map(c => [String(c._id), String(c.name)]))
+}
+
 /**
  * Apply sanitized product updates inside an open transaction session.
  *
@@ -169,6 +180,7 @@ export async function applyProductUpdates(
     throw new GRValidationError('One or more productUpdates reference products that do not exist in this org')
   }
   const tiersOf = new Map(found.map((p: any) => [String(p._id), p.priceTiers || []]))
+  const categoryName = await categoryNames(session, orgId, [...byProduct.values()].map(s => s.categoryId))
 
   const ops: any[] = []
   for (const [productId, set] of byProduct) {
@@ -178,6 +190,14 @@ export async function applyProductUpdates(
         throw new GRValidationError(`Product ${productId}: its price tiers would exceed the maximum of ${MAX_PRICE_TIERS} slots`)
       }
       set.priceTiers = merged
+    }
+    if (set.categoryId) {
+      const name = categoryName.get(String(set.categoryId))
+      if (!name) throw new GRValidationError(`Product ${productId}: its category does not exist in this org`)
+      // The name is what lists, filters and exports read, and its mirror what search reads. A
+      // bulkWrite runs no plugin, so both are written here, beside the id they go with.
+      set.category = name
+      set.categoryLower = name.toLocaleLowerCase('bg')
     }
     if (!Object.keys(set).length) continue
     ops.push({ updateOne: { filter: { _id: productId, orgId }, update: { $set: set } } })

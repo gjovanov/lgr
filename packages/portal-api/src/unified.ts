@@ -11,11 +11,11 @@ import { logger } from 'services/logger'
 // The whole API route table lives in `api.ts` so tests can mount it — see the header there.
 import { createApiApp } from './api.js'
 // Same reason for the SPA serving: `spa-fallback.flow.test.ts` drives it with the real plugins.
-import { UI_MODULES, portalShellFor, spaErrorHandler, uiStaticPlugin, type UiModule } from './spa-fallback.js'
+import { UI_MODULES, oneSpaShell, portalShellFor, spaErrorHandler, uiStaticPlugin, webBuildId, type UiModule, type UiShell } from './spa-fallback.js'
 
 // WebSocket
 import { setupWebSocket } from './websocket/ws.server.js'
-import { setupFiscalBridgeWS } from './websocket/fiscal-bridge.js'
+import { closeAllBridges, setupFiscalBridgeWS } from './websocket/fiscal-bridge.js'
 import { setupDesktopWS } from './websocket/desktop.js'
 import { setupUplinkWS } from './websocket/uplink.js'
 
@@ -76,6 +76,15 @@ for (const mod of UI_MODULES) {
 // The analytics tag goes on lgrai.app's portal only (FR-20 AC 66).
 if (indexHtmlMap.portal) indexHtmlMap.portal = portalShellFor(indexHtmlMap.portal, nodeRole())
 
+// FR-24.13: the one SPA (`packages/web`), beside the eight until Phase 3. Not in a server package.
+const webDir = uiRoot ? `${uiRoot}/web` : '../web/dist'
+const webHtml = await Bun.file(`${webDir}/index.html`).text().catch(() => undefined)
+const oneSpa = webHtml ? oneSpaShell(webHtml, nodeRole()) : null
+const buildId = webBuildId(webHtml)
+/** `LGR_UI_DEFAULT`: the shell a browser without the `lgr_ui` cookie gets. */
+const defaultShell: UiShell = process.env.LGR_UI_DEFAULT === 'one' ? 'one' : 'split'
+if (oneSpa) logger.info({ defaultShell, buildId }, 'The one SPA is served beside the eight (FR-24)')
+
 const app = new Elysia()
   // FR-20.72–20.74 (P3-4b): an org's address, `<label>.lgrai.app`, is its server's: tunnelled before
   // anything of lgrai.app's own app, headers or cookies runs. Global only; nothing for other hosts.
@@ -89,7 +98,9 @@ const app = new Elysia()
   .use(isolationHeaders()) // FR-20.72: CORP same-origin + Origin-Agent-Cluster on every response
   .use(corsPlugin()) // S-07: an allow-list, not every origin a caller names
   // 422 / SPA shell / 404 / 500. The shell's status needs care: see spa-fallback.ts.
-  .onError(spaErrorHandler(indexHtmlMap))
+  .onError(spaErrorHandler(indexHtmlMap, { one: oneSpa, defaultShell }))
+  // FR-24.14: the one SPA's build on every answer, so an open tab sees a deploy happened.
+  .onRequest(({ set }) => { if (buildId) set.headers['x-lgr-build'] = buildId })
   // API docs on lgrai.app only: the page loads its viewer from a CDN, and a master serves no
   // third-party script (FR-20 AC 66).
   .use(
@@ -132,7 +143,7 @@ const moduleUiConfig = [
   { name: 'accounting', prefix: '/accounting' },
   { name: 'inventory', prefix: '/inventory' },
   { name: 'invoicing', prefix: '/invoicing' },
-  { name: 'pos', prefix: '/pos' },
+  // POS: routes of the invoicing SPA since FR-24 Phase 0; `/pos/*` answers 302 (spa-fallback.ts).
   { name: 'payroll', prefix: '/payroll' },
   { name: 'reports', prefix: '/reports' },
   { name: 'files', prefix: '/files' },
@@ -148,6 +159,15 @@ for (const ui of moduleUiConfig) {
     } catch {
       logger.info(`Static plugin failed for ${ui.name}-ui`)
     }
+  }
+}
+
+// FR-24.10: the one SPA's files live under `/ui/` (its own asset directory), so both builds coexist.
+if (oneSpa) {
+  try {
+    app.use(await uiStaticPlugin({ assets: `${webDir}/ui`, prefix: '/ui' }))
+  } catch {
+    logger.info('Static plugin failed for the one SPA')
   }
 }
 
@@ -173,6 +193,8 @@ const stopDeps = {
   server: app.server,
   waitMs: config.stop.waitMs,
   closeControl: undefined as undefined | (() => void),
+  // FR-24.44: once nothing fiscal is in flight, tills reconnect elsewhere at once.
+  closeBridges: () => closeAllBridges(1012),
   disconnect: async () => (await import('db/connection')).mongoose.disconnect(),
 }
 const stopNow = (reason: string) => { void gracefulStop(reason, stopDeps) }
@@ -294,12 +316,8 @@ setTimeout(async () => {
     }
   }
 
-  // Reset stale fiscal device statuses on startup (connections lost on restart)
-  await once('fiscal-status-reset', async () => {
-    const { resetStaleFiscalStatuses } = await import('services/biz/fiscal-status-reset')
-    const count = await resetStaleFiscalStatuses()
-    if (count > 0) logger.info({ count }, 'Reset stale fiscal device statuses to offline')
-  })
+  // FR-24.46: no reset of every device at boot. With two pods it marked offline the devices the
+  // sibling held; the `fiscal-presence` scheduler below marks offline only what no live row holds.
   // FR-21.28: say at startup when the cash register will answer 503 until `bun run migrate` (0009).
   await once('cash-register-readiness', async () => {
     const { logRegisterReadiness } = await import('services/biz/cash-register/freeze-check')
@@ -317,6 +335,11 @@ setTimeout(async () => {
   const { startSchedulers } = await import('services/scheduler/registry')
   const owner = await import('services/background/task-owner')
   await startSchedulers([
+    // FR-24.46: a device marked `online` that no live presence row holds (on any pod) is `offline`.
+    {
+      name: 'fiscal-presence', intervalMs: 10_000, immediate: true,
+      ...lazy(() => import('services/biz/fiscal-presence.service'), m => m.markUnheldDevicesOffline()),
+    },
     // NTP time verification at start (the immediate tick), then every 6 hours by default.
     {
       name: 'fiscal-time-sync', intervalMs: config.supto.timeSyncIntervalMs, immediate: true,

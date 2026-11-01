@@ -33,6 +33,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   FiscalDevice: { collection: 'fiscaldevices', class: 'S', orgPath: 'orgId', home: ['connectionParams','connectionType','createdAt','deactivatedAt','deviceNumber','firmwareVersion','isActive','manufacturer','name','updatedAt','warehouseId','workstationId'], global: [], node: ['lastCommunicationAt','status'] },
   FiscalPeriod: { collection: 'fiscalperiods', class: 'R', orgPath: 'orgId' },
   FiscalPosition: { collection: 'fiscalpositions', class: 'R', orgPath: 'orgId' },
+  FiscalPresence: { collection: 'fiscal_presence', class: 'N', orgPath: 'orgId' },
   FiscalYear: { collection: 'fiscalyears', class: 'R', orgPath: 'orgId' },
   FixedAsset: { collection: 'fixedassets', class: 'R', orgPath: 'orgId' },
   Identity: { collection: 'identities', class: 'G', orgPath: null },

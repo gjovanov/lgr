@@ -53,6 +53,8 @@ const PUBLIC_ROUTES = new Set<string>([
    * anybody can read it.
    */
   'GET /api/health',
+  // FR-24.42: the readiness probe (kubelet, no token).
+  'GET /api/ready',
 
   // Pre-login credential exchange.
   'POST /api/auth/register',

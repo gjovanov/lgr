@@ -1,0 +1,130 @@
+name: e2e (nightly)
+
+# The whole Playwright suite, every night (#365). Until this workflow nothing ran it, whatever
+# `ci.yml` used to say: the nightly cron on mars was roomler-ai's. `desktops-security.spec` named a
+# route that never existed for four weeks, and nobody could have known.
+#
+# Not on every pull request: it holds one of the two mars runners for about 15 minutes, against
+# CI's 5. To run it for a branch: `gh workflow run e2e-nightly.yml --ref <branch>`. A pull request
+# that changes this file or its script runs it by itself, so such a change is proven before it
+# becomes the night's problem.
+#
+# The stubs, the seed and the server are `packages/e2e/scripts/nightly.ts`, which runs the same way
+# on a developer's machine.
+
+on:
+  schedule:
+    # 04:17 or 05:17 in Sofia, before the morning imports. Off the hour on purpose, like the dry
+    # build: the top of the hour is when Actions queues are busiest.
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/e2e-nightly.yml'
+      - 'packages/e2e/scripts/nightly.ts'
+      - 'packages/e2e/scripts/night-summary.ts'
+
+concurrency:
+  group: e2e-nightly-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: e2e (playwright)
+    # Same routing as `ci.yml`: a pull request from a fork never runs on mars.
+    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-24.04"' || vars.LGR_LINUX_RUNNER || '"ubuntu-24.04"') }}
+    timeout-minutes: 60
+    steps:
+      # The same step as `ci.yml`'s, for the same reason: the runners' /tmp is a 3 GB tmpfs. The
+      # test database lives there too and fits. Playwright's traces and report do not go there:
+      # they stay in the workspace, under packages/e2e.
+      - name: Clear test databases an interrupted run left in /tmp
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          inuse=$(ps -eo args | grep -o -- '--dbpath /tmp/mongo-mem-[^ ]*' | sed 's|--dbpath ||' | sort -u || true)
+          for d in /tmp/mongo-mem-*; do
+            [ -e "$d" ] || continue
+            printf '%s\n' "$inuse" | grep -qx -- "$d" || rm -rf -- "$d"
+          done
+          find /tmp -mindepth 1 -maxdepth 1 -name 'lgr-*' -mmin +60 -exec rm -rf {} + 2>/dev/null || true
+          df -h /tmp | tail -1
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      # ⚠ Playwright spawns its workers with `process.execPath`. With no Node on PATH, which is the
+      # mars runner image, every worker dies with code=143 before a browser launches (CLAUDE.md,
+      # E2E gotcha 1).
+      - name: Install Node (Playwright's workers need it)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Pin mongodb-memory-server's download directory
+        run: echo "MONGOMS_DOWNLOAD_DIR=$HOME/.cache/mongodb-binaries" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build the UIs
+        run: bun run build
+
+      - name: Install Playwright's browser
+        working-directory: packages/e2e
+        run: bunx playwright install --with-deps chromium --only-shell
+
+      - name: Run the suite
+        run: bun packages/tests/src/with-test-mongo.ts bun packages/e2e/scripts/nightly.ts
+        env:
+          # Chrome's sandbox needs user namespaces this runner's AppArmor refuses, as in `ci.yml`.
+          # Without it every PDF fails, and a spec reads that as a download that never comes.
+          PDF_CHROME_NO_SANDBOX: '1'
+
+      - name: Upload the report
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-report
+          path: |
+            packages/e2e/playwright-report/
+            packages/e2e/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  report:
+    name: open an issue if the night was red
+    needs: e2e
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      # Nobody watches the Actions tab at 4 in the morning, and no pull request carries the result.
+      - name: File or update an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE="Nightly e2e is failing"
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "\"$TITLE\" in:title" --json number --jq '.[0].number')
+          BODY=$(printf '%s\n' \
+            "The nightly Playwright run failed." \
+            "" \
+            "Run: $RUN_URL" \
+            "Commit: $GITHUB_SHA" \
+            "" \
+            "The report and traces are the run's \`playwright-report\` artifact, kept 7 days.")
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
+          fi

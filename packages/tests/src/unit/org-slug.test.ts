@@ -31,7 +31,10 @@ describe('orgSlugFromName', () => {
 describe('currentAppId', () => {
   it('names the domain app a path belongs to, and the portal for everything else', () => {
     expect(currentAppId('/invoicing/invoices')).toBe('invoicing')
-    expect(currentAppId('/pos')).toBe('pos')
+    // FR-24 Phase 0: POS pages are under the invoicing SPA, and the longer base wins.
+    expect(currentAppId('/invoicing/pos')).toBe('pos')
+    expect(currentAppId('/invoicing/pos/terminal')).toBe('pos')
+    expect(currentAppId('/invoicing/posters')).toBe('invoicing')
     expect(currentAppId('/apps')).toBe('portal')
     expect(currentAppId('/settings/users')).toBe('portal')
     // A prefix is not an app: `/posters` is not the POS.

@@ -47,7 +47,7 @@ import { FiscalDevice } from 'db/models'
 import { WebSocketFiscalPrinter } from 'fiscal/ws-fiscal-printer'
 import { WsTremolFiscalPrinter } from 'fiscal/ws-tremol-printer'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
-import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
+import { disconnectDevice, registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import type { IFiscalPrinter, FiscalExchangeOptions } from 'fiscal/types'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { requestVia } from '../front/front-guard.js'
@@ -62,6 +62,17 @@ import {
 } from 'services/biz/desktop/desktop.service'
 import { movedFor } from 'services/biz/desktop/repoint.service'
 import type { IDesktop } from 'db/models'
+import {
+  HEARTBEAT_MS,
+  POD_ID as POD_ID_SELF,
+  claimPresence,
+  heartbeatPresence,
+  livePresence,
+  releasePresence,
+  requestEviction,
+  type FiscalHolder,
+} from 'services/biz/fiscal-presence.service'
+import { podAddr } from '../tunnel/pod.js'
 
 const COMMAND_TIMEOUT_MS = 60000 // 60s — device may be physically printing (step-by-step mode)
 /** Headroom over a driver-supplied budget, so the browser's own timeout always fires first. */
@@ -134,6 +145,8 @@ type UserPrincipal = {
   lastName?: string
   /** FR-20.48: where its socket came from, for the audit entry of a takeover (no request is current then). */
   via?: string
+  /** FR-24.49: this browser tab's id, the same across its reconnects and reloads. Absent from old relays. */
+  instanceId?: string
 }
 
 /** A registered LGR Desktop relaying its till's own serial port (FR-14.26). */
@@ -163,7 +176,25 @@ const pendingCommands = new Map<string, {
 }>()
 
 /** Device number + org stored per WS connection, keyed by `socketKey` */
-const wsDeviceMap = new WeakMap<any, { deviceNumber: string; orgId: string }>()
+const wsDeviceMap = new WeakMap<any, { deviceNumber: string; orgId: string; deviceId?: string }>()
+
+/** FR-24.45: each socket's presence connection id, keyed by `socketKey`. */
+const wsConnIds = new WeakMap<any, string>()
+const connIdOf = (ws: any): string => {
+  let id = wsConnIds.get(socketKey(ws))
+  if (!id) {
+    id = randomUUID()
+    wsConnIds.set(socketKey(ws), id)
+  }
+  return id
+}
+
+/** The presence row's view of a principal. */
+function holderFor(principal: BridgePrincipal): FiscalHolder {
+  return principal.kind === 'desktop'
+    ? { kind: 'desktop', label: principal.label, desktopId: principal.desktopId }
+    : { kind: 'user', label: principal.label, userId: principal.userId, ...(principal.instanceId ? { instanceId: principal.instanceId } : {}) }
+}
 
 /**
  * Per-connection authentication state, keyed by `socketKey`.
@@ -290,6 +321,7 @@ async function authenticateBridge(ws: any, msg: any): Promise<BridgePrincipal | 
     firstName: payload.firstName,
     lastName: payload.lastName,
     via: requestVia(ws?.data?.request),
+    ...(typeof msg.instanceId === 'string' && msg.instanceId.length <= 100 ? { instanceId: msg.instanceId } : {}),
   }
 
   // Authenticated: the deadline no longer applies.
@@ -386,7 +418,33 @@ function evict(held: any, taker: UserPrincipal, device: any, holder: BridgePrinc
   unregisterPrinter(String(device._id))
   bridgeConnections.delete(bridgeKey(String(device.orgId), String(device.deviceNumber)))
   closeSocket(held, 'taken_over')
+  auditTakeover(taker, device, holder?.label ?? null, holder)
+}
 
+/**
+ * Let a socket of this pod go without touching its presence row, which is no longer its own: the
+ * same principal reconnected, an admin took the device over on another pod, or a revocation was
+ * decided there (FR-24.48). Tells the client why when there is something to tell.
+ */
+function dropLocal(held: any, reason: string, message: string | null): void {
+  if (message) {
+    try {
+      held.send(JSON.stringify({ type: 'fiscal:bridge:evicted', message }))
+    } catch { /* already gone */ }
+  }
+  const entry = wsDeviceMap.get(socketKey(held))
+  if (entry) {
+    const key = bridgeKey(entry.orgId, entry.deviceNumber)
+    if (sameSocket(bridgeConnections.get(key), held)) {
+      bridgeConnections.delete(key)
+      if (entry.deviceId) unregisterPrinter(entry.deviceId)
+    }
+  }
+  closeSocket(held, reason)
+}
+
+/** The audit entry of a takeover, wherever the evicted bridge was (FR-24.48). */
+function auditTakeover(taker: UserPrincipal, device: any, fromLabel: string | null, holder: BridgePrincipal | null = null): void {
   createAuditEntry({
     orgId: taker.orgId,
     userId: taker.userId,
@@ -399,7 +457,7 @@ function evict(held: any, taker: UserPrincipal, device: any, holder: BridgePrinc
     via: taker.via,
     // ⚠ `changes`, not a free-text note: `AuditEntry` has no `notes` field and Mongoose drops
     // unknown keys silently, so a note would have read fine here and recorded nothing.
-    changes: [{ field: 'bridge', oldValue: holder?.label ?? null, newValue: taker.label }],
+    changes: [{ field: 'bridge', oldValue: fromLabel, newValue: taker.label }],
   })
   logger.warn(
     {
@@ -545,35 +603,46 @@ export async function handleMessage(ws: any, raw: any) {
 
       const key = bridgeKey(orgId, deviceNumber)
       const held = bridgeConnections.get(key)
+      const deviceIdStr = String(device._id)
 
-      // ── No silent eviction ───────────────────────────────────────────────────────────────
+      // ── No silent eviction, on any pod (FR-24.45) ────────────────────────────────────────
       // A second opener used to unregister the first without telling anybody, which is how a
-      // shop's printer went offline mid-day. Re-registering the SAME socket stays idempotent.
+      // shop's printer went offline mid-day. The presence row decides now, so a bridge held on a
+      // sibling pod counts too. Re-registering the SAME socket stays idempotent; the same tab or
+      // desktop reconnecting takes its own row over; a dead row (20 s) is anyone's.
+      // ⚠ `principal.kind === 'user'` restates what `canTakeOver` already guarantees, because the
+      // compiler cannot narrow through a boolean helper and `evict` needs a `userId`. The two must
+      // agree: a desktop never evicts.
+      const takeover = principal.kind === 'user' && canTakeOver(principal, msg)
+      const claim = await claimPresence(
+        { orgId, deviceNumber: String(deviceNumber), deviceId: deviceIdStr },
+        holderFor(principal),
+        { connId: connIdOf(ws), podAddr: podAddr() },
+        { takeover },
+      )
+      if (!claim.ok) {
+        refuse(ws, `This device is already connected by ${claim.holder.label}.`, 'bridge_in_use')
+        return
+      }
       if (held && !sameSocket(held, ws)) {
-        const holder = wsAuthMap.get(socketKey(held))?.principal
-        // ⚠ `principal.kind === 'user'` restates what `canTakeOver` already guarantees, because
-        // the compiler cannot narrow through a boolean helper and `evict` needs a `userId`. The
-        // two must agree: a desktop never evicts.
-        if (principal.kind !== 'user' || !canTakeOver(principal, msg)) {
-          refuse(
-            ws,
-            holder
-              ? `This device is already connected by ${holder.label}.`
-              : 'This device is already connected in another tab, window or program.',
-            'bridge_in_use',
-          )
-          return
+        const holder = wsAuthMap.get(socketKey(held))?.principal ?? null
+        if (takeover && principal.kind === 'user') {
+          evict(held, principal, device, holder)
+        } else {
+          // The same principal reconnected, or the old socket's row had died: it is stale here.
+          dropLocal(held, 'replaced', null)
         }
-        evict(held, principal, device, holder)
+      } else if (takeover && principal.kind === 'user' && claim.previous && claim.previous.podId !== POD_ID_SELF) {
+        // Held on a sibling pod: its next heartbeat sees the row is no longer its own and lets go.
+        auditTakeover(principal, device, claim.previous.label)
       }
 
       // Register this WS as the bridge
       bridgeConnections.set(key, ws)
-      wsDeviceMap.set(socketKey(ws), { deviceNumber, orgId })
+      wsDeviceMap.set(socketKey(ws), { deviceNumber, orgId, deviceId: deviceIdStr })
 
       // Create the correct printer type based on manufacturer
       const sendCommand = createSendCommand(ws)
-      const deviceIdStr = String(device._id)
       const manufacturer = device.manufacturer || 'datecs'
       const printer = createBridgePrinter(manufacturer, sendCommand, deviceIdStr)
       registerPrinter(deviceIdStr, printer)
@@ -706,6 +775,15 @@ export async function handleClose(ws: any) {
   if (sameSocket(bridgeConnections.get(key), ws)) bridgeConnections.delete(key)
   wsDeviceMap.delete(socketKey(ws))
 
+  // FR-24.45: let go of the presence row, only while it is still this socket's. A client that has
+  // already reconnected (here or on another pod) owns it now, and its old socket's late close must
+  // not take that away.
+  try {
+    await releasePresence({ orgId, deviceNumber: String(deviceNumber) }, connIdOf(ws))
+  } catch (e: any) {
+    logger.warn({ deviceNumber, error: e?.message }, 'Fiscal bridge: could not release its presence row')
+  }
+
   // Reject the pending commands that went through THIS bridge (another device's bridge may
   // be mid-command right now).
   for (const [cmdId, pending] of pendingCommands) {
@@ -729,7 +807,10 @@ export async function handleClose(ws: any) {
       }).exec()
       if (device) {
         unregisterPrinter(String(device._id))
-        await FiscalDevice.findByIdAndUpdate(device._id, { status: 'offline' }).exec()
+        // Offline only when nobody holds it on any pod: it may already be reconnected elsewhere.
+        if (!(await livePresence({ orgId, deviceNumber: String(deviceNumber) }))) {
+          await FiscalDevice.findByIdAndUpdate(device._id, { status: 'offline' }).exec()
+        }
       }
     } catch (e: any) {
       logger.warn({ deviceNumber, error: e.message }, 'Error cleaning up fiscal bridge')
@@ -760,7 +841,123 @@ export function handleOpen(ws: any): void {
   wsAuthMap.set(socketKey(ws), { timer, principal: null })
 }
 
+/**
+ * FR-24.45/24.48: heartbeat the rows this pod holds, and let go of every bridge whose row is no
+ * longer its own: taken over on another pod, revoked there, or released. Runs every `HEARTBEAT_MS`
+ * until `closeAllBridges` stops it. Exported for the tests.
+ */
+export async function presenceTick(): Promise<void> {
+  const held: Array<{ orgId: string; deviceNumber: string; connId: string; ws: any }> = []
+  for (const ws of bridgeConnections.values()) {
+    const entry = wsDeviceMap.get(socketKey(ws))
+    if (entry) held.push({ orgId: entry.orgId, deviceNumber: String(entry.deviceNumber), connId: connIdOf(ws), ws })
+  }
+  if (!held.length) return
+  for (const lost of await heartbeatPresence(held)) {
+    const h = held.find(x => x.connId === lost.connId)
+    if (!h) continue
+    if (lost.reason === 'released') {
+      // The row went without anyone taking it (a manual cleanup): claim it back rather than drop a working till.
+      const entry = wsDeviceMap.get(socketKey(h.ws))
+      const principal = wsAuthMap.get(socketKey(h.ws))?.principal
+      if (entry?.deviceId && principal) {
+        const again = await claimPresence(
+          { orgId: h.orgId, deviceNumber: h.deviceNumber, deviceId: entry.deviceId },
+          holderFor(principal),
+          { connId: h.connId, podAddr: podAddr() },
+        )
+        if (again.ok) continue
+      }
+    }
+    const message = lost.reason === 'taken_over'
+      ? `${lost.by ?? 'Another bridge'} took over this fiscal device.`
+      : lost.reason === 'desktop_revoked'
+        ? 'This desktop has been removed from the organization.'
+        : 'This fiscal device was taken over.'
+    logger.warn({ deviceNumber: h.deviceNumber, orgId: h.orgId, reason: lost.reason }, 'Fiscal bridge let go: its presence row is no longer its own')
+    dropLocal(h.ws, lost.reason === 'taken_over' ? 'taken_over' : String(lost.reason), message)
+    await handleClose(h.ws)
+  }
+}
+
+/**
+ * FR-24.45: devices THIS pod opened itself over TCP (`kind: 'server'`). They hold a row like any
+ * bridge, so a sibling pod does not open the same device and the device lists say who has it.
+ */
+const serverHolds = new Map<string, { orgId: string; deviceNumber: string; deviceId: string; connId: string }>()
+
+/** Claim a device the server is about to open. Null when it is free; the holder's label when not. */
+export async function holdServerDevice(d: { orgId: string; deviceNumber: string; deviceId: string; label: string }): Promise<string | null> {
+  const key = bridgeKey(d.orgId, d.deviceNumber)
+  const connId = serverHolds.get(key)?.connId ?? randomUUID()
+  const claim = await claimPresence(
+    { orgId: d.orgId, deviceNumber: d.deviceNumber, deviceId: d.deviceId },
+    { kind: 'server', label: d.label },
+    { connId, podAddr: podAddr() },
+  )
+  if (!claim.ok) return claim.holder.label
+  serverHolds.set(key, { orgId: d.orgId, deviceNumber: d.deviceNumber, deviceId: d.deviceId, connId })
+  return null
+}
+
+/** Let go of a device the server opened. */
+export async function releaseServerDevice(orgId: string, deviceNumber: string): Promise<void> {
+  const key = bridgeKey(orgId, deviceNumber)
+  const hold = serverHolds.get(key)
+  if (!hold) return
+  serverHolds.delete(key)
+  await releasePresence({ orgId, deviceNumber }, hold.connId).catch(() => undefined)
+}
+
+async function heartbeatServerHolds(): Promise<void> {
+  if (!serverHolds.size) return
+  const holds = [...serverHolds.values()]
+  for (const lost of await heartbeatPresence(holds)) {
+    const hold = holds.find(h => h.connId === lost.connId)
+    if (!hold) continue
+    serverHolds.delete(bridgeKey(hold.orgId, hold.deviceNumber))
+    logger.warn({ deviceNumber: hold.deviceNumber, reason: lost.reason }, 'A server-opened fiscal device was taken by another holder')
+    await disconnectDevice(hold.deviceId).catch(() => undefined)
+  }
+}
+
+let heartbeat: ReturnType<typeof setInterval> | null = null
+
+/**
+ * FR-24.44: at a graceful stop, once no fiscal operation is in flight, close every bridge with 1012
+ * ("service restart"): clients reconnect at once, to a pod that takes connections. The presence rows
+ * go first, so whichever pod the till lands on can claim the device straight away.
+ */
+export async function closeAllBridges(code = 1012): Promise<number> {
+  if (heartbeat) {
+    clearInterval(heartbeat)
+    heartbeat = null
+  }
+  const sockets = [...bridgeConnections.values()]
+  for (const ws of sockets) {
+    const entry = wsDeviceMap.get(socketKey(ws))
+    if (entry) {
+      try {
+        await releasePresence({ orgId: entry.orgId, deviceNumber: String(entry.deviceNumber) }, connIdOf(ws))
+      } catch { /* the row dies in 20 s anyway */ }
+    }
+    try {
+      ws.close(code, 'server_restart')
+    } catch { /* already gone */ }
+    await handleClose(ws)
+  }
+  for (const hold of [...serverHolds.values()]) await releaseServerDevice(hold.orgId, hold.deviceNumber)
+  if (sockets.length) logger.info({ closed: sockets.length, code }, 'Fiscal bridges closed for the stop: clients reconnect elsewhere')
+  return sockets.length
+}
+
 export function setupFiscalBridgeWS(app: any): void {
+  heartbeat ??= setInterval(() => {
+    presenceTick().catch(e => logger.warn({ error: e?.message }, 'Fiscal presence heartbeat failed'))
+    heartbeatServerHolds().catch(e => logger.warn({ error: e?.message }, 'Fiscal presence heartbeat failed (server devices)'))
+  }, HEARTBEAT_MS)
+  ;(heartbeat as any).unref?.()
+
   app.ws('/ws/fiscal-bridge', {
     open(ws: any) {
       handleOpen(ws)
@@ -835,6 +1032,14 @@ export async function stopDesktopBridges(desktopId: string): Promise<number> {
     // printer is unregistered and the device marked offline — so a sale cannot be routed to a
     // revoked till even if its socket never reports closing.
     await handleClose(ws)
+  }
+
+  // FR-24.48: a bridge this desktop holds on ANOTHER pod lets go on that pod's next heartbeat. The
+  // server still drops the socket itself there; nothing waits for the till to cooperate.
+  try {
+    await requestEviction({ desktopId }, 'desktop_revoked')
+  } catch (e: any) {
+    logger.warn({ desktopId, error: e?.message }, 'Could not ask other pods to drop a revoked desktop')
   }
 
   if (doomed.length) logger.warn({ desktopId, stopped: doomed.length }, 'Fiscal bridges stopped: desktop revoked')

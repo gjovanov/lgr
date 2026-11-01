@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-10-31. The owner answered Q-1, Q-2 (card) and Q-4 the same day (§5). Q-3 goes to the accountant, and COD on an invoice (Q-2) and Q-5 stand as proposed until he says otherwise. **R1 built 2026-10-31** (§6). R2 and R3 are not. |
+| **Status** | Specified 2026-10-31. The owner answered every question the same day (§5). LGR is not live yet: the accountant reviews the printed receipts in real time during the go-live preparation, so nothing waits on that review. **R1 built 2026-10-31** (§6). R2 and R3 are not. |
 | **Tracking** | Partial storno: [gjovanov/lgr#363](https://github.com/gjovanov/lgr/issues/363). The rest is new. |
 | **Builds on** | FR-21 (#171): the register block, the till's print-once state (#155), D-13 (a back-office sale joins the cashier's open session), R0 (an invoice for a cash sale, §3.9). The printer gate (#390). |
 | **Code anchors** | origin/master `a2758a9e` (2026-10-31). Anchors, not gospel. |
@@ -56,11 +56,11 @@ Today, an invoice paid in cash is settled on issue (`syncCashSettlement`, paymen
 | Debit note issued or paid in cash | a `payment_receipt` (a sale receipt) | cash |
 | Credit note refunded in cash | a `payment_storno` citing a receipt that paid the invoice (§2.5) | cash |
 | Card at the counter: invoice issued with method card, or a card payment recorded | a `payment_receipt`, by the same rules as cash (owner, Q-2) | card |
-| Invoice with method cash on delivery | Proposed (Q-2): at issue, payment type „НАЛОЖЕН ПЛАТЕЖ" (Eltrade slot R), with the invoice still due until the courier pays | slot R |
+| Invoice with method cash on delivery | At issue (owner, Q-2), payment type „НАЛОЖЕН ПЛАТЕЖ" (Eltrade slot R), with the invoice still due until the courier pays | slot R |
 | **Any imported document** (Files app, `convertDraftInvoice`, the API import skills) | **never**. Another system printed its receipt. | — |
 | Bank transfer, `other` | nothing | — |
 
-**What the receipt says.** A payment that settles the whole invoice at issue prints the invoice's lines, like any sale, followed by a text line „Фактура № …". Any other payment prints one line per VAT rate, „Плащане по фактура № …", with the amount split pro rata. The last payment takes the remainder, so the receipts add up to the invoice exactly, rate by rate. The accountant confirms the wording against Н-18 (**Q-3**).
+**What the receipt says.** A payment that settles the whole invoice at issue prints the invoice's lines, like any sale, followed by a text line „Фактура № …". Any other payment prints one line per VAT rate, „Плащане по фактура № …", with the amount split pro rata. The last payment takes the remainder, so the receipts add up to the invoice exactly, rate by rate. The accountant reviews the printed wording against Н-18 during the go-live preparation (**Q-3**), so it is built as written here and corrected if that review says so.
 
 **The driver gap.** `IFiscalPrinter` could not print text inside a fiscal receipt; `printNonFiscalText` works only on a non-fiscal one. One optional method is added, `printFiscalText(text)`, with a capability flag (`fiscalText`). On Eltrade it is ISL 36h, „PRINTING A FREE FISCAL TEXT" in the protocol v1.1.1: up to 46 bytes, framed in `#`, S1.1 with no fiscal receipt open. ErpNet.FP's ISL drivers send comments with it. It has not run on a physical device. A device without it prints the invoice number as the line's name.
 
@@ -148,10 +148,10 @@ Each release goes through Atanas's protocol on #171, and the SUPTO docs change i
 - **Q-1 — Stock.** ✓ Answered 2026-10-31: model A, the invoice moves the stock.
 - **Q-2 — Card and cash on delivery.**
   - ✓ Answered 2026-10-31: a card payment at the counter prints as cash does.
-  - Still open: should a COD invoice print at issue on slot R? §2.2 proposes yes.
-- **Q-3 — Wording.** Itemised lines plus „Фактура № …" for a whole payment at issue, and „Плащане по фактура № …" per VAT rate otherwise. The accountant confirms against Н-18.
+  - ✓ Answered 2026-10-31: a COD invoice prints at issue on slot R.
+- **Q-3 — Wording.** ✓ Answered 2026-10-31: built as proposed, itemised lines plus „Фактура № …" for a whole payment at issue, and „Плащане по фактура № …" per VAT rate otherwise. The accountant reviews it in real time before go-live.
 - **Q-4 — Which orgs print.** ✓ Answered 2026-10-31: the printer gate's switch decides. Off means LGR prints nothing and cash invoices stay as today.
-- **Q-5 — Freeze.** Once a receipt has printed for an invoice, its total is corrected only by credit and debit notes. Stands as proposed unless the owner objects.
+- **Q-5 — Freeze.** ✓ Answered 2026-10-31: once a receipt has printed for an invoice, its total is corrected only by credit and debit notes.
 
 ## 6. R1 as built (2026-10-31)
 

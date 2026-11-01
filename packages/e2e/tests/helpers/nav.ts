@@ -42,6 +42,15 @@ export async function switchLocale(page: Page, code: string): Promise<void> {
   await page.waitForTimeout(300)
 }
 
+/**
+ * Takes the pointer off the drawer, which then folds back to its rail. Expanded, it covers the left
+ * of the top bar, and a click there never reaches the bar. Do this before clicking the bar: a person's
+ * hand does it on the way, and a new tab's pointer starts at (0,0), which is on the rail.
+ */
+export async function leaveNavDrawer(page: Page) {
+  await page.mouse.move(640, 360)
+}
+
 export async function openNavDrawer(page: Page): Promise<Locator> {
   const drawer = navDrawer(page)
   await drawer.waitFor({ state: 'visible' })

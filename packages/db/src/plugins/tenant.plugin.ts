@@ -26,7 +26,7 @@ import { homeWriteGuard } from '../home/write-guard.js'
  *
  * Tenancy is enforced at the auth layer instead: `services/biz/tenant-guard.ts#isForeignOrg`,
  * registered as a `beforeHandle` hook by `portal-api/src/auth/auth.service.ts` and the seven
- * `app-auth.service.ts` copies, rejects any request whose `:orgId` differs from the token's.
+ * `services/http/app-auth.service.ts` (one since FR-24.30), rejects any request whose `:orgId` differs from the token's.
  * It applies to every route of every controller that authenticates, with nothing to opt into.
  * `tests/src/integration/tenant-isolation.flow.test.ts` asserts the property over the real
  * route table, so a controller added next year is covered the day it is mounted.

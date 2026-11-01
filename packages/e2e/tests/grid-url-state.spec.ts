@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
-import { openSelect } from './helpers/vuetify'
+import { appears, openSelect } from './helpers/vuetify'
 
 // FR-05 (#12): grid state lives in the querystring — Back restores the exact view and
 // URLs are shareable. Menus hover-open on desktop (Playwright runs a fine-pointer
@@ -22,9 +22,8 @@ test.describe('Grid URL state + hover menus', () => {
     await expect(page).toHaveURL(/[?&]q=INV/, { timeout: 5000 })
 
     // Navigate into any document (first number link), then browser Back.
-    const firstLink = page.locator('.v-data-table tbody a').first()
-    const hasRows = await firstLink.isVisible({ timeout: 5000 }).catch(() => false)
-    test.skip(!hasRows, 'no documents seeded')
+    const firstLink = page.locator(DOC_LINK).first()
+    test.skip(!(await appears(firstLink, 5000)), 'no documents seeded')
     await firstLink.click()
     await page.waitForURL(/\/(invoices|bills)\/[0-9a-f]+\/edit/)
     await page.goBack()
@@ -49,8 +48,7 @@ test.describe('Grid URL state + hover menus', () => {
     await expect(page).toHaveURL(/[?&]q=INV/, { timeout: 5000 })
 
     const firstLink = page.locator(DOC_LINK).first()
-    const hasRows = await firstLink.isVisible({ timeout: 5000 }).catch(() => false)
-    test.skip(!hasRows, 'no documents seeded')
+    test.skip(!(await appears(firstLink, 5000)), 'no documents seeded')
 
     // 1. The form's own Back button — it pushes the bare list path, which used to drop
     //    every filter.

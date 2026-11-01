@@ -6,8 +6,7 @@ name: CI
 #
 # So this gate is deliberately the cheap, always-on one: it runs on every pull request and every
 # push to master, on Linux only, and finishes in minutes. The per-platform desktop builds and the
-# Windows smoke live in `desktop-ci.yml` (FR-14.35), and the heavy nightly e2e runs on mars rather
-# than on paid Actions minutes.
+# Windows smoke live in `desktop-ci.yml` (FR-14.35), and the Playwright suite in `e2e-nightly.yml`.
 #
 # ⚠ Where the Linux jobs run (2026-10-30):
 # - A pull request from a FORK runs on GitHub-hosted `ubuntu-24.04`, whatever else is set: code from
@@ -272,6 +271,10 @@ jobs:
       # anything until FR-14.34, and bit-rotted unnoticed for four days in August because of it.
       - name: Build all UIs
         run: bun run build
+
+      # FR-24.15: first-load JS within budget, no module view in the entry, one fiscal bridge.
+      - name: The one SPA's bundle budget
+        run: bun run check:web
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master

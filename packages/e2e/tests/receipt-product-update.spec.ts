@@ -48,7 +48,7 @@ test('turning „With product update" on for a draft receipt sends no product up
   let put = page.waitForRequest(isPut)
   // A save reloads the receipt, and its lines take their article's values again.
   const reloaded = page.waitForResponse((r: any) => r.request().method() === 'GET' && r.url().includes(`/warehouse/movement/${movementId}`))
-  const reseeded = page.waitForResponse((r: any) => r.request().method() === 'GET' && r.url().includes(`/warehouse/product/${product._id}`))
+  const reseeded = page.waitForResponse((r: any) => r.request().method() === 'GET' && r.url().includes('/warehouse/product?') && r.url().includes(String(product._id)))
   await save().click()
   expect((await put).postDataJSON().productUpdates).toEqual([])
   await reloaded

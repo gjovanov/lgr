@@ -51,7 +51,7 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { appHomeHref } from 'ui-shared/nav/navigate'
+import { appHomeHref, goTo } from 'ui-shared/nav/navigate'
 import FavoriteTiles from 'ui-shell/components/FavoriteTiles'
 import { useAppStore } from '../store/app.store'
 
@@ -93,7 +93,7 @@ async function fetchApps() {
 function navigateToApp(app: AppInfo) {
   // Same origin in production and unified dev; in per-app Vite dev the app is another origin and
   // this tab's session rides along in the dev handoff.
-  window.location.href = appHomeHref(app)
+  goTo(appHomeHref(app))
 }
 </script>
 

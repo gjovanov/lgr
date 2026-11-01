@@ -28,6 +28,9 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
       const stock = await r.stockLevels.findMany({ orgId, warehouseId: query.warehouseId, quantity: { $gt: 0 } } as any)
       filter.id = { $in: stock.map((s: any) => s.productId) }
     }
+    // Several articles at once, as the bill and goods-receipt forms seed their lines
+    // (`productsForSeed`). What is not an id matches nothing.
+    if (query.ids) filter.id = { $in: String(query.ids).split(',').filter(id => /^[0-9a-f]{24}$/i.test(id)) }
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10

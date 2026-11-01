@@ -3,7 +3,7 @@ import { Elysia } from 'elysia'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { spaErrorHandler, uiStaticPlugin } from '../../../portal-api/src/spa-fallback.js'
+import { oneSpaShell, shellFor, spaErrorHandler, uiStaticPlugin, webBuildId } from '../../../portal-api/src/spa-fallback.js'
 import { corsPlugin } from '../../../portal-api/src/cors.js'
 import { isolationHeaders } from '../../../portal-api/src/isolation-headers.js'
 
@@ -89,6 +89,54 @@ for (const alwaysStatic of [true, false]) {
       expect((await get(app, '/api/health')).status).toBe(200)
     })
 
+    // FR-24 Phase 0: the POS pages are routes of the invoicing SPA. Desktops hold `startPath: /pos/`.
+    it('answers the old POS addresses with a 302 to /invoicing/pos/*, query kept, and nothing else', async () => {
+      const app = await server(alwaysStatic)
+      for (const [path, to] of [
+        ['/pos', '/invoicing/pos'],
+        ['/pos/', '/invoicing/pos/'],
+        ['/pos/terminal', '/invoicing/pos/terminal'],
+        ['/pos/orders?session=abc&q=CS-1', '/invoicing/pos/orders?session=abc&q=CS-1'],
+        ['/pos/devices/123', '/invoicing/pos/devices/123'],
+      ]) {
+        const res = await app.handle(new Request(`http://localhost${path}`, { redirect: 'manual' }))
+        expect({ path, status: res.status, location: res.headers.get('location') }).toEqual({ path, status: 302, location: to })
+      }
+      // Not POS: a path that only starts with the letters, and a POST.
+      expect((await get(app, '/posts')).body).toBe(PORTAL)
+      const post = await app.handle(new Request('http://localhost/pos/terminal', { method: 'POST' }))
+      expect(post.status).not.toBe(302)
+    })
+
+    // FR-24.13: the one SPA beside the eight, chosen per browser by a cookie or by the default.
+    it('serves the one SPA to a browser that asked for it, and the eight to everyone else', async () => {
+      const ONE = '<html><head><title>LGR</title><meta name="lgr-build" content="b1"></head></html>'
+      const one = oneSpaShell(ONE, 'global')
+      const handle = async (split: 'one' | 'split', path: string, cookie?: string) => {
+        const app = new Elysia().onError(spaErrorHandler({ portal: PORTAL, inventory: INVENTORY }, { one, defaultShell: split }))
+        app.use(await uiStaticPlugin({ assets: join(dir, 'portal'), prefix: '' }, { alwaysStatic }))
+        await app.handle(new Request('http://localhost/'))
+        const res = await app.handle(new Request(`http://localhost${path}`, { headers: cookie ? { cookie } : {} }))
+        return { status: res.status, body: await res.text(), setCookie: res.headers.get('set-cookie'), location: res.headers.get('location') }
+      }
+      // Default split: the eight, unless the cookie says one.
+      expect((await handle('split', '/inventory/products')).body).toBe(INVENTORY)
+      expect((await handle('split', '/inventory/products', 'a=1; lgr_ui=one')).body).toBe(one.module)
+      // Default one: the one SPA, unless the cookie says split.
+      expect((await handle('one', '/inventory/products')).body).toBe(one.module)
+      expect((await handle('one', '/inventory/products', 'lgr_ui=split')).body).toBe(INVENTORY)
+      // FR-24.18: the analytics tag on the portal's pages only, never on a module's.
+      expect((await handle('one', '/apps')).body).toContain('purestat')
+      expect((await handle('one', '/invoicing/invoices/1/edit')).body).not.toContain('purestat')
+      // The switch sets the cookie and goes home.
+      for (const choice of ['one', 'split'] as const) {
+        const res = await handle('split', `/__ui/${choice}`)
+        expect({ status: res.status, location: res.location }).toEqual({ status: 302, location: '/' })
+        expect(res.setCookie).toContain(`lgr_ui=${choice}`)
+        expect(res.setCookie).toContain('HttpOnly')
+      }
+    })
+
     // FR-20.72 (plan step P0a-8): a sibling subdomain may load none of these as a subresource.
     it('puts the isolation headers on every answer, through a listening server as well', async () => {
       const app = await server(alwaysStatic)
@@ -122,3 +170,32 @@ for (const alwaysStatic of [true, false]) {
     })
   })
 }
+
+describe('FR-24.13/24.14 helpers', () => {
+  it('reads the shell from the lgr_ui cookie, else the default', () => {
+    const req = (cookie?: string) => new Request('http://x/', { headers: cookie ? { cookie } : {} })
+    expect(shellFor(req(), 'split')).toBe('split')
+    expect(shellFor(req(), 'one')).toBe('one')
+    expect(shellFor(req('lgr_ui=one'), 'split')).toBe('one')
+    expect(shellFor(req('x=1; lgr_ui=split; y=2'), 'one')).toBe('split')
+    expect(shellFor(req('lgr_ui=other'), 'split')).toBe('split')
+    expect(shellFor(req('not_lgr_ui=one'), 'split')).toBe('split')
+  })
+
+  it('takes the build id from the one SPA shell', () => {
+    expect(webBuildId('<meta name="lgr-build" content="abc-1">')).toBe('abc-1')
+    expect(webBuildId('<html></html>')).toBeNull()
+    expect(webBuildId(undefined)).toBeNull()
+  })
+
+  it('puts the master tag on every page of a master, and analytics only on the global portal', () => {
+    const html = '<html><head></head></html>'
+    const global = oneSpaShell(html, 'global')
+    expect(global.module).toBe(html)
+    expect(global.portal).toContain('purestat')
+    const master = oneSpaShell(html, 'master')
+    expect(master.module).toContain('lgr-node')
+    expect(master.portal).toContain('lgr-node')
+    expect(master.portal).not.toContain('purestat')
+  })
+})

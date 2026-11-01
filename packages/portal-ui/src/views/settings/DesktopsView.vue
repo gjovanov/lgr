@@ -230,7 +230,7 @@
             :label="$t('desktops.startPath')"
             :hint="$t('desktops.startPathHint')"
             persistent-hint
-            placeholder="/pos/"
+            placeholder="/invoicing/pos/"
             density="compact"
             variant="outlined"
             class="mb-3"

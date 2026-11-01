@@ -332,6 +332,8 @@
     }
   },
   "common": {
+    "newVersion": "A new version of LGR is available.",
+    "reload": "Reload",
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
@@ -1764,6 +1766,7 @@
     "priceTiersHelp": "Each slot defaults to the selling price with no filters. Enter Name and Price (or %) to use it. Toggle filters to make a tier apply only to certain contacts, tags, quantities, or date ranges.",
     "finalPrice": "Final Price",
     "withProductUpdate": "With product update",
+    "foreignCurrencyNoUpdate": "In {currency}: this bill updates no products",
     "withoutProductUpdate": "Without product update",
     "grPicker": {
       "title": "Configure columns",
