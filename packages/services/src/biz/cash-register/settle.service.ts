@@ -63,7 +63,9 @@ export interface SettleAnswer {
 
 /**
  * The number a storno of this sale will cite, as the person typed it. Digits, or the driver refuses the
- * storno; and not one this device already gave another document, which is a slip misread.
+ * storno; and not one this session's device already gave another document, which is a slip misread. ⚠ Only
+ * in its session: a device whose fiscal memory was replaced counts from one again under the same
+ * number, and a refusal here would leave a real sale nothing could settle.
  */
 async function saleReceiptNumber(doc: any, typed: string | undefined): Promise<string> {
   const number = String(typed ?? '').trim()
@@ -74,7 +76,7 @@ async function saleReceiptNumber(doc: any, typed: string | undefined): Promise<s
     })
   }
   const taken: any = await Invoice.findOne({
-    orgId: doc.orgId, _id: { $ne: doc._id }, 'register.fiscalDeviceNumber': doc.register?.fiscalDeviceNumber,
+    orgId: doc.orgId, _id: { $ne: doc._id }, 'register.sessionId': doc.register?.sessionId, 'register.fiscalDeviceNumber': doc.register?.fiscalDeviceNumber,
     'register.fiscalReceiptNumber': { $in: [number, number.padStart(7, '0'), String(Number(number))] },
   }, { invoiceNumber: 1 }).lean().exec()
   if (taken) {
