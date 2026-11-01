@@ -253,7 +253,7 @@ const answerLost = ref(false)
  */
 const basketFrozen = computed(() => selling.value || answerLost.value)
 /** FR-21.29: the catalog, the cart and the totals (`ui-shared`), which the back office sells through too. */
-const terminal = ref<{ reset: () => Promise<void>; refresh: () => Promise<void> } | null>(null)
+const terminal = ref<{ reset: () => Promise<void>; refresh: () => Promise<void>; focusSearch: () => void } | null>(null)
 const cart = ref<CartItem[]>([])
 const paymentMethod = ref('cash')
 const lastSale = ref<LastSale | null>(null)
@@ -670,6 +670,8 @@ function answerLeave(leave: boolean) {
   leaveAsked.value = false
   settleLeave?.(leave)
   settleLeave = null
+  // The next scan lands in the search, as after a sale (FR-22.54).
+  if (!leave) void nextTick(() => terminal.value?.focusSearch())
 }
 
 // The sale has answered, so the refusal has nothing left to say.

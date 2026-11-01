@@ -210,6 +210,15 @@ test.describe('A filled cart', () => {
     await expect(page).toHaveURL(/\/invoicing\/cash-register\/sessions$/, { timeout: 15000 })
   })
 
+  // A scanner types into whatever holds the cursor. FR-22.54 keeps it in the search after a sale.
+  test('staying puts the cursor back in the search, for the next scan', async ({ page }) => {
+    await fillCart(page)
+    await menu(page, /Outgoing/, 'Sales Documents')
+    await expect(dialog(page)).toBeVisible()
+    await stayed(page)
+    await expect(page.getByRole('textbox', { name: /Search products/i })).toBeFocused()
+  })
+
   // A move refused for a sale that is printing. The person sees how it ended.
   test('a sale on its way cannot be left, and the question closes by itself', async ({ page }) => {
     await fillCart(page)
