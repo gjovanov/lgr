@@ -60,10 +60,9 @@ export const ISSUED_KEY: Record<string, string> = {
 
 /**
  * FR-23: what the person reads when a document was issued and something about its receipt went wrong,
- * and whether the Pay action is the way on. A receipt that may have printed stands (D-4), and one
- * that printed through an error did print: nothing is left to pay, and only the device can say more.
- * One in doubt comes here as `unknown` too, and nothing was booked for it, but the reason says so,
- * and Pay is no way on: it waits for a person to settle it. A cash-on-delivery invoice owes the
+ * and whether the Pay action is the way on. One that printed through an error did print: nothing is left to
+ * pay, and only the device can say more. One in doubt comes here as `unknown`: nothing was booked for it, the
+ * reason says so, and Pay is no way on: it waits for a person to settle it. A cash-on-delivery invoice owes the
  * courier's money, not a payment at the counter: its receipt prints on its own, and Pay would record
  * money nobody brought. A document that changed under its issue printed nothing, and says so in words.
  * A refund that stopped after a part printed says how much went back: that money left the drawer, and

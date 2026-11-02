@@ -703,9 +703,8 @@ describe('the preview says what the close will book, by the function the close b
 
     expect(bookedOnItsSession(sale)).toMatchObject({ totalCash: 12, totalSales: 12, transactionCount: 1 })
     expect(bookedOnItsSession(receipt('printed'))).toMatchObject({ totalCash: 24 })
-    expect(bookedOnItsSession(receipt('unknown'))).toMatchObject({ totalCash: 24 })
-    for (const state of ['pending', 'failed']) expect(bookedOnItsSession(receipt(state))).toBeNull()
-    expect(bookedOnItsSession(receipt('unknown', { inDoubt: undefined }))).toMatchObject({ totalCash: 24 })
+    // What may have printed books nothing, held or not yet held (the prod sweep's D3): a person says, and it prints as settled.
+    for (const state of ['pending', 'failed', 'unknown']) expect(bookedOnItsSession(receipt(state))).toBeNull()
     expect(bookedOnItsSession({ ...receipt('unknown'), register: { fiscal: { state: 'unknown', inDoubt: true } } })).toBeNull()
     expect(bookedOnItsSession(receipt('printed', { sessionTotalsApplied: true }))).toBeNull()
     expect(bookedOnItsSession({ ...receipt('printed'), status: 'voided' })).toBeNull()

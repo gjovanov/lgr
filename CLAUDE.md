@@ -2602,8 +2602,10 @@ invoice still due until the courier pays).
   A driver says how far it got (`stagedPrint`), a storno too; `refused` means it sent nothing, so the device
   is not marked and nothing is read.
 - ⚠ **`unknown` means a person must look at the device: nothing reads it as `failed` and nothing reads it
-  as `printed`.** A receipt's money stands when its print was in its own turn; a sale's always does (D-4).
-  A storno's never does.
+  as `printed`.** A sale's money stands (D-4). A receipt's and a storno's never do, in their own turn or not: each is
+  held (`holdInDoubt`), the invoice unpaid and the session untouched, and a person settles it. ⚠ A receipt's used to
+  stand when its print was in its own turn: a dropped socket then left a paid invoice, a receipt the next X voided,
+  nothing on the device and no door out (#461 D3). At issue the invoice stands issued and unpaid, with the notice.
 - ⚠ **A storno that may have printed is held, never voided** (`runStornoSteps`). Only `failed` voids it and
   gives the sale back. An `unknown` one keeps its claim, books no refund, no stock and no session totals, and
   answers 409 `storno_in_doubt`, as does every press after it: voided, the next press printed a second
@@ -2777,10 +2779,8 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   the slip for a fiscal receipt too, optionally: with none it stands as printed and its refund goes by bank. One it
   brought is held to all a sale's is, and corrected at the door until a refund's storno cites it: a storno's
   claim is in the correction's filter (`stornoCites`), and what a storno cites is read after its claim
-  (`takeFromCited`). A receipt whose `unknown` stands (an in-turn verdict, its money booked) has no door: it holds
-  nothing, 409 `no_receipt_to_storno`. ⚠ So only its own print may leave one: what a leftover's close did says
-  nothing about it, at the driver (`cancelFiscalReceipt`) and, for one with no cancel, at `opening`
-  (`verdictOfFailedPrint`).
+  (`takeFromCited`). ⚠ What a leftover's close did says nothing about this document, at the driver
+  (`cancelFiscalReceipt`) and, for one with no cancel, at `opening` (`verdictOfFailedPrint`).
 - ⚠ **A refund at issue is for what the issue decided** (`issue.tender`, `tenderMoved`). Its claim stands until
   the storno does, as a receipt's, and moved, nothing prints (`receiptCode: 'issue_tender_moved'`). Between two
   stornos nothing holds the note, and on a retry nothing holds it at all, so `refund` asks `refundMoved` before each

@@ -244,10 +244,11 @@ describe.skipIf(!enabled)('a device whose holder moves between pods (FR-23, FR-2
     sim.beforeCommand = null
     const [a, b] = await Promise.all([first, second])
 
-    // The first closed on the device with its answer lost: unknown, and its money stands.
-    expect(a.status).toBe(200)
-    expect(a.json.receipt.state).toBe('unknown')
-    expect((await raw(printing))).toMatchObject({ status: 'paid', amountPaid: 12 })
+    // The first closed on the device with its answer lost. No money moves on a maybe (the prod sweep's D3): it is
+    // held for a person, and nothing prints again.
+    expect(a.status).toBe(409)
+    expect(a.json.code).toBe('receipt_in_doubt')
+    expect((await raw(printing))).toMatchObject({ status: 'sent', amountPaid: 0 })
     // The second never reached the device: nothing is on it, nothing is booked, and it can be paid again.
     expect(b.status).toBe(503)
     expect(b.json.code).toBe('fiscal_error')
@@ -260,6 +261,12 @@ describe.skipIf(!enabled)('a device whose holder moves between pods (FR-23, FR-2
     till = next
     const again = await api(spare, 'POST', `/invoices/${waiting}/payments`, toPay(), 'takeover-second2')
     expect(again.status).toBe(200)
+    expect(closedOnDevice().length).toBe(before + 2)
+
+    // A person looks at the device, and the first is on it: the money books once, and nothing more prints.
+    const inDoubt: any = await receiptOf(printing)
+    expect((await api(holder, 'POST', `/cash-register/documents/${inDoubt._id}/settle`, { printed: true })).status).toBe(200)
+    expect((await raw(printing))).toMatchObject({ status: 'paid', amountPaid: 12 })
     expect(closedOnDevice().length).toBe(before + 2)
   }, 120_000)
 

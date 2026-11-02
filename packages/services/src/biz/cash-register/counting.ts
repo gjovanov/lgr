@@ -55,10 +55,12 @@ export function posRowSign(row: PosRowLike): 1 | -1 | 0 {
 }
 
 /**
- * FR-23: a payment's receipt took its money once it printed, or may have (D-4). One that failed, is
- * still printing, or is held for a person to settle took nothing yet. A session's figures count it;
- * it has no sign, because it is no sale and `posRowSign` is what the session's journal entry and sales
- * history sum.
+ * FR-23: a payment's receipt took its money once it printed. One that failed, is still printing, or is
+ * held for a person to settle took nothing yet. A session's figures count it; it has no sign, because it
+ * is no sale and `posRowSign` is what the session's journal entry and sales history sum.
+ *
+ * `unknown` and finished is what a receipt's verdict in its own turn left until those were held too (the prod sweep's
+ * D3). Nothing new reads so: such a row booked its money then, and it is read as what it did.
  */
 export function receiptTookMoney(row: PosRowLike): boolean {
   return row.type === 'payment_receipt' && (row.fiscal?.state === 'printed' || row.fiscal?.state === 'unknown') && !row.fiscal?.inDoubt && row.status === 'completed'
@@ -66,7 +68,7 @@ export function receiptTookMoney(row: PosRowLike): boolean {
 
 /**
  * FR-23 R2: a refund's storno gave its money back once it printed, and only then: a session counts it
- * negative. Unlike a receipt, whose money is in the drawer either way, `unknown` has paid nobody yet.
+ * negative.
  */
 export function refundGaveMoney(row: PosRowLike): boolean {
   return row.type === 'payment_storno' && row.fiscal?.state === 'printed' && row.status === 'completed'

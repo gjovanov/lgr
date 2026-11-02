@@ -23,7 +23,7 @@
  * decided there (`print-verdict.ts`).
  *
  * ⚠ `unknown` means a person must look at the device: nothing reads it as `failed`, and nothing reads
- * it as `printed`. A sale's money stands either way (D-4). A storno's and a dead receipt's wait on the
+ * it as `printed`. A sale's money stands either way (D-4). A storno's and a receipt's wait on the
  * answer (`holdInDoubt`), and a person gives it at the journal's settle door (`settle.service.ts`).
  *
  * What only a door knows is handed in: the fiscal device (a `RegisterPrinter`, which the till builds
@@ -636,8 +636,8 @@ export function saleIncrements(doc: any): Record<string, number> {
  * by the steps that book it and by the close's preview, which writes nothing and has to say what the close
  * will do: its count is prefilled from that, and read as anything else the drawer closed short or over.
  *  - **A sale:** always. Its money stands (D-4).
- *  - **A receipt:** once it printed or may have, in its own turn. Still `pending` it books nothing whoever
- *    finishes it: that gives it up or holds it. `failed` is given up, and one in doubt is a person's.
+ *  - **A receipt:** once it printed. Still `pending` it books nothing whoever finishes it: that gives it up or
+ *    holds it. `failed` is given up, and `unknown` is a person's (`holdInDoubt`), whichever turn it was in.
  *  - **A storno, of a sale or of a receipt (R2):** once it printed, or had nothing to print. `unknown` is held,
  *    and `failed` is voided. ⚠ A type this does not name books nothing, silently: a new money document learns it here.
  */
@@ -646,7 +646,7 @@ export function bookedOnItsSession(doc: any): Record<string, number> | null {
   if (reg?.sessionTotalsApplied || doc.status === 'voided' || reg?.fiscal?.inDoubt) return null
   const state = reg?.fiscal?.state
   if (doc.type === 'cash_sale') return saleIncrements(doc)
-  if (doc.type === 'payment_receipt') return state === 'pending' || state === 'failed' ? null : saleIncrements(doc)
+  if (doc.type === 'payment_receipt') return state === 'printed' ? saleIncrements(doc) : null
   if (doc.type === 'cash_storno' || doc.type === 'payment_storno') return UNPROVED_STORNO_STATES.includes(String(state)) ? null : stornoIncrements(doc)
   return null
 }
