@@ -1443,7 +1443,17 @@
       "noReceipt": "A back-office sale: the storno prints no receipt and needs no session.",
       "fromSession": "Refunded from session {session}",
       "confirm": "Storno",
-      "done": "Storno {number} completed"
+      "done": "Storno {number} completed",
+      "whole": "Whole sale",
+      "allLeft": "All that is left",
+      "part": "Part of it",
+      "left": "Left of this sale",
+      "leftQuantity": "Left",
+      "returnQuantity": "Return",
+      "goesBack": "Goes back",
+      "refundBy": "Refund by",
+      "asPaid": "As the sale was paid",
+      "returned": "{quantity} returned"
     },
     "noActiveSession": "No active POS session. Open a session to start selling.",
     "openSession": "Open Session",
@@ -1891,7 +1901,12 @@
       "bringNumber": "Add the number off the slip",
       "bringNumberConfirm": "Type the receipt number as it is on the slip. A refund cites it on the device, and the audit trail keeps it.",
       "correctNumberConfirm": "Type the receipt number as it is on the slip. A storno cites it, and the audit trail keeps both.",
-      "numberCorrected": "Receipt number corrected"
+      "numberCorrected": "Receipt number corrected",
+      "stornoExceedsLeft": "That is more than is left of this sale to return: another storno took part of it. Nothing was reversed. Look at what is left, then try again.",
+      "stornoExceedsBudget": "These lines are more than this sale's receipt still holds ({left}): a credit note's refund took the rest. Nothing was reversed.",
+      "stornoRefundMismatch": "These lines give back something other than the refund named. Nothing was reversed.",
+      "stornoLineUnknown": "One of these lines is not a line of this sale. Nothing was reversed.",
+      "stornoQuantityInvalid": "A quantity to return is above 0, in at most three decimals. Nothing was reversed."
     },
     "origin": {
       "pos": "Till",
@@ -1902,7 +1917,8 @@
       "completed": "Completed",
       "stornoed": "Stornoed",
       "voided": "Voided",
-      "inDoubt": "In doubt"
+      "inDoubt": "In doubt",
+      "partial": "Partly stornoed"
     },
     "stock": {
       "moved": "Moved",

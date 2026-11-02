@@ -22,10 +22,12 @@ import { takeLease } from 'services/biz/hot-path-key'
 import { POD_ID, livePresence } from 'services/biz/fiscal-presence.service'
 import {
   RegisterRefusal, SESSION_CLOSING, claimForStorno, finishInterruptedStorno, finishSale, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally,
-  releaseOrphanClaims, releaseStornoClaim, runStornoSteps, settleKeyedDocument, stornoDocument, stornoInDoubtRefusal, stornoRefusal,
+  releaseOrphanClaims, releaseStornoClaim, runStornoSteps, settleKeyedDocument, stornoClaimed, stornoDocument, stornoInDoubtRefusal, stornoRefusal,
   type RegisterContext, type RegisterSession, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
 import { fiscalUnitPrice } from 'services/biz/cash-register/receipt-lines'
+import { leftByRate, totalOf } from 'services/biz/cash-register/refund-budget'
+import { isPlanRefusal, leftByMethod, planStorno, refundOfPart, type StornoPlan } from 'services/biz/cash-register/storno-lines'
 import { isDeviceConnected, getPrinter, type IFiscalPrinter } from 'fiscal/fiscal-device.service'
 import { maySaleOpen } from 'fiscal/device-reach'
 import { FiscalPaymentMethodError, toFiscalPaymentType } from 'fiscal/types'
@@ -268,6 +270,8 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
         price: fiscalUnitPrice(l.unitPrice, l.taxRate ?? 0),
         vatGroup: mapTaxRateToVatGroup(l.taxRate ?? 0),
         taxRate: l.taxRate ?? 0,
+        // ⚠ As the sale printed it. Without it a device adds the line up undiscounted, and the driver tenders the difference.
+        ...(l.discount ? { discount: l.discount } : {}),
       }))
       const method = refundMethod(storno.payments, original)
       const s = storno.register?.storno || {}
@@ -358,10 +362,10 @@ function refundMethod(refund: { method: string }[] | undefined, original: any): 
   return refund?.[0]?.method || original?.payments?.[0]?.method || original?.paymentMethod || 'cash'
 }
 
-/** A storno: the refund the operator named, and what its receipt prints when it prints one. */
-function assertStornoTender(refund: { method: string; amount: number }[] | undefined, original: any, printer: RegisterPrinter | null): void {
+/** A storno: the refund the operator named, and what its receipt prints when it prints one. `total`: what it gives back. */
+function assertStornoTender(refund: { method: string; amount: number }[] | undefined, original: any, printer: RegisterPrinter | null, total = Number(original.total) || 0): void {
   assertFiscalMethods((refund ?? []).map(p => p.method))
-  assertCashOnDeliveryExact(refund ?? [], Number(original.total) || 0)
+  assertCashOnDeliveryExact(refund ?? [], total)
   if (!printer) return
   const method = refundMethod(refund, original)
   assertFiscalMethods([method])
@@ -556,6 +560,8 @@ export interface StornoDoorInput {
   originalId: string
   reason: string
   payments?: { method: string; amount: number; reference?: string }[]
+  /** Which lines come back, and how much of each. Absent: all that is left. */
+  lines?: { lineId: string; quantity: number }[]
   /** The session the refund leaves: the till's own, or the one the journal's dialog chose. */
   session: any | null
   key?: string
@@ -572,8 +578,8 @@ export interface StornoDoorInput {
  * - **An imported till day** and **an invoiced sale** are refused (`stornoRefusal`).
  *
  * The sale is claimed atomically, the storno is its own `cash_storno` document, and the sale stays
- * `paid` with `stornoState: 'full'`. A sale an older release rang up is stornoed as its
- * copy, under the row's id (§6 edge 3).
+ * `paid` with `stornoState: 'full'`, or `'partial'` while any of it is left (FR-23 R3). A sale an older
+ * release rang up is stornoed as its copy, under the row's id (§6 edge 3).
  */
 export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typeof stornoResponse>> {
   const { orgId, user, key, hash } = input
@@ -605,7 +611,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
     let original: any = Invoice.base.Types.ObjectId.isValid(input.originalId) ? await read() : null
     // What a request that died left on this sale comes first: a claim whose storno was never written, and one
     // that was, which may have printed, or be proved not to.
-    if (original?.register?.stornoState === 'full') {
+    if (stornoClaimed(original)) {
       const released = await releaseOrphanClaims(original)
       const finished = await finishInterruptedDocuments(orgId, user, { ids: original.register.stornoedBy ?? [] })
       if (released || finished) original = await read()
@@ -615,19 +621,38 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
     if (saleProgress(original) === 'dead' && originOf(original) !== 'import' && await finishDeadSale(orgId, user, original)) {
       original = await read()
     }
-    const refusal = await stornoRefusal(original)
+    /** The storno of a racing duplicate of this request, once nothing more is coming: every claim on the sale has its document. */
+    const ownOnceWritten = async (): Promise<any | null> => {
+      if (!key) return null
+      for (let i = 0; i < 40; i++) {
+        // ⚠ In this order. The other way round, a storno landing between the two reads was this
+        // request's own, found as written and missed as "my key", so it was refused.
+        const ids: unknown[] = (await read())?.register?.stornoedBy ?? []
+        const written = await Invoice.countDocuments({ _id: { $in: ids }, orgId }).exec()
+        const mine = await findKeyedTillDocument(orgId, key)
+        if (mine) return mine
+        if (written >= ids.length) return null
+        await new Promise(res => setTimeout(res, 100))
+      }
+      return null
+    }
+    const part = !!input.lines?.length
+    const refusal = await stornoRefusal(original, { part })
     if (refusal) {
       // ⚠ A duplicate sent at the same moment can read the sale AFTER the first request claimed it
       // and BEFORE that request wrote its storno, the document that carries the key. It answered
       // "already cancelled" for a storno that went through. So a keyed request waits for its key.
-      if (key && original?.register?.stornoState === 'full') {
+      if (key && stornoClaimed(original)) {
         for (let i = 0; i < 40; i++) {
           // ⚠ In this order. The other way round, a storno landing between the two reads was this
           // request's own, found as "a paid storno" and missed as "my key", so it was refused.
           const reversed = await Invoice.exists({ orgId, type: 'cash_storno', relatedInvoiceId: original._id, status: 'paid' }).exec()
+          const ids: unknown[] = (await read())?.register?.stornoedBy ?? []
+          const unwritten = ids.length > await Invoice.countDocuments({ _id: { $in: ids }, orgId }).exec()
           const mine = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
           if (mine) return answer(await settleKeyedDocument(mine, hash!, contextOf(mine), runStornoSteps))
-          if (reversed) break
+          // An earlier part is "a paid storno" too: this request's own may still be between its claim and its insert.
+          if (reversed && !unwritten) break
           await new Promise(res => setTimeout(res, 100))
         }
       }
@@ -662,13 +687,70 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
       })
     }
     const printsReceipt = !!c.printer && printedFiscally(original)
-    // Before the claim: a refused refund leaves the sale as it was.
-    assertStornoTender(input.payments, original, printsReceipt ? c.printer! : null)
+
+    /**
+     * What this request takes of the sale as it stands, and how it goes back. All before the claim: a refused
+     * refund leaves the sale as it was. Null when a racing duplicate of it got there first: that is its answer.
+     */
+    const prepared = async (): Promise<{ plan: StornoPlan; payments?: StornoDoorInput['payments'] } | { duplicate: any }> => {
+      const plan = planStorno(original, input.lines)
+      if (isPlanRefusal(plan)) {
+        const mine = await ownOnceWritten()
+        if (mine) return { duplicate: mine }
+        throw new RegisterRefusal(plan.statusCode, plan.body)
+      }
+      if (!plan.partial) {
+        assertStornoTender(input.payments, original, printsReceipt ? c.printer! : null)
+        return { plan, payments: input.payments }
+      }
+      // ⚠ Lines that fit can still be more than a refund left of their rate: said here, in words a person can use.
+      const left = leftByRate(original)
+      if ([...plan.want].some(([rate, cents]) => cents > (left.get(rate) || 0))) {
+        throw new RegisterRefusal(409, {
+          code: 'storno_exceeds_budget',
+          left: totalOf(left) / 100,
+          message: `These lines are more than this sale's receipt still holds (${(totalOf(left) / 100).toFixed(2)}): a credit note's refund took the rest. Nothing was reversed.`,
+        })
+      }
+      const cents = Math.round(plan.total * 100)
+      if (input.payments?.length && Math.round(input.payments.reduce((s, p) => s + (Number(p.amount) || 0), 0) * 100) !== cents) {
+        throw new RegisterRefusal(422, {
+          code: 'storno_refund_mismatch',
+          amount: plan.total,
+          message: `These lines give back ${plan.total.toFixed(2)}, and the refund named comes to something else. Nothing was reversed.`,
+        })
+      }
+      const ids: unknown[] = original.register?.stornoedBy ?? []
+      const stornos: any[] = ids.length ? await Invoice.find({ _id: { $in: ids }, orgId }, { status: 1, payments: 1 }).lean().exec() : []
+      const payments = input.payments?.length ? input.payments : refundOfPart(leftByMethod(original, stornos), cents)
+      assertStornoTender(payments, original, printsReceipt ? c.printer! : null, plan.total)
+      return { plan, payments }
+    }
 
     const stornoId = newDocumentId()
-    const claimed = await claimForStorno(original, stornoId)
-    if (claimed) original = claimed
-    else {
+    let plan: StornoPlan | undefined
+    let payments: StornoDoorInput['payments']
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const ready = await prepared()
+      if ('duplicate' in ready) return answer(await settleKeyedDocument(ready.duplicate, hash!, contextOf(ready.duplicate), runStornoSteps))
+      const claimed = await claimForStorno(original, stornoId, ready.plan)
+      if (claimed) {
+        original = claimed
+        plan = ready.plan
+        payments = ready.payments
+        break
+      }
+      // ⚠ All of a sale nothing has touched: lost, it is someone else's by now, and it does not go on as "what is left".
+      if (!ready.plan.partial) break
+      // A part, on a sale that moved since it read it. The other storno may have taken what this one needs, or left
+      // the rest, and which is what the next read says. A duplicate of this request is simply that request's.
+      const mine = key ? await findKeyedTillDocument(orgId, key) : null
+      if (mine) return answer(await settleKeyedDocument(mine, hash!, contextOf(mine), runStornoSteps))
+      original = await read()
+      const refused = await stornoRefusal(original, { part })
+      if (refused) throw refused
+    }
+    if (!plan) {
       // A duplicate of the request that won: wait for its storno, then answer as it does.
       if (key) {
         for (let i = 0; i < 40; i++) {
@@ -686,7 +768,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
       const invoicedMeanwhile = await invoicedRefusal(original)
       if (invoicedMeanwhile) throw invoicedMeanwhile
       const doc = stornoDocument({
-        orgId, user, original, reason: input.reason, payments: input.payments,
+        orgId, user, original, reason: input.reason, payments, plan,
         session: tillSale ? registerSessionOf(session) : null, printsReceipt, printer: c.printer ?? null,
       })
       const outcome = await insertRegisterDocument(orgId, { ...doc, _id: stornoId }, key ? { key, hash: hash! } : undefined)

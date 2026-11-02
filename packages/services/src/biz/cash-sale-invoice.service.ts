@@ -10,6 +10,8 @@ import { CASH_SALE_REF_ID } from './sale-counting.js'
 import { reverseInvoiceStockMovement } from './invoicing.service.js'
 import { retireAutomaticPayments } from './cash-settlement.service.js'
 import { freezeRefusal } from './cash-register/payment-receipt.service.js'
+import { releaseOrphanClaims } from './cash-register/register.service.js'
+import { leftByMethod, lineKey, returnedByLine } from './cash-register/storno-lines.js'
 import { heldOn, notBeingVoided } from './invoice-payment.js'
 import { localDayEnd, localDayOf, localDayStart } from './local-day.js'
 import { upsertAmountInWords } from 'config/amount-in-words'
@@ -51,6 +53,10 @@ const saleDay = (d: Date | string | undefined | null): string => (d ? localDayOf
  * Corrections are ordinary documents. A credit or debit note against such an invoice behaves like
  * any other note — it moves the stock back and counts negative — because no other correction for a
  * cash sale exists before FR-21's storno. Voiding the invoice releases its quantities.
+ *
+ * ⚠ What a partial storno took back is not there to invoice (FR-23 R3, the owner's decision): a partly stornoed sale
+ * invoices only what is left, on the lines that were not returned. One in doubt keeps what it took here too, and a
+ * sale's budget is what it sold less all of that (`soldByLine`).
  */
 
 export class CashSaleInvoiceError extends Error {
@@ -263,10 +269,22 @@ function claimOf(doc: any): Claim {
   return { id: idOf(doc._id), lines }
 }
 
-/** Sold quantity per invoiceable line of the cash sale (lines that sold nothing invoice nothing). */
+/** How much of each of the sale's lines its stornos took, in units, in the order of its lines. */
+function returnedQuantities(cs: any): number[] {
+  const back = returnedByLine(cs)
+  return (cs.lines || []).map((l: any, i: number) => (back.get(lineKey(l, i)) || 0) / 1000)
+}
+
+/**
+ * What may be invoiced per invoiceable line of the cash sale: what it sold, less what its stornos took
+ * (lines that sold nothing invoice nothing).
+ */
 function soldByLine(cs: any): Map<string, number> {
   const out = new Map<string, number>()
-  for (const l of cs.lines || []) if (num(l.quantity) > 0) out.set(idOf(l._id), num(l.quantity))
+  const returned = returnedQuantities(cs)
+  ;(cs.lines || []).forEach((l: any, i: number) => {
+    if (num(l.quantity) > 0) out.set(idOf(l._id), Math.max(0, +(num(l.quantity) - returned[i]).toFixed(3)))
+  })
   return out
 }
 
@@ -279,7 +297,8 @@ export interface CashSaleInvoicingState {
   wholeOnly: boolean
   lines: Array<{
     lineId: string; productId: string | null; description: string; unit: string
-    quantity: number; invoiced: number; remaining: number
+    /** What it sold, what partial stornos took back, what invoices took, and what is left of that. */
+    quantity: number; returned: number; invoiced: number; remaining: number
     unitPrice: number; discount: number; taxRate: number
   }>
   invoices: Array<{ id: string; number: string; status: string; contactId: string | null; total: number; issueDate: Date }>
@@ -294,23 +313,27 @@ export interface CashSaleInvoicingState {
 
 function stateOf(cs: any, invoices: any[]): Pick<CashSaleInvoicingState, 'lines' | 'state' | 'remainingTotals'> {
   const used = claimedByLine(invoices.map(claimOf))
-  const lines = (cs.lines || []).map((l: any) => {
+  const back = returnedQuantities(cs)
+  const lines = (cs.lines || []).map((l: any, i: number) => {
     const quantity = num(l.quantity)
     const invoiced = used.get(idOf(l._id)) || 0
+    const returned = back[i]
     return {
       lineId: idOf(l._id),
       productId: l.productId ? idOf(l.productId) : null,
       description: l.description || '',
       unit: l.unit || 'pcs',
       quantity,
+      returned,
       invoiced,
-      remaining: quantity > 0 ? Math.max(0, quantity - invoiced) : 0,
+      remaining: quantity > 0 ? Math.max(0, +(quantity - returned - invoiced).toFixed(3)) : 0,
       unitPrice: num(l.unitPrice),
       discount: num(l.discount),
       taxRate: num(l.taxRate),
     }
   })
-  const invoiceable = lines.filter((l: any) => l.quantity > 0)
+  // A line all of which came back is nobody's to invoice, and takes no part in how far the sale is invoiced.
+  const invoiceable = lines.filter((l: any) => l.quantity > 0 && l.quantity - l.returned > EPS)
   const anyInvoiced = invoiceable.some((l: any) => l.invoiced > EPS)
   const allInvoiced = invoiceable.length > 0 && invoiceable.every((l: any) => l.remaining <= EPS)
   const state = allInvoiced ? 'full' : anyInvoiced ? 'partial' : 'none'
@@ -389,7 +412,7 @@ export async function invoicingByCashSale(
   }
   const withInvoices = [...byCs.keys()]
   const sales: any[] = withInvoices.length
-    ? await Invoice.find({ orgId, _id: { $in: withInvoices.map(id => new Types.ObjectId(id)) } } as any, { 'lines._id': 1, 'lines.quantity': 1 }).lean().exec()
+    ? await Invoice.find({ orgId, _id: { $in: withInvoices.map(id => new Types.ObjectId(id)) } } as any, { 'lines._id': 1, 'lines.quantity': 1, 'register.stornoClaims': 1 }).lean().exec()
     : []
   const saleById = new Map(sales.map(s => [idOf(s._id), s]))
   for (const k of ids) {
@@ -457,9 +480,14 @@ function stockSourceFor(cs: any, movementIds: unknown[]): Record<string, any> {
 /** The fields an invoice for a cash sale takes when it is issued (here, and by `/send` for a draft). */
 export async function issueFieldsFor(orgId: string, invoice: any): Promise<Record<string, any>> {
   const cs: any = await Invoice.findOne({ _id: invoice.cashSaleRef?.cashSaleId, orgId } as any)
-    .select('invoiceNumber paymentMethod payments paidAt issueDate').lean().exec()
+    .select('invoiceNumber paymentMethod payments paidAt issueDate total register.stornoedBy').lean().exec()
   const paidOn = new Date(cs?.paidAt || cs?.issueDate || invoice.issueDate || Date.now())
-  const payments = mirroredPayments(cs || { paymentMethod: 'cash' }, num(invoice.total), paidOn)
+  // What a partial storno gave back is not what paid for this invoice (R3): it mirrors what the sale still holds.
+  const stornos: any[] = cs?.register?.stornoedBy?.length
+    ? await Invoice.find({ _id: { $in: cs.register.stornoedBy }, orgId } as any, { status: 1, payments: 1 }).lean().exec()
+    : []
+  const paidBy = stornos.length ? { ...cs, payments: leftByMethod(cs, stornos).map(m => ({ method: m.method, amount: m.cents / 100 })) } : cs
+  const payments = mirroredPayments(paidBy || { paymentMethod: 'cash' }, num(invoice.total), paidOn)
   return {
     status: 'paid',
     payments,
@@ -502,7 +530,7 @@ function requestedQuantities(
   }
   if (cs.contactId) {
     // A sale to a named customer is that customer's purchase: it is invoiced whole, once.
-    const whole = !hasOtherInvoices && state.lines.every(l => l.quantity <= 0 || Math.abs((wanted.get(l.lineId) || 0) - l.quantity) <= EPS)
+    const whole = !hasOtherInvoices && state.lines.every(l => l.quantity <= 0 || Math.abs((wanted.get(l.lineId) || 0) - (l.quantity - l.returned)) <= EPS)
     if (!whole) {
       throw new CashSaleInvoiceError(422, 'cash_sale_whole_only',
         `${cs.invoiceNumber} names a customer, so it is invoiced once, with every line in full`)
@@ -617,7 +645,10 @@ export async function createInvoiceForCashSale(
   }
 
   const dropOwn = (doc: any) => Invoice.deleteOne({ _id: doc._id, orgId, invoiceNumber: { $regex: `^${PENDING_NUMBER}` } } as any).exec()
-  const cs: any = await Invoice.findOne({ _id: cashSaleId, orgId } as any).lean().exec()
+  // A claim whose storno never came returned nothing, and it must not cost the invoice those lines.
+  const read = (): Promise<any> => Invoice.findOne({ _id: cashSaleId, orgId } as any).lean().exec()
+  let cs: any = await read()
+  if (cs && await releaseOrphanClaims(cs)) cs = await read()
   const why = cs ? refusal(cs) : { statusCode: 404, code: 'not_found', message: 'Cash sale not found' }
   if (why) {
     if (resumed) await dropOwn(resumed)
@@ -671,7 +702,7 @@ export async function createInvoiceForCashSale(
 
   // FR-21 D-14: a storno claims the sale atomically. This claim is written first and the sale read
   // after, and the storno does the reverse (`invoicedRefusal`), so of the two racing one sees the other.
-  const latest: any = await Invoice.findOne({ _id: cs._id, orgId } as any, { 'register.stornoState': 1 }).lean().exec()
+  const latest: any = await Invoice.findOne({ _id: cs._id, orgId } as any, { 'register.stornoState': 1, 'register.stornoClaims': 1 }).lean().exec()
   if (latest?.register?.stornoState === 'full') {
     await dropOwn(own)
     throw new CashSaleInvoiceError(422, 'cash_sale_stornoed', `Cash sale ${cs.invoiceNumber} was reversed by a storno — it cannot be invoiced`)
@@ -680,7 +711,8 @@ export async function createInvoiceForCashSale(
   // Does this claim fit beside the earlier ones? A later claim that does not gives way.
   const claims = (await liveInvoicesOf(orgId, cashSaleId)).map(claimOf)
   if (!claims.some(c => c.id === idOf(own._id))) claims.push(claimOf(own))
-  const over = overClaimed(soldByLine(cs), claims, idOf(own._id))
+  // What a partial storno took meanwhile is not there to invoice: the sale as just read, not as the request began.
+  const over = overClaimed(soldByLine({ ...cs, register: latest?.register }), claims, idOf(own._id))
   const earlier = claims.filter(c => c.id < idOf(own._id))
   if (over.length || (cs.contactId && earlier.length)) {
     await dropOwn(own)
@@ -942,7 +974,8 @@ function takesWhole(cs: any, inv: any, map: Map<string, string>): boolean {
   const qtyOf = new Map((inv.lines || []).map((l: any) => [idOf(l._id), num(l.quantity)]))
   const taken = new Map<string, number>()
   for (const [invLine, saleLine] of map) taken.set(saleLine, (taken.get(saleLine) || 0) + (qtyOf.get(invLine) || 0))
-  return (cs.lines || []).every((l: any) => num(l.quantity) <= 0 || Math.abs((taken.get(idOf(l._id)) || 0) - num(l.quantity)) <= EPS)
+  const left = soldByLine(cs)
+  return (cs.lines || []).every((l: any) => num(l.quantity) <= 0 || Math.abs((taken.get(idOf(l._id)) || 0) - (left.get(idOf(l._id)) || 0)) <= EPS)
 }
 
 /**
@@ -1217,7 +1250,7 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
   }
 
   // FR-21 D-14: the claim is written first and the sale's storno read after, as R0 does.
-  const latest: any = await Invoice.findOne({ _id: cs._id, orgId } as any, { 'register.stornoState': 1 }).lean().exec()
+  const latest: any = await Invoice.findOne({ _id: cs._id, orgId } as any, { 'register.stornoState': 1, 'register.stornoClaims': 1 }).lean().exec()
   if (latest?.register?.stornoState === 'full') {
     await undo()
     throw new CashSaleInvoiceError(422, 'cash_sale_stornoed', `Cash sale ${cs.invoiceNumber} was reversed by a storno — it cannot be invoiced`)
@@ -1228,7 +1261,7 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
     await undo()
     throw new CashSaleInvoiceError(409, 'cash_sale_fully_invoiced', `${cs.invoiceNumber} is already invoiced`)
   }
-  const over = fitsAsLast(soldByLine(cs), claims, own)
+  const over = fitsAsLast(soldByLine({ ...cs, register: latest?.register }), claims, own)
   if (over.length) {
     await undo()
     const line = (cs.lines || []).find((l: any) => idOf(l._id) === over[0].lineId)

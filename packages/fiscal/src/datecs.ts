@@ -302,7 +302,7 @@ export class DatecsFiscalPrinter implements IFiscalPrinter {
     originalDate: Date,
     originalUNP: string,
     reason: StornoReason,
-    lines: { name: string; quantity: number; price: number; vatGroup: VatGroup }[],
+    lines: { name: string; quantity: number; price: number; vatGroup: VatGroup; discount?: number }[],
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
     return stagedPrint(async (reached) => {
@@ -319,7 +319,7 @@ export class DatecsFiscalPrinter implements IFiscalPrinter {
 
       // Print each storno line (negative quantities)
       for (const line of lines) {
-        await this.printSaleLine(line.name, -line.quantity, line.price, line.vatGroup)
+        await this.printSaleLine(line.name, -line.quantity, line.price, line.vatGroup, line.discount)
       }
 
       // Payment and close

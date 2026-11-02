@@ -1069,7 +1069,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       if (!session) return status(404, { message: 'POS session not found' })
 
       const out = await stornoDoor({
-        orgId, user, originalId: body.originalTransactionId, reason: body.reason, payments: body.payments, session,
+        orgId, user, originalId: body.originalTransactionId, reason: body.reason, payments: body.payments, lines: body.lines, session,
         key, hash: key ? requestHash(`pos.storno:${sessionId}`, body) : undefined,
       })
       return 'status' in out ? status(out.status, out.body) : out
@@ -1080,6 +1080,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         originalTransactionId: t.String(),
         reason: t.Union([t.Literal('operator_error'), t.Literal('customer_return'), t.Literal('price_reduction'), t.Literal('tax_base_reduction')]),
         payments: t.Optional(t.Array(TENDER)),
+        /** FR-23 R3: which lines come back, and how much of each. Absent: all that is left. */
+        lines: t.Optional(t.Array(t.Object({ lineId: t.String(), quantity: t.Number() }), { minItems: 1 })),
       }),
     },
   )

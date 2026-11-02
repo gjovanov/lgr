@@ -17,12 +17,13 @@ import { Contact, Invoice, POSSession, StockMovement, User, Warehouse } from 'db
 import { localDayWindow, BULGARIAN_TIME_ZONE } from '../local-day.js'
 import { LEASE_MS } from '../hot-path-key.js'
 import { saleInDoubt } from './in-doubt.js'
+import { saleLines } from './storno-lines.js'
 import { PAYMENT_RECEIPT, PAYMENT_STORNO, TILL_DOCUMENT_TYPES } from './pos-union.js'
 import { invoicedCashSaleIds, invoicingByCashSale } from '../cash-sale-invoice.service.js'
 
 export type JournalKind = 'sale' | 'storno' | 'payment' | 'refund'
 export type JournalOrigin = 'pos' | 'backoffice' | 'import'
-export type JournalStatus = 'completed' | 'stornoed' | 'voided' | 'inDoubt'
+export type JournalStatus = 'completed' | 'partial' | 'stornoed' | 'voided' | 'inDoubt'
 export type JournalStock = 'moved' | 'error' | 'none'
 
 export interface JournalQuery {
@@ -180,7 +181,8 @@ function documentMatch(q: JournalQuery, invoiced: any[] | null): Record<string, 
       { 'register.origin': { $exists: false }, tags: { $ne: IMPORT_TAG }, reference: { $not: SALES_ANALYSIS } },
     ] })
   }
-  if (q.status === 'completed') and.push({ status: 'paid', 'register.stornoState': { $ne: 'full' } })
+  if (q.status === 'completed') and.push({ status: 'paid', 'register.stornoState': { $nin: ['full', 'partial'] } })
+  if (q.status === 'partial') and.push({ 'register.stornoState': 'partial' })
   if (q.status === 'stornoed') and.push({ 'register.stornoState': 'full' })
   if (q.status === 'voided') and.push({ status: 'voided' })
   if (q.fiscalState) and.push(fiscalStateMatch(q.fiscalState, 'register.fiscal.state', 'register.fiscalReceiptNumber'))
@@ -224,6 +226,7 @@ function documentStatus(doc: any): JournalStatus {
   if (doc.status === 'voided') return 'voided'
   if (doc.register?.fiscal?.inDoubt || saleInDoubt(doc)) return 'inDoubt'
   if (doc.register?.stornoState === 'full') return 'stornoed'
+  if (doc.register?.stornoState === 'partial') return 'partial'
   return 'completed'
 }
 
@@ -370,6 +373,13 @@ export interface JournalLine {
   warehouseId?: string
   /** A line no product matched (an imported free-text line): it counts, and moves no stock. */
   unmatched: boolean
+  /** On a sale, what a storno names it by (R3). */
+  lineId?: string
+  /** On a sale: what its stornos took back, and what is left to return. */
+  returned?: number
+  left?: number
+  /** On a sale: what the whole line is worth to a storno, in cents. What a part gives back is read off this. */
+  value?: number
 }
 
 export interface JournalDocument {
@@ -390,13 +400,18 @@ export async function getJournalDocument(orgId: string, id: string): Promise<Jou
 
   const moved = new Set((await StockMovement.distinct('invoiceId', { orgId: oid(orgId), invoiceId: doc._id }).exec()).map(String))
   const journalRow = fromDocument(doc, moved)
-  const lines: JournalLine[] = (doc.lines || []).map((l: any) => ({
-    ...(l.productId ? { productId: String(l.productId) } : {}),
-    description: l.description, quantity: l.quantity, unit: l.unit, unitPrice: l.unitPrice,
-    discount: l.discount || 0, taxRate: l.taxRate || 0, taxAmount: round2(l.taxAmount), lineTotal: round2(l.lineTotal),
-    ...(l.warehouseId ? { warehouseId: String(l.warehouseId) } : {}),
-    unmatched: !l.productId,
-  }))
+  const budget = doc.type === 'cash_sale' ? new Map(saleLines(doc).map(l => [l.index, l])) : null
+  const lines: JournalLine[] = (doc.lines || []).map((l: any, i: number) => {
+    const b = budget?.get(i)
+    return {
+      ...(l.productId ? { productId: String(l.productId) } : {}),
+      description: l.description, quantity: l.quantity, unit: l.unit, unitPrice: l.unitPrice,
+      discount: l.discount || 0, taxRate: l.taxRate || 0, taxAmount: round2(l.taxAmount), lineTotal: round2(l.lineTotal),
+      ...(l.warehouseId ? { warehouseId: String(l.warehouseId) } : {}),
+      unmatched: !l.productId,
+      ...(b ? { lineId: b.key, returned: b.returned / 1000, left: b.left / 1000, value: b.value } : {}),
+    }
+  })
 
   // The storno chain: the sale a storno reverses, and the stornos of a sale.
   const relatedIds = [journalRow.relatedId, ...(journalRow.stornoedBy || [])].filter(Boolean) as string[]
@@ -407,9 +422,15 @@ export async function getJournalDocument(orgId: string, id: string): Promise<Jou
   // ⚠ A claim whose storno was never written reversed nothing, and past a lease nothing is coming. Read as
   // stornoed its page offers no storno, and only a press releases one on a sale whose session has closed
   // (`releaseOrphanClaims`): nobody could have left that state. A GET writes nothing, so it only says so.
-  if (journalRow.status === 'stornoed' && journalRow.stornoedBy?.length && !relatedDocs.length
-    && doc.register?.cancelledAt && new Date(doc.register.cancelledAt).getTime() < Date.now() - LEASE_MS) {
-    journalRow.status = 'completed'
+  const isOrphan = (id: string) => {
+    if (relatedDocs.some(d => String(d._id) === id)) return false
+    const at = (doc.register?.stornoClaims ?? []).find((c: any) => String(c.stornoId) === id)?.at ?? doc.register?.cancelledAt
+    return !!at && new Date(at).getTime() < Date.now() - LEASE_MS
+  }
+  if ((journalRow.status === 'stornoed' || journalRow.status === 'partial') && journalRow.stornoedBy?.some(isOrphan)) {
+    if (!relatedDocs.length) journalRow.status = 'completed'
+    // Lines that claim held read as returned, and a press takes them back; the sale is not all back while it reads so.
+    else if ((doc.register?.stornoClaims ?? []).length) journalRow.status = 'partial'
   }
 
   const movementFilter = { orgId: oid(orgId), $or: [{ invoiceId: doc._id }, ...(doc.register?.movementId ? [{ _id: doc.register.movementId }] : [])] }

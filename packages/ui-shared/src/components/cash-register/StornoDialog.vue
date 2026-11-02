@@ -7,6 +7,11 @@
           <span>{{ $t('common.total') }}</span>
           <span class="font-weight-bold">{{ fmtCurrency(sale.total) }}</span>
         </div>
+        <!-- R3: what earlier stornos took back, and what is left of the sale. -->
+        <div v-if="returnedAny" class="d-flex justify-space-between mb-1" data-testid="storno-left">
+          <span>{{ $t('pos.storno.left') }}</span>
+          <span class="font-weight-bold">{{ fmtCurrency(cents(leftValue)) }}</span>
+        </div>
         <div v-if="sale.unp" class="d-flex justify-space-between mb-3 text-caption">
           <span>{{ $t('pos.storno.unp') }}</span>
           <span>{{ sale.unp }}</span>
@@ -26,6 +31,60 @@
           {{ $t('pos.storno.fromSession', { session: targetSession.sessionNumber }) }}
         </div>
 
+        <!-- R3: all of it is the default and the fast path. A part names its lines and how much of each. -->
+        <template v-if="canPart">
+          <v-btn-toggle v-model="mode" mandatory density="compact" color="primary" variant="outlined" divided class="mb-3">
+            <v-btn value="whole" size="small" data-testid="storno-whole">{{ $t(returnedAny ? 'pos.storno.allLeft' : 'pos.storno.whole') }}</v-btn>
+            <v-btn value="part" size="small" data-testid="storno-part">{{ $t('pos.storno.part') }}</v-btn>
+          </v-btn-toggle>
+          <template v-if="mode === 'part'">
+            <v-table density="compact" class="mb-2" data-testid="storno-lines">
+              <thead>
+                <tr>
+                  <th>{{ $t('common.description') }}</th>
+                  <th class="text-end">{{ $t('pos.storno.leftQuantity') }}</th>
+                  <th class="text-end" style="width: 112px">{{ $t('pos.storno.returnQuantity') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="l in lines" :key="l.lineId" :class="l.left <= 0 ? 'text-disabled' : ''" data-testid="storno-line">
+                  <td>{{ l.description }}</td>
+                  <td class="text-end text-no-wrap">{{ l.left }} {{ l.unit || '' }}</td>
+                  <td class="text-end">
+                    <v-text-field
+                      v-if="l.left > 0"
+                      v-model.number="l.take"
+                      type="number"
+                      min="0"
+                      :max="l.left"
+                      step="any"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                      :aria-label="l.description"
+                      data-testid="storno-line-quantity"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </v-table>
+            <div class="d-flex justify-space-between mb-3">
+              <span>{{ $t('pos.storno.goesBack') }}</span>
+              <span class="font-weight-bold" data-testid="storno-amount">{{ fmtCurrency(cents(goesBack)) }}</span>
+            </div>
+            <v-select
+              v-model="method"
+              :items="methods"
+              item-title="title"
+              item-value="value"
+              :label="$t('pos.storno.refundBy')"
+              hide-details
+              class="mb-3"
+              data-testid="storno-method"
+            />
+          </template>
+        </template>
+
         <v-select
           v-model="reason"
           :items="reasons"
@@ -44,7 +103,7 @@
           color="error"
           variant="flat"
           :loading="submitting"
-          :disabled="(needsSession && !targetSession) || !reason || inDoubt"
+          :disabled="(needsSession && !targetSession) || !reason || inDoubt || (mode === 'part' && !partOk)"
           data-testid="storno-confirm"
           @click="submit"
         >
@@ -68,13 +127,20 @@
  * ⚠ One that may have printed is another answer (409 `storno_in_doubt`): nothing was reversed, and a
  * second press would print a second fiscal storno. It says so, in the org's language, and the button
  * goes: a person checks the device and settles it on the document's page.
+ *
+ * FR-23 R3 (#363): a customer brings back one of three articles. All of it stays the default and one press; "Part of
+ * it" names the lines and how much of each, what goes back is read off the same function the server books it by
+ * (`config/pos-totals#partOfLine`), and the refund goes by the method the operator picks, or as the sale was paid.
+ * The journal and a sale's page both open this dialog, on the till's sale and on a back-office one.
  */
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { partOfLine } from 'config/pos-totals'
 import { httpClient } from '../../composables/useHttpClient'
 import { createIdempotentAction } from '../../composables/idempotency'
 import { useCurrency } from '../../composables/useCurrency'
 import { receiptRefusalMessage } from '../../cash-register/receipt-refusal'
+import { paymentMethodKey } from '../../composables/usePaymentMethods'
 
 export interface StornoTarget {
   id: string
@@ -112,6 +178,56 @@ const loadingSession = ref(false)
 const submitting = ref(false)
 const error = ref('')
 const inDoubt = ref(false)
+
+// ── R3: which lines ─────────────────────────────────────────────────────────
+interface StornoLine {
+  lineId: string
+  description: string
+  unit?: string
+  quantity: number
+  returned: number
+  left: number
+  value: number
+  take: number | string
+}
+const mode = ref<'whole' | 'part'>('whole')
+const lines = ref<StornoLine[]>([])
+const saleMethods = ref<string[]>([])
+/** '' is as the sale was paid: the server knows what it still holds per method. */
+const method = ref('')
+
+const toMilli = (q: unknown) => Math.round((Number(q) || 0) * 1000)
+const partOf = (l: StornoLine, q: unknown) => partOfLine(l.value, toMilli(l.quantity), toMilli(l.returned), toMilli(q))
+const cents = (c: number) => c / 100
+const returnedAny = computed(() => lines.value.some(l => l.returned > 0))
+const leftValue = computed(() => lines.value.reduce((s, l) => s + partOf(l, l.left), 0))
+/** Nothing to pick on one unit of one line: all of it is the only part there is. */
+const canPart = computed(() => {
+  const open = lines.value.filter(l => l.left > 0)
+  return open.length > 1 || (open.length === 1 && open[0].left > 1)
+})
+const picked = computed(() => lines.value.filter(l => (Number(l.take) || 0) > 0))
+const goesBack = computed(() => picked.value.reduce((s, l) => s + partOf(l, l.take), 0))
+const partOk = computed(() => picked.value.length > 0 && lines.value.every((l) => {
+  const q = Number(l.take) || 0
+  return q >= 0 && q <= l.left && Math.abs(q * 1000 - Math.round(q * 1000)) < 1e-6
+}))
+const methods = computed(() => [
+  { value: '', title: t('pos.storno.asPaid') },
+  ...[...new Set([...saleMethods.value, 'cash', 'card'])].map(value => ({ value, title: t(paymentMethodKey(value)) })),
+])
+
+/** What is left of the sale's lines. A page that does not load leaves all of it, which is what this always did. */
+async function loadLines(id: string) {
+  lines.value = []
+  saleMethods.value = []
+  try {
+    const { data } = await httpClient.get(`${props.orgUrl}/cash-register/documents/${id}`)
+    if (props.sale?.id !== id) return
+    lines.value = (data?.lines ?? []).filter((l: any) => l.lineId).map((l: any) => ({ ...l, take: 0 }))
+    saleMethods.value = (data?.row?.payments ?? []).map((p: any) => p.method)
+  } catch { /* all of it still goes back */ }
+}
 
 const reasons = computed(() => ['operator_error', 'customer_return', 'price_reduction', 'tax_base_reduction']
   .map(value => ({ value, title: t(`pos.storno.reasons.${value}`) })))
@@ -152,7 +268,10 @@ async function findTargetSession() {
 watch(() => (props.modelValue ? props.sale?.id : null), (id) => {
   if (id) {
     reason.value = 'customer_return'
+    mode.value = 'whole'
+    method.value = ''
     void findTargetSession()
+    void loadLines(id)
   }
 }, { immediate: true })
 
@@ -165,7 +284,16 @@ async function submit() {
   error.value = ''
   try {
     const sessionId = needsSession.value ? String(targetSession.value.id || targetSession.value._id) : undefined
-    const body = { reason: reason.value, ...(sessionId ? { sessionId } : {}) }
+    const body = {
+      reason: reason.value,
+      ...(sessionId ? { sessionId } : {}),
+      ...(mode.value === 'part'
+        ? {
+            lines: picked.value.map(l => ({ lineId: l.lineId, quantity: Number(l.take) })),
+            ...(method.value ? { payments: [{ method: method.value, amount: cents(goesBack.value) }] } : {}),
+          }
+        : {}),
+    }
     const { data } = await httpClient.post(`${props.orgUrl}/cash-register/documents/${props.sale.id}/storno`, body, { headers: attempt.headers(body) })
     attempt.settle()
     emit('done', data)

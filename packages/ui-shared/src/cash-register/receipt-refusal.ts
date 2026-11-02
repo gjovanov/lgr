@@ -49,6 +49,12 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'receipt_on_other_device': return 'cashRegister.receipt.refundOtherDevice'
     case 'refund_requires_manager': return 'cashRegister.receipt.refundNeedsManager'
     case 'cash_sale_refunded': return 'cashRegister.receipt.saleRefunded'
+    // FR-23 R3: a partial storno at the till.
+    case 'storno_exceeds_left': return 'cashRegister.receipt.stornoExceedsLeft'
+    case 'storno_exceeds_budget': return 'cashRegister.receipt.stornoExceedsBudget'
+    case 'storno_refund_mismatch': return 'cashRegister.receipt.stornoRefundMismatch'
+    case 'storno_line_unknown': return 'cashRegister.receipt.stornoLineUnknown'
+    case 'storno_quantity_invalid': return 'cashRegister.receipt.stornoQuantityInvalid'
     default: return null
   }
 }
