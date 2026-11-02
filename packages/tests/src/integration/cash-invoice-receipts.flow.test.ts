@@ -487,14 +487,11 @@ describe('an invoice issued at the counter (§2.4)', () => {
     expect(await receiptsOf(d.id)).toHaveLength(0)
   })
 
-  it('a proforma and a credit note in cash print nothing', async () => {
+  it('a proforma in cash prints nothing: it is an offer. A credit note prints its storno (cash-invoice-refunds.flow)', async () => {
     const w = await tillWorld(app)
     const proforma = await draftOf(w, { type: 'proforma' })
     expect((await send(w, proforma.id)).status).toBe(200)
-    const { id, contactId } = await issuedPaid(w)
-    const credit = await draftOf(w, { type: 'credit_note', extra: { relatedInvoiceId: id, contactId } })
-    expect((await send(w, credit.id)).status).toBe(200)
-    expect(w.sim!.receipts).toHaveLength(1)
+    expect(w.sim!.receipts).toHaveLength(0)
   })
 })
 
@@ -728,7 +725,8 @@ describe('what a document load and an edit pay for', () => {
     async function receiptReads(run: () => Promise<unknown>) {
       const spies = [spyOn(Invoice, 'find'), spyOn(Invoice, 'findOne'), spyOn(Invoice, 'exists')]
       await run()
-      const reads = spies.flatMap(s => s.mock.calls).filter(([filter]: any) => filter?.type === 'payment_receipt' && filter?.['register.paidInvoiceId'])
+      const ofReceipts = (f: any) => f?.type === 'payment_receipt' && f?.['register.paidInvoiceId']
+      const reads = spies.flatMap(s => s.mock.calls).filter(([filter]: any) => ofReceipts(filter) || filter?.$or?.some(ofReceipts))
       for (const s of spies) s.mockRestore()
       return reads.length
     }
@@ -4635,8 +4633,10 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
       w.sim!.paper = false
       await send(w, d.id)
       w.sim!.paper = true
-      const note = await draftOf(w, { type: 'credit_note', extra: { relatedInvoiceId: d.id, contactId: d.contactId } })
+      // Issued by bank, and said in cash after: with no receipt behind it, R2 refuses one issued in cash.
+      const note = await draftOf(w, { type: 'credit_note', method: 'bank_transfer', extra: { relatedInvoiceId: d.id, contactId: d.contactId } })
       await send(w, note.id)
+      expect((await w.call('PUT', `/invoices/${note.id}`, { paymentMethod: 'cash' })).status).toBe(200)
       expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0, paymentMethod: 'cash' })
       return { d, note }
     }

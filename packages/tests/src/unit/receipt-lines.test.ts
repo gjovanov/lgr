@@ -306,6 +306,8 @@ describe('issued, and the receipt did not print', () => {
     expect(issuedReceiptNotice({ paymentMethod: 'cash' })).toBeNull()
     expect(issuedReceiptNotice(null)).toBeNull()
     // A document that changed under its issue: Pay is the way on, but for the courier's money.
+    expect(issuedReceiptNotice({ receiptError: 'x', receiptCode: 'issue_tender_moved', paymentMethod: 'bank_transfer', type: 'credit_note' }))
+      .toEqual({ key: 'cashRegister.receipt.issuedChangedRefund', takesPayment: true })
     expect(issuedReceiptNotice({ receiptError: 'x', receiptCode: 'issue_tender_moved', paymentMethod: 'cash' }))
       .toEqual({ key: 'cashRegister.receipt.issuedChanged', takesPayment: true })
     expect(issuedReceiptNotice({ receiptError: 'x', receiptCode: 'issue_tender_moved', paymentMethod: 'cash_on_delivery' }))
@@ -326,6 +328,17 @@ describe('the refusal, in words', () => {
     expect(receiptRefusalParams({ receipt: { number: 'CS-1' } }).number).toBe('CS-1')
     expect(receiptRefusalParams({ receipts: [{ number: 'CS-1' }, { number: null, invoice: 'INV-2' }] }).numbers).toBe('CS-1, INV-2')
     expect(receiptRefusalKey({ code: 'overpayment' })).toBeNull()
+    expect(receiptRefusalKey({ code: 'refund_exceeds_paid' })).toBe('cashRegister.receipt.refundExceedsPaid')
+    expect(receiptRefusalKey({ code: 'fiscally_paid', note: true })).toBe('cashRegister.receipt.fiscallyPaidNote')
+    expect(receiptRefusalKey({ code: 'fiscally_paid' })).toBe('cashRegister.receipt.fiscallyPaid')
+    expect(receiptRefusalKey({ code: 'refund_exceeds_receipts' })).toBe('cashRegister.receipt.refundExceeds')
+    expect(receiptRefusalKey({ code: 'refund_exceeds_receipts', atIssue: true })).toBe('cashRegister.receipt.refundExceedsAtIssue')
+    expect(receiptRefusalKey({ code: 'no_receipt_to_storno', reason: 'none' })).toBe('cashRegister.receipt.noReceiptToStorno')
+    expect(receiptRefusalKey({ code: 'no_receipt_to_storno', reason: 'no_number' })).toBe('cashRegister.receipt.noReceiptNumber')
+    expect(receiptRefusalKey({ code: 'no_receipt_to_storno', reason: 'other_kind' })).toBe('cashRegister.receipt.noReceiptOfKind')
+    expect(receiptRefusalKey({ code: 'fiscally_paid', document: 'CN-1' })).toBe('cashRegister.receipt.fiscallyPaidUnderNote')
+    expect(receiptRefusalParams({ code: 'fiscally_paid', document: 'CN-1' } as any).number).toBe('CN-1')
+    expect(receiptRefusalKey({ code: 'refund_exceeds_paid', atIssue: true })).toBe('cashRegister.receipt.refundExceedsPaidAtIssue')
   })
 
   it('every refusal a door answers reads in all four languages: a missing key renders literally', () => {
@@ -333,6 +346,7 @@ describe('the refusal, in words', () => {
       'payment_in_progress', 'document_claimed', 'document_changed', 'issue_in_progress', 'fiscally_paid', 'receipt_currency', 'receipt_not_printable', 'document_not_issued',
       'no_receipt_owed', 'receipt_in_doubt', 'storno_in_doubt', 'receipt_open_on_device', 'receipt_device_away', 'device_busy', 'fiscal_holder_unreachable', 'fiscal_holder_moved', 'storno_in_progress', 'sale_receipt_in_doubt', 'sale_in_progress', 'session_closing',
       'receipt_number_required', 'receipt_number_taken', 'receipt_number_off_device', 'receipt_number_cited', 'delivery_receipt_owed', 'receipts_unfinished', 'close_interrupted',
+      'refund_exceeds_paid',
     ]
     const locales = { en, bg, de, mk } as Record<string, any>
     for (const code of codes) {
@@ -352,7 +366,11 @@ describe('the refusal, in words', () => {
       'pos.close.deadSales', 'pos.close.deadSalesBooked', 'pos.close.deadDocuments', 'pos.close.interruptedTitle', 'pos.close.closeAgain', 'pos.sessions.states.closing_control',
       'cashRegister.receipt.correctNumber', 'cashRegister.receipt.correctNumberConfirm', 'cashRegister.receipt.numberCorrected',
       'cashRegister.receipt.slipSaysThisNumber',
-      'cashRegister.receipt.issuedChanged', 'cashRegister.receipt.issuedChangedDelivery',
+      'cashRegister.receipt.issuedChanged', 'cashRegister.receipt.issuedChangedDelivery', 'cashRegister.receipt.issuedChangedRefund',
+      'cashRegister.receipt.refundExceedsPaid', 'cashRegister.receipt.refundExceedsPaidAtIssue', 'cashRegister.receipt.issuedPartlyRefunded',
+      'cashRegister.receipt.fiscallyPaidUnderNote', 'cashRegister.receipt.noReceiptNumber', 'cashRegister.receipt.noReceiptOfKind',
+      'cashRegister.receipt.bringNumber', 'cashRegister.receipt.bringNumberConfirm', 'cashRegister.receipt.refundExceedsAtIssue', 'cashRegister.receipt.fiscallyPaidNote',
+      'cashRegister.receipt.listReceipts', 'cashRegister.receipt.listStornos',
     ]) {
       for (const [name, messages] of Object.entries(locales)) {
         const text = key.split('.').reduce((at: any, part) => at?.[part], messages)

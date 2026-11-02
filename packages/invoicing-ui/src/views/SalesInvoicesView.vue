@@ -545,7 +545,7 @@ function rowActions(item: Invoice): RowAction[] {
     { key: 'open', label: t('common.open'), icon: 'mdi-open-in-app', to: { name: 'invoicing.sales.edit', params: { id: item._id } } },
     { key: 'issue', label: t('invoicing.issueFlow.issue'), icon: 'mdi-send-check', show: can.canIssue(row), handler: () => sendInvoice(item) },
     { key: 'print', label: t('common.print'), icon: 'mdi-printer', handler: () => printRow(item) },
-    { key: 'payment', label: t('invoicing.recordPayment'), icon: 'mdi-cash', show: can.canRecordPayment(row), handler: () => openPaymentDialog(item) },
+    { key: 'payment', label: t(item.type === 'credit_note' ? 'invoicing.recordRefund' : 'invoicing.recordPayment'), icon: item.type === 'credit_note' ? 'mdi-cash-refund' : 'mdi-cash', show: can.canRecordPayment(row), handler: () => openPaymentDialog(item) },
     { key: 'email', label: t('invoicing.sendEmail.action'), icon: 'mdi-email-arrow-right-outline', show: can.canEmail(row), handler: () => openRowEmail(item) },
     { key: 'credit-note', label: t('invoicing.docType.credit_note'), icon: 'mdi-file-undo', show: can.canCorrect(row), to: note('credit_note') },
     { key: 'debit-note', label: t('invoicing.docType.debit_note'), icon: 'mdi-file-plus-outline', show: can.canCorrect(row), to: note('debit_note') },

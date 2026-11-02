@@ -34,7 +34,7 @@
  * and on a shared device a counter that moved proves nothing about this receipt. It is given up only
  * when it never reached the device, or the device confirms it idle with its counter unmoved. Anything
  * else books no money and prints nothing: it stays held, `unknown` and `inDoubt`, until a person who
- * looked at the device settles it (`settleReceipt`).
+ * looked at the device settles it (`settleInDoubt`).
  *
  * **Cash on delivery** prints at issue, in the device's slot for it, and pays nothing: the courier
  * still owes the invoice. No later payment prints again, because that receipt took all that was owed.
@@ -44,6 +44,13 @@
  * ⚠ What prints is decided at the doors, by a person issuing or paying at the counter
  * (`invoice.controller.ts`), never in `syncCashSettlement`, which the import conversion calls too.
  * An imported document never prints: another system printed its receipt.
+ *
+ * **R2: a refund on a credit note** (`payment_storno`) is the same document the other way, through the
+ * same steps: the credit note is the return and posted it, the storno is the money going back. It holds
+ * the amount on the credit note, and takes it from what the receipt it cites still holds
+ * (`refund-budget.ts`), both before a number is drawn. Past the print it differs in one thing. A
+ * receipt that may have printed stands, because the customer's money is in the drawer either way; a
+ * storno that may have printed does not, because nobody has been paid yet: it is held for a person.
  */
 import { Invoice, POSSession } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
@@ -54,15 +61,17 @@ import { LEASE_MS } from '../hot-path-key.js'
 import { fitsDue, heldOn, isBeingVoided, outstandingOf, overpays, paymentPipeline, type PaymentRow } from '../invoice-payment.js'
 import { printsHere } from '../sale-counting.js'
 import { SETTLED_ON_ISSUE } from '../cash-settlement.service.js'
-import { receiptTookMoney } from './counting.js'
+import { receiptTookMoney, refundGaveMoney } from './counting.js'
 import { toPosTransaction } from './mapping.js'
-import { PAYMENT_RECEIPT } from './pos-union.js'
+import { saleInDoubt, saleProgress } from './in-doubt.js'
+import { MONEY_DOCUMENT_TYPES, PAYMENT_RECEIPT, PAYMENT_STORNO } from './pos-union.js'
+import { giveBackBudget, holdEnough, leftByRate, takeBudget, totalOf, wantedBy, type ByRate } from './refund-budget.js'
 import type { RegisterPrinter } from './printer.js'
-import type { ReceiptBody } from './receipt-lines.js'
+import { grossByRate, receiptedByRate, refundBody, splitByRate, type ReceiptBody } from './receipt-lines.js'
 import { receiptMode } from './receipt-mode.js'
 import {
   RegisterRefusal, applySessionTotals, bookedOnItsSession, couldNotPrint, decideInterrupted, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, rollBack,
-  setRegister, type RegisterContext, type RegisterSession, type RegisterUser,
+  saleInDoubtRefusal, setRegister, type RegisterContext, type RegisterSession, type RegisterUser,
 } from './register.service.js'
 
 type ObjectId = InstanceType<typeof Invoice.base.Types.ObjectId>
@@ -75,11 +84,18 @@ const FISCALLY_PAID = {
   message: 'A receipt has printed for this document, so its total can no longer change and it cannot be voided. Correct it with a credit or a debit note.',
 } as const
 
+/** The same of a credit note, whose storno stands: a note has no note of its own, so it means another on the invoice. */
+const FISCALLY_PAID_NOTE = {
+  code: 'fiscally_paid',
+  note: true,
+  message: 'A storno has printed for this credit note, so its total can no longer change and it cannot be voided. Correct it with another credit note on the invoice.',
+} as const
+
 /** The payment methods a receipt prints for at the counter (owner, Q-2): those taken as a document is issued. */
 const COUNTER_METHODS = Object.keys(SETTLED_ON_ISSUE)
 
-/** What a session does not close over, nobody having finished it. R2's `payment_storno` joins this list. */
-const HOLDS_THE_CLOSE = [PAYMENT_RECEIPT, 'cash_storno']
+/** What a session does not close over, nobody having finished it. */
+const HOLDS_THE_CLOSE = [...MONEY_DOCUMENT_TYPES, 'cash_storno']
 
 /**
  * A document §2.2 means by imported: written by the Files app, the conversion or the API import
@@ -110,6 +126,20 @@ export function printsAtCounter(doc: any, method: string | undefined, atIssue: b
   return COUNTER_METHODS.includes(String(method))
 }
 
+/**
+ * Whether a refund by `method` on this document prints a storno (§2.2, R2): an outgoing credit note that
+ * is not imported, and not the re-issue of a number issued twice. Card follows cash (Q-2). What it
+ * cites is the door's to find, and with nothing to cite the door refuses.
+ */
+export function printsRefund(doc: any, method: string | undefined): boolean {
+  if (doc?.direction !== 'outgoing' || doc?.type !== 'credit_note') return false
+  if (isImportedDocument(doc) || doc.stockSource?.detectedBy === 'number_clash') return false
+  return COUNTER_METHODS.includes(String(method))
+}
+
+/** Whether taking `method` on this document, either way, reaches the device. */
+const printsForPayment = (doc: any, method: string) => printsAtCounter(doc, method, false) || printsRefund(doc, method)
+
 /** The statuses a payment that prints can land on: an issued document with money still to take. */
 const PAYABLE = ['sent', 'overdue', 'partially_paid']
 
@@ -123,7 +153,7 @@ const PAYABLE = ['sent', 'overdue', 'partially_paid']
 export async function printsOnPayment(orgId: string, docs: any[]): Promise<Map<string, string[]>> {
   const idOf = (d: any) => String(d._id ?? d.id)
   const out = new Map<string, string[]>()
-  const candidates = docs.filter(d => PAYABLE.includes(d.status) && printsAtCounter(d, 'cash', false))
+  const candidates = docs.filter(d => PAYABLE.includes(d.status) && printsForPayment(d, 'cash'))
   if (!candidates.length || !(await printsHere(orgId))) return out
   // Its delivery receipt took all that was owed: no payment on it prints.
   const delivered = new Set((await Invoice.distinct('register.paidInvoiceId', {
@@ -131,16 +161,25 @@ export async function printsOnPayment(orgId: string, docs: any[]): Promise<Map<s
     'register.paidInvoiceId': { $in: candidates.map(d => oid(idOf(d))) },
   }).exec()).map(String))
   for (const d of candidates) {
-    if (!delivered.has(idOf(d))) out.set(idOf(d), COUNTER_METHODS.filter(m => printsAtCounter(d, m, false)))
+    if (!delivered.has(idOf(d))) out.set(idOf(d), COUNTER_METHODS.filter(m => printsForPayment(d, m)))
   }
   return out
 }
 
-const liveReceipts = (orgId: unknown, documentId: unknown) => ({
-  orgId: oid(orgId), type: PAYMENT_RECEIPT, 'register.paidInvoiceId': oid(documentId), status: { $ne: 'voided' },
+/** The documents that move this document's money: its receipts, or a credit note's stornos. */
+const ofDocument = (documentId: unknown) => ({
+  $or: [{ type: PAYMENT_RECEIPT, 'register.paidInvoiceId': oid(documentId) }, { type: PAYMENT_STORNO, 'register.refundOf': oid(documentId) }],
 })
 
-/** The receipts of a document that printed, are printing or may have printed, oldest first. */
+const liveReceipts = (orgId: unknown, documentId: unknown) => ({
+  orgId: oid(orgId), status: { $ne: 'voided' }, ...ofDocument(documentId),
+})
+
+/** The document whose money a receipt or a storno moves, and the number it printed for it. */
+const documentIdOf = (doc: any) => doc.register?.refundOf ?? doc.register?.paidInvoiceId
+const documentNumberOf = (doc: any) => doc.register?.refundOfNumber ?? doc.register?.paidInvoiceNumber
+
+/** The receipts of a document that printed, are printing or may have printed, oldest first; a credit note's stornos. */
 export async function receiptsOf(orgId: string, documentId: string): Promise<any[]> {
   return Invoice.find(liveReceipts(orgId, documentId)).sort({ _id: 1 }).lean().exec()
 }
@@ -183,13 +222,40 @@ export const inDoubtRefusal = (receipt: any) => ({
 
 /**
  * §2.7: whether the document's total is the receipts' now, with the reason that applies: a receipt in
- * doubt has a way out the freeze does not. A failed receipt printed nothing.
+ * doubt has a way out the freeze does not. A failed receipt printed nothing. A credit note's printed
+ * storno freezes it the same way (R2): the device gave that money back.
  */
 export async function freezeRefusal(orgId: string, documentId: string): Promise<Record<string, unknown> | null> {
-  const live: any[] = await Invoice.find(liveReceipts(orgId, documentId), { invoiceNumber: 1, 'register.fiscal.inDoubt': 1 }).sort({ _id: 1 }).lean().exec()
+  const live: any[] = await Invoice.find(liveReceipts(orgId, documentId), { type: 1, invoiceNumber: 1, 'register.fiscal.inDoubt': 1 }).sort({ _id: 1 }).lean().exec()
   const doubt = live.find(r => r.register?.fiscal?.inDoubt)
   if (doubt) return inDoubtRefusal(doubt)
-  return live.length ? { ...FISCALLY_PAID } : null
+  if (!live.length) return null
+  return live.some(r => r.type === PAYMENT_STORNO) ? { ...FISCALLY_PAID_NOTE } : { ...FISCALLY_PAID }
+}
+
+/**
+ * An invoice for a till sale has no money document of its own: its receipt is the sale's, so `freezeRefusal`
+ * finds nothing on it. A refund's storno citing that sale stands under a note on it all the same, and voided
+ * under that, two fiscal stornos sit under a note whose invoice is annulled, and the sale can be invoiced anew,
+ * born paid, for money that has come back. So it answers for its notes' stornos, each in the note's own refusal,
+ * whatever became of the note: a storno that stands gave the money back all the same. One that failed holds
+ * nothing up, and neither does a refund by bank.
+ */
+export async function freezeUnderNotes(orgId: string, invoice: any): Promise<Record<string, unknown> | null> {
+  if (!invoice?.cashSaleRef?.cashSaleId) return null
+  const notes: any[] = await Invoice.find(
+    { orgId: oid(orgId), type: 'credit_note', relatedInvoiceId: oid(invoice._id ?? invoice.id) },
+    { invoiceNumber: 1 },
+  ).sort({ _id: 1 }).lean().exec()
+  for (const note of notes) {
+    const frozen = await freezeRefusal(orgId, String(note._id))
+    if (frozen) {
+      return frozen.code === FISCALLY_PAID_NOTE.code
+        ? { code: frozen.code, document: note.invoiceNumber, message: `Credit note ${note.invoiceNumber} gave money back on a storno, so the invoice it corrects cannot be voided. Correct it with another credit note.` }
+        : frozen
+    }
+  }
+  return null
 }
 
 /**
@@ -228,14 +294,20 @@ const mayOweDeliveryReceipt = (doc: any) => !!doc?.deliveryReceiptOwed && doc.pa
   && PAYABLE.includes(doc.status) && printsAtCounter(doc, doc.paymentMethod, true)
 
 /** What a document's receipts are read for. A receipt printed whole holds the invoice's lines. */
-const RECEIPT_FIELDS = { type: 1, status: 1, invoiceNumber: 1, paymentMethod: 1, issueDate: 1, register: 1 }
+const RECEIPT_FIELDS = { type: 1, status: 1, invoiceNumber: 1, total: 1, paymentMethod: 1, issueDate: 1, register: 1 }
 
-/** What the form and the PDF say of a document's receipts, of those that took money on it. */
-function paidBy(receipts: any[]): Array<{ number: string; method?: string; unp?: string; receiptNumber?: string; date?: Date; text?: true }> {
+/** What the form and the PDF say of a document's receipts, of those that took money on it; the form, of a credit note's stornos. */
+function paidBy(receipts: any[]): Array<{ id: string; number: string; amount: number; state?: string; method?: string; unp?: string; receiptNumber?: string; date?: Date; text?: true }> {
   return receipts
-    .filter(d => receiptTookMoney(toPosTransaction(d) as any))
+    .filter((d) => {
+      const row = toPosTransaction(d) as any
+      return receiptTookMoney(row) || refundGaveMoney(row)
+    })
     .map(d => ({
+      id: String(d._id),
       number: d.invoiceNumber,
+      amount: Number(d.total) || 0,
+      state: d.register?.fiscal?.state,
       method: d.paymentMethod,
       ...(d.register?.unp ? { unp: d.register.unp } : {}),
       ...(d.register?.fiscalReceiptNumber ? { receiptNumber: d.register.fiscalReceiptNumber } : {}),
@@ -254,7 +326,8 @@ export async function paidByReceipts(orgId: string, documentId: string): Promise
  * pays for none: a bill, a proforma, a cash sale, every other document anyone opens.
  */
 export async function receiptFacts(orgId: string, doc: any) {
-  if (!printsAtCounter(doc, 'cash', false)) return { paymentReceipts: [], receiptToPrint: false, receiptInDoubt: null, printsOnPayment: [] as string[] }
+  const note = printsRefund(doc, 'cash')
+  if (!printsAtCounter(doc, 'cash', false) && !note) return { paymentReceipts: [], receiptToPrint: false, receiptInDoubt: null, printsOnPayment: [] as string[] }
   const [live, prints]: [any[], boolean] = await Promise.all([
     Invoice.find(liveReceipts(orgId, doc._id ?? doc.id), RECEIPT_FIELDS).sort({ _id: 1 }).lean().exec(),
     printsHere(orgId),
@@ -265,7 +338,9 @@ export async function receiptFacts(orgId: string, doc: any) {
     paymentReceipts: paidBy(live),
     receiptToPrint: prints && !delivered && mayOweDeliveryReceipt(doc),
     receiptInDoubt: doubt ? { id: String(doubt._id), number: doubt.invoiceNumber as string } : null,
-    printsOnPayment: prints && !delivered && PAYABLE.includes(doc.status) ? COUNTER_METHODS.filter(m => printsAtCounter(doc, m, false)) : [],
+    printsOnPayment: prints && !delivered && PAYABLE.includes(doc.status) ? COUNTER_METHODS.filter(m => printsForPayment(doc, m)) : [],
+    // What the dialog says a refund can come to. The door decides, on the device it prints on.
+    ...(note && prints ? { refundable: await refundableOn(orgId, doc) } : {}),
   }
 }
 
@@ -343,7 +418,7 @@ export function paymentReceiptDocument(input: PaymentReceiptInput): Record<strin
  * on the invoice (`fitsDue`): of a void and a payment at once, one gives way.
  */
 async function holdAmount(doc: any): Promise<boolean> {
-  const invoiceId = doc.register.paidInvoiceId
+  const invoiceId = documentIdOf(doc)
   const amount = Number(doc.total) || 0
   const held = await Invoice.findOneAndUpdate(
     {
@@ -358,7 +433,7 @@ async function holdAmount(doc: any): Promise<boolean> {
 
 async function releaseHold(doc: any): Promise<void> {
   await Invoice.updateOne(
-    { _id: doc.register.paidInvoiceId, orgId: doc.orgId },
+    { _id: documentIdOf(doc), orgId: doc.orgId },
     { $pull: { receiptHolds: { receiptId: doc._id } } },
   ).exec()
 }
@@ -392,7 +467,7 @@ export async function paymentRefusal(orgId: string, doc: any, amount: number): P
 export async function recordPayment(c: RegisterContext, doc: any): Promise<void> {
   if ((await Invoice.findById(doc._id, { status: 1 }).lean().exec() as any)?.status === 'voided') return
   const tendered = doc.payments[0]
-  const invoiceId = doc.register.paidInvoiceId
+  const invoiceId = documentIdOf(doc)
   // A courier owes this one: the invoice stays due until the money arrives (§2.2).
   if (tendered.method === 'cash_on_delivery') return releaseHold(doc)
 
@@ -401,7 +476,7 @@ export async function recordPayment(c: RegisterContext, doc: any): Promise<void>
     amount: tendered.amount,
     method: tendered.method,
     ...(tendered.reference ? { reference: tendered.reference } : {}),
-    origin: PAYMENT_RECEIPT,
+    origin: doc.type,
     receiptId: doc._id,
     // What a keyed retry of the payment finds, as it finds any other (`replayPayment`).
     ...(doc.clientKey ? { clientKey: doc.clientKey, requestHash: doc.requestHash } : {}),
@@ -418,7 +493,7 @@ export async function recordPayment(c: RegisterContext, doc: any): Promise<void>
 
   createAuditEntry({
     orgId: c.orgId, userId: c.user.id, action: 'record_payment', module: 'invoicing', entityType: 'invoice',
-    entityId: String(invoiceId), entityName: doc.register.paidInvoiceNumber,
+    entityId: String(invoiceId), entityName: documentNumberOf(doc),
     changes: [{ field: 'receipt', oldValue: null, newValue: doc.invoiceNumber }],
   })
   // The same event a hand-recorded payment emits: the ledger entry, when the org keeps one.
@@ -435,6 +510,7 @@ export async function recordPayment(c: RegisterContext, doc: any): Promise<void>
  */
 async function giveUp(c: RegisterContext, doc: any): Promise<any> {
   await releaseHold(doc)
+  await giveBackCited(doc)
   if (isPendingNumber(doc.invoiceNumber)) {
     await rollBack(doc)
     return { ...doc, status: 'voided', completedAt: new Date() }
@@ -466,7 +542,9 @@ async function giveUp(c: RegisterContext, doc: any): Promise<any> {
 async function decideMode(c: RegisterContext, printer: RegisterPrinter, doc: any): Promise<any> {
   const fiscal = doc.register?.fiscal
   if (fiscal?.attemptedAt && fiscal.mode !== 'text') return doc
-  if ((await receiptMode(printer)) === 'text') {
+  const mode = await receiptMode(printer)
+  if (doc.type === PAYMENT_STORNO && (mode === 'text') === !!doc.register?.storno?.originalReceiptNumber) throw new NotCiteable(mode)
+  if (mode === 'text') {
     return fiscal?.mode === 'text' ? doc : setRegister(doc._id, { isFiscal: false, 'fiscal.mode': 'text' })
   }
   if (fiscal?.attemptedAt) return holdInDoubt(doc)
@@ -476,6 +554,18 @@ async function decideMode(c: RegisterContext, printer: RegisterPrinter, doc: any
     isFiscal: true, 'fiscal.mode': 'fiscal',
     ...(doc.register?.unp ? {} : { unp: await generateUNP(c.orgId, printer.deviceNumber, operatorCode as string) }),
   })
+}
+
+/**
+ * A storno whose receipt this device cannot reverse: a fiscal receipt on a device that says it is not
+ * fiscalized, or a text one on a device that is. The door refused it; this is the device changing since.
+ */
+class NotCiteable extends Error {
+  constructor(mode: string) {
+    super(mode === 'text'
+      ? 'This device is not fiscalized now, and the receipt this storno cites is a fiscal one, so the storno was not printed.'
+      : 'This device is fiscalized now, and the receipt this storno cites is a text one no device recorded, so the storno was not printed.')
+  }
 }
 
 /** The print, in the receipt's turn. What cannot print: failed if it never reached the device, else in doubt. */
@@ -492,6 +582,7 @@ async function printReceiptStep(c: RegisterContext, doc: any): Promise<any> {
       try {
         decided = await decideMode(c, printer, fresh)
       } catch (e: any) {
+        if (e instanceof NotCiteable) return couldNotPrint(fresh, e.message)
         // ⚠ Never text: the path of a device that went away.
         return couldNotPrint(fresh, `The device could not say how it prints, so the receipt was not printed: ${e?.message}`)
       }
@@ -508,7 +599,7 @@ async function printReceiptStep(c: RegisterContext, doc: any): Promise<any> {
  * request that died, which leaves a receipt that was not decided exactly as it found it.
  */
 export async function runReceiptSteps(c: RegisterContext, id: string, opts: { neverPrint?: boolean } = {}): Promise<any> {
-  let doc: any = await Invoice.findOne({ _id: oid(id), orgId: oid(c.orgId), type: PAYMENT_RECEIPT }).lean().exec()
+  let doc: any = await Invoice.findOne({ _id: oid(id), orgId: oid(c.orgId), type: { $in: MONEY_DOCUMENT_TYPES } }).lean().exec()
   if (!doc) throw new RegisterRefusal(404, { message: 'Receipt not found' })
   if (doc.status === 'voided') return doc
   if (opts.neverPrint && doc.register?.fiscal?.state === 'pending') return doc
@@ -516,14 +607,22 @@ export async function runReceiptSteps(c: RegisterContext, id: string, opts: { ne
   // The money before the number: a receipt that gives way here draws none.
   if (isPendingNumber(doc.invoiceNumber) && doc.register?.fiscal?.state === 'pending') {
     if (!(await holdAmount(doc))) {
-      const invoice: any = await Invoice.findOne({ _id: doc.register.paidInvoiceId, orgId: doc.orgId }).lean().exec()
+      const invoice: any = await Invoice.findOne({ _id: documentIdOf(doc), orgId: doc.orgId }).lean().exec()
       const refusal = await paymentRefusal(String(doc.orgId), invoice, Number(doc.total) || 0)
       await rollBack(doc)
       throw refusal ?? new RegisterRefusal(409, { ...PAYMENT_IN_PROGRESS })
     }
+    // A later claim that does not fit gives way, and its hold goes with it.
+    const refused = await takeFromCited(doc)
+    if (refused) {
+      await releaseHold(doc)
+      await rollBack(doc)
+      throw refused
+    }
     const numbered = await numberPending(c.orgId, doc)
     if (!numbered) {
       await releaseHold(doc)
+      await giveBackCited(doc)
       await rollBack(doc)
       throw new RegisterRefusal(409, { message: 'Could not allocate the cash-register number after 3 attempts' })
     }
@@ -534,6 +633,9 @@ export async function runReceiptSteps(c: RegisterContext, id: string, opts: { ne
   // Given up, or a person's to settle: nothing more happens to it here.
   if (doc.status === 'voided' || doc.register?.fiscal?.inDoubt) return doc
   if (doc.register?.fiscal?.state === 'failed') return giveUp(c, doc)
+  // ⚠ A storno that may have printed: nobody has been paid yet, so no money moves on a maybe, and it
+  // never prints again. A person who looks at the device settles it.
+  if (doc.type === PAYMENT_STORNO && doc.register?.fiscal?.state === 'unknown') return holdInDoubt(doc)
 
   // Printed, or it may have: the money stands from here on (D-4). One that never had its number and a
   // person settled, which arrived through a move between nodes, is numbered first: it is booked under
@@ -558,7 +660,7 @@ export async function runReceiptSteps(c: RegisterContext, id: string, opts: { ne
   ).lean().exec()
   if (done) {
     createAuditEntry({
-      orgId: c.orgId, userId: c.user.id, operatorCode: c.user.operatorCode, action: 'create', module: c.audit.module,
+      orgId: c.orgId, userId: c.user.id, operatorCode: c.user.operatorCode, action: done.type === PAYMENT_STORNO ? 'storno' : 'create', module: c.audit.module,
       entityType: c.audit.entityType, entityId: String(done._id), entityName: done.invoiceNumber, unpNumber: done.register?.unp,
     })
   }
@@ -572,7 +674,7 @@ export async function runReceiptSteps(c: RegisterContext, id: string, opts: { ne
 export async function interruptedDocuments(orgId: string, where: { documentId?: string; sessionId?: string; ids?: unknown[] }): Promise<any[]> {
   return Invoice.find({
     orgId: oid(orgId), type: { $in: HOLDS_THE_CLOSE },
-    ...(where.documentId ? { 'register.paidInvoiceId': oid(where.documentId) } : {}),
+    ...(where.documentId ? ofDocument(where.documentId) : {}),
     ...(where.sessionId ? { 'register.sessionId': oid(where.sessionId) } : {}),
     ...(where.ids ? { _id: { $in: where.ids } } : {}),
     completedAt: { $exists: false }, status: { $ne: 'voided' }, leaseUntil: { $lt: new Date() }, 'register.fiscal.inDoubt': { $ne: true },
@@ -584,9 +686,9 @@ export function unfinishedRefusal(receipts: any[]) {
   const named = receipts.map(r => ({
     id: String(r._id),
     number: isPendingNumber(r.invoiceNumber) ? null : r.invoiceNumber,
-    invoice: r.register?.paidInvoiceNumber,
+    invoice: documentNumberOf(r),
     inDoubt: !!r.register?.fiscal?.inDoubt,
-    kind: r.type === 'cash_storno' ? 'storno' : r.type === 'cash_sale' ? 'sale' : 'payment',
+    kind: r.type === 'cash_storno' ? 'storno' : r.type === PAYMENT_STORNO ? 'refund' : r.type === 'cash_sale' ? 'sale' : 'payment',
   }))
   const list = named.map(r => r.number ?? (r.invoice ? `for ${r.invoice}` : r.id)).join(', ')
   return {
@@ -631,7 +733,318 @@ export async function unfinishedReceipts(orgId: string, sessionId: string): Prom
  * device's answer lost), and only the money is left to record.
  */
 export async function finishInterruptedReceipt(c: RegisterContext, doc: any): Promise<any> {
-  await decideInterrupted(c, doc, 'The payment was interrupted before its receipt printed.')
+  await decideInterrupted(c, doc, doc.type === PAYMENT_STORNO ? 'The refund was interrupted before its storno printed.' : 'The payment was interrupted before its receipt printed.')
   return runReceiptSteps(c, String(doc._id), { neverPrint: true })
 }
 
+// ── R2: a refund on a credit note ────────────────────────────────────────────────────────────────
+
+/**
+ * A storno's claim on what the receipt it cites still holds; null when it took it, else why not.
+ *
+ * ⚠ From the claim on the number stands (`correctReceiptNumber`), and until it a person may correct one they
+ * typed. So what the storno cites is read after it: the door read the receipt before this document existed, and
+ * printed from that read, a storno cited the number the person had just said was wrong.
+ */
+async function takeFromCited(doc: any): Promise<RegisterRefusal | null> {
+  if (doc.type !== PAYMENT_STORNO) return null
+  const cited: any = await Invoice.findOne({ _id: doc.register.storno.originalId, orgId: doc.orgId }).lean().exec()
+  if (!cited || !(await takeBudget(cited, doc._id, wantedBy(doc)))) {
+    // Read again: what took it is why this one gave way, and its claim counts.
+    const [now, note, stornos]: any[] = await Promise.all([
+      Invoice.findOne({ _id: doc.register.storno.originalId, orgId: doc.orgId }).lean().exec(),
+      Invoice.findOne({ _id: doc.register.refundOf, orgId: doc.orgId }).lean().exec(),
+      receiptsOf(String(doc.orgId), String(doc.register.refundOf)),
+    ])
+    return exceedsReceipts(fittingAmount(note, stornos.filter((s: any) => String(s._id) !== String(doc._id)), now ? [now] : [], Number(doc.total) || 0))
+  }
+  const claimed: any = await Invoice.findOne({ _id: cited._id, orgId: doc.orgId }, { 'register.fiscalReceiptNumber': 1 }).lean().exec()
+  const number = claimed?.register?.fiscalReceiptNumber
+  if (number && number !== doc.register.storno.originalReceiptNumber) await setRegister(doc._id, { 'storno.originalReceiptNumber': number })
+  return null
+}
+
+async function giveBackCited(doc: any): Promise<void> {
+  if (doc.type === PAYMENT_STORNO) await giveBackBudget(doc.register.storno.originalId, doc.orgId, doc._id)
+}
+
+/**
+ * Why nothing behind a refund can be cited, each in its own words. The bank is the way out of all of them, and
+ * a number off the slip where one can still be brought.
+ *  - `none`: no receipt in LGR, because it was paid by bank, imported or paid before LGR printed.
+ *  - `no_number`: a fiscal receipt that stands printed and has no number from the device, so a storno has
+ *    nothing to cite and a person can bring it.
+ *  - `other_kind`: a receipt no storno from here can reverse: text on a fiscal device or the reverse, on
+ *    delivery, one nothing proves printed, or one with no number or device on record.
+ */
+export type NoCitation = { reason: 'none' } | { reason: 'no_number'; receipt: any } | { reason: 'other_kind' }
+
+/** A refund with no receipt behind it that a storno can cite: §2.5, the owner's decision. */
+export const noReceiptToStorno = (why: NoCitation = { reason: 'none' }) => new RegisterRefusal(409, {
+  code: 'no_receipt_to_storno',
+  reason: why.reason,
+  ...(why.reason === 'no_number' ? { receipt: { id: String(why.receipt._id), number: why.receipt.invoiceNumber } } : {}),
+  message: why.reason === 'no_number'
+    ? `Receipt ${why.receipt.invoiceNumber} has no number from the device on record, and a storno cites that number. Bring it off the slip on the receipt's page, or refund it by bank.`
+    : why.reason === 'other_kind'
+      ? 'This credit note\'s invoice has a receipt, but not one a storno from here can reverse: a text receipt on a fiscal device or the reverse, one on delivery, one nothing proves printed, or one with no number or device on record. Refund it by bank.'
+      : 'This credit note\'s invoice has no receipt in LGR to storno: it was paid by bank, imported, or paid before LGR printed. Refund it by bank.',
+})
+
+/** Why what stands behind this note has nothing to cite, here or on any other device. */
+export function whyNoCitation(backing: RefundBacking): NoCitation {
+  const numberless = backing.cited.filter(r => r.type === PAYMENT_RECEIPT && !isTextReceipt(r) && !hasReceiptNumber(r))
+  if (numberless.length) return { reason: 'no_number', receipt: numberless[numberless.length - 1] }
+  return backing.cited.length || backing.uncitable.length ? { reason: 'other_kind' } : { reason: 'none' }
+}
+
+/**
+ * The largest amount up to `upTo` that fits as the door will split it: pro rata of what is left of the note per
+ * rate (`refundNeed`), against what `citeable` holds per rate. So a person who types it goes through. What they
+ * hold added up rate by rate is not that: 12 at 20 % and nothing at 9 % read as 12, and 12 split over both rates
+ * asked 5.71 of a rate that holds nothing, sending the person round in circles.
+ */
+export function fittingAmount(note: any, stornos: any[], citeable: any[], upTo: number): number {
+  const gross = grossByRate(note)
+  if (!gross) return 0
+  const receipted = receiptedByRate(stornos)
+  const lefts = citeable.map(leftByRate)
+  const toCents = (v: number) => Math.round(v * 100)
+  const left = gross.map(g => Math.max(0, toCents(g.gross) - (receipted.get(g.rate) || 0)))
+  const room = left.reduce((s, c) => s + c, 0)
+  // Above this a rate's share is more than it holds, however the rounding falls: the search starts here.
+  let top = Math.min(toCents(upTo), room)
+  gross.forEach((g, i) => {
+    if (left[i] > 0) top = Math.min(top, Math.ceil(((lefts.reduce((s, l) => s + (l.get(g.rate) || 0), 0) + 1) * room) / left[i]))
+  })
+  for (let cents = top; cents > 0; cents--) {
+    const shares = splitByRate(gross, receipted, cents / 100)
+    if (shares?.length && holdEnough(new Map(shares.map(s => [s.rate, toCents(s.gross)])), citeable)) return cents / 100
+  }
+  return 0
+}
+
+/**
+ * More than they hold. `left`: what goes through as the door will split it (`fittingAmount`). At issue there
+ * is no amount to type, so it says how: the note all goes back as it is issued, or it does not issue.
+ */
+export function exceedsReceipts(left: number, atIssue = false): RegisterRefusal {
+  return new RegisterRefusal(422, {
+    code: 'refund_exceeds_receipts',
+    left,
+    ...(atIssue ? { atIssue: true } : {}),
+    message: atIssue
+      ? `This credit note is more than the invoice's receipts still hold here (${left.toFixed(2)}). Issue it by bank, then refund that much with Refund, and the rest by bank.`
+      : `This refund is more than the invoice's receipts still hold here (${left.toFixed(2)}). Refund that much this way, and the rest by bank.`,
+  })
+}
+
+/**
+ * What a refund that prints may still give back on this note's invoice: what the invoice took, less what notes
+ * on it have given back, by any method, this note's earlier parts included. For an invoice for a till sale that
+ * is the invoice's own amount, never the sale's: its receipt's budget is the whole ticket. A bank refund takes
+ * no cap, because it touches neither the device nor the drawer, and it is counted all the same.
+ *
+ * The budget protects the receipt, and this protects the customer: one quantity typed wrong on a note of a
+ * part-invoiced sale refunded the whole ticket, and a note in cash beside one by bank paid back twice.
+ *
+ * ⚠ A guard against a wrong figure, not a lock. It is read before the claim, so two notes at once can both
+ * pass it. What is atomic is the receipt's budget (`takeBudget`), and neither ever goes past that.
+ *
+ * Null when there is nothing to compare with: no such invoice, or one in another currency, which no storno of
+ * this note can cite anyway.
+ */
+export async function refundCap(orgId: string, note: any): Promise<number | null> {
+  if (!note?.relatedInvoiceId) return null
+  const invoice: any = await Invoice.findOne({ _id: note.relatedInvoiceId, orgId: oid(orgId) }, { total: 1, amountPaid: 1, currency: 1, 'cashSaleRef.cashSaleId': 1 }).lean().exec()
+  if (!invoice || (note.currency && invoice.currency && note.currency !== invoice.currency)) return null
+  const notes: any[] = await Invoice.find({ orgId: oid(orgId), type: 'credit_note', relatedInvoiceId: invoice._id, status: { $nin: ['voided', 'cancelled'] } }, { amountPaid: 1 }).lean().exec()
+  const took = Number(invoice.cashSaleRef?.cashSaleId ? invoice.total : invoice.amountPaid) || 0
+  return Math.max(0, round2(took - notes.reduce((s, n) => s + (Number(n.amountPaid) || 0), 0)))
+}
+
+/** More than the customer paid and has not had back. `left`: what the cap leaves. */
+export function exceedsPaid(left: number, atIssue: boolean): RegisterRefusal {
+  const how = atIssue ? 'Issue it by bank, then refund that much with Refund.' : 'Refund that much this way.'
+  return new RegisterRefusal(422, {
+    code: 'refund_exceeds_paid',
+    left,
+    ...(atIssue ? { atIssue: true } : {}),
+    message: `This refund is more than the customer paid on this invoice and has not had back (${left.toFixed(2)}). ${how} A bank refund or the till's storno is the way for the rest.`,
+  })
+}
+
+/** The receipts behind a refund printed on another device: a storno prints where its receipt printed. */
+export const onOtherDevice = (cited: any[]) => {
+  const deviceNumbers = [...new Set(cited.map(r => String(r.register?.fiscalDeviceNumber)))]
+  return new RegisterRefusal(409, {
+    code: 'receipt_on_other_device',
+    deviceNumbers,
+    message: `The invoice's receipts printed on device ${deviceNumbers.join(', ')}. A storno prints on the device that printed its receipt: connect it in this warehouse, refund from a session in its own, or refund by bank.`,
+  })
+}
+
+export interface RefundBacking {
+  /** What a storno can cite, as it stands now, oldest first. */
+  cited: any[]
+  /**
+   * A receipt or a sale nothing can prove yet: a person has to look at the device before it holds anything.
+   * Or a storno nothing can prove, of any note, holding a claim on what it would cite: settled not printed, that money is there again.
+   */
+  doubt: any | null
+  /** A receipt of the invoice still going through: its money may be coming. */
+  printing: boolean
+  /** A finished receipt of the invoice that holds nothing to cite: its `unknown` stands, or the money is the courier's. */
+  uncitable: any[]
+}
+
+/** The stornos holding a claim on what these hold, of whichever note. */
+export const claimantsOf = (cited: any[]): string[] =>
+  [...new Set(cited.flatMap(c => (c.register?.refundClaims ?? []).map((x: any) => String(x.stornoId))))]
+
+/** The first of them nothing can prove. */
+async function claimantInDoubt(orgId: string, cited: any[]): Promise<any | null> {
+  const ids = claimantsOf(cited)
+  if (!ids.length) return null
+  return Invoice.findOne({ orgId: oid(orgId), _id: { $in: ids.map(oid) }, type: PAYMENT_STORNO, status: { $ne: 'voided' }, 'register.fiscal.inDoubt': true }, { type: 1, invoiceNumber: 1 }).sort({ _id: 1 }).lean().exec()
+}
+
+const isTextReceipt = (d: any) => d.register?.fiscal?.mode === 'text' || (!d.register?.fiscal?.mode && !d.register?.isFiscal)
+/** A device takes a storno only of a receipt it can name, by number. */
+const hasReceiptNumber = (d: any) => /^\d+$/.test(String(d?.register?.fiscalReceiptNumber ?? ''))
+
+/**
+ * What stands behind a refund on this credit note (§2.5): the receipts that took money on its invoice,
+ * or, for an invoice issued for a till sale (R0), that sale's own receipt.
+ *
+ * Only what is finished and known to have printed. ⚠ `unknown` means a person must look at the device,
+ * so nothing reads it as printed: a receipt or a sale in that state has no budget until they say, and no
+ * number to cite either. A storno of what never printed would put a refund on the device with no sale
+ * behind it. A person settles one in doubt at the settle door, and what they said as printed holds from
+ * then on, by the number they typed. ⚠ A receipt whose `unknown` stands (its verdict in its turn, its
+ * money booked) has no such door: it holds nothing, and its refund goes by bank.
+ * ⚠ Not a receipt on delivery: its money is the courier's, and until they bring it there is
+ * nothing to give back. Such a refund goes by bank, as one on an invoice with no receipt does.
+ */
+export async function refundBacking(orgId: string, note: any): Promise<RefundBacking> {
+  const none: RefundBacking = { cited: [], doubt: null, printing: false, uncitable: [] }
+  if (!note?.relatedInvoiceId) return none
+  const invoice: any = await Invoice.findOne({ _id: note.relatedInvoiceId, orgId: oid(orgId) }, { 'cashSaleRef.cashSaleId': 1 }).lean().exec()
+  if (!invoice) return none
+  if (invoice.cashSaleRef?.cashSaleId) {
+    const sale: any = await Invoice.findOne({ _id: invoice.cashSaleRef.cashSaleId, orgId: oid(orgId), type: 'cash_sale', status: 'paid' }).lean().exec()
+    if (saleInDoubt(sale)) return { ...none, doubt: sale }
+    const state = sale?.register?.fiscal?.state
+    // ⚠ Whatever it prints, fiscal or text. Nothing of it is booked yet, so a refund gives back money that never
+    // landed (`stornoRefusal` says the same). One whose request died the door finishes first, so this is one
+    // still running, or whose finish threw.
+    if (saleProgress(sale) || (sale?.register?.isFiscal && state === 'pending')) return { ...none, printing: true }
+    const printed = state ? state === 'printed' : hasReceiptNumber(sale)
+    const onSale = sale && printed ? [sale] : []
+    return { ...none, cited: onSale, doubt: await claimantInDoubt(orgId, onSale) }
+  }
+  const live: any[] = await Invoice.find(liveReceipts(orgId, invoice._id)).sort({ _id: 1 }).lean().exec()
+  const cited = live.filter(r => r.completedAt && r.paymentMethod !== 'cash_on_delivery' && r.register?.fiscal?.state === 'printed')
+  return {
+    cited,
+    doubt: live.find(r => r.register?.fiscal?.inDoubt) ?? await claimantInDoubt(orgId, cited),
+    printing: live.some(r => !r.completedAt && !r.register?.fiscal?.inDoubt),
+    uncitable: live.filter(r => r.completedAt && !cited.includes(r)),
+  }
+}
+
+/** The refusal of what backs a refund and nothing can prove: each names its own way out. */
+export const doubtRefusal = (doc: any) => new RegisterRefusal(409, doc.type === 'cash_sale' ? saleInDoubtRefusal(doc) : inDoubtRefusal(doc))
+
+/**
+ * Which of them this device can reverse. A fiscal storno names the receipt's number and this device's
+ * fiscal memory, so only what this device printed, by a number it can name. A text storno reverses only
+ * a text receipt: a fiscal one needs a fiscal storno. All in the credit note's currency: the money is
+ * compared to the cent.
+ */
+export function citeableOn(cited: any[], deviceNumber: string, mode: 'fiscal' | 'text', currency: string | undefined): any[] {
+  return cited.filter((r) => {
+    if (currency && r.currency && r.currency !== currency) return false
+    if (mode === 'text') return isTextReceipt(r)
+    return !isTextReceipt(r) && hasReceiptNumber(r) && r.register?.fiscalDeviceNumber === deviceNumber
+  })
+}
+
+/** Those a fiscal storno could cite, had it come from another device. */
+export const citeableElsewhere = (cited: any[], deviceNumber: string) =>
+  cited.filter(r => !isTextReceipt(r) && hasReceiptNumber(r) && !!r.register?.fiscalDeviceNumber && r.register.fiscalDeviceNumber !== deviceNumber)
+
+/** The devices that could reverse these, the one a refund draws on first at the head: what holds money, newest first. */
+export function devicesThatCite(cited: any[]): string[] {
+  const empty = (r: any) => (leftByRate(r).size ? 0 : 1)
+  const order = cited.filter(r => isTextReceipt(r) || hasReceiptNumber(r)).reverse().sort((a, b) => empty(a) - empty(b))
+  return [...new Set<string>(order.map(r => r.register?.fiscalDeviceNumber).filter(Boolean))]
+}
+
+/** What `amount` of a refund on this note comes to per rate, out of what no storno of it holds yet. */
+export function refundNeed(note: any, stornos: any[], amount: number): ByRate | null {
+  const gross = grossByRate(note)
+  if (!gross) return null
+  const shares = splitByRate(gross, receiptedByRate(stornos), amount)
+  return shares?.length ? new Map(shares.map(s => [s.rate, Math.round(s.gross * 100)])) : null
+}
+
+/**
+ * What the receipts behind this note still hold, wherever they printed, of what some device can cite: what the
+ * dialog says. A fiscal receipt with no number holds money no storno can give back, and the dialog said it did.
+ */
+async function refundableOn(orgId: string, note: any): Promise<number> {
+  const { cited } = await refundBacking(orgId, note)
+  const canBeCited = cited.filter(r => (!note.currency || !r.currency || r.currency === note.currency)
+    && (isTextReceipt(r) || (hasReceiptNumber(r) && !!r.register?.fiscalDeviceNumber)))
+  const held = canBeCited.reduce((s, c) => s + totalOf(leftByRate(c)), 0) / 100
+  const cap = await refundCap(orgId, note)
+  return cap === null ? held : Math.min(held, cap)
+}
+
+/**
+ * A storno's reason on the device. A credit note with products on it takes goods back; one with none
+ * lowers what was charged. The device has one letter for each (`STORNO_REASON`).
+ */
+const reasonOf = (note: any) => ((note.lines || []).some((l: any) => l.productId) ? 'customer_return' : 'tax_base_reduction')
+
+export interface PaymentStornoInput {
+  note: any
+  cited: any
+  take: ByRate
+  tender: ReceiptTender
+  session: RegisterSession
+  user: RegisterUser
+  printer: RegisterPrinter
+}
+
+/**
+ * The storno's document (§2.1): a receipt's, for this part of the refund, naming the credit note and
+ * citing what it reverses. Its moment is the receipt's print, as the device recorded it.
+ */
+export function paymentStornoDocument(input: PaymentStornoInput): Record<string, any> {
+  const { note, cited, take, tender, session, user, printer } = input
+  const body = refundBody(note, take, printer.lineNameMax)
+  const base = paymentReceiptDocument({ invoice: note, body, tender: { ...tender, amount: body.total }, session, user, printer })
+  const { paidInvoiceId: _id, paidInvoiceNumber: _number, ...register } = base.register
+  const reg = cited.register || {}
+  return {
+    ...base,
+    type: PAYMENT_STORNO,
+    statusHistory: [{ ...base.statusHistory[0], reason: PAYMENT_STORNO }],
+    register: {
+      ...register,
+      refundOf: note._id,
+      refundOfNumber: note.invoiceNumber,
+      // A text slip has no header to cite it on, so its lines say.
+      receiptText: `Сторно на бон № ${cited.invoiceNumber}`,
+      storno: {
+        originalId: cited._id,
+        ...(reg.unp ? { originalUnp: reg.unp } : {}),
+        ...(reg.fiscalReceiptNumber ? { originalReceiptNumber: reg.fiscalReceiptNumber } : {}),
+        originalDate: reg.printedAt ?? cited.createdAt ?? cited.issueDate,
+        reason: reasonOf(note),
+      },
+    },
+  }
+}

@@ -27,6 +27,7 @@
 // It never writes. There is no connectDB() (its warmup writes), and autoIndex and autoCreate are
 // off, so a model the newer code knows creates no collection and builds no index on prod.
 import { mongoose } from 'db/connection'
+import { cashKeptOf } from './lib/journal-day'
 import { initServiceContext } from 'services/context'
 import { createMongoRepositories } from 'dal-mongo'
 import { Org, Invoice, POSTransaction } from 'db/models'
@@ -85,6 +86,7 @@ try {
       cashSalesVoided: await Invoice.countDocuments({ orgId: o, type: 'cash_sale', status: 'voided' }).exec(),
       cashStornos: await Invoice.countDocuments({ orgId: o, type: 'cash_storno' }).exec(),
       paymentReceipts: await Invoice.countDocuments({ orgId: o, type: 'payment_receipt' }).exec(),
+      paymentStornos: await Invoice.countDocuments({ orgId: o, type: 'payment_storno' }).exec(),
       tillDocuments: await Invoice.countDocuments({ orgId: o, 'register.origin': 'pos' }).exec(),
       copies: await Invoice.countDocuments({ orgId: o, 'register.legacy.source': 'postransactions' }).exec(),
       origins: await Invoice.aggregate([{ $match: { orgId: o, type: 'cash_sale' } }, { $group: { _id: '$register.origin', n: { $sum: 1 } } }, { $sort: { _id: 1 } }]).exec(),
@@ -100,18 +102,12 @@ try {
     // payment's receipt too (FR-23).
     const all = await listJournal({ orgId, size: 1 })
     row.journalTotal = all.total
-    row.journalInvariant = all.total === row.pos - row.copies + row.cashSales + row.cashStornos + row.paymentReceipts
+    row.journalInvariant = all.total === row.pos - row.copies + row.cashSales + row.cashStornos + row.paymentReceipts + (row.paymentStornos ?? 0)
     // Every page of the day: a page holds at most 500 rows, and a busy day has more.
     const dayQuery = { orgId, dateFrom: DIGEST_DAY, dateTo: DIGEST_DAY, timeZone: org.settings?.timezone, size: 500 }
     const dayRows = await listJournal({ ...dayQuery, page: 0 })
     for (let page = 1; page < dayRows.totalPages; page++) dayRows.rows.push(...(await listJournal({ ...dayQuery, page })).rows)
-    let cash = 0
-    for (const r of dayRows.rows) {
-      if (r.status === 'voided') continue
-      const sign = r.kind === 'storno' ? -1 : 1
-      for (const p of r.payments) if (p.method === 'cash') cash += sign * p.amount
-    }
-    row.journalDay = { rows: dayRows.total, cashKept: cents(cash) }
+    row.journalDay = { rows: dayRows.total, cashKept: cashKeptOf(dayRows.rows) }
 
     // #249: an invoiced cash sale is listed once, carrying its invoice, and the invoice is no
     // cash-register row.

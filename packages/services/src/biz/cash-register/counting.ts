@@ -35,7 +35,7 @@ export const UNPROVED_STORNO_STATES: readonly string[] = ['pending', 'unknown', 
  * that sums stornos skips it. The same rule as a filter: `NOT_UNPROVED_STORNO` (`sale-counting.ts`).
  */
 export function stornoUnproved(row: PosRowLike): boolean {
-  return row.type === 'storno' && row.status !== 'cancelled' && UNPROVED_STORNO_STATES.includes(String(row.fiscal?.state))
+  return (row.type === 'storno' || row.type === 'payment_storno') && row.status !== 'cancelled' && UNPROVED_STORNO_STATES.includes(String(row.fiscal?.state))
 }
 
 /** +1, −1 or 0: what a POS row contributes to a sum of sales. */
@@ -62,6 +62,14 @@ export function posRowSign(row: PosRowLike): 1 | -1 | 0 {
  */
 export function receiptTookMoney(row: PosRowLike): boolean {
   return row.type === 'payment_receipt' && (row.fiscal?.state === 'printed' || row.fiscal?.state === 'unknown') && !row.fiscal?.inDoubt && row.status === 'completed'
+}
+
+/**
+ * FR-23 R2: a refund's storno gave its money back once it printed, and only then: a session counts it
+ * negative. Unlike a receipt, whose money is in the drawer either way, `unknown` has paid nobody yet.
+ */
+export function refundGaveMoney(row: PosRowLike): boolean {
+  return row.type === 'payment_storno' && row.fiscal?.state === 'printed' && row.status === 'completed'
 }
 
 export interface MethodTotals {

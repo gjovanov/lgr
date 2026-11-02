@@ -69,7 +69,7 @@
       <v-chip size="small" variant="tonal">{{ $t(`cashRegister.origin.${item.origin}`) }}</v-chip>
     </template>
     <template #item.total="{ item }">
-      <span :class="{ 'text-error': item.kind === 'storno' }">{{ fmtCurrency(item.kind === 'storno' ? -item.total : item.total, item.currency) }}</span>
+      <span :class="{ 'text-error': givesBack(item.kind) }">{{ fmtCurrency(givesBack(item.kind) ? -item.total : item.total, item.currency) }}</span>
     </template>
     <template #item.subtotal="{ item }">{{ fmtCurrency(item.subtotal, item.currency) }}</template>
     <template #item.taxTotal="{ item }">{{ fmtCurrency(item.taxTotal, item.currency) }}</template>
@@ -94,7 +94,7 @@
           variant="tonal"
           :color="item.invoicingState === 'full' ? 'primary' : 'warning'"
           :to="invoiceLink(inv)"
-          :title="item.kind === 'payment' ? $t('cashRegister.receipt.paidInvoice') : item.invoicingState === 'partial' ? $t('invoicing.cashSaleInvoice.statePartial') : $t('invoicing.cashSaleInvoice.stateFull')"
+          :title="item.kind === 'payment' ? $t('cashRegister.receipt.paidInvoice') : item.kind === 'refund' ? $t('cashRegister.receipt.refundOf') : item.invoicingState === 'partial' ? $t('invoicing.cashSaleInvoice.statePartial') : $t('invoicing.cashSaleInvoice.stateFull')"
         >
           {{ inv.number }}
         </v-chip>
@@ -156,7 +156,7 @@ import { useCurrency } from '../../composables/useCurrency'
 import { useSnackbar } from '../../composables/useSnackbar'
 import { paymentMethodKey } from '../../composables/usePaymentMethods'
 import { canStornoJournalRow } from '../../cash-register/storno'
-import { kindColor } from '../../cash-register/journal-kind'
+import { givesBack, kindColor } from '../../cash-register/journal-kind'
 
 const props = defineProps<{
   orgUrl: string
@@ -173,7 +173,7 @@ const { t } = useI18n()
 const { formatCurrency } = useCurrency()
 const { showSuccess, showSnackbar } = useSnackbar()
 
-const KINDS = ['sale', 'storno', 'payment']
+const KINDS = ['sale', 'storno', 'payment', 'refund']
 const ORIGINS = ['pos', 'backoffice', 'import']
 const STATUSES = ['completed', 'stornoed', 'voided']
 const FISCAL_STATES = ['printed', 'pending', 'failed', 'unknown', 'none']

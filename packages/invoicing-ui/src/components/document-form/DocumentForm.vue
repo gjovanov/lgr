@@ -233,7 +233,7 @@
       {{ receiptError || $t('cashRegister.receipt.deliveryMissing') }}
       <template #append>
         <v-btn v-if="deliveryReceiptDue" size="small" variant="outlined" :loading="printingReceipt" data-testid="receipt-print" @click="printDeliveryReceipt">{{ $t('cashRegister.receipt.printIt') }}</v-btn>
-        <v-btn v-else-if="receiptTakesPayment" size="small" variant="outlined" data-testid="receipt-retry" @click="paymentDialog = true">{{ $t('cashRegister.receipt.takePayment') }}</v-btn>
+        <v-btn v-else-if="receiptTakesPayment" size="small" variant="outlined" data-testid="receipt-retry" @click="paymentDialog = true">{{ $t(payableDoc?.type === 'credit_note' ? 'cashRegister.receipt.takeRefund' : 'cashRegister.receipt.takePayment') }}</v-btn>
       </template>
     </v-alert>
 
@@ -245,6 +245,18 @@
         <v-btn size="small" variant="outlined" data-testid="receipt-in-doubt-open" :to="{ name: 'invoicing.cash-sales.view', params: { id: receiptInDoubt.id } }">{{ $t('cashRegister.receipt.settleIt') }}</v-btn>
       </template>
     </v-alert>
+
+    <!-- FR-23: the receipts that took this document's money, or the stornos that gave it back. -->
+    <v-card v-if="paymentReceipts.length" variant="outlined" class="mb-3" data-testid="document-receipts">
+      <v-card-text class="py-2">
+        <div class="text-caption text-medium-emphasis mb-1">{{ $t(payableDoc?.type === 'credit_note' ? 'cashRegister.receipt.listStornos' : 'cashRegister.receipt.listReceipts') }}</div>
+        <div v-for="r in paymentReceipts" :key="r.id" class="d-flex flex-wrap ga-4 text-body-2" data-testid="document-receipt">
+          <router-link :to="{ name: 'invoicing.cash-sales.view', params: { id: r.id } }" class="text-decoration-none" data-testid="document-receipt-link">{{ r.number }}</router-link>
+          <span>{{ doc.fmtCurrency(r.amount) }}</span>
+          <span v-if="r.state">{{ $t(`cashRegister.fiscalState.${r.state}`) }}</span>
+        </div>
+      </v-card-text>
+    </v-card>
 
     <RecordPaymentDialog v-model="paymentDialog" :document="payableDoc" @recorded="onPaymentRecorded" />
 
@@ -661,6 +673,7 @@ const {
   receiptTakesPayment,
   deliveryReceiptDue,
   receiptInDoubt,
+  paymentReceipts,
   printingReceipt,
   printDeliveryReceipt,
   paymentDialog,

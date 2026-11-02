@@ -8,8 +8,8 @@
 import type { RepositoryRegistry } from 'dal'
 import { getRepos } from '../context.js'
 import { isDateOnly, localDayEnd, localDayStart } from './local-day.js'
-import { loadPosRows, PAYMENT_RECEIPT } from './cash-register/pos-union.js'
-import { UNPROVED_STORNO_STATES, receiptTookMoney, stornoUnproved } from './cash-register/counting.js'
+import { loadPosRows, PAYMENT_RECEIPT, PAYMENT_STORNO } from './cash-register/pos-union.js'
+import { UNPROVED_STORNO_STATES, receiptTookMoney, refundGaveMoney, stornoUnproved } from './cash-register/counting.js'
 import { originOf } from './cash-register/register.service.js'
 import { Invoice, User } from 'db/models'
 
@@ -98,9 +98,12 @@ export async function exportSummarizedSales(filters: SuptoExportFilters, repos?:
   return { transactions, cashSales }
 }
 
-/** 18.2 — Payment details. A storno nothing has proved paid nothing back yet, and lists once it is settled. */
+/**
+ * 18.2 — Payment details: a receipt or a refund's storno once its money moved. A storno nothing has
+ * proved paid nothing back yet, and lists once it is settled.
+ */
 export async function exportPaymentDetails(filters: SuptoExportFilters, _repos?: RepositoryRegistry) {
-  return tillRows(filters, t => (t.type !== PAYMENT_RECEIPT || receiptTookMoney(t)) && !stornoUnproved(t))
+  return tillRows(filters, t => (t.type === PAYMENT_RECEIPT ? receiptTookMoney(t) : t.type === PAYMENT_STORNO ? refundGaveMoney(t) : true) && !stornoUnproved(t))
 }
 
 /** 18.3 — Itemized sales (line-level detail) */
@@ -108,9 +111,13 @@ export async function exportItemizedSales(filters: SuptoExportFilters, _repos?: 
   return tillRows(filters, onTheDevice)
 }
 
-/** 18.4 — Reversed (storno) sales. One nothing has proved lists once it is settled. */
+/**
+ * 18.4 — Reversed (storno) sales: the till's, and the storno of a refund on a credit note (FR-23 R2),
+ * citing the receipt it reverses. One nothing has proved lists once it is settled, and one that failed
+ * is 18.5's.
+ */
 export async function exportReversedSales(filters: SuptoExportFilters, _repos?: RepositoryRegistry) {
-  return tillRows(filters, t => t.type === 'storno' && !stornoUnproved(t))
+  return tillRows(filters, t => (t.type === 'storno' && !stornoUnproved(t)) || refundGaveMoney(t))
 }
 
 /**

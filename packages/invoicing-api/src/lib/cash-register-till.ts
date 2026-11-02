@@ -104,6 +104,17 @@ export async function getFiscalContext(orgId: string, warehouseId: string, devic
   }
 }
 
+/**
+ * The first of these devices that is connected in this warehouse, when one is. A warehouse can hold two while one
+ * replaces the other, and `getFiscalContext` takes whichever it comes to first, so a door that needs a particular
+ * one asks for it by number, as a document's own device is found (`deviceFromDeadReceipt`).
+ */
+export async function connectedInWarehouse(orgId: string, warehouseId: string, deviceNumbers: string[]): Promise<string | undefined> {
+  if (!deviceNumbers.length) return undefined
+  const devices = await getRepos().fiscalDevices.findMany({ orgId, warehouseId, isActive: true } as any) as any[]
+  return deviceNumbers.find(n => devices.some(d => d.deviceNumber === n && isDeviceConnected(d.id)))
+}
+
 /** What the customer handed over, per payment: the device computes the change itself. */
 const tendered = (doc: any) => (doc.payments || []).map((p: any) => ({ method: p.method, amount: Number(p.tendered ?? p.amount) || 0 }))
 
@@ -240,15 +251,17 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
         lines: (doc.lines || []).map((l: any) => ({ name: l.description, quantity: l.quantity, unitPrice: l.unitPrice })),
         subtotal: doc.subtotal, taxTotal: doc.taxTotal, total: doc.total,
         payments: tendered(doc), changeDue: doc.register?.changeDue || 0,
-        // FR-23: the same words a fiscal receipt of this payment prints.
-        ...(doc.type === 'payment_receipt' ? { keepNames: true, receiptText: doc.register?.receiptText } : {}),
+        // FR-23: the same words a fiscal receipt of this payment prints. A refund's storno says what it reverses there.
+        ...(doc.type === 'payment_receipt' || doc.type === 'payment_storno' ? { keepNames: true, receiptText: doc.register?.receiptText } : {}),
       }
       await p.openNonFiscalReceipt!(operatorCode || '1')
       for (const line of formatNonFiscalLines(body, doc.invoiceNumber, operatorName, locale, currency)) await p.printNonFiscalText!(line)
       await p.closeNonFiscalReceipt!()
     },
     async printStorno(storno, original) {
-      const stornoLines = (original.lines || []).map((l: any) => ({
+      // Its own lines and its own total: a refund's storno takes part of a receipt, whichever lines
+      // and amounts that printed. A till sale's storno carries the sale's.
+      const stornoLines = (storno.lines || []).map((l: any) => ({
         name: l.description,
         quantity: l.quantity,
         // VAT-inclusive, like the sale it reverses (see fiscalUnitPrice)
@@ -262,7 +275,7 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
         operatorCode, operatorName, storno.register?.unp,
         s.originalReceiptNumber, s.originalDate, s.originalUnp,
         s.reason, stornoLines,
-        { type: toFiscalPaymentType(method), amount: original.total },
+        { type: toFiscalPaymentType(method), amount: storno.total },
       )
       return result.fiscalReceiptNumber
     },
@@ -342,7 +355,7 @@ export function assertJoinedSaleTender(method: string, receipt: 'fiscal' | 'text
 
 /** The one method a storno receipt prints for the whole amount: the first the refund names. */
 function refundMethod(refund: { method: string }[] | undefined, original: any): string {
-  return refund?.[0]?.method || original.payments?.[0]?.method || original.paymentMethod || 'cash'
+  return refund?.[0]?.method || original?.payments?.[0]?.method || original?.paymentMethod || 'cash'
 }
 
 /** A storno: the refund the operator named, and what its receipt prints when it prints one. */

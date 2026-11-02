@@ -32,14 +32,23 @@
  *    so nothing is stuck.
  * A text document is none of this: the device holds no money on one.
  *
- * R2's `payment_storno` joins `FINISHES`.
+ * **A refund's storno** (R2). Printed: its session gives the money back and the refund is recorded on
+ * its credit note. Not printed: it is voided with its number and УНП, and its hold and its claim on the
+ * receipt it cites go back. It runs a receipt's steps.
+ *
+ * ⚠ A storno cites a number, so a receipt that printed can bring one too, off the slip: a credit note's
+ * refund cites it. With none it stands as printed, and that refund goes by bank, until one is brought: a fiscal
+ * receipt that stands printed with no number, settled so or with its 71h read failed, may be given one later at
+ * this door. One it brought is held to all a sale's is, and corrected the same way, until a refund's storno
+ * cites it. It turns a bank refund into a storno on the device, which is what the law wants. A sale settled
+ * printed already needs a number, so this is a receipt's only.
  */
 import { AuditLog, Invoice } from 'db/models'
 import { recordAuditEntry } from '../audit-log.service.js'
 import { LEASE_MS, takeLease } from '../hot-path-key.js'
 import { saleInDoubt, saleInDoubtFilter, saleProgress } from './in-doubt.js'
 import { runReceiptSteps } from './payment-receipt.service.js'
-import { PAYMENT_RECEIPT } from './pos-union.js'
+import { PAYMENT_RECEIPT, PAYMENT_STORNO } from './pos-union.js'
 import type { RegisterPrinter } from './printer.js'
 import { RegisterRefusal, finishSale, runStornoSteps, type RegisterContext } from './register.service.js'
 
@@ -48,6 +57,7 @@ const oid = (v: unknown) => new Invoice.base.Types.ObjectId(String(v))
 /** What finishes each kind of document once a person has said, with no device. */
 const FINISHES: Record<string, (c: RegisterContext, id: string) => Promise<any>> = {
   [PAYMENT_RECEIPT]: (c, id) => runReceiptSteps(c, id),
+  [PAYMENT_STORNO]: (c, id) => runReceiptSteps(c, id),
   cash_storno: runStornoSteps,
   cash_sale: finishSale,
 }
@@ -89,11 +99,11 @@ const ASK_WAIT_MS = 10_000
 const ASK_ANSWER_MS = 20_000
 
 /** Whose words these are, in the words the message has to use. */
-const NAMES: Record<string, string> = { [PAYMENT_RECEIPT]: 'receipt', cash_storno: 'storno', cash_sale: 'sale' }
+const NAMES: Record<string, string> = { [PAYMENT_RECEIPT]: 'receipt', [PAYMENT_STORNO]: 'storno', cash_storno: 'storno', cash_sale: 'sale' }
 
 /**
- * What a person says about a document in doubt. `receiptNumber`: off the slip, for a sale that printed.
- * `confirmNumber`: the slip says this number, whatever it collides with (`typedReceiptNumber`).
+ * What a person says about a document in doubt. `receiptNumber`: off the slip, for a sale that printed, and for a
+ * receipt when they have it. `confirmNumber`: the slip says this number, whatever it collides with (`typedReceiptNumber`).
  */
 export interface SettleAnswer {
   printed: boolean
@@ -141,7 +151,9 @@ async function typedReceiptNumber(doc: any, typed: string | undefined, lastOnDev
   if (!/^\d{1,10}$/.test(number)) {
     throw new RegisterRefusal(422, {
       code: 'receipt_number_required',
-      message: `A ${NAMES[doc.type]} that printed needs its receipt number off the slip, in digits: its storno cites it.`,
+      message: doc.type === 'cash_sale'
+        ? 'A sale that printed needs its receipt number off the slip, in digits: its storno cites it.'
+        : 'A receipt number is the digits off the slip. Leave it out if you do not have it: the receipt stands as printed, and a refund of it goes by bank.',
     })
   }
   const counterBefore = doc.register?.fiscal?.counterBefore
@@ -183,34 +195,52 @@ async function typedReceiptNumber(doc: any, typed: string | undefined, lastOnDev
 /** A storno cites this number, or an invoice for the sale carries it, so it is a legal citation now. */
 const RECEIPT_NUMBER_CITED = {
   code: 'receipt_number_cited',
-  message: 'A storno or an invoice of this sale cites this receipt number, so it stands.',
+  message: 'A storno or an invoice cites this receipt number, so it stands.',
 } as const
+
+/**
+ * Whether a storno stands on this document's number: its claim, of either kind. A refund's storno holds its
+ * claim from before it prints until it is voided (`takeBudget`, `giveBackBudget`), on a sale as on a receipt.
+ */
+const stornoCites = (reg: any) => reg?.stornoState === 'full' || !!reg?.refundClaims?.length
 
 /**
  * A number typed off a slip, corrected by the door and the rights that took it, under the same checks. All
  * three places it is stored are rewritten and the trail says old to new. Once a storno cites it, it stands:
- * `register.stornoState` is what a storno's claim writes, so of a correction and a claim one gives way. A
- * storno voided since cites nothing: it gave the sale back, and a refused number is why one is corrected. An
- * invoice for the sale carries the number too (`cashSaleRef.receiptNumber`), printed, so it counts as citing.
+ * what a storno's claim writes is in the correction's filter (`stornoCites`), so of a correction and a claim
+ * one gives way. A storno voided since cites nothing: it gave its claim back, and a refused number is why one
+ * is corrected. An invoice for a sale carries the number too (`cashSaleRef.receiptNumber`), printed, so it
+ * counts as citing. A receipt's invoice does not: it reads the receipt's number as it prints.
+ *
+ * A receipt with none yet is given one the same way. What a person said goes on the document as a settle's does,
+ * and it printed when it tried to, the moment its storno cites.
  */
 async function correctReceiptNumber(c: RegisterContext, doc: any, typed: string | undefined, lastOnDevice: number | undefined, confirmed: boolean | undefined): Promise<any | null> {
-  const old = doc.register.settled.receiptNumber
-  const cited = doc.register.stornoState === 'full'
+  const old: string | undefined = doc.register.settled?.receiptNumber
+  const cited = stornoCites(doc.register)
     || await Invoice.exists({ orgId: doc.orgId, 'cashSaleRef.cashSaleId': doc._id, status: { $nin: ['voided', 'cancelled'] } }).exec()
   if (cited) throw new RegisterRefusal(409, { ...RECEIPT_NUMBER_CITED })
   const { number, confirmedOver } = await typedReceiptNumber(doc, typed, lastOnDevice, confirmed)
   if (number === old) return doc
   const corrected: any = await Invoice.findOneAndUpdate(
-    { _id: doc._id, orgId: doc.orgId, 'register.settled.receiptNumber': old, 'register.stornoState': { $ne: 'full' } },
     {
-      $set: { 'register.settled.receiptNumber': number, 'register.fiscal.receiptNo': number, 'register.fiscalReceiptNumber': number, ...(confirmedOver ? { 'register.settled.confirmedOver': confirmedOver } : {}) },
+      _id: doc._id, orgId: doc.orgId, 'register.stornoState': { $ne: 'full' }, 'register.refundClaims.0': { $exists: false },
+      ...(old ? { 'register.settled.receiptNumber': old } : { 'register.fiscalReceiptNumber': null }),
+    },
+    {
+      $set: {
+        'register.settled.receiptNumber': number, 'register.fiscal.receiptNo': number, 'register.fiscalReceiptNumber': number,
+        ...(doc.register.settled ? {} : { 'register.settled.printed': true, 'register.settled.by': oid(c.user.id), 'register.settled.at': new Date() }),
+        ...(!old && doc.register.fiscal?.attemptedAt ? { 'register.printedAt': doc.register.fiscal.attemptedAt } : {}),
+        ...(confirmedOver ? { 'register.settled.confirmedOver': confirmedOver } : {}),
+      },
       ...(confirmedOver ? {} : { $unset: { 'register.settled.confirmedOver': 1 } }),
     },
     { new: true },
   ).lean().exec()
   if (!corrected) {
-    const now: any = await Invoice.findOne({ _id: doc._id, orgId: doc.orgId }, { 'register.stornoState': 1 }).lean().exec()
-    if (now?.register?.stornoState === 'full') throw new RegisterRefusal(409, { ...RECEIPT_NUMBER_CITED })
+    const now: any = await Invoice.findOne({ _id: doc._id, orgId: doc.orgId }, { 'register.stornoState': 1, 'register.refundClaims': 1 }).lean().exec()
+    if (stornoCites(now?.register)) throw new RegisterRefusal(409, { ...RECEIPT_NUMBER_CITED })
     return null
   }
   await recordAuditEntry({
@@ -218,7 +248,7 @@ async function correctReceiptNumber(c: RegisterContext, doc: any, typed: string 
     action: 'correct_receipt_number', module: c.audit.module, entityType: c.audit.entityType,
     entityId: String(doc._id), entityName: doc.invoiceNumber, unpNumber: doc.register?.unp,
     changes: [
-      { field: 'receiptNumber', oldValue: old, newValue: number },
+      { field: 'receiptNumber', oldValue: old ?? null, newValue: number },
       ...(confirmedOver ? [{ field: 'confirmedOver', oldValue: null, newValue: confirmedOver }] : []),
     ],
   })
@@ -291,12 +321,16 @@ export async function settleInDoubt(c: RegisterContext, id: string, answer: Sett
   if (!doc) return null
   const isSale = doc.type === 'cash_sale'
   const inDoubt = isSale ? saleInDoubt(doc, now.getTime()) : !!doc.register?.fiscal?.inDoubt
-  // A number a person typed, typed again: the one thing this door takes on a document no longer in doubt.
-  const corrects = isSale && printed && !inDoubt && !!doc.register?.settled?.receiptNumber && answer.receiptNumber !== undefined
+  // A sale must say. A fiscal receipt may: without it the refund of a credit note has nothing to cite.
+  const fiscalReceipt = doc.type === PAYMENT_RECEIPT && doc.register?.fiscal?.mode !== 'text'
+  const brought = fiscalReceipt && !!String(answer.receiptNumber ?? '').trim()
+  // A number a person typed, typed again, or a receipt's first: the one thing this door takes on a document no longer in doubt.
+  const numberless = fiscalReceipt && doc.register?.fiscal?.state === 'printed' && !doc.register?.fiscalReceiptNumber
+  const corrects = (isSale || fiscalReceipt) && printed && !inDoubt && (!!doc.register?.settled?.receiptNumber || numberless) && answer.receiptNumber !== undefined
   let lastOnDevice: number | undefined
   if (inDoubt || corrects) {
     const device = await deviceOf?.(doc)
-    if (device) lastOnDevice = await askDevice(device, isSale && printed)
+    if (device) lastOnDevice = await askDevice(device, (isSale || brought) && printed)
   }
   if (corrects) {
     const corrected = await correctReceiptNumber(c, doc, answer.receiptNumber, lastOnDevice, answer.confirmNumber)
@@ -304,7 +338,7 @@ export async function settleInDoubt(c: RegisterContext, id: string, answer: Sett
     if (!corrected || corrected.completedAt) return corrected
     return resumeSettled(c, corrected, printed)
   }
-  const typed = isSale && printed && inDoubt ? await typedReceiptNumber(doc, answer.receiptNumber, lastOnDevice, answer.confirmNumber) : undefined
+  const typed = (isSale || brought) && printed && inDoubt ? await typedReceiptNumber(doc, answer.receiptNumber, lastOnDevice, answer.confirmNumber) : undefined
   const receiptNumber = typed?.number
   const receiptError = `A person who checked the device settled this ${NAMES[doc.type]} as not printed.`
   // ⚠ A sale read as not in doubt can be by now: its number was never asked for, so it is not claimed.
@@ -319,8 +353,9 @@ export async function settleInDoubt(c: RegisterContext, id: string, answer: Sett
         // A finished sale has nothing left to find it by, and nothing left to do.
         ...(doc.completedAt ? {} : { leaseUntil: new Date(now.getTime() + LEASE_MS) }),
         ...(printed
-          // ⚠ A sale printed when it tried to, which is what a device's last number is read against.
-          ? { 'register.fiscal.state': 'printed', 'register.fiscal.printedAt': now, 'register.printedAt': (isSale && doc.register?.fiscal?.attemptedAt) || now }
+          // ⚠ What has its number printed when it tried to, which is what a device's last number is read
+          // against, and the moment a storno of it cites.
+          ? { 'register.fiscal.state': 'printed', 'register.fiscal.printedAt': now, 'register.printedAt': ((isSale || receiptNumber) && doc.register?.fiscal?.attemptedAt) || now }
           : { 'register.fiscal.state': 'failed', 'register.fiscal.error': receiptError, 'register.receiptError': receiptError }),
         ...(receiptNumber ? { 'register.fiscal.receiptNo': receiptNumber, 'register.fiscalReceiptNumber': receiptNumber } : {}),
       },

@@ -43,7 +43,9 @@ describe('what a print that threw left behind', () => {
     ['finished, no counter', { stage: 'lines', abandoned: 'finished' }, 'unknown'],
     ['finished past the money, the counter by one', { stage: 'paying', before: 7, now: 8, abandoned: 'finished' }, 'printed'],
     ['finished at a line, the counter by one: real, and only part of it', { stage: 'lines', before: 7, now: 8, abandoned: 'finished' }, 'unknown'],
-    ['finished opening', { stage: 'opening', before: 7, now: 8, abandoned: 'finished' }, 'unknown'],
+    // Its open never landed: a driver with no cancel closed what an earlier document left, whatever the counter says.
+    ['finished opening, the counter by one', { stage: 'opening', before: 7, now: 8, abandoned: 'finished' }, 'failed'],
+    ['finished opening, no counter', { stage: 'opening', abandoned: 'finished' }, 'failed'],
     ['finished, the counter unmoved', { stage: 'lines', before: 7, now: 7, open: false, abandoned: 'finished' }, 'unknown'],
     ['finished past the money, the counter unmoved: its close lost its answer', { stage: 'paying', before: 7, now: 7, abandoned: 'finished' }, 'unknown'],
 

@@ -73,7 +73,7 @@ async function relatedInvoiceRefOf(orgId: string, note: any) {
  * cash sale names that sale.
  */
 export async function printableDocument(orgId: string, invoice: any): Promise<any> {
-  const stornoRef = invoice.type === 'cash_storno' ? await stornoRefOf(orgId, invoice) : undefined
+  const stornoRef = invoice.type === 'cash_storno' || invoice.type === 'payment_storno' ? await stornoRefOf(orgId, invoice) : undefined
   const relatedInvoiceRef = await relatedInvoiceRefOf(orgId, invoice)
   const receipts = invoice.type === 'invoice' || invoice.type === 'debit_note' ? await paidByReceipts(orgId, String(invoice._id)) : []
   // A cash-on-delivery receipt has paid nothing while the courier still owes: "Платена с касов бон"

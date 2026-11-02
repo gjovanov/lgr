@@ -6,7 +6,7 @@
  */
 
 /** A refusal's message key, or null when it is none of the receipt's and the server's text will do. */
-export function receiptRefusalKey(data: { code?: string; noSession?: boolean; deviceConfigured?: boolean } | null | undefined): string | null {
+export function receiptRefusalKey(data: { code?: string; noSession?: boolean; deviceConfigured?: boolean; atIssue?: boolean; document?: string; reason?: string; note?: boolean } | null | undefined): string | null {
   switch (data?.code) {
     case 'fiscal_device_not_connected':
       if (data.noSession) return 'cashRegister.receipt.noSession'
@@ -15,7 +15,9 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'document_claimed': return 'cashRegister.receipt.documentClaimed'
     case 'document_changed': return 'cashRegister.receipt.documentChanged'
     case 'issue_in_progress': return 'cashRegister.receipt.issueInProgress'
-    case 'fiscally_paid': return 'cashRegister.receipt.fiscallyPaid'
+    case 'fiscally_paid':
+      if (data.document) return 'cashRegister.receipt.fiscallyPaidUnderNote'
+      return data.note ? 'cashRegister.receipt.fiscallyPaidNote' : 'cashRegister.receipt.fiscallyPaid'
     case 'receipt_currency': return 'cashRegister.receipt.currency'
     case 'receipt_not_printable': return 'cashRegister.receipt.notPrintable'
     case 'document_not_issued': return 'cashRegister.receipt.notIssued'
@@ -38,6 +40,15 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'delivery_receipt_owed': return 'cashRegister.receipt.deliveryOwed'
     case 'receipts_unfinished': return 'cashRegister.receipt.unfinished'
     case 'close_interrupted': return 'pos.close.interrupted'
+    // FR-23 R2: a refund on a credit note.
+    case 'no_receipt_to_storno':
+      if (data.reason === 'no_number') return 'cashRegister.receipt.noReceiptNumber'
+      return data.reason === 'other_kind' ? 'cashRegister.receipt.noReceiptOfKind' : 'cashRegister.receipt.noReceiptToStorno'
+    case 'refund_exceeds_receipts': return data.atIssue ? 'cashRegister.receipt.refundExceedsAtIssue' : 'cashRegister.receipt.refundExceeds'
+    case 'refund_exceeds_paid': return data.atIssue ? 'cashRegister.receipt.refundExceedsPaidAtIssue' : 'cashRegister.receipt.refundExceedsPaid'
+    case 'receipt_on_other_device': return 'cashRegister.receipt.refundOtherDevice'
+    case 'refund_requires_manager': return 'cashRegister.receipt.refundNeedsManager'
+    case 'cash_sale_refunded': return 'cashRegister.receipt.saleRefunded'
     default: return null
   }
 }
@@ -48,9 +59,9 @@ export function isFailedPrint(data: { code?: string } | null | undefined): boole
 }
 
 /** The receipts a refusal names: the one in doubt, or the ones a session cannot close over. */
-export function receiptRefusalParams(data: { receipt?: { number?: string }; document?: string; receipts?: Array<{ id?: string; number?: string | null; invoice?: string }>; last?: number } | null | undefined): { number: string; numbers: string; last: string } {
+export function receiptRefusalParams(data: { receipt?: { number?: string }; document?: string; receipts?: Array<{ id?: string; number?: string | null; invoice?: string }>; left?: number; deviceNumbers?: string[]; last?: number } | null | undefined): { number: string; numbers: string; left: string; devices: string; last: string } {
   const numbers = (data?.receipts ?? []).map(r => r.number ?? r.invoice ?? r.id ?? '').filter(Boolean).join(', ')
-  return { number: data?.receipt?.number ?? data?.document ?? '', numbers, last: data?.last === undefined ? '' : String(data.last) }
+  return { number: data?.receipt?.number ?? data?.document ?? '', numbers, left: (Number(data?.left) || 0).toFixed(2), devices: (data?.deviceNumbers ?? []).join(', '), last: data?.last === undefined ? '' : String(data.last) }
 }
 
 /** The message for a refused request: the receipt's own, the server's, or `fallback`. */

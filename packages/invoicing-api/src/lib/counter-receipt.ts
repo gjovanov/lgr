@@ -17,7 +17,7 @@
  */
 import { Invoice } from 'db/models'
 import { outstandingOf } from 'services/biz/invoice-payment'
-import { PAYMENT_RECEIPT } from 'services/biz/cash-register/pos-union'
+import { MONEY_DOCUMENT_TYPES } from 'services/biz/cash-register/pos-union'
 import {
   paymentReceiptDocument, printsAtCounter, receiptsOf, runReceiptSteps,
   type ReceiptTender,
@@ -129,11 +129,11 @@ export function settleKeyedReceipt(orgId: string, user: RegisterUser, receipt: a
   return settleKeyedDocument(receipt, hash, () => documentContext(orgId, user, receipt), (c, id) => runReceiptSteps(c, id))
 }
 
-/** The receipt holding this key, if a request with it already made one. */
+/** The receipt holding this key, if a request with it already made one; or the first storno of a refund. */
 export async function keyedReceipt(orgId: string, key: string): Promise<any | null> {
   // ⚠ `$type` is what reaches the partial index: on an equality alone the planner cannot prove its
   // filter, and walks the org's documents by another index.
-  return Invoice.findOne({ orgId, clientKey: { $eq: key, $type: 'string' }, type: PAYMENT_RECEIPT }).lean().exec()
+  return Invoice.findOne({ orgId, clientKey: { $eq: key, $type: 'string' }, type: { $in: MONEY_DOCUMENT_TYPES } }).lean().exec()
 }
 
 /** What an answer says about the receipt: its identity, and the doubt, when there is one. */

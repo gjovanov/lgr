@@ -99,8 +99,8 @@ export const LEGACY_DISPLAY_ALIASES: Record<string, string[]> = {
 export function sequenceGroupFor(type: string, direction?: string): SequenceGroup {
   if (type === 'proforma') return 'proforma'
   // FR-21 (D-5): a storno is numbered in the series of the sales it reverses. FR-23: so is the
-  // receipt of a payment on an invoice, a document of the same register.
-  if (type === 'cash_sale' || type === 'cash_storno' || type === 'payment_receipt') return 'cash_sale'
+  // receipt of a payment on an invoice, and the storno of a refund, documents of the same register.
+  if (type === 'cash_sale' || type === 'cash_storno' || type === 'payment_receipt' || type === 'payment_storno') return 'cash_sale'
   // Credit/debit notes share the series of the side they correct: outgoing notes are
   // numbered with the sales invoices, incoming notes with the purchase bills.
   if (type === 'credit_note' || type === 'debit_note' || type === 'invoice') {
