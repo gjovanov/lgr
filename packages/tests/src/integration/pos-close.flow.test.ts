@@ -233,6 +233,37 @@ describe('a close that dies in its Z (the third read of FR-23, finding 6)', () =
     expect((await session(w)).status).toBe('open')
   })
 
+  it('two presses at one that died: both are told, whichever won the write, and neither runs a Z', async () => {
+    const w = await tillWorld(app)
+    await died(w)
+    const real = POSSession.findOneAndUpdate
+    let inner: any
+    let done = false
+    ;(POSSession as any).findOneAndUpdate = function (filter: any, update: any, ...rest: any[]) {
+      if (done || update?.$set?.status !== 'open') return (real as any).call(POSSession, filter, update, ...rest)
+      done = true
+      return {
+        exec: async () => {
+          inner = await close(w, { counted: { cash: 100 } })
+          return (real as any).call(POSSession, filter, update, ...rest).exec()
+        },
+      }
+    }
+    let outer: any
+    try {
+      outer = await close(w, { counted: { cash: 100 } })
+    } finally {
+      ;(POSSession as any).findOneAndUpdate = real
+    }
+
+    expect(inner.json.code).toBe('close_interrupted')
+    expect(outer.status).toBe(409)
+    expect(outer.json.code).toBe('close_interrupted')
+    expect(w.sim!.reports).toHaveLength(0)
+    expect((await session(w)).status).toBe('open')
+    expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'close_interrupted' })).toBe(1)
+  })
+
   it('only who may close it can put it back', async () => {
     const w = await tillWorld(app)
     await died(w)

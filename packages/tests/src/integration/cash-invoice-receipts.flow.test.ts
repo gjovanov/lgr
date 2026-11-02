@@ -3140,6 +3140,22 @@ describe('the write that follows a money-moving edit (the second review, finding
       expect(await statusOf(entry._id)).toBe('posted')
     })
 
+    it('where LGR prints nothing and the automatic part shrinks: the entry of what it replaced goes too', async () => {
+      const w = await tillWorld(app)
+      const { d, entry } = await withAnEntry(w, false)
+      await allowSalesWithoutPrinter(w.oid)
+      // More taken by the rule than the document says now, as a total lowered after it settled leaves it.
+      await Invoice.updateOne({ _id: d.id }, { $set: { 'payments.0.amount': 30, amountPaid: 30, amountDue: 0, status: 'paid' } })
+
+      const r = await w.call('PUT', `/invoices/${d.id}`, { notes: 'edited' })
+
+      expect(r.status).toBe(200)
+      const inv = await raw(d.id)
+      expect(inv.payments.map((p: any) => p.amount)).toEqual([24])
+      expect(inv.payments[0].journalEntryId ?? null).not.toEqual(entry._id)
+      expect(await statusOf(entry._id)).toBe('voided')
+    })
+
     it('with nothing holding it the row goes, and its entry with it', async () => {
       const w = await tillWorld(app)
       const { d, entry } = await withAnEntry(w, false)
