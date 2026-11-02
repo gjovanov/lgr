@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, spyOn } from 'bun:test'
 import { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, reconnect, type TillWorld } from '../helpers/till-world'
@@ -53,8 +53,10 @@ function during(at: (update: any) => boolean, meanwhile: () => Promise<unknown>)
   return () => { (Invoice as any).findOneAndUpdate = real }
 }
 
-const settle = (w: TillWorld, id: unknown, printed: boolean, receiptNumber?: string) =>
-  w.call('POST', `/cash-register/documents/${id}/settle`, { printed, ...(receiptNumber ? { receiptNumber } : {}) })
+const settle = (w: TillWorld, id: unknown, printed: boolean, receiptNumber?: string, extra: Record<string, unknown> = {}) =>
+  w.call('POST', `/cash-register/documents/${id}/settle`, { printed, ...(receiptNumber ? { receiptNumber } : {}), ...extra })
+/** "The slip says this number." */
+const CONFIRM = { confirmNumber: true }
 const read = (id: unknown): Promise<any> => Invoice.findById(id).lean().exec()
 /** The next command runs and answers, and the line drops behind it. */
 const dropsAfterPayment = (w: TillWorld) => { w.sim!.beforeCommand = cmd => { if (cmd === PAYMENT) w.sim!.disconnected = true } }
@@ -517,6 +519,205 @@ describe('a number typed off the slip (finding 7)', () => {
       expect((await settle(w, id, true, theirs)).json.code).toBe('receipt_number_taken')
       await Invoice.collection.updateOne({ _id: earlierId }, { $set: { createdAt: new Date(Date.now() - 32 * 86_400_000) } })
       expect((await settle(w, id, true, theirs)).status).toBe(200)
+    })
+  })
+
+  describe('a question, not a dead end: nobody has held a real slip against 71h (the fourth read, finding 3)', () => {
+    /** A sale that stored the device's number, and a sale in doubt cleared by an X report. */
+    async function beside(w: TillWorld) {
+      const other = await w.sell(1)
+      const s = await settleable(w)
+      return { ...s, theirs: other.json.transaction.fiscalReceiptNumber as string, theirNumber: other.json.transaction.transactionNumber as string }
+    }
+    const trail = async (w: TillWorld, id: string, action: string) => {
+      const row: any = await AuditLog.findOne({ orgId: w.oid, action, entityId: new Invoice.base.Types.ObjectId(id) }).lean().exec()
+      return row
+    }
+
+    it('the reader\'s run: 101 against a stored 0000101 is refused, naming it; then confirmed, stored as typed, and on the trail', async () => {
+      const w = await tillWorld(app)
+      const { id, theirs, theirNumber } = await beside(w)
+      expect(theirs).toBe('0000101')
+
+      const asked = await settle(w, id, true, '101')
+
+      expect(asked.status).toBe(422)
+      expect(asked.json.code).toBe('receipt_number_taken')
+      expect(asked.json.document).toBe(theirNumber)
+      expect((await read(id)).register.settled).toBeUndefined()
+
+      const confirmed = await settle(w, id, true, '101', CONFIRM)
+
+      expect(confirmed.status).toBe(200)
+      const { register } = await read(id)
+      expect(register.fiscalReceiptNumber).toBe('101')
+      expect(register.settled).toMatchObject({ printed: true, receiptNumber: '101' })
+      expect(register.settled.confirmedOver).toContain(theirNumber)
+      const audit = await trail(w, id, 'settle_receipt')
+      expect(audit.changes).toEqual(expect.arrayContaining([
+        expect.objectContaining({ field: 'receiptNumber', newValue: '101' }),
+        expect.objectContaining({ field: 'confirmedOver', newValue: expect.stringContaining(theirNumber) }),
+      ]))
+    })
+
+    it('the same above the device\'s last number: refused, naming the last, then confirmed and on the trail', async () => {
+      const w = await tillWorld(app)
+      const { id, last } = await settleable(w)
+
+      const asked = await settle(w, id, true, '9999999')
+
+      expect(asked.status).toBe(422)
+      expect(asked.json.code).toBe('receipt_number_off_device')
+      expect(asked.json.last).toBe(last)
+
+      expect((await settle(w, id, true, '9999999', CONFIRM)).status).toBe(200)
+
+      const { register } = await read(id)
+      expect(register.fiscalReceiptNumber).toBe('9999999')
+      expect(register.settled.confirmedOver).toContain(String(last))
+      expect((await trail(w, id, 'settle_receipt')).changes).toEqual(expect.arrayContaining([
+        expect.objectContaining({ field: 'confirmedOver', newValue: expect.stringContaining(String(last)) }),
+      ]))
+    })
+
+    it('with the device deactivated it still asks, and the confirm is the way through: no dead end', async () => {
+      const w = await tillWorld(app)
+      const { id, theirs } = await beside(w)
+      await FiscalDevice.updateOne({ _id: w.deviceId }, { $set: { isActive: false } })
+
+      expect((await settle(w, id, true, String(Number(theirs)))).json.code).toBe('receipt_number_taken')
+      expect((await settle(w, id, true, String(Number(theirs)), CONFIRM)).status).toBe(200)
+      expect((await read(id)).completedAt).toBeTruthy()
+    })
+
+    it('a confirm with nothing to confirm says nothing on the trail', async () => {
+      const w = await tillWorld(app)
+      const { id, onTheSlip } = await settleable(w)
+
+      expect((await settle(w, id, true, onTheSlip, CONFIRM)).status).toBe(200)
+
+      expect((await read(id)).register.settled.confirmedOver).toBeUndefined()
+      expect((await trail(w, id, 'settle_receipt')).changes.map((c: any) => c.field)).not.toContain('confirmedOver')
+    })
+
+    it('a format refusal is never confirmable: its storno could not cite it', async () => {
+      const w = await tillWorld(app)
+      const { id } = await settleable(w)
+
+      const r = await settle(w, id, true, 'ФБ-1', CONFIRM)
+
+      expect(r.status).toBe(422)
+      expect(r.json.code).toBe('receipt_number_required')
+      expect((await read(id)).register.settled).toBeUndefined()
+    })
+
+    it('nor is a device that still holds a receipt open: a confirm speaks for the number, not for the device', async () => {
+      const w = await tillWorld(app)
+      const held = await sale(w)
+
+      expect((await settle(w, held.id, true, '9999999', CONFIRM)).json.code).toBe('receipt_open_on_device')
+    })
+
+    it('a stopped settle keeps what it was confirmed over, and whatever finishes it writes that on the trail', async () => {
+      const w = await tillWorld(app)
+      const { id, theirs, theirNumber } = await beside(w)
+      // As a sale whose request died leaves it, with what a person says next still to book.
+      await Invoice.updateOne({ _id: id }, { $unset: { completedAt: 1, 'register.sessionTotalsApplied': 1 } })
+      const realAudit = AuditLog.create
+      const dies = spyOn(Invoice, 'startSession').mockImplementationOnce(() => { throw new Error('the pod went away') })
+      ;(AuditLog as any).create = async () => { throw new Error('the pod went away') }
+      let stopped: any
+      try {
+        stopped = await settle(w, id, true, theirs, CONFIRM)
+      } finally {
+        ;(AuditLog as any).create = realAudit
+        dies.mockRestore()
+      }
+      expect(stopped.status).toBe(500)
+      expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'settle_receipt' })).toBe(0)
+      await Invoice.updateOne({ _id: id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+
+      expect((await w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 124 } })).status).toBe(200)
+
+      expect((await trail(w, id, 'settle_receipt')).changes).toEqual(expect.arrayContaining([
+        expect.objectContaining({ field: 'confirmedOver', newValue: expect.stringContaining(theirNumber) }),
+      ]))
+    })
+
+    describe('and correcting one', () => {
+      async function typed(w: TillWorld, number: string) {
+        const s = await beside(w)
+        expect((await settle(w, s.id, true, number)).status).toBe(200)
+        return s
+      }
+
+      it('asks the same, and confirmed it is rewritten and on the trail, old to new, with what it was over', async () => {
+        const w = await tillWorld(app)
+        const { id, theirs, theirNumber } = await typed(w, '1')
+
+        const asked = await settle(w, id, true, theirs)
+        expect(asked.status).toBe(422)
+        expect(asked.json.code).toBe('receipt_number_taken')
+        expect(asked.json.document).toBe(theirNumber)
+        expect((await read(id)).register.fiscalReceiptNumber).toBe('1')
+
+        expect((await settle(w, id, true, theirs, CONFIRM)).status).toBe(200)
+
+        const { register } = await read(id)
+        expect(register.fiscalReceiptNumber).toBe(theirs)
+        expect(register.settled.confirmedOver).toContain(theirNumber)
+        const audit = await trail(w, id, 'correct_receipt_number')
+        expect(audit.changes).toEqual(expect.arrayContaining([
+          expect.objectContaining({ field: 'receiptNumber', oldValue: '1', newValue: theirs }),
+          expect.objectContaining({ field: 'confirmedOver', newValue: expect.stringContaining(theirNumber) }),
+        ]))
+      })
+
+      it('corrected again to one that collides with nothing, the old confirm goes', async () => {
+        const w = await tillWorld(app)
+        const { id, theirs } = await typed(w, '1')
+        expect((await settle(w, id, true, theirs, CONFIRM)).status).toBe(200)
+
+        expect((await settle(w, id, true, '2')).status).toBe(200)
+
+        const { register } = await read(id)
+        expect(register.fiscalReceiptNumber).toBe('2')
+        expect(register.settled.confirmedOver).toBeUndefined()
+      })
+
+      it('above the device\'s last too', async () => {
+        const w = await tillWorld(app)
+        const { id, last } = await typed(w, '1')
+
+        expect((await settle(w, id, true, '9999999')).json.code).toBe('receipt_number_off_device')
+        expect((await settle(w, id, true, '9999999', CONFIRM)).status).toBe(200)
+
+        expect((await trail(w, id, 'correct_receipt_number')).changes).toEqual(expect.arrayContaining([
+          expect.objectContaining({ field: 'confirmedOver', newValue: expect.stringContaining(String(last)) }),
+        ]))
+      })
+
+      it('a cited number is not confirmable: it protects a storno already on the device', async () => {
+        const w = await tillWorld(app)
+        const { id, theirs } = await typed(w, '2')
+        expect((await w.storno(id)).status).toBe(200)
+
+        const r = await settle(w, id, true, theirs, CONFIRM)
+
+        expect(r.status).toBe(409)
+        expect(r.json.code).toBe('receipt_number_cited')
+        expect((await read(id)).register.fiscalReceiptNumber).toBe('2')
+      })
+
+      it('the rights stay the door\'s', async () => {
+        const w = await tillWorld(app)
+        const { id, theirs } = await typed(w, '1')
+
+        const r = await w.call('POST', `/cash-register/documents/${id}/settle`, { printed: true, receiptNumber: theirs, ...CONFIRM }, undefined, await w.tokenAs('sales'))
+
+        expect(r.status).toBe(403)
+        expect((await read(id)).register.fiscalReceiptNumber).toBe('1')
+      })
     })
   })
 

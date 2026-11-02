@@ -144,6 +144,11 @@ Run in this order — only step 5 creates a fiscal record.
 4. Check the product you will sell has the VAT rate you expect (20 % for most goods).
 5. Sell one small item with **Non-fiscal OFF** → fiscal receipt: the УНП starts with the device
    number, the line is in group Б, and the POS transaction shows the fiscal receipt number.
+6. ⚠ **Hold that first real fiscal slip against the number LGR stored**, before relying on any citation. A
+   storno cites that number, and LGR reads it from the device's document counter (71h), which counts every
+   document. Nobody has held a real slip against it, and every device-given number cited today rests on
+   that. If they differ, stop and report it. It is also why a number typed off a slip that collides with
+   what LGR knows is a question and not a wall: the page asks, and "the slip says this number" goes through.
 
 ## 7. Troubleshooting
 
@@ -168,6 +173,10 @@ attach those lines when reporting a problem.
 **Fiscalized or not rests on status bit S5.3 reading 1 on a fiscalized unit.** That is from the protocol.
 Only a unit that reads 0 has been seen in the field, so step 1 of the checklist above is owed on the first
 fiscalized device.
+
+**The number a storno cites rests on 71h being the number on the slip.** Nobody has held a real fiscal slip
+against 71h, so step 6 of the checklist above is owed on the first fiscalized device too. Every number LGR
+stored from a device, and cites, rests on the same open question.
 
 Built from Eltrade's own protocol document (v1.1.1, re-checked against v1.1.7) and cross-checked
 against ErpNet.FP's Eltrade driver, which runs against real devices. Tested against

@@ -56,11 +56,13 @@
               hide-details
               data-testid="receipt-settle-number"
             />
+            <!-- The number collides with what LGR knows, and only the slip can say which is wrong. -->
+            <v-alert v-if="numberQuestion" type="warning" variant="tonal" density="compact" class="mt-3" data-testid="receipt-number-question">{{ numberQuestion }}</v-alert>
           </v-card-text>
           <v-card-actions>
             <v-spacer />
             <v-btn variant="text" :disabled="settlingNow" @click="settling = null">{{ $t('common.cancel') }}</v-btn>
-            <v-btn color="primary" variant="flat" :loading="settlingNow" :disabled="(settling === 'correct' || (settling === 'printed' && doc.row.kind === 'sale')) && !/^\d+$/.test(settleNumber.trim())" data-testid="receipt-settle-confirm" @click="settle">{{ $t('common.confirm') }}</v-btn>
+            <v-btn color="primary" variant="flat" :loading="settlingNow" :disabled="(settling === 'correct' || (settling === 'printed' && doc.row.kind === 'sale')) && !/^\d+$/.test(settleNumber.trim())" data-testid="receipt-settle-confirm" @click="settle">{{ numberQuestion ? $t('cashRegister.receipt.slipSaysThisNumber') : $t('common.confirm') }}</v-btn>
           </v-card-actions>
         </v-card>
       </v-dialog>
@@ -291,21 +293,34 @@ function openCorrection() {
   settleNumber.value = doc.value?.row.fiscal.receiptNumber ?? ''
   settling.value = 'correct'
 }
+// What the number collided with, as the server said it: the same request, confirmed, goes through.
+const numberQuestion = ref('')
+watch([settleNumber, settling], () => { numberQuestion.value = '' })
 async function settle() {
   settlingNow.value = true
+  let asked = false
   try {
     const correcting = settling.value === 'correct'
     const printed = settling.value !== 'notPrinted'
     await httpClient.post(`${props.orgUrl}/cash-register/documents/${props.id}/settle`, {
-      printed, ...(printed && doc.value?.row.kind === 'sale' ? { receiptNumber: settleNumber.value.trim() } : {}),
+      printed,
+      ...(printed && doc.value?.row.kind === 'sale' ? { receiptNumber: settleNumber.value.trim() } : {}),
+      ...(numberQuestion.value ? { confirmNumber: true } : {}),
     })
     showSuccess(t(correcting ? 'cashRegister.receipt.numberCorrected' : `cashRegister.receipt.${settleWords.value.done}`))
   } catch (e: any) {
-    showSnackbar(receiptRefusalMessage(t, e, t('common.operationFailed')), 'error', 12000)
+    if (['receipt_number_taken', 'receipt_number_off_device'].includes(e?.response?.data?.code)) {
+      asked = true
+      numberQuestion.value = receiptRefusalMessage(t, e, t('common.operationFailed'))
+    } else {
+      showSnackbar(receiptRefusalMessage(t, e, t('common.operationFailed')), 'error', 12000)
+    }
   } finally {
     settlingNow.value = false
-    settling.value = null
-    void load()
+    if (!asked) {
+      settling.value = null
+      void load()
+    }
   }
 }
 

@@ -114,7 +114,7 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
       }
       return { document: await getJournalDocument(orgId, id) }
     },
-    { isSignIn: true, fiscalDevice: deviceFromSettledDocument, body: t.Object({ printed: t.Boolean(), receiptNumber: t.Optional(t.String({ maxLength: 20 })) }) },
+    { isSignIn: true, fiscalDevice: deviceFromSettledDocument, body: t.Object({ printed: t.Boolean(), receiptNumber: t.Optional(t.String({ maxLength: 20 })), confirmNumber: t.Optional(t.Boolean()) }) },
   )
   .post(
     '/documents/:id/storno',

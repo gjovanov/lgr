@@ -85,10 +85,20 @@ const ASK_ANSWER_MS = 20_000
 /** Whose words these are, in the words the message has to use. */
 const NAMES: Record<string, string> = { [PAYMENT_RECEIPT]: 'receipt', cash_storno: 'storno', cash_sale: 'sale' }
 
-/** What a person says about a document in doubt. `receiptNumber`: off the slip, for a sale that printed. */
+/**
+ * What a person says about a document in doubt. `receiptNumber`: off the slip, for a sale that printed.
+ * `confirmNumber`: the slip says this number, whatever it collides with (`typedReceiptNumber`).
+ */
 export interface SettleAnswer {
   printed: boolean
   receiptNumber?: string
+  confirmNumber?: boolean
+}
+
+/** A number as typed, and, when a person confirmed it, what it collided with: what the trail has to say. */
+interface TypedNumber {
+  number: string
+  confirmedOver?: string
 }
 
 /**
@@ -112,9 +122,15 @@ const TAKEN_WITHIN_MS = 31 * 86_400_000
  * slip against 71h, and if the slip's series is the fiscal one it runs below the device's document counter.
  * A lower bound there would refuse a real sale with no way out.
  *
+ * ⚠ So the last two are questions, never a wall: both rest on the same unproved series. If the slip's series is
+ * the fiscal one, its numbers are ones the document counter passed days ago, usually under another receipt,
+ * and a real slip would read as taken with nothing to lift it but a false citation. The answer names what it
+ * collided with, and the same request with `confirmNumber`, on the door's own rights, goes through and is on
+ * the trail. Digits are never confirmable: the driver refuses the storno. Nor is a number a storno cites.
+ *
  * It asks nothing of the document's type, so a receipt's number off its slip is read the same way (R2).
  */
-async function typedReceiptNumber(doc: any, typed: string | undefined, lastOnDevice?: number): Promise<string> {
+async function typedReceiptNumber(doc: any, typed: string | undefined, lastOnDevice: number | undefined, confirmed: boolean | undefined): Promise<TypedNumber> {
   const number = String(typed ?? '').trim()
   if (!/^\d{1,10}$/.test(number)) {
     throw new RegisterRefusal(422, {
@@ -124,15 +140,20 @@ async function typedReceiptNumber(doc: any, typed: string | undefined, lastOnDev
   }
   const counterBefore = doc.register?.fiscal?.counterBefore
   const sameSeries = !(typeof counterBefore === 'number' && lastOnDevice !== undefined && counterBefore > lastOnDevice)
+  const collisions: string[] = []
   if (lastOnDevice !== undefined && sameSeries && Number(number) > lastOnDevice) {
-    throw new RegisterRefusal(422, {
-      code: 'receipt_number_off_device',
-      last: lastOnDevice,
-      message: `Receipt number ${number} is above the last number this device has given (${lastOnDevice}). Check the slip.`,
-    })
+    if (!confirmed) {
+      throw new RegisterRefusal(422, {
+        code: 'receipt_number_off_device',
+        last: lastOnDevice,
+        message: `Receipt number ${number} is above the last number this device has given (${lastOnDevice}). Check the slip. If it says this number, send it again with confirmNumber.`,
+      })
+    }
+    collisions.push(`above the device's last number, ${lastOnDevice}`)
   }
   const deviceNumber = doc.register?.fiscalDeviceNumber
-  if (!deviceNumber) return number
+  const answer = (): TypedNumber => ({ number, ...(collisions.length ? { confirmedOver: collisions.join('; ') } : {}) })
+  if (!deviceNumber) return answer()
   const around = new Date(doc.createdAt ?? Date.now()).getTime()
   const taken: any = await Invoice.findOne({
     orgId: doc.orgId, _id: { $ne: doc._id }, 'register.fiscalDeviceNumber': deviceNumber,
@@ -140,13 +161,16 @@ async function typedReceiptNumber(doc: any, typed: string | undefined, lastOnDev
     createdAt: { $gte: new Date(around - TAKEN_WITHIN_MS), $lte: new Date(around + TAKEN_WITHIN_MS) },
   }, { invoiceNumber: 1 }).lean().exec()
   if (taken) {
-    throw new RegisterRefusal(422, {
-      code: 'receipt_number_taken',
-      document: taken.invoiceNumber,
-      message: `Receipt number ${number} on this device is ${taken.invoiceNumber}'s. Check the slip.`,
-    })
+    if (!confirmed) {
+      throw new RegisterRefusal(422, {
+        code: 'receipt_number_taken',
+        document: taken.invoiceNumber,
+        message: `Receipt number ${number} on this device is ${taken.invoiceNumber}'s. Check the slip. If it says this number, send it again with confirmNumber.`,
+      })
+    }
+    collisions.push(`${taken.invoiceNumber}'s number on this device`)
   }
-  return number
+  return answer()
 }
 
 /** A storno cites this number, or an invoice for the sale carries it, so it is a legal citation now. */
@@ -162,16 +186,19 @@ const RECEIPT_NUMBER_CITED = {
  * storno voided since cites nothing: it gave the sale back, and a refused number is why one is corrected. An
  * invoice for the sale carries the number too (`cashSaleRef.receiptNumber`), printed, so it counts as citing.
  */
-async function correctReceiptNumber(c: RegisterContext, doc: any, typed: string | undefined, lastOnDevice?: number): Promise<any | null> {
+async function correctReceiptNumber(c: RegisterContext, doc: any, typed: string | undefined, lastOnDevice: number | undefined, confirmed: boolean | undefined): Promise<any | null> {
   const old = doc.register.settled.receiptNumber
   const cited = doc.register.stornoState === 'full'
     || await Invoice.exists({ orgId: doc.orgId, 'cashSaleRef.cashSaleId': doc._id, status: { $nin: ['voided', 'cancelled'] } }).exec()
   if (cited) throw new RegisterRefusal(409, { ...RECEIPT_NUMBER_CITED })
-  const number = await typedReceiptNumber(doc, typed, lastOnDevice)
+  const { number, confirmedOver } = await typedReceiptNumber(doc, typed, lastOnDevice, confirmed)
   if (number === old) return doc
   const corrected: any = await Invoice.findOneAndUpdate(
     { _id: doc._id, orgId: doc.orgId, 'register.settled.receiptNumber': old, 'register.stornoState': { $ne: 'full' } },
-    { $set: { 'register.settled.receiptNumber': number, 'register.fiscal.receiptNo': number, 'register.fiscalReceiptNumber': number } },
+    {
+      $set: { 'register.settled.receiptNumber': number, 'register.fiscal.receiptNo': number, 'register.fiscalReceiptNumber': number, ...(confirmedOver ? { 'register.settled.confirmedOver': confirmedOver } : {}) },
+      ...(confirmedOver ? {} : { $unset: { 'register.settled.confirmedOver': 1 } }),
+    },
     { new: true },
   ).lean().exec()
   if (!corrected) {
@@ -183,7 +210,10 @@ async function correctReceiptNumber(c: RegisterContext, doc: any, typed: string 
     orgId: c.orgId, userId: c.user.id, operatorCode: c.user.operatorCode,
     action: 'correct_receipt_number', module: c.audit.module, entityType: c.audit.entityType,
     entityId: String(doc._id), entityName: doc.invoiceNumber, unpNumber: doc.register?.unp,
-    changes: [{ field: 'receiptNumber', oldValue: old, newValue: number }],
+    changes: [
+      { field: 'receiptNumber', oldValue: old, newValue: number },
+      ...(confirmedOver ? [{ field: 'confirmedOver', oldValue: null, newValue: confirmedOver }] : []),
+    ],
   })
   return corrected
 }
@@ -199,6 +229,7 @@ function auditSettlement(c: RegisterContext, doc: any): Promise<boolean> {
     changes: [
       { field: 'printed', oldValue: 'unknown', newValue: settled.printed ? 'yes' : 'no' },
       ...(settled.receiptNumber ? [{ field: 'receiptNumber', oldValue: null, newValue: settled.receiptNumber }] : []),
+      ...(settled.confirmedOver ? [{ field: 'confirmedOver', oldValue: null, newValue: settled.confirmedOver }] : []),
     ],
   })
 }
@@ -261,12 +292,13 @@ export async function settleInDoubt(c: RegisterContext, id: string, answer: Sett
     if (device) lastOnDevice = await askDevice(device, isSale && printed)
   }
   if (corrects) {
-    const corrected = await correctReceiptNumber(c, doc, answer.receiptNumber, lastOnDevice)
+    const corrected = await correctReceiptNumber(c, doc, answer.receiptNumber, lastOnDevice, answer.confirmNumber)
     // One whose settle stopped halfway is told the new number, and the same answer finishes it below.
     if (!corrected || corrected.completedAt) return corrected
     return resumeSettled(c, corrected, printed)
   }
-  const receiptNumber = isSale && printed && inDoubt ? await typedReceiptNumber(doc, answer.receiptNumber, lastOnDevice) : undefined
+  const typed = isSale && printed && inDoubt ? await typedReceiptNumber(doc, answer.receiptNumber, lastOnDevice, answer.confirmNumber) : undefined
+  const receiptNumber = typed?.number
   const receiptError = `A person who checked the device settled this ${NAMES[doc.type]} as not printed.`
   // ⚠ A sale read as not in doubt can be by now: its number was never asked for, so it is not claimed.
   const claimed: any = isSale && printed && !receiptNumber ? null : await Invoice.findOneAndUpdate(
@@ -276,7 +308,7 @@ export async function settleInDoubt(c: RegisterContext, id: string, answer: Sett
     },
     {
       $set: {
-        'register.settled': { printed, by: oid(c.user.id), at: now, ...(receiptNumber ? { receiptNumber } : {}) },
+        'register.settled': { printed, by: oid(c.user.id), at: now, ...(receiptNumber ? { receiptNumber } : {}), ...(typed?.confirmedOver ? { confirmedOver: typed.confirmedOver } : {}) },
         // A finished sale has nothing left to find it by, and nothing left to do.
         ...(doc.completedAt ? {} : { leaseUntil: new Date(now.getTime() + LEASE_MS) }),
         ...(printed

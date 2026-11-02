@@ -351,6 +351,7 @@ describe('the refusal, in words', () => {
     for (const key of [
       'pos.close.deadSales', 'pos.close.interruptedTitle', 'pos.close.closeAgain', 'pos.sessions.states.closing_control',
       'cashRegister.receipt.correctNumber', 'cashRegister.receipt.correctNumberConfirm', 'cashRegister.receipt.numberCorrected',
+      'cashRegister.receipt.slipSaysThisNumber',
       'cashRegister.receipt.issuedChanged', 'cashRegister.receipt.issuedChangedDelivery',
     ]) {
       for (const [name, messages] of Object.entries(locales)) {

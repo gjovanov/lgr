@@ -236,9 +236,18 @@ test.describe('FR-23 — a storno that may have printed', () => {
     await expect(confirm).toBeDisabled()
     await page.getByTestId('receipt-settle-number').locator('input').fill('ФБ-1')
     await expect(confirm).toBeDisabled()
+    // A number the device never reached is a question, and an edited number takes it back.
+    await page.getByTestId('receipt-settle-number').locator('input').fill(String(LAST_NUMBER + 50_000))
+    const above = page.waitForResponse(r => r.url().endsWith(`/cash-register/documents/${inDoubt.id}/settle`))
+    await confirm.click()
+    expect((await above).status()).toBe(422)
+    const question = page.getByTestId('receipt-number-question')
+    await expect(question).toContainText('above the last one')
+    await expect(confirm).toContainText('The slip says this number')
     // Misread at first: a number no document has, and below what the device has reached.
     const misread = String(LAST_NUMBER - 1)
     await page.getByTestId('receipt-settle-number').locator('input').fill(misread)
+    await expect(question).toHaveCount(0)
     const settling = page.waitForResponse(r => r.url().endsWith(`/cash-register/documents/${inDoubt.id}/settle`))
     await confirm.click()
     expect((await settling).status()).toBe(200)
@@ -246,7 +255,19 @@ test.describe('FR-23 — a storno that may have printed', () => {
     await expect(page.getByTestId('storno-button')).toBeVisible()
     await expect(page.getByTestId('journal-document-receipt-number')).toContainText(misread)
 
-    // The page corrects it, until something cites it.
+    // The page corrects it, until something cites it. Another sale's number is a question: the page asks, and
+    // the slip has the last word.
+    await page.getByTestId('receipt-correct-number').click()
+    await page.getByTestId('receipt-settle-number').locator('input').fill(sale.fiscalReceiptNumber)
+    const taken = page.waitForResponse(r => r.url().endsWith(`/cash-register/documents/${inDoubt.id}/settle`))
+    await page.getByTestId('receipt-settle-confirm').click()
+    expect((await taken).status()).toBe(422)
+    await expect(page.getByTestId('receipt-number-question')).toContainText(sale.transactionNumber)
+    const overTheQuestion = page.waitForResponse(r => r.url().endsWith(`/cash-register/documents/${inDoubt.id}/settle`))
+    await page.getByTestId('receipt-settle-confirm').click()
+    expect((await overTheQuestion).status()).toBe(200)
+    await expect(page.getByTestId('journal-document-receipt-number')).toContainText(sale.fiscalReceiptNumber)
+
     await page.getByTestId('receipt-correct-number').click()
     await page.getByTestId('receipt-settle-number').locator('input').fill(onTheSlip)
     const correcting = page.waitForResponse(r => r.url().endsWith(`/cash-register/documents/${inDoubt.id}/settle`))

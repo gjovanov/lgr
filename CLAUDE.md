@@ -2613,7 +2613,8 @@ invoice still due until the courier pays).
   `isActive: false`: the word stands, and that is the way out, by deactivating it on its page. A typed number is
   read against the device's last (`receipt_number_off_device`, ⚠ no lower bound: nobody has held a slip against
   71h), checked taken by device for 31 days either side, and corrected at this door until a storno or an invoice
-  cites it (`receipt_number_cited`).
+  cites it (`receipt_number_cited`). ⚠ The first two are questions for the same reason: `confirmNumber`, audited as
+  `confirmedOver`, goes through. Digits and a citation never do.
 - **`printed` keeps the error** (`receiptError`): a driver that finishes a part-paid receipt tenders the rest
   in cash, so the device's payment types may differ from the document's.
 - ⚠ **A request that died** (`finishInterruptedReceipt`, `finishInterruptedStorno`, which NEVER print). A lease lapsed is not a
