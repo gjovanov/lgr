@@ -27,6 +27,7 @@
 // It never writes. There is no connectDB() (its warmup writes), and autoIndex and autoCreate are
 // off, so a model the newer code knows creates no collection and builds no index on prod.
 import { mongoose } from 'db/connection'
+import { cashKeptOf } from './lib/journal-day'
 import { initServiceContext } from 'services/context'
 import { createMongoRepositories } from 'dal-mongo'
 import { Org, Invoice, POSTransaction } from 'db/models'
@@ -106,13 +107,7 @@ try {
     const dayQuery = { orgId, dateFrom: DIGEST_DAY, dateTo: DIGEST_DAY, timeZone: org.settings?.timezone, size: 500 }
     const dayRows = await listJournal({ ...dayQuery, page: 0 })
     for (let page = 1; page < dayRows.totalPages; page++) dayRows.rows.push(...(await listJournal({ ...dayQuery, page })).rows)
-    let cash = 0
-    for (const r of dayRows.rows) {
-      if (r.status === 'voided') continue
-      const sign = r.kind === 'storno' ? -1 : 1
-      for (const p of r.payments) if (p.method === 'cash') cash += sign * p.amount
-    }
-    row.journalDay = { rows: dayRows.total, cashKept: cents(cash) }
+    row.journalDay = { rows: dayRows.total, cashKept: cashKeptOf(dayRows.rows) }
 
     // #249: an invoiced cash sale is listed once, carrying its invoice, and the invoice is no
     // cash-register row.

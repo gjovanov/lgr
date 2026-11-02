@@ -39,6 +39,7 @@ import {
 import { deviceEvidence } from 'services/biz/home/device-witness.service'
 import { bookingOf } from 'services/biz/move/fenced-import.service'
 import { printableDocument } from 'invoicing-api/src/lib/invoice-pdf'
+import { cashKeptOf } from '../../../../scripts/lib/journal-day'
 import { issuedReceiptNotice, sendIssue } from '../../../invoicing-ui/src/composables/document-issue'
 import { localDayOf } from 'services/biz/local-day'
 
@@ -5090,6 +5091,42 @@ describe('§2.6 — who reads what: each counts the money once', () => {
     expect(printable.paymentReceipts).toBeUndefined()
     // The form lists it: it took the money.
     expect((await shown(w, d.note.id)).paymentReceipts).toHaveLength(1)
+  })
+
+  it('the field check\'s cash: a refund gives it back, what is held in doubt books nothing, and it agrees with the session', async () => {
+    const w = await tillWorld(app)
+    const cashOfTheDay = async () => cashKeptOf((await listJournal({ orgId: w.orgId, size: 500 })).rows as any)
+    const inv = await paidInvoice(w)
+    expect(await cashOfTheDay()).toBe(24)
+    expect((await sessionOf(w)).totalCash).toBe(24)
+
+    const note = await issuedNote(w, inv)
+    w.sim!.dropAfter = 0x38
+    expect((await pay(w, note.id, 6)).json.code).toBe('receipt_in_doubt')
+    w.sim!.disconnected = false
+    const [held] = await stornosOf(note.id)
+    expect(await cashOfTheDay()).toBe(24)
+    expect((await sessionOf(w)).totalCash).toBe(24)
+
+    expect((await settle(w, held._id, true)).status).toBe(200)
+    expect(await cashOfTheDay()).toBe(18)
+    expect((await sessionOf(w)).totalCash).toBe(18)
+
+    expect((await pay(w, note.id, 18)).status).toBe(200)
+    expect(await cashOfTheDay()).toBe(0)
+    expect((await sessionOf(w)).totalCash).toBe(0)
+
+    // A till's storno gives back as well, and a sale in doubt has its money in the drawer.
+    const sold = await w.sell(1)
+    w.sim!.dropAfter = 0x38
+    const doubtful = await w.sell(1)
+    w.sim!.disconnected = false
+    expect(doubtful.json.transaction.fiscal.state).toBe('unknown')
+    expect(await cashOfTheDay()).toBe(24)
+    expect((await sessionOf(w)).totalCash).toBe(24)
+    expect((await w.storno(String(sold.json.transaction.id))).status).toBe(200)
+    expect(await cashOfTheDay()).toBe(12)
+    expect((await sessionOf(w)).totalCash).toBe(12)
   })
 
   it('the field check holds on an org with a refund: the journal lists them, and its invariant says so', async () => {
