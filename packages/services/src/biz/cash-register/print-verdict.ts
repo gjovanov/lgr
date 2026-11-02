@@ -81,7 +81,8 @@ export function verdictOfFailedPrint(p: FailedPrint): PrintVerdict {
   const counted = p.before !== undefined && p.before !== null && p.now !== undefined
   const beforeTheMoney = p.stage === 'refused' || p.stage === 'opening' || p.stage === 'lines'
   const movedByOne = counted && p.now === p.before! + 1
-  // Its open never landed, so what the fallback closed is an earlier document's. In a turn that is all it can be.
+  // At its open nothing of this document is on the device, no line and no money, so what a fallback closed there
+  // is an earlier document's. A 90h whose answer was lost left it an empty receipt, which no close finishes.
   if (p.abandoned === 'finished' && p.stage === 'opening') return 'failed'
   // Its fallback finished it: a receipt is on the device, and only past the money is it all of this one.
   if (p.abandoned === 'finished') return movedByOne && !beforeTheMoney ? 'printed' : 'unknown'
