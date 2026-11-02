@@ -1050,7 +1050,7 @@ describe('a sale that went unknown is refunded with no storno on the device: not
     })
 
     expect((await w.storno(saleId)).status).toBe(409)
-    expect((await settle(w, saleId, false)).json.code).toBe('receipt_not_in_doubt')
+    expect((await settle(w, saleId, false)).json.code).toBe('sale_in_progress')
   })
 })
 
