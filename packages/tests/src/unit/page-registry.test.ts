@@ -10,11 +10,60 @@ import {
   matchPage,
   newDocumentMenu,
   pageById,
+  portalPagesFor,
   type PageViewer,
 } from 'ui-shared/nav/page-registry'
 import { routerPathFor } from 'ui-shared/nav/open-page'
 import { APP_REGISTRY, DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, type Role } from 'config/constants'
 import { readRuleFor, writeRuleFor } from 'services/biz/route-permission'
+
+describe('what the portal\'s menu offers: what `canOpenPage` lets them open (D10)', () => {
+  const asRole = (role: Role): PageViewer => ({ role, permissions: DEFAULT_ROLE_PERMISSIONS[role] })
+  const EVERY = ['/dashboard', '/settings/organization', '/settings/users', '/settings/permission-sets', '/settings/invites', '/settings/desktops', '/settings/servers', '/settings/server', '/settings/billing', '/admin/audit-log']
+
+  it('a till-only person is offered none of it', () => {
+    expect(portalPagesFor({ role: 'member', permissions: ['pos.read', 'pos.write'] })).toEqual([])
+    expect(portalPagesFor({ role: 'member', permissions: ['pos.read'] })).toEqual([])
+  })
+
+  it('a PIN session neither, whatever its role says', () => {
+    expect(portalPagesFor({ role: 'admin', permissions: [...PERMISSIONS], amr: ['pin'] })).toEqual([])
+  })
+
+  it('nobody signed in, nothing', () => {
+    expect(portalPagesFor(null)).toEqual([])
+  })
+
+  it('an admin, all of it, whatever its set says', () => {
+    expect(portalPagesFor({ role: 'admin', permissions: [] })).toEqual(EVERY)
+  })
+
+  it('someone in on the back office keeps what they read, and is not offered what the server refuses them', () => {
+    const read = ['/dashboard', '/settings/organization', '/settings/users']
+    expect(portalPagesFor(asRole('manager'))).toEqual(read)
+    expect(portalPagesFor(asRole('accountant'))).toEqual(read)
+    expect(portalPagesFor(asRole('sales'))).toEqual(read)
+    expect(portalPagesFor(asRole('member'))).toEqual(read)
+  })
+
+  it('who reads no dashboard is not offered it, and the people pages still', () => {
+    expect(portalPagesFor(asRole('hr_manager'))).toEqual(['/settings/organization', '/settings/users'])
+  })
+
+  it('a tax inspector reads the audit trail, and nothing else of the settings', () => {
+    expect(portalPagesFor(asRole('nra_auditor'))).toEqual(['/dashboard', '/settings/organization', '/settings/users', '/admin/audit-log'])
+  })
+
+  it('a permission that opens a page opens it for whoever holds it', () => {
+    expect(portalPagesFor({ role: 'member', permissions: ['pos.read', 'admin.settings'] })).toEqual(['/settings/organization', '/settings/users', '/settings/permission-sets', '/settings/desktops', '/settings/servers', '/settings/server'])
+  })
+
+  it('every page it answers for is a route of the portal', async () => {
+    const { portalRoutes } = await import('../../../portal-ui/src/routes')
+    const paths = (portalRoutes as any[]).flatMap(r => (r.children ?? []).map((c: any) => `/${c.path}`))
+    for (const path of EVERY) expect(paths).toContain(path)
+  })
+})
 
 describe('page-registry matchPage', () => {
   it('matches an exact registry path', () => {

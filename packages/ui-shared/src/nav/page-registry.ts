@@ -1,4 +1,4 @@
-import { FISCAL_ADMIN_ROLES } from 'config/constants'
+import { FISCAL_ADMIN_ROLES, PERMISSIONS } from 'config/constants'
 
 /**
  * Cross-app registry of the favouritable PAGES/functions surfaced by the global top-bar ★ menu.
@@ -252,6 +252,36 @@ export function canOpenPage(page: PageDef, who: PageViewer | null | undefined): 
   const need = page.need ?? APP_NAV_META[page.appId]?.reads ?? [APP_NAV_META[page.appId]?.permission]
   const held = who.permissions ?? []
   return need.some((p) => !!p && held.includes(p))
+}
+
+/** Whoever holds anything but the till's own: a member reads the org and its people on the server (pickers, the shell), and a till needs neither page. */
+const BACK_OFFICE = PERMISSIONS.filter(p => !p.startsWith('pos.'))
+const READ_DASHBOARD = ['invoicing.read', 'invoicing.write', 'invoicing.send', 'accounting.read', 'accounting.write', 'accounting.post', 'inventory.read', 'inventory.write', 'inventory.adjust'] as const
+
+const portalPage = (path: string, need: readonly string[]): PageDef => ({ id: path, appId: 'portal', labelKey: '', icon: '', path, need })
+
+/**
+ * The portal's own pages. No ★ pins one and no app menu lists one, so they are no rows of the registry, and
+ * `canOpenPage` answers for them as for any other, each naming what the server asks of it
+ * (`route-permission.ts`). An empty `need` is an admin's alone: billing and invites are the server's admin role.
+ * ⚠ Presentation, as ever: portal routes have no guard, and the server answers every request on its own.
+ */
+const PORTAL_PAGES: PageDef[] = [
+  portalPage('/dashboard', READ_DASHBOARD),
+  portalPage('/settings/organization', BACK_OFFICE),
+  portalPage('/settings/users', BACK_OFFICE),
+  portalPage('/settings/permission-sets', ['admin.settings']),
+  portalPage('/settings/invites', []),
+  portalPage('/settings/desktops', ['admin.settings']),
+  portalPage('/settings/servers', ['admin.settings']),
+  portalPage('/settings/server', ['admin.settings']),
+  portalPage('/settings/billing', []),
+  portalPage('/admin/audit-log', ['admin.audit']),
+]
+
+/** What the portal's side menu offers this person: the pages `canOpenPage` lets them open. */
+export function portalPagesFor(who: PageViewer | null | undefined): string[] {
+  return PORTAL_PAGES.filter(p => canOpenPage(p, who)).map(p => p.path)
 }
 
 /**

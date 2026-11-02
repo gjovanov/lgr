@@ -764,6 +764,8 @@ so the tenant guard and every permission check are unchanged. Plan:
   browser entered LAST, in any tab.
 - **A 401 signs out this tab only**; a sign-out signs out every tab of the same person
   (BroadcastChannel). An identity-only session (no org chosen yet) may use only `/orgs`.
+- ⚠ **The portal's side menu offers what `canOpenPage` lets them open** (`portalPagesFor`, #461 D10): a till-only person
+  and a PIN session see Apps and nothing else. Presentation, as ever: portal routes have no guard.
 - Portal pages: `/auth/login` (no org field until asked for), `/orgs` (picker), `/account`,
   `/auth/forgot-password`, `/auth/reset-password#token=…`. The OAuth callback redirects to
   `/auth/login?error=<code>`, and the page translates only codes it knows.

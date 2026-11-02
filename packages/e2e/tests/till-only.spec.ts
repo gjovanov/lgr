@@ -3,6 +3,7 @@ import { loginForApp } from './helpers/login'
 import { apiLogin, apiGet, apiPost } from './helpers/api'
 import { closeTillSession, createBackOfficeCashSale, openTillSession, ringTillSale } from './helpers/cash-register'
 import { BETA, signInAsMultiInAcme, switchTo } from './helpers/org-switcher'
+import { openNavDrawer } from './helpers/nav'
 
 const API = process.env.BASE_URL || 'http://localhost:4001'
 const PASSWORD = 'test12345'
@@ -67,6 +68,15 @@ test.describe('A till-only role', () => {
     const session = await apiLogin('acme-corp', username, PASSWORD)
     const { apps } = await apiGet(session, '/apps')
     expect(apps.map((a: any) => a.id)).toEqual(['invoicing'])
+  })
+
+  test('the portal\'s side menu offers it nothing it cannot open', async ({ page }) => {
+    await loginForApp(page, 'acme-corp', username, PASSWORD)
+    await page.goto('/apps')
+    const drawer = await openNavDrawer(page)
+    await expect(drawer.getByRole('link', { name: /^Apps$/ })).toBeVisible({ timeout: 15000 })
+    // Links, because the drawer's head names the org with a list item too, and that is no page.
+    expect(await drawer.getByRole('link').allInnerTexts()).toEqual(['Apps'])
   })
 
   test('the menu shows the till and nothing else, with no refused call behind it', async ({ page }) => {

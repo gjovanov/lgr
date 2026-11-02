@@ -23,17 +23,17 @@
   >
     <template #nav-items>
       <v-list-item prepend-icon="mdi-apps" title="Apps" to="/apps" />
-      <v-list-item prepend-icon="mdi-view-dashboard" :title="$t('nav.dashboard')" to="/dashboard" />
-      <v-divider class="my-2" />
-      <v-list-item prepend-icon="mdi-cog" :title="$t('nav.organization')" to="/settings/organization" />
-      <v-list-item prepend-icon="mdi-account-cog" :title="$t('nav.users')" to="/settings/users" />
-      <v-list-item prepend-icon="mdi-shield-key" :title="$t('permissionSets.title')" to="/settings/permission-sets" />
-      <v-list-item prepend-icon="mdi-email-outline" title="Invites" to="/settings/invites" />
-      <v-list-item prepend-icon="mdi-monitor-dashboard" :title="$t('desktops.title')" to="/settings/desktops" />
-      <v-list-item prepend-icon="mdi-server-network" :title="$t('servers.title')" to="/settings/servers" />
-      <v-list-item v-if="onServer" prepend-icon="mdi-server" :title="$t('serverStatus.title')" to="/settings/server" data-test="nav-server-status" />
-      <v-list-item prepend-icon="mdi-credit-card-outline" title="Billing" to="/settings/billing" />
-      <v-list-item prepend-icon="mdi-clipboard-text-clock" :title="$t('nav.auditLog')" to="/admin/audit-log" />
+      <v-list-item v-if="offered('/dashboard')" prepend-icon="mdi-view-dashboard" :title="$t('nav.dashboard')" to="/dashboard" />
+      <v-divider v-if="offeredPages.size" class="my-2" />
+      <v-list-item v-if="offered('/settings/organization')" prepend-icon="mdi-cog" :title="$t('nav.organization')" to="/settings/organization" />
+      <v-list-item v-if="offered('/settings/users')" prepend-icon="mdi-account-cog" :title="$t('nav.users')" to="/settings/users" />
+      <v-list-item v-if="offered('/settings/permission-sets')" prepend-icon="mdi-shield-key" :title="$t('permissionSets.title')" to="/settings/permission-sets" />
+      <v-list-item v-if="offered('/settings/invites')" prepend-icon="mdi-email-outline" title="Invites" to="/settings/invites" />
+      <v-list-item v-if="offered('/settings/desktops')" prepend-icon="mdi-monitor-dashboard" :title="$t('desktops.title')" to="/settings/desktops" />
+      <v-list-item v-if="offered('/settings/servers')" prepend-icon="mdi-server-network" :title="$t('servers.title')" to="/settings/servers" />
+      <v-list-item v-if="onServer && offered('/settings/server')" prepend-icon="mdi-server" :title="$t('serverStatus.title')" to="/settings/server" data-test="nav-server-status" />
+      <v-list-item v-if="offered('/settings/billing')" prepend-icon="mdi-credit-card-outline" title="Billing" to="/settings/billing" />
+      <v-list-item v-if="offered('/admin/audit-log')" prepend-icon="mdi-clipboard-text-clock" :title="$t('nav.auditLog')" to="/admin/audit-log" />
       <!--
         FR-13.27 (#24) — shown only to a caller the server's allow-list admits.
         ⚠ Presentation, not protection: the route exists regardless and anyone who types the
@@ -74,7 +74,8 @@ import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
 import { useAppStore } from '../store/app.store'
 import { useNotificationStore } from '../store/notification.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
+import { jwtUserId, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { portalPagesFor } from 'ui-shared/nav/page-registry'
 import { appHomeHref, goTo } from 'ui-shared/nav/navigate'
 import { pendingRestoreUrl } from 'ui-shared/nav/open-page'
 import { usePendingChangesStore } from 'ui-shared/stores/pending-changes.store'
@@ -92,6 +93,9 @@ const pendingChangesOpen = ref(false)
 const canAdminBackups = ref(false)
 /** FR-20.98 (P3-8b): on a master, for an admin, the server's own status page. */
 const onServer = ref(false)
+/** What this person is offered: the one rule for who may open what, read off the session's token. A switch of org reloads. */
+const offeredPages = new Set(portalPagesFor(sessionViewer()))
+const offered = (path: string) => offeredPages.has(path)
 
 function handleRestore(entry: PendingChangeEntry) {
   pendingChangesOpen.value = false
