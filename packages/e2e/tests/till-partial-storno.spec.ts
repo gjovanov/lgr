@@ -39,6 +39,8 @@ const ok = async (s: Session, method: string, path: string, body?: unknown) => {
 const device = async () => (await fetch(`${STUB}/state`)).json() as Promise<any>
 const stub = (path: string, body: unknown) => fetch(`${STUB}${path}`, { method: 'POST', body: JSON.stringify(body) })
 const closedStornos = (state: any) => state.receipts.filter((r: any) => r.kind === 'storno' && !r.voided)
+/** An amount as the page writes it, whichever separator its locale takes. */
+const money = (amount: number) => new RegExp(amount.toFixed(2).replace('.', '[.,]'))
 
 let admin: Session
 let manager: Session
@@ -133,7 +135,7 @@ test.describe('FR-23 R3 — the till\'s partial storno', () => {
     await expect(confirm).toBeEnabled()
 
     partAmount = computePosTotals([{ quantity: 1, unitPrice: first.unitPrice, taxRate: first.rate }]).total
-    await expect(page.getByTestId('storno-amount')).toContainText(partAmount.toFixed(2).replace('.', ','))
+    await expect(page.getByTestId('storno-amount')).toContainText(money(partAmount))
 
     const answering = page.waitForResponse(r => r.url().endsWith(`/cash-register/documents/${sale.id}/storno`) && r.request().method() === 'POST')
     await confirm.click()
@@ -166,7 +168,7 @@ test.describe('FR-23 R3 — the till\'s partial storno', () => {
     await loginForApp(page, 'acme-corp', managerName, PASSWORD)
     await page.goto(`/invoicing/cash-sales/${sale.id}/view`)
     await page.getByTestId('storno-button').click()
-    await expect(page.getByTestId('storno-left')).toContainText((saleTotal - partAmount).toFixed(2).replace('.', ','), { timeout: 15000 })
+    await expect(page.getByTestId('storno-left')).toContainText(money(saleTotal - partAmount), { timeout: 15000 })
     await expect(page.getByTestId('storno-whole')).toContainText('All that is left')
 
     const answering = page.waitForResponse(r => r.url().endsWith(`/cash-register/documents/${sale.id}/storno`) && r.request().method() === 'POST')

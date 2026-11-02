@@ -690,7 +690,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
 
     /**
      * What this request takes of the sale as it stands, and how it goes back. All before the claim: a refused
-     * refund leaves the sale as it was. Null when a racing duplicate of it got there first: that is its answer.
+     * refund leaves the sale as it was. `duplicate`: a racing duplicate of it got there first, and that is its answer.
      */
     const prepared = async (): Promise<{ plan: StornoPlan; payments?: StornoDoorInput['payments'] } | { duplicate: any }> => {
       const plan = planStorno(original, input.lines)
