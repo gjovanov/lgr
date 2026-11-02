@@ -3,9 +3,14 @@
  * articles back, and a second storno brings the next.
  *
  * Each line of a sale is worth a share of what the sale printed at its VAT rate (`printedByRate`), to the cent, so
- * all of its lines add up to the receipt exactly. A part of a line is read off its running total (`partOfLine`),
- * so the parts add up to the line in whatever pieces they come back. The whole sale, in any number of stornos,
- * comes to what it printed: no rounding is left on the device or in the drawer.
+ * all of its lines add up to the receipt exactly. A part of a line is what its running total comes to once the part
+ * is back, less what the parts standing on it took (`partOfLine`), so the parts add up to the line in whatever pieces
+ * they come back and whichever of them is given back. The whole sale, in any number of stornos, comes to what it
+ * printed, in the books and in the drawer.
+ *
+ * ⚠ Not on the device. A device adds up its own lines, a rounded VAT-inclusive price times a quantity, so a storno
+ * there can differ from its document by a rounding cent, and over many parts of a hard price by a few. The driver
+ * settles that in cash or prints it as change, as it does on the sale itself.
  *
  * Quantities are in thousandths of a unit, as a device prints them, and money in cents, as the budget is. What was
  * taken lives on the sale: `register.stornoClaims` per line, `register.refundClaims` per rate, in one atomic update
@@ -36,6 +41,8 @@ export interface SaleLine {
   left: number
   /** What the whole line is worth, in cents. */
   value: number
+  /** What the claims standing on it took of that. */
+  taken: number
 }
 
 /** What each storno claim took of each line. */
@@ -43,6 +50,21 @@ export function returnedByLine(sale: any): Map<string, number> {
   const out = new Map<string, number>()
   for (const c of sale?.register?.stornoClaims ?? []) out.set(String(c.lineId), (out.get(String(c.lineId)) || 0) + (Number(c.milli) || 0))
   return out
+}
+
+/**
+ * What a line's claims took of its money, in the order they stand. A claim says; one from before claims said is worked
+ * out as it was then, off the running total.
+ */
+function takenBy(claims: any[], value: number, sold: number): number {
+  let returned = 0
+  let taken = 0
+  for (const c of claims) {
+    const milli = Number(c.milli) || 0
+    taken += c.cents ?? partOfLine(value, sold, returned, taken, milli)
+    returned += milli
+  }
+  return taken
 }
 
 /** The sale's lines that sold anything, each with its budget and its worth. */
@@ -62,7 +84,9 @@ export function saleLines(sale: any): SaleLine[] {
       const key = lineKey(l, index)
       const sold = toMilli(l.quantity)
       const back = returned.get(key) || 0
-      return { key, index, rate, sold, returned: back, left: Math.max(0, sold - back), value: worth.get(index) || 0 }
+      const value = worth.get(index) || 0
+      const claims = (sale?.register?.stornoClaims ?? []).filter((c: any) => String(c.lineId) === key)
+      return { key, index, rate, sold, returned: back, left: Math.max(0, sold - back), value, taken: takenBy(claims, value, sold) }
     })
 }
 
@@ -158,7 +182,7 @@ export function planStorno(sale: any, asked?: { lineId: string; quantity: number
   }
   const planned: PlannedLine[] = lines
     .filter(l => wanted.get(l.key))
-    .map(l => ({ key: l.key, index: l.index, rate: l.rate, milli: wanted.get(l.key)!, cents: partOfLine(l.value, l.sold, l.returned, wanted.get(l.key)!) }))
+    .map(l => ({ key: l.key, index: l.index, rate: l.rate, milli: wanted.get(l.key)!, cents: partOfLine(l.value, l.sold, l.returned, l.taken, wanted.get(l.key)!) }))
   const completes = lines.every(l => (wanted.get(l.key) || 0) >= l.left)
   if (!planned.length && !untouched) return { statusCode: 400, body: { message: 'Original transaction is already cancelled' } }
   // The whole sale in one go is its own figures, as a storno has always carried them.

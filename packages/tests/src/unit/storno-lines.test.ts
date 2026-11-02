@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'bun:test'
 import { partOfLine } from 'config/pos-totals'
+import en from '../../../ui-shared/src/locales/en.json'
+import bg from '../../../ui-shared/src/locales/bg.json'
+import de from '../../../ui-shared/src/locales/de.json'
+import mk from '../../../ui-shared/src/locales/mk.json'
 import { isPlanRefusal, leftByMethod, planStorno, refundOfPart, saleLines, stornoLine, type StornoPlan } from 'services/biz/cash-register/storno-lines'
 import { isImmutableRegisterDocument } from 'services/biz/cash-register/immutability'
 
@@ -35,7 +39,7 @@ describe('partOfLine: the parts add up to the line in whatever pieces they come 
       let returned = 0
       let sum = 0
       for (const milli of pieces) {
-        sum += partOfLine(value, sold, returned, milli)
+        sum += partOfLine(value, sold, returned, sum, milli)
         returned += milli
       }
       expect(sum).toBe(value)
@@ -43,12 +47,49 @@ describe('partOfLine: the parts add up to the line in whatever pieces they come 
   })
 
   it('a whole number of a two-decimal price is exactly that, as a device adds it up', () => {
-    expect(partOfLine(3600, 3000, 0, 1000)).toBe(1200)
-    expect(partOfLine(3600, 3000, 1000, 2000)).toBe(2400)
+    expect(partOfLine(3600, 3000, 0, 0, 1000)).toBe(1200)
+    expect(partOfLine(3600, 3000, 1000, 1200, 2000)).toBe(2400)
   })
 
   it('a line that sold nothing is worth nothing, and never divides by zero', () => {
-    expect(partOfLine(100, 0, 0, 1000)).toBe(0)
+    expect(partOfLine(100, 0, 0, 0, 1000)).toBe(0)
+  })
+
+  it('it reads what live parts took, not where they stood: one given back moves nothing that stands', () => {
+    // 1.00 over 3: 0.33, then 0.34. The first is given back, and 0.34 stands for one unit.
+    expect(partOfLine(100, 3000, 0, 0, 1000)).toBe(33)
+    expect(partOfLine(100, 3000, 1000, 33, 1000)).toBe(34)
+    expect(partOfLine(100, 3000, 1000, 34, 1000)).toBe(33)
+    expect(partOfLine(100, 3000, 2000, 67, 1000)).toBe(33)
+    // What stands took more than a unit's share ever comes to: the next gives back nothing, never less.
+    expect(partOfLine(3, 7000, 3000, 3, 1000)).toBe(0)
+  })
+
+  it('whatever comes back and whatever is given back: never below nothing, never past the line, and all back it is the line', () => {
+    let seed = 20261102
+    const next = (n: number) => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff
+      return seed % n
+    }
+    const add = (parts: { milli: number; cents: number }[], k: 'milli' | 'cents') => parts.reduce((s, p) => s + p[k], 0)
+    for (let run = 0; run < 300; run++) {
+      const sold = (1 + next(9)) * 1000
+      const value = next(2000)
+      const live: { milli: number; cents: number }[] = []
+      for (let step = 0; step < 40; step++) {
+        const left = sold - add(live, 'milli')
+        if (live.length && (!left || next(3) === 0)) {
+          live.splice(next(live.length), 1)
+          continue
+        }
+        const milli = Math.min(left, (1 + next(4)) * 250)
+        const cents = partOfLine(value, sold, add(live, 'milli'), add(live, 'cents'), milli)
+        expect(cents).toBeGreaterThanOrEqual(0)
+        live.push({ milli, cents })
+        expect(add(live, 'cents')).toBeLessThanOrEqual(value)
+        if (add(live, 'milli') === sold) expect(add(live, 'cents')).toBe(value)
+      }
+    }
   })
 })
 
@@ -75,6 +116,11 @@ describe('saleLines: each line a share of what the sale printed', () => {
   it('reads what stornos took back', () => {
     const lines = saleLines(sale({ register: { stornoClaims: [claim('a', 1000), claim('a', 500), claim('c', 1000)] } }))
     expect(lines.map(l => [l.returned, l.left])).toEqual([[1500, 1500], [0, 2000], [1000, 0]])
+  })
+
+  it('and what they took of its money: as a claim says, or for one from before claims said, off the running total', () => {
+    const lines = saleLines(sale({ register: { stornoClaims: [{ ...claim('a', 1000), cents: 1300 }, claim('b', 1000), { ...claim('c', 1000), cents: 1090 }, claim('a', 1000)] } }))
+    expect(lines.map(l => l.taken)).toEqual([2400, 600, 1090])
   })
 })
 
@@ -105,6 +151,7 @@ describe('planStorno', () => {
   it('no lines asked, on a sale partly back, is what is left, and it completes the sale', () => {
     const s = sale({ register: { stornoClaims: [claim('a', 1000), claim('c', 1000)], refundClaims: [{ stornoId: 'x', rate: 20, cents: 1200 }, { stornoId: 'x', rate: 9, cents: 1090 }] } })
     const p = plan(s)
+    expect(p.lines.every(l => l.milli > 0)).toBe(true)
     expect(p.partial).toBe(true)
     expect(p.completes).toBe(true)
     expect(p.total).toBe(36)
@@ -142,6 +189,28 @@ describe('planStorno', () => {
   it('nothing left, on a sale that reads as partly back, plans nothing', () => {
     const s = sale({ register: { stornoClaims: [claim('a', 3000), claim('b', 2000), claim('c', 1000)] } })
     expect(refused(s, undefined as any).statusCode).toBe(400)
+  })
+})
+
+describe('a part, after what stands on its line', () => {
+  it('gives back what is left of the running total, and the last what is left of the line', () => {
+    const s = sale({
+      total: 1,
+      lines: [{ _id: 'a', quantity: 3, unitPrice: 0.2778, taxRate: 20, lineTotal: 1 }],
+      register: { stornoClaims: [{ ...claim('a', 1000), cents: 34 }] },
+    })
+    expect(plan(s, [{ lineId: 'a', quantity: 1 }]).lines[0].cents).toBe(33)
+    expect(plan(s).lines[0].cents).toBe(66)
+    expect(plan(s).total).toBe(0.66)
+  })
+})
+
+describe('the words of a refusal', () => {
+  it('no language blames a credit note for what is gone: it may have been a storno', () => {
+    expect(en.cashRegister.receipt.stornoExceedsBudget).not.toContain('credit note')
+    expect(bg.cashRegister.receipt.stornoExceedsBudget).not.toContain('кредитно')
+    expect(de.cashRegister.receipt.stornoExceedsBudget).not.toContain('Gutschrift')
+    expect(mk.cashRegister.receipt.stornoExceedsBudget).not.toContain('кредитно')
   })
 })
 

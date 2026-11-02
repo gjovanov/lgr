@@ -378,8 +378,9 @@ export interface JournalLine {
   /** On a sale: what its stornos took back, and what is left to return. */
   returned?: number
   left?: number
-  /** On a sale: what the whole line is worth to a storno, in cents. What a part gives back is read off this. */
+  /** On a sale: what the whole line is worth to a storno, in cents, and what its stornos took. What a part gives back is read off these. */
   value?: number
+  taken?: number
 }
 
 export interface JournalDocument {
@@ -409,7 +410,7 @@ export async function getJournalDocument(orgId: string, id: string): Promise<Jou
       discount: l.discount || 0, taxRate: l.taxRate || 0, taxAmount: round2(l.taxAmount), lineTotal: round2(l.lineTotal),
       ...(l.warehouseId ? { warehouseId: String(l.warehouseId) } : {}),
       unmatched: !l.productId,
-      ...(b ? { lineId: b.key, returned: b.returned / 1000, left: b.left / 1000, value: b.value } : {}),
+      ...(b ? { lineId: b.key, returned: b.returned / 1000, left: b.left / 1000, value: b.value, taken: b.taken } : {}),
     }
   })
 

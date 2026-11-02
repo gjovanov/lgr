@@ -252,6 +252,15 @@ function claimOf(doc: any): Claim {
   return { id: idOf(doc._id), lines }
 }
 
+/**
+ * The sale's lines by the name a storno and an invoice both use (`lineKey`). ⚠ A sale copied raw from an old POS row
+ * has lines with no `_id`: read by their id they were all one line, and an invoice for all of it carried only the
+ * last and claimed nothing. Such a line goes on the invoice under its place.
+ */
+function linesByKey(cs: any): Map<string, any> {
+  return new Map((cs.lines || []).map((l: any, i: number) => [lineKey(l, i), l._id ? l : { ...l, _id: lineKey(l, i) }]))
+}
+
 /** How much of each of the sale's lines its stornos took, in units, in the order of its lines. */
 function returnedQuantities(cs: any): number[] {
   const back = returnedByLine(cs)
@@ -266,7 +275,7 @@ function soldByLine(cs: any): Map<string, number> {
   const out = new Map<string, number>()
   const returned = returnedQuantities(cs)
   ;(cs.lines || []).forEach((l: any, i: number) => {
-    if (num(l.quantity) > 0) out.set(idOf(l._id), Math.max(0, +(num(l.quantity) - returned[i]).toFixed(3)))
+    if (num(l.quantity) > 0) out.set(lineKey(l, i), Math.max(0, +(num(l.quantity) - returned[i]).toFixed(3)))
   })
   return out
 }
@@ -299,10 +308,10 @@ function stateOf(cs: any, invoices: any[]): Pick<CashSaleInvoicingState, 'lines'
   const back = returnedQuantities(cs)
   const lines = (cs.lines || []).map((l: any, i: number) => {
     const quantity = num(l.quantity)
-    const invoiced = used.get(idOf(l._id)) || 0
+    const invoiced = used.get(lineKey(l, i)) || 0
     const returned = back[i]
     return {
-      lineId: idOf(l._id),
+      lineId: lineKey(l, i),
       productId: l.productId ? idOf(l.productId) : null,
       description: l.description || '',
       unit: l.unit || 'pcs',
@@ -527,9 +536,9 @@ function requestedQuantities(
  * Whole: the cash sale's own totals, to the cent — they are the receipt's figures.
  */
 function buildInvoiceDoc(orgId: string, cs: any, contact: any, actor: Actor, wanted: Map<string, number>, input: InvoiceForCashSaleInput, movementIds: unknown[]) {
-  const srcById = new Map((cs.lines || []).map((l: any) => [idOf(l._id), l]))
+  const srcById = linesByKey(cs)
   const lines = [...wanted.entries()].map(([lineId, q]) => invoiceLineFrom(srcById.get(lineId) as SourceLine, q))
-  const whole = (cs.lines || []).every((l: any) => num(l.quantity) <= 0 || Math.abs((wanted.get(idOf(l._id)) || 0) - num(l.quantity)) <= EPS)
+  const whole = (cs.lines || []).every((l: any, i: number) => num(l.quantity) <= 0 || Math.abs((wanted.get(lineKey(l, i)) || 0) - num(l.quantity)) <= EPS)
   const totals = whole
     ? { subtotal: round2(cs.subtotal), discountTotal: round2(cs.discountTotal), taxTotal: round2(cs.taxTotal), total: round2(cs.total) }
     : invoiceTotalsOf(lines)
@@ -702,7 +711,7 @@ export async function createInvoiceForCashSale(
     if (cs.contactId && earlier.length) {
       throw new CashSaleInvoiceError(409, 'cash_sale_fully_invoiced', `${cs.invoiceNumber} is already invoiced`)
     }
-    const line = (cs.lines || []).find((l: any) => idOf(l._id) === over[0].lineId)
+    const line = linesByKey(cs).get(over[0].lineId)
     throw new CashSaleInvoiceError(409, 'cash_sale_quantity_exceeded',
       `„${line?.description || over[0].lineId}": ${over[0].requested} requested, ${over[0].remaining} not yet invoiced`,
       { lines: over })
@@ -785,7 +794,7 @@ export async function checkInvoiceForCashSaleEdit(orgId: string, existing: any, 
   if (!cs) throw new CashSaleInvoiceError(409, 'cash_sale_missing', 'The cash sale this invoice is for no longer exists')
   const others = (await liveInvoicesOf(orgId, idOf(cs._id))).filter(d => idOf(d._id) !== idOf(existing._id))
   const state = stateOf(cs, others)
-  const srcById = new Map((cs.lines || []).map((l: any) => [idOf(l._id), l]))
+  const srcById = linesByKey(cs)
   const wanted = new Map<string, number>()
   for (const l of body.lines as any[]) {
     const k = idOf(l.cashSaleLineId)
@@ -809,7 +818,7 @@ export async function checkInvoiceForCashSaleEdit(orgId: string, existing: any, 
   const input: InvoiceForCashSaleInput = { contactId: '', lines: [...wanted].map(([lineId, quantity]) => ({ lineId, quantity })) }
   requestedQuantities(cs, state, others.length > 0, input)
   const lines = [...wanted.entries()].map(([lineId, q]) => invoiceLineFrom(srcById.get(lineId) as SourceLine, q))
-  const whole = (cs.lines || []).every((l: any) => num(l.quantity) <= 0 || Math.abs((wanted.get(idOf(l._id)) || 0) - num(l.quantity)) <= EPS)
+  const whole = (cs.lines || []).every((l: any, i: number) => num(l.quantity) <= 0 || Math.abs((wanted.get(lineKey(l, i)) || 0) - num(l.quantity)) <= EPS)
   const totals = whole
     ? { subtotal: round2(cs.subtotal), discountTotal: round2(cs.discountTotal), taxTotal: round2(cs.taxTotal), total: round2(cs.total) }
     : invoiceTotalsOf(lines)
@@ -958,7 +967,7 @@ function takesWhole(cs: any, inv: any, map: Map<string, string>): boolean {
   const taken = new Map<string, number>()
   for (const [invLine, saleLine] of map) taken.set(saleLine, (taken.get(saleLine) || 0) + (qtyOf.get(invLine) || 0))
   const left = soldByLine(cs)
-  return (cs.lines || []).every((l: any) => num(l.quantity) <= 0 || Math.abs((taken.get(idOf(l._id)) || 0) - (left.get(idOf(l._id)) || 0)) <= EPS)
+  return (cs.lines || []).every((l: any, i: number) => num(l.quantity) <= 0 || Math.abs((taken.get(lineKey(l, i)) || 0) - (left.get(lineKey(l, i)) || 0)) <= EPS)
 }
 
 /**
@@ -1185,7 +1194,8 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
     const arrayFilters: Array<Record<string, unknown>> = []
     let i = 0
     for (const [lineId, saleLineId] of m.map) {
-      set[`lines.$[l${i}].cashSaleLineId`] = new Types.ObjectId(saleLineId)
+      // By its place, on a sale line with no id (`linesByKey`).
+      set[`lines.$[l${i}].cashSaleLineId`] = saleLineId.startsWith('#') ? saleLineId : new Types.ObjectId(saleLineId)
       arrayFilters.push({ [`l${i}._id`]: new Types.ObjectId(lineId) })
       i++
     }
@@ -1247,7 +1257,7 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
   const over = fitsAsLast(soldByLine({ ...cs, register: latest?.register }), claims, own)
   if (over.length) {
     await undo()
-    const line = (cs.lines || []).find((l: any) => idOf(l._id) === over[0].lineId)
+    const line = linesByKey(cs).get(over[0].lineId)
     throw new CashSaleInvoiceError(409, 'cash_sale_quantity_exceeded',
       `„${line?.description || over[0].lineId}": ${over[0].requested} on the invoice, ${over[0].remaining} not yet invoiced on ${cs.invoiceNumber}`,
       { lines: over })

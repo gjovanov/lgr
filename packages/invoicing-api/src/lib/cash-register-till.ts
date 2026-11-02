@@ -362,9 +362,15 @@ function refundMethod(refund: { method: string }[] | undefined, original: any): 
   return refund?.[0]?.method || original?.payments?.[0]?.method || original?.paymentMethod || 'cash'
 }
 
-/** A storno: the refund the operator named, and what its receipt prints when it prints one. `total`: what it gives back. */
-function assertStornoTender(refund: { method: string; amount: number }[] | undefined, original: any, printer: RegisterPrinter | null, total = Number(original.total) || 0): void {
-  assertFiscalMethods((refund ?? []).map(p => p.method))
+/**
+ * A storno: the refund the operator named, and what its receipt prints when it prints one. `total`: what it gives back.
+ * `tillSale`: at the till a refund is what a receipt can carry, whichever receipt it prints, as the sale was. A
+ * back-office sale prints nothing and has no drawer, so a bank transfer or `other`, which it may have been paid by, are
+ * its to name. Anything else is no method at all, and is refused the same way.
+ */
+function assertStornoTender(refund: { method: string; amount: number }[] | undefined, original: any, printer: RegisterPrinter | null, tillSale: boolean, total = Number(original.total) || 0): void {
+  const methods = (refund ?? []).map(p => p.method)
+  assertFiscalMethods(tillSale ? methods : methods.filter(m => m !== 'bank_transfer' && m !== 'other'))
   assertCashOnDeliveryExact(refund ?? [], total)
   if (!printer) return
   const method = refundMethod(refund, original)
@@ -693,6 +699,22 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
      * refund leaves the sale as it was. `duplicate`: a racing duplicate of it got there first, and that is its answer.
      */
     const prepared = async (): Promise<{ plan: StornoPlan; payments?: StornoDoorInput['payments'] } | { duplicate: any }> => {
+      // ⚠ What the operator names is what leaves the drawer, and the device prints the storno's own total whatever
+      // it says. So no row below nothing, which the session's buckets drop and a sum would net off, and no sum but
+      // the storno's: `{cash, 1000}` on a sale of 12 took 988 out of a drawer that never held it.
+      const named = input.payments?.length ? input.payments : undefined
+      if (named?.some(p => !((Number(p.amount) || 0) > 0))) {
+        throw new RegisterRefusal(422, { code: 'storno_refund_not_positive', message: 'Every row of a refund is above 0. Nothing was reversed.' })
+      }
+      const assertAddsUp = (total: number) => {
+        if (named && Math.round(named.reduce((s, p) => s + (Number(p.amount) || 0), 0) * 100) !== Math.round(total * 100)) {
+          throw new RegisterRefusal(422, {
+            code: 'storno_refund_mismatch',
+            amount: total,
+            message: `This storno gives back ${total.toFixed(2)}, and the refund named comes to something else. Nothing was reversed.`,
+          })
+        }
+      }
       const plan = planStorno(original, input.lines)
       if (isPlanRefusal(plan)) {
         const mine = await ownOnceWritten()
@@ -700,30 +722,25 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
         throw new RegisterRefusal(plan.statusCode, plan.body)
       }
       if (!plan.partial) {
-        assertStornoTender(input.payments, original, printsReceipt ? c.printer! : null)
+        assertStornoTender(input.payments, original, printsReceipt ? c.printer! : null, tillSale)
+        assertAddsUp(plan.total)
         return { plan, payments: input.payments }
       }
-      // ⚠ Lines that fit can still be more than a refund left of their rate: said here, in words a person can use.
+      // ⚠ Lines that fit can still be more than what went back by a refund leaves of their rate: said here, in words a
+      // person can use. A line's own parts never come to more than the line, so it takes money gone another way.
       const left = leftByRate(original)
       if ([...plan.want].some(([rate, cents]) => cents > (left.get(rate) || 0))) {
         throw new RegisterRefusal(409, {
           code: 'storno_exceeds_budget',
           left: totalOf(left) / 100,
-          message: `These lines are more than this sale's receipt still holds (${(totalOf(left) / 100).toFixed(2)}): a credit note's refund took the rest. Nothing was reversed.`,
+          message: `These lines come to more than this sale's receipt still holds (${(totalOf(left) / 100).toFixed(2)}). Nothing was reversed.`,
         })
       }
-      const cents = Math.round(plan.total * 100)
-      if (input.payments?.length && Math.round(input.payments.reduce((s, p) => s + (Number(p.amount) || 0), 0) * 100) !== cents) {
-        throw new RegisterRefusal(422, {
-          code: 'storno_refund_mismatch',
-          amount: plan.total,
-          message: `These lines give back ${plan.total.toFixed(2)}, and the refund named comes to something else. Nothing was reversed.`,
-        })
-      }
+      assertAddsUp(plan.total)
       const ids: unknown[] = original.register?.stornoedBy ?? []
       const stornos: any[] = ids.length ? await Invoice.find({ _id: { $in: ids }, orgId }, { status: 1, payments: 1 }).lean().exec() : []
-      const payments = input.payments?.length ? input.payments : refundOfPart(leftByMethod(original, stornos), cents)
-      assertStornoTender(payments, original, printsReceipt ? c.printer! : null, plan.total)
+      const payments = named ?? refundOfPart(leftByMethod(original, stornos), Math.round(plan.total * 100))
+      assertStornoTender(payments, original, printsReceipt ? c.printer! : null, tillSale, plan.total)
       return { plan, payments }
     }
 

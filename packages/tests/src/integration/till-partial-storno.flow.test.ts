@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { Elysia } from 'elysia'
-import { computePosTotals } from 'config/pos-totals'
+import { computePosTotals, partOfLine } from 'config/pos-totals'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
 import { createTestContact, createTestProduct, createTestStockLevel, createTestWarehouse } from '../helpers/factories'
@@ -65,6 +65,21 @@ function during(at: (update: any) => boolean, meanwhile: () => Promise<unknown>)
     const chain = {
       lean: () => chain,
       exec: async () => { await meanwhile(); return (real as any).call(Invoice, filter, update, ...rest).lean().exec() },
+    }
+    return chain
+  }
+  return () => { (Invoice as any).findOneAndUpdate = real }
+}
+/** Run `meanwhile` exactly once, right after the write `at` picks. */
+function justAfter(at: (update: any) => boolean, meanwhile: () => Promise<unknown>) {
+  const real = Invoice.findOneAndUpdate
+  let done = false
+  ;(Invoice as any).findOneAndUpdate = function (filter: any, update: any, ...rest: any[]) {
+    if (done || !at(update)) return (real as any).call(Invoice, filter, update, ...rest)
+    done = true
+    const chain = {
+      lean: () => chain,
+      exec: async () => { const written = await (real as any).call(Invoice, filter, update, ...rest).lean().exec(); await meanwhile(); return written },
     }
     return chain
   }
@@ -1072,6 +1087,100 @@ describe('the shapes a part comes in', () => {
     expect((await sessionOf(w)).totalReturns).toBe(36)
   })
 
+  describe('an earlier part given back while a later one stands (the reader, finding 2)', () => {
+    /** A line of 3 worth 1.00, whose thirds are 0.33, 0.34 and 0.33 on its running total. */
+    const worthOne = async (w: TillWorld) => {
+      const s = await oneLine(w, 3, 0.2778)
+      expect(s.sale.total).toBe(1)
+      return s
+    }
+    /** A part claims, a later one prints meanwhile, and then the first is proved not to have printed. */
+    async function overlapped(w: TillWorld, s: Sold) {
+      const undo = justAfter(aClaim, async () => {
+        expect((await back(w, s, [[0, 1]])).status).toBe(200)
+        failsProved(w)
+      })
+      try {
+        expect((await back(w, s, [[0, 1]])).status).toBe(503)
+      } finally {
+        undo()
+      }
+    }
+    const liveTotals = async (saleId: string) => (await stornosOf(saleId)).filter(d => d.status === 'paid').map(d => d.total)
+
+    it('the last unit still comes back: the line ends full, to the cent', async () => {
+      const w = await tillWorld(app)
+      const s = await worthOne(w)
+      await overlapped(w, s)
+
+      expect((await back(w, s, [[0, 1]])).status).toBe(200)
+      const last = await back(w, s, [[0, 1]])
+
+      expect(last.status).toBe(200)
+      expect(await liveTotals(s.saleId)).toEqual([0.34, 0.33, 0.33])
+      const sale = await read(s.saleId)
+      expect(sale.register.stornoState).toBe('full')
+      expect(leftByRate(sale).size).toBe(0)
+      expect((await w.stock()).quantity).toBe(10)
+      expect((await sessionOf(w)).totalReturns).toBeCloseTo(1, 5)
+      expect((await sessionOf(w)).totalCash).toBeCloseTo(0, 5)
+    })
+
+    it('all that is left goes back too, for what is left of the line', async () => {
+      const w = await tillWorld(app)
+      const s = await worthOne(w)
+      await overlapped(w, s)
+
+      expect((await w.storno(s.saleId)).status).toBe(200)
+
+      expect(await liveTotals(s.saleId)).toEqual([0.34, 0.66])
+      expect((await read(s.saleId)).register.stornoState).toBe('full')
+    })
+
+    it('the page says what the next part gives back, as the door books it: a named refund of that goes through', async () => {
+      const w = await tillWorld(app)
+      const s = await worthOne(w)
+      await overlapped(w, s)
+      const page = (await w.call('GET', `/cash-register/documents/${s.saleId}`)).json
+      expect(page.lines[0]).toMatchObject({ returned: 1, left: 2, value: 100, taken: 34 })
+      expect(partOfLine(100, 3000, 1000, 34, 1000)).toBe(33)
+
+      expect((await back(w, s, [[0, 1]], undefined, { payments: [{ method: 'cash', amount: 0.33 }] })).status).toBe(200)
+    })
+
+    it('a claim that died, with a part pressed inside its lease and the claim pulled after: the same', async () => {
+      const w = await tillWorld(app)
+      const s = await worthOne(w)
+      const orphan = new Invoice.base.Types.ObjectId()
+      await Invoice.updateOne({ _id: s.saleId }, {
+        $set: { 'register.stornoState': 'partial' },
+        $push: {
+          'register.stornoedBy': orphan,
+          'register.stornoClaims': { stornoId: orphan, lineId: s.ids[0], milli: 1000, cents: 33, at: new Date() },
+          'register.refundClaims': { stornoId: orphan, rate: 20, cents: 33 },
+        },
+      })
+      expect((await back(w, s, [[0, 1]])).status).toBe(200)
+      await Invoice.updateOne({ _id: s.saleId }, { $set: { 'register.stornoClaims.0.at': new Date(Date.now() - 121_000) } })
+
+      expect((await back(w, s, [[0, 1]])).status).toBe(200)
+      expect((await back(w, s, [[0, 1]])).status).toBe(200)
+
+      expect(await liveTotals(s.saleId)).toEqual([0.34, 0.33, 0.33])
+      expect((await read(s.saleId)).register.stornoState).toBe('full')
+    })
+
+    it('the refusal blames nobody it cannot name: no credit note took anything here, and none is said to', async () => {
+      const w = await tillWorld(app)
+      const s = await worthOne(w)
+      // Money gone from the rate by a hand this door knows nothing of.
+      expect(await takeBudget(await read(s.saleId), new Invoice.base.Types.ObjectId(), new Map([[20, 80]]))).toBe(true)
+      const r = await back(w, s, [[0, 1]])
+      expect([r.status, r.json.code, r.json.left]).toEqual([409, 'storno_exceeds_budget', 0.2])
+      expect(r.json.message).not.toContain('credit note')
+    })
+  })
+
   it('a keyed part whose request died after its insert: the retry prints it once, and another replays it', async () => {
     const w = await tillWorld(app)
     const s = await oneLine(w, 3)
@@ -1099,6 +1208,80 @@ describe('the shapes a part comes in', () => {
     expect(stornosOnDevice(w)).toHaveLength(1)
     expect((await read(s.saleId)).register.stornoClaims).toHaveLength(1)
     expect((await sessionOf(w)).totalReturns).toBe(12)
+  })
+})
+
+describe('a refund the operator names comes to what the storno gives back (the reader, finding 3)', () => {
+  /** Both doors, as the till and the journal each take a storno. */
+  const atBothDoors = (w: TillWorld, saleId: string, body: Record<string, unknown>) => Promise.all([
+    w.storno(saleId, undefined, body),
+    w.call('POST', `/cash-register/documents/${saleId}/storno`, { reason: 'customer_return', sessionId: w.sessionId, ...body }),
+  ])
+  /** Refused, with nothing claimed, printed or booked. */
+  async function nothingMoved(w: TillWorld, s: Sold, cash: number) {
+    const sale = await read(s.saleId)
+    expect(sale.register.stornoState).toBe('none')
+    expect(sale.register.stornoClaims ?? []).toHaveLength(0)
+    expect(await stornosOf(s.saleId)).toHaveLength(0)
+    expect(stornosOnDevice(w)).toHaveLength(0)
+    expect((await sessionOf(w)).totalCash).toBe(cash)
+  }
+
+  it('all of a sale with a refund of a thousand: refused at both doors, and the drawer does not move', async () => {
+    const w = await tillWorld(app)
+    const s = await threeArticles(w)
+    for (const r of await atBothDoors(w, s.saleId, { payments: [{ method: 'cash', amount: 1000 }] })) {
+      expect([r.status, r.json.code, r.json.amount]).toEqual([422, 'storno_refund_mismatch', 58.9])
+    }
+    await nothingMoved(w, s, 58.9)
+  })
+
+  it('a whole storno of 12 with a refund of 1000: the one the reader ran', async () => {
+    const w = await tillWorld(app)
+    const sold = await w.sell(1)
+    const id = String(sold.json.transaction.id)
+    const r = await w.storno(id, undefined, { payments: [{ method: 'cash', amount: 1000 }] })
+    expect([r.status, r.json.code, r.json.amount]).toEqual([422, 'storno_refund_mismatch', 12])
+    expect((await sessionOf(w)).totalCash).toBe(12)
+    expect((await w.storno(id, undefined, { payments: [{ method: 'cash', amount: 12 }] })).status).toBe(200)
+    expect((await sessionOf(w)).totalCash).toBe(0)
+  })
+
+  it('every line named in full takes the same check, by the sale\'s own total', async () => {
+    const w = await tillWorld(app)
+    const s = await threeArticles(w)
+    const r = await back(w, s, [[0, 3], [1, 2], [2, 1]], undefined, { payments: [{ method: 'cash', amount: 500 }] })
+    expect([r.status, r.json.code, r.json.amount]).toEqual([422, 'storno_refund_mismatch', 58.9])
+    await nothingMoved(w, s, 58.9)
+  })
+
+  it('a row below zero is refused however the rows add up: the drawer lost 50 for a part of 12', async () => {
+    const w = await tillWorld(app)
+    const s = await threeArticles(w)
+    const lines = [{ lineId: s.ids[0], quantity: 1 }]
+    for (const r of await atBothDoors(w, s.saleId, { lines, payments: [{ method: 'cash', amount: 50 }, { method: 'card', amount: -38 }] })) {
+      expect([r.status, r.json.code]).toEqual([422, 'storno_refund_not_positive'])
+    }
+    await nothingMoved(w, s, 58.9)
+  })
+
+  it('so is a row of nothing, and one below zero on all of a sale', async () => {
+    const w = await tillWorld(app)
+    const s = await threeArticles(w)
+    const zero = await back(w, s, [[0, 1]], undefined, { payments: [{ method: 'cash', amount: 12 }, { method: 'card', amount: 0 }] })
+    expect([zero.status, zero.json.code]).toEqual([422, 'storno_refund_not_positive'])
+    const whole = await w.storno(s.saleId, undefined, { payments: [{ method: 'cash', amount: 70 }, { method: 'card', amount: -11.1 }] })
+    expect([whole.status, whole.json.code]).toEqual([422, 'storno_refund_not_positive'])
+    await nothingMoved(w, s, 58.9)
+  })
+
+  it('rows that do come to it go through, split or not', async () => {
+    const w = await tillWorld(app)
+    const s = await threeArticles(w)
+    expect((await w.storno(s.saleId, undefined, { payments: [{ method: 'cash', amount: 50 }, { method: 'card', amount: 8.9 }] })).status).toBe(200)
+    const session = await sessionOf(w)
+    expect(session.totalCash).toBeCloseTo(8.9, 5)
+    expect(session.totalCard).toBeCloseTo(-8.9, 5)
   })
 })
 
@@ -1218,6 +1401,58 @@ describe('what else takes a partial storno, and what does not', () => {
     const edited = await w.call('PUT', `/invoices/${id}`, { notes: 'x', total: 1 }, undefined, w.clerkToken)
     expect(edited.status).toBeGreaterThanOrEqual(400)
     expect((await w.stock()).quantity).toBe(10 - 4 + 1)
+  })
+
+  describe('a back-office sale paid by bank: nothing prints, so the method is theirs (the reader, finding 4)', () => {
+    async function byBank(w: TillWorld) {
+      const sold = await w.backOfficeSale(4, { paymentMethod: 'bank_transfer' })
+      expect(sold.status).toBe(200)
+      const id = String(sold.json.invoice.id)
+      return { id, lineId: String((await read(id)).lines[0]._id) }
+    }
+    const press = (w: TillWorld, id: string, body: Record<string, unknown>) =>
+      w.call('POST', `/cash-register/documents/${id}/storno`, { reason: 'customer_return', ...body }, undefined, w.clerkToken)
+
+    it('with nothing named, a part goes back as the sale was paid, as a whole one does', async () => {
+      const w = await tillWorld(app)
+      const { id, lineId } = await byBank(w)
+
+      const r = await press(w, id, { lines: [{ lineId, quantity: 1 }] })
+
+      expect(r.status).toBe(200)
+      const [storno] = await stornosOf(id)
+      expect(storno.payments.map((p: any) => [p.method, p.amount])).toEqual([['bank_transfer', 12]])
+      expect(storno.register.fiscal.state).toBe('none')
+      expect(w.sim!.receipts).toHaveLength(0)
+      expect((await w.stock()).quantity).toBe(7)
+      // And what is left, as the sale was paid.
+      expect((await press(w, id, {})).status).toBe(200)
+      expect((await stornosOf(id))[1].payments.map((p: any) => [p.method, p.amount])).toEqual([['bank_transfer', 36]])
+    })
+
+    it('picked by name, a part and all of a sale alike', async () => {
+      const w = await tillWorld(app)
+      const { id, lineId } = await byBank(w)
+      expect((await press(w, id, { lines: [{ lineId, quantity: 1 }], payments: [{ method: 'bank_transfer', amount: 12 }] })).status).toBe(200)
+      expect((await press(w, id, { payments: [{ method: 'other', amount: 36 }] })).status).toBe(200)
+    })
+
+    it('a method that is none is still refused, and nothing is claimed', async () => {
+      const w = await tillWorld(app)
+      const { id, lineId } = await byBank(w)
+      const r = await press(w, id, { lines: [{ lineId, quantity: 1 }], payments: [{ method: 'crypto', amount: 12 }] })
+      expect([r.status, r.json.code]).toEqual([422, 'payment_method_not_fiscal'])
+      expect((await read(id)).register.stornoState).toBeUndefined()
+    })
+
+    it('at the till the rule stands, text or fiscal: its refund is what a receipt can carry', async () => {
+      const w = await tillWorld(app)
+      for (const nonFiscal of [true, false]) {
+        const s = await threeArticles(w, { nonFiscal })
+        const r = await back(w, s, [[0, 1]], undefined, { payments: [{ method: 'bank_transfer', amount: 12 }] })
+        expect([r.status, r.json.code]).toEqual([422, 'payment_method_not_fiscal'])
+      }
+    })
   })
 
   it('a sale copied from an old POS row, whose lines have no ids, is named by their place', async () => {
@@ -1427,6 +1662,99 @@ describe('the owner\'s decision: a partly stornoed sale invoices only what is le
     expect(r.status).toBe(200)
     const invoice = await raw(r.json.invoice.id)
     expect(invoice.payments.map((p: any) => [p.method, p.amount])).toEqual([['cash', 30], ['card', 16.9]])
+  })
+})
+
+describe('a sale whose lines have no ids, copied raw from an old POS row (the reader, finding 6)', () => {
+  /** Three articles, their lines' ids gone, and one of the first back. */
+  async function stripped(w: TillWorld) {
+    const s = await threeArticles(w)
+    await Invoice.collection.updateOne({ _id: s.sale._id }, { $unset: { 'lines.$[]._id': '' } })
+    expect((await w.storno(s.saleId, undefined, { lines: [{ lineId: '#0', quantity: 1 }] })).status).toBe(200)
+    return s
+  }
+  const stateOf = async (w: TillWorld, s: Sold) => (await w.call('GET', `/invoices/${s.saleId}/to-invoice`)).json.invoicing
+  const invoiceIt = async (w: TillWorld, s: Sold, lines?: { lineId: string; quantity: number }[]) => {
+    const contact = await createTestContact(w.oid)
+    return w.call('POST', `/invoices/${s.saleId}/to-invoice`, { contactId: String(contact._id), ...(lines ? { lines } : {}) })
+  }
+
+  it('names them by their place, as the storno does, and each keeps what it sold and what came back', async () => {
+    const w = await tillWorld(app)
+    const s = await stripped(w)
+    const state = await stateOf(w, s)
+    expect(state.lines.map((l: any) => [l.lineId, l.quantity, l.returned, l.remaining])).toEqual([['#0', 3, 1, 2], ['#1', 2, 0, 2], ['#2', 1, 0, 1]])
+    expect(state.remainingTotals.total).toBe(46.9)
+  })
+
+  it('invoices all that is left, on every line, and claims it: a second invoice finds nothing', async () => {
+    const w = await tillWorld(app)
+    const s = await stripped(w)
+
+    const r = await invoiceIt(w, s)
+
+    expect(r.status).toBe(200)
+    const invoice = await raw(r.json.invoice.id)
+    expect(invoice.lines.map((l: any) => [l.description, l.quantity, l.cashSaleLineId])).toEqual([['Болт', 2, '#0'], ['Гайка', 2, '#1'], ['Шайба', 1, '#2']])
+    expect(invoice.total).toBe(46.9)
+    expect((await stateOf(w, s)).state).toBe('full')
+
+    const again = await invoiceIt(w, s)
+    expect([again.status, again.json.code]).toEqual([409, 'cash_sale_fully_invoiced'])
+    expect((await w.call('GET', `/cash-register/documents/${s.saleId}`)).json.row.invoicingState).toBe('full')
+  })
+
+  it('in parts, by place, never past what is left, and a void gives it back', async () => {
+    const w = await tillWorld(app)
+    const s = await stripped(w)
+
+    const part = await invoiceIt(w, s, [{ lineId: '#1', quantity: 1 }])
+    expect(part.status).toBe(200)
+    expect(part.json.invoice.total).toBe(6)
+    const over = await invoiceIt(w, s, [{ lineId: '#1', quantity: 2 }])
+    expect([over.status, over.json.code]).toEqual([409, 'cash_sale_quantity_exceeded'])
+    expect((await stateOf(w, s)).lines[1]).toMatchObject({ invoiced: 1, remaining: 1 })
+
+    expect((await w.call('POST', `/invoices/${part.json.invoice.id}/void`, {})).status).toBe(200)
+    expect((await stateOf(w, s)).lines[1]).toMatchObject({ invoiced: 0, remaining: 2 })
+  })
+
+  it('a draft keeps its place through an edit', async () => {
+    const w = await tillWorld(app)
+    const s = await stripped(w)
+    const contact = await createTestContact(w.oid)
+    const draft = await w.call('POST', `/invoices/${s.saleId}/to-invoice`, { contactId: String(contact._id), issue: false })
+    expect(draft.status).toBe(200)
+    const lines = (await raw(draft.json.invoice.id)).lines.map((l: any) => ({ productId: String(l.productId), description: l.description, quantity: l.cashSaleLineId === '#0' ? 1 : l.quantity, unit: l.unit, unitPrice: l.unitPrice, discount: l.discount, taxRate: l.taxRate, cashSaleLineId: l.cashSaleLineId }))
+
+    const edited = await w.call('PUT', `/invoices/${draft.json.invoice.id}`, { lines })
+
+    expect(edited.status).toBe(200)
+    expect((await raw(draft.json.invoice.id)).lines.map((l: any) => [l.cashSaleLineId, l.quantity])).toEqual([['#0', 1], ['#1', 2], ['#2', 1]])
+    expect((await stateOf(w, s)).lines[0]).toMatchObject({ invoiced: 1, remaining: 1 })
+  })
+
+  it('an invoice attached to it claims by place too', async () => {
+    const w = await tillWorld(app)
+    const s = await stripped(w)
+    const d = await draftOf(w, { method: 'bank_transfer', lines: [line(w, 1)] })
+    expect((await send(w, d.id)).status).toBe(200)
+
+    const r = await w.call('POST', `/invoices/${d.id}/attach-to-cash-sale`, { cashSaleId: s.saleId })
+
+    expect(r.status).toBe(200)
+    expect((await raw(d.id)).lines[0].cashSaleLineId).toBe('#0')
+    expect((await stateOf(w, s)).lines[0]).toMatchObject({ invoiced: 1, remaining: 1 })
+  })
+
+  it('a sale whose lines have ids is as it was: the invoice line points at its id', async () => {
+    const w = await tillWorld(app)
+    const s = await threeArticles(w)
+    const r = await invoiceIt(w, s)
+    expect(r.status).toBe(200)
+    const invoice = await raw(r.json.invoice.id)
+    expect(invoice.lines.map((l: any) => String(l.cashSaleLineId))).toEqual(s.ids)
+    expect(invoice.lines[0].cashSaleLineId instanceof Invoice.base.Types.ObjectId).toBe(true)
   })
 })
 

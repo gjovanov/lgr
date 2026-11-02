@@ -2804,12 +2804,12 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   that is left, so a whole storno is the request it was. `register.stornoState` gains `partial`, and a sale all of whose
   quantity has gone back ends `full`. ⚠ **One claim, one update** (`claimForStorno`): `register.stornoClaims` per line
   and R2's `refundClaims` per rate, with the checks inside it, each line as the plan read it (`asPlanRead`) and each rate
-  within `fitsBudget`. A part's money is read off its line's running total (`config/pos-totals#partOfLine`,
-  `storno-lines.ts`), so any number of parts comes to the receipt to the cent. ⚠ While one may have printed no other
+  within `fitsBudget`. A part's money is its line's running total less what the parts standing on it took (`config/pos-totals#partOfLine`,
+  `storno-lines.ts`), so any number of parts, and any given back, comes to the receipt to the cent. ⚠ While one may have printed no other
   storno of that sale goes through, even of another line. ⚠ Each claim has its own age (`stornoClaims[].at`).
   `to-invoice` invoices only what is left. A refund and a part draw on one budget, either way round. A device prints
   one payment type per storno, so with no method named a part goes by one method when one still holds it
-  (`refundOfPart`). A line on a storno carries its discount, whole or in part. SUPTO version 4. Tests:
+  (`refundOfPart`). A line on a storno carries its discount, whole or in part. SUPTO version 5. Tests:
   `integration/till-partial-storno.flow.test.ts`, `unit/storno-lines.test.ts`; e2e `till-partial-storno.spec.ts`.
 
 ## An article starts its documents: „Заприходи", „Продай", „Резервирай" (2026-10-26, FR-22.47)

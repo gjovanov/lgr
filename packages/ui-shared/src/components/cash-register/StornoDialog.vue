@@ -140,6 +140,7 @@ import { httpClient } from '../../composables/useHttpClient'
 import { createIdempotentAction } from '../../composables/idempotency'
 import { useCurrency } from '../../composables/useCurrency'
 import { receiptRefusalMessage } from '../../cash-register/receipt-refusal'
+import { canPickPart } from '../../cash-register/storno'
 import { paymentMethodKey } from '../../composables/usePaymentMethods'
 
 export interface StornoTarget {
@@ -188,6 +189,7 @@ interface StornoLine {
   returned: number
   left: number
   value: number
+  taken: number
   take: number | string
 }
 const mode = ref<'whole' | 'part'>('whole')
@@ -197,15 +199,11 @@ const saleMethods = ref<string[]>([])
 const method = ref('')
 
 const toMilli = (q: unknown) => Math.round((Number(q) || 0) * 1000)
-const partOf = (l: StornoLine, q: unknown) => partOfLine(l.value, toMilli(l.quantity), toMilli(l.returned), toMilli(q))
+const partOf = (l: StornoLine, q: unknown) => partOfLine(l.value, toMilli(l.quantity), toMilli(l.returned), l.taken, toMilli(q))
 const cents = (c: number) => c / 100
 const returnedAny = computed(() => lines.value.some(l => l.returned > 0))
 const leftValue = computed(() => lines.value.reduce((s, l) => s + partOf(l, l.left), 0))
-/** Nothing to pick on one unit of one line: all of it is the only part there is. */
-const canPart = computed(() => {
-  const open = lines.value.filter(l => l.left > 0)
-  return open.length > 1 || (open.length === 1 && open[0].left > 1)
-})
+const canPart = computed(() => canPickPart(lines.value))
 const picked = computed(() => lines.value.filter(l => (Number(l.take) || 0) > 0))
 const goesBack = computed(() => picked.value.reduce((s, l) => s + partOf(l, l.take), 0))
 const partOk = computed(() => picked.value.length > 0 && lines.value.every((l) => {
@@ -290,7 +288,8 @@ async function submit() {
       ...(mode.value === 'part'
         ? {
             lines: picked.value.map(l => ({ lineId: l.lineId, quantity: Number(l.take) })),
-            ...(method.value ? { payments: [{ method: method.value, amount: cents(goesBack.value) }] } : {}),
+            // A part worth nothing has no money to send anywhere, and a row of nothing is refused.
+            ...(method.value && goesBack.value > 0 ? { payments: [{ method: method.value, amount: cents(goesBack.value) }] } : {}),
           }
         : {}),
     }
