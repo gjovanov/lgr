@@ -4528,6 +4528,31 @@ describe('a storno that stands on a note holds what the note corrects (the reade
   })
 })
 
+describe('`fiscally_paid` on a note says what a note can have', () => {
+  it('another credit note on the invoice, never a credit or a debit note of the note', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    expect((await pay(w, note.id, 24)).status).toBe(200)
+
+    for (const r of [await w.call('PUT', `/invoices/${note.id}`, { total: 12 }), await w.call('POST', `/invoices/${note.id}/void`)]) {
+      expect(r.status).toBe(409)
+      expect(r.json).toMatchObject({ code: 'fiscally_paid', note: true })
+      expect(r.json.message).toContain('another credit note on the invoice')
+      expect(r.json.message).not.toContain('debit note')
+    }
+  })
+
+  it('an invoice with a receipt says what it always said', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const r = await w.call('POST', `/invoices/${inv.id}/void`)
+    expect(r.json.code).toBe('fiscally_paid')
+    expect(r.json.note).toBeUndefined()
+    expect(r.json.message).toContain('a credit or a debit note')
+  })
+})
+
 describe('nothing prints: credit notes behave as today', () => {
   it('the switch off: a credit note in cash is issued and stays due, no session asked for, and a cash refund is recorded', async () => {
     const w = await tillWorld(app)

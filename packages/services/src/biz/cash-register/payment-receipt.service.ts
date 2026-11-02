@@ -84,6 +84,13 @@ const FISCALLY_PAID = {
   message: 'A receipt has printed for this document, so its total can no longer change and it cannot be voided. Correct it with a credit or a debit note.',
 } as const
 
+/** The same of a credit note, whose storno stands: a note has no note of its own, so it means another on the invoice. */
+const FISCALLY_PAID_NOTE = {
+  code: 'fiscally_paid',
+  note: true,
+  message: 'A storno has printed for this credit note, so its total can no longer change and it cannot be voided. Correct it with another credit note on the invoice.',
+} as const
+
 /** The payment methods a receipt prints for at the counter (owner, Q-2): those taken as a document is issued. */
 const COUNTER_METHODS = Object.keys(SETTLED_ON_ISSUE)
 
@@ -219,10 +226,11 @@ export const inDoubtRefusal = (receipt: any) => ({
  * storno freezes it the same way (R2): the device gave that money back.
  */
 export async function freezeRefusal(orgId: string, documentId: string): Promise<Record<string, unknown> | null> {
-  const live: any[] = await Invoice.find(liveReceipts(orgId, documentId), { invoiceNumber: 1, 'register.fiscal.inDoubt': 1 }).sort({ _id: 1 }).lean().exec()
+  const live: any[] = await Invoice.find(liveReceipts(orgId, documentId), { type: 1, invoiceNumber: 1, 'register.fiscal.inDoubt': 1 }).sort({ _id: 1 }).lean().exec()
   const doubt = live.find(r => r.register?.fiscal?.inDoubt)
   if (doubt) return inDoubtRefusal(doubt)
-  return live.length ? { ...FISCALLY_PAID } : null
+  if (!live.length) return null
+  return live.some(r => r.type === PAYMENT_STORNO) ? { ...FISCALLY_PAID_NOTE } : { ...FISCALLY_PAID }
 }
 
 /**
@@ -241,8 +249,8 @@ export async function freezeUnderNotes(orgId: string, invoice: any): Promise<Rec
   for (const note of notes) {
     const frozen = await freezeRefusal(orgId, String(note._id))
     if (frozen) {
-      return frozen.code === FISCALLY_PAID.code
-        ? { ...frozen, document: note.invoiceNumber, message: `Credit note ${note.invoiceNumber} gave money back on a storno, so the invoice it corrects cannot be voided. Correct it with another credit note.` }
+      return frozen.code === FISCALLY_PAID_NOTE.code
+        ? { code: frozen.code, document: note.invoiceNumber, message: `Credit note ${note.invoiceNumber} gave money back on a storno, so the invoice it corrects cannot be voided. Correct it with another credit note.` }
         : frozen
     }
   }

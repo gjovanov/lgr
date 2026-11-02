@@ -329,6 +329,8 @@ describe('the refusal, in words', () => {
     expect(receiptRefusalParams({ receipts: [{ number: 'CS-1' }, { number: null, invoice: 'INV-2' }] }).numbers).toBe('CS-1, INV-2')
     expect(receiptRefusalKey({ code: 'overpayment' })).toBeNull()
     expect(receiptRefusalKey({ code: 'refund_exceeds_paid' })).toBe('cashRegister.receipt.refundExceedsPaid')
+    expect(receiptRefusalKey({ code: 'fiscally_paid', note: true })).toBe('cashRegister.receipt.fiscallyPaidNote')
+    expect(receiptRefusalKey({ code: 'fiscally_paid' })).toBe('cashRegister.receipt.fiscallyPaid')
     expect(receiptRefusalKey({ code: 'refund_exceeds_receipts' })).toBe('cashRegister.receipt.refundExceeds')
     expect(receiptRefusalKey({ code: 'refund_exceeds_receipts', atIssue: true })).toBe('cashRegister.receipt.refundExceedsAtIssue')
     expect(receiptRefusalKey({ code: 'no_receipt_to_storno', reason: 'none' })).toBe('cashRegister.receipt.noReceiptToStorno')
@@ -366,7 +368,7 @@ describe('the refusal, in words', () => {
       'cashRegister.receipt.issuedChanged', 'cashRegister.receipt.issuedChangedDelivery', 'cashRegister.receipt.issuedChangedRefund',
       'cashRegister.receipt.refundExceedsPaid', 'cashRegister.receipt.refundExceedsPaidAtIssue', 'cashRegister.receipt.issuedPartlyRefunded',
       'cashRegister.receipt.fiscallyPaidUnderNote', 'cashRegister.receipt.noReceiptNumber', 'cashRegister.receipt.noReceiptOfKind',
-      'cashRegister.receipt.bringNumber', 'cashRegister.receipt.bringNumberConfirm', 'cashRegister.receipt.refundExceedsAtIssue',
+      'cashRegister.receipt.bringNumber', 'cashRegister.receipt.bringNumberConfirm', 'cashRegister.receipt.refundExceedsAtIssue', 'cashRegister.receipt.fiscallyPaidNote',
     ]) {
       for (const [name, messages] of Object.entries(locales)) {
         const text = key.split('.').reduce((at: any, part) => at?.[part], messages)
