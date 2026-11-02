@@ -13,7 +13,7 @@ import { Org, POSSession } from 'db/models'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import {
-  RegisterRefusal, insertRegisterDocument, isPendingNumber, releaseOrphanClaimsOfSession, runSaleSteps, saleIncrements, settleKeyedDocument, tillSaleDocument,
+  RegisterRefusal, SESSION_CLOSING, insertRegisterDocument, isPendingNumber, releaseOrphanClaimsOfSession, runSaleSteps, saleIncrements, settleKeyedDocument, tillSaleDocument,
 } from 'services/biz/cash-register/register.service'
 import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
@@ -779,15 +779,16 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         ).exec()
       }
 
-      // Again, now that nothing new can join it: a receipt checks the session in its turn, so either
-      // it finds this claim and gives way, or this finds it.
+      // Again, now that nothing new can join it: a sale, a receipt and a storno each look at the session
+      // once they are written, so either it finds this claim and gives way, or this finds it.
       const late = await unfinishedReceipts(orgId, id)
       if (late.length) {
         await release()
         return status(409, unfinishedRefusal(late))
       }
-      // The session as claimed: what was finished above is in it.
-      const expected = expectedTotals(claimed)
+      // ⚠ The session as it stands after that look, not as claimed: one that finished between the two is
+      // found by neither, and what it booked is here. Nothing can land after this.
+      const expected = expectedTotals((await POSSession.findOne({ _id: id, orgId }).lean().exec()) ?? claimed)
 
       const device = await resolveFiscalDeviceForClose(orgId, String(session.warehouseId))
 
@@ -975,6 +976,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         }
 
         if (session.status === 'closed') return status(400, { message: 'Session is closed' })
+        // ⚠ Not "closed" alone: one being closed takes nothing new either, and goes on selling if it goes back to open.
+        if (session.status !== 'open') return status(409, { ...SESSION_CLOSING })
         // FR-21 R5 (owner, 2026-10-27): a cashier rings into their OWN session — its drawer is theirs,
         // and D-13 joins their back-office sales to it. A retry of a sale already made is answered above.
         if (String(session.cashierId) !== String(user.id)) {

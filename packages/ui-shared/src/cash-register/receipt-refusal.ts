@@ -28,6 +28,7 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'fiscal_holder_unreachable': return 'cashRegister.receipt.holderUnreachable'
     case 'sale_receipt_in_doubt': return 'cashRegister.receipt.saleInDoubtRefused'
     case 'sale_in_progress': return 'cashRegister.receipt.saleInProgress'
+    case 'session_closing': return 'cashRegister.receipt.sessionClosing'
     case 'receipt_number_required': return 'cashRegister.receipt.numberRequired'
     case 'receipt_number_taken': return 'cashRegister.receipt.numberTaken'
     case 'receipt_number_off_device': return 'cashRegister.receipt.numberOffDevice'

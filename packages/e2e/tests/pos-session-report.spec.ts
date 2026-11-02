@@ -44,6 +44,25 @@ test('a close that met a sale printing says to wait, and the session stays open 
   await expect(dialog.getByRole('button', { name: 'Retry' })).toBeVisible()
 })
 
+test('a close whose answer never came says nobody knows, never that the session is still open, and offers the same close again', async ({ page }) => {
+  // The connection goes while the Z runs. Elysia cuts a request at 30 s, and a Z can take minutes.
+  await page.route(`**/trade/pos/session/${sale.sessionId}/close`, route => route.abort('connectionreset'))
+  await loginForApp(page, 'acme-corp', 'sales', 'test123')
+  await page.goto('/invoicing/cash-sales/new')
+  await page.getByRole('button', { name: 'Close Session' }).click()
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Close the register' })
+  const confirm = dialog.getByRole('button', { name: 'Close', exact: true })
+  await expect(confirm).toBeEnabled({ timeout: 15000 })
+  await confirm.click()
+
+  await expect(dialog).toContainText('may still be running')
+  await expect(dialog).toContainText('Do not sell')
+  await expect(dialog).toContainText('never prints a second Z-report')
+  await expect(dialog).not.toContainText('still open')
+  await expect(dialog).not.toContainText('could NOT be closed')
+  await expect(dialog.getByRole('button', { name: 'Retry' })).toBeVisible()
+})
+
 test('the close dialog shows the session report the close keeps', async ({ page }) => {
   await loginForApp(page, 'acme-corp', 'sales', 'test123')
   await page.goto('/invoicing/cash-sales/new')

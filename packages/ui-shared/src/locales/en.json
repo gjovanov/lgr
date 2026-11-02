@@ -1535,6 +1535,8 @@
       "interruptedTitle": "The last close stopped during its Z-report",
       "interrupted": "The Z-report may have printed, and the session is open again. Check the device. If the Z-report printed, close without a fiscal report (a manager can). If it did not, close again.",
       "closeAgain": "Close this session again",
+      "outcomeUnknownTitle": "No answer came, so nobody knows yet how this close ended",
+      "outcomeUnknown": "The close may still be running, and its Z-report with it. Do not sell in this session. Check the device. Pressing Retry returns that same close and never prints a second Z-report.",
       "method": {
         "cash": "Cash",
         "card": "Card",
@@ -1836,6 +1838,7 @@
       "saleInDoubt": "Nothing can prove whether this sale's fiscal receipt printed. Its money stands, and its storno waits until someone checks the device and says which.",
       "saleInDoubtRefused": "Nothing can prove whether the receipt of sale {number} printed, so a storno cannot say what it reverses. Nothing was reversed. Check the device, then settle it on its page under Cash Register Sales.",
       "saleInProgress": "This sale is still being rung up, so there is nothing to reverse yet. Nothing was reversed. Wait for it to finish, then try again.",
+      "sessionClosing": "This session is being closed, so it takes nothing new. Nothing was rung up, reversed or printed. Wait for the close to finish, then open a new session.",
       "settleConfirmSale": {
         "printed": "The receipt is on the device. Type its number off the slip: the storno of this sale cites it. This cannot be undone.",
         "notPrinted": "The receipt is not on the device. The sale and its money stand, and its storno prints nothing. This cannot be undone."

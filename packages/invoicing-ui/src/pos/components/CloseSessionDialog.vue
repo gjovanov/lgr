@@ -10,7 +10,7 @@
         <!-- Result states (FR-9.10). Rendered instead of the form once we have an outcome. -->
         <template v-if="result">
           <v-alert
-            :type="result.kind === 'error' ? 'error' : result.kind === 'skipped' ? 'info' : 'success'"
+            :type="result.kind === 'error' ? 'error' : result.kind === 'unknown' ? 'warning' : result.kind === 'skipped' ? 'info' : 'success'"
             variant="tonal"
             class="mb-2"
           >
@@ -158,7 +158,7 @@
             {{ $t('pos.sessionReport.print') }}
           </v-btn>
           <v-btn variant="text" @click="finish">{{ $t('common.close') }}</v-btn>
-          <v-btn v-if="result.kind === 'error'" color="primary" variant="flat" :loading="submitting" @click="submit">
+          <v-btn v-if="result.kind === 'error' || result.kind === 'unknown'" color="primary" variant="flat" :loading="submitting" @click="submit">
             {{ $t('pos.close.retry') }}
           </v-btn>
         </template>
@@ -177,7 +177,7 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { createIdempotentAction } from 'ui-shared/composables/idempotency'
+import { createIdempotentAction, isOutcomeUnknown } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import { useAppStore } from '../../store/app.store'
@@ -232,7 +232,7 @@ const notes = ref('')
 const closeWithoutFiscal = ref(false)
 const interrupted = ref('')
 const result = ref<{
-  kind: 'success' | 'skipped' | 'error'
+  kind: 'success' | 'skipped' | 'error' | 'unknown'
   title: string
   detail?: string
   /** The session's own figures, which the close printed after the Z-report — or why it did not. */
@@ -320,7 +320,13 @@ async function submit() {
   } catch (e: any) {
     // An unanswered attempt keeps its key: closing again returns that close, never a second Z-report.
     attempt.settle(e)
-    // The session is still open — the server reverted it. Say so plainly.
+    // ⚠ With no answer nobody knows: a Z runs for longer than a request is let wait, so that close may be running
+    // now. Read as "still open", the next sale went into a session whose day had been counted.
+    if (isOutcomeUnknown(e)) {
+      result.value = { kind: 'unknown', title: t('pos.close.outcomeUnknownTitle'), detail: t('pos.close.outcomeUnknown') }
+      return
+    }
+    // The server answered: it reverted the session, and it is open. Say so plainly.
     const refused = e?.response?.data
     if (refused?.code === 'close_interrupted') {
       // Back to the form, read afresh: what to do next is theirs to choose once they have looked.
@@ -356,7 +362,7 @@ async function reprint() {
 }
 
 function finish() {
-  const wasClosed = result.value?.kind !== 'error'
+  const wasClosed = result.value?.kind === 'success' || result.value?.kind === 'skipped'
   open.value = false
   if (wasClosed) emit('closed')
 }
