@@ -1,4 +1,5 @@
 import type { RepositoryRegistry } from 'dal'
+import { DuplicateError } from 'dal'
 import type { IStockMovement } from 'dal/entities'
 import { StockLevel } from 'db/models'
 import { getRepos } from '../context.js'
@@ -93,6 +94,32 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
 }
 
 /**
+ * Move a level by `quantity` and return it as it was, or null when the product has no level there.
+ *
+ * ⚠ One write, worked out by the server from the row as it stands. Reading the row and writing back
+ * a quantity computed from that read loses a movement whenever two land on one level at once: both
+ * read 7, both write 8, and both movements still say `completed`.
+ */
+function moveLevel(orgId: string, productId: string, warehouseId: string, quantity: number, unitCost: number) {
+  const newQuantity = { $add: ['$quantity', quantity] }
+  // Weighted average cost (maintained for WAC and as fallback)
+  const avgCost = quantity > 0
+    ? {
+        $cond: [
+          { $gt: ['$quantity', 0] },
+          { $divide: [{ $add: [{ $multiply: ['$quantity', '$avgCost'] }, quantity * unitCost] }, newQuantity] },
+          unitCost,
+        ],
+      }
+    : '$avgCost'
+  return StockLevel.findOneAndUpdate(
+    { orgId, productId, warehouseId } as any,
+    [{ $set: { quantity: newQuantity, availableQuantity: { $subtract: [newQuantity, { $ifNull: ['$reservedQuantity', 0] }] }, avgCost } }],
+    { new: false },
+  ).lean().exec() as Promise<{ avgCost: number } | null>
+}
+
+/**
  * Adjust stock level for a product in a warehouse.
  * Returns cost consumption result for outgoing stock (layer-based methods).
  */
@@ -105,45 +132,36 @@ export async function adjustStock(
   repos?: RepositoryRegistry,
 ): Promise<ConsumptionResult | undefined> {
   const r = repos ?? getRepos()
-  let stockLevel = await r.stockLevels.findOne({ orgId, productId, warehouseId })
+  let stockLevel = await moveLevel(orgId, productId, warehouseId, quantity, unitCost)
 
   if (!stockLevel) {
-    await r.stockLevels.create({
-      orgId,
-      productId,
-      warehouseId,
-      quantity,
-      reservedQuantity: 0,
-      availableQuantity: quantity,
-      avgCost: unitCost,
-    } as any)
+    try {
+      await r.stockLevels.create({
+        orgId,
+        productId,
+        warehouseId,
+        quantity,
+        reservedQuantity: 0,
+        availableQuantity: quantity,
+        avgCost: unitCost,
+      } as any)
 
-    // Create cost layer for new incoming stock (layer-based methods)
-    if (quantity > 0) {
-      const method = await getEffectiveCostingMethod(orgId, productId, r)
-      if (method !== 'wac' && method !== 'standard') {
-        // Layers are created by confirmMovement, not here
-        // This function only handles stock level updates
+      // Create cost layer for new incoming stock (layer-based methods)
+      if (quantity > 0) {
+        const method = await getEffectiveCostingMethod(orgId, productId, r)
+        if (method !== 'wac' && method !== 'standard') {
+          // Layers are created by confirmMovement, not here
+          // This function only handles stock level updates
+        }
       }
+      return undefined
+    } catch (err) {
+      // Another movement made the row after this one looked: this one lands on that row.
+      if (!(err instanceof DuplicateError)) throw err
+      stockLevel = await moveLevel(orgId, productId, warehouseId, quantity, unitCost)
+      if (!stockLevel) throw err
     }
-    return undefined
   }
-
-  // Weighted average cost (maintained for WAC and as fallback)
-  let avgCost = stockLevel.avgCost
-  if (quantity > 0 && stockLevel.quantity > 0) {
-    const totalCost = stockLevel.quantity * stockLevel.avgCost + quantity * unitCost
-    avgCost = totalCost / (stockLevel.quantity + quantity)
-  } else if (quantity > 0) {
-    avgCost = unitCost
-  }
-
-  const newQuantity = stockLevel.quantity + quantity
-  await r.stockLevels.update(stockLevel.id, {
-    quantity: newQuantity,
-    availableQuantity: newQuantity - stockLevel.reservedQuantity,
-    avgCost,
-  } as any)
 
   // For outgoing stock, consume cost layers if using layer-based method
   if (quantity < 0) {

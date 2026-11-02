@@ -161,6 +161,98 @@ describe('adjustStock', () => {
   })
 })
 
+describe('movements landing on one level at once', () => {
+  const setup = async (slug: string) => {
+    const org = await createTestOrg({ slug })
+    const product = await createTestProduct(org._id)
+    const warehouse = await createTestWarehouse(org._id)
+    const ids = [String(org._id), String(product._id), String(warehouse._id)] as const
+    return { org, product, warehouse, ids }
+  }
+  const levelOf = (w: Awaited<ReturnType<typeof setup>>) =>
+    StockLevel.findOne({ orgId: w.org._id, productId: w.product._id, warehouseId: w.warehouse._id }).lean().exec() as Promise<any>
+
+  it('loses none of them', async () => {
+    const w = await setup('at-once-in')
+    await createTestStockLevel(w.org._id, w.product._id, w.warehouse._id, { quantity: 7, availableQuantity: 7, avgCost: 10 })
+
+    await Promise.all(Array.from({ length: 20 }, () => adjustStock(...w.ids, 1, 10)))
+
+    const level = await levelOf(w)
+    expect(level.quantity).toBe(27)
+    expect(level.availableQuantity).toBe(27)
+    expect(level.avgCost).toBe(10)
+  })
+
+  it('in and out together come to the sum, and what is held stays out of what is available', async () => {
+    const w = await setup('at-once-both')
+    await createTestStockLevel(w.org._id, w.product._id, w.warehouse._id, {
+      quantity: 50,
+      reservedQuantity: 5,
+      availableQuantity: 45,
+      avgCost: 10,
+    })
+
+    await Promise.all([3, -2, 4, -1, 6, -5, 2, -3].map(q => adjustStock(...w.ids, q, 10)))
+
+    const level = await levelOf(w)
+    expect(level.quantity).toBe(54)
+    expect(level.reservedQuantity).toBe(5)
+    expect(level.availableQuantity).toBe(49)
+  })
+
+  it('the average takes every receipt, whichever order they land in', async () => {
+    const w = await setup('at-once-cost')
+    await createTestStockLevel(w.org._id, w.product._id, w.warehouse._id, { quantity: 10, availableQuantity: 10, avgCost: 10 })
+
+    await Promise.all([20, 30, 40, 50].map(cost => adjustStock(...w.ids, 10, cost)))
+
+    const level = await levelOf(w)
+    expect(level.quantity).toBe(50)
+    // (10*10 + 10*20 + 10*30 + 10*40 + 10*50) / 50
+    expect(level.avgCost).toBeCloseTo(30, 9)
+  })
+
+  it('the first two of a product with no level yet both land, on one row', async () => {
+    const w = await setup('at-once-first')
+
+    await Promise.all([adjustStock(...w.ids, 3, 10), adjustStock(...w.ids, 4, 10)])
+
+    expect((await levelOf(w)).quantity).toBe(7)
+    expect(await StockLevel.countDocuments({ orgId: w.org._id, productId: w.product._id })).toBe(1)
+  })
+
+  it('every confirmed movement is on the shelf', async () => {
+    const w = await setup('at-once-confirm')
+    await createTestStockLevel(w.org._id, w.product._id, w.warehouse._id, { quantity: 7, availableQuantity: 7, avgCost: 10 })
+    const movements = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        createTestStockMovement(w.org._id, {
+          type: 'return',
+          toWarehouseId: w.warehouse._id,
+          lines: [{ productId: w.product._id, quantity: 1, unitCost: 10, totalCost: 10 }],
+        } as any),
+      ),
+    )
+
+    await Promise.all(movements.map(m => confirmMovement(String(m._id))))
+
+    expect((await levelOf(w)).quantity).toBe(19)
+    expect(await StockMovement.countDocuments({ orgId: w.org._id, status: 'completed' })).toBe(12)
+  })
+
+  it('a write still stamps the row', async () => {
+    const w = await setup('at-once-stamp')
+    const made = await createTestStockLevel(w.org._id, w.product._id, w.warehouse._id, { quantity: 7, availableQuantity: 7, avgCost: 10 })
+    const before = new Date((made as any).updatedAt).getTime()
+    await Bun.sleep(5)
+
+    await adjustStock(...w.ids, 1, 10)
+
+    expect(new Date((await levelOf(w)).updatedAt).getTime()).toBeGreaterThan(before)
+  })
+})
+
 describe('confirmMovement', () => {
   it('should confirm a draft movement and set status to completed', async () => {
     const org = await createTestOrg({ slug: 'confirm-draft' })
