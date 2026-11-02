@@ -2030,6 +2030,16 @@
     "variances": "Variances",
     "completeCount": "Complete Count",
     "loadProducts": "Load Products",
+    "countStatus": {
+      "draft": "Draft",
+      "in_progress": "In Progress",
+      "completed": "Completed"
+    },
+    "countType": {
+      "full": "Full",
+      "partial": "Partial",
+      "cycle": "Cycle"
+    },
     "contactName": "Contact Name",
     "maxStockLevel": "Max Stock Level",
     "minStockLevel": "Min Stock Level",

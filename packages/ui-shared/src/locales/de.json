@@ -2030,6 +2030,16 @@
     "variances": "Abweichungen",
     "completeCount": "Zählung abschließen",
     "loadProducts": "Produkte laden",
+    "countStatus": {
+      "draft": "Entwurf",
+      "in_progress": "In Bearbeitung",
+      "completed": "Abgeschlossen"
+    },
+    "countType": {
+      "full": "Vollständig",
+      "partial": "Teilweise",
+      "cycle": "Zyklisch"
+    },
     "contactName": "Kontaktname",
     "maxStockLevel": "Maximaler Lagerbestand",
     "minStockLevel": "Minimaler Lagerbestand",

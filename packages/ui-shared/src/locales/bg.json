@@ -2030,6 +2030,16 @@
     "variances": "Отклонения",
     "completeCount": "Завърши броенето",
     "loadProducts": "Зареди продукти",
+    "countStatus": {
+      "draft": "Чернова",
+      "in_progress": "В процес",
+      "completed": "Завършена"
+    },
+    "countType": {
+      "full": "Пълна",
+      "partial": "Частична",
+      "cycle": "Циклична"
+    },
     "contactName": "Име на контакт",
     "maxStockLevel": "Максимално ниво на наличност",
     "minStockLevel": "Минимално ниво на наличност",
