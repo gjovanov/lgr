@@ -55,6 +55,18 @@ export function computePosTotals(lines: PosTotalsLine[]): PosTotals {
 }
 
 /**
+ * What returning `milli` thousandths of a line is worth, in cents, when `returned` of its `sold` are already back
+ * and the whole line is worth `value`. Read off the line's running total, never by rounding each part on its own: the
+ * parts add up to `value` exactly in whatever pieces they come back, and the last one takes the rest. One function:
+ * the storno's claim, and the dialog that says how much goes back.
+ */
+export function partOfLine(value: number, sold: number, returned: number, milli: number): number {
+  if (!(sold > 0)) return 0
+  const at = (m: number) => Math.round((value * m) / sold)
+  return at(returned + milli) - at(returned)
+}
+
+/**
  * Half away from zero, to the cent. The relative epsilon is what keeps 8.575 from becoming
  * 8.57: its binary value sits just below the half, and an absolute epsilon (the usual
  * `n + Number.EPSILON`) is too small to lift it once the value is above a few units.

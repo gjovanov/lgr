@@ -214,7 +214,7 @@ export interface IFiscalPrinter {
     originalDate: Date,
     originalUNP: string,
     reason: StornoReason,
-    lines: { name: string; quantity: number; price: number; vatGroup: VatGroup; taxRate?: number }[],
+    lines: { name: string; quantity: number; price: number; vatGroup: VatGroup; taxRate?: number; discount?: number }[],
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult>
 

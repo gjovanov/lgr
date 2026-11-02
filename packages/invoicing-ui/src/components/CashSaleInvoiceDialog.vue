@@ -87,7 +87,10 @@
             <tbody>
               <tr v-for="row in rows" :key="row.lineId" :class="row.remaining <= 0 ? 'text-disabled' : ''">
                 <td>{{ row.description }}</td>
-                <td class="text-end text-no-wrap">{{ row.quantity }} {{ row.unit }}</td>
+                <td class="text-end text-no-wrap">
+                  {{ row.quantity }} {{ row.unit }}
+                  <div v-if="row.returned" class="text-caption text-medium-emphasis" data-testid="invoice-line-returned">{{ $t('pos.storno.returned', { quantity: row.returned }) }}</div>
+                </td>
                 <td class="text-end">{{ row.invoiced || '—' }}</td>
                 <td class="text-end">
                   <v-text-field

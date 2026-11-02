@@ -106,7 +106,7 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
     operatorCode: string, operatorName: string, unpNumber: string,
     originalReceiptNumber: string, originalDate: Date, originalUNP: string,
     reason: StornoReason,
-    lines: { name: string; quantity: number; price: number; vatGroup: VatGroup }[],
+    lines: { name: string; quantity: number; price: number; vatGroup: VatGroup; discount?: number }[],
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
     return stagedPrint(async (reached) => {
@@ -127,7 +127,7 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
 
       await this.send(TREMOL_CMD.OPEN_FISCAL_RECEIPT, `1;0000;1;1;E;${rc};${originalReceiptNumber};${dt};$${unpNumber}`)
       reached('lines')
-      for (const line of lines) await this.printSaleLine(line.name, -line.quantity, line.price, line.vatGroup)
+      for (const line of lines) await this.printSaleLine(line.name, -line.quantity, line.price, line.vatGroup, line.discount)
       reached('paying')
       await this.printPayment(payment.type, -payment.amount)
       reached('closing')

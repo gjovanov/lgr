@@ -175,7 +175,7 @@ const { showSuccess, showSnackbar } = useSnackbar()
 
 const KINDS = ['sale', 'storno', 'payment', 'refund']
 const ORIGINS = ['pos', 'backoffice', 'import']
-const STATUSES = ['completed', 'stornoed', 'voided']
+const STATUSES = ['completed', 'partial', 'stornoed', 'voided']
 const FISCAL_STATES = ['printed', 'pending', 'failed', 'unknown', 'none']
 const METHODS = ['cash', 'card', 'cash_on_delivery', 'bank_transfer', 'other']
 const INVOICED = ['yes', 'no']
@@ -295,7 +295,7 @@ function fmtDate(row: any): string {
 }
 
 function statusColor(s: string) {
-  return ({ completed: 'success', stornoed: 'warning', voided: 'grey-darken-1', inDoubt: 'warning' } as Record<string, string>)[s] || 'grey'
+  return ({ completed: 'success', partial: 'warning', stornoed: 'warning', voided: 'grey-darken-1', inDoubt: 'warning' } as Record<string, string>)[s] || 'grey'
 }
 
 // ── #145: STORNO ────────────────────────────────────────────────────────────────────────────

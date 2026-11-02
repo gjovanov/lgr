@@ -26,7 +26,7 @@
     <template #row-actions="{ item }">
       <!-- #171: „Издай фактура" for a sale held as a document, until it is invoiced in full. -->
       <v-btn
-        v-if="!tillOnly && item.store === 'invoice' && item.kind === 'sale' && item.status === 'completed' && item.invoicingState !== 'full'"
+        v-if="!tillOnly && item.store === 'invoice' && item.kind === 'sale' && (item.status === 'completed' || item.status === 'partial') && item.invoicingState !== 'full'"
         icon="mdi-file-document-plus-outline"
         size="small"
         variant="text"

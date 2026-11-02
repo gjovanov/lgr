@@ -131,7 +131,10 @@
                   {{ l.description }}
                   <v-chip v-if="l.unmatched" size="x-small" color="warning" variant="tonal" class="ml-1" :title="$t('cashRegister.detail.unmatched')">!</v-chip>
                 </td>
-                <td class="text-end">{{ l.quantity }} {{ l.unit || '' }}</td>
+                <td class="text-end">
+                  {{ l.quantity }} {{ l.unit || '' }}
+                  <div v-if="l.returned" class="text-caption text-medium-emphasis" data-testid="journal-line-returned">{{ $t('pos.storno.returned', { quantity: l.returned }) }}</div>
+                </td>
                 <td class="text-end">{{ fmtCurrency(l.unitPrice, doc.row.currency, 4) }}</td>
                 <td class="text-end">{{ l.taxRate }}</td>
                 <td class="text-end">{{ fmtCurrency(l.taxAmount, doc.row.currency) }}</td>
@@ -273,7 +276,7 @@ function fmtDate(row: any): string {
 }
 
 function statusColor(s: string) {
-  return ({ completed: 'success', stornoed: 'warning', voided: 'grey-darken-1', inDoubt: 'warning' } as Record<string, string>)[s] || 'grey'
+  return ({ completed: 'success', partial: 'warning', stornoed: 'warning', voided: 'grey-darken-1', inDoubt: 'warning' } as Record<string, string>)[s] || 'grey'
 }
 
 // ── FR-23: a receipt in doubt ──
