@@ -19,6 +19,24 @@
  * its revenue out twice.
  */
 import { AuditLog, Invoice, StockMovement } from '../../packages/db/src/models/index.js'
+import { freezeRefusal, freezeUnderNotes } from '../../packages/services/src/biz/cash-register/payment-receipt.service.js'
+import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from '../../packages/services/src/biz/cash-register/immutability.js'
+import { heldOn } from '../../packages/services/src/biz/invoice-payment.js'
+
+/**
+ * ⚠ What `POST /invoices/:id/void` asks of the fiscal side, asked here too (#449). A receipt, or a refund's
+ * storno under one of its notes, that stands on a device has that money, and a void here would leave a
+ * fiscal document the books say was never paid. The route refuses it; so does this. Nothing it has run on
+ * holds a receipt today (imported invoices print none), and nothing would tell it if that stopped being true.
+ * The route also finishes a receipt whose request died first; a script does not drive a device, so it
+ * refuses that one as the route's freeze does, in the same words, and a person settles it.
+ */
+async function fiscalRefusal(orgId: unknown, inv: any): Promise<string | null> {
+  if (isImmutableRegisterDocument(inv)) return REGISTER_DOCUMENT_IMMUTABLE.message
+  if (heldOn(inv) > 0) return 'a receipt is printing on it right now: run again once it has finished'
+  const frozen: any = await freezeRefusal(String(orgId), String(inv._id)) ?? await freezeUnderNotes(String(orgId), inv)
+  return frozen ? String(frozen.message) : null
+}
 
 /** The statuses `POST /invoices/:id/void` refuses, the only ones this exists for. */
 export const API_REFUSES = ['paid', 'partially_paid', 'overdue']
@@ -87,6 +105,9 @@ export async function planVoid(orgId: unknown, pmNumber: string): Promise<VoidPl
     return refuse(number, `credit note ${credits.map(c => c.invoiceNumber).join(', ')} already cancels it: voiding it too would take its revenue out twice`, { invoice })
   }
 
+  const fiscal = await fiscalRefusal(orgId, inv)
+  if (fiscal) return refuse(number, fiscal, { invoice })
+
   const moves: any[] = await StockMovement.find({ orgId, invoiceId: inv._id }).lean().exec()
   const movements = moves.map(m => ({
     number: String(m.movementNumber),
@@ -104,9 +125,13 @@ export async function planVoid(orgId: unknown, pmNumber: string): Promise<VoidPl
 export async function applyVoid(orgId: unknown, plan: VoidPlan, by: unknown, reason: string, at: Date = new Date()): Promise<boolean> {
   if (!plan.ok || !plan.invoice) throw new Error(`refusing to apply a plan that is not ok (${plan.number})`)
   const inv = plan.invoice
+  // Asked again at the write, as the route asks it after its claim: a receipt can print between a dry run and
+  // `--execute`. And no receipt may be holding it at the moment of the write itself.
+  const now: any = await Invoice.findOne({ _id: inv.id, orgId }).lean().exec()
+  if (!now || await fiscalRefusal(orgId, now)) return false
   // `voidedAt` is written by the app's own void but is not in the Mongoose schema: strict:false keeps it.
   const res = await Invoice.updateOne(
-    { _id: inv.id, orgId, type: 'invoice', status: inv.status },
+    { _id: inv.id, orgId, type: 'invoice', status: inv.status, 'receiptHolds.0': { $exists: false } },
     {
       $set: { status: 'voided', voidedAt: at },
       $push: { statusHistory: { status: 'voided', fromStatus: inv.status, changedAt: at, changedBy: by, reason } },

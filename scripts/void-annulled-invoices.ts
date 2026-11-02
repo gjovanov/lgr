@@ -17,6 +17,9 @@
  * - a number LGR does not hold as exactly one outgoing `invoice` (a credit note is a valid document);
  * - a draft / sent / received invoice: POST /invoices/:id/void does that properly, stock included;
  * - an invoice that a live credit note already cancels (voiding it too would cancel it twice);
+ * - anything `POST /invoices/:id/void` refuses on the fiscal side (#449): a till document, a receipt
+ *   printing on it, a receipt or a refund's storno that stands on a device. Asked again at the write;
+
  * - `--execute` without `--expect`, or with a count that is not the dry run's;
  * - any node that is not the org's home (FR-20, P0b-6).
  * An invoice that is already voided is reported and skipped.

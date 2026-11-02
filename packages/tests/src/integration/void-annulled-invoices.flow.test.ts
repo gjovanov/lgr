@@ -13,6 +13,7 @@ import {
   createTestStockMovement,
 } from '../helpers/factories'
 import { AuditLog, Invoice, StockLevel, StockMovement } from 'db/models'
+import { mongoose } from 'db/connection'
 import { applyVoid, planVoid } from '../../../../scripts/lib/void-annulled'
 
 /**
@@ -139,6 +140,70 @@ describe('void-annulled: planVoid / applyVoid', () => {
 
     await Invoice.updateOne({ _id: cn._id }, { $set: { status: 'voided' } })
     expect((await planVoid(org._id, '3000803003')).ok).toBe(true)
+  })
+
+  // #449: what `POST /invoices/:id/void` refuses on the fiscal side, this refuses too.
+  const receiptOn = (orgId: any, invoiceId: any, register: Record<string, unknown> = {}) =>
+    Invoice.collection.insertOne({
+      orgId, type: 'payment_receipt', status: 'paid', invoiceNumber: `PR-${new mongoose.Types.ObjectId()}`,
+      register: { paidInvoiceId: invoiceId, ...register },
+    } as any)
+
+  it('refuses an invoice a receipt printed for; a voided receipt does not block it', async () => {
+    const { org, contact } = await world()
+    const inv = await paid(org._id, contact._id, '3000803011')
+    const r = await receiptOn(org._id, inv._id)
+
+    const blocked = await planVoid(org._id, '3000803011')
+    expect(blocked.ok).toBe(false)
+    expect(blocked.reason).toMatch(/receipt has printed/i)
+
+    await Invoice.collection.updateOne({ _id: r.insertedId }, { $set: { status: 'voided' } })
+    expect((await planVoid(org._id, '3000803011')).ok).toBe(true)
+  })
+
+  it('refuses one whose receipt is in doubt, in the words that say how to settle it', async () => {
+    const { org, contact } = await world()
+    const inv = await paid(org._id, contact._id, '3000803012')
+    await receiptOn(org._id, inv._id, { fiscal: { inDoubt: true } })
+
+    expect((await planVoid(org._id, '3000803012')).reason).toMatch(/settle it in the cash-register journal/)
+  })
+
+  it('refuses one a receipt is printing on right now', async () => {
+    const { org, contact } = await world()
+    await paid(org._id, contact._id, '3000803013', { receiptHolds: [{ receiptId: new mongoose.Types.ObjectId(), amount: 10 }] } as any)
+
+    expect((await planVoid(org._id, '3000803013')).reason).toMatch(/printing on it right now/)
+  })
+
+  it('refuses a till document: a storno corrects it', async () => {
+    const { org, contact } = await world()
+    await paid(org._id, contact._id, '3000803014', { register: { origin: 'pos' } } as any)
+
+    expect((await planVoid(org._id, '3000803014')).reason).toMatch(/Correct it with a storno/)
+  })
+
+  it('refuses an invoice for a till sale whose note gave money back on a storno', async () => {
+    const { org, contact } = await world()
+    const inv = await paid(org._id, contact._id, '3000803015', { cashSaleRef: { cashSaleId: new mongoose.Types.ObjectId(), number: 'CS-2026-00001', issueDate: new Date('2026-10-20') } } as any)
+    const note = await createTestInvoice(org._id, contact._id, { invoiceNumber: 'INV-3000803016', type: 'credit_note', status: 'voided', relatedInvoiceId: inv._id })
+    await Invoice.collection.insertOne({ orgId: org._id, type: 'payment_storno', status: 'paid', invoiceNumber: 'PS-1', register: { refundOf: note._id } } as any)
+
+    expect((await planVoid(org._id, '3000803015')).reason).toMatch(/INV-3000803016 gave money back on a storno/)
+  })
+
+  it('asks again at the write: a receipt that printed after the dry run stops it, and nothing is written', async () => {
+    const { org, contact } = await world()
+    const inv = await paid(org._id, contact._id, '3000803017')
+    const plan = await planVoid(org._id, '3000803017')
+    expect(plan.ok).toBe(true)
+
+    await receiptOn(org._id, inv._id)
+
+    expect(await applyVoid(org._id, plan, inv._id, 'test')).toBe(false)
+    expect((await Invoice.findById(inv._id).lean() as any).status).toBe('paid')
+    expect(await AuditLog.countDocuments({ entityName: 'INV-3000803017' })).toBe(0)
   })
 
   it("never reaches another org's invoice of the same number", async () => {
