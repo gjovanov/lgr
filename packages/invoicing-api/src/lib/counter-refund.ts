@@ -20,7 +20,7 @@ import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { PAYMENT_STORNO } from 'services/biz/cash-register/pos-union'
 import {
   PAYMENT_IN_PROGRESS, citeableElsewhere, citeableOn, claimantsOf, doubtRefusal, exceedsPaid, exceedsReceipts, inDoubtRefusal, noReceiptToStorno, onOtherDevice, paymentStornoDocument,
-  printsRefund, receiptInDoubt, receiptsOf, refundBacking, refundCap, refundNeed, runReceiptSteps, type ReceiptTender,
+  printsRefund, receiptInDoubt, receiptsOf, refundBacking, refundCap, refundNeed, runReceiptSteps, whyNoCitation, type ReceiptTender,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { drawOn, holdEnough } from 'services/biz/cash-register/refund-budget'
 import { receiptMode, type ReceiptMode } from 'services/biz/cash-register/receipt-mode'
@@ -55,7 +55,7 @@ async function assertBacked(orgId: string, note: any, amount: number, deviceNumb
   if (backing.printing) throw new RegisterRefusal(409, { ...PAYMENT_IN_PROGRESS })
   if (citeable.length) throw exceedsReceipts(citeable, need)
   const elsewhere = citeableElsewhere(backing.cited, deviceNumber)
-  throw elsewhere.length ? onOtherDevice(elsewhere) : noReceiptToStorno()
+  throw elsewhere.length ? onOtherDevice(elsewhere) : noReceiptToStorno(whyNoCitation(backing))
 }
 
 /**
@@ -121,7 +121,7 @@ export async function prepareRefund(orgId: string, user: RegisterUser & { role?:
   if (!backing.cited.length) {
     if (backing.doubt) throw doubtRefusal(backing.doubt)
     if (backing.printing) throw new RegisterRefusal(409, { ...PAYMENT_IN_PROGRESS })
-    throw noReceiptToStorno()
+    throw noReceiptToStorno(whyNoCitation(backing))
   }
 
   // Past what the customer paid and has not had back, whatever the receipts hold. What is unresolved on the

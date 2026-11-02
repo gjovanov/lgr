@@ -6,7 +6,7 @@
  */
 
 /** A refusal's message key, or null when it is none of the receipt's and the server's text will do. */
-export function receiptRefusalKey(data: { code?: string; noSession?: boolean; deviceConfigured?: boolean; atIssue?: boolean; document?: string } | null | undefined): string | null {
+export function receiptRefusalKey(data: { code?: string; noSession?: boolean; deviceConfigured?: boolean; atIssue?: boolean; document?: string; reason?: string } | null | undefined): string | null {
   switch (data?.code) {
     case 'fiscal_device_not_connected':
       if (data.noSession) return 'cashRegister.receipt.noSession'
@@ -36,7 +36,9 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'receipts_unfinished': return 'cashRegister.receipt.unfinished'
     case 'close_interrupted': return 'pos.close.interrupted'
     // FR-23 R2: a refund on a credit note.
-    case 'no_receipt_to_storno': return 'cashRegister.receipt.noReceiptToStorno'
+    case 'no_receipt_to_storno':
+      if (data.reason === 'no_number') return 'cashRegister.receipt.noReceiptNumber'
+      return data.reason === 'other_kind' ? 'cashRegister.receipt.noReceiptOfKind' : 'cashRegister.receipt.noReceiptToStorno'
     case 'refund_exceeds_receipts': return 'cashRegister.receipt.refundExceeds'
     case 'refund_exceeds_paid': return data.atIssue ? 'cashRegister.receipt.refundExceedsPaidAtIssue' : 'cashRegister.receipt.refundExceedsPaid'
     case 'receipt_on_other_device': return 'cashRegister.receipt.refundOtherDevice'

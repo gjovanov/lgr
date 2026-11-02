@@ -1102,6 +1102,8 @@
       "noneOwed": "Für dieses Dokument ist kein Beleg mehr zu drucken.",
       "paidInvoice": "Bezahlte Rechnung",
       "noReceiptToStorno": "Zur Rechnung dieser Gutschrift gibt es in LGR keinen Bon zum Stornieren: Sie wurde per Überweisung bezahlt, importiert oder bezahlt, bevor LGR druckte. Erstatten Sie per Überweisung.",
+      "noReceiptNumber": "Beleg {number} hat keine erfasste Nummer vom Gerät, und ein Storno nennt diese Nummer. Tragen Sie sie vom Kassenzettel auf der Seite des Belegs nach oder erstatten Sie per Überweisung.",
+      "noReceiptOfKind": "Die Rechnung dieser Gutschrift hat einen Beleg, aber keinen, den ein Storno von hier aufheben kann: ein Textbeleg auf einem Fiskalgerät oder umgekehrt, einer per Nachnahme, einer, dessen Druck nichts beweist, oder einer ohne erfasste Nummer oder Gerät. Erstatten Sie per Überweisung.",
       "refundExceeds": "Diese Erstattung ist höher als das, was die Bons der Rechnung hier noch enthalten ({left}). Erstatten Sie so viel auf diesem Weg und den Rest per Überweisung.",
       "refundExceedsPaid": "Diese Erstattung ist höher als das, was der Kunde auf diese Rechnung gezahlt und noch nicht zurückerhalten hat ({left}). Erstatten Sie diesen Betrag hier. Für den Rest: eine Erstattung per Überweisung oder das Storno an der Kasse.",
       "refundExceedsPaidAtIssue": "Diese Gutschrift ist höher als das, was der Kunde auf diese Rechnung gezahlt und noch nicht zurückerhalten hat ({left}). Stellen Sie sie per Überweisung aus und erstatten Sie dann diesen Betrag mit „Erstatten“. Für den Rest: eine Erstattung per Überweisung oder das Storno an der Kasse.",

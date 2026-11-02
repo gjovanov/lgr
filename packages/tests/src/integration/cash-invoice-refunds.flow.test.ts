@@ -1886,6 +1886,111 @@ describe('what backs a refund, in doubt: a person settles it, and it holds what 
     })
   })
 
+  describe('nothing can be cited: the door says why, and the dialog holds what some device can cite (the readers, A4)', () => {
+    /** Settled printed by a person who had no number. */
+    async function settledWithNone(w: TillWorld) {
+      const inv = await heldReceipt(w)
+      const note = await issuedNote(w, inv)
+      expect((await pay(w, note.id, 24)).json.code).toBe('receipt_in_doubt')
+      expect((await settle(w, inv.receipt._id, true)).status).toBe(200)
+      return { inv, note }
+    }
+
+    it('no receipt at all: its own words, and the bank', async () => {
+      const w = await tillWorld(app)
+      const inv = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, inv.id)
+      await pay(w, inv.id, 24, 'bank_transfer')
+      const note = await issuedNote(w, inv)
+
+      const r = await pay(w, note.id, 24)
+
+      expect(r.status).toBe(409)
+      expect(r.json).toMatchObject({ code: 'no_receipt_to_storno', reason: 'none' })
+      expect(r.json.message).toContain('paid by bank')
+      expect((await shown(w, note.id)).refundable).toBe(0)
+      expect((await pay(w, note.id, 24, 'bank_transfer')).status).toBe(200)
+    })
+
+    it('settled printed with no number: the invoice is paid, the dialog no longer says the receipts hold it, and the door names it', async () => {
+      const w = await tillWorld(app)
+      const { inv, note } = await settledWithNone(w)
+      expect(await raw(inv.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+
+      expect((await shown(w, note.id)).refundable).toBe(0)
+      const r = await pay(w, note.id, 24)
+
+      expect(r.status).toBe(409)
+      expect(r.json).toMatchObject({ code: 'no_receipt_to_storno', reason: 'no_number', receipt: { id: String(inv.receipt._id), number: inv.receipt.invoiceNumber } })
+      expect(r.json.message).toContain('off the slip')
+      expect(r.json.message).toContain('by bank')
+      expect((await pay(w, note.id, 24, 'bank_transfer')).status).toBe(200)
+    })
+
+    it('printed with its number unread after its close: the same', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      await Invoice.updateOne({ _id: inv.receipt._id }, { $unset: { 'register.fiscalReceiptNumber': 1, 'register.fiscal.receiptNo': 1 } })
+      const note = await issuedNote(w, inv)
+
+      expect((await shown(w, note.id)).refundable).toBe(0)
+      const r = await pay(w, note.id, 24)
+
+      expect(r.json).toMatchObject({ code: 'no_receipt_to_storno', reason: 'no_number', receipt: { number: inv.receipt.invoiceNumber } })
+    })
+
+    it('one with a number beside one with none: what the one holds goes back, and the dialog counts only that', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInParts(w, [14, 10])
+      await Invoice.updateOne({ _id: inv.receipts[1]._id }, { $unset: { 'register.fiscalReceiptNumber': 1, 'register.fiscal.receiptNo': 1 } })
+      const note = await issuedNote(w, inv)
+
+      expect((await shown(w, note.id)).refundable).toBe(14)
+      expect((await pay(w, note.id, 14)).status).toBe(200)
+    })
+
+    it('one whose `unknown` stands is of another kind: the bank, and no number to bring', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      await Invoice.updateOne({ _id: inv.receipt._id }, { $set: { 'register.fiscal.state': 'unknown' }, $unset: { 'register.fiscalReceiptNumber': 1 } })
+      const note = await issuedNote(w, inv)
+
+      const r = await pay(w, note.id, 24)
+
+      expect(r.status).toBe(409)
+      expect(r.json).toMatchObject({ code: 'no_receipt_to_storno', reason: 'other_kind' })
+      expect(r.json.receipt).toBeUndefined()
+      expect(r.json.message).toContain('Refund it by bank')
+    })
+
+    it('one on delivery is of another kind too: its money is the courier\'s', async () => {
+      const w = await tillWorld(app)
+      const inv = await draftOf(w, { method: 'cash_on_delivery' })
+      expect((await send(w, inv.id)).status).toBe(200)
+      const note = await issuedNote(w, inv)
+      await Invoice.updateOne({ _id: inv.id }, { $set: { amountPaid: 24 } })
+
+      const r = await pay(w, note.id, 24)
+
+      expect(r.json).toMatchObject({ code: 'no_receipt_to_storno', reason: 'other_kind' })
+    })
+
+    it('a text receipt on a device fiscalized since: some device could cite it, so the dialog counts it, and this one says it cannot', async () => {
+      const w = await tillWorld(app)
+      w.sim!.unfiscalizedUnit = true
+      const inv = await paidInvoice(w)
+      expect(inv.receipt.register.fiscal.mode).toBe('text')
+      const note = await issuedNote(w, inv)
+      w.sim!.unfiscalizedUnit = false
+
+      expect((await shown(w, note.id)).refundable).toBe(24)
+      const r = await pay(w, note.id, 24)
+
+      expect(r.status).toBe(409)
+      expect(r.json).toMatchObject({ code: 'no_receipt_to_storno', reason: 'other_kind' })
+    })
+  })
+
   describe('correcting one: the door that took it, until a refund\'s storno cites it (the third read, finding 7)', () => {
     /** A receipt settled printed under `typed`, finished, with its note issued and nothing given back yet. */
     async function typedOn(w: TillWorld, typed = '77') {

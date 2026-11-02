@@ -734,11 +734,35 @@ async function giveBackCited(doc: any): Promise<void> {
   if (doc.type === PAYMENT_STORNO) await giveBackBudget(doc.register.storno.originalId, doc.orgId, doc._id)
 }
 
-/** A refund with no receipt behind it: §2.5, the owner's decision. */
-export const noReceiptToStorno = () => new RegisterRefusal(409, {
+/**
+ * Why nothing behind a refund can be cited, each in its own words. The bank is the way out of all of them, and
+ * a number off the slip where one can still be brought.
+ *  - `none`: no receipt in LGR, because it was paid by bank, imported or paid before LGR printed.
+ *  - `no_number`: a fiscal receipt that stands printed and has no number from the device, so a storno has
+ *    nothing to cite and a person can bring it.
+ *  - `other_kind`: a receipt no storno from here can reverse: text on a fiscal device or the reverse, on
+ *    delivery, one nothing proves printed, or one with no number or device on record.
+ */
+export type NoCitation = { reason: 'none' } | { reason: 'no_number'; receipt: any } | { reason: 'other_kind' }
+
+/** A refund with no receipt behind it that a storno can cite: §2.5, the owner's decision. */
+export const noReceiptToStorno = (why: NoCitation = { reason: 'none' }) => new RegisterRefusal(409, {
   code: 'no_receipt_to_storno',
-  message: 'This credit note\'s invoice has no receipt in LGR to storno: it was paid by bank, imported, paid before LGR printed, or nothing proves its receipt printed. Refund it by bank.',
+  reason: why.reason,
+  ...(why.reason === 'no_number' ? { receipt: { id: String(why.receipt._id), number: why.receipt.invoiceNumber } } : {}),
+  message: why.reason === 'no_number'
+    ? `Receipt ${why.receipt.invoiceNumber} has no number from the device on record, and a storno cites that number. Bring it off the slip on the receipt's page, or refund it by bank.`
+    : why.reason === 'other_kind'
+      ? 'This credit note\'s invoice has a receipt, but not one a storno from here can reverse: a text receipt on a fiscal device or the reverse, one on delivery, one nothing proves printed, or one with no number or device on record. Refund it by bank.'
+      : 'This credit note\'s invoice has no receipt in LGR to storno: it was paid by bank, imported, or paid before LGR printed. Refund it by bank.',
 })
+
+/** Why what stands behind this note has nothing to cite, here or on any other device. */
+export function whyNoCitation(backing: RefundBacking): NoCitation {
+  const numberless = backing.cited.filter(r => r.type === PAYMENT_RECEIPT && !isTextReceipt(r) && !hasReceiptNumber(r))
+  if (numberless.length) return { reason: 'no_number', receipt: numberless[numberless.length - 1] }
+  return backing.cited.length || backing.uncitable.length ? { reason: 'other_kind' } : { reason: 'none' }
+}
 
 /** More than they hold. `left`: what they do hold of it, which is what can still go back this way. */
 export function exceedsReceipts(cited: any[], need: ByRate): RegisterRefusal {
@@ -808,6 +832,8 @@ export interface RefundBacking {
   doubt: any | null
   /** A receipt of the invoice still going through: its money may be coming. */
   printing: boolean
+  /** A finished receipt of the invoice that holds nothing to cite: its `unknown` stands, or the money is the courier's. */
+  uncitable: any[]
 }
 
 /** The stornos holding a claim on what these hold, of whichever note. */
@@ -839,7 +865,7 @@ const hasReceiptNumber = (d: any) => /^\d+$/.test(String(d?.register?.fiscalRece
  * nothing to give back. Such a refund goes by bank, as one on an invoice with no receipt does.
  */
 export async function refundBacking(orgId: string, note: any): Promise<RefundBacking> {
-  const none: RefundBacking = { cited: [], doubt: null, printing: false }
+  const none: RefundBacking = { cited: [], doubt: null, printing: false, uncitable: [] }
   if (!note?.relatedInvoiceId) return none
   const invoice: any = await Invoice.findOne({ _id: note.relatedInvoiceId, orgId: oid(orgId) }, { 'cashSaleRef.cashSaleId': 1 }).lean().exec()
   if (!invoice) return none
@@ -861,6 +887,7 @@ export async function refundBacking(orgId: string, note: any): Promise<RefundBac
     cited,
     doubt: live.find(r => r.register?.fiscal?.inDoubt) ?? await claimantInDoubt(orgId, cited),
     printing: live.some(r => !r.completedAt && !r.register?.fiscal?.inDoubt),
+    uncitable: live.filter(r => r.completedAt && !cited.includes(r)),
   }
 }
 
@@ -893,10 +920,15 @@ export function refundNeed(note: any, stornos: any[], amount: number): ByRate | 
   return shares?.length ? new Map(shares.map(s => [s.rate, Math.round(s.gross * 100)])) : null
 }
 
-/** What the receipts behind this note still hold, wherever they printed: what the dialog says. */
+/**
+ * What the receipts behind this note still hold, wherever they printed, of what some device can cite: what the
+ * dialog says. A fiscal receipt with no number holds money no storno can give back, and the dialog said it did.
+ */
 async function refundableOn(orgId: string, note: any): Promise<number> {
   const { cited } = await refundBacking(orgId, note)
-  const held = cited.reduce((s, c) => s + totalOf(leftByRate(c)), 0) / 100
+  const canBeCited = cited.filter(r => (!note.currency || !r.currency || r.currency === note.currency)
+    && (isTextReceipt(r) || (hasReceiptNumber(r) && !!r.register?.fiscalDeviceNumber)))
+  const held = canBeCited.reduce((s, c) => s + totalOf(leftByRate(c)), 0) / 100
   const cap = await refundCap(orgId, note)
   return cap === null ? held : Math.min(held, cap)
 }
