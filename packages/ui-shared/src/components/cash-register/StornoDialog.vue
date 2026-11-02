@@ -140,6 +140,7 @@ import { httpClient } from '../../composables/useHttpClient'
 import { createIdempotentAction } from '../../composables/idempotency'
 import { useCurrency } from '../../composables/useCurrency'
 import { receiptRefusalMessage } from '../../cash-register/receipt-refusal'
+import { canPickPart } from '../../cash-register/storno'
 import { paymentMethodKey } from '../../composables/usePaymentMethods'
 
 export interface StornoTarget {
@@ -202,11 +203,7 @@ const partOf = (l: StornoLine, q: unknown) => partOfLine(l.value, toMilli(l.quan
 const cents = (c: number) => c / 100
 const returnedAny = computed(() => lines.value.some(l => l.returned > 0))
 const leftValue = computed(() => lines.value.reduce((s, l) => s + partOf(l, l.left), 0))
-/** Nothing to pick on one unit of one line: all of it is the only part there is. */
-const canPart = computed(() => {
-  const open = lines.value.filter(l => l.left > 0)
-  return open.length > 1 || (open.length === 1 && open[0].left > 1)
-})
+const canPart = computed(() => canPickPart(lines.value))
 const picked = computed(() => lines.value.filter(l => (Number(l.take) || 0) > 0))
 const goesBack = computed(() => picked.value.reduce((s, l) => s + partOf(l, l.take), 0))
 const partOk = computed(() => picked.value.length > 0 && lines.value.every((l) => {

@@ -25,6 +25,16 @@ export function canStornoTransaction(txn: { type?: string; status?: string; isFi
   return txn.type === 'sale' && txn.status === 'completed' && (STORNO_ROLES as readonly string[]).includes(role)
 }
 
+/**
+ * Whether the storno dialog offers a part beside all of it (FR-23 R3): when there is anything to pick. One line of one
+ * unit or less counts: an article sold by the kilo goes back 0.3 of 0.8. Only the smallest quantity a device prints has
+ * no part to it.
+ */
+export function canPickPart(lines: { left: number }[]): boolean {
+  const open = lines.filter(l => l.left > 0)
+  return open.length > 1 || (open.length === 1 && open[0].left > 0.001)
+}
+
 /** A journal row (`/cash-register/documents`), as the shared journal shows it. */
 export interface StornoableRow {
   kind?: string
