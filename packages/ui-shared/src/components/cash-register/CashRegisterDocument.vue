@@ -45,10 +45,10 @@
         <v-card>
           <v-card-title>{{ doc.row.number }}</v-card-title>
           <v-card-text>
-            {{ settling ? $t(`cashRegister.receipt.${settleWords.confirm}.${settling}`) : '' }}
+            {{ settling === 'correct' ? $t('cashRegister.receipt.correctNumberConfirm') : settling ? $t(`cashRegister.receipt.${settleWords.confirm}.${settling}`) : '' }}
             <!-- A storno cites it, and only the slip knows it. -->
             <v-text-field
-              v-if="settling === 'printed' && takesNumber"
+              v-if="settling === 'correct' || (settling === 'printed' && takesNumber)"
               v-model="settleNumber"
               :label="$t('cashRegister.receipt.receiptNumber')"
               :hint="doc.row.kind === 'payment' ? $t('cashRegister.receipt.receiptNumberHint') : undefined"
@@ -62,7 +62,7 @@
           <v-card-actions>
             <v-spacer />
             <v-btn variant="text" :disabled="settlingNow" @click="settling = null">{{ $t('common.cancel') }}</v-btn>
-            <v-btn color="primary" variant="flat" :loading="settlingNow" :disabled="settling === 'printed' && settleNumberBad" data-testid="receipt-settle-confirm" @click="settle">{{ $t('common.confirm') }}</v-btn>
+            <v-btn color="primary" variant="flat" :loading="settlingNow" :disabled="settleNumberBad" data-testid="receipt-settle-confirm" @click="settle">{{ $t('common.confirm') }}</v-btn>
           </v-card-actions>
         </v-card>
       </v-dialog>
@@ -76,7 +76,10 @@
             <v-col cols="12" sm="6" md="3"><div class="text-caption text-medium-emphasis">{{ $t('cashRegister.columns.cashier') }}</div><div>{{ doc.row.cashierName || '—' }}</div></v-col>
             <v-col cols="12" sm="6" md="3"><div class="text-caption text-medium-emphasis">{{ $t('cashRegister.columns.warehouse') }}</div><div>{{ doc.row.warehouseName || '—' }}</div></v-col>
             <v-col cols="12" sm="6" md="3"><div class="text-caption text-medium-emphasis">{{ $t('cashRegister.columns.fiscal') }}</div><div data-testid="journal-document-unp">{{ doc.row.fiscal.unp || '—' }}</div></v-col>
-            <v-col cols="12" sm="6" md="3"><div class="text-caption text-medium-emphasis">{{ $t('cashRegister.columns.device') }}</div><div>{{ doc.row.fiscal.deviceNumber || '—' }}<span v-if="doc.row.fiscal.receiptNumber"> · {{ doc.row.fiscal.receiptNumber }}</span></div></v-col>
+            <v-col cols="12" sm="6" md="3"><div class="text-caption text-medium-emphasis">{{ $t('cashRegister.columns.device') }}</div><div>{{ doc.row.fiscal.deviceNumber || '—' }}<span v-if="doc.row.fiscal.receiptNumber" data-testid="journal-document-receipt-number"> · {{ doc.row.fiscal.receiptNumber }}</span></div>
+              <!-- FR-23: typed off the slip by a person, so a person can correct it until something cites it. -->
+              <v-btn v-if="canCorrectNumber" size="x-small" variant="text" class="px-0" data-testid="receipt-correct-number" @click="openCorrection">{{ $t('cashRegister.receipt.correctNumber') }}</v-btn>
+            </v-col>
             <v-col cols="12" sm="6" md="3"><div class="text-caption text-medium-emphasis">{{ $t('cashRegister.columns.stock') }}</div><div :class="{ 'text-error': doc.row.stock === 'error' }">{{ $t(`cashRegister.stock.${doc.row.stock}`) }}</div></v-col>
             <v-col v-if="doc.row.fiscal.state && doc.row.fiscal.state !== 'none'" cols="12" sm="6" md="3">
               <div class="text-caption text-medium-emphasis">{{ $t('cashRegister.filters.fiscalState') }}</div>
@@ -280,23 +283,35 @@ const settleWords = computed(() => (({
 } as Record<string, { inDoubt: string; confirm: string; done: string }>)[doc.value?.row.kind] ?? { inDoubt: 'inDoubt', confirm: 'settleConfirm', done: 'settled' }))
 const settleNumber = ref('')
 const canSettle = computed(() => !!props.role && (STORNO_ROLES as readonly string[]).includes(props.role))
-const settling = ref<'printed' | 'notPrinted' | null>(null)
+const settling = ref<'printed' | 'notPrinted' | 'correct' | null>(null)
 /** A storno cites the number: a sale must bring it, and a fiscal receipt may (R2's refund cites it). */
 const takesNumber = computed(() => doc.value?.row.kind === 'sale' || (doc.value?.row.kind === 'payment' && !!doc.value?.row.fiscal?.isFiscal))
 const settleNumberBad = computed(() => {
-  if (!takesNumber.value) return false
   const typed = settleNumber.value.trim()
-  return !/^\d{1,10}$/.test(typed) && (doc.value?.row.kind === 'sale' || typed !== '')
+  const digits = /^\d{1,10}$/.test(typed)
+  if (settling.value === 'correct') return !digits
+  if (settling.value !== 'printed' || !takesNumber.value) return false
+  return !digits && (doc.value?.row.kind === 'sale' || typed !== '')
 })
 const settlingNow = ref(false)
+// A number a person typed off the slip, until a storno or an invoice cites it. The server has the last word.
+const canCorrectNumber = computed(() => {
+  const row = doc.value?.row
+  return !!row && canSettle.value && row.kind === 'sale' && !!row.fiscal.numberTyped && !row.fiscal.inDoubt && !row.stornoedBy?.length && !row.invoices?.length
+})
+function openCorrection() {
+  settleNumber.value = doc.value?.row.fiscal.receiptNumber ?? ''
+  settling.value = 'correct'
+}
 async function settle() {
   settlingNow.value = true
   try {
-    const printed = settling.value === 'printed'
+    const correcting = settling.value === 'correct'
+    const printed = settling.value !== 'notPrinted'
     await httpClient.post(`${props.orgUrl}/cash-register/documents/${props.id}/settle`, {
       printed, ...(printed && takesNumber.value && settleNumber.value.trim() ? { receiptNumber: settleNumber.value.trim() } : {}),
     })
-    showSuccess(t(`cashRegister.receipt.${settleWords.value.done}`))
+    showSuccess(t(correcting ? 'cashRegister.receipt.numberCorrected' : `cashRegister.receipt.${settleWords.value.done}`))
   } catch (e: any) {
     showSnackbar(receiptRefusalMessage(t, e, t('common.operationFailed')), 'error', 12000)
   } finally {

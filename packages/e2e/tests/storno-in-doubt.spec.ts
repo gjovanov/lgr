@@ -21,6 +21,11 @@ const STUB = `http://127.0.0.1:${STUB_PORT + 1}`
 const SERIAL = 'ED123456' // the simulator's
 const PASSWORD = 'test12345'
 const CLOSE = 0x38
+/**
+ * Where this device's numbers start. A real device's repeat only when its fiscal memory is replaced, and this
+ * one resets: an earlier spec's documents under the same device number would read as having taken them.
+ */
+const LAST_NUMBER = 100_000 + (Date.now() % 800_000)
 
 type Session = Awaited<ReturnType<typeof apiLogin>>
 async function call(s: Session, method: string, path: string, body?: unknown): Promise<{ status: number; json: any }> {
@@ -69,7 +74,7 @@ test.describe('FR-23 — a storno that may have printed', () => {
     // A device whose VAT group for that rate carries it, as `cash-register-fiscal.spec.ts` programs it.
     const rates = [0, 20, 20, 9, 0, 0, 0, 0]
     rates[rate >= 18 ? 1 : rate >= 7 ? 3 : 0] = rate
-    await stub('/reset', { rates })
+    await stub('/reset', { rates, lastDocNumber: LAST_NUMBER })
 
     const { fiscalDevices } = await ok(admin, 'GET', '/fiscal/device?size=100')
     const existing = (fiscalDevices || []).find((d: any) => d.deviceNumber === SERIAL)
@@ -177,6 +182,20 @@ test.describe('FR-23 — a storno that may have printed', () => {
     await expect(page.getByText('A receipt is still open on the fiscal device')).toBeVisible()
     await expect(page.getByTestId('receipt-in-doubt')).toBeVisible()
 
+    // Its bridge gone neither answer is taken, and the page says what to do about it.
+    await ok(admin, 'POST', `/fiscal/device/${deviceId}/disconnect`)
+    for (const answer of ['receipt-settle-not-printed', 'receipt-settle-printed']) {
+      await page.getByTestId(answer).click()
+      const away = page.waitForResponse(r => r.url().endsWith(`/cash-register/documents/${stornoId}/settle`))
+      await page.getByTestId('receipt-settle-confirm').click()
+      const refusal = await away
+      expect(refusal.status()).toBe(409)
+      expect((await refusal.json()).code).toBe('receipt_device_away')
+      await expect(page.getByText('is not answering')).toBeVisible()
+    }
+    await expect(page.getByTestId('receipt-in-doubt')).toBeVisible()
+    await ok(admin, 'POST', `/fiscal/device/${deviceId}/connect`)
+
     // Paper back, and the X report it asks for clears it: the storno is finished, on paper, once.
     await stub('/fault', {})
     await stub('/paper', { on: true })
@@ -217,12 +236,23 @@ test.describe('FR-23 — a storno that may have printed', () => {
     await expect(confirm).toBeDisabled()
     await page.getByTestId('receipt-settle-number').locator('input').fill('ФБ-1')
     await expect(confirm).toBeDisabled()
-    await page.getByTestId('receipt-settle-number').locator('input').fill(onTheSlip)
+    // Misread at first: a number no document has, and below what the device has reached.
+    const misread = String(LAST_NUMBER - 1)
+    await page.getByTestId('receipt-settle-number').locator('input').fill(misread)
     const settling = page.waitForResponse(r => r.url().endsWith(`/cash-register/documents/${inDoubt.id}/settle`))
     await confirm.click()
     expect((await settling).status()).toBe(200)
     await expect(page.getByTestId('receipt-in-doubt')).toHaveCount(0)
     await expect(page.getByTestId('storno-button')).toBeVisible()
+    await expect(page.getByTestId('journal-document-receipt-number')).toContainText(misread)
+
+    // The page corrects it, until something cites it.
+    await page.getByTestId('receipt-correct-number').click()
+    await page.getByTestId('receipt-settle-number').locator('input').fill(onTheSlip)
+    const correcting = page.waitForResponse(r => r.url().endsWith(`/cash-register/documents/${inDoubt.id}/settle`))
+    await page.getByTestId('receipt-settle-confirm').click()
+    expect((await correcting).status()).toBe(200)
+    await expect(page.getByTestId('journal-document-receipt-number')).toContainText(onTheSlip)
 
     await ok(manager, 'POST', `/cash-register/documents/${inDoubt.id}/storno`, { reason: 'customer_return', sessionId: till.id })
     const cited = (await device()).receipts.at(-1)

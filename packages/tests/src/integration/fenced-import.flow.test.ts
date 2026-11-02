@@ -11,7 +11,7 @@ import { mongoose } from 'db/connection'
 import { AuditLog, FencedExport, FencedImportItem, Invoice, Journal, JournalEntry, OrgHome, OrgMove, POSSession, Sequence, StockLevel, StockMovement } from 'db/models'
 import { forgetAllHomes } from 'db/home/home'
 import { fencedExportPath, fencedExportsOf, receiveFencedChunk, writeFencedExport } from 'services/biz/move/fenced-export.service'
-import { fencedImportTick, requestFencedImport } from 'services/biz/move/fenced-import.service'
+import { bookingOf, fencedImportTick, requestFencedImport } from 'services/biz/move/fenced-import.service'
 import { receiptBillingState } from 'services/biz/receipt-bill.service'
 import { freezeRefusal, receiptInDoubt } from 'services/biz/cash-register/payment-receipt.service'; import { settleInDoubt } from 'services/biz/cash-register/settle.service'; import { deviceless, finishInterruptedDocuments } from 'invoicing-api/src/lib/cash-register-till'
 
@@ -280,6 +280,12 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
     const settled = await settleInDoubt(deviceless(w.orgId, { id: String(w.admin._id), operatorCode: '0001' } as any), String(w.ids.dead), { printed: false })
     expect(settled.status).toBe('voided')
     expect(((await Invoice.collection.findOne({ _id: w.ids.held } as any)) as any).receiptHolds ?? []).toHaveLength(0)
+  })
+
+  it('a storno settled not printed that stopped before its void books nothing: `failed` and still `paid`, it refunded nothing', () => {
+    const storno = (state: string) => ({ type: 'cash_storno', status: 'paid', direction: 'outgoing', register: { fiscal: { state } } })
+    for (const state of ['pending', 'unknown', 'failed']) expect(bookingOf(storno(state))).toBe('none')
+    expect(bookingOf(storno('printed'))).toBe('register')
   })
 
   it('a storno whose request died on the site arrives held, books nothing, and a person settling it books it here', async () => {

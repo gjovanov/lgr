@@ -186,6 +186,22 @@ export const deviceFromJournalDocument: FiscalResolver = async ({ params, body }
 }
 
 /**
+ * FR-23: the settle door asks the device the document printed on, so it runs where that device is. ⚠ The
+ * document's own, by number, never its warehouse's: a warehouse can hold two, and with each held on a pod
+ * of its own the request would land on the wrong one and read as "not here". A text document, one with no
+ * number and a device deactivated are nobody's to ask: the person's word stands, and it runs where it is.
+ */
+export const deviceFromSettledDocument: FiscalResolver = async ({ params }) => {
+  const _id = oid(params?.id)
+  if (!_id) return null
+  const doc: any = await Invoice.findOne({ _id, orgId: params.orgId }, { 'register.isFiscal': 1, 'register.fiscalDeviceNumber': 1 }).lean().exec()
+  const deviceNumber = doc?.register?.isFiscal ? doc.register.fiscalDeviceNumber : undefined
+  if (!deviceNumber) return null
+  const device: any = await FiscalDevice.findOne({ orgId: params.orgId, deviceNumber }, { deviceNumber: 1, isActive: 1 }).lean().exec()
+  return device && device.isActive !== false ? { orgId: params.orgId, deviceId: String(device._id), deviceNumber: String(device.deviceNumber) } : null
+}
+
+/**
  * `POST /invoices`: a back-office cash sale joins its author's open session (FR-21.31) and prints
  * on that session's device. The device follows from the author, not from the path, which is why
  * a resolver gets `user` and `body`. Any other document reaches no device.

@@ -30,7 +30,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
  * fiscal-memory report, `eltrade.ts#TIMEOUT_MS`), so a sale behind a slow Z prints when the Z is done
  * and is not refused. It exists for a holder that never ends: a transport that hangs for good.
  */
-const TURN_WAIT_MS = 330_000
+export const TURN_WAIT_MS = 330_000
 
 /** The device did not come free in time. Nothing was sent to it. */
 export class DeviceBusyError extends Error {

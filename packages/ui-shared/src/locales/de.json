@@ -820,6 +820,10 @@
       "notCounted": "Beim Kurier, wird nicht gezählt",
       "receiptOpenTitle": "Die Sitzung bleibt geöffnet",
       "receiptOpen": "Auf diesem Gerät wird gerade ein Verkauf gedruckt. Warten Sie, bis er fertig ist, und schließen Sie dann erneut ab.",
+      "deadSales": "Die Verkäufe {numbers} wurden vor ihrem Abschluss unterbrochen, und nichts kann sagen, ob ihre Belege gedruckt wurden. Ihr Geld zählt hier zum Erwartungswert: Der Abschluss bucht es. Prüfen Sie das Gerät und klären Sie dann jeden unter „Kassenverkäufe“.",
+      "interruptedTitle": "Der letzte Abschluss wurde während des Z-Berichts unterbrochen",
+      "interrupted": "Der Z-Bericht wurde möglicherweise gedruckt, und die Sitzung ist wieder offen. Prüfen Sie das Gerät. Wurde der Z-Bericht gedruckt, schließen Sie ohne Fiskalbericht ab (das kann ein Manager). Wenn nicht, schließen Sie erneut ab.",
+      "closeAgain": "Diese Sitzung erneut abschließen",
       "method": {
         "cash": "Bar",
         "card": "Karte",
@@ -1038,7 +1042,8 @@
       "salesSeries": "Verkäufe",
       "states": {
         "open": "offen",
-        "closed": "geschlossen"
+        "closed": "geschlossen",
+        "closing_control": "wird abgeschlossen"
       }
     }
   },
@@ -1086,6 +1091,9 @@
       "takePayment": "Zahlung annehmen",
       "issuedNoReceipt": "Ausgestellt, aber der Beleg wurde nicht gedruckt: {reason}",
       "issuedUnknown": "Ausgestellt, aber prüfen Sie das Gerät: {reason}",
+      "issuedChanged": "Ausgestellt, aber das Dokument hat sich während der Ausstellung geändert, daher wurde kein Beleg gedruckt und nichts bezahlt. Nehmen Sie die Zahlung für den aktuellen Betrag an.",
+      "issuedChangedDelivery": "Ausgestellt, aber das Dokument hat sich während der Ausstellung geändert, daher wurde kein Beleg gedruckt. Drucken Sie den Beleg auf dieser Seite.",
+      "issueInProgress": "Dieses Dokument wird gerade ausgestellt. Versuchen Sie es gleich noch einmal.",
       "deliveryMissing": "Der Beleg dieser Nachnahme-Rechnung wurde nicht gedruckt.",
       "printIt": "Beleg drucken",
       "deliveryPrinted": "Beleg {number} gedruckt",
@@ -1132,8 +1140,12 @@
       },
       "stornoSettled": "Storno geklärt",
       "openOnDevice": "Auf dem Fiskalgerät ist noch ein Beleg offen, daher ist noch nichts endgültig. Drucken Sie auf der Geräteseite einen X-Bericht, der ihn bereinigt, und prüfen Sie das Gerät erneut: Was dann gedruckt wurde, ist gedruckt.",
+      "deviceAway": "Das Fiskalgerät, auf dem dieses Dokument gedruckt wurde, antwortet nicht, und was es enthält, entscheidet darüber. Nichts wurde geändert. Verbinden Sie es und prüfen Sie es erneut. Ein endgültig verlorenes Gerät wird auf seiner Seite deaktiviert, danach gilt Ihre Angabe.",
+      "deviceBusy": "Das Fiskalgerät ist mit einem anderen Dokument beschäftigt und konnte nicht gefragt werden. Nichts wurde geändert. Versuchen Sie es gleich noch einmal.",
+      "holderUnreachable": "Das Fiskalgerät wird von einem anderen Serverprozess gehalten, der gerade nicht erreichbar ist. Nichts wurde geändert. Versuchen Sie es gleich noch einmal.",
       "saleInDoubt": "Nichts kann belegen, ob der Fiskalbeleg dieses Verkaufs gedruckt wurde. Sein Geld bleibt, und sein Storno wartet, bis jemand das Gerät prüft und angibt, was zutrifft.",
       "saleInDoubtRefused": "Nichts kann belegen, ob der Beleg des Verkaufs {number} gedruckt wurde, daher weiß ein Storno nicht, was es rückgängig macht. Nichts wurde rückgängig gemacht. Prüfen Sie das Gerät und klären Sie den Verkauf auf seiner Seite unter Kassenverkäufe.",
+      "saleInProgress": "Dieser Verkauf wird noch erfasst, daher gibt es noch nichts zu stornieren. Nichts wurde storniert. Warten Sie, bis er abgeschlossen ist, und versuchen Sie es erneut.",
       "settleConfirmSale": {
         "printed": "Der Beleg ist auf dem Gerät. Geben Sie seine Nummer vom Bon ein: das Storno dieses Verkaufs zitiert sie. Das lässt sich nicht rückgängig machen.",
         "notPrinted": "Der Beleg ist nicht auf dem Gerät. Der Verkauf und sein Geld bleiben, und sein Storno druckt nichts. Das lässt sich nicht rückgängig machen."
@@ -1141,7 +1153,12 @@
       "saleSettled": "Verkauf geklärt",
       "receiptNumber": "Belegnummer",
       "numberRequired": "Ein gedruckter Verkauf braucht seine Belegnummer vom Bon, in Ziffern: sein Storno zitiert sie.",
-      "numberTaken": "Diese Belegnummer gehört auf diesem Gerät zu {number}. Prüfen Sie den Bon."
+      "numberTaken": "Diese Belegnummer gehört auf diesem Gerät zu {number}. Prüfen Sie den Bon.",
+      "numberOffDevice": "Diese Belegnummer liegt über der letzten, die dieses Gerät vergeben hat ({last}). Prüfen Sie den Bon.",
+      "numberCited": "Ein Storno oder eine Rechnung dieses Verkaufs nennt diese Belegnummer, daher bleibt sie bestehen.",
+      "correctNumber": "Nummer korrigieren",
+      "correctNumberConfirm": "Geben Sie die Belegnummer so ein, wie sie auf dem Bon steht. Das Storno dieses Verkaufs nennt sie, und das Protokoll behält beide.",
+      "numberCorrected": "Belegnummer korrigiert"
     },
     "origin": {
       "pos": "Kasse",

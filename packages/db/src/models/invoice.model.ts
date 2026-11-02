@@ -145,7 +145,9 @@ export interface IInvoiceRegister {
   /** On a `payment_receipt` (FR-23): the invoice or debit note it took money for. */
   paidInvoiceId?: Types.ObjectId
   /** What the person who settled a receipt in doubt said, and who it was. */
-  settled?: { printed: boolean; by: Types.ObjectId; at: Date }
+  settled?: { printed: boolean; by: Types.ObjectId; at: Date; receiptNumber?: string }
+  /** The transfers a sale asked for, as its request named them. Confirmed, they are `pendingTransferIds`. */
+  transfersToConfirm?: Types.ObjectId[]
   paidInvoiceNumber?: string
   /** On a `payment_receipt`: the free text printed under its lines, „Фактура № …". */
   receiptText?: string
@@ -250,7 +252,14 @@ export interface IInvoice extends Document {
    * allocates the issued number, so a second Issue — a double click, a retry — cannot do it
    * again. Carries the key that issued it, so its retry gets the issued document back.
    */
-  issue?: { clientKey?: string; requestHash?: string; leaseUntil?: Date; completedAt?: Date }
+  issue?: {
+    clientKey?: string
+    requestHash?: string
+    leaseUntil?: Date
+    completedAt?: Date
+    /** FR-23: what the issue decided to take at the counter, which its retry checks the document against. */
+    tender?: { method?: string; amount?: number }
+  }
   /**
    * FR-20.84 (P3-6e): a document a replaced server issued after the cutoff, brought in by the audited
    * import: its source (the server, the promotion, the export), the method, when, and who asked
@@ -486,6 +495,7 @@ const invoiceSchema = new Schema<IInvoice>(
       requestHash: String,
       leaseUntil: Date,
       completedAt: Date,
+      tender: { method: String, amount: Number },
     },
     importedFrom: {
       kind: { type: String, enum: ['fenced_export', 'reseed_kept'] },
@@ -623,6 +633,8 @@ const invoiceSchema = new Schema<IInvoice>(
           },
           /** What the person who settled a document in doubt said, and who it was. A sale's number comes off its slip. */
           settled: { printed: Boolean, by: { type: Schema.Types.ObjectId, ref: 'User' }, at: Date, receiptNumber: String },
+          /** The transfers a sale asked for, as its request named them. Confirmed, they are `pendingTransferIds`. */
+          transfersToConfirm: [{ type: Schema.Types.ObjectId, ref: 'StockMovement' }],
           changeDue: Number,
           sessionTotalsApplied: Boolean,
           receiptError: String,

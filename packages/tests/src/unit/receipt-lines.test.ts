@@ -10,6 +10,10 @@ import { isImmutableRegisterDocument } from 'services/biz/cash-register/immutabi
 import { sequenceGroupFor } from 'services/biz/sequence-registry'
 import { posRowSign, receiptTookMoney } from 'services/biz/cash-register/counting'
 import { toPosTransaction } from 'services/biz/cash-register/mapping'
+import en from '../../../ui-shared/src/locales/en.json'
+import bg from '../../../ui-shared/src/locales/bg.json'
+import de from '../../../ui-shared/src/locales/de.json'
+import mk from '../../../ui-shared/src/locales/mk.json'
 
 /** FR-23 §2.2 — what a payment's receipt prints, with no database and no device in the way. */
 
@@ -301,6 +305,11 @@ describe('issued, and the receipt did not print', () => {
       .toEqual({ key: 'cashRegister.receipt.issuedUnknown', takesPayment: false })
     expect(issuedReceiptNotice({ paymentMethod: 'cash' })).toBeNull()
     expect(issuedReceiptNotice(null)).toBeNull()
+    // A document that changed under its issue: Pay is the way on, but for the courier's money.
+    expect(issuedReceiptNotice({ receiptError: 'x', receiptCode: 'issue_tender_moved', paymentMethod: 'cash' }))
+      .toEqual({ key: 'cashRegister.receipt.issuedChanged', takesPayment: true })
+    expect(issuedReceiptNotice({ receiptError: 'x', receiptCode: 'issue_tender_moved', paymentMethod: 'cash_on_delivery' }))
+      .toEqual({ key: 'cashRegister.receipt.issuedChangedDelivery', takesPayment: false })
   })
 })
 
@@ -317,6 +326,38 @@ describe('the refusal, in words', () => {
     expect(receiptRefusalParams({ receipt: { number: 'CS-1' } }).number).toBe('CS-1')
     expect(receiptRefusalParams({ receipts: [{ number: 'CS-1' }, { number: null, invoice: 'INV-2' }] }).numbers).toBe('CS-1, INV-2')
     expect(receiptRefusalKey({ code: 'overpayment' })).toBeNull()
+  })
+
+  it('every refusal a door answers reads in all four languages: a missing key renders literally', () => {
+    const codes = [
+      'payment_in_progress', 'document_claimed', 'document_changed', 'issue_in_progress', 'fiscally_paid', 'receipt_currency', 'receipt_not_printable', 'document_not_issued',
+      'no_receipt_owed', 'receipt_in_doubt', 'storno_in_doubt', 'receipt_open_on_device', 'receipt_device_away', 'device_busy', 'fiscal_holder_unreachable', 'sale_receipt_in_doubt', 'sale_in_progress',
+      'receipt_number_required', 'receipt_number_taken', 'receipt_number_off_device', 'receipt_number_cited', 'delivery_receipt_owed', 'receipts_unfinished', 'close_interrupted',
+    ]
+    const locales = { en, bg, de, mk } as Record<string, any>
+    for (const code of codes) {
+      const key = receiptRefusalKey({ code })
+      expect(key, code).toBeTruthy()
+      for (const [name, messages] of Object.entries(locales)) {
+        const text = key!.split('.').reduce((at: any, part) => at?.[part], messages)
+        expect(typeof text, `${name}: ${key}`).toBe('string')
+        expect(text.length, `${name}: ${key}`).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('what the close dialog and the sessions page say reads in all four languages too', () => {
+    const locales = { en, bg, de, mk } as Record<string, any>
+    for (const key of [
+      'pos.close.deadSales', 'pos.close.interruptedTitle', 'pos.close.closeAgain', 'pos.sessions.states.closing_control',
+      'cashRegister.receipt.correctNumber', 'cashRegister.receipt.correctNumberConfirm', 'cashRegister.receipt.numberCorrected',
+      'cashRegister.receipt.issuedChanged', 'cashRegister.receipt.issuedChangedDelivery',
+    ]) {
+      for (const [name, messages] of Object.entries(locales)) {
+        const text = key.split('.').reduce((at: any, part) => at?.[part], messages)
+        expect(typeof text, `${name}: ${key}`).toBe('string')
+      }
+    }
   })
 
   it('a failed print is the one that offers a retry', () => {

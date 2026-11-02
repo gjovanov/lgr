@@ -54,6 +54,31 @@
               {{ $t('cashRegister.receipt.unfinished', { numbers: unfinishedReceipts }) }}
             </v-alert>
 
+            <!-- FR-23: sales whose request died. The close books them, printing nothing, so they count below. -->
+            <v-alert
+              v-if="deadSales"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              data-testid="close-dead-sales"
+            >
+              {{ $t('pos.close.deadSales', { numbers: deadSales }) }}
+            </v-alert>
+
+            <!-- FR-23: the last close stopped in its Z. The session is open again, and only the device can say
+                 which way on: the checkbox below if the Z printed, the close if it did not. -->
+            <v-alert
+              v-if="interrupted"
+              type="warning"
+              variant="tonal"
+              class="mb-3"
+              data-testid="close-interrupted"
+            >
+              <div class="font-weight-medium">{{ $t('pos.close.interruptedTitle') }}</div>
+              <div class="text-body-2 mt-1">{{ interrupted }}</div>
+            </v-alert>
+
             <v-alert
               v-if="preview && !preview.fiscalDevice"
               type="info"
@@ -205,6 +230,7 @@ const expected = ref<Record<string, number>>({ cash: 0, card: 0, other: 0 })
 const counted = ref<Record<string, number>>({ cash: 0, card: 0, other: 0 })
 const notes = ref('')
 const closeWithoutFiscal = ref(false)
+const interrupted = ref('')
 const result = ref<{
   kind: 'success' | 'skipped' | 'error'
   title: string
@@ -237,11 +263,13 @@ function diffClass(method: string): string {
   return d > 0 ? 'text-success' : 'text-error'
 }
 
-const unfinishedReceipts = computed(() => (preview.value?.unfinishedReceipts ?? []).map((r: any) => r.number ?? r.invoice).join(', '))
+const unfinishedReceipts = computed(() => (preview.value?.unfinishedReceipts ?? []).map((r: any) => r.number ?? r.invoice ?? r.id).join(', '))
+const deadSales = computed(() => (preview.value?.deadSales ?? []).map((s: any) => s.number ?? s.id).join(', '))
 
 async function loadPreview() {
   loadingPreview.value = true
   result.value = null
+  interrupted.value = ''
   closeWithoutFiscal.value = false
   notes.value = ''
   try {
@@ -294,6 +322,12 @@ async function submit() {
     attempt.settle(e)
     // The session is still open — the server reverted it. Say so plainly.
     const refused = e?.response?.data
+    if (refused?.code === 'close_interrupted') {
+      // Back to the form, read afresh: what to do next is theirs to choose once they have looked.
+      await loadPreview()
+      interrupted.value = receiptRefusalMessage(t, e, refused.message)
+      return
+    }
     result.value = refused?.code === 'receipt_open'
       // Not a failure: a sale is printing on the device, and closing again after it works.
       ? { kind: 'error', title: t('pos.close.receiptOpenTitle'), detail: t('pos.close.receiptOpen') }
@@ -327,7 +361,8 @@ function finish() {
   if (wasClosed) emit('closed')
 }
 
+// Immediately: the sessions list mounts this already open.
 watch(open, (isOpen) => {
   if (isOpen) loadPreview()
-})
+}, { immediate: true })
 </script>

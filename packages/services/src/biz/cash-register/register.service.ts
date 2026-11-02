@@ -39,11 +39,12 @@ import { generateUNP } from '../sequence.service.js'
 import { getNextInvoiceNumber, issuableRefusal } from '../invoice-numbering.service.js'
 import { createInvoiceStockMovement, createNumberedMovement, reverseInvoiceStockMovement } from '../invoicing.service.js'
 import { confirmMovement } from '../warehouse.service.js'
+import { PendingTransferError, confirmTransferMovements } from '../stock-transfer.service.js'
 import { IdempotencyError, LEASE_MS, assertSameRequest, keepLease, takeLease, waitForCompletion } from '../hot-path-key.js'
 import { exchangeRateFor, fromPosTransaction } from './mapping.js'
 import { unitsOf } from './copy.js'
 import type { RegisterPrinter } from './printer.js'
-import { saleInDoubt } from './in-doubt.js'
+import { saleInDoubt, saleProgress } from './in-doubt.js'
 import { provedNotPrinted, verdictOfFailedPrint } from './print-verdict.js'
 import { PENDING_NUMBER, isPendingNumber } from './pending-number.js'
 
@@ -101,11 +102,9 @@ export interface RegisterContext {
   /** Move no stock at all: an import whose goods another document already moved. */
   skipStock?: boolean
   /**
-   * A door's own work around the dispatch, under the same failure rule: the back office confirms
-   * the transfers a sale asked for before it dispatches (FR-21.24), and re-derives the order a
-   * sale consumes once it has. Both run again on a resume, so each must be safe to repeat.
+   * A door's own work after the dispatch: the back office re-derives the order a sale consumes. It
+   * runs again on a resume, so it must be safe to repeat.
    */
-  beforeStock?: (doc: any) => Promise<void>
   afterStock?: (doc: any) => Promise<void>
   /** How the audit trail names the document: the till's `pos_transaction`, the back office's `invoice`. */
   audit: { module: string; entityType: string }
@@ -602,6 +601,25 @@ async function moveSaleStock(c: RegisterContext, doc: any): Promise<string | und
 }
 
 /**
+ * The transfers a sale asked for (FR-21.24), confirmed before it dispatches, under the same failure rule.
+ * ⚠ They are the document's (`register.transfersToConfirm`), so that whatever finishes the sale confirms
+ * them. They lived only in the request, and a sale settled after its request died dispatched from a
+ * warehouse that never received them: -1 there, the source untouched, and nothing said so.
+ * `pendingTransferIds` says they are confirmed, so a resume does not ask again.
+ */
+async function confirmAskedTransfers(orgId: string, doc: any): Promise<any> {
+  const asked = doc.register?.transfersToConfirm
+  if (!asked?.length || doc.pendingTransferIds?.length) return doc
+  try {
+    await confirmTransferMovements(orgId, asked.map(String), { forDocumentId: String(doc._id) })
+  } catch (e: any) {
+    if (e instanceof PendingTransferError) throw e
+    throw new Error(`Transfer confirmation failed: ${e.message}`)
+  }
+  return Invoice.findOneAndUpdate({ _id: doc._id, orgId: doc.orgId }, { $set: { pendingTransferIds: asked } }, { new: true }).lean().exec()
+}
+
+/**
  * Whether a failure can still take the sale back (D-4): not once a receipt may have printed, nor
  * once the drawer has counted the money.
  */
@@ -651,10 +669,7 @@ export async function runSaleSteps(c: RegisterContext, id: string): Promise<any>
 
   if (!c.skipStock && !doc.register?.movementId && !doc.register?.stockError) {
     try {
-      if (c.beforeStock) {
-        await c.beforeStock(doc)
-        doc = await Invoice.findById(doc._id).lean().exec()
-      }
+      doc = await confirmAskedTransfers(c.orgId, doc)
       const movementId = await moveSaleStock(c, doc)
       if (movementId) doc = await setRegister(doc._id, { movementId: oid(movementId) })
     } catch (e: any) {
@@ -703,6 +718,16 @@ export async function runSaleSteps(c: RegisterContext, id: string): Promise<any>
   return done ?? Invoice.findById(doc._id).lean().exec()
 }
 
+/**
+ * A sale whose request died, finished for whoever comes to it: a person settling it, its session's close, its
+ * storno. It prints nothing: a receipt still `pending` goes `unknown`, as a keyed retry with no printer
+ * leaves it, and its money stands (D-4). The till's rule on stock: its own check ran before the print, and
+ * after it the dispatch must not fail.
+ */
+export function finishSale(c: RegisterContext, id: string): Promise<any> {
+  return runSaleSteps({ ...c, printer: null, allowNegative: true }, id)
+}
+
 /** The outcome of an insert: the new document, or the one a concurrent request with the key made. */
 export type InsertOutcome = { inserted: any } | { existing: any }
 
@@ -733,6 +758,9 @@ export async function insertRegisterDocument(
       invoiceNumber: number,
       numberHistory: [{ number, allocatedAt: new Date(), status: document.status }],
       ...(keyed ? { clientKey: keyed.key, requestHash: keyed.hash, leaseUntil: new Date(Date.now() + LEASE_MS) } : {}),
+      // ⚠ Unkeyed too: a close finishes a sale of its session that died, and with no lease `keepLease` has
+      // nothing to renew, so one waiting its turn behind a slow Z would read as dead by its age alone.
+      ...(!keyed && document.type === 'cash_sale' && document.register?.sessionId ? { leaseUntil: new Date(Date.now() + LEASE_MS) } : {}),
     }
     try {
       return { inserted: (await Invoice.create(fields)).toObject() }
@@ -807,11 +835,16 @@ export async function stornoRefusal(original: any): Promise<RegisterRefusal | nu
   if (original.status !== 'paid') return new RegisterRefusal(400, { code: 'storno_not_paid', message: 'Only a completed sale can be stornoed' })
   if (original.register?.stornoState === 'full') {
     const held = await stornoInDoubtOf(original)
-    return held ? new RegisterRefusal(409, stornoInDoubtRefusal(held)) : new RegisterRefusal(400, { message: 'Original transaction is already cancelled' })
+    if (held) return new RegisterRefusal(409, stornoInDoubtRefusal(held))
+    // A claim with no storno yet: one being written right now, or one that died, whose age has not lapsed.
+    const ids = original.register?.stornoedBy ?? []
+    if (ids.length && !(await Invoice.exists({ _id: { $in: ids }, orgId: original.orgId }).exec())) {
+      return new RegisterRefusal(409, { code: 'storno_in_progress', message: 'This sale is already being reversed' })
+    }
+    return new RegisterRefusal(400, { message: 'Original transaction is already cancelled' })
   }
-  // ⚠ Read as not printed it refunds with no storno on the device, which #281 forbids: a person says
-  // first. Still `pending` it may be printing right now, and that is no sale to reverse either.
-  if (saleInDoubt(original) || (original.register?.isFiscal && original.register?.fiscal?.state === 'pending')) {
+  // ⚠ Read as not printed it refunds with no storno on the device, which #281 forbids: a person says first.
+  if (saleInDoubt(original)) {
     return new RegisterRefusal(409, saleInDoubtRefusal(original))
   }
   // FR-23: a credit note's refund took part of what its receipt printed, and until R3 a storno here
@@ -821,6 +854,15 @@ export async function stornoRefusal(original: any): Promise<RegisterRefusal | nu
     return new RegisterRefusal(409, {
       code: 'storno_imported_day',
       message: 'An imported till day is corrected by importing it again, not by a storno.',
+    })
+  }
+  // ⚠ Whatever it prints, fiscal or text. Nothing of it is booked yet, so a storno refunds money that never
+  // landed, and the retry of the sale then books it and moves its stock with nothing to bring that back. One
+  // whose request died its door finishes first (`finishDeadSale`), so this is one still running.
+  if (saleProgress(original) || (original.register?.isFiscal && original.register?.fiscal?.state === 'pending')) {
+    return new RegisterRefusal(409, {
+      code: 'sale_in_progress',
+      message: 'This sale is still being rung up, so there is nothing to reverse yet. Nothing was reversed. Wait for it to finish, then try again.',
     })
   }
   return invoicedRefusal(original)
@@ -961,18 +1003,21 @@ export function stornoDocument(input: StornoInput): Record<string, any> {
  * Claim the sale for its storno, atomically. Read-then-write let two clicks (or two tills) both pass
  * an "is it stornoed?" check and refund the same sale twice. Exactly one caller wins this update.
  *
- * ⚠ The claim has no lease and nothing lapses it. Only `releaseStornoClaim` gives the sale back, and only
- * for a storno proved not to have printed, or settled so by a person. The lease on the storno document
- * says who is working on that document, and takes nothing over from the sale.
+ * ⚠ The claim has no lease of its own. `releaseStornoClaim` gives the sale back for a storno proved not to
+ * have printed, or settled so by a person, and the lease on the storno document says who is working on that
+ * document and takes nothing over from the sale. A claim whose storno was never written is the one thing
+ * that lapses: `releaseOrphanClaims`, by its age, id by id.
+ *
+ * ⚠ Answers the sale as claimed, and the storno is written from that: a receipt number corrected since the
+ * door read the sale is the one it cites, and from here on a correction gives way (`correctReceiptNumber`).
  */
-export async function claimForStorno(original: any, stornoId: ObjectId): Promise<boolean> {
-  const claimed = await Invoice.findOneAndUpdate(
+export async function claimForStorno(original: any, stornoId: ObjectId): Promise<any | null> {
+  return Invoice.findOneAndUpdate(
     // No refund has taken from it: of the two at once one gives way (`takeBudget` asks the reverse).
     { _id: original._id, orgId: original.orgId, type: 'cash_sale', status: 'paid', 'register.stornoState': { $ne: 'full' }, 'register.refundClaims.0': { $exists: false } },
     { $set: { 'register.stornoState': 'full', 'register.cancelledAt': new Date() }, $push: { 'register.stornoedBy': stornoId } },
     { new: true },
-  ).exec()
-  return !!claimed
+  ).lean().exec()
 }
 
 /**
@@ -987,6 +1032,53 @@ export async function releaseStornoClaim(original: any, stornoId: unknown): Prom
     { _id: original._id, orgId: original.orgId, 'register.stornoedBy': oid(stornoId) },
     { $set: { 'register.stornoState': 'none' }, $pull: { 'register.stornoedBy': oid(stornoId) }, $unset: { 'register.cancelledAt': 1 } },
   ).exec()
+}
+
+/**
+ * A claim on a sale whose storno was never written: the process died between `claimForStorno` and the insert.
+ * Nothing printed and nothing was booked, but the journal reads it as stornoed with nothing related, the next
+ * press is refused, and SUPTO 18.5 lists a cancellation that never happened. So an id in `stornoedBy` with no
+ * document, on a claim older than a lease, is pulled, by whoever reads the sale next. True when one was.
+ *
+ * ⚠ Id by id, never the sale: R3 keeps several there, and a live insert is milliseconds behind its claim. So
+ * the write is conditional on the id and on the age, in one atomic update that only gives the sale back with
+ * nothing left on it.
+ */
+export async function releaseOrphanClaims(sale: any, now = Date.now()): Promise<boolean> {
+  const reg = sale?.register
+  if (reg?.stornoState !== 'full' || !reg.stornoedBy?.length) return false
+  const before = new Date(now - LEASE_MS)
+  const written = new Set((await Invoice.find({ _id: { $in: reg.stornoedBy }, orgId: sale.orgId }, { _id: 1 }).lean().exec()).map((d: any) => String(d._id)))
+  let released = false
+  for (const id of reg.stornoedBy) {
+    if (written.has(String(id))) continue
+    const left = { $filter: { input: '$register.stornoedBy', cond: { $ne: ['$$this', oid(id)] } } }
+    const none = { $eq: [{ $size: left }, 0] }
+    const pulled = await Invoice.updateOne(
+      { _id: sale._id, orgId: sale.orgId, 'register.stornoState': 'full', 'register.stornoedBy': oid(id), 'register.cancelledAt': { $lt: before } },
+      [{
+        $set: {
+          'register.stornoedBy': left,
+          'register.stornoState': { $cond: [none, 'none', '$register.stornoState'] },
+          'register.cancelledAt': { $cond: [none, '$$REMOVE', '$register.cancelledAt'] },
+        },
+      }],
+    ).exec()
+    if (pulled.modifiedCount) {
+      logger.warn({ saleId: String(sale._id), stornoId: String(id) }, 'A storno claim with no document was released')
+      released = true
+    }
+  }
+  return released
+}
+
+/** The same, for the sales of a session as it closes: what a request that died left must not outlive its day. */
+export async function releaseOrphanClaimsOfSession(orgId: string, sessionId: string): Promise<void> {
+  const claimed: any[] = await Invoice.find(
+    { orgId: oid(orgId), type: 'cash_sale', 'register.sessionId': oid(sessionId), 'register.stornoState': 'full', 'register.cancelledAt': { $lt: new Date(Date.now() - LEASE_MS) } },
+    { orgId: 1, register: 1 },
+  ).lean().exec()
+  for (const sale of claimed) await releaseOrphanClaims(sale)
 }
 
 /**
@@ -1042,6 +1134,18 @@ export async function finishInterruptedStorno(c: RegisterContext, doc: any): Pro
 }
 
 /**
+ * A storno that has not started, and whose sale no longer names it. Past a lease a claim with no document is
+ * pulled (`releaseOrphanClaims`), so a request that stalled that long between its claim and its insert wakes
+ * with no claim, and another storno may hold the sale by now. Going on, that is two stornos of one sale. A
+ * copied row never claimed anything, and its sale may not name it.
+ */
+function lostItsClaim(doc: any, original: any): boolean {
+  const state = doc.register?.fiscal?.state
+  if ((state !== 'pending' && state !== 'none') || doc.register?.legacy) return false
+  return !(original.register?.stornoedBy ?? []).some((id: unknown) => String(id) === String(doc._id))
+}
+
+/**
  * Run whatever the storno has not done yet, then mark it complete.
  *
  * ⚠ #145: nothing is refunded until the device's answer is known.
@@ -1071,6 +1175,8 @@ export async function runStornoSteps(c: RegisterContext, id: string): Promise<an
     }
     doc = numbered
   }
+
+  if (lostItsClaim(doc, original)) doc = await couldNotPrint(doc, 'Another storno of this sale took over from this one, which had stopped before it started.')
 
   if (doc.register?.fiscal?.state === 'pending') {
     if (c.printer && !doc.register?.unp) {

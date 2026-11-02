@@ -45,6 +45,9 @@ export type PrintVerdict = 'printed' | 'failed' | 'unknown'
  * ⚠ It may say voided only if it saw a receipt open BEFORE it cancelled. After a close whose answer was
  * lost nothing is open, the cancel does nothing and the status reads not open: read as voided, a real
  * receipt would book as failed and print again. An open flag it could not read is no sight of one.
+ *
+ * ⚠ And either only of a receipt this document opened. What an earlier document left open is not this one's,
+ * whoever clears it: read as finished here, its money was booked for a payment the device never saw.
  */
 export type AbandonOutcome = 'voided' | 'finished'
 

@@ -101,6 +101,19 @@
                 data-testid="session-report-open"
                 @click="openReport(item)"
               />
+              <!-- FR-23: a close that died in its Z leaves the session here, and the terminal offers only an
+                   open one: this is the way back to it. -->
+              <v-btn
+                v-if="closeDied(item)"
+                icon="mdi-cash-register"
+                size="small"
+                variant="text"
+                color="warning"
+                :title="$t('pos.close.closeAgain')"
+                :aria-label="$t('pos.close.closeAgain')"
+                data-testid="session-close-again"
+                @click="closeAgain(item)"
+              />
               <!-- The device's own reports, for whoever runs the devices. No Z: it runs only through
                    a session's close, and one printed here would make that close print zeros. -->
               <v-menu v-if="runsDevices" @update:model-value="(open: boolean) => open && loadReportDevice(item)">
@@ -157,6 +170,16 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <CloseSessionDialog
+      v-if="closing"
+      v-model="closeOpen"
+      :session-id="closing._id || closing.id"
+      :org-url="`/org/${appStore.currentOrg?.id}`"
+      :currency="closing.currency"
+      :can-skip-fiscal="canSkipFiscal"
+      @closed="onClosedAgain"
+    />
 
     <!-- What a report reads, prefilled from the session. An X reads nothing and prints at once. -->
     <v-dialog v-model="paramsOpen" max-width="420">
@@ -215,6 +238,7 @@ import { jwtRole, sessionViewer } from 'ui-shared/composables/useStorageIdentity
 import { canOpenPage, pageById } from 'ui-shared/nav/page-registry'
 import StatusPipeline from 'ui-shell/components/StatusPipeline'
 import SessionReportCard, { type SessionReportData } from '../components/SessionReportCard.vue'
+import CloseSessionDialog from '../components/CloseSessionDialog.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -228,6 +252,21 @@ const dateFrom = ref<string | null>(null)
 const dateTo = ref<string | null>(null)
 
 const statusOptions = computed(() => ['open', 'closed'].map(value => ({ title: t(`pos.sessions.states.${value}`), value })))
+
+// A session whose close died in its Z: the dialog asks the server, which puts it back and says what to do.
+const closing = ref<any>(null)
+const closeOpen = ref(false)
+const canSkipFiscal = computed(() => ['admin', 'manager'].includes(jwtRole() ?? ''))
+/** Its lease lapsed, or it has none, from before there was one: the server has the last word on that. */
+const closeDied = (item: any) => item.status === 'closing_control' && (!item.closeLeaseUntil || new Date(item.closeLeaseUntil).getTime() < Date.now())
+function closeAgain(item: any) {
+  closing.value = item
+  closeOpen.value = true
+}
+function onClosedAgain() {
+  closing.value = null
+  void fetchItems()
+}
 
 const filters = computed(() => {
   const f: Record<string, any> = {}

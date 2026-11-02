@@ -29,7 +29,7 @@ async function orgsToTurnOff(db: Db, orgFilter: Record<string, unknown>): Promis
 }
 
 export const printerGateOff: Migration = {
-  id: '0011-printer-gate-off',
+  id: '0012-printer-gate-off',
   description: 'The printer gate goes off on every org with no active fiscal device whose switch is unset: unset reads as on (FR-23)',
   async preview({ db, orgFilter }: MigrationContext) {
     const orgs = await orgsToTurnOff(db, orgFilter)

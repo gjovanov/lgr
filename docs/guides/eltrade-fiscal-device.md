@@ -59,8 +59,11 @@ Status*.
 - **A storno that may have printed** is held: nothing is refunded, and pressing Storno again prints
   nothing and says so. Check the device, then settle it on its page in the cash-register journal. If a
   receipt is still open on the device, LGR says so first: an X report clears it, and whatever prints
-  then has printed. **A sale that may have printed** can't be stornoed until it is settled the same way:
-  "it printed" asks for the number off the slip, which its storno cites.
+  then has printed. With the device not connected it takes neither answer, because what the device holds
+  decides: connect it, or, for a device gone for good, deactivate it on its page, after which your word
+  stands. **A sale that may have printed** can't be stornoed until it is settled the same way: "it printed"
+  asks for the number off the slip, which its storno cites. A number typed wrong is corrected the same way,
+  until a storno or an invoice cites it.
 - **A cash-on-delivery invoice** prints in slot R as it is issued, and stays due until the courier
   pays. If that print fails, the invoice's form offers „Print the receipt": it prints alone, and
   records no money.

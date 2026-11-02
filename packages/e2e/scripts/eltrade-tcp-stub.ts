@@ -122,6 +122,7 @@ Bun.serve({
     if (url.pathname === '/reset' && req.method === 'POST') {
       const body: any = await req.json().catch(() => ({}))
       sim = fresh(body?.rates, body?.unfiscalized === true)
+      if (Number.isInteger(body?.lastDocNumber)) sim.lastDocNumber = body.lastDocNumber
       return Response.json({ ok: true, rates: sim.rates })
     }
     return new Response('not found', { status: 404 })

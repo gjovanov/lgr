@@ -13,15 +13,16 @@ import { getRepos } from 'services/context'
 import { orgDao } from 'services/dao/org.dao'
 import { logger } from 'services/logger'
 import { toPosTransaction } from 'services/biz/cash-register/mapping'
-import { finishInterruptedReceipt, interruptedDocuments } from 'services/biz/cash-register/payment-receipt.service'
+import { finishInterruptedReceipt, interruptedDocuments, unfinishedReceipts } from 'services/biz/cash-register/payment-receipt.service'
+import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { asEntity } from 'services/biz/cash-register/pos-union'
-import { auditStoppedSettlement } from 'services/biz/cash-register/settle.service'
+import { RECEIPT_DEVICE_AWAY, auditStoppedSettlement } from 'services/biz/cash-register/settle.service'
 import type { RegisterPrinter } from 'services/biz/cash-register/printer'
 import { takeLease } from 'services/biz/hot-path-key'
-import { livePresence } from 'services/biz/fiscal-presence.service'
+import { POD_ID, livePresence } from 'services/biz/fiscal-presence.service'
 import {
-  RegisterRefusal, claimForStorno, finishInterruptedStorno, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally,
-  releaseStornoClaim, runStornoSteps, settleKeyedDocument, stornoDocument, stornoInDoubtRefusal, stornoRefusal,
+  RegisterRefusal, claimForStorno, finishInterruptedStorno, finishSale, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally,
+  releaseOrphanClaims, releaseStornoClaim, runStornoSteps, settleKeyedDocument, stornoDocument, stornoInDoubtRefusal, stornoRefusal,
   type RegisterContext, type RegisterSession, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
 import { fiscalUnitPrice } from 'services/biz/cash-register/receipt-lines'
@@ -284,7 +285,7 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
       await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
     },
     // Counted from the moment it is asked for, so a graceful stop waits for one still in the queue.
-    operation: fn => fiscalOperation(() => deviceTurn(fiscal.deviceId, fn)),
+    operation: (fn, opts) => fiscalOperation(() => deviceTurn(fiscal.deviceId, fn, opts)),
   }
 }
 
@@ -425,6 +426,35 @@ export async function documentContext(orgId: string, user: RegisterUser, doc: an
 }
 
 /**
+ * The device a person's word about `doc` has to get past at the settle door, by the number on the document.
+ * Null when the word stands: a text document, which leaves no money on a device; one with no number; and a
+ * device with no row or deactivated, which is the way out for one gone for good. Otherwise it refuses,
+ * with nothing written, until the device can be asked.
+ *
+ * ⚠ Not `documentContext`. That turns every refusal into "no device", 503s included, which here would read
+ * as "the word stands" with the money still on the device, and it needs a session. Not `getFiscalContext`
+ * either: a device away whose row reads `error` throws there. A device connected while its row reads
+ * `error` is asked here, as it is there, and a document on a closed session, or on none, reaches its device.
+ */
+export async function settleDevice(orgId: string, user: RegisterUser, doc: any): Promise<RegisterPrinter | null> {
+  const deviceNumber = doc.register?.isFiscal ? doc.register.fiscalDeviceNumber : undefined
+  if (!deviceNumber) return null
+  const device: any = await getRepos().fiscalDevices.findOne({ orgId, deviceNumber } as any)
+  // ⚠ Deactivated means said so: a row with no such field has not been, and the money may be on it.
+  if (!device || device.isActive === false) return null
+  if (isDeviceConnected(device.id)) {
+    return tillPrinter(orgId, { deviceId: device.id, deviceNumber, printer: getPrinter(device.id), cashOnDeliveryRefusal: null, printsFiscalText: false }, user, null)
+  }
+  // ⚠ FR-24.52: held elsewhere is never "not here". The route hops to the holder first, so this is a
+  // request no hop reached. A row naming this process, with nothing connected, is a bridge that just went.
+  const row = await livePresence({ orgId, deviceNumber: String(deviceNumber) })
+  if (row && row.podId !== POD_ID) {
+    throw new RegisterRefusal(503, { code: 'fiscal_holder_unreachable', message: `Fiscal device "${device.name}" is connected to another server process. Nothing was done; try again.` })
+  }
+  throw new RegisterRefusal(409, { ...RECEIPT_DEVICE_AWAY })
+}
+
+/**
  * Finish the receipts and stornos of a document, a session or a sale whose request died, before
  * anything else is done with it: a receipt's hold must not outlive it, what printed must not be taken
  * again, and a session must not close over either. True when one was. It prints nothing, and books
@@ -445,6 +475,32 @@ export async function finishInterruptedDocuments(orgId: string, user: RegisterUs
     }
   }
   return any
+}
+
+/**
+ * Finish the sales of a session whose request died, before anything reads its figures. It prints nothing and
+ * books what the sale's own request would have. One that cannot be finished stays what it was, and what it
+ * holds stands: the close is refused over it, and the next attempt finds it again.
+ */
+export async function finishDeadSales(orgId: string, user: RegisterUser, sessionId: string): Promise<void> {
+  for (const doc of await unfinishedReceipts(orgId, sessionId)) {
+    if (saleProgress(doc) === 'dead') await finishDeadSale(orgId, user, doc)
+  }
+}
+
+/** One sale whose request died. True when this request finished it. */
+export async function finishDeadSale(orgId: string, user: RegisterUser, doc: any): Promise<boolean> {
+  if (!(await takeLease(Invoice, orgId, doc._id))) return false
+  try {
+    const c = deviceless(orgId, user)
+    // One a person settled, that stopped there: what they said reaches the trail however it ended.
+    await auditStoppedSettlement(c, doc)
+    await finishSale(c, String(doc._id))
+    return true
+  } catch (e: any) {
+    logger.error({ orgId, documentId: String(doc._id), error: e?.message }, 'Interrupted sale could not be finished')
+    return false
+  }
 }
 
 /**
@@ -536,8 +592,16 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
     // A sale an older release rang up is its copy since 0008/0009, under the same id.
     const read = (): Promise<any> => Invoice.findOne({ _id: input.originalId, orgId }).lean().exec()
     let original: any = Invoice.base.Types.ObjectId.isValid(input.originalId) ? await read() : null
-    // What a request that died left on this sale comes first: it may have printed, or be proved not to.
-    if (original?.register?.stornoState === 'full' && await finishInterruptedDocuments(orgId, user, { ids: original.register.stornoedBy ?? [] })) {
+    // What a request that died left on this sale comes first: a claim whose storno was never written, and one
+    // that was, which may have printed, or be proved not to.
+    if (original?.register?.stornoState === 'full') {
+      const released = await releaseOrphanClaims(original)
+      const finished = await finishInterruptedDocuments(orgId, user, { ids: original.register.stornoedBy ?? [] })
+      if (released || finished) original = await read()
+    }
+    // And what a request that died left of the sale itself: its money stands, and it is booked before anything
+    // reverses it, or the refund leaves a drawer that never had it. An imported day is refused as it stands.
+    if (saleProgress(original) === 'dead' && originOf(original) !== 'import' && await finishDeadSale(orgId, user, original)) {
       original = await read()
     }
     const refusal = await stornoRefusal(original)
@@ -590,7 +654,9 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
     assertStornoTender(input.payments, original, printsReceipt ? c.printer! : null)
 
     const stornoId = newDocumentId()
-    if (!(await claimForStorno(original, stornoId))) {
+    const claimed = await claimForStorno(original, stornoId)
+    if (claimed) original = claimed
+    else {
       // A duplicate of the request that won: wait for its storno, then answer as it does.
       if (key) {
         for (let i = 0; i < 40; i++) {

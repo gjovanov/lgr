@@ -10,17 +10,27 @@
  *   - **A till sale** (`saleInDoubt`). Its money stands either way, so this only says what its storno
  *     does. Printed needs the number off the slip, because a storno cites it and every driver refuses one
  *     with no digits to cite. Not printed makes it `failed`, whose storno prints nothing, which is true.
+ *     A number a person typed is corrected at this door too, until something cites it.
  *
  * ⚠ What they said is durable from the claim on, and the claim leaves a lease: a document is found by
  * its lapsing until `completedAt`. A settle that stops before the money is booked is finished by the
  * next touch, or by its session's close, with no device. Unsetting the lease left a receipt nothing
  * could find, with its hold on the invoice and its session unable to close.
  *
- * ⚠ Nothing is final while the device holds a receipt open, and a person cannot see that from its
- * journal. The next document clears it: voided if it took no money, and finished in cash if it did,
- * which prints it. Settled "not printed" first, that is a fiscal receipt nobody booked, and the next
- * press prints a second. So where the device can be asked it is, in its turn, and refused until it is
- * cleared (`RECEIPT_OPEN_ON_DEVICE`). A device that is not here, or cannot say, leaves it to the person.
+ * ⚠ A person's word is taken only for what only a person can know: what the device can still change, or
+ * can answer, it is asked first. Nothing is final while it holds a receipt open, and a person cannot see
+ * that from its journal. The next document clears it: voided if it took no money, and finished in cash if
+ * it did, which prints it. Settled "not printed" first, that is a fiscal receipt nobody booked, and the
+ * next press prints a second. So for a fiscal document the door goes to the device the document printed
+ * on, by its number (`settleDevice`, in the till):
+ *  - **Active and here:** asked, in its turn. Open: `RECEIPT_OPEN_ON_DEVICE`. Busy: 409 `device_busy`. A read
+ *    that failed is no answer: `RECEIPT_DEVICE_AWAY`. Only a driver with no way to ask (no `isReceiptOpen`:
+ *    Tremol, Datecs) leaves it to the person.
+ *  - **Active and not here:** `RECEIPT_DEVICE_AWAY`, both answers, nothing written. A half-printed slip with
+ *    no money on the device reads as printed, and the next clear voids it, so "printed" waits too.
+ *  - **No row, or deactivated:** the person's word stands. That is the way out for a device gone for good,
+ *    so nothing is stuck.
+ * A text document is none of this: the device holds no money on one.
  *
  * **A refund's storno** (R2). Printed: its session gives the money back and the refund is recorded on
  * its credit note. Not printed: it is voided with its number and УНП, and its hold and its claim on the
@@ -36,7 +46,7 @@ import { saleInDoubt, saleInDoubtFilter } from './in-doubt.js'
 import { runReceiptSteps } from './payment-receipt.service.js'
 import { PAYMENT_RECEIPT, PAYMENT_STORNO } from './pos-union.js'
 import type { RegisterPrinter } from './printer.js'
-import { RegisterRefusal, runSaleSteps, runStornoSteps, type RegisterContext } from './register.service.js'
+import { RegisterRefusal, finishSale, runStornoSteps, type RegisterContext } from './register.service.js'
 
 const oid = (v: unknown) => new Invoice.base.Types.ObjectId(String(v))
 
@@ -45,8 +55,7 @@ const FINISHES: Record<string, (c: RegisterContext, id: string) => Promise<any>>
   [PAYMENT_RECEIPT]: (c, id) => runReceiptSteps(c, id),
   [PAYMENT_STORNO]: (c, id) => runReceiptSteps(c, id),
   cash_storno: runStornoSteps,
-  // The till's rule: its own check ran before the print, and after it the dispatch must not fail.
-  cash_sale: (c, id) => runSaleSteps({ ...c, allowNegative: true }, id),
+  cash_sale: finishSale,
 }
 
 /** The types the door takes. */
@@ -58,6 +67,27 @@ export const RECEIPT_OPEN_ON_DEVICE = {
   message: 'A receipt is still open on the fiscal device, so nothing is final yet. Print an X report on the device page, which clears it, then look at the device again: whatever printed then, printed.',
 } as const
 
+/** The device holds what decides this and is not there to say: connect it, or say it is gone for good. */
+export const RECEIPT_DEVICE_AWAY = {
+  code: 'receipt_device_away',
+  message: 'The fiscal device this document printed on is not answering, and what it holds decides this. Nothing was changed. Connect it, then look at it again. A device gone for good is deactivated on its page, after which your word stands.',
+} as const
+
+/** Another document holds the device right now. It was not asked. */
+export const SETTLE_DEVICE_BUSY = {
+  code: 'device_busy',
+  message: 'The fiscal device is busy with another document, so it could not be asked. Nothing was changed. Try again in a moment.',
+} as const
+
+/**
+ * How long the door waits for the device's turn, and for its answer. ⚠ Well under the 30 s a request is cut
+ * at (`idleTimeout`): someone is looking at this page. A Z can hold the device for minutes, and they hear
+ * busy and press again. A device switched off with its tab still open takes a driver 90 s to give up on, and
+ * an answer past the cut reaches nobody, so the person would never read what to do about it.
+ */
+const ASK_WAIT_MS = 10_000
+const ASK_ANSWER_MS = 20_000
+
 /** Whose words these are, in the words the message has to use. */
 const NAMES: Record<string, string> = { [PAYMENT_RECEIPT]: 'receipt', [PAYMENT_STORNO]: 'storno', cash_storno: 'storno', cash_sale: 'sale' }
 
@@ -68,12 +98,29 @@ export interface SettleAnswer {
 }
 
 /**
- * The number a storno of this document will cite, as the person typed it. Digits, or the driver refuses
- * the storno; and not one this session's device already gave another document, which is a slip misread.
- * ⚠ Only in its session: a device whose fiscal memory was replaced counts from one again under the same
- * number, and a refusal here would leave a real sale nothing could settle.
+ * How far either side of a document another one's number counts as taken: a device's numbers repeat only
+ * when its fiscal memory is replaced, and it then counts from one again under the same device number. A
+ * refusal against that older series would leave a real sale nothing could settle.
  */
-async function typedReceiptNumber(doc: any, typed: string | undefined): Promise<string> {
+const TAKEN_WITHIN_MS = 31 * 86_400_000
+
+/**
+ * The number a storno of this document will cite, as the person typed it off the slip. A misread is a
+ * legal citation on a fiscal storno, and a device that refuses it refuses every storno of that sale.
+ *  - Digits, or the driver refuses the storno.
+ *  - Not above the device's last number, read in the turn the open flag was read in. Nothing a device has
+ *    not reached is on a slip. A device that cannot say skips this, and so does one whose counter has gone
+ *    back since this document read it: its fiscal memory was replaced, and it speaks for another series.
+ *  - Not one the same device gave another document around then: another session's too, because two on one
+ *    device is normal. Its three spellings, because a device pads it and a person does not.
+ *
+ * ⚠ No lower bound. `getLastReceiptNumber` and the stored number are both 71h, but nobody has held a real
+ * slip against 71h, and if the slip's series is the fiscal one it runs below the device's document counter.
+ * A lower bound there would refuse a real sale with no way out.
+ *
+ * It asks nothing of the document's type, so a receipt's number off its slip is read the same way (R2).
+ */
+async function typedReceiptNumber(doc: any, typed: string | undefined, lastOnDevice?: number): Promise<string> {
   const number = String(typed ?? '').trim()
   if (!/^\d{1,10}$/.test(number)) {
     throw new RegisterRefusal(422, {
@@ -83,9 +130,22 @@ async function typedReceiptNumber(doc: any, typed: string | undefined): Promise<
         : 'A receipt number is the digits off the slip. Leave it out if you do not have it: the receipt stands as printed, and a refund of it goes by bank.',
     })
   }
+  const counterBefore = doc.register?.fiscal?.counterBefore
+  const sameSeries = !(typeof counterBefore === 'number' && lastOnDevice !== undefined && counterBefore > lastOnDevice)
+  if (lastOnDevice !== undefined && sameSeries && Number(number) > lastOnDevice) {
+    throw new RegisterRefusal(422, {
+      code: 'receipt_number_off_device',
+      last: lastOnDevice,
+      message: `Receipt number ${number} is above the last number this device has given (${lastOnDevice}). Check the slip.`,
+    })
+  }
+  const deviceNumber = doc.register?.fiscalDeviceNumber
+  if (!deviceNumber) return number
+  const around = new Date(doc.createdAt ?? Date.now()).getTime()
   const taken: any = await Invoice.findOne({
-    orgId: doc.orgId, _id: { $ne: doc._id }, 'register.sessionId': doc.register?.sessionId, 'register.fiscalDeviceNumber': doc.register?.fiscalDeviceNumber,
+    orgId: doc.orgId, _id: { $ne: doc._id }, 'register.fiscalDeviceNumber': deviceNumber,
     'register.fiscalReceiptNumber': { $in: [number, number.padStart(7, '0'), String(Number(number))] },
+    createdAt: { $gte: new Date(around - TAKEN_WITHIN_MS), $lte: new Date(around + TAKEN_WITHIN_MS) },
   }, { invoiceNumber: 1 }).lean().exec()
   if (taken) {
     throw new RegisterRefusal(422, {
@@ -95,6 +155,45 @@ async function typedReceiptNumber(doc: any, typed: string | undefined): Promise<
     })
   }
   return number
+}
+
+/** A storno cites this number, or an invoice for the sale carries it, so it is a legal citation now. */
+const RECEIPT_NUMBER_CITED = {
+  code: 'receipt_number_cited',
+  message: 'A storno or an invoice of this sale cites this receipt number, so it stands.',
+} as const
+
+/**
+ * A number typed off a slip, corrected by the door and the rights that took it, under the same checks. All
+ * three places it is stored are rewritten and the trail says old to new. Once a storno cites it, it stands:
+ * `register.stornoState` is what a storno's claim writes, so of a correction and a claim one gives way. A
+ * storno voided since cites nothing: it gave the sale back, and a refused number is why one is corrected. An
+ * invoice for the sale carries the number too (`cashSaleRef.receiptNumber`), printed, so it counts as citing.
+ */
+async function correctReceiptNumber(c: RegisterContext, doc: any, typed: string | undefined, lastOnDevice?: number): Promise<any | null> {
+  const old = doc.register.settled.receiptNumber
+  const cited = doc.register.stornoState === 'full'
+    || await Invoice.exists({ orgId: doc.orgId, 'cashSaleRef.cashSaleId': doc._id, status: { $nin: ['voided', 'cancelled'] } }).exec()
+  if (cited) throw new RegisterRefusal(409, { ...RECEIPT_NUMBER_CITED })
+  const number = await typedReceiptNumber(doc, typed, lastOnDevice)
+  if (number === old) return doc
+  const corrected: any = await Invoice.findOneAndUpdate(
+    { _id: doc._id, orgId: doc.orgId, 'register.settled.receiptNumber': old, 'register.stornoState': { $ne: 'full' } },
+    { $set: { 'register.settled.receiptNumber': number, 'register.fiscal.receiptNo': number, 'register.fiscalReceiptNumber': number } },
+    { new: true },
+  ).lean().exec()
+  if (!corrected) {
+    const now: any = await Invoice.findOne({ _id: doc._id, orgId: doc.orgId }, { 'register.stornoState': 1 }).lean().exec()
+    if (now?.register?.stornoState === 'full') throw new RegisterRefusal(409, { ...RECEIPT_NUMBER_CITED })
+    return null
+  }
+  await recordAuditEntry({
+    orgId: c.orgId, userId: c.user.id, operatorCode: c.user.operatorCode,
+    action: 'correct_receipt_number', module: c.audit.module, entityType: c.audit.entityType,
+    entityId: String(doc._id), entityName: doc.invoiceNumber, unpNumber: doc.register?.unp,
+    changes: [{ field: 'receiptNumber', oldValue: old, newValue: number }],
+  })
+  return corrected
 }
 
 /** The trail of what a person said: on the settle itself, and on what finishes one that stopped. */
@@ -123,23 +222,61 @@ export async function auditStoppedSettlement(c: RegisterContext, doc: any): Prom
 }
 
 /**
- * What a person says about a document in doubt. Answers what it became, or null when it is not in
- * doubt. What they said, and who said it, stays on the document and in the audit trail.
+ * What the door asks of a device that is here, in its turn: whether anything it holds can still change the
+ * answer, which refuses. Answers its last number when `wantsLast`, read in the same turn; undefined when it
+ * cannot say.
  */
-export async function settleInDoubt(c: RegisterContext, id: string, answer: SettleAnswer, device?: RegisterPrinter | null): Promise<any | null> {
+async function askDevice(device: RegisterPrinter, wantsLast: boolean): Promise<number | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const asked = device.operation(async () => {
+    if ((await device.receiptOpen?.()) === true) throw new RegisterRefusal(409, { ...RECEIPT_OPEN_ON_DEVICE })
+    return wantsLast ? device.lastReceiptNumber() : undefined
+  }, { waitMs: ASK_WAIT_MS })
+  // It may outlive the wait, and whatever it says then is nobody's to hear.
+  asked.catch(() => undefined)
+  try {
+    return await Promise.race([
+      asked,
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('The device did not answer in time')), ASK_ANSWER_MS) }),
+    ])
+  } catch (e: any) {
+    if (e instanceof RegisterRefusal) throw e
+    // ⚠ Not left to the person. A driver that cannot say answers `undefined` above, and this one could
+    // and did not: read as "cannot say", a dropped line was what let a real receipt be settled away.
+    throw new RegisterRefusal(409, e?.code === 'device_busy' ? { ...SETTLE_DEVICE_BUSY } : { ...RECEIPT_DEVICE_AWAY })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * What a person says about a document in doubt. Answers what it became, or null when it is not in
+ * doubt. What they said, and who said it, stays on the document and in the audit trail. `deviceOf` finds
+ * the device that has to be asked first, and may refuse (`settleDevice`); null when the word stands.
+ */
+export async function settleInDoubt(c: RegisterContext, id: string, answer: SettleAnswer, deviceOf?: (doc: any) => Promise<RegisterPrinter | null>): Promise<any | null> {
   const now = new Date()
   const { printed } = answer
   const doc: any = await Invoice.findOne({ _id: oid(id), orgId: oid(c.orgId), type: { $in: SETTLEABLE_TYPES } }).lean().exec()
   if (!doc) return null
   const isSale = doc.type === 'cash_sale'
   const inDoubt = isSale ? saleInDoubt(doc, now.getTime()) : !!doc.register?.fiscal?.inDoubt
-  if (device && inDoubt) {
-    const open = await device.operation(async () => device.receiptOpen?.()).catch(() => undefined)
-    if (open === true) throw new RegisterRefusal(409, { ...RECEIPT_OPEN_ON_DEVICE })
+  // A number a person typed, typed again: the one thing this door takes on a document no longer in doubt.
+  const corrects = isSale && printed && !inDoubt && !!doc.register?.settled?.receiptNumber && answer.receiptNumber !== undefined
+  let lastOnDevice: number | undefined
+  if (inDoubt || corrects) {
+    const device = await deviceOf?.(doc)
+    if (device) lastOnDevice = await askDevice(device, isSale && printed)
+  }
+  if (corrects) {
+    const corrected = await correctReceiptNumber(c, doc, answer.receiptNumber, lastOnDevice)
+    // One whose settle stopped halfway is told the new number, and the same answer finishes it below.
+    if (!corrected || corrected.completedAt) return corrected
+    return resumeSettled(c, corrected, printed)
   }
   // A sale must say. A fiscal receipt may: without it the refund of a credit note has nothing to cite.
   const brought = doc.type === PAYMENT_RECEIPT && doc.register?.fiscal?.mode !== 'text' && !!String(answer.receiptNumber ?? '').trim()
-  const receiptNumber = (isSale || brought) && printed && inDoubt ? await typedReceiptNumber(doc, answer.receiptNumber) : undefined
+  const receiptNumber = (isSale || brought) && printed && inDoubt ? await typedReceiptNumber(doc, answer.receiptNumber, lastOnDevice) : undefined
   const receiptError = `A person who checked the device settled this ${NAMES[doc.type]} as not printed.`
   // ⚠ A sale read as not in doubt can be by now: its number was never asked for, so it is not claimed.
   const claimed: any = isSale && printed && !receiptNumber ? null : await Invoice.findOneAndUpdate(

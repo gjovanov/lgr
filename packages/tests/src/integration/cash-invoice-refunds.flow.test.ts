@@ -1361,8 +1361,8 @@ describe('what backs a refund, in doubt: a person settles it, and it holds what 
 
   it('a storno that may have printed is money nobody can count on: every reader of a sum says the same', async () => {
     const row = (state: string, status = 'completed') => ({ type: 'payment_storno', status, fiscal: { state } }) as any
-    for (const state of ['pending', 'unknown']) expect(stornoUnproved(row(state))).toBe(true)
-    for (const state of ['printed', 'failed', 'none']) expect(stornoUnproved(row(state))).toBe(false)
+    for (const state of ['pending', 'unknown', 'failed']) expect(stornoUnproved(row(state))).toBe(true)
+    for (const state of ['printed', 'none']) expect(stornoUnproved(row(state))).toBe(false)
     expect(stornoUnproved(row('unknown', 'cancelled'))).toBe(false)
 
     const w = await tillWorld(app)
@@ -1752,17 +1752,18 @@ describe('an invoice issued for a till sale (R0): the refund cites the sale\'s o
   it('settled as printed with the number off its slip: the refund cites that number and takes from the sale', async () => {
     const w = await tillWorld(app)
     const inv = await invoicedSale(w)
+    const offTheSlip = String(Number((await fresh(inv.saleId)).register.fiscalReceiptNumber))
     await Invoice.updateOne({ _id: inv.saleId }, { $set: { 'register.fiscal.state': 'unknown' }, $unset: { 'register.fiscalReceiptNumber': 1 } })
     const note = await issuedNote(w, inv, { quantity: 1 })
     expect((await pay(w, note.id, 12)).json.code).toBe('sale_receipt_in_doubt')
 
-    expect((await settle(w, inv.saleId, true, undefined, '456')).status).toBe(200)
+    expect((await settle(w, inv.saleId, true, undefined, offTheSlip)).status).toBe(200)
 
     const r = await pay(w, note.id, 12)
     expect(r.status).toBe(200)
     const printed = w.sim!.receipts.at(-1)!
     expect(printed.kind).toBe('storno')
-    expect(printed.header[5]).toBe('456')
+    expect(printed.header[5]).toBe(offTheSlip)
     expect(leftByRate(await fresh(inv.saleId)).get(20)).toBe(3600)
     expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 12 })
   })

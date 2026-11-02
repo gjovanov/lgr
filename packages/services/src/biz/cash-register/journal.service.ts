@@ -15,6 +15,7 @@
  */
 import { Contact, Invoice, POSSession, StockMovement, User, Warehouse } from 'db/models'
 import { localDayWindow, BULGARIAN_TIME_ZONE } from '../local-day.js'
+import { LEASE_MS } from '../hot-path-key.js'
 import { saleInDoubt } from './in-doubt.js'
 import { PAYMENT_RECEIPT, PAYMENT_STORNO, TILL_DOCUMENT_TYPES } from './pos-union.js'
 import { invoicedCashSaleIds, invoicingByCashSale } from '../cash-sale-invoice.service.js'
@@ -95,6 +96,8 @@ export interface JournalRow {
     receiptNumber?: string
     deviceNumber?: string
     printedAt?: string
+    /** Its receipt number was typed off the slip by a person, who can correct it until something cites it. */
+    numberTyped?: boolean
   }
   stock: JournalStock
   reference?: string
@@ -265,6 +268,7 @@ function fromDocument(doc: any, moved: Set<string>): JournalRow {
       ...(reg.fiscalDeviceNumber ? { deviceNumber: reg.fiscalDeviceNumber } : {}),
       ...(reg.printedAt ? { printedAt: new Date(reg.printedAt).toISOString() } : {}),
       ...(reg.fiscal?.inDoubt || saleInDoubt(doc) ? { inDoubt: true } : {}),
+      ...(reg.settled?.receiptNumber ? { numberTyped: true } : {}),
     },
     stock: reg.stockError ? 'error' : moved.has(id) || reg.movementId ? 'moved' : 'none',
     ...(doc.reference ? { reference: doc.reference } : {}),
@@ -397,6 +401,13 @@ export async function getJournalDocument(orgId: string, id: string): Promise<Jou
     ? await Invoice.find({ _id: { $in: relatedIds.map(oid) }, orgId: oid(orgId), type: { $in: TILL_DOCUMENT_TYPES } }).lean().exec()
     : []
   const related = relatedDocs.map(d => fromDocument(d, new Set()))
+  // ⚠ A claim whose storno was never written reversed nothing, and past a lease nothing is coming. Read as
+  // stornoed its page offers no storno, and only a press releases one on a sale whose session has closed
+  // (`releaseOrphanClaims`): nobody could have left that state. A GET writes nothing, so it only says so.
+  if (journalRow.status === 'stornoed' && journalRow.stornoedBy?.length && !relatedDocs.length
+    && doc.register?.cancelledAt && new Date(doc.register.cancelledAt).getTime() < Date.now() - LEASE_MS) {
+    journalRow.status = 'completed'
+  }
 
   const movementFilter = { orgId: oid(orgId), $or: [{ invoiceId: doc._id }, ...(doc.register?.movementId ? [{ _id: doc.register.movementId }] : [])] }
   const movements = (await StockMovement.find(movementFilter, { movementNumber: 1, type: 1, status: 1 }).lean().exec())

@@ -39,6 +39,7 @@ import { effectiveMethods, bucketFor } from '../reports/sales-history.report.js'
 import { EFFECTIVE_DATE } from '../reports/warehouse-operations.report.js'
 import { INVOICING_SEQUENCE_KEYS, closedSeriesOf, resolveDefPrefix } from '../sequence-registry.js'
 import { NOT_INVOICE_FOR_CASH_SALE, NOT_PAYMENT_RECEIPT, NOT_UNPROVED_STORNO, printsHere } from '../sale-counting.js'
+import { UNPROVED_STORNO_STATES } from '../cash-register/counting.js'
 import {
   DIGEST_CAPS,
   DIGEST_OPT_IN_SECTIONS,
@@ -266,7 +267,7 @@ async function buildDocuments(orgId: string, date: string): Promise<DigestDocume
         number: '$invoiceNumber',
         type: 1, direction: 1, status: 1, currency: 1, paymentMethod: 1,
         // The register lists a storno nothing has proved, for its number, and counts nothing of it.
-        unproved: { $and: [{ $eq: ['$type', 'cash_storno'] }, { $in: ['$register.fiscal.state', ['pending', 'unknown']] }] },
+        unproved: { $and: [{ $eq: ['$type', 'cash_storno'] }, { $in: ['$register.fiscal.state', UNPROVED_STORNO_STATES] }] },
         total: { $round: [{ $ifNull: ['$total', 0] }, 2] },
         contactName: {
           $ifNull: ['$contact.companyName', {

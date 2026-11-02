@@ -15,6 +15,8 @@ import { getProductLedger } from 'services/biz/product-ledger.service'
 import { buildSessionReport } from 'services/biz/cash-register/session-report'
 import { listJournal } from 'services/biz/cash-register/journal.service'
 import { unfinishedRefusal } from 'services/biz/cash-register/payment-receipt.service'
+import { releaseOrphanClaims, runStornoSteps } from 'services/biz/cash-register/register.service'
+import { deviceless } from 'invoicing-api/src/lib/cash-register-till'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { exportCancelledSales, exportPaymentDetails, exportReversedSales } from 'services/biz/supto-export.service'
 import { postPosSessionJournal } from 'services/events/handlers'
@@ -348,14 +350,16 @@ describe('a storno that may have printed is held, not voided (finding 1)', () =>
 })
 
 describe('a person settles a storno in doubt (finding 1)', () => {
-  it('it printed: the rest runs with no device, the refund leaves the session, the goods come back, and it says who said so', async () => {
+  it('it printed: the rest prints nothing, the refund leaves the session, the goods come back, and it says who said so', async () => {
     const w = await tillWorld(app)
     const { saleId, storno } = await held(w)
-    forgetDevices()
+    const printing = () => w.sim!.executed.filter(c => [0x90, LINE, PAYMENT, CLOSE].includes(c.cmd)).length
+    const before = printing()
 
     const answer = await settle(w, String(storno._id), true)
 
     expect(answer.status).toBe(200)
+    expect(printing()).toBe(before)
     expect(answer.json.document.row.fiscal.state).toBe('printed')
     expect(answer.json.document.row.status).toBe('completed')
     const after = await read(storno._id)
@@ -422,12 +426,15 @@ describe('a person settles a storno in doubt (finding 1)', () => {
     expect(stornosOnDevice(w)).toHaveLength(1)
   })
 
-  it('a device that is not here says nothing, and the person\'s word stands', async () => {
+  it('a device that is not here may still hold it: refused, until it is back or its row is deactivated', async () => {
     const w = await tillWorld(app)
     const { storno } = await heldBeforeItsMoney(w)
     forgetDevices()
     await FiscalDevice.updateOne({ _id: w.deviceId }, { $set: { status: 'online' } })
 
+    expect((await settle(w, String(storno._id), false)).json.code).toBe('receipt_device_away')
+
+    await FiscalDevice.updateOne({ _id: w.deviceId }, { $set: { isActive: false } })
     expect((await settle(w, String(storno._id), false)).status).toBe(200)
   })
 
@@ -611,6 +618,214 @@ describe('a session and its stornos in doubt (finding 1)', () => {
     })
 
     expect((await w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 112 } })).status).toBe(200)
+  })
+})
+
+describe('a storno\'s claim with no document: the process died between the claim and the insert (the third read, finding 6)', () => {
+  const ObjectId = Invoice.base.Types.ObjectId
+  const old = () => new Date(Date.now() - 121_000)
+  /** The state it leaves: the sale claimed, naming a storno that was never written. */
+  async function orphaned(w: TillWorld, at: Date = old()) {
+    const sale = await w.sell(1)
+    const saleId = String(sale.json.transaction.id)
+    const orphan = new ObjectId()
+    await Invoice.updateOne({ _id: saleId }, { $set: { 'register.stornoState': 'full', 'register.cancelledAt': at }, $push: { 'register.stornoedBy': orphan } })
+    return { saleId, orphan }
+  }
+
+  it('within a lease: refused as being reversed, never as already cancelled, and nothing moves', async () => {
+    const w = await tillWorld(app)
+    const { saleId, orphan } = await orphaned(w, new Date())
+
+    const r = await w.storno(saleId)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('storno_in_progress')
+    expect((await read(saleId)).register.stornoedBy.map(String)).toEqual([String(orphan)])
+    expect(stornosOnDevice(w)).toHaveLength(0)
+  })
+
+  it('past a lease: the next press pulls it, and prints the one storno', async () => {
+    const w = await tillWorld(app)
+    const { saleId, orphan } = await orphaned(w)
+
+    const r = await w.storno(saleId)
+
+    expect(r.status).toBe(200)
+    const sale = await read(saleId)
+    expect(sale.register.stornoedBy.map(String)).not.toContain(String(orphan))
+    expect(sale.register.stornoedBy).toHaveLength(1)
+    expect(stornosOnDevice(w)).toHaveLength(1)
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+  })
+
+  describe('a request that stalled past a lease between its claim and its insert', () => {
+    /** The insert stalls. Meanwhile its claim grows old, and the next press finds nothing written under it. */
+    async function stalls(saleId: string, press: () => Promise<any>) {
+      const real = Invoice.create
+      let inner: any
+      let done = false
+      ;(Invoice as any).create = async function (...args: any[]) {
+        if (!done && args[0]?.type === 'cash_storno') {
+          done = true
+          await Invoice.updateOne({ _id: saleId }, { $set: { 'register.cancelledAt': old() } })
+          inner = await press()
+        }
+        return (real as any).apply(Invoice, args)
+      }
+      try {
+        const outer = await press()
+        return { inner, outer }
+      } finally {
+        ;(Invoice as any).create = real
+      }
+    }
+    /** The one that woke is voided with its number, and the sale still names the one that went through. */
+    async function oneStornoStands(w: TillWorld, saleId: string, through: any, woke: any) {
+      expect(through.status).toBe(200)
+      expect(woke.status).toBe(503)
+      expect(woke.json.message).toContain('took over')
+      const sale = await read(saleId)
+      expect(sale.register.stornoState).toBe('full')
+      expect(sale.register.stornoedBy.map(String)).toEqual([String(through.json.transaction.id)])
+      const voided: any[] = await Invoice.find({ orgId: w.oid, type: 'cash_storno', status: 'voided' }).lean().exec()
+      expect(voided).toHaveLength(1)
+      expect(voided[0].register.unp).toBeUndefined()
+      expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_storno', status: 'paid' })).toBe(1)
+      expect((await w.stock()).quantity).toBe(10)
+    }
+
+    it('it wakes with no claim, and prints nothing: the sale has its storno, and this one never was', async () => {
+      const w = await tillWorld(app)
+      const saleId = String((await w.sell(1)).json.transaction.id)
+
+      const run = await stalls(saleId, () => w.storno(saleId))
+
+      await oneStornoStands(w, saleId, run.inner, run.outer)
+      expect(stornosOnDevice(w)).toHaveLength(1)
+      expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+    })
+
+    it('a back-office sale the same, with nothing to print', async () => {
+      const w = await tillWorld(app)
+      const saleId = String((await w.backOfficeSale(1)).json.invoice.id)
+
+      const run = await stalls(saleId, () => w.call('POST', `/cash-register/documents/${saleId}/storno`, { reason: 'customer_return' }, undefined, w.clerkToken))
+
+      await oneStornoStands(w, saleId, run.inner, run.outer)
+    })
+
+    it('a copied storno its sale does not name is none of this: it never claimed anything', async () => {
+      const w = await tillWorld(app)
+      const sold = await w.sell(1)
+      const copy: any = await Invoice.create({
+        orgId: w.oid, invoiceNumber: 'TXN-OLD-3', type: 'cash_storno', direction: 'outgoing', status: 'paid', issueDate: new Date(), dueDate: new Date(), currency: 'EUR', exchangeRate: 1, total: 12,
+        relatedInvoiceId: sold.json.transaction.id, lines: [{ description: 'x', quantity: 1, unit: 'бр.', unitPrice: 10, taxRate: 20, taxAmount: 2, lineTotal: 12 }],
+        billingAddress: { street: '-' }, createdBy: w.user._id,
+        register: { origin: 'pos', legacy: { source: 'postransactions', type: 'storno', transactionNumber: 'TXN-OLD-3' }, fiscal: { state: 'none' } },
+      })
+
+      await runStornoSteps(deviceless(w.orgId, { id: String(w.user._id) } as any), String(copy._id))
+
+      expect((await read(copy._id)).status).toBe('paid')
+    })
+  })
+
+  it('past a lease: the close pulls it for its session\'s sales, and 18.5 lists no cancellation that never happened', async () => {
+    const w = await tillWorld(app)
+    const { saleId } = await orphaned(w)
+    const window = { orgId: w.orgId, dateFrom: new Date(Date.now() - 86_400_000), dateTo: new Date(Date.now() + 86_400_000) } as any
+    expect((await exportCancelledSales(window)).length).toBe(1)
+
+    expect((await w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 112 } })).status).toBe(200)
+
+    const sale = await read(saleId)
+    expect(sale.register.stornoState).toBe('none')
+    expect(sale.register.stornoedBy).toHaveLength(0)
+    expect(sale.register.cancelledAt).toBeUndefined()
+    expect((await exportCancelledSales(window)).length).toBe(0)
+  })
+
+  it('id by id: of two, the one with no document goes, and the sale stays claimed by the other', async () => {
+    const w = await tillWorld(app)
+    const { saleId, orphan } = await orphaned(w)
+    const written: any = await Invoice.create({
+      orgId: w.oid, invoiceNumber: 'CS-LIVE-0001', type: 'cash_storno', direction: 'outgoing', status: 'paid', completedAt: new Date(),
+      issueDate: new Date(), dueDate: new Date(), currency: 'EUR', exchangeRate: 1, total: 12,
+      lines: [{ description: 'x', quantity: 1, unit: 'бр.', unitPrice: 10, taxRate: 20, taxAmount: 2, lineTotal: 12 }],
+      billingAddress: { street: '-' }, relatedInvoiceId: saleId, createdBy: w.user._id,
+      register: { origin: 'pos', sessionId: w.sessionId, fiscal: { state: 'none' } },
+    })
+    await Invoice.updateOne({ _id: saleId }, { $push: { 'register.stornoedBy': written._id } })
+
+    const r = await w.storno(saleId)
+
+    expect(r.status).toBe(400)
+    const sale = await read(saleId)
+    expect(sale.register.stornoState).toBe('full')
+    expect(sale.register.stornoedBy.map(String)).toEqual([String(written._id)])
+    expect(sale.register.stornoedBy.map(String)).not.toContain(String(orphan))
+    expect(sale.register.cancelledAt).toBeTruthy()
+  })
+
+  it('a claim whose document is there is no orphan, however old', async () => {
+    const w = await tillWorld(app)
+    const sold = await w.sell(1)
+    const saleId = String(sold.json.transaction.id)
+    expect((await w.storno(saleId)).status).toBe(200)
+    await Invoice.updateOne({ _id: saleId }, { $set: { 'register.cancelledAt': old() } })
+
+    const r = await w.storno(saleId)
+
+    expect(r.status).toBe(400)
+    expect((await read(saleId)).register.stornoState).toBe('full')
+    expect(stornosOnDevice(w)).toHaveLength(1)
+  })
+
+  it('on a sale whose session has closed nothing else will release it: its page offers the storno that does', async () => {
+    const w = await tillWorld(app)
+    const { saleId } = await orphaned(w, new Date())
+    expect((await w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 112 } })).status).toBe(200)
+    // Too young at the close, so it stands, and reads as what it is for now.
+    expect((await w.call('GET', `/cash-register/documents/${saleId}`)).json.row.status).toBe('stornoed')
+
+    await Invoice.updateOne({ _id: saleId }, { $set: { 'register.cancelledAt': old() } })
+
+    const page = (await w.call('GET', `/cash-register/documents/${saleId}`)).json
+    expect(page.row.status).toBe('completed')
+    expect(page.related).toHaveLength(0)
+    // The press is what writes, and it goes on to what any storno of a closed session's sale does.
+    const opened = await w.call('POST', '/trade/pos/session', { warehouseId: String(w.warehouse._id), openingBalance: 0, currency: 'EUR' })
+    const r = await w.call('POST', `/cash-register/documents/${saleId}/storno`, { reason: 'customer_return', sessionId: String(opened.json.session.id ?? opened.json.session._id) })
+    expect(r.status).toBe(200)
+    expect(stornosOnDevice(w)).toHaveLength(1)
+  })
+
+  it('a claim made since it was read: the write is conditional, and takes nothing', async () => {
+    const w = await tillWorld(app)
+    const { saleId, orphan } = await orphaned(w)
+    const stale = await read(saleId)
+    // Given back and claimed afresh between the read and the write, the same id for the sake of the test.
+    await Invoice.updateOne({ _id: saleId }, { $set: { 'register.cancelledAt': new Date() } })
+
+    expect(await releaseOrphanClaims(stale)).toBe(false)
+    expect((await read(saleId)).register.stornoedBy.map(String)).toEqual([String(orphan)])
+  })
+
+  it('a stornoed sale with no ids and no age to read stays what it is: a copy of an old row', async () => {
+    const w = await tillWorld(app)
+    const sold = await w.sell(1)
+    const saleId = String(sold.json.transaction.id)
+    await Invoice.updateOne({ _id: saleId }, { $set: { 'register.stornoState': 'full', 'register.stornoedBy': [] }, $unset: { 'register.cancelledAt': 1 } })
+
+    const r = await w.storno(saleId)
+
+    expect(r.status).toBe(400)
+    expect((await read(saleId)).register.stornoState).toBe('full')
+
+    // With no such field at all, too.
+    await Invoice.collection.updateOne({ _id: new ObjectId(saleId) }, { $unset: { 'register.stornoedBy': '' } })
+    expect((await w.storno(saleId)).status).toBe(400)
   })
 })
 
@@ -948,6 +1163,41 @@ describe('a storno in doubt counts nowhere until it is settled (finding 1)', () 
       suptoCancelled: 1,
       export: true,
     })
+  })
+
+  it('settled not printed, and stopped before its void: `failed` and still `paid`, and it refunded nothing', async () => {
+    const w = await tillWorld(app)
+    const contact = await createTestContact(w.oid, { companyName: 'Клиент ООД', type: 'customer' } as any)
+    const contactId = String(contact._id)
+    const sale = await w.sell(1)
+    const saleId = String(sale.json.transaction.id)
+    await Invoice.updateOne({ _id: saleId }, { $set: { contactId: contact._id } })
+    w.sim!.beforeCommand = cmd => { if (cmd === LINE) w.sim!.disconnected = true }
+    expect((await w.storno(saleId)).json.code).toBe('storno_in_doubt')
+    w.sim!.beforeCommand = null
+    w.sim!.disconnected = false
+    const storno = await stornoOf(w)
+    await Invoice.updateOne({ _id: storno._id }, { $set: { contactId: contact._id } })
+    await getPrinter(w.deviceId).printDailyXReport()
+    const dies = spyOn(Invoice, 'updateOne').mockImplementationOnce(() => { throw new Error('the pod went away') })
+
+    expect((await settle(w, String(storno._id), false)).status).toBe(500)
+
+    dies.mockRestore()
+    expect((await read(storno._id))).toMatchObject({ status: 'paid', register: expect.objectContaining({ fiscal: expect.objectContaining({ state: 'failed' }) }) })
+    // Nothing moved on the session, and no reader may say otherwise.
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 12, totalReturns: 0 })
+    expect(await readings(w, contactId)).toEqual({
+      digestCash: 12, digestPayments: 12, digestFamily: 12, history: 0, historyCash: 12, register: 0, ledgerSales: 12, ledgerRows: 0, productSales: 12,
+      paid30d: 12, session: 12, suptoPayments: 0, suptoReversed: 0, suptoCancelled: 0, export: false,
+    })
+
+    // The next touch voids it, and gives the sale back.
+    await Invoice.updateOne({ _id: storno._id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+    const again = await w.storno(saleId)
+    expect(again.status).toBe(200)
+    expect((await read(storno._id)).status).toBe('voided')
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
   })
 
   it('the session\'s journal entry: posted over a held storno by any way round, it takes no refund', async () => {

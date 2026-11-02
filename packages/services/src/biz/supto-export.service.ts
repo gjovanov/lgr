@@ -9,7 +9,7 @@ import type { RepositoryRegistry } from 'dal'
 import { getRepos } from '../context.js'
 import { isDateOnly, localDayEnd, localDayStart } from './local-day.js'
 import { loadPosRows, PAYMENT_RECEIPT, PAYMENT_STORNO } from './cash-register/pos-union.js'
-import { receiptTookMoney, refundGaveMoney, stornoUnproved } from './cash-register/counting.js'
+import { UNPROVED_STORNO_STATES, receiptTookMoney, refundGaveMoney, stornoUnproved } from './cash-register/counting.js'
 import { originOf } from './cash-register/register.service.js'
 import { Invoice, User } from 'db/models'
 
@@ -126,7 +126,7 @@ export async function exportReversedSales(filters: SuptoExportFilters, _repos?: 
  */
 export async function exportCancelledSales(filters: SuptoExportFilters, _repos?: RepositoryRegistry) {
   const claimed = new Set((await Invoice.distinct('relatedInvoiceId', {
-    orgId: filters.orgId, type: 'cash_storno', status: { $ne: 'voided' }, 'register.fiscal.state': { $in: ['pending', 'unknown'] },
+    orgId: filters.orgId, type: 'cash_storno', status: { $ne: 'voided' }, 'register.fiscal.state': { $in: UNPROVED_STORNO_STATES },
   } as any).exec()).map(String))
   return tillRows(filters, t => t.status === 'cancelled' && !claimed.has(String(t._id)), false)
 }
