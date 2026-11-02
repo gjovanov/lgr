@@ -141,6 +141,7 @@ test('a close that died in its Z: POS Sessions is the way back, its figures read
   // Read as it opens, though this view mounts it already open: what the close books, and whose it is.
   await expect(dialog.getByTestId('close-dead-sales')).toContainText('CS-DEAD-0001, no-number-yet')
   await expect(dialog.getByTestId('close-dead-sales')).toContainText('settle each one')
+  await expect(dialog.getByTestId('close-dead-sales')).not.toContainText('CS-DEAD-0003')
   await expect(dialog.getByTestId('close-dead-sales-booked')).toContainText('CS-DEAD-0003')
   await expect(dialog.getByTestId('close-dead-sales-booked')).not.toContainText('settle')
   await expect(dialog.getByTestId('close-dead-documents')).toContainText('CS-DEAD-0002, INV-0001')
