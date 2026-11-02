@@ -368,7 +368,7 @@ export const SESSION_CLOSING = {
 } as const
 
 /** Whether the session a document joined still takes it. One with no session joined nothing. */
-const sessionIsOpen = async (doc: any): Promise<boolean> =>
+export const sessionIsOpen = async (doc: any): Promise<boolean> =>
   !doc.register?.sessionId || !!(await POSSession.exists({ _id: doc.register.sessionId, status: 'open' }).exec())
 
 /** Nothing of it has happened: not a print, nor the drawer, nor the stock. */
@@ -675,12 +675,12 @@ export async function rollBack(doc: any): Promise<void> {
 }
 
 /**
- * A sale whose session stopped taking anything before it started. As any sale that failed before it reached
- * the device or the drawer, it never was: the document goes, and the cashier hears why, with the basket still
- * on the screen. ⚠ Removed, not voided: a sale is flipped to `cancelled` by its storno alone, and a voided one
- * would count in every reader of the rows (`posRowSign`).
+ * A sale whose session stopped taking anything before it started, or a refund's storno before it held anything. As
+ * any sale that failed before it reached the device or the drawer, it never was: the document goes, and the cashier
+ * hears why, with the basket still on the screen. ⚠ Removed, not voided: a sale is flipped to `cancelled` by its
+ * storno alone, and a voided one would count in every reader of the rows (`posRowSign`).
  */
-async function giveWayToTheClose(doc: any): Promise<never> {
+export async function giveWayToTheClose(doc: any): Promise<never> {
   await rollBack(doc)
   throw new RegisterRefusal(409, { ...SESSION_CLOSING })
 }

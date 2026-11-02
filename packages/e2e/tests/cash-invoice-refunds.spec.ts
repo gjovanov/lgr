@@ -417,6 +417,37 @@ test.describe('FR-23 R2 — a storno for a refund on a credit note', () => {
     await expect.poll(() => said).toEqual([{ printed: true, receiptNumber: '123' }])
   })
 
+  test('a number off the slip that collides is a question: the page shows it, and the slip has the last word', async ({ page }) => {
+    const inv = await paidInvoice()
+    const { receipt } = inv
+    await page.route(`**/cash-register/documents/${receipt.id}`, async (route) => {
+      const { json } = await call(cashier, 'GET', `/cash-register/documents/${receipt.id}`)
+      delete json.row.fiscal.receiptNumber
+      json.row.fiscal.numberMissing = true
+      return route.fulfill({ json })
+    })
+    const said: any[] = []
+    await page.route(`**/cash-register/documents/${receipt.id}/settle`, (route) => {
+      const asked = route.request().postDataJSON()
+      said.push(asked)
+      return asked.confirmNumber
+        ? route.fulfill({ json: { document: {} } })
+        : route.fulfill({ status: 422, json: { code: 'receipt_number_taken', document: 'CS-2026-00001', message: 'taken' } })
+    })
+
+    await loginForApp(page, 'acme-corp', cashierName, PASSWORD)
+    await page.goto(`/invoicing/cash-sales/${receipt.id}/view`)
+    await page.getByTestId('receipt-correct-number').click()
+    await page.getByTestId('receipt-settle-number').locator('input').fill('123')
+    const confirm = page.getByTestId('receipt-settle-confirm')
+    await confirm.click()
+
+    await expect(page.getByTestId('receipt-number-question')).toContainText('CS-2026-00001')
+    await expect(confirm).toHaveText(/The slip says this number/i)
+    await confirm.click()
+    await expect.poll(() => said).toEqual([{ printed: true, receiptNumber: '123' }, { printed: true, receiptNumber: '123', confirmNumber: true }])
+  })
+
   test('the forms list what moved their money: a receipt on its invoice, a storno on its note, each a way to its page', async ({ page }) => {
     const inv = await paidInvoice()
     const note = await creditNote(inv.id, 'bank_transfer')

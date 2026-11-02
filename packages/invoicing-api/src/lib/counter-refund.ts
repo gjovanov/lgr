@@ -14,7 +14,7 @@
  * has its own key, derived from the request's, so a retry finds what the first attempt printed and goes
  * on from there with what is left to give back: nothing prints twice and no plan has to survive a crash.
  */
-import { Invoice } from 'db/models'
+import { Invoice, POSSession } from 'db/models'
 import { outstandingOf } from 'services/biz/invoice-payment'
 import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { PAYMENT_STORNO } from 'services/biz/cash-register/pos-union'
@@ -26,7 +26,7 @@ import { drawOn, holdEnough } from 'services/biz/cash-register/refund-budget'
 import { grossByRate } from 'services/biz/cash-register/receipt-lines'
 import { receiptMode, type ReceiptMode } from 'services/biz/cash-register/receipt-mode'
 import {
-  RegisterRefusal, insertRegisterDocument, originOf, type RegisterContext, type RegisterUser,
+  RegisterRefusal, SESSION_CLOSING, giveWayToTheClose, insertRegisterDocument, originOf, sessionIsOpen, type RegisterContext, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
 import { PRINTER_GATE_SWITCH, STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, connectedInWarehouse, finishDeadSale, finishInterruptedDocuments, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
 import { settleKeyedReceipt } from './counter-receipt.js'
@@ -144,6 +144,8 @@ export async function prepareRefund(orgId: string, user: RegisterUser & { role?:
 
   const session = await openSessionOf(orgId, user.id)
   if (!session) {
+    // ⚠ One being closed takes nothing new, and it would be no answer to send its cashier to open another.
+    if (await POSSession.exists({ orgId, cashierId: user.id, status: 'closing_control' }).exec()) throw new RegisterRefusal(409, { ...SESSION_CLOSING })
     throw new RegisterRefusal(409, {
       code: 'fiscal_device_not_connected',
       noSession: true,
@@ -254,6 +256,10 @@ async function nextPart(orgId: string, prepared: PreparedRefund, note: any, amou
   const outcome = await insertRegisterDocument(orgId, document, keyed)
   // A racing duplicate of this request won the insert: its part is this one.
   if ('existing' in outcome) return settleKeyedReceipt(orgId, user, outcome.existing, keyed!.hash)
+  // ⚠ The door's read says nothing about the moment after it. So it looks once it is written, before it holds anything
+  // or draws a number, as a sale does: read as open the close finds this storno and refuses, read as not open this
+  // gives way. It looks again in its turn on the device (`printReceiptStep`).
+  if (!(await sessionIsOpen(outcome.inserted))) await giveWayToTheClose(outcome.inserted)
   return runReceiptSteps(c, String(outcome.inserted._id))
 }
 

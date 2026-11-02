@@ -1866,6 +1866,58 @@ describe('what backs a refund, in doubt: a person settles it, and it holds what 
       await untouched(id)
     })
 
+    it('a collision is a question: confirmed it goes through, on the trail, and the refund cites what the slip says', async () => {
+      const w = await tillWorld(app)
+      const clerk = await clerkSession(w)
+      const other = await clerkSale(w, clerk, 1)
+      const theirs = other.json.transaction.fiscalReceiptNumber
+      const { id, note } = await offItsSlip(w)
+
+      const said = await w.call('POST', `/cash-register/documents/${id}/settle`, { printed: true, receiptNumber: theirs, confirmNumber: true })
+
+      expect(said.status).toBe(200)
+      const stood = await fresh(id)
+      expect(stood.register.fiscalReceiptNumber).toBe(theirs)
+      expect(stood.register.settled.confirmedOver).toContain(other.json.transaction.transactionNumber)
+      const trail: any = await AuditLog.findOne({ entityId: id, action: 'settle_receipt' }).lean().exec()
+      expect(trail.changes).toContainEqual(expect.objectContaining({ field: 'confirmedOver', newValue: stood.register.settled.confirmedOver }))
+
+      expect((await pay(w, note.id, 24)).status).toBe(200)
+      expect(w.sim!.receipts.at(-1)!.header[5]).toBe(theirs)
+    })
+
+    it('the same above the device\'s last, and never for what is not digits', async () => {
+      const w = await tillWorld(app)
+      const { id } = await offItsSlip(w)
+
+      const off = await w.call('POST', `/cash-register/documents/${id}/settle`, { printed: true, receiptNumber: 'ФБ-1', confirmNumber: true })
+      expect(off.json.code).toBe('receipt_number_required')
+      await untouched(id)
+
+      const over = await w.call('POST', `/cash-register/documents/${id}/settle`, { printed: true, receiptNumber: '9999999', confirmNumber: true })
+      expect(over.status).toBe(200)
+      expect((await fresh(id)).register.settled.confirmedOver).toContain('last number')
+    })
+
+    it('at the correction door too: confirmed, on the trail, and a later number that collides with nothing clears it', async () => {
+      const w = await tillWorld(app)
+      const other = (await w.sell(1)).json.transaction.fiscalReceiptNumber
+      const { id } = await offItsSlip(w)
+      expect((await settle(w, id, true, undefined, '1')).status).toBe(200)
+
+      expect((await settle(w, id, true, undefined, other)).json.code).toBe('receipt_number_taken')
+      const confirmed = await w.call('POST', `/cash-register/documents/${id}/settle`, { printed: true, receiptNumber: other, confirmNumber: true })
+      expect(confirmed.status).toBe(200)
+      expect((await fresh(id)).register.settled.confirmedOver).toBeTruthy()
+      const trail: any = await AuditLog.findOne({ entityId: id, action: 'correct_receipt_number' }).sort({ _id: -1 }).lean().exec()
+      expect(trail.changes).toContainEqual(expect.objectContaining({ field: 'confirmedOver' }))
+
+      expect((await settle(w, id, true, undefined, '2')).status).toBe(200)
+      const last = await fresh(id)
+      expect(last.register.fiscalReceiptNumber).toBe('2')
+      expect(last.register.settled.confirmedOver).toBeUndefined()
+    })
+
     it('outside 31 days of this receipt it is not taken: a replaced fiscal memory counts from one again', async () => {
       const w = await tillWorld(app)
       const earlier = await w.sell(1)
@@ -3230,25 +3282,89 @@ describe('print-once, the receipt\'s own (#155): a storno on a device', () => {
     expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 24 })
   })
 
-  it('a session that closed before its turn came: it did not print, and its hold and its claim go', async () => {
+  it('a session no longer open when its turn came: it did not print, and its hold and its claim go', async () => {
     const w = await tillWorld(app)
     const inv = await paidInvoice(w)
     const note = await issuedNote(w, inv)
-    const real = Invoice.create
-    ;(Invoice as any).create = async function (...args: any[]) {
-      const out = await (real as any).apply(Invoice, args)
-      await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closed' } })
-      return out
-    }
-    let r: any
-    try {
-      r = await pay(w, note.id, 24)
-    } finally {
-      ;(Invoice as any).create = real
-    }
+    const printed = w.sim!.receipts.length
+    const taken = gate()
+    const holder = deviceTurn(w.deviceId, () => taken.closed)
+    const refunding = pay(w, note.id, 24)
+    await until(async () => {
+      const [storno] = await stornosOf(note.id)
+      return !!storno && !String(storno.invoiceNumber).startsWith('~')
+    }, 'the storno to hold its claim and its number')
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closing_control', closeLeaseUntil: new Date(Date.now() + 60_000) } })
+    taken.open()
+    await holder
+    const r = await refunding
+
     expect(r.status).toBe(503)
+    expect(w.sim!.receipts).toHaveLength(printed)
+    expect((await stornosOf(note.id))[0]).toMatchObject({ status: 'voided' })
     expect(await raw(note.id)).toMatchObject({ amountPaid: 0 })
     expect((await fresh(inv.receipt._id)).register.refundClaims).toHaveLength(0)
+  })
+
+  describe('the close reads a refund by the function that books it (the readers, A3)', () => {
+    const closeAt = (w: TillWorld, cash: number) => w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash, card: 0, other: 0 } })
+    const previewOf = (w: TillWorld) => w.call('GET', `/trade/pos/session/${w.sessionId}/close-preview`)
+
+    it('a dead storno that printed: the preview and the close both say 100, and the prefilled count closes on 0', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      const note = await issuedNote(w, inv)
+      const dead = await interrupted(w, inv, note, { state: 'printed', receiptNo: '0000200', attemptedAt: new Date(), printedAt: new Date() })
+      await Invoice.updateOne({ _id: dead._id }, { $set: { 'register.fiscalReceiptNumber': '0000200' } })
+
+      const preview = await previewOf(w)
+
+      expect(preview.json.expected.cash).toBe(100)
+      expect(preview.json.unfinishedReceipts).toEqual([])
+      expect(preview.json.deadDocuments).toEqual([expect.objectContaining({ id: String(dead._id), kind: 'refund' })])
+
+      expect((await closeAt(w, preview.json.expected.cash)).status).toBe(200)
+      expect(await sessionOf(w)).toMatchObject({ status: 'closed', expectedBalance: 100, difference: 0, totalCash: 0, totalReturns: 24 })
+      expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    })
+
+    it('a part of it: what it returned is its own total, whatever the receipt it cites took', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      const note = await issuedNote(w, inv, { quantity: 1 })
+      const dead = await interrupted(w, inv, note, { state: 'printed', receiptNo: '0000200', attemptedAt: new Date(), printedAt: new Date() }, 12)
+      await Invoice.updateOne({ _id: dead._id }, { $set: { 'register.fiscalReceiptNumber': '0000200' } })
+
+      const preview = await previewOf(w)
+
+      expect(preview.json.expected.cash).toBe(112)
+      expect((await closeAt(w, preview.json.expected.cash)).status).toBe(200)
+      expect(await sessionOf(w)).toMatchObject({ status: 'closed', expectedBalance: 112, difference: 0, totalCash: 12, totalReturns: 12 })
+    })
+
+    it('a dead storno that never reached the device: nothing is projected, the close gives it up, and it still closes on 0', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      const note = await issuedNote(w, inv)
+      const dead = await interrupted(w, inv, note, {})
+
+      const preview = await previewOf(w)
+
+      expect(preview.json.expected.cash).toBe(124)
+      expect((await closeAt(w, preview.json.expected.cash)).status).toBe(200)
+      expect(await sessionOf(w)).toMatchObject({ status: 'closed', expectedBalance: 124, difference: 0, totalCash: 24, totalReturns: 0 })
+      expect((await fresh(dead._id)).status).toBe('voided')
+      expect(await raw(note.id)).toMatchObject({ amountPaid: 0 })
+    })
+
+    it('the steps book it too: a refund\'s totals come from that function, or there are none', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      const note = await issuedNote(w, inv)
+      expect((await pay(w, note.id, 24)).status).toBe(200)
+      expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalSales: 24, totalReturns: 24, transactionCount: 2 })
+      expect((await stornosOf(note.id))[0].register.sessionTotalsApplied).toBe(true)
+    })
   })
 })
 
@@ -4195,6 +4311,153 @@ describe('two devices connected in one warehouse: the door asks for the receipt\
     } finally {
       second.gone()
     }
+  })
+})
+
+describe('a session takes nothing new unless it is open: a refund no more than a sale (R1, its ruling 1)', () => {
+  const Z = 0x45
+
+  /** A close stopped inside its Z, the session `closing_control`, with what lets it finish. */
+  async function closingInItsZ(w: TillWorld, cash: number) {
+    const held = gate()
+    let reached = false
+    w.sim!.beforeCommand = (cmd) => {
+      if (cmd !== Z) return undefined
+      reached = true
+      return held.closed
+    }
+    const closing = w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash, card: 0, other: 0 } })
+    await until(() => reached, 'the Z to be under way')
+    expect((await sessionOf(w)).status).toBe('closing_control')
+    return {
+      finish: async () => {
+        w.sim!.beforeCommand = null
+        held.open()
+        return closing
+      },
+    }
+  }
+
+  it('sent during the Z: refused at the door, nothing written, and the close\'s difference is 0', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    const z = await closingInItsZ(w, 124)
+    const printed = w.sim!.receipts.length
+
+    const r = await pay(w, note.id, 24)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('session_closing')
+    expect(r.json.message).toContain('being closed')
+    expect(await stornosOf(note.id)).toHaveLength(0)
+    expect((await z.finish()).status).toBe(200)
+    expect(w.sim!.receipts).toHaveLength(printed)
+    expect(await raw(note.id)).toMatchObject({ amountPaid: 0 })
+    expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 24, totalReturns: 0, expectedBalance: 124, difference: 0 })
+  })
+
+  it('issued during the Z: refused at the door, and nothing is issued', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await noteOn(w, inv)
+    const z = await closingInItsZ(w, 124)
+
+    const r = await send(w, note.id)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('session_closing')
+    expect(await raw(note.id)).toMatchObject({ status: 'draft', amountPaid: 0 })
+    expect(await stornosOf(note.id)).toHaveLength(0)
+    expect((await z.finish()).status).toBe(200)
+  })
+
+  it('a person with no session at all still hears to open one', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closed' } })
+
+    const r = await pay(w, note.id, 24)
+
+    expect(r.status).toBe(409)
+    expect(r.json).toMatchObject({ code: 'fiscal_device_not_connected', noSession: true })
+  })
+
+  it('a close landing past the door: it looks once it is written and gives way, leaving no document, no claim and nothing on the device', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    const printed = w.sim!.receipts.length
+    const real = Invoice.create
+    let closed: any
+    let done = false
+    ;(Invoice as any).create = async function (...args: any[]) {
+      if (!done && args[0]?.type === 'payment_storno') {
+        done = true
+        closed = await w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 124, card: 0, other: 0 } })
+      }
+      return (real as any).apply(Invoice, args)
+    }
+    let r: any
+    try {
+      r = await pay(w, note.id, 24)
+    } finally {
+      ;(Invoice as any).create = real
+    }
+
+    expect(closed.status).toBe(200)
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('session_closing')
+    expect(await stornosOf(note.id)).toHaveLength(0)
+    expect(w.sim!.receipts).toHaveLength(printed)
+    expect(await raw(note.id)).toMatchObject({ amountPaid: 0 })
+    expect((await fresh(inv.receipt._id)).register.refundClaims ?? []).toHaveLength(0)
+    expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 24, totalReturns: 0, expectedBalance: 124, difference: 0 })
+  })
+
+  it('at issue the same: it stands issued, with nothing given back, and says why', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await noteOn(w, inv)
+    const real = Invoice.create
+    let done = false
+    ;(Invoice as any).create = async function (...args: any[]) {
+      if (!done && args[0]?.type === 'payment_storno') {
+        done = true
+        await w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 124, card: 0, other: 0 } })
+      }
+      return (real as any).apply(Invoice, args)
+    }
+    let r: any
+    try {
+      r = await send(w, note.id)
+    } finally {
+      ;(Invoice as any).create = real
+    }
+
+    expect(r.status).toBe(200)
+    expect(r.json.receiptError).toContain('being closed')
+    expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect(await stornosOf(note.id)).toHaveLength(0)
+    expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 24, difference: 0 })
+  })
+
+  it('a keyed retry of a refund made before the close replays through it, and prints nothing', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv, { quantity: 1 })
+    expect((await pay(w, note.id, 12, 'cash', 'a-refund-before-the-close')).status).toBe(200)
+    const z = await closingInItsZ(w, 112)
+    const printed = w.sim!.receipts.length
+
+    const r = await pay(w, note.id, 12, 'cash', 'a-refund-before-the-close')
+
+    expect(r.status).toBe(200)
+    expect(w.sim!.receipts).toHaveLength(printed)
+    expect(await stornosOf(note.id)).toHaveLength(1)
+    expect((await z.finish()).status).toBe(200)
+    expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 12, totalReturns: 12, expectedBalance: 112, difference: 0 })
   })
 })
 
