@@ -1194,7 +1194,7 @@
       "correctNumberConfirm": "Geben Sie die Belegnummer so ein, wie sie auf dem Bon steht. Das Storno nennt sie, und das Protokoll behält beide.",
       "numberCorrected": "Belegnummer korrigiert",
       "stornoExceedsLeft": "Das ist mehr, als von diesem Verkauf zur Rückgabe übrig ist: Ein anderes Storno hat einen Teil davon genommen. Es wurde nichts storniert. Sehen Sie nach, was übrig ist, und versuchen Sie es erneut.",
-      "stornoExceedsBudget": "Diese Zeilen sind mehr, als der Bon dieses Verkaufs noch hält ({left}): Eine Erstattung per Gutschrift hat den Rest genommen. Es wurde nichts storniert.",
+      "stornoExceedsBudget": "Diese Zeilen sind mehr, als der Bon dieses Verkaufs noch hält ({left}): Was bereits zurückging, lässt nicht mehr übrig. Es wurde nichts storniert.",
       "stornoRefundMismatch": "Dieses Storno erstattet einen anderen Betrag als die genannte Erstattung. Es wurde nichts storniert.",
       "stornoLineUnknown": "Eine dieser Zeilen gehört nicht zu diesem Verkauf. Es wurde nichts storniert.",
       "stornoQuantityInvalid": "Eine Rückgabemenge ist größer als 0, mit höchstens drei Dezimalstellen. Es wurde nichts storniert.",

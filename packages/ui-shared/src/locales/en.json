@@ -1906,7 +1906,7 @@
       "correctNumberConfirm": "Type the receipt number as it is on the slip. A storno cites it, and the audit trail keeps both.",
       "numberCorrected": "Receipt number corrected",
       "stornoExceedsLeft": "That is more than is left of this sale to return: another storno took part of it. Nothing was reversed. Look at what is left, then try again.",
-      "stornoExceedsBudget": "These lines are more than this sale's receipt still holds ({left}): a credit note's refund took the rest. Nothing was reversed.",
+      "stornoExceedsBudget": "These lines come to more than this sale's receipt still holds ({left}): what has gone back of it leaves no more. Nothing was reversed.",
       "stornoRefundMismatch": "This storno gives back another amount than the refund named. Nothing was reversed.",
       "stornoLineUnknown": "One of these lines is not a line of this sale. Nothing was reversed.",
       "stornoQuantityInvalid": "A quantity to return is above 0, in at most three decimals. Nothing was reversed.",

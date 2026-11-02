@@ -720,13 +720,14 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
         assertAddsUp(plan.total)
         return { plan, payments: input.payments }
       }
-      // ⚠ Lines that fit can still be more than a refund left of their rate: said here, in words a person can use.
+      // ⚠ Lines that fit can still be more than what went back by a refund leaves of their rate: said here, in words a
+      // person can use. A line's own parts never come to more than the line, so it takes money gone another way.
       const left = leftByRate(original)
       if ([...plan.want].some(([rate, cents]) => cents > (left.get(rate) || 0))) {
         throw new RegisterRefusal(409, {
           code: 'storno_exceeds_budget',
           left: totalOf(left) / 100,
-          message: `These lines are more than this sale's receipt still holds (${(totalOf(left) / 100).toFixed(2)}): a credit note's refund took the rest. Nothing was reversed.`,
+          message: `These lines come to more than this sale's receipt still holds (${(totalOf(left) / 100).toFixed(2)}). Nothing was reversed.`,
         })
       }
       assertAddsUp(plan.total)

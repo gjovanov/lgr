@@ -55,15 +55,16 @@ export function computePosTotals(lines: PosTotalsLine[]): PosTotals {
 }
 
 /**
- * What returning `milli` thousandths of a line is worth, in cents, when `returned` of its `sold` are already back
- * and the whole line is worth `value`. Read off the line's running total, never by rounding each part on its own: the
- * parts add up to `value` exactly in whatever pieces they come back, and the last one takes the rest. One function:
- * the storno's claim, and the dialog that says how much goes back.
+ * What returning `milli` thousandths of a line is worth, in cents: what the line's running total comes to once it is
+ * back, less what the parts standing on it took. The whole line is worth `value`; `returned` of its `sold` are back,
+ * for `taken`. Never by rounding each part on its own, and never by where the earlier parts stood: one of those can be
+ * given back while a later one stands, which moved the rest along by a cent and left the last unit nothing to come
+ * back on. So the parts come to `value` exactly, in whatever pieces, whichever of them is given back, and the last one
+ * takes the rest. One function: the storno's claim, and the dialog that says how much goes back.
  */
-export function partOfLine(value: number, sold: number, returned: number, milli: number): number {
+export function partOfLine(value: number, sold: number, returned: number, taken: number, milli: number): number {
   if (!(sold > 0)) return 0
-  const at = (m: number) => Math.round((value * m) / sold)
-  return at(returned + milli) - at(returned)
+  return Math.max(0, Math.round((value * (returned + milli)) / sold) - taken)
 }
 
 /**

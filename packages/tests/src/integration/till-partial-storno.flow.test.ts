@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { Elysia } from 'elysia'
-import { computePosTotals } from 'config/pos-totals'
+import { computePosTotals, partOfLine } from 'config/pos-totals'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
 import { createTestContact, createTestProduct, createTestStockLevel, createTestWarehouse } from '../helpers/factories'
@@ -65,6 +65,21 @@ function during(at: (update: any) => boolean, meanwhile: () => Promise<unknown>)
     const chain = {
       lean: () => chain,
       exec: async () => { await meanwhile(); return (real as any).call(Invoice, filter, update, ...rest).lean().exec() },
+    }
+    return chain
+  }
+  return () => { (Invoice as any).findOneAndUpdate = real }
+}
+/** Run `meanwhile` exactly once, right after the write `at` picks. */
+function justAfter(at: (update: any) => boolean, meanwhile: () => Promise<unknown>) {
+  const real = Invoice.findOneAndUpdate
+  let done = false
+  ;(Invoice as any).findOneAndUpdate = function (filter: any, update: any, ...rest: any[]) {
+    if (done || !at(update)) return (real as any).call(Invoice, filter, update, ...rest)
+    done = true
+    const chain = {
+      lean: () => chain,
+      exec: async () => { const written = await (real as any).call(Invoice, filter, update, ...rest).lean().exec(); await meanwhile(); return written },
     }
     return chain
   }
@@ -1070,6 +1085,100 @@ describe('the shapes a part comes in', () => {
     expect(sale.register.stornoClaims.reduce((c: number, x: any) => c + x.milli, 0)).toBe(3000)
     expect(stornosOnDevice(w)).toHaveLength(1)
     expect((await sessionOf(w)).totalReturns).toBe(36)
+  })
+
+  describe('an earlier part given back while a later one stands (the reader, finding 2)', () => {
+    /** A line of 3 worth 1.00, whose thirds are 0.33, 0.34 and 0.33 on its running total. */
+    const worthOne = async (w: TillWorld) => {
+      const s = await oneLine(w, 3, 0.2778)
+      expect(s.sale.total).toBe(1)
+      return s
+    }
+    /** A part claims, a later one prints meanwhile, and then the first is proved not to have printed. */
+    async function overlapped(w: TillWorld, s: Sold) {
+      const undo = justAfter(aClaim, async () => {
+        expect((await back(w, s, [[0, 1]])).status).toBe(200)
+        failsProved(w)
+      })
+      try {
+        expect((await back(w, s, [[0, 1]])).status).toBe(503)
+      } finally {
+        undo()
+      }
+    }
+    const liveTotals = async (saleId: string) => (await stornosOf(saleId)).filter(d => d.status === 'paid').map(d => d.total)
+
+    it('the last unit still comes back: the line ends full, to the cent', async () => {
+      const w = await tillWorld(app)
+      const s = await worthOne(w)
+      await overlapped(w, s)
+
+      expect((await back(w, s, [[0, 1]])).status).toBe(200)
+      const last = await back(w, s, [[0, 1]])
+
+      expect(last.status).toBe(200)
+      expect(await liveTotals(s.saleId)).toEqual([0.34, 0.33, 0.33])
+      const sale = await read(s.saleId)
+      expect(sale.register.stornoState).toBe('full')
+      expect(leftByRate(sale).size).toBe(0)
+      expect((await w.stock()).quantity).toBe(10)
+      expect((await sessionOf(w)).totalReturns).toBeCloseTo(1, 5)
+      expect((await sessionOf(w)).totalCash).toBeCloseTo(0, 5)
+    })
+
+    it('all that is left goes back too, for what is left of the line', async () => {
+      const w = await tillWorld(app)
+      const s = await worthOne(w)
+      await overlapped(w, s)
+
+      expect((await w.storno(s.saleId)).status).toBe(200)
+
+      expect(await liveTotals(s.saleId)).toEqual([0.34, 0.66])
+      expect((await read(s.saleId)).register.stornoState).toBe('full')
+    })
+
+    it('the page says what the next part gives back, as the door books it: a named refund of that goes through', async () => {
+      const w = await tillWorld(app)
+      const s = await worthOne(w)
+      await overlapped(w, s)
+      const page = (await w.call('GET', `/cash-register/documents/${s.saleId}`)).json
+      expect(page.lines[0]).toMatchObject({ returned: 1, left: 2, value: 100, taken: 34 })
+      expect(partOfLine(100, 3000, 1000, 34, 1000)).toBe(33)
+
+      expect((await back(w, s, [[0, 1]], undefined, { payments: [{ method: 'cash', amount: 0.33 }] })).status).toBe(200)
+    })
+
+    it('a claim that died, with a part pressed inside its lease and the claim pulled after: the same', async () => {
+      const w = await tillWorld(app)
+      const s = await worthOne(w)
+      const orphan = new Invoice.base.Types.ObjectId()
+      await Invoice.updateOne({ _id: s.saleId }, {
+        $set: { 'register.stornoState': 'partial' },
+        $push: {
+          'register.stornoedBy': orphan,
+          'register.stornoClaims': { stornoId: orphan, lineId: s.ids[0], milli: 1000, cents: 33, at: new Date() },
+          'register.refundClaims': { stornoId: orphan, rate: 20, cents: 33 },
+        },
+      })
+      expect((await back(w, s, [[0, 1]])).status).toBe(200)
+      await Invoice.updateOne({ _id: s.saleId }, { $set: { 'register.stornoClaims.0.at': new Date(Date.now() - 121_000) } })
+
+      expect((await back(w, s, [[0, 1]])).status).toBe(200)
+      expect((await back(w, s, [[0, 1]])).status).toBe(200)
+
+      expect(await liveTotals(s.saleId)).toEqual([0.34, 0.33, 0.33])
+      expect((await read(s.saleId)).register.stornoState).toBe('full')
+    })
+
+    it('the refusal blames nobody it cannot name: no credit note took anything here, and none is said to', async () => {
+      const w = await tillWorld(app)
+      const s = await worthOne(w)
+      // Money gone from the rate by a hand this door knows nothing of.
+      expect(await takeBudget(await read(s.saleId), new Invoice.base.Types.ObjectId(), new Map([[20, 80]]))).toBe(true)
+      const r = await back(w, s, [[0, 1]])
+      expect([r.status, r.json.code, r.json.left]).toEqual([409, 'storno_exceeds_budget', 0.2])
+      expect(r.json.message).not.toContain('credit note')
+    })
   })
 
   it('a keyed part whose request died after its insert: the retry prints it once, and another replays it', async () => {

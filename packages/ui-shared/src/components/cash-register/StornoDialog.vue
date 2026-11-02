@@ -188,6 +188,7 @@ interface StornoLine {
   returned: number
   left: number
   value: number
+  taken: number
   take: number | string
 }
 const mode = ref<'whole' | 'part'>('whole')
@@ -197,7 +198,7 @@ const saleMethods = ref<string[]>([])
 const method = ref('')
 
 const toMilli = (q: unknown) => Math.round((Number(q) || 0) * 1000)
-const partOf = (l: StornoLine, q: unknown) => partOfLine(l.value, toMilli(l.quantity), toMilli(l.returned), toMilli(q))
+const partOf = (l: StornoLine, q: unknown) => partOfLine(l.value, toMilli(l.quantity), toMilli(l.returned), l.taken, toMilli(q))
 const cents = (c: number) => c / 100
 const returnedAny = computed(() => lines.value.some(l => l.returned > 0))
 const leftValue = computed(() => lines.value.reduce((s, l) => s + partOf(l, l.left), 0))

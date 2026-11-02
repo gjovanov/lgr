@@ -73,7 +73,7 @@
 | register.movementId | ObjectId | Складово движение (ref StockMovement); движението сочи документа чрез `invoiceId` |
 | register.storno | Object | За сторно: оригинален документ, УНП, фискален бон, дата и причина |
 | register.stornoState | String | За продажба: `none` / `partial` (частично сторнирана, виж по-долу) / `full` (сторнирана) |
-| register.stornoClaims | Array | За продажба: какво са взели сторната от всеки ред: `stornoId`, `lineId`, `milli` (хилядни от единица) и `at` (кога). Сторно, което не е отпечатано, връща своето |
+| register.stornoClaims | Array | За продажба: какво са взели сторната от всеки ред: `stornoId`, `lineId`, `milli` (хилядни от единица), `cents` (сума в стотинки) и `at` (кога). Сторно, което не е отпечатано, връща своето |
 | register.storno.partial | Boolean | За сторно: връща част от продажбата и съдържа само върнатите редове |
 | register.stornoedBy[] | ObjectId[] | Сторната на продажбата |
 | register.cancelledAt | Date | Кога е сторнирана продажбата (за таблица 18.5) |

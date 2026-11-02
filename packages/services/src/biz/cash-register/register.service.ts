@@ -1118,7 +1118,7 @@ export async function claimForStorno(original: any, stornoId: ObjectId, plan: St
       $set: { 'register.stornoState': plan.completes ? 'full' : 'partial', ...(plan.completes ? { 'register.cancelledAt': now } : {}) },
       $push: {
         'register.stornoedBy': stornoId,
-        'register.stornoClaims': { $each: plan.lines.map(p => ({ stornoId, lineId: p.key, milli: p.milli, at: now })) },
+        'register.stornoClaims': { $each: plan.lines.map(p => ({ stornoId, lineId: p.key, milli: p.milli, cents: p.cents, at: now })) },
         'register.refundClaims': { $each: budgetClaims(stornoId, plan.want) },
       },
     },
