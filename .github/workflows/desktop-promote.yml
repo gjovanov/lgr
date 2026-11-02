@@ -337,9 +337,23 @@ jobs:
 
           # ⚠ A missing token does NOT fail the job. The release is already published by now, and
           # failing here would report a successful promotion as a failure. It says what was skipped
-          # and what that means instead.
+          # and what that means instead. ⚠ Loudly (#149): an error annotation heads the run page and
+          # the summary carries the edit to make by hand. A notice was easy to miss on a green run.
           if [ -z "${DEPLOY_TOKEN:-}" ]; then
-            echo "::notice title=Fleet not notified::LGR_DEPLOY_TOKEN is not set, so DESKTOP_RELEASE_VERSION was left alone. Tills keep being told they are up to date until somebody sets it in lgr-deploy by hand (#93)."
+            V="${TAG#desktop-v}"
+            echo "::error title=Fleet NOT notified::LGR_DEPLOY_TOKEN is not set, so DESKTOP_RELEASE_VERSION was left alone and no till is offered ${V}. The release itself is published. Make the edit in this run's summary by hand, or set the secret (#149)."
+            {
+              echo "## ⚠ ${V} is published but NOT offered to the fleet"
+              echo
+              echo "\`LGR_DEPLOY_TOKEN\` is not set on this repository (#149), so \`lgr-deploy\` was not changed."
+              echo "Tills keep being told they are up to date until it is. In \`gjovanov/lgr-deploy\`:"
+              echo
+              echo '```sh'
+              echo "sed -i -E \"s|^(  DESKTOP_RELEASE_VERSION:).*|\\1 '${V}'|\" k8s/base/configmap-lgr-config.yaml"
+              echo "sed -i -E \"s|^(        lgr\\.app/desktop-release:).*|\\1 '${V}'|\" k8s/base/deployment-lgr.yaml"
+              echo "git commit -am 'chore(desktop): offer ${V} to the fleet (promoted ${TAG})' && git push"
+              echo '```'
+            } >>"$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
