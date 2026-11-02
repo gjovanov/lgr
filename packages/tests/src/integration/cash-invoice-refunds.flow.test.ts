@@ -3482,7 +3482,10 @@ describe('an invoice issued for a till sale (R0): the refund cites the sale\'s o
       const inv = await invoicedSale(w)
       const note = await issuedNote(w, inv, { quantity: 1 })
       expect((await pay(w, note.id, 12)).status).toBe(200)
-      expect((await w.call('POST', `/invoices/${inv.id}/void`, {})).status).toBe(200)
+      // The void itself refuses this now (`freezeUnderNotes`). A void that raced the refund past its second look
+      // still lands here, and the storno is what is left to stop two reversals of one receipt.
+      expect((await w.call('POST', `/invoices/${inv.id}/void`, {})).status).toBe(409)
+      await Invoice.updateOne({ _id: inv.id }, { $set: { status: 'voided' } })
 
       const r = await w.storno(inv.saleId)
 
