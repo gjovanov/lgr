@@ -108,7 +108,9 @@ Each store's tools therefore sign in as their own account, `lgr-api`, created on
 `create-api-user.ts`; the path of its credentials file is that org's `<PREFIX>_PM_CREDS` in
 `.secrets/plusminus-stores.env`. regal-pz has one (2026-11-02): a pull as `lgr-api` ran while the
 admin account's session was held, and the receipts it fetched were byte-identical to the admin
-account's. regal-sf still signs in as the shared admin account.
+account's. regal-sf has one too (2026-11-02): its documents pulled as `lgr-api` are byte-identical
+to the admin account's across every family, and the daily email runs on it unchanged, because
+`getOrg(...).credsPath` reads `SF_PM_CREDS` (an org without that variable falls back to `PM_CREDS`).
 
 ```bash
 # dry run (the default): checks the server and the name, prints the call, writes nothing
@@ -130,6 +132,20 @@ What it relies on, and what it does not give you:
   file under `.secrets/`.
 - Pulling as it needs no `/server` rights. The puller's `clients()` pre-check still works with it,
   and is skipped, with a note, if a store's console ever refuses the login.
+- `--role` must be a label the server knows. `roles()` lists them where a server has a role table.
+  regal-sf keeps none: `roles()` answers with an empty body and the labels exist only on the accounts,
+  so the tool then accepts the labels its accounts already carry, and prints them when yours is not one.
+
+The tool needs the admin account's slot free, and never frees it. If the owner says the PC is free and
+the session in the way has to be ended by hand, first find out whose it is, because `clients` gives names only:
+
+- The GUI writes `login.json` (`user`, `server`, `port`, `mode`; no password) and `clients.txt` into its
+  own folder at each sign-in, so their content and timestamp say which account that PC signed in as, and when.
+- The renderer process (`--type=renderer`) gaining no CPU over several minutes says nobody is using it.
+- The GUI's TCP connections to the server are NOT evidence: on regal-sf the count stayed the same after
+  `disconnectClient`. Nor does the GUI react until someone next uses it.
+- regal-sf's server is not on its till PC, so `C:pmserverlogs` cannot be read there. What you can prove is
+  the client side only; say so.
 
 ## Running it
 
