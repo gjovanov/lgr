@@ -923,7 +923,10 @@
       "difference": "Differenz",
       "documents": "Belege",
       "receipts": "Bons",
-      "z": "Z-Bericht Nr."
+      "z": "Z-Bericht Nr.",
+      "deviceZ": "Laut Gerät",
+      "fmTotal": "Summe FS",
+      "vatGroup": "MwSt-Gruppe {group}"
     },
     "device": {
       "why": {
@@ -2082,6 +2085,16 @@
     "variances": "Abweichungen",
     "completeCount": "Zählung abschließen",
     "loadProducts": "Produkte laden",
+    "countStatus": {
+      "draft": "Entwurf",
+      "in_progress": "In Bearbeitung",
+      "completed": "Abgeschlossen"
+    },
+    "countType": {
+      "full": "Vollständig",
+      "partial": "Teilweise",
+      "cycle": "Zyklisch"
+    },
     "contactName": "Kontaktname",
     "maxStockLevel": "Maximaler Lagerbestand",
     "minStockLevel": "Minimaler Lagerbestand",

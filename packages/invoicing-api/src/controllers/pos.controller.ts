@@ -18,6 +18,7 @@ import {
 import { saleInDoubt, saleProgress } from 'services/biz/cash-register/in-doubt'
 import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
 import { buildSessionReport, formatSessionReport, type SessionReport } from 'services/biz/cash-register/session-report'
+import type { ZReportResult } from 'fiscal/types'
 import { fiscalCapabilities } from 'fiscal/capabilities'
 import { DEVICE_REPORT_KINDS, FISCAL_ADMIN_ROLES, printDeviceReport } from 'fiscal/device-command'
 import { fiscalFailure } from 'fiscal/errors'
@@ -122,6 +123,20 @@ async function resolveFiscalDeviceForClose(orgId: string, warehouseId: string): 
   const devices = await r.fiscalDevices.findMany({ orgId, warehouseId, isActive: true } as any) as any[]
   if (!devices?.length) return null
   return devices.find(d => isDeviceConnected(d.id)) || devices[0]
+}
+
+/**
+ * What a Z answered, as the session keeps it. Its frames die with the pod on each deploy, so nothing else
+ * can say later what the device said. Undefined from a driver with nothing to say: a Tremol.
+ */
+function zAnswerOf(z: ZReportResult) {
+  if (z.raw === undefined && z.fmTotal === undefined && !z.turnover?.length) return undefined
+  return {
+    ...(z.raw !== undefined ? { raw: z.raw } : {}),
+    ...(z.reportNumber && z.reportNumber !== 'unknown' ? { closure: z.reportNumber } : {}),
+    ...(z.fmTotal !== undefined ? { fmTotal: z.fmTotal } : {}),
+    ...(z.turnover?.length ? { turnover: z.turnover } : {}),
+  }
 }
 
 /**
@@ -797,6 +812,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
       let fiscalStatus: 'closed' | 'skipped' = 'skipped'
       let zReportNumber: string | undefined
+      let zReport: ReturnType<typeof zAnswerOf>
       let fiscalClosedAt: Date | undefined
 
       if (device && b.closeWithoutFiscal) {
@@ -816,6 +832,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
           // can say "the fiscal day is closed" without printing a bogus number.
           const num = (report as any)?.reportNumber
           if (num && num !== 'unknown') zReportNumber = String(num)
+          zReport = zAnswerOf(report)
         } catch (e: any) {
           // #394: the driver refused the Z because a sale is printing on it right now. Nothing
           // failed: the device stays as it is, the session goes back to open and keeps no failure,
@@ -863,6 +880,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
               notes: b.notes ?? session.notes,
               fiscalStatus,
               ...(zReportNumber ? { zReportNumber } : {}),
+              ...(zReport ? { zReport } : {}),
               ...(fiscalClosedAt ? { fiscalClosedAt } : {}),
               ...(device ? { fiscalDeviceId: device.id } : {}),
             },
@@ -878,7 +896,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         // FR-9 edge case 5: the fiscal day IS closed on the device but we could not record
         // it. Say so loudly — the recovery is a retry with closeWithoutFiscal.
         logger.error(
-          { orgId, sessionId: id, err: lost },
+          { orgId, sessionId: id, err: lost, zReport },
           'Z-report succeeded but the session update failed — retry the close with closeWithoutFiscal',
         )
         await release()

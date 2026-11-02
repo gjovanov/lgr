@@ -187,7 +187,8 @@ describe('the session', () => {
       { type: 'sale', status: 'completed', total: 1234.56, lines: [], payments: [{ method: 'cash_on_delivery', amount: 1234.56 }] },
     ])
     expect(report.byMethod).toEqual({ cash: 0, card: 0, other: 0, cashOnDelivery: 1234.56 })
-    const line = (locale: string) => formatSessionReport(report, locale).find(l => l.endsWith('1234.56') && !/TOTAL|ОБЩО|GESAMT|ВКУПНО/.test(l))
+    // The last line with the figure: the receipt's kind and the total print it above.
+    const line = (locale: string) => formatSessionReport(report, locale).findLast(l => l.endsWith('1234.56'))
     expect(line('bg')).toStartWith('Наложен платеж')
     expect(line('mk')).toStartWith('При достава')
     expect(line('de')).toStartWith('Nachnahme')

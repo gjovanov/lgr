@@ -131,6 +131,10 @@ export class EltradeSimulator {
   lastDocNumber = 100
   closure = 12
   dayTotal = 0
+  /** The day's fiscal turnover per VAT group, which 45h answers after the FM total. */
+  dayByGroup: Record<string, number> = {}
+  /** What 45h answers instead of the figures above: a device's own words, as they were seen in the field. */
+  zAnswer: string | null = null
   receipt: SimReceipt | null = null
   nonFiscalOpen = false
   nonFiscalLines: string[] = []
@@ -328,7 +332,10 @@ export class EltradeSimulator {
         }
         this.lastDocNumber++
         this.receipt.number = String(this.lastDocNumber).padStart(7, '0')
-        if (this.receipt.kind === 'fiscal') this.dayTotal = round2(this.dayTotal + this.receipt.total)
+        if (this.receipt.kind === 'fiscal') {
+          this.dayTotal = round2(this.dayTotal + this.receipt.total)
+          for (const s of this.receipt.sales) this.dayByGroup[s.group] = round2((this.dayByGroup[s.group] || 0) + s.amount)
+        }
         this.receipts.push(this.receipt)
         this.receipt = null
         return '0004,0002'
@@ -345,8 +352,8 @@ export class EltradeSimulator {
         // [<Option>[N]: '0' Z, '2' X, then 'N' or 'a' (keep the operators' / items' data).
         if (!/^(?:[02][Na]?)?$/.test(text)) { flags.syntax = true; return '' }
         const zeroing = text === '' || text.startsWith('0')
-        const answer = `${String(this.closure + (zeroing ? 1 : 0)).padStart(4, '0')},${this.money(this.dayTotal)},0,0,0,0,0,0,0,0`
-        if (zeroing) { this.closure++; this.dayTotal = 0 }
+        const answer = this.zAnswer ?? `${String(this.closure + (zeroing ? 1 : 0)).padStart(4, '0')},${this.money(this.dayTotal)},${GROUPS.map(g => this.money(this.dayByGroup[g] || 0)).join(',')}`
+        if (zeroing) { this.closure++; this.dayTotal = 0; this.dayByGroup = {} }
         this.reports.push({ cmd, data: text })
         return answer
       }

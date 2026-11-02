@@ -236,6 +236,11 @@ export function buildInvoiceHtml(
         inv.cashSaleRef.unp ? ` · ${esc(L.unp)} ${esc(inv.cashSaleRef.unp)}` : ''}${
         inv.cashSaleRef.receiptNumber ? ` · ${esc(L.receiptNo)} ${esc(inv.cashSaleRef.receiptNumber)}` : ''}</td></tr>`
       : '',
+    // A credit or debit note names the invoice it corrects: ЗДДС wants its number and date on the note
+    // (`relatedInvoiceRef`, filled by the export from `relatedInvoiceId`).
+    inv.relatedInvoiceRef?.number
+      ? `<tr><td class="k">${esc(L.forInvoice)}:</td><td class="v">${esc(inv.relatedInvoiceRef.number)} / ${fmtDate(inv.relatedInvoiceRef.issueDate)}</td></tr>`
+      : '',
     // A storno names the cash sale it reverses, the same way, and why (`stornoRef`, filled by the
     // export from FR-21's `register.storno`).
     (inv.type === 'cash_storno' || inv.type === 'payment_storno') && inv.stornoRef?.number

@@ -1635,7 +1635,10 @@
       "difference": "Разлика",
       "documents": "Документи",
       "receipts": "Бонове",
-      "z": "Z-отчет №"
+      "z": "Z-отчет №",
+      "deviceZ": "По устройството",
+      "fmTotal": "Общо ФП",
+      "vatGroup": "ДДС група {group}"
     },
     "device": {
       "why": {
@@ -2082,6 +2085,16 @@
     "variances": "Отклонения",
     "completeCount": "Завърши броенето",
     "loadProducts": "Зареди продукти",
+    "countStatus": {
+      "draft": "Чернова",
+      "in_progress": "В процес",
+      "completed": "Завършена"
+    },
+    "countType": {
+      "full": "Пълна",
+      "partial": "Частична",
+      "cycle": "Циклична"
+    },
     "contactName": "Име на контакт",
     "maxStockLevel": "Максимално ниво на наличност",
     "minStockLevel": "Минимално ниво на наличност",

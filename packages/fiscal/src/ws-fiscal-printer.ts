@@ -186,6 +186,7 @@ export class WebSocketFiscalPrinter implements IFiscalPrinter {
       totalSales: parseFloat(parts[1]) || 0,
       totalReturns: parseFloat(parts[2]) || 0,
       receiptCount: parseInt(parts[3]) || 0,
+      raw: data,
     }
   }
 

@@ -34,6 +34,8 @@ export interface InvoiceDocI18n {
     unp: string
     /** The cash sale an invoice was issued for (#171). */
     forCashSale: string
+    /** The invoice a credit or debit note corrects. */
+    forInvoice: string
     /** A fiscal receipt's number (FR-21 §3.9). */
     receiptNo: string
     /** A fiscal receipt that paid this invoice (FR-23). */
@@ -105,6 +107,7 @@ const bg: InvoiceDocI18n = {
     date: 'Дата',
     unp: 'УНП',
     forCashSale: 'Към касова продажба',
+    forInvoice: 'Към фактура',
     paidByReceipt: 'Платена с касов бон',
     receiptNo: 'ФБ №',
     stornoOf: 'Сторно на',
@@ -178,6 +181,7 @@ const en: InvoiceDocI18n = {
     date: 'Date',
     unp: 'USN',
     forCashSale: 'For cash sale',
+    forInvoice: 'For invoice',
     paidByReceipt: 'Paid by receipt',
     receiptNo: 'Receipt No.',
     stornoOf: 'Storno of',
@@ -250,6 +254,7 @@ const de: InvoiceDocI18n = {
     date: 'Datum',
     unp: 'USN',
     forCashSale: 'Zum Barverkauf',
+    forInvoice: 'Zur Rechnung',
     paidByReceipt: 'Bezahlt mit Beleg',
     receiptNo: 'Beleg-Nr.',
     stornoOf: 'Storno zu',
@@ -322,6 +327,7 @@ const mk: InvoiceDocI18n = {
     date: 'Датум',
     unp: 'УНП',
     forCashSale: 'Кон готовинска продажба',
+    forInvoice: 'Кон фактура',
     paidByReceipt: 'Платена со сметка',
     receiptNo: 'Фиск. сметка бр.',
     stornoOf: 'Сторно на',

@@ -1126,12 +1126,20 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     // Answer: Closure,FM_Total,TotA..TotH
     const fields = data.split(',')
     const closure = fields[0]?.trim() ?? ''
+    const fmTotal = parseDeviceAmount(fields[1])
+    const turnover = TAX_GROUPS.flatMap((group, i) => {
+      const amount = parseDeviceAmount(fields[i + 2])
+      return amount === null ? [] : [{ group, amount }]
+    })
     return {
       reportNumber: /^\d+$/.test(closure) ? closure : 'unknown',
       dateTime: new Date(),
-      totalSales: parseDeviceAmount(fields[1]) ?? 0,
+      totalSales: fmTotal ?? 0,
       totalReturns: 0,
       receiptCount: 0,
+      raw: data,
+      ...(fmTotal !== null ? { fmTotal } : {}),
+      ...(turnover.length ? { turnover } : {}),
     }
   }
 

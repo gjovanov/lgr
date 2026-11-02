@@ -10,6 +10,17 @@ const PAYMENT_TOLERANCE = 0.005
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 
+/**
+ * What is due follows a total an edit moved, on any document: a note and a bill reach no counter rule,
+ * and an invoice paid by bank reaches one that leaves it alone. ⚠ One atomic update, derived inside the
+ * database from what the document holds by then, as `paymentPipeline` derives it, so a payment on either
+ * side of it leaves it right. Never below nothing: money taken over a lowered total stays recorded, for a
+ * person to correct.
+ */
+export function dueFollowsTotal(): Record<string, unknown>[] {
+  return [{ $set: { amountDue: { $max: [0, { $round: [{ $subtract: ['$total', { $ifNull: ['$amountPaid', 0] }] }, 2] }] } } }]
+}
+
 /** The money the receipts printing right now are taking from this document (FR-23). */
 export function heldOn(doc: { receiptHolds?: { amount?: number }[] } | null | undefined): number {
   return round2((doc?.receiptHolds || []).reduce((s, h) => s + (Number(h.amount) || 0), 0))
