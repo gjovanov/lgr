@@ -1623,7 +1623,10 @@
       "difference": "Difference",
       "documents": "Documents",
       "receipts": "Receipts",
-      "z": "Z-report No."
+      "z": "Z-report No.",
+      "deviceZ": "On the device",
+      "fmTotal": "FM total",
+      "vatGroup": "VAT group {group}"
     },
     "device": {
       "why": {

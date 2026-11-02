@@ -326,6 +326,10 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     await expect(dialog.getByTestId('session-report')).toContainText(session.sessionNumber)
     await expect(dialog.getByTestId('session-report-total')).toContainText(cents(joined.total + delivered.total).toFixed(2))
     await expect(dialog.getByTestId('session-report-cod')).toContainText(delivered.total.toFixed(2))
+    // What each kind of receipt came to, and the Z's own answer beside its number, as the device's.
+    await expect(dialog.getByTestId('session-report-fiscal')).toContainText(cents(joined.total + delivered.total).toFixed(2))
+    await expect(dialog.getByTestId('session-report-device-z')).toContainText('On the device')
+    await expect(dialog.getByTestId('session-report-fm-total')).toBeVisible()
 
     const printing = page.waitForResponse(r => r.url().includes(`/trade/pos/session/${till.id}/report/print`))
     await dialog.getByRole('button', { name: 'Print report' }).click()

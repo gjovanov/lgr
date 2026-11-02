@@ -31,6 +31,11 @@
         <tr v-if="report.documents"><td>{{ $t('pos.sessionReport.documents') }}</td><td class="text-end">{{ report.documents.first }} – {{ report.documents.last }}</td></tr>
         <tr v-if="report.receipts"><td>{{ $t('pos.sessionReport.receipts') }}</td><td class="text-end">{{ report.receipts.first }} – {{ report.receipts.last }}</td></tr>
         <tr v-if="report.zReportNumber"><td>{{ $t('pos.sessionReport.z') }}</td><td class="text-end">{{ report.zReportNumber }}</td></tr>
+        <template v-if="report.deviceZ">
+          <tr class="bg-surface-light" data-testid="session-report-device-z"><td colspan="2" class="font-weight-medium">{{ $t('pos.sessionReport.deviceZ') }}</td></tr>
+          <tr v-if="report.deviceZ.fmTotal !== undefined" data-testid="session-report-fm-total"><td class="ps-6">{{ $t('pos.sessionReport.fmTotal') }}</td><td class="text-end">{{ money(report.deviceZ.fmTotal) }}</td></tr>
+          <tr v-for="t in report.deviceZ.turnover" :key="t.group"><td class="ps-6">{{ $t('pos.sessionReport.vatGroup', { group: t.group }) }}</td><td class="text-end">{{ money(t.amount) }}</td></tr>
+        </template>
       </tbody>
     </v-table>
   </div>
@@ -55,6 +60,8 @@ export interface SessionReportData {
   zReportNumber?: string
   /** What each kind of receipt came to. A report kept before it existed has none. */
   amounts?: { fiscal: number; text: number; unprinted: number }
+  /** What the device's Z answered. A driver with no figures has none. */
+  deviceZ?: { fmTotal?: number; turnover: Array<{ group: string; amount: number }> }
 }
 
 const props = defineProps<{ report: SessionReportData }>()

@@ -355,6 +355,7 @@ export class DatecsFiscalPrinter implements IFiscalPrinter {
       totalSales: parseFloat(parts[1]) || 0,
       totalReturns: parseFloat(parts[2]) || 0,
       receiptCount: parseInt(parts[3]) || 0,
+      raw: data,
     }
 
     logger.info({ deviceId: this.deviceId, reportNumber: result.reportNumber }, 'Daily Z-report printed')

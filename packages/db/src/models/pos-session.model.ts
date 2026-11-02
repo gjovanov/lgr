@@ -45,6 +45,11 @@ export interface IPOSSession extends Document {
   fiscalStatus?: 'closed' | 'skipped' | 'failed'
   fiscalError?: string
   zReportNumber?: string
+  /**
+   * The Z's own answer, as its driver returned it: the raw text and what it read of it. The device's words,
+   * kept for a person to hold against LGR's. A driver with no figures leaves none.
+   */
+  zReport?: { raw?: string; closure?: string; fmTotal?: number; turnover?: { group: string; amount: number }[] }
   fiscalClosedAt?: Date
   /** The device actually used — a warehouse may have more than one. */
   fiscalDeviceId?: Types.ObjectId
@@ -105,6 +110,18 @@ const posSessionSchema = new Schema<IPOSSession>(
     fiscalStatus: { type: String, enum: ['closed', 'skipped', 'failed'] },
     fiscalError: String,
     zReportNumber: String,
+    zReport: {
+      type: new Schema(
+        {
+          raw: String,
+          closure: String,
+          fmTotal: Number,
+          turnover: { type: [new Schema({ group: String, amount: Number }, { _id: false })], default: undefined },
+        },
+        { _id: false },
+      ),
+      required: false,
+    },
     fiscalClosedAt: Date,
     fiscalDeviceId: { type: Schema.Types.ObjectId, ref: 'FiscalDevice' },
     cashCountLines: [{

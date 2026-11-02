@@ -110,7 +110,8 @@ describe('the session report: its figures', () => {
     const big = (over: Record<string, unknown>) => ({
       status: 'completed', total: 123456.78, lines: [line(20, 102880.65)], payments: [{ method: 'cash', amount: 123456.78 }], ...over,
     })
-    return buildSessionReport({ ...session, closedAt: '2026-11-02T11:20:00Z' }, [
+    const zReport = { fmTotal: 123456.78, turnover: [{ group: 'Б', amount: 123456.78 }] }
+    return buildSessionReport({ ...session, closedAt: '2026-11-02T11:20:00Z', zReport }, [
       big({ type: 'sale', transactionNumber: 'CS-2026-00001', changeDue: 12.5, isFiscal: true, fiscal: { state: 'printed', mode: 'fiscal' }, fiscalReceiptNumber: '0000101' }),
       big({ type: 'sale', transactionNumber: 'CS-2026-00002', fiscal: { state: 'printed', mode: 'text' }, payments: [{ method: 'card', amount: 123456.78 }] }),
       big({ type: 'sale', transactionNumber: 'CS-2026-00003', fiscal: { state: 'failed' }, payments: [{ method: 'voucher', amount: 123456.78 }] }),
@@ -127,7 +128,7 @@ describe('the session report: its figures', () => {
       const l = SESSION_REPORT_LABELS[locale]
 
       expect(lines.filter((s) => s.length > 28)).toEqual([])
-      for (const key of ['opened', 'closed', 'sales', 'payments', 'stornos', 'voided', 'fiscal', 'text', 'unprinted', 'vat', 'net', 'gross', 'cash', 'card', 'other', 'cod', 'change', 'opening', 'expected', 'counted', 'difference', 'documents', 'receipts', 'z']) {
+      for (const key of ['opened', 'closed', 'sales', 'payments', 'stornos', 'voided', 'fiscal', 'text', 'unprinted', 'vat', 'net', 'gross', 'cash', 'card', 'other', 'cod', 'change', 'opening', 'expected', 'counted', 'difference', 'documents', 'receipts', 'z', 'deviceZ', 'fmTotal', 'vatGroup']) {
         expect({ key, label: l[key], whole: lines.some((s) => s.trimStart().startsWith(`${l[key]} `) || s.trim() === l[key]) }).toEqual({ key, label: l[key], whole: true })
       }
     })
@@ -184,6 +185,105 @@ describe('the session report at close', () => {
     expect(closed.json.report.amounts).toEqual({ fiscal: 24, text: 12, unprinted: 0 })
     expect(w.sim!.nonFiscalLines.join('\n')).toContain('Fiscal receipts 1')
     expect((await POSSession.findById(w.sessionId).lean().exec() as any).report.amounts).toEqual({ fiscal: 24, text: 12, unprinted: 0 })
+  })
+
+  describe('the Z\'s own answer', () => {
+    const zOf = async (w: Awaited<ReturnType<typeof tillWorld>>) => (await POSSession.findById(w.sessionId).lean().exec() as any).zReport
+
+    it('is kept on the session, raw and parsed, and shows on the report and its print, as the device\'s', async () => {
+      const w = await tillWorld(app)
+      expect((await w.sell(2)).status).toBe(200)
+
+      const closed = await close(w, 124)
+
+      expect(closed.status).toBe(200)
+      expect(closed.json.zReportNumber).toBe('0013')
+      const kept = await zOf(w)
+      expect(kept.raw).toBe('0013,24.00,0.00,24.00,0.00,0.00,0.00,0.00,0.00,0.00')
+      expect(kept.closure).toBe('0013')
+      expect(kept.fmTotal).toBe(24)
+      expect(kept.turnover.map((t: any) => [t.group, t.amount])).toEqual([['А', 0], ['Б', 24], ['В', 0], ['Г', 0], ['Д', 0], ['Е', 0], ['Ж', 0], ['З', 0]])
+      // LGR's fiscal amount and the device's own figure, side by side: on a simulator, they agree.
+      expect(closed.json.report.amounts.fiscal).toBe(24)
+      // Only what says something: a group with nothing on it is no line on a till's paper.
+      expect(closed.json.report.deviceZ).toEqual({ fmTotal: 24, turnover: [{ group: 'Б', amount: 24 }] })
+      expect((await w.call('GET', `/trade/pos/session/${w.sessionId}/report`)).json.report.deviceZ).toEqual({ fmTotal: 24, turnover: [{ group: 'Б', amount: 24 }] })
+
+      const printed = w.sim!.nonFiscalLines
+      const number = printed.findIndex((s) => s.startsWith('Z-report No.'))
+      expect(printed.slice(number + 1, number + 4)).toEqual([
+        'On the device',
+        ' FM total'.padEnd(23) + '24.00',
+        ' VAT group Б'.padEnd(23) + '24.00',
+      ])
+    })
+
+    it('a day of text receipts: the device says zero, and the report shows that, with no alarm', async () => {
+      const w = await tillWorld(app)
+      expect((await w.sell(1, { nonFiscal: true })).status).toBe(200)
+
+      const closed = await close(w, 112)
+
+      expect(closed.json.report.amounts).toEqual({ fiscal: 0, text: 12, unprinted: 0 })
+      expect(closed.json.report.deviceZ).toEqual({ fmTotal: 0, turnover: [] })
+      expect(w.sim!.nonFiscalLines).toContain(' FM total'.padEnd(24) + '0.00')
+    })
+
+    it('a figure that disagrees with LGR\'s raises nothing: no unit has proven what these mean', async () => {
+      const w = await tillWorld(app)
+      expect((await w.sell(1)).status).toBe(200)
+      w.sim!.zAnswer = '0013,6.00,0,0,0,0,0,0,0,0'
+
+      const closed = await close(w, 112)
+
+      expect(closed.status).toBe(200)
+      expect(closed.json.reportError).toBeUndefined()
+      expect(closed.json.report.amounts.fiscal).toBe(12)
+      expect(closed.json.report.deviceZ.fmTotal).toBe(6)
+      expect(Object.keys(closed.json.report).filter((k) => /mismatch|alarm|warn/i.test(k))).toEqual([])
+    })
+
+    it('a driver with no figures, as a Tremol: nothing is kept and nothing is shown', async () => {
+      const w = await tillWorld(app)
+      await w.sell(1)
+      const printer = new EltradeFiscalPrinter(w.sim!.exchange, w.deviceId)
+      printer.printDailyZReport = async () => ({ reportNumber: 'unknown', dateTime: new Date(), totalSales: 0, totalReturns: 0, receiptCount: 0 })
+      registerPrinter(w.deviceId, printer)
+
+      const closed = await close(w, 112)
+
+      expect(closed.status).toBe(200)
+      expect(closed.json.zReportNumber).toBeUndefined()
+      expect(closed.json.report.deviceZ).toBeUndefined()
+      expect(await zOf(w)).toBeUndefined()
+      expect(w.sim!.nonFiscalLines.join('\n')).not.toContain('On the device')
+    })
+
+    it('a driver that reads no figures from its answer keeps the answer and shows nothing', async () => {
+      const w = await tillWorld(app)
+      await w.sell(1)
+      const printer = new EltradeFiscalPrinter(w.sim!.exchange, w.deviceId)
+      printer.printDailyZReport = async () => ({ reportNumber: '0007', dateTime: new Date(), totalSales: 12, totalReturns: 0, receiptCount: 1, raw: '0007,12.00,0,1' })
+      registerPrinter(w.deviceId, printer)
+
+      const closed = await close(w, 112)
+
+      expect(closed.json.zReportNumber).toBe('0007')
+      expect(closed.json.report.deviceZ).toBeUndefined()
+      expect(await zOf(w)).toMatchObject({ raw: '0007,12.00,0,1', closure: '0007' })
+      expect(w.sim!.nonFiscalLines.join('\n')).not.toContain('On the device')
+    })
+
+    it('a close without a fiscal report ran no Z, and has none to keep', async () => {
+      const w = await tillWorld(app)
+      await w.sell(1)
+
+      const closed = await w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 112 }, closeWithoutFiscal: true })
+
+      expect(closed.status).toBe(200)
+      expect(closed.json.report.deviceZ).toBeUndefined()
+      expect(await zOf(w)).toBeUndefined()
+    })
   })
 
   it('a keyed retry of the close returns its report and prints nothing again', async () => {

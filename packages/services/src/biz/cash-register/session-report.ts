@@ -41,6 +41,12 @@ export interface SessionReport {
    * by a close before it existed has no such key.
    */
   amounts?: { fiscal: number; text: number; unprinted: number }
+  /**
+   * What the device's Z answered (`session.zReport`), beside its number, as the device's. Nothing compares
+   * it with LGR's: no fiscalized unit has proven what these figures hold. Only the VAT groups with
+   * something on them. A driver with no figures has none of this.
+   */
+  deviceZ?: { fmTotal?: number; turnover: Array<{ group: string; amount: number }> }
 }
 
 interface ClosingLine { method: string; expected: number; counted?: number; difference?: number }
@@ -54,6 +60,16 @@ function receiptOf(row: any): 'fiscal' | 'text' | 'unprinted' {
   const printed = state ? state === 'printed' : !!row.fiscalReceiptNumber
   if (!printed) return 'unprinted'
   return row.fiscal?.mode === 'text' || (!row.fiscal?.mode && !row.isFiscal) ? 'text' : 'fiscal'
+}
+
+/** What the report shows of a Z's answer: nothing, from a driver that read no figures out of it. */
+function deviceZOf(z: any): SessionReport['deviceZ'] {
+  const hasTotal = z?.fmTotal !== undefined && z?.fmTotal !== null
+  if (!hasTotal && !z?.turnover?.length) return undefined
+  return {
+    ...(hasTotal ? { fmTotal: z.fmTotal } : {}),
+    turnover: (z.turnover || []).filter((t: any) => t.amount).map((t: any) => ({ group: t.group, amount: t.amount })),
+  }
 }
 
 /** The report of a session from its till rows, oldest first; `closing` once it is closed. */
@@ -110,6 +126,7 @@ export function buildSessionReport(
   }
 
   const cash = opts.closing?.find((l) => l.method === 'cash')
+  const deviceZ = deviceZOf(session.zReport)
   return {
     sessionNumber: session.sessionNumber,
     currency: session.currency || 'EUR',
@@ -130,6 +147,7 @@ export function buildSessionReport(
     ...(receipts.length ? { receipts: { first: receipts[0], last: receipts[receipts.length - 1] } } : {}),
     ...(opts.zReportNumber ? { zReportNumber: opts.zReportNumber } : {}),
     amounts: { fiscal: cents(amounts.fiscal), text: cents(amounts.text), unprinted: cents(amounts.unprinted) },
+    ...(deviceZ ? { deviceZ } : {}),
   }
 }
 
@@ -139,28 +157,28 @@ export const SESSION_REPORT_LABELS: Record<string, Record<string, string>> = {
     fiscal: 'Fiscal receipts', text: 'Text receipts', unprinted: 'Not printed', vat: 'VAT', net: 'Net', gross: 'Gross',
     total: 'TOTAL', cash: 'Cash', card: 'Card', other: 'Other', cod: 'Cash on delivery', change: 'Change given', opening: 'Opening float',
     expected: 'Expected cash', counted: 'Counted', difference: 'Difference', documents: 'Documents', receipts: 'Receipts',
-    z: 'Z-report No.',
+    z: 'Z-report No.', deviceZ: 'On the device', fmTotal: 'FM total', vatGroup: 'VAT group',
   },
   bg: {
     title: 'ОТЧЕТ ЗА СЕСИЯ', opened: 'Отворена', closed: 'Затворена', sales: 'Продажби', payments: 'Плащания по фактури', stornos: 'Сторно', voided: 'Анулирани',
     fiscal: 'Фискални бонове', text: 'Служебни бонове', unprinted: 'Неотпечатани', vat: 'ДДС', net: 'Основа', gross: 'Сума',
     total: 'ОБЩО', cash: 'В брой', card: 'Карта', other: 'Други', cod: 'Наложен платеж', change: 'Върнато ресто', opening: 'Начална сума',
     expected: 'Очаквано в брой', counted: 'Преброено', difference: 'Разлика', documents: 'Документи', receipts: 'Бонове',
-    z: 'Z-отчет №',
+    z: 'Z-отчет №', deviceZ: 'По устройството', fmTotal: 'Общо ФП', vatGroup: 'ДДС група',
   },
   de: {
     title: 'SITZUNGSBERICHT', opened: 'Geöffnet', closed: 'Geschlossen', sales: 'Verkäufe', payments: 'Rechnungszahlungen', stornos: 'Stornos', voided: 'Ungültig',
     fiscal: 'Fiskalbelege', text: 'Textbelege', unprinted: 'Nicht gedruckt', vat: 'MwSt', net: 'Netto', gross: 'Brutto',
     total: 'GESAMT', cash: 'Bar', card: 'Karte', other: 'Sonstige', cod: 'Nachnahme', change: 'Rückgeld', opening: 'Anfangsbestand',
     expected: 'Erwartetes Bargeld', counted: 'Gezählt', difference: 'Differenz', documents: 'Belege', receipts: 'Bons',
-    z: 'Z-Bericht Nr.',
+    z: 'Z-Bericht Nr.', deviceZ: 'Laut Gerät', fmTotal: 'Summe FS', vatGroup: 'MwSt-Gruppe',
   },
   mk: {
     title: 'ИЗВЕШТАЈ ЗА СЕСИЈА', opened: 'Отворена', closed: 'Затворена', sales: 'Продажби', payments: 'Плаќања по фактури', stornos: 'Сторно', voided: 'Поништени',
     fiscal: 'Фискални сметки', text: 'Службени сметки', unprinted: 'Неотпечатени', vat: 'ДДВ', net: 'Основица', gross: 'Износ',
     total: 'ВКУПНО', cash: 'Готовина', card: 'Картичка', other: 'Друго', cod: 'При достава', change: 'Вратен кусур', opening: 'Почетна сума',
     expected: 'Очекувана готовина', counted: 'Избројано', difference: 'Разлика', documents: 'Документи', receipts: 'Сметки',
-    z: 'Z-извештај бр.',
+    z: 'Z-извештај бр.', deviceZ: 'Според уредот', fmTotal: 'Вкупно ФМ', vatGroup: 'ДДВ група',
   },
 }
 
@@ -224,7 +242,7 @@ export function formatSessionReport(report: SessionReport, locale = 'en', timeZo
   if (report.drawer.expected !== undefined) lines.push(lr(l.expected, money(report.drawer.expected)))
   if (report.drawer.counted !== undefined) lines.push(lr(l.counted, money(report.drawer.counted)))
   if (report.drawer.difference !== undefined) lines.push(lr(l.difference, money(report.drawer.difference)))
-  if (report.documents || report.receipts || report.zReportNumber) lines.push(sep)
+  if (report.documents || report.receipts || report.zReportNumber || report.deviceZ) lines.push(sep)
   if (report.documents) {
     lines.push(l.documents)
     lines.push(` ${report.documents.first}`)
@@ -232,5 +250,10 @@ export function formatSessionReport(report: SessionReport, locale = 'en', timeZo
   }
   if (report.receipts) lines.push(lr(l.receipts, `${report.receipts.first}-${report.receipts.last}`))
   if (report.zReportNumber) lines.push(lr(l.z, report.zReportNumber))
+  if (report.deviceZ) {
+    lines.push(l.deviceZ)
+    if (report.deviceZ.fmTotal !== undefined) lines.push(lr(` ${l.fmTotal}`, money(report.deviceZ.fmTotal)))
+    for (const t of report.deviceZ.turnover) lines.push(lr(` ${l.vatGroup} ${t.group}`, money(t.amount)))
+  }
   return lines.map((s) => s.slice(0, W))
 }

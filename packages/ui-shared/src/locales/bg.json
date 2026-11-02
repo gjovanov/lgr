@@ -1623,7 +1623,10 @@
       "difference": "Разлика",
       "documents": "Документи",
       "receipts": "Бонове",
-      "z": "Z-отчет №"
+      "z": "Z-отчет №",
+      "deviceZ": "По устройството",
+      "fmTotal": "Общо ФП",
+      "vatGroup": "ДДС група {group}"
     },
     "device": {
       "why": {

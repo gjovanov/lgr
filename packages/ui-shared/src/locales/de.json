@@ -912,7 +912,10 @@
       "difference": "Differenz",
       "documents": "Belege",
       "receipts": "Bons",
-      "z": "Z-Bericht Nr."
+      "z": "Z-Bericht Nr.",
+      "deviceZ": "Laut Gerät",
+      "fmTotal": "Summe FS",
+      "vatGroup": "MwSt-Gruppe {group}"
     },
     "device": {
       "why": {

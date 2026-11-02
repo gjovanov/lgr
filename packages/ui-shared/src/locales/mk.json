@@ -912,7 +912,10 @@
       "difference": "Разлика",
       "documents": "Документи",
       "receipts": "Сметки",
-      "z": "Z-извештај бр."
+      "z": "Z-извештај бр.",
+      "deviceZ": "Според уредот",
+      "fmTotal": "Вкупно ФМ",
+      "vatGroup": "ДДВ група {group}"
     },
     "device": {
       "why": {
