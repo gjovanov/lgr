@@ -663,6 +663,22 @@ describe('a driver with no cancel (ruling 1)', () => {
     expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
   })
 
+  it('its open refused over a paid leftover, and the fallback close went through: that was the leftover, so this one failed, and no money is booked', async () => {
+    const { w, sent } = await onTremol(cmd => cmd === TREMOL_CMD.OPEN_FISCAL_RECEIPT)
+    const d = await onBank(w)
+
+    const r = await pay(w, d.id, 24)
+
+    expect(sent.map(s => s.cmd)).toContain(TREMOL_CMD.CLOSE_RECEIPT)
+    expect(r.status).toBe(503)
+    expect(r.json.code).toBe('fiscal_error')
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0, amountDue: 24 })
+    expect((await sessionOf(w)).totalCash).toBe(0)
+    const [receipt] = await receiptsOf(d.id)
+    expect(receipt.register.fiscal.state).toBe('failed')
+    expect(receipt.status).toBe('voided')
+  })
+
   it('a failure at a line, and the close refused too: nothing took money, so it failed', async () => {
     const { w } = await onTremol(cmd => cmd === TREMOL_CMD.SELL_ARTICLE || cmd === TREMOL_CMD.CLOSE_RECEIPT)
     const d = await onBank(w)

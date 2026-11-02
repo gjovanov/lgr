@@ -40,14 +40,16 @@ export type PrintVerdict = 'printed' | 'failed' | 'unknown'
  *   this document is on the device.
  * - **finished**: the cancel was refused, so it closed the receipt with the rest in cash, or it tried to
  *   and lost the answer. A receipt may be on the device, whose lines and tenders may not be this
- *   document's, at any stage.
+ *   document's, past its open. At `opening` this document has nothing there, so what closed is another's.
  *
  * ⚠ It may say voided only if it saw a receipt open BEFORE it cancelled. After a close whose answer was
  * lost nothing is open, the cancel does nothing and the status reads not open: read as voided, a real
  * receipt would book as failed and print again. An open flag it could not read is no sight of one.
  *
  * ⚠ And either only of a receipt this document opened. What an earlier document left open is not this one's,
- * whoever clears it: read as finished here, its money was booked for a payment the device never saw.
+ * whoever clears it: read as finished here, its money was booked for a payment the device never saw. A driver
+ * with a cancel knows (`cancelFiscalReceipt`). One without says finished whatever its close closed
+ * (`abandonReceipt`), so the verdict reads `opening` for it: the same outcome, on Tremol and Datecs.
  */
 export type AbandonOutcome = 'voided' | 'finished'
 
@@ -79,6 +81,8 @@ export function verdictOfFailedPrint(p: FailedPrint): PrintVerdict {
   const counted = p.before !== undefined && p.before !== null && p.now !== undefined
   const beforeTheMoney = p.stage === 'refused' || p.stage === 'opening' || p.stage === 'lines'
   const movedByOne = counted && p.now === p.before! + 1
+  // Its open never landed, so what the fallback closed is an earlier document's. In a turn that is all it can be.
+  if (p.abandoned === 'finished' && p.stage === 'opening') return 'failed'
   // Its fallback finished it: a receipt is on the device, and only past the money is it all of this one.
   if (p.abandoned === 'finished') return movedByOne && !beforeTheMoney ? 'printed' : 'unknown'
   if (beforeTheMoney) return 'failed'
