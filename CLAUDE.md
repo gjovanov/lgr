@@ -2666,7 +2666,8 @@ invoice still due until the courier pays).
   dies in its Z has a lease (`closeLeaseUntil`, `TURN_WAIT_MS + REPORT_MAX_MS`): lapsed, the next close puts it back
   to `open` and answers 409 `close_interrupted`, because the Z may have printed and only the device can say. Its
   writes from the claim on are conditional on what it holds.
-- ⚠ **A session takes nothing new unless it is `open`** (409 `session_closing` at the door, a keyed retry above that).
+- ⚠ **A session takes nothing new unless it is `open`** (409 `session_closing` at the door, a keyed retry above that; the
+  invoice doors say so too, `noOpenSession`, and never send a cashier in a close to open a session first, #461 D7).
   ⚠ The door's read holds nothing: a document looks at its session once it is WRITTEN, and the close looks at the
   session's documents once it has CLAIMED it, so one of the two sees the other. A sale gives way by being removed, ⚠
   never voided: `posRowSign` counts any sale, because a storno alone flips one to `cancelled`. The close reads

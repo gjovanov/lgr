@@ -1783,6 +1783,79 @@ describe('a session and its unfinished receipts (ruling 7)', () => {
     expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
   })
 
+  describe('during its close, its cashier is told so, and never sent to open a session first (D7)', () => {
+    /** A close stopped inside its Z. */
+    async function closingInItsZ(w: TillWorld) {
+      const held = gate()
+      let reached = false
+      w.sim!.beforeCommand = (cmd) => {
+        if (cmd !== 0x45) return undefined
+        reached = true
+        return held.closed
+      }
+      const closing = w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 100, card: 0, other: 0 } })
+      await until(() => reached, 'the Z to be under way')
+      return async () => {
+        w.sim!.beforeCommand = null
+        held.open()
+        return closing
+      }
+    }
+
+    it('a payment', async () => {
+      const w = await tillWorld(app)
+      const d = await onBank(w)
+      const finish = await closingInItsZ(w)
+
+      const r = await pay(w, d.id, 24)
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('session_closing')
+      expect(r.json.noSession).toBeUndefined()
+      expect(await receiptsOf(d.id)).toHaveLength(0)
+      expect((await raw(d.id)).amountPaid).toBe(0)
+      expect((await finish()).status).toBe(200)
+    })
+
+    it('an issue: nothing is issued, and no number is drawn', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w)
+      const finish = await closingInItsZ(w)
+
+      const r = await send(w, d.id)
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('session_closing')
+      expect(await raw(d.id)).toMatchObject({ status: 'draft', amountPaid: 0 })
+      expect(await receiptsOf(d.id)).toHaveLength(0)
+      expect((await finish()).status).toBe(200)
+    })
+
+    it('once it has closed, a session is what it takes, as ever', async () => {
+      const w = await tillWorld(app)
+      const d = await onBank(w)
+      const finish = await closingInItsZ(w)
+      expect((await finish()).status).toBe(200)
+
+      const r = await pay(w, d.id, 24)
+
+      expect(r.status).toBe(409)
+      expect(r.json).toMatchObject({ code: 'fiscal_device_not_connected', noSession: true })
+    })
+
+    it('someone else\'s close says nothing to who has no session', async () => {
+      const w = await tillWorld(app)
+      const d = await onBank(w)
+      const finish = await closingInItsZ(w)
+
+      const r = await pay(w, d.id, 24, 'cash', undefined, w.clerkToken)
+
+      expect(r.status).toBe(409)
+      expect(r.json).toMatchObject({ code: 'fiscal_device_not_connected', noSession: true })
+      expect((await finish()).status).toBe(200)
+    })
+  })
+
   it('a closing session takes no new receipt: it would land after the day was counted', async () => {
     const w = await tillWorld(app)
     const clerk = await clerkSession(w)

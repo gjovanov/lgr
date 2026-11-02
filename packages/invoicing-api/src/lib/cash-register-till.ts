@@ -412,6 +412,19 @@ export async function openSessionOf(orgId: string, userId: string): Promise<any 
   return POSSession.findOne({ orgId, cashierId: userId, status: 'open' }).sort({ openedAt: -1 }).lean().exec()
 }
 
+/**
+ * Why someone with no open session gets no receipt or storno: `what` says what it would have printed.
+ * ⚠ One being closed takes nothing new, and it would be no answer to send its cashier to open another.
+ */
+export async function noOpenSession(orgId: string, userId: string, what: string): Promise<RegisterRefusal> {
+  if (await POSSession.exists({ orgId, cashierId: userId, status: 'closing_control' }).exec()) return new RegisterRefusal(409, { ...SESSION_CLOSING })
+  return new RegisterRefusal(409, {
+    code: 'fiscal_device_not_connected',
+    noSession: true,
+    message: `Open a session at the till first: ${what} on that session's device. ${PRINTER_GATE_SWITCH}`,
+  })
+}
+
 /** A session as the service reads it. */
 export const registerSession = (s: any): RegisterSession => ({
   id: String(s.id ?? s._id), warehouseId: String(s.warehouseId), cashierId: s.cashierId ? String(s.cashierId) : undefined, currency: s.currency,

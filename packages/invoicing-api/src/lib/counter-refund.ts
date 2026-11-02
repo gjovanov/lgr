@@ -14,7 +14,7 @@
  * has its own key, derived from the request's, so a retry finds what the first attempt printed and goes
  * on from there with what is left to give back: nothing prints twice and no plan has to survive a crash.
  */
-import { Invoice, POSSession } from 'db/models'
+import { Invoice } from 'db/models'
 import { outstandingOf } from 'services/biz/invoice-payment'
 import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { PAYMENT_STORNO } from 'services/biz/cash-register/pos-union'
@@ -26,9 +26,9 @@ import { drawOn, holdEnough } from 'services/biz/cash-register/refund-budget'
 import { grossByRate } from 'services/biz/cash-register/receipt-lines'
 import { receiptMode, type ReceiptMode } from 'services/biz/cash-register/receipt-mode'
 import {
-  RegisterRefusal, SESSION_CLOSING, giveWayToTheClose, insertRegisterDocument, originOf, sessionIsOpen, type RegisterContext, type RegisterUser,
+  RegisterRefusal, giveWayToTheClose, insertRegisterDocument, originOf, sessionIsOpen, type RegisterContext, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
-import { PRINTER_GATE_SWITCH, STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, connectedInWarehouse, finishDeadSale, finishInterruptedDocuments, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
+import { STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, connectedInWarehouse, finishDeadSale, finishInterruptedDocuments, noOpenSession, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
 import { settleKeyedReceipt } from './counter-receipt.js'
 
 export interface PreparedRefund {
@@ -143,15 +143,7 @@ export async function prepareRefund(orgId: string, user: RegisterUser & { role?:
   }
 
   const session = await openSessionOf(orgId, user.id)
-  if (!session) {
-    // ⚠ One being closed takes nothing new, and it would be no answer to send its cashier to open another.
-    if (await POSSession.exists({ orgId, cashierId: user.id, status: 'closing_control' }).exec()) throw new RegisterRefusal(409, { ...SESSION_CLOSING })
-    throw new RegisterRefusal(409, {
-      code: 'fiscal_device_not_connected',
-      noSession: true,
-      message: `Open a session at the till first: a refund at the counter prints its storno on that session's device. ${PRINTER_GATE_SWITCH}`,
-    })
-  }
+  if (!session) throw await noOpenSession(orgId, user.id, 'a refund at the counter prints its storno')
   // ⚠ A storno prints on the device that printed its receipt. With two connected here the context takes either, and
   // the other one's receipt was refused, naming a device standing in this warehouse.
   const deviceNumber = await connectedInWarehouse(orgId, String(session.warehouseId), devicesThatCite(backing.cited))

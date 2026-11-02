@@ -27,7 +27,7 @@ import {
   RegisterRefusal, insertRegisterDocument, settleKeyedDocument, type RegisterContext, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
 import { licenceRefusal } from 'services/biz/licence/master-licence.service'
-import { PRINTER_GATE_SWITCH, assertOperatorFor, assertPrinterConnected, assertSaleMayOpen, assertTillTender, documentContext, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
+import { assertOperatorFor, assertPrinterConnected, assertSaleMayOpen, assertTillTender, documentContext, noOpenSession, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
 
 export interface PreparedReceipt {
   context: RegisterContext
@@ -70,13 +70,7 @@ export async function prepareReceipt(orgId: string, user: RegisterUser, doc: any
   }
 
   const session = await openSessionOf(orgId, user.id)
-  if (!session) {
-    throw new RegisterRefusal(409, {
-      code: 'fiscal_device_not_connected',
-      noSession: true,
-      message: `Open a session at the till first: a payment at the counter prints its receipt on that session's device. ${PRINTER_GATE_SWITCH}`,
-    })
-  }
+  if (!session) throw await noOpenSession(orgId, user.id, 'a payment at the counter prints its receipt')
   const context = await tillContext(orgId, user, session, { needsOperator: false })
   await assertPrinterConnected(orgId, String(session.warehouseId), context)
   await assertOperatorFor(user, context.printer)
