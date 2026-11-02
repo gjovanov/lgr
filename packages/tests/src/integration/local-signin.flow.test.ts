@@ -114,7 +114,9 @@ describe('where a PIN is offered', () => {
   it('never on global', async () => {
     ;(config.node as any).role = 'global'
     try {
-      expect((await call('GET', '/api/auth/local/methods')).status).toBe(404)
+      const methods = await call('GET', '/api/auth/local/methods')
+      expect(methods.status).toBe(200)
+      expect(methods.json).toEqual({ pin: false })
       expect((await call('POST', '/api/auth/local/pin', { body: { operatorCode: '0007', pin: '402613' } })).status).toBe(404)
       expect((await call('PUT', '/api/auth/local/pin', { token: tokens.cashier, body: { password: 'the password', pin: '402613' } })).status).toBe(404)
     } finally {
