@@ -153,3 +153,10 @@ movements `SM-2026-01435`/`SM-2026-01436`) and, after the naming-artifact pass, 
 genuine missing/extra products with nonzero quantity. Re-running this skill on a later
 period should look similar in shape (mostly a report of "already imported", a handful of
 small qty diffs) unless something actually broke.
+
+⚠ **That true-up doubled the stock of 16 twin articles** (two names differing only in spacing
+or case, each with its own quantity in both systems). The tools folded the names, compared
+PlusMinus's sum with whichever twin came last, and raised the empty twin to the sum, and the
+same folding then reported 0 difference. `scripts/lib/snapshot-match.ts` now pairs twins by
+exact spelling, so these lines show up as ordinary qty diffs and the next true-up takes them
+back down. Expect them in the next decrease batch.
