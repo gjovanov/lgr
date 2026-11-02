@@ -23,7 +23,8 @@ import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { InvoiceWriteLost, createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement } from 'services/biz/cash-settlement.service'
-import { fitsDue, heldOn, isBeingVoided, issueLeaseFree, notBeingVoided, outstandingOf, paymentPipeline, unclaimedDraft } from 'services/biz/invoice-payment'
+import { documentAmounts, editedAmounts } from 'services/biz/document-amounts'
+import { dueFollowsTotal, fitsDue, heldOn, isBeingVoided, issueLeaseFree, notBeingVoided, outstandingOf, paymentPipeline, unclaimedDraft } from 'services/biz/invoice-payment'
 import {
   DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, inDoubtRefusal, isImportedDocument, owedByMovingToDelivery, owesDeliveryReceipt,
   paymentRefusal, printsOnPayment, receiptFacts, receiptInDoubt,
@@ -738,20 +739,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (relErr) return status(422, { message: relErr })
 
       // Compute defaults for fields the form may not provide
-      const lines = (body.lines || []).map((l: any) => {
-        const subtotal = l.quantity * l.unitPrice
-        const disc = subtotal * ((l.discount || 0) / 100)
-        const taxAmt = (subtotal - disc) * ((l.taxRate || 0) / 100)
-        return {
-          ...l,
-          unit: l.unit || 'pcs',
-          description: l.description || '',
-          taxAmount: l.taxAmount ?? taxAmt,
-          lineTotal: l.lineTotal ?? (subtotal - disc + taxAmt),
-        }
-      })
-
-      const taxTotal = body.taxTotal ?? body.taxAmount ?? lines.reduce((s: number, l: any) => s + (l.taxAmount || 0), 0)
+      const { lines, taxTotal, totalBase } = documentAmounts(body as any)
       const exchangeRate = body.exchangeRate || 1
       const dueDate = body.dueDate || body.issueDate
 
@@ -827,7 +815,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           statusHistory: [statusEntry('paid', undefined, user.id, 'cash_sale_created')],
           taxTotal: pos ? pos.taxTotal : taxTotal,
           ...(pos ? { subtotal: pos.subtotal, discountTotal: pos.discountTotal, total: pos.total } : {}),
-          totalBase: pos ? +(pos.total * exchangeRate).toFixed(2) : body.totalBase ?? +(body.total * exchangeRate).toFixed(2),
+          totalBase: pos ? +(pos.total * exchangeRate).toFixed(2) : totalBase,
           billingAddress: body.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
           amountPaid: pos ? pos.total : body.total,
           amountDue: 0,
@@ -893,7 +881,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
             statusHistory: [statusEntry(initialStatus, undefined, user.id, 'created')],
             numberHistory: [{ number: invoiceNumber, allocatedAt: new Date(), status: initialStatus }],
             taxTotal,
-            totalBase: body.totalBase ?? +(body.total * exchangeRate).toFixed(2),
+            totalBase,
             billingAddress: body.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
             amountPaid: 0,
             amountDue: body.total,
@@ -1078,6 +1066,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (!existing) return status(404, { message: 'Invoice not found' })
       // FR-21.11: a till document or a storno is corrected by a storno, never edited.
       if (isImmutableRegisterDocument(existing as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
+      // What the request leaves out, as `POST` derives it, and every write below carries it. ⚠ Before the
+      // freeze reads the request: a total only derived here still moves what a receipt printed. An
+      // invoice for a cash sale takes all of it from the sale, below.
+      if (!(existing as any).cashSaleRef?.cashSaleId) Object.assign(body, editedAmounts(existing as any, body as any))
       // FR-23 §2.7: a printed receipt cannot change, so what it printed cannot either. Anything else
       // on the document stays editable, as on every other.
       const movesMoney = (existing as any).direction === 'outgoing' && existing.status !== 'draft' && movesPrintedMoney(existing as any, body as any)
@@ -1245,9 +1237,18 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // ⚠ FR-23: where LGR prints the rule does not settle. That money goes through the payment
       // action, which prints, and an edit must not take it silently. An imported document never
       // prints, so the rule stays its own.
+      let settled = false
       if ((existing as any).direction === 'outgoing' && existing.type === 'invoice' && existing.status !== 'draft') {
         const settlement = await syncCashSettlement(orgId, id, user.id, { settles: await ruleSettles(orgId, updated ?? existing) })
-        if (settlement.action !== 'none') updated = await r.invoices.findOne({ id, orgId } as any)
+        settled = settlement.action !== 'none'
+        if (settled) updated = await r.invoices.findOne({ id, orgId } as any)
+      }
+      // Whatever that rule left alone: a note, a bill, a draft, an invoice paid by bank. A cash sale owes
+      // nothing, and an invoice for one is the service's above.
+      const owes = existing.type !== 'cash_sale' && !(existing as any).cashSaleRef?.cashSaleId
+      if (!settled && owes && updated && round2((updated as any).total) !== round2((existing as any).total)) {
+        await Invoice.updateOne({ _id: id, orgId }, dueFollowsTotal() as any).exec()
+        updated = await r.invoices.findOne({ id, orgId } as any)
       }
 
       return { invoice: updated }
