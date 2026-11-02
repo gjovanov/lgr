@@ -1194,7 +1194,8 @@
       "stornoExceedsBudget": "Diese Zeilen sind mehr, als der Bon dieses Verkaufs noch hält ({left}): Eine Erstattung per Gutschrift hat den Rest genommen. Es wurde nichts storniert.",
       "stornoRefundMismatch": "Diese Zeilen erstatten einen anderen Betrag als die genannte Erstattung. Es wurde nichts storniert.",
       "stornoLineUnknown": "Eine dieser Zeilen gehört nicht zu diesem Verkauf. Es wurde nichts storniert.",
-      "stornoQuantityInvalid": "Eine Rückgabemenge ist größer als 0, mit höchstens drei Dezimalstellen. Es wurde nichts storniert."
+      "stornoQuantityInvalid": "Eine Rückgabemenge ist größer als 0, mit höchstens drei Dezimalstellen. Es wurde nichts storniert.",
+      "stornoNotSplittable": "Eine Zeile dieses Verkaufs hat einen negativen Betrag, daher kann er nicht zeilenweise zurückgegeben werden. Stornieren Sie ihn ganz. Es wurde nichts storniert."
     },
     "origin": {
       "pos": "Kasse",

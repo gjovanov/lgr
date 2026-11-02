@@ -125,6 +125,11 @@ export function planStorno(sale: any, asked?: { lineId: string; quantity: number
   const lines = saleLines(sale)
   const read = new Map(lines.map(l => [l.key, l.returned]))
   const untouched = lines.every(l => !l.returned) && !sale?.register?.refundClaims?.length
+  // A line worth less than nothing has no share of what the receipt printed: such a sale only goes back whole.
+  const splits = (sale?.lines ?? []).every((l: any) => toCents(l.lineTotal) >= 0)
+  if (asked?.length && !splits) {
+    return { statusCode: 422, body: { code: 'storno_not_splittable', message: 'A line of this sale carries a negative amount, so it cannot go back line by line. Reverse it whole.' } }
+  }
   let wanted: Map<string, number>
   if (asked?.length) {
     wanted = new Map()
@@ -155,6 +160,7 @@ export function planStorno(sale: any, asked?: { lineId: string; quantity: number
     .filter(l => wanted.get(l.key))
     .map(l => ({ key: l.key, index: l.index, rate: l.rate, milli: wanted.get(l.key)!, cents: partOfLine(l.value, l.sold, l.returned, wanted.get(l.key)!) }))
   const completes = lines.every(l => (wanted.get(l.key) || 0) >= l.left)
+  if (!planned.length && !untouched) return { statusCode: 400, body: { message: 'Original transaction is already cancelled' } }
   // The whole sale in one go is its own figures, as a storno has always carried them.
   if (untouched && completes) {
     return {

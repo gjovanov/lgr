@@ -27,6 +27,14 @@ describe('canStornoTransaction', () => {
     expect(canStornoTransaction({ type: 'sale', status: 'completed', isFiscal: false, fiscal: { state: 'unknown' } }, 'admin')).toBe(true)
     expect(canStornoJournalRow({ kind: 'sale', status: 'inDoubt', origin: 'pos' }, 'admin')).toBe(false)
   })
+
+  it('FR-23 R3: what is left of a partly stornoed sale can go back too, but not once it is invoiced or all back', () => {
+    expect(canStornoJournalRow({ kind: 'sale', status: 'partial', origin: 'pos' }, 'admin')).toBe(true)
+    expect(canStornoJournalRow({ kind: 'sale', status: 'partial', origin: 'backoffice' }, 'manager')).toBe(true)
+    expect(canStornoJournalRow({ kind: 'sale', status: 'partial', origin: 'pos', invoicingState: 'full' }, 'admin')).toBe(false)
+    expect(canStornoJournalRow({ kind: 'sale', status: 'stornoed', origin: 'pos' }, 'admin')).toBe(false)
+    expect(canStornoJournalRow({ kind: 'sale', status: 'partial', origin: 'import' }, 'admin')).toBe(false)
+  })
 })
 
 describe('canStornoJournalRow (FR-21 §3.5)', () => {

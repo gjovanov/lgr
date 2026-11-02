@@ -55,6 +55,7 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'storno_refund_mismatch': return 'cashRegister.receipt.stornoRefundMismatch'
     case 'storno_line_unknown': return 'cashRegister.receipt.stornoLineUnknown'
     case 'storno_quantity_invalid': return 'cashRegister.receipt.stornoQuantityInvalid'
+    case 'storno_not_splittable': return 'cashRegister.receipt.stornoNotSplittable'
     default: return null
   }
 }

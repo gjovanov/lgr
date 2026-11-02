@@ -748,7 +748,12 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
       if (mine) return answer(await settleKeyedDocument(mine, hash!, contextOf(mine), runStornoSteps))
       original = await read()
       const refused = await stornoRefusal(original, { part })
-      if (refused) throw refused
+      if (refused) {
+        // What refuses it may be its own duplicate, between that one's claim and its insert.
+        const own = await ownOnceWritten()
+        if (own) return answer(await settleKeyedDocument(own, hash!, contextOf(own), runStornoSteps))
+        throw refused
+      }
     }
     if (!plan) {
       // A duplicate of the request that won: wait for its storno, then answer as it does.
