@@ -807,7 +807,13 @@ export async function stornoRefusal(original: any): Promise<RegisterRefusal | nu
   if (original.status !== 'paid') return new RegisterRefusal(400, { code: 'storno_not_paid', message: 'Only a completed sale can be stornoed' })
   if (original.register?.stornoState === 'full') {
     const held = await stornoInDoubtOf(original)
-    return held ? new RegisterRefusal(409, stornoInDoubtRefusal(held)) : new RegisterRefusal(400, { message: 'Original transaction is already cancelled' })
+    if (held) return new RegisterRefusal(409, stornoInDoubtRefusal(held))
+    // A claim with no storno yet: one being written right now, or one that died, whose age has not lapsed.
+    const ids = original.register?.stornoedBy ?? []
+    if (ids.length && !(await Invoice.exists({ _id: { $in: ids }, orgId: original.orgId }).exec())) {
+      return new RegisterRefusal(409, { code: 'storno_in_progress', message: 'This sale is already being reversed' })
+    }
+    return new RegisterRefusal(400, { message: 'Original transaction is already cancelled' })
   }
   // ⚠ Read as not printed it refunds with no storno on the device, which #281 forbids: a person says first.
   if (saleInDoubt(original)) {
@@ -970,9 +976,10 @@ export function stornoDocument(input: StornoInput): Record<string, any> {
  * Claim the sale for its storno, atomically. Read-then-write let two clicks (or two tills) both pass
  * an "is it stornoed?" check and refund the same sale twice. Exactly one caller wins this update.
  *
- * ⚠ The claim has no lease and nothing lapses it. Only `releaseStornoClaim` gives the sale back, and only
- * for a storno proved not to have printed, or settled so by a person. The lease on the storno document
- * says who is working on that document, and takes nothing over from the sale.
+ * ⚠ The claim has no lease of its own. `releaseStornoClaim` gives the sale back for a storno proved not to
+ * have printed, or settled so by a person, and the lease on the storno document says who is working on that
+ * document and takes nothing over from the sale. A claim whose storno was never written is the one thing
+ * that lapses: `releaseOrphanClaims`, by its age, id by id.
  */
 export async function claimForStorno(original: any, stornoId: ObjectId): Promise<boolean> {
   const claimed = await Invoice.findOneAndUpdate(
@@ -995,6 +1002,53 @@ export async function releaseStornoClaim(original: any, stornoId: unknown): Prom
     { _id: original._id, orgId: original.orgId, 'register.stornoedBy': oid(stornoId) },
     { $set: { 'register.stornoState': 'none' }, $pull: { 'register.stornoedBy': oid(stornoId) }, $unset: { 'register.cancelledAt': 1 } },
   ).exec()
+}
+
+/**
+ * A claim on a sale whose storno was never written: the process died between `claimForStorno` and the insert.
+ * Nothing printed and nothing was booked, but the journal reads it as stornoed with nothing related, the next
+ * press is refused, and SUPTO 18.5 lists a cancellation that never happened. So an id in `stornoedBy` with no
+ * document, on a claim older than a lease, is pulled, by whoever reads the sale next. True when one was.
+ *
+ * ⚠ Id by id, never the sale: R3 keeps several there, and a live insert is milliseconds behind its claim. So
+ * the write is conditional on the id and on the age, in one atomic update that only gives the sale back with
+ * nothing left on it.
+ */
+export async function releaseOrphanClaims(sale: any, now = Date.now()): Promise<boolean> {
+  const reg = sale?.register
+  const before = new Date(now - LEASE_MS)
+  if (reg?.stornoState !== 'full' || !reg.stornoedBy?.length || !reg.cancelledAt || new Date(reg.cancelledAt) >= before) return false
+  const written = new Set((await Invoice.find({ _id: { $in: reg.stornoedBy }, orgId: sale.orgId }, { _id: 1 }).lean().exec()).map((d: any) => String(d._id)))
+  let released = false
+  for (const id of reg.stornoedBy) {
+    if (written.has(String(id))) continue
+    const left = { $filter: { input: '$register.stornoedBy', cond: { $ne: ['$$this', oid(id)] } } }
+    const none = { $eq: [{ $size: left }, 0] }
+    const pulled = await Invoice.updateOne(
+      { _id: sale._id, orgId: sale.orgId, 'register.stornoState': 'full', 'register.stornoedBy': oid(id), 'register.cancelledAt': { $lt: before } },
+      [{
+        $set: {
+          'register.stornoedBy': left,
+          'register.stornoState': { $cond: [none, 'none', '$register.stornoState'] },
+          'register.cancelledAt': { $cond: [none, '$$REMOVE', '$register.cancelledAt'] },
+        },
+      }],
+    ).exec()
+    if (pulled.modifiedCount) {
+      logger.warn({ saleId: String(sale._id), stornoId: String(id) }, 'A storno claim with no document was released')
+      released = true
+    }
+  }
+  return released
+}
+
+/** The same, for the sales of a session as it closes: what a request that died left must not outlive its day. */
+export async function releaseOrphanClaimsOfSession(orgId: string, sessionId: string): Promise<void> {
+  const claimed: any[] = await Invoice.find(
+    { orgId: oid(orgId), type: 'cash_sale', 'register.sessionId': oid(sessionId), 'register.stornoState': 'full', 'register.cancelledAt': { $lt: new Date(Date.now() - LEASE_MS) } },
+    { orgId: 1, register: 1 },
+  ).lean().exec()
+  for (const sale of claimed) await releaseOrphanClaims(sale)
 }
 
 /**

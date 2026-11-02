@@ -22,7 +22,7 @@ import { takeLease } from 'services/biz/hot-path-key'
 import { POD_ID, livePresence } from 'services/biz/fiscal-presence.service'
 import {
   RegisterRefusal, claimForStorno, finishInterruptedStorno, finishSale, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally,
-  releaseStornoClaim, runStornoSteps, settleKeyedDocument, stornoDocument, stornoInDoubtRefusal, stornoRefusal,
+  releaseOrphanClaims, releaseStornoClaim, runStornoSteps, settleKeyedDocument, stornoDocument, stornoInDoubtRefusal, stornoRefusal,
   type RegisterContext, type RegisterSession, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
 import { fiscalUnitPrice } from 'services/biz/cash-register/receipt-lines'
@@ -589,9 +589,12 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
     // A sale an older release rang up is its copy since 0008/0009, under the same id.
     const read = (): Promise<any> => Invoice.findOne({ _id: input.originalId, orgId }).lean().exec()
     let original: any = Invoice.base.Types.ObjectId.isValid(input.originalId) ? await read() : null
-    // What a request that died left on this sale comes first: it may have printed, or be proved not to.
-    if (original?.register?.stornoState === 'full' && await finishInterruptedDocuments(orgId, user, { ids: original.register.stornoedBy ?? [] })) {
-      original = await read()
+    // What a request that died left on this sale comes first: a claim whose storno was never written, and one
+    // that was, which may have printed, or be proved not to.
+    if (original?.register?.stornoState === 'full') {
+      const released = await releaseOrphanClaims(original)
+      const finished = await finishInterruptedDocuments(orgId, user, { ids: original.register.stornoedBy ?? [] })
+      if (released || finished) original = await read()
     }
     // And what a request that died left of the sale itself: its money stands, and it is booked before anything
     // reverses it, or the refund leaves a drawer that never had it. An imported day is refused as it stands.

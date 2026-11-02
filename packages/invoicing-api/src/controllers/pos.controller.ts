@@ -13,7 +13,7 @@ import { Org, POSSession } from 'db/models'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import {
-  RegisterRefusal, insertRegisterDocument, runSaleSteps, saleIncrements, settleKeyedDocument, tillSaleDocument,
+  RegisterRefusal, insertRegisterDocument, releaseOrphanClaimsOfSession, runSaleSteps, saleIncrements, settleKeyedDocument, tillSaleDocument,
 } from 'services/biz/cash-register/register.service'
 import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
@@ -694,6 +694,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       // ⚠ Before `expected` is read, as the session is claimed below: the rows count a sale that died in its
       // print and the session does not, and the drawer read as over by exactly that.
       await finishDeadSales(orgId, user, id)
+      await releaseOrphanClaimsOfSession(orgId, id)
       const unfinished = await unfinishedReceipts(orgId, id)
       if (unfinished.length) return status(409, unfinishedRefusal(unfinished))
 
