@@ -14,6 +14,7 @@ import { buildSessionReport } from 'services/biz/cash-register/session-report'
 import { listJournal } from 'services/biz/cash-register/journal.service'
 import { exportCancelledSales, exportReversedSales } from 'services/biz/supto-export.service'
 import { reportById, validateParams } from 'services/biz/report-registry'
+import { localDayOf } from 'services/biz/local-day'
 
 /**
  * FR-23 R3, #363 — the till's partial storno. A customer brings back one of three articles.
@@ -48,6 +49,8 @@ function failsProved(w: TillWorld) {
 }
 
 const read = (id: unknown): Promise<any> => Invoice.findById(id).lean().exec() as Promise<any>
+/** The day a sale made now belongs to, which is what an invoice attaches by: Sofia's, not UTC's. */
+const onSaleDay = () => ({ issueDate: localDayOf(new Date()) })
 const stornosOnDevice = (w: TillWorld) => w.sim!.receipts.filter(r => r.kind === 'storno' && !r.voided)
 const stornosOf = (saleId: unknown): Promise<any[]> => Invoice.find({ type: 'cash_storno', relatedInvoiceId: saleId }).sort({ _id: 1 }).lean().exec() as Promise<any[]>
 const levelOf = async (w: TillWorld, productId: unknown) => {
@@ -1643,14 +1646,14 @@ describe('the owner\'s decision: a partly stornoed sale invoices only what is le
     const s = await threeArticles(w)
     expect((await back(w, s, [[0, 2]])).status).toBe(200)
 
-    const tooMuch = await draftOf(w, { method: 'bank_transfer', lines: [line(w, 2)] })
+    const tooMuch = await draftOf(w, { method: 'bank_transfer', lines: [line(w, 2)], extra: onSaleDay() })
     expect((await send(w, tooMuch.id)).status).toBe(200)
     const refused = await w.call('POST', `/invoices/${tooMuch.id}/attach-to-cash-sale`, { cashSaleId: s.saleId })
     expect(refused.status).toBeGreaterThanOrEqual(400)
     expect(refused.json.code).toBe('line_quantity_exceeds')
     expect((await raw(tooMuch.id)).cashSaleRef).toBeUndefined()
 
-    const fits = await draftOf(w, { method: 'bank_transfer', lines: [line(w, 1)] })
+    const fits = await draftOf(w, { method: 'bank_transfer', lines: [line(w, 1)], extra: onSaleDay() })
     expect((await send(w, fits.id)).status).toBe(200)
     expect((await w.call('POST', `/invoices/${fits.id}/attach-to-cash-sale`, { cashSaleId: s.saleId })).status).toBe(200)
     expect(String((await raw(fits.id)).cashSaleRef.cashSaleId)).toBe(s.saleId)
@@ -1740,7 +1743,7 @@ describe('a sale whose lines have no ids, copied raw from an old POS row (the re
   it('an invoice attached to it claims by place too', async () => {
     const w = await tillWorld(app)
     const s = await stripped(w)
-    const d = await draftOf(w, { method: 'bank_transfer', lines: [line(w, 1)] })
+    const d = await draftOf(w, { method: 'bank_transfer', lines: [line(w, 1)], extra: onSaleDay() })
     expect((await send(w, d.id)).status).toBe(200)
 
     const r = await w.call('POST', `/invoices/${d.id}/attach-to-cash-sale`, { cashSaleId: s.saleId })

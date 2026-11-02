@@ -1,4 +1,3 @@
-import { localDayOf } from 'services/biz/local-day'
 import { Invoice, POSSession } from 'db/models'
 import { createTestContact } from './factories'
 import type { TillWorld } from './till-world'
@@ -17,8 +16,7 @@ export function line(w: TillWorld, quantity = 2, price = 10, taxRate = 20, extra
   }
 }
 
-/** The Bulgarian day, as a sale's day is read. The UTC date differs from it for two or three hours each night. */
-export const TODAY = () => localDayOf(new Date())
+export const TODAY = () => new Date().toISOString().slice(0, 10)
 
 export async function draftOf(w: TillWorld, o: { method?: string; lines?: any[]; type?: string; extra?: Record<string, unknown>; as?: string } = {}) {
   const contact = await createTestContact(w.oid, { companyName: 'Клиент ООД', type: 'customer' } as any)
