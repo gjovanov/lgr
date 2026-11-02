@@ -17,6 +17,9 @@
  * only safe as a fallback for names that didn't match, never as the primary key (risk of folding
  * two real, different products together).
  *
+ * ⚠ Twins, two names differing only in spacing or case, are real, different articles in both
+ * systems. `lib/snapshot-match.ts` pairs them by exact spelling; see there for what folding them cost.
+ *
  * Usage:
  *   bun run scripts/compare-stock-api.ts --org regal-sf --snapshot <path/to/storeAvailability_*.json>
  *   bun run scripts/compare-stock-api.ts --org regal-sf --dir <pull dir>   # auto-picks the newest storeAvailability_*.json in it
@@ -32,6 +35,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { assertTokenOrg } from './lib/token-org.js'
+import { collapseName as collapse, matchSnapshot, snapshotRows, type SnapshotRow as SnapRow } from './lib/snapshot-match.js'
 
 function parseArgs(argv: string[]) {
   const o: Record<string, string | boolean> = {}
@@ -86,7 +90,6 @@ async function login() {
   console.log('auth: org', orgSlug, `(${ORG_ID})`)
 }
 
-const collapse = (s: string) => s.replace(/\s+/g, ' ').trim().toLocaleLowerCase('bg')
 /** Strip a "<label>:" prefix (СТОКИ:/УСЛУГИ:/a kit-component label) and inch/quote marks. Fallback-only. */
 const aggr = (s: string) => collapse(s.replace(/^[^:]+:/, '').replace(/["']/g, ''))
 
@@ -109,8 +112,6 @@ async function fetchAll(path: string, key: string, idOf: (x: any) => string, pag
   return out
 }
 
-interface SnapRow { name: string; qty: number }
-
 async function main() {
   await login()
 
@@ -123,16 +124,7 @@ async function main() {
   const whKey = Object.keys(snap)[0]
   const rows = snap[whKey]
 
-  const byName = new Map<string, SnapRow>()
-  let dups = 0, zeroQty = 0
-  for (const k of Object.keys(rows)) {
-    const name = k.replace(/^СТОКИ:/, '')
-    const key = collapse(name)
-    const qty = parseFloat((rows[k] as any).quantity ?? '0') || 0
-    if (qty === 0) zeroQty++
-    if (byName.has(key)) { byName.get(key)!.qty += qty; dups++ } else byName.set(key, { name, qty })
-  }
-  console.log(`snapshot: ${Object.keys(rows).length} rows, ${byName.size} unique names, ${dups} dup-name rows summed, ${zeroQty} zero-qty`)
+  const snapRows = snapshotRows(rows)
 
   console.log('fetching LGR products + stock levels...')
   const idOf = (x: any) => String(x._id || x.id)
@@ -142,25 +134,19 @@ async function main() {
 
   const qtyById = new Map<string, number>()
   for (const l of levels) qtyById.set(String(l.productId?._id || l.productId), Number(l.quantity) || 0)
-  const prodByName = new Map<string, any>()
-  for (const p of products) prodByName.set(collapse(String(p.name || '')), p)
+  const qtyOf = (p: any) => qtyById.get(idOf(p)) ?? 0
+  const match = matchSnapshot(snapRows, products, qtyOf)
+  console.log(`snapshot: ${snapRows.length} rows, ${match.names.size} unique names, ${snapRows.length - match.names.size} rows share a name with another spelling, ${snapRows.filter(r => r.qty === 0).length} zero-qty`)
 
-  const missingInLgr: SnapRow[] = []
-  const qtyDiffs: Array<{ name: string; sku: string; file: number; lgr: number; diff: number }> = []
-  const matched = new Set<string>()
-  for (const [key, row] of byName) {
-    const p = prodByName.get(key)
-    if (!p) { missingInLgr.push(row); continue }
-    matched.add(key)
-    const lgrQty = qtyById.get(String(p._id || p.id)) ?? 0
-    if (Math.abs(row.qty - lgrQty) > 0.001) qtyDiffs.push({ name: row.name, sku: p.sku, file: row.qty, lgr: lgrQty, diff: Math.round((row.qty - lgrQty) * 10000) / 10000 })
-  }
-  const lgrOnly: Array<{ name: string; sku: string; qty: number }> = []
-  for (const [k, p] of prodByName) if (!byName.has(k)) lgrOnly.push({ name: p.name, sku: p.sku, qty: qtyById.get(String(p._id || p.id)) ?? 0 })
+  const missingInLgr: SnapRow[] = match.missing
+  const qtyDiffs = match.lines
+    .filter(l => Math.abs(l.diff) > 0.001)
+    .map(l => ({ name: String(l.product.name), sku: l.product.sku as string, file: l.snapshotQty, lgr: l.lgrQty, diff: Math.round(l.diff * 10000) / 10000 }))
+  const lgrOnly: Array<{ name: string; sku: string; qty: number }> = match.lgrOnly.map((p: any) => ({ name: p.name, sku: p.sku, qty: qtyOf(p) }))
 
   qtyDiffs.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
 
-  console.log(`\nMatched (exact name): ${matched.size} | missing in LGR: ${missingInLgr.length} | LGR not in snapshot: ${lgrOnly.length}`)
+  console.log(`\nMatched (exact name): ${match.names.size - missingInLgr.length} | missing in LGR: ${missingInLgr.length} | LGR not in snapshot: ${lgrOnly.length} | names with twin products: ${match.twinNames}`)
   console.log(`Qty diffs on matched products (tol 0.001): ${qtyDiffs.length}`)
   for (const d of qtyDiffs.slice(0, 60)) console.log(`  ${d.sku ?? '?'}  "${d.name}"  file=${d.file}  lgr=${d.lgr}  diff=${d.diff}`)
 

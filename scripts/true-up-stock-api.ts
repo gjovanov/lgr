@@ -45,6 +45,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { assertTokenOrg } from './lib/token-org.js'
+import { collapseName as collapse, matchSnapshot, snapshotRows } from './lib/snapshot-match.js'
 
 function parseArgs(argv: string[]) {
   const o: Record<string, string | boolean> = {}
@@ -69,7 +70,6 @@ if (!snapPath) { console.error('Required: --snapshot <path to storeAvailability_
 if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) { console.error('Required: --date YYYY-MM-DD (use the snapshot\'s own date)'); process.exit(2) }
 const MARKER = `snapshot-reconcile:${date}`
 
-const collapse = (s: string) => s.replace(/\s+/g, ' ').trim().toLocaleLowerCase('bg')
 const round2 = (v: number) => +v.toFixed(2)
 /** Latin look-alikes of Cyrillic letters (PlusMinus and LGR spell the same article with either). */
 const CYR2LAT: Record<string, string> = { 'а': 'a', 'в': 'b', 'е': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't', 'х': 'x', 'у': 'y' }
@@ -135,14 +135,6 @@ async function main() {
   const snap = JSON.parse(readFileSync(snapPath!, 'utf8'))
   const whKey = Object.keys(snap)[0]
   const rows = snap[whKey]
-  const byName = new Map<string, { name: string; qty: number }>()
-  for (const k of Object.keys(rows)) {
-    const name = k.replace(/^СТОКИ:/, '')
-    const key = collapse(name)
-    const qty = parseFloat((rows[k] as any).quantity ?? '0') || 0
-    if (byName.has(key)) byName.get(key)!.qty += qty
-    else byName.set(key, { name, qty })
-  }
 
   console.log('fetching LGR products + stock levels...')
   const idOf = (x: any) => String(x._id || x.id)
@@ -150,22 +142,19 @@ async function main() {
   const levels = await fetchAll(`/warehouse/stock-level?warehouseId=${wh._id}`, 'stockLevels', idOf)
   const qtyById = new Map<string, number>()
   for (const l of levels) qtyById.set(String(l.productId?._id || l.productId), Number(l.quantity) || 0)
-  const prodByName = new Map<string, any>()
-  for (const p of products) prodByName.set(collapse(String(p.name || '')), p)
-  console.log(`LGR: ${products.length} products, ${levels.length} stock levels | snapshot rows: ${byName.size}`)
+  const productNames = new Set(products.map((p: any) => collapse(String(p.name || ''))))
+  const match = matchSnapshot(snapshotRows(rows), products, (p: any) => qtyById.get(idOf(p)) ?? 0)
+  const snapshotNames = match.names
+  console.log(`LGR: ${products.length} products, ${levels.length} stock levels | snapshot names: ${snapshotNames.size} | names with twin products: ${match.twinNames}`)
 
-  let noMatch = 0
+  const noMatch = match.missing.length // new-product territory — not this script's job, see header
   const increase: any[] = []
   const decrease: any[] = []
-  for (const [key, row] of byName) {
-    const p = prodByName.get(key)
-    if (!p) { noMatch++; continue } // new-product territory — not this script's job, see header
-    const pid = String(p._id || p.id)
-    const lgrQty = qtyById.get(pid) ?? 0
-    const diff = row.qty - lgrQty // >0: LGR too low, need increase. <0: LGR too high, need decrease.
+  for (const { product: p, snapshotQty, lgrQty, diff } of match.lines) {
+    // diff >0: LGR too low, need increase. <0: LGR too high, need decrease.
     if (Math.abs(diff) <= 0.001) continue
     const unitCost = Number(p.avgCost) || Number(p.purchasePrice) || 0
-    const entry = { productId: pid, sku: p.sku, name: p.name, quantity: round2(Math.abs(diff)), unitCost, totalCost: round2(Math.abs(diff) * unitCost), _before: lgrQty, _snapshot: row.qty }
+    const entry = { productId: idOf(p), sku: p.sku, name: p.name, quantity: round2(Math.abs(diff)), unitCost, totalCost: round2(Math.abs(diff) * unitCost), _before: lgrQty, _snapshot: snapshotQty }
     if (diff > 0) increase.push(entry); else decrease.push(entry)
   }
 
@@ -173,27 +162,27 @@ async function main() {
   const zeroDown: any[] = [] // LGR positive -> lower to 0
   const zeroUp: any[] = []   // LGR negative -> raise to 0
   if (ZERO_LGR_ONLY) {
-    if (byName.size < 0.8 * products.length) {
-      console.error(`--zero-lgr-only refused: the snapshot holds ${byName.size} names against ${products.length} LGR products (under 80 %) — it looks partial, and zeroing against it would wipe the catalogue.`)
+    if (snapshotNames.size < 0.8 * products.length) {
+      console.error(`--zero-lgr-only refused: the snapshot holds ${snapshotNames.size} names against ${products.length} LGR products (under 80 %) — it looks partial, and zeroing against it would wipe the catalogue.`)
       process.exit(2)
     }
     // loose key -> the snapshot's exact keys that fold to it
     const looseToExact = new Map<string, string[]>()
-    for (const key of byName.keys()) { const lk = loose(key); looseToExact.set(lk, [...(looseToExact.get(lk) ?? []), key]) }
+    for (const key of snapshotNames) { const lk = loose(key); looseToExact.set(lk, [...(looseToExact.get(lk) ?? []), key]) }
     let namingTwins = 0
     for (const p of products) {
       const pid = String(p._id || p.id)
       const q = qtyById.get(pid) ?? 0
       if (Math.abs(q) <= 0.001) continue
       const name = String(p.name || '')
-      if (byName.has(collapse(name))) continue   // matched product: handled by the batches above
+      if (snapshotNames.has(collapse(name))) continue   // matched product: handled by the batches above
       // A snapshot row that differs only by a prefix / quote marks / Latin-vs-Cyrillic look-alikes.
       //  - another LGR product already carries that row's EXACT name → this one is a DUPLICATE FORK
       //    (LGR created the same article a second time), its stock is surplus → fall through, zero it;
       //  - nobody does → this IS the article under a different spelling: a naming artifact for a
       //    person to settle (rename / merge), never zeroed.
       const twins = looseToExact.get(loose(name))
-      if (twins?.length && !twins.some(k => prodByName.has(k))) { namingTwins++; continue }
+      if (twins?.length && !twins.some(k => productNames.has(k))) { namingTwins++; continue }
       const unitCost = Number(p.avgCost) || Number(p.purchasePrice) || 0
       const entry = { productId: pid, sku: p.sku, name: p.name, quantity: round2(Math.abs(q)), unitCost, totalCost: round2(Math.abs(q) * unitCost), _before: q, _snapshot: 0 }
       if (q > 0) zeroDown.push(entry); else zeroUp.push(entry)
