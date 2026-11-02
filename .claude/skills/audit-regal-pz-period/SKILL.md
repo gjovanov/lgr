@@ -12,7 +12,7 @@ is not regal-sf with a different slug. Read the differences first; most of this 
 | | regal-sf | **regal-pz** |
 |---|---|---|
 | Reach PlusMinus | through a tunnel | directly (a plain `curl -sk` of the server answers; if not, check the VPN) |
-| Till (cash register) | `storeOperations` documents in the API | **not in the API** — only the `salesAnalysis` report from the GUI |
+| Till (cash register) | `storeOperations` documents in the API | **not a `documents()` family**: the POS module's own receipts (`posDocuments`, §5), not yet read live; today the `salesAnalysis` report from the GUI |
 | Invoice families | `-ФЕ` | `-ФЕ` **and `-ФЕА`** (an annulment: same number, negative sum) |
 | Other families | none | receipts `СТ`, transfers-out `СР`, write-offs `СИ` |
 | Baseline | opened 2026-09-30 | **quantities were re-baselined on 2026-07-30**: documents dated on/before it are already inside LGR's numbers |
@@ -122,11 +122,29 @@ with nothing to derive (a bit set) rightly stays untagged in „Общи".
 
 ## 5. The till
 
-Not in the API. The daily path is the `salesAnalysis_*.xlsx` report (skill `import-cash-register-sales`,
-exported with `pull-plusminus-docs`). The audit only tells you WHICH days are missing; their stock effect is
-already handled by the true-up, their revenue is not. (`posDocuments` accepts the six-argument form that
-`documents` uses but returns nothing for any option set tried; `posCashboxLastClosing` works and returns the
-last cash-box closing. Neither is a till feed.)
+The daily path is still the `salesAnalysis_*.xlsx` report (skill `import-cash-register-sales`, exported with
+`pull-plusminus-docs`). The audit only tells you WHICH days are missing; their stock effect is already handled by
+the true-up (when one has run since the day), their revenue is not, so such a day is booked with `--no-stock`;
+a day no true-up has covered yet is booked with stock.
+
+**Is the till in the API? Probably, but not verified live.** It is not a `documents()` family (the POS module keeps
+its own receipt tables), and the earlier attempt used the `documents` call shape, which is why it "returned nothing
+for any option set tried". The vendor client's own wrappers (extracted from `pmserver.exe`) show the shape:
+
+```
+pm.posReceipts(e,t,n,s) -> ["posDocuments", object, "YYYYMMDD" from, "YYYYMMDD" to, s||"", "receipts"]   // "layaways" likewise
+pm.posReversals(e,t,n)  -> ["posReversals", object, from, to, "reversals"]
+```
+
+The LAST argument is a kind discriminator. `object` is the POS workplace's default object (`ОБЕКТИ:СКЛАД - 1`;
+`posObjects` reports it). A receipt is `{header, lines}` and `header` has `closedOn` (`YYYYMMDD:HHMMSS…`), `status` (contains
+"return" for a refund), `paid`, `paymentMethod`, `unp`; the line fields were not seen yet. Check a first pull against two
+booked days (the daily xlsx equals the CSR) and against the control "month aggregate minus the booked days" before trusting it.
+`posCashboxLastClosing` also works and returns the last cash-box closing; it is not a till feed.
+
+⚠ **The one PlusMinus account slot is shared with the till GUI.** If the GUI holds it the tools exit 3 and touch nothing
+(they never evict); probe only 22:00–06:00 Sofia. A dedicated read-only PlusMinus user for the API (the server has user and
+role management) would remove the contention; it has to be created in the PlusMinus GUI.
 
 ## 6. Reconcile and true up
 
