@@ -158,5 +158,5 @@ small qty diffs) unless something actually broke.
 or case, each with its own quantity in both systems). The tools folded the names, compared
 PlusMinus's sum with whichever twin came last, and raised the empty twin to the sum, and the
 same folding then reported 0 difference. `scripts/lib/snapshot-match.ts` now pairs twins by
-exact spelling, so these lines show up as ordinary qty diffs and the next true-up takes them
-back down. Expect them in the next decrease batch.
+exact spelling, and those lines were reversed on 2026-11-02 under the marker
+`snapshot-reconcile:2026-10-31:twin-reversal`, so a twin that differs now is a real difference.
