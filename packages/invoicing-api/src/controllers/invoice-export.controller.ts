@@ -18,6 +18,7 @@ import { getNextCompanionNumber, companionNumberField, buildPaymentMethodFilter,
 import { canExport, canWrite } from '../lib/export-access.js'
 import { emailRequestBlock, isValidRecipient, RESEND_WINDOW_MS } from '../lib/email-guards.js'
 import { getOrgLogoDataUri } from 'services/biz/org-logo.service'
+import { moneySign } from 'services/biz/money-sign'
 import { orgFooterLine, renderInvoicePdf } from '../lib/invoice-pdf.js'
 import { sendEmail } from 'services/biz/email.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
@@ -154,8 +155,8 @@ function buildFilter(orgId: string, q: Record<string, any>): Record<string, any>
   return f
 }
 
-/** A storno's amounts with its sign: what it takes back, as a negative row. */
-function negatedStorno(inv: any): any {
+/** A storno's or a credit note's amounts with its sign: what it takes back, as a negative row. */
+function negatedRow(inv: any): any {
   const neg = (n: unknown) => (Number(n) ? -Number(n) : 0)
   return {
     ...inv,
@@ -170,10 +171,12 @@ function negatedStorno(inv: any): any {
 }
 
 /**
- * `signStornos` (on by default) turns a storno negative, for a register that sums it against its
- * sale. A storno exported on its own keeps its own amounts, as its PDF and its receipt print them.
+ * `signStornos` (on by default) turns a storno and a credit note negative, for a list that sums them
+ * against the sales (`moneySign`, #447): the totals and the footer's methods used to add a note as a
+ * sale and its cash refund as cash taken. A document exported on its own keeps its own amounts, as its
+ * PDF and its receipt print them.
  */
-async function toExportRows(invoices: any[], opts: { signStornos?: boolean } = {}): Promise<InvoiceExportRow[]> {
+export async function toExportRows(invoices: any[], opts: { signStornos?: boolean } = {}): Promise<InvoiceExportRow[]> {
   const signStornos = opts.signStornos ?? true
   // Batch-load contacts
   const contactIds = new Set<string>()
@@ -185,7 +188,8 @@ async function toExportRows(invoices: any[], opts: { signStornos?: boolean } = {
 
   return invoices.map((raw: any) => {
     // A cash-sale storno is stored positive and gives its sale back: it exports negative (FR-21.9).
-    const inv = raw.type === 'cash_storno' && signStornos ? negatedStorno(raw) : raw
+    // So does a credit note in a list (#447).
+    const inv = signStornos && moneySign(raw.type) < 0 ? negatedRow(raw) : raw
     const c = inv.contactId ? cmap.get(String(inv.contactId)) : null
     const contactName = c
       ? ((c as any).companyName || [(c as any).firstName, (c as any).lastName].filter(Boolean).join(' '))

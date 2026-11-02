@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { lookupCompany } from 'services/biz/company-lookup.service'
+import { moneySign } from 'services/biz/money-sign'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
@@ -152,7 +153,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         orgId,
         contactId: id,
         status: { $in: ['sent', 'partially_paid', 'overdue', 'received'] },
-      } as any).select('amountDue total amountPaid currency').lean(),
+      } as any).select('type amountDue total amountPaid currency').lean(),
       StockMovement.countDocuments({ orgId, contactId: id } as any),
     ])
 
@@ -162,7 +163,8 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
     let currency: string | null = null
     for (const inv of unpaid) {
       const due = (inv as any).amountDue ?? ((inv as any).total - ((inv as any).amountPaid || 0))
-      openBalance += Number(due) || 0
+      // #447: what a credit note still owes is owed TO the contact, and takes from their balance.
+      openBalance += moneySign((inv as any).type) * (Number(due) || 0)
       const c = (inv as any).currency || null
       if (currency == null) currency = c
       else if (c && c !== currency) mixedCurrency = true

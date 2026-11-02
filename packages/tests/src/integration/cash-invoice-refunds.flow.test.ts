@@ -17,6 +17,8 @@ import { statsController } from 'invoicing-api/src/controllers/stats.controller'
 import { contactController } from 'invoicing-api/src/controllers/contact.controller'
 import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller'
 import { agingReportController } from 'invoicing-api/src/controllers/aging-report.controller'
+import { toExportRows } from 'invoicing-api/src/controllers/invoice-export.controller'
+import { computeAggregates } from 'reporting/excel/invoicing-list.excel'
 import { postPosSessionJournal, registerEventHandlers, resetEventHandlers } from 'services/events/handlers'
 import { reportById, validateParams } from 'services/biz/report-registry'
 import { buildDailyDigest } from 'services/biz/digest/daily-digest.service'
@@ -5606,5 +5608,64 @@ describe('FR-24.50: a refund runs where the printer is', () => {
     // Someone with no session and nothing dead on the document: no printer is theirs to go to.
     const other = await issuedNote(w, inv)
     expect(await deviceFromCounter({ ...ctx, params: { orgId: w.orgId, id: other.id } })).toBeNull()
+  })
+})
+
+// #447: the readers that added a credit note as if it were a sale. A sale of 24 and a note of 12 owe 12, not 36.
+describe('#447: every reader that adds documents up takes a credit note off', () => {
+  /** An invoice of 24 by bank, issued and unpaid, and a note of 12 on it, issued and not refunded. */
+  async function owingDay(w: TillWorld) {
+    const inv = await draftOf(w, { method: 'bank_transfer' })
+    expect((await send(w, inv.id)).status).toBe(200)
+    const note = await issuedNote(w, inv, { quantity: 1 })
+    expect(await raw(inv.id)).toMatchObject({ total: 24, amountDue: 24 })
+    expect(note.doc).toMatchObject({ type: 'credit_note', total: 12, amountDue: 12 })
+    return { inv, note }
+  }
+
+  it("the contact's open balance: 12", async () => {
+    const w = await tillWorld(app, { device: false })
+    const { inv } = await owingDay(w)
+
+    const s = await w.call('GET', `/invoicing/contact/${inv.contactId}/summary`)
+
+    expect(s.json).toMatchObject({ invoiceCount: 2, openBalance: 12 })
+  })
+
+  it("the invoice summary's outstanding: 12 over two documents", async () => {
+    const w = await tillWorld(app, { device: false })
+    await owingDay(w)
+
+    expect((await getInvoiceSummary(w.orgId, {})).outstanding).toEqual({ amount: 12, count: 2 })
+  })
+
+  it("the digest's documents: 12, as its KPIs say", async () => {
+    const w = await tillWorld(app, { device: false })
+    await owingDay(w)
+    const day = localDayOf(new Date(), 'Europe/Sofia')
+    await Invoice.updateMany({ orgId: w.oid }, { $set: { issueDate: new Date(`${day}T10:00:00Z`) } })
+
+    const digest: any = await buildDailyDigest(w.orgId, day)
+
+    expect(digest.documents.sales).toMatchObject({ count: 2, total: 12 })
+    expect(digest.kpis.salesTotal).toBe(12)
+  })
+
+  it("the list export: the note's row is negative, and the total and the cash footer foot", async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv, { quantity: 1 })
+    expect((await pay(w, note.id, 12)).status).toBe(200)
+    const docs = await Invoice.find({ orgId: w.oid, type: { $in: ['invoice', 'credit_note'] } }).lean().exec()
+
+    const rows = await toExportRows(docs)
+    const agg = computeAggregates(rows)
+
+    expect(rows.find(r => r.type === 'credit_note')).toMatchObject({ total: -12 })
+    expect(agg.total).toBe(12)
+    expect(agg.byMethod.cash).toBe(12)
+    // Exported on its own, a note keeps the amounts it printed.
+    const [alone] = await toExportRows(docs.filter((d: any) => d.type === 'credit_note'), { signStornos: false })
+    expect(alone.total).toBe(12)
   })
 })
