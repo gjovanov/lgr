@@ -2145,6 +2145,157 @@ describe('what backs a refund, in doubt: a person settles it, and it holds what 
     expect(plan.warnings.join(' ')).toMatch(/cannot be edited, deleted or voided/)
   })
 
+  it('settled not printed, and stopped before its void: `failed` and still `paid`, it gave nothing back, and no reader says it did', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    w.sim!.dropAfter = 0x38
+    expect((await pay(w, note.id, 24)).json.code).toBe('receipt_in_doubt')
+    w.sim!.disconnected = false
+    const [storno] = await stornosOf(note.id)
+    const filters = { orgId: w.orgId, dateFrom: new Date(Date.now() - 86_400_000), dateTo: new Date(Date.now() + 86_400_000) }
+    // Its first step lets go of the hold: the process goes away right there.
+    const dies = spyOn(Invoice, 'updateOne').mockImplementationOnce(() => { throw new Error('the pod went away') })
+
+    expect((await settle(w, storno._id, false)).status).toBe(500)
+
+    dies.mockRestore()
+    const stopped = await fresh(storno._id)
+    expect(stopped).toMatchObject({ status: 'paid' })
+    expect(stopped.register.fiscal.state).toBe('failed')
+    expect(stopped.completedAt).toBeUndefined()
+
+    // Nothing moved, and none of them may say otherwise, until it is voided.
+    const row = (await loadPosRows({ orgId: w.orgId, sessionId: w.sessionId, withReceipts: true })).find((t: any) => String(t._id ?? t.id) === String(storno._id)) as any
+    expect(row.type).toBe('payment_storno')
+    expect(stornoUnproved(row)).toBe(true)
+    expect(await Invoice.countDocuments({ _id: storno._id, ...NOT_UNPROVED_STORNO })).toBe(0)
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 24, totalReturns: 0 })
+    const built = buildSessionReport(await sessionOf(w), await loadPosRows({ orgId: w.orgId, sessionId: w.sessionId, withReceipts: true }))
+    expect(built.counts.refunds).toBeUndefined()
+    expect(built.byMethod.cash).toBe(24)
+    expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect(await exportReversedSales(filters)).toHaveLength(0)
+    expect((await exportPaymentDetails(filters)).map((t: any) => t.transactionNumber)).toEqual([inv.receipt.invoiceNumber])
+
+    // The next touch voids it, gives back what it held, and the refund goes on.
+    await Invoice.updateOne({ _id: storno._id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+    expect((await pay(w, note.id, 24)).status).toBe(200)
+    expect((await fresh(storno._id)).status).toBe('voided')
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 24 })
+  })
+
+  describe('a person\'s word waits for the device a refund\'s storno printed on (the third read, finding 1)', () => {
+    const closedOnDevice = (w: TillWorld) => w.sim!.receipts.filter(r => !r.voided)
+    /** The line drops after the payment command: its money is on the device and its receipt is open. Held. */
+    async function heldOpen(w: TillWorld) {
+      const inv = await paidInvoice(w)
+      const note = await issuedNote(w, inv)
+      w.sim!.beforeCommand = (cmd) => { if (cmd === 0x35) w.sim!.disconnected = true }
+      const answer = await pay(w, note.id, 24)
+      w.sim!.beforeCommand = null
+      w.sim!.disconnected = false
+      expect(answer.json.code).toBe('receipt_in_doubt')
+      const [storno] = await stornosOf(note.id)
+      expect(w.sim!.receipt?.payments.length).toBeGreaterThan(0)
+      return { inv, note, storno }
+    }
+    const everything = async (w: TillWorld, id: unknown) => ({
+      doc: await fresh(id), session: await sessionOf(w), device: w.sim!.executed.length, documents: await Invoice.countDocuments({ orgId: w.oid }),
+    })
+
+    it('the bridge gone: both refused, nothing changed; back, the receipt is open; an X report; settled printed; one storno on the device and one in LGR', async () => {
+      const w = await tillWorld(app)
+      const { inv, note, storno } = await heldOpen(w)
+      forgetDevices()
+      const before = await everything(w, storno._id)
+
+      for (const printed of [false, true]) {
+        const r = await settle(w, storno._id, printed)
+        expect(r.status).toBe(409)
+        expect(r.json.code).toBe('receipt_device_away')
+        expect(r.json.message).toContain('Connect it')
+      }
+      expect(await everything(w, storno._id)).toEqual(before)
+
+      reconnect(w)
+      for (const printed of [false, true]) {
+        const r = await settle(w, storno._id, printed)
+        expect(r.status).toBe(409)
+        expect(r.json.code).toBe('receipt_open_on_device')
+      }
+      expect((await fresh(storno._id)).register.settled).toBeUndefined()
+
+      await getPrinter(w.deviceId).printDailyXReport()
+      expect(w.sim!.receipt).toBeNull()
+
+      expect((await settle(w, storno._id, true)).status).toBe(200)
+
+      expect(closedOnDevice(w).map(r => r.kind)).toEqual(['fiscal', 'storno'])
+      expect((await stornosOf(note.id)).filter(s => s.status === 'paid')).toHaveLength(1)
+      expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+      expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 24 })
+      expect(leftByRate(await fresh(inv.receipt._id)).size).toBe(0)
+    })
+
+    it('a device gone for good, deactivated: the word stands, its claim and its hold go back, and nothing prints', async () => {
+      const w = await tillWorld(app)
+      const { inv, note, storno } = await heldOpen(w)
+      forgetDevices()
+      expect((await settle(w, storno._id, false)).json.code).toBe('receipt_device_away')
+      await FiscalDevice.updateOne({ _id: w.deviceId }, { $set: { isActive: false } })
+
+      expect((await settle(w, storno._id, false)).status).toBe(200)
+
+      expect((await fresh(storno._id)).status).toBe('voided')
+      expect((await fresh(inv.receipt._id)).register.refundClaims ?? []).toHaveLength(0)
+      expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+      expect((await raw(note.id)).receiptHolds ?? []).toHaveLength(0)
+    })
+
+    it('a busy device is told as busy, and the route goes to the document\'s own device', async () => {
+      const w = await tillWorld(app)
+      const { storno } = await heldOpen(w)
+      expect(await deviceFromSettledDocument({ params: { orgId: w.orgId, id: String(storno._id) } } as any)).toMatchObject({ deviceNumber: 'ED123456' })
+      const held = gate()
+      const holding = deviceTurn(w.deviceId, () => held.closed)
+      try {
+        // Well past its wait in production: `waitMs` is the door's own, and this one is held for the length of it.
+        const r = await settle(w, storno._id, false)
+        expect(r.status).toBe(409)
+        expect(r.json.code).toBe('device_busy')
+      } finally {
+        held.open()
+        await holding
+      }
+      expect((await fresh(storno._id)).register.settled).toBeUndefined()
+    }, 40_000)
+
+    it('a text storno is unaffected: the device holds no money on one', async () => {
+      const w = await tillWorld(app)
+      w.sim!.unfiscalizedUnit = true
+      const inv = await paidInvoice(w)
+      const note = await issuedNote(w, inv)
+      const held = gate()
+      w.sim!.beforeCommand = cmd => (cmd === 0x27 ? held.closed : undefined)
+      const refunding = pay(w, note.id, 24)
+      await until(async () => (await stornosOf(note.id))[0]?.register?.fiscal?.attemptedAt, 'the text storno to start')
+      const [storno] = await stornosOf(note.id)
+      expect(storno.register).toMatchObject({ isFiscal: false })
+      expect(storno.register.fiscal.mode).toBe('text')
+      w.sim!.beforeCommand = null
+      held.open()
+      await refunding
+      // Held as a request that died leaves one, its hold and its claim still there, and the bridge gone.
+      await Invoice.updateOne({ _id: storno._id }, { $set: { 'register.fiscal.inDoubt': true, 'register.fiscal.state': 'unknown' }, $unset: { completedAt: 1 } })
+      forgetDevices()
+
+      expect((await settle(w, storno._id, true)).status).toBe(200)
+      expect((await fresh(storno._id)).register.settled.printed).toBe(true)
+    })
+  })
+
   it('a storno that may have printed is money nobody can count on: every reader of a sum says the same', async () => {
     const row = (state: string, status = 'completed') => ({ type: 'payment_storno', status, fiscal: { state } }) as any
     for (const state of ['pending', 'unknown', 'failed']) expect(stornoUnproved(row(state))).toBe(true)
