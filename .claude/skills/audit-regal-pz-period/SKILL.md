@@ -219,5 +219,7 @@ no tunnel.
 22 post-baseline documents had never been booked (several found only by number: backdated); all pre-baseline
 ones correctly `ALREADY`. Stock: 485 matched-product differences → 298 after the documents → **0** after the
 true-up, 129 products PlusMinus no longer carries zeroed. The untagged-product backlog (§4e) was cleared straight
-afterwards. Open: 2 annulled-but-live invoices, 3 trading days without a cash-sale document, one −0.005 float residue
-on a service item.
+afterwards. The 2 annulled-but-live invoices were voided on 2026-11-02 (§6). The 3 trading days without a cash-sale
+document (10-27, 10-28, 10-29) were booked the same day from the POS receipts (§5), `--no-stock`: `CSR-2026-00069`–`71`,
+189 lines, 3 166 units. After that, October's 22 cash sales equal PlusMinus's own month report for all 1 013 articles, and the
+stock comparison against the snapshot still says 0. Open: one −0.005 float residue on a service item.
