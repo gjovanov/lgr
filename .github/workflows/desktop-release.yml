@@ -1046,9 +1046,24 @@ jobs:
           set -euo pipefail
 
           # ⚠ A missing token does NOT fail the job: the release is already published, and failing
-          # here would report a successful release as a failure.
+          # here would report a successful release as a failure. ⚠ But it is not quiet either (#149):
+          # a `::warning` was all 0.1.6 said, the run was green, and nobody learned the fleet had not
+          # been told until a manual investigation. An ERROR annotation heads the run page, and the
+          # summary carries the exact edit to make by hand.
           if [ -z "${DEPLOY_TOKEN:-}" ]; then
-            echo "::warning title=Fleet not notified::LGR_DEPLOY_TOKEN is not set, so DESKTOP_RELEASE_VERSION was left alone. Tills keep being told they are up to date until it is set in lgr-deploy by hand (#93)."
+            echo "::error title=Fleet NOT notified::LGR_DEPLOY_TOKEN is not set, so DESKTOP_RELEASE_VERSION was left alone and no till is offered ${VERSION}. The release itself is published. Make the edit in this run's summary by hand, or set the secret (#149)."
+            {
+              echo "## ⚠ ${VERSION} is published but NOT offered to the fleet"
+              echo
+              echo "\`LGR_DEPLOY_TOKEN\` is not set on this repository (#149), so \`lgr-deploy\` was not changed."
+              echo "Tills keep being told they are up to date until it is. In \`gjovanov/lgr-deploy\`:"
+              echo
+              echo '```sh'
+              echo "sed -i -E \"s|^(  DESKTOP_RELEASE_VERSION:).*|\\1 '${VERSION}'|\" k8s/base/configmap-lgr-config.yaml"
+              echo "sed -i -E \"s|^(        lgr\\.app/desktop-release:).*|\\1 '${VERSION}'|\" k8s/base/deployment-lgr.yaml"
+              echo "git commit -am 'chore(desktop): offer ${VERSION} to the fleet (released ${TAG})' && git push"
+              echo '```'
+            } >>"$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
