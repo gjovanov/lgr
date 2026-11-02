@@ -122,7 +122,7 @@ const TAKEN_WITHIN_MS = 31 * 86_400_000
  *    not reached is on a slip. A device that cannot say skips this, and so does one whose counter has gone
  *    back since this document read it: its fiscal memory was replaced, and it speaks for another series.
  *  - Not one the same device gave another document around then: another session's too, because two on one
- *    device is normal. Its three spellings, because a device pads it and a person does not.
+ *    device is normal. As a number, because a device pads it and a person does not.
  *
  * ⚠ No lower bound. `getLastReceiptNumber` and the stored number are both 71h, but nobody has held a real
  * slip against 71h, and if the slip's series is the fiscal one it runs below the device's document counter.
@@ -163,7 +163,8 @@ async function typedReceiptNumber(doc: any, typed: string | undefined, lastOnDev
   const around = new Date(doc.createdAt ?? Date.now()).getTime()
   const taken: any = await Invoice.findOne({
     orgId: doc.orgId, _id: { $ne: doc._id }, 'register.fiscalDeviceNumber': deviceNumber,
-    'register.fiscalReceiptNumber': { $in: [number, number.padStart(7, '0'), String(Number(number))] },
+    // As a number. The field holds digits as a string, and which padding a real slip prints is not known.
+    'register.fiscalReceiptNumber': { $regex: `^0*${Number(number)}$` },
     createdAt: { $gte: new Date(around - TAKEN_WITHIN_MS), $lte: new Date(around + TAKEN_WITHIN_MS) },
   }, { invoiceNumber: 1 }).lean().exec()
   if (taken) {

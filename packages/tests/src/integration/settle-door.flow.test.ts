@@ -495,6 +495,30 @@ describe('a number typed off the slip (finding 7)', () => {
       }
     })
 
+    it('as a number, whatever padding is stored or typed (the fourth read, finding 7)', async () => {
+      const w = await tillWorld(app)
+      const clerk = await clerkSession(w)
+      const other = await clerkSale(w, clerk, 1)
+      const theirs = other.json.transaction.fiscalReceiptNumber as string
+      expect(theirs).toBe('0000101')
+      const { id } = await settleable(w)
+
+      for (const spelled of ['00000101', '00101', '0000000101']) {
+        const r = await settle(w, id, true, spelled)
+        expect(r.status, spelled).toBe(422)
+        expect(r.json.code, spelled).toBe('receipt_number_taken')
+        expect(r.json.document, spelled).toBe(other.json.transaction.transactionNumber)
+      }
+
+      // Stored with a padding of its own, and typed with none.
+      await Invoice.updateOne({ _id: other.json.transaction.id }, { $set: { 'register.fiscalReceiptNumber': '00101' } })
+      expect((await settle(w, id, true, '101')).json.code).toBe('receipt_number_taken')
+      expect((await read(id)).register.settled).toBeUndefined()
+
+      // A number that only ends the same way is another number.
+      expect((await settle(w, id, true, '1')).status).toBe(200)
+    })
+
     it('another device\'s, or the same device\'s outside 31 days, is not: a replaced fiscal memory counts from one again', async () => {
       const w = await tillWorld(app)
       const earlier = await w.sell(1)
