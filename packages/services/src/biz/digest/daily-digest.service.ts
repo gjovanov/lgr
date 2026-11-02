@@ -129,7 +129,8 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
 
     if (d.direction === 'outgoing' && SALES_TYPES.includes(d.type)) {
       kpis.salesCount++
-      kpis.salesTotal += total
+      // Negative for a credit note, as in the methods below and in sales history: they have to foot.
+      kpis.salesTotal += sign * total
     } else if (isRegister) {
       if (sign > 0) kpis.cashCount++
       kpis.cashTotal += sign * total

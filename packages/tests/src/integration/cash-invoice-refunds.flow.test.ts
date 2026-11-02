@@ -4552,6 +4552,106 @@ describe('nothing prints: credit notes behave as today', () => {
     expect(w.sim!.executed.filter(c => PRINTING.includes(c.cmd))).toHaveLength(printed)
   })
 
+  describe('what does change there, on purpose: a refund\'s direction, and what reads it (the readers, B1)', () => {
+    beforeEach(() => { resetEventHandlers(); registerEventHandlers() })
+    afterEach(() => { resetEventHandlers() })
+
+    /** An org with the gate off and no device at all: a cash invoice of 24, settled as it was issued. */
+    async function printsNothing(w: TillWorld) {
+      await allowSalesWithoutPrinter(w.oid)
+      const inv = await draftOf(w)
+      expect((await send(w, inv.id)).status).toBe(200)
+      expect(await raw(inv.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+      return inv
+    }
+
+    it('its refusals are today\'s, its rows are today\'s, and the entry goes the right way: money out', async () => {
+      const w = await tillWorld(app, { device: false })
+      const a = await books(w)
+      const inv = await printsNothing(w)
+      const note = await noteOn(w, inv, { quantity: 1 })
+      expect((await send(w, note.id)).status).toBe(200)
+      expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0, paymentMethod: 'cash' })
+
+      // None of what a printing door refuses: no role, no session, no receipt, no cap.
+      const over = await pay(w, note.id, 13)
+      expect(over.status).toBe(422)
+      expect(over.json.code).toBe('overpayment')
+
+      const r = await pay(w, note.id, 12, 'cash', undefined, await w.tokenAs('sales'))
+      expect(r.status).toBe(200)
+      const stored = await raw(note.id)
+      expect(stored).toMatchObject({ status: 'paid', amountPaid: 12, amountDue: 0 })
+      expect(stored.payments).toHaveLength(1)
+      expect(stored.payments[0]).toMatchObject({ method: 'cash', amount: 12 })
+      expect(stored.payments[0].origin).toBeUndefined()
+      expect(await stornosOf(note.id)).toHaveLength(0)
+
+      const entry = await entryOf(note.id)
+      expect(moves(entry)).toEqual([[String(a.receivable._id), 12, 0], [String(a.cash._id), 0, 12]])
+      expect(entry.description).toContain('Payment sent')
+    })
+
+    it('a bank refund the same, and a second note past what was paid is not asked about: that is the person\'s, as it was', async () => {
+      const w = await tillWorld(app, { device: false })
+      const a = await books(w)
+      const inv = await printsNothing(w)
+      for (const quantity of [2, 2]) {
+        const note = await noteOn(w, inv, { quantity, method: 'bank_transfer' })
+        expect((await send(w, note.id)).status).toBe(200)
+        expect((await pay(w, note.id, 24, 'bank_transfer')).status).toBe(200)
+        expect(moves(await entryOf(note.id))).toEqual([[String(a.receivable._id), 24, 0], [String(a.bank._id), 0, 24]])
+      }
+    })
+
+    it('the digest foots: a credit note is negative in `salesTotal`, as in `byMethod` and in sales history', async () => {
+      const w = await tillWorld(app, { device: false })
+      const inv = await printsNothing(w)
+      const note = await noteOn(w, inv, { quantity: 1 })
+      expect((await send(w, note.id)).status).toBe(200)
+      const day = localDayOf(new Date(), 'Europe/Sofia')
+      const noon = new Date(`${day}T10:00:00Z`)
+      await Invoice.updateMany({ orgId: w.oid }, { $set: { issueDate: noon } })
+      await Invoice.updateMany({ orgId: w.oid, 'payments.0': { $exists: true } }, { $set: { 'payments.$[].date': noon } })
+      const methodsFoot = (k: any) => +k.byMethod.reduce((s: number, m: any) => s + m.amount, 0).toFixed(2)
+      const entry = reportById('sales-history')!
+      const around = { preset: 'custom', from: day, to: day }
+      const historyTotal = async () => {
+        const out: any = await entry.handler!({ orgId: w.orgId, params: validateParams(entry, { period: around, includeNonRegister: true, source: 'documents' }), output: 'table' })
+        return out.meta.summary[0].total
+      }
+
+      const issued: any = await buildDailyDigest(w.orgId, day)
+      expect(issued.kpis.salesTotal).toBe(12)
+      expect(methodsFoot(issued.kpis)).toBe(12)
+      expect(await historyTotal()).toBe(12)
+
+      expect((await pay(w, note.id, 12, 'bank_transfer')).status).toBe(200)
+      await Invoice.updateOne({ _id: note.id }, { $set: { 'payments.$[].date': noon } })
+      const refunded: any = await buildDailyDigest(w.orgId, day)
+      expect(refunded.kpis.salesTotal).toBe(12)
+      expect(methodsFoot(refunded.kpis)).toBe(12)
+      expect(await historyTotal()).toBe(12)
+      expect(refunded.kpis.salesCount).toBe(2)
+    })
+
+    it('where LGR prints the digest foots too, with a receipt behind the money and the note refunded on a storno', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      const note = await noteOn(w, inv, { quantity: 1 })
+      expect((await send(w, note.id)).status).toBe(200)
+      const day = localDayOf(new Date(), 'Europe/Sofia')
+      const noon = new Date(`${day}T10:00:00Z`)
+      await Invoice.updateMany({ orgId: w.oid }, { $set: { issueDate: noon } })
+      await Invoice.updateMany({ orgId: w.oid, 'payments.0': { $exists: true } }, { $set: { 'payments.$[].date': noon } })
+
+      const digest: any = await buildDailyDigest(w.orgId, day)
+
+      expect(digest.kpis.salesTotal).toBe(12)
+      expect(+digest.kpis.byMethod.reduce((s: number, m: any) => s + m.amount, 0).toFixed(2)).toBe(12)
+    })
+  })
+
   it('an imported credit note, with the switch on: issued by a person it prints nothing, and its refund is recorded', async () => {
     const w = await tillWorld(app)
     const inv = await paidInvoice(w)
