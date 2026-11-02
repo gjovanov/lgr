@@ -1218,7 +1218,7 @@ export async function releaseOrphanClaimsOfSession(orgId: string, sessionId: str
  * neither does its storno. A crash after the return was created finds it again by the storno's id.
  * A part brings back what its own lines name, and nothing else (`partReturned`).
  */
-async function returnStornoStock(c: RegisterContext, storno: any, original: any): Promise<string | undefined> {
+export async function returnStornoStock(userId: string, storno: any, original: any): Promise<string | undefined> {
   const r = getRepos()
   const existing: any[] = await StockMovement.find({ orgId: storno.orgId, invoiceId: storno._id, type: 'return' }).lean().exec()
   if (existing.length) {
@@ -1247,7 +1247,7 @@ async function returnStornoStock(c: RegisterContext, storno: any, original: any)
       lines,
       totalAmount: round2(lines.reduce((s: number, l: any) => s + l.totalCost, 0)),
       notes: `Storno ${storno.invoiceNumber} of ${original.invoiceNumber}`,
-      createdBy: c.user.id,
+      createdBy: userId,
     })
     await confirmMovement(movement.id, r)
     first ??= movement.id
@@ -1381,7 +1381,7 @@ export async function runStornoSteps(c: RegisterContext, id: string): Promise<an
 
   if (!doc.register?.movementId && !doc.register?.stockError) {
     try {
-      const movementId = await returnStornoStock(c, doc, original)
+      const movementId = await returnStornoStock(c.user.id, doc, original)
       if (movementId) doc = await setRegister(doc._id, { movementId: oid(movementId) })
     } catch (e: any) {
       logger.error({ documentId: id, error: e?.message }, 'Storno stock return failed')

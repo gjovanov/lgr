@@ -47,6 +47,7 @@ import { idKey } from '../replication/pages.js'
 import { fencedExportPath, readFencedExport, type FencedItem } from './fenced-export.service.js'
 import { MoveError } from './move.service.js'
 import { UNPROVED_STORNO_STATES } from '../cash-register/counting.js'
+import { returnStornoStock } from '../cash-register/register.service.js'
 
 type ObjectId = mongo.ObjectId
 type Doc = Record<string, any>
@@ -209,6 +210,21 @@ export async function importPlain(ctx: Ctx, coll: string, doc: Doc): Promise<Out
   return imported()
 }
 
+/**
+ * A storno's goods come back from the sale's dispatch here, whole or in part, as its own request would have brought them
+ * (`returnStornoStock`). ⚠ Not `createInvoiceStockMovement`: it reads an outgoing document as a dispatch, which took
+ * them out a second time, and the books were off by twice the quantity with nothing marking it. A sale that stayed
+ * behind dispatched nothing here, so there is nothing to bring back.
+ */
+async function bringStornoBack(ctx: Ctx, doc: Doc): Promise<void> {
+  const saleId = doc.register?.storno?.originalId ?? doc.relatedInvoiceId
+  const [storno, sale]: any[] = await Promise.all([
+    Invoice.collection.findOne({ _id: doc._id } as any),
+    Invoice.collection.findOne({ _id: saleId, orgId: ctx.org } as any),
+  ])
+  if (storno && sale) await returnStornoStock(ctx.by, storno, sale)
+}
+
 async function bookSale(ctx: Ctx, doc: Doc): Promise<void> {
   const kind = bookingOf(doc)
   if (kind === 'none') return
@@ -217,7 +233,8 @@ async function bookSale(ctx: Ctx, doc: Doc): Promise<void> {
   const entity: any = await r.invoices.findOne({ id, orgId: ctx.orgId } as any)
   // Stock, once: the goods left the shop, so below zero if lgrai.app's count says otherwise.
   if (!(await StockMovement.exists({ orgId: ctx.org, invoiceId: doc._id }).exec())) {
-    await createInvoiceStockMovement(entity, ctx.by, r, { allowNegative: true })
+    if (doc.type === 'cash_storno') await bringStornoBack(ctx, doc)
+    else await createInvoiceStockMovement(entity, ctx.by, r, { allowNegative: true })
   }
   if (kind === 'register') {
     const m: any = await StockMovement.findOne({ orgId: ctx.org, invoiceId: doc._id }, { _id: 1 }).lean().exec()

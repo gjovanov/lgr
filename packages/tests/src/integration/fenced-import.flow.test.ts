@@ -288,6 +288,67 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
     expect(bookingOf(storno('printed'))).toBe('register')
   })
 
+  describe('a printed storno brings its stock back, whole or in part (the reader, finding 1)', () => {
+    /** The storno the site printed of its cash sale of 3, as it stands there: finished, its stock its own. */
+    const printedStorno = (r: any, quantity: number, partial: boolean) => ({
+      _id: oid(), orgId: r.orgId, type: 'cash_storno', direction: 'outgoing', invoiceNumber: `CS-${year}-00020`, status: 'paid', issueDate: r.at, createdAt: r.at, currency: 'EUR', exchangeRate: 1,
+      subtotal: 10 * quantity, taxTotal: 2 * quantity, total: 12 * quantity, amountPaid: 12 * quantity, amountDue: 0,
+      lines: [line(r.ids.newProduct, r.wh._id, quantity)], payments: [{ _id: oid(), date: r.at, method: 'cash', amount: 12 * quantity }],
+      relatedInvoiceId: r.ids.cashSale, completedAt: r.at,
+      register: {
+        origin: 'pos', sessionId: r.ids.session, warehouseId: r.wh._id, unp: 'ED123456-0001-0000010', isFiscal: true, fiscal: { mode: 'fiscal', state: 'printed' }, sessionTotalsApplied: true,
+        storno: { originalId: r.ids.cashSale, reason: 'customer_return', ...(partial ? { partial: true } : {}) },
+      },
+    })
+    /** Imported to the end, with what that storno moved here. */
+    async function imported(quantity: number, partial: boolean) {
+      let id: unknown
+      const w = await world({ more: (r) => {
+        const storno = printedStorno(r, quantity, partial)
+        id = storno._id
+        return { invoices: [storno] }
+      } })
+      await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
+      await runToEnd(w.ex._id)
+      const moved: any[] = await StockMovement.find({ orgId: w.oid, invoiceId: id } as any).lean().exec()
+      return { w, id, moved, stock: await stockOf(w.oid, w.ids.newProduct, w.wh._id) }
+    }
+
+    it('all of the sale: it comes back, as a return, and the shelf reads what it held before the sale', async () => {
+      const { w, id, moved, stock } = await imported(3, false)
+      expect(moved.map(m => [m.type, m.status])).toEqual([['return', 'completed']])
+      expect(String(moved[0].toWarehouseId)).toBe(String(w.wh._id))
+      expect(moved[0].lines.map((l: any) => [String(l.productId), l.quantity])).toEqual([[String(w.ids.newProduct), 3]])
+      expect(stock).toBe(0)
+      const storno: any = await Invoice.collection.findOne({ _id: id } as any)
+      expect(String(storno.register.movementId)).toBe(String(moved[0]._id))
+    })
+
+    it('a part: only its lines come back, and at what the sale\'s dispatch cost here', async () => {
+      const { w, moved, stock } = await imported(1, true)
+      expect(moved.map(m => m.type)).toEqual(['return'])
+      expect(moved[0].lines.map((l: any) => l.quantity)).toEqual([1])
+      expect(stock).toBe(-2)
+      const dispatch: any = await StockMovement.findOne({ orgId: w.oid, invoiceId: w.ids.cashSale, type: 'dispatch' }).lean().exec()
+      expect(moved[0].lines[0].unitCost).toBe(Number(dispatch.lines[0].resolvedUnitCost ?? dispatch.lines[0].unitCost))
+    })
+
+    it('one whose sale stayed behind has nothing to bring back: it moves nothing, and never goes out', async () => {
+      const gone = oid()
+      let id: unknown
+      const w = await world({ more: (r) => {
+        const storno: any = printedStorno(r, 1, true)
+        id = storno._id
+        return { invoices: [{ ...storno, relatedInvoiceId: gone, register: { ...storno.register, storno: { ...storno.register.storno, originalId: gone } } }] }
+      } })
+      await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
+      await runToEnd(w.ex._id)
+      expect(await StockMovement.exists({ orgId: w.oid, invoiceId: id } as any)).toBeNull()
+      expect(await stockOf(w.oid, w.ids.newProduct, w.wh._id)).toBe(-3)
+      expect(((await FencedImportItem.findOne({ exportId: w.ex._id, coll: 'invoices', docKey: String(id) }).lean()) as any).outcome).toBe('imported')
+    })
+  })
+
   it('a storno whose request died on the site arrives held, books nothing, and a person settling it books it here', async () => {
     const w = await world({ deadStorno: { mode: 'fiscal', state: 'pending', attemptedAt: new Date(), counterBefore: 7 } })
     await requestFencedImport(w.orgId, String(w.ex._id), { id: String(w.admin._id) })
