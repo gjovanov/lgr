@@ -16,6 +16,7 @@
  */
 import { Invoice } from 'db/models'
 import { outstandingOf } from 'services/biz/invoice-payment'
+import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { PAYMENT_STORNO } from 'services/biz/cash-register/pos-union'
 import {
   PAYMENT_IN_PROGRESS, citeableElsewhere, citeableOn, doubtRefusal, exceedsReceipts, inDoubtRefusal, noReceiptToStorno, onOtherDevice, paymentStornoDocument,
@@ -24,9 +25,9 @@ import {
 import { drawOn, holdEnough } from 'services/biz/cash-register/refund-budget'
 import { receiptMode, type ReceiptMode } from 'services/biz/cash-register/receipt-mode'
 import {
-  RegisterRefusal, insertRegisterDocument, type RegisterContext, type RegisterUser,
+  RegisterRefusal, insertRegisterDocument, originOf, type RegisterContext, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
-import { PRINTER_GATE_SWITCH, STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, finishInterruptedDocuments, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
+import { PRINTER_GATE_SWITCH, STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, finishDeadSale, finishInterruptedDocuments, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
 import { settleKeyedReceipt } from './counter-receipt.js'
 
 export interface PreparedRefund {
@@ -58,6 +59,19 @@ async function assertBacked(orgId: string, note: any, amount: number, deviceNumb
 }
 
 /**
+ * What a request that died left of the till sale behind this note. Its money stands (D-4), so it is booked
+ * before anything reverses it, printing nothing, as at its own storno door: refunded first, the refund leaves
+ * a drawer that never had it. An imported day has nothing to finish. One that cannot be finished stays what it
+ * was, and `refundBacking` refuses it.
+ */
+async function finishDeadSaleBehind(orgId: string, user: RegisterUser, note: any): Promise<void> {
+  const invoice: any = await Invoice.findOne({ _id: note.relatedInvoiceId, orgId }, { 'cashSaleRef.cashSaleId': 1 }).lean().exec()
+  if (!invoice?.cashSaleRef?.cashSaleId) return
+  const sale: any = await Invoice.findOne({ _id: invoice.cashSaleRef.cashSaleId, orgId, type: 'cash_sale' }).lean().exec()
+  if (saleProgress(sale) === 'dead' && originOf(sale) !== 'import') await finishDeadSale(orgId, user, sale)
+}
+
+/**
  * What printing a storno for `tender` on `note` takes, every check done; null when nothing prints.
  * Throws the refusal, before anything is written, when something should print and cannot.
  */
@@ -84,7 +98,10 @@ export async function prepareRefund(orgId: string, user: RegisterUser & { role?:
 
   // What a request that died left on the invoice comes first: its receipt may have taken that money.
   // It prints nothing, and books nothing it cannot prove.
-  if (note.relatedInvoiceId) await finishInterruptedDocuments(orgId, user, String(note.relatedInvoiceId))
+  if (note.relatedInvoiceId) {
+    await finishInterruptedDocuments(orgId, user, String(note.relatedInvoiceId))
+    await finishDeadSaleBehind(orgId, user, note)
+  }
 
   // Nothing to reverse, whoever asks and wherever: said before anyone is sent to open a session.
   const backing = await refundBacking(orgId, note)

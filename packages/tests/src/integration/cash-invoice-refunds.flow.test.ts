@@ -1,14 +1,15 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test'
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, spyOn } from 'bun:test'
 import { Elysia } from 'elysia'
 import ExcelJS from 'exceljs'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
+import { tillApp, tillWorld, forgetDevices, reconnect, type TillWorld } from '../helpers/till-world'
 import { clerkSale, clerkSession, draftOf, gate, line, pay, raw, receiptsOf, send, sessionOf, shown, TODAY, until } from '../helpers/receipt-world'
 import { allowSalesWithoutPrinter, createTestAccount } from '../helpers/factories'
 import { AuditLog, DocFile, FiscalDevice, Invoice, Journal, JournalEntry, Org, POSSession, Sequence, StockMovement } from 'db/models'
 import { config } from 'config'
 import { isImmutableRegisterDocument } from 'services/biz/cash-register/immutability'
-import { deviceFromCounter, deviceFromDeadReceipt, setFiscalForwarding } from 'fiscal/fiscal-route'
+import { deviceFromCounter, deviceFromDeadReceipt, deviceFromSettledDocument, setFiscalForwarding } from 'fiscal/fiscal-route'
+import { deviceTurn } from 'fiscal/device-turn'
 import { getPrinter, registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { statsController } from 'invoicing-api/src/controllers/stats.controller'
@@ -2748,8 +2749,8 @@ describe('print-once, the receipt\'s own (#155): a storno on a device', () => {
 
 describe('an invoice issued for a till sale (R0): the refund cites the sale\'s own receipt', () => {
   /** A till sale of 48.00 and an invoice for it, issued: that sale took the money. */
-  async function invoicedSale(w: TillWorld, quantity = 4) {
-    const sale = await w.sell(quantity)
+  async function invoicedSale(w: TillWorld, quantity = 4, o: { nonFiscal?: boolean } = {}) {
+    const sale = await w.sell(quantity, o)
     expect(sale.status).toBe(200)
     const saleId = String(sale.json.transaction.id ?? sale.json.transaction._id)
     const contact = await draftOf(w, { method: 'bank_transfer' })
@@ -2831,6 +2832,111 @@ describe('an invoice issued for a till sale (R0): the refund cites the sale\'s o
     expect(printed.header[5]).toBe(offTheSlip)
     expect(leftByRate(await fresh(inv.saleId)).get(20)).toBe(3600)
     expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 12 })
+  })
+
+  describe('a sale nobody finished comes first: nothing of it is booked yet (the third read, finding 5)', () => {
+    /** As its request left it: printed or on a text slip, and its session's totals never applied. */
+    async function stoppedBeforeItsTotals(w: TillWorld, saleId: string, leaseUntil: Date) {
+      const sale = await fresh(saleId)
+      await Invoice.updateOne({ _id: saleId }, { $unset: { completedAt: 1, 'register.sessionTotalsApplied': 1 }, $set: { leaseUntil } })
+      await POSSession.updateOne({ _id: w.sessionId }, { $inc: { totalCash: -sale.total, totalSales: -sale.total, transactionCount: -1 } })
+    }
+    const lapsed = () => new Date(Date.now() - 1000)
+    const stillRunning = () => new Date(Date.now() + 60_000)
+
+    it('a text sale whose request died: it is booked first, and the refund comes out of a drawer that has it', async () => {
+      const w = await tillWorld(app)
+      w.sim!.unfiscalizedUnit = true
+      const inv = await invoicedSale(w, 4, { nonFiscal: true })
+      expect(inv.sale.register.fiscal.mode).toBe('text')
+      const note = await issuedNote(w, inv, { quantity: 1 })
+      await stoppedBeforeItsTotals(w, inv.saleId, lapsed())
+      expect((await sessionOf(w)).totalCash).toBe(0)
+
+      const r = await pay(w, note.id, 12)
+
+      expect(r.status).toBe(200)
+      expect((await fresh(inv.saleId)).completedAt).toBeTruthy()
+      expect(await sessionOf(w)).toMatchObject({ totalCash: 36, totalSales: 48, totalReturns: 12 })
+      expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 12 })
+      // Its stock moved once, by its own request: finishing it does not dispatch it again.
+      expect(await StockMovement.countDocuments({ orgId: w.oid, invoiceId: inv.saleId })).toBe(1)
+    })
+
+    it('a fiscal sale past its print, whose request died: the same, by the number it printed', async () => {
+      const w = await tillWorld(app)
+      const inv = await invoicedSale(w)
+      const note = await issuedNote(w, inv, { quantity: 1 })
+      await stoppedBeforeItsTotals(w, inv.saleId, lapsed())
+
+      const r = await pay(w, note.id, 12)
+
+      expect(r.status).toBe(200)
+      expect(w.sim!.receipts.at(-1)!.header[5]).toBe(inv.sale.register.fiscalReceiptNumber)
+      expect(await sessionOf(w)).toMatchObject({ totalCash: 36, totalSales: 48, totalReturns: 12 })
+    })
+
+    for (const [kind, text] of [['text', true], ['fiscal', false]] as const) {
+      it(`a ${kind} sale still being rung up: told so, with nothing written and nothing finished under it`, async () => {
+        const w = await tillWorld(app)
+        if (text) w.sim!.unfiscalizedUnit = true
+        const inv = await invoicedSale(w, 4, { nonFiscal: text })
+        const note = await issuedNote(w, inv, { quantity: 1 })
+        await stoppedBeforeItsTotals(w, inv.saleId, stillRunning())
+        const before = await footprint(w)
+
+        const r = await pay(w, note.id, 12)
+
+        expect(r.status).toBe(409)
+        expect(r.json.code).toBe('payment_in_progress')
+        expect(await footprint(w)).toEqual(before)
+        expect((await fresh(inv.saleId)).completedAt).toBeUndefined()
+        expect((await sessionOf(w)).totalCash).toBe(0)
+        expect((await shown(w, note.id)).refundable).toBe(0)
+      })
+    }
+
+    it('one whose finish throws holds the refund too: it never gives back what was not booked', async () => {
+      const w = await tillWorld(app)
+      w.sim!.unfiscalizedUnit = true
+      const inv = await invoicedSale(w, 4, { nonFiscal: true })
+      const note = await issuedNote(w, inv, { quantity: 1 })
+      await stoppedBeforeItsTotals(w, inv.saleId, lapsed())
+      const undo = during(update => !!update?.$set?.completedAt, async () => { throw new Error('the pod went away') })
+      let r: any
+      try {
+        r = await pay(w, note.id, 12)
+      } finally {
+        undo()
+      }
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('payment_in_progress')
+      expect(await stornosOf(note.id)).toHaveLength(0)
+      expect((await raw(note.id)).amountPaid).toBe(0)
+
+      // Its lease lapses in time, and the next press finishes it and goes on.
+      await Invoice.updateOne({ _id: inv.saleId }, { $set: { leaseUntil: lapsed() } })
+      expect((await pay(w, note.id, 12)).status).toBe(200)
+      expect(await sessionOf(w)).toMatchObject({ totalCash: 36, totalSales: 48 })
+    })
+
+    it('a fiscal sale that died before its print: booked, its money stands, and a person says before anything cites it', async () => {
+      const w = await tillWorld(app)
+      const inv = await invoicedSale(w)
+      const note = await issuedNote(w, inv, { quantity: 1 })
+      await stoppedBeforeItsTotals(w, inv.saleId, lapsed())
+      await Invoice.updateOne({ _id: inv.saleId }, { $set: { 'register.fiscal.state': 'pending' }, $unset: { 'register.fiscalReceiptNumber': 1 } })
+
+      const r = await pay(w, note.id, 12)
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('sale_receipt_in_doubt')
+      expect((await fresh(inv.saleId)).completedAt).toBeTruthy()
+      expect((await fresh(inv.saleId)).register.fiscal.state).toBe('unknown')
+      expect(await sessionOf(w)).toMatchObject({ totalCash: 48, totalSales: 48 })
+      expect(await stornosOf(note.id)).toHaveLength(0)
+    })
   })
 
   it('settled as not printed: it holds nothing and the refund goes by bank, with the sale\'s money standing', async () => {

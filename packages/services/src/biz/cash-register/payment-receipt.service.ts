@@ -63,7 +63,7 @@ import { printsHere } from '../sale-counting.js'
 import { SETTLED_ON_ISSUE } from '../cash-settlement.service.js'
 import { receiptTookMoney, refundGaveMoney } from './counting.js'
 import { toPosTransaction } from './mapping.js'
-import { saleInDoubt } from './in-doubt.js'
+import { saleInDoubt, saleProgress } from './in-doubt.js'
 import { MONEY_DOCUMENT_TYPES, PAYMENT_RECEIPT, PAYMENT_STORNO } from './pos-union.js'
 import { giveBackBudget, leftByRate, takeBudget, totalOf, wantedBy, type ByRate } from './refund-budget.js'
 import type { RegisterPrinter } from './printer.js'
@@ -774,7 +774,10 @@ export async function refundBacking(orgId: string, note: any): Promise<RefundBac
     const sale: any = await Invoice.findOne({ _id: invoice.cashSaleRef.cashSaleId, orgId: oid(orgId), type: 'cash_sale', status: 'paid' }).lean().exec()
     if (saleInDoubt(sale)) return { ...none, doubt: sale }
     const state = sale?.register?.fiscal?.state
-    if (sale?.register?.isFiscal && state === 'pending') return { ...none, printing: true }
+    // ⚠ Whatever it prints, fiscal or text. Nothing of it is booked yet, so a refund gives back money that never
+    // landed (`stornoRefusal` says the same). One whose request died the door finishes first, so this is one
+    // still running, or whose finish threw.
+    if (saleProgress(sale) || (sale?.register?.isFiscal && state === 'pending')) return { ...none, printing: true }
     const printed = state ? state === 'printed' : hasReceiptNumber(sale)
     return { ...none, cited: sale && printed ? [sale] : [] }
   }
