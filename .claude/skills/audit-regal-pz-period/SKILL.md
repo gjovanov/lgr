@@ -160,11 +160,11 @@ The audit only tells you WHICH days are missing. Their stock effect is already i
 their revenue is not, so such a day is booked with `--no-stock`; a day no true-up has covered yet is booked with stock. The GUI
 route (the `salesAnalysis_*.xlsx` report, skill `import-cash-register-sales`) remains the fallback.
 
-⚠ **The one PlusMinus account slot is shared with the till GUI.** If the GUI holds it the tools exit 3 and touch nothing (they
-never evict). The server has other accounts (each till has its own) and user and role management, so a dedicated read-only user
-for the API would end the contention for good; it has to be created in the PlusMinus GUI. A GUI session left open all day blocks the
-API: with the owner's say-so, and after checking it is idle (no GUI log entry today, no CPU movement), the admin console's
-`disconnectClient` ends that one session (the GUI shows a lost connection and logs in again). Never do that unasked.
+⚠ **The tools sign in as the store's own `lgr-api` account, so the till GUI's session no longer blocks them** (`pull-plusminus-api`,
+"A dedicated account per store"). If something does hold that account they exit 3 and touch nothing (they never evict). A GUI session
+left open all day only matters for a run on the admin account: with the owner's say-so, and after checking it is idle (no GUI log entry
+today, no CPU movement), the admin console's `disconnectClient` ends that one session (the GUI shows a lost connection until someone
+logs in again). Never do that unasked.
 
 ## 6. Reconcile and true up
 

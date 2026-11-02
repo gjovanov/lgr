@@ -114,7 +114,10 @@ session: try {
   }
   const before = await snapshot()
   console.log(`acting user: ${JSON.stringify(acting)}; existing accounts: ${before.users.length}`)
-  const roles: string[] = JSON.parse(await mobile(adminToken, ['roles']))
+  // A server can keep no role table at all: regal-sf answers roles() with an empty body and its role labels exist only on the
+  // accounts, so the roles it knows are the labels its accounts carry.
+  const rolesAnswer = (await mobile(adminToken, ['roles'])).trim()
+  const roles: string[] = rolesAnswer ? JSON.parse(rolesAnswer) : [...new Set<string>(before.data.map(d => d.role).filter(Boolean))]
   if (before.users.includes(name)) {
     console.log(`"${name}" already exists: NOT writing (userDataAdd would replace it). Verifying only.`)
   } else if (!roles.includes(role)) {

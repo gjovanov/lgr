@@ -1099,6 +1099,7 @@ The first POS pull worked as written (`posDocuments`, kind last). What it return
 - `posCashboxClosings(object, workplaceCode, from, to)` (workplace "" works) returns one closing per day: `expectedCard/countedCard` equal the day's card receipts
   plus card `ПЛ` payments to the cent; `expectedCash` is mostly empty. `posCashboxLastClosing(object, workplace)` the last one.
 - Accounts on this server: `users` → the admin account, one per staff member and one per till; `roles` → three. The slot rule is per account name.
+  regal-sf's server differs: `roles()` and `rolesData()` answer with an empty body. It keeps no role table, and the labels exist only on the accounts (`usersData().role`).
 
 ### `userDataAdd`: the eight strings, read from the server's code (2026-11-02, build `20260805:101606`)
 

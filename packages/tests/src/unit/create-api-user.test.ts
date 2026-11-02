@@ -15,6 +15,10 @@ const SCRIPT = join(import.meta.dir, '..', '..', '..', '..', '.claude', 'skills'
 
 type StubOptions = {
   roles?: string[]
+  /** The raw body of roles(), for a server that keeps no role table: regal-sf answers with nothing at all. */
+  rolesBody?: string
+  /** The role labels on the accounts themselves. */
+  accountRoles?: string[]
   adminConnected?: boolean
   build?: string
   companySelect?: string
@@ -47,10 +51,10 @@ function stub(opts: StubOptions = {}) {
           case 'companySelect': return new Response(opts.companySelect ?? 'true')
           case 'currentUser': return new Response('"admin"')
           case 'users': return new Response(JSON.stringify([...users]))
-          case 'usersData': return new Response(JSON.stringify([...users].map(user => ({ user, role: 'seller' }))))
+          case 'usersData': return new Response(JSON.stringify([...users].map((user, i) => ({ user, role: (opts.accountRoles ?? ['seller'])[i % (opts.accountRoles ?? ['seller']).length] }))))
           case 'userData': return new Response('{}')
           case 'userPermissions': return new Response('[]')
-          case 'roles': return new Response(JSON.stringify(opts.roles ?? ['seller']))
+          case 'roles': return new Response(opts.rolesBody ?? JSON.stringify(opts.roles ?? ['seller']))
           case 'userDataAdd': users.add(a); return new Response('true')
           case 'disconnect': return new Response('true')
         }
@@ -111,6 +115,27 @@ describe('create-api-user.ts', () => {
     expect(r.code).toBe(2)
     expect(r.err).toContain('is not one of this server')
     expect(r.err).toContain('seller, manager')
+    expect(count(s.calls, 'mobile:disconnect')).toBe(1)
+    expect(count(s.calls, 'mobile:userDataAdd')).toBe(0)
+  }, 60_000)
+
+  it('a server with no role table takes a label its accounts carry, not an empty answer to parse', async () => {
+    const s = stub({ rolesBody: '', accountRoles: ['manager', 'seller'] })
+    const r = await run(s.url, ['--execute'])
+    s.stop()
+    expect(r.err).not.toContain('SyntaxError')
+    expect(r.code).toBe(0)
+    expect(count(s.calls, 'mobile:userDataAdd')).toBe(1)
+    expect(count(s.calls, 'mobile:disconnect')).toBe(2)
+  }, 60_000)
+
+  it('on a server with no role table an unknown role still exits 2, names the labels in use once each, and disconnects', async () => {
+    const s = stub({ rolesBody: '', accountRoles: ['manager', 'manager'] })
+    const r = await run(s.url, [], 'nope')
+    s.stop()
+    expect(r.code).toBe(2)
+    expect(r.err).toContain('is not one of this server')
+    expect(r.err).toMatch(/roles: managers*$/m)
     expect(count(s.calls, 'mobile:disconnect')).toBe(1)
     expect(count(s.calls, 'mobile:userDataAdd')).toBe(0)
   }, 60_000)

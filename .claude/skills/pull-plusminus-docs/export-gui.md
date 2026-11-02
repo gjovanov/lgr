@@ -189,8 +189,9 @@ then point at `https://127.0.0.1:<port>` — proven live this way (company confi
 `items("ОБЕКТИ:СКЛАД")`; `document()` content-fetch confirmed on a real `-ФЕ`, `СТ` and `СР`
 record). Credentials are the **same admin account as
 regal-pz**, per the user directly — not a guess, not shared by assumption the way the earlier
-same-server hypothesis was (and was wrong). Full detail: `pull-plusminus-api/orgs.ts`'s regal-sf
-entry.
+same-server hypothesis was (and was wrong). Since 2026-11-02 the API tools sign in as the store's own
+`lgr-api` instead (`pull-plusminus-api/SKILL.md`). Full detail: `pull-plusminus-api/orgs.ts`'s
+regal-sf entry.
 
 **The GUI client's own install path is NOT regal-pz's here** (confirmed via
 `where /r C:\ plusminus.exe` on the device, not guessed from the server's own folder — those are
