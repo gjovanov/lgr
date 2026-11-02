@@ -195,7 +195,8 @@ Proven live on 2026-11-02: 137 receipts for 10-27..29 in 2 s, byte-identical to 
 (with `lines`) and `ПЛ` payments against invoices (no lines), so a day's file has more entries than sales. Then book it with
 `scripts/import-cash-register-sales-api.ts --org regal-pz --dir <dir> --no-stock --dry-run` (and without `--dry-run`).
 
-Slot rules are those of every pull: it exits 3 when the GUI holds the account and never evicts. Probe 22:00–06:00 Sofia by default. On
+Slot rules are those of every pull: it exits 3 when something holds the account it signs in as, and never evicts. As `lgr-api` that can
+only be another run of the tools; the 22:00–06:00 Sofia window matters only for a run on the admin account. On
 2026-11-02 the owner said the store PC was free during the day and an idle admin GUI session (open since the morning, no GUI log entry, zero
 CPU) was ended with the admin console's `disconnectClient` by the one-off `tools/evict-then-probe.ts`; that is deliberately NOT a feature of
 this puller. Tools, runbook and the capture: `_docs/regal-pz/_till-capture/tools/README.md`.
