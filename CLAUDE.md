@@ -2751,13 +2751,21 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   stornos nothing holds the note, and on a retry nothing holds it at all, so `refund` asks `refundMoved` before each
   part after the first: what printed stands, and the rest does not print.
 - ⚠ **A storno prints on the device that printed its receipt:** the driver names its own fiscal memory.
-  Refused otherwise (`receipt_on_other_device`). One storno per receipt a refund draws on, keys
-  `<key>#2`, `#3`, so a retry goes on from what printed.
-- Refusals, before anything is written: 409 `no_receipt_to_storno` (says refund by bank), 422
-  `refund_exceeds_receipts` (with `left`), 403 `refund_requires_manager` (H4: `STORNO_ROLES`, this is a
-  storno door), and all of R1's.
+  With two connected in a warehouse the door asks for the receipt's by number (`connectedInWarehouse`); refused
+  otherwise (`receipt_on_other_device`). One storno per receipt a refund draws on, keys `<key>#2`, `#3`, so a
+  retry goes on from what printed, and both doors say how much went back (`refunded`, `stornos`).
+- ⚠ **A refund that prints is capped at what the customer paid** (`refundCap`, 422 `refund_exceeds_paid`): what this
+  invoice took, less what notes on it gave back by any method; for an invoice for a till sale, the invoice's own
+  amount, never the sale's. A guard, not a lock: it reads before the claim, and the budget stays what is atomic. A
+  bank refund takes no cap.
+- ⚠ **A held storno holds its note's cash and card refunds whatever the switch says** (above the gate), and `/void`
+  on a till sale's invoice answers for its notes' stornos (`freezeUnderNotes`).
+- Refusals, before anything is written: 409 `no_receipt_to_storno` (with `reason`, says refund by bank), 422
+  `refund_exceeds_receipts` (with `left`, what goes through if typed: `fittingAmount`), 403
+  `refund_requires_manager` (H4: `STORNO_ROLES`, this is a storno door), and all of R1's.
 - ⚠ **A credit note's payment is money OUT:** `createPaymentJournalEntry` posts Dr receivable / Cr cash
-  on one, for a bank refund too. Before R2 it posted every outgoing document's as money in.
+  on one, for a bank refund too. Before R2 it posted every outgoing document's as money in. This, the digest's and
+  summary's signs and the "Refund" label are the one deliberate change where nothing prints (§2.3).
 - Readers: `NOT_PAYMENT_RECEIPT` names both types, `TILL_DOCUMENT_TYPES` and `MONEY_DOCUMENT_TYPES` carry
   it, `refundGaveMoney` says when a session counts it negative. 18.2, 18.4 and 18.5 list it. SUPTO version 3.
 - A Files rollback skips one (`isImmutableRegisterDocument`), and asks `freezeRefusal` of every document it would
