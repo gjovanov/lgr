@@ -348,6 +348,52 @@ describe('what a leftover on the device says about this document (finding 1)', (
     expect(closedOnDevice(w)).toHaveLength(0)
   })
 
+  it('a leftover the clear could not close, finished by this document\'s abandon: that says nothing about this one, and its money is not booked', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    // An earlier sale's receipt, paid, left open. 3Ch is refused, and the fallback's close twice over: a
+    // paper roll changed in that instant. The clear ignores what it said, and the 90h is refused.
+    w.sim!.receipt = { kind: 'fiscal', header: [], sales: [], texts: [], payments: [{ mode: 'P', amount: 12 }], total: 12, paid: 12 }
+    let closes = 0
+    w.sim!.beforeCommand = (cmd) => { w.sim!.paper = !(cmd === CLOSE && ++closes <= 2) }
+
+    const r = await pay(w, d.id, 24)
+
+    expect(closes).toBe(3)
+    expect(r.status).toBe(503)
+    expect(r.json.code).toBe('fiscal_error')
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0, amountDue: 24 })
+    expect((await sessionOf(w)).totalCash).toBe(0)
+    const [receipt] = await receiptsOf(d.id)
+    expect(receipt.register.fiscal.state).toBe('failed')
+    expect(receipt.status).toBe('voided')
+    // The device holds only the earlier sale's, and nothing of this payment.
+    expect(closedOnDevice(w).map(x => x.total)).toEqual([12])
+
+    w.sim!.beforeCommand = null
+    expect((await pay(w, d.id, 24)).status).toBe(200)
+    expect(closedOnDevice(w).map(x => x.total)).toEqual([12, 24])
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
+  it('a 90h whose answer was lost: the receipt it opened holds nothing, it is voided, and that is failed', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    w.sim!.beforeCommand = (cmd) => { if (cmd === 0x90) w.sim!.loseNextAnswers = 3 }
+
+    const r = await pay(w, d.id, 24)
+
+    expect(r.status).toBe(503)
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect((await receiptsOf(d.id))[0].register.fiscal.state).toBe('failed')
+    expect(w.sim!.receipt).toBeNull()
+    expect(w.sim!.receipts.map(x => x.voided)).toEqual([true])
+
+    w.sim!.beforeCommand = null
+    expect((await pay(w, d.id, 24)).status).toBe(200)
+    expect(closedOnDevice(w).map(x => x.total)).toEqual([24])
+  })
+
   it('a device that cannot be cleared answers as one that cannot open: nothing reached it for this document', async () => {
     const w = await tillWorld(app)
     const d = await onBank(w)

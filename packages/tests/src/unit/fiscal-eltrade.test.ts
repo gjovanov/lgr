@@ -439,6 +439,48 @@ describe('EltradeFiscalPrinter — fiscal receipt', () => {
       expect(sim.receipt).not.toBeNull()
     })
 
+    it('neither, of what it never opened: a 90h refused over a leftover, which it clears and says nothing about', async () => {
+      const sim = new EltradeSimulator()
+      const p = printerFor(sim)
+      sim.receipt = { kind: 'fiscal', header: [], sales: [], texts: [], payments: [{ mode: 'P', amount: 5 }], total: 5, paid: 5 }
+      let closes = 0
+      sim.beforeCommand = (cmd) => { sim.paper = !(cmd === 0x38 && ++closes <= 1) }
+
+      await captureRejection(p.openFiscalReceipt('0001', 'Op', UNP))
+
+      expect(sim.receipt).not.toBeNull()
+      expect(await p.cancelFiscalReceipt()).toBeUndefined()
+      expect(sim.receipt).toBeNull()
+      expect(sim.receipts.at(-1)!.voided).toBeFalsy()
+    })
+
+    it('neither, of a 90h whose answer was lost: `receipt` is null, and the empty receipt it opened is voided', async () => {
+      const sim = new EltradeSimulator()
+      const p = printerFor(sim)
+      sim.beforeCommand = (cmd) => { if (cmd === 0x90) sim.loseNextAnswers = 3 }
+
+      await captureRejection(p.openFiscalReceipt('0001', 'Op', UNP))
+
+      sim.beforeCommand = null
+      expect(sim.receipt).not.toBeNull()
+      expect(await p.cancelFiscalReceipt()).toBeUndefined()
+      expect(sim.receipt).toBeNull()
+      expect(sim.receipts.at(-1)!.voided).toBe(true)
+    })
+
+    it('neither, of what an earlier turn left on the driver: a new document\'s open forgets it, even when it gets no further', async () => {
+      const sim = new EltradeSimulator()
+      const p = printerFor(sim)
+      await p.openFiscalReceipt('0001', 'Op', UNP)
+      await p.printSaleLine('A', 1, 5, 'Б', undefined, 20)
+      sim.disconnected = true
+      await captureRejection(p.openFiscalReceipt('0001', 'Op', 'ED123456-0001-0000002'))
+      sim.disconnected = false
+
+      expect(await p.cancelFiscalReceipt()).toBeUndefined()
+      expect(sim.receipt).toBeNull()
+    })
+
     it('a storno leaves it to its caller, who has to hear what cancelling did', async () => {
       const sim = new EltradeSimulator()
       const p = printerFor(sim)

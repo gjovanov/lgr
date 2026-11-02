@@ -467,6 +467,10 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
    * The fiscal receipt this driver is printing: set before its 90h is sent, cleared once it is
    * closed or voided. With `textReceipt`, the only thing that tells a sale still printing from a
    * receipt an interrupted sale left behind (`report()`).
+   *
+   * ⚠ It only ever speaks for this turn on the device, and only for a 90h the device took. A 90h it refused
+   * or whose answer was lost leaves it null, and a new document's open forgets whatever an earlier one left
+   * (`openReceipt`). Read as more than that, an earlier document's receipt reads as this one's.
    */
   private receipt: ReceiptState | null = null
   /** A service (non-fiscal) receipt this driver is printing: set before its 26h is sent. */
@@ -804,13 +808,21 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
    * nothing and the status reads not open, so "voided" read off the cancel alone would book a real
    * receipt as failed and print it again. Nothing open: there is nothing to cancel, and it says nothing.
    * A flag it cannot read is no sight of a receipt: it cancels as it always did, and never says voided.
+   *
+   * ⚠ And it says nothing about a receipt this document never opened, though it clears it all the same. A
+   * leftover the clear could not close refuses this document's 90h, and read here as this document's, its
+   * fallback finishing the leftover booked a payment the device never saw. A 90h whose answer was lost leaves
+   * `receipt` null too, and rightly: what it opened has no lines and no money, so it is voided here, and the
+   * verdict before the money is `failed`, which is what happened.
    */
   async cancelFiscalReceipt(): Promise<AbandonOutcome | undefined> {
+    const mine = this.receipt
     this.receipt = null
     return this.serialize(async () => {
       const open = await this.primedTransact(ELTRADE_CMD.GET_STATUS, 'X', { check: false }).then(r => r.status.fiscalReceiptOpen, () => undefined)
       if (open === false) return undefined
       const outcome = await this.voidFiscalReceipt()
+      if (!mine) return undefined
       return outcome === 'voided' && !open ? undefined : outcome
     })
   }
@@ -874,6 +886,7 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
   // ── Fiscal receipt ──
 
   async openFiscalReceipt(operatorCode: string, operatorName: string, unpNumber: string): Promise<void> {
+    this.receipt = null
     this.assertUnp(unpNumber)
     await this.ensureNoOpenReceipt()
     const hint = await this.unpHint(unpNumber)
@@ -1013,6 +1026,7 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     lines: { name: string; quantity: number; price: number; vatGroup: VatGroup; taxRate?: number }[],
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
+    this.receipt = null
     return stagedPrint(async (reached) => {
       reached('refused')
       // A reversal carries the ORIGINAL sale's УНП — it is an operation on that sale.
