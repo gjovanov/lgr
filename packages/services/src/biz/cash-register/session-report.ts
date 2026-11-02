@@ -124,7 +124,7 @@ export function buildSessionReport(
   }
 }
 
-const LABELS: Record<string, Record<string, string>> = {
+export const SESSION_REPORT_LABELS: Record<string, Record<string, string>> = {
   en: {
     title: 'SESSION REPORT', opened: 'Opened', closed: 'Closed', sales: 'Sales', payments: 'Invoice payments', stornos: 'Stornos', voided: 'Voided',
     fiscal: 'Fiscal receipts', text: 'Text receipts', unprinted: 'Not printed', vat: 'VAT', net: 'Net', gross: 'Gross',
@@ -160,7 +160,7 @@ const LABELS: Record<string, Record<string, string>> = {
  * (`formatNonFiscalLines`), in the org's language, times on `timeZone`'s clock.
  */
 export function formatSessionReport(report: SessionReport, locale = 'en', timeZone = 'Europe/Sofia'): string[] {
-  const l = LABELS[locale] || LABELS.en
+  const l = SESSION_REPORT_LABELS[locale] || SESSION_REPORT_LABELS.en
   const W = 28
   const sep = '-'.repeat(W)
   const money = (n: number) => n.toFixed(2)
@@ -170,9 +170,13 @@ export function formatSessionReport(report: SessionReport, locale = 'en', timeZo
     return head + ' '.repeat(Math.max(1, W - head.length - right.length)) + right
   }
   const center = (s: string) => ' '.repeat(Math.max(0, Math.floor((W - s.length) / 2))) + s
-  const when = (at?: string) => (at
-    ? new Date(at).toLocaleString(`${locale}-${locale.toUpperCase()}`, { timeZone, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-    : '')
+  // One short shape in every language: `02.11.2026 г., 13:20` left a label 7 characters, „Затворе".
+  const when = (at?: string) => {
+    if (!at) return ''
+    const parts = new Intl.DateTimeFormat('en-GB', { timeZone, day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(at))
+    const part = (type: string) => parts.find((p) => p.type === type)?.value
+    return `${part('day')}.${part('month')}.${part('year')} ${part('hour')}:${part('minute')}`
+  }
 
   const lines = [center(l.title), sep, report.sessionNumber]
   if (report.openedAt) lines.push(lr(l.opened, when(report.openedAt)))

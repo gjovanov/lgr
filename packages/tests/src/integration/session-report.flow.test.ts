@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import type { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices } from '../helpers/till-world'
-import { buildSessionReport, formatSessionReport } from 'services/biz/cash-register/session-report'
+import { SESSION_REPORT_LABELS, buildSessionReport, formatSessionReport } from 'services/biz/cash-register/session-report'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter } from 'fiscal/fiscal-device.service'
 import { FiscalDevice, POSSession } from 'db/models'
@@ -60,6 +60,43 @@ describe('the session report: its figures', () => {
     expect(lines.some((s) => s.startsWith('Продажби') && s.endsWith('2'))).toBe(true)
     expect(lines.some((s) => s.startsWith('Разлика') && s.endsWith('-4.00'))).toBe(true)
     expect(lines.some((s) => s.startsWith('Z-отчет №') && s.endsWith('0042'))).toBe(true)
+  })
+
+  // Everything that can print, at the largest figures a day of a shop reaches.
+  const everything = () => {
+    const big = (over: Record<string, unknown>) => ({
+      status: 'completed', total: 123456.78, lines: [line(20, 102880.65)], payments: [{ method: 'cash', amount: 123456.78 }], ...over,
+    })
+    return buildSessionReport({ ...session, closedAt: '2026-11-02T11:20:00Z' }, [
+      big({ type: 'sale', transactionNumber: 'CS-2026-00001', changeDue: 12.5, isFiscal: true, fiscal: { state: 'printed', mode: 'fiscal' }, fiscalReceiptNumber: '0000101' }),
+      big({ type: 'sale', transactionNumber: 'CS-2026-00002', fiscal: { state: 'printed', mode: 'text' }, payments: [{ method: 'card', amount: 123456.78 }] }),
+      big({ type: 'sale', transactionNumber: 'CS-2026-00003', fiscal: { state: 'failed' }, payments: [{ method: 'voucher', amount: 123456.78 }] }),
+      big({ type: 'sale', transactionNumber: 'CS-2026-00004', fiscal: { state: 'printed', mode: 'text' }, payments: [{ method: 'cash_on_delivery', amount: 123456.78 }] }),
+      big({ type: 'payment_receipt', transactionNumber: 'PR-2026-00001', isFiscal: true, fiscal: { state: 'printed', mode: 'fiscal' }, fiscalReceiptNumber: '0000102' }),
+      big({ type: 'storno', transactionNumber: 'CS-2026-00005', isFiscal: true, fiscal: { state: 'printed', mode: 'fiscal' }, fiscalReceiptNumber: '0000103' }),
+      big({ type: 'storno', status: 'cancelled', transactionNumber: 'CS-2026-00006', fiscal: { state: 'failed' } }),
+    ], { closing: [{ method: 'cash', expected: 123456.78, counted: 123456.78, difference: -123.45 }], zReportNumber: '0042' })
+  }
+
+  for (const locale of ['en', 'bg', 'de', 'mk']) {
+    it(`in ${locale}, every label prints whole, beside the longest figure it stands next to`, () => {
+      const lines = formatSessionReport(everything(), locale)
+      const l = SESSION_REPORT_LABELS[locale]
+
+      expect(lines.filter((s) => s.length > 28)).toEqual([])
+      for (const key of ['opened', 'closed', 'sales', 'payments', 'stornos', 'voided', 'fiscal', 'text', 'unprinted', 'vat', 'net', 'gross', 'cash', 'card', 'other', 'cod', 'change', 'opening', 'expected', 'counted', 'difference', 'documents', 'receipts', 'z']) {
+        expect({ key, label: l[key], whole: lines.some((s) => s.trimStart().startsWith(`${l[key]} `) || s.trim() === l[key]) }).toEqual({ key, label: l[key], whole: true })
+      }
+    })
+  }
+
+  it('prints the date short, on the org\'s clock, the same in every language', () => {
+    for (const locale of ['en', 'bg', 'de', 'mk']) {
+      const lines = formatSessionReport(everything(), locale, 'Europe/Sofia')
+      expect(lines.find((s) => s.startsWith(SESSION_REPORT_LABELS[locale].closed))?.endsWith(' 02.11.26 13:20')).toBe(true)
+      expect(lines.find((s) => s.startsWith(SESSION_REPORT_LABELS[locale].opened))?.endsWith(' 31.10.26 08:00')).toBe(true)
+    }
+    expect(formatSessionReport(everything(), 'bg', 'UTC').some((s) => s.endsWith(' 02.11.26 11:20'))).toBe(true)
   })
 })
 
