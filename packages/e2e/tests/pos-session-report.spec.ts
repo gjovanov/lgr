@@ -44,6 +44,25 @@ test('a close that met a sale printing says to wait, and the session stays open 
   await expect(dialog.getByRole('button', { name: 'Retry' })).toBeVisible()
 })
 
+test('a close whose answer never came says nobody knows, never that the session is still open, and offers the same close again', async ({ page }) => {
+  // The connection goes while the Z runs. Elysia cuts a request at 30 s, and a Z can take minutes.
+  await page.route(`**/trade/pos/session/${sale.sessionId}/close`, route => route.abort('connectionreset'))
+  await loginForApp(page, 'acme-corp', 'sales', 'test123')
+  await page.goto('/invoicing/cash-sales/new')
+  await page.getByRole('button', { name: 'Close Session' }).click()
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Close the register' })
+  const confirm = dialog.getByRole('button', { name: 'Close', exact: true })
+  await expect(confirm).toBeEnabled({ timeout: 15000 })
+  await confirm.click()
+
+  await expect(dialog).toContainText('may still be running')
+  await expect(dialog).toContainText('Do not sell')
+  await expect(dialog).toContainText('never prints a second Z-report')
+  await expect(dialog).not.toContainText('still open')
+  await expect(dialog).not.toContainText('could NOT be closed')
+  await expect(dialog.getByRole('button', { name: 'Retry' })).toBeVisible()
+})
+
 test('the close dialog shows the session report the close keeps', async ({ page }) => {
   await loginForApp(page, 'acme-corp', 'sales', 'test123')
   await page.goto('/invoicing/cash-sales/new')
@@ -103,7 +122,9 @@ test('a close that died in its Z: POS Sessions is the way back, its figures read
   await page.route(`**/trade/pos/session/${sale.sessionId}/close-preview`, route => route.fulfill({
     json: {
       expected: { cash: 112, card: 0, other: 0 }, currency: 'EUR', report: null, openSessionsOnWarehouse: 0,
-      unfinishedReceipts: [], deadSales: [{ id: 'dead-sale-id', number: 'CS-DEAD-0001' }, { id: 'no-number-yet', number: null }], fiscalDevice: null,
+      unfinishedReceipts: [], deadSales: [{ id: 'dead-sale-id', number: 'CS-DEAD-0001', settles: true }, { id: 'no-number-yet', number: null, settles: true }, { id: 'text-sale-id', number: 'CS-DEAD-0003', settles: false }],
+      deadDocuments: [{ id: 'dead-receipt-id', number: 'CS-DEAD-0002', kind: 'payment' }, { id: 'unnumbered-receipt-id', number: null, invoice: 'INV-0001', kind: 'payment' }],
+      fiscalDevice: null,
     },
   }))
   await page.route(`**/trade/pos/session/${sale.sessionId}/close`, route => route.fulfill({
@@ -119,6 +140,11 @@ test('a close that died in its Z: POS Sessions is the way back, its figures read
   const dialog = page.getByRole('dialog').filter({ hasText: 'Close the register' })
   // Read as it opens, though this view mounts it already open: what the close books, and whose it is.
   await expect(dialog.getByTestId('close-dead-sales')).toContainText('CS-DEAD-0001, no-number-yet')
+  await expect(dialog.getByTestId('close-dead-sales')).toContainText('settle each one')
+  await expect(dialog.getByTestId('close-dead-sales')).not.toContainText('CS-DEAD-0003')
+  await expect(dialog.getByTestId('close-dead-sales-booked')).toContainText('CS-DEAD-0003')
+  await expect(dialog.getByTestId('close-dead-sales-booked')).not.toContainText('settle')
+  await expect(dialog.getByTestId('close-dead-documents')).toContainText('CS-DEAD-0002, INV-0001')
   await expect(dialog).toContainText('112.00')
 
   await dialog.getByRole('button', { name: 'Close', exact: true }).click()

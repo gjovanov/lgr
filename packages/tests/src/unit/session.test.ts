@@ -227,8 +227,8 @@ describe('signing out', () => {
 
 describe('what a token says', () => {
   it('reads a Cyrillic name from a base64url payload', () => {
-    const token = jwt({ id: 'u1', firstName: 'Радка', lastName: 'Додова' })
-    expect(decodeClaims(token)?.firstName).toBe('Радка')
+    const token = jwt({ id: 'u1', firstName: 'Мария', lastName: 'Иванова' })
+    expect(decodeClaims(token)?.firstName).toBe('Мария')
   })
 
   it('answers null for anything that is not a JWT', () => {

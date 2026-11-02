@@ -2604,7 +2604,7 @@ invoice still due until the courier pays).
 - **The settle door** (`settle.service.ts`, `POST /cash-register/documents/:id/settle`, `STORNO_ROLES`) takes a
   receipt, a storno and a sale, by the table `FINISHES`; R2's `payment_storno` is one more row. A sale's
   "printed" needs `receiptNumber` off the slip, because its storno cites it and the drivers refuse one with
-  no digits. A sale's money stands either way. ⚠ **A person's word is taken only for what only a person can
+  no digits. An `unknown` sale is claimed only with its lease free (`sale_in_progress`). A sale's money stands either way. ⚠ **A person's word is taken only for what only a person can
   know.** For a fiscal document both answers get past the device it printed on, by `fiscalDeviceNumber`
   (`settleDevice`), never `documentContext` or `getFiscalContext`. Here: asked in its turn, and refused while a
   receipt is open on it (409 `receipt_open_on_device`, an X report clears it), because the next document voids it,
@@ -2613,7 +2613,8 @@ invoice still due until the courier pays).
   `isActive: false`: the word stands, and that is the way out, by deactivating it on its page. A typed number is
   read against the device's last (`receipt_number_off_device`, ⚠ no lower bound: nobody has held a slip against
   71h), checked taken by device for 31 days either side, and corrected at this door until a storno or an invoice
-  cites it (`receipt_number_cited`).
+  cites it (`receipt_number_cited`). ⚠ The first two are questions for the same reason: `confirmNumber`, audited as
+  `confirmedOver`, goes through. Digits and a citation never do.
 - **`printed` keeps the error** (`receiptError`): a driver that finishes a part-paid receipt tenders the rest
   in cash, so the device's payment types may differ from the document's.
 - ⚠ **A request that died** (`finishInterruptedReceipt`, `finishInterruptedStorno`, which NEVER print). A lease lapsed is not a
@@ -2631,10 +2632,17 @@ invoice still due until the courier pays).
 - **A session cannot close over an unfinished receipt or storno.** The close finishes what it can prove,
   refuses the rest with 409 `receipts_unfinished` naming them, re-checks once it holds the claim (each checks
   the session in its turn, so one of them sees the other), and takes `expected` from the claimed session. It
-  applies to `closeWithoutFiscal` too. `applySessionTotals` never increments a closed session. ⚠ A close that
+  applies to `closeWithoutFiscal` too. `applySessionTotals` never increments a closed session. ⚠ The preview adds what
+  the close will book by the function the steps book with (`bookedOnItsSession`), and `interruptedDocuments` is the
+  close's own query. ⚠ A close that
   dies in its Z has a lease (`closeLeaseUntil`, `TURN_WAIT_MS + REPORT_MAX_MS`): lapsed, the next close puts it back
   to `open` and answers 409 `close_interrupted`, because the Z may have printed and only the device can say. Its
   writes from the claim on are conditional on what it holds.
+- ⚠ **A session takes nothing new unless it is `open`** (409 `session_closing` at the door, a keyed retry above that).
+  ⚠ The door's read holds nothing: a document looks at its session once it is WRITTEN, and the close looks at the
+  session's documents once it has CLAIMED it, so one of the two sees the other. A sale gives way by being removed, ⚠
+  never voided: `posRowSign` counts any sale, because a storno alone flips one to `cancelled`. The close reads
+  `expected` after its second look, not from the claim. A dead sale is finished whatever the session says.
 - **`setRegister` and `recordPayment` refuse a voided receipt**, so a live print coming back to a receipt
   given up writes nothing and books nothing.
 - ⚠ **`payment.recorded` never writes the `payments` array back.** The array it read is stale by then:
@@ -2660,8 +2668,9 @@ invoice still due until the courier pays).
   compares the document with `issue.tender`: moved, nothing prints (`receiptCode: 'issue_tender_moved'`). `/send`
   discards the transfers it was asked for on every refusal that means it will not issue, ⚠ never on
   `issue_in_progress`, whose holder may confirm those same ids.
-- **Whether a COD invoice owes a receipt is a fact of its issue** (`deliveryReceiptOwed`, in the issue's own
-  write, never by a client), because an issue can leave no receipt document at all.
+- **Whether a COD invoice owes a receipt is a fact** (`deliveryReceiptOwed`, in the issue's own write, or by an edit
+  moving an issued invoice with no live receipt onto COD, never on a note, never by a client), because an issue can
+  leave no receipt document at all. `/receipt` waits for an issue under way.
 - **What it prints** (`receipt-lines.ts`, pure): a whole payment at issue, the document's lines and
   `printFiscalText` „Фактура № …"; anything else, one line per VAT rate, „Плащане по фактура № …", pro
   rata of what is left of each rate, so the last takes the remainder and the receipts add up exactly.
@@ -2963,7 +2972,7 @@ its database is on the same disk as everything else.
 
 An operator signs in at a till with **operator code + PIN** (6–12 digits, `pinRuleViolation`
 refuses runs and repeats). Routes are under `/api/auth/local`, and **every one answers 404 off a
-master** (`portal-api/src/controllers/local-auth.controller.ts`).
+master**, but the `/methods` probe, which says no (`portal-api/src/controllers/local-auth.controller.ts`).
 - **Where.** Only a paired desktop on the LAN ingress (`x-lgr-source: lan` plus its token: the
   desktop's org is the org signed in to), or the console. ⚠ Never the tunnel. `frontSource` is the
   supervisor's stamp, and a master with no front offers no PIN at all.

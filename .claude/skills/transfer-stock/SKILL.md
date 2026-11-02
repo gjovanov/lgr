@@ -61,7 +61,7 @@ class caused sklrazp 12690's `САМОПР 4.8Х19/6.3Х100` OUT lines to be sil
 leaving the persistent −5000/−3000 "LGR higher" drift until re-booked.
 
 ```bash
-export LGR_USERNAME=rdodova LGR_PASSWORD=…   # or LGR_TOKEN
+export LGR_USERNAME=<your-account> LGR_PASSWORD=…   # or LGR_TOKEN
 bun run scripts/transfer-stock.ts --items <transfers.json>              # dry-run
 bun run scripts/transfer-stock.ts --items <transfers.json> --execute
 ```

@@ -228,6 +228,7 @@ import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
 import RegisterTerminal from 'ui-shared/components/cash-register/RegisterTerminal.vue'
 import { fetchPriceOptions, priceOptionLabel, type PriceOption } from 'ui-shared/composables/usePriceOptions'
 import CloseSessionDialog from '../components/CloseSessionDialog.vue'
+import { receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 
 /** `priceName`: the named price chosen for the line (#145), shown beside it; unset = selling price. */
 interface CartItem { productId: string; name: string; quantity: number; unitPrice: number; taxRate: number; priceName?: string }
@@ -652,7 +653,7 @@ async function completeSale() {
       showError(t(refused.deviceConfigured ? 'pos.printerRequired.notConnected' : 'pos.printerRequired.notConfigured'))
       refreshConnectedElsewhere()
     }
-    else showError(e?.outcomeUnknown ? t('pos.saleOutcomeUnknown') : (refused?.message || t('common.operationFailed')))
+    else showError(e?.outcomeUnknown ? t('pos.saleOutcomeUnknown') : receiptRefusalMessage(t, e, t('common.operationFailed')))
   }
   finally {
     loading.value = false

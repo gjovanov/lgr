@@ -26,7 +26,7 @@ import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement } from 'services/biz/cash-settlement.service'
 import { fitsDue, heldOn, isBeingVoided, issueLeaseFree, notBeingVoided, outstandingOf, paymentPipeline, unclaimedDraft } from 'services/biz/invoice-payment'
 import {
-  DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, freezeUnderNotes, inDoubtRefusal, isImportedDocument, owesDeliveryReceipt,
+  DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, freezeUnderNotes, inDoubtRefusal, isImportedDocument, owedByMovingToDelivery, owesDeliveryReceipt,
   paymentRefusal, printsOnPayment, receiptFacts, receiptInDoubt,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { movesPrintedMoney } from 'services/biz/cash-register/receipt-lines'
@@ -1196,6 +1196,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       delete (body as any).status
       delete (body as any).draftNumber
       delete (body as any).numberHistory
+      if ((body as any).paymentMethod === 'cash_on_delivery' && await owedByMovingToDelivery(orgId, existing)) {
+        ;(body as any).deliveryReceiptOwed = true
+      }
 
       let updated: any
       if (Array.isArray(productUpdates) && productUpdates.length > 0) {
@@ -1419,6 +1422,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         const doc: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
         if (tenderMoved(doc, doc.issue?.tender ?? prepared.tender)) {
           return { invoice: await r.invoices.findOne({ id, orgId } as any), ...nothingPrinted(doc) }
+        }
+        // ⚠ And a lapsed lease let the page's press through: what `prepared` read of the receipts is from before
+        // the claim, and a second delivery receipt books the sale on the device twice.
+        if (prepared.tender.method === 'cash_on_delivery' && !(await owesDeliveryReceipt(orgId, doc))) {
+          return { invoice: await r.invoices.findOne({ id, orgId } as any) }
         }
         const keyed = key ? { key, hash: hash! } : undefined
         // R2: a credit note gives back what the issue decided, on as many stornos as it draws on.
@@ -1917,6 +1925,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // What a request that died left comes first: its receipt may have printed.
       await finishInterruptedDocuments(orgId, user, id)
       const doc: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
+      // ⚠ Right after the issue's write this owes a receipt, and the issue is about to print it. A delivery
+      // receipt pays nothing and lets go of its hold, so nothing the issue reads next would tell.
+      if (doc?.issue?.leaseUntil && new Date(doc.issue.leaseUntil).getTime() >= Date.now()) return status(409, ISSUE_IN_PROGRESS)
       const prepared = (await owesDeliveryReceipt(orgId, doc)) ? await prepareIssueReceipt(orgId, user, doc) : null
       if (!prepared) {
         const doubt = await receiptInDoubt(orgId, id)

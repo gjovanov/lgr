@@ -45,6 +45,7 @@ import { exchangeRateFor, fromPosTransaction } from './mapping.js'
 import { unitsOf } from './copy.js'
 import type { RegisterPrinter } from './printer.js'
 import { saleInDoubt, saleProgress } from './in-doubt.js'
+import { UNPROVED_STORNO_STATES } from './counting.js'
 import { provedNotPrinted, verdictOfFailedPrint } from './print-verdict.js'
 import { PENDING_NUMBER, isPendingNumber } from './pending-number.js'
 
@@ -357,6 +358,25 @@ export async function readDevice(printer: RegisterPrinter): Promise<{ now?: numb
   return { now, open }
 }
 
+/**
+ * What anything new hears while a session is not `open`. ⚠ A sale let in during a close's Z printed after
+ * it: on the next day's Z, with its money in no drawer, while the closed session's report and entry counted it.
+ */
+export const SESSION_CLOSING = {
+  code: 'session_closing',
+  message: 'This session is being closed, so it takes nothing new: nothing was rung up, reversed or printed. Wait for the close to finish, then open a new session.',
+} as const
+
+/** Whether the session a document joined still takes it. One with no session joined nothing. */
+const sessionIsOpen = async (doc: any): Promise<boolean> =>
+  !doc.register?.sessionId || !!(await POSSession.exists({ _id: doc.register.sessionId, status: 'open' }).exec())
+
+/** Nothing of it has happened: not a print, nor the drawer, nor the stock. */
+function notStarted(doc: any): boolean {
+  const reg = doc.register
+  return (reg?.fiscal?.state === 'pending' || reg?.fiscal?.state === 'none') && !reg.fiscal.attemptedAt && !reg.sessionTotalsApplied
+}
+
 /** What a receipt in doubt says: nothing was booked, and who does what next. */
 const IN_DOUBT = 'The receipt was interrupted and nothing can prove whether it printed, so nothing was booked. Check the device, then settle it in the cash-register journal.'
 
@@ -539,9 +559,10 @@ export async function applySessionTotals(doc: any, sessionId: string, inc: Recor
 /**
  * H1 + #145: a storno's increments. The refund leaves the drawer by the method it is paid out in, so the
  * close screen expects what is actually left: the same buckets as a sale, reversed. Its `payments` are
- * the refund: the operator's, or what the sale kept (cash tendered minus its change).
+ * the refund: the operator's, or what the sale kept (cash tendered minus its change). ⚠ What it returned is its
+ * own total, never the document's it cites: a refund's part is less than that, and a preview has no such document.
  */
-export function stornoIncrements(doc: any): Record<string, number> {
+function stornoIncrements(doc: any): Record<string, number> {
   const refund = stornoRefundBuckets(doc.payments, {})
   const inc: Record<string, number> = { totalReturns: Number(doc.total) || 0, transactionCount: 1 }
   if (refund.cash) inc.totalCash = -refund.cash
@@ -565,6 +586,26 @@ export function saleIncrements(doc: any): Record<string, number> {
   if (t.other) inc.totalOther = t.other
   if (t.cashOnDelivery) inc.totalCashOnDelivery = t.cashOnDelivery
   return inc
+}
+
+/**
+ * What a document books on its session, as it stands now, or null when it books nothing. ⚠ One function, read
+ * by the steps that book it and by the close's preview, which writes nothing and has to say what the close
+ * will do: its count is prefilled from that, and read as anything else the drawer closed short or over.
+ *  - **A sale:** always. Its money stands (D-4).
+ *  - **A receipt:** once it printed or may have, in its own turn. Still `pending` it books nothing whoever
+ *    finishes it: that gives it up or holds it. `failed` is given up, and one in doubt is a person's.
+ *  - **A storno, of a sale or of a receipt (R2):** once it printed, or had nothing to print. `unknown` is held,
+ *    and `failed` is voided. ⚠ A type this does not name books nothing, silently: a new money document learns it here.
+ */
+export function bookedOnItsSession(doc: any): Record<string, number> | null {
+  const reg = doc.register
+  if (reg?.sessionTotalsApplied || doc.status === 'voided' || reg?.fiscal?.inDoubt) return null
+  const state = reg?.fiscal?.state
+  if (doc.type === 'cash_sale') return saleIncrements(doc)
+  if (doc.type === 'payment_receipt') return state === 'pending' || state === 'failed' ? null : saleIncrements(doc)
+  if (doc.type === 'cash_storno' || doc.type === 'payment_storno') return UNPROVED_STORNO_STATES.includes(String(state)) ? null : stornoIncrements(doc)
+  return null
 }
 
 /** The document as `createInvoiceStockMovement` reads an invoice: an entity, with `id`. */
@@ -634,12 +675,30 @@ export async function rollBack(doc: any): Promise<void> {
 }
 
 /**
+ * A sale whose session stopped taking anything before it started. As any sale that failed before it reached
+ * the device or the drawer, it never was: the document goes, and the cashier hears why, with the basket still
+ * on the screen. ⚠ Removed, not voided: a sale is flipped to `cancelled` by its storno alone, and a voided one
+ * would count in every reader of the rows (`posRowSign`).
+ */
+async function giveWayToTheClose(doc: any): Promise<never> {
+  await rollBack(doc)
+  throw new RegisterRefusal(409, { ...SESSION_CLOSING })
+}
+
+/**
  * Run whatever the sale has not done yet, then mark it complete. Refuses — after removing the
  * document — only what failed before the sale reached the device or the drawer.
+ *
+ * ⚠ A session takes nothing new unless it is open, and the door's read says nothing about the moment after
+ * it. So a sale looks at its session once it is written, as the close looks at the session's documents once
+ * it has claimed it: one of the two sees the other. Read as open, the close finds this sale and refuses; read as
+ * not open, this sale gives way. It looks here first, with no number or УНП yet on a keyed sale, and again
+ * in its turn on the device. `finishing`: a sale whose request died is no new sale, and its money stands (D-4).
  */
-export async function runSaleSteps(c: RegisterContext, id: string): Promise<any> {
+export async function runSaleSteps(c: RegisterContext, id: string, opts: { finishing?: boolean } = {}): Promise<any> {
   let doc: any = await Invoice.findOne({ _id: oid(id), orgId: oid(c.orgId) }).lean().exec()
   if (!doc) throw new RegisterRefusal(404, { message: 'Cash-register document not found' })
+  if (!opts.finishing && notStarted(doc) && !(await sessionIsOpen(doc))) await giveWayToTheClose(doc)
 
   if (isPendingNumber(doc.invoiceNumber) && !numbersAfterStock(doc)) {
     const numbered = await numberPending(c.orgId, doc)
@@ -658,12 +717,18 @@ export async function runSaleSteps(c: RegisterContext, id: string): Promise<any>
   // One fiscal operation from the first command to the last, so a graceful stop cannot land
   // between "open receipt" and "close receipt" (FR-20.23).
   if (doc.register?.fiscal?.state === 'pending') {
-    doc = c.printer ? await printInTurn(c.printer, doc, fresh => printSaleStep(c, fresh)) : await printSaleStep(c, doc)
+    doc = c.printer
+      ? await printInTurn(c.printer, doc, async (fresh) => {
+        if (notStarted(fresh) && !(await sessionIsOpen(fresh))) await giveWayToTheClose(fresh)
+        return printSaleStep(c, fresh)
+      })
+      : await printSaleStep(c, doc)
   }
 
   const sessionId = doc.register?.sessionId ? String(doc.register.sessionId) : c.session?.id
-  if (sessionId && !doc.register?.sessionTotalsApplied) {
-    await applySessionTotals(doc, sessionId, saleIncrements(doc))
+  const booked = bookedOnItsSession(doc)
+  if (sessionId && booked) {
+    await applySessionTotals(doc, sessionId, booked)
     doc = await Invoice.findById(doc._id).lean().exec()
   }
 
@@ -725,7 +790,7 @@ export async function runSaleSteps(c: RegisterContext, id: string): Promise<any>
  * after it the dispatch must not fail.
  */
 export function finishSale(c: RegisterContext, id: string): Promise<any> {
-  return runSaleSteps({ ...c, printer: null, allowNegative: true }, id)
+  return runSaleSteps({ ...c, printer: null, allowNegative: true }, id, { finishing: true })
 }
 
 /** The outcome of an insert: the new document, or the one a concurrent request with the key made. */
@@ -1177,6 +1242,10 @@ export async function runStornoSteps(c: RegisterContext, id: string): Promise<an
   }
 
   if (lostItsClaim(doc, original)) doc = await couldNotPrint(doc, 'Another storno of this sale took over from this one, which had stopped before it started.')
+  // ⚠ With nothing to print there is no turn to look in, so it looks here: once it is written, as a sale does.
+  if (doc.register?.fiscal?.state === 'none' && notStarted(doc) && !(await sessionIsOpen(doc))) {
+    doc = await couldNotPrint(doc, 'The session closed before this storno could be booked.')
+  }
 
   if (doc.register?.fiscal?.state === 'pending') {
     if (c.printer && !doc.register?.unp) {
@@ -1219,8 +1288,9 @@ export async function runStornoSteps(c: RegisterContext, id: string): Promise<an
   }
 
   const sessionId = doc.register?.sessionId ? String(doc.register.sessionId) : undefined
-  if (sessionId && !doc.register?.sessionTotalsApplied) {
-    await applySessionTotals(doc, sessionId, stornoIncrements(doc))
+  const booked = bookedOnItsSession(doc)
+  if (sessionId && booked) {
+    await applySessionTotals(doc, sessionId, booked)
     doc = await Invoice.findById(doc._id).lean().exec()
   }
 

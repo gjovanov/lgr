@@ -11,7 +11,7 @@
  *
  * A merged identity (one email, several orgs) gets NO password unless `--keep-password` names the
  * org whose password it keeps. Name it only when the person chose that password themselves, or a
- * script depends on it (rdodova drives the import skills). Everyone else signs in with their
+ * script depends on it (the org admin drives the import skills). Everyone else signs in with their
  * verified provider account, or sets a password from the email link.
  *
  * Against production: run on master-node through a port-forward (deploy-prod skill, "Querying the

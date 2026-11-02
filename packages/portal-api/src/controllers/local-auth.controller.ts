@@ -12,8 +12,9 @@ import { setSessionCookie } from '../auth/session-cookie.js'
 import { DESKTOP_TOKEN_HEADER, frontSource } from '../front/front-guard.js'
 
 /**
- * Signing in at a till with a PIN (FR-20.40, plan step P1-5), on a master only: every route here
- * answers 404 on global, where there is no `local_credentials` and nothing a PIN could unlock.
+ * Signing in at a till with a PIN (FR-20.40, plan step P1-5), on a master only: every route here but
+ * the `/methods` probe answers 404 on global, where there is no `local_credentials` and nothing a PIN
+ * could unlock.
  *
  * - The till is a desktop paired with this master, on the LAN ingress. Its token names its org,
  *   so a PIN signs in to that org and no other. ⚠ Never through the tunnel (P3): `frontSource` is
@@ -47,9 +48,9 @@ async function tillOf(headers: Record<string, string | undefined>): Promise<Till
 
 export const localAuthController = new Elysia({ prefix: '/auth/local' })
   .use(AuthService)
-  /** Whether this client may offer the PIN pad. 404 off a master, like everything here. */
-  .get('/methods', async ({ headers, status }) => {
-    if (nodeRole() !== 'master') return status(404, NOT_FOUND)
+  /** Whether this client may offer the PIN pad. Every till page asks, so off a master it says no: a 404 is a red line in every browser's console. */
+  .get('/methods', async ({ headers }) => {
+    if (nodeRole() !== 'master') return { pin: false }
     return { pin: !!(await tillOf(headers)), pinLength: { min: PIN_MIN, max: PIN_MAX } }
   })
   .post('/pin', async ({ body, headers, cookie, jwt, set, status }) => {

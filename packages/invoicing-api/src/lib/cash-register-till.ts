@@ -21,7 +21,7 @@ import type { RegisterPrinter } from 'services/biz/cash-register/printer'
 import { takeLease } from 'services/biz/hot-path-key'
 import { POD_ID, livePresence } from 'services/biz/fiscal-presence.service'
 import {
-  RegisterRefusal, claimForStorno, finishInterruptedStorno, finishSale, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally,
+  RegisterRefusal, SESSION_CLOSING, claimForStorno, finishInterruptedStorno, finishSale, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally,
   releaseOrphanClaims, releaseStornoClaim, runStornoSteps, settleKeyedDocument, stornoDocument, stornoInDoubtRefusal, stornoRefusal,
   type RegisterContext, type RegisterSession, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
@@ -642,6 +642,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
         throw new RegisterRefusal(400, { code: 'storno_needs_session', message: 'A till sale is reversed in an open session of the warehouse it was sold from' })
       }
       if (session.status === 'closed') throw new RegisterRefusal(400, { message: 'Session is closed' })
+      if (session.status !== 'open') throw new RegisterRefusal(409, { ...SESSION_CLOSING })
       const soldFrom = original.register?.warehouseId ?? (original.register?.sessionId ? (await POSSession.findById(original.register.sessionId, { warehouseId: 1 }).lean().exec() as any)?.warehouseId : undefined)
       if (soldFrom && String(soldFrom) !== String(session.warehouseId)) {
         throw new RegisterRefusal(400, { code: 'storno_other_warehouse', message: 'A storno must be made in a session of the warehouse the sale was made in' })

@@ -47,7 +47,7 @@ readable report stays complete and in sync with the CSV.
 ## Usage
 
 ```bash
-export LGR_USERNAME=rdodova LGR_PASSWORD=…   # or LGR_TOKEN
+export LGR_USERNAME=<your-account> LGR_PASSWORD=…   # or LGR_TOKEN
 
 FILE="//wsl.localhost/Ubuntu-24.04/home/gjovanov/gjovanov/_docs/2026-07-28/storeAvailability_20260728_213346.xlsx"
 bun run scripts/compare-products.ts --file "$FILE"

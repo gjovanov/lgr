@@ -70,8 +70,8 @@ import type { RegisterPrinter } from './printer.js'
 import { grossByRate, receiptedByRate, refundBody, splitByRate, type ReceiptBody } from './receipt-lines.js'
 import { receiptMode } from './receipt-mode.js'
 import {
-  RegisterRefusal, applySessionTotals, couldNotPrint, decideInterrupted, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, rollBack,
-  saleInDoubtRefusal, saleIncrements, setRegister, stornoIncrements, type RegisterContext, type RegisterSession, type RegisterUser,
+  RegisterRefusal, applySessionTotals, bookedOnItsSession, couldNotPrint, decideInterrupted, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, rollBack,
+  saleInDoubtRefusal, setRegister, type RegisterContext, type RegisterSession, type RegisterUser,
 } from './register.service.js'
 
 type ObjectId = InstanceType<typeof Invoice.base.Types.ObjectId>
@@ -273,6 +273,19 @@ export async function owesDeliveryReceipt(orgId: string, doc: any): Promise<bool
   if (!mayOweDeliveryReceipt(doc)) return false
   const live = await Invoice.exists({ ...liveReceipts(orgId, doc._id ?? doc.id), paymentMethod: 'cash_on_delivery' }).exec()
   return !live && printsHere(orgId)
+}
+
+/**
+ * Whether an edit moving this issued document onto cash on delivery makes it owe a receipt. Written by the edit, as
+ * the issue writes it: with nothing owed the page offered no button, Pay printed nothing on the courier's money,
+ * and the sale ended with no fiscal receipt. A document a receipt stands on owes none: that money has its receipt.
+ * Moving away needs nothing, because `mayOweDeliveryReceipt` asks the method. ⚠ Only an invoice, which is what
+ * `printsAtCounter` says of cash on delivery: a note carrying this fact would be offered a print `/receipt` refuses.
+ */
+export async function owedByMovingToDelivery(orgId: string, doc: any): Promise<boolean> {
+  if (doc.paymentMethod === 'cash_on_delivery' || !PAYABLE.includes(doc.status) || !printsAtCounter(doc, 'cash_on_delivery', true)) return false
+  if (await Invoice.exists(liveReceipts(orgId, doc._id ?? doc.id)).exec()) return false
+  return printsHere(orgId)
 }
 
 /** What the document alone says about it: the rest is whether one printed, and whether LGR still prints. */
@@ -632,8 +645,9 @@ export async function runReceiptSteps(c: RegisterContext, id: string, opts: { ne
     doc = numbered
   }
   const sessionId = doc.register?.sessionId ? String(doc.register.sessionId) : undefined
-  if (sessionId && !doc.register?.sessionTotalsApplied) {
-    await applySessionTotals(doc, sessionId, doc.type === PAYMENT_STORNO ? stornoIncrements(doc) : saleIncrements(doc))
+  const booked = bookedOnItsSession(doc)
+  if (sessionId && booked) {
+    await applySessionTotals(doc, sessionId, booked)
     doc = await Invoice.findById(doc._id).lean().exec()
   }
   await recordPayment(c, doc)

@@ -4,8 +4,8 @@ import { setSession } from 'ui-shared/session/session'
  * Signing in at a till with operator code + PIN (FR-20.40, plan step P1-5b).
  *
  * Offered only where the server says so: an on-prem master, asked through a desktop paired with
- * it (the shell's proxy adds the desktop's token). On lgrai.app `/auth/local/*` answers 404 and
- * none of this appears.
+ * it (the shell's proxy adds the desktop's token). On lgrai.app the answer is no, and none of this
+ * appears.
  *
  * Plain `fetch`, not the shared HTTP client: these calls run with no session, or with the last
  * operator's, and the client's 401 recovery would sign the tab out or send it to the portal.

@@ -2,12 +2,15 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, spyOn } from 'bun
 import { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
-import { gate, sessionOf, until } from '../helpers/receipt-world'
+import { draftOf, gate, pay, send, sessionOf, until } from '../helpers/receipt-world'
 import { createTestAccount, createTestStockLevel, createTestWarehouse } from '../helpers/factories'
-import { AuditLog, Invoice, Journal, JournalEntry, Org, POSSession, StockLevel, StockMovement } from 'db/models'
+import { AuditLog, Invoice, Journal, JournalEntry, Org, POSSession, Sequence, StockLevel, StockMovement } from 'db/models'
 import { LEASE_MS } from 'services/biz/hot-path-key'
+import { deviceTurn } from 'fiscal/device-turn'
+import { getPrinter } from 'fiscal/fiscal-device.service'
 import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { PENDING_NUMBER, isPendingNumber } from 'services/biz/cash-register/pending-number'
+import { bookedOnItsSession } from 'services/biz/cash-register/register.service'
 import { postPosSessionJournal } from 'services/events/handlers'
 
 /**
@@ -206,12 +209,28 @@ describe('the close finishes a sale whose request died (finding 3)', () => {
     expect(w.sim!.executed.filter(c => c.cmd === 0x90)).toHaveLength(0)
   })
 
+  it('the preview says which a person has to settle: a fiscal sale nothing can prove, never a text sale, nor one that printed', async () => {
+    const fiscal = await tillWorld(app)
+    await deadSale(fiscal, atItsPrint)
+    expect((await preview(fiscal)).json.deadSales).toEqual([expect.objectContaining({ settles: true })])
+    forgetDevices()
+
+    const text = await tillWorld(app)
+    await deadSale(text, atItsPrint, { nonFiscal: true })
+    expect((await preview(text)).json.deadSales).toEqual([expect.objectContaining({ settles: false })])
+    forgetDevices()
+
+    const printed = await tillWorld(app)
+    await deadSale(printed, atItsTotals)
+    expect((await preview(printed)).json.deadSales).toEqual([expect.objectContaining({ settles: false })])
+  })
+
   it('one that died before it drew its number is named by its id, never by its placeholder, and the close numbers it', async () => {
     const w = await tillWorld(app)
     const id = await deadSale(w, atItsPrint, { key: 'died-before-its-number' })
     await Invoice.updateOne({ _id: id }, { $set: { invoiceNumber: `${PENDING_NUMBER}died-before-its-number` } })
 
-    expect((await preview(w)).json.deadSales).toEqual([{ id, number: null }])
+    expect((await preview(w)).json.deadSales).toEqual([{ id, number: null, settles: true }])
 
     expect((await close(w, 112)).status).toBe(200)
     expect(isPendingNumber((await read(id)).invoiceNumber)).toBe(false)
@@ -416,6 +435,670 @@ describe('a sale not finished holds the close (finding 3)', () => {
     expect((await read(id)).completedAt).toBeTruthy()
     expect((await read(id)).register.fiscalReceiptNumber).toBe(number)
     expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'settle_receipt' })).toBe(1)
+  })
+})
+
+describe('a settle beside whatever is finishing the sale (the fourth read, finding 5)', () => {
+  /** Run `meanwhile` right before the sale's dispatch is looked for, with the lease held by what is finishing it. */
+  function atItsDispatch(id: string, meanwhile: () => Promise<unknown>) {
+    const real = StockMovement.find
+    let done = false
+    ;(StockMovement as any).find = function (filter: any, ...rest: any[]) {
+      if (done || filter?.type !== 'dispatch' || String(filter?.invoiceId) !== id) return (real as any).call(StockMovement, filter, ...rest)
+      done = true
+      return {
+        lean: () => ({
+          exec: async () => {
+            await meanwhile()
+            return (real as any).call(StockMovement, filter, ...rest).lean().exec()
+          },
+        }),
+      }
+    }
+    return () => { (StockMovement as any).find = real }
+  }
+  const dispatches = (w: TillWorld, id: string) => StockMovement.countDocuments({ orgId: w.oid, invoiceId: id, type: 'dispatch' })
+
+  it('the reader\'s run: a settle inside the close\'s finish hears one is finishing it: one dispatch, stock 9', async () => {
+    const w = await tillWorld(app)
+    const id = await deadSale(w, atItsPrint)
+    const number = w.sim!.receipts.at(-1)!.number!
+    let settled: any
+    const undo = atItsDispatch(id, async () => { settled = await settle(w, id, true, number) })
+    let closed: any
+    try {
+      closed = await close(w, 112)
+    } finally {
+      undo()
+    }
+
+    expect(settled.status).toBe(409)
+    expect(settled.json.code).toBe('sale_in_progress')
+    expect(closed.status).toBe(200)
+    expect(await dispatches(w, id)).toBe(1)
+    expect((await w.stock()).quantity).toBe(9)
+    expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 12, difference: 0 })
+
+    // And once that is done a person says, and nothing moves again.
+    expect((await settle(w, id, true, number)).status).toBe(200)
+    expect((await read(id)).register.fiscalReceiptNumber).toBe(number)
+    expect(await dispatches(w, id)).toBe(1)
+    expect((await w.stock()).quantity).toBe(9)
+  })
+
+  it('a settle inside its own request, past its print: the same', async () => {
+    const w = await tillWorld(app)
+    let settled: any
+    const key = 'unknown-and-still-going'
+    w.sim!.dropAfter = 0x38
+    const real = StockMovement.find
+    let done = false
+    ;(StockMovement as any).find = function (filter: any, ...rest: any[]) {
+      if (done || filter?.type !== 'dispatch') return (real as any).call(StockMovement, filter, ...rest)
+      done = true
+      return {
+        lean: () => ({
+          exec: async () => {
+            const sale = await lastSale(w)
+            expect(sale.register.fiscal.state).toBe('unknown')
+            w.sim!.disconnected = false
+            settled = await settle(w, sale._id, false)
+            return (real as any).call(StockMovement, filter, ...rest).lean().exec()
+          },
+        }),
+      }
+    }
+    let r: any
+    try {
+      r = await w.sell(1, {}, key)
+    } finally {
+      ;(StockMovement as any).find = real
+    }
+
+    expect(settled.json.code).toBe('sale_in_progress')
+    expect(r.status).toBe(200)
+    expect((await w.stock()).quantity).toBe(9)
+  })
+
+  it('a lease left by a crash lapses into what a settle can finish', async () => {
+    const w = await tillWorld(app)
+    const id = await deadSale(w, atItsPrint)
+    const number = w.sim!.receipts.at(-1)!.number!
+    // Something took it over, turned it `unknown`, and died there, with its lease still good.
+    await Invoice.updateOne({ _id: id }, { $set: { 'register.fiscal.state': 'unknown', leaseUntil: new Date(Date.now() + 60_000) } })
+
+    const refused = await settle(w, id, true, number)
+    expect(refused.status).toBe(409)
+    expect(refused.json.code).toBe('sale_in_progress')
+    expect((await read(id)).register.settled).toBeUndefined()
+
+    await Invoice.updateOne({ _id: id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+
+    expect((await settle(w, id, true, number)).status).toBe(200)
+    expect((await read(id)).completedAt).toBeTruthy()
+    expect(await dispatches(w, id)).toBe(1)
+    expect((await w.stock()).quantity).toBe(9)
+  })
+
+  it('an `unknown` sale that finished has no lease to wait for', async () => {
+    const w = await tillWorld(app)
+    w.sim!.dropAfter = 0x38
+    const sold = await w.sell(1)
+    w.sim!.disconnected = false
+    expect(sold.json.transaction.fiscal.state).toBe('unknown')
+    await getPrinter(w.deviceId).printDailyXReport()
+
+    expect((await settle(w, sold.json.transaction.id, false)).status).toBe(200)
+  })
+})
+
+describe('the preview says what the close will book, by the function the close books with (the fourth read, finding 4)', () => {
+  /** The write `at` picks never lands, and the lease on what that left has lapsed. */
+  async function stopsAt(at: (update: any) => boolean, run: () => Promise<any>, of: () => Promise<any>) {
+    const undo = diesAt(at)
+    try {
+      expect((await run()).status).toBe(500)
+    } finally {
+      undo()
+    }
+    const doc = await of()
+    expect(doc.completedAt).toBeUndefined()
+    await Invoice.updateOne({ _id: doc._id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+    return String(doc._id)
+  }
+  const lastOf = (w: TillWorld, type: string): Promise<any> => Invoice.findOne({ orgId: w.oid, type }).sort({ _id: -1 }).lean().exec()
+
+  it('a receipt that printed and stopped before its totals: the prefilled count is what the close expects, and the difference is 0', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    const id = await stopsAt(atItsTotals, () => pay(w, d.id, 24), () => lastOf(w, 'payment_receipt'))
+    expect((await read(id)).register.fiscal.state).toBe('printed')
+
+    const shown = await preview(w)
+
+    expect(shown.json.expected.cash).toBe(124)
+    expect(shown.json.report.total).toBe(24)
+    expect(shown.json.unfinishedReceipts).toEqual([])
+    expect(shown.json.deadDocuments).toEqual([expect.objectContaining({ id, kind: 'payment' })])
+    // A GET writes nothing.
+    expect((await sessionOf(w)).totalCash).toBe(0)
+
+    const closed = await close(w, shown.json.expected.cash)
+
+    expect(closed.status).toBe(200)
+    expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 24, expectedBalance: 124, difference: 0 })
+    expect((await read(id)).completedAt).toBeTruthy()
+  })
+
+  it('a storno that printed and stopped before its totals: the same', async () => {
+    const w = await tillWorld(app)
+    const saleId = String((await w.sell(1)).json.transaction.id)
+    const id = await stopsAt(atItsTotals, () => w.storno(saleId), () => lastOf(w, 'cash_storno'))
+    expect((await read(id)).register.fiscal.state).toBe('printed')
+
+    const shown = await preview(w)
+
+    expect(shown.json.expected.cash).toBe(100)
+    expect(shown.json.report.total).toBe(0)
+    expect(shown.json.unfinishedReceipts).toEqual([])
+    expect(shown.json.deadDocuments).toEqual([expect.objectContaining({ id, kind: 'storno' })])
+    expect((await sessionOf(w)).totalCash).toBe(12)
+
+    const closed = await close(w, shown.json.expected.cash)
+
+    expect(closed.status).toBe(200)
+    expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 0, totalReturns: 12, expectedBalance: 100, difference: 0 })
+  })
+
+  it('a storno of a text sale, with nothing to print: the same', async () => {
+    const w = await tillWorld(app)
+    const saleId = String((await w.sell(1, { nonFiscal: true })).json.transaction.id)
+    await stopsAt(atItsTotals, () => w.storno(saleId), () => lastOf(w, 'cash_storno'))
+
+    const shown = await preview(w)
+
+    expect(shown.json.expected.cash).toBe(100)
+    expect((await close(w, shown.json.expected.cash)).status).toBe(200)
+    expect(await sessionOf(w)).toMatchObject({ status: 'closed', expectedBalance: 100, difference: 0 })
+  })
+
+  it('one that stopped after its totals is in the session already, and is not added twice', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    await stopsAt(update => !!update?.$set?.completedAt, () => pay(w, d.id, 24), () => lastOf(w, 'payment_receipt'))
+    expect((await sessionOf(w)).totalCash).toBe(24)
+
+    const shown = await preview(w)
+
+    expect(shown.json.expected.cash).toBe(124)
+    expect((await close(w, shown.json.expected.cash)).status).toBe(200)
+    expect((await sessionOf(w)).difference).toBe(0)
+  })
+
+  it('a receipt that never reached the device takes nothing, and the close gives it up: named, and not added', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    const id = await stopsAt(atItsAttempt, () => pay(w, d.id, 24), () => lastOf(w, 'payment_receipt'))
+
+    const shown = await preview(w)
+
+    expect(shown.json.expected.cash).toBe(100)
+    expect(shown.json.unfinishedReceipts).toEqual([])
+    expect(shown.json.deadDocuments).toEqual([expect.objectContaining({ id })])
+    expect((await close(w, 100)).status).toBe(200)
+    expect((await read(id)).status).toBe('voided')
+    expect((await sessionOf(w)).difference).toBe(0)
+  })
+
+  it('one nothing can prove: named as one the close will look at, it holds the close, and then it is one that holds it', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    // It reached the device and its answer never came back to anyone.
+    const id = await stopsAt(atItsPrint, () => pay(w, d.id, 24), () => lastOf(w, 'payment_receipt'))
+    expect((await read(id)).register.fiscal.state).toBe('pending')
+
+    const shown = await preview(w)
+    expect(shown.json.expected.cash).toBe(100)
+    expect(shown.json.deadDocuments).toEqual([expect.objectContaining({ id })])
+    expect(shown.json.unfinishedReceipts).toEqual([])
+
+    const refused = await close(w, 100)
+    expect(refused.status).toBe(409)
+    expect(refused.json.code).toBe('receipts_unfinished')
+
+    const again = await preview(w)
+    expect(again.json.deadDocuments).toEqual([])
+    expect(again.json.unfinishedReceipts).toEqual([expect.objectContaining({ id, inDoubt: true })])
+  })
+
+  it('one still running is no business of the preview\'s figures: it holds the close, and it is said so', async () => {
+    const w = await tillWorld(app)
+    const held = gate()
+    w.sim!.beforeCommand = cmd => (cmd === 0x38 ? held.closed : undefined)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    const paying = pay(w, d.id, 24)
+    await until(() => w.sim!.receipt?.payments.length === 1, 'the receipt to take its money')
+
+    const shown = await preview(w)
+
+    expect(shown.json.expected.cash).toBe(100)
+    expect(shown.json.deadDocuments).toEqual([])
+    expect(shown.json.unfinishedReceipts).toEqual([expect.objectContaining({ kind: 'payment' })])
+    w.sim!.beforeCommand = null
+    held.open()
+    expect((await paying).status).toBe(200)
+  })
+
+  it('what a sale, a receipt and a storno book is one function, read by the preview and by the steps', () => {
+    const payments = [{ method: 'cash', amount: 12 }]
+    const reg = (fiscal: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ fiscal, ...extra })
+    const sale = { type: 'cash_sale', total: 12, payments, register: reg({ state: 'pending' }) }
+    const receipt = (state: string, extra = {}) => ({ type: 'payment_receipt', total: 24, payments: [{ method: 'cash', amount: 24 }], register: reg({ state }, extra) })
+    const storno = (state: string) => ({ type: 'cash_storno', total: 12, payments, register: reg({ state }) })
+
+    expect(bookedOnItsSession(sale)).toMatchObject({ totalCash: 12, totalSales: 12, transactionCount: 1 })
+    expect(bookedOnItsSession(receipt('printed'))).toMatchObject({ totalCash: 24 })
+    expect(bookedOnItsSession(receipt('unknown'))).toMatchObject({ totalCash: 24 })
+    for (const state of ['pending', 'failed']) expect(bookedOnItsSession(receipt(state))).toBeNull()
+    expect(bookedOnItsSession(receipt('unknown', { inDoubt: undefined }))).toMatchObject({ totalCash: 24 })
+    expect(bookedOnItsSession({ ...receipt('unknown'), register: { fiscal: { state: 'unknown', inDoubt: true } } })).toBeNull()
+    expect(bookedOnItsSession(receipt('printed', { sessionTotalsApplied: true }))).toBeNull()
+    expect(bookedOnItsSession({ ...receipt('printed'), status: 'voided' })).toBeNull()
+    for (const state of ['printed', 'none']) expect(bookedOnItsSession(storno(state), { total: 12 })).toMatchObject({ totalCash: -12, totalReturns: 12, transactionCount: 1 })
+    for (const state of ['pending', 'unknown', 'failed']) expect(bookedOnItsSession(storno(state), { total: 12 })).toBeNull()
+  })
+})
+
+describe('a session takes nothing new unless it is open (the fourth read, finding 1)', () => {
+  const Z = 0x45
+  const closedOnDevice = (w: TillWorld) => w.sim!.receipts.filter(r => !r.voided)
+  const counters = (w: TillWorld) => Sequence.find({ orgId: w.oid }, { _id: 0, prefix: 1, year: 1, lastNumber: 1 }).sort({ prefix: 1, year: 1 }).lean().exec()
+  /** A close with its Z held on the device: claimed, its `expected` read, and nothing left but to wait. */
+  async function closingInItsZ(w: TillWorld, cash: number) {
+    const held = gate()
+    let reached = false
+    w.sim!.beforeCommand = (cmd) => {
+      if (cmd !== Z) return undefined
+      reached = true
+      return held.closed
+    }
+    const closing = close(w, cash)
+    await until(() => reached, 'the Z to be under way')
+    expect((await sessionOf(w)).status).toBe('closing_control')
+    return {
+      closing,
+      finish: async () => {
+        w.sim!.beforeCommand = null
+        held.open()
+        return closing
+      },
+    }
+  }
+
+  for (const nonFiscal of [false, true]) {
+    it(`a ${nonFiscal ? 'text' : 'fiscal'} sale sent during the Z is refused at the door: nothing printed, nothing booked, and the close's difference is 0`, async () => {
+      const w = await tillWorld(app)
+      const z = await closingInItsZ(w, 100)
+      const printed = closedOnDevice(w).length
+      const numbers = await counters(w)
+
+      const r = await w.sell(1, { nonFiscal })
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('session_closing')
+      expect(r.json.message).toContain('being closed')
+      // At the door: not even a number. Past it, one that gives way can leave a gap.
+      expect(await counters(w)).toEqual(numbers)
+      const done = await z.finish()
+      expect(done.status).toBe(200)
+      expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_sale' })).toBe(0)
+      expect(closedOnDevice(w)).toHaveLength(printed)
+      expect((await w.stock()).quantity).toBe(10)
+      expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 0, expectedBalance: 100, difference: 0, transactionCount: 0 })
+    })
+  }
+
+  for (const nonFiscal of [true, false]) {
+    it(`a storno of a ${nonFiscal ? 'text' : 'fiscal'} sale sent during the Z is refused at the door: the sale stands, and the close's difference is 0`, async () => {
+      const w = await tillWorld(app)
+      const id = String((await w.sell(1, { nonFiscal })).json.transaction.id)
+      const z = await closingInItsZ(w, 112)
+      const printed = closedOnDevice(w).length
+
+      const r = await w.storno(id)
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('session_closing')
+      expect((await z.finish()).status).toBe(200)
+      expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_storno' })).toBe(0)
+      expect((await read(id)).register.stornoState).not.toBe('full')
+      expect(closedOnDevice(w)).toHaveLength(printed)
+      expect((await w.stock()).quantity).toBe(9)
+      expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 12, totalReturns: 0, expectedBalance: 112, difference: 0 })
+    })
+  }
+
+  it('the journal\'s storno door says the same', async () => {
+    const w = await tillWorld(app)
+    const id = String((await w.sell(1)).json.transaction.id)
+    const z = await closingInItsZ(w, 112)
+
+    const r = await w.call('POST', `/cash-register/documents/${id}/storno`, { reason: 'customer_return', sessionId: w.sessionId })
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('session_closing')
+    expect((await z.finish()).status).toBe(200)
+  })
+
+  it('a keyed retry of a sale made before the close replays through all of it, during the Z and after', async () => {
+    const w = await tillWorld(app)
+    const key = 'sale-before-the-close'
+    const first = await w.sell(1, {}, key)
+    expect(first.status).toBe(200)
+    const z = await closingInItsZ(w, 112)
+    const printed = closedOnDevice(w).length
+
+    const during = await w.sell(1, {}, key)
+
+    expect(during.status).toBe(200)
+    expect(during.json.transaction.id).toBe(first.json.transaction.id)
+    expect((await z.finish()).status).toBe(200)
+    const after = await w.sell(1, {}, key)
+    expect(after.status).toBe(200)
+    expect(after.json.transaction.id).toBe(first.json.transaction.id)
+    expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_sale' })).toBe(1)
+    expect(closedOnDevice(w)).toHaveLength(printed)
+    expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 12, difference: 0 })
+  })
+
+  it('a keyed retry of a storno made before the close replays too', async () => {
+    const w = await tillWorld(app)
+    const id = String((await w.sell(1)).json.transaction.id)
+    const key = 'storno-before-the-close'
+    const first = await w.storno(id, key)
+    expect(first.status).toBe(200)
+    const z = await closingInItsZ(w, 100)
+
+    const during = await w.storno(id, key)
+
+    expect(during.status).toBe(200)
+    expect(during.json.transaction.id).toBe(first.json.transaction.id)
+    expect((await z.finish()).status).toBe(200)
+    expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_storno' })).toBe(1)
+  })
+
+  it('a session back to `open` after a dead close sells again', async () => {
+    const w = await tillWorld(app)
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closing_control', closeLeaseUntil: new Date(Date.now() - 1000) } })
+    expect((await w.sell(1)).json.code).toBe('session_closing')
+
+    expect((await close(w, 100)).json.code).toBe('close_interrupted')
+
+    expect((await sessionOf(w)).status).toBe('open')
+    expect((await w.sell(1)).status).toBe(200)
+  })
+
+  it('a keyed retry of a sale that reached the device is not taken back, whatever the session says now', async () => {
+    const w = await tillWorld(app)
+    const key = 'reached-the-device'
+    const id = await deadSale(w, atItsPrint, { key })
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closing_control', closeLeaseUntil: new Date(Date.now() + 60_000) } })
+
+    const r = await w.sell(1, {}, key)
+
+    expect(r.status).toBe(200)
+    expect(r.json.transaction.id).toBe(id)
+    expect((await read(id)).completedAt).toBeTruthy()
+  })
+
+  it('a keyed retry of one that stopped after its totals is not taken back either, and books nothing twice', async () => {
+    const w = await tillWorld(app, { device: false })
+    const key = 'stopped-after-its-totals'
+    const undo = diesAt(update => !!update?.$set?.completedAt)
+    try {
+      expect((await w.sell(1, {}, key)).status).toBe(500)
+    } finally {
+      undo()
+    }
+    const sale = await lastSale(w)
+    expect(sale.register.sessionTotalsApplied).toBe(true)
+    await Invoice.updateOne({ _id: sale._id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closing_control', closeLeaseUntil: new Date(Date.now() + 60_000) } })
+
+    const r = await w.sell(1, {}, key)
+
+    expect(r.status).toBe(200)
+    expect((await read(sale._id)).completedAt).toBeTruthy()
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 12, transactionCount: 1 })
+    expect((await w.stock()).quantity).toBe(9)
+  })
+
+  it('a closed session answers as it always did', async () => {
+    const w = await tillWorld(app)
+    expect((await close(w, 100)).status).toBe(200)
+
+    const r = await w.sell(1)
+
+    expect(r.status).toBe(400)
+    expect(r.json.message).toBe('Session is closed')
+  })
+
+  describe('in its turn', () => {
+    /** A sale that got past the door and waits behind a report, with the device's turn held. */
+    async function waitingItsTurn(w: TillWorld, o: { nonFiscal?: boolean; key?: string } = {}) {
+      const taken = gate()
+      const holder = deviceTurn(w.deviceId, () => taken.closed)
+      const selling = w.sell(1, { nonFiscal: o.nonFiscal }, o.key)
+      await until(async () => !!(await lastSale(w)), 'the sale to be written')
+      return { selling, go: async () => { taken.open(); await holder } }
+    }
+
+    for (const nonFiscal of [false, true]) {
+      it(`a ${nonFiscal ? 'text' : 'fiscal'} sale whose turn comes with the session no longer open gives way: nothing printed, nothing booked, and no document`, async () => {
+        const w = await tillWorld(app)
+        const waiting = await waitingItsTurn(w, { nonFiscal, key: `gives-way-${nonFiscal}` })
+        const printed = closedOnDevice(w).length
+        await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closing_control', closeLeaseUntil: new Date(Date.now() + 60_000) } })
+
+        await waiting.go()
+        const r = await waiting.selling
+
+        expect(r.status).toBe(409)
+        expect(r.json.code).toBe('session_closing')
+        expect(closedOnDevice(w)).toHaveLength(printed)
+        expect(w.sim!.receipt).toBeNull()
+        expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_sale' })).toBe(0)
+        expect((await w.stock()).quantity).toBe(10)
+        expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalSales: 0, transactionCount: 0 })
+      })
+    }
+
+    it('a sale that holds the turn first holds the close, and it closes once that is done', async () => {
+      const w = await tillWorld(app)
+      const waiting = await waitingItsTurn(w)
+
+      const refused = await close(w, 112)
+
+      expect(refused.status).toBe(409)
+      expect(refused.json.code).toBe('receipts_unfinished')
+      expect(refused.json.receipts).toEqual([expect.objectContaining({ kind: 'sale' })])
+      expect((await sessionOf(w)).status).toBe('open')
+
+      await waiting.go()
+      expect((await waiting.selling).status).toBe(200)
+      expect((await close(w, 112)).status).toBe(200)
+      expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 12, difference: 0 })
+    })
+  })
+
+  describe('with no device there is no turn, so a close landing anywhere either finds it or it gives way', () => {
+    /** Run the whole of `meanwhile` right before the next write of a document of this type. */
+    function atItsInsert(type: string, meanwhile: () => Promise<unknown>) {
+      const real = Invoice.create
+      let done = false
+      ;(Invoice as any).create = async function (...args: any[]) {
+        if (!done && args[0]?.type === type) {
+          done = true
+          await meanwhile()
+        }
+        return (real as any).apply(Invoice, args)
+      }
+      return () => { (Invoice as any).create = real }
+    }
+    /** Run `meanwhile` right before the next document's session totals. */
+    function atItsTotals(meanwhile: () => Promise<unknown>) {
+      const real = Invoice.startSession
+      let done = false
+      ;(Invoice as any).startSession = async function (...args: any[]) {
+        if (!done) {
+          done = true
+          await meanwhile()
+        }
+        return (real as any).apply(Invoice, args)
+      }
+      return () => { (Invoice as any).startSession = real }
+    }
+
+    it('a sale past the door, the close landing before its insert: it finds the session gone, and gives way', async () => {
+      const w = await tillWorld(app, { device: false })
+      let closed: any
+      const undo = atItsInsert('cash_sale', async () => { closed = await close(w, 100) })
+      let r: any
+      try {
+        r = await w.sell(1, {}, 'a-sale-past-the-door')
+      } finally {
+        undo()
+      }
+
+      expect(closed.status).toBe(200)
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('session_closing')
+      expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_sale' })).toBe(0)
+      expect((await w.stock()).quantity).toBe(10)
+      expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 0, expectedBalance: 100, difference: 0 })
+    })
+
+    it('a sale written, the close landing before its totals: the close finds it, and refuses', async () => {
+      const w = await tillWorld(app, { device: false })
+      let closed: any
+      const undo = atItsTotals(async () => { closed = await close(w, 112) })
+      let r: any
+      try {
+        r = await w.sell(1)
+      } finally {
+        undo()
+      }
+
+      expect(closed.status).toBe(409)
+      expect(closed.json.code).toBe('receipts_unfinished')
+      expect(r.status).toBe(200)
+      expect((await close(w, 112)).status).toBe(200)
+      expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 12, expectedBalance: 112, difference: 0 })
+      expect((await w.stock()).quantity).toBe(9)
+    })
+
+    it('a sale that finishes between the claim and the close\'s second look: found by neither, and what it booked is in `expected`', async () => {
+      const w = await tillWorld(app, { device: false })
+      const held = gate()
+      const real = Invoice.startSession
+      let reached = false
+      ;(Invoice as any).startSession = async function (...args: any[]) {
+        reached = true
+        await held.closed
+        return (real as any).apply(Invoice, args)
+      }
+      const selling = w.sell(1)
+      await until(() => reached, 'the sale to reach its totals')
+      ;(Invoice as any).startSession = real
+      const claim = POSSession.findOneAndUpdate
+      let answer: any
+      ;(POSSession as any).findOneAndUpdate = function (filter: any, update: any, ...rest: any[]) {
+        if (update?.$set?.status !== 'closing_control') return (claim as any).call(POSSession, filter, update, ...rest)
+        return {
+          exec: async () => {
+            const doc = await (claim as any).call(POSSession, filter, update, ...rest).exec()
+            held.open()
+            answer = await selling
+            return doc
+          },
+        }
+      }
+      // Past the first look, which finds it unfinished: this one is forced through to the claim.
+      const unfinished = spyOn(Invoice, 'find')
+      unfinished.mockImplementationOnce((() => ({ sort: () => ({ lean: () => ({ exec: async () => [] }) }) })) as any)
+      unfinished.mockImplementationOnce((() => ({ sort: () => ({ lean: () => ({ exec: async () => [] }) }) })) as any)
+      unfinished.mockImplementationOnce((() => ({ lean: () => ({ exec: async () => [] }) })) as any)
+      unfinished.mockImplementationOnce((() => ({ sort: () => ({ lean: () => ({ exec: async () => [] }) }) })) as any)
+      let r: any
+      try {
+        r = await close(w, 112)
+      } finally {
+        unfinished.mockRestore()
+        ;(POSSession as any).findOneAndUpdate = claim
+      }
+
+      expect(answer.status).toBe(200)
+      expect(r.status).toBe(200)
+      expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 12, expectedBalance: 112, difference: 0 })
+    })
+
+    it('a text storno past the door, the close landing before its insert: voided with its number, the sale given back, and the close stands', async () => {
+      const w = await tillWorld(app)
+      const id = String((await w.sell(1, { nonFiscal: true })).json.transaction.id)
+      let closed: any
+      const undo = atItsInsert('cash_storno', async () => { closed = await close(w, 112) })
+      let r: any
+      try {
+        r = await w.storno(id)
+      } finally {
+        undo()
+      }
+
+      expect(closed.status).toBe(200)
+      expect(r.status).toBe(503)
+      expect(r.json.message).toContain('The session closed')
+      const storno: any = await Invoice.findOne({ orgId: w.oid, type: 'cash_storno' }).lean().exec()
+      expect(storno.status).toBe('voided')
+      expect((await read(id)).register.stornoState).toBe('none')
+      expect((await w.stock()).quantity).toBe(9)
+      expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 12, totalReturns: 0, expectedBalance: 112, difference: 0 })
+    })
+
+    it('a text storno written, the close landing before its totals: the close finds it, and refuses', async () => {
+      const w = await tillWorld(app)
+      const id = String((await w.sell(1, { nonFiscal: true })).json.transaction.id)
+      let closed: any
+      const undo = atItsTotals(async () => { closed = await close(w, 100) })
+      let r: any
+      try {
+        r = await w.storno(id)
+      } finally {
+        undo()
+      }
+
+      expect(closed.status).toBe(409)
+      expect(closed.json.code).toBe('receipts_unfinished')
+      expect(r.status).toBe(200)
+      expect((await close(w, 100)).status).toBe(200)
+      expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 0, totalReturns: 12, expectedBalance: 100, difference: 0 })
+    })
+
+    it('a sale that died is still finished by what comes to it: a dead sale is no new sale', async () => {
+      const w = await tillWorld(app)
+      const id = await deadSale(w, atItsAttempt, { nonFiscal: true })
+      await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closing_control', closeLeaseUntil: new Date(Date.now() + 60_000) } })
+
+      // Its storno finishes it first, whatever the session says; the door then answers for the session.
+      const r = await w.storno(id)
+
+      expect(r.json.code).toBe('session_closing')
+      expect((await read(id)).completedAt).toBeTruthy()
+    })
   })
 })
 
