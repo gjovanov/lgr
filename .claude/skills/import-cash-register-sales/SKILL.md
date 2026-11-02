@@ -87,7 +87,7 @@ regal-pz had 0 of 44, so it is a per-shop habit, not a universal one.
 ## Usage
 
 ```bash
-export LGR_USERNAME=rdodova LGR_PASSWORD=…   # or LGR_TOKEN
+export LGR_USERNAME=<your-account> LGR_PASSWORD=…   # or LGR_TOKEN
 
 DAY=2026-07-23
 FOLDER="//wsl.localhost/Ubuntu-24.04/home/gjovanov/gjovanov/_docs/$DAY"

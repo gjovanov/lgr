@@ -25,7 +25,7 @@ function fixture(kind: CompanionDocData['kind']): CompanionDocData {
       { name: 'ГАЙКА М10 - DIN 934 - 8 - ZN', unit: 'БР', quantity: 2 },
     ],
     sourceDocs: [{ label: 'Фактура', number: 'INV-2026-00042', date: new Date('2026-09-03') }],
-    preparedBy: 'Николета Тачева, 1111',
+    preparedBy: 'Мария Иванова, 1111',
     // This is the new field — what a user types into "Бележка към придружаващите документи".
     additionalInfo: 'Партида 4417, сертификат по EN 10204 3.1',
     locale,

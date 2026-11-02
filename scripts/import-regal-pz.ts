@@ -14,7 +14,7 @@
  *   Col 12-14: Цена7..Цена9 (tier slots 8-10; the legacy system has no Цена6)
  *
  * Creates (idempotent, find-or-create): org regal-pz (BGN/bg/Europe/Sofia,
- * professional plan), admin user rdodova with operator code + permission sets,
+ * professional plan), the admin user named in the environment (below) with operator code + permission sets,
  * warehouse Pazardzhik (pz), category "Общи", then inserts products (10 price
  * tiers each) and stock levels.
  *
@@ -26,6 +26,11 @@
  * Production: MONGODB_URI='mongodb://user:pass@localhost:27017/lgr?authSource=admin&directConnection=true' \
  *   bun run scripts/import-regal-pz.ts --execute
  *
+ * The admin is a real person, so who they are is never in this file: REGAL_PZ_ADMIN_USERNAME,
+ * REGAL_PZ_ADMIN_EMAIL, REGAL_PZ_ADMIN_FIRST_NAME and REGAL_PZ_ADMIN_LAST_NAME come from the
+ * environment, and every --execute run needs them (the admin is found by username). They live in
+ * the gitignored .secrets/regal-pz-admin.env:
+ *   bun --env-file=.secrets/regal-pz-admin.env run scripts/import-regal-pz.ts --execute
  * Creating the admin (first run only) also needs REGAL_PZ_ADMIN_PASSWORD, its initial password.
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
@@ -50,6 +55,16 @@ const DATA_START_ROW = 6
 const SKIP_NAMES = new Set(['Всичко', 'ОБЩО:', 'Опаковка'])
 const BATCH_SIZE = 500
 const SKU_PREFIX = 'RPZ'
+
+// The org's first admin is a real person, so who they are is never in this file: it comes from the
+// environment (the gitignored .secrets/regal-pz-admin.env). Read when a run bootstraps the org.
+const ADMIN_ENV = ['USERNAME', 'EMAIL', 'FIRST_NAME', 'LAST_NAME'] as const
+function adminFromEnv() {
+  const get = (k: (typeof ADMIN_ENV)[number]) => process.env[`REGAL_PZ_ADMIN_${k}`] ?? ''
+  const missing = ADMIN_ENV.filter(k => !get(k)).map(k => `REGAL_PZ_ADMIN_${k}`)
+  if (missing.length) throw new Error(`${missing.join(', ')} not set: they name a real person, so they live in the gitignored .secrets/, never in this file`)
+  return { username: get('USERNAME'), email: get('EMAIL'), firstName: get('FIRST_NAME'), lastName: get('LAST_NAME') }
+}
 
 const EXPECTED_HEADERS = [
   'Име', 'Мярка', 'Количество', 'Доставна цена', 'Продажна цена', 'Цена на едро',
@@ -199,23 +214,24 @@ async function bootstrapOrg() {
     console.log(`Org created: ${org.name} (${org._id})`)
   }
 
-  let user = await User.findOne({ orgId: org._id, username: 'rdodova' })
+  const admin = adminFromEnv()
+  let user = await User.findOne({ orgId: org._id, username: admin.username })
   if (user) {
     console.log(`User exists: ${user.username} (${user._id})`)
   } else {
-    const email = 'rdodova@gmail.com'
+    const email = admin.email
     // ⚠ Never a literal. This used to hash a hardcoded password, which put a real person's
     // credential in git history (2026-10-05). It is asked for only when the run creates a NEW
     // person: someone who already has an account joins as they are, with their own password.
     const initialPassword = process.env.REGAL_PZ_ADMIN_PASSWORD
     if (!initialPassword && !(await Identity.exists({ email }).exec())) {
-      throw new Error('REGAL_PZ_ADMIN_PASSWORD is not set; it is the initial password of the rdodova admin this run creates')
+      throw new Error('REGAL_PZ_ADMIN_PASSWORD is not set; it is the initial password of the admin this run creates')
     }
     const hashedPassword = initialPassword ? await Bun.password.hash(initialPassword) : undefined
     const person = await identityForOperatorJoin({
       email,
       password: hashedPassword, // an operator-set password: the helper records who and where
-      firstName: 'Rozalina', lastName: 'Dodova', isActive: true,
+      firstName: admin.firstName, lastName: admin.lastName, isActive: true,
     }, org._id)
     // Operator code (SUPTO compliance) — same allocator as auth.service register
     const operatorCode = await allocateOperatorCode(String(org._id))
@@ -223,12 +239,12 @@ async function bootstrapOrg() {
     try {
       user = await User.create({
         email: person ? person.identity.email : email,
-        username: 'rdodova',
+        username: admin.username,
         // The legacy copy matches the person's own hash, so a rollback signs them in as before.
         password: person && !person.created ? person.identity.password : hashedPassword,
         identityId: person?.identity._id,
-        firstName: 'Rozalina',
-        lastName: 'Dodova',
+        firstName: admin.firstName,
+        lastName: admin.lastName,
         role: 'admin',
         operatorCode,
         orgId: org._id,
@@ -240,7 +256,7 @@ async function bootstrapOrg() {
       if (person?.created) await discardIdentity(person.identity._id)
       throw err
     }
-    console.log(`User created: rdodova (operator ${operatorCode}${person && !person.created ? ', linked to her existing account' : ''})`)
+    console.log(`User created: ${admin.username} (operator ${operatorCode}${person && !person.created ? ', linked to their existing account' : ''})`)
   }
 
   if (!org.ownerId) {
@@ -367,7 +383,7 @@ async function main() {
 
   console.log()
   console.log(`Done! Org "${org.name}" (${ORG_SLUG}): ${allProducts.length} products + stock levels in warehouse Pazardzhik.`)
-  console.log(`Login: ${ORG_SLUG} / rdodova / <REGAL_PZ_ADMIN_PASSWORD, or the password it has been changed to>`)
+  console.log(`Login: ${ORG_SLUG} / ${adminFromEnv().username} / <REGAL_PZ_ADMIN_PASSWORD, or the password it has been changed to>`)
 }
 
 await main()

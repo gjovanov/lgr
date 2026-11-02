@@ -588,11 +588,11 @@ export async function seed() {
   // The dev seed's one password (`test123`, above), like every other seeded user. These two used
   // to carry passwords shaped like real people's, removed from the repo on 2026-10-05.
   const regalUser = await User.create({
-    email: 'rdodova@gmail.com',
-    username: 'rdodova',
+    email: 'regal-owner@lgr.test',
+    username: 'regal-owner',
     password,
-    firstName: 'Rozalina',
-    lastName: 'Dodova',
+    firstName: 'Regal',
+    lastName: 'Owner',
     role: 'admin',
     orgId: org3._id,
     isActive: true,
@@ -600,11 +600,11 @@ export async function seed() {
   })
 
   await User.create({
-    email: 'ddodova@gmail.com',
-    username: 'ddodova',
+    email: 'regal-admin@lgr.test',
+    username: 'regal-admin',
     password,
-    firstName: 'Daniela',
-    lastName: 'Dodova',
+    firstName: 'Regal',
+    lastName: 'Admin',
     role: 'admin',
     orgId: org3._id,
     isActive: true,
@@ -677,7 +677,7 @@ export async function seed() {
   console.log('Seed completed successfully!')
   console.log(`  Acme Corp (acme-corp): admin/test123`)
   console.log(`  Beta Inc (beta-inc): admin/test123`)
-  console.log(`  Regal (regal): rdodova/test123, ddodova/test123`)
+  console.log(`  Regal (regal): regal-owner/test123, regal-admin/test123`)
   console.log(`  ${people} people; multi@lgr.test/test123 works in both acme-corp (manager) and beta-inc (accountant)`)
   console.log(`  ${accounts.length} accounts, ${contacts.length} contacts, ${products.length} Acme products`)
   console.log(`  ${regalProducts.length} Regal products (from Excel)`)

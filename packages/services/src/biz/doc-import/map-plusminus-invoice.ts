@@ -12,7 +12,7 @@
  *   - `header.paymentMethod`: "1" → cash, "2" → bank_transfer (confirmed against one live
  *     invoice of each). Codes for card/check are unconfirmed — left unmapped rather than guessed.
  *   - `header.createdBy` (e.g. "kasa 2") is a TILL id, not a person — confirmed it does NOT
- *     match the "Prepared by" name real invoices show ("Николета Тачева" / "Елена Додова" seen
+ *     match the "Prepared by" name real invoices show (seen
  *     on two different real documents, neither matching their own `createdBy`). Not usable.
  *
  * `placeOfTransaction` / `paymentMethod` / `terms` / `preparedBy` are NOT fields of

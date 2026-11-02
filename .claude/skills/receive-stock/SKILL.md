@@ -83,7 +83,7 @@ the `Всичко` row, aborting on drift.
 ## Usage
 
 ```bash
-export LGR_USERNAME=rdodova LGR_PASSWORD=…   # or LGR_TOKEN
+export LGR_USERNAME=<your-account> LGR_PASSWORD=…   # or LGR_TOKEN
 
 DAY=2026-07-24
 FOLDER="//wsl.localhost/Ubuntu-24.04/home/gjovanov/gjovanov/_docs/$DAY"

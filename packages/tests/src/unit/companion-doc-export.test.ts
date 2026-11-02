@@ -18,7 +18,7 @@ function fixture(kind: CompanionDocData['kind']): CompanionDocData {
       { name: '1019 ТЕКСТИЛНА ЛЕНТА - ЧЕРНА', unit: 'БР', quantity: 2 },
     ],
     sourceDocs: [{ label: 'Фактура', number: 'INV-2026-00042', date: new Date('2026-08-07') }],
-    preparedBy: 'Николета Тачева, 1111',
+    preparedBy: 'Мария Иванова, 1111',
     locale: 'bg',
   }
 }

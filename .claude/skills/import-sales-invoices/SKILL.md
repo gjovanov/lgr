@@ -75,7 +75,7 @@ and is the ground truth the pipeline is checked against.
 
 ```bash
 # credentials (org admin), e.g. from the seed-user skill
-export LGR_USERNAME=rdodova LGR_PASSWORD=...   # or LGR_TOKEN=<jwt>
+export LGR_USERNAME=<your-account> LGR_PASSWORD=...   # or LGR_TOKEN=<jwt>
 
 DAY=2026-07-21
 FOLDER="//wsl.localhost/Ubuntu-24.04/home/gjovanov/gjovanov/_docs/$DAY"

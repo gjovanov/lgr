@@ -47,7 +47,7 @@ export function parseSlovom(rawText: string): string | undefined {
   return m ? clean(m[1]).replace(/\s+/g, ' ') : undefined
 }
 
-/** The document author ("Съставил: Николета Тачева"). */
+/** The document author ("Съставил: Мария Иванова"). */
 export function parsePreparedBy(rawText: string): string | undefined {
   const m = /Съставил\s*:\s*([^\n]+)/i.exec(rawText || '')
   return clean(m?.[1]) || undefined

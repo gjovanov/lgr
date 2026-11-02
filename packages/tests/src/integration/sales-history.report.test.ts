@@ -42,7 +42,7 @@ async function seed() {
   const org = await createTestOrg()
   const orgId = org._id as Types.ObjectId
   const customer = await createTestContact(orgId, { type: 'customer', companyName: 'Customer Ltd' })
-  const user = await createTestUser(orgId, { firstName: 'Rosalina', lastName: 'Dodova' })
+  const user = await createTestUser(orgId, { firstName: 'Test', lastName: 'Cashier' })
   const wh = await createTestWarehouse(orgId)
   return { orgId, customer, user, wh }
 }
@@ -187,7 +187,7 @@ describe('sales-history — document rows', () => {
       total: 10, amountPaid: 10, createdBy: s.user._id,
     })
     const res = await run(String(s.orgId), { period: DAY })
-    expect(res.rows[0].userName).toBe('Rosalina Dodova')
+    expect(res.rows[0].userName).toBe('Test Cashier')
     expect(res.rows[0].contactName).toBe('Customer Ltd')
   })
 })
