@@ -362,9 +362,15 @@ function refundMethod(refund: { method: string }[] | undefined, original: any): 
   return refund?.[0]?.method || original?.payments?.[0]?.method || original?.paymentMethod || 'cash'
 }
 
-/** A storno: the refund the operator named, and what its receipt prints when it prints one. `total`: what it gives back. */
-function assertStornoTender(refund: { method: string; amount: number }[] | undefined, original: any, printer: RegisterPrinter | null, total = Number(original.total) || 0): void {
-  assertFiscalMethods((refund ?? []).map(p => p.method))
+/**
+ * A storno: the refund the operator named, and what its receipt prints when it prints one. `total`: what it gives back.
+ * `tillSale`: at the till a refund is what a receipt can carry, whichever receipt it prints, as the sale was. A
+ * back-office sale prints nothing and has no drawer, so a bank transfer or `other`, which it may have been paid by, are
+ * its to name. Anything else is no method at all, and is refused the same way.
+ */
+function assertStornoTender(refund: { method: string; amount: number }[] | undefined, original: any, printer: RegisterPrinter | null, tillSale: boolean, total = Number(original.total) || 0): void {
+  const methods = (refund ?? []).map(p => p.method)
+  assertFiscalMethods(tillSale ? methods : methods.filter(m => m !== 'bank_transfer' && m !== 'other'))
   assertCashOnDeliveryExact(refund ?? [], total)
   if (!printer) return
   const method = refundMethod(refund, original)
@@ -716,7 +722,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
         throw new RegisterRefusal(plan.statusCode, plan.body)
       }
       if (!plan.partial) {
-        assertStornoTender(input.payments, original, printsReceipt ? c.printer! : null)
+        assertStornoTender(input.payments, original, printsReceipt ? c.printer! : null, tillSale)
         assertAddsUp(plan.total)
         return { plan, payments: input.payments }
       }
@@ -734,7 +740,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
       const ids: unknown[] = original.register?.stornoedBy ?? []
       const stornos: any[] = ids.length ? await Invoice.find({ _id: { $in: ids }, orgId }, { status: 1, payments: 1 }).lean().exec() : []
       const payments = named ?? refundOfPart(leftByMethod(original, stornos), Math.round(plan.total * 100))
-      assertStornoTender(payments, original, printsReceipt ? c.printer! : null, plan.total)
+      assertStornoTender(payments, original, printsReceipt ? c.printer! : null, tillSale, plan.total)
       return { plan, payments }
     }
 

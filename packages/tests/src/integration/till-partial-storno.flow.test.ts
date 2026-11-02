@@ -1403,6 +1403,58 @@ describe('what else takes a partial storno, and what does not', () => {
     expect((await w.stock()).quantity).toBe(10 - 4 + 1)
   })
 
+  describe('a back-office sale paid by bank: nothing prints, so the method is theirs (the reader, finding 4)', () => {
+    async function byBank(w: TillWorld) {
+      const sold = await w.backOfficeSale(4, { paymentMethod: 'bank_transfer' })
+      expect(sold.status).toBe(200)
+      const id = String(sold.json.invoice.id)
+      return { id, lineId: String((await read(id)).lines[0]._id) }
+    }
+    const press = (w: TillWorld, id: string, body: Record<string, unknown>) =>
+      w.call('POST', `/cash-register/documents/${id}/storno`, { reason: 'customer_return', ...body }, undefined, w.clerkToken)
+
+    it('with nothing named, a part goes back as the sale was paid, as a whole one does', async () => {
+      const w = await tillWorld(app)
+      const { id, lineId } = await byBank(w)
+
+      const r = await press(w, id, { lines: [{ lineId, quantity: 1 }] })
+
+      expect(r.status).toBe(200)
+      const [storno] = await stornosOf(id)
+      expect(storno.payments.map((p: any) => [p.method, p.amount])).toEqual([['bank_transfer', 12]])
+      expect(storno.register.fiscal.state).toBe('none')
+      expect(w.sim!.receipts).toHaveLength(0)
+      expect((await w.stock()).quantity).toBe(7)
+      // And what is left, as the sale was paid.
+      expect((await press(w, id, {})).status).toBe(200)
+      expect((await stornosOf(id))[1].payments.map((p: any) => [p.method, p.amount])).toEqual([['bank_transfer', 36]])
+    })
+
+    it('picked by name, a part and all of a sale alike', async () => {
+      const w = await tillWorld(app)
+      const { id, lineId } = await byBank(w)
+      expect((await press(w, id, { lines: [{ lineId, quantity: 1 }], payments: [{ method: 'bank_transfer', amount: 12 }] })).status).toBe(200)
+      expect((await press(w, id, { payments: [{ method: 'other', amount: 36 }] })).status).toBe(200)
+    })
+
+    it('a method that is none is still refused, and nothing is claimed', async () => {
+      const w = await tillWorld(app)
+      const { id, lineId } = await byBank(w)
+      const r = await press(w, id, { lines: [{ lineId, quantity: 1 }], payments: [{ method: 'crypto', amount: 12 }] })
+      expect([r.status, r.json.code]).toEqual([422, 'payment_method_not_fiscal'])
+      expect((await read(id)).register.stornoState).toBeUndefined()
+    })
+
+    it('at the till the rule stands, text or fiscal: its refund is what a receipt can carry', async () => {
+      const w = await tillWorld(app)
+      for (const nonFiscal of [true, false]) {
+        const s = await threeArticles(w, { nonFiscal })
+        const r = await back(w, s, [[0, 1]], undefined, { payments: [{ method: 'bank_transfer', amount: 12 }] })
+        expect([r.status, r.json.code]).toEqual([422, 'payment_method_not_fiscal'])
+      }
+    })
+  })
+
   it('a sale copied from an old POS row, whose lines have no ids, is named by their place', async () => {
     const w = await tillWorld(app)
     const s = await threeArticles(w)
