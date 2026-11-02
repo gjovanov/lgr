@@ -2801,6 +2801,10 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
 - Refusals, before anything is written: 409 `no_receipt_to_storno` (with `reason`, says refund by bank), 422
   `refund_exceeds_receipts` (with `left`, what goes through if typed: `fittingAmount`), 403
   `refund_requires_manager` (H4: `STORNO_ROLES`, this is a storno door), and all of R1's.
+- ⚠ **A credit note's goods come back at what they left at, never the selling price** (#461 D4, `returnCostOf`): the
+  dispatch of the invoice it corrects or of that invoice's till sale, then today's average in that warehouse, then the
+  purchase price. It is `resolvedUnitCost` on the line, which stock, the layers and the valuation entry read. ⚠ `unitCost`
+  stays the document's price, as on every invoice-born line, because FR-07 and the digest read their value columns off it.
 - ⚠ **A credit note's payment is money OUT:** `createPaymentJournalEntry` posts Dr receivable / Cr cash
   on one, for a bank refund too. Before R2 it posted every outgoing document's as money in. This, the digest's and
   summary's signs and the "Refund" label are the one deliberate change where nothing prints (§2.3).
