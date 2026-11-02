@@ -149,8 +149,9 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
       // FR-04 (#11): when the list is filtered to ONE product (product page's documents
       // tab), report that product's summed line quantity, signed by the movement's
-      // direction — adjustments carry their sign on the line already; a pure-from doc
-      // took stock out; transfers stay unsigned (the ledger tab is the per-WH view).
+      // direction: a pure-from doc took stock out, whatever its type and however its line is
+      // stored (a write-off kept positive read as a green +2); a pure-to doc keeps the sign on
+      // its line; transfers stay unsigned (the ledger tab is the per-WH view).
       let productQuantity: number | undefined
       const singleProductId = query.productId && !(query.productId as string).includes(',')
         ? (query.productId as string).trim()
@@ -159,8 +160,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         const qty = ((m as any).lines || [])
           .filter((l: any) => String(l.productId) === singleProductId)
           .reduce((s: number, l: any) => s + (Number(l.quantity) || 0), 0)
-        const sign = m.type === 'adjustment' ? 1 : (m.fromWarehouseId && !m.toWarehouseId ? -1 : 1)
-        productQuantity = qty * sign
+        productQuantity = m.fromWarehouseId && !m.toWarehouseId ? -Math.abs(qty) : qty
       }
 
       // Strip lines from list response (not needed for table, reduces payload)
