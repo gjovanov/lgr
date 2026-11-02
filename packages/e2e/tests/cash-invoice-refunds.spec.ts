@@ -36,6 +36,9 @@ const ok = async (s: Session, method: string, path: string, body?: unknown) => {
 }
 const device = async () => (await fetch(`${STUB}/state`)).json() as Promise<any>
 const paper = (on: boolean) => fetch(`${STUB}/paper`, { method: 'POST', body: JSON.stringify({ on }) })
+const fault = (body: Record<string, number>) => fetch(`${STUB}/fault`, { method: 'POST', body: JSON.stringify(body) })
+/** The device's close of a receipt: past its money. */
+const CLOSE = 0x38
 const cents = (n: number) => Math.round(n * 100) / 100
 
 let admin: Session
@@ -134,6 +137,7 @@ test.describe('FR-23 R2 — a storno for a refund on a credit note', () => {
   })
 
   test.afterAll(async () => {
+    await fault({}).catch(() => undefined)
     await paper(true).catch(() => undefined)
     if (admin) await call(admin, 'PUT', '', { settings: { cashRegister: settingsBefore ?? { requireConnectedDevice: false } } })
     if (deviceId) {
@@ -294,5 +298,117 @@ test.describe('FR-23 R2 — a storno for a refund on a credit note', () => {
     await row.getByTestId('session-report-open').click()
     const dialog = page.getByRole('dialog').filter({ has: page.getByTestId('session-report') })
     await expect(dialog.getByTestId('session-report-refunds')).toContainText(String(report.counts.refunds))
+  })
+
+  test('a receipt in doubt: printed asks for the number off its slip, since a refund cites it, and goes on without one', async ({ page }) => {
+    // Only a process dying mid-print leaves one, so the state is the browser's here: this is the page.
+    // What the server does with what they say is `cash-invoice-refunds.flow.test.ts`.
+    const { id, total } = await draft('bank_transfer')
+    await ok(cashier, 'POST', `/invoices/${id}/send`, {})
+    const { receipt } = await ok(cashier, 'POST', `/invoices/${id}/payments`, { date: new Date().toISOString().slice(0, 10), amount: total, method: 'cash' })
+    const receiptId = receipt.id
+    await page.route(`**/cash-register/documents/${receiptId}`, async (route) => {
+      const { json } = await call(cashier, 'GET', `/cash-register/documents/${receiptId}`)
+      json.row.fiscal.inDoubt = true
+      return route.fulfill({ json })
+    })
+    const said: unknown[] = []
+    await page.route(`**/cash-register/documents/${receiptId}/settle`, (route) => {
+      said.push(route.request().postDataJSON())
+      return route.fulfill({ json: { document: {} } })
+    })
+
+    await loginForApp(page, 'acme-corp', cashierName, PASSWORD)
+    await page.goto(`/invoicing/cash-sales/${receiptId}/view`)
+    await page.getByTestId('receipt-settle-printed').click()
+
+    const number = page.getByTestId('receipt-settle-number')
+    const confirm = page.getByTestId('receipt-settle-confirm')
+    await expect(page.getByText('this receipt can only be refunded by bank')).toBeVisible()
+    await expect(confirm).toBeEnabled()
+    // Letters are no number a storno can cite.
+    await number.locator('input').fill('ФБ-1')
+    await expect(confirm).toBeDisabled()
+    await number.locator('input').fill('123')
+    await confirm.click()
+    await expect.poll(() => said).toEqual([{ printed: true, receiptNumber: '123' }])
+
+    // Not printed asks for nothing: nothing printed.
+    await page.getByTestId('receipt-settle-not-printed').click()
+    await expect(number).toHaveCount(0)
+    await confirm.click()
+    await expect.poll(() => said.length).toBe(2)
+    expect(said[1]).toEqual({ printed: false })
+
+    // And printed, with nothing typed, says nothing about a number.
+    await page.getByTestId('receipt-settle-printed').click()
+    await number.locator('input').fill('')
+    await confirm.click()
+    await expect.poll(() => said.length).toBe(3)
+    expect(said[2]).toEqual({ printed: true })
+  })
+
+  test('a storno that may have printed: nothing is refunded, a second press prints nothing, and a person settles it on its page', async ({ page }) => {
+    const inv = await paidInvoice(1)
+    const note = await creditNote(inv.id, 'bank_transfer', 1)
+    await ok(cashier, 'POST', `/invoices/${note.id}/send`, {})
+    const press = () => call(cashier, 'POST', `/invoices/${note.id}/payments`, { date: new Date().toISOString().slice(0, 10), amount: note.total, method: 'cash' })
+
+    // The roll runs out at its close: its money is on the device, and the receipt is still open.
+    await fault({ paperOutAt: CLOSE })
+    const first = await press()
+    expect(first.status).toBe(409)
+    expect(first.json.code).toBe('receipt_in_doubt')
+    const stornoId = first.json.receipt.id
+    expect((await device()).receiptOpen).toBe(true)
+    const { invoice: held } = await ok(cashier, 'GET', `/invoices/${note.id}`)
+    expect(held.status).toBe('sent')
+    expect(held.amountPaid ?? 0).toBe(0)
+
+    const before = await device()
+    const again = await press()
+    expect(again.status).toBe(409)
+    expect(again.json.code).toBe('receipt_in_doubt')
+    expect(again.json.receipt.id).toBe(stornoId)
+    expect((await device()).fiscalCommands).toBe(before.fiscalCommands)
+
+    // The session names it, and will not close over it.
+    const preview = await ok(cashier, 'GET', `/trade/pos/session/${till.id}/close-preview`)
+    expect(preview.unfinishedReceipts).toEqual([expect.objectContaining({ id: stornoId, inDoubt: true, kind: 'refund' })])
+
+    await loginForApp(page, 'acme-corp', cashierName, PASSWORD)
+    await page.goto(`/invoicing/cash-sales/${stornoId}/view`)
+    await expect(page.getByTestId('receipt-in-doubt')).toContainText('so nothing was refunded')
+    await expect(page.getByTestId('journal-document-status')).toContainText('In doubt')
+
+    // Still open on the device: what the device does next decides, so nothing is final.
+    await page.getByTestId('receipt-settle-not-printed').click()
+    await expect(page.getByRole('dialog').filter({ hasText: 'It is voided with its number' })).toBeVisible()
+    const refusing = page.waitForResponse(r => r.url().endsWith(`/cash-register/documents/${stornoId}/settle`))
+    await page.getByTestId('receipt-settle-confirm').click()
+    expect((await refusing).status()).toBe(409)
+    await expect(page.getByText('A receipt is still open on the fiscal device')).toBeVisible()
+    await expect(page.getByTestId('receipt-in-doubt')).toBeVisible()
+
+    // Paper back, and the X report it asks for clears it: finished on paper, once.
+    await fault({})
+    await paper(true)
+    await ok(admin, 'POST', `/fiscal/device/${deviceId}/x-report`)
+
+    await page.getByTestId('receipt-settle-printed').click()
+    await expect(page.getByRole('dialog').filter({ hasText: 'The refund is recorded on the credit note' })).toBeVisible()
+    // A storno asks for no number: it is what cites one.
+    await expect(page.getByTestId('receipt-settle-number')).toHaveCount(0)
+    const settling = page.waitForResponse(r => r.url().endsWith(`/cash-register/documents/${stornoId}/settle`))
+    await page.getByTestId('receipt-settle-confirm').click()
+    expect((await settling).status()).toBe(200)
+    await expect(page.getByTestId('receipt-in-doubt')).toHaveCount(0)
+    await expect(page.getByTestId('journal-document-status')).toContainText('Completed')
+    await expect(page.getByText('Storno settled')).toBeVisible()
+
+    const { invoice: refunded } = await ok(cashier, 'GET', `/invoices/${note.id}`)
+    expect(refunded.status).toBe('paid')
+    expect(refunded.amountPaid).toBe(note.total)
+    expect((await ok(cashier, 'GET', `/trade/pos/session/${till.id}/close-preview`)).unfinishedReceipts).toEqual([])
   })
 })

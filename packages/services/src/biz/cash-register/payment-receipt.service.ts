@@ -34,7 +34,7 @@
  * and on a shared device a counter that moved proves nothing about this receipt. It is given up only
  * when it never reached the device, or the device confirms it idle with its counter unmoved. Anything
  * else books no money and prints nothing: it stays held, `unknown` and `inDoubt`, until a person who
- * looked at the device settles it (`settleReceipt`).
+ * looked at the device settles it (`settleInDoubt`).
  *
  * **Cash on delivery** prints at issue, in the device's slot for it, and pays nothing: the courier
  * still owes the invoice. No later payment prints again, because that receipt took all that was owed.

@@ -4,19 +4,16 @@ import ExcelJS from 'exceljs'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
 import { draftOf, gate, line, pay, raw, receiptsOf, send, sessionOf, shown, TODAY, until } from '../helpers/receipt-world'
-import { allowSalesWithoutPrinter, createTestAccount, createTestUser } from '../helpers/factories'
+import { allowSalesWithoutPrinter, createTestAccount } from '../helpers/factories'
 import { AuditLog, DocFile, FiscalDevice, Invoice, Journal, JournalEntry, Org, POSSession, Sequence, StockMovement } from 'db/models'
 import { config } from 'config'
 import { isImmutableRegisterDocument } from 'services/biz/cash-register/immutability'
 import { deviceFromCounter, deviceFromDeadReceipt, setFiscalForwarding } from 'fiscal/fiscal-route'
-import { getPrinter, registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
-import { EltradeFiscalPrinter } from 'fiscal/eltrade'
-import { EltradeSimulator } from '../helpers/eltrade-simulator'
+import { getPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { statsController } from 'invoicing-api/src/controllers/stats.controller'
 import { contactController } from 'invoicing-api/src/controllers/contact.controller'
 import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller'
 import { agingReportController } from 'invoicing-api/src/controllers/aging-report.controller'
-import { persistInvoiceDraft } from 'services/biz/doc-import/persist'
 import { postPosSessionJournal, registerEventHandlers, resetEventHandlers } from 'services/events/handlers'
 import { reportById, validateParams } from 'services/biz/report-registry'
 import { buildDailyDigest } from 'services/biz/digest/daily-digest.service'
@@ -1422,7 +1419,7 @@ describe('print-once, the receipt\'s own (#155): a storno on a device', () => {
     const close = await w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 124, card: 0, other: 0 } })
     expect(close.status).toBe(409)
     expect(close.json.code).toBe('receipts_unfinished')
-    expect(close.json.receipts[0]).toMatchObject({ number: r.invoiceNumber, invoice: note.doc.invoiceNumber, inDoubt: true })
+    expect(close.json.receipts[0]).toMatchObject({ number: r.invoiceNumber, invoice: note.doc.invoiceNumber, inDoubt: true, kind: 'refund' })
   })
 
   it('one that never reached the device is given up: its hold and its claim go, and this one prints', async () => {
