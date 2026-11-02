@@ -3103,6 +3103,79 @@ describe('the write that follows a money-moving edit (the second review, finding
     expect(inv).toMatchObject({ amountPaid: 5, amountDue: 19, status: 'partially_paid' })
   })
 
+  describe('its write decides, so its ledger entries go only once it has landed', () => {
+    /** A rule row of 12 with a posted entry, part-paid since by a receipt held in doubt: the write can only lose. */
+    async function withAnEntry(w: TillWorld, held: boolean) {
+      const d = await unpaidCash(w)
+      const account = await createTestAccount(w.oid, { name: 'Cash', type: 'asset' })
+      const entry: any = await JournalEntry.create({
+        orgId: w.oid, entryNumber: 'JE-2026-90001', date: new Date(), fiscalPeriodId: new Invoice.base.Types.ObjectId(), description: 'Payment', type: 'standard', status: 'posted',
+        lines: [
+          { accountId: account._id, debit: 12, credit: 0, currency: 'EUR', exchangeRate: 1, baseDebit: 12, baseCredit: 0 },
+          { accountId: account._id, debit: 0, credit: 12, currency: 'EUR', exchangeRate: 1, baseDebit: 0, baseCredit: 12 },
+        ],
+        totalDebit: 12, totalCredit: 12, createdBy: w.user._id,
+      })
+      await Invoice.updateOne({ _id: d.id }, {
+        $set: {
+          amountPaid: 12, amountDue: 12, status: 'partially_paid',
+          payments: [{ date: new Date(), amount: 12, method: 'cash', origin: 'cash_on_issue', journalEntryId: entry._id }],
+          ...(held ? { receiptHolds: [{ receiptId: new Invoice.base.Types.ObjectId(), amount: 5 }] } : {}),
+        },
+      })
+      return { d, entry }
+    }
+    const statusOf = async (id: unknown) => ((await JournalEntry.findById(id).lean().exec()) as any).status
+
+    it('a method edit under a receipt held in doubt: the write loses twice, the row stays, and its entry stays posted', async () => {
+      const w = await tillWorld(app)
+      const { d, entry } = await withAnEntry(w, true)
+
+      const r = await w.call('PUT', `/invoices/${d.id}`, { paymentMethod: 'bank_transfer' })
+
+      expect(r.status).toBe(200)
+      const inv = await raw(d.id)
+      expect(inv.payments.map((p: any) => p.origin)).toEqual(['cash_on_issue'])
+      expect(inv.amountPaid).toBe(12)
+      expect(await statusOf(entry._id)).toBe('posted')
+    })
+
+    it('with nothing holding it the row goes, and its entry with it', async () => {
+      const w = await tillWorld(app)
+      const { d, entry } = await withAnEntry(w, false)
+
+      const r = await w.call('PUT', `/invoices/${d.id}`, { paymentMethod: 'bank_transfer' })
+
+      expect(r.status).toBe(200)
+      expect((await raw(d.id)).payments).toHaveLength(0)
+      expect(await statusOf(entry._id)).toBe('voided')
+    })
+
+    it('an entry that cannot be voided does not fail the edit: the row is gone, and it is logged', async () => {
+      const w = await tillWorld(app)
+      const { d, entry } = await withAnEntry(w, false)
+      // Its accounts cannot be read back.
+      const real = JournalEntry.findById
+      let failed = false
+      ;(JournalEntry as any).findById = function (id: unknown) {
+        if (String(id) === String(entry._id) && !failed) {
+          failed = true
+          throw new Error('the database went away')
+        }
+        return (real as any).call(JournalEntry, id)
+      }
+      let r: any
+      try {
+        r = await w.call('PUT', `/invoices/${d.id}`, { paymentMethod: 'bank_transfer' })
+      } finally {
+        ;(JournalEntry as any).findById = real
+      }
+
+      expect(r.status).toBe(200)
+      expect((await raw(d.id)).payments).toHaveLength(0)
+    })
+  })
+
   it('a second one in the second gap: the rule gives up, logs, and leaves the document as the payments left it', async () => {
     const w = await tillWorld(app)
     const d = await unpaidCash(w)

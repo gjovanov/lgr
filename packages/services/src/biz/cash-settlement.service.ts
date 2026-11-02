@@ -131,9 +131,11 @@ async function applySettlement(orgId: string, invoiceId: string, userId: string,
   let added = 0
   let removed = 0
   let next: any[] = [...manual, ...own]
+  /** The rows this call takes back, whose ledger entries go once the write has landed. */
+  let retiring: any[] = []
   if (stale.length) {
     removed += sum(stale)
-    await retireAll(stale)
+    retiring = stale
   }
   if (origin && settles) {
     const outstanding = round2(total - sum(next))
@@ -144,7 +146,7 @@ async function applySettlement(orgId: string, invoiceId: string, userId: string,
     } else if (outstanding < 0 && own.length) {
       // The total went down after it was settled: the automatic part shrinks to what is owed.
       removed += sum(own)
-      await retireAll(own)
+      retiring = [...retiring, ...own]
       added = Math.max(0, round2(total - sum(manual)))
       next = added ? [...manual, autoPayment(inv, added, origin)] : manual
     }
@@ -180,6 +182,12 @@ async function applySettlement(orgId: string, invoiceId: string, userId: string,
     statusHistory,
   } as any, { 'receiptHolds.0': { $exists: false }, amountPaid: inv.amountPaid ?? null, ...notBeingVoided() })
   if (!written) return LOST
+  // ⚠ After the write, never before it. A write that lost keeps its row, and a row whose entry was voided
+  // has dropped out of the ledger with the document still saying it was paid. It can lose twice while a
+  // receipt holds the document. Past the write the row is gone, so a failure here is a person's to see.
+  await retireAll(retiring).catch((e: any) => {
+    logger.error({ orgId, invoiceId, entries: retiring.map(p => String(p.journalEntryId ?? '')), error: e?.message }, 'An automatic payment was withdrawn and its journal entry could not be voided')
+  })
   if (!added && !removed) return { action, amount: 0 }
 
   const changes: Array<{ field: string; oldValue: unknown; newValue: unknown }> = []
