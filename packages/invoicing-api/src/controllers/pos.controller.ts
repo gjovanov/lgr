@@ -13,7 +13,7 @@ import { Org, POSSession } from 'db/models'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import {
-  RegisterRefusal, insertRegisterDocument, releaseOrphanClaimsOfSession, runSaleSteps, saleIncrements, settleKeyedDocument, tillSaleDocument,
+  RegisterRefusal, insertRegisterDocument, isPendingNumber, releaseOrphanClaimsOfSession, runSaleSteps, saleIncrements, settleKeyedDocument, tillSaleDocument,
 } from 'services/biz/cash-register/register.service'
 import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
@@ -538,7 +538,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       report: buildSessionReport(session, await loadPosRows({ orgId, sessionId: id, withReceipts: true })),
       openSessionsOnWarehouse: openOnWarehouse,
       unfinishedReceipts: unfinishedRefusal(unfinished.filter(doc => !dead.includes(doc))).receipts,
-      deadSales: dead.map(doc => ({ id: String(doc._id), number: doc.invoiceNumber })),
+      deadSales: dead.map(doc => ({ id: String(doc._id), number: isPendingNumber(doc.invoiceNumber) ? null : doc.invoiceNumber })),
       fiscalDevice: device
         ? { id: device.id, name: device.name, deviceNumber: device.deviceNumber, connected: isDeviceConnected(device.id) || !!(await livePresence({ orgId, deviceNumber: String(device.deviceNumber) })) }
         : null,

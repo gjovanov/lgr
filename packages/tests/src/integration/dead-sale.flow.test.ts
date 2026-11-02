@@ -7,6 +7,7 @@ import { createTestAccount, createTestStockLevel, createTestWarehouse } from '..
 import { AuditLog, Invoice, Journal, JournalEntry, Org, POSSession, StockLevel, StockMovement } from 'db/models'
 import { LEASE_MS } from 'services/biz/hot-path-key'
 import { saleProgress } from 'services/biz/cash-register/in-doubt'
+import { PENDING_NUMBER, isPendingNumber } from 'services/biz/cash-register/pending-number'
 import { postPosSessionJournal } from 'services/events/handlers'
 
 /**
@@ -203,6 +204,17 @@ describe('the close finishes a sale whose request died (finding 3)', () => {
     expect(await sessionOf(w)).toMatchObject({ totalCash: 12, difference: 0 })
     expect((await read(id)).register.fiscal.state).toBe('unknown')
     expect(w.sim!.executed.filter(c => c.cmd === 0x90)).toHaveLength(0)
+  })
+
+  it('one that died before it drew its number is named by its id, never by its placeholder, and the close numbers it', async () => {
+    const w = await tillWorld(app)
+    const id = await deadSale(w, atItsPrint, { key: 'died-before-its-number' })
+    await Invoice.updateOne({ _id: id }, { $set: { invoiceNumber: `${PENDING_NUMBER}died-before-its-number` } })
+
+    expect((await preview(w)).json.deadSales).toEqual([{ id, number: null }])
+
+    expect((await close(w, 112)).status).toBe(200)
+    expect(isPendingNumber((await read(id)).invoiceNumber)).toBe(false)
   })
 
   it('with nothing left on the shelf it goes below zero and says no more: the till\'s rule, and the goods have left', async () => {

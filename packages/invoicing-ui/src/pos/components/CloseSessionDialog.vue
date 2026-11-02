@@ -264,7 +264,7 @@ function diffClass(method: string): string {
 }
 
 const unfinishedReceipts = computed(() => (preview.value?.unfinishedReceipts ?? []).map((r: any) => r.number ?? r.invoice ?? r.id).join(', '))
-const deadSales = computed(() => (preview.value?.deadSales ?? []).map((s: any) => s.number).join(', '))
+const deadSales = computed(() => (preview.value?.deadSales ?? []).map((s: any) => s.number ?? s.id).join(', '))
 
 async function loadPreview() {
   loadingPreview.value = true
@@ -361,7 +361,8 @@ function finish() {
   if (wasClosed) emit('closed')
 }
 
+// Immediately: the sessions list mounts this already open.
 watch(open, (isOpen) => {
   if (isOpen) loadPreview()
-})
+}, { immediate: true })
 </script>

@@ -89,3 +89,62 @@ test('POS Sessions shows the report again, and says why it cannot print it', asy
   expect((await printing).status()).toBe(409)
   await expect(page.getByText('No fiscal printer is set up for this warehouse')).toBeVisible()
 })
+
+test('a close that died in its Z: POS Sessions is the way back, its figures read, and the dialog says which way on', async ({ page }) => {
+  expect(sessionNumber, 'the close above ran').toBeTruthy()
+  // Only a process dying mid-Z leaves one, so the list and the answers are shaped here. The server's side
+  // is `integration/pos-close.flow`. The terminal offers only an open session, so this list is the only way.
+  await page.route(/\/trade\/pos\/session\?/, async (route) => {
+    const res = await route.fetch()
+    const json = await res.json()
+    for (const s of json.sessions ?? []) if (s.sessionNumber === sessionNumber) s.status = 'closing_control'
+    await route.fulfill({ response: res, json })
+  })
+  await page.route(`**/trade/pos/session/${sale.sessionId}/close-preview`, route => route.fulfill({
+    json: {
+      expected: { cash: 112, card: 0, other: 0 }, currency: 'EUR', report: null, openSessionsOnWarehouse: 0,
+      unfinishedReceipts: [], deadSales: [{ id: 'dead-sale-id', number: 'CS-DEAD-0001' }, { id: 'no-number-yet', number: null }], fiscalDevice: null,
+    },
+  }))
+  await page.route(`**/trade/pos/session/${sale.sessionId}/close`, route => route.fulfill({
+    status: 409,
+    json: { code: 'close_interrupted', message: 'The last close of this session stopped during its Z-report.' },
+  }))
+  await loginForApp(page)
+  await page.goto('/invoicing/cash-register/sessions')
+  const row = page.locator('.v-data-table tbody tr').filter({ hasText: sessionNumber })
+  await expect(row).toBeVisible({ timeout: 15000 })
+  await row.getByTestId('session-close-again').click()
+
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Close the register' })
+  // Read as it opens, though this view mounts it already open: what the close books, and whose it is.
+  await expect(dialog.getByTestId('close-dead-sales')).toContainText('CS-DEAD-0001, no-number-yet')
+  await expect(dialog).toContainText('112.00')
+
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+
+  const told = dialog.getByTestId('close-interrupted')
+  await expect(told).toContainText('The last close stopped during its Z-report')
+  await expect(told).toContainText('Check the device')
+  // Back on the form, not at a result: what to do next is theirs to choose once they have looked.
+  await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeEnabled()
+  await expect(dialog.getByRole('button', { name: 'Retry' })).toHaveCount(0)
+})
+
+test('a session whose close is alive offers no way back', async ({ page }) => {
+  expect(sessionNumber, 'the close above ran').toBeTruthy()
+  await page.route(/\/trade\/pos\/session\?/, async (route) => {
+    const res = await route.fetch()
+    const json = await res.json()
+    for (const s of json.sessions ?? []) {
+      if (s.sessionNumber === sessionNumber) Object.assign(s, { status: 'closing_control', closeLeaseUntil: new Date(Date.now() + 600_000).toISOString() })
+    }
+    await route.fulfill({ response: res, json })
+  })
+  await loginForApp(page)
+  await page.goto('/invoicing/cash-register/sessions')
+  const row = page.locator('.v-data-table tbody tr').filter({ hasText: sessionNumber })
+  await expect(row).toBeVisible({ timeout: 15000 })
+  await expect(row.getByTestId('session-report-open')).toBeVisible()
+  await expect(row.getByTestId('session-close-again')).toHaveCount(0)
+})
