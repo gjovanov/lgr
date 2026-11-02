@@ -28,6 +28,13 @@ export function unclaimedMovement(now = new Date()): Record<string, unknown> {
   return { $or: [{ claimedUntil: { $exists: false } }, { claimedUntil: null }, { claimedUntil: { $lt: now } }] }
 }
 
+/** It is no longer a draft. A confirm that lost to another one reads this after its own check passed. */
+export class MovementNotDraftError extends Error {
+  constructor() {
+    super('Only draft movements can be confirmed')
+  }
+}
+
 export class MovementClaimedError extends Error {
   readonly code = 'movement_busy'
   constructor(readonly movementNumber?: string) {
@@ -51,7 +58,7 @@ async function claimDraftMovement(movementId: string): Promise<void> {
   if (claimed) return
   const current: any = await StockMovement.findById(movementId, { status: 1, movementNumber: 1 }).lean().exec()
   if (!current) throw new Error('Stock movement not found')
-  if (current.status !== 'draft') throw new Error('Only draft movements can be confirmed')
+  if (current.status !== 'draft') throw new MovementNotDraftError()
   throw new MovementClaimedError(current.movementNumber)
 }
 
@@ -69,7 +76,7 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
   const r = repos ?? getRepos()
   const movement = await r.stockMovements.findById(movementId)
   if (!movement) throw new Error('Stock movement not found')
-  if (movement.status !== 'draft') throw new Error('Only draft movements can be confirmed')
+  if (movement.status !== 'draft') throw new MovementNotDraftError()
   await claimDraftMovement(movementId)
 
   const orgId = movement.orgId
