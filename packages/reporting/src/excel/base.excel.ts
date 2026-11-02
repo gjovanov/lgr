@@ -2,9 +2,11 @@ import ExcelJS from 'exceljs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { unlink } from 'fs/promises'
+import { randomUUID } from 'crypto'
 
 export async function createWorkbook(): Promise<{ workbook: ExcelJS.stream.xlsx.WorkbookWriter; tmpFile: string }> {
-  const tmpFile = join(tmpdir(), `lgr-export-${Date.now()}.xlsx`)
+  // ⚠ Never the clock alone: two exports in one millisecond shared a file, each writing over the other's rows, and the first to finish deleted it under the second.
+  const tmpFile = join(tmpdir(), `lgr-export-${randomUUID()}.xlsx`)
   const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
     filename: tmpFile,
     useSharedStrings: false,

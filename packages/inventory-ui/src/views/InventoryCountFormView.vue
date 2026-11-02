@@ -2,7 +2,7 @@
   <EntityFormShell
     :title="isEdit ? $t('common.edit') + ' ' + $t('nav.inventoryCount') : $t('common.create') + ' ' + $t('nav.inventoryCount')"
     :subtitle="isEdit ? (countNumber || '') : ''"
-    :status="isEdit ? { steps: ['draft', 'in_progress', 'completed'], current: countStatus } : undefined"
+    :status="isEdit ? statusDef : undefined"
     :actions="formActions"
     :loading="loading"
     back-to="/inventory-counts"
@@ -25,7 +25,7 @@
           <v-text-field v-model="form.date" :label="$t('common.date')" type="date" :rules="[rules.required]" :disabled="readonly" density="compact" />
         </v-col>
         <v-col cols="12" md="4">
-          <v-select v-model="form.type" :label="$t('common.type')" :items="['full', 'partial', 'cycle']" :disabled="readonly" density="compact" />
+          <v-select v-model="form.type" :label="$t('common.type')" :items="countTypes" :disabled="readonly" density="compact" />
         </v-col>
       </v-row>
 
@@ -78,7 +78,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
-import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
+import type { FormAction, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 
 interface Warehouse { _id: string; name: string }
 
@@ -97,6 +97,17 @@ const countNumber = ref('')
 const countStatus = ref('draft')
 const adjustmentMovementId = ref('')
 
+/** The shell translates a pipeline step as an i18n KEY, so a bare word would render as itself. */
+const statusDef = computed<StatusDef>(() => ({
+  steps: ['draft', 'in_progress', 'completed'].map(s => `warehouse.countStatus.${s}`),
+  current: `warehouse.countStatus.${countStatus.value}`,
+}))
+const countTypes = computed(() => [
+  { value: 'full', title: t('warehouse.countType.full') },
+  { value: 'partial', title: t('warehouse.countType.partial') },
+  { value: 'cycle', title: t('warehouse.countType.cycle') },
+])
+
 const form = ref({
   warehouseId: '', date: new Date().toISOString().split('T')[0], type: 'full', notes: '',
   lines: [] as Array<{ productId: string; productName: string; systemQuantity: number; countedQuantity: number; avgCost: number }>,
@@ -108,8 +119,8 @@ const { markSaved, tryRestore } = usePendingChanges({
   icon: 'mdi-clipboard-check',
   getFormData: () => ({ ...form.value }),
   getPreviewFields: () => [
-    { label: 'Type', value: form.value.type },
-    { label: 'Date', value: form.value.date },
+    { label: t('common.type'), value: countTypes.value.find(c => c.value === form.value.type)?.title ?? form.value.type },
+    { label: t('common.date'), value: form.value.date },
   ],
   setFormData: (data) => { form.value = { ...form.value, ...data } },
   isEdit: () => isEdit.value,

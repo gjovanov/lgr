@@ -11,6 +11,7 @@ import { reverseInvoiceStockMovement } from './invoicing.service.js'
 import { retireAutomaticPayments } from './cash-settlement.service.js'
 import { freezeRefusal } from './cash-register/payment-receipt.service.js'
 import { heldOn, notBeingVoided } from './invoice-payment.js'
+import { invoiceTotalsOf } from './document-amounts.js'
 import { localDayEnd, localDayOf, localDayStart } from './local-day.js'
 import { upsertAmountInWords } from 'config/amount-in-words'
 
@@ -141,25 +142,7 @@ export function invoiceLineFrom(src: SourceLine, quantity: number): Record<strin
   }
 }
 
-/** Document totals of invoice lines, components rounded first (as `computeTotals` does). */
-export function invoiceTotalsOf(lines: Array<{ quantity: number; unitPrice: number; discount?: number; taxRate?: number }>): {
-  subtotal: number; discountTotal: number; taxTotal: number; total: number
-} {
-  let subtotal = 0
-  let discountTotal = 0
-  let taxTotal = 0
-  for (const l of lines) {
-    const net = num(l.quantity) * num(l.unitPrice)
-    const disc = net * (num(l.discount) / 100)
-    subtotal += net
-    discountTotal += disc
-    taxTotal += (net - disc) * (num(l.taxRate) / 100)
-  }
-  const s = round2(subtotal)
-  const d = round2(discountTotal)
-  const t = round2(taxTotal)
-  return { subtotal: s, discountTotal: d, taxTotal: t, total: round2(s - d + t) }
-}
+export { invoiceTotalsOf }
 
 /** A claim on a cash sale's quantities: one live invoice of it. */
 export interface Claim {

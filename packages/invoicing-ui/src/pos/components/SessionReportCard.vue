@@ -10,9 +10,9 @@
         <tr v-if="report.counts.refunds" data-testid="session-report-refunds"><td>{{ $t('pos.sessionReport.refunds') }}</td><td class="text-end">{{ report.counts.refunds }}</td></tr>
         <tr><td>{{ $t('pos.sessionReport.stornos') }}</td><td class="text-end">{{ report.counts.stornos }}</td></tr>
         <tr v-if="report.counts.voided"><td>{{ $t('pos.sessionReport.voided') }}</td><td class="text-end">{{ report.counts.voided }}</td></tr>
-        <tr><td>{{ $t('pos.sessionReport.fiscal') }}</td><td class="text-end">{{ report.counts.fiscal }}</td></tr>
-        <tr><td>{{ $t('pos.sessionReport.text') }}</td><td class="text-end">{{ report.counts.text }}</td></tr>
-        <tr v-if="report.counts.unprinted"><td>{{ $t('pos.sessionReport.unprinted') }}</td><td class="text-end">{{ report.counts.unprinted }}</td></tr>
+        <tr data-testid="session-report-fiscal"><td>{{ $t('pos.sessionReport.fiscal') }}</td><td class="text-end">{{ kind('fiscal') }}</td></tr>
+        <tr data-testid="session-report-text"><td>{{ $t('pos.sessionReport.text') }}</td><td class="text-end">{{ kind('text') }}</td></tr>
+        <tr v-if="report.counts.unprinted" data-testid="session-report-unprinted"><td>{{ $t('pos.sessionReport.unprinted') }}</td><td class="text-end">{{ kind('unprinted') }}</td></tr>
         <template v-for="v in report.vat" :key="v.rate">
           <tr class="bg-surface-light"><td colspan="2" class="font-weight-medium">{{ $t('pos.sessionReport.vatRate', { rate: v.rate }) }}</td></tr>
           <tr><td class="ps-6">{{ $t('pos.sessionReport.net') }}</td><td class="text-end">{{ money(v.net) }}</td></tr>
@@ -32,6 +32,11 @@
         <tr v-if="report.documents"><td>{{ $t('pos.sessionReport.documents') }}</td><td class="text-end">{{ report.documents.first }} – {{ report.documents.last }}</td></tr>
         <tr v-if="report.receipts"><td>{{ $t('pos.sessionReport.receipts') }}</td><td class="text-end">{{ report.receipts.first }} – {{ report.receipts.last }}</td></tr>
         <tr v-if="report.zReportNumber"><td>{{ $t('pos.sessionReport.z') }}</td><td class="text-end">{{ report.zReportNumber }}</td></tr>
+        <template v-if="report.deviceZ">
+          <tr class="bg-surface-light" data-testid="session-report-device-z"><td colspan="2" class="font-weight-medium">{{ $t('pos.sessionReport.deviceZ') }}</td></tr>
+          <tr v-if="report.deviceZ.fmTotal !== undefined" data-testid="session-report-fm-total"><td class="ps-6">{{ $t('pos.sessionReport.fmTotal') }}</td><td class="text-end">{{ money(report.deviceZ.fmTotal) }}</td></tr>
+          <tr v-for="t in report.deviceZ.turnover" :key="t.group"><td class="ps-6">{{ $t('pos.sessionReport.vatGroup', { group: t.group }) }}</td><td class="text-end">{{ money(t.amount) }}</td></tr>
+        </template>
       </tbody>
     </v-table>
   </div>
@@ -54,6 +59,10 @@ export interface SessionReportData {
   documents?: { first: string; last: string }
   receipts?: { first: string; last: string }
   zReportNumber?: string
+  /** What each kind of receipt came to. A report kept before it existed has none. */
+  amounts?: { fiscal: number; text: number; unprinted: number }
+  /** What the device's Z answered. A driver with no figures has none. */
+  deviceZ?: { fmTotal?: number; turnover: Array<{ group: string; amount: number }> }
 }
 
 const props = defineProps<{ report: SessionReportData }>()
@@ -61,4 +70,9 @@ const appStore = useAppStore()
 const localeTag = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 const money = (n: number) =>
   new Intl.NumberFormat(localeTag.value, { style: 'currency', currency: props.report.currency || 'EUR' }).format(Number(n) || 0)
+/** A kind of receipt: how many, and what they came to. */
+const kind = (k: 'fiscal' | 'text' | 'unprinted') => {
+  const amount = props.report.amounts?.[k]
+  return amount === undefined ? String(props.report.counts[k]) : `${props.report.counts[k]} · ${money(amount)}`
+}
 </script>

@@ -913,7 +913,10 @@
       "difference": "Разлика",
       "documents": "Документи",
       "receipts": "Сметки",
-      "z": "Z-извештај бр."
+      "z": "Z-извештај бр.",
+      "deviceZ": "Според уредот",
+      "fmTotal": "Вкупно ФМ",
+      "vatGroup": "ДДВ група {group}"
     },
     "device": {
       "why": {
@@ -2065,6 +2068,16 @@
     "variances": "Разлики",
     "completeCount": "Заврши Попис",
     "loadProducts": "Вчитај Производи",
+    "countStatus": {
+      "draft": "Нацрт",
+      "in_progress": "Во тек",
+      "completed": "Завршен"
+    },
+    "countType": {
+      "full": "Целосен",
+      "partial": "Делумен",
+      "cycle": "Цикличен"
+    },
     "contactName": "Име на Контакт",
     "maxStockLevel": "Максимално Ниво на Залиха",
     "minStockLevel": "Минимално Ниво на Залиха",

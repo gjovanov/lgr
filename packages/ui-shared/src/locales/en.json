@@ -1625,7 +1625,10 @@
       "difference": "Difference",
       "documents": "Documents",
       "receipts": "Receipts",
-      "z": "Z-report No."
+      "z": "Z-report No.",
+      "deviceZ": "On the device",
+      "fmTotal": "FM total",
+      "vatGroup": "VAT group {group}"
     },
     "device": {
       "why": {
@@ -2065,6 +2068,16 @@
     "variances": "Variances",
     "completeCount": "Complete Count",
     "loadProducts": "Load Products",
+    "countStatus": {
+      "draft": "Draft",
+      "in_progress": "In Progress",
+      "completed": "Completed"
+    },
+    "countType": {
+      "full": "Full",
+      "partial": "Partial",
+      "cycle": "Cycle"
+    },
     "contactName": "Contact Name",
     "maxStockLevel": "Max Stock Level",
     "minStockLevel": "Min Stock Level",

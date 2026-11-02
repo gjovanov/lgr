@@ -665,6 +665,77 @@ describe('EltradeFiscalPrinter — reports, clock, status, operators', () => {
     expect(sim.reports.map(r => r.data)).toEqual(['2', '0'])
   })
 
+  describe('the Z-report\'s own answer (45h: Closure,FM_Total,TotA..TotH)', () => {
+    const groups = (amounts: Record<string, number> = {}) => ['А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'З'].map(group => ({ group, amount: amounts[group] ?? 0 }))
+    const sale = async (p: ReturnType<typeof printerFor>) => {
+      await p.openFiscalReceipt('0001', 'Иван', 'ED123456-0001-0000001')
+      await p.printSaleLine('Болт', 2, 12, 'Б', undefined, 20)
+      await p.printPayment('cash', 24)
+      await p.closeFiscalReceipt()
+    }
+
+    it('comes back as it came and as it reads: the FM total, and the turnover per VAT group', async () => {
+      const sim = new EltradeSimulator()
+      const p = printerFor(sim)
+      await sale(p)
+
+      const z = await p.printDailyZReport()
+
+      expect(z.reportNumber).toBe('0013')
+      expect(z.raw).toBe('0013,24.00,0.00,24.00,0.00,0.00,0.00,0.00,0.00,0.00')
+      expect(z.fmTotal).toBe(24)
+      expect(z.turnover).toEqual(groups({ Б: 24 }))
+    })
+
+    it('reads a device that answers in cents the same', async () => {
+      const sim = new EltradeSimulator()
+      sim.amountFormat = 'cents'
+      const p = printerFor(sim)
+      await sale(p)
+
+      const z = await p.printDailyZReport()
+
+      expect(z.raw).toBe('0013,2400,0,2400,0,0,0,0,0,0')
+      expect(z.fmTotal).toBe(24)
+      expect(z.turnover).toEqual(groups({ Б: 24 }))
+    })
+
+    it('reads what a physical A3 answered, not fiscalized, after a text sale: zeros, because a text sale moves no counter', async () => {
+      const sim = new EltradeSimulator()
+      sim.zAnswer = '9,0,0,0,0,0,0,0,0,0'
+
+      const z = await printerFor(sim).printDailyZReport()
+
+      expect(z.reportNumber).toBe('9')
+      expect(z.raw).toBe('9,0,0,0,0,0,0,0,0,0')
+      expect(z.fmTotal).toBe(0)
+      expect(z.turnover).toEqual(groups())
+    })
+
+    it('an answer with the closure alone has no figures to read, and invents none', async () => {
+      const sim = new EltradeSimulator()
+      sim.zAnswer = '0014'
+
+      const z = await printerFor(sim).printDailyZReport()
+
+      expect(z).toMatchObject({ reportNumber: '0014', raw: '0014', totalSales: 0 })
+      expect(z.fmTotal).toBeUndefined()
+      expect(z.turnover).toBeUndefined()
+    })
+
+    it('an X reads the same way and closes nothing', async () => {
+      const sim = new EltradeSimulator()
+      const p = printerFor(sim)
+      await sale(p)
+
+      const x = await p.printDailyXReport()
+
+      expect(x.fmTotal).toBe(24)
+      expect(x.turnover).toEqual(groups({ Б: 24 }))
+      expect(sim.dayByGroup).toEqual({ Б: 24 })
+    })
+  })
+
   it('fiscal-memory reports send both dates / zero-padded numbers', async () => {
     const sim = new EltradeSimulator()
     const p = printerFor(sim)

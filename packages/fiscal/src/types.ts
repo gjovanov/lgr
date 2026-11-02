@@ -120,6 +120,12 @@ export interface ZReportResult {
   totalSales: number
   totalReturns: number
   receiptCount: number
+  /** The device's answer as it came, where the driver has one. */
+  raw?: string
+  /** The answer's FM total, where the driver reads one. No fiscalized unit has proven what it holds. */
+  fmTotal?: number
+  /** The answer's turnover per VAT group, in the device's order, where the driver reads it. */
+  turnover?: { group: string; amount: number }[]
 }
 
 /** Storno reason codes per Appendix 29 */

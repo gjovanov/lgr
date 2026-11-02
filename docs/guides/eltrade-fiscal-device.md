@@ -195,3 +195,9 @@ and the payment. Deliberately handled both ways because the document is not spec
 - the 55h answer, written `Result\Name` in the document: a bare name, `P`/`F`, or both with a
   separator are all read;
 - what an A3 answers to a wrong operator password (the simulator answers "not allowed").
+
+**What 45h's FM total and turnover per VAT group hold on a fiscalized unit is not proven either.** An A3 that
+is not fiscalized answered `9,0,0,0,0,0,0,0,0,0` after a text sale. A close keeps the answer on the session
+(`zReport`, raw and parsed) and the session report shows it beside the Z's number, labelled as the device's.
+Nothing compares it with LGR's fiscal amount, because nothing yet says the two should agree: read both on the
+first fiscalized device.

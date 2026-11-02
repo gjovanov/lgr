@@ -441,10 +441,11 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
     const outcome = await Promise.race([desktopBridge.closed.then(() => 'closed'), Bun.sleep(15_000).then(() => 'still open after 15 s')])
     expect(outcome).toBe('closed')
 
-    // Nothing holds it any more, on either pod: refused, nothing printed.
+    // Nothing holds it any more, on either pod: refused, nothing printed. 503 while the bridge's own close
+    // has not yet taken its row off, 409 once it has, and which of the two is a matter of milliseconds.
     const after = till2.reports.length
     const refused = await api('a', 'POST', `/fiscal/device/${device._id}/x-report`)
-    expect(refused.status).toBe(503)
+    expect([409, 503]).toContain(refused.status)
     expect(till2.reports.length).toBe(after)
   }, 60_000)
 

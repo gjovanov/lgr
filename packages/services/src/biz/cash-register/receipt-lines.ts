@@ -1,4 +1,5 @@
 import { roundCents } from 'config/pos-totals'
+import { withLineAmounts } from '../document-amounts.js'
 
 /**
  * FR-23 §2.2 — what the fiscal receipt of a payment on an invoice says.
@@ -274,7 +275,8 @@ export function movesPrintedMoney(
   if (edit.lines === undefined) return false
   const perRate = (lines: SourceLine[]) => {
     const out = new Map<number, number>()
-    for (const l of lines) out.set(num(l.taxRate), (out.get(num(l.taxRate)) || 0) + num(l.lineTotal ?? lineGross(l)))
+    // A line sent or stored without its total counts as `POST` and `PUT` would total it.
+    for (const l of lines) out.set(num(l.taxRate), (out.get(num(l.taxRate)) || 0) + num(withLineAmounts(l).lineTotal))
     return out
   }
   const before = perRate(doc.lines || [])
@@ -282,10 +284,4 @@ export function movesPrintedMoney(
   // A cent's slack: a form that totals a line again may round it its own way, and the total above
   // is compared exactly.
   return [...new Set([...before.keys(), ...after.keys()])].some(r => Math.abs(toCents(before.get(r) || 0) - toCents(after.get(r) || 0)) > 1)
-}
-
-/** A line sent without its total, as `POST /invoices` computes one. */
-function lineGross(l: SourceLine): number {
-  const net = num(l.quantity) * num(l.unitPrice) * (1 - num(l.discount) / 100)
-  return net * (1 + num(l.taxRate) / 100)
 }

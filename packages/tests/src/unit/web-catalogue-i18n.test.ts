@@ -142,6 +142,27 @@ describe('the web catalogue (FR-22.11)', () => {
     }
   })
 
+  it('names an inventory count\'s every step and type, and its form shows those and no raw word', () => {
+    // The shell translates a pipeline step as a KEY, so a bare `in_progress` rendered as itself, in
+    // every language, and a v-select shows a string item as it is.
+    for (const locale of LOCALES) {
+      for (const step of ['draft', 'in_progress', 'completed']) {
+        expect({ locale, step, has: keys[locale].has(`warehouse.countStatus.${step}`) }).toEqual({ locale, step, has: true })
+      }
+      for (const type of ['full', 'partial', 'cycle']) {
+        expect({ locale, type, has: keys[locale].has(`warehouse.countType.${type}`) }).toEqual({ locale, type, has: true })
+      }
+    }
+    const form = readFileSync(join(PACKAGES, 'inventory-ui', 'src', 'views', 'InventoryCountFormView.vue'), 'utf8')
+    // What it used to hand the shell and the select, and the names on its pending-changes preview.
+    expect(/:status="[^"]*'in_progress'/.test(form)).toBe(false)
+    expect(/:items="\[\s*'full'/.test(form)).toBe(false)
+    expect(/label:\s*'/.test(form)).toBe(false)
+    // What it hands them now: the step and the type, each through its key.
+    expect(form.includes('`warehouse.countStatus.${s}`')).toBe(true)
+    expect(form.includes("t('warehouse.countType.cycle')")).toBe(true)
+  })
+
   it('no app closes its message bar with a hard-coded English „Close"', () => {
     // Every SPA's App.vue had `<v-btn …>Close</v-btn>` under every snackbar (B-14).
     const roots = readdirSync(PACKAGES).filter(p => p.endsWith('-ui') || p === 'ui-shared' || p === 'ui-shell')
