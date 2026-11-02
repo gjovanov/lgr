@@ -1,7 +1,7 @@
 /**
  * Book internal warehouse TRANSFERS-OUT from a PlusMinus "СКЛАДОВА РАЗПИСКА за
  * приемане/предаване на МЦ" (sklrazp_*.pdf) — goods handed from СКЛАД-1 (the LGR
- * warehouse) to another РЕГАЛ store that LGR does not track. Each разписка becomes
+ * warehouse) to another of the org's stores that LGR does not track. Each разписка becomes
  * ONE completed movement that REDUCES the warehouse's stock (destination untracked
  * — "moved out into the unknown", single-WH tenant).
  *
@@ -19,9 +19,9 @@
  *
  *   {
  *     "transfers": [
- *       { "number": "0000012643", "date": "2026-07-24",
- *         "destination": "СКЛАД - УЛ.М.ВОЙВОДА 12", "total": 1027.91,
- *         "lines": [ { "name": "ВИНТ 6Х120", "qty": 1000, "value": 75.00 }, ... ] }
+ *       { "number": "0000615643", "date": "2026-07-24",
+ *         "destination": "СКЛАД - УЛ.ПРИМЕРНА 12", "total": 1000.00,
+ *         "lines": [ { "name": "ВИНТ 6Х120", "qty": 1000, "value": 80.00 }, ... ] }
  *     ]
  *   }
  *
@@ -40,7 +40,7 @@
  *   --items <path>    (required) transfers JSON as above
  *   --org <slug>      org slug (default: regal-pz)
  *   --api <url>       API base (default: https://lgrai.app)
- *   --warehouse <c>   source warehouse code (default: org default = Пазарджик)
+ *   --warehouse <c>   source warehouse code (default: org default)
  *   --max-date <ISO>  only process transfers dated <= this (inclusive) — e.g. to
  *                     book only the pre-snapshot backlog
  *   --skip-unmatched  proceed without lines whose product has no catalog match
@@ -203,7 +203,7 @@ async function main() {
   const mvBefore = (await http('GET', org('/warehouse/movement?page=0&size=1'))).total ?? 0
 
   // Dedup by the document NUMBER, not by the marker's spelling: the PDF-era flow wrote
-  // `sklrazp:0000012705`, the API flow writes `sklrazp:12705` (see lib/doc-marker.ts — a substring
+  // `sklrazp:0000615705`, the API flow writes `sklrazp:615705` (see lib/doc-marker.ts — a substring
   // check on one spelling re-booked ~50 already-booked transfers in a dry-run on regal-pz).
   const alreadyBooked = await loadBookedDocNumbers(async (page, size) => {
     const d = await http('GET', org(`/warehouse/movement?type=transfer&page=${page}&size=${size}&sortBy=_id&sortOrder=asc`))

@@ -6,7 +6,7 @@
  * carries that sale — and booking the invoice's dispatch as well takes the same goods out twice.
  *
  * That is not hypothetical. regal-sf's first day in LGR (2026-10-01) had three such invoices —
- * INV-2000128350, INV-2000128365 and INV-2000128367, seventeen lines between them — and every one
+ * INV-2000731350, INV-2000731365 and INV-2000731367, seventeen lines between them — and every one
  * of those lines came out of stock twice. Two products were driven negative. PlusMinus's own
  * snapshot settled it: for all seventeen, `snapshot − LGR` equalled the invoice quantity exactly,
  * so PlusMinus had deducted once.

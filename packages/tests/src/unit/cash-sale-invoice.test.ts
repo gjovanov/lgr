@@ -96,7 +96,7 @@ describe('the printed invoice', () => {
     lines: [{ description: 'Болт М8', quantity: 2, unit: 'бр', unitPrice: 10, taxRate: 20, lineTotal: 24 }],
     cashSaleRef: { cashSaleId: 'x', number: 'CS-2026-00031', issueDate: new Date('2026-10-20') },
   }
-  const html = (inv: any) => buildInvoiceHtml(inv, { name: 'РЕГАЛ ООД' } as any, { companyName: 'Купувач' } as any, undefined, { locale: 'bg' }).html
+  const html = (inv: any) => buildInvoiceHtml(inv, { name: 'ПРОБА ООД' } as any, { companyName: 'Купувач' } as any, undefined, { locale: 'bg' }).html
 
   it('names the cash sale, and prints the sale\'s date as the tax event', () => {
     const h = html(invoice)

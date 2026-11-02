@@ -14,7 +14,7 @@ export interface Party {
   name?: string | null
   /** ЕИК / БУЛСТАТ (registration number, no prefix). */
   company_id?: string | null
-  /** ИН по ДДС (with country prefix, e.g. BG112500982). */
+  /** ИН по ДДС (with country prefix, e.g. BG123456786). */
   vat_id?: string | null
   address?: string | null
   city?: string | null
@@ -180,11 +180,11 @@ export interface MappedMovement {
   fromWarehouseId?: string
   toWarehouseId?: string
   contactId?: string
-  /** Carries the idempotency marker, e.g. "Доставки — 2026-07-27 (stokrazp:3000016107)". */
+  /** Carries the idempotency marker, e.g. "Доставки — 2026-07-27 (stokrazp:3000619107)". */
   notes: string
   /** The marker alone, for duplicate detection. */
   marker: string
-  /** The source document's file stem — "stokrazp_3000016317" — persisted on the movement. */
+  /** The source document's file stem — "stokrazp_3000619317" — persisted on the movement. */
   reference?: string
   lines: MappedMovementLine[]
   totalAmount: number

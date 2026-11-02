@@ -116,7 +116,7 @@ const CYRILLIC: Record<string, string> = {
 
 /**
  * An org address from its name, as the new-org form suggests it: lowercase letters, digits and
- * dashes (the server's rule). Cyrillic is transliterated, so "Регал Пловдив" gives "regal-plovdiv"
+ * dashes (the server's rule). Cyrillic is transliterated, so "Проба Варна" gives "proba-varna"
  * rather than nothing.
  */
 export function orgSlugFromName(name: string): string {

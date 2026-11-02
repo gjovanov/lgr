@@ -14,7 +14,7 @@ import type { Migration } from '../types.js'
  * and this rewrites the rows that are still absolute:
  *
  * 1. `DocFile.currentPath` and local `File.storagePath` go to the stored form
- *    (`<orgId>/docs/2026-08-27/invoicem_3000100827.pdf`). A path under no known upload root is
+ *    (`<orgId>/docs/2026-08-27/invoicem_3000703827.pdf`). A path under no known upload root is
  *    left as it is and counted: a reader names it when it is opened.
  * 2. A local `File` row whose bytes are missing, but which a `DocFile` of the same org points at
  *    (`fileId`), is pointed at that document's path, and its `sha256` recorded. The Files app

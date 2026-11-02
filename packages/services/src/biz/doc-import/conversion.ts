@@ -7,8 +7,8 @@
  * shipment.
  *
  * The PDF export drops that comment, so nothing in the document says so. Booking the invoice's
- * dispatch therefore takes the same goods out twice. That is not hypothetical: INV-3000100974
- * (БеПро ЕАД, 2026-09-08) dispatched all 50 lines of складова разписка 0000012713 a second time and
+ * dispatch therefore takes the same goods out twice. That is not hypothetical: INV-3000703974
+ * (Тест Фирма ЕАД, 2026-09-08) dispatched all 50 lines of складова разписка 0000615713 a second time and
  * put 47 products out by exactly the note's quantity.
  *
  * What is left to recognise it by is the shipment itself, so the test is deliberately narrow —
@@ -34,7 +34,7 @@ import type { MappedInvoice } from './types.js'
 const WINDOW_DAYS = 60
 
 export interface StockNoteConversion {
-  /** The idempotency marker of the source note, e.g. `sklrazp:0000012713`. */
+  /** The idempotency marker of the source note, e.g. `sklrazp:0000615713`. */
   marker: string
   /** Its document number alone, for display. */
   docNumber: string
@@ -44,13 +44,13 @@ export interface StockNoteConversion {
   quantity: number
 }
 
-/** The marker sits inside the notes as `Прехвърляне — 2026-09-01 (sklrazp:0000012713)`, so the
+/** The marker sits inside the notes as `Прехвърляне — 2026-09-01 (sklrazp:0000615713)`, so the
  *  document number stops at the closing bracket — `\S+` would carry it into the key. */
 const MARKER = /\b(sklrazp|sklisk):([^\s)]+)/
 /**
  * A re-uploaded note's missing lines are booked by `reconcileDocFile`, which stamps
  * `reconcile:<docNumber>-v<version>` instead of the note's own marker. Those movements are part of
- * the same shipment — разписка 0000012713 gained two 100-unit lines that way — so they have to be
+ * the same shipment — разписка 0000615713 gained two 100-unit lines that way — so they have to be
  * folded in, or the comparison runs against a document that is short by exactly them.
  */
 const RECONCILE = /\breconcile:([^\s)]+?)-v\d+/

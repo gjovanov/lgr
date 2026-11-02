@@ -53,10 +53,10 @@ const FOOTER = /(Крайна\s+сума|Данъчна\s+основа|Слов�
  * happened to sit under. Both variants were live bugs on 2026-09-01:
  *
  *   - the page counter "1/2" sits under Цена, so "0.0373" + "1/2" read as NO price and that row's
- *     value silently left the document's sum (stokrazp 3000016332);
+ *     value silently left the document's sum (stokrazp 3000619332);
  *   - the program footer starts at column 0, i.e. inside Име, so a name became
  *     "КАБЕЛНИ - ПРЕВР. - 430Х4.8 - БЕЛИ продукт ПЛЮС МИНУС тел.:", matched no product, and 2 units
- *     were never booked (sklrazp 0000012713).
+ *     were never booked (sklrazp 0000615713).
  */
 const PAGE_TRAILER = /^\s*\d{1,3}\s*\/\s*\d{1,3}\s*$|Програмен\s+продукт|ПЛЮС\s+МИНУС\s+тел|www\.plusminus\.com/
 /**
@@ -194,7 +194,7 @@ export function findColumns(lines: string[]): { cols: TableColumn[]; headerEnd: 
   // never ran. A continuation page opens with the fragments of the row that straddles the page
   // break — those carry no name, so the name guard does not fire either — and their digits were
   // folded into the HEADINGS: "Кол" became "Кол00" and "Цена" became "Цена9". `read()` looks the
-  // price up by the exact label "Цена", found none, and 47 of stokrazp 3000016398's 63 lines could
+  // price up by the exact label "Цена", found none, and 47 of stokrazp 3000619398's 63 lines could
   // not reconcile. The document fell to the model, which returned 18,695,071 units against a
   // printed total of -1664.42.
   const qtyIdx = cols.findIndex(c => QTY_HEADING.test(c.label))
@@ -205,7 +205,7 @@ export function findColumns(lines: string[]): { cols: TableColumn[]; headerEnd: 
     if (qtyIdx >= 0 && /[0-9]/.test(lines[e].slice(cols[qtyIdx].start, cols[qtyIdx].end))) break
     // A HEADING IS NEVER A DECIMAL NUMBER. „Цена 1".."Цена 10" carry digits, so digits alone cannot
     // decide this — but nothing in these exports is headed by a figure with a fractional part.
-    // INV-3000101279 prints its unit price „1.3207" on the line directly below the header, with the
+    // INV-3000704279 prints its unit price „1.3207" on the line directly below the header, with the
     // name and quantity cells both empty: both guards above passed, the token folded into the
     // heading, and the column came out as „Цена1.3207". No „Цена" column then existed at all, so
     // the price read as null and the single-line invoice was refused as not reconciling.
@@ -234,7 +234,7 @@ export function findColumns(lines: string[]): { cols: TableColumn[]; headerEnd: 
  * How far the lines may sum from the printed total.
  *
  * When the export prints Стойност per line, the two agree to the cent and 0.05 is right — stokrazp
- * 3000016369 and 3000016370 land on their footers EXACTLY. That case is unchanged, and it is the
+ * 3000619369 and 3000619370 land on their footers EXACTLY. That case is unchanged, and it is the
  * one where the sum is what guards against a dropped line.
  *
  * Some корекция exports carry no Стойност column at all. Each line value is then DERIVED as
@@ -243,13 +243,13 @@ export function findColumns(lines: string[]): { cols: TableColumn[]; headerEnd: 
  * printed — the identical bound the per-line check already applies. A flat half-cent per line does
  * not describe that at all, and it cost FIVE documents in eight days:
  *
- *   3000016465   16000 × 0.014 (3 dp) is worth up to 8.00 of rounding; refused over 0.07
- *   3000016432    7900 units at 4 dp, ~0.40 of rounding; refused over 0.09
- *   3000016421    5000 × 0.0122 where the real price is ~0.01224; refused over 0.20
- *   3000016424    the price unreadable on 5 of 21 lines, so their values were missing entirely
- *   3000016398    70 lines of derived values; refused over 0.07 (papered over at the time)
+ *   3000619465   16000 × 0.014 (3 dp) is worth up to 8.00 of rounding; refused over 0.07
+ *   3000619432    7900 units at 4 dp, ~0.40 of rounding; refused over 0.09
+ *   3000619421    5000 × 0.0122 where the real price is ~0.01224; refused over 0.20
+ *   3000619424    the price unreadable on 5 of 21 lines, so their values were missing entirely
+ *   3000619398    70 lines of derived values; refused over 0.07 (papered over at the time)
  *
- * Every one fell to the model, which is where invented quantities come from — and 3000016465 could
+ * Every one fell to the model, which is where invented quantities come from — and 3000619465 could
  * not even do that, because the sidecar answered 502.
  *
  * ⚠ Widening it costs the completeness check, so it is only widened where something ELSE provides
@@ -272,7 +272,7 @@ function footerSlack(lines: ParsedTableLine[], noTotals: boolean, numbered = fal
  *
  * Every line fails the arithmetic gate (there is no quantity to reconcile against a value), so
  * such a document used to be refused and handed to the model, which INVENTED quantities: stokrazp
- * 3000016390 came back with 1500 of each ИЗОЛИРБАНД against a real stock of ~13, and 29 of that
+ * 3000619390 came back with 1500 of each ИЗОЛИРБАНД against a real stock of ~13, and 29 of that
  * day's 39 stock differences were exactly those numbers. Reading it here is both safe and exact —
  * there is nothing to get wrong, because the answer is zero.
  *
@@ -313,7 +313,7 @@ function footerDiscount(lines: string[]): number | null {
 /**
  * Every line reduced by ONE factor that the document never states.
  *
- * Invoice 3000101088 prices two lines at 66.0419 and 1.4061 and values them at 125.48 and 9.35 —
+ * Invoice 3000704088 prices two lines at 66.0419 and 1.4061 and values them at 125.48 and 9.35 —
  * both exactly 95% of quantity × price — with no „ТО" column and no „Отстъпка" line anywhere. A
  * customer tier price was applied while the base price was printed, and the layout has no column
  * that says so. Refused, the document went to the model, which is how invented quantities have
@@ -375,7 +375,7 @@ function uniformDiscountView(lines: ParsedTableLine[], footer: number | null): {
  * are half-percent steps, and exactly one of them must reproduce the printed value under that same
  * rounding — otherwise this refuses like before.
  *
- * INV-3000101279 (2026-10-01): 12 × 1.3207 prints 15.06, not 15.85. −5% gives
+ * INV-3000704279 (2026-10-01): 12 × 1.3207 prints 15.06, not 15.85. −5% gives
  * round4(1.3207 × 0.95) = 1.2547, × 12 = 15.0564 → 15.06; −4% prints 14.90 and −6% 15.21, so the
  * reading is unique. Confirmed independently afterwards — 1.3207 is that product's catalog
  * sellingPrice to the digit, so the printed price is the list price and the discount is real.
@@ -477,7 +477,7 @@ const read = (r: Row) => ({ qty: num(r.qty), total: num(r.val), printed: num(r.p
  * The factor the „ТО" column applies to a line — търговска отстъпка, printed as a percentage
  * beside the price. A фактура carrying it values the line at `Кол × Цена × factor`, so reading
  * the price and ignoring the discount makes every line fail its own arithmetic: invoice
- * 3000100960 prints 4.86 and 5 against a value of 9.23 for two units, and 2 × 4.86 is 9.72.
+ * 3000703960 prints 4.86 and 5 against a value of 9.23 for two units, and 2 × 4.86 is 9.72.
  *
  * An absent or empty column is no discount, never an unknown — the layout simply does not offer
  * one. A value outside 0..100 is not a percentage, so the row is left to fail rather than scaled
@@ -517,7 +517,7 @@ const reconciles = (r: Row | null): boolean => {
   // The printed price is the 2 dp rounding of the real one, so the test is that the price the
   // document implies rounds back to what it shows. Dividing by the discount factor as well as the
   // quantity magnifies the value's own half-cent, and by exactly 1/(qty × f) — without that term
-  // 3000100960's „2 × 3.83 at 5% = 7.29" misses by 0.0068 against a flat allowance of 0.0051 and
+  // 3000703960's „2 × 3.83 at 5% = 7.29" misses by 0.0068 against a flat allowance of 0.0051 and
   // a correctly read line is refused. At f = 1 the term is dropped and the check is unchanged.
   const slack = 0.0051 + (f === 1 ? 0 : 0.005 / Math.abs(qty * f))
   return Math.abs(Math.abs(total / (qty * f)) - Math.abs(printed)) <= slack
@@ -558,9 +558,9 @@ function rowToLine(r: Row, priceLabels: string[], noTotals: boolean): ParsedTabl
     // nothing in it that can be checked. Two real shapes, both from regal-sf's wide 12-column
     // разписка, and in every case the document's own total still reconciled to the cent:
     //   · a PRICE RESTATEMENT — prices but no quantity and no value, so it delivers nothing
-    //     (2222036030 line 1: „Имбус М12х70 - DIN912 12.9 Bl" at 0.6954, Кол empty);
+    //     (2222639030 line 1: „Имбус М12х70 - DIN912 12.9 Bl" at 0.6954, Кол empty);
     //   · a QUANTITY with no money against it — an internal correction booked „Доставчик: склад",
-    //     i.e. from ourselves (2222036043, all 26 lines, signed, against a zero footer).
+    //     i.e. from ourselves (2222639043, all 26 lines, signed, against a zero footer).
     // Accepting these cannot hide a value the document DID print: dropping one would leave the
     // lines short of the footer, and the footer check is what decides whether the table is accepted
     // at all. What it cannot check is the QUANTITY, so such lines are counted and reported rather
@@ -631,7 +631,7 @@ function parsePage(text: string, startAt = 1): ParsedTable {
      * A row number wraps down this column like everything else ('10' arrives as '1' then '0'), so
      * the digits are accumulated until they spell the number expected next. On a CONTINUATION page
      * the first cell can be the TAIL of the previous page's row number — page four of stokrazp
-     * 3000016398 opens with the '9' of row 59, whose '5' printed on page three. Starting the walk
+     * 3000619398 opens with the '9' of row 59, whose '5' printed on page three. Starting the walk
      * on that orphan puts it permanently out of step: it opened NO rows at all, the arithmetic
      * delimiter took over, and three rows merged into one. So retry, dropping the orphan.
      */
@@ -665,7 +665,7 @@ function parsePage(text: string, startAt = 1): ParsedTable {
     // scores highest at (0, 0) and is left alone.
     //
     // Two things go wrong at a page break, and they compound. The first cell can be the TAIL of
-    // the previous page's number (page four of stokrazp 3000016398 opens with the '9' of row 59,
+    // the previous page's number (page four of stokrazp 3000619398 opens with the '9' of row 59,
     // whose '5' printed on page three) — that is `drop`. And a row straddling the break is counted
     // on neither page, so the running row count the caller passes in is one short — that is
     // `delta`. Together they left the page numbering nothing at all: the arithmetic delimiter took
@@ -693,7 +693,7 @@ function parsePage(text: string, startAt = 1): ParsedTable {
     const starts = numbered ? openers.has(i) : (!!name && reconciles(cur))
     // A fragment carrying nothing but price text is NOT a row of its own — a row needs a name or a
     // quantity. It is the top half of the row below it: PlusMinus wraps a long price cell UPWARDS,
-    // so INV-3000101279 prints „1.3207" between the header and its only item. Closing it out would
+    // so INV-3000704279 prints „1.3207" between the header and its only item. Closing it out would
     // both strand a junk line and take the price away from the row it belongs to.
     if (cur && starts && !priceFragment(cur)) { rows.push(cur); cur = null }
     if (!cur) cur = blank()
@@ -743,7 +743,7 @@ export function parseTable(text: string): ParsedTable {
   // „Кол" here did not: on the wide export that heading wraps to „Ко" + „л" on the next row, so NO
   // page matched, the multi-page branch was skipped, and the whole document was parsed as ONE page
   // — which stops at the first page trailer. Page 1 was read and every later page silently dropped:
-  // 19 of stokrazp 3000016370's 37 rows. The document then failed its own footer check (correctly)
+  // 19 of stokrazp 3000619370's 37 rows. The document then failed its own footer check (correctly)
   // and fell to the model, which misread the wrapped quantities by a factor of ten.
   const pages = text.split('\f').filter(p => findColumns(p.split('\n')) !== null)
   if (pages.length <= 1) return parsePage(text)
@@ -756,7 +756,7 @@ export function parseTable(text: string): ParsedTable {
  *
  * The printer does not care where a row ends: it fills the page and continues the SAME row at the
  * top of the next one. That tail carries no name and no row number — just digits under the
- * headings — so each half is nonsense alone. stokrazp 3000016398 prints „ВИНТ 8Х90 - ТХ" at the
+ * headings — so each half is nonsense alone. stokrazp 3000619398 prints „ВИНТ 8Х90 - ТХ" at the
  * foot of page three and finishes it on page four; read per page they came out as one row
  * described „ВИНТ 8Х90 - ТХ ВИНТ 8Х100 - ТХ" with a quantity of -97.000934 — which is -97 and 934
  * run together.

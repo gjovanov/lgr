@@ -35,12 +35,12 @@ missing quantities as ONE completed receipt movement.
 
    ```json
    {
-     "receipt": "3000016107",
+     "receipt": "3000619107",
      "date": "2026-07-27",
-     "supplier": "PROJAHN-PRAZISIONSWERKZEUGE GMBH",
+     "supplier": "BEISPIEL-WERKZEUGE GMBH",
      "items": [
        { "name": "49160 СВРЕДЛО - Ф16 - с намалена опашка", "qty": 2, "unit": "pcs",
-         "cost": 8.24, "tiers": { "Цена 1": 7.49, "Цена 2": 6.24 } }
+         "cost": 8.00, "tiers": { "Цена 1": 7.00, "Цена 2": 6.00 } }
      ]
    }
    ```
@@ -118,8 +118,8 @@ Options: `--org <slug>` (default `regal-pz`) · `--api <url>` ·
 - The разписка lists ALL items of the delivery — pick ONLY the unmatched ones.
 - Unit: разписка `Мяр` is Bulgarian (`БР`→`pcs`, `М`→`m`, `КГ`→`kg`); the
   script normalizes common codes, default `pcs`.
-- First tested live 2026-07-28 on разписка 3000016107 (PROJAHN): 5 products
-  REGALPZ-23105…23109 + SM-2026-00033 (Σqty 26, Σcost 242.24), re-run no-op.
+- First tested live 2026-07-28 on разписка 3000619107 (BEISPIEL): 5 products
+  REGALPZ-23105…23109 + SM-2026-00033, re-run no-op.
 - New products land untagged in „Общи" — follow up with the `assign-din-tags`
   skill (`bun run scripts/assign-din-tags.ts --org <slug> --execute`, idempotent)
   to give them DIN/ISO/dimension/coating tags + their fastener category.

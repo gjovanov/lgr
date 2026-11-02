@@ -30,7 +30,7 @@ Return **only** a single JSON object (no prose, no code fences) with exactly thi
 
 - Output **only** the JSON object. Use `null` for anything absent — never invent values.
 - **Supplier = ДОСТАВЧИК**, **customer = ПОЛУЧАТЕЛ**. Keep all Cyrillic **verbatim** (do not transliterate or "correct" product names).
-- `company_id` = **ЕИК/БУЛСТАТ** (digits only). `vat_id` = **ИН по ДДС** (keep the country prefix, e.g. `BG112500982`). `iban` = the IBAN if present.
+- `company_id` = **ЕИК/БУЛСТАТ** (digits only). `vat_id` = **ИН по ДДС** (keep the country prefix, e.g. `BG123456786`). `iban` = the IBAN if present.
 - Dates: convert `DD.MM.YYYY` → `YYYY-MM-DD`. `document_number` = the **Номер** value.
 - Amounts: plain decimals, **no** currency symbols or thousands separators. `vat_rate` is a number (`20`, not `"20%"`).
 - **Currency**: if the amounts are in euro (€) and the text has a line like `1 € = 1.95583 лв`, set `currency: "EUR"` and `exchange_rate: 1.95583`. If amounts are in lev, use `"BGN"`. Otherwise the ISO‑4217 code you see.

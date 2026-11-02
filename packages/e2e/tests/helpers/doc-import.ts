@@ -34,11 +34,11 @@ export async function openImportDialog(page: Page): Promise<Locator> {
 /**
  * Delete any document the stub's fixed number left behind.
  *
- * The OCR stub always reports document 2000122757, and duplicate detection is doing its job
+ * The OCR stub always reports document 2000725757, and duplicate detection is doing its job
  * when it refuses the second import — so a repeatable spec has to start from a clean slate.
  * Only drafts can be deleted; an issued one is reported so the failure is legible.
  */
-export async function cleanupImportedDoc(page: Page, reference = '2000122757'): Promise<void> {
+export async function cleanupImportedDoc(page: Page, reference = '2000725757'): Promise<void> {
   // The app authenticates with a Bearer token held in localStorage, not a cookie — so
   // `page.request` is anonymous unless the header is set explicitly.
   const token = await page.evaluate(() => localStorage.getItem('lgr_token'))

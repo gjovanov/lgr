@@ -27,7 +27,7 @@ LGR silently drifts from reality. This skill finds those gaps — and duplicates
    the scanned range (catches a cross-day gap even when scanning a single day).
 
 `invoicem` and `invoiceProf` are treated as **separate number spaces** (proforma is 7xxx, sales
-is 3000100xxx) — never combined, or the span would be enormous and every proforma would read as
+is 3000703xxx) — never combined, or the span would be enormous and every proforma would read as
 a false sales gap.
 
 ## Usage
@@ -48,13 +48,18 @@ Creds for `--org`: env `LGR_TOKEN`, or `LGR_USERNAME` + `LGR_PASSWORD`. `--quiet
 `✓ contiguous` lines (show only problems). **Exit code 1** if anything is missing/not-imported
 (0 otherwise) — usable as a CI/gate check.
 
+Numbers the operator confirmed deleted in PlusMinus are read from the gitignored
+`.secrets/deleted-doc-numbers.json`. `DELETED_DOC_NUMBERS_FILE` points elsewhere, which a worktree
+needs, since `.secrets/` exists only in the main checkout. The report names the list it applied.
+With no list, those numbers report as missing and the run exits 1.
+
 ## Interpreting the output
 
-- `⚠ MISSING 3000016228 — between 2026-08-17 and 2026-08-17` → an intra-day skip; the export
+- `⚠ MISSING 3000619228 — between 2026-08-17 and 2026-08-17` → an intra-day skip; the export
   jumped a number. Confirm it's not in another folder, then obtain it from PlusMinus.
 - `⚠ MISSING vs prior LGR 12678/12679 — before 2026-08-14` → the day's first number doesn't
   continue from the last one LGR knows → a cross-day gap.
-- `⚠ NOT imported 3000100590` → the PDF is on disk but never made it into LGR (failed/partial
+- `⚠ NOT imported 3000703590` → the PDF is on disk but never made it into LGR (failed/partial
   import) — re-import it.
 - Duplicates are informational: the daily export sometimes re-emits the previous day's last few
   docs; the import scripts dedup by marker so no double-booking occurs.
@@ -78,7 +83,7 @@ when it is corrected, and the corrected PDF lands in the day folder over the old
 document is neither missing nor duplicated, so the sequence check passes; what is booked simply no
 longer matches what the document says.
 
-`stokrazp_3000016311` (2026-08-28) is the worked example: its last two line items were re-keyed
+`stokrazp_3000619311` (2026-08-28) is the worked example: its last two line items were re-keyed
 from `ПОП-НИТ 4х20` / `4х16` to the `- Ш.ПЕР.` variants. The re-upload was stored as **v2** — and
 then read as a plain duplicate, because "already imported?" was answered from the idempotency
 marker alone. The marker says *a document with this number is booked*; it says nothing about
@@ -118,10 +123,10 @@ Anything it returns is a correction that was uploaded and never applied.
 ### Three things the 2026-09-04 pass added
 
 **A re-issued document can have a partner — find it before concluding anything.**
-`stokrazp 3000016311` (receipt) was re-issued with its last two lines re-keyed to the
+`stokrazp 3000619311` (receipt) was re-issued with its last two lines re-keyed to the
 `ПОП-НИТ - 4Х20/4Х16 - Ш.ПЕР.` articles: +5000 / +3000. Reading that document alone, the ERP's own
 stock looked *inconsistent with its own paperwork* — it showed +0 and +1000. It was not: the
-matching `sklrazp 0000012708` (transfer) had been re-issued too, taking −5000 / −2000 back out.
+matching `sklrazp 0000615708` (transfer) had been re-issued too, taking −5000 / −2000 back out.
 The pair nets to exactly what the snapshot shows. **Booking one half and reconciling to the
 snapshot for the other is how you end up with the right totals for the wrong reason** — and it
 breaks the moment the partner arrives. When a re-issued document appears, look for every other
@@ -157,10 +162,10 @@ continuity check per family over the surrounding days: a day that was never expo
 sitting exactly between the previous day's last number and the next day's first.
 
 ```
-invoicem  2026-09-02  [3000100907–3000100932]
-                      [3000100933–3000100944]  <-- 12 missing = 2026-09-03
-          2026-09-04  [3000100945–3000100959]
-stokrazp  gap 3000016343–3000016353 (11)   sklrazp gap 12716 (1)
+invoicem  2026-09-02  [3000703907–3000703932]
+                      [3000703933–3000703944]  <-- 12 missing = 2026-09-03
+          2026-09-04  [3000703945–3000703959]
+stokrazp  gap 3000619343–3000619353 (11)   sklrazp gap 615716 (1)
 ```
 
 Those 24 documents were on no disk anywhere — PV, local folders, versions or trash. They had to be

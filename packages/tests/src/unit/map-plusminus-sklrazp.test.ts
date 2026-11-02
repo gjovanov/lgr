@@ -1,30 +1,30 @@
 /**
- * `mapSklrazpDoc` against real regal-pz pulls (2026-10-28/29): a one-line and a many-line
+ * `mapSklrazpDoc` against the shape of regal-pz pulls: a one-line and a many-line
  * transfer to regal-sf, plus the negative-quantity refusal (never seen live, kept as a guard).
  */
 import { describe, it, expect } from 'bun:test'
 import { mapSklrazpDoc } from 'services/biz/doc-import/map-plusminus-sklrazp'
 import type { PlusMinusDocument } from 'services/biz/doc-import/map-plusminus-invoice'
 
-/** sklrazp_12810.json verbatim. */
+/** sklrazp_615810.json. */
 const ONE_LINE: PlusMinusDocument = {
   date: '20261029',
   num: '00000496',
-  header: { docDate: '20261029', docNumber: '12810', doc: 'СР', partner: 'ПАРТНЬОРИ:МАГАЗИН- РЕГАЛ - СОФИЯ', sum: '10.61' },
+  header: { docDate: '20261029', docNumber: '615810', doc: 'СР', partner: 'ПАРТНЬОРИ:МАГАЗИН- ПРОБА - СОФИЯ', sum: '9.5' },
   lines: [
-    { name: 'ГАЙКА М36 - DIN 985 -10 - ZN', quantity: '6', sum: '10.61' },
+    { name: 'ГАЙКА М36 - DIN 985 -10 - ZN', quantity: '5', sum: '9.5' },
   ],
 }
 
-/** sklrazp_12809.json verbatim (trimmed to 3 of its 23 lines). */
+/** sklrazp_615809.json, 3 lines of a longer document. */
 const MANY_LINES: PlusMinusDocument = {
   date: '20261029',
   num: '00000495',
-  header: { docDate: '20261029', docNumber: '12809', doc: 'СР', partner: 'ПАРТНЬОРИ:МАГАЗИН- РЕГАЛ - СОФИЯ', sum: '1203.64' },
+  header: { docDate: '20261029', docNumber: '615809', doc: 'СР', partner: 'ПАРТНЬОРИ:МАГАЗИН- ПРОБА - СОФИЯ', sum: '900' },
   lines: [
-    { name: 'БОЛТ М10Х45 - DIN 7991 - K8.8 - BL', quantity: '100', sum: '13.8' },
-    { name: 'ИМБУС М6Х80 - DIN 912 - K8.8 - BL', quantity: '50', sum: '3.46' },
-    { name: 'ИМБУС М8Х30 - DIN 912 - K12.9 - BL', quantity: '400', sum: '28.64' },
+    { name: 'БОЛТ М10Х45 - DIN 7991 - K8.8 - BL', quantity: '80', sum: '12' },
+    { name: 'ИМБУС М6Х80 - DIN 912 - K8.8 - BL', quantity: '40', sum: '3' },
+    { name: 'ИМБУС М8Х30 - DIN 912 - K12.9 - BL', quantity: '300', sum: '24' },
   ],
 }
 
@@ -32,23 +32,23 @@ describe('mapSklrazpDoc', () => {
   it('maps a one-line transfer, stripping the ПАРТНЬОРИ: prefix for destination', () => {
     const m = mapSklrazpDoc(ONE_LINE)
     expect(m).toEqual({
-      number: '12810', date: '2026-10-29', destination: 'МАГАЗИН- РЕГАЛ - СОФИЯ', total: 10.61,
-      lines: [{ name: 'ГАЙКА М36 - DIN 985 -10 - ZN', qty: 6, value: 10.61 }],
+      number: '615810', date: '2026-10-29', destination: 'МАГАЗИН- ПРОБА - СОФИЯ', total: 9.5,
+      lines: [{ name: 'ГАЙКА М36 - DIN 985 -10 - ZN', qty: 5, value: 9.5 }],
     })
   })
 
   it('maps every line of a multi-line transfer', () => {
     const m = mapSklrazpDoc(MANY_LINES)
     expect(m.lines).toEqual([
-      { name: 'БОЛТ М10Х45 - DIN 7991 - K8.8 - BL', qty: 100, value: 13.8 },
-      { name: 'ИМБУС М6Х80 - DIN 912 - K8.8 - BL', qty: 50, value: 3.46 },
-      { name: 'ИМБУС М8Х30 - DIN 912 - K12.9 - BL', qty: 400, value: 28.64 },
+      { name: 'БОЛТ М10Х45 - DIN 7991 - K8.8 - BL', qty: 80, value: 12 },
+      { name: 'ИМБУС М6Х80 - DIN 912 - K8.8 - BL', qty: 40, value: 3 },
+      { name: 'ИМБУС М8Х30 - DIN 912 - K12.9 - BL', qty: 300, value: 24 },
     ])
-    expect(m.total).toBe(1203.64)
+    expect(m.total).toBe(900)
   })
 
   it('refuses a negative-quantity line rather than guessing a direction', () => {
-    const negative: PlusMinusDocument = { ...ONE_LINE, lines: [{ name: 'X', quantity: '-6', sum: '10.61' }] }
+    const negative: PlusMinusDocument = { ...ONE_LINE, lines: [{ name: 'X', quantity: '-6', sum: '9.5' }] }
     expect(() => mapSklrazpDoc(negative)).toThrow(/negative quantity/)
   })
 

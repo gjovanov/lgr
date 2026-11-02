@@ -85,7 +85,7 @@ const FILE_PREFIX: Partial<Record<DocKind, string>> = {
   cash_register: 'salesAnalysis',
 }
 
-/** The document a movement was booked from, as its file stem: `sklrazp_0000012698`. */
+/** The document a movement was booked from, as its file stem: `sklrazp_0000615698`. */
 export function documentReference(kind: DocKind, docNumber: string, filename?: string): string | undefined {
   const stem = String(filename || '').replace(/.[A-Za-z0-9]+$/, '').trim()
   if (stem) return stem
@@ -380,7 +380,7 @@ export async function mapMovementExtraction(
   const party = partySide === 'supplier' ? ext.supplier : ext.customer
   const partner = clean(party?.name) ? await matchContact(orgId, party!, partySide, { create: false }) : null
   if (clean(party?.name) && !partner) {
-    warnings.push(`the document names „${clean(party?.name)}" as partner and no contact matches — booked without one. That is expected when the partner is another of the org's OWN stores rather than a counterparty (regal hands goods to „МАГАЗИН- РЕГАЛ - СОФИЯ", a second warehouse LGR does not track yet); only add a contact if it really is one.`)
+    warnings.push(`the document names „${clean(party?.name)}" as partner and no contact matches — booked without one. That is expected when the partner is another of the org's OWN stores rather than a counterparty (goods handed to a sister store, a second warehouse LGR does not track yet); only add a contact if it really is one.`)
   }
 
   const movements: MappedMovement[] = []
@@ -404,7 +404,7 @@ export async function mapMovementExtraction(
     if (negative.length) movements.push(build('adjustment', 'from', negative, '(−)'))
   } else {
     // A negative quantity means the goods moved the OTHER way, on every kind of note — not only
-    // on a КОРЕКЦИЯ. Стокова разписка 3000016326 hands 40 БОЛТ М20Х100 back and takes 40 М20Х95
+    // on a КОРЕКЦИЯ. Стокова разписка 3000619326 hands 40 БОЛТ М20Х100 back and takes 40 М20Х95
     // in, and prints a negative total (−12.86 €) to say so. Folding that line into the receipt as
     // |−40| ADDED what had just left the warehouse: the error is twice the line. So the sign rides
     // on the movement TYPE here too, and the two halves book separately.

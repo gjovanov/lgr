@@ -1,11 +1,9 @@
 /**
- * `plusminusInvoiceToExtraction` against a REAL PlusMinus `document()` response
- * (invoice `3000101649`, pulled live 2026-10-26 by `pull-plusminus-api`). The expected values
- * are not invented — they are what that exact invoice shows in LGR today, already correctly
- * imported via the OCR path (hand-verified in-browser at
- * `/invoicing/invoices/6ae096a6f14bfd267359a314/edit` while designing this mapper): contact
- * "БИОВЕТ - АД", Payment Method "Bank Transfer", Place of transaction "гр.Пазарджик",
- * Subtotal €301.53 / Tax €60.31 / Total €361.84, six lines matching this fixture exactly.
+ * `plusminusInvoiceToExtraction` against a PlusMinus `document()` response in the shape
+ * `pull-plusminus-api` returns. The field names are PlusMinus's; every number, amount and party is
+ * made up. What the mapper must produce from it: contact "ТЕСТ КЛИЕНТ АД", Payment Method
+ * "Bank Transfer", Place of transaction "гр.Тестоград", Subtotal €69.30 / Tax €13.86 /
+ * Total €83.16, six lines matching this fixture exactly.
  */
 import { describe, it, expect } from 'bun:test'
 import {
@@ -18,21 +16,21 @@ import {
 } from 'services/biz/doc-import/map-plusminus-invoice'
 import { detectNoteType, parseNoteReference } from 'services/biz/doc-import/detect'
 
-const SUPPLIER = { name: 'Регал ООД', eik: '112500982', vatNumber: 'BG112500982', address: 'Пловдивска 110', city: 'Пазарджик' }
+const SUPPLIER = { name: 'Проба ООД', eik: '123456786', vatNumber: 'BG123456786', address: 'ул.Тестова 101', city: 'Тестоград' }
 
-/** invoicem_3000101716.json verbatim (header only; the credit note PR's real regal-pz sample). */
+/** invoicem_3000704716.json, header only: a credit note in the regal-pz shape. */
 const CREDIT_NOTE_PZ: PlusMinusDocument['header'] = {
-  docNumber: '3000101716', doc: '-ФЕ', docDate: '20261029', partner: 'КЛИЕНТИ:АДСОМ - ООД',
-  sum: '-28.34', vat: '-4.72', comment: 'Стоки -ФЕ 3000101701/29.10.2026 ED338085-1111-0085802',
-  'ОСНИЗВ': '-ФЕ 3000101701/29.10.2026', paymentMethod: '1',
+  docNumber: '3000704716', doc: '-ФЕ', docDate: '20261029', partner: 'КЛИЕНТИ:ТЕСТ КУПУВАЧ - ООД',
+  sum: '-24.00', vat: '-4.00', comment: 'Стоки -ФЕ 3000704701/29.10.2026 ED777002-1111-0000802',
+  'ОСНИЗВ': '-ФЕ 3000704701/29.10.2026', paymentMethod: '1',
 }
 
-/** invoicem_2000129342.json verbatim (header only; the real regal-sf sample — a SEPARATE
- *  pmserver.exe install, same ОСНИЗВ shape confirmed independently). */
+/** invoicem_2000732342.json, header only: a credit note in the regal-sf shape — a SEPARATE
+ *  pmserver.exe install, same ОСНИЗВ shape confirmed independently. */
 const CREDIT_NOTE_SF: PlusMinusDocument['header'] = {
-  docNumber: '2000129342', doc: '-ФЕ', docDate: '20261029', partner: 'ПАРТНЬОРИ:ЕЛЕКТРОГЕЦ ООД',
-  sum: '-111.67', vat: '-18.61', comment: 'Стоки -ФЕ 2000129271/27.10.2026',
-  'ОСНИЗВ': '-ФЕ 2000129271/27.10.2026', paymentMethod: '2',
+  docNumber: '2000732342', doc: '-ФЕ', docDate: '20261029', partner: 'ПАРТНЬОРИ:ТЕСТ ЕЛЕКТРО ООД',
+  sum: '-60.00', vat: '-10.00', comment: 'Стоки -ФЕ 2000732271/27.10.2026',
+  'ОСНИЗВ': '-ФЕ 2000732271/27.10.2026', paymentMethod: '2',
 }
 
 const SAMPLE_INVOICE: PlusMinusDocument = {
@@ -41,18 +39,18 @@ const SAMPLE_INVOICE: PlusMinusDocument = {
   header: {
     bic: 'BNBGBGSD', iban: 'BG80BNBG96611020345678', vatPercent: '20', createdBy: 'kasa 2',
     createdOn: '20261026:133218379083300', docDate: '20261026', module: 'sales',
-    placeOfIssue: 'гр.Пазарджик', unp: 'ED338085-1111-0085683', vatRate: '20',
-    bank: 'ОББ АД', docType: '1', paymentMethod: '2', taxEventDate: '20261026', vat: '60.31',
-    docNumber: '3000101649', doc: '-ФЕ', partner: 'ПАРТНЬОРИ:БИОВЕТ АД', paymentType: '2',
-    sum: '361.84', comment: 'Стоки -ФП 7374/06.10.2026', type: '1',
+    placeOfIssue: 'гр.Тестоград', unp: 'ED777002-1111-0000683', vatRate: '20',
+    bank: 'ТЕСТ БАНК АД', docType: '1', paymentMethod: '2', taxEventDate: '20261026', vat: '13.86',
+    docNumber: '3000704649', doc: '-ФЕ', partner: 'ПАРТНЬОРИ:ТЕСТ КЛИЕНТ АД', paymentType: '2',
+    sum: '83.16', comment: 'Стоки -ФП 1234/06.10.2026', type: '1',
   },
   lines: [
-    { item: 'СТОКИ:БОЛТ М12Х60 - DIN 933 - A4', no: '1', name: 'БОЛТ М12Х60 - DIN 933 - A4', quantity: '200', measure: 'БР', sum: '120', price: '0.6' },
-    { item: 'СТОКИ:ГАЙКА М12 - DIN 934 - A4-80', no: '2', name: 'ГАЙКА М12 - DIN 934 - A4-80', quantity: '200', measure: 'БР', sum: '34', price: '0.17' },
-    { item: 'СТОКИ:ШАЙБА - М12 - DIN 125 - A4', no: '3', name: 'ШАЙБА - М12 - DIN 125 - A4', quantity: '200', measure: 'БР', sum: '14', price: '0.07' },
-    { item: 'СТОКИ:БОЛТ М16Х130 - DIN 931 - А4-80', no: '4', name: 'БОЛТ М16Х130 - DIN 931 - А4-80', quantity: '30', measure: 'БР', sum: '119.4', price: '3.98' },
-    { item: 'СТОКИ:ГАЙКА М16 - DIN 934 - A4-80', no: '5', name: 'ГАЙКА М16 - DIN 934 - A4-80', quantity: '30', measure: 'БР', sum: '10.14', price: '0.338' },
-    { item: 'СТОКИ:ШАЙБА - М16 - DIN 125 - A4', no: '6', name: 'ШАЙБА - М16 - DIN 125 - A4', quantity: '30', measure: 'БР', sum: '3.99', price: '0.133' },
+    { item: 'СТОКИ:БОЛТ М12Х60 - DIN 933 - A4', no: '1', name: 'БОЛТ М12Х60 - DIN 933 - A4', quantity: '100', measure: 'БР', sum: '25', price: '0.25' },
+    { item: 'СТОКИ:ГАЙКА М12 - DIN 934 - A4-80', no: '2', name: 'ГАЙКА М12 - DIN 934 - A4-80', quantity: '100', measure: 'БР', sum: '5', price: '0.05' },
+    { item: 'СТОКИ:ШАЙБА - М12 - DIN 125 - A4', no: '3', name: 'ШАЙБА - М12 - DIN 125 - A4', quantity: '100', measure: 'БР', sum: '2', price: '0.02' },
+    { item: 'СТОКИ:БОЛТ М16Х130 - DIN 931 - А4-80', no: '4', name: 'БОЛТ М16Х130 - DIN 931 - А4-80', quantity: '20', measure: 'БР', sum: '30', price: '1.5' },
+    { item: 'СТОКИ:ГАЙКА М16 - DIN 934 - A4-80', no: '5', name: 'ГАЙКА М16 - DIN 934 - A4-80', quantity: '20', measure: 'БР', sum: '4.9', price: '0.245' },
+    { item: 'СТОКИ:ШАЙБА - М16 - DIN 125 - A4', no: '6', name: 'ШАЙБА - М16 - DIN 125 - A4', quantity: '20', measure: 'БР', sum: '2.4', price: '0.12' },
   ],
 }
 
@@ -60,33 +58,33 @@ describe('plusminusInvoiceToExtraction', () => {
   const ext = plusminusInvoiceToExtraction(SAMPLE_INVOICE, SUPPLIER)
 
   it('preserves the legacy document number and date', () => {
-    expect(ext.document_number).toBe('3000101649')
+    expect(ext.document_number).toBe('3000704649')
     expect(ext.issue_date).toBe('2026-10-26')
   })
 
   it('strips the ПАРТНЬОРИ: prefix off the counterparty name', () => {
-    expect(ext.customer?.name).toBe('БИОВЕТ АД')
+    expect(ext.customer?.name).toBe('ТЕСТ КЛИЕНТ АД')
   })
 
   it('carries the org\'s own identity as supplier, so direction resolves outgoing', () => {
-    expect(ext.supplier?.company_id).toBe('112500982')
-    expect(ext.supplier?.name).toBe('Регал ООД')
+    expect(ext.supplier?.company_id).toBe('123456786')
+    expect(ext.supplier?.name).toBe('Проба ООД')
   })
 
-  it('copies header.sum/vat verbatim — no BGN→EUR conversion — matching the already-imported invoice exactly', () => {
+  it('copies header.sum/vat verbatim — no BGN→EUR conversion', () => {
     expect(ext.currency).toBe('EUR')
     expect(ext.exchange_rate).toBe(1)
-    expect(ext.vat_total).toBe(60.31)
-    expect(ext.gross_total).toBe(361.84)
+    expect(ext.vat_total).toBe(13.86)
+    expect(ext.gross_total).toBe(83.16)
   })
 
   it('maps every line with the exact description, quantity, unit and net price', () => {
     expect(ext.line_items).toHaveLength(6)
     expect(ext.line_items[0]).toMatchObject({
-      description: 'БОЛТ М12Х60 - DIN 933 - A4', quantity: 200, unit: 'БР', unit_price: 0.6, vat_rate: 20, total: 120,
+      description: 'БОЛТ М12Х60 - DIN 933 - A4', quantity: 100, unit: 'БР', unit_price: 0.25, vat_rate: 20, total: 25,
     })
     expect(ext.line_items[4]).toMatchObject({
-      description: 'ГАЙКА М16 - DIN 934 - A4-80', quantity: 30, unit_price: 0.338, total: 10.14,
+      description: 'ГАЙКА М16 - DIN 934 - A4-80', quantity: 20, unit_price: 0.245, total: 4.9,
     })
   })
 })
@@ -106,19 +104,19 @@ describe('plusminusPaymentMethod', () => {
 
 describe('stripPartnerPrefix', () => {
   it('strips either the ПАРТНЬОРИ: or КЛИЕНТИ: prefix', () => {
-    expect(stripPartnerPrefix('ПАРТНЬОРИ:БИОВЕТ АД')).toBe('БИОВЕТ АД')
-    expect(stripPartnerPrefix('КЛИЕНТИ:ВАДИС - ООД')).toBe('ВАДИС - ООД')
+    expect(stripPartnerPrefix('ПАРТНЬОРИ:ТЕСТ КЛИЕНТ АД')).toBe('ТЕСТ КЛИЕНТ АД')
+    expect(stripPartnerPrefix('КЛИЕНТИ:ТЕСТ ПАРТНЬОР - ООД')).toBe('ТЕСТ ПАРТНЬОР - ООД')
   })
 
   it('passes a name through unchanged when there is no prefix', () => {
-    expect(stripPartnerPrefix('БИОВЕТ АД')).toBe('БИОВЕТ АД')
+    expect(stripPartnerPrefix('ТЕСТ КЛИЕНТ АД')).toBe('ТЕСТ КЛИЕНТ АД')
   })
 })
 
 describe('buildSyntheticRawText', () => {
   it('carries place of transaction and payment method in the exact label format parse-text.ts expects', () => {
     const text = buildSyntheticRawText(SAMPLE_INVOICE.header)
-    expect(text).toContain('Място на сделката: : гр.Пазарджик')
+    expect(text).toContain('Място на сделката: : гр.Тестоград')
     expect(text).toContain('Плащане: bank_transfer')
   })
 
@@ -139,10 +137,10 @@ describe('buildSyntheticRawText', () => {
     expect(detectNoteType(text)).toBeNull()
   })
 
-  describe('a real negative-sum document (credit note), both orgs', () => {
+  describe('a negative-sum document (credit note), both orgs', () => {
     it.each([
-      ['regal-pz', CREDIT_NOTE_PZ, '3000101701'],
-      ['regal-sf', CREDIT_NOTE_SF, '2000129271'],
+      ['regal-pz', CREDIT_NOTE_PZ, '3000704701'],
+      ['regal-sf', CREDIT_NOTE_SF, '2000732271'],
     ])('%s: detectNoteType/parseNoteReference — the SAME unchanged text-based functions the OCR path uses — read it as a credit note correcting %s', (_org, header, expectedRef) => {
       const text = buildSyntheticRawText(header)
       expect(detectNoteType(text)).toBe('credit_note')

@@ -1603,7 +1603,7 @@ tiers), and `persistMovement` strips `purchasePrice` from any staged payload so 
 analysis can't reintroduce the old write.
 **Idempotency** lives in `notes` (`stokrazp:` / `corr:` / `sklrazp:` / `sklisk:` /
 `storeOperations:`) — the markers `check-doc-sequences` verifies. `StockMovement.reference`
-carries the same document as a real field (`sklrazp_0000012698`), shown in the product ledger
+carries the same document as a real field (`sklrazp_0000615698`), shown in the product ledger
 after Invoice and searchable in the movements list; backfill via
 `scripts/backfill-movement-reference.ts` (marker → DocFile → `INV-<10 digits>`, 772/813 on
 regal-pz; the rest are genuinely document-less). Unmatched lines can't be booked, so the review step offers

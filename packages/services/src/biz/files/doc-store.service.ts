@@ -67,8 +67,8 @@ export function parseDocMeta(filename: string): DocMeta {
   }
   // PDFs: number = the numeric id, date resolved later by OCR.
   //
-  // Strip a copy suffix first. Downloading the same export twice gives "invoicem_3000100975_1.pdf",
-  // and stripping non-digits turns that into the number 30001009751 — a document that does not
+  // Strip a copy suffix first. Downloading the same export twice gives "invoicem_3000703975_1.pdf",
+  // and stripping non-digits turns that into the number 30007039751 — a document that does not
   // exist. It gets its own DocFile row, so the checksum dedupe (keyed on {docType, docNumber})
   // never sees the byte-identical original, and the day carries a phantom extra document.
   // A PlusMinus number never has a separator inside it, so a trailing "_1" / "-2" / " (3)" is
@@ -213,7 +213,7 @@ export async function storeDocument(
     // These describe the PREVIOUS bytes. Left in place they are read as if they described the new
     // ones — `buildAnalyzeItem` reuses `extractedText` whenever it is set, so a corrected document
     // re-analyzed to exactly what it said before, the dedupe called it a duplicate, and the change
-    // was invisible (stokrazp 3000016311: two line items renamed, 8000 units on the wrong products).
+    // was invisible (stokrazp 3000619311: two line items renamed, 8000 units on the wrong products).
     existing.extractedText = undefined
     existing.analysis = undefined
     existing.compareSummary = undefined

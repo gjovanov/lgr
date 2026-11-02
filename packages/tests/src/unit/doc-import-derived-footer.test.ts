@@ -4,7 +4,7 @@
  * the document by the quantity times half a unit of the last place the price printed — which for a
  * big quantity is not a rounding artifact but pounds:
  *
- *   стокова разписка 3000016465 prints 16000 × 0.014 and 2400 × 0.0721, sums to 397.04 and states
+ *   стокова разписка 3000619465 prints 16000 × 0.014 and 2400 × 0.0721, sums to 397.04 and states
  *   396.97. Sixteen thousand units at three decimal places are worth up to 8.00 of legitimate
  *   rounding; the document was refused over 0.07 against a flat allowance of 0.06. It was the fifth
  *   document in eight days lost to that one bound, and the only one that could not fall back either

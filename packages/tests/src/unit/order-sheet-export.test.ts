@@ -26,12 +26,12 @@ function fixtureCtx(): OrderSheetCtx {
   return {
     order: { orderNumber: 'ORD-2026-00001', issueDate: new Date('2026-07-26'), notes: 'бележка' },
     group,
-    org: { name: 'РЕГАЛ ООД', taxNumber: '112500982' },
-    supplierName: 'Fastbolt GmbH',
+    org: { name: 'ПРОБА ООД', taxNumber: '123456786' },
+    supplierName: 'Beispiel Schrauben GmbH',
     supplierTaxId: 'DE123456',
     productInfo: { p1: { name: 'ВИНТ М4Х70 - DIN 963', sku: 'RPZ-00001', unit: 'pcs' } },
-    warehouseNames: { wh1: 'Склад Пазарджик', wh2: 'Склад София' },
-    contactNames: { sup1: 'Fastbolt GmbH', c1: 'Клиент Едно', c2: 'Клиент Две', c3: 'Клиент Три' },
+    warehouseNames: { wh1: 'Склад Тестоград', wh2: 'Склад София' },
+    contactNames: { sup1: 'Beispiel Schrauben GmbH', c1: 'Клиент Едно', c2: 'Клиент Две', c3: 'Клиент Три' },
     // RES- docs grouped by allocationId (first-class reservations).
     reservations: {
       a1: [
@@ -63,17 +63,17 @@ describe('Order sheet exports', () => {
     const text = await allCellText(buffer)
     expect(text).toContain('ORD-2026-00001')
     expect(text).toContain('ВИНТ М4Х70 - DIN 963')
-    expect(text).toContain('Fastbolt GmbH')
+    expect(text).toContain('Beispiel Schrauben GmbH')
     // Internal split must NOT leak to the supplier.
     expect(text).not.toContain('Клиент Едно')
     expect(text).not.toContain('Клиент Две')
-    expect(text).not.toContain('Склад Пазарджик')
+    expect(text).not.toContain('Склад Тестоград')
   })
 
   it('internal variant contains the full WH/client breakdown', async () => {
     const buffer = await generateOrderSheetXLSX(fixtureCtx(), 'internal')
     const text = await allCellText(buffer)
-    expect(text).toContain('Склад Пазарджик')
+    expect(text).toContain('Склад Тестоград')
     expect(text).toContain('Склад София')
     expect(text).toContain('Клиент Едно')
     expect(text).toContain('Клиент Три')

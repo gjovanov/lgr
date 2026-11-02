@@ -231,7 +231,7 @@ describe('Reservation preemption + shortfall coverage', () => {
     })
 
     // Incoming: sent ORDO, allocation 200, expected AFTER the deadline → late.
-    const supplier = await createTestContact(fx.org._id, { type: 'supplier', companyName: 'Fastbolt' })
+    const supplier = await createTestContact(fx.org._id, { type: 'supplier', companyName: 'Beispiel Schrauben' })
     await Order.create({
       orgId: fx.org._id,
       orderNumber: 'ORDO-2026-00021',
@@ -269,7 +269,7 @@ describe('Reservation preemption + shortfall coverage', () => {
   it('generate-external creates/extends a draft ORDO with linked reservations; rollback on bad input', async () => {
     const fx = await buildFixture()
     const current: any = await makeOrdi(fx.org._id, fx.clientA._id, fx.product._id, { n: 1, quantity: 300, deadline: days(9), warehouseId: fx.wh._id })
-    const supplier = await createTestContact(fx.org._id, { type: 'supplier', companyName: 'Fastbolt' })
+    const supplier = await createTestContact(fx.org._id, { type: 'supplier', companyName: 'Beispiel Schrauben' })
 
     const { order, reservations } = await generateExternalOrder(String(fx.org._id), USER(), String(current._id), {
       draftOrderNumber: 'DRF-ORDO-2026-00001',

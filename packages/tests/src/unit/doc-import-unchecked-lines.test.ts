@@ -5,9 +5,9 @@
  * eight of its thirty receipts were refused over lines of exactly two shapes — while every one of
  * those documents summed to its own printed footer to the cent:
  *
- *   · a PRICE RESTATEMENT — no quantity either, so the line delivers nothing (2222036030 line 1);
+ *   · a PRICE RESTATEMENT — no quantity either, so the line delivers nothing (2222639030 line 1);
  *   · a QUANTITY with no money against it — an internal correction booked „Доставчик: склад",
- *     i.e. from ourselves (2222036043, all 26 lines, signed, against a zero footer).
+ *     i.e. from ourselves (2222639043, all 26 lines, signed, against a zero footer).
  *
  * Accepting them cannot hide a value the document DID print: dropping one would leave the lines
  * short of the footer, and the footer check is what decides whether the table is accepted at all.

@@ -47,7 +47,7 @@ async function world() {
   const orgId = String(org._id)
   const user = await createTestUser(org._id)
   const userId = String(user._id)
-  const supplier = await createTestContact(org._id, { type: 'supplier', companyName: 'Fastbolt' } as any)
+  const supplier = await createTestContact(org._id, { type: 'supplier', companyName: 'Beispiel Schrauben' } as any)
   const c1 = await createTestContact(org._id, { type: 'customer', companyName: 'Клиент 1' } as any)
   const c2 = await createTestContact(org._id, { type: 'customer', companyName: 'Клиент 2' } as any)
   const w1 = await createTestWarehouse(org._id, { name: 'Склад 1', isDefault: true } as any)

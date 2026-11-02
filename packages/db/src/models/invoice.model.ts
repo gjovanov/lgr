@@ -287,7 +287,7 @@ export interface IInvoice extends Document {
   paymentMethod?: string
   /** Съставил — who authored the document (OCR-imported name or the creating user). */
   preparedBy?: string
-  /** Място на сделката — place of transaction (e.g. "гр.Пазарджик"). */
+  /** Място на сделката — place of transaction (e.g. "гр.Тестоград"). */
   placeOfTransaction?: string
   notes?: string
   /**
@@ -328,7 +328,7 @@ export interface IInvoice extends Document {
    * writes the link here. Present ⇒ this document deliberately moves no stock.
    */
   stockSource?: {
-    /** Idempotency marker of the source note, e.g. `sklrazp:0000012713`. */
+    /** Idempotency marker of the source note, e.g. `sklrazp:0000615713`. */
     marker: string
     docNumber: string
     movementIds: Types.ObjectId[]

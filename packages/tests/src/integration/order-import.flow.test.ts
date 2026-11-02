@@ -23,7 +23,7 @@ beforeAll(async () => {
 afterAll(async () => { await teardownTestDB() }, 60_000)
 afterEach(async () => { await clearCollections() }, 30_000)
 
-const ORG_EIK = '112500982'
+const ORG_EIK = '123456786'
 const SUPPLIER_EIK = '204777001'
 const SUPPLIER_WORDING = 'Senkschraube DIN 963 M4x70 A2'
 
@@ -35,8 +35,8 @@ function billDraft(lines: any[]): DraftResult {
       issue_date: '2026-07-25',
       currency: 'EUR',
       exchange_rate: 1,
-      supplier: { name: 'Fastbolt GmbH', company_id: SUPPLIER_EIK },
-      customer: { name: 'РЕГАЛ ООД', company_id: ORG_EIK },
+      supplier: { name: 'Beispiel Schrauben GmbH', company_id: SUPPLIER_EIK },
+      customer: { name: 'ПРОБА ООД', company_id: ORG_EIK },
       line_items: lines,
       net_total: +net.toFixed(2),
       vat_total: +(net * 0.2).toFixed(2),
@@ -53,7 +53,7 @@ async function buildFixture() {
   const user = await createTestUser(org._id)
   const wh1 = await createTestWarehouse(org._id, { isDefault: true })
   const wh2 = await createTestWarehouse(org._id)
-  const supplier = await createTestContact(org._id, { type: 'supplier', companyName: 'Fastbolt GmbH', taxId: SUPPLIER_EIK } as any)
+  const supplier = await createTestContact(org._id, { type: 'supplier', companyName: 'Beispiel Schrauben GmbH', taxId: SUPPLIER_EIK } as any)
   const client = await createTestContact(org._id, { companyName: 'Клиент Едно' })
   const product = await createTestProduct(org._id, { name: 'ВИНТ М4Х70 - DIN 963' } as any)
 
@@ -231,12 +231,12 @@ describe('ORD-aware purchase invoice import', () => {
 
   it('without a matching supplier group the draft stays unlinked and is tagged', async () => {
     const fx = await buildFixture()
-    const otherSupplier = await createTestContact(fx.org._id, { type: 'supplier', companyName: 'Reyer GmbH', taxId: '131222333' } as any)
+    const otherSupplier = await createTestContact(fx.org._id, { type: 'supplier', companyName: 'Muster Schrauben GmbH', taxId: '131222333' } as any)
 
     const draft: DraftResult = {
       ...billDraft([{ description: 'Something', quantity: 1, unit: 'pcs', unit_price: 1, vat_rate: 20, total: 1 }]),
     }
-    draft.extraction.supplier = { name: 'Reyer GmbH', company_id: '131222333' }
+    draft.extraction.supplier = { name: 'Muster Schrauben GmbH', company_id: '131222333' }
 
     const res = await createDraftInvoice(
       String(fx.org._id), String(fx.user._id), draft, String(fx.wh1._id), 'batch-4', '', { orderId: String(fx.order._id) },

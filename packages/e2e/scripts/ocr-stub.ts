@@ -15,10 +15,10 @@
 const PORT = Number(process.env.OCR_STUB_PORT) || 8199
 
 /** The org identity the seeded test tenant uses — makes direction detection deterministic. */
-const ORG_EIK = process.env.OCR_STUB_ORG_EIK || '112500982'
+const ORG_EIK = process.env.OCR_STUB_ORG_EIK || '123456786'
 
 const SUPPLIER_INVOICE_TEXT = [
-  'ФАКТУРА Номер: 2000122757',
+  'ФАКТУРА Номер: 2000725757',
   'ДОСТАВЧИК  ТЕСТ ДОСТАВЧИК ЕООД',
   'ПОЛУЧАТЕЛ  ТЕСТ ФИРМА',
   'Плащане:         По сметка',
@@ -26,7 +26,7 @@ const SUPPLIER_INVOICE_TEXT = [
 ].join('\n')
 
 const GOODS_RECEIPT_TEXT = [
-  'СТОКОВА РАЗПИСКА №3000016107',
+  'СТОКОВА РАЗПИСКА №3000619107',
   'Склад: СКЛАД - 1',
   'No  Име            Мяр  Кол   Цена   Стойност',
 ].join('\n')
@@ -34,7 +34,7 @@ const GOODS_RECEIPT_TEXT = [
 const GOODS_RECEIPT_DRAFT = {
   extraction: {
     doc_kind: 'goods_receipt',
-    document_number: '3000016107',
+    document_number: '3000619107',
     issue_date: '2026-07-27',
     warehouse_to: 'СКЛАД - 1',
     supplier: { name: 'ТЕСТ ДОСТАВЧИК ЕООД' },
@@ -54,12 +54,12 @@ const GOODS_RECEIPT_DRAFT = {
 
 const INVOICE_DRAFT = {
   extraction: {
-    document_number: '2000122757',
+    document_number: '2000725757',
     issue_date: '2026-03-31',
     currency: 'EUR',
     exchange_rate: 1.95583,
     // The org is the CUSTOMER → the document is an incoming bill.
-    supplier: { name: 'ТЕСТ ДОСТАВЧИК ЕООД', company_id: '831643582', vat_id: 'BG831643582' },
+    supplier: { name: 'ТЕСТ ДОСТАВЧИК ЕООД', company_id: '999000120', vat_id: 'BG999000120' },
     customer: { name: 'ТЕСТ ФИРМА', company_id: ORG_EIK, vat_id: `BG${ORG_EIK}` },
     line_items: [
       { description: 'E2E ТЕСТ АРТИКУЛ', quantity: 2, unit: 'бр', unit_price: 5, vat_rate: 20, total: 10 },

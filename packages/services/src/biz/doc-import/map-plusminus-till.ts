@@ -11,7 +11,7 @@
  *     all 77 — a different rate is refused rather than silently averaged in.
  *   - `header.doc` is `"СР"` (Продажби) on every till-sale record — `aggregateTillDay` refuses a
  *     document that isn't, mirroring the xlsx path's "Операция: Продажби" filter.
- *   - One line in 200 carried no `sum`/`price`/`sumWithVat` at all (`storeOperations_21472.json`,
+ *   - One line in 200 carried no `sum`/`price`/`sumWithVat` at all (`storeOperations_624472.json`,
  *     num `00000099`, "ВИНТ - САВОПР. - 4.2Х45 - DIN 7504 N", qty 20) — the transaction's own
  *     `header.sum` was fully accounted for by its OTHER line, so this one sold at net value 0 (a
  *     giveaway, not a data error). Treated as value 0 rather than thrown out, so the 20 units

@@ -382,22 +382,22 @@ calendar-exact, `createdAt`/`timestamp`-based ones accept the ≤3 h server-vs-S
 ```
 ВИНТ 4.2Х16 ШИР.ПЕР - 14.08 - na email korigiranata faktura
 ГАЙКА М12 - DIN 934 - A2  - izprateni stokova i skladova razpiska lipsvashti na email
-3000016119 - ВИНТ 8Х300 - ТХ - EVOLUTION izpratena na email lipsvashta razpiska s znak minus
-3000016114 - БОЛТ М12Х35 - DIN 933 - K 10.9 - BL - lipsvashta stokova razpiska ot 28.07
+3000619119 - ВИНТ 8Х300 - ТХ - EVOLUTION izpratena na email lipsvashta razpiska s znak minus
+3000619114 - БОЛТ М12Х35 - DIN 933 - K 10.9 - BL - lipsvashta stokova razpiska ot 28.07
 ШПИЛКА - DIN 976 - М16Х1200 - 8.8 - ZN - aktualnot koliqestvo e 0
 БОЛТ М5Х40 - КОЛАРСКИ - ima samo svobodna prodazba 50br ot 13.08 bez dokument
 ВИНТ - 4.8Х20 /+2.5/ + шайба - метал - SW8 - 14.08  50br kato svobodna prodazba se dublirat, ima samo edna prodazba ot 50br
 ВИНТ - САМОПР. - 5.5Х25 - ПОКРИВЕН - kasova prodazba ot 50br ot 13.08 lipsva
-ВИНТ 4Х60 -  stokovata razpiska ot 17.08 e s znak minus 3000016234
+ВИНТ 4Х60 -  stokovata razpiska ot 17.08 e s znak minus 3000619234
 ВИНТ 5Х100 - svobodna prodazba ot13.08 50 broja lipsva
-ВИНТ 5Х120 -stokovata razpiska ot 17.08 - 3000016234 znaka e minus
-ГАЙКА М5 - DIN 6923 - ФЛАНЦОВА -  stokovata ot 07.07 e s znak минус 3000016159 i lipsva kasova prodazba ot 13.08
+ВИНТ 5Х120 -stokovata razpiska ot 17.08 - 3000619234 znaka e minus
+ГАЙКА М5 - DIN 6923 - ФЛАНЦОВА -  stokovata ot 07.07 e s znak минус 3000619159 i lipsva kasova prodazba ot 13.08
 ДЮБЕЛ - 6Х60 - ТУХЛА lipsva kasova prodazba ot 13.08 - 50br
 ```
 
 | Manual finding | Digest section | Note |
 |---|---|---|
-| разписка „със знак минус" (3000016234, 3000016159, …) | FR-11.9 Корекции и отписвания | negative halves book as `adjustment` movements with markers |
+| разписка „със знак минус" (3000619234, 3000619159, …) | FR-11.9 Корекции и отписвания | negative halves book as `adjustment` movements with markers |
 | „актуалното количество е 0" (ШПИЛКА DIN 976) | FR-11.8 Наличности | point-in-time qty ≤ 0 scan |
 | „свободна продажба … без документ" (БОЛТ М5Х40) | FR-11.10 Продажби без складов документ | sale with product+WH lines and no linked movement |
 | „50бр … се дублират" (ВИНТ 4.8Х20) | FR-11.11 Съмнителни дублирания | same product+qty twice in a day, heuristic |

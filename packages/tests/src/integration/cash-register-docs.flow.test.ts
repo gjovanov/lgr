@@ -78,7 +78,7 @@ async function documents(s: S) {
   } as any)
   const storno = await createTestInvoice(s.orgId, cid, {
     ...common, type: 'cash_storno', status: 'paid', invoiceNumber: 'CS-2026-00002', relatedInvoiceId: sale._id,
-    register: { storno: { originalId: sale._id, originalUnp: 'ED399266-0001-0000001', originalReceiptNumber: '0000001', originalDate: sale.issueDate, reason: 'customer_return' } },
+    register: { storno: { originalId: sale._id, originalUnp: 'ED777001-0001-0000001', originalReceiptNumber: '0000001', originalDate: sale.issueDate, reason: 'customer_return' } },
     lines: [{ ...line, quantity: 4, taxAmount: 8, lineTotal: 48 }],
     subtotal: 40, taxTotal: 8, total: 48, amountPaid: 48, amountDue: 0,
   } as any)
@@ -168,13 +168,13 @@ describe('a storno prints as a storno', () => {
     const s = await seed()
     const d = await documents(s)
     const stornoRef = await stornoRefOf(String(s.orgId), (d.storno as any).toObject())
-    expect(stornoRef).toMatchObject({ number: 'CS-2026-00001', unp: 'ED399266-0001-0000001', receiptNumber: '0000001', reason: 'customer_return' })
+    expect(stornoRef).toMatchObject({ number: 'CS-2026-00001', unp: 'ED777001-0001-0000001', receiptNumber: '0000001', reason: 'customer_return' })
 
     const { html } = buildInvoiceHtml({ ...(d.storno as any).toObject(), stornoRef }, { name: 'Org' } as any, (s.contact as any).toObject(), undefined, { locale: 'bg' })
     expect(html).toContain('СТОРНО НА КАСОВА ПРОДАЖБА')
     expect(html).toContain('Сторно на')
     expect(html).toContain('CS-2026-00001')
-    expect(html).toContain('ED399266-0001-0000001')
+    expect(html).toContain('ED777001-0001-0000001')
     expect(html).toContain('Връщане / рекламация')
   })
 

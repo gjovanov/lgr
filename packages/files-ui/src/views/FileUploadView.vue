@@ -234,7 +234,7 @@ function canAnalyze(item: any) {
 // A re-uploaded movement doc (its prior version may already be booked) → reconcile the delta.
 function canReconcile(item: any) {
   // Either this upload replaced a booked version, or the server says the booking is already stale
-  // (a change uploaded earlier that was never applied — which is how 3000016311 went unnoticed).
+  // (a change uploaded earlier that was never applied — which is how 3000619311 went unnoticed).
   return MOVEMENT_TYPES.has(item.docType) && (item.staleBooking || String(item.outcome || '').startsWith('overwrote'))
 }
 

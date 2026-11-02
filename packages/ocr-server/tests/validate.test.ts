@@ -4,10 +4,10 @@ import type { InvoiceExtraction } from '../src/schema.js'
 
 describe('ocr-server validation', () => {
   it('validates Bulgarian ЕИК checksums', () => {
-    expect(isValidEik('112500982')).toBe(true) // РЕГАЛ ООД
-    expect(isValidEik('123456786')).toBe(true) // ЕТ ПРИМЕРОВ П
-    expect(isValidEik('205931289')).toBe(true)
-    expect(isValidEik('112500983')).toBe(false) // wrong check digit
+    expect(isValidEik('123456786')).toBe(true) // ПРОБА ООД
+    expect(isValidEik('999000214')).toBe(true) // ЕТ ПРИМЕРОВ П
+    expect(isValidEik('999000152')).toBe(true)
+    expect(isValidEik('123456787')).toBe(false) // wrong check digit
     expect(isValidEik('12345')).toBe(false)
     expect(isValidEik('')).toBe(false)
     expect(isValidEik(null)).toBe(false)
@@ -19,14 +19,14 @@ describe('ocr-server validation', () => {
     expect(isValidIban('not-an-iban')).toBe(false)
   })
 
-  it('flags per-line arithmetic and reconciles identity checks (fixture 2000122757)', () => {
+  it('flags per-line arithmetic and reconciles identity checks (fixture 2000725757)', () => {
     const inv: InvoiceExtraction = {
-      document_number: '2000122757',
+      document_number: '2000725757',
       issue_date: '2026-03-31',
       currency: 'EUR',
       exchange_rate: 1.95583,
-      supplier: { name: 'РЕГАЛ ООД', company_id: '112500982', vat_id: 'BG112500982', iban: 'BG80BNBG96611020345678', address: null },
-      customer: { name: 'ЕТ ПРИМЕРОВ П', company_id: '123456786', vat_id: 'BG123456786', iban: null, address: null },
+      supplier: { name: 'ПРОБА ООД', company_id: '123456786', vat_id: 'BG123456786', iban: 'BG80BNBG96611020345678', address: null },
+      customer: { name: 'ЕТ ПРИМЕРОВ П', company_id: '999000214', vat_id: 'BG999000214', iban: null, address: null },
       line_items: [
         { description: 'Диск Inox 125х1', quantity: 25, unit: 'БР', unit_price: 0.8845, vat_rate: 20, total: 22.11 }, // ok
         { description: 'Болт М8х25', quantity: 1000, unit: 'БР', unit_price: 0.0312, vat_rate: 20, total: 31.24 }, // 31.20 ≠ 31.24 → fail
@@ -48,7 +48,7 @@ describe('ocr-server validation', () => {
   it('marks a clean invoice valid', () => {
     const inv: InvoiceExtraction = {
       document_number: 'X', issue_date: '2026-01-01', currency: 'BGN',
-      supplier: { name: 'S', company_id: '112500982', vat_id: 'BG112500982', address: null, iban: null },
+      supplier: { name: 'S', company_id: '123456786', vat_id: 'BG123456786', address: null, iban: null },
       customer: { name: 'C', address: null, company_id: null, vat_id: null, iban: null },
       line_items: [{ description: 'Item', quantity: 2, unit: 'бр', unit_price: 5, vat_rate: 20, total: 10 }],
       net_total: 10, vat_total: 2, gross_total: 12,
@@ -61,7 +61,7 @@ describe('ocr-server validation', () => {
     // invoice checks lines_sum_net could only ever FAIL — a STRUCTURAL failure, which sent every
     // one of them to the escalation model to arrive at the same answer twice as slowly.
     const receipt: any = {
-      document_number: '3000016313',
+      document_number: '3000619313',
       issue_date: '2026-08-28',
       line_items: [
         { description: 'ТЕСТ БОЛТ', quantity: 100, unit_price: 0.5, total: 50 },

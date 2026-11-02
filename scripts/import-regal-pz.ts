@@ -1,5 +1,5 @@
 /**
- * Bootstrap org `regal-pz` (Regal Pazardzhik) and import products + stock from
+ * Bootstrap org `regal-pz` and import products + stock from
  * storeAvailability_20260720_113402.xlsx (repo root).
  *
  * Excel layout (rows 1-4 title block, row 5 = headers, data starts at row 6,
@@ -15,7 +15,7 @@
  *
  * Creates (idempotent, find-or-create): org regal-pz (BGN/bg/Europe/Sofia,
  * professional plan), the admin user named in the environment (below) with operator code + permission sets,
- * warehouse Pazardzhik (pz), category "Общи", then inserts products (10 price
+ * warehouse `pz`, category "Общи", then inserts products (10 price
  * tiers each) and stock levels.
  *
  * Usage:
@@ -32,6 +32,13 @@
  * the gitignored .secrets/regal-pz-admin.env:
  *   bun --env-file=.secrets/regal-pz-admin.env run scripts/import-regal-pz.ts --execute
  * Creating the admin (first run only) also needs REGAL_PZ_ADMIN_PASSWORD, its initial password.
+ *
+ * The org's own identity is the customer's, so it is not in this file either: CUSTOMER_ORG_NAME,
+ * CUSTOMER_EIK, CUSTOMER_CITY and CUSTOMER_POSTAL_CODE come from the gitignored
+ * .secrets/customer-identity.env, and are read only when a run has to CREATE the org or its warehouse:
+ *   bun --env-file=.secrets/regal-pz-admin.env --env-file=.secrets/customer-identity.env run scripts/import-regal-pz.ts --execute
+ * Unset, creating either refuses and names what is missing. An org and warehouse that already exist
+ * do not need them.
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import { assertScriptHome } from './lib/home-guard.js'
@@ -49,7 +56,6 @@ import path from 'path'
 
 const EXCEL_PATH = path.resolve(import.meta.dir, '../storeAvailability_20260720_113402.xlsx')
 const ORG_SLUG = 'regal-pz'
-const ORG_NAME = 'Regal Pazardzhik'
 const HEADER_ROW = 5
 const DATA_START_ROW = 6
 const SKIP_NAMES = new Set(['Всичко', 'ОБЩО:', 'Опаковка'])
@@ -64,6 +70,14 @@ function adminFromEnv() {
   const missing = ADMIN_ENV.filter(k => !get(k)).map(k => `REGAL_PZ_ADMIN_${k}`)
   if (missing.length) throw new Error(`${missing.join(', ')} not set: they name a real person, so they live in the gitignored .secrets/, never in this file`)
   return { username: get('USERNAME'), email: get('EMAIL'), firstName: get('FIRST_NAME'), lastName: get('LAST_NAME') }
+}
+
+// The org's identity is the customer's, so it comes from the environment too (the gitignored
+// .secrets/customer-identity.env). Read only when a run has to CREATE the org or its warehouse.
+function customerEnv<K extends string>(...names: K[]): Record<K, string> {
+  const missing = names.filter(n => !process.env[n])
+  if (missing.length) throw new Error(`${missing.join(', ')} not set: they are the customer's, so they live in the gitignored .secrets/customer-identity.env`)
+  return Object.fromEntries(names.map(n => [n, process.env[n]!])) as Record<K, string>
 }
 
 const EXPECTED_HEADERS = [
@@ -190,10 +204,11 @@ async function bootstrapOrg() {
     console.log(`Org exists: ${org.name} (${org._id})`)
     await assertScriptHome(org._id, ORG_SLUG)
   } else {
+    const { CUSTOMER_ORG_NAME, CUSTOMER_EIK } = customerEnv('CUSTOMER_ORG_NAME', 'CUSTOMER_EIK')
     org = await Org.create({
-      name: ORG_NAME,
+      name: CUSTOMER_ORG_NAME,
       slug: ORG_SLUG,
-      taxNumber: '112500982',
+      taxNumber: CUSTOMER_EIK,
       settings: {
         baseCurrency: 'BGN',
         fiscalYearStart: 1,
@@ -286,16 +301,17 @@ async function bootstrapOrg() {
   if (warehouse) {
     console.log(`Warehouse exists: ${warehouse.name} (${warehouse._id})`)
   } else {
+    const { CUSTOMER_CITY, CUSTOMER_POSTAL_CODE } = customerEnv('CUSTOMER_CITY', 'CUSTOMER_POSTAL_CODE')
     warehouse = await Warehouse.create({
       orgId: org._id,
-      name: 'Pazardzhik',
+      name: CUSTOMER_CITY,
       code: 'pz',
       type: 'warehouse',
       isDefault: true,
       isActive: true,
-      address: { street: '', city: 'Pazardzhik', postalCode: '4400', country: 'BG' },
+      address: { street: '', city: CUSTOMER_CITY, postalCode: CUSTOMER_POSTAL_CODE, country: 'BG' },
     })
-    console.log(`Warehouse created: Pazardzhik (pz)`)
+    console.log(`Warehouse created: ${warehouse.name} (pz)`)
   }
 
   let category = await ProductCategory.findOne({ orgId: org._id, name: 'Общи' })
@@ -384,7 +400,7 @@ async function main() {
   }
 
   console.log()
-  console.log(`Done! Org "${org.name}" (${ORG_SLUG}): ${allProducts.length} products + stock levels in warehouse Pazardzhik.`)
+  console.log(`Done! Org "${org.name}" (${ORG_SLUG}): ${allProducts.length} products + stock levels in warehouse ${warehouse.name}.`)
   console.log(`Login: ${ORG_SLUG} / ${adminFromEnv().username} / <REGAL_PZ_ADMIN_PASSWORD, or the password it has been changed to>`)
 }
 

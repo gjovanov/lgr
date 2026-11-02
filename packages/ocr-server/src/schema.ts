@@ -3,7 +3,7 @@
 export interface Party {
   name?: string | null
   company_id?: string | null // ЕИК / БУЛСТАТ (registration number, no prefix)
-  vat_id?: string | null // ИН по ДДС (with country prefix, e.g. BG112500982)
+  vat_id?: string | null // ИН по ДДС (with country prefix, e.g. BG123456786)
   address?: string | null
   city?: string | null
   iban?: string | null

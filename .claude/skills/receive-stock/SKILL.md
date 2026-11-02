@@ -23,7 +23,7 @@ folder's `storeOperations_*.xlsx` export.
 ## Source format (fixed — and shared with other reports!)
 
 Sheet1: rows 1–8 title block (`Склад: <name|Всички складове>`,
-`Период: DD.MM.YYYY - …`, **`Операция: <kind>`**, `Фирма: РЕГАЛ ООД`, ЕИК),
+`Период: DD.MM.YYYY - …`, **`Операция: <kind>`**, `Фирма: ПРОБА ООД`, ЕИК),
 **row 9 headers** `Име | Мярка | Количество | Цена | Стойност`, item rows, final
 `Всичко` row.
 

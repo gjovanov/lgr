@@ -337,7 +337,7 @@ async function main() {
     const folderNums = scanFolderNumbers(docFolder)
     if (!folderNums.size) seqSummary.push(`  (no invoicem/stokrazp/sklrazp/sklisk docs found in ${docFolder})`)
     // LGR numbers seen, by type: movement notes carry `stokrazp:` / `corr:` / `sklrazp:` /
-    // `sklisk:` markers; issued sales invoices carry the original 3000100… number.
+    // `sklisk:` markers; issued sales invoices carry the original 3000703… number.
     const movements = await fetchAll('/warehouse/movement', 'stockMovements', idOf)
     const lgrStok = new Set<number>(), lgrSkl = new Set<number>(), lgrIsk = new Set<number>()
     for (const mv of movements) {

@@ -13,7 +13,7 @@ allowed-tools: Bash(bun:*), Read
 
 Backed by `scripts/adjust-stock.ts`. A PlusMinus `sklisk_*.pdf` is an
 **"ИСКАНЕ За отпускане на материали"** — an internal materials-issue request:
-consumables and materials taken out of СКЛАД-1 (the LGR-tracked Пазарджик
+consumables and materials taken out of СКЛАД-1 (the LGR-tracked
 warehouse) for internal use, damage, or loss. LGR books each as ONE movement OUT
 that **reduces the warehouse quantity by the line's `Кол`** (there is no
 destination — the stock is written off).
@@ -42,9 +42,9 @@ as transfer-stock / receive-new-products):
 ```json
 {
   "adjustments": [
-    { "number": "0000000130", "date": "2026-07-31",
-      "reason": "изписване на материали", "total": 44.92,
-      "lines": [ { "name": "ТИКСО - ПРОЗР.", "qty": 12, "value": 12.00 }, ... ] }
+    { "number": "0000603130", "date": "2026-07-31",
+      "reason": "изписване на материали", "total": 40.00,
+      "lines": [ { "name": "ТИКСО - ПРОЗР.", "qty": 10, "value": 10.00 }, ... ] }
   ]
 }
 ```
@@ -61,7 +61,7 @@ bun run scripts/adjust-stock.ts --items <adjustments.json> --execute
 ```
 
 Options: `--org <slug>` (default `regal-pz`) · `--api <url>` · `--warehouse
-<code>` (default: org default = Пазарджик) · `--max-date <YYYY-MM-DD>` ·
+<code>` (default: org default) · `--max-date <YYYY-MM-DD>` ·
 `--skip-unmatched`.
 
 ## Verify
@@ -69,7 +69,7 @@ Options: `--org <slug>` (default `regal-pz`) · `--api <url>` · `--warehouse
 - Per doc: `✓ SM-… confirmed | first "<product>" <before> → <after> OK` (after =
   before − Кол); movement-count delta at the end.
 - `/inventory/movements` shows the `adjustment` movements (status completed, source
-  = Пазарджик, no destination).
+  = the org's default warehouse, no destination).
 
 ## Gotchas
 

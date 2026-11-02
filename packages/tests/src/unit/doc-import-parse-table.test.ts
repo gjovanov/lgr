@@ -19,7 +19,7 @@ function stockNote(body: string[], footer: number, supplier = '2000 КОРЕКЦ
   return [
     row([52, 'СТОКОВА'], [90, 'Номер:']),
     row([92, 'Дата:']),
-    row([100, '3000099001']),
+    row([100, '3000702001']),
     row([100, '27.08.2026']),
     row([52, 'РАЗПИСКА']),
     row([0, 'Склад / Магазин:'], [35, 'ТЕСТ СКЛАД'], [67, 'Доставчик:'], [88, supplier]),
@@ -83,10 +83,10 @@ describe('parse-table — PlusMinus layout reader', () => {
     const text = [
       row([70, 'ФАКТУРА'], [100, 'Номер:']),
       row([102, 'Дата:']),
-      row([110, '3000099002']),
+      row([110, '3000702002']),
       row([110, '14.08.2026']),
       row([0, 'ПОЛУЧАТЕЛ'], [17, 'ТЕСТ КЛИЕНТ ООД'], [77, 'ДОСТАВЧИК'], [95, 'ТЕСТ ДОСТАВЧИК ООД']),
-      row([0, 'ЕИК'], [17, '208610694'], [77, 'ЕИК'], [95, '112500982']),
+      row([0, 'ЕИК'], [17, '999000191'], [77, 'ЕИК'], [95, '123456786']),
       row([4, 'No'], [33, 'Име'], [66, 'Мяр'], [78, 'Кол'], [92, 'Цена'], [106, 'ТО'], [117, 'Стойност']),
       row([0, '1'], [13, 'ТЕСТ ВИНТ 4.2Х16'], [66, 'БР'], [79, '1000'], [92, '0.01'], [124, '7.70']),
       row([0, 'Словом : тест'], [80, 'Данъчна основа'], [120, '7.70 €']),
@@ -100,7 +100,7 @@ describe('parse-table — PlusMinus layout reader', () => {
     expect(r.lines[0].total).toBe(7.7)
 
     const draft = draftFromLayoutText(text, 'invoice')
-    expect(draft?.extraction.document_number).toBe('3000099002')
+    expect(draft?.extraction.document_number).toBe('3000702002')
     expect(draft?.extraction.issue_date).toBe('2026-08-14')
     expect(draft?.extraction.customer?.name).toBe('ТЕСТ КЛИЕНТ ООД')
     expect(draft?.extraction.supplier?.name).toBe('ТЕСТ ДОСТАВЧИК ООД')
@@ -115,7 +115,7 @@ describe('parse-table — PlusMinus layout reader', () => {
 
     const draft = draftFromLayoutText(text, 'correction')
     expect(draft).not.toBeNull()
-    expect(draft!.extraction.document_number).toBe('3000099001')
+    expect(draft!.extraction.document_number).toBe('3000702001')
     expect(draft!.extraction.issue_date).toBe('2026-08-27')
     expect(draft!.extraction.correction).toBe(true)          // "2000 КОРЕКЦИЯ" supplier
     expect(draft!.extraction.warehouse_to).toBe('ТЕСТ СКЛАД')
@@ -192,7 +192,7 @@ describe('parse-table — PlusMinus layout reader', () => {
     const text = [
       row([70, 'ФАКТУРА'], [100, 'Номер:']),
       row([102, 'Дата:']),
-      row([110, '3000099003']),
+      row([110, '3000702003']),
       row([110, '14.08.2026']),
       row([0, 'ПОЛУЧАТЕЛ'], [17, 'ТЕСТ КЛИЕНТ ООД'], [77, 'ДОСТАВЧИК'], [95, 'ТЕСТ ДОСТАВЧИК ООД']),
       row([4, 'No'], [33, 'Име'], [66, 'Мяр'], [78, 'Кол'], [92, 'Цена'], [117, 'Стойност']),
@@ -435,40 +435,40 @@ describe('складова разписка — the program footer at the foot o
 const partnerNote = [
   '                                        СКЛАДОВА РАЗПИСКА',
   '                                за приемане/предаване на МЦ',
-  '                                 Дата:01.09.2026, Номер:0000012713',
+  '                                 Дата:01.09.2026, Номер:0000615713',
   '',
   '  Организация:                                             Партньор:',
-  '  Име:                    РЕГАЛ ООД                        Име:              БеПро ЕАД',
-  '  Адрес:                  ПЛОВДИВСКА 110                   Адрес:            БУЛ.ЧЕРНИ ВРЪХ 51 Б',
-  '  ЕИК:                    112500982                        ЕИК:              175302437',
-  '  ИН по ДДС:              BG112500982                      ИН по ДДС:        BG175302437',
+  '  Име:                    ПРОБА ООД                        Име:              Тест Фирма ЕАД',
+  '  Адрес:                  УЛ.ТЕСТОВА 101                   Адрес:            БУЛ.ТЕСТОВ ВРЪХ 51 Б',
+  '  ЕИК:                    123456786                        ЕИК:              999000113',
+  '  ИН по ДДС:              BG123456786                      ИН по ДДС:        BG999000113',
   '  Склад - изпращач:       СКЛАД - 1                        Склад получател:',
   '',
   '   No                    Име                     Мяр.    Кол        Цена       Стойност',
-  '  1     Болт М16Х75                               БР     300       0.5700         171.00',
+  '  1     Болт М16Х75                               БР     200       0.5000         100.00',
   '',
-  'Словом : сто седемдесет и едно евро        Данъчна основа                        171.00',
+  'Словом : сто евро                          Данъчна основа                        100.00',
 ].join(String.fromCharCode(10))
 
 describe('parse-table — the partner of a stock note', () => {
   it('reads the Партньор column, not our own side of the letterhead', () => {
     const ext = draftFromLayoutText(partnerNote, 'transfer_note')!.extraction
     // Goods leaving on a разписка make the partner the CUSTOMER.
-    expect(ext.customer?.name).toBe('БеПро ЕАД')
-    expect(ext.customer?.company_id).toBe('175302437')
-    expect(ext.customer?.vat_id).toBe('BG175302437')
+    expect(ext.customer?.name).toBe('Тест Фирма ЕАД')
+    expect(ext.customer?.company_id).toBe('999000113')
+    expect(ext.customer?.vat_id).toBe('BG999000113')
     expect(ext.supplier?.name).toBeFalsy()
   })
 
   it('puts the partner on the supplier side when the goods come IN', () => {
     const ext = draftFromLayoutText(partnerNote, 'goods_receipt')!.extraction
-    expect(ext.supplier?.name).toBe('БеПро ЕАД')
+    expect(ext.supplier?.name).toBe('Тест Фирма ЕАД')
     expect(ext.customer?.name).toBeFalsy()
   })
 
   it('leaves both sides empty for a store-to-store transfer that names nobody', () => {
     const blank = partnerNote.split(String.fromCharCode(10)).map(l =>
-      /Партньор|БеПро|175302437|БУЛ\.ЧЕРНИ/.test(l) ? l.replace(/(БеПро ЕАД|175302437|BG175302437|БУЛ\.ЧЕРНИ ВРЪХ 51 Б|Партньор:)/g, '') : l,
+      /Партньор|Тест Фирма|999000113|БУЛ\.ТЕСТОВ/.test(l) ? l.replace(/(Тест Фирма ЕАД|999000113|BG999000113|БУЛ\.ТЕСТОВ ВРЪХ 51 Б|Партньор:)/g, '') : l,
     ).join(String.fromCharCode(10))
     const ext = draftFromLayoutText(blank, 'transfer_note')!.extraction
     expect(ext.customer?.name).toBeFalsy()

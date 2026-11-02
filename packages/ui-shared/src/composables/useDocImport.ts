@@ -79,7 +79,7 @@ const PREFIX_KIND: Record<string, string> = {
   sklisk: 'issue_note',
 }
 
-/** `"stokrazp_3000016596.pdf"` → `"goods_receipt"`; unrecognised/absent prefix → undefined. */
+/** `"stokrazp_3000619596.pdf"` → `"goods_receipt"`; unrecognised/absent prefix → undefined. */
 export function kindFromFilename(filename: string | undefined): string | undefined {
   const base = (filename || '').replace(/\.[^.]+$/, '')
   const prefix = base.match(/^([A-Za-z]+)_/)?.[1] ?? ''

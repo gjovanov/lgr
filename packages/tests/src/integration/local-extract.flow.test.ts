@@ -35,7 +35,7 @@ function tinyPdf(text: string): Buffer {
   return Buffer.from(out, 'latin1')
 }
 
-const TEXT = 'Invoice 2000012345 for the field test, net 100.00, VAT 20.00, total 120.00 EUR'
+const TEXT = 'Invoice 2000615345 for the field test, net 100.00, VAT 20.00, total 120.00 EUR'
 const saved = { role: config.node.role }
 
 afterEach(() => {
@@ -62,7 +62,7 @@ describe('a master reads its own PDFs (FR-20.88)', () => {
     const pdf = tinyPdf(TEXT)
     const mine = await extractLocally(t, pdf)
     expect(mine).toMatchObject({ method: 'native', pages: 1 })
-    expect(mine.text).toContain('Invoice 2000012345')
+    expect(mine.text).toContain('Invoice 2000615345')
     // The sidecar's own code on the same bytes: one reading, wherever it runs.
     const dir = mkdtempSync(join(tmpdir(), 'lgr-sidecar-'))
     try {
@@ -90,7 +90,7 @@ describe('a master reads its own PDFs (FR-20.88)', () => {
     // forceOcr: the rasterised page is read by tesseract, the way a scanned invoice is.
     const r = await extractLocally(t, tinyPdf(TEXT), { forceOcr: true })
     expect(r).toMatchObject({ method: 'tesseract', pages: 1 })
-    expect(r.text.replace(/\s+/g, ' ')).toMatch(/2000012345/)
+    expect(r.text.replace(/\s+/g, ' ')).toMatch(/2000615345/)
   })
 
   it('no tools: the reader answers null, so the master relays', async () => {

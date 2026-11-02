@@ -67,7 +67,7 @@ export async function reconcileDocFile(orgId: string, userId: string, docFileId:
   // therefore comes out as a full reversal of whatever they had booked, and executing it unbooks
   // live stock. For an unread line newNet is not 0, it is UNKNOWN.
   //
-  // This is not hypothetical: correction 3000016342 is a wide-layout export the deterministic parser
+  // This is not hypothetical: correction 3000619342 is a wide-layout export the deterministic parser
   // refuses, so re-reading fell to the model, which truncated the names („СИЛИКОН - CERESIT - CS24 -
   // УНИВ.") and reported seven products already in the catalog as missing. The reconcile proposed
   // reversing all seven — and the availability snapshot showed those deltas moving AWAY from it.
@@ -141,7 +141,7 @@ export async function reconcileDocFile(orgId: string, userId: string, docFileId:
 
   const marker = `reconcile:${doc.docNumber}-v${doc.version}`
   // The correction belongs to the DOCUMENT's day, not to the day someone noticed it was short.
-  // Stamping `new Date()` filed разписка 0000012710's two missing lines under 2026-09-08 while the
+  // Stamping `new Date()` filed разписка 0000615710's two missing lines under 2026-09-08 while the
   // разписка itself is dated 2026-09-01, so every date-windowed report (FR-07, the daily digest,
   // the snapshot reconciliation) saw stock move on a day nothing was delivered.
   const docDate = doc.docDate ? new Date(`${doc.docDate}T12:00:00Z`) : new Date()

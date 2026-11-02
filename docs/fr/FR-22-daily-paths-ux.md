@@ -656,7 +656,7 @@ Field test (§10) on production, 2026-10-26, acme-corp, each write undone where 
   „+ Нов", the order subtitles, the row menus, and „Продай" with the article on the first line;
 - §10.7: #203 was closed by its owner on 2026-10-26. The notes for #168 and #4 were posted on
   2026-10-27, on the owner's go. The place of deal prints the city of the warehouse address,
-  which both stores had in Latin. It is „Пазарджик" / „София" since 2026-10-27, audit-logged
+  which both stores had in Latin. They are in Cyrillic since 2026-10-27, audit-logged
   as the owner.
 
 Data follow-ups run on production, 2026-10-26:

@@ -9,10 +9,10 @@ import { kindFromFilename } from 'ui-shared/composables/useDocImport'
 
 describe('kindFromFilename', () => {
   it('maps each known PlusMinus export prefix to its doc kind', () => {
-    expect(kindFromFilename('invoicem_3000101649.pdf')).toBe('invoice')
-    expect(kindFromFilename('stokrazp_3000016596.pdf')).toBe('goods_receipt')
+    expect(kindFromFilename('invoicem_3000704649.pdf')).toBe('invoice')
+    expect(kindFromFilename('stokrazp_3000619596.pdf')).toBe('goods_receipt')
     expect(kindFromFilename('sklrazp_778.pdf')).toBe('transfer_note')
-    expect(kindFromFilename('sklisk_130.pdf')).toBe('issue_note')
+    expect(kindFromFilename('sklisk_603130.pdf')).toBe('issue_note')
   })
 
   it('returns undefined for an unrecognised prefix or filename, rather than guessing', () => {

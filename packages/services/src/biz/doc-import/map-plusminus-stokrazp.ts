@@ -10,10 +10,10 @@
  * ⚠ The sign lives on the LINE, not the document. Confirmed two ways on the real 2026-10-27..29
  * pull (16 regal-pz + 45 regal-sf docs):
  *   - regal-pz's "2000 КОРЕКЦИЯ" partner carries a MIX: one positive line (a genuine receipt) next
- *     to negative ones (a correction taking stock back out) — `stokrazp_3000016618`.
+ *     to negative ones (a correction taking stock back out) — `stokrazp_3000619618`.
  *   - regal-sf has whole documents that are ENTIRELY negative (a return to the supplier) with an
- *     ORDINARY partner name, no "КОРЕКЦИЯ" text anywhere — `stokrazp_2222036216` (partner
- *     "ДЕЧКО", all 4 lines negative). Any text-based "is this a correction" check would have
+ *     ORDINARY partner name, no "КОРЕКЦИЯ" text anywhere — `stokrazp_2222639216` (partner
+ *     "ПРИМЕРЕН ДОСТАВЧИК", all 4 lines negative). Any text-based "is this a correction" check would have
  *     missed this one outright, which is why there isn't one: every line is grouped by its own
  *     qty sign, never by a label on the document.
  * Both halves of one document share the SAME idempotency marker (`stokrazp:<docNumber>`) — they
@@ -84,7 +84,7 @@ function extractTiers(line: Record<string, unknown>): Record<string, number> | u
 export function mapStokrazpDoc(doc: PlusMinusDocument): StokrazpMapped {
   const h: any = doc.header || {}
   // header.docNumber only — doc.num is a different, internal transaction sequence (e.g. "00000005"
-  // vs docNumber "2222036233") and must never leak into the idempotency marker.
+  // vs docNumber "2222639233") and must never leak into the idempotency marker.
   const docNumber = String(h.docNumber ?? '').trim()
   if (!docNumber) throw new Error('stokrazp document has no header.docNumber')
   const rawDate = String(h.docDate ?? doc.date ?? '')

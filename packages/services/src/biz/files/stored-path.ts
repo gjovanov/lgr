@@ -5,7 +5,7 @@ import { config } from 'config'
  * File paths as the database stores them (FR-20.24, plan step P0b-8).
  *
  * A stored path is RELATIVE to the upload root, starts with the org's id and uses `/`:
- * `6a8d…bbcd/docs/2026-09-10/invoicem_3000100855.pdf`. Every writer already lays files out as
+ * `6a8d…bbcd/docs/2026-09-10/invoicem_3000703855.pdf`. Every writer already lays files out as
  * `<upload root>/<orgId>/…`, so the first segment both tells the new form from a legacy one and
  * names the org the file belongs to.
  *

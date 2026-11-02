@@ -61,11 +61,11 @@ test.describe('Tag-Based Pricing — API Tests', () => {
     expect(product.tagPrices[1].name).toBe('Price2')
     expect(product.tagPrices[1].tag).toBe('high volume')
 
-    // 3. Create contact "Venusart e.U." with tag 'high volume'
+    // 3. Create contact "Testart e.U." with tag 'high volume'
     const contactData = await apiCall('POST', `/org/${orgId}/invoicing/contact`, token, {
       type: 'customer',
-      companyName: `Venusart-${ts}`,
-      email: `venusart-${ts}@test.com`,
+      companyName: `Testart-${ts}`,
+      email: `testart-${ts}@test.com`,
       tags: ['high volume'],
       paymentTermsDays: 30,
       addresses: [{ type: 'billing', street: '1 Main', city: 'Vienna', postalCode: '1010', country: 'AT', isDefault: true }],

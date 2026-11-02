@@ -26,7 +26,7 @@ const sources: ReservationSources = {
     { warehouseId: 'w2', warehouseName: 'Склад 2', isDefault: false, onHand: 40, reserved: 0, free: 40 },
   ],
   allocations: [{
-    orderId: 'o1', orderNumber: 'ORDO-2026-00001', orderStatus: 'sent', expectedDate: null, supplierId: 's1', supplierName: 'Fastbolt',
+    orderId: 'o1', orderNumber: 'ORDO-2026-00001', orderStatus: 'sent', expectedDate: null, supplierId: 's1', supplierName: 'Beispiel Schrauben',
     groupId: 'g1', lineId: 'l1', allocationId: 'a1', warehouseId: 'w1', warehouseName: 'Склад 1', quantity: 100, received: 0, reserved: 0, free: 100,
   }],
   demand: [],

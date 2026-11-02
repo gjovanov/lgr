@@ -36,16 +36,16 @@ describe('Cyrillic case-insensitive search via lowered mirror fields', () => {
 
   it('finds contact by lowercased company name', async () => {
     const org = await createTestOrg()
-    await createTestContact(org._id, { companyName: 'Венусарт ЕООД' })
+    await createTestContact(org._id, { companyName: 'Тестарт ЕООД' })
     await createTestContact(org._id, { companyName: 'Other Corp' })
 
     const filter = {
       orgId: org._id,
-      ...buildSearchFilter('венусарт', ['companyName'], { lowered: { companyName: 'companyNameLower' } }),
+      ...buildSearchFilter('тестарт', ['companyName'], { lowered: { companyName: 'companyNameLower' } }),
     }
     const results = await Contact.find(filter).lean()
     expect(results).toHaveLength(1)
-    expect(results[0].companyName).toBe('Венусарт ЕООД')
+    expect(results[0].companyName).toBe('Тестарт ЕООД')
   })
 })
 

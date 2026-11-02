@@ -3,7 +3,7 @@
  * PlusMinus issues these to restate prices — nothing is delivered.
  *
  * Every line failed the arithmetic gate (there is no quantity to reconcile against a value), so the
- * document was refused and handed to the model, which INVENTED quantities: stokrazp 3000016390 came
+ * document was refused and handed to the model, which INVENTED quantities: stokrazp 3000619390 came
  * back with 1500 of each ИЗОЛИРБАНД against a real stock of ~13, and 29 of that day's 39 stock
  * differences were exactly those numbers.
  *
@@ -32,10 +32,10 @@ const PRICE_ONLY = [
   row([0, 'o'], [46, 'я'], [52, 'л'], [59, 'на'], [66, 'д.'], [77, 'на'], [84, 'йнос']),
   row([46, 'р'], [66, 'це'], [77, '1'], [84, 'т']),
   row([46, '.'], [66, 'на']),
-  row([0, '1'], [5, 'ИЗОЛИРБАНД - 20Х19 - ЖЪЛТО-ЗЕЛЕН'], [46, 'Б'], [59, '1.5'], [66, '1.5'], [77, '1.9']),
+  row([0, '1'], [5, 'ИЗОЛИРБАНД - 20Х19 - ЖЪЛТО-ЗЕЛЕН'], [46, 'Б'], [59, '1.6'], [66, '1.7'], [77, '1.8']),
   row([46, 'Р'], [59, '00'], [66, '8'], [77, '65']),
   row([59, '0']),
-  row([0, '2'], [5, 'ИЗОЛИРБАНД - 20Х19 - КАФЯВ'], [46, 'Б'], [59, '1.5'], [66, '1.5'], [77, '1.9']),
+  row([0, '2'], [5, 'ИЗОЛИРБАНД - 20Х19 - КАФЯВ'], [46, 'Б'], [59, '1.6'], [66, '1.7'], [77, '1.8']),
   row([46, 'Р'], [59, '00'], [66, '8'], [77, '65']),
   row([59, '0']),
   '',
@@ -60,7 +60,7 @@ describe('price-only стокова разписка', () => {
     expect(t.lines).toHaveLength(2)
     expect(t.lines.map(l => l.quantity)).toEqual([0, 0])
     // the prices it exists to state are still read
-    expect(t.lines[0].prices['Цена']).toBeCloseTo(1.5, 4)
+    expect(t.lines[0].prices['Цена']).toBeCloseTo(1.6, 4)
   })
 
   it('produces a draft the pipeline can use, so the model is never called', () => {

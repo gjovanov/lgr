@@ -102,7 +102,7 @@ export function detectNoteType(rawText: string): 'credit_note' | 'debit_note' | 
 
 /**
  * The document a note corrects, from the „Известие към:" block. The number and its date sit on
- * the line BELOW the label (`Известие към: -ФЕ` / `3000100972/08.09.2026`), so this is anchored on
+ * the line BELOW the label (`Известие към: -ФЕ` / `3000703972/08.09.2026`), so this is anchored on
  * the label and then scans forward rather than matching within one line.
  */
 export function parseNoteReference(rawText: string): string | undefined {

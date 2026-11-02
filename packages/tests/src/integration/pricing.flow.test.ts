@@ -248,7 +248,7 @@ describe('Tag-Based Pricing', () => {
 })
 
 describe('Real-World Scenario: Product with tag prices, contact with matching tag', () => {
-  it('should resolve "high volume" tag price for Venusart contact', async () => {
+  it('should resolve "high volume" tag price for Testart contact', async () => {
     const org = await createTestOrg()
 
     // Simulate: product "Tag Price Test" with two tag-based custom prices
@@ -261,9 +261,9 @@ describe('Real-World Scenario: Product with tag prices, contact with matching ta
       ],
     })
 
-    // Simulate: contact "Venusart e.U." with tag 'high volume'
+    // Simulate: contact "Testart e.U." with tag 'high volume'
     const contact = await createTestContact(org._id, {
-      companyName: 'Venusart e.U.',
+      companyName: 'Testart e.U.',
       tags: ['high volume'],
     })
 
@@ -349,7 +349,7 @@ describe('Real-World Scenario: Product with tag prices, contact with matching ta
     const org = await createTestOrg()
 
     const contact = await createTestContact(org._id, {
-      companyName: 'Venusart e.U.',
+      companyName: 'Testart e.U.',
       tags: ['high volume'],
     })
 
@@ -361,7 +361,7 @@ describe('Real-World Scenario: Product with tag prices, contact with matching ta
         { name: 'Price2', tag: 'high volume', price: 70 },
       ],
       customPrices: [
-        { name: 'Venusart Special', contactId: contact._id, price: 65 },
+        { name: 'Testart Special', contactId: contact._id, price: 65 },
       ],
     })
 
@@ -371,6 +371,6 @@ describe('Real-World Scenario: Product with tag prices, contact with matching ta
     expect(result.steps).toHaveLength(3)
     expect(result.steps[0].label).toBe('Selling price')
     expect(result.steps[1].label).toBe('Price2')
-    expect(result.steps[2].label).toBe('Venusart Special')
+    expect(result.steps[2].label).toBe('Testart Special')
   })
 })

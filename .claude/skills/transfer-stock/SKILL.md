@@ -1,6 +1,6 @@
 ---
 name: transfer-stock
-description: Book internal warehouse transfers-OUT from PlusMinus sklrazp_*.pdf (СКЛАДОВА РАЗПИСКА за приемане/предаване на МЦ) — goods handed from СКЛАД-1 to another РЕГАЛ store LGR doesn't track. Each разписка becomes ONE completed movement that reduces the warehouse's stock (destination untracked, single-WH tenant). Use for daily store-to-store transfer notes, which are a major source of "LGR higher than PlusMinus" quantity drift.
+description: Book internal warehouse transfers-OUT from PlusMinus sklrazp_*.pdf (СКЛАДОВА РАЗПИСКА за приемане/предаване на МЦ) — goods handed from СКЛАД-1 to another of the org's stores LGR doesn't track. Each разписка becomes ONE completed movement that reduces the warehouse's stock (destination untracked, single-WH tenant). Use for daily store-to-store transfer notes, which are a major source of "LGR higher than PlusMinus" quantity drift.
 allowed-tools: Bash(bun:*), Read
 ---
 
@@ -12,9 +12,9 @@ allowed-tools: Bash(bun:*), Read
 > no destination, and `sklrazp:<number>` in the notes.
 
 
-Backed by `scripts/transfer-stock.ts`. РЕГАЛ operates more than one store; goods move
-from СКЛАД-1 (the LGR-tracked Пазарджик warehouse) to other stores
-(СКЛАД - УЛ.М.ВОЙВОДА 12, МАГАЗИН - РЕГАЛ - СОФИЯ, …) on `sklrazp_*.pdf` notes.
+Backed by `scripts/transfer-stock.ts`. The org operates more than one store; goods move
+from СКЛАД-1 (the LGR-tracked warehouse) to other stores
+(СКЛАД - УЛ.ПРИМЕРНА 12, МАГАЗИН - ПРОБА - СОФИЯ, …) on `sklrazp_*.pdf` notes.
 LGR tracks a single warehouse, so each transfer becomes a **movement OUT** that
 reduces the warehouse quantity and adds nowhere ("into the unknown"). These
 transfers are typically NOT captured by the daily invoicem/cash/receipt imports,
@@ -39,9 +39,9 @@ the same read-to-JSON pattern as `receive-new-products`:
 ```json
 {
   "transfers": [
-    { "number": "0000012643", "date": "2026-07-24",
-      "destination": "СКЛАД - УЛ.М.ВОЙВОДА 12", "total": 1027.91,
-      "lines": [ { "name": "ВИНТ 6Х120", "qty": 1000, "value": 75.00 }, ... ] }
+    { "number": "0000615643", "date": "2026-07-24",
+      "destination": "СКЛАД - УЛ.ПРИМЕРНА 12", "total": 1000.00,
+      "lines": [ { "name": "ВИНТ 6Х120", "qty": 1000, "value": 80.00 }, ... ] }
   ]
 }
 ```
@@ -57,7 +57,7 @@ look-alikes (`К/Р/С/Т/Х`…). Copy the letter the PDF actually uses — do 
 the alphabet. As a safety net the matcher now applies an **unambiguous Cyrillic→Latin
 fold** after exact/collapse fail (so `DIN 7504 K` still finds `DIN 7504 К`), logged as
 `↪ homoglyph-matched …`; it refuses when >1 product folds equal (`⚠ ambiguous`). This
-class caused sklrazp 12690's `САМОПР 4.8Х19/6.3Х100` OUT lines to be silently skipped,
+class caused sklrazp 615690's `САМОПР 4.8Х19/6.3Х100` OUT lines to be silently skipped,
 leaving the persistent −5000/−3000 "LGR higher" drift until re-booked.
 
 ```bash
@@ -67,7 +67,7 @@ bun run scripts/transfer-stock.ts --items <transfers.json> --execute
 ```
 
 Options: `--org <slug>` (default `regal-pz`) · `--api <url>` · `--warehouse
-<code>` (default: org default = Пазарджик) · `--max-date <YYYY-MM-DD>` (only
+<code>` (default: org default) · `--max-date <YYYY-MM-DD>` (only
 transfers dated ≤ this — e.g. to book just the pre-snapshot backlog for a clean
 reconciliation) · `--skip-unmatched`.
 
@@ -75,7 +75,7 @@ reconciliation) · `--skip-unmatched`.
 
 - Per transfer: `✓ SM-… confirmed | first "<product>" <before> → <after> OK`.
 - Movement-count delta at the end; `/inventory/movements` shows the `transfer`
-  movements (status completed, source = Пазарджик, no destination).
+  movements (status completed, source = the org's default warehouse, no destination).
 - After booking the pre-snapshot backlog, re-run `compare-products` against the
   matching `storeAvailability` — the "LGR higher" quantity drifts should shrink.
 

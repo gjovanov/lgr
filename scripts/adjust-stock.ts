@@ -18,9 +18,9 @@
  *
  *   {
  *     "adjustments": [
- *       { "number": "0000000130", "date": "2026-07-31", "reason": "изписване на материали",
- *         "total": 44.92,
- *         "lines": [ { "name": "ТИКСО - ПРОЗР.", "qty": 12, "value": 12.00 }, ... ] }
+ *       { "number": "0000603130", "date": "2026-07-31", "reason": "изписване на материали",
+ *         "total": 40.00,
+ *         "lines": [ { "name": "ТИКСО - ПРОЗР.", "qty": 10, "value": 10.00 }, ... ] }
  *     ]
  *   }
  *
@@ -36,7 +36,7 @@
  *   --items <path>    (required) adjustments JSON as above
  *   --org <slug>      org slug (default: regal-pz)
  *   --api <url>       API base (default: https://lgrai.app)
- *   --warehouse <c>   warehouse code (default: org default = Пазарджик)
+ *   --warehouse <c>   warehouse code (default: org default)
  *   --max-date <ISO>  only process docs dated <= this (inclusive)
  *   --skip-unmatched  proceed without lines whose product has no catalog match
  *                     (default: unmatched aborts --execute — a skipped write-off
@@ -193,7 +193,7 @@ async function main() {
   let totalUnmatched = 0, booked = 0, skipped = 0
   const mvBefore = (await http('GET', org('/warehouse/movement?page=0&size=1'))).total ?? 0
 
-  // By document NUMBER, not marker spelling: `sklisk:0000000130` (PDF era) and `sklisk:130` (API
+  // By document NUMBER, not marker spelling: `sklisk:0000603130` (PDF era) and `sklisk:603130` (API
   // flow) are the same искане — see lib/doc-marker.ts.
   const alreadyBooked = await loadBookedDocNumbers(async (page, size) => {
     const d = await http('GET', org(`/warehouse/movement?type=adjustment&page=${page}&size=${size}&sortBy=_id&sortOrder=asc`))

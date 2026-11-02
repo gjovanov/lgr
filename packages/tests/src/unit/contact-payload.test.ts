@@ -65,9 +65,9 @@ describe('buildContactPayload — create', () => {
   })
 
   it('trims what was typed', () => {
-    const body = buildContactPayload(blankForm({ email: ' office@example.bg ', vatNumber: ' BG112500982 ' }), 'create')
+    const body = buildContactPayload(blankForm({ email: ' office@example.bg ', vatNumber: ' BG123456786 ' }), 'create')
     expect(body.email).toBe('office@example.bg')
-    expect(body.vatNumber).toBe('BG112500982')
+    expect(body.vatNumber).toBe('BG123456786')
   })
 
   it('drops a cleared number box instead of sending an empty string', () => {
@@ -88,9 +88,9 @@ describe('buildContactPayload — create', () => {
 
   it('keeps a filled address, leaving empty parts out so the model default country applies', () => {
     const body = buildContactPayload(blankForm({
-      addresses: [{ type: 'shipping', street: ' ПЛОВДИВСКА 110 ', city: 'Пазарджик', postalCode: '', country: '', isDefault: true }],
+      addresses: [{ type: 'shipping', street: ' УЛ.ТЕСТОВА 101 ', city: 'Тестоград', postalCode: '', country: '', isDefault: true }],
     }), 'create')
-    expect(body.addresses).toEqual([{ type: 'shipping', street: 'ПЛОВДИВСКА 110', city: 'Пазарджик', isDefault: true }])
+    expect(body.addresses).toEqual([{ type: 'shipping', street: 'УЛ.ТЕСТОВА 101', city: 'Тестоград', isDefault: true }])
   })
 
   it('keeps a filled bank row, with a currency even if the box was cleared', () => {

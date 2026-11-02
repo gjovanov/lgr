@@ -57,7 +57,7 @@ const report = buildReportHtml({
 const cashAgg = buildCashAggHtml({
   title: 'Касови продажби — по продукт',
   locale: 'bg',
-  orgName: 'РЕГАЛ',
+  orgName: 'ПРОБА',
   period: { from: '2026-08-01', to: '2026-08-21' },
   sections: [{
     currency: 'BGN',

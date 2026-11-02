@@ -103,16 +103,16 @@ describe('Search with MongoDB', () => {
 
   it('finds contacts across multiple fields', async () => {
     const org = await createTestOrg()
-    await createTestContact(org._id, { companyName: 'Venusart e.U.', email: 'info@venusart.at' })
+    await createTestContact(org._id, { companyName: 'Testart e.U.', email: 'info@testart.at' })
     await createTestContact(org._id, { companyName: 'Other Corp', email: 'other@test.com' })
 
     // Search by partial company name
-    const filter1 = { orgId: org._id, ...buildSearchFilter('venus', ['companyName', 'firstName', 'lastName', 'email']) }
+    const filter1 = { orgId: org._id, ...buildSearchFilter('testa', ['companyName', 'firstName', 'lastName', 'email']) }
     const r1 = await Contact.find(filter1).lean()
     expect(r1).toHaveLength(1)
 
     // Search by email domain
-    const filter2 = { orgId: org._id, ...buildSearchFilter('venusart.at', ['companyName', 'firstName', 'lastName', 'email']) }
+    const filter2 = { orgId: org._id, ...buildSearchFilter('testart.at', ['companyName', 'firstName', 'lastName', 'email']) }
     const r2 = await Contact.find(filter2).lean()
     expect(r2).toHaveLength(1)
   })

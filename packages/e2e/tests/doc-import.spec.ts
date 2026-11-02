@@ -44,7 +44,7 @@ test.describe('Document import — batch', () => {
     // Analysis is a background job; the review table appears when it completes.
     const row = dialog.locator('tr', { hasText: 'e2e-bill.pdf' })
     await expect(row).toBeVisible({ timeout: 120000 })
-    await expect(row).toContainText('2000122757')
+    await expect(row).toContainText('2000725757')
 
     await dialog.getByRole('button', { name: /^import 1$/i }).click()
     await expect(dialog.getByText(/document\(s\) created/i)).toBeVisible({ timeout: 120000 })
@@ -146,7 +146,7 @@ test.describe('Document import — single document onto an open form', () => {
     // The field diff lists what would change.
     const diffRow = dialog.locator('tr', { hasText: /supplier invoice/i })
     await expect(diffRow).toBeVisible({ timeout: 120000 })
-    await expect(diffRow).toContainText('2000122757')
+    await expect(diffRow).toContainText('2000725757')
 
     // Uncheck it so the typed value survives.
     const notesRow = dialog.locator('tr').filter({ hasText: /Reason/ }).first()
@@ -156,7 +156,7 @@ test.describe('Document import — single document onto an open form', () => {
     await expect(dialog).toBeHidden({ timeout: 10000 })
 
     // Applied: the supplier's document number. Not applied: the note we unchecked.
-    await expect(page.getByLabel(/supplier invoice/i)).toHaveValue('2000122757')
+    await expect(page.getByLabel(/supplier invoice/i)).toHaveValue('2000725757')
     await expect(notes).toHaveValue('KEEP THIS NOTE')
     // Nothing was persisted — the form is still unsaved and Save is still offered.
     await expect(page.getByRole('button', { name: /^save$/i }).first()).toBeVisible()
