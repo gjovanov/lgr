@@ -70,6 +70,7 @@ export const ISSUED_KEY: Record<string, string> = {
 export function issuedReceiptNotice(issued: { receiptError?: string; receiptCode?: string; paymentMethod?: string; type?: string; receipt?: { state?: string } } | null | undefined): { key: string; takesPayment: boolean } | null {
   if (!issued?.receiptError) return null
   if (issued.receiptCode === 'issue_tender_moved') {
+    if (issued.type === 'credit_note') return { key: 'cashRegister.receipt.issuedChangedRefund', takesPayment: true }
     return issued.paymentMethod === 'cash_on_delivery'
       ? { key: 'cashRegister.receipt.issuedChangedDelivery', takesPayment: false }
       : { key: 'cashRegister.receipt.issuedChanged', takesPayment: true }

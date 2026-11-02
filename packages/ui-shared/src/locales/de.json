@@ -1093,6 +1093,7 @@
       "issuedUnknown": "Ausgestellt, aber prüfen Sie das Gerät: {reason}",
       "issuedChanged": "Ausgestellt, aber das Dokument hat sich während der Ausstellung geändert, daher wurde kein Beleg gedruckt und nichts bezahlt. Nehmen Sie die Zahlung für den aktuellen Betrag an.",
       "issuedChangedDelivery": "Ausgestellt, aber das Dokument hat sich während der Ausstellung geändert, daher wurde kein Beleg gedruckt. Drucken Sie den Beleg auf dieser Seite.",
+      "issuedChangedRefund": "Ausgestellt, aber die Gutschrift hat sich während der Ausstellung geändert, daher wurde die Erstattung gestoppt, und was nicht gedruckt wurde, ist nicht erstattet. Erstatten Sie das mit „Erstatten“.",
       "issueInProgress": "Dieses Dokument wird gerade ausgestellt. Versuchen Sie es gleich noch einmal.",
       "deliveryMissing": "Der Beleg dieser Nachnahme-Rechnung wurde nicht gedruckt.",
       "printIt": "Beleg drucken",

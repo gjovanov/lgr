@@ -1805,6 +1805,7 @@
       "issuedUnknown": "Issued, but check the device: {reason}",
       "issuedChanged": "Issued, but the document changed while it was being issued, so no receipt printed and nothing was paid. Take the payment for what it says now.",
       "issuedChangedDelivery": "Issued, but the document changed while it was being issued, so no receipt printed. Print its receipt on this page.",
+      "issuedChangedRefund": "Issued, but the credit note changed while it was being issued, so its refund stopped, and what did not print did not go back. Give that with Refund.",
       "issueInProgress": "This document is being issued right now. Try again in a moment.",
       "deliveryMissing": "The receipt of this cash-on-delivery invoice has not printed.",
       "printIt": "Print the receipt",

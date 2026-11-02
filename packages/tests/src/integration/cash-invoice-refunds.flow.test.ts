@@ -61,6 +61,22 @@ const fresh = (id: unknown) => Invoice.findById(id).lean().exec() as Promise<any
 const settle = (w: TillWorld, id: unknown, printed: boolean, as?: string, receiptNumber?: string) =>
   w.call('POST', `/cash-register/documents/${id}/settle`, { printed, ...(receiptNumber !== undefined ? { receiptNumber } : {}) }, undefined, as)
 
+/** The same, right AFTER that write has landed: what another request does one write later. */
+function justAfter(at: (update: any) => boolean, meanwhile: () => Promise<unknown>) {
+  const real = Invoice.findOneAndUpdate
+  let done = false
+  ;(Invoice as any).findOneAndUpdate = function (filter: any, update: any, ...rest: any[]) {
+    if (done || !at(update)) return (real as any).call(Invoice, filter, update, ...rest)
+    done = true
+    const chain = {
+      lean: () => chain,
+      exec: async () => { const written = await (real as any).call(Invoice, filter, update, ...rest).lean().exec(); await meanwhile(); return written },
+    }
+    return chain
+  }
+  return () => { (Invoice as any).findOneAndUpdate = real }
+}
+
 /** Run `meanwhile` exactly once, right before the write `at` picks: an interleaving forced, not timed. */
 function during(at: (update: any) => boolean, meanwhile: () => Promise<unknown>) {
   const real = Invoice.findOneAndUpdate
@@ -601,6 +617,404 @@ describe('at issue: a credit note in cash or by card gives its money back as it 
       expect(r.status).toBe(200)
       expect(await stornosOf(note.id)).toHaveLength(1)
       expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    })
+  })
+})
+
+describe('a credit note\'s issue holds its claim until its storno does (the third read, finding 2)', () => {
+  /** A `PUT` as the form sends one: every line and every total, at `quantity`. */
+  const editTo = (w: TillWorld, id: string, quantity: number, extra: Record<string, unknown> = {}) => {
+    const l = line(w, quantity)
+    return w.call('PUT', `/invoices/${id}`, {
+      lines: [l], subtotal: +(l.lineTotal - l.taxAmount).toFixed(2), taxTotal: l.taxAmount, total: l.lineTotal, ...extra,
+    })
+  }
+  const issueWrite = (update: any) => !!update?.$set?.['issue.completedAt']
+  const lapse = (id: string) => Invoice.updateOne({ _id: id }, { $set: { 'issue.leaseUntil': new Date(Date.now() - 1000) } })
+  const stornosOnDevice = (w: TillWorld) => w.sim!.receipts.filter(r => !r.voided && r.kind === 'storno')
+  /** Device, stornos and books say one thing: what the device gave back is what the stornos and the note gave. */
+  async function allAgree(w: TillWorld, inv: { receipt: any }, id: string, given: number) {
+    expect(stornosOnDevice(w).reduce((s, r) => s + r.total, 0)).toBe(given)
+    const stornos = (await stornosOf(id)).filter(s => s.status === 'paid')
+    expect(stornos.reduce((s, r) => s + r.total, 0)).toBe(given)
+    for (const s of stornos) expect(s.lines.reduce((sum: number, l: any) => sum + l.lineTotal, 0)).toBe(s.total)
+    const note = await raw(id)
+    expect(note.amountPaid).toBe(given)
+    expect((note.payments ?? []).reduce((s: number, p: any) => s + p.amount, 0)).toBe(given)
+    // What is due is derived as money moves: an edit of a credit note with none yet leaves it for the first.
+    if (given) expect(note.amountDue).toBe(+(note.total - given).toFixed(2))
+    expect((await sessionOf(w)).totalCash).toBe(24 - given)
+    expect(leftByRate(await fresh(inv.receipt._id)).get(20) ?? 0).toBe(2400 - Math.round(given * 100))
+  }
+  /** `/send`, and `meanwhile` right after the issue's write. */
+  async function sendWith(w: TillWorld, id: string, meanwhile: () => Promise<unknown>, key?: string) {
+    const undo = justAfter(issueWrite, meanwhile)
+    try {
+      return await send(w, id, key)
+    } finally {
+      undo()
+    }
+  }
+
+  it('it records what it decided, and keeps its claim for the print', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await noteOn(w, inv)
+    let during: any
+    const r = await sendWith(w, note.id, async () => { during = (await raw(note.id)).issue })
+
+    expect(r.status).toBe(200)
+    expect(during.tender).toMatchObject({ method: 'cash', amount: 24 })
+    expect(new Date(during.leaseUntil).getTime()).toBeGreaterThan(Date.now())
+    expect((await raw(note.id)).issue.leaseUntil ?? null).toBeNull()
+  })
+
+  it('quantity 2 to 1 right after the issue\'s write: refused while it holds, and what was rung is what is booked', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await noteOn(w, inv)
+    let edit: any
+    const r = await sendWith(w, note.id, async () => { edit = await editTo(w, note.id, 1) })
+
+    expect(edit.status).toBe(409)
+    expect(edit.json.code).toBe('issue_in_progress')
+    expect(r.status).toBe(200)
+    expect(r.json.receipt.state).toBe('printed')
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', total: 24, amountPaid: 24, amountDue: 0 })
+    await allAgree(w, inv, note.id, 24)
+  })
+
+  it('the quantity up: the same', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await noteOn(w, inv, { quantity: 1 })
+    let edit: any
+    const r = await sendWith(w, note.id, async () => { edit = await editTo(w, note.id, 2) })
+
+    expect(edit.status).toBe(409)
+    expect(edit.json.code).toBe('issue_in_progress')
+    expect(r.json.receipt.state).toBe('printed')
+    await allAgree(w, inv, note.id, 12)
+  })
+
+  it('bank to cash right after the issue\'s write: no row, no money and nothing on the device, and Refund gives it', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await noteOn(w, inv, { method: 'bank_transfer' })
+    let edit: any
+    const r = await sendWith(w, note.id, async () => { edit = await w.call('PUT', `/invoices/${note.id}`, { paymentMethod: 'cash' }) })
+
+    expect(edit.status).toBe(200)
+    expect(r.status).toBe(200)
+    const doc = await raw(note.id)
+    expect(doc).toMatchObject({ status: 'sent', paymentMethod: 'cash', amountPaid: 0, amountDue: 24 })
+    expect(doc.payments).toHaveLength(0)
+    expect((await raw(note.id)).issue.leaseUntil ?? null).toBeNull()
+    await allAgree(w, inv, note.id, 0)
+
+    expect((await pay(w, note.id, 24)).status).toBe(200)
+    await allAgree(w, inv, note.id, 24)
+  })
+
+  it('cash to bank right after the issue\'s write: it says so, nothing prints, and it stands issued with nothing given back', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await noteOn(w, inv)
+    let edit: any
+    const r = await sendWith(w, note.id, async () => { edit = await w.call('PUT', `/invoices/${note.id}`, { paymentMethod: 'bank_transfer' }) })
+
+    expect(edit.status).toBe(200)
+    expect(r.status).toBe(200)
+    expect(r.json.receiptError).toContain('changed')
+    expect(r.json.receiptError).toContain('Refund')
+    expect(r.json.receiptCode).toBe('issue_tender_moved')
+    expect(await raw(note.id)).toMatchObject({ status: 'sent', paymentMethod: 'bank_transfer', amountPaid: 0, amountDue: 24 })
+    expect(await stornosOf(note.id)).toHaveLength(0)
+    await allAgree(w, inv, note.id, 0)
+    expect((await raw(note.id)).issue.leaseUntil ?? null).toBeNull()
+  })
+
+  it('a lease lapsed in that gap holds no claim: an edit gets in, and the last check prints nothing', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await noteOn(w, inv)
+    let edit: any
+    const r = await sendWith(w, note.id, async () => {
+      await lapse(note.id)
+      edit = await editTo(w, note.id, 1)
+    })
+
+    expect(edit.status).toBe(200)
+    expect(r.status).toBe(200)
+    expect(r.json.receiptError).toContain('changed')
+    expect(await raw(note.id)).toMatchObject({ status: 'sent', total: 12, amountPaid: 0 })
+    expect(await stornosOf(note.id)).toHaveLength(0)
+    await allAgree(w, inv, note.id, 0)
+
+    // The way on: Refund, for what it says now.
+    expect((await pay(w, note.id, 12)).status).toBe(200)
+    await allAgree(w, inv, note.id, 12)
+  })
+
+  it('all of it given back by bank in that gap: nothing prints, and nothing is left to say or to give', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await noteOn(w, inv)
+    const r = await sendWith(w, note.id, () => pay(w, note.id, 24, 'bank_transfer'))
+
+    expect(r.status).toBe(200)
+    expect(r.json.receiptError).toBeUndefined()
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect(await stornosOf(note.id)).toHaveLength(0)
+    expect(stornosOnDevice(w)).toHaveLength(0)
+  })
+
+  it('part of it given back by bank in that gap: nothing prints, and it says what is left', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await noteOn(w, inv)
+    const r = await sendWith(w, note.id, () => pay(w, note.id, 10, 'bank_transfer'))
+
+    expect(r.status).toBe(200)
+    expect(r.json.receiptError).toContain('changed')
+    expect(await raw(note.id)).toMatchObject({ status: 'partially_paid', amountPaid: 10, amountDue: 14 })
+    expect(stornosOnDevice(w)).toHaveLength(0)
+  })
+
+  it('the claim stands while the storno prints, and goes when it is done, whichever way that ended', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await noteOn(w, inv, { quantity: 1 })
+    const held = gate()
+    w.sim!.beforeCommand = cmd => (cmd === 0x38 ? held.closed : undefined)
+    const issuing = send(w, note.id)
+    await until(() => w.sim!.receipt?.payments.length === 1, 'the storno to give its money')
+
+    expect((await raw(note.id)).issue.leaseUntil).toBeTruthy()
+
+    w.sim!.beforeCommand = null
+    held.open()
+    expect((await issuing).status).toBe(200)
+    expect((await raw(note.id)).issue.leaseUntil ?? null).toBeNull()
+
+    // A storno that failed lets go of it too.
+    const failing = await noteOn(w, inv, { quantity: 1 })
+    w.sim!.paper = false
+    expect((await send(w, failing.id)).json.receiptError).toBeTruthy()
+    w.sim!.paper = true
+    expect((await raw(failing.id)).issue.leaseUntil ?? null).toBeNull()
+  })
+
+  it('a refusal in that gap lets go of it as well: the receipt spent on another note, and said so', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const other = await issuedNote(w, inv)
+    const note = await noteOn(w, inv)
+    const r = await sendWith(w, note.id, () => pay(w, other.id, 24))
+
+    expect(r.status).toBe(200)
+    expect(r.json.receiptError).toContain('more than')
+    expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect((await raw(note.id)).issue.leaseUntil ?? null).toBeNull()
+  })
+
+  it('what prints nothing keeps no lease: a credit note by bank', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await noteOn(w, inv, { method: 'bank_transfer' })
+    expect((await send(w, note.id)).status).toBe(200)
+    expect((await raw(note.id)).issue.leaseUntil ?? null).toBeNull()
+    expect((await raw(note.id)).issue.tender).toBeUndefined()
+    expect((await editTo(w, note.id, 1)).status).toBe(200)
+  })
+
+  describe('a crash right after the issue\'s write', () => {
+    /** It wrote, and the process went away: the claim stays, for its lease. */
+    async function crashedAfterTheWrite(w: TillWorld, id: string, key: string) {
+      const r = await sendWith(w, id, () => { throw new Error('the pod went away') }, key)
+      expect(r.status).toBe(500)
+      expect((await raw(id)).status).toBe('sent')
+    }
+
+    it('its lease holds an edit off, and lapses', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      const note = await noteOn(w, inv)
+      await crashedAfterTheWrite(w, note.id, 'refund-crash-0001')
+
+      expect((await editTo(w, note.id, 1)).json.code).toBe('issue_in_progress')
+      await lapse(note.id)
+      expect((await editTo(w, note.id, 1)).status).toBe(200)
+    })
+
+    it('its retry, nothing changed: prints the one storno, and lets go', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      const note = await noteOn(w, inv)
+      await crashedAfterTheWrite(w, note.id, 'refund-crash-0002')
+
+      const r = await send(w, note.id, 'refund-crash-0002')
+
+      expect(r.status).toBe(200)
+      expect(r.json.receipt.state).toBe('printed')
+      await allAgree(w, inv, note.id, 24)
+      expect((await raw(note.id)).issue.leaseUntil ?? null).toBeNull()
+    })
+
+    it('its retry after the lease lapsed, on a note edited since: nothing prints, and Refund gives what it says now', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      const note = await noteOn(w, inv)
+      await crashedAfterTheWrite(w, note.id, 'refund-crash-0003')
+      await lapse(note.id)
+      expect((await editTo(w, note.id, 1)).status).toBe(200)
+
+      const r = await send(w, note.id, 'refund-crash-0003')
+
+      expect(r.status).toBe(200)
+      expect(r.json.receiptError).toContain('changed')
+      expect(r.json.receiptCode).toBe('issue_tender_moved')
+      expect(await raw(note.id)).toMatchObject({ status: 'sent', total: 12, amountPaid: 0 })
+      expect(await stornosOf(note.id)).toHaveLength(0)
+      await allAgree(w, inv, note.id, 0)
+
+      expect((await pay(w, note.id, 12)).status).toBe(200)
+      await allAgree(w, inv, note.id, 12)
+    })
+
+    it('its retry on a note moved to a method that prints nothing: told too, and nothing printed', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      const note = await noteOn(w, inv)
+      await crashedAfterTheWrite(w, note.id, 'refund-crash-0004')
+      await lapse(note.id)
+      expect((await w.call('PUT', `/invoices/${note.id}`, { paymentMethod: 'bank_transfer' })).status).toBe(200)
+
+      const r = await send(w, note.id, 'refund-crash-0004')
+
+      expect(r.status).toBe(200)
+      expect(r.json.receiptError).toContain('changed')
+      await allAgree(w, inv, note.id, 0)
+    })
+
+    it('its retry on a note refunded by hand since: nothing printed, and nothing to say', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      const note = await noteOn(w, inv)
+      await crashedAfterTheWrite(w, note.id, 'refund-crash-0005')
+      expect((await pay(w, note.id, 24, 'bank_transfer')).status).toBe(200)
+
+      const r = await send(w, note.id, 'refund-crash-0005')
+
+      expect(r.status).toBe(200)
+      expect(r.json.receiptError).toBeUndefined()
+      expect(stornosOnDevice(w)).toHaveLength(0)
+    })
+  })
+
+  describe('a refund of several stornos, for what the issue decided', () => {
+    /** Its first storno done, on an invoice paid by two receipts of 14 and 10: 10 went back, 14 did not. */
+    const firstPartDone = (update: any) => !!update?.$set?.completedAt
+    const issuedInParts = async (w: TillWorld) => {
+      const inv = await paidInParts(w, [14, 10])
+      const note = await noteOn(w, inv)
+      return { inv, note }
+    }
+    const given = (w: TillWorld) => stornosOnDevice(w).map(r => r.total)
+
+    it('nothing moved: both print, and it says nothing', async () => {
+      const w = await tillWorld(app)
+      const { note } = await issuedInParts(w)
+
+      const r = await send(w, note.id)
+
+      expect(r.status).toBe(200)
+      expect(r.json.receiptError).toBeUndefined()
+      expect(given(w)).toEqual([10, 14])
+      expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    })
+
+    it('its method moved between them: what printed stands, the rest does not print, and it says so', async () => {
+      const w = await tillWorld(app)
+      const { note } = await issuedInParts(w)
+      let edit: any
+      const undo = justAfter(firstPartDone, async () => { edit = await w.call('PUT', `/invoices/${note.id}`, { paymentMethod: 'card' }) })
+      let r: any
+      try {
+        r = await send(w, note.id)
+      } finally {
+        undo()
+      }
+
+      expect(edit.status).toBe(200)
+      expect(r.status).toBe(200)
+      expect(given(w)).toEqual([10])
+      expect(r.json.stornos).toHaveLength(1)
+      expect(r.json.receiptCode).toBe('issue_tender_moved')
+      expect(r.json.receiptError).toContain('what did not print did not go back')
+      expect(await raw(note.id)).toMatchObject({ status: 'partially_paid', amountPaid: 10, amountDue: 14, paymentMethod: 'card' })
+
+      // The way on: Refund, for the rest, by what it says now.
+      expect((await pay(w, note.id, 14, 'card')).status).toBe(200)
+      expect(given(w)).toEqual([10, 14])
+    })
+
+    it('money taken by hand between them: the same', async () => {
+      const w = await tillWorld(app)
+      const { note } = await issuedInParts(w)
+      const undo = justAfter(firstPartDone, () => pay(w, note.id, 5, 'bank_transfer'))
+      let r: any
+      try {
+        r = await send(w, note.id)
+      } finally {
+        undo()
+      }
+
+      expect(r.status).toBe(200)
+      expect(given(w)).toEqual([10])
+      expect(r.json.receiptCode).toBe('issue_tender_moved')
+      expect(await raw(note.id)).toMatchObject({ amountPaid: 15, amountDue: 9 })
+    })
+
+    it('a process that died between them, its retry with nothing moved: it goes on from what printed', async () => {
+      const w = await tillWorld(app)
+      const { note } = await issuedInParts(w)
+      const undo = justAfter(firstPartDone, () => { throw new Error('the pod went away') })
+      try {
+        expect((await send(w, note.id, 'refund-parts-1')).status).toBe(500)
+      } finally {
+        undo()
+      }
+      expect(given(w)).toEqual([10])
+
+      const r = await send(w, note.id, 'refund-parts-1')
+
+      expect(r.status).toBe(200)
+      expect(r.json.receiptError).toBeUndefined()
+      expect(given(w)).toEqual([10, 14])
+      expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+      expect((await stornosOf(note.id)).map(s => s.clientKey)).toEqual(['refund-parts-1', 'refund-parts-1#2'])
+    })
+
+    it('its retry on a note whose method moved since: the first part answers, and the rest does not print', async () => {
+      const w = await tillWorld(app)
+      const { note } = await issuedInParts(w)
+      const undo = justAfter(firstPartDone, () => { throw new Error('the pod went away') })
+      try {
+        expect((await send(w, note.id, 'refund-parts-2')).status).toBe(500)
+      } finally {
+        undo()
+      }
+      // By card, which prints too: the customer's refund was going back in cash.
+      expect((await w.call('PUT', `/invoices/${note.id}`, { paymentMethod: 'card' })).status).toBe(200)
+
+      const r = await send(w, note.id, 'refund-parts-2')
+
+      expect(r.status).toBe(200)
+      expect(given(w)).toEqual([10])
+      expect(r.json.stornos).toHaveLength(1)
+      expect(r.json.receiptCode).toBe('issue_tender_moved')
+      expect(await raw(note.id)).toMatchObject({ amountPaid: 10, amountDue: 14 })
     })
   })
 })

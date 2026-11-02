@@ -306,6 +306,8 @@ describe('issued, and the receipt did not print', () => {
     expect(issuedReceiptNotice({ paymentMethod: 'cash' })).toBeNull()
     expect(issuedReceiptNotice(null)).toBeNull()
     // A document that changed under its issue: Pay is the way on, but for the courier's money.
+    expect(issuedReceiptNotice({ receiptError: 'x', receiptCode: 'issue_tender_moved', paymentMethod: 'bank_transfer', type: 'credit_note' }))
+      .toEqual({ key: 'cashRegister.receipt.issuedChangedRefund', takesPayment: true })
     expect(issuedReceiptNotice({ receiptError: 'x', receiptCode: 'issue_tender_moved', paymentMethod: 'cash' }))
       .toEqual({ key: 'cashRegister.receipt.issuedChanged', takesPayment: true })
     expect(issuedReceiptNotice({ receiptError: 'x', receiptCode: 'issue_tender_moved', paymentMethod: 'cash_on_delivery' }))
@@ -351,7 +353,7 @@ describe('the refusal, in words', () => {
     for (const key of [
       'pos.close.deadSales', 'pos.close.interruptedTitle', 'pos.close.closeAgain', 'pos.sessions.states.closing_control',
       'cashRegister.receipt.correctNumber', 'cashRegister.receipt.correctNumberConfirm', 'cashRegister.receipt.numberCorrected',
-      'cashRegister.receipt.issuedChanged', 'cashRegister.receipt.issuedChangedDelivery',
+      'cashRegister.receipt.issuedChanged', 'cashRegister.receipt.issuedChangedDelivery', 'cashRegister.receipt.issuedChangedRefund',
     ]) {
       for (const [name, messages] of Object.entries(locales)) {
         const text = key.split('.').reduce((at: any, part) => at?.[part], messages)

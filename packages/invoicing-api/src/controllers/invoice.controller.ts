@@ -399,10 +399,23 @@ function nothingPrinted(doc: any): { receiptError?: string; receiptCode?: string
   if (outstandingOf(doc) <= 0) return {}
   return {
     receiptCode: 'issue_tender_moved',
-    receiptError: doc.paymentMethod === 'cash_on_delivery'
-      ? 'This document changed while it was being issued, so no receipt printed. It stands issued and unpaid: print its receipt on its page.'
-      : 'This document changed while it was being issued, so no receipt printed and nothing was paid. It stands issued and unpaid: take the payment with Pay.',
+    receiptError: doc.type === 'credit_note'
+      ? 'This credit note changed while it was being issued, so its refund stopped, and what did not print did not go back. It stands issued: give that with Refund.'
+      : doc.paymentMethod === 'cash_on_delivery'
+        ? 'This document changed while it was being issued, so no receipt printed. It stands issued and unpaid: print its receipt on its page.'
+        : 'This document changed while it was being issued, so no receipt printed and nothing was paid. It stands issued and unpaid: take the payment with Pay.',
   }
+}
+
+/**
+ * The same of a refund at issue, part of which may have gone back: what the issue decided, less what its
+ * stornos gave. ⚠ Between two stornos nothing holds the note, and on a retry nothing holds it at all. A
+ * printed storno freezes its total, so only the method and money taken by hand can move by then, but a second
+ * part in another method than the first is a refund nobody asked for.
+ */
+function refundMoved(note: any, stornos: any[]): boolean {
+  const tender = note.issue?.tender
+  return !!tender && tenderMoved(note, { method: tender.method, amount: (Number(tender.amount) || 0) - refundedBy(stornos) })
 }
 
 /**
@@ -1372,6 +1385,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const withStornos = async (stornos: any[]) => (stornos.length
       ? { ...await withReceipt(stornos.at(-1)), stornos: refundOutcome(stornos) }
       : { invoice: await r.invoices.findOne({ id, orgId } as any) })
+    /** What an issue's refund answers. What printed stands, and it says when the rest stopped because the note moved. */
+    const withIssuedRefund = async (stornos: any[]) => {
+      const now = await rawOf(id, orgId)
+      return { ...await withStornos(stornos), ...(refundMoved(now, stornos) ? nothingPrinted(now) : {}) }
+    }
+    /** Whether an issue's refund may print its next part. */
+    const stillAsIssued = async (stornos: any[]) => !refundMoved(await rawOf(id, orgId), stornos)
     /**
      * FR-23 §2.4: the receipt, now that the document has the number it names. Issued is issued: a
      * failure here leaves it issued and unpaid, says why, and the Pay button takes the money.
@@ -1383,12 +1403,12 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const printAtIssue = async (prepared: PreparedReceipt | PreparedRefund) => {
       try {
         const doc: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
-        const keyed = key ? { key, hash: hash! } : undefined
-        // R2: a credit note gives back what it says now, on as many stornos as it draws on.
-        if (doc.type === 'credit_note') return await withStornos(await refund(orgId, user, doc, { ...prepared.tender, amount: issueTender(doc).amount }, prepared as PreparedRefund, keyed))
         if (tenderMoved(doc, doc.issue?.tender ?? prepared.tender)) {
           return { invoice: await r.invoices.findOne({ id, orgId } as any), ...nothingPrinted(doc) }
         }
+        const keyed = key ? { key, hash: hash! } : undefined
+        // R2: a credit note gives back what the issue decided, on as many stornos as it draws on.
+        if (doc.type === 'credit_note') return await withIssuedRefund(await refund(orgId, user, doc, prepared.tender, prepared as PreparedRefund, keyed, stillAsIssued))
         return await withReceipt(await printReceipt(orgId, prepared as PreparedReceipt, doc, keyed))
       } catch (e: any) {
         if (!(e instanceof RegisterRefusal)) throw e
@@ -1408,11 +1428,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       try {
         const doc: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
         const receipt = key ? await keyedReceipt(orgId, key) : null
-        // A refund goes on from whichever of its stornos the first attempt reached. What was asked for
-        // at issue is the note's total, whatever has gone back since.
-        if (receipt?.type === PAYMENT_STORNO) return await withStornos(await refund(orgId, user, doc, { ...issueTender(doc), amount: doc.total }, null, { key: key!, hash: hash! }))
+        // A refund goes on from whichever of its stornos the first attempt reached, for what the issue
+        // decided, whatever has gone back since.
+        if (receipt?.type === PAYMENT_STORNO) return await withIssuedRefund(await refund(orgId, user, doc, { ...issueTender(doc), amount: doc.issue?.tender?.amount ?? doc.total }, null, { key: key!, hash: hash! }, stillAsIssued))
         if (receipt) return await withReceipt(await settleKeyedReceipt(orgId, user, receipt, hash!))
-        if (doc.type !== 'credit_note' && doc.issue?.tender && tenderMoved(doc, doc.issue.tender)) {
+        if (doc.issue?.tender && tenderMoved(doc, doc.issue.tender)) {
           return { invoice: await r.invoices.findOne({ id, orgId } as any), ...nothingPrinted(doc) }
         }
         const prepared = doc.type === 'credit_note' ? await prepareIssueRefund(orgId, user, doc) : await prepareIssueReceipt(orgId, user, doc)

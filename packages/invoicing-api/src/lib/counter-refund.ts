@@ -145,7 +145,8 @@ const gaveMoney = (storno: any) => storno.status !== 'voided' && storno.register
  * what the first attempt made, finishes or replays it, and goes on with what is left. `prepared` is what
  * the door already checked; a retry that has parts still to print checks them here. Stops at the first
  * that did not give its money back: what printed stands, and the answer says so. Each part gives back
- * at least a cent, or nothing holds any and it is refused, so this ends.
+ * at least a cent, or nothing holds any and it is refused, so this ends. `goesOn`: asked before each new part
+ * after the first, by a door that has more to check than what the request says.
  */
 export async function refund(
   orgId: string,
@@ -154,6 +155,7 @@ export async function refund(
   tender: ReceiptTender,
   prepared: PreparedRefund | null,
   keyed?: { key: string; hash: string },
+  goesOn?: (stornos: any[]) => Promise<boolean>,
 ): Promise<any[]> {
   const stornos: any[] = []
   let remaining = Math.round(tender.amount * 100)
@@ -166,6 +168,7 @@ export async function refund(
       if (existing) {
         storno = await settleKeyedReceipt(orgId, user, existing, keyed!.hash)
       } else {
+        if (index > 0 && goesOn && !(await goesOn(stornos))) return stornos
         const amount = round2(remaining / 100)
         ready ??= await prepareRefund(orgId, user, note, { ...tender, amount }, false)
         if (!ready) return stornos
