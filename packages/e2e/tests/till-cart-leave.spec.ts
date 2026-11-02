@@ -283,7 +283,6 @@ test.describe('A filled cart', () => {
     await expect(page.getByTestId('register-card')).toHaveCount(0)
     await expect(page.getByTestId('cart-qty')).toHaveCount(0)
     await expect(page.getByRole('combobox', { name: /Payment Method/i })).toBeDisabled()
-    await expect(page.getByLabel(/Non-fiscal/i)).toBeDisabled()
     await expect(page.getByRole('button', { name: /Close Session/i })).toBeDisabled()
 
     await menu(page, /Outgoing/, 'Sales Documents')

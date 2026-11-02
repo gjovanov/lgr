@@ -47,7 +47,7 @@ afterEach(async () => {
   ;(config.upload as any).dir = saved.upload
   forgetAllHomes()
   await (mongoose.connection as any).client.db(siteDbName).dropDatabase().catch(() => {})
-  rmSync(root, { recursive: true, force: true })
+  if (root) rmSync(root, { recursive: true, force: true })
   await clearCollections()
 }, 60_000)
 
@@ -453,11 +453,12 @@ describe('the audited import of a fenced export (FR-20.84)', () => {
       expect(invoice.payments.map((p: any) => String(p.receiptId))).toContain(String(w.ids.dead))
     })
 
-    it('unknown: the money stands, as it did on the site', async () => {
+    it('unknown: it is a person\'s, as it is anywhere now, with no money moved on a maybe', async () => {
       const { w, receipt, invoice } = await after({ state: 'unknown' })
-      expect(receipt.completedAt).toBeTruthy()
-      expect(invoice.receiptHolds ?? []).toHaveLength(0)
-      expect(invoice.payments.map((p: any) => String(p.receiptId))).toContain(String(w.ids.dead))
+      expect(receipt.completedAt).toBeUndefined()
+      expect(receipt.register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
+      expect(invoice.receiptHolds.map((h: any) => String(h.receiptId))).toContain(String(w.ids.dead))
+      expect((invoice.payments ?? []).some((p: any) => p.receiptId)).toBe(false)
     })
 
     it('failed: it is given up, and the hold goes', async () => {

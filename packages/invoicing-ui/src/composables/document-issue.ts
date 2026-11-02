@@ -60,10 +60,9 @@ export const ISSUED_KEY: Record<string, string> = {
 
 /**
  * FR-23: what the person reads when a document was issued and something about its receipt went wrong,
- * and whether the Pay action is the way on. A receipt that may have printed stands (D-4), and one
- * that printed through an error did print: nothing is left to pay, and only the device can say more.
- * One in doubt comes here as `unknown` too, and nothing was booked for it, but the reason says so,
- * and Pay is no way on: it waits for a person to settle it. A cash-on-delivery invoice owes the
+ * and whether the Pay action is the way on. One that printed through an error did print: nothing is left to
+ * pay, and only the device can say more. One in doubt comes here as `unknown`: nothing was booked for it, the
+ * reason says so, and Pay is no way on: it waits for a person to settle it. A cash-on-delivery invoice owes the
  * courier's money, not a payment at the counter: its receipt prints on its own, and Pay would record
  * money nobody brought. A document that changed under its issue printed nothing, and says so in words.
  * A refund that stopped after a part printed says how much went back: that money left the drawer, and
@@ -83,6 +82,15 @@ export function issuedReceiptNotice(issued: { receiptError?: string; receiptCode
   // R2: its storno did not print. Nothing went back, and the Refund action gives it.
   if (issued.type === 'credit_note') return { key: 'cashRegister.receipt.issuedNotRefunded', takesPayment: true }
   return { key: 'cashRegister.receipt.issuedNotPaid', takesPayment: true }
+}
+
+/**
+ * What the cash-sale form asks of its session's device. Where LGR prints there is nothing to choose: the sale prints, and
+ * the device says how. An org where it prints nothing keeps what it had, which is nothing unless the person asks.
+ */
+export function joinedSaleReceipt(o: { sessionOpen: boolean; prints: boolean; chosen: '' | 'fiscal' }): { receipt?: 'fiscal' } {
+  if (!o.sessionOpen) return {}
+  return o.prints || o.chosen ? { receipt: 'fiscal' } : {}
 }
 
 /** Ask whether the warehouses hold what `lines` take. */

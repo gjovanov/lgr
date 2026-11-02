@@ -77,6 +77,9 @@ test.describe('the device page on an Eltrade', () => {
     }
     const connected = await call(admin, 'POST', `/fiscal/device/${deviceId}/connect`)
     expect(connected.status, `connect → ${JSON.stringify(connected.json)} (is the server running with FISCAL_TCP_ALLOW_LOOPBACK=1?)`).toBe(200)
+    // A session another spec left open on this warehouse would stop the Z below to ask about it.
+    const { sessions } = await ok(admin, 'GET', `/trade/pos/session?status=open&warehouseId=${warehouseId}&size=50`)
+    for (const s of sessions || []) await call(admin, 'POST', `/trade/pos/session/${s.id || s._id}/close`, { closeWithoutFiscal: true, closingBalance: 0 })
   })
 
   test.afterAll(async () => {
@@ -106,6 +109,7 @@ test.describe('the device page on an Eltrade', () => {
     await card('zReport').getByRole('button', { name: 'Print' }).click()
     expect(await lastReport(++count)).toEqual({ cmd: CMD.DAILY, data: '0' })
     expect((await device()).closure).toBe(start.closure + 1)
+    await expect(page.getByTestId('z-sessions-open')).toHaveCount(0)
 
     const byDate = card('fmReportByDate')
     await byDate.getByLabel('From').fill('2026-10-01')
@@ -129,6 +133,32 @@ test.describe('the device page on an Eltrade', () => {
     expect(await lastReport(++count)).toEqual({ cmd: CMD.FM_NUMBER_DETAILED, data: '0001,0013' })
 
     expect((await device()).receiptOpen).toBe(false)
+  })
+
+  test('a Z with a session open on its warehouse asks first, naming it: nothing prints until the person says so', async ({ page }) => {
+    const { fiscalDevice } = await ok(admin, 'GET', `/fiscal/device/${deviceId}`)
+    const { session } = await ok(admin, 'POST', '/trade/pos/session', { warehouseId: fiscalDevice.warehouseId, openingBalance: 0, currency: 'EUR' })
+    const sessionId = session.id || session._id
+    try {
+      await loginForApp(page)
+      await page.goto(`/invoicing/configuration/devices/${deviceId}`, { waitUntil: 'networkidle' })
+      await page.getByRole('tab', { name: /Reports/i }).click()
+      const print = page.getByTestId('report-zReport').getByRole('button', { name: 'Print' })
+      const start = await device()
+
+      await print.click()
+      await expect(page.getByTestId('z-session')).toContainText(session.sessionNumber)
+      await page.getByTestId('z-sessions-cancel').click()
+      await expect(page.getByTestId('z-session')).toHaveCount(0)
+      expect((await device()).closure).toBe(start.closure)
+
+      await print.click()
+      await page.getByTestId('z-sessions-confirm').click()
+      await expect(page.getByText('Z-Report printed')).toBeVisible()
+      expect((await device()).closure).toBe(start.closure + 1)
+    } finally {
+      await call(admin, 'POST', `/trade/pos/session/${sessionId}/close`, { closeWithoutFiscal: true, closingBalance: 0 })
+    }
   })
 
   test('what the Eltrade protocol lacks is disabled, with the reason — not offered and refused', async ({ page }) => {

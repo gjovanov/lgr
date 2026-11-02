@@ -23,12 +23,11 @@ import {
   type ReceiptTender,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { receiptBody } from 'services/biz/cash-register/receipt-lines'
-import { receiptMode } from 'services/biz/cash-register/receipt-mode'
 import {
   RegisterRefusal, insertRegisterDocument, settleKeyedDocument, type RegisterContext, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
 import { licenceRefusal } from 'services/biz/licence/master-licence.service'
-import { PRINTER_GATE_SWITCH, assertPrinterConnected, assertSaleMayOpen, assertTillTender, documentContext, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
+import { assertOperatorFor, assertPrinterConnected, assertSaleMayOpen, assertTillTender, documentContext, noOpenSession, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
 
 export interface PreparedReceipt {
   context: RegisterContext
@@ -71,21 +70,10 @@ export async function prepareReceipt(orgId: string, user: RegisterUser, doc: any
   }
 
   const session = await openSessionOf(orgId, user.id)
-  if (!session) {
-    throw new RegisterRefusal(409, {
-      code: 'fiscal_device_not_connected',
-      noSession: true,
-      message: `Open a session at the till first: a payment at the counter prints its receipt on that session's device. ${PRINTER_GATE_SWITCH}`,
-    })
-  }
+  if (!session) throw await noOpenSession(orgId, user.id, 'a payment at the counter prints its receipt')
   const context = await tillContext(orgId, user, session, { needsOperator: false })
   await assertPrinterConnected(orgId, String(session.warehouseId), context)
-  // A fiscal receipt names its operator, and a text one does not, as a text sale does not. Only for
-  // who has no code is the device asked here, so that it is refused before anything is written. The
-  // turn asks again, and decides: a device that cannot say counts as fiscal.
-  if (!user.operatorCode && (await receiptMode(context.printer!).catch(() => 'fiscal')) === 'fiscal') {
-    throw new RegisterRefusal(400, { message: 'User has no operator code. Contact admin to assign one before using POS with fiscal device.' })
-  }
+  await assertOperatorFor(user, context.printer)
   assertTillTender([tender], tender.amount, context.printer)
   await assertSaleMayOpen(orgId, session.warehouseId)
 

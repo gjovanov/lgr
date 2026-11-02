@@ -6,8 +6,7 @@ import { signInForUx, startWalk, uxApi, closeOpenTillSessions } from '../helpers
  * cashier scans each article (the scanner types the barcode and ends with Enter, FR-22.55), then
  * checks what the till leaves behind for the NEXT customer (FR-22.54).
  *
- * acme-corp has no fiscal device, so the sale prints nothing whichever way „Нефискален“ is set,
- * and the till says so.
+ * acme-corp has no fiscal device, so the sale prints nothing, and the till says so.
  *
  * Products used: PRD-0016 and PRD-0017 (the till walks' share of the acme-corp seed).
  */

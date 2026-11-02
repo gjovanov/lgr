@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'bun:test'
 import {
-  apportion, documentText, fiscalUnitPrice, grossByRate, movesPrintedMoney, paymentText, printsExactly, receiptBody, receiptedByRate, splitByRate,
+  apportion, documentText, fiscalUnitPrice, grossByRate, linesOnDevice, movesPrintedMoney, paymentText, printsExactly, receiptBody, receiptedByRate, refundText, splitByRate,
 } from 'services/biz/cash-register/receipt-lines'
 import { receiptRefusalKey, receiptRefusalMessage, receiptRefusalParams, isFailedPrint } from 'ui-shared/cash-register/receipt-refusal'
 import { kindColor } from 'ui-shared/cash-register/journal-kind'
-import { issuedReceiptNotice } from '../../../invoicing-ui/src/composables/document-issue'
+import { issuedReceiptNotice, joinedSaleReceipt } from '../../../invoicing-ui/src/composables/document-issue'
 import { isImportedDocument, printsAtCounter } from 'services/biz/cash-register/payment-receipt.service'
 import { isImmutableRegisterDocument } from 'services/biz/cash-register/immutability'
 import { sequenceGroupFor } from 'services/biz/sequence-registry'
@@ -118,6 +118,60 @@ describe('what a device would add the lines up to', () => {
     expect(printsExactly(doc(lines, 12), [{ rate: 20, gross: 12 }])).toBe(false)
     const free = [{ quantity: 1, unitPrice: 10, discount: 100, taxRate: 20, lineTotal: 0 }]
     expect(printsExactly(doc(free, 0), [{ rate: 20, gross: 0 }])).toBe(false)
+  })
+})
+
+describe('what a device is given for a document (D2)', () => {
+  const sold = (lines: any[], total: number) => ({ type: 'cash_sale', invoiceNumber: 'CS-2026-00001', lines, total })
+  const onThem = (lines: any[]) => lines.reduce((s, l) => s + Math.round(fiscalUnitPrice(l.unitPrice, l.taxRate) * l.quantity * 100), 0) / 100
+
+  it('prices that reproduce the money: the lines as they are', () => {
+    const lines = [{ description: 'Болт', quantity: 2, unitPrice: 10, taxRate: 20, lineTotal: 24 }]
+    expect(linesOnDevice(sold(lines, 24), 'x')).toEqual(lines)
+  })
+
+  it('prices that do not: one line per rate, at the exact gross, whichever way the device would have gone', () => {
+    for (const [quantity, unitPrice, total] of [[1000, 0.0533, 63.96], [100, 3.33, 399.6], [3, 0.1234, 0.44]] as const) {
+      const out = linesOnDevice(sold([{ description: 'Винт', quantity, unitPrice, taxRate: 20, lineTotal: total }], total), 'Продажба № 1')
+      expect(out).toHaveLength(1)
+      expect(out[0]).toMatchObject({ description: 'Продажба № 1', quantity: 1, taxRate: 20, lineTotal: total })
+      expect(onThem(out)).toBe(total)
+    }
+  })
+
+  it('two rates: one line each, and one that alone would come out does not stay as it is', () => {
+    const lines = [
+      { description: 'Винт', quantity: 1000, unitPrice: 0.0533, taxRate: 20, lineTotal: 63.96 },
+      { description: 'Книга', quantity: 1, unitPrice: 10, taxRate: 9, lineTotal: 10.9 },
+    ]
+    const out = linesOnDevice(sold(lines, 74.86), 'n')
+    expect(out.map(l => [l.taxRate, l.lineTotal])).toEqual([[20, 63.96], [9, 10.9]])
+    expect(onThem(out)).toBe(74.86)
+  })
+
+  it('a line a device refuses goes the same way: a discount of all of it, a quantity of nothing', () => {
+    const lines = [
+      { description: 'Болт', quantity: 1, unitPrice: 10, taxRate: 20, lineTotal: 12 },
+      { description: 'Подарък', quantity: 1, unitPrice: 5, discount: 100, taxRate: 20, lineTotal: 0 },
+    ]
+    expect(linesOnDevice(sold(lines, 12), 'n').map(l => [l.quantity, l.lineTotal])).toEqual([[1, 12]])
+    expect(linesOnDevice(sold([{ ...lines[0], quantity: 0 }, lines[0]], 12), 'n').map(l => l.lineTotal)).toEqual([12])
+  })
+
+  it('a document that comes to nothing has no line to print per rate: its own, for the driver to say', () => {
+    const lines = [{ description: 'Подарък', quantity: 1, unitPrice: 5, discount: 100, taxRate: 20, lineTotal: 0 }]
+    expect(linesOnDevice(sold(lines, 0), 'n')).toEqual(lines)
+  })
+
+  it('a rate with a negative total: no device takes it either way, so the driver is left to refuse the lines', () => {
+    const lines = [{ description: 'Отстъпка', quantity: 1, unitPrice: -5, taxRate: 20, lineTotal: -6 }]
+    expect(linesOnDevice(sold(lines, -6), 'n')).toEqual(lines)
+  })
+
+  it('what such a line is called: the sale\'s number survives a driver that cuts a name', () => {
+    expect(documentText({ type: 'cash_sale', invoiceNumber: 'CS-2026-00012' })).toBe('Продажба № CS-2026-00012')
+    expect(refundText({ type: 'cash_sale', invoiceNumber: 'CS-2026-00012' })).toBe('Връщане по продажба № CS-2026-00012')
+    expect(refundText({ type: 'cash_sale', invoiceNumber: 'CS-2026-00012' }, 34)).toBe('Продажба № CS-2026-00012')
   })
 })
 
@@ -274,6 +328,22 @@ describe('the type, as the readers see it', () => {
 
   it('is immutable', () => {
     expect(isImmutableRegisterDocument({ type: 'payment_receipt' })).toBe(true)
+  })
+})
+
+describe('what the cash-sale form asks of its session\'s device (D6)', () => {
+  it('where LGR prints there is nothing to choose: it asks, whatever the form was left at', () => {
+    expect(joinedSaleReceipt({ sessionOpen: true, prints: true, chosen: '' })).toEqual({ receipt: 'fiscal' })
+    expect(joinedSaleReceipt({ sessionOpen: true, prints: true, chosen: 'fiscal' })).toEqual({ receipt: 'fiscal' })
+  })
+
+  it('where it does not, what the person chose, and by default nothing', () => {
+    expect(joinedSaleReceipt({ sessionOpen: true, prints: false, chosen: '' })).toEqual({})
+    expect(joinedSaleReceipt({ sessionOpen: true, prints: false, chosen: 'fiscal' })).toEqual({ receipt: 'fiscal' })
+  })
+
+  it('with no session there is no device to ask', () => {
+    expect(joinedSaleReceipt({ sessionOpen: false, prints: true, chosen: 'fiscal' })).toEqual({})
   })
 })
 

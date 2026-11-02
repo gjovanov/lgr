@@ -202,7 +202,7 @@
                 </v-card-text>
                 <v-card-actions>
                   <v-spacer />
-                  <v-btn color="primary" :disabled="!has('zReport')" :loading="reportLoading.zReport" @click="printZReport">{{ t('common.print') }}</v-btn>
+                  <v-btn color="primary" :disabled="!has('zReport')" :loading="reportLoading.zReport" @click="printZReport(false)">{{ t('common.print') }}</v-btn>
                 </v-card-actions>
               </v-card>
             </v-col>
@@ -350,6 +350,24 @@
     <template #sidebar>
       <div class="text-caption text-medium-emphasis pa-2">{{ t('pos.device.noNotes') }}</div>
     </template>
+
+    <!-- The server named them: a Z closes the device's day under every session of its warehouse. -->
+    <v-dialog :model-value="!!sessionsUnderZ.length" max-width="520" persistent data-testid="z-sessions-open">
+      <v-card>
+        <v-card-title>{{ t('pos.device.reports.zSessionsOpenTitle') }}</v-card-title>
+        <v-card-text>
+          <p class="mb-2">{{ t('pos.device.reports.zSessionsOpenBody') }}</p>
+          <v-list density="compact">
+            <v-list-item v-for="s in sessionsUnderZ" :key="s.id" :title="s.number" :subtitle="s.cashier" prepend-icon="mdi-cash-register" data-testid="z-session" />
+          </v-list>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn data-testid="z-sessions-cancel" @click="sessionsUnderZ = []">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="error" variant="flat" data-testid="z-sessions-confirm" @click="printZReport(true)">{{ t('pos.device.reports.zSessionsOpenConfirm') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </EntityFormShell>
 </template>
 
@@ -731,13 +749,18 @@ async function printXReport() {
   }
 }
 
-async function printZReport() {
+/** What the server named when a Z was pressed with sessions open: the person is asked over these. */
+const sessionsUnderZ = ref<{ id: string; number: string; cashier: string }[]>([])
+
+async function printZReport(confirmed: boolean) {
+  sessionsUnderZ.value = []
   reportLoading.zReport = true
   try {
-    await httpClient.post(`${deviceUrl.value}/${deviceId.value}/z-report`)
+    await httpClient.post(`${deviceUrl.value}/${deviceId.value}/z-report`, confirmed ? { confirmed: true } : {})
     showSuccess(t('pos.device.reports.zPrinted'))
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('pos.device.reports.zFailed'))
+    if (e?.response?.data?.code === 'sessions_open') sessionsUnderZ.value = e.response.data.sessions
+    else showError(e?.response?.data?.message || t('pos.device.reports.zFailed'))
   } finally {
     reportLoading.zReport = false
   }

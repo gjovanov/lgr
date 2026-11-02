@@ -12,7 +12,7 @@ import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumbe
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
 import { Invoice, Org, POSSession, Reservation, StockMovement } from 'db/models'
-import { assertJoinedSaleTender, assertPrinterConnected, finishInterruptedDocuments, openSessionOf, tillContext, tillSettings } from '../lib/cash-register-till.js'
+import { assertJoinedSaleTender, assertOperatorFor, assertPrinterConnected, finishInterruptedDocuments, openSessionOf, tillContext, tillSettings } from '../lib/cash-register-till.js'
 import {
   keyedReceipt, prepareIssueReceipt, prepareReceipt, printReceipt, receiptOutcome, settleKeyedReceipt,
   type PreparedReceipt,
@@ -81,7 +81,7 @@ interface CreateCtx {
   allowNegativeStock: boolean
   /** FR-21.31: the author's open session, which a back-office cash sale joins. */
   joined?: any | null
-  /** How a joined sale prints on its session's device; absent, it prints nothing. */
+  /** Whether a joined sale prints on its session's device, which says how; absent, it prints nothing. */
   receipt?: 'fiscal' | 'text'
 }
 
@@ -96,11 +96,11 @@ const refused = (status: Status, e: CashSaleInvoiceError) => status(e.statusCode
  *
  * FR-21.31 (D-13): when its author has an open session, it joins it. The session's drawer takes the
  * money (its totals, its close JE) and, when the request asks for a receipt, the session's device
- * prints it as the till's would. `tillContext` may refuse (a device in error, no operator code for a
- * fiscal receipt), so a joined sale's context is built before its document is.
+ * prints it as the till's would, as the device says (`decideSaleMode`). `tillContext` may refuse (a device in
+ * error), so a joined sale's context is built before its document is.
  */
 async function cashSaleContext(c: CreateCtx): Promise<RegisterContext> {
-  const till = c.joined ? await tillContext(c.orgId, c.user, c.joined, { needsOperator: c.receipt === 'fiscal' }) : null
+  const till = c.joined ? await tillContext(c.orgId, c.user, c.joined, { needsOperator: false }) : null
   return {
     ...(till ? { session: till.session, printer: c.receipt ? till.printer : null } : {}),
     orgId: c.orgId,
@@ -813,7 +813,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // FR-21.31 (D-13): a sale entered here by someone with an open session joins it. An imported
         // till day never does: it is a day's takings, not one drawer's sale.
         createCtx.joined = origin === 'backoffice' ? await openSessionOf(orgId, user.id) : null
-        createCtx.receipt = (body as any).receipt
+        // ⚠ Where LGR prints, a sale that joins a drawer prints. With no `receipt` one got past the gate with the
+        // device gone: 200, paid, in the drawer, and nothing on the device. An imported day joins nothing, so it
+        // never comes this far, and where LGR prints nothing it still takes asking.
+        createCtx.receipt = (body as any).receipt ?? (createCtx.joined && (await tillSettings(orgId)).requireConnectedDevice ? 'fiscal' : undefined)
         let context: RegisterContext
         try {
           context = await cashSaleContext(createCtx)
@@ -821,7 +824,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           // print it, as the till's is — before anything is written.
           if (createCtx.joined && createCtx.receipt) {
             await assertPrinterConnected(orgId, String(createCtx.joined.warehouseId), context)
-            assertJoinedSaleTender((body as any).paymentMethod || 'cash', createCtx.receipt, context.printer)
+            await assertOperatorFor(user, context.printer)
+            assertJoinedSaleTender((body as any).paymentMethod || 'cash', context.printer)
           }
         } catch (e: any) {
           if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
@@ -861,8 +865,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
                 cashierId: user.id,
                 ...(user.operatorCode ? { operatorCode: user.operatorCode } : {}),
                 ...(printer ? { fiscalDeviceNumber: printer.deviceNumber } : {}),
-                isFiscal: !!printer && createCtx.receipt === 'fiscal',
-                fiscal: printer && createCtx.receipt ? { state: 'pending', mode: createCtx.receipt } : { state: 'none' },
+                // Until its turn on the device, which decides (`decideSaleMode`).
+                isFiscal: !!printer,
+                fiscal: printer ? { state: 'pending', mode: 'fiscal' } : { state: 'none' },
                 changeDue: 0,
               }
             : { origin }),
@@ -1019,8 +1024,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // (`/stock-availability/create-transfers`), confirmed before the sale dispatches.
         // Undeclared, Elysia's normalize dropped it and the sale failed for want of stock.
         pendingTransferIds: t.Optional(t.Array(t.String())),
-        // FR-21.31: a cash sale that joins its author's open session prints on that session's device
-        // only when asked, as the till's "Non-fiscal" switch asks (`text`) or not (`fiscal`).
+        // FR-21.31: a cash sale that joins its author's open session prints on that session's device, where LGR
+        // prints whether it asks or not, and elsewhere when it asks. Either value asks, and the device says which
+        // it prints (`decideSaleMode`).
         receipt: t.Optional(t.Union([t.Literal('fiscal'), t.Literal('text')])),
         notes: t.Optional(t.String()),
         // Free text printed under the number block of the form; stored with the document.

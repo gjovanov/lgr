@@ -51,7 +51,7 @@ describe('SUPTO 18.1 — the operator code (#323)', () => {
     const fiscal = await w.sell(1)
     expect(fiscal.status).toBe(200)
     expect(fiscal.json.transaction.unpNumber).toMatch(/^ED123456-0001-\d{7}$/)
-    const text = await w.sell(1, { nonFiscal: true })
+    const text = await w.sell(1, { text: true })
     expect(text.status).toBe(200)
     // The clerk (operator 0002) has no session: a sessionless back-office cash sale.
     const backOffice = await w.backOfficeSale(1)
@@ -73,7 +73,7 @@ describe('SUPTO 18.1 — the operator code (#323)', () => {
 
   it('the operator filter keeps that operator\'s rows, at the till and in the back office', async () => {
     const w = await tillWorld(app, { device: false })
-    const till = await w.sell(1, { nonFiscal: true })
+    const till = await w.sell(1, { text: true })
     const backOffice = await w.backOfficeSale(1)
     expect([till.status, backOffice.status]).toEqual([200, 200])
 

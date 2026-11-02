@@ -2787,7 +2787,7 @@ describe('a Files rollback asks what stands on the document first (ruling 4)', (
   })
 })
 
-describe('a receipt whose `unknown` stands has no door, so only its own print may leave one (the third read, finding 4)', () => {
+describe('what a leftover\'s close did says nothing about this document, so only its own print leaves it in doubt (the third read, finding 4)', () => {
   const closedOnDevice = (w: TillWorld) => w.sim!.receipts.filter(r => !r.voided)
   /**
    * An earlier sale's receipt, paid, left open. 3Ch is refused, and the fallback's close twice over, and then
@@ -2880,7 +2880,7 @@ describe('a receipt whose `unknown` stands has no door, so only its own print ma
     expect((await sessionOf(w)).totalCash).toBe(0)
   })
 
-  it('what does leave one, its own print with its answer lost: the device has it, its money is booked, and its refund goes by bank', async () => {
+  it('what does leave it there, its own print with its answer lost: the device has it, it is held, and a person who says so gives its refund what to cite', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w, { method: 'bank_transfer' })
     expect((await send(w, d.id)).status).toBe(200)
@@ -2889,20 +2889,25 @@ describe('a receipt whose `unknown` stands has no door, so only its own print ma
     const r = await pay(w, d.id, 24)
 
     w.sim!.disconnected = false
-    expect(r.status).toBe(200)
-    expect(r.json.receipt.state).toBe('unknown')
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_in_doubt')
     expect(closedOnDevice(w).map(x => x.total)).toEqual([24])
-    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
-    expect((await sessionOf(w)).totalCash).toBe(24)
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect((await sessionOf(w)).totalCash).toBe(0)
     const [receipt] = await receiptsOf(d.id)
-    expect(receipt.register.fiscal.inDoubt).toBeUndefined()
-    expect(receipt.completedAt).toBeTruthy()
-    expect((await settle(w, receipt._id, true, undefined, String(w.sim!.lastDocNumber))).json.code).toBe('receipt_not_in_doubt')
+    expect(receipt.register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
+    expect(receipt.completedAt).toBeUndefined()
 
     const note = await issuedNote(w, d)
-    expect((await pay(w, note.id, 24)).json.code).toBe('no_receipt_to_storno')
-    expect((await pay(w, note.id, 24, 'bank_transfer')).status).toBe(200)
-    expect(await stornosOf(note.id)).toHaveLength(0)
+    expect((await pay(w, note.id, 24)).json.code).toBe('receipt_in_doubt')
+
+    expect((await settle(w, receipt._id, true, undefined, String(w.sim!.lastDocNumber))).status).toBe(200)
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect((await sessionOf(w)).totalCash).toBe(24)
+    expect((await pay(w, note.id, 24)).status).toBe(200)
+    expect(await stornosOf(note.id)).toHaveLength(1)
+    expect(closedOnDevice(w).map(x => x.kind)).toEqual(['fiscal', 'storno'])
+    expect((await sessionOf(w)).totalCash).toBe(0)
   })
 })
 
@@ -3370,7 +3375,7 @@ describe('print-once, the receipt\'s own (#155): a storno on a device', () => {
 
 describe('an invoice issued for a till sale (R0): the refund cites the sale\'s own receipt', () => {
   /** A till sale of 48.00 and an invoice for it, issued: that sale took the money. */
-  async function invoicedSale(w: TillWorld, quantity = 4, o: { nonFiscal?: boolean } = {}) {
+  async function invoicedSale(w: TillWorld, quantity = 4, o: { text?: boolean } = {}) {
     const sale = await w.sell(quantity, o)
     expect(sale.status).toBe(200)
     const saleId = String(sale.json.transaction.id ?? sale.json.transaction._id)
@@ -3468,7 +3473,7 @@ describe('an invoice issued for a till sale (R0): the refund cites the sale\'s o
     it('a text sale whose request died: it is booked first, and the refund comes out of a drawer that has it', async () => {
       const w = await tillWorld(app)
       w.sim!.unfiscalizedUnit = true
-      const inv = await invoicedSale(w, 4, { nonFiscal: true })
+      const inv = await invoicedSale(w, 4, { text: true })
       expect(inv.sale.register.fiscal.mode).toBe('text')
       const note = await issuedNote(w, inv, { quantity: 1 })
       await stoppedBeforeItsTotals(w, inv.saleId, lapsed())
@@ -3501,7 +3506,7 @@ describe('an invoice issued for a till sale (R0): the refund cites the sale\'s o
       it(`a ${kind} sale still being rung up: told so, with nothing written and nothing finished under it`, async () => {
         const w = await tillWorld(app)
         if (text) w.sim!.unfiscalizedUnit = true
-        const inv = await invoicedSale(w, 4, { nonFiscal: text })
+        const inv = await invoicedSale(w, 4, { text })
         const note = await issuedNote(w, inv, { quantity: 1 })
         await stoppedBeforeItsTotals(w, inv.saleId, stillRunning())
         const before = await footprint(w)
@@ -3520,7 +3525,7 @@ describe('an invoice issued for a till sale (R0): the refund cites the sale\'s o
     it('one whose finish throws holds the refund too: it never gives back what was not booked', async () => {
       const w = await tillWorld(app)
       w.sim!.unfiscalizedUnit = true
-      const inv = await invoicedSale(w, 4, { nonFiscal: true })
+      const inv = await invoicedSale(w, 4, { text: true })
       const note = await issuedNote(w, inv, { quantity: 1 })
       await stoppedBeforeItsTotals(w, inv.saleId, lapsed())
       const undo = during(update => !!update?.$set?.completedAt, async () => { throw new Error('the pod went away') })

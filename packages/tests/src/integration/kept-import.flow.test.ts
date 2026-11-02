@@ -47,7 +47,7 @@ afterEach(async () => {
   ;(config.node as any).id = saved.id
   ;(config.upload as any).dir = saved.upload
   forgetAllHomes()
-  rmSync(root, { recursive: true, force: true })
+  if (root) rmSync(root, { recursive: true, force: true })
   await clearCollections()
 }, 60_000)
 

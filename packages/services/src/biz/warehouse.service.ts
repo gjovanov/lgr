@@ -85,16 +85,21 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
       consumptionResult = await adjustStock(orgId, productId, movement.fromWarehouseId, -line.quantity, line.unitCost, r)
     }
 
+    // What the goods are worth where they arrive. A return of a sale says so apart, because its `unitCost` is the
+    // document's price, as on every invoice-born line (`createInvoiceStockMovement`). What leaves a warehouse on
+    // the way here is worth what it consumes.
+    const incomingCost = (movement.fromWarehouseId ? undefined : (line as any).resolvedUnitCost) ?? line.unitCost
+
     // Add stock to destination warehouse
     if (movement.toWarehouseId) {
-      await adjustStock(orgId, productId, movement.toWarehouseId, line.quantity, line.unitCost, r)
+      await adjustStock(orgId, productId, movement.toWarehouseId, line.quantity, incomingCost, r)
 
       // For layer-based methods, create cost layers on incoming stock
       const method = await getEffectiveCostingMethod(orgId, productId, r)
       const restored = opts?.layersRestored?.has(`${String(productId)}|${String(movement.toWarehouseId)}`)
       if (method !== 'wac' && method !== 'standard' && !restored) {
         // For transfers, use the consumed cost; for receipts, use the line cost
-        const layerCost = consumptionResult?.weightedUnitCost ?? line.unitCost
+        const layerCost = consumptionResult?.weightedUnitCost ?? incomingCost
         await createCostLayers(orgId, movement.toWarehouseId, movementId, movement.movementNumber, movementDate, {
           productId,
           quantity: line.quantity,
@@ -110,7 +115,7 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
     updatedLines.push({
       ...line,
       costAllocations: consumptionResult?.allocations,
-      resolvedUnitCost: consumptionResult?.weightedUnitCost ?? line.unitCost,
+      resolvedUnitCost: consumptionResult?.weightedUnitCost ?? incomingCost,
       costingMethod: consumptionResult?.costingMethod,
     })
   }

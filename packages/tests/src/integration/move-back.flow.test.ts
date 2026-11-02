@@ -60,7 +60,7 @@ afterEach(async () => {
   ;(config.upload as any).dir = saved.upload
   ;(config.oauth as any).baseUrl = saved.baseUrl
   forgetAllHomes()
-  rmSync(root, { recursive: true, force: true })
+  if (root) rmSync(root, { recursive: true, force: true })
   await clearCollections()
 }, 60_000)
 

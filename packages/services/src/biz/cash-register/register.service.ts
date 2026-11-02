@@ -23,7 +23,7 @@
  * decided there (`print-verdict.ts`).
  *
  * ⚠ `unknown` means a person must look at the device: nothing reads it as `failed`, and nothing reads
- * it as `printed`. A sale's money stands either way (D-4). A storno's and a dead receipt's wait on the
+ * it as `printed`. A sale's money stands either way (D-4). A storno's and a receipt's wait on the
  * answer (`holdInDoubt`), and a person gives it at the journal's settle door (`settle.service.ts`).
  *
  * What only a door knows is handed in: the fiscal device (a `RegisterPrinter`, which the till builds
@@ -47,6 +47,7 @@ import type { RegisterPrinter } from './printer.js'
 import { saleInDoubt, saleProgress } from './in-doubt.js'
 import { UNPROVED_STORNO_STATES } from './counting.js'
 import { provedNotPrinted, verdictOfFailedPrint } from './print-verdict.js'
+import { receiptMode, type ReceiptMode } from './receipt-mode.js'
 import { budgetClaims, fitsBudget, printedByRate } from './refund-budget.js'
 import { asPlanRead, stornoLine, type StornoPlan } from './storno-lines.js'
 import { PENDING_NUMBER, isPendingNumber } from './pending-number.js'
@@ -148,9 +149,8 @@ export interface TillSaleInput {
   totals: { subtotal: number; discountTotal: number; taxTotal: number; total: number; changeDue: number }
   /** What the customer handed over, per method. */
   payments: { method: string; amount: number; reference?: string }[]
-  /** The device the receipt prints on, and how: a fiscal receipt, or text (`nonFiscal`). */
+  /** The device the receipt prints on, which says how, in the sale's turn (`decideSaleMode`). */
   printer: RegisterPrinter | null
-  nonFiscal: boolean
 }
 
 /**
@@ -161,7 +161,7 @@ export interface TillSaleInput {
  */
 export async function tillSaleDocument(input: TillSaleInput): Promise<Record<string, any>> {
   const now = new Date()
-  const { session, totals, printer, nonFiscal, user } = input
+  const { session, totals, printer, user } = input
   const currency = session.currency || input.baseCurrency || 'EUR'
   if (exchangeRateFor(currency, input.baseCurrency) === null) {
     throw new RegisterRefusal(422, {
@@ -185,8 +185,9 @@ export async function tillSaleDocument(input: TillSaleInput): Promise<Record<str
     payments: input.payments,
     changeDue: totals.changeDue,
     ...(printer ? { fiscalDeviceNumber: printer.deviceNumber } : {}),
-    isFiscal: !!printer && !nonFiscal,
-    fiscal: printer ? { state: 'pending', mode: nonFiscal ? 'text' : 'fiscal' } : { state: 'none' },
+    // Until its turn on the device, which decides (`decideSaleMode`).
+    isFiscal: !!printer,
+    fiscal: printer ? { state: 'pending', mode: 'fiscal' } : { state: 'none' },
     createdBy: oid(user.id),
     createdAt: now,
     updatedAt: now,
@@ -455,6 +456,48 @@ async function printInTurn(printer: RegisterPrinter, doc: any, step: (fresh: any
   }
 }
 
+/**
+ * This document prints fiscally, and draws its УНП for that. In its turn: one that gives way before it draws none,
+ * and of several requests racing on one key only the one whose insert won ever comes this far.
+ */
+export async function asFiscal(c: RegisterContext, printer: RegisterPrinter, doc: any, also: Record<string, unknown> = {}): Promise<any> {
+  const operatorCode = c.user.operatorCode ?? doc.register?.operatorCode
+  if (!operatorCode) throw new Error('This user has no operator code, and a fiscal receipt names its operator.')
+  return setRegister(doc._id, {
+    isFiscal: true, 'fiscal.mode': 'fiscal', ...also,
+    ...(doc.register?.unp ? {} : { unp: await generateUNP(c.orgId, printer.deviceNumber, operatorCode as string) }),
+  })
+}
+
+/**
+ * How a sale prints, decided in its turn, from what the device says now (`receiptMode`), as a receipt's is. No
+ * request has a say: the till's switch once made a fiscal device print a slip the Z never saw.
+ *
+ * ⚠ One that started fiscally stays fiscal, whatever the device says now: what it may have left there is
+ * `printOnce`'s to judge. One that started as text is asked again. A slip has no legal weight and an interrupted
+ * one is simply printed again (`printSaleStep`), so on a device fiscalized since it prints fiscally: that is the
+ * first the device hears of the sale. Unlike a receipt it holds no money back to wait for a person over (D-4).
+ *
+ * ⚠ A status that cannot be read is never "not fiscalized". It takes the path of a device that went away: a fiscal sale
+ * with its УНП, as one whose print cannot reach the device has, not printed, and its money stands.
+ */
+async function decideSaleMode(c: RegisterContext, printer: RegisterPrinter, doc: any): Promise<any> {
+  const fiscal = doc.register?.fiscal
+  if (fiscal?.attemptedAt && fiscal.mode !== 'text') return doc
+  const notPrinted = (receiptError: string) => setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': receiptError, receiptError })
+  let mode: ReceiptMode
+  try {
+    mode = await receiptMode(printer)
+  } catch (e: any) {
+    await printer.failed().catch(() => {})
+    if (c.user.operatorCode || doc.register?.operatorCode) await asFiscal(c, printer, doc)
+    return notPrinted(`The device could not say how it prints, so the receipt was not printed: ${e?.message}`)
+  }
+  if (mode === 'text') return fiscal?.mode === 'text' ? doc : setRegister(doc._id, { isFiscal: false, 'fiscal.mode': 'text' })
+  if (!c.user.operatorCode && !doc.register?.operatorCode) return notPrinted('This user has no operator code, and a fiscal receipt names its operator.')
+  return asFiscal(c, printer, doc, fiscal?.attemptedAt ? { 'fiscal.attemptedAt': null } : {})
+}
+
 /** The sale's receipt: fiscal or text, at most once. */
 export async function printSaleStep(c: RegisterContext, doc: any): Promise<any> {
   const printer = c.printer
@@ -463,10 +506,8 @@ export async function printSaleStep(c: RegisterContext, doc: any): Promise<any> 
   }
   if (doc.register?.fiscal?.mode === 'text') {
     if (!printer.printsText) {
-      // A payment's receipt prints text because the device said so, and nobody has a switch for that.
-      const receiptError = isMoneyDocument(doc)
-        ? 'This fiscal device is not fiscalized and cannot print a text receipt, so the receipt was not printed.'
-        : 'This fiscal device cannot print non-fiscal receipts — switch "Non-fiscal" off to issue a fiscal receipt.'
+      // It prints text because the device said so, and nobody has a switch for that.
+      const receiptError = 'This fiscal device is not fiscalized and cannot print a text receipt, so the receipt was not printed.'
       return setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': receiptError, receiptError })
     }
     // A text receipt has no legal weight: an interrupted one is simply printed again.
@@ -595,8 +636,8 @@ export function saleIncrements(doc: any): Record<string, number> {
  * by the steps that book it and by the close's preview, which writes nothing and has to say what the close
  * will do: its count is prefilled from that, and read as anything else the drawer closed short or over.
  *  - **A sale:** always. Its money stands (D-4).
- *  - **A receipt:** once it printed or may have, in its own turn. Still `pending` it books nothing whoever
- *    finishes it: that gives it up or holds it. `failed` is given up, and one in doubt is a person's.
+ *  - **A receipt:** once it printed. Still `pending` it books nothing whoever finishes it: that gives it up or
+ *    holds it. `failed` is given up, and `unknown` is a person's (`holdInDoubt`), whichever turn it was in.
  *  - **A storno, of a sale or of a receipt (R2):** once it printed, or had nothing to print. `unknown` is held,
  *    and `failed` is voided. ⚠ A type this does not name books nothing, silently: a new money document learns it here.
  */
@@ -605,7 +646,7 @@ export function bookedOnItsSession(doc: any): Record<string, number> | null {
   if (reg?.sessionTotalsApplied || doc.status === 'voided' || reg?.fiscal?.inDoubt) return null
   const state = reg?.fiscal?.state
   if (doc.type === 'cash_sale') return saleIncrements(doc)
-  if (doc.type === 'payment_receipt') return state === 'pending' || state === 'failed' ? null : saleIncrements(doc)
+  if (doc.type === 'payment_receipt') return state === 'printed' ? saleIncrements(doc) : null
   if (doc.type === 'cash_storno' || doc.type === 'payment_storno') return UNPROVED_STORNO_STATES.includes(String(state)) ? null : stornoIncrements(doc)
   return null
 }
@@ -711,18 +752,15 @@ export async function runSaleSteps(c: RegisterContext, id: string, opts: { finis
     doc = numbered
   }
 
-  // The УНП is drawn AFTER the document exists, so of several requests racing on one key, only the
-  // one whose insert won ever draws one.
-  if (c.printer && doc.register?.fiscal?.mode === 'fiscal' && !doc.register?.unp) {
-    doc = await setRegister(doc._id, { unp: await generateUNP(c.orgId, c.printer.deviceNumber, c.user.operatorCode as string) })
-  }
   // One fiscal operation from the first command to the last, so a graceful stop cannot land
-  // between "open receipt" and "close receipt" (FR-20.23).
+  // between "open receipt" and "close receipt" (FR-20.23). The device says how it prints in that turn.
   if (doc.register?.fiscal?.state === 'pending') {
-    doc = c.printer
-      ? await printInTurn(c.printer, doc, async (fresh) => {
+    const printer = c.printer
+    doc = printer
+      ? await printInTurn(printer, doc, async (fresh) => {
         if (notStarted(fresh) && !(await sessionIsOpen(fresh))) await giveWayToTheClose(fresh)
-        return printSaleStep(c, fresh)
+        const decided = await decideSaleMode(c, printer, fresh)
+        return decided.register?.fiscal?.state === 'pending' ? printSaleStep(c, decided) : decided
       })
       : await printSaleStep(c, doc)
   }

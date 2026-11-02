@@ -71,14 +71,13 @@ async function post(path: string, token: string, body: any) {
 }
 
 /** 2 × 10.00 net at 20 % → 24.00, paid with 30.00 cash → 6.00 change. */
-function saleBody(productId: string, nonFiscal = true) {
+function saleBody(productId: string) {
   return {
     type: 'sale',
     lines: [{ productId, name: 'Болт DIN 933 М8Х20', quantity: 2, unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 4, lineTotal: 20 }],
     subtotal: 20, discountTotal: 0, taxTotal: 4, total: 24,
     payments: [{ method: 'cash', amount: 30 }],
     changeDue: 6,
-    nonFiscal,
   }
 }
 
@@ -105,8 +104,8 @@ async function world() {
   return { org, warehouse, user, product, session, token, base }
 }
 
-async function sell(w: Awaited<ReturnType<typeof world>>, nonFiscal = true) {
-  const { status, json } = await post(`${w.base}/transaction`, w.token, saleBody(String(w.product._id), nonFiscal))
+async function sell(w: Awaited<ReturnType<typeof world>>) {
+  const { status, json } = await post(`${w.base}/transaction`, w.token, saleBody(String(w.product._id)))
   expect(status).toBe(200)
   return String(json.transaction.id || json.transaction._id)
 }
@@ -181,7 +180,7 @@ describe('POS storno (#145)', () => {
     registered.push(deviceId)
 
     // A real FISCAL sale, so the storno has a fiscal receipt to cite and must print one.
-    const saleId = await sell(w, false)
+    const saleId = await sell(w)
     const sale = await txnById(saleId)
     expect(sale.isFiscal).toBe(true)
     expect(sale.fiscalReceiptNumber).toBeTruthy()

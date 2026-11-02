@@ -70,14 +70,13 @@ async function post(path: string, token: string, body: any) {
   return { status: res.status, json: await res.json().catch(() => null) as any }
 }
 
-function saleBody(productId: string, nonFiscal = false) {
+function saleBody(productId: string) {
   return {
     type: 'sale',
     lines: [{ productId, name: 'Болт DIN 933 М8Х25', quantity: 2, unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 4, lineTotal: 20 }],
     subtotal: 20, discountTotal: 0, taxTotal: 4, total: 24,
     payments: [{ method: 'cash', amount: 24 }],
     changeDue: 0,
-    nonFiscal,
   }
 }
 
@@ -167,11 +166,21 @@ describe('Прил. 29 т. 8 at the till (SUPTO production mode)', () => {
     expect(json.transaction.fiscalReceiptNumber).toBe('0000101')
   })
 
-  it('does not judge a sale the device does not print (the non-fiscal toggle)', async () => {
+  it('a tab that says "non-fiscal" does not get past it: the device decides what prints, and this one is not there to', async () => {
     config.supto.mode = 'production'
     const t = await till({ lastCommunicationAt: new Date(Date.now() - 3 * HOUR), connected: false })
-    const { status } = await post(t.url, t.token, saleBody(String(t.product._id), true))
+    const { status, json } = await post(t.url, t.token, { ...saleBody(String(t.product._id)), nonFiscal: true })
+    expect(status).toBe(409)
+    expect(json.code).toBe('fiscal_device_unreached')
+  })
+
+  it('a stale device that answers, and says it is not fiscalized: reached, and it prints its slip', async () => {
+    config.supto.mode = 'production'
+    const t = await till({ lastCommunicationAt: new Date(Date.now() - 3 * HOUR), connected: true })
+    t.sim.unfiscalizedUnit = true
+    const { status, json } = await post(t.url, t.token, saleBody(String(t.product._id)))
     expect(status).toBe(200)
+    expect(json.transaction.fiscal).toMatchObject({ state: 'printed', mode: 'text' })
   })
 })
 

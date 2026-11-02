@@ -78,7 +78,6 @@ function saleBody(productId: string, quantity = 2) {
     subtotal: 10 * quantity, discountTotal: 0, taxTotal: 2 * quantity, total: 12 * quantity,
     payments: [{ method: 'cash', amount: 12 * quantity }],
     changeDue: 0,
-    nonFiscal: false,
   }
 }
 

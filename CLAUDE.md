@@ -764,6 +764,8 @@ so the tenant guard and every permission check are unchanged. Plan:
   browser entered LAST, in any tab.
 - **A 401 signs out this tab only**; a sign-out signs out every tab of the same person
   (BroadcastChannel). An identity-only session (no org chosen yet) may use only `/orgs`.
+- ⚠ **The portal's side menu offers what `canOpenPage` lets them open** (`portalPagesFor`, #461 D10): a till-only person
+  and a PIN session see Apps and nothing else. Presentation, as ever: portal routes have no guard.
 - Portal pages: `/auth/login` (no org field until asked for), `/orgs` (picker), `/account`,
   `/auth/forgot-password`, `/auth/reset-password#token=…`. The OAuth callback redirects to
   `/auth/login?error=<code>`, and the page translates only codes it knows.
@@ -1150,9 +1152,12 @@ LGR implements СУПТО (Софтуер за Управление на Про�
 - **`vat-groups.ts`** — Н-18 чл. 27(1): **А = 0 %/exempt, Б = 20 %, В = liquid fuels, Г = 9 %** (until 2026-09-24
   this mapped 20 % → А, i.e. booked taxable sales as exempt; unnoticed because the POS printed non-fiscal text)
 - POS prices are NET; fiscal devices take VAT-inclusive prices — `fiscalUnitPrice()` in `pos.controller.ts`
-- The POS "Non-fiscal" toggle decides: ON = text on a service receipt (for non-fiscalized devices), OFF = real
-  fiscal receipt. A print failure returns `receiptError` (the sale is still saved) instead of a silent success.
-  The text receipt prints amounts in the **session's** currency (the org's `baseCurrency` printed BGN on a EUR till)
+- ⚠ **The device decides what a till sale prints, never a switch** (#461 D1, `decideSaleMode`): text on a service
+  receipt only when its own status says `fiscalized === false`, read fresh in the sale's turn; anything else is a fiscal
+  receipt. The till's „Нефискален" switch is gone, and in a fresh browser it had made a fiscal device print a slip the Z
+  never saw. An old tab still sends `nonFiscal`: the route takes it and reads nothing of it. A print failure returns
+  `receiptError` (the sale is still saved) instead of a silent success. The text receipt prints amounts in the
+  **session's** currency (the org's `baseCurrency` printed BGN on a EUR till)
 - **POS requests are idempotent** (#155, FR-20.37): session open/close, sale and storno take an
   `Idempotency-Key` header (`ui-shared/composables/idempotency` makes one per attempt and keeps it only
   while the outcome is unknown). The key is stored ON the document (`clientKey` + `requestHash`, unique
@@ -1225,6 +1230,9 @@ Atomic counter using MongoDB `findOneAndUpdate` with `$inc`. Race-condition safe
 ### SUPTO Controller Endpoints
 
 - **Fiscal devices**: `GET/POST/PUT/DELETE /api/org/:orgId/fiscal/device` + `/connect`, `/disconnect`, `/status`, `/z-report`, `/sync-time` — restricted to admin/manager/warehouse_manager. Connection types: `tcp`, `serial`, `usb`, `browser`, `desktop`
+  - ⚠ **`/z-report` asks first with a session open on the device's warehouse** (#461 D5): 409 `sessions_open` naming them, and
+    it prints when asked again with `confirmed: true`. It closes the device's day under them, and their close then reads
+    0.00 from the device. A session's close is not this route.
   - The device page's commands — `/x-report`, `/fm-report`, `/operator-report`, `/ej-report`, `/program-operator`,
     `/read-operator`, `GET|POST /payment-names` (POST admin only) — go through `onDevice()`: a feature the driver
     lacks is 400 `unsupported` with the reason and nothing sent, then input checks (400 `bad_input`), then 503 when
@@ -2443,8 +2451,10 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
 - **A back-office cash sale joins its author's open session** (FR-21.31, D-13): `POST /invoices`
   writes it with `register.origin: 'pos'`, `joinedFrom: 'backoffice'` and the session, so it counts
   in the drawer's totals, the close JE and SUPTO, is immutable and is reversed by a storno through a
-  till. Its lines keep their warehouses. It prints on the session's device only when the request
-  says `receipt: 'fiscal' | 'text'`. An imported day never joins. Test fixtures: `till-world`'s
+  till. Its lines keep their warehouses. ⚠ Where LGR prints it prints on the session's device whether or not the
+  request says `receipt` (#461 D6: with none it went past the gate, paid, in the drawer, printing nothing), and where
+  LGR prints nothing only when it says so. Either value only asks: the device says which it prints. An imported day
+  never joins, so the import skills are not this path, `--no-stock` or not. Test fixtures: `till-world`'s
   `backOfficeSale` posts as a clerk with no session, `cashierBackOfficeSale` as the till's cashier.
 - **One selling surface** (FR-21.29): `ui-shared/components/cash-register/RegisterTerminal.vue` is
   the catalog, the cart and the totals of the till (`/invoicing/cash-sales/new`) AND of the form a
@@ -2504,8 +2514,8 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
 
 ## A fiscal receipt for every payment on an invoice (2026-10-31, FR-23 R1)
 
-Spec: `docs/fr/FR-23-cash-invoice-receipts.md`; §6 lists what the build decided, §7 what R2's did. R3
-(the till's partial storno, #363) is not built.
+Spec: `docs/fr/FR-23-cash-invoice-receipts.md`; §6 lists what the build decided, §7 what R2's did, §8 what R3's did,
+and §9 what the prod sweep changed (#461).
 
 **The invoice is the sale** (Q-1): it moves the stock and posts the revenue, as it always did. A
 `payment_receipt` is the money: an `Invoice` row of its own type, in the register's `CS`/`CSR` series,
@@ -2599,8 +2609,10 @@ invoice still due until the courier pays).
   A driver says how far it got (`stagedPrint`), a storno too; `refused` means it sent nothing, so the device
   is not marked and nothing is read.
 - ⚠ **`unknown` means a person must look at the device: nothing reads it as `failed` and nothing reads it
-  as `printed`.** A receipt's money stands when its print was in its own turn; a sale's always does (D-4).
-  A storno's never does.
+  as `printed`.** A sale's money stands (D-4). A receipt's and a storno's never do, in their own turn or not: each is
+  held (`holdInDoubt`), the invoice unpaid and the session untouched, and a person settles it. ⚠ A receipt's used to
+  stand when its print was in its own turn: a dropped socket then left a paid invoice, a receipt the next X voided,
+  nothing on the device and no door out (#461 D3). At issue the invoice stands issued and unpaid, with the notice.
 - ⚠ **A storno that may have printed is held, never voided** (`runStornoSteps`). Only `failed` voids it and
   gives the sale back. An `unknown` one keeps its claim, books no refund, no stock and no session totals, and
   answers 409 `storno_in_doubt`, as does every press after it: voided, the next press printed a second
@@ -2656,7 +2668,8 @@ invoice still due until the courier pays).
   dies in its Z has a lease (`closeLeaseUntil`, `TURN_WAIT_MS + REPORT_MAX_MS`): lapsed, the next close puts it back
   to `open` and answers 409 `close_interrupted`, because the Z may have printed and only the device can say. Its
   writes from the claim on are conditional on what it holds.
-- ⚠ **A session takes nothing new unless it is `open`** (409 `session_closing` at the door, a keyed retry above that).
+- ⚠ **A session takes nothing new unless it is `open`** (409 `session_closing` at the door, a keyed retry above that; the
+  invoice doors say so too, `noOpenSession`, and never send a cashier in a close to open a session first, #461 D7).
   ⚠ The door's read holds nothing: a document looks at its session once it is WRITTEN, and the close looks at the
   session's documents once it has CLAIMED it, so one of the two sees the other. A sale gives way by being removed, ⚠
   never voided: `posRowSign` counts any sale, because a storno alone flips one to `cancelled`. The close reads
@@ -2695,6 +2708,11 @@ invoice still due until the courier pays).
   ⚠ A whole payment prints per rate too when the device would total its lines differently (a price
   rounded to the cent × a thousand), or has no text line (`capabilities.ts`, `fiscalText`); the line is
   then named „Фактура № …". Lines are checked before printing, never after.
+- ⚠ **A till sale and its storno, whole or in part, come to their document to the cent** (#461 D2): both go through
+  `linesOnDevice` (`printsExactly`, the rule above). Prices that reproduce the gross per rate print as lines; anything
+  else is one line per rate at the exact gross, „Продажба № …" or „Връщане по продажба № …". 1000 × 0.0533 net at 20 % was
+  63.96 in LGR and 60.00 on the device, with 3.96 printed as change. The document keeps its articles and its stock, and
+  the text slip prints the document's own figures, as it always did.
 - **COD:** the receipt pays nothing. A later payment on it prints nothing, by any method: `prepareReceipt`
   stops at a live delivery receipt, which took all that was owed. ⚠ A second receipt would book the sale
   on the device twice.
@@ -2721,8 +2739,8 @@ invoice still due until the courier pays).
   device's own status, fresh, in the turn, with no cache; `undefined` or `true` is fiscal, so a Tremol
   never gets text and a fiscalized device can never print it. ⚠ A status read that fails is never "not
   fiscalized": it is the path of a device that went away. No request field, org setting or screen
-  selects it, and the till's „Нефискален" has no say. The УНП is drawn in the turn, by `decideMode`, so a
-  text receipt has none. It stays out of what a text sale stays out of: no УНП, nothing fiscal on its
+  selects it. A till sale follows the same rule since #461 (`decideSaleMode`). The УНП is drawn in the turn, by
+  `decideMode`, so a text receipt has none. It stays out of what a text sale stays out of: no УНП, nothing fiscal on its
   18.1–18.3 rows, on no witness, no Z, no receipt range, and the invoice PDF does not call it a fiscal
   receipt. It freezes its document all the same. A text print that fails is `failed`, with no verdict:
   the device holds no money on one. One that started fiscally stays fiscal.
@@ -2769,10 +2787,8 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   the slip for a fiscal receipt too, optionally: with none it stands as printed and its refund goes by bank. One it
   brought is held to all a sale's is, and corrected at the door until a refund's storno cites it: a storno's
   claim is in the correction's filter (`stornoCites`), and what a storno cites is read after its claim
-  (`takeFromCited`). A receipt whose `unknown` stands (an in-turn verdict, its money booked) has no door: it holds
-  nothing, 409 `no_receipt_to_storno`. ⚠ So only its own print may leave one: what a leftover's close did says
-  nothing about it, at the driver (`cancelFiscalReceipt`) and, for one with no cancel, at `opening`
-  (`verdictOfFailedPrint`).
+  (`takeFromCited`). ⚠ What a leftover's close did says nothing about this document, at the driver
+  (`cancelFiscalReceipt`) and, for one with no cancel, at `opening` (`verdictOfFailedPrint`).
 - ⚠ **A refund at issue is for what the issue decided** (`issue.tender`, `tenderMoved`). Its claim stands until
   the storno does, as a receipt's, and moved, nothing prints (`receiptCode: 'issue_tender_moved'`). Between two
   stornos nothing holds the note, and on a retry nothing holds it at all, so `refund` asks `refundMoved` before each
@@ -2793,6 +2809,10 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
 - Refusals, before anything is written: 409 `no_receipt_to_storno` (with `reason`, says refund by bank), 422
   `refund_exceeds_receipts` (with `left`, what goes through if typed: `fittingAmount`), 403
   `refund_requires_manager` (H4: `STORNO_ROLES`, this is a storno door), and all of R1's.
+- ⚠ **A credit note's goods come back at what they left at, never the selling price** (#461 D4, `returnCostOf`): the
+  dispatch of the invoice it corrects or of that invoice's till sale, then today's average in that warehouse, then the
+  purchase price. It is `resolvedUnitCost` on the line, which stock, the layers and the valuation entry read. ⚠ `unitCost`
+  stays the document's price, as on every invoice-born line, because FR-07 and the digest read their value columns off it.
 - ⚠ **A credit note's payment is money OUT:** `createPaymentJournalEntry` posts Dr receivable / Cr cash
   on one, for a bank refund too. Before R2 it posted every outgoing document's as money in. This, the digest's and
   summary's signs and the "Refund" label are the one deliberate change where nothing prints (§2.3).

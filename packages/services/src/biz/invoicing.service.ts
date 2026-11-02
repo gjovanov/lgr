@@ -435,6 +435,56 @@ export async function stockBookingRefusal(invoice: IInvoice): Promise<StockBooki
   return (await stockBooking(invoice)).refusal
 }
 
+/** What each unit of these dispatches cost when it left, by key, weighted over their lines. */
+type LeftAt = Map<string, { qty: number; cost: number }>
+
+/** A dispatched line's cost per unit: what it consumed, else what it resolved to. Not a number when it said neither. */
+function unitCostOfDispatched(line: any): number {
+  if (!line.costAllocations?.length || !line.quantity) return Number(line.resolvedUnitCost)
+  return line.costAllocations.reduce((s: number, a: any) => s + (Number(a.totalCost) || 0), 0) / line.quantity
+}
+
+function addLeftAt(leftAt: LeftAt, key: string, line: any): void {
+  const unit = unitCostOfDispatched(line)
+  if (!Number.isFinite(unit) || !line.quantity) return
+  const acc = leftAt.get(key) ?? { qty: 0, cost: 0 }
+  leftAt.set(key, { qty: acc.qty + Number(line.quantity), cost: acc.cost + unit * Number(line.quantity) })
+}
+
+/**
+ * What a customer's credit note brings its goods back at (the prod sweep's D4). At the selling price, every return pulled
+ * the article's average towards it: 4.00 became 4.1394 after 23 came back at 10.00. So what they left at: the dispatch
+ * of the invoice it corrects, or of the till sale that invoice was issued for, whose dispatch moved them. With none to
+ * read, today's average in that warehouse, so a return moves no average, and with none of that, what the article is bought
+ * at. ⚠ Never the selling price: a dispatch out of a warehouse with no row for the article consumed nothing, and its
+ * line resolved to its own price (`confirmMovement`). Goods sold before their delivery was booked leave so, and that
+ * line says nothing of what they cost.
+ */
+async function returnCostOf(invoice: IInvoice, r: RepositoryRegistry): Promise<(productId: string, warehouseId: string) => Promise<number>> {
+  const relatedId = (invoice as any).relatedInvoiceId
+  const related: any = relatedId ? await r.invoices.findOne({ id: String(relatedId), orgId: invoice.orgId } as any) : null
+  const documents = [related?.id, related?.cashSaleRef?.cashSaleId].filter(Boolean).map(String)
+  const dispatches: any[] = documents.length
+    ? await r.stockMovements.findMany({ orgId: invoice.orgId, invoiceId: { $in: documents }, type: 'dispatch', status: 'completed' } as any)
+    : []
+  const leftAt: LeftAt = new Map()
+  for (const mov of dispatches) {
+    for (const line of mov.lines as any[]) {
+      if (!line.costAllocations?.length && Number(line.resolvedUnitCost) === Number(line.unitCost)) continue
+      addLeftAt(leftAt, `${String(line.productId)}|${String(mov.fromWarehouseId)}`, line)
+      addLeftAt(leftAt, String(line.productId), line)
+    }
+  }
+  return async (productId, warehouseId) => {
+    const left = leftAt.get(`${productId}|${warehouseId}`) ?? leftAt.get(productId)
+    if (left?.qty) return left.cost / left.qty
+    const level: any = await r.stockLevels.findOne({ orgId: invoice.orgId, productId, warehouseId } as any)
+    if (Number(level?.avgCost) > 0) return Number(level.avgCost)
+    const product: any = await r.products.findById(productId)
+    return Number(product?.purchasePrice) || 0
+  }
+}
+
 export async function createInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
   const r = repos ?? getRepos()
   if (movesNoStock(invoice, 'book')) return
@@ -480,13 +530,18 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
     await validateStockAvailability(orgId, productLines, r)
   }
 
+  // ⚠ `unitCost` stays the document's price, as on every invoice-born line: FR-07 and the digest read their value
+  // columns off it. What the goods are worth is `resolvedUnitCost`, which stock, the layers and the valuation entry read.
+  const comesBackAt = movementType === 'return' && stockSide === 'to' ? await returnCostOf(invoice, r) : null
+
   for (const [warehouseId, lines] of byWarehouse) {
-    const movementLines = lines.map(l => ({
+    const movementLines = await Promise.all(lines.map(async l => ({
       productId: l.productId!,
       quantity: l.quantity,
       unitCost: l.unitPrice,
       totalCost: l.quantity * l.unitPrice,
-    }))
+      ...(comesBackAt ? { resolvedUnitCost: await comesBackAt(String(l.productId), warehouseId) } : {}),
+    })))
     const totalAmount = movementLines.reduce((s, l) => s + l.totalCost, 0)
 
     const movement = await createNumberedMovement(r, orgId, {
@@ -543,7 +598,7 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
   // Restore cost layers from original dispatch movements, and note what each unit cost when it
   // left: goods that come back on a void come back at that cost, never at the document's price.
   const layersRestored = new Set<string>()
-  const leftAt = new Map<string, { qty: number; cost: number }>()
+  const leftAt: LeftAt = new Map()
   for (const mov of originalMovements) {
     if (mov.status !== 'completed' || !mov.fromWarehouseId) continue
     for (const line of mov.lines as any[]) {
@@ -552,11 +607,7 @@ export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: str
         await restoreCostLayers(line.costAllocations, r)
         layersRestored.add(key)
       }
-      const allocated = (line.costAllocations || []).reduce((s: number, a: any) => s + (Number(a.totalCost) || 0), 0)
-      const unit = line.costAllocations?.length && line.quantity ? allocated / line.quantity : Number(line.resolvedUnitCost)
-      if (!Number.isFinite(unit) || !line.quantity) continue
-      const acc = leftAt.get(key) ?? { qty: 0, cost: 0 }
-      leftAt.set(key, { qty: acc.qty + Number(line.quantity), cost: acc.cost + unit * Number(line.quantity) })
+      addLeftAt(leftAt, key, line)
     }
   }
 

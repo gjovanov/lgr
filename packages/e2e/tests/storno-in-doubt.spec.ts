@@ -96,7 +96,7 @@ test.describe('FR-23 — a storno that may have printed', () => {
     saleBody = {
       type: 'sale', lines: [{ ...line, taxAmount: t.taxTotal, lineTotal: t.subtotal }],
       subtotal: t.subtotal, discountTotal: 0, taxTotal: t.taxTotal, total: t.total,
-      payments: [{ method: 'cash', amount: t.total }], changeDue: 0, nonFiscal: false,
+      payments: [{ method: 'cash', amount: t.total }], changeDue: 0,
     }
     const rung = await ok(manager, 'POST', `/trade/pos/session/${till.id}/transaction`, saleBody)
     sale = rung.transaction

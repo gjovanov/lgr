@@ -848,15 +848,17 @@ describe('a device that is not fiscalized: the device decides, never a switch (o
     return w
   }
 
-  it('the simulator is the unit in the field: it reports what it reports, and refuses a fiscal receipt', async () => {
+  it('the simulator is the unit in the field: it reports what it reports, and refuses a fiscal receipt, so the till prints it a slip', async () => {
     const w = await theUnit()
     expect(await getPrinter(w.deviceId).getStatus()).toMatchObject({ connected: true, fiscalized: false })
     // The bytes the unit in the field answered with.
     const answer = await w.sim!.exchange(buildFrame())
     const status = [...answer].slice(answer.indexOf(0x04) + 1, answer.indexOf(0x05))
     expect(status.slice(4)).toEqual([0x84, 0x90])
-    const refused = await w.sell(1)
-    expect(refused.json.transaction.fiscal.state).toBe('failed')
+    const refused = await captureRejection(getPrinter(w.deviceId).openFiscalReceipt('0001', 'Иван Петров', 'ED123456-0001-0000001'))
+    expect(String(refused?.message)).toContain('not allowed')
+    const sold = await w.sell(1)
+    expect(sold.json.transaction.fiscal).toMatchObject({ state: 'printed', mode: 'text' })
     expect(w.sim!.receipts).toHaveLength(0)
   })
 
@@ -973,7 +975,7 @@ describe('a device that is not fiscalized: the device decides, never a switch (o
   it('the till\'s own text slip prints as it did: a name cut to one line, and no invoice words', async () => {
     const w = await theUnit()
     const name = 'Анкер с дълго име DIN 933 М8Х25 поцинкован'
-    const body = w.saleBody(1, { nonFiscal: true })
+    const body = w.saleBody(1)
     body.lines[0].name = name
 
     const sale = await w.call('POST', `/trade/pos/session/${w.sessionId}/transaction`, body)
@@ -986,7 +988,7 @@ describe('a device that is not fiscalized: the device decides, never a switch (o
 
   it('it stays out of what the till\'s text sale stays out of, and in what that is in', async () => {
     const w = await theUnit()
-    const sale = await w.sell(1, { nonFiscal: true })
+    const sale = await w.sell(1, { text: true })
     expect(sale.json.transaction.fiscal).toMatchObject({ state: 'printed', mode: 'text' })
     const d = await draftOf(w)
     await send(w, d.id)
@@ -1071,7 +1073,7 @@ describe('a device that is not fiscalized: the device decides, never a switch (o
     await send(w, d.id)
     const held = gate()
     w.sim!.beforeCommand = cmd => (cmd === 0x27 ? held.closed : undefined)
-    const sale = w.sell(1, { nonFiscal: true })
+    const sale = w.sell(1, { text: true })
     await until(() => w.sim!.executed.some(c => c.cmd === 0x2A), 'the sale to hold the device')
     const paying = pay(w, d.id, 24)
     await until(async () => (await receiptsOf(d.id)).length === 1, 'the receipt to wait its turn')
@@ -1150,7 +1152,7 @@ describe('a device that is not fiscalized: the device decides, never a switch (o
       expect((await receiptsOf(d.id))[0].register).toMatchObject({ isFiscal: true, fiscal: expect.objectContaining({ mode: 'fiscal' }) })
     })
 
-    it('no org setting selects it either: the switch is the gate, and the till\'s „Нефискален" is the till\'s', async () => {
+    it('no org setting selects it either: the switch is the gate', async () => {
       const w = await tillWorld(app)
       await Org.collection.updateOne({ _id: w.oid } as any, { $set: { 'settings.cashRegister.nonFiscal': true, 'settings.cashRegister.textReceipts': true } })
       const d = await draftOf(w)

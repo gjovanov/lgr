@@ -2,6 +2,7 @@ import { FiscalRoute, deviceFromParams } from 'fiscal/fiscal-route'
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
 import { getRepos } from 'services/context'
+import { POSSession, User } from 'db/models'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import {
   connectDevice,
@@ -50,6 +51,21 @@ function sanitizeDevice(device: any, userRole: string) {
   if (FISCAL_ADMIN_ROLES.includes(userRole)) return device
   const { connectionParams, ...safe } = typeof device.toJSON === 'function' ? device.toJSON() : { ...device }
   return safe
+}
+
+/**
+ * The sessions a Z on this device would close the fiscal day under: every one of its warehouse that is not closed. A
+ * warehouse's sessions print on its devices. A close's own Z is not this route, and comes with its session's figures.
+ */
+async function sessionsUnderZ(orgId: string, device: any): Promise<{ id: string; number: string; cashier: string }[]> {
+  if (!device.warehouseId) return []
+  const open: any[] = await POSSession.find({ orgId, warehouseId: device.warehouseId, status: { $ne: 'closed' } }, { sessionNumber: 1, cashierId: 1 }).sort({ openedAt: 1 }).lean().exec()
+  const people: any[] = open.length ? await User.find({ _id: { $in: open.map(s => s.cashierId) } }, { firstName: 1, lastName: 1 }).lean().exec() : []
+  const nameOf = (id: unknown) => {
+    const person = people.find(p => String(p._id) === String(id))
+    return person ? `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim() : ''
+  }
+  return open.map(s => ({ id: String(s._id), number: s.sessionNumber, cashier: nameOf(s.cashierId) }))
 }
 
 // ── Fiscal Devices ──
@@ -297,7 +313,12 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
 
     return { deviceStatus }
   }, { isSignIn: true, fiscalDevice: deviceFromParams })
-  .post('/:id/z-report', async ({ params: { orgId, id }, user, status }) => {
+  /**
+   * The device page's Z. ⚠ It closes the device's day whoever is selling on it: with a session open, that session's close
+   * then read 0.00 from the device against what LGR counted. So it asks first, with 409 `sessions_open` naming them, and
+   * goes through when asked again with `confirmed: true`. A session's close is not this route, and is not asked.
+   */
+  .post('/:id/z-report', async ({ params: { orgId, id }, user, status, body }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!['admin', 'manager'].includes(user.role)) return status(403, { message: 'Admin or manager required for Z-reports' })
     const r = getRepos()
@@ -306,13 +327,23 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     if (!device) return status(404, { message: 'Fiscal device not found' })
 
     return onDevice(status, device, 'Z-Report', { feature: 'zReport' }, async (printer) => {
+      if ((body as any)?.confirmed !== true) {
+        const sessions = await sessionsUnderZ(orgId, device)
+        if (sessions.length) {
+          return status(409, {
+            code: 'sessions_open',
+            sessions,
+            message: `Sessions ${sessions.map(s => s.number).join(', ')} are open on this device's warehouse. A Z-report closes the device's day under them, and their close then reads 0.00 from the device. Close them first, or send it again with confirmed.`,
+          })
+        }
+      }
       const result = await printer.printDailyZReport()
 
       createAuditEntry({ orgId, userId: user.id, action: 'z_report', module: 'fiscal', entityType: 'fiscal_device', entityId: id, entityName: `Z-Report #${result.reportNumber}` })
 
       return { zReport: result }
     })
-  }, { isSignIn: true, fiscalDevice: deviceFromParams })
+  }, { isSignIn: true, fiscalDevice: deviceFromParams, body: t.Optional(t.Object({ confirmed: t.Optional(t.Boolean()) })) })
   /**
    * A person sets a device's clock from the server's (FR-20.22): the confirmation the automatic sync
    * waits for. ⚠ When the server's clock is not verified, or the device's would move by more than

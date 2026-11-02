@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, spyOn } from 'bun:test'
 import { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
+import { tillApp, tillWorld, forgetDevices, reconnect, type TillWorld } from '../helpers/till-world'
 import {
-  TODAY, clerkSession, draftOf, gate, pay, raw, receiptsOf, send, sessionOf, shown, until,
+  TODAY, clerkSession, draftOf, gate, pay, printIt, raw, receiptsOf, send, sessionOf, shown, until,
 } from '../helpers/receipt-world'
 import { AuditLog, FiscalDevice, Invoice, POSSession } from 'db/models'
 import { paymentReceiptDocument, recordPayment, runReceiptSteps } from 'services/biz/cash-register/payment-receipt.service'
@@ -23,10 +23,10 @@ import { decodeCp1251 } from 'fiscal/cp1251'
  * FR-23: what proves a receipt printed, and what happens when nothing does.
  *
  * In the device's turn the counter is ours, so a print that throws can be judged: `printed`, `failed`,
- * or `unknown` with the money kept. Out of it nothing moved by one proves anything, because the device
- * is shared: a receipt whose request died is given up only when it never reached the device or the
- * device confirms it idle and unmoved. Anything else books nothing and prints nothing: the receipt
- * stays held, and a person settles it.
+ * or `unknown`. Out of it nothing moved by one proves anything, because the device is shared: a receipt
+ * whose request died is given up only when it never reached the device or the device confirms it idle
+ * and unmoved. `unknown`, in its own turn or not, books nothing and prints nothing: the receipt stays
+ * held, and a person settles it (the prod sweep's D3).
  *
  * Every one of these was reproduced through the real routes on the simulator before it was fixed.
  *
@@ -74,46 +74,279 @@ async function dead(w: TillWorld, d: { id: string; total: number }, fiscal: Reco
   return inserted
 }
 const reread = (doc: any) => Invoice.findById(doc._id).lean().exec() as Promise<any>
+/** What a receipt that is not proved to have printed leaves: the invoice unpaid, its session untouched. */
+function expectNothingBooked(invoice: any, session: any) {
+  expect(invoice.amountPaid).toBe(0)
+  expect(invoice.status).toBe('sent')
+  expect(invoice.payments ?? []).toHaveLength(0)
+  expect(session).toMatchObject({ totalCash: 0, totalCard: 0, totalSales: 0, transactionCount: 0 })
+}
 
 describe('a print that throws, in its turn on the device (ruling 1)', () => {
-  it('the paper runs out after the device took the money: unknown, the money kept, and no second receipt ever', async () => {
+  it('the paper runs out after the device took the money: held, settled printed, the money booked once and nothing printed twice', async () => {
     const w = await tillWorld(app)
     const d = await onBank(w)
     w.sim!.beforeCommand = cmd => { if (cmd === CLOSE) w.sim!.paper = false }
 
     const r = await pay(w, d.id, 24, 'cash', 'paid-then-no-paper')
 
-    expect(r.status).toBe(200)
-    expect(r.json.receipt.state).toBe('unknown')
-    expect(r.json.receiptError).toContain('Check the device')
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_in_doubt')
     const [receipt] = await receiptsOf(d.id)
-    expect(receipt.status).toBe('paid')
-    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
-    expect((await sessionOf(w)).totalCash).toBe(24)
+    expect(receipt.register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
+    expect(receipt.completedAt).toBeUndefined()
+    expectNothingBooked(await raw(d.id), await sessionOf(w))
 
-    // The paper comes back. The same key finds what it did, and a new attempt finds it paid.
+    // The paper comes back. Every press says the same, and prints nothing.
     w.sim!.beforeCommand = null
     w.sim!.paper = true
-    expect((await pay(w, d.id, 24, 'cash', 'paid-then-no-paper')).status).toBe(200)
-    expect((await pay(w, d.id, 24, 'cash', 'a-new-attempt-key')).status).toBe(400)
+    for (const key of ['paid-then-no-paper', 'a-new-attempt-key']) {
+      const again = await pay(w, d.id, 24, 'cash', key)
+      expect(again.status).toBe(409)
+      expect(again.json.code).toBe('receipt_in_doubt')
+    }
+    expect(closedOnDevice(w)).toHaveLength(0)
+    // It holds the close, with no Z printed.
+    const close = await w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 100 } })
+    expect(close.status).toBe(409)
+    expect(close.json.code).toBe('receipts_unfinished')
+    expect(w.sim!.reports).toHaveLength(0)
 
-    // The next document finishes the one left open: one receipt for one payment.
-    await w.sell(1)
-    expect(closedOnDevice(w).filter(x => x.total === 24)).toHaveLength(1)
+    // The device still holds it, money and all: nothing is final until it is cleared.
+    expect((await settle(w, String(receipt._id), true)).json.code).toBe('receipt_open_on_device')
+    expect((await settle(w, String(receipt._id), false)).json.code).toBe('receipt_open_on_device')
+    expect((await w.call('POST', `/trade/pos/session/${w.sessionId}/device-report`, { kind: 'x' })).status).toBe(200)
+    const [printed] = closedOnDevice(w)
+    expect(printed.total).toBe(24)
+
+    // A person looks, and says so, with the number off the slip.
+    const said = await w.call('POST', `/cash-register/documents/${receipt._id}/settle`, { printed: true, receiptNumber: printed.number })
+    expect(said.status).toBe(200)
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24, amountDue: 0 })
+    expect((await raw(d.id)).payments).toHaveLength(1)
+    expect((await raw(d.id)).receiptHolds ?? []).toHaveLength(0)
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 24, totalSales: 24, transactionCount: 1 })
+    const settled = (await receiptsOf(d.id))[0]
+    expect(settled.register.fiscal.state).toBe('printed')
+    expect(settled.register.fiscalReceiptNumber).toBe(printed.number)
+    expect(settled.completedAt).toBeTruthy()
+
+    // What was said stands: the same key finds it, the money is not taken again, and nothing more prints.
+    expect((await pay(w, d.id, 24, 'cash', 'paid-then-no-paper')).status).toBe(200)
+    expect((await pay(w, d.id, 24, 'cash', 'yet-another-key')).status).toBe(400)
+    expect((await settle(w, String(receipt._id), true)).status).toBe(409)
+    expect(closedOnDevice(w)).toHaveLength(1)
+    expect((await sessionOf(w)).totalCash).toBe(24)
   })
 
-  it('the close went through and the connection dropped before its answer: unknown, the money kept', async () => {
+  it('the bridge drops after the lines and before the money: held, an X voids what it left, settled not printed, and Pay ends with one receipt', async () => {
+    const w = await tillWorld(app)
+    const d = await onBank(w)
+    w.sim!.beforeCommand = (cmd) => {
+      if (cmd !== PAYMENT) return
+      w.sim!.disconnected = true
+      throw new Error('Bridge disconnected')
+    }
+
+    const r = await pay(w, d.id, 24)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_in_doubt')
+    expectNothingBooked(await raw(d.id), await sessionOf(w))
+    const [receipt] = await receiptsOf(d.id)
+    expect(receipt.register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
+
+    // It answered every way out with a refusal, once: settle, void, Pay, /receipt and a cash note on it.
+    expect((await settle(w, String(receipt._id), false)).json.code).toBe('receipt_device_away')
+    reconnect(w)
+    expect((await settle(w, String(receipt._id), false)).json.code).toBe('receipt_open_on_device')
+    expect((await w.call('POST', `/invoices/${d.id}/void`)).json.code).toBe('receipt_in_doubt')
+    expect((await printIt(w, d.id)).json.code).toBe('receipt_in_doubt')
+    expect((await pay(w, d.id, 24)).json.code).toBe('receipt_in_doubt')
+    const note = await draftOf(w, { type: 'credit_note', method: 'cash', extra: { relatedInvoiceId: d.id, contactId: d.contactId } })
+    expect((await send(w, note.id)).json.code).toBe('receipt_in_doubt')
+
+    expect((await w.call('POST', `/trade/pos/session/${w.sessionId}/device-report`, { kind: 'x' })).status).toBe(200)
+    expect(closedOnDevice(w)).toHaveLength(0)
+    expect((await settle(w, String(receipt._id), false)).status).toBe(200)
+    expect((await receiptsOf(d.id))[0].status).toBe('voided')
+    expect((await raw(d.id)).receiptHolds ?? []).toHaveLength(0)
+
+    const paid = await pay(w, d.id, 24)
+
+    expect(paid.status).toBe(200)
+    expect(paid.json.receipt.state).toBe('printed')
+    expect(closedOnDevice(w).map(x => x.total)).toEqual([24])
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect((await raw(d.id)).payments).toHaveLength(1)
+    expect((await sessionOf(w)).totalCash).toBe(24)
+  })
+
+  it('the close went through and the connection dropped before its answer: held, and the device has one receipt', async () => {
     const w = await tillWorld(app)
     const d = await onBank(w)
     w.sim!.dropAfter = CLOSE
 
     const r = await pay(w, d.id, 24)
 
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_in_doubt')
+    expectNothingBooked(await raw(d.id), await sessionOf(w))
+    expect(w.sim!.receipts).toHaveLength(1)
+    const [receipt] = await receiptsOf(d.id)
+    expect(receipt.register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
+
+    reconnect(w)
+    expect((await settle(w, String(receipt._id), true)).status).toBe(200)
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect((await sessionOf(w)).totalCash).toBe(24)
+    expect(w.sim!.receipts).toHaveLength(1)
+  })
+
+  it('at issue: the invoice stands issued and unpaid, with the notice, and it is settled like any other', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    w.sim!.beforeCommand = cmd => { if (cmd === CLOSE) w.sim!.paper = false }
+
+    const r = await send(w, d.id)
+
     expect(r.status).toBe(200)
     expect(r.json.receipt.state).toBe('unknown')
+    expect(r.json.receiptError).toContain('settle it')
+    expect(r.json.invoice.status).toBe('sent')
+    expectNothingBooked(await raw(d.id), await sessionOf(w))
+    const [receipt] = await receiptsOf(d.id)
+    expect(receipt.register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
+
+    w.sim!.beforeCommand = null
+    w.sim!.paper = true
+    reconnect(w)
+    await w.call('POST', `/trade/pos/session/${w.sessionId}/device-report`, { kind: 'x' })
+    expect((await settle(w, String(receipt._id), true)).status).toBe(200)
     expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
-    expect(w.sim!.receipts).toHaveLength(1)
-    expect((await receiptsOf(d.id))[0].status).toBe('paid')
+    expect((await sessionOf(w)).totalCash).toBe(24)
+    expect(closedOnDevice(w)).toHaveLength(1)
+  })
+
+  it('a delivery receipt the same: held, what is owed stays owed, and settled printed the courier\'s money prints nothing more', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'cash_on_delivery' })
+    w.sim!.beforeCommand = cmd => { if (cmd === CLOSE) w.sim!.paper = false }
+
+    const r = await send(w, d.id)
+
+    expect(r.status).toBe(200)
+    expect(r.json.receipt.state).toBe('unknown')
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect((await sessionOf(w)).totalCashOnDelivery).toBe(0)
+    const [receipt] = await receiptsOf(d.id)
+
+    w.sim!.beforeCommand = null
+    w.sim!.paper = true
+    reconnect(w)
+    expect((await printIt(w, d.id)).json.code).toBe('receipt_in_doubt')
+    await w.call('POST', `/trade/pos/session/${w.sessionId}/device-report`, { kind: 'x' })
+    expect((await settle(w, String(receipt._id), true)).status).toBe(200)
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect((await raw(d.id)).receiptHolds ?? []).toHaveLength(0)
+    expect((await sessionOf(w)).totalCashOnDelivery).toBe(24)
+
+    const courier = await pay(w, d.id, 24, 'cash_on_delivery')
+    expect(courier.status).toBe(200)
+    expect(closedOnDevice(w)).toHaveLength(1)
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
+  /**
+   * Every fault at every stage, through both doors. Whatever the device was left with and whichever way the print was
+   * judged, a person who acts on what the device shows ends with one receipt on it, the money once, and nothing held.
+   */
+  describe('every fault at every stage ends with one receipt and the money once', () => {
+    type Fault = 'paper out' | 'answers lost' | 'line dropped after it' | 'line dead before it'
+    const STAGES: [string, number][] = [['open', 0x90], ['a line', LINE], ['the payment', PAYMENT], ['the close', CLOSE]]
+    const FAULTS: Fault[] = ['paper out', 'answers lost', 'line dropped after it', 'line dead before it']
+
+    function inject(w: TillWorld, fault: Fault, at: number) {
+      const sim = w.sim!
+      if (fault === 'line dropped after it') sim.dropAfter = at
+      else if (fault === 'paper out') sim.beforeCommand = (cmd) => { if (cmd === at) sim.paper = false }
+      else if (fault === 'answers lost') sim.beforeCommand = (cmd) => { if (cmd === at) sim.loseNextAnswers = 99 }
+      else {
+        sim.beforeCommand = (cmd) => {
+          if (cmd !== at) return
+          sim.disconnected = true
+          throw new Error('Bridge disconnected')
+        }
+      }
+    }
+
+    /** What it is judged, nobody having looked at the device yet. Before the money only a voided or empty receipt is left. */
+    const judged = (at: number, fault: Fault): 'failed' | 'held' => {
+      if (at === 0x90 || at === LINE) return 'failed'
+      // 3Ch still works with no payment taken.
+      return at === PAYMENT && fault === 'paper out' ? 'failed' : 'held'
+    }
+
+    /** The device back as it was, and a person acting on what it shows. */
+    async function aPersonEndsIt(w: TillWorld, d: { id: string }) {
+      w.sim!.paper = true
+      w.sim!.loseNextAnswers = 0
+      reconnect(w)
+      const held = (await receiptsOf(d.id)).find(x => x.register.fiscal.inDoubt)
+      if (held) {
+        if (w.sim!.receipt) expect((await settle(w, String(held._id), false)).json.code).toBe('receipt_open_on_device')
+        expect((await w.call('POST', `/trade/pos/session/${w.sessionId}/device-report`, { kind: 'x' })).status).toBe(200)
+        expect((await settle(w, String(held._id), closedOnDevice(w).length === 1)).status).toBe(200)
+      }
+      if ((await raw(d.id)).amountPaid === 0) expect((await pay(w, d.id, 24)).status).toBe(200)
+    }
+
+    async function endsWell(w: TillWorld, d: { id: string }) {
+      expect(closedOnDevice(w).map(x => x.total)).toEqual([24])
+      expect(w.sim!.receipt).toBeNull()
+      const invoice = await raw(d.id)
+      expect(invoice).toMatchObject({ status: 'paid', amountPaid: 24, amountDue: 0 })
+      expect(invoice.payments).toHaveLength(1)
+      expect(invoice.receiptHolds ?? []).toHaveLength(0)
+      const session = await sessionOf(w)
+      expect(session.totalCash).toBe(24)
+      expect(session.transactionCount).toBe(1)
+      expect((await receiptsOf(d.id)).filter(x => x.status !== 'voided')).toHaveLength(1)
+    }
+
+    for (const [stage, at] of STAGES) {
+      for (const fault of FAULTS) {
+        it(`a payment, ${fault} at ${stage}`, async () => {
+          const w = await tillWorld(app)
+          const d = await onBank(w)
+          inject(w, fault, at)
+
+          const r = await pay(w, d.id, 24)
+
+          expect(r.json.code).toBe(judged(at, fault) === 'held' ? 'receipt_in_doubt' : 'fiscal_error')
+          expectNothingBooked(await raw(d.id), await sessionOf(w))
+          w.sim!.beforeCommand = null
+          await aPersonEndsIt(w, d)
+          await endsWell(w, d)
+        })
+
+        it(`at issue, ${fault} at ${stage}`, async () => {
+          const w = await tillWorld(app)
+          const d = await draftOf(w)
+          inject(w, fault, at)
+
+          const r = await send(w, d.id)
+
+          expect(r.status).toBe(200)
+          expect(r.json.invoice.status).toBe('sent')
+          expect(r.json.receipt.state).toBe(judged(at, fault) === 'held' ? 'unknown' : 'failed')
+          expectNothingBooked(await raw(d.id), await sessionOf(w))
+          w.sim!.beforeCommand = null
+          await aPersonEndsIt(w, d)
+          await endsWell(w, d)
+        })
+      }
+    }
   })
 
   it('a split tender the driver had to finish in cash: printed stands, and the operator is told the device may differ (finding 13)', async () => {
@@ -447,7 +680,7 @@ describe('what the driver did to the receipt, which comes before any counter (th
     expect(closedOnDevice(w).filter(x => x.kind === 'storno')).toHaveLength(0)
   })
 
-  it('finished at a line: 3Ch refused, and the fallback closed a real receipt: unknown, never failed, and no second receipt', async () => {
+  it('finished at a line: 3Ch refused, and the fallback closed a real receipt: held, never failed, and no second receipt', async () => {
     const w = await tillWorld(app)
     const d = await onBank(w)
     w.sim!.refuseVoids = 1
@@ -455,11 +688,19 @@ describe('what the driver did to the receipt, which comes before any counter (th
 
     const r = await pay(w, d.id, 24)
 
-    expect(r.status).toBe(200)
-    expect(r.json.receipt.state).toBe('unknown')
-    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_in_doubt')
+    expectNothingBooked(await raw(d.id), await sessionOf(w))
     w.sim!.beforeCommand = null
-    expect((await pay(w, d.id, 24, 'cash', 'a-new-attempt-key')).status).toBe(400)
+    const again = await pay(w, d.id, 24, 'cash', 'a-new-attempt-key')
+    expect(again.status).toBe(409)
+    expect(again.json.code).toBe('receipt_in_doubt')
+    expect(closedOnDevice(w)).toHaveLength(1)
+
+    // Part of it is on the device, and the person says so.
+    const [receipt] = await receiptsOf(d.id)
+    expect((await settle(w, String(receipt._id), true)).status).toBe(200)
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
     expect(closedOnDevice(w)).toHaveLength(1)
   })
 
@@ -640,27 +881,33 @@ describe('a driver with no cancel (ruling 1)', () => {
     return { w, sent: tremolOn(w, fail) }
   }
 
-  it('a failure at the payment closes the receipt in the fallback: real, so unknown, and the money kept', async () => {
+  it('a failure at the payment closes the receipt in the fallback: real, so held, and a person who says so books it, with no number to ask the device for', async () => {
     const { w } = await onTremol(cmd => cmd === TREMOL_CMD.PAYMENT)
     const d = await onBank(w)
 
     const r = await pay(w, d.id, 24)
 
-    expect(r.status).toBe(200)
-    expect(r.json.receipt.state).toBe('unknown')
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_in_doubt')
+    expectNothingBooked(await raw(d.id), await sessionOf(w))
+    const [receipt] = await receiptsOf(d.id)
+    expect(receipt.register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
+
+    // A driver with no way to ask leaves it to the person.
+    expect((await settle(w, String(receipt._id), true)).status).toBe(200)
     expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
-    expect((await receiptsOf(d.id))[0].status).toBe('paid')
+    expect((await sessionOf(w)).totalCash).toBe(24)
   })
 
-  it('a failure at the payment, and the close refused too: it may have the money, so unknown, never failed', async () => {
+  it('a failure at the payment, and the close refused too: it may have the money, so held, never failed', async () => {
     const { w } = await onTremol(cmd => cmd === TREMOL_CMD.PAYMENT || cmd === TREMOL_CMD.CLOSE_RECEIPT)
     const d = await onBank(w)
 
     const r = await pay(w, d.id, 24)
 
-    expect(r.status).toBe(200)
-    expect(r.json.receipt.state).toBe('unknown')
-    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_in_doubt')
+    expectNothingBooked(await raw(d.id), await sessionOf(w))
   })
 
   it('its open refused over a paid leftover, and the fallback close went through: that was the leftover, so this one failed, and no money is booked', async () => {
@@ -687,15 +934,18 @@ describe('a driver with no cancel (ruling 1)', () => {
     expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
   })
 
-  it('a failure at a line, and the fallback close went through: a receipt closed, so it is not failed', async () => {
+  it('a failure at a line, and the fallback close went through: a receipt closed, so it is not failed, and it is held', async () => {
     const { w } = await onTremol(cmd => cmd === TREMOL_CMD.SELL_ARTICLE)
     const d = await onBank(w)
 
     const r = await pay(w, d.id, 24)
 
-    expect(r.status).toBe(200)
-    expect(r.json.receipt.state).toBe('unknown')
-    expect((await receiptsOf(d.id))[0].status).toBe('paid')
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_in_doubt')
+    const [receipt] = await receiptsOf(d.id)
+    expect(receipt.status).toBe('paid')
+    expect(receipt.register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
+    expectNothingBooked(await raw(d.id), await sessionOf(w))
   })
 
   it('prints the number where a Tremol keeps it, and stores no "unknown" for a receipt number (finding 12)', async () => {
@@ -1531,6 +1781,79 @@ describe('a session and its unfinished receipts (ruling 7)', () => {
     expect(closed.status).toBe(200)
     expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 24, difference: 0 })
     expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
+  describe('during its close, its cashier is told so, and never sent to open a session first (D7)', () => {
+    /** A close stopped inside its Z. */
+    async function closingInItsZ(w: TillWorld) {
+      const held = gate()
+      let reached = false
+      w.sim!.beforeCommand = (cmd) => {
+        if (cmd !== 0x45) return undefined
+        reached = true
+        return held.closed
+      }
+      const closing = w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 100, card: 0, other: 0 } })
+      await until(() => reached, 'the Z to be under way')
+      return async () => {
+        w.sim!.beforeCommand = null
+        held.open()
+        return closing
+      }
+    }
+
+    it('a payment', async () => {
+      const w = await tillWorld(app)
+      const d = await onBank(w)
+      const finish = await closingInItsZ(w)
+
+      const r = await pay(w, d.id, 24)
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('session_closing')
+      expect(r.json.noSession).toBeUndefined()
+      expect(await receiptsOf(d.id)).toHaveLength(0)
+      expect((await raw(d.id)).amountPaid).toBe(0)
+      expect((await finish()).status).toBe(200)
+    })
+
+    it('an issue: nothing is issued, and no number is drawn', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w)
+      const finish = await closingInItsZ(w)
+
+      const r = await send(w, d.id)
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('session_closing')
+      expect(await raw(d.id)).toMatchObject({ status: 'draft', amountPaid: 0 })
+      expect(await receiptsOf(d.id)).toHaveLength(0)
+      expect((await finish()).status).toBe(200)
+    })
+
+    it('once it has closed, a session is what it takes, as ever', async () => {
+      const w = await tillWorld(app)
+      const d = await onBank(w)
+      const finish = await closingInItsZ(w)
+      expect((await finish()).status).toBe(200)
+
+      const r = await pay(w, d.id, 24)
+
+      expect(r.status).toBe(409)
+      expect(r.json).toMatchObject({ code: 'fiscal_device_not_connected', noSession: true })
+    })
+
+    it('someone else\'s close says nothing to who has no session', async () => {
+      const w = await tillWorld(app)
+      const d = await onBank(w)
+      const finish = await closingInItsZ(w)
+
+      const r = await pay(w, d.id, 24, 'cash', undefined, w.clerkToken)
+
+      expect(r.status).toBe(409)
+      expect(r.json).toMatchObject({ code: 'fiscal_device_not_connected', noSession: true })
+      expect((await finish()).status).toBe(200)
+    })
   })
 
   it('a closing session takes no new receipt: it would land after the day was counted', async () => {

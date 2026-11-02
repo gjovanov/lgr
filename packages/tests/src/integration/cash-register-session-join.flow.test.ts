@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import type { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices } from '../helpers/till-world'
-import { Invoice, POSSession, StockMovement } from 'db/models'
+import { Invoice, Org, POSSession, StockMovement } from 'db/models'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 
 /**
@@ -30,8 +30,9 @@ afterEach(async () => {
 const session = async (id: string) => POSSession.findById(id).lean().exec() as Promise<any>
 
 describe('FR-21.31 — a back-office sale joins its author\'s open session', () => {
-  it('joins it: the drawer\'s totals, the close JE\'s rows, and the till\'s register block; nothing prints unasked', async () => {
+  it('joins it: the drawer\'s totals, the close JE\'s rows, and the till\'s register block; where LGR prints nothing, nothing prints', async () => {
     const w = await tillWorld(app)
+    await Org.updateOne({ _id: w.oid }, { $set: { 'settings.cashRegister.requireConnectedDevice': false } })
     const before = await session(w.sessionId)
 
     const res = await w.cashierBackOfficeSale(2)
@@ -54,15 +55,17 @@ describe('FR-21.31 — a back-office sale joins its author\'s open session', () 
     expect(w.sim!.receipts).toHaveLength(0)
   }, 60_000)
 
-  it('prints a fiscal receipt on the session\'s device when asked, as the till does', async () => {
+  it('prints a fiscal receipt on the session\'s device, as the till does, whether or not it asks (D6)', async () => {
     const w = await tillWorld(app)
-    const res = await w.cashierBackOfficeSale(1, { receipt: 'fiscal' })
-    expect(res.status).toBe(200)
-    const doc: any = await Invoice.findById(res.json.invoice.id).lean()
-    expect(doc.register.fiscal.state).toBe('printed')
-    expect(doc.register.unp).toMatch(/^ED123456-0001-\d{7}$/)
-    expect(doc.register.fiscalDeviceNumber).toBe('ED123456')
-    expect(w.sim!.receipts.filter(r => r.kind === 'fiscal' && !r.voided)).toHaveLength(1)
+    for (const extra of [{ receipt: 'fiscal' }, {}]) {
+      const res = await w.cashierBackOfficeSale(1, extra)
+      expect(res.status).toBe(200)
+      const doc: any = await Invoice.findById(res.json.invoice.id).lean()
+      expect(doc.register.fiscal.state).toBe('printed')
+      expect(doc.register.unp).toMatch(/^ED123456-0001-\d{7}$/)
+      expect(doc.register.fiscalDeviceNumber).toBe('ED123456')
+    }
+    expect(w.sim!.receipts.filter(r => r.kind === 'fiscal' && !r.voided)).toHaveLength(2)
   }, 60_000)
 
   it('a joined sale is the drawer\'s: it cannot be edited or voided, and is reversed by a storno', async () => {

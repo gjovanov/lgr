@@ -30,7 +30,7 @@ import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
 import {
-  STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, findKeyedTillDocument, finishDeadSales, finishInterruptedDocuments, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
+  STORNO_ROLES, assertOperatorFor, assertPrinterConnected, assertSaleMayOpen, assertTillTender, findKeyedTillDocument, finishDeadSales, finishInterruptedDocuments, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
 } from '../lib/cash-register-till.js'
 
 // FR-21: the till's device, its receipts and the price a device is given live with the cash-register
@@ -261,6 +261,7 @@ const SALE_BODY = t.Object({
   total: t.Number(),
   payments: t.Array(TENDER),
   changeDue: t.Optional(t.Number()),
+  // ⚠ Accepted and never read. An old tab still sends its switch, and the device decides (`decideSaleMode`).
   nonFiscal: t.Optional(t.Boolean()),
 })
 
@@ -982,10 +983,9 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       } catch (e: any) {
         return status(400, { message: e.message })
       }
-      const nonFiscal = !!body.nonFiscal
       const hash = key ? requestHash(`pos.sale:${sessionId}`, body) : undefined
       /** The device and the checks that depend on it — for a new sale or a resumed one. */
-      const context = () => tillContext(orgId, user, session, { needsOperator: !nonFiscal })
+      const context = () => tillContext(orgId, user, session, { needsOperator: false })
 
       try {
         // ⚠ A keyed retry is answered BEFORE anything is allocated: a sale that already happened
@@ -1019,12 +1019,14 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         // No sale without a connected printer (2026-10-31): refused before anything is written, so
         // no number or УНП is drawn. A keyed retry is answered above and may still finish.
         await assertPrinterConnected(orgId, String(session.warehouseId), c)
+        await assertOperatorFor(user, c.printer)
         assertTillTender(body.payments, verified.total, c.printer)
 
         // FR-20.49 — Прил. 29 т. 8: no fiscal sale opens on a device not reached in two hours (SUPTO
         // production mode only). ⚠ Here, for a NEW sale only: a keyed retry above is a sale that
-        // already opened, and refusing it now would strand its receipt.
-        if (!nonFiscal) await assertSaleMayOpen(orgId, session.warehouseId)
+        // already opened, and refusing it now would strand its receipt. A stale device is asked first,
+        // so what this refuses cannot print a slip either.
+        await assertSaleMayOpen(orgId, session.warehouseId)
 
         const settings = await tillSettings(orgId)
         // FR-21.16: refused before a receipt can print, when the org does not let the till sell what
@@ -1041,7 +1043,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
         const document = await tillSaleDocument({
           orgId, user, session: c.session!, baseCurrency: settings.baseCurrency, customerId: body.customerId,
-          lines: body.lines, totals: verified, payments: body.payments, printer: c.printer ?? null, nonFiscal,
+          lines: body.lines, totals: verified, payments: body.payments, printer: c.printer ?? null,
         })
         // The УНП is drawn AFTER this document exists (`runSaleSteps`), so of several requests racing
         // on one key, only the one whose insert wins ever draws one.

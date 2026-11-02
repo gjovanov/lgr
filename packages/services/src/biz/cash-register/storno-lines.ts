@@ -8,9 +8,8 @@
  * they come back and whichever of them is given back. The whole sale, in any number of stornos, comes to what it
  * printed, in the books and in the drawer.
  *
- * ⚠ Not on the device. A device adds up its own lines, a rounded VAT-inclusive price times a quantity, so a storno
- * there can differ from its document by a rounding cent, and over many parts of a hard price by a few. The driver
- * settles that in cash or prints it as change, as it does on the sale itself.
+ * On the device too. A device adds up its own lines, a rounded VAT-inclusive price times a quantity, so what it is
+ * given goes by `linesOnDevice`: lines that reproduce the part's money, or one line per rate at the exact gross.
  *
  * Quantities are in thousandths of a unit, as a device prints them, and money in cents, as the budget is. What was
  * taken lives on the sale: `register.stornoClaims` per line, `register.refundClaims` per rate, in one atomic update

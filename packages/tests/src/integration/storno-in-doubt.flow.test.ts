@@ -862,7 +862,7 @@ describe('a sale that went unknown is refunded with no storno on the device: not
 
   it('a text sale prints nothing to reverse, and is unaffected', async () => {
     const w = await tillWorld(app)
-    const sale = await w.sell(1, { nonFiscal: true })
+    const sale = await w.sell(1, { text: true })
     await Invoice.updateOne({ _id: sale.json.transaction.id }, { $set: { 'register.fiscal.state': 'unknown' } })
 
     const r = await w.storno(sale.json.transaction.id)

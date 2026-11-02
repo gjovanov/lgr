@@ -176,7 +176,7 @@ describe('the session report at close', () => {
   it('a close says what its fiscal and its text receipts came to', async () => {
     const w = await tillWorld(app)
     expect((await w.sell(2)).status).toBe(200)
-    expect((await w.sell(1, { nonFiscal: true })).status).toBe(200)
+    expect((await w.sell(1, { text: true })).status).toBe(200)
 
     const closed = await close(w, 124)
 
@@ -220,7 +220,7 @@ describe('the session report at close', () => {
 
     it('a day of text receipts: the device says zero, and the report shows that, with no alarm', async () => {
       const w = await tillWorld(app)
-      expect((await w.sell(1, { nonFiscal: true })).status).toBe(200)
+      expect((await w.sell(1, { text: true })).status).toBe(200)
 
       const closed = await close(w, 112)
 

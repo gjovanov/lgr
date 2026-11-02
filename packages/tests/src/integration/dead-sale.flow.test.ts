@@ -59,10 +59,10 @@ const atItsTotals = (update: any) => !!update?.$set?.['register.sessionTotalsApp
 const atItsAttempt = (update: any) => !!update?.$set?.['register.fiscal.attemptedAt']
 
 /** A sale of 12 whose request died at `where`, and whose lease has lapsed. */
-async function deadSale(w: TillWorld, where: (update: any) => boolean, o: { nonFiscal?: boolean; key?: string } = {}) {
+async function deadSale(w: TillWorld, where: (update: any) => boolean, o: { text?: boolean; key?: string } = {}) {
   const undo = diesAt(where)
   try {
-    const r = await w.sell(1, { nonFiscal: o.nonFiscal }, o.key)
+    const r = await w.sell(1, { text: o.text }, o.key)
     expect(r.status).toBe(500)
   } finally {
     undo()
@@ -188,7 +188,7 @@ describe('the close finishes a sale whose request died (finding 3)', () => {
 
   it('a text sale is finished alike: its money stands', async () => {
     const w = await tillWorld(app)
-    const id = await deadSale(w, update => update?.$set?.['register.fiscal.state'] === 'printed', { nonFiscal: true })
+    const id = await deadSale(w, update => update?.$set?.['register.fiscal.state'] === 'printed', { text: true })
 
     expect((await preview(w)).json.expected.cash).toBe(112)
     expect((await close(w, 112)).status).toBe(200)
@@ -216,7 +216,7 @@ describe('the close finishes a sale whose request died (finding 3)', () => {
     forgetDevices()
 
     const text = await tillWorld(app)
-    await deadSale(text, atItsPrint, { nonFiscal: true })
+    await deadSale(text, atItsPrint, { text: true })
     expect((await preview(text)).json.deadSales).toEqual([expect.objectContaining({ settles: false })])
     forgetDevices()
 
@@ -613,7 +613,7 @@ describe('the preview says what the close will book, by the function the close b
 
   it('a storno of a text sale, with nothing to print: the same', async () => {
     const w = await tillWorld(app)
-    const saleId = String((await w.sell(1, { nonFiscal: true })).json.transaction.id)
+    const saleId = String((await w.sell(1, { text: true })).json.transaction.id)
     await stopsAt(atItsTotals, () => w.storno(saleId), () => lastOf(w, 'cash_storno'))
 
     const shown = await preview(w)
@@ -703,9 +703,8 @@ describe('the preview says what the close will book, by the function the close b
 
     expect(bookedOnItsSession(sale)).toMatchObject({ totalCash: 12, totalSales: 12, transactionCount: 1 })
     expect(bookedOnItsSession(receipt('printed'))).toMatchObject({ totalCash: 24 })
-    expect(bookedOnItsSession(receipt('unknown'))).toMatchObject({ totalCash: 24 })
-    for (const state of ['pending', 'failed']) expect(bookedOnItsSession(receipt(state))).toBeNull()
-    expect(bookedOnItsSession(receipt('unknown', { inDoubt: undefined }))).toMatchObject({ totalCash: 24 })
+    // What may have printed books nothing, held or not yet held (the prod sweep's D3): a person says, and it prints as settled.
+    for (const state of ['pending', 'failed', 'unknown']) expect(bookedOnItsSession(receipt(state))).toBeNull()
     expect(bookedOnItsSession({ ...receipt('unknown'), register: { fiscal: { state: 'unknown', inDoubt: true } } })).toBeNull()
     expect(bookedOnItsSession(receipt('printed', { sessionTotalsApplied: true }))).toBeNull()
     expect(bookedOnItsSession({ ...receipt('printed'), status: 'voided' })).toBeNull()
@@ -740,14 +739,14 @@ describe('a session takes nothing new unless it is open (the fourth read, findin
     }
   }
 
-  for (const nonFiscal of [false, true]) {
-    it(`a ${nonFiscal ? 'text' : 'fiscal'} sale sent during the Z is refused at the door: nothing printed, nothing booked, and the close's difference is 0`, async () => {
+  for (const text of [false, true]) {
+    it(`a ${text ? 'text' : 'fiscal'} sale sent during the Z is refused at the door: nothing printed, nothing booked, and the close's difference is 0`, async () => {
       const w = await tillWorld(app)
       const z = await closingInItsZ(w, 100)
       const printed = closedOnDevice(w).length
       const numbers = await counters(w)
 
-      const r = await w.sell(1, { nonFiscal })
+      const r = await w.sell(1, { text })
 
       expect(r.status).toBe(409)
       expect(r.json.code).toBe('session_closing')
@@ -763,10 +762,10 @@ describe('a session takes nothing new unless it is open (the fourth read, findin
     })
   }
 
-  for (const nonFiscal of [true, false]) {
-    it(`a storno of a ${nonFiscal ? 'text' : 'fiscal'} sale sent during the Z is refused at the door: the sale stands, and the close's difference is 0`, async () => {
+  for (const text of [true, false]) {
+    it(`a storno of a ${text ? 'text' : 'fiscal'} sale sent during the Z is refused at the door: the sale stands, and the close's difference is 0`, async () => {
       const w = await tillWorld(app)
-      const id = String((await w.sell(1, { nonFiscal })).json.transaction.id)
+      const id = String((await w.sell(1, { text })).json.transaction.id)
       const z = await closingInItsZ(w, 112)
       const printed = closedOnDevice(w).length
 
@@ -890,18 +889,18 @@ describe('a session takes nothing new unless it is open (the fourth read, findin
 
   describe('in its turn', () => {
     /** A sale that got past the door and waits behind a report, with the device's turn held. */
-    async function waitingItsTurn(w: TillWorld, o: { nonFiscal?: boolean; key?: string } = {}) {
+    async function waitingItsTurn(w: TillWorld, o: { text?: boolean; key?: string } = {}) {
       const taken = gate()
       const holder = deviceTurn(w.deviceId, () => taken.closed)
-      const selling = w.sell(1, { nonFiscal: o.nonFiscal }, o.key)
+      const selling = w.sell(1, { text: o.text }, o.key)
       await until(async () => !!(await lastSale(w)), 'the sale to be written')
       return { selling, go: async () => { taken.open(); await holder } }
     }
 
-    for (const nonFiscal of [false, true]) {
-      it(`a ${nonFiscal ? 'text' : 'fiscal'} sale whose turn comes with the session no longer open gives way: nothing printed, nothing booked, and no document`, async () => {
+    for (const text of [false, true]) {
+      it(`a ${text ? 'text' : 'fiscal'} sale whose turn comes with the session no longer open gives way: nothing printed, nothing booked, and no document`, async () => {
         const w = await tillWorld(app)
-        const waiting = await waitingItsTurn(w, { nonFiscal, key: `gives-way-${nonFiscal}` })
+        const waiting = await waitingItsTurn(w, { text, key: `gives-way-${text}` })
         const printed = closedOnDevice(w).length
         await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closing_control', closeLeaseUntil: new Date(Date.now() + 60_000) } })
 
@@ -1049,7 +1048,7 @@ describe('a session takes nothing new unless it is open (the fourth read, findin
 
     it('a text storno past the door, the close landing before its insert: voided with its number, the sale given back, and the close stands', async () => {
       const w = await tillWorld(app)
-      const id = String((await w.sell(1, { nonFiscal: true })).json.transaction.id)
+      const id = String((await w.sell(1, { text: true })).json.transaction.id)
       let closed: any
       const undo = atItsInsert('cash_storno', async () => { closed = await close(w, 112) })
       let r: any
@@ -1071,7 +1070,7 @@ describe('a session takes nothing new unless it is open (the fourth read, findin
 
     it('a text storno written, the close landing before its totals: the close finds it, and refuses', async () => {
       const w = await tillWorld(app)
-      const id = String((await w.sell(1, { nonFiscal: true })).json.transaction.id)
+      const id = String((await w.sell(1, { text: true })).json.transaction.id)
       let closed: any
       const undo = atItsTotals(async () => { closed = await close(w, 100) })
       let r: any
@@ -1090,7 +1089,7 @@ describe('a session takes nothing new unless it is open (the fourth read, findin
 
     it('a sale that died is still finished by what comes to it: a dead sale is no new sale', async () => {
       const w = await tillWorld(app)
-      const id = await deadSale(w, atItsAttempt, { nonFiscal: true })
+      const id = await deadSale(w, atItsAttempt, { text: true })
       await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closing_control', closeLeaseUntil: new Date(Date.now() + 60_000) } })
 
       // Its storno finishes it first, whatever the session says; the door then answers for the session.
@@ -1106,8 +1105,8 @@ describe('the storno of a sale that died: it is finished first (finding 5)', () 
   it('a text sale: the reader\'s run. Its money is booked, the storno gives it back, and the retry changes nothing', async () => {
     const w = await tillWorld(app)
     const key = 'text-sale-died-0001'
-    const body = w.saleBody(1, { nonFiscal: true })
-    const id = await deadSale(w, atItsPrint, { nonFiscal: true, key })
+    const body = w.saleBody(1)
+    const id = await deadSale(w, atItsPrint, { text: true, key })
     expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 0 })
     expect((await w.stock()).quantity).toBe(10)
 
@@ -1162,13 +1161,13 @@ describe('the storno of a sale that died: it is finished first (finding 5)', () 
     expect((await w.stock()).quantity).toBe(10)
   })
 
-  for (const nonFiscal of [true, false]) {
-    it(`a ${nonFiscal ? 'text' : 'fiscal'} sale still running: refused as that, whatever it prints, and it finishes as it would have`, async () => {
+  for (const text of [true, false]) {
+    it(`a ${text ? 'text' : 'fiscal'} sale still running: refused as that, whatever it prints, and it finishes as it would have`, async () => {
       const w = await tillWorld(app)
       const held = gate()
       w.sim!.beforeCommand = cmd => (cmd === 0x27 || cmd === 0x38 ? held.closed : undefined)
-      const key = `sale-running-${nonFiscal}`
-      const selling = w.sell(1, { nonFiscal }, key)
+      const key = `sale-running-${text}`
+      const selling = w.sell(1, { text }, key)
       await until(async () => !!(await lastSale(w))?.register?.fiscal?.attemptedAt, 'the sale to reach the device')
       const id = String((await lastSale(w))._id)
 
@@ -1193,7 +1192,7 @@ describe('the storno of a sale that died: it is finished first (finding 5)', () 
 
   it('one whose finish throws is refused too, and refunds nothing', async () => {
     const w = await tillWorld(app)
-    const id = await deadSale(w, atItsPrint, { nonFiscal: true })
+    const id = await deadSale(w, atItsPrint, { text: true })
     const dies = spyOn(Invoice, 'startSession').mockImplementationOnce(() => { throw new Error('the database went away') })
 
     const r = await w.storno(id)

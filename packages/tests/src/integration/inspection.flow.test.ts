@@ -46,7 +46,7 @@ afterEach(async () => {
   ;(config.node as any).id = saved.id
   ;(config.outbox as any).tokenFile = saved.tokenFile
   forgetAllHomes()
-  rmSync(root, { recursive: true, force: true })
+  if (root) rmSync(root, { recursive: true, force: true })
   await clearCollections()
 }, 60_000)
 

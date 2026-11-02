@@ -69,7 +69,7 @@ afterEach(async () => {
   forgetLink()
   forgetAllHomes()
   forgetFoundBlobs()
-  rmSync(root, { recursive: true, force: true })
+  if (root) rmSync(root, { recursive: true, force: true })
   await clearCollections()
 }, 60_000)
 

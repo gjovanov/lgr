@@ -25,16 +25,16 @@
  * `payment.recorded`. Failed, which means PROVED to have left nothing: the receipt is voided with its
  * number and УНП (18.5 lists it), no payment is recorded, and the invoice stays as it was; the next
  * attempt is a new receipt. Nothing is rolled back and no number is lost. **Unknown** (a print that
- * threw once the device may have taken the money or closed the receipt) stands as the till's sale
- * does: never printed again, the money recorded, the doubt shown (`receiptError`) and the journal's
- * fiscal state saying so. A second receipt for one payment is the failure print-once exists to
- * prevent, and the customer's money is in the drawer either way.
+ * threw once the device may have taken the money or closed the receipt) books no money and prints nothing:
+ * it is held, `unknown` and `inDoubt`, the invoice unpaid and its session untouched, until a person who
+ * looked at the device settles it (`settleInDoubt`). ⚠ It used to stand, as a till sale does, on the reasoning that
+ * the money is in the drawer either way. A dropped socket then left a paid invoice and a receipt the next X voided:
+ * nothing on the device, and no way out of it (the prod sweep's D3). Here is what a sale does not have: an
+ * invoice that can stay unpaid while a person looks.
  *
- * **A request that died** is another matter: nobody is at the counter, nothing held the device since,
+ * **A request that died** is held the same way: nobody is at the counter, nothing held the device since,
  * and on a shared device a counter that moved proves nothing about this receipt. It is given up only
- * when it never reached the device, or the device confirms it idle with its counter unmoved. Anything
- * else books no money and prints nothing: it stays held, `unknown` and `inDoubt`, until a person who
- * looked at the device settles it (`settleInDoubt`).
+ * when it never reached the device, or the device confirms it idle with its counter unmoved.
  *
  * **Cash on delivery** prints at issue, in the device's slot for it, and pays nothing: the courier
  * still owes the invoice. No later payment prints again, because that receipt took all that was owed.
@@ -48,15 +48,12 @@
  * **R2: a refund on a credit note** (`payment_storno`) is the same document the other way, through the
  * same steps: the credit note is the return and posted it, the storno is the money going back. It holds
  * the amount on the credit note, and takes it from what the receipt it cites still holds
- * (`refund-budget.ts`), both before a number is drawn. Past the print it differs in one thing. A
- * receipt that may have printed stands, because the customer's money is in the drawer either way; a
- * storno that may have printed does not, because nobody has been paid yet: it is held for a person.
+ * (`refund-budget.ts`), both before a number is drawn. Past the print it goes as a receipt goes.
  */
 import { Invoice, POSSession } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
 import { createAuditEntry } from '../audit-log.service.js'
 import { eventBus } from '../../events/event-bus.js'
-import { generateUNP } from '../sequence.service.js'
 import { LEASE_MS } from '../hot-path-key.js'
 import { fitsDue, heldOn, isBeingVoided, outstandingOf, overpays, paymentPipeline, type PaymentRow } from '../invoice-payment.js'
 import { printsHere } from '../sale-counting.js'
@@ -70,7 +67,7 @@ import type { RegisterPrinter } from './printer.js'
 import { grossByRate, receiptedByRate, refundBody, splitByRate, type ReceiptBody } from './receipt-lines.js'
 import { receiptMode } from './receipt-mode.js'
 import {
-  RegisterRefusal, applySessionTotals, bookedOnItsSession, couldNotPrint, decideInterrupted, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, rollBack,
+  RegisterRefusal, applySessionTotals, asFiscal, bookedOnItsSession, couldNotPrint, decideInterrupted, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, rollBack,
   saleInDoubtRefusal, setRegister, type RegisterContext, type RegisterSession, type RegisterUser,
 } from './register.service.js'
 
@@ -548,12 +545,7 @@ async function decideMode(c: RegisterContext, printer: RegisterPrinter, doc: any
     return fiscal?.mode === 'text' ? doc : setRegister(doc._id, { isFiscal: false, 'fiscal.mode': 'text' })
   }
   if (fiscal?.attemptedAt) return holdInDoubt(doc)
-  const operatorCode = c.user.operatorCode ?? doc.register?.operatorCode
-  if (!operatorCode) throw new Error('This user has no operator code, and a fiscal receipt names its operator.')
-  return setRegister(doc._id, {
-    isFiscal: true, 'fiscal.mode': 'fiscal',
-    ...(doc.register?.unp ? {} : { unp: await generateUNP(c.orgId, printer.deviceNumber, operatorCode as string) }),
-  })
+  return asFiscal(c, printer, doc)
 }
 
 /**
@@ -633,13 +625,13 @@ export async function runReceiptSteps(c: RegisterContext, id: string, opts: { ne
   // Given up, or a person's to settle: nothing more happens to it here.
   if (doc.status === 'voided' || doc.register?.fiscal?.inDoubt) return doc
   if (doc.register?.fiscal?.state === 'failed') return giveUp(c, doc)
-  // ⚠ A storno that may have printed: nobody has been paid yet, so no money moves on a maybe, and it
-  // never prints again. A person who looks at the device settles it.
-  if (doc.type === PAYMENT_STORNO && doc.register?.fiscal?.state === 'unknown') return holdInDoubt(doc)
+  // ⚠ What may have printed, in its own turn or not: no money moves on a maybe, and it never prints again.
+  // A person who looks at the device settles it.
+  if (doc.register?.fiscal?.state === 'unknown') return holdInDoubt(doc)
 
-  // Printed, or it may have: the money stands from here on (D-4). One that never had its number and a
-  // person settled, which arrived through a move between nodes, is numbered first: it is booked under
-  // a real one, and a number that cannot be drawn leaves it for the next touch.
+  // Printed: the money stands from here on (D-4). One that never had its number and a person settled, which
+  // arrived through a move between nodes, is numbered first: it is booked under a real one, and a number
+  // that cannot be drawn leaves it for the next touch.
   if (isPendingNumber(doc.invoiceNumber)) {
     const numbered = await numberPending(c.orgId, doc)
     if (!numbered) throw new RegisterRefusal(409, { message: 'Could not allocate the cash-register number after 3 attempts' })
@@ -729,8 +721,8 @@ export async function unfinishedReceipts(orgId: string, sessionId: string): Prom
  *    going to. It did not print.
  * Those are given up. Anything else, no device to ask included, stays held for a person.
  *
- * Past that point the print was decided by the request that died (printed, or unknown with the
- * device's answer lost), and only the money is left to record.
+ * Past that point the print was decided by the request that died: printed, and only the money is left to
+ * record, or `unknown`, and it is held as those are.
  */
 export async function finishInterruptedReceipt(c: RegisterContext, doc: any): Promise<any> {
   await decideInterrupted(c, doc, doc.type === PAYMENT_STORNO ? 'The refund was interrupted before its storno printed.' : 'The payment was interrupted before its receipt printed.')
@@ -894,7 +886,10 @@ export interface RefundBacking {
   doubt: any | null
   /** A receipt of the invoice still going through: its money may be coming. */
   printing: boolean
-  /** A finished receipt of the invoice that holds nothing to cite: its `unknown` stands, or the money is the courier's. */
+  /**
+   * A finished receipt of the invoice that holds nothing to cite: the money is the courier's. Or its `unknown` stood,
+   * its money booked, as one did before those were held for a person (the prod sweep's D3): that one has no way to a storno.
+   */
   uncitable: any[]
 }
 
@@ -922,8 +917,7 @@ const hasReceiptNumber = (d: any) => /^\d+$/.test(String(d?.register?.fiscalRece
  * so nothing reads it as printed: a receipt or a sale in that state has no budget until they say, and no
  * number to cite either. A storno of what never printed would put a refund on the device with no sale
  * behind it. A person settles one in doubt at the settle door, and what they said as printed holds from
- * then on, by the number they typed. ⚠ A receipt whose `unknown` stands (its verdict in its turn, its
- * money booked) has no such door: it holds nothing, and its refund goes by bank.
+ * then on, by the number they typed.
  * ⚠ Not a receipt on delivery: its money is the courier's, and until they bring it there is
  * nothing to give back. Such a refund goes by bank, as one on an invoice with no receipt does.
  */

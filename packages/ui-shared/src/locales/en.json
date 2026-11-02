@@ -1479,13 +1479,12 @@
     "mobile": "Mobile",
     "voucher": "Voucher",
     "connectPrinter": "Connect Printer",
-    "nonFiscalMode": "Non-fiscal",
     "joinSession": {
       "receipt": "Receipt on the session's device",
       "hint": "Joins your open session {session}: its drawer takes the money.",
       "noReceipt": "No receipt",
-      "fiscal": "Fiscal receipt",
-      "text": "Non-fiscal (text) receipt"
+      "fiscal": "Print a receipt",
+      "prints": "It prints on that session's device."
     },
     "printerError": "Printer Error",
     "printerConnected": "Fiscal printer connected",
@@ -1752,6 +1751,9 @@
         "xFailed": "Failed to print X-Report",
         "zPrinted": "Z-Report printed",
         "zFailed": "Failed to print Z-Report",
+        "zSessionsOpenTitle": "Sessions are open on this device's warehouse",
+        "zSessionsOpenBody": "A Z-report closes the device's fiscal day under them. Each of these sessions then closes on 0.00 from the device, against what LGR counted. Close them first, unless you mean to do this.",
+        "zSessionsOpenConfirm": "Print the Z-report anyway",
         "operatorPrinted": "Operator report printed",
         "operatorFailed": "Failed to print operator report",
         "fmPrinted": "FM report printed",

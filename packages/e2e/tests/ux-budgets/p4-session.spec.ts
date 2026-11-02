@@ -93,10 +93,7 @@ test('P4-open: open the till for the day', async ({ page }, testInfo) => {
   }
 
   // No fiscal device in acme-corp: say what the till shows about printing.
-  const header = await page.locator('.v-main').innerText()
-  if (/Нефискален/.test(header)) {
-    walk.note('No fiscal device in acme-corp: the session opened without any fiscal check. The bar still shows the „Нефискален“ switch (on by default), a printer chip „Изключен“, a baud-rate select and „Свържи принтер“ — controls that have nothing to connect to here.')
-  }
+  walk.note('No fiscal device in acme-corp: the session opened without any fiscal check. The bar still shows a printer chip „Изключен“, a baud-rate select and „Свържи принтер“ — controls that have nothing to connect to here.')
   const english = englishOnly(await page.evaluate(leafTexts, '.v-main, .v-snackbar'))
   if (english.length) walk.note(`English text on the till: ${english.map(t => `“${t}”`).join(', ')}.`)
 

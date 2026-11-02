@@ -94,7 +94,7 @@ interface Sold { saleId: string; sale: any; ids: string[]; products: unknown[] }
  * Three articles on one receipt: 3 × 10 net at 20 % (36.00), 2 × 5 net at 20 % (12.00), 1 × 10 net at 9 % (10.90).
  * 58.90 in all, in cash unless `payments` says.
  */
-async function threeArticles(w: TillWorld, o: { payments?: { method: string; amount: number }[]; nonFiscal?: boolean; discount?: number } = {}): Promise<Sold> {
+async function threeArticles(w: TillWorld, o: { payments?: { method: string; amount: number }[]; text?: boolean; discount?: number } = {}): Promise<Sold> {
   const nut = await createTestProduct(w.oid, { name: 'Гайка', sellingPrice: 5, purchasePrice: 2, taxRate: 20, unit: 'бр.' } as any)
   const washer = await createTestProduct(w.oid, { name: 'Шайба', sellingPrice: 10, purchasePrice: 3, taxRate: 9, unit: 'бр.' } as any)
   await createTestStockLevel(w.oid, nut._id, w.warehouse._id, { quantity: 10, availableQuantity: 10, avgCost: 2 } as any)
@@ -113,9 +113,12 @@ async function threeArticles(w: TillWorld, o: { payments?: { method: string; amo
   const t = computePosTotals(lines.map(l => ({ quantity: l.quantity, unitPrice: l.unitPrice, discount, taxRate: l.taxRate })))
   const body = {
     type: 'sale', lines, subtotal: t.subtotal, discountTotal: t.discountTotal, taxTotal: t.taxTotal, total: t.total,
-    payments: o.payments ?? [{ method: 'cash', amount: t.total }], changeDue: 0, nonFiscal: o.nonFiscal ?? false,
+    payments: o.payments ?? [{ method: 'cash', amount: t.total }], changeDue: 0,
   }
+  // A text sale is what a device that says it is not fiscalized prints, and nothing a request says makes one.
+  if (o.text) w.sim!.unfiscalizedUnit = true
   const res = await w.call('POST', `/trade/pos/session/${w.sessionId}/transaction`, body)
+  if (o.text) w.sim!.unfiscalizedUnit = false
   expect(res.status).toBe(200)
   const saleId = String(res.json.transaction.id ?? res.json.transaction._id)
   const sale = await read(saleId)
@@ -303,7 +306,7 @@ describe('the budget of a line: sold, less what live stornos returned', () => {
       type: 'sale',
       lines: [{ productId: String(p._id), name: 'Дюбел', quantity: 3, unitPrice: 2.775, discount: 0, taxRate: 20, taxAmount: 1.67, lineTotal: 8.33 }],
       subtotal: t.subtotal, discountTotal: 0, taxTotal: t.taxTotal, total: t.total,
-      payments: [{ method: 'cash', amount: t.total }], changeDue: 0, nonFiscal: false,
+      payments: [{ method: 'cash', amount: t.total }], changeDue: 0,
     })
     expect(res.status).toBe(200)
     const saleId = String(res.json.transaction.id)
@@ -983,7 +986,7 @@ describe('the shapes a part comes in', () => {
       type: 'sale',
       lines: [{ productId: String(w.product._id), name: 'Болт', quantity, unitPrice, discount: 0, taxRate: 20, taxAmount: t.taxTotal, lineTotal: t.subtotal }],
       subtotal: t.subtotal, discountTotal: 0, taxTotal: t.taxTotal, total: t.total,
-      payments: [{ method: 'cash', amount: t.total }], changeDue: 0, nonFiscal: false,
+      payments: [{ method: 'cash', amount: t.total }], changeDue: 0,
     })
     expect(res.status).toBe(200)
     const saleId = String(res.json.transaction.id)
@@ -1001,13 +1004,13 @@ describe('the shapes a part comes in', () => {
     expect((await w.stock()).quantity).toBe(10)
   })
 
-  it('a price no third of which is a cent: the parts come to the sale, within a cent of the device each, and the drawer to nothing', async () => {
+  it('a price no third of which is a cent: the parts come to the sale, each to the cent on the device (#461, D2), and the drawer to nothing', async () => {
     const w = await tillWorld(app)
     const s = await oneLine(w, 3, 0.1234)
     for (let i = 0; i < 3; i++) expect((await back(w, s, [[0, 1]])).status).toBe(200)
     const stornos = await stornosOf(s.saleId)
     expect(stornos.reduce((c, d) => c + Math.round(d.total * 100), 0)).toBe(Math.round(s.sale.total * 100))
-    stornosOnDevice(w).forEach((r, i) => expect(Math.abs(r.total - stornos[i].total)).toBeLessThanOrEqual(0.01))
+    stornosOnDevice(w).forEach((r, i) => expect(r.total).toBe(stornos[i].total))
     expect((await sessionOf(w)).totalCash).toBeCloseTo(0, 5)
   })
 
@@ -1368,7 +1371,7 @@ describe('split tender: the refund goes by what the operator picks, or by what t
 describe('what else takes a partial storno, and what does not', () => {
   it('a text sale takes it as it takes a whole one: nothing prints, the stock and the drawer move', async () => {
     const w = await tillWorld(app)
-    const s = await threeArticles(w, { nonFiscal: true })
+    const s = await threeArticles(w, { text: true })
     const onDevice = w.sim!.receipts.length
 
     expect((await back(w, s, [[0, 1]])).status).toBe(200)
@@ -1447,8 +1450,8 @@ describe('what else takes a partial storno, and what does not', () => {
 
     it('at the till the rule stands, text or fiscal: its refund is what a receipt can carry', async () => {
       const w = await tillWorld(app)
-      for (const nonFiscal of [true, false]) {
-        const s = await threeArticles(w, { nonFiscal })
+      for (const text of [true, false]) {
+        const s = await threeArticles(w, { text })
         const r = await back(w, s, [[0, 1]], undefined, { payments: [{ method: 'bank_transfer', amount: 12 }] })
         expect([r.status, r.json.code]).toEqual([422, 'payment_method_not_fiscal'])
       }

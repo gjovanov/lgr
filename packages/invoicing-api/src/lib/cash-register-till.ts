@@ -25,13 +25,14 @@ import {
   releaseOrphanClaims, releaseStornoClaim, runStornoSteps, settleKeyedDocument, stornoClaimed, stornoDocument, stornoInDoubtRefusal, stornoRefusal,
   type RegisterContext, type RegisterSession, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
-import { fiscalUnitPrice } from 'services/biz/cash-register/receipt-lines'
+import { documentText, fiscalUnitPrice, linesOnDevice, refundText } from 'services/biz/cash-register/receipt-lines'
 import { leftByRate, totalOf } from 'services/biz/cash-register/refund-budget'
 import { isPlanRefusal, leftByMethod, planStorno, refundOfPart, type StornoPlan } from 'services/biz/cash-register/storno-lines'
 import { isDeviceConnected, getPrinter, type IFiscalPrinter } from 'fiscal/fiscal-device.service'
 import { maySaleOpen } from 'fiscal/device-reach'
 import { FiscalPaymentMethodError, toFiscalPaymentType } from 'fiscal/types'
 import { lineNameMaxOf, unsupportedReason } from 'fiscal/capabilities'
+import { receiptMode } from 'services/biz/cash-register/receipt-mode'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
 import { fiscalOperation } from 'fiscal/in-flight'
 import { deviceTurn } from 'fiscal/device-turn'
@@ -229,10 +230,11 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
     async printSale(doc) {
       // Read before the receipt opens: a payment no receipt can carry must not strand an open one.
       const payments = tendered(doc).map((t: any) => ({ type: toFiscalPaymentType(t.method), amount: t.amount }))
+      const lines: any[] = linesOnDevice(doc, documentText(doc, fiscal.lineNameMax))
       return stagedPrint(async (reached) => {
         await p.openFiscalReceipt(operatorCode, operatorName, doc.register?.unp)
         reached('lines')
-        for (const line of doc.lines || []) {
+        for (const line of lines) {
           const taxRate = line.taxRate ?? 0
           await p.printSaleLine(line.description, line.quantity, fiscalUnitPrice(line.unitPrice, taxRate), mapTaxRateToVatGroup(taxRate), line.discount || undefined, taxRate)
         }
@@ -262,8 +264,8 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
     },
     async printStorno(storno, original) {
       // Its own lines and its own total: a refund's storno takes part of a receipt, whichever lines
-      // and amounts that printed. A till sale's storno carries the sale's.
-      const stornoLines = (storno.lines || []).map((l: any) => ({
+      // and amounts that printed. A till sale's storno carries the sale's, by the rule the sale printed by.
+      const stornoLines = (linesOnDevice(storno, refundText(original ?? storno, fiscal.lineNameMax)) as any[]).map((l: any) => ({
         name: l.description,
         quantity: l.quantity,
         // VAT-inclusive, like the sale it reverses (see fiscalUnitPrice)
@@ -350,11 +352,23 @@ export function assertTillTender(tenders: { method: string; amount: number }[], 
   assertCashOnDeliveryExact(tenders, total)
 }
 
-/** A back-office sale joined to a session (D-13): its `method`, on the receipt it asked for. */
-export function assertJoinedSaleTender(method: string, receipt: 'fiscal' | 'text', printer: RegisterPrinter | null | undefined): void {
+/** A back-office sale joined to a session (D-13) that prints: its `method`, as the till's, whichever receipt the device prints. */
+export function assertJoinedSaleTender(method: string, printer: RegisterPrinter | null | undefined): void {
   if (!printer) return
-  if (receipt === 'fiscal') assertFiscalMethods([method])
+  assertFiscalMethods([method])
   assertDeviceTakes([method], printer)
+}
+
+/**
+ * A fiscal receipt names its operator, and a text one does not. Only for who has no code is the device asked here,
+ * so that it is refused before anything is written. The document's turn asks again, and decides: a device that cannot
+ * say counts as fiscal.
+ */
+export async function assertOperatorFor(user: RegisterUser, printer: RegisterPrinter | null | undefined): Promise<void> {
+  if (!printer || user.operatorCode) return
+  if ((await receiptMode(printer).catch(() => 'fiscal')) === 'fiscal') {
+    throw new RegisterRefusal(400, { message: 'User has no operator code. Contact admin to assign one before using POS with fiscal device.' })
+  }
 }
 
 /** The one method a storno receipt prints for the whole amount: the first the refund names. */
@@ -396,6 +410,19 @@ export async function assertSaleMayOpen(orgId: string, warehouseId: unknown): Pr
 /** FR-21.31 (D-13): the user's own open session, which their back-office documents join. */
 export async function openSessionOf(orgId: string, userId: string): Promise<any | null> {
   return POSSession.findOne({ orgId, cashierId: userId, status: 'open' }).sort({ openedAt: -1 }).lean().exec()
+}
+
+/**
+ * Why someone with no open session gets no receipt or storno: `what` says what it would have printed.
+ * ⚠ One being closed takes nothing new, and it would be no answer to send its cashier to open another.
+ */
+export async function noOpenSession(orgId: string, userId: string, what: string): Promise<RegisterRefusal> {
+  if (await POSSession.exists({ orgId, cashierId: userId, status: 'closing_control' }).exec()) return new RegisterRefusal(409, { ...SESSION_CLOSING })
+  return new RegisterRefusal(409, {
+    code: 'fiscal_device_not_connected',
+    noSession: true,
+    message: `Open a session at the till first: ${what} on that session's device. ${PRINTER_GATE_SWITCH}`,
+  })
 }
 
 /** A session as the service reads it. */

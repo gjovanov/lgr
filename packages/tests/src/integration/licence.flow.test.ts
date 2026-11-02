@@ -299,7 +299,7 @@ describe('a master enforces it', () => {
     const sale = (t: Till, sessionId: string, key?: string) => call(t.app, 'POST', `/api/org/${t.orgId}/trade/pos/session/${sessionId}/transaction`, t.token, {
       type: 'sale',
       lines: [{ productId: String(t.product._id), name: 'Болт', quantity: 1, unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 2, lineTotal: 10 }],
-      subtotal: 10, discountTotal: 0, taxTotal: 2, total: 12, payments: [{ method: 'cash', amount: 12 }], changeDue: 0, nonFiscal: false,
+      subtotal: 10, discountTotal: 0, taxTotal: 2, total: 12, payments: [{ method: 'cash', amount: 12 }], changeDue: 0,
     }, key)
     /** A draft, as though it had been started before the restriction. */
     async function fromBefore(t: Till, paymentMethod: string, type = 'invoice') {

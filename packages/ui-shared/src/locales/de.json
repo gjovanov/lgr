@@ -767,13 +767,12 @@
     "mobile": "Mobil",
     "voucher": "Gutschein",
     "connectPrinter": "Drucker verbinden",
-    "nonFiscalMode": "Nicht-fiskalisch",
     "joinSession": {
       "receipt": "Beleg auf dem Gerät der Sitzung",
       "hint": "Gehört zu Ihrer offenen Sitzung {session}: ihre Kasse nimmt das Geld.",
       "noReceipt": "Kein Beleg",
-      "fiscal": "Fiskalbeleg",
-      "text": "Nicht-fiskaler Textbeleg"
+      "fiscal": "Beleg drucken",
+      "prints": "Der Beleg wird auf dem Gerät der Sitzung gedruckt."
     },
     "printerError": "Druckerfehler",
     "printerConnected": "Fiskaldrucker verbunden",
@@ -1040,6 +1039,9 @@
         "xFailed": "X-Bericht konnte nicht gedruckt werden",
         "zPrinted": "Z-Bericht gedruckt",
         "zFailed": "Z-Bericht konnte nicht gedruckt werden",
+        "zSessionsOpenTitle": "Im Lager dieses Geräts sind Sitzungen offen",
+        "zSessionsOpenBody": "Der Z-Bericht schließt den Fiskaltag des Geräts. Beim Schließen meldet das Gerät dann für jede dieser Sitzungen 0,00 gegenüber dem Betrag in LGR. Schließen Sie sie zuerst, außer Sie wollen genau das.",
+        "zSessionsOpenConfirm": "Z-Bericht trotzdem drucken",
         "operatorPrinted": "Bedienerbericht gedruckt",
         "operatorFailed": "Bedienerbericht konnte nicht gedruckt werden",
         "fmPrinted": "FS-Bericht gedruckt",

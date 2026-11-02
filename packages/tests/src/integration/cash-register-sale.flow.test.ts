@@ -355,7 +355,7 @@ describe('FR-21.15 — a till sale is a cash-register document', () => {
 
   it('a text receipt, and no device at all: the same document, its receipt state says which', async () => {
     const w = await tillWorld(app)
-    const text = await w.sell(1, { nonFiscal: true })
+    const text = await w.sell(1, { text: true })
     expect(text.status).toBe(200)
     const doc: any = await Invoice.findById(text.json.transaction.id).lean()
     expect(doc.register).toMatchObject({ isFiscal: false, fiscal: { state: 'printed', mode: 'text' } })
@@ -495,7 +495,7 @@ describe('FR-21.15 — the back office and the import go through the same servic
   it('a sessionless sale is numbered after its stock; a till sale before it (#279)', async () => {
     const w = await tillWorld(app, { device: false })
     // The till's sale rings into a session: its receipt needs the number, so it is drawn first.
-    const till = await w.sell(1, { nonFiscal: true })
+    const till = await w.sell(1, { text: true })
     const backOffice = await w.backOfficeSale(1)
     expect([till.status, backOffice.status]).toEqual([200, 200])
 

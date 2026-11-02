@@ -80,7 +80,7 @@ test('P4-storno: reverse a till sale, starting at the terminal', async ({ page }
       taxRate: p20.taxRate, taxAmount: totals.taxTotal, lineTotal: p20.unitPrice,
     }],
     subtotal: totals.subtotal, discountTotal: 0, taxTotal: totals.taxTotal, total: totals.total,
-    payments: [{ method: 'cash', amount: totals.total }], changeDue: 0, nonFiscal: true,
+    payments: [{ method: 'cash', amount: totals.total }], changeDue: 0,
   })
   const sale = made.transaction
   expect(sale?.transactionNumber, `setup sale failed: ${made.message}`).toBeTruthy()

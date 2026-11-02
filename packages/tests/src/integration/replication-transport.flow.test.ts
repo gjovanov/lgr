@@ -80,7 +80,7 @@ describe('the capture follows the link (FR-20.54)', () => {
       ;(config.replication as any).capture = true
       expect(now()).toBe(false)
     } finally {
-      rmSync(dir, { recursive: true, force: true })
+      if (dir) rmSync(dir, { recursive: true, force: true })
     }
   })
 })
@@ -106,7 +106,7 @@ describe("the master's control socket (P3-2b)", () => {
 
   afterEach(() => {
     ctl?.close()
-    rmSync(dir, { recursive: true, force: true })
+    if (dir) rmSync(dir, { recursive: true, force: true })
   })
 
   /** As the supervisor asks. */
