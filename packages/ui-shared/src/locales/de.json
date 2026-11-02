@@ -2045,6 +2045,7 @@
     "manager": "Verwalter",
     "default": "Standard",
     "deleteWarehouseConfirm": "Sind Sie sicher, dass Sie dieses Lager löschen möchten?",
+    "deleteMovementConfirm": "Diesen Bewegungsentwurf löschen? Er hat keinen Bestand verändert und wird es auch nicht.",
     "warehouse": "Lager",
     "quantity": "Menge",
     "value": "Wert",

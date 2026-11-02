@@ -2045,6 +2045,7 @@
     "manager": "Manager",
     "default": "Default",
     "deleteWarehouseConfirm": "Are you sure you want to delete this warehouse?",
+    "deleteMovementConfirm": "Delete this draft movement? It has not changed any stock, and it never will.",
     "warehouse": "Warehouse",
     "quantity": "Quantity",
     "value": "Value",

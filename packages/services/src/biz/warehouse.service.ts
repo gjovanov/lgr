@@ -1,6 +1,6 @@
 import type { RepositoryRegistry } from 'dal'
 import type { IStockMovement } from 'dal/entities'
-import { StockLevel } from 'db/models'
+import { StockLevel, StockMovement } from 'db/models'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 import { getEffectiveCostingMethod, createCostLayers, consumeCostLayers, type ConsumptionResult } from './costing.service.js'
@@ -13,6 +13,45 @@ export interface ConfirmMovementOptions {
    * its own: a second one would hold the same goods twice (#276).
    */
   layersRestored?: Set<string>
+}
+
+/**
+ * How long a draft's confirm or delete holds it (#448). Long enough for the biggest receipt to book:
+ * a confirm that outlived its hold could be deleted under it, leaving stock moved by a movement that
+ * no longer exists. A crash leaves the draft unconfirmable for this long, and then it is free again.
+ */
+export const MOVEMENT_CLAIM_MS = 10 * 60_000
+
+/** A draft nobody is confirming or deleting right now. */
+export function unclaimedMovement(now = new Date()): Record<string, unknown> {
+  return { $or: [{ claimedUntil: { $exists: false } }, { claimedUntil: null }, { claimedUntil: { $lt: now } }] }
+}
+
+export class MovementClaimedError extends Error {
+  readonly code = 'movement_busy'
+  constructor(readonly movementNumber?: string) {
+    super(`${movementNumber || 'This movement'} is being confirmed or deleted right now — try again in a moment`)
+  }
+}
+
+/**
+ * ⚠ The one door into a draft's stock (#448). `confirmMovement` used to read "draft", move every
+ * line, and only then write `completed`, with nothing held between. Two confirms both moved the
+ * goods, and once drafts could be deleted, a delete in that gap would leave the stock moved by a
+ * movement that is gone. Taken atomically; a delete takes the same hold (`movement.controller`).
+ */
+async function claimDraftMovement(movementId: string): Promise<void> {
+  const now = new Date()
+  const claimed = await StockMovement.findOneAndUpdate(
+    { _id: movementId, status: 'draft', ...unclaimedMovement(now) },
+    { $set: { claimedUntil: new Date(now.getTime() + MOVEMENT_CLAIM_MS) } },
+    { projection: { _id: 1 } },
+  ).exec()
+  if (claimed) return
+  const current: any = await StockMovement.findById(movementId, { status: 1, movementNumber: 1 }).lean().exec()
+  if (!current) throw new Error('Stock movement not found')
+  if (current.status !== 'draft') throw new Error('Only draft movements can be confirmed')
+  throw new MovementClaimedError(current.movementNumber)
 }
 
 /**
@@ -30,6 +69,7 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
   const movement = await r.stockMovements.findById(movementId)
   if (!movement) throw new Error('Stock movement not found')
   if (movement.status !== 'draft') throw new Error('Only draft movements can be confirmed')
+  await claimDraftMovement(movementId)
 
   const orgId = movement.orgId
   const movementDate = movement.date || new Date()
@@ -77,6 +117,7 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
   const updated = await r.stockMovements.update(movementId, {
     status: 'completed',
     lines: updatedLines,
+    claimedUntil: null,
   } as any)
   if (!updated) throw new Error('Failed to update movement status')
 

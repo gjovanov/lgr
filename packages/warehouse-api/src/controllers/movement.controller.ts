@@ -2,7 +2,8 @@ import { Elysia, t } from 'elysia'
 import { movementWarehouseRefusal } from 'config/movement-warehouses'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
-import { confirmMovement } from 'services/biz/warehouse.service'
+import { confirmMovement, MovementClaimedError, unclaimedMovement } from 'services/biz/warehouse.service'
+import { DocFile, Invoice, StockMovement } from 'db/models'
 import { createMovementWithProductUpdates, updateMovementWithProductUpdates, GRValidationError } from 'services/biz/movement-with-update.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
@@ -432,7 +433,14 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     }
 
     // Use the business service which already handles stock level updates via DAL
-    const confirmed = await confirmMovement(id, r)
+    let confirmed: Awaited<ReturnType<typeof confirmMovement>>
+    try {
+      confirmed = await confirmMovement(id, r)
+    } catch (e) {
+      // Another confirm, or a delete, holds it (#448).
+      if (e instanceof MovementClaimedError) return status(409, { code: e.code, message: e.message })
+      throw e
+    }
 
     let inventoryCountId: string | undefined
     if (wantCount && preLevels) {
@@ -480,3 +488,52 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     isSignIn: true,
     body: t.Optional(t.Object({ createCount: t.Optional(t.Boolean()) })),
   })
+  /**
+   * #448: a draft saved by mistake, or left behind by a field test, can go. It never moved anything,
+   * and confirming it would. Only a DRAFT, and only one nothing else names: those are taken off by
+   * whatever drew them up (a sale's or an issue's transfers, a bill's receipts, a Files import), and
+   * removing one under them would leave that document pointing at nothing.
+   */
+  .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const r = getRepos()
+
+    const existing = await r.stockMovements.findOne({ id, orgId } as any)
+    if (!existing) return status(404, { message: 'Stock movement not found' })
+    if (existing.status !== 'draft') return status(400, { message: 'Can only delete draft movements' })
+
+    const name = (existing as any).movementNumber
+    if ((existing as any).invoiceId || (existing as any).productionOrderId) {
+      return status(409, { code: 'movement_referenced', message: `${name} was drawn up for another document — remove it there` })
+    }
+    const [doc, file] = await Promise.all([
+      Invoice.findOne({
+        orgId,
+        $or: [
+          { pendingTransferIds: id },
+          { 'register.transfersToConfirm': id },
+          { 'register.movementId': id },
+          { 'stockSource.movementIds': id },
+        ],
+      }, { invoiceNumber: 1 }).lean().exec(),
+      DocFile.findOne({ orgId, committedIds: id }, { originalName: 1 }).lean().exec(),
+    ])
+    if (doc) {
+      return status(409, { code: 'movement_referenced', message: `${name} belongs to ${(doc as any).invoiceNumber || 'a document'} — remove it there` })
+    }
+    if (file) {
+      return status(409, { code: 'movement_referenced', message: `${name} was booked from ${(file as any).originalName || 'a file'} in Files — roll it back there` })
+    }
+
+    // ⚠ Atomic, and only past the hold a confirm takes: one under way has moved stock by now.
+    const gone = await StockMovement.deleteOne({ _id: id, orgId, status: 'draft', ...unclaimedMovement() }).exec()
+    if (!gone.deletedCount) {
+      const now: any = await StockMovement.findOne({ _id: id, orgId }, { status: 1 }).lean().exec()
+      if (!now) return status(404, { message: 'Stock movement not found' })
+      if (now.status !== 'draft') return status(400, { message: 'Can only delete draft movements' })
+      return status(409, { code: 'movement_busy', message: new MovementClaimedError(name).message })
+    }
+
+    createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'warehouse', entityType: 'stock_movement', entityId: id, entityName: name })
+    return { message: 'Stock movement deleted' }
+  }, { isSignIn: true })
