@@ -29,6 +29,27 @@ function build(invoice: Record<string, unknown> = {}, org: Record<string, unknow
   ).html
 }
 
+describe('a note names the invoice it corrects', () => {
+  const note = {
+    type: 'credit_note',
+    invoiceNumber: 'CN-2026-00001',
+    relatedInvoiceRef: { number: 'INV-2026-00042', issueDate: new Date('2026-10-20') },
+  }
+
+  for (const [locale, label] of [['en', 'For invoice'], ['bg', 'Към фактура'], ['de', 'Zur Rechnung'], ['mk', 'Кон фактура']]) {
+    it(`in ${locale}: its label, its number and its date, for a credit note and a debit note`, () => {
+      for (const type of ['credit_note', 'debit_note']) {
+        const html = build({ ...note, type }, {}, { locale })
+        expect(html).toContain(`<td class="k">${label}:</td><td class="v">INV-2026-00042 / 20.10.2026</td>`)
+      }
+    })
+  }
+
+  it('prints no such line when nothing says which invoice', () => {
+    expect(build({ type: 'credit_note' })).not.toContain('Към фактура')
+  })
+})
+
 describe('printed invoice form', () => {
   it('prints the bundled logo on its own line above the title when the org has none of its own', () => {
     const html = build()

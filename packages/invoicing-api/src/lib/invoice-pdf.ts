@@ -60,18 +60,27 @@ export async function stornoRefOf(orgId: string, storno: any) {
   }
 }
 
+/** The invoice a credit or debit note corrects, as its printout names it. */
+async function relatedInvoiceRefOf(orgId: string, note: any) {
+  if ((note.type !== 'credit_note' && note.type !== 'debit_note') || !note.relatedInvoiceId) return undefined
+  const related: any = await Invoice.findOne({ _id: note.relatedInvoiceId, orgId }, { invoiceNumber: 1, issueDate: 1 }).lean()
+  return related ? { number: related.invoiceNumber, issueDate: related.issueDate } : undefined
+}
+
 /**
- * The document as its printout reads it: a storno names the sale it reverses, and an invoice or a
- * debit note the fiscal receipts that paid it (FR-23), as an invoice for a cash sale names that sale.
+ * The document as its printout reads it: a storno names the sale it reverses, a note the invoice it
+ * corrects, and an invoice or a debit note the fiscal receipts that paid it (FR-23), as an invoice for a
+ * cash sale names that sale.
  */
 export async function printableDocument(orgId: string, invoice: any): Promise<any> {
   const stornoRef = invoice.type === 'cash_storno' ? await stornoRefOf(orgId, invoice) : undefined
+  const relatedInvoiceRef = await relatedInvoiceRefOf(orgId, invoice)
   const receipts = invoice.type === 'invoice' || invoice.type === 'debit_note' ? await paidByReceipts(orgId, String(invoice._id)) : []
   // A cash-on-delivery receipt has paid nothing while the courier still owes: "Платена с касов бон"
   // on a document wholly due is a false statement on a tax document. So is it of a text receipt: no
   // device recorded one, as an invoice for a text sale names no receipt either.
   const paidBy = receipts.filter(r => !r.text && (r.method !== 'cash_on_delivery' || invoice.status === 'paid'))
-  return { ...invoice, ...(stornoRef ? { stornoRef } : {}), ...(paidBy.length ? { paymentReceipts: paidBy } : {}) }
+  return { ...invoice, ...(stornoRef ? { stornoRef } : {}), ...(relatedInvoiceRef ? { relatedInvoiceRef } : {}), ...(paidBy.length ? { paymentReceipts: paidBy } : {}) }
 }
 
 export async function renderInvoicePdf(
