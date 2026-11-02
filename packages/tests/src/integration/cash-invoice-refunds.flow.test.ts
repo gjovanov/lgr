@@ -2625,6 +2625,102 @@ describe('print-once, the receipt\'s own (#155): a storno on a device', () => {
     return inserted
   }
 
+  describe('on another note: what it holds of the same receipts (the readers, A8)', () => {
+    it('dead, and it never reached the device: finished first, its claim goes back, and this one prints', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      const other = await issuedNote(w, inv)
+      const dead = await interrupted(w, inv, other, {})
+      const note = await noteOn(w, inv)
+
+      const r = await send(w, note.id)
+
+      expect(r.status).toBe(200)
+      expect(r.json.receipt.state).toBe('printed')
+      expect((await fresh(dead._id)).status).toBe('voided')
+      expect((await raw(other.id)).receiptHolds ?? []).toHaveLength(0)
+      expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    })
+
+    it('the same through /payments, whichever note asks', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      const other = await issuedNote(w, inv)
+      const dead = await interrupted(w, inv, other, {})
+      const note = await issuedNote(w, inv)
+
+      expect((await pay(w, note.id, 24)).status).toBe(200)
+
+      expect((await fresh(dead._id)).status).toBe('voided')
+      expect(leftByRate(await fresh(inv.receipt._id)).size).toBe(0)
+    })
+
+    it('dead, and it may have printed: held by that, and named', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      const other = await issuedNote(w, inv)
+      const dead = await interrupted(w, inv, other, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber - 1 })
+      const note = await issuedNote(w, inv)
+      const printed = w.sim!.receipts.length
+
+      const r = await pay(w, note.id, 24)
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('receipt_in_doubt')
+      expect(r.json.receipt).toMatchObject({ id: String(dead._id), number: dead.invoiceNumber })
+      expect(r.json.message).toContain('settle it')
+      expect(w.sim!.receipts).toHaveLength(printed)
+    })
+
+    it('held: named with its own number, and settled not printed the money is there again', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      const other = await issuedNote(w, inv)
+      w.sim!.dropAfter = 0x38
+      expect((await pay(w, other.id, 24)).json.code).toBe('receipt_in_doubt')
+      w.sim!.disconnected = false
+      const [held] = await stornosOf(other.id)
+      const note = await issuedNote(w, inv)
+
+      const r = await pay(w, note.id, 24)
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('receipt_in_doubt')
+      expect(r.json.receipt).toMatchObject({ id: String(held._id), number: held.invoiceNumber })
+
+      // Whether it printed is what a person says; here it did not, and the device shows it closed.
+      expect((await settle(w, held._id, false)).status).toBe(200)
+      expect((await pay(w, note.id, 24)).status).toBe(200)
+    })
+
+    it('held on one receipt, with another holding enough: nothing stands in the way', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInParts(w, [12, 12])
+      const other = await issuedNote(w, inv, { quantity: 1 })
+      w.sim!.dropAfter = 0x38
+      expect((await pay(w, other.id, 12)).json.code).toBe('receipt_in_doubt')
+      w.sim!.disconnected = false
+      const note = await issuedNote(w, inv, { quantity: 1 })
+
+      expect((await pay(w, note.id, 12)).status).toBe(200)
+    })
+
+    it('a live one is nobody\'s to finish: its lease stands, and what it holds is held', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      const other = await issuedNote(w, inv)
+      const live = await interrupted(w, inv, other, {})
+      await Invoice.updateOne({ _id: live._id }, { $set: { leaseUntil: new Date(Date.now() + 60_000) } })
+      const note = await issuedNote(w, inv)
+
+      const r = await pay(w, note.id, 24)
+
+      expect(r.status).toBe(422)
+      expect(r.json.code).toBe('refund_exceeds_receipts')
+      expect((await fresh(live._id)).status).toBe('paid')
+    })
+  })
+
   it('the next refund finds one that may have printed: nothing is booked and nothing prints, and a person settles it', async () => {
     const w = await tillWorld(app)
     const inv = await paidInvoice(w)

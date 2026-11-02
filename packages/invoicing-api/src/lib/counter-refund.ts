@@ -19,7 +19,7 @@ import { outstandingOf } from 'services/biz/invoice-payment'
 import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { PAYMENT_STORNO } from 'services/biz/cash-register/pos-union'
 import {
-  PAYMENT_IN_PROGRESS, citeableElsewhere, citeableOn, doubtRefusal, exceedsPaid, exceedsReceipts, inDoubtRefusal, noReceiptToStorno, onOtherDevice, paymentStornoDocument,
+  PAYMENT_IN_PROGRESS, citeableElsewhere, citeableOn, claimantsOf, doubtRefusal, exceedsPaid, exceedsReceipts, inDoubtRefusal, noReceiptToStorno, onOtherDevice, paymentStornoDocument,
   printsRefund, receiptInDoubt, receiptsOf, refundBacking, refundCap, refundNeed, runReceiptSteps, type ReceiptTender,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { drawOn, holdEnough } from 'services/biz/cash-register/refund-budget'
@@ -72,6 +72,16 @@ async function finishDeadSaleBehind(orgId: string, user: RegisterUser, note: any
 }
 
 /**
+ * What a request that died left holding a claim on these receipts, on whichever note, as for its own: what it
+ * held reads as money these receipts do not have, and a person has no reason to touch that other note.
+ */
+async function finishDeadClaims(orgId: string, user: RegisterUser, note: any): Promise<void> {
+  const { cited } = await refundBacking(orgId, note)
+  const ids = claimantsOf(cited)
+  if (ids.length) await finishInterruptedDocuments(orgId, user, { ids })
+}
+
+/**
  * What printing a storno for `tender` on `note` takes, every check done; null when nothing prints.
  * Throws the refusal, before anything is written, when something should print and cannot.
  */
@@ -103,6 +113,7 @@ export async function prepareRefund(orgId: string, user: RegisterUser & { role?:
   if (note.relatedInvoiceId) {
     await finishInterruptedDocuments(orgId, user, String(note.relatedInvoiceId))
     await finishDeadSaleBehind(orgId, user, note)
+    await finishDeadClaims(orgId, user, note)
   }
 
   // Nothing to reverse, whoever asks and wherever: said before anyone is sent to open a session.

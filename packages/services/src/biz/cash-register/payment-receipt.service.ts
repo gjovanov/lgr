@@ -801,10 +801,24 @@ export const onOtherDevice = (cited: any[]) => {
 export interface RefundBacking {
   /** What a storno can cite, as it stands now, oldest first. */
   cited: any[]
-  /** A receipt or a sale nothing can prove yet: a person has to look at the device before it holds anything. */
+  /**
+   * A receipt or a sale nothing can prove yet: a person has to look at the device before it holds anything.
+   * Or a storno nothing can prove, of any note, holding a claim on what it would cite: settled not printed, that money is there again.
+   */
   doubt: any | null
   /** A receipt of the invoice still going through: its money may be coming. */
   printing: boolean
+}
+
+/** The stornos holding a claim on what these hold, of whichever note. */
+export const claimantsOf = (cited: any[]): string[] =>
+  [...new Set(cited.flatMap(c => (c.register?.refundClaims ?? []).map((x: any) => String(x.stornoId))))]
+
+/** The first of them nothing can prove. */
+async function claimantInDoubt(orgId: string, cited: any[]): Promise<any | null> {
+  const ids = claimantsOf(cited)
+  if (!ids.length) return null
+  return Invoice.findOne({ orgId: oid(orgId), _id: { $in: ids.map(oid) }, type: PAYMENT_STORNO, status: { $ne: 'voided' }, 'register.fiscal.inDoubt': true }, { type: 1, invoiceNumber: 1 }).sort({ _id: 1 }).lean().exec()
 }
 
 const isTextReceipt = (d: any) => d.register?.fiscal?.mode === 'text' || (!d.register?.fiscal?.mode && !d.register?.isFiscal)
@@ -838,12 +852,14 @@ export async function refundBacking(orgId: string, note: any): Promise<RefundBac
     // still running, or whose finish threw.
     if (saleProgress(sale) || (sale?.register?.isFiscal && state === 'pending')) return { ...none, printing: true }
     const printed = state ? state === 'printed' : hasReceiptNumber(sale)
-    return { ...none, cited: sale && printed ? [sale] : [] }
+    const onSale = sale && printed ? [sale] : []
+    return { ...none, cited: onSale, doubt: await claimantInDoubt(orgId, onSale) }
   }
   const live: any[] = await Invoice.find(liveReceipts(orgId, invoice._id)).sort({ _id: 1 }).lean().exec()
+  const cited = live.filter(r => r.completedAt && r.paymentMethod !== 'cash_on_delivery' && r.register?.fiscal?.state === 'printed')
   return {
-    cited: live.filter(r => r.completedAt && r.paymentMethod !== 'cash_on_delivery' && r.register?.fiscal?.state === 'printed'),
-    doubt: live.find(r => r.register?.fiscal?.inDoubt) ?? null,
+    cited,
+    doubt: live.find(r => r.register?.fiscal?.inDoubt) ?? await claimantInDoubt(orgId, cited),
     printing: live.some(r => !r.completedAt && !r.register?.fiscal?.inDoubt),
   }
 }
