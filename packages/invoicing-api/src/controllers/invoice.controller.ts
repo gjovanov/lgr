@@ -1090,6 +1090,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (!existing) return status(404, { message: 'Invoice not found' })
       // FR-21.11: a till document or a storno is corrected by a storno, never edited.
       if (isImmutableRegisterDocument(existing as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
+      // ⚠ What is due is derived, never taken (#454): from the total and what was paid, below, or
+      // from the sale for an invoice for one. A client's figure was written as sent whenever the
+      // total stayed put. Dropped HERE, before anything below derives its own. Still accepted by
+      // the schema, so an older form that sends it is not refused.
+      delete (body as any).amountDue
       // What the request leaves out, as `POST` derives it, and every write below carries it. ⚠ Before the
       // freeze reads the request: a total only derived here still moves what a receipt printed. An
       // invoice for a cash sale takes all of it from the sale, below.
@@ -1271,7 +1276,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // nothing, and an invoice for one is the service's above.
       const owes = existing.type !== 'cash_sale' && !(existing as any).cashSaleRef?.cashSaleId
       if (!settled && owes && updated && round2((updated as any).total) !== round2((existing as any).total)) {
-        await Invoice.updateOne({ _id: id, orgId }, dueFollowsTotal() as any).exec()
+        await Invoice.updateOne({ _id: id, orgId }, dueFollowsTotal({ at: new Date(), by: String(user.id) }) as any).exec()
         updated = await r.invoices.findOne({ id, orgId } as any)
       }
 

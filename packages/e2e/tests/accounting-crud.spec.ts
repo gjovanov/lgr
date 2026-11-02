@@ -20,6 +20,9 @@ test.describe('Accounting CRUD', () => {
     await page.goto('/accounting/bank-accounts')
 
     await waitForDataTable(page)
+    // Counted only once the first load is over: before it, the body holds Vuetify's
+    // "Loading items…" row, which counts as one (#454).
+    await waitForTableLoaded(page)
     const rowsBefore = await countTableRows(page)
 
     const dialog = await clickCreate(page)
@@ -73,6 +76,9 @@ test.describe('Accounting CRUD', () => {
     // table assertion has to return to the list first.
     await page.goto('/accounting/bank-accounts')
     await waitForDataTable(page)
+    // Counted only once the first load is over: before it, the body holds Vuetify's
+    // "Loading items…" row, which counts as one (#454).
+    await waitForTableLoaded(page)
     // Strictly greater: >= is satisfied by 0 >= 0, which is exactly how this test passed
     // for weeks while creating nothing.
     const rowsAfter = await countTableRows(page)
@@ -163,6 +169,9 @@ test.describe('Accounting CRUD', () => {
     await page.goto('/accounting/bank-accounts')
 
     await waitForDataTable(page)
+    // Counted only once the first load is over: before it, the body holds Vuetify's
+    // "Loading items…" row, which counts as one (#454).
+    await waitForTableLoaded(page)
     const rowsBefore = await countTableRows(page)
 
     if (rowsBefore === 0) {
@@ -175,10 +184,9 @@ test.describe('Accounting CRUD', () => {
 
     await expectSuccess(page)
 
-    // Verify row count decreased
-    await page.waitForTimeout(500)
-    const rowsAfter = await countTableRows(page)
-    expect(rowsAfter).toBeLessThan(rowsBefore)
+    // Verify row count decreased. Polled, not slept on: the table reloads in place, and a
+    // fixed 500 ms counted it before or during that reload depending on the machine (#454).
+    await expect.poll(() => countTableRows(page), { timeout: 10000 }).toBeLessThan(rowsBefore)
   })
 
   test('should display server-side pagination on bank accounts table', async ({ page }) => {

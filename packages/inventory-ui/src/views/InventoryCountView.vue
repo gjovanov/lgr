@@ -34,11 +34,11 @@
         >
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
           <template #item.type="{ item }">
-            <v-chip size="small" label>{{ item.type || 'full' }}</v-chip>
+            <v-chip size="small" label>{{ $t(`warehouse.countType.${item.type || 'full'}`) }}</v-chip>
           </template>
           <template #item.status="{ item }">
             <v-chip size="small" label :color="item.status === 'completed' ? 'success' : item.status === 'in_progress' ? 'warning' : 'grey'">
-              {{ item.status }}
+              {{ $t(`warehouse.countStatus.${item.status}`) }}
             </v-chip>
           </template>
           <template #item.varianceCount="{ item }">

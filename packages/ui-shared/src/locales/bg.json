@@ -2088,7 +2088,8 @@
     "countStatus": {
       "draft": "Чернова",
       "in_progress": "В процес",
-      "completed": "Завършена"
+      "completed": "Завършена",
+      "cancelled": "Отменена"
     },
     "countType": {
       "full": "Пълна",

@@ -16,9 +16,61 @@ const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
  * database from what the document holds by then, as `paymentPipeline` derives it, so a payment on either
  * side of it leaves it right. Never below nothing: money taken over a lowered total stays recorded, for a
  * person to correct.
+ *
+ * ⚠ And the status follows it (#454), but only on a document money has been paid on (`paid`,
+ * `partially_paid`, with something paid). A paid bill whose total was raised owed the difference
+ * and still read `paid`, so no list of what is outstanding showed it. Lowered back to what has
+ * been paid, it is `paid` again, the way `paymentPipeline` decides it. A document nothing was
+ * paid on keeps the status its own flow gave it.
  */
-export function dueFollowsTotal(): Record<string, unknown>[] {
-  return [{ $set: { amountDue: { $max: [0, { $round: [{ $subtract: ['$total', { $ifNull: ['$amountPaid', 0] }] }, 2] }] } } }]
+export function dueFollowsTotal(o: { at: Date; by: string }): Record<string, unknown>[] {
+  const { ObjectId } = (Invoice.base as any).Types
+  const paidOn = {
+    $and: [
+      { $in: ['$status', ['paid', 'partially_paid']] },
+      { $gt: [{ $ifNull: ['$amountPaid', 0] }, 0] },
+    ],
+  }
+  return [
+    {
+      $set: {
+        _priorStatus: '$status',
+        amountDue: { $max: [0, { $round: [{ $subtract: ['$total', { $ifNull: ['$amountPaid', 0] }] }, 2] }] },
+      },
+    },
+    { $set: { status: { $cond: [paidOn, { $cond: [{ $lte: ['$amountDue', 0] }, 'paid', 'partially_paid'] }, '$status'] } } },
+    {
+      $set: {
+        // No longer paid in full: the moment it was is no longer true. Paid again: it is now.
+        paidAt: {
+          $cond: [
+            { $eq: ['$status', '$_priorStatus'] },
+            '$paidAt',
+            { $cond: [{ $eq: ['$status', 'paid'] }, o.at, '$$REMOVE'] },
+          ],
+        },
+        statusHistory: {
+          $cond: [
+            { $ne: ['$status', '$_priorStatus'] },
+            {
+              $concatArrays: [
+                { $ifNull: ['$statusHistory', []] },
+                [{
+                  status: '$status',
+                  fromStatus: '$_priorStatus',
+                  changedAt: o.at,
+                  changedBy: new ObjectId(String(o.by)),
+                  reason: { $literal: 'total edited' },
+                }],
+              ],
+            },
+            '$statusHistory',
+          ],
+        },
+      },
+    },
+    { $unset: '_priorStatus' },
+  ]
 }
 
 /** The money the receipts printing right now are taking from this document (FR-23). */
