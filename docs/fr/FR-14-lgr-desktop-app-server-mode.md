@@ -19,7 +19,7 @@ It ships through CI, e2e and automated field testing on the vmtest hosts. It is 
 Status: draft for implementation · Date: 2026-09-28 (revised the same day) · Tracking:
 [gjovanov/lgr#57](https://github.com/gjovanov/lgr/issues/57) · Depends on: nothing.
 
-Driving input, goran, 2026-09-28:
+Driving input, the owner, 2026-09-28:
 
 > *"create Functional Requirements and corresponding Github issues for reviving the LGR desktop
 > (similar to https://github.com/gjovanov/roomler-ai roomler-desktop). LGR desktop should have

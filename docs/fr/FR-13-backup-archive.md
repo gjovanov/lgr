@@ -13,7 +13,7 @@ interface**.
 Status: draft for implementation · Date: 2026-09-03 · Depends on: nothing (FR-11's scheduler
 and email hardening are already on master and are the patterns reused here) · Feeds: nothing.
 
-Driving input: goran's 2026-09-03 request — *"research and write a FR for backuping (full and
+Driving input: the owner's 2026-09-03 request — *"research and write a FR for backuping (full and
 delta) and archiving (older than X cold storage) of LGR data. First analyze the growth rate
 for regal-pz and predict the yearly data for that org. Then evaluate options and propose
 backuping and archiving policies and strategies. Backup storage should also be either binary
@@ -1018,7 +1018,7 @@ regal-pz rate none of these arrives before year 10.
    PermissionSet route would not have given us.
 9. **Do not exercise the manual restore against production first.** Rehearse Inspect → Merge →
    Replace on a scratch org restored from a real bundle, and only then let it near regal-pz.
-10. **Create a dedicated Google account for backups** — not goran's personal Drive. Its
+10. **Create a dedicated Google account for backups** — not the owner's personal Drive. Its
     credential can delete the off-site copy (FR-13.56), it must be revocable without
     collateral damage, and its 15 GB is a budget that Gmail must not be eating into.
 11. **Register the Drive OAuth client alongside the existing ones.** `GOOGLE_CLIENT_ID` /
@@ -1129,7 +1129,7 @@ regal-pz rate none of these arrives before year 10.
     row returns and nothing else changed.
 16. Confirm the invoice sequence did not move backwards, and that the restore is in the audit
     log and in the next morning's digest.
-17. Connect Google Drive for regal-pz using a **dedicated** Google account (not goran's
+17. Connect Google Drive for regal-pz using a **dedicated** Google account (not the owner's
     personal one), consent with `drive.file`, and confirm the tokens land in
     `settings.integrations.googleDrive` and survive an unrelated org-settings save.
 18. Run the nightly job and confirm the artifact appears under `LGR/regal-pz/daily/`

@@ -17,7 +17,7 @@ Status: draft for implementation · Date: 2026-08-26 · Depends on: nothing (FR-
 hardening is already on master; the Reports app is unrelated — a digest is org settings +
 a scheduled job, not a report card) · Feeds: nothing.
 
-Driving input: goran's 2026-08-26 request + the pasted daily reconciliation list
+Driving input: the owner's 2026-08-26 request + the pasted daily reconciliation list
 (verbatim in Appendix A, with a line-by-line mapping to digest sections) + the Odoo
 digest-email pattern (admin-picked recipients, daily frequency, KPI content).
 
@@ -377,7 +377,7 @@ calendar-exact, `createdAt`/`timestamp`-based ones accept the ≤3 h server-vs-S
 
 ---
 
-## Appendix A — the driving list (goran, 2026-08-26, verbatim) and its mapping
+## Appendix A — the driving list (the owner, 2026-08-26, verbatim) and its mapping
 
 ```
 ВИНТ 4.2Х16 ШИР.ПЕР - 14.08 - na email korigiranata faktura

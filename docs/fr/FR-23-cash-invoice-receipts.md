@@ -138,7 +138,7 @@ Once a receipt has printed for an invoice, its total can no longer change: `PUT`
 | **R2** | `payment_storno`: credit-note cash refunds, partial, the two refusals | Not clean once a storno exists. See below. |
 | **R3** | The till's partial storno (#363) | same |
 
-Each release goes through Atanas's protocol on #171, and the SUPTO docs change in the PR that changes the structure (R1).
+Each release goes through @lazarovski's protocol on #171, and the SUPTO docs change in the PR that changes the structure (R1).
 
 **R1's rollback.** With no `payment_receipt` in the database, redeploying the previous image is all it takes. Once one exists it is not clean, and a receipt on a device cannot be taken back:
 

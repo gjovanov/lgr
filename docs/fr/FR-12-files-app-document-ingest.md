@@ -10,7 +10,7 @@ Status: Phases 1–3 shipped (deploy `v20260827-e3626c177f89`); **this FR adds t
 (§4)** · Date: 2026-08-28 · Depends on: the `doc-import` engine, the OCR sidecar, the background-job
 model (`task.service`/`BackgroundTask`), the `lgr-uploads` PV · Feeds: nothing.
 
-Driving input: goran's 2026-08-28 request — "we need batch analyze and batch commit (with selection
+Driving input: the owner's 2026-08-28 request — "we need batch analyze and batch commit (with selection
 of analyzed docs); in /files/documents a grouping/viewing option by date; warnings need a revision
 and confirmation that can be committed; batch should be performant (not N+1)."
 

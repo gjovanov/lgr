@@ -114,7 +114,7 @@ there is, because it works when you test it.
 - ✅ Everything optional runs on its default (scheduler on, 10-minute tick, 03:00 local)
 
 - ✅ `lgr-backup-secret` — that client's secret and a refresh token consented as
-  `goran.jovanov@roomler.live`, minted 2026-09-09 and still refreshing with no expiry reported.
+  an operator's Google account, minted 2026-09-09 and still refreshing with no expiry reported.
 - ✅ `regal` opted in to the nightly scheduler on 2026-09-23. It is still the **only** org of
   80 that is.
 - ✅ **Proven in production on 2026-09-28**: a manual `regal-pz` bundle reached

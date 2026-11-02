@@ -71,7 +71,7 @@ describe('Invoice Stock Movement Flow', () => {
     const org = await createTestOrg()
     const user = await createTestUser(org._id)
     const contact = await createTestContact(org._id)
-    const product = await createTestProduct(org._id, { name: 'Rozi Test', sku: `ROZI-${Date.now()}` })
+    const product = await createTestProduct(org._id, { name: 'Tag Price Test', sku: `ROZI-${Date.now()}` })
     const warehouse = await createTestWarehouse(org._id)
 
     // No initial stock level — receiving should create it
@@ -80,7 +80,7 @@ describe('Invoice Stock Movement Flow', () => {
       invoiceNumber: `BILL-RECV-${Date.now()}`,
       lines: [{
         productId: product._id,
-        description: 'Rozi Test',
+        description: 'Tag Price Test',
         quantity: 50,
         unit: 'pcs',
         unitPrice: 10,

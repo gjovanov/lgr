@@ -45,15 +45,15 @@ describe('isValidOptionalEmail', () => {
   })
 
   it('accepts a real address, surrounding spaces included (the payload trims them)', () => {
-    expect(isValidOptionalEmail('office@regal.bg')).toBe(true)
-    expect(isValidOptionalEmail('  office@regal.bg ')).toBe(true)
+    expect(isValidOptionalEmail('office@example.bg')).toBe(true)
+    expect(isValidOptionalEmail('  office@example.bg ')).toBe(true)
   })
 
   it('refuses what the API would refuse', () => {
     expect(isValidOptionalEmail('office')).toBe(false)
     expect(isValidOptionalEmail('office@')).toBe(false)
     expect(isValidOptionalEmail('office@regal')).toBe(false)
-    expect(isValidOptionalEmail('a b@regal.bg')).toBe(false)
+    expect(isValidOptionalEmail('a b@example.bg')).toBe(false)
   })
 })
 
@@ -65,8 +65,8 @@ describe('buildContactPayload — create', () => {
   })
 
   it('trims what was typed', () => {
-    const body = buildContactPayload(blankForm({ email: ' office@regal.bg ', vatNumber: ' BG112500982 ' }), 'create')
-    expect(body.email).toBe('office@regal.bg')
+    const body = buildContactPayload(blankForm({ email: ' office@example.bg ', vatNumber: ' BG112500982 ' }), 'create')
+    expect(body.email).toBe('office@example.bg')
     expect(body.vatNumber).toBe('BG112500982')
   })
 

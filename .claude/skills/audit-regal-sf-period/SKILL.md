@@ -48,7 +48,7 @@ skipped (content-addressed, see `pull-api.ts`'s manifest).
 
 The till PC's Roomler agent id, its name and the server's LAN address are **not in this
 repo** (it is public). They live in the gitignored `.secrets/plusminus-stores.env` as
-`SF_STORE_PC`, `SF_ROOMLER_AGENT` and `SF_PM_REMOTE`; if that file is missing, ask goran
+`SF_STORE_PC`, `SF_ROOMLER_AGENT` and `SF_PM_REMOTE`; if that file is missing, ask the owner
 for the values and recreate it. Never paste them back into a skill, issue or PR.
 
 ```bash
