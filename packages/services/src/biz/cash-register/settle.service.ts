@@ -261,12 +261,14 @@ export async function settleInDoubt(c: RegisterContext, id: string, answer: Sett
   if (!doc) return null
   const isSale = doc.type === 'cash_sale'
   const inDoubt = isSale ? saleInDoubt(doc, now.getTime()) : !!doc.register?.fiscal?.inDoubt
+  // A sale must say. A fiscal receipt may: without it the refund of a credit note has nothing to cite.
+  const brought = doc.type === PAYMENT_RECEIPT && doc.register?.fiscal?.mode !== 'text' && !!String(answer.receiptNumber ?? '').trim()
   // A number a person typed, typed again: the one thing this door takes on a document no longer in doubt.
   const corrects = isSale && printed && !inDoubt && !!doc.register?.settled?.receiptNumber && answer.receiptNumber !== undefined
   let lastOnDevice: number | undefined
   if (inDoubt || corrects) {
     const device = await deviceOf?.(doc)
-    if (device) lastOnDevice = await askDevice(device, isSale && printed)
+    if (device) lastOnDevice = await askDevice(device, (isSale || brought) && printed)
   }
   if (corrects) {
     const corrected = await correctReceiptNumber(c, doc, answer.receiptNumber, lastOnDevice)
@@ -274,8 +276,6 @@ export async function settleInDoubt(c: RegisterContext, id: string, answer: Sett
     if (!corrected || corrected.completedAt) return corrected
     return resumeSettled(c, corrected, printed)
   }
-  // A sale must say. A fiscal receipt may: without it the refund of a credit note has nothing to cite.
-  const brought = doc.type === PAYMENT_RECEIPT && doc.register?.fiscal?.mode !== 'text' && !!String(answer.receiptNumber ?? '').trim()
   const receiptNumber = (isSale || brought) && printed && inDoubt ? await typedReceiptNumber(doc, answer.receiptNumber, lastOnDevice) : undefined
   const receiptError = `A person who checked the device settled this ${NAMES[doc.type]} as not printed.`
   // ⚠ A sale read as not in doubt can be by now: its number was never asked for, so it is not claimed.

@@ -3,13 +3,14 @@ import { Elysia } from 'elysia'
 import ExcelJS from 'exceljs'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
-import { draftOf, gate, line, pay, raw, receiptsOf, send, sessionOf, shown, TODAY, until } from '../helpers/receipt-world'
+import { clerkSale, clerkSession, draftOf, gate, line, pay, raw, receiptsOf, send, sessionOf, shown, TODAY, until } from '../helpers/receipt-world'
 import { allowSalesWithoutPrinter, createTestAccount } from '../helpers/factories'
 import { AuditLog, DocFile, FiscalDevice, Invoice, Journal, JournalEntry, Org, POSSession, Sequence, StockMovement } from 'db/models'
 import { config } from 'config'
 import { isImmutableRegisterDocument } from 'services/biz/cash-register/immutability'
 import { deviceFromCounter, deviceFromDeadReceipt, setFiscalForwarding } from 'fiscal/fiscal-route'
-import { getPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
+import { getPrinter, registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
+import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { statsController } from 'invoicing-api/src/controllers/stats.controller'
 import { contactController } from 'invoicing-api/src/controllers/contact.controller'
 import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller'
@@ -1309,6 +1310,139 @@ describe('what backs a refund, in doubt: a person settles it, and it holds what 
     const still = await fresh(inv.receipt._id)
     expect(still.register.fiscal.inDoubt).toBe(true)
     expect(still.register.settled).toBeUndefined()
+  })
+
+  describe('a number off a receipt\'s slip is held to all a sale\'s is (the third read, finding 7)', () => {
+    /** A receipt held in doubt, its note issued, the touch that held it done: what the door then asks. */
+    async function offItsSlip(w: TillWorld) {
+      const inv = await heldReceipt(w)
+      const note = await issuedNote(w, inv)
+      expect((await pay(w, note.id, 24)).json.code).toBe('receipt_in_doubt')
+      return { id: inv.receipt._id, inv, note }
+    }
+    const untouched = async (id: unknown) => {
+      const still = await fresh(id)
+      expect(still.register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
+      expect(still.register.settled).toBeUndefined()
+      expect(still.register.fiscalReceiptNumber).toBeUndefined()
+    }
+
+    it('above the device\'s last number: refused, read in the same turn as the open flag', async () => {
+      const w = await tillWorld(app)
+      const { id } = await offItsSlip(w)
+
+      const r = await settle(w, id, true, undefined, '9999999')
+
+      expect(r.status).toBe(422)
+      expect(r.json.code).toBe('receipt_number_off_device')
+      expect(r.json.last).toBe(w.sim!.lastDocNumber)
+      await untouched(id)
+    })
+
+    it('the last number itself passes, and one below it: there is no lower bound', async () => {
+      const w = await tillWorld(app)
+      const { id } = await offItsSlip(w)
+      expect((await settle(w, id, true, undefined, '1')).status).toBe(200)
+      expect((await fresh(id)).register.fiscalReceiptNumber).toBe('1')
+
+      const other = await offItsSlip(w)
+      expect((await settle(w, other.id, true, undefined, String(w.sim!.lastDocNumber))).status).toBe(200)
+    })
+
+    it('a device that cannot say skips that, and the rest of the checks stand', async () => {
+      const w = await tillWorld(app)
+      const { id } = await offItsSlip(w)
+      unregisterPrinter(w.deviceId)
+      const driver = new EltradeFiscalPrinter(w.sim!.exchange, w.deviceId)
+      registerPrinter(w.deviceId, new Proxy(driver, {
+        get: (t: any, p) => {
+          const v = t[p]
+          if (p === 'getLastReceiptNumber') return undefined
+          return typeof v === 'function' ? v.bind(t) : v
+        },
+      }))
+
+      expect((await settle(w, id, true, undefined, 'ФБ-1')).json.code).toBe('receipt_number_required')
+      await untouched(id)
+      expect((await settle(w, id, true, undefined, '9999999')).status).toBe(200)
+    })
+
+    it('a counter that cannot be read, on a driver that has one, is no answer', async () => {
+      const w = await tillWorld(app)
+      const { id } = await offItsSlip(w)
+      // The open flag reads fine, and the line goes at the counter, in the same turn.
+      w.sim!.beforeCommand = (cmd) => { if (cmd === 0x71) throw new Error('Bridge disconnected') }
+
+      expect((await settle(w, id, true, undefined, '77')).json.code).toBe('receipt_device_away')
+
+      await untouched(id)
+    })
+
+    it('with no number brought there is nothing to read the counter for: it stands as printed', async () => {
+      const w = await tillWorld(app)
+      const { id, inv } = await offItsSlip(w)
+      w.sim!.beforeCommand = (cmd) => { if (cmd === 0x71) throw new Error('Bridge disconnected') }
+
+      expect((await settle(w, id, true)).status).toBe(200)
+
+      expect(await raw(inv.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+      expect((await fresh(id)).register.fiscalReceiptNumber).toBeUndefined()
+    })
+
+    it('settled as not printed it is not read at all: nothing printed, so nothing has a number', async () => {
+      const w = await tillWorld(app)
+      const { id } = await offItsSlip(w)
+      w.sim!.beforeCommand = (cmd) => { if (cmd === 0x71) throw new Error('Bridge disconnected') }
+
+      expect((await settle(w, id, false, undefined, '9999999')).status).toBe(200)
+
+      expect((await fresh(id)).status).toBe('voided')
+    })
+
+    it('a device whose counter has gone back since this receipt read it: its memory was replaced, and it says nothing of this slip', async () => {
+      const w = await tillWorld(app)
+      const { id } = await offItsSlip(w)
+      await Invoice.updateOne({ _id: id }, { $set: { 'register.fiscal.counterBefore': w.sim!.lastDocNumber + 400 } })
+
+      expect((await settle(w, id, true, undefined, String(w.sim!.lastDocNumber + 401))).status).toBe(200)
+    })
+
+    it('another session\'s number on the same device is taken, in its three spellings: two on one device is normal', async () => {
+      const w = await tillWorld(app)
+      const clerk = await clerkSession(w)
+      const other = await clerkSale(w, clerk, 1)
+      const theirs = other.json.transaction.fiscalReceiptNumber
+      const { id } = await offItsSlip(w)
+
+      for (const spelled of [theirs, String(Number(theirs)), String(Number(theirs)).padStart(4, '0')]) {
+        const r = await settle(w, id, true, undefined, spelled)
+        expect(r.status, spelled).toBe(422)
+        expect(r.json.code, spelled).toBe('receipt_number_taken')
+        expect(r.json.document).toBe(other.json.transaction.transactionNumber)
+      }
+      await untouched(id)
+    })
+
+    it('outside 31 days of this receipt it is not taken: a replaced fiscal memory counts from one again', async () => {
+      const w = await tillWorld(app)
+      const earlier = await w.sell(1)
+      const theirs = earlier.json.transaction.fiscalReceiptNumber
+      const earlierId = new Invoice.base.Types.ObjectId(String(earlier.json.transaction.id))
+      const { id } = await offItsSlip(w)
+
+      await Invoice.collection.updateOne({ _id: earlierId }, { $set: { createdAt: new Date(Date.now() - 30 * 86_400_000) } })
+      expect((await settle(w, id, true, undefined, theirs)).json.code).toBe('receipt_number_taken')
+      await Invoice.collection.updateOne({ _id: earlierId }, { $set: { createdAt: new Date(Date.now() - 32 * 86_400_000) } })
+      expect((await settle(w, id, true, undefined, theirs)).status).toBe(200)
+    })
+
+    it('deactivated: nothing to read it against, and the word stands', async () => {
+      const w = await tillWorld(app)
+      const { id } = await offItsSlip(w)
+      await FiscalDevice.updateOne({ _id: w.deviceId }, { $set: { isActive: false } })
+
+      expect((await settle(w, id, true, undefined, '9999999')).status).toBe(200)
+    })
   })
 
   it('a number on one settled as not printed changes nothing: it printed nothing', async () => {
