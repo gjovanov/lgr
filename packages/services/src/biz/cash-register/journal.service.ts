@@ -98,6 +98,8 @@ export interface JournalRow {
     printedAt?: string
     /** Its receipt number was typed off the slip by a person, who can correct it until something cites it. */
     numberTyped?: boolean
+    /** A fiscal receipt that stands printed with no number from the device: a person can bring it off the slip. */
+    numberMissing?: boolean
   }
   stock: JournalStock
   reference?: string
@@ -269,6 +271,7 @@ function fromDocument(doc: any, moved: Set<string>): JournalRow {
       ...(reg.printedAt ? { printedAt: new Date(reg.printedAt).toISOString() } : {}),
       ...(reg.fiscal?.inDoubt || saleInDoubt(doc) ? { inDoubt: true } : {}),
       ...(reg.settled?.receiptNumber ? { numberTyped: true } : {}),
+      ...(doc.type === PAYMENT_RECEIPT && reg.fiscal?.mode !== 'text' && reg.fiscal?.state === 'printed' && !reg.fiscalReceiptNumber ? { numberMissing: true } : {}),
     },
     stock: reg.stockError ? 'error' : moved.has(id) || reg.movementId ? 'moved' : 'none',
     ...(doc.reference ? { reference: doc.reference } : {}),

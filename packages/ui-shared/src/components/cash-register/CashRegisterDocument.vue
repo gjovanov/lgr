@@ -45,7 +45,7 @@
         <v-card>
           <v-card-title>{{ doc.row.number }}</v-card-title>
           <v-card-text>
-            {{ settling === 'correct' ? $t('cashRegister.receipt.correctNumberConfirm') : settling ? $t(`cashRegister.receipt.${settleWords.confirm}.${settling}`) : '' }}
+            {{ settling === 'correct' ? $t(doc.row.fiscal.numberMissing ? 'cashRegister.receipt.bringNumberConfirm' : 'cashRegister.receipt.correctNumberConfirm') : settling ? $t(`cashRegister.receipt.${settleWords.confirm}.${settling}`) : '' }}
             <!-- A storno cites it, and only the slip knows it. -->
             <v-text-field
               v-if="settling === 'correct' || (settling === 'printed' && takesNumber)"
@@ -78,7 +78,7 @@
             <v-col cols="12" sm="6" md="3"><div class="text-caption text-medium-emphasis">{{ $t('cashRegister.columns.fiscal') }}</div><div data-testid="journal-document-unp">{{ doc.row.fiscal.unp || '—' }}</div></v-col>
             <v-col cols="12" sm="6" md="3"><div class="text-caption text-medium-emphasis">{{ $t('cashRegister.columns.device') }}</div><div>{{ doc.row.fiscal.deviceNumber || '—' }}<span v-if="doc.row.fiscal.receiptNumber" data-testid="journal-document-receipt-number"> · {{ doc.row.fiscal.receiptNumber }}</span></div>
               <!-- FR-23: typed off the slip by a person, so a person can correct it until something cites it. -->
-              <v-btn v-if="canCorrectNumber" size="x-small" variant="text" class="px-0" data-testid="receipt-correct-number" @click="openCorrection">{{ $t('cashRegister.receipt.correctNumber') }}</v-btn>
+              <v-btn v-if="canCorrectNumber" size="x-small" variant="text" class="px-0" data-testid="receipt-correct-number" @click="openCorrection">{{ $t(doc.row.fiscal.numberMissing ? 'cashRegister.receipt.bringNumber' : 'cashRegister.receipt.correctNumber') }}</v-btn>
             </v-col>
             <v-col cols="12" sm="6" md="3"><div class="text-caption text-medium-emphasis">{{ $t('cashRegister.columns.stock') }}</div><div :class="{ 'text-error': doc.row.stock === 'error' }">{{ $t(`cashRegister.stock.${doc.row.stock}`) }}</div></v-col>
             <v-col v-if="doc.row.fiscal.state && doc.row.fiscal.state !== 'none'" cols="12" sm="6" md="3">
@@ -298,7 +298,7 @@ const settlingNow = ref(false)
 // An invoice for a sale carries its number. A receipt's `invoices` is the one it paid, which reads it as it prints.
 const canCorrectNumber = computed(() => {
   const row = doc.value?.row
-  if (!row || !canSettle.value || !row.fiscal.numberTyped || row.fiscal.inDoubt || row.stornoedBy?.length) return false
+  if (!row || !canSettle.value || !(row.fiscal.numberTyped || row.fiscal.numberMissing) || row.fiscal.inDoubt || row.stornoedBy?.length) return false
   return row.kind === 'payment' || (row.kind === 'sale' && !row.invoices?.length)
 })
 function openCorrection() {

@@ -1991,6 +1991,153 @@ describe('what backs a refund, in doubt: a person settles it, and it holds what 
     })
   })
 
+  describe('a number that can be brought later: printed with none, by the correction door (the readers, A\'s verdict)', () => {
+    /** Settled printed by a person who had no number, and its note. */
+    async function settledWithNone(w: TillWorld) {
+      const inv = await heldReceipt(w)
+      const note = await issuedNote(w, inv)
+      expect((await pay(w, note.id, 24)).json.code).toBe('receipt_in_doubt')
+      expect((await settle(w, inv.receipt._id, true)).status).toBe(200)
+      expect((await fresh(inv.receipt._id)).register.fiscalReceiptNumber).toBeUndefined()
+      return { id: String(inv.receipt._id), inv, note }
+    }
+    /** Printed, and its 71h read failed after its close. Nobody settled anything. */
+    async function numberUnread(w: TillWorld) {
+      const inv = await paidInvoice(w)
+      await Invoice.updateOne({ _id: inv.receipt._id }, { $unset: { 'register.fiscalReceiptNumber': 1, 'register.fiscal.receiptNo': 1 } })
+      return { id: String(inv.receipt._id), inv, note: await issuedNote(w, inv) }
+    }
+    const fields = async (id: unknown) => {
+      const { register: r } = await fresh(id)
+      return { settled: r.settled?.receiptNumber, receiptNo: r.fiscal.receiptNo, number: r.fiscalReceiptNumber }
+    }
+    const trail = (w: TillWorld) => AuditLog.findOne({ orgId: w.oid, action: 'correct_receipt_number' }).lean().exec() as Promise<any>
+
+    it('settled with none: the page offers it, the number comes off the slip, the trail says it, and the refund cites it on the device', async () => {
+      const w = await tillWorld(app)
+      const { id, inv, note } = await settledWithNone(w)
+      expect((await w.call('GET', `/cash-register/documents/${id}`)).json.row.fiscal).toMatchObject({ numberMissing: true })
+      expect((await pay(w, note.id, 24)).json.reason).toBe('no_number')
+
+      const r = await settle(w, id, true, undefined, '77')
+
+      expect(r.status).toBe(200)
+      expect(await fields(id)).toEqual({ settled: '77', receiptNo: '77', number: '77' })
+      const row = (await w.call('GET', `/cash-register/documents/${id}`)).json.row
+      expect(row.fiscal.numberMissing).toBeUndefined()
+      expect(row.fiscal).toMatchObject({ numberTyped: true, receiptNumber: '77' })
+      const audit = await trail(w)
+      expect(String(audit.entityId)).toBe(id)
+      expect(audit.changes).toEqual([expect.objectContaining({ field: 'receiptNumber', oldValue: null, newValue: '77' })])
+      // It printed when it tried to, which is the moment its storno cites.
+      expect(new Date((await fresh(id)).register.printedAt).getTime()).toBe(inv.attemptedAt.getTime())
+
+      expect((await shown(w, note.id)).refundable).toBe(24)
+      expect((await pay(w, note.id, 24)).status).toBe(200)
+      const printed = w.sim!.receipts.at(-1)!
+      expect(printed.kind).toBe('storno')
+      expect(printed.header[5]).toBe('77')
+    })
+
+    it('its 71h read failed, nobody settled anything: the same door, and a person is on the record for what they said', async () => {
+      const w = await tillWorld(app)
+      const { id, note, inv } = await numberUnread(w)
+      const slip = String(Number(inv.receipt.register.fiscalReceiptNumber))
+      expect((await w.call('GET', `/cash-register/documents/${id}`)).json.row.fiscal).toMatchObject({ numberMissing: true })
+
+      expect((await settle(w, id, true, undefined, slip)).status).toBe(200)
+
+      expect(await fields(id)).toEqual({ settled: slip, receiptNo: slip, number: slip })
+      expect((await fresh(id)).register.settled).toMatchObject({ printed: true, by: w.user._id })
+      expect((await fresh(id)).completedAt).toBeTruthy()
+      expect((await pay(w, note.id, 24)).status).toBe(200)
+      expect(w.sim!.receipts.at(-1)!.header[5]).toBe(slip)
+    })
+
+    it('the same rights, and every check a typed number has', async () => {
+      const w = await tillWorld(app)
+      const other = (await w.sell(1)).json.transaction.fiscalReceiptNumber
+      const { id } = await settledWithNone(w)
+
+      expect((await settle(w, id, true, await w.tokenAs('sales'), '77')).status).toBe(403)
+      expect((await settle(w, id, true, undefined, 'ФБ-1')).json.code).toBe('receipt_number_required')
+      expect((await settle(w, id, true, undefined, '')).json.code).toBe('receipt_number_required')
+      expect((await settle(w, id, true, undefined, '9999999')).json.code).toBe('receipt_number_off_device')
+      expect((await settle(w, id, true, undefined, other)).json.code).toBe('receipt_number_taken')
+      forgetDevices()
+      expect((await settle(w, id, true, undefined, '77')).json.code).toBe('receipt_device_away')
+
+      expect((await fresh(id)).register.fiscalReceiptNumber).toBeUndefined()
+      expect(await trail(w)).toBeNull()
+    })
+
+    it('given, it is one typed like any other: corrected until a refund\'s storno cites it', async () => {
+      const w = await tillWorld(app)
+      const { id, note } = await settledWithNone(w)
+      expect((await settle(w, id, true, undefined, '77')).status).toBe(200)
+      expect((await settle(w, id, true, undefined, '78')).status).toBe(200)
+      expect((await fields(id)).number).toBe('78')
+
+      expect((await pay(w, note.id, 10)).status).toBe(200)
+      expect((await settle(w, id, true, undefined, '79')).json.code).toBe('receipt_number_cited')
+      expect((await fields(id)).number).toBe('78')
+    })
+
+    it('only with a number: the same press with none says what it always said', async () => {
+      const w = await tillWorld(app)
+      const { id } = await settledWithNone(w)
+      expect((await settle(w, id, true)).json.code).toBe('receipt_not_in_doubt')
+      expect((await settle(w, id, false, undefined, '77')).json.code).toBe('receipt_not_in_doubt')
+    })
+
+    it('two at once: one gives way, and the number stands as the first said', async () => {
+      const w = await tillWorld(app)
+      const { id } = await settledWithNone(w)
+      let inside: any
+      const undo = during(update => !!update?.$set?.['register.settled.receiptNumber'], async () => { inside = await settle(w, id, true, undefined, '77') })
+      let r: any
+      try {
+        r = await settle(w, id, true, undefined, '78')
+      } finally {
+        undo()
+      }
+
+      expect(inside.status).toBe(200)
+      expect(r.status).toBe(409)
+      expect((await fields(id)).number).toBe('77')
+    })
+
+    it('an `unknown` that stands has no such door: nothing proves it printed', async () => {
+      const w = await tillWorld(app)
+      const inv = await paidInvoice(w)
+      await Invoice.updateOne({ _id: inv.receipt._id }, { $set: { 'register.fiscal.state': 'unknown' }, $unset: { 'register.fiscalReceiptNumber': 1 } })
+
+      expect((await settle(w, inv.receipt._id, true, undefined, '77')).json.code).toBe('receipt_not_in_doubt')
+      expect((await w.call('GET', `/cash-register/documents/${inv.receipt._id}`)).json.row.fiscal.numberMissing).toBeUndefined()
+    })
+
+    it('a sale settled printed already needs one, so none of this is a sale\'s', async () => {
+      const w = await tillWorld(app)
+      const sold = await w.sell(1)
+      const id = String(sold.json.transaction.id)
+      await Invoice.updateOne({ _id: id }, { $unset: { 'register.fiscalReceiptNumber': 1, 'register.fiscal.receiptNo': 1 } })
+
+      expect((await settle(w, id, true, undefined, '77')).json.code).toBe('receipt_not_in_doubt')
+      expect((await w.call('GET', `/cash-register/documents/${id}`)).json.row.fiscal.numberMissing).toBeUndefined()
+    })
+
+    it('a text receipt has no number to bring, and a receipt on the device\'s word has one already', async () => {
+      const w = await tillWorld(app)
+      const printed = await paidInvoice(w)
+      expect((await w.call('GET', `/cash-register/documents/${printed.receipt._id}`)).json.row.fiscal.numberMissing).toBeUndefined()
+      w.sim!.unfiscalizedUnit = true
+      const text = await paidInvoice(w)
+      expect(text.receipt.register.fiscal.mode).toBe('text')
+      expect((await w.call('GET', `/cash-register/documents/${text.receipt._id}`)).json.row.fiscal.numberMissing).toBeUndefined()
+      expect((await settle(w, text.receipt._id, true, undefined, '77')).json.code).toBe('receipt_not_in_doubt')
+    })
+  })
+
   describe('correcting one: the door that took it, until a refund\'s storno cites it (the third read, finding 7)', () => {
     /** A receipt settled printed under `typed`, finished, with its note issued and nothing given back yet. */
     async function typedOn(w: TillWorld, typed = '77') {
@@ -2095,15 +2242,10 @@ describe('what backs a refund, in doubt: a person settles it, and it holds what 
       expect(closedOnDevice(w).at(-1)!.header[5]).toBe('78')
     })
 
-    it('a number the device gave cannot be corrected, nor what was settled with none, nor settled not printed', async () => {
+    it('a number the device gave cannot be corrected, nor what was settled not printed', async () => {
       const w = await tillWorld(app)
       const printed = await paidInvoice(w)
       expect((await settle(w, printed.receipt._id, true, undefined, '1')).json.code).toBe('receipt_not_in_doubt')
-
-      const none = await heldReceipt(w)
-      expect((await pay(w, (await issuedNote(w, none)).id, 24)).json.code).toBe('receipt_in_doubt')
-      expect((await settle(w, none.receipt._id, true)).status).toBe(200)
-      expect((await settle(w, none.receipt._id, true, undefined, '1')).json.code).toBe('receipt_not_in_doubt')
 
       const gone = await heldReceipt(w)
       expect((await pay(w, (await issuedNote(w, gone)).id, 24)).json.code).toBe('receipt_in_doubt')

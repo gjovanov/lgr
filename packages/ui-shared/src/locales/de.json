@@ -1164,6 +1164,8 @@
       "numberOffDevice": "Diese Belegnummer liegt über der letzten, die dieses Gerät vergeben hat ({last}). Prüfen Sie den Bon.",
       "numberCited": "Ein Storno oder eine Rechnung nennt diese Belegnummer, daher bleibt sie bestehen.",
       "correctNumber": "Nummer korrigieren",
+      "bringNumber": "Nummer vom Bon eintragen",
+      "bringNumberConfirm": "Geben Sie die Belegnummer so ein, wie sie auf dem Bon steht. Eine Erstattung nennt sie auf dem Gerät, und das Protokoll behält sie.",
       "correctNumberConfirm": "Geben Sie die Belegnummer so ein, wie sie auf dem Bon steht. Das Storno nennt sie, und das Protokoll behält beide.",
       "numberCorrected": "Belegnummer korrigiert"
     },

@@ -37,8 +37,11 @@
  * receipt it cites go back. It runs a receipt's steps.
  *
  * ⚠ A storno cites a number, so a receipt that printed can bring one too, off the slip: a credit note's
- * refund cites it. With none it stands as printed, and that refund goes by bank. One it brought is held to
- * all a sale's is, and corrected the same way, until a refund's storno cites it.
+ * refund cites it. With none it stands as printed, and that refund goes by bank, until one is brought: a fiscal
+ * receipt that stands printed with no number, settled so or with its 71h read failed, may be given one later at
+ * this door. One it brought is held to all a sale's is, and corrected the same way, until a refund's storno
+ * cites it. It turns a bank refund into a storno on the device, which is what the law wants. A sale settled
+ * printed already needs a number, so this is a receipt's only.
  */
 import { AuditLog, Invoice } from 'db/models'
 import { recordAuditEntry } from '../audit-log.service.js'
@@ -177,17 +180,29 @@ const stornoCites = (reg: any) => reg?.stornoState === 'full' || !!reg?.refundCl
  * one gives way. A storno voided since cites nothing: it gave its claim back, and a refused number is why one
  * is corrected. An invoice for a sale carries the number too (`cashSaleRef.receiptNumber`), printed, so it
  * counts as citing. A receipt's invoice does not: it reads the receipt's number as it prints.
+ *
+ * A receipt with none yet is given one the same way. What a person said goes on the document as a settle's does,
+ * and it printed when it tried to, the moment its storno cites.
  */
 async function correctReceiptNumber(c: RegisterContext, doc: any, typed: string | undefined, lastOnDevice?: number): Promise<any | null> {
-  const old = doc.register.settled.receiptNumber
+  const old: string | undefined = doc.register.settled?.receiptNumber
   const cited = stornoCites(doc.register)
     || await Invoice.exists({ orgId: doc.orgId, 'cashSaleRef.cashSaleId': doc._id, status: { $nin: ['voided', 'cancelled'] } }).exec()
   if (cited) throw new RegisterRefusal(409, { ...RECEIPT_NUMBER_CITED })
   const number = await typedReceiptNumber(doc, typed, lastOnDevice)
   if (number === old) return doc
   const corrected: any = await Invoice.findOneAndUpdate(
-    { _id: doc._id, orgId: doc.orgId, 'register.settled.receiptNumber': old, 'register.stornoState': { $ne: 'full' }, 'register.refundClaims.0': { $exists: false } },
-    { $set: { 'register.settled.receiptNumber': number, 'register.fiscal.receiptNo': number, 'register.fiscalReceiptNumber': number } },
+    {
+      _id: doc._id, orgId: doc.orgId, 'register.stornoState': { $ne: 'full' }, 'register.refundClaims.0': { $exists: false },
+      ...(old ? { 'register.settled.receiptNumber': old } : { 'register.fiscalReceiptNumber': null }),
+    },
+    {
+      $set: {
+        'register.settled.receiptNumber': number, 'register.fiscal.receiptNo': number, 'register.fiscalReceiptNumber': number,
+        ...(doc.register.settled ? {} : { 'register.settled.printed': true, 'register.settled.by': oid(c.user.id), 'register.settled.at': new Date() }),
+        ...(!old && doc.register.fiscal?.attemptedAt ? { 'register.printedAt': doc.register.fiscal.attemptedAt } : {}),
+      },
+    },
     { new: true },
   ).lean().exec()
   if (!corrected) {
@@ -199,7 +214,7 @@ async function correctReceiptNumber(c: RegisterContext, doc: any, typed: string 
     orgId: c.orgId, userId: c.user.id, operatorCode: c.user.operatorCode,
     action: 'correct_receipt_number', module: c.audit.module, entityType: c.audit.entityType,
     entityId: String(doc._id), entityName: doc.invoiceNumber, unpNumber: doc.register?.unp,
-    changes: [{ field: 'receiptNumber', oldValue: old, newValue: number }],
+    changes: [{ field: 'receiptNumber', oldValue: old ?? null, newValue: number }],
   })
   return corrected
 }
@@ -272,8 +287,9 @@ export async function settleInDoubt(c: RegisterContext, id: string, answer: Sett
   // A sale must say. A fiscal receipt may: without it the refund of a credit note has nothing to cite.
   const fiscalReceipt = doc.type === PAYMENT_RECEIPT && doc.register?.fiscal?.mode !== 'text'
   const brought = fiscalReceipt && !!String(answer.receiptNumber ?? '').trim()
-  // A number a person typed, typed again: the one thing this door takes on a document no longer in doubt.
-  const corrects = (isSale || fiscalReceipt) && printed && !inDoubt && !!doc.register?.settled?.receiptNumber && answer.receiptNumber !== undefined
+  // A number a person typed, typed again, or a receipt's first: the one thing this door takes on a document no longer in doubt.
+  const numberless = fiscalReceipt && doc.register?.fiscal?.state === 'printed' && !doc.register?.fiscalReceiptNumber
+  const corrects = (isSale || fiscalReceipt) && printed && !inDoubt && (!!doc.register?.settled?.receiptNumber || numberless) && answer.receiptNumber !== undefined
   let lastOnDevice: number | undefined
   if (inDoubt || corrects) {
     const device = await deviceOf?.(doc)

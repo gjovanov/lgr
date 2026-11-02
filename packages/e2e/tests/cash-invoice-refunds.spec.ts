@@ -388,6 +388,35 @@ test.describe('FR-23 R2 — a storno for a refund on a credit note', () => {
     await expect(page.getByTestId('receipt-correct-number')).toHaveCount(0)
   })
 
+  test('a receipt that stands printed with no number: its page brings it, in words of its own', async ({ page }) => {
+    const { id, total } = await draft('bank_transfer')
+    await ok(cashier, 'POST', `/invoices/${id}/send`, {})
+    const { receipt } = await ok(cashier, 'POST', `/invoices/${id}/payments`, { date: new Date().toISOString().slice(0, 10), amount: total, method: 'cash' })
+    await page.route(`**/cash-register/documents/${receipt.id}`, async (route) => {
+      const { json } = await call(cashier, 'GET', `/cash-register/documents/${receipt.id}`)
+      delete json.row.fiscal.receiptNumber
+      json.row.fiscal.numberMissing = true
+      return route.fulfill({ json })
+    })
+    const said: unknown[] = []
+    await page.route(`**/cash-register/documents/${receipt.id}/settle`, (route) => {
+      said.push(route.request().postDataJSON())
+      return route.fulfill({ json: { document: {} } })
+    })
+
+    await loginForApp(page, 'acme-corp', cashierName, PASSWORD)
+    await page.goto(`/invoicing/cash-sales/${receipt.id}/view`)
+    const bring = page.getByTestId('receipt-correct-number')
+    await expect(bring).toContainText('Add the number')
+    await bring.click()
+
+    const confirm = page.getByTestId('receipt-settle-confirm')
+    await expect(confirm).toBeDisabled()
+    await page.getByTestId('receipt-settle-number').locator('input').fill('123')
+    await confirm.click()
+    await expect.poll(() => said).toEqual([{ printed: true, receiptNumber: '123' }])
+  })
+
   test('a storno that may have printed: nothing is refunded, a second press prints nothing, and a person settles it on its page', async ({ page }) => {
     const inv = await paidInvoice(1)
     const note = await creditNote(inv.id, 'bank_transfer', 1)

@@ -1876,6 +1876,8 @@
       "numberOffDevice": "That receipt number is above the last one this device has given ({last}). Check the slip.",
       "numberCited": "A storno or an invoice cites this receipt number, so it stands.",
       "correctNumber": "Correct the number",
+      "bringNumber": "Add the number off the slip",
+      "bringNumberConfirm": "Type the receipt number as it is on the slip. A refund cites it on the device, and the audit trail keeps it.",
       "correctNumberConfirm": "Type the receipt number as it is on the slip. A storno cites it, and the audit trail keeps both.",
       "numberCorrected": "Receipt number corrected"
     },
