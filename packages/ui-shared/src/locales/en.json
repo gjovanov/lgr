@@ -2089,7 +2089,8 @@
     "countStatus": {
       "draft": "Draft",
       "in_progress": "In Progress",
-      "completed": "Completed"
+      "completed": "Completed",
+      "cancelled": "Cancelled"
     },
     "countType": {
       "full": "Full",

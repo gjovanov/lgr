@@ -256,6 +256,49 @@ describe('what is due follows the total', () => {
     expect((await raw(d.id)).amountDue).toBe(7)
   })
 
+  // #454: the status followed none of it, so a paid document owing money still read `paid`.
+  it('an invoice paid in full by bank, raised: partially paid, and paid again once lowered back', async () => {
+    const w = await tillWorld(app, { device: false })
+    const d = await issuedInvoice(w)
+    expect((await pay(w, d.id, 24, 'bank_transfer')).status).toBe(200)
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountDue: 0 })
+
+    expect((await put(w, d.id, formBody(w, 3))).status).toBe(200)
+    const raised = await raw(d.id)
+    expect(raised).toMatchObject({ status: 'partially_paid', total: 36, amountPaid: 24, amountDue: 12 })
+    // No longer paid in full, so not since then either.
+    expect(raised.paidAt).toBeUndefined()
+    expect(raised.statusHistory.at(-1)).toMatchObject({ fromStatus: 'paid', status: 'partially_paid', reason: 'total edited' })
+
+    expect((await put(w, d.id, formBody(w, 2))).status).toBe(200)
+    const back = await raw(d.id)
+    expect(back).toMatchObject({ status: 'paid', total: 24, amountDue: 0 })
+    expect(back.paidAt).toBeDefined()
+  })
+
+  it('a received bill paid in full, raised: partially paid', async () => {
+    const w = await tillWorld(app, { device: false })
+    const bill = await draftOf(w, { method: 'bank_transfer', extra: { direction: 'incoming', reference: 'S-2' } })
+    expect((await w.call('POST', `/invoices/${bill.id}/receive`, {})).status).toBe(200)
+    expect((await pay(w, bill.id, 24, 'bank_transfer')).status).toBe(200)
+    expect((await raw(bill.id)).status).toBe('paid')
+
+    expect((await put(w, bill.id, formBody(w, 3))).status).toBe(200)
+
+    expect(await raw(bill.id)).toMatchObject({ status: 'partially_paid', total: 36, amountPaid: 24, amountDue: 12 })
+  })
+
+  it('a client\'s `amountDue` is not taken, with the total or without it', async () => {
+    const w = await tillWorld(app, { device: false })
+    const d = await issuedInvoice(w)
+
+    expect((await put(w, d.id, { notes: 'only this', amountDue: 1 })).status).toBe(200)
+    expect((await raw(d.id)).amountDue).toBe(24)
+
+    expect((await put(w, d.id, { ...formBody(w, 3), amountDue: 999 })).status).toBe(200)
+    expect((await raw(d.id)).amountDue).toBe(36)
+  })
+
   it('a cash sale stays paid: nothing is due on one', async () => {
     const w = await tillWorld(app, { device: false })
     const sale = await w.backOfficeSale(2)

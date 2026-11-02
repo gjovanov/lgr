@@ -92,13 +92,16 @@ export async function changeItemsPerPage(page: Page, perPage: number) {
 
 /**
  * Wait for the table loading state to finish
+ *
+ * ⚠ Not `isVisible({ timeout })`: it does not wait (#408). It answered for the first
+ * instant only, so a table whose load had not finished passed straight through, and a
+ * row count after it read Vuetify's "Loading items…" row as data (#454). These are
+ * retrying assertions: Vuetify renders `v-data-table-progress` (the header bar) and
+ * `v-data-table-rows-loading` (the body row of an empty table) only while it loads.
  */
-export async function waitForTableLoaded(page: Page) {
-  // Wait for the loading indicator to disappear
-  const loading = page.locator('.v-data-table .v-progress-linear')
-  if (await loading.isVisible({ timeout: 1000 }).catch(() => false)) {
-    await loading.waitFor({ state: 'hidden', timeout: 10000 })
-  }
+export async function waitForTableLoaded(page: Page, timeout = 10000) {
+  await expect(page.locator('.v-data-table-progress, .v-data-table-rows-loading')).toHaveCount(0, { timeout })
+  await expect(page.locator('.v-data-table tbody tr').first()).toBeVisible({ timeout })
   await page.waitForTimeout(300)
 }
 

@@ -2089,7 +2089,8 @@
     "countStatus": {
       "draft": "Нацрт",
       "in_progress": "Во тек",
-      "completed": "Завршен"
+      "completed": "Завршен",
+      "cancelled": "Откажан"
     },
     "countType": {
       "full": "Целосен",
