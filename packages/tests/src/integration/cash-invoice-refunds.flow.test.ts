@@ -3780,6 +3780,17 @@ describe('an issue whose refund stopped after a part printed says how much went 
 })
 
 describe('a refund that prints is capped at what the customer paid on the invoice (the readers, A1)', () => {
+  it('what a voided note says it gave back does not count against the customer', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const voided = await issuedNote(w, inv)
+    await Invoice.updateOne({ _id: voided.id }, { $set: { status: 'voided', amountPaid: 24 } })
+    const note = await issuedNote(w, inv)
+
+    expect((await pay(w, note.id, 24)).status).toBe(200)
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
   /** A till sale of 48, and an invoice for one unit of it, 12. */
   async function invoicedInPart(w: TillWorld) {
     const sale = await w.sell(4)
@@ -4023,6 +4034,37 @@ describe('a till sale\'s invoice stands under its note\'s storno (the readers, B
     expect(storno.status).toBe('voided')
 
     expect((await voidIt(w, inv.id)).status).toBe(200)
+  })
+
+  it('refused before it claims anything, so nobody paying or issuing meanwhile is kept out by a void that will not happen', async () => {
+    const w = await tillWorld(app)
+    const { inv, note } = await invoiced(w)
+    expect((await pay(w, note.id, 12)).status).toBe(200)
+    const writes = spyOn(Invoice, 'findOneAndUpdate')
+    let r: any
+    let claims: unknown[]
+    try {
+      r = await voidIt(w, inv.id)
+      claims = writes.mock.calls.filter(([, update]: any) => update?.$set?.voidingUntil)
+    } finally {
+      writes.mockRestore()
+    }
+
+    expect(r.status).toBe(409)
+    expect(claims).toHaveLength(0)
+  })
+
+  it('a storno standing under a note that was voided anyway still holds the invoice: the money went back all the same', async () => {
+    const w = await tillWorld(app)
+    const { inv, note } = await invoiced(w)
+    expect((await pay(w, note.id, 12)).status).toBe(200)
+    await Invoice.updateOne({ _id: note.id }, { $set: { status: 'voided' } })
+
+    const r = await voidIt(w, inv.id)
+
+    expect(r.status).toBe(409)
+    expect(r.json).toMatchObject({ code: 'fiscally_paid', document: note.doc.invoiceNumber })
+    expect(await raw(inv.id)).toMatchObject({ status: 'paid' })
   })
 
   it('a note refunded by bank, or by nothing, holds up no void, as before', async () => {

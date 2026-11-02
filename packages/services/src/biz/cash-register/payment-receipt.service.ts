@@ -237,13 +237,14 @@ export async function freezeRefusal(orgId: string, documentId: string): Promise<
  * An invoice for a till sale has no money document of its own: its receipt is the sale's, so `freezeRefusal`
  * finds nothing on it. A refund's storno citing that sale stands under a note on it all the same, and voided
  * under that, two fiscal stornos sit under a note whose invoice is annulled, and the sale can be invoiced anew,
- * born paid, for money that has come back. So it answers for its live notes' stornos, each in the note's own
- * refusal. One that failed holds nothing up, and neither does a refund by bank.
+ * born paid, for money that has come back. So it answers for its notes' stornos, each in the note's own refusal,
+ * whatever became of the note: a storno that stands gave the money back all the same. One that failed holds
+ * nothing up, and neither does a refund by bank.
  */
 export async function freezeUnderNotes(orgId: string, invoice: any): Promise<Record<string, unknown> | null> {
   if (!invoice?.cashSaleRef?.cashSaleId) return null
   const notes: any[] = await Invoice.find(
-    { orgId: oid(orgId), type: 'credit_note', relatedInvoiceId: oid(invoice._id ?? invoice.id), status: { $nin: ['voided', 'cancelled'] } },
+    { orgId: oid(orgId), type: 'credit_note', relatedInvoiceId: oid(invoice._id ?? invoice.id) },
     { invoiceNumber: 1 },
   ).sort({ _id: 1 }).lean().exec()
   for (const note of notes) {
