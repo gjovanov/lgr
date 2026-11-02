@@ -1105,6 +1105,18 @@ export async function finishInterruptedStorno(c: RegisterContext, doc: any): Pro
 }
 
 /**
+ * A storno that has not started, and whose sale no longer names it. Past a lease a claim with no document is
+ * pulled (`releaseOrphanClaims`), so a request that stalled that long between its claim and its insert wakes
+ * with no claim, and another storno may hold the sale by now. Going on, that is two stornos of one sale. A
+ * copied row never claimed anything, and its sale may not name it.
+ */
+function lostItsClaim(doc: any, original: any): boolean {
+  const state = doc.register?.fiscal?.state
+  if ((state !== 'pending' && state !== 'none') || doc.register?.legacy) return false
+  return !(original.register?.stornoedBy ?? []).some((id: unknown) => String(id) === String(doc._id))
+}
+
+/**
  * Run whatever the storno has not done yet, then mark it complete.
  *
  * ⚠ #145: nothing is refunded until the device's answer is known.
@@ -1134,6 +1146,8 @@ export async function runStornoSteps(c: RegisterContext, id: string): Promise<an
     }
     doc = numbered
   }
+
+  if (lostItsClaim(doc, original)) doc = await couldNotPrint(doc, 'Another storno of this sale took over from this one, which had stopped before it started.')
 
   if (doc.register?.fiscal?.state === 'pending') {
     if (c.printer && !doc.register?.unp) {

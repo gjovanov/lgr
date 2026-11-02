@@ -15,7 +15,8 @@ import { getProductLedger } from 'services/biz/product-ledger.service'
 import { buildSessionReport } from 'services/biz/cash-register/session-report'
 import { listJournal } from 'services/biz/cash-register/journal.service'
 import { unfinishedRefusal } from 'services/biz/cash-register/payment-receipt.service'
-import { releaseOrphanClaims } from 'services/biz/cash-register/register.service'
+import { releaseOrphanClaims, runStornoSteps } from 'services/biz/cash-register/register.service'
+import { deviceless } from 'invoicing-api/src/lib/cash-register-till'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { exportCancelledSales, exportPaymentDetails, exportReversedSales } from 'services/biz/supto-export.service'
 import { postPosSessionJournal } from 'services/events/handlers'
@@ -656,6 +657,78 @@ describe('a storno\'s claim with no document: the process died between the claim
     expect(sale.register.stornoedBy).toHaveLength(1)
     expect(stornosOnDevice(w)).toHaveLength(1)
     expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+  })
+
+  describe('a request that stalled past a lease between its claim and its insert', () => {
+    /** The insert stalls. Meanwhile its claim grows old, and the next press finds nothing written under it. */
+    async function stalls(saleId: string, press: () => Promise<any>) {
+      const real = Invoice.create
+      let inner: any
+      let done = false
+      ;(Invoice as any).create = async function (...args: any[]) {
+        if (!done && args[0]?.type === 'cash_storno') {
+          done = true
+          await Invoice.updateOne({ _id: saleId }, { $set: { 'register.cancelledAt': old() } })
+          inner = await press()
+        }
+        return (real as any).apply(Invoice, args)
+      }
+      try {
+        const outer = await press()
+        return { inner, outer }
+      } finally {
+        ;(Invoice as any).create = real
+      }
+    }
+    /** The one that woke is voided with its number, and the sale still names the one that went through. */
+    async function oneStornoStands(w: TillWorld, saleId: string, through: any, woke: any) {
+      expect(through.status).toBe(200)
+      expect(woke.status).toBe(503)
+      expect(woke.json.message).toContain('took over')
+      const sale = await read(saleId)
+      expect(sale.register.stornoState).toBe('full')
+      expect(sale.register.stornoedBy.map(String)).toEqual([String(through.json.transaction.id)])
+      const voided: any[] = await Invoice.find({ orgId: w.oid, type: 'cash_storno', status: 'voided' }).lean().exec()
+      expect(voided).toHaveLength(1)
+      expect(voided[0].register.unp).toBeUndefined()
+      expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_storno', status: 'paid' })).toBe(1)
+      expect((await w.stock()).quantity).toBe(10)
+    }
+
+    it('it wakes with no claim, and prints nothing: the sale has its storno, and this one never was', async () => {
+      const w = await tillWorld(app)
+      const saleId = String((await w.sell(1)).json.transaction.id)
+
+      const run = await stalls(saleId, () => w.storno(saleId))
+
+      await oneStornoStands(w, saleId, run.inner, run.outer)
+      expect(stornosOnDevice(w)).toHaveLength(1)
+      expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+    })
+
+    it('a back-office sale the same, with nothing to print', async () => {
+      const w = await tillWorld(app)
+      const saleId = String((await w.backOfficeSale(1)).json.invoice.id)
+
+      const run = await stalls(saleId, () => w.call('POST', `/cash-register/documents/${saleId}/storno`, { reason: 'customer_return' }, undefined, w.clerkToken))
+
+      await oneStornoStands(w, saleId, run.inner, run.outer)
+    })
+
+    it('a copied storno its sale does not name is none of this: it never claimed anything', async () => {
+      const w = await tillWorld(app)
+      const sold = await w.sell(1)
+      const copy: any = await Invoice.create({
+        orgId: w.oid, invoiceNumber: 'TXN-OLD-3', type: 'cash_storno', direction: 'outgoing', status: 'paid', issueDate: new Date(), dueDate: new Date(), currency: 'EUR', exchangeRate: 1, total: 12,
+        relatedInvoiceId: sold.json.transaction.id, lines: [{ description: 'x', quantity: 1, unit: 'бр.', unitPrice: 10, taxRate: 20, taxAmount: 2, lineTotal: 12 }],
+        billingAddress: { street: '-' }, createdBy: w.user._id,
+        register: { origin: 'pos', legacy: { source: 'postransactions', type: 'storno', transactionNumber: 'TXN-OLD-3' }, fiscal: { state: 'none' } },
+      })
+
+      await runStornoSteps(deviceless(w.orgId, { id: String(w.user._id) } as any), String(copy._id))
+
+      expect((await read(copy._id)).status).toBe('paid')
+    })
   })
 
   it('past a lease: the close pulls it for its session\'s sales, and 18.5 lists no cancellation that never happened', async () => {
