@@ -1,5 +1,5 @@
 {
   "about": "FR-20.50 (plan step P3-8c): the SUPTO version this source implements, and the versions declared to НАП. Under Н-18 чл. 52в(3) and (3а) a change to Прил. 29 functionality or to the database structure is a NEW SUPTO version, which the producer declares within 7 days; a build within a version is not one. `version` is bumped by hand, in the commit that makes such a change. `declared` lists what the producer has declared, added in the commit that records the declaration. While it is empty LGR is not on НАП's list: nothing binds, and nothing is held. Once it is not, a release of an undeclared version waits: masters do not install it (lgrai.app's update offer says so, and the bundle's HOME.json is checked against it), and lgrai.app's own deploy refuses it (scripts/deploy-prod.sh reads this file with jq). Read by config/src/supto.ts, by the supervisor (include_str!) and by scripts/assemble-server-home.ts.",
-  "version": "2",
+  "version": "3",
   "declared": []
 }

@@ -17,6 +17,7 @@ import {
   keyedReceipt, prepareIssueReceipt, prepareReceipt, printReceipt, receiptOutcome, settleKeyedReceipt,
   type PreparedReceipt,
 } from '../lib/counter-receipt.js'
+import { issueTender, prepareIssueRefund, prepareRefund, refund, refundOutcome, refundedBy, type PreparedRefund } from '../lib/counter-refund.js'
 import { computePosTotals } from 'config/pos-totals'
 import { assertHomeIsHere } from 'db/home/home'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
@@ -25,7 +26,7 @@ import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement } from 'services/biz/cash-settlement.service'
 import { fitsDue, heldOn, isBeingVoided, issueLeaseFree, notBeingVoided, outstandingOf, paymentPipeline, unclaimedDraft } from 'services/biz/invoice-payment'
 import {
-  DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, inDoubtRefusal, isImportedDocument, owedByMovingToDelivery, owesDeliveryReceipt,
+  DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, freezeUnderNotes, inDoubtRefusal, isImportedDocument, owedByMovingToDelivery, owesDeliveryReceipt,
   paymentRefusal, printsOnPayment, receiptFacts, receiptInDoubt,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { movesPrintedMoney } from 'services/biz/cash-register/receipt-lines'
@@ -49,7 +50,7 @@ import {
   ReceiptBillError, applyLinkedBillPrices, checkLinkedBillEdit, isReceiptLinked, linkedReceiptsOf, receiptsOverlapping, releaseReceiptLinks,
   type ReceiptOverlap,
 } from 'services/biz/receipt-bill.service'
-import { REGISTER_TYPES } from 'services/biz/cash-register/pos-union'
+import { PAYMENT_STORNO, REGISTER_TYPES } from 'services/biz/cash-register/pos-union'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { billStockReceipts, isSupplierBill } from 'services/biz/bill-stock-receipt.service'
 
@@ -343,6 +344,8 @@ function synthesizeStatusHistory(invoice: any): any[] {
 const PAYMENT_METHODS = ['cash', 'bank_transfer', 'card', 'cash_on_delivery', 'other']
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
+/** The document as stored, ids and all: what the receipt's and the storno's steps read. */
+const rawOf = (id: string, orgId: string): Promise<any> => Invoice.findOne({ _id: id, orgId }).lean().exec()
 
 const ISSUE_IN_PROGRESS = { code: 'issue_in_progress', message: 'This document is already being issued' }
 
@@ -396,11 +399,32 @@ function nothingPrinted(doc: any): { receiptError?: string; receiptCode?: string
   if (outstandingOf(doc) <= 0) return {}
   return {
     receiptCode: 'issue_tender_moved',
-    receiptError: doc.paymentMethod === 'cash_on_delivery'
-      ? 'This document changed while it was being issued, so no receipt printed. It stands issued and unpaid: print its receipt on its page.'
-      : 'This document changed while it was being issued, so no receipt printed and nothing was paid. It stands issued and unpaid: take the payment with Pay.',
+    receiptError: doc.type === 'credit_note'
+      ? 'This credit note changed while it was being issued, so its refund stopped, and what did not print did not go back. It stands issued: give that with Refund.'
+      : doc.paymentMethod === 'cash_on_delivery'
+        ? 'This document changed while it was being issued, so no receipt printed. It stands issued and unpaid: print its receipt on its page.'
+        : 'This document changed while it was being issued, so no receipt printed and nothing was paid. It stands issued and unpaid: take the payment with Pay.',
   }
 }
+
+/**
+ * The same of a refund at issue, part of which may have gone back: what the issue decided, less what its
+ * stornos gave. ⚠ Between two stornos nothing holds the note, and on a retry nothing holds it at all. A
+ * printed storno freezes its total, so only the method and money taken by hand can move by then, but a second
+ * part in another method than the first is a refund nobody asked for.
+ */
+function refundMoved(note: any, stornos: any[]): boolean {
+  const tender = note.issue?.tender
+  return !!tender && tenderMoved(note, { method: tender.method, amount: (Number(tender.amount) || 0) - refundedBy(stornos) })
+}
+
+/**
+ * FR-23 §2.7: a credit note moved to correct another invoice. Its stornos cite the receipts of the one it
+ * corrects now, so once one stands this moves with its money: the device's storno would cite a receipt of
+ * an invoice the note no longer names.
+ */
+const correctsAnother = (doc: any, edit: any) =>
+  doc.type === 'credit_note' && edit.relatedInvoiceId !== undefined && String(edit.relatedInvoiceId ?? '') !== String(doc.relatedInvoiceId ?? '')
 
 /**
  * A refusal that answers for the key: the client keeps or drops its key by it, so it is never turned
@@ -1080,7 +1104,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (isImmutableRegisterDocument(existing as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
       // FR-23 §2.7: a printed receipt cannot change, so what it printed cannot either. Anything else
       // on the document stays editable, as on every other.
-      const movesMoney = (existing as any).direction === 'outgoing' && existing.status !== 'draft' && movesPrintedMoney(existing as any, body as any)
+      const movesMoney = (existing as any).direction === 'outgoing' && existing.status !== 'draft' && (movesPrintedMoney(existing as any, body as any) || correctsAnother(existing, body))
       if (movesMoney) {
         // A receipt whose request died is no reason to refuse, if it never printed.
         await finishInterruptedDocuments(orgId, user, id)
@@ -1368,6 +1392,23 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     /** The issued document, with what its receipt came to (FR-23). */
     const withReceipt = async (receipt: any) => ({ invoice: await r.invoices.findOne({ id, orgId } as any), ...receiptOutcome(receipt) })
+    /** The same of a refund: its last storno says what became of it, and all of them are named. */
+    const withStornos = async (stornos: any[]) => (stornos.length
+      ? { ...await withReceipt(stornos.at(-1)), stornos: refundOutcome(stornos), refunded: refundedBy(stornos) }
+      : { invoice: await r.invoices.findOne({ id, orgId } as any) })
+    /** Refused once it was issued. What a refund's earlier parts did stands, and the refusal says so (`refund`). */
+    const refusedAfterIssue = async (e: RegisterRefusal) => ({
+      invoice: await r.invoices.findOne({ id, orgId } as any),
+      receiptError: e.message,
+      ...(e.body.stornos ? { refunded: e.body.refunded, stornos: e.body.stornos } : {}),
+    })
+    /** What an issue's refund answers. What printed stands, and it says when the rest stopped because the note moved. */
+    const withIssuedRefund = async (stornos: any[]) => {
+      const now = await rawOf(id, orgId)
+      return { ...await withStornos(stornos), ...(refundMoved(now, stornos) ? nothingPrinted(now) : {}) }
+    }
+    /** Whether an issue's refund may print its next part. */
+    const stillAsIssued = async (stornos: any[]) => !refundMoved(await rawOf(id, orgId), stornos)
     /**
      * FR-23 §2.4: the receipt, now that the document has the number it names. Issued is issued: a
      * failure here leaves it issued and unpaid, says why, and the Pay button takes the money.
@@ -1376,7 +1417,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
      * method holds none at all, so what the issue decided is checked against the document as it stands:
      * moved, nothing prints. The issue's claim goes here, whichever way this ended; a crash lets it lapse.
      */
-    const printAtIssue = async (prepared: PreparedReceipt) => {
+    const printAtIssue = async (prepared: PreparedReceipt | PreparedRefund) => {
       try {
         const doc: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
         if (tenderMoved(doc, doc.issue?.tender ?? prepared.tender)) {
@@ -1387,11 +1428,14 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         if (prepared.tender.method === 'cash_on_delivery' && !(await owesDeliveryReceipt(orgId, doc))) {
           return { invoice: await r.invoices.findOne({ id, orgId } as any) }
         }
-        return await withReceipt(await printReceipt(orgId, prepared, doc, key ? { key, hash: hash! } : undefined))
+        const keyed = key ? { key, hash: hash! } : undefined
+        // R2: a credit note gives back what the issue decided, on as many stornos as it draws on.
+        if (doc.type === 'credit_note') return await withIssuedRefund(await refund(orgId, user, doc, prepared.tender, prepared as PreparedRefund, keyed, stillAsIssued))
+        return await withReceipt(await printReceipt(orgId, prepared as PreparedReceipt, doc, keyed))
       } catch (e: any) {
         if (!(e instanceof RegisterRefusal)) throw e
         if (answersForTheKey(e)) return status(e.statusCode, e.body)
-        return { invoice: await r.invoices.findOne({ id, orgId } as any), receiptError: e.message }
+        return await refusedAfterIssue(e)
       } finally {
         // A failure here must not answer for a receipt that printed: the lease lapses by itself.
         await Invoice.updateOne({ _id: id, orgId }, { $set: { 'issue.leaseUntil': null } }).exec().catch(() => undefined)
@@ -1404,18 +1448,21 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
      */
     const replayIssued = async () => {
       try {
-        const receipt = key ? await keyedReceipt(orgId, key) : null
-        if (receipt) return await withReceipt(await settleKeyedReceipt(orgId, user, receipt, hash!))
         const doc: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
+        const receipt = key ? await keyedReceipt(orgId, key) : null
+        // A refund goes on from whichever of its stornos the first attempt reached, for what the issue
+        // decided, whatever has gone back since.
+        if (receipt?.type === PAYMENT_STORNO) return await withIssuedRefund(await refund(orgId, user, doc, { ...issueTender(doc), amount: doc.issue?.tender?.amount ?? doc.total }, null, { key: key!, hash: hash! }, stillAsIssued))
+        if (receipt) return await withReceipt(await settleKeyedReceipt(orgId, user, receipt, hash!))
         if (doc.issue?.tender && tenderMoved(doc, doc.issue.tender)) {
           return { invoice: await r.invoices.findOne({ id, orgId } as any), ...nothingPrinted(doc) }
         }
-        const prepared = await prepareIssueReceipt(orgId, user, doc)
+        const prepared = doc.type === 'credit_note' ? await prepareIssueRefund(orgId, user, doc) : await prepareIssueReceipt(orgId, user, doc)
         if (prepared) return await printAtIssue(prepared)
       } catch (e: any) {
         if (!(e instanceof RegisterRefusal)) throw e
         if (answersForTheKey(e)) return status(e.statusCode, e.body)
-        return { invoice: await r.invoices.findOne({ id, orgId } as any), receiptError: e.message }
+        return refusedAfterIssue(e)
       }
       return { invoice: await r.invoices.findOne({ id, orgId } as any) }
     }
@@ -1480,10 +1527,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (overlap && (body as any)?.acknowledgeOverlap !== true) return status(409, receiptOverlapRefusal(invoice, overlap))
 
     // FR-23 §2.3: a document paid at the counter prints, in the open session of whoever issues it.
-    // No session, no device: refused here, with no number drawn, no stock moved, no claim taken.
-    let counter: PreparedReceipt | null
+    // No session, no device: refused here, with no number drawn, no stock moved, no claim taken. R2: a
+    // credit note the same way, with no receipt to storno or more than it still holds on top.
+    let counter: PreparedReceipt | PreparedRefund | null
     try {
-      counter = await prepareIssueReceipt(orgId, user, invoice)
+      counter = invoice.type === 'credit_note' ? await prepareIssueRefund(orgId, user, await rawOf(id, orgId)) : await prepareIssueReceipt(orgId, user, invoice)
     } catch (e: any) {
       if (!(e instanceof RegisterRefusal)) throw e
       await discardAsked()
@@ -1708,6 +1756,27 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         }
         return { invoice: await r.invoices.findOne({ id, orgId } as any), ...receiptOutcome(receipt) }
       }
+      /**
+       * R2: what a refund answers. All it printed stands; a part that did not stops the rest, and the
+       * answer says how much went back. Nothing printed answers as a receipt that did not.
+       */
+      const refundAnswer = async (stornos: any[]) => {
+        const last = stornos.at(-1)
+        if (!last) return { invoice: await r.invoices.findOne({ id, orgId } as any) }
+        const refunded = refundedBy(stornos)
+        if (last.register?.fiscal?.inDoubt) return status(409, { ...inDoubtRefusal(last), refunded })
+        if (last.register?.fiscal?.state === 'failed') {
+          return status(503, {
+            code: 'fiscal_error',
+            receiptId: String(last._id),
+            refunded,
+            message: `The storno was not printed, so this part of the refund was not recorded: ${last.register.receiptError}`,
+          })
+        }
+        return { invoice: await r.invoices.findOne({ id, orgId } as any), ...receiptOutcome(last), stornos: refundOutcome(stornos) }
+      }
+      /** The tender of this request: in cents, as a fiscal receipt has no others, dated as it prints. */
+      const tenderOf = () => ({ method: body.method, amount: round2(body.amount), date: new Date(), ...(body.reference ? { reference: body.reference } : {}) })
 
       let invoice = await r.invoices.findOne({ id, orgId } as any)
       if (!invoice) return status(404, { message: 'Invoice not found' })
@@ -1716,6 +1785,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         const receipt = await keyedReceipt(orgId, key)
         if (receipt) {
           try {
+            if (receipt.type === PAYMENT_STORNO) return await refundAnswer(await refund(orgId, user, await rawOf(id, orgId), tenderOf(), null, { key, hash: hash! }))
             return await receiptAnswer(await settleKeyedReceipt(orgId, user, receipt, hash!))
           } catch (e: any) {
             if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
@@ -1739,7 +1809,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       try {
         // In cents: a fiscal receipt has no others. Its date is the print's, which dates it in its
         // turn on the device: the device, the session and the row say one day.
-        const tender = { method: body.method, amount: round2(body.amount), date: new Date(), ...(body.reference ? { reference: body.reference } : {}) }
+        const tender = tenderOf()
+        if (invoice.type === 'credit_note') {
+          // R2: a refund in cash or by card prints a storno of a receipt that paid its invoice.
+          const note = await rawOf(id, orgId)
+          const preparedRefund = await prepareRefund(orgId, user, note, tender, false)
+          if (preparedRefund) return await refundAnswer(await refund(orgId, user, note, tender, preparedRefund, key ? { key, hash: hash! } : undefined))
+        }
         const prepared = await prepareReceipt(orgId, user, invoice, tender, false)
         if (prepared) {
           const doc = await Invoice.findOne({ _id: id, orgId }).lean().exec()
@@ -1873,7 +1949,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (isImmutableRegisterDocument(invoice as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
     // FR-23 §2.7: the receipt stands, so the document it paid does.
     await finishInterruptedDocuments(orgId, user, id)
-    const frozen = await freezeRefusal(orgId, id)
+    const frozen = await freezeRefusal(orgId, id) ?? await freezeUnderNotes(orgId, invoice)
     if (frozen) return status(409, frozen)
     // #171: an invoice for a cash sale is born paid, but the money is the cash sale's, so voiding
     // it gives nothing back — it only releases the sale's quantities for a new invoice.
@@ -1893,7 +1969,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (!claimed) return whoHolds(status, orgId, id)
     const release = () => Invoice.updateOne({ _id: id, orgId }, { $set: { voidingUntil: null } }).exec()
     // A receipt written before the claim that had not taken its hold yet will now be refused one.
-    const late = await freezeRefusal(orgId, id)
+    const late = await freezeRefusal(orgId, id) ?? await freezeUnderNotes(orgId, invoice)
     if (late) {
       await release()
       return status(409, late)

@@ -6,6 +6,7 @@ import { liveInvoiceNumbersFor } from '../cash-sale-invoice.service.js'
 import { releaseReceiptLinks } from '../receipt-bill.service.js'
 import { syncOrderForInvoice } from '../reservation.service.js'
 import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from '../cash-register/immutability.js'
+import { freezeRefusal } from '../cash-register/payment-receipt.service.js'
 import { removalReversalNote } from 'config/movement-notes'
 import { confirmMovement } from '../warehouse.service.js'
 import { stockMovementDao } from '../../dao/warehouse/stock-movement.dao.js'
@@ -103,14 +104,20 @@ async function planOne(orgId: string, doc: any, opts: DocDeleteOptions): Promise
 
   // ── invoices + movements this document booked ──
   for (const id of ids) {
-    const inv: any = await Invoice.findOne({ orgId, _id: id }).select('invoiceNumber type status total issueDate createdAt register.origin').lean()
+    const inv: any = await Invoice.findOne({ orgId, _id: id }).select('invoiceNumber type status total issueDate createdAt register.origin register.stornoState').lean()
     if (inv) {
       const stale = uploadedAt && inv.createdAt && new Date(inv.createdAt) < uploadedAt
       if (stale) plan.provenanceMismatch = true
       // FR-21.11: a till document or a storno is never voided, whatever booked it.
       const immutable = isImmutableRegisterDocument(inv)
       if (immutable) plan.warnings.push(`${inv.invoiceNumber}: ${REGISTER_DOCUMENT_IMMUTABLE.message}`)
-      let action: DocDeleteAction = inv.status === 'voided' ? 'already_reversed' : immutable || !opts.rollback ? 'skip' : stale && !opts.force ? 'skip' : 'void'
+      // FR-23 §2.7: nor a document a receipt or a refund's storno stands on, printed or held. The device has
+      // that money, and a void here would leave a fiscal document the books say was never paid. ⚠ Asked here,
+      // not left to what a commit books today: `printsAtCounter` keeps a receipt off an imported document, and
+      // nothing tells this path if that ever stops being true. In the refusal's own words, each its way out.
+      const frozen: any = !immutable && opts.rollback && inv.status !== 'voided' ? await freezeRefusal(orgId, String(inv._id)) : null
+      if (frozen) plan.warnings.push(`${inv.invoiceNumber}: ${frozen.message}`)
+      let action: DocDeleteAction = inv.status === 'voided' ? 'already_reversed' : immutable || frozen || !opts.rollback ? 'skip' : stale && !opts.force ? 'skip' : 'void'
       // #171: an invoice issued for this cash sale says the goods left on it. Voiding the sale
       // under it would put them back on the shelf while the customer's invoice still stands.
       if (action === 'void' && inv.type === 'cash_sale') {

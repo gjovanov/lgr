@@ -158,7 +158,7 @@ export function printsExactly(doc: ReceiptSource, gross: RateShare[]): boolean {
   return gross.every(g => toCents(sum(lines.filter(l => num(l.taxRate) === g.rate).map(deviceAmount))) === toCents(g.gross))
 }
 
-const noun = (doc: ReceiptSource) => (doc.type === 'debit_note' ? 'дебитно известие' : 'фактура')
+const noun = (doc: ReceiptSource) => (doc.type === 'debit_note' ? 'дебитно известие' : doc.type === 'credit_note' ? 'кредитно известие' : 'фактура')
 const capitalized = (s: string) => s[0].toUpperCase() + s.slice(1)
 
 /** The first wording that fits whole, then the number alone: it is what must never be cut. */
@@ -173,6 +173,11 @@ export function documentText(doc: ReceiptSource, max?: number): string {
 /** „Плащане по фактура № …". */
 export function paymentText(doc: ReceiptSource, max?: number): string {
   return firstThatFits([`Плащане по ${noun(doc)} № ${doc.invoiceNumber}`, documentText(doc, max)], max)
+}
+
+/** „Връщане по кредитно известие № …": what a refund's storno prints (R2). */
+export function refundText(doc: ReceiptSource, max?: number): string {
+  return firstThatFits([`Връщане по ${noun(doc)} № ${doc.invoiceNumber}`, documentText(doc, max)], max)
 }
 
 /** One receipt line carrying `gross` at `rate`. VAT comes out of the gross, as a device takes it out. */
@@ -241,6 +246,19 @@ export function receiptBody(input: ReceiptBodyInput): ReceiptBody | null {
   const lines = shares.map(s => rateLine(name, s))
   const taxTotal = roundCents(sum(lines.map(l => l.taxAmount)))
   return { lines, taxTotal, discountTotal: 0, total: amount, subtotal: roundCents(amount - taxTotal) }
+}
+
+/**
+ * FR-23 R2 — what the storno of a refund prints: one line per VAT rate, naming the credit note, whole or
+ * in part. A refund can span receipts and a device takes any lines on a storno, so the money is exact by
+ * construction and the receipt it cites is on its header, not in its lines.
+ */
+export function refundBody(doc: ReceiptSource, take: Map<number, number>, nameMax?: number): ReceiptBody {
+  const name = refundText(doc, nameMax)
+  const lines = [...take].map(([rate, cents]) => rateLine(name, { rate, gross: cents / 100 }))
+  const total = roundCents(sum(lines.map(l => l.lineTotal)))
+  const taxTotal = roundCents(sum(lines.map(l => l.taxAmount)))
+  return { lines, taxTotal, discountTotal: 0, total, subtotal: roundCents(total - taxTotal) }
 }
 
 /**

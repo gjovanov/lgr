@@ -99,7 +99,7 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
   async function finish(invoice: any, type: string, then?: (invoice: any) => Promise<void> | void) {
     lastError.value = ''
     const notice = issuedReceiptNotice(invoice)
-    lastReceiptError.value = notice ? t(notice.key, { reason: invoice.receiptError }) : ''
+    lastReceiptError.value = notice ? t(notice.key, { reason: invoice.receiptError, amount: (Number(invoice.refunded) || 0).toFixed(2) }) : ''
     lastReceiptTakesPayment.value = !!notice?.takesPayment
     if (lastReceiptError.value) showError(lastReceiptError.value)
     await opts.onIssued?.(invoice, type)

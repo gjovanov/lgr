@@ -7,6 +7,7 @@
       <tbody>
         <tr><td>{{ $t('pos.sessionReport.sales') }}</td><td class="text-end">{{ report.counts.sales }}</td></tr>
         <tr v-if="report.counts.payments" data-testid="session-report-payments"><td>{{ $t('pos.sessionReport.payments') }}</td><td class="text-end">{{ report.counts.payments }}</td></tr>
+        <tr v-if="report.counts.refunds" data-testid="session-report-refunds"><td>{{ $t('pos.sessionReport.refunds') }}</td><td class="text-end">{{ report.counts.refunds }}</td></tr>
         <tr><td>{{ $t('pos.sessionReport.stornos') }}</td><td class="text-end">{{ report.counts.stornos }}</td></tr>
         <tr v-if="report.counts.voided"><td>{{ $t('pos.sessionReport.voided') }}</td><td class="text-end">{{ report.counts.voided }}</td></tr>
         <tr><td>{{ $t('pos.sessionReport.fiscal') }}</td><td class="text-end">{{ report.counts.fiscal }}</td></tr>

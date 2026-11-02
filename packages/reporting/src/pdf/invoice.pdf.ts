@@ -238,12 +238,12 @@ export function buildInvoiceHtml(
       : '',
     // A storno names the cash sale it reverses, the same way, and why (`stornoRef`, filled by the
     // export from FR-21's `register.storno`).
-    inv.type === 'cash_storno' && inv.stornoRef?.number
+    (inv.type === 'cash_storno' || inv.type === 'payment_storno') && inv.stornoRef?.number
       ? `<tr><td class="k">${esc(L.stornoOf)}:</td><td class="v">${esc(inv.stornoRef.number)} / ${fmtDate(inv.stornoRef.issueDate)}${
         inv.stornoRef.unp ? ` · ${esc(L.unp)} ${esc(inv.stornoRef.unp)}` : ''}${
         inv.stornoRef.receiptNumber ? ` · ${esc(L.receiptNo)} ${esc(inv.stornoRef.receiptNumber)}` : ''}</td></tr>`
       : '',
-    inv.type === 'cash_storno' && inv.stornoRef?.reason
+    (inv.type === 'cash_storno' || inv.type === 'payment_storno') && inv.stornoRef?.reason
       ? `<tr><td class="k">${esc(L.reason)}:</td><td class="v">${esc((i18n.stornoReason as Record<string, string>)[inv.stornoRef.reason] || inv.stornoRef.reason)}</td></tr>`
       : '',
     // FR-23: the fiscal receipts that paid it, each with its number and УНП.

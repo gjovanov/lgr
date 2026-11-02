@@ -2486,8 +2486,8 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
 
 ## A fiscal receipt for every payment on an invoice (2026-10-31, FR-23 R1)
 
-Spec: `docs/fr/FR-23-cash-invoice-receipts.md`; §6 lists what the build decided. R2 (`payment_storno`,
-credit-note refunds) and R3 (the till's partial storno, #363) are not built.
+Spec: `docs/fr/FR-23-cash-invoice-receipts.md`; §6 lists what the build decided, §7 what R2's did. R3
+(the till's partial storno, #363) is not built.
 
 **The invoice is the sale** (Q-1): it moves the stock and posts the revenue, as it always did. A
 `payment_receipt` is the money: an `Invoice` row of its own type, in the register's `CS`/`CSR` series,
@@ -2592,7 +2592,7 @@ invoice still due until the courier pays).
   (`lostItsClaim`). A dead storno is found by its lapsed lease, by the sale's next
   storno and by the close, and a storno in doubt holds the close. It counts nowhere until settled, and neither
   does a `failed` one not yet voided: `UNPROVED_STORNO_STATES`, `posRowSign` and `NOT_UNPROVED_STORNO`, which ⚠ a
-  new reader that sums `cash_storno` must spread, and SUPTO's 18.2, 18.4, 18.5.
+  new reader that sums a storno of either kind must spread, and SUPTO's 18.2, 18.4, 18.5.
 - ⚠ **A fiscal sale in doubt cannot be stornoed** (409 `sale_receipt_in_doubt`, before the claim): read as not
   printed it refunds with no storno on the device (#281). A sale still running cannot either, fiscal or text
   (409 `sale_in_progress`): nothing of it is booked yet.
@@ -2726,6 +2726,65 @@ invoice still due until the courier pays).
   the Tremol driver over a fake transport.
 - ⚠ **`resetEventHandlers` removed nothing until FR-23** (Node reads the argument count, and the bus
   passed an explicit `undefined`), so a test file's listeners piled up between tests.
+
+## A storno for every refund on a credit note (2026-11-01, FR-23 R2)
+
+Spec: `docs/fr/FR-23-cash-invoice-receipts.md` §2.5 and §7. A credit note refunded in cash or by card,
+at issue (`/send`) or later (`/payments`), prints a `payment_storno`: the same document as a
+`payment_receipt`, through the same steps (`runReceiptSteps`), the other way. The credit note is the
+return: it took the goods back, once, and posted it. The storno is the money going back. It links
+`register.refundOf` (the credit note) and `register.storno.original*` (the receipt it cites: for an
+invoice issued for a till sale, that sale's own). The door is `invoicing-api/src/lib/counter-refund.ts`.
+
+- ⚠ **The budget lives in one place, `cash-register/refund-budget.ts`, on the cited document**
+  (`register.refundClaims`: storno, rate, cents), taken in one conditional update with the check that it
+  fits. Not `_id` order: a claim that writes then reads cannot know what is written after its read, so
+  two pods could both pass (§7). R3's partial storno feeds it with `takeBudget`.
+- ⚠ **`unknown` on a storno is held (`holdInDoubt`), never voided, never printed again.** It keeps its
+  claim and hold, books nothing, holds the close (`HOLDS_THE_CLOSE`), counts nowhere (`stornoUnproved`,
+  `NOT_UNPROVED_STORNO`), and a person settles it at R1's door. While one is in doubt no other refund by
+  cash or card goes through on that note, even a part that fits: a device must never end up with two.
+- ⚠ **What backs a refund is only what is finished and known to have printed** (`refundBacking`). A receipt
+  held for a person answers 409 `receipt_in_doubt`, a sale in doubt 409 `sale_receipt_in_doubt`, and settled
+  as printed each holds from then on. A till sale nobody finished comes first: one whose request died is booked
+  (`finishDeadSale`), and one still running answers 409 `payment_in_progress`. The door takes the number off
+  the slip for a fiscal receipt too, optionally: with none it stands as printed and its refund goes by bank. One it
+  brought is held to all a sale's is, and corrected at the door until a refund's storno cites it: a storno's
+  claim is in the correction's filter (`stornoCites`), and what a storno cites is read after its claim
+  (`takeFromCited`). A receipt whose `unknown` stands (an in-turn verdict, its money booked) has no door: it holds
+  nothing, 409 `no_receipt_to_storno`. ⚠ So only its own print may leave one: what a leftover's close did says
+  nothing about it, at the driver (`cancelFiscalReceipt`) and, for one with no cancel, at `opening`
+  (`verdictOfFailedPrint`).
+- ⚠ **A refund at issue is for what the issue decided** (`issue.tender`, `tenderMoved`). Its claim stands until
+  the storno does, as a receipt's, and moved, nothing prints (`receiptCode: 'issue_tender_moved'`). Between two
+  stornos nothing holds the note, and on a retry nothing holds it at all, so `refund` asks `refundMoved` before each
+  part after the first: what printed stands, and the rest does not print.
+- ⚠ **A storno prints on the device that printed its receipt:** the driver names its own fiscal memory.
+  With two connected in a warehouse the door asks for the receipt's by number (`connectedInWarehouse`); refused
+  otherwise (`receipt_on_other_device`). One storno per receipt a refund draws on, keys `<key>#2`, `#3`, so a
+  retry goes on from what printed, and both doors say how much went back (`refunded`, `stornos`).
+- ⚠ **A refund that prints is capped at what the customer paid** (`refundCap`, 422 `refund_exceeds_paid`): what this
+  invoice took, less what notes on it gave back by any method; for an invoice for a till sale, the invoice's own
+  amount, never the sale's. A guard, not a lock: it reads before the claim, and the budget stays what is atomic. A
+  bank refund takes no cap.
+- ⚠ **A held storno holds its note's cash and card refunds whatever the switch says** (above the gate), and `/void`
+  on a till sale's invoice answers for its notes' stornos (`freezeUnderNotes`).
+- ⚠ **`bookedOnItsSession` names `payment_storno`:** the steps and the close's preview read it, and a type it does
+  not name books no totals, silently. A session not `open` takes no refund: 409 `session_closing` at the door, and
+  once written the storno looks again and gives way, as a sale does.
+- Refusals, before anything is written: 409 `no_receipt_to_storno` (with `reason`, says refund by bank), 422
+  `refund_exceeds_receipts` (with `left`, what goes through if typed: `fittingAmount`), 403
+  `refund_requires_manager` (H4: `STORNO_ROLES`, this is a storno door), and all of R1's.
+- ⚠ **A credit note's payment is money OUT:** `createPaymentJournalEntry` posts Dr receivable / Cr cash
+  on one, for a bank refund too. Before R2 it posted every outgoing document's as money in. This, the digest's and
+  summary's signs and the "Refund" label are the one deliberate change where nothing prints (§2.3).
+- Readers: `NOT_PAYMENT_RECEIPT` names both types, `TILL_DOCUMENT_TYPES` and `MONEY_DOCUMENT_TYPES` carry
+  it, `refundGaveMoney` says when a session counts it negative. 18.2, 18.4 and 18.5 list it. SUPTO version 3.
+- A Files rollback skips one (`isImmutableRegisterDocument`), and asks `freezeRefusal` of every document it would
+  void: a receipt or a storno on it, printed or held, skips it too, and `force` does not get past that. No commit
+  books one: nothing imported prints a refund (`printsRefund`) or has a number to cite. A fenced import books
+  nothing for it (`bookingOf`).
+- Mutation-tested: `integration/cash-invoice-refunds.flow.test.ts`; e2e `cash-invoice-refunds.spec.ts`.
 
 ## An article starts its documents: „Заприходи", „Продай", „Резервирай" (2026-10-26, FR-22.47)
 

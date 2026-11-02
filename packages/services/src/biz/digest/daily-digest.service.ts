@@ -124,11 +124,13 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
     // voided one (a storno whose receipt failed, a Files rollback) took no money at all.
     const isRegister = d.type === 'cash_sale' || d.type === 'cash_storno'
     if (isRegister && d.status === 'voided') continue
-    const sign = d.type === 'cash_storno' ? -1 : 1
+    // FR-23 R2: a credit note's money goes the other way, now that it can have some.
+    const sign = d.type === 'cash_storno' || d.type === 'credit_note' ? -1 : 1
 
     if (d.direction === 'outgoing' && SALES_TYPES.includes(d.type)) {
       kpis.salesCount++
-      kpis.salesTotal += total
+      // Negative for a credit note, as in the methods below and in sales history: they have to foot.
+      kpis.salesTotal += sign * total
     } else if (isRegister) {
       if (sign > 0) kpis.cashCount++
       kpis.cashTotal += sign * total
@@ -151,16 +153,16 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
     }
   }
 
-  // Payments recorded ON the day, wherever their document was issued. Not the till's money: an
-  // invoice for a cash sale is born paid with rows marked `origin: 'cash_register'`, the cash sale's
-  // own takings, which are the Cash register line. A cash sale carries no payment rows, so those rows
-  // put the same money on this line too — and only for a cash sale someone invoiced (#171, R0 and §11).
-  // A receipt's own tender is the row on its invoice again (FR-23).
+  // Payments recorded ON the day, wherever their document was issued. Not an invoice for a cash sale's: it is
+  // born paid with rows marked `origin: 'cash_register'`, the cash sale's own takings, so those rows would put
+  // the same money here twice (#171, R0 and §11). A receipt's own tender is the row on its invoice again
+  // (FR-23). A refund's row on a credit note and a till storno's are money going back: they count against the
+  // day's, so a sale and its storno read nothing. What was voided took and gave nothing.
   const paid: any[] = await Invoice.aggregate([
-    { $match: { orgId: org, 'payments.date': { $gte: from, $lte: to }, ...NOT_PAYMENT_RECEIPT, ...NOT_UNPROVED_STORNO } },
+    { $match: { orgId: org, 'payments.date': { $gte: from, $lte: to }, status: { $ne: 'voided' }, ...NOT_PAYMENT_RECEIPT, ...NOT_UNPROVED_STORNO } },
     { $unwind: '$payments' },
     { $match: { 'payments.date': { $gte: from, $lte: to }, 'payments.origin': { $ne: 'cash_register' } } },
-    { $group: { _id: null, count: { $sum: 1 }, total: { $sum: '$payments.amount' } } },
+    { $group: { _id: null, count: { $sum: 1 }, total: { $sum: { $cond: [{ $in: ['$type', ['credit_note', 'cash_storno']] }, { $multiply: ['$payments.amount', -1] }, '$payments.amount'] } } } },
   ]).exec()
 
   kpis.paymentsCount = paid[0]?.count || 0
@@ -279,8 +281,9 @@ async function buildDocuments(orgId: string, date: string): Promise<DigestDocume
   const sales = rows.filter(r => r.direction === 'outgoing' && SALES_TYPES.includes(r.type))
   // The cash register's sales and stornos (FR-21.9) — one family, one number series.
   const cash = rows.filter(r => r.type === 'cash_sale' || r.type === 'cash_storno')
-  // FR-23: a payment's receipt is no sale of the day, but it holds a number of that series.
-  const receipts = rows.filter(r => r.type === 'payment_receipt')
+  // FR-23: a payment's receipt is no sale of the day, nor a refund's storno a return, but each holds a
+  // number of that series.
+  const receipts = rows.filter(r => r.type === 'payment_receipt' || r.type === 'payment_storno')
   const purchases = rows.filter(r => r.direction === 'incoming')
 
   const pack = (list: any[], key: string, cap: number) => ({

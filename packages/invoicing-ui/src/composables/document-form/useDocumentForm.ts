@@ -1122,9 +1122,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const correctable = computed(() =>
     isEdit.value && (config.docType === 'invoice' || config.docType === 'purchase_invoice') && CORRECTABLE.includes(invoiceStatus.value),
   )
-  /** FR-23: a sales document that still owes, as the lists offer it (`canRecordPayment`). */
+  /** FR-23: a sales document that still owes, as the lists offer it (`canRecordPayment`). A credit note owes the customer (R2). */
   const payable = computed(() =>
-    isEdit.value && config.direction === 'outgoing' && (config.docType === 'invoice' || config.docType === 'debit_note')
+    isEdit.value && config.direction === 'outgoing' && (config.docType === 'invoice' || config.docType === 'debit_note' || config.docType === 'credit_note')
     && !cashSaleRef.value && canRecordPayment({ type: config.apiType, status: invoiceStatus.value, direction: config.direction }),
   )
   /** FR-22.22: a proforma becomes an invoice once — and not after it was voided. */
@@ -1172,7 +1172,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     // FR-23: an issued invoice or debit note is paid from its own form too. It is how a payment
     // whose receipt failed is taken again.
     if (payable.value) {
-      issued.push({ label: t('invoicing.recordPayment'), icon: 'mdi-cash', variant: 'outlined', handler: () => { paymentDialog.value = true } })
+      const refund = config.docType === 'credit_note'
+      issued.push({ label: t(refund ? 'invoicing.recordRefund' : 'invoicing.recordPayment'), icon: refund ? 'mdi-cash-refund' : 'mdi-cash', variant: 'outlined', handler: () => { paymentDialog.value = true } })
     }
     issued.push(...notes)
     if (attachable.value) {
@@ -1511,6 +1512,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const deliveryReceiptDue = computed(() => !!invoiceData.value?.receiptToPrint)
   /** A receipt nothing can prove: this document waits for someone to settle it in the journal. */
   const receiptInDoubt = computed<{ id: string; number: string } | null>(() => invoiceData.value?.receiptInDoubt ?? null)
+  // FR-23: the fiscal documents that moved this document's money, each a way to its page.
+  const paymentReceipts = computed<{ id: string; number: string; amount: number; state?: string }[]>(() => invoiceData.value?.paymentReceipts ?? [])
   const printingReceipt = ref(false)
   const deliveryReceipt = createIdempotentAction()
   async function printDeliveryReceipt() {
@@ -1996,6 +1999,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     receiptTakesPayment,
     deliveryReceiptDue,
     receiptInDoubt,
+    paymentReceipts,
     printingReceipt,
     printDeliveryReceipt,
     paymentDialog,

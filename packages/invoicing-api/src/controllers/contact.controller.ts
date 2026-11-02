@@ -147,7 +147,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
     const [documents, receipts, unpaid, movementCount] = await Promise.all([
       // FR-23: the two counts, not a `$ne` on the type, which would fetch every document the contact has.
       Invoice.countDocuments({ orgId, contactId: id } as any),
-      Invoice.countDocuments({ orgId, type: 'payment_receipt', contactId: id } as any),
+      Invoice.countDocuments({ orgId, type: { $in: ['payment_receipt', 'payment_storno'] }, contactId: id } as any),
       Invoice.find({
         orgId,
         contactId: id,

@@ -36,18 +36,20 @@ export const NOT_INVOICE_FOR_CASH_SALE: Record<string, any> = { [CASH_SALE_REF_I
  * FR-23: leave out the receipts of payments on invoices, for a reader with no `type` in its filter.
  * The invoice is the sale and its payment row is the money; a receipt is both again, and it names
  * the customer and, printed whole, the invoice's products. A reader that names its types never
- * sees one.
+ * sees one. The same goes for the storno of a refund (R2): the credit note is the return, and its
+ * payment row is the money going back.
  */
-export const NOT_PAYMENT_RECEIPT: Record<string, any> = { type: { $ne: 'payment_receipt' } }
+export const NOT_PAYMENT_RECEIPT: Record<string, any> = { type: { $nin: ['payment_receipt', 'payment_storno'] } }
 
 /**
  * FR-23 (#145): leave out a storno nothing has proved yet, for a reader that sums documents: it is
  * still printing, or a person has to settle it. It refunded nothing, and stored `paid`, it reads as the
  * refund it may never have been. Settled as printed it counts from then on. A reader of POS rows has
- * the same rule in `posRowSign`.
+ * the same rule in `posRowSign`. A refund's storno (R2) is the same document the other way: `stornoUnproved`
+ * says so of a row, and a reader that names it here says so too.
  */
 export const NOT_UNPROVED_STORNO: Record<string, any> = {
-  $nor: [{ type: 'cash_storno', status: { $ne: 'voided' }, 'register.fiscal.state': { $in: UNPROVED_STORNO_STATES } }],
+  $nor: [{ type: { $in: ['cash_storno', 'payment_storno'] }, status: { $ne: 'voided' }, 'register.fiscal.state': { $in: UNPROVED_STORNO_STATES } }],
 }
 
 /** Whether LGR prints this org's sales: the printer gate's one switch (#390). ⚠ Unset reads as on. */

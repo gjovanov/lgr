@@ -66,16 +66,22 @@ export const ISSUED_KEY: Record<string, string> = {
  * and Pay is no way on: it waits for a person to settle it. A cash-on-delivery invoice owes the
  * courier's money, not a payment at the counter: its receipt prints on its own, and Pay would record
  * money nobody brought. A document that changed under its issue printed nothing, and says so in words.
+ * A refund that stopped after a part printed says how much went back: that money left the drawer, and
+ * "nothing was refunded" beside it has a person hand it over again. A part held in doubt stops Refund too.
  */
-export function issuedReceiptNotice(issued: { receiptError?: string; receiptCode?: string; paymentMethod?: string; receipt?: { state?: string } } | null | undefined): { key: string; takesPayment: boolean } | null {
+export function issuedReceiptNotice(issued: { receiptError?: string; receiptCode?: string; paymentMethod?: string; type?: string; refunded?: number; receipt?: { state?: string } } | null | undefined): { key: string; takesPayment: boolean } | null {
   if (!issued?.receiptError) return null
+  if (Number(issued.refunded) > 0) return { key: 'cashRegister.receipt.issuedPartlyRefunded', takesPayment: issued.receipt?.state !== 'unknown' }
   if (issued.receiptCode === 'issue_tender_moved') {
+    if (issued.type === 'credit_note') return { key: 'cashRegister.receipt.issuedChangedRefund', takesPayment: true }
     return issued.paymentMethod === 'cash_on_delivery'
       ? { key: 'cashRegister.receipt.issuedChangedDelivery', takesPayment: false }
       : { key: 'cashRegister.receipt.issuedChanged', takesPayment: true }
   }
   if (issued.receipt?.state === 'unknown' || issued.receipt?.state === 'printed') return { key: 'cashRegister.receipt.issuedUnknown', takesPayment: false }
   if (issued.paymentMethod === 'cash_on_delivery') return { key: 'cashRegister.receipt.issuedNoReceipt', takesPayment: false }
+  // R2: its storno did not print. Nothing went back, and the Refund action gives it.
+  if (issued.type === 'credit_note') return { key: 'cashRegister.receipt.issuedNotRefunded', takesPayment: true }
   return { key: 'cashRegister.receipt.issuedNotPaid', takesPayment: true }
 }
 
@@ -116,5 +122,7 @@ export async function sendIssue(
 ): Promise<any> {
   const { data } = await client.post(`${orgUrl}/invoices/${id}/send`, body, { headers })
   // FR-23: issued, and its receipt did not print. The issue stands; the caller says so.
-  return data?.receiptError ? { ...data.invoice, receiptError: data.receiptError, receiptCode: data.receiptCode, receipt: data.receipt } : data?.invoice
+  return data?.receiptError
+    ? { ...data.invoice, receiptError: data.receiptError, receiptCode: data.receiptCode, receipt: data.receipt, refunded: data.refunded, stornos: data.stornos }
+    : data?.invoice
 }
