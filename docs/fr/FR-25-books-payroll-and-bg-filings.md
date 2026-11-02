@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Plan, 2026-11-02. Nothing built. The research was read-only: both store servers, the accountant's PC, LGR prod. Employees' files were read on the PC by scripts that print shapes and monthly totals only (§4). §12 holds the questions that are not ours to answer. |
+| **Status** | Plan of 2026-11-02, with the owner's decisions of 2026-11-03 (§2, §12). Being built, release by release. The research was read-only: both store servers, the accountant's PC, LGR prod. Employees' files were read on the PC by scripts that print shapes and monthly totals only (§4). |
 | **Tracking** | [gjovanov/lgr#471](https://github.com/gjovanov/lgr/issues/471) |
 | **Builds on** | FR-06 (report registry), FR-12 (Files), FR-13 (sealed backups, retention), FR-19 (a person in several orgs), FR-20 (`replicate()`), FR-21 (one cash register), #362 (VAT accounts) |
 | **Code anchors** | origin/master `f09913a7`. Anchors, not gospel. |
@@ -214,9 +214,9 @@ Four models (`Employee`, `PayrollRun`, `Payslip`, `Timesheet`), a UI and tests, 
 
 ## 2. Decisions
 
-These are recommendations, made so that the plan can be read end to end. §12 says which ones need a word from the owner.
+Recommendations, except where marked as the owner's. §12 lists what is decided and what is still open.
 
-- **D1. Books live per legal entity, in a dedicated books org.** A new org (`regal-acc`) holds chart, analytics, entries, partners and VAT. `regal-pz` and `regal-sf` are its branches. Alternatives rejected: books inside `regal-pz` puts the other store's customers in its pickers and makes one store's admins the accountant; merging the two orgs is a large migration of two diverging catalogs for no gain to this FR.
+- **D1. Books live per legal entity, in a dedicated books org while Accounting and Payroll stabilise, and then move into `regal-pz` and `regal-sf`** (owner, 2026-11-03). A new org (`regal-acc`) holds chart, analytics, entries, partners, VAT and payroll, and the two stores are its branches. Merging the two store orgs is rejected: a large migration of two diverging catalogs for no gain to this FR. ⚠ One EIK has one ledger, one VAT return and one обр. 6, so the move (R7) has a question of its own: what lands in each store org and what stays single. To keep that open, every row carries its branch from the first day (`branchOrgId`), and ids are never reissued.
 - **D2. A single-org tenant is unchanged.** Unset means it keeps its own books, as today.
 - **D3. Group costing stays.** Book value of stock is per accounting group at the group's moving average, and inventory keeps its per-product cost. These are two different numbers on purpose, with a report showing the gap. СС 2 allows it where a group's items really are similar (§7.9). SAF-T will want quantities per article from 2029, which LGR has and the current books do not (§7.7). Whether to move to per-product cost later is the accountant's call with the evidence in hand, not a side effect of this work.
 - **D4. Import as booked, never recompute history.**
@@ -391,10 +391,56 @@ Covers `Employee`, `EmploymentContract`, `AbsenceEntry`, `LeaveBalance`, `Payrol
 
 - **Permissions.** `payroll.read` means run totals. A new `payroll.personal` means anything about one person. `payroll.import` and `payroll.file` join them. `member` loses `payroll.read`, the approve routes check the permission instead of a role name, and `accounting.read` sees `ЗАП` and its totals, no person. `nra_auditor` gets payroll only by explicit grant. Rollout: deploy → backfill → re-login, as FR-6.2 did.
 - **Masked by default.** Lists and gets answer the last digits of an ЕГН and an IBAN, and no ID card. Reading the whole value is a separate call, audit-logged with who and why. An ЕГН is never a login, a URL key or a display identifier (ЗЗЛД чл. 25ж).
-- **Encrypted at field level:** `nationalId`, `idCard`, `payment.iban`, `disabled`, with AES-256-GCM and a key from a sealed secret (`PAYROLL_DATA_KEY`), plus an HMAC for lookup by ЕГН. ⚠ Losing the key loses what the law says to keep for decades, so its custody joins the FR-13 runbook, and a restore without it is refused loudly rather than yielding blanks.
+- **Encrypted at field level** (owner, 2026-11-03): §3.12.
 - **Never in:** logs, audit payloads (an employee number, not a name), `BackgroundTask` results, the digest, the Files app, emails other than a person's own payslip, a report export without `payroll.personal`, `docs/`, fixtures. A flow test posts a run and greps what was logged and audited for the fixture's ЕГН.
 - **Stays off the stores.** The books org is homed on global. A home move refuses `settings.accounting.books.mode: 'books'`, so a store's on-prem master (FR-20) never holds this data, and a store admin has no membership in it (D1).
 - **Backups and retention.** Org bundles already carry every `tenantPlugin` model, sealed off-site (FR-13). Retention is an allow-list of two collections (`TOUCHABLE`), so nothing here can be pruned by accident. A person's erasure request meets the statutory 50 years (ЗСч чл. 12); the UI says so. If the employer ceases with no successor, ведомости go to НОИ, so they must export in readable form.
+
+### 3.12 Encrypting personal data
+
+**What it answers:** a database dump or an over-broad script, a disk or backup outside the sealed path, a developer's copy of prod. A compromised running app holds the key, so permissions, masking and the audit log are what answer misuse of the app itself.
+
+**Keys, two levels:**
+
+```text
+PERSONAL_DATA_KEK              32 random bytes in a sealed secret. Never in Mongo, never in a backup
+└─ PersonalDataKey             one row per org, travels with the org and its backups
+     keys[]: { keyId, wrapped, status }   the data key (DEK), wrapped by the KEK
+     indexKey                  wrapped too: keys the lookup HMAC
+     canary                    a known value sealed with the DEK
+```
+
+One key per org keeps a leak or a restore inside that org, and destroying one row ends that org's data when its retention is over. Two levels make rotating the KEK a rewrap of a few rows that touches no data.
+
+**A value** is a string: `pd1.<keyId>.<nonce>.<ciphertext+tag>`, AES-256-GCM with a random 96-bit nonce, and `orgId|model|docId|fieldPath` as additional data, so a ciphertext copied to another person, field or org does not open. The same `node:crypto` AEAD the sealed backups use. The core is import-pure, `services/biz/personal-data/crypto.ts`.
+
+| Model | Encrypted | In clear beside it |
+|---|---|---|
+| `Employee` | `nationalId`, `taxId`, `dateOfBirth`, `address`, `idCard`, `disabled`, `childRelief`, `salary`'s bank fields, `payment` | `nationalIdMask` (last 4), `nationalIdHmac` for lookup, names |
+| `EmploymentContract` | `salary`, each amendment's salary, `termination.compensations` | dates, position, codes |
+| `AbsenceEntry` | `code`, `document`: sick leave is health data | dates, `workingDays` |
+| `PayrollRun.items[]` | the whole item, one sealed JSON per person, under `engine: 'bg'` | `employeeId`, `contractId`, the run's totals |
+| `Payslip` | earnings, deductions, gross, net, year to date, under `engine: 'bg'` | `employeeId`, period, status |
+| `TaxReturn.files`, payroll kinds | the file's bytes | name, kind, period |
+
+Names stay in clear: lists and search need them, and alone they say little. `Employee`'s fields are encrypted in every org, because plain ЕГН is no better for a demo tenant; a run's items only under the Bulgarian engine, so D2 holds. Sums over people are done in memory after opening, which this scale allows; a run's totals are stored in clear, as `ЗАП` carries them anyway.
+
+**Nothing decrypts by itself.** Repositories return ciphertext, so a forgotten projection leaks only ciphertext. There are two paths to a value: `personalData.forOrg(orgId)` in server code (the engine, the generators), and `POST …/employee/:id/reveal { field, reason }` for a person, needing `payroll.personal` and audit-logged with who, which field and why, never the value.
+
+**A missing or wrong key fails loudly:**
+
+- No KEK: the app starts and everything else works. Personal writes and reveals answer **503 `personal_data_locked`**, never a blank and never plaintext stored instead.
+- Startup opens each org's canary. A failure is logged as an error and shown in the health detail and the morning digest's ops section.
+- A restore opens the canary before committing, and refuses a bundle this server's KEK cannot open.
+- A home move (FR-20) refuses when the target has no KEK able to open the org's canary.
+
+**Custody.** ⚠ Payroll is kept for 50 years, so losing the KEK loses what the law says to keep. `scripts/personal-data-key.ts` generates it without printing it, stores it in the sealed `lgr-secret`, and writes an escrow copy sealed to the backup's public key (`lgr-sealed-1`), kept beside the private half. The runbook joins FR-13's.
+
+**Rotation.** New KEK: set `PERSONAL_DATA_KEK_PREVIOUS`, run `rewrap`, remove it. New DEK: add a key id, new writes use it, a `reencrypt` job moves old values, and the old key is retired only when none is left. The index key does not rotate, so lookups survive.
+
+**P1's gate includes the drill:** an org backup restored into a throwaway server with the KEK opened from escrow, the canary and a made-up person read back. Plus a raw-collection test: no plain ЕГН in any stored document, log or audit row.
+
+**Existing rows** are demo and e2e data only (§1.9). A migration encrypts them, and refuses to run without a KEK.
 
 ## 4. Extraction
 
@@ -414,7 +460,7 @@ A new skill, `pull-plusminus-accounting`, beside `pull-plusminus-api`, on the sa
 
 ⚠ What is known not to work: there is no API on the accountant's install, its database files are encrypted, and the store servers hold no books. Do not spend time there.
 
-**E7 and E8 hold ЕГН numbers, pay and sick leave, and carry stricter rules than the rest.** They wait for the employer's go-ahead (§12). Until then nothing personal leaves that PC: everything in §1.8 was read there by scripts that print shapes and monthly totals (`tools/pay-*.ps1`, `decl-recon*.ts`). Once allowed, a file is sealed with a public key as it arrives, is decrypted only in memory by the import CLI, and is deleted when P1's gate has passed and the accountant has confirmed. Prod is its only lasting home.
+**E7 and E8 hold ЕГН numbers, pay and sick leave, and carry stricter rules than the rest.** The employer's owner agreed on 2026-11-03 (§12). Everything in §1.8 was read before that, on the PC, by scripts that print shapes and monthly totals (`tools/pay-*.ps1`, `decl-recon*.ts`). A file is sealed with a public key as it arrives (`lgr-sealed-1`, never written in clear), is decrypted only in memory by the import CLI, and is deleted when P1's gate has passed and the accountant has confirmed. Prod is its only lasting home.
 
 ## 5. Importing the books (R1)
 
@@ -700,7 +746,7 @@ If it passes, it changes this plan in three ways. The register generators have a
 
 **⚠ Two things LGR does today that a system of record may not.** Neither matters while PlusMinus is the book of record, and both must be settled for R6, in `branch` mode only:
 
-1. **ЗСч чл. 8:** „Поправки и добавки в първичните счетоводни документи не се допускат": a wrong document is annulled and a new one issued. LGR's issued documents are editable in every status, by a decision (CLAUDE.md, Draft+Issued). See §12.
+1. **ЗСч чл. 8:** „Поправки и добавки в първичните счетоводни документи не се допускат": a wrong document is annulled and a new one issued. LGR's issued documents are editable in every status, by a decision (CLAUDE.md, Draft+Issued). The owner's answer, 2026-11-03: from R6, a `branch` org (`regal-pz`, `regal-sf`) cannot edit an issued document, and the form offers annul and re-issue. Other tenants keep today's behaviour.
 2. **ЗДДС чл. 114(1) т. 2, ЗСч чл. 6(1) т. 1:** a ten-digit number of Arabic digits only. LGR's counters print `INV-2026-…`, and imports keep `INV-` in front of the ten digits. The printed number, and 02-05, must be the digits alone, and one system must own each series (today's counter sits inside PlusMinus's range).
 
 ### 7.10 Sources
@@ -728,13 +774,14 @@ Each is deployable alone and each has a gate. No release turns anything on in a 
 | **R0** | Repairs, below. Independent of everything else | Tests + `bun run test` |
 | **R1** | §3.1–3.4 models, books org, E1–E3, §5, Оборотна ведомост, Главна книга, Хронологична, Журнал | §5's gate, to the cent, 2025 and 2026 to date |
 | **R2** | Filed files as `VatRegisterEntry`, generators (VIES included), cell logic, VAT screen | 42 filed months regenerate equal (§7.1), and the 9 VIES files (§7.2) |
-| **P1** | §3.10–3.11 models and personal-data controls, E7–E9, §5.1, payroll reports. Needs the books org from R1 and the employer's go-ahead (§12) | §5.1's gate over 44 months, and the personal-data flow test |
+| **P1** | §3.10–3.11 models and personal-data controls, E7–E9, §5.1, payroll reports. Needs the books org from R1 | §5.1's gate over 44 months, the personal-data flow test, and the key drill (§3.12) |
 | **R3** | §3.5–3.7, mapping + review, worker, shadow for sales and till, comparison | Sales register equal for a filed month, except the rows §12 explains |
 | **R4** | Purchases in LGR: bills through the existing OCR pipeline, expense analytic, VAT period, protocols (`-П`), customs | Purchase register + DEKLAR equal for a filed month |
 | **P2** | The engine, `PayrollParameter`, `PostingRule` for `ЗАП`, the month's sheet, payroll in the comparison | §6.4's proof over 44 months, then `ЗАП` equal per account and analytic for two running months |
 | **R5** | Bank import with the accountant's rules (`bankImportRules`, 12 banks' formats), `settles`, cash book | Bank and cash ledgers equal for a month |
 | **P3** | обр. 1 and 6, ЕТЗ, чл. 73(6), служебни бележки, annual recalculation, Параграфи НАП, contract papers, leave | Each file equal to the last filed one, the annual ones on last year's data, and accepted by NRA's client (§7.4) |
 | **R6** | Amortization, month-end VAT entries, year-end close, period lock, the two conflicts of §7.9, switch over, payroll included | §6.3's bar, the head's written decision and updated policy (§7.9), then the accountant's say-so |
+| **R7** | Accounting and Payroll move from `regal-acc` into `regal-pz` and `regal-sf` (D1). Its design is written once they are stable, and starts with what cannot be split per store | A dry run of the move on a copy, then the owner's say-so |
 | Later | ГДД and annual statements fully from LGR, SAF-T with `cnCode` and `nraCode` (due 2029, §7.7), e-invoicing (if it passes, 2028, §7.8), Intrastat, NSI statistics | |
 
 R1, then R2 and P1 in parallel, then R3. R4 and P2 can run side by side, then R5 and P3. Nothing in P1–P3 touches a store org.
@@ -779,7 +826,7 @@ R1, then R2 and P1 in parallel, then R3. R4 and P2 can run side by side, then R5
 - The first LGR обр. 6 carries a tax that PlusMinus calculated (§1.8), so December's run must be imported before January's file.
 - A declaration's rows are per person per month. History has exactly one row each, but a person with two contracts, or who leaves and returns inside a month, must not collide: key on person + contract + period.
 - A person leaving mid-month, a mid-month parameter change and a partial month all reach the same day-based calculation, never a special case.
-- Both payroll files name their software in a developer field. Compared with it masked; what LGR writes there is in §12.
+- Both payroll files name their software in a developer field. Compared with it masked; LGR writes its maker's EIK there, from configuration (§12).
 
 ## 12. Questions
 
@@ -800,11 +847,16 @@ R1, then R2 and P1 in parallel, then R3. R4 and P2 can run side by side, then R5
 12. **The NRA account statement for 2025:** do net receipts exceed 1.5M лв.? It decides SAF-T 2028 or 2029 (§7.7). Which size category is the company, and is it above an Intrastat threshold?
 13. **Are the groups "similar" enough for СС 2** (§7.9), and is the policy written down?
 
-**For the owner:**
+**Decided by the owner, 2026-11-03:**
 
-14. **D1:** a dedicated `regal-acc` org, which this plan assumes. Say so if the books should sit in `regal-pz` instead.
-15. **E6:** only if E1 is too slow: is a copy of `.arz` in a throwaway server acceptable, under PlusMinus's licence and for the data? This plan does not need it.
-16. **E7 and E8 need the employer's go-ahead.** The company is the controller of its employees' data, and moving payroll to LGR makes LGR's operator a processor. Who at the company agrees to this, and is a written processing agreement in place? P1 cannot start without it. R0–R3 can.
-17. **`PAYROLL_DATA_KEY`:** field-level encryption is the recommendation (§3.11). It adds a key whose loss is serious, kept like the backup seal key. Say so if projection and masking alone should do.
-18. **The developer field** on обр. 1 and обр. 6 names the software's maker (§7.4). Which company's EIK does LGR write there?
-19. **Editing issued documents.** The guard was removed on purpose, and ЗСч чл. 8 says a primary document is annulled and re-issued, never corrected (§7.9). The plan's answer: for a `branch` org from R6, an issued document cannot be edited, and the form offers annul and re-issue. Other tenants keep today's behaviour. Say so if you want it otherwise, or want it for everyone.
+- **The employer agrees** to moving payroll to LGR, through its owner and manager. So E7 and E8 may run, and P1 may start.
+- **Editing issued documents:** no longer possible in `regal-pz` and `regal-sf` from R6 (§7.9).
+- **Field-level encryption:** yes, designed in §3.12.
+- **The developer field** on обр. 1 and обр. 6 carries the EIK of LGR's maker, from configuration (`PAYROLL_DEVELOPER_EIK`), never hardcoded.
+- **The books org:** `regal-acc` while the two apps stabilise, then into `regal-pz` and `regal-sf` (D1, R7).
+
+**Still open for the owner:**
+
+14. **A written processing agreement.** The company is the controller of its employees' data and LGR's operator becomes a processor (GDPR art. 28). The agreement above should be on paper before real payroll runs in LGR.
+15. **R7's shape,** when it comes: one ledger, one VAT return and one обр. 6 per EIK cannot be split per store. The natural answer is that one store org holds them and the other sees its share. Nothing built before R7 depends on the choice.
+16. **E6,** only if E1 is too slow: is a copy of `.arz` in a throwaway server acceptable, under PlusMinus's licence and for the data? This plan does not need it.
