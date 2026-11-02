@@ -29,6 +29,8 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'sale_in_progress': return 'cashRegister.receipt.saleInProgress'
     case 'receipt_number_required': return 'cashRegister.receipt.numberRequired'
     case 'receipt_number_taken': return 'cashRegister.receipt.numberTaken'
+    case 'receipt_number_off_device': return 'cashRegister.receipt.numberOffDevice'
+    case 'receipt_number_cited': return 'cashRegister.receipt.numberCited'
     case 'delivery_receipt_owed': return 'cashRegister.receipt.deliveryOwed'
     case 'receipts_unfinished': return 'cashRegister.receipt.unfinished'
     case 'close_interrupted': return 'pos.close.interrupted'
@@ -42,9 +44,9 @@ export function isFailedPrint(data: { code?: string } | null | undefined): boole
 }
 
 /** The receipts a refusal names: the one in doubt, or the ones a session cannot close over. */
-export function receiptRefusalParams(data: { receipt?: { number?: string }; document?: string; receipts?: Array<{ id?: string; number?: string | null; invoice?: string }> } | null | undefined): { number: string; numbers: string } {
+export function receiptRefusalParams(data: { receipt?: { number?: string }; document?: string; receipts?: Array<{ id?: string; number?: string | null; invoice?: string }>; last?: number } | null | undefined): { number: string; numbers: string; last: string } {
   const numbers = (data?.receipts ?? []).map(r => r.number ?? r.invoice ?? r.id ?? '').filter(Boolean).join(', ')
-  return { number: data?.receipt?.number ?? data?.document ?? '', numbers }
+  return { number: data?.receipt?.number ?? data?.document ?? '', numbers, last: data?.last === undefined ? '' : String(data.last) }
 }
 
 /** The message for a refused request: the receipt's own, the server's, or `fallback`. */

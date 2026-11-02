@@ -1131,7 +1131,12 @@
       "saleSettled": "Verkauf geklärt",
       "receiptNumber": "Belegnummer",
       "numberRequired": "Ein gedruckter Verkauf braucht seine Belegnummer vom Bon, in Ziffern: sein Storno zitiert sie.",
-      "numberTaken": "Diese Belegnummer gehört auf diesem Gerät zu {number}. Prüfen Sie den Bon."
+      "numberTaken": "Diese Belegnummer gehört auf diesem Gerät zu {number}. Prüfen Sie den Bon.",
+      "numberOffDevice": "Diese Belegnummer liegt über der letzten, die dieses Gerät vergeben hat ({last}). Prüfen Sie den Bon.",
+      "numberCited": "Ein Storno oder eine Rechnung dieses Verkaufs nennt diese Belegnummer, daher bleibt sie bestehen.",
+      "correctNumber": "Nummer korrigieren",
+      "correctNumberConfirm": "Geben Sie die Belegnummer so ein, wie sie auf dem Bon steht. Das Storno dieses Verkaufs nennt sie, und das Protokoll behält beide.",
+      "numberCorrected": "Belegnummer korrigiert"
     },
     "origin": {
       "pos": "Kasse",

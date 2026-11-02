@@ -2,9 +2,9 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, reconnect, type TillWorld } from '../helpers/till-world'
-import { draftOf, gate, pay, raw, receiptsOf, send, sessionOf } from '../helpers/receipt-world'
-import { createTestFiscalDevice } from '../helpers/factories'
-import { FiscalDevice, FiscalPresence, Invoice, POSSession } from 'db/models'
+import { clerkSale, clerkSession, draftOf, gate, pay, raw, receiptsOf, send, sessionOf } from '../helpers/receipt-world'
+import { createTestContact, createTestFiscalDevice } from '../helpers/factories'
+import { AuditLog, FiscalDevice, FiscalPresence, Invoice, POSSession } from 'db/models'
 import { paymentReceiptDocument } from 'services/biz/cash-register/payment-receipt.service'
 import { receiptBody } from 'services/biz/cash-register/receipt-lines'
 import { POD_ID } from 'services/biz/fiscal-presence.service'
@@ -36,6 +36,22 @@ afterAll(async () => { await teardownTestDB() }, 60_000)
 afterEach(async () => { forgetDevices(); await clearCollections() }, 30_000)
 
 const PAYMENT = 0x35
+
+/** Run `meanwhile` exactly once, right before the write `at` picks: an interleaving forced, not timed. */
+function during(at: (update: any) => boolean, meanwhile: () => Promise<unknown>) {
+  const real = Invoice.findOneAndUpdate
+  let done = false
+  ;(Invoice as any).findOneAndUpdate = function (filter: any, update: any, ...rest: any[]) {
+    if (done || !at(update)) return (real as any).call(Invoice, filter, update, ...rest)
+    done = true
+    const chain = {
+      lean: () => chain,
+      exec: async () => { await meanwhile(); return (real as any).call(Invoice, filter, update, ...rest).lean().exec() },
+    }
+    return chain
+  }
+  return () => { (Invoice as any).findOneAndUpdate = real }
+}
 
 const settle = (w: TillWorld, id: unknown, printed: boolean, receiptNumber?: string) =>
   w.call('POST', `/cash-register/documents/${id}/settle`, { printed, ...(receiptNumber ? { receiptNumber } : {}) })
@@ -360,6 +376,314 @@ describe('the way out, and what must not make a real settle impossible (finding 
 
     expect(r.status).toBe(409)
     expect(r.json.code).toBe('receipt_not_in_doubt')
+  })
+})
+
+describe('a number typed off the slip (finding 7)', () => {
+  /** A sale in doubt, cleared by an X report, so the device reads idle. Answers the number on its slip. */
+  async function settleable(w: TillWorld) {
+    const held = await sale(w)
+    forgetDevices()
+    reconnect(w)
+    await getPrinter(w.deviceId).printDailyXReport()
+    return { id: held.id, onTheSlip: w.sim!.receipts.at(-1)!.number!, last: w.sim!.lastDocNumber }
+  }
+
+  describe('its bounds', () => {
+    it('above the device\'s last number: refused, read in the same turn as the open flag', async () => {
+      const w = await tillWorld(app)
+      const { id, last } = await settleable(w)
+
+      const r = await settle(w, id, true, '9999999')
+
+      expect(r.status).toBe(422)
+      expect(r.json.code).toBe('receipt_number_off_device')
+      expect(r.json.last).toBe(last)
+      expect((await read(id)).register.fiscal.state).toBe('unknown')
+      expect((await read(id)).register.settled).toBeUndefined()
+    })
+
+    it('the last number itself is taken, and so is one below it: there is no lower bound', async () => {
+      const w = await tillWorld(app)
+      const { id, onTheSlip } = await settleable(w)
+      expect(Number(onTheSlip)).toBeLessThanOrEqual(w.sim!.lastDocNumber)
+      expect((await settle(w, id, true, '1')).status).toBe(200)
+      expect((await read(id)).register.fiscalReceiptNumber).toBe('1')
+    })
+
+    it('a device that cannot say skips it, and the rest of the checks stand', async () => {
+      const w = await tillWorld(app)
+      const { id } = await settleable(w)
+      unregisterPrinter(w.deviceId)
+      const driver = new EltradeFiscalPrinter(w.sim!.exchange, w.deviceId)
+      registerPrinter(w.deviceId, new Proxy(driver, {
+        get: (t: any, p) => {
+          const v = t[p]
+          if (p === 'getLastReceiptNumber') return undefined
+          return typeof v === 'function' ? v.bind(t) : v
+        },
+      }))
+
+      expect((await settle(w, id, true, 'ФБ-1')).json.code).toBe('receipt_number_required')
+      expect((await settle(w, id, true, '9999999')).status).toBe(200)
+    })
+
+    it('a counter that cannot be read, on a driver that has one, is no answer', async () => {
+      const w = await tillWorld(app)
+      const { id, onTheSlip } = await settleable(w)
+      // The open flag reads fine, and the line goes at the counter, in the same turn.
+      w.sim!.beforeCommand = (cmd) => { if (cmd === 0x71) throw new Error('Bridge disconnected') }
+
+      const r = await settle(w, id, true, onTheSlip)
+
+      expect(r.json.code).toBe('receipt_device_away')
+      expect((await read(id)).register.settled).toBeUndefined()
+    })
+
+    it('a device whose counter has gone back since this sale read it: its memory was replaced, and it says nothing of this slip', async () => {
+      const w = await tillWorld(app)
+      const { id } = await settleable(w)
+      await Invoice.updateOne({ _id: id }, { $set: { 'register.fiscal.counterBefore': w.sim!.lastDocNumber + 400 } })
+
+      const r = await settle(w, id, true, String(w.sim!.lastDocNumber + 401))
+
+      expect(r.status).toBe(200)
+    })
+
+    it('deactivated: nothing to read it against, and the word stands', async () => {
+      const w = await tillWorld(app)
+      const { id } = await settleable(w)
+      await FiscalDevice.updateOne({ _id: w.deviceId }, { $set: { isActive: false } })
+
+      expect((await settle(w, id, true, '9999999')).status).toBe(200)
+    })
+
+    it('another session\'s number on the same device is taken: two on one device is normal', async () => {
+      const w = await tillWorld(app)
+      const clerk = await clerkSession(w)
+      const other = await clerkSale(w, clerk, 1)
+      const theirs = other.json.transaction.fiscalReceiptNumber
+      const { id } = await settleable(w)
+
+      const r = await settle(w, id, true, String(Number(theirs)))
+
+      expect(r.status).toBe(422)
+      expect(r.json.code).toBe('receipt_number_taken')
+      expect(r.json.document).toBe(other.json.transaction.transactionNumber)
+    })
+
+    it('in all three spellings', async () => {
+      const w = await tillWorld(app)
+      const clerk = await clerkSession(w)
+      const theirs = (await clerkSale(w, clerk, 1)).json.transaction.fiscalReceiptNumber
+      const { id } = await settleable(w)
+      for (const spelled of [theirs, String(Number(theirs)), String(Number(theirs)).padStart(4, '0')]) {
+        const r = await settle(w, id, true, spelled)
+        expect(r.json.code, spelled).toBe('receipt_number_taken')
+      }
+    })
+
+    it('another device\'s, or the same device\'s outside 31 days, is not: a replaced fiscal memory counts from one again', async () => {
+      const w = await tillWorld(app)
+      const earlier = await w.sell(1)
+      const theirs = earlier.json.transaction.fiscalReceiptNumber
+      const { id } = await settleable(w)
+      const earlierId = new Invoice.base.Types.ObjectId(String(earlier.json.transaction.id))
+
+      await Invoice.collection.updateOne({ _id: earlierId }, { $set: { 'register.fiscalDeviceNumber': 'ED999999' } })
+      const another = await settle(w, id, true, theirs)
+      expect(another.json.code).not.toBe('receipt_number_taken')
+      expect(another.status).toBe(200)
+    })
+
+    it('outside 31 days of this sale it is not taken', async () => {
+      const w = await tillWorld(app)
+      const earlier = await w.sell(1)
+      const theirs = earlier.json.transaction.fiscalReceiptNumber
+      const { id } = await settleable(w)
+      const earlierId = new Invoice.base.Types.ObjectId(String(earlier.json.transaction.id))
+
+      await Invoice.collection.updateOne({ _id: earlierId }, { $set: { createdAt: new Date(Date.now() - 30 * 86_400_000) } })
+      expect((await settle(w, id, true, theirs)).json.code).toBe('receipt_number_taken')
+      await Invoice.collection.updateOne({ _id: earlierId }, { $set: { createdAt: new Date(Date.now() - 32 * 86_400_000) } })
+      expect((await settle(w, id, true, theirs)).status).toBe(200)
+    })
+  })
+
+  describe('correcting one', () => {
+    /** A sale settled printed under `typed`, finished. */
+    async function settled(w: TillWorld, typed = '1') {
+      const s = await settleable(w)
+      expect((await settle(w, s.id, true, typed)).status).toBe(200)
+      return s
+    }
+    const fields = async (id: string) => {
+      const { register: r } = await read(id)
+      return { settled: r.settled.receiptNumber, receiptNo: r.fiscal.receiptNo, number: r.fiscalReceiptNumber }
+    }
+
+    it('the same door and rights: all three stored fields rewritten, audited old to new, and the storno cites it', async () => {
+      const w = await tillWorld(app)
+      const { id, onTheSlip } = await settled(w)
+
+      expect((await w.call('POST', `/cash-register/documents/${id}/settle`, { printed: true, receiptNumber: onTheSlip }, undefined, await w.tokenAs('sales'))).status).toBe(403)
+      expect((await fields(id)).number).toBe('1')
+
+      const r = await settle(w, id, true, onTheSlip)
+
+      expect(r.status).toBe(200)
+      expect(await fields(id)).toEqual({ settled: onTheSlip, receiptNo: onTheSlip, number: onTheSlip })
+      const audit: any = await AuditLog.findOne({ orgId: w.oid, action: 'correct_receipt_number' }).lean().exec()
+      expect(String(audit.entityId)).toBe(id)
+      expect(String(audit.userId)).toBe(String(w.user._id))
+      expect(audit.changes).toEqual([expect.objectContaining({ field: 'receiptNumber', oldValue: '1', newValue: onTheSlip })])
+      const page = (await w.call('GET', `/cash-register/documents/${id}`)).json
+      expect(page.row.fiscal).toMatchObject({ numberTyped: true, receiptNumber: onTheSlip })
+
+      expect((await w.storno(id)).status).toBe(200)
+      expect(closedOnDevice(w).at(-1)!.header[5]).toBe(onTheSlip)
+    })
+
+    it('the same checks: digits, the device\'s last number, one already taken, the device asked', async () => {
+      const w = await tillWorld(app)
+      const other = (await w.sell(1)).json.transaction.fiscalReceiptNumber
+      const { id } = await settled(w)
+
+      expect((await settle(w, id, true, 'ФБ-1')).json.code).toBe('receipt_number_required')
+      expect((await settle(w, id, true, '9999999')).json.code).toBe('receipt_number_off_device')
+      expect((await settle(w, id, true, other)).json.code).toBe('receipt_number_taken')
+      forgetDevices()
+      expect((await settle(w, id, true, '2')).json.code).toBe('receipt_device_away')
+      expect((await fields(id)).number).toBe('1')
+      expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'correct_receipt_number' })).toBe(0)
+    })
+
+    it('the number it has already: nothing written, and nothing on the trail', async () => {
+      const w = await tillWorld(app)
+      const { id } = await settled(w)
+
+      expect((await settle(w, id, true, '1')).status).toBe(200)
+      expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'correct_receipt_number' })).toBe(0)
+    })
+
+    it('once a storno cites it: 409, and the number stands', async () => {
+      const w = await tillWorld(app)
+      const { id, onTheSlip } = await settled(w, '2')
+      expect((await w.storno(id)).status).toBe(200)
+
+      const r = await settle(w, id, true, onTheSlip)
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('receipt_number_cited')
+      expect((await fields(id)).number).toBe('2')
+    })
+
+    it('a storno held in doubt cites it too', async () => {
+      const w = await tillWorld(app)
+      const { id, onTheSlip } = await settled(w, '2')
+      w.sim!.dropAfter = 0x38
+      expect((await w.storno(id)).json.code).toBe('storno_in_doubt')
+      w.sim!.disconnected = false
+
+      expect((await settle(w, id, true, onTheSlip)).json.code).toBe('receipt_number_cited')
+    })
+
+    it('a storno voided since cites nothing: it gave the sale back, and a bad number is why one is corrected', async () => {
+      const w = await tillWorld(app)
+      const { id, onTheSlip } = await settled(w, '2')
+      w.sim!.paper = false
+      expect((await w.storno(id)).status).toBe(503)
+      w.sim!.paper = true
+      expect((await read(id)).register.stornoState).toBe('none')
+
+      const r = await settle(w, id, true, onTheSlip)
+
+      expect(r.status).toBe(200)
+      expect((await fields(id)).number).toBe(onTheSlip)
+      expect((await w.storno(id)).status).toBe(200)
+      expect(closedOnDevice(w).at(-1)!.header[5]).toBe(onTheSlip)
+    })
+
+    it('an invoice for the sale carries it, printed: it stands', async () => {
+      const w = await tillWorld(app)
+      const { id, onTheSlip } = await settled(w, '2')
+      const contact = await createTestContact(w.oid, { companyName: 'Клиент ООД', type: 'customer' } as any)
+      expect((await w.call('POST', `/invoices/${id}/to-invoice`, { contactId: String(contact._id), issue: false })).status).toBe(200)
+
+      expect((await settle(w, id, true, onTheSlip)).json.code).toBe('receipt_number_cited')
+
+      const r = await w.call('POST', `/invoices/${id}/to-invoice`, { contactId: String(contact._id), issue: false })
+      expect(r.status).toBeGreaterThanOrEqual(200)
+    })
+
+    it('a number the device gave cannot be corrected, and neither can what was settled not printed', async () => {
+      const w = await tillWorld(app)
+      const printed = await w.sell(1)
+      const r = await settle(w, printed.json.transaction.id, true, '1')
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('receipt_not_in_doubt')
+
+      const { id } = await settleable(w)
+      expect((await settle(w, id, false)).status).toBe(200)
+      expect((await settle(w, id, true, '1')).json.code).toBe('receipt_not_in_doubt')
+    })
+
+    it('of a correction and a storno\'s claim one gives way: corrected first, the storno cites the correction', async () => {
+      const w = await tillWorld(app)
+      const { id, onTheSlip } = await settled(w, '2')
+      const undo = during(update => update?.$set?.['register.stornoState'] === 'full', async () => {
+        expect((await settle(w, id, true, onTheSlip)).status).toBe(200)
+      })
+      let r: any
+      try {
+        r = await w.storno(id)
+      } finally {
+        undo()
+      }
+
+      expect(r.status).toBe(200)
+      expect(closedOnDevice(w).at(-1)!.header[5]).toBe(onTheSlip)
+    })
+
+    it('claimed first, the correction is refused, and the storno cites what it read', async () => {
+      const w = await tillWorld(app)
+      const { id, onTheSlip } = await settled(w, '2')
+      let inside: any
+      const undo = during(update => !!update?.$set?.['register.settled.receiptNumber'], async () => {
+        inside = await w.storno(id)
+      })
+      let r: any
+      try {
+        r = await settle(w, id, true, onTheSlip)
+      } finally {
+        undo()
+      }
+
+      expect(inside.status).toBe(200)
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('receipt_number_cited')
+      expect((await fields(id)).number).toBe('2')
+      expect(closedOnDevice(w).at(-1)!.header[5]).toBe('2')
+    })
+
+    it('a settle that stopped halfway: corrected, and the same answer finishes it', async () => {
+      const w = await tillWorld(app)
+      const s = await settleable(w)
+      await Invoice.updateOne({ _id: s.id }, { $unset: { completedAt: 1 } })
+      const undo = during(update => !!update?.$set?.completedAt, async () => { throw new Error('the pod went away') })
+      try {
+        expect((await settle(w, s.id, true, '1')).status).toBe(500)
+      } finally {
+        undo()
+      }
+      await Invoice.updateOne({ _id: s.id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+
+      expect((await settle(w, s.id, true, s.onTheSlip)).status).toBe(200)
+
+      const done = await read(s.id)
+      expect(done.register.fiscalReceiptNumber).toBe(s.onTheSlip)
+      expect(done.completedAt).toBeTruthy()
+    })
   })
 })
 

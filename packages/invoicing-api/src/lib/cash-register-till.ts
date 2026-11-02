@@ -651,7 +651,9 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
     assertStornoTender(input.payments, original, printsReceipt ? c.printer! : null)
 
     const stornoId = newDocumentId()
-    if (!(await claimForStorno(original, stornoId))) {
+    const claimed = await claimForStorno(original, stornoId)
+    if (claimed) original = claimed
+    else {
       // A duplicate of the request that won: wait for its storno, then answer as it does.
       if (key) {
         for (let i = 0; i < 40; i++) {

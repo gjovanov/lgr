@@ -217,12 +217,22 @@ test.describe('FR-23 — a storno that may have printed', () => {
     await expect(confirm).toBeDisabled()
     await page.getByTestId('receipt-settle-number').locator('input').fill('ФБ-1')
     await expect(confirm).toBeDisabled()
-    await page.getByTestId('receipt-settle-number').locator('input').fill(onTheSlip)
+    // Misread at first: a number no document has, and below what the device has reached.
+    await page.getByTestId('receipt-settle-number').locator('input').fill('1')
     const settling = page.waitForResponse(r => r.url().endsWith(`/cash-register/documents/${inDoubt.id}/settle`))
     await confirm.click()
     expect((await settling).status()).toBe(200)
     await expect(page.getByTestId('receipt-in-doubt')).toHaveCount(0)
     await expect(page.getByTestId('storno-button')).toBeVisible()
+    await expect(page.getByTestId('journal-document-receipt-number')).toContainText('1')
+
+    // The page corrects it, until something cites it.
+    await page.getByTestId('receipt-correct-number').click()
+    await page.getByTestId('receipt-settle-number').locator('input').fill(onTheSlip)
+    const correcting = page.waitForResponse(r => r.url().endsWith(`/cash-register/documents/${inDoubt.id}/settle`))
+    await page.getByTestId('receipt-settle-confirm').click()
+    expect((await correcting).status()).toBe(200)
+    await expect(page.getByTestId('journal-document-receipt-number')).toContainText(onTheSlip)
 
     await ok(manager, 'POST', `/cash-register/documents/${inDoubt.id}/storno`, { reason: 'customer_return', sessionId: till.id })
     const cited = (await device()).receipts.at(-1)

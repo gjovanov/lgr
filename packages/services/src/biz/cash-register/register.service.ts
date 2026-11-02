@@ -980,14 +980,16 @@ export function stornoDocument(input: StornoInput): Record<string, any> {
  * have printed, or settled so by a person, and the lease on the storno document says who is working on that
  * document and takes nothing over from the sale. A claim whose storno was never written is the one thing
  * that lapses: `releaseOrphanClaims`, by its age, id by id.
+ *
+ * ⚠ Answers the sale as claimed, and the storno is written from that: a receipt number corrected since the
+ * door read the sale is the one it cites, and from here on a correction gives way (`correctReceiptNumber`).
  */
-export async function claimForStorno(original: any, stornoId: ObjectId): Promise<boolean> {
-  const claimed = await Invoice.findOneAndUpdate(
+export async function claimForStorno(original: any, stornoId: ObjectId): Promise<any | null> {
+  return Invoice.findOneAndUpdate(
     { _id: original._id, orgId: original.orgId, type: 'cash_sale', status: 'paid', 'register.stornoState': { $ne: 'full' } },
     { $set: { 'register.stornoState': 'full', 'register.cancelledAt': new Date() }, $push: { 'register.stornoedBy': stornoId } },
     { new: true },
-  ).exec()
-  return !!claimed
+  ).lean().exec()
 }
 
 /**

@@ -95,6 +95,8 @@ export interface JournalRow {
     receiptNumber?: string
     deviceNumber?: string
     printedAt?: string
+    /** Its receipt number was typed off the slip by a person, who can correct it until something cites it. */
+    numberTyped?: boolean
   }
   stock: JournalStock
   reference?: string
@@ -265,6 +267,7 @@ function fromDocument(doc: any, moved: Set<string>): JournalRow {
       ...(reg.fiscalDeviceNumber ? { deviceNumber: reg.fiscalDeviceNumber } : {}),
       ...(reg.printedAt ? { printedAt: new Date(reg.printedAt).toISOString() } : {}),
       ...(reg.fiscal?.inDoubt || saleInDoubt(doc) ? { inDoubt: true } : {}),
+      ...(reg.settled?.receiptNumber ? { numberTyped: true } : {}),
     },
     stock: reg.stockError ? 'error' : moved.has(id) || reg.movementId ? 'moved' : 'none',
     ...(doc.reference ? { reference: doc.reference } : {}),
