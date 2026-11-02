@@ -209,6 +209,22 @@ describe('a fiscal document in doubt, its money on the device: both answers wait
     expect((await settle(w, held.id, false)).json.code).toBe('receipt_open_on_device')
   }, 30_000)
 
+  it('a device that does not answer, switched off with its tab still open: told in time, before the request is cut', async () => {
+    const w = await tillWorld(app)
+    const held = await storno(w)
+    const never = gate()
+    w.sim!.beforeCommand = () => never.closed
+    const started = Date.now()
+
+    const r = await settle(w, held.id, false)
+
+    expect(r.json.code).toBe('receipt_device_away')
+    expect(Date.now() - started).toBeLessThan(25_000)
+    expect((await read(held.id)).register.settled).toBeUndefined()
+    w.sim!.beforeCommand = null
+    never.open()
+  }, 40_000)
+
   it('a driver with no way to ask leaves it to the person', async () => {
     const w = await tillWorld(app)
     const held = await storno(w)

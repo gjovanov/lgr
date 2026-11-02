@@ -74,10 +74,13 @@ export const SETTLE_DEVICE_BUSY = {
 } as const
 
 /**
- * How long the door waits for the device's turn. ⚠ Well under the 30 s a request is cut at (`idleTimeout`):
- * someone is looking at this page, and a Z can hold the device for minutes. They hear busy, and press again.
+ * How long the door waits for the device's turn, and for its answer. ⚠ Well under the 30 s a request is cut
+ * at (`idleTimeout`): someone is looking at this page. A Z can hold the device for minutes, and they hear
+ * busy and press again. A device switched off with its tab still open takes a driver 90 s to give up on, and
+ * an answer past the cut reaches nobody, so the person would never read what to do about it.
  */
 const ASK_WAIT_MS = 10_000
+const ASK_ANSWER_MS = 20_000
 
 /** Whose words these are, in the words the message has to use. */
 const NAMES: Record<string, string> = { [PAYMENT_RECEIPT]: 'receipt', cash_storno: 'storno', cash_sale: 'sale' }
@@ -143,14 +146,23 @@ export async function auditStoppedSettlement(c: RegisterContext, doc: any): Prom
 
 /** What the door asks of a device that is here, in its turn. Refuses until nothing it holds can change the answer. */
 async function askDevice(device: RegisterPrinter): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const asked = device.operation(async () => device.receiptOpen?.(), { waitMs: ASK_WAIT_MS })
+  // It may outlive the wait, and whatever it says then is nobody's to hear.
+  asked.catch(() => undefined)
   try {
-    const open = await device.operation(async () => device.receiptOpen?.(), { waitMs: ASK_WAIT_MS })
+    const open = await Promise.race([
+      asked,
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('The device did not answer in time')), ASK_ANSWER_MS) }),
+    ])
     if (open === true) throw new RegisterRefusal(409, { ...RECEIPT_OPEN_ON_DEVICE })
   } catch (e: any) {
     if (e instanceof RegisterRefusal) throw e
     // ⚠ Not left to the person. A driver that cannot say answers `undefined` above, and this one could
     // and did not: read as "cannot say", a dropped line was what let a real receipt be settled away.
     throw new RegisterRefusal(409, e?.code === 'device_busy' ? { ...SETTLE_DEVICE_BUSY } : { ...RECEIPT_DEVICE_AWAY })
+  } finally {
+    clearTimeout(timer)
   }
 }
 
