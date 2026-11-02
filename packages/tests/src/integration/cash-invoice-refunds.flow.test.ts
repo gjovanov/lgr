@@ -1749,6 +1749,125 @@ describe('what backs a refund, in doubt: a person settles it, and it holds what 
   })
 })
 
+describe('a receipt whose `unknown` stands has no door, so only its own print may leave one (the third read, finding 4)', () => {
+  const closedOnDevice = (w: TillWorld) => w.sim!.receipts.filter(r => !r.voided)
+  /**
+   * An earlier sale's receipt, paid, left open. 3Ch is refused, and the fallback's close twice over, and then
+   * it passes: a paper roll changed in that instant. The clear ignores what it said, so the next document's
+   * open is refused, and its abandon is what finishes the earlier one. Answers how many closes it took.
+   */
+  function paidLeftover(w: TillWorld) {
+    w.sim!.receipt = { kind: 'fiscal', header: [], sales: [], texts: [], payments: [{ mode: 'P', amount: 12 }], total: 12, paid: 12 }
+    let closes = 0
+    w.sim!.beforeCommand = (cmd) => { w.sim!.paper = !(cmd === 0x38 && ++closes <= 2) }
+    return () => closes
+  }
+
+  it('a payment_receipt, a paid leftover, the fallback close failing twice and then passing: `failed`, no money booked, and nothing left for a door', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    expect((await send(w, d.id)).status).toBe(200)
+    const closes = paidLeftover(w)
+
+    const r = await pay(w, d.id, 24)
+
+    expect(closes()).toBe(3)
+    expect(r.status).toBe(503)
+    expect(r.json.code).toBe('fiscal_error')
+    const [receipt] = await receiptsOf(d.id)
+    expect(receipt.type).toBe('payment_receipt')
+    expect(receipt.register.fiscal.state).toBe('failed')
+    expect(receipt.register.fiscal.inDoubt).toBeUndefined()
+    expect(receipt.status).toBe('voided')
+    const invoice = await raw(d.id)
+    expect(invoice).toMatchObject({ status: 'sent', amountPaid: 0, amountDue: 24 })
+    expect(invoice.payments).toHaveLength(0)
+    expect(invoice.receiptHolds ?? []).toHaveLength(0)
+    expect((await sessionOf(w)).totalCash).toBe(0)
+    // The device holds only the earlier sale's, and nothing of this payment.
+    expect(closedOnDevice(w).map(x => x.total)).toEqual([12])
+
+    // It printed nothing, so its refund has nothing to cite, and it says so.
+    w.sim!.beforeCommand = null
+    const note = await issuedNote(w, d)
+    expect((await pay(w, note.id, 24)).json.code).toBe('no_receipt_to_storno')
+
+    // The next press prints it, and then it holds.
+    expect((await pay(w, d.id, 24)).status).toBe(200)
+    expect(closedOnDevice(w).map(x => x.total)).toEqual([12, 24])
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect((await pay(w, note.id, 24)).status).toBe(200)
+    expect(closedOnDevice(w).map(x => x.kind)).toEqual(['fiscal', 'fiscal', 'storno'])
+  })
+
+  it('at issue, the same run: issued and unpaid, and Pay takes it', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    const closes = paidLeftover(w)
+
+    const r = await send(w, d.id)
+
+    expect(closes()).toBe(3)
+    expect(r.status).toBe(200)
+    expect(r.json.receipt.state).toBe('failed')
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0, amountDue: 24 })
+    expect((await sessionOf(w)).totalCash).toBe(0)
+    expect(closedOnDevice(w).map(x => x.total)).toEqual([12])
+  })
+
+  it('a refund\'s storno, the same run: voided, its claim and its hold given back, nothing refunded, and the next press prints the one storno', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    const closes = paidLeftover(w)
+
+    const r = await pay(w, note.id, 24)
+
+    expect(closes()).toBe(3)
+    expect(r.status).toBe(503)
+    expect(r.json).toMatchObject({ code: 'fiscal_error', refunded: 0 })
+    const [storno] = await stornosOf(note.id)
+    expect(storno.register.fiscal.state).toBe('failed')
+    expect(storno.status).toBe('voided')
+    expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0, amountDue: 24 })
+    expect((await raw(note.id)).receiptHolds ?? []).toHaveLength(0)
+    expect((await fresh(inv.receipt._id)).register.refundClaims ?? []).toHaveLength(0)
+    expect((await sessionOf(w)).totalCash).toBe(24)
+    expect(closedOnDevice(w).map(x => x.kind)).toEqual(['fiscal', 'fiscal'])
+
+    w.sim!.beforeCommand = null
+    expect((await pay(w, note.id, 24)).status).toBe(200)
+    expect(closedOnDevice(w).map(x => x.kind)).toEqual(['fiscal', 'fiscal', 'storno'])
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect((await sessionOf(w)).totalCash).toBe(0)
+  })
+
+  it('what does leave one, its own print with its answer lost: the device has it, its money is booked, and its refund goes by bank', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    expect((await send(w, d.id)).status).toBe(200)
+    w.sim!.dropAfter = 0x38
+
+    const r = await pay(w, d.id, 24)
+
+    w.sim!.disconnected = false
+    expect(r.status).toBe(200)
+    expect(r.json.receipt.state).toBe('unknown')
+    expect(closedOnDevice(w).map(x => x.total)).toEqual([24])
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect((await sessionOf(w)).totalCash).toBe(24)
+    const [receipt] = await receiptsOf(d.id)
+    expect(receipt.register.fiscal.inDoubt).toBeUndefined()
+    expect(receipt.completedAt).toBeTruthy()
+    expect((await settle(w, receipt._id, true, undefined, String(w.sim!.lastDocNumber))).json.code).toBe('receipt_not_in_doubt')
+
+    const note = await issuedNote(w, d)
+    expect((await pay(w, note.id, 24)).json.code).toBe('no_receipt_to_storno')
+    expect((await pay(w, note.id, 24, 'bank_transfer')).status).toBe(200)
+    expect(await stornosOf(note.id)).toHaveLength(0)
+  })
+})
+
 describe('print-once, the receipt\'s own (#155): a storno on a device', () => {
   /** A storno its request left at `fiscal`, its lease lapsed: the process died there, holding what it held. */
   async function interrupted(w: TillWorld, inv: { receipt: any }, note: { id: string; total?: number }, fiscal: Record<string, unknown>, amount = 24) {
