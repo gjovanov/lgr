@@ -3534,7 +3534,7 @@ describe('a till sale\'s invoice stands under its note\'s storno (the readers, B
     expect((await voidIt(w, inv.id)).status).toBe(200)
   })
 
-  it('a storno whose request died and never reached the device is no reason to refuse', async () => {
+  it('a storno that failed holds nothing up: it printed nothing', async () => {
     const w = await tillWorld(app)
     const { inv, note } = await invoiced(w)
     w.sim!.paper = false
@@ -3706,6 +3706,81 @@ describe('a device that is not fiscalized: the device decides, never a switch', 
     expect(await raw(note.id)).toMatchObject({ amountPaid: 0 })
     expect(leftByRate(await fresh(inv.receipt._id)).get(20)).toBe(2400)
     expect((await pay(w, note.id, 24)).status).toBe(200)
+  })
+})
+
+describe('a held storno and the switch (the readers, B5)', () => {
+  /** A storno of 6 held in doubt, its receipt behind it, and then the switch off. */
+  async function heldThenOff(w: TillWorld) {
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    w.sim!.dropAfter = 0x38
+    expect((await pay(w, note.id, 6)).json.code).toBe('receipt_in_doubt')
+    w.sim!.disconnected = false
+    const [storno] = await stornosOf(note.id)
+    await allowSalesWithoutPrinter(w.oid)
+    return { inv, note, storno }
+  }
+
+  it('it holds its note\'s refunds whatever the switch says: refused, in its own words, nothing recorded', async () => {
+    const w = await tillWorld(app)
+    const { note, storno } = await heldThenOff(w)
+    const before = await sessionOf(w)
+
+    for (const method of ['cash', 'card']) {
+      const r = await pay(w, note.id, 6, method)
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('receipt_in_doubt')
+      expect(r.json.receipt.number).toBe(storno.invoiceNumber)
+    }
+
+    expect((await raw(note.id)).payments ?? []).toHaveLength(0)
+    expect((await raw(note.id)).amountPaid).toBe(0)
+    expect((await sessionOf(w)).totalCash).toBe(before.totalCash)
+    expect((await shown(w, note.id)).receiptInDoubt).toMatchObject({ number: storno.invoiceNumber })
+  })
+
+  it('whoever asks: the way out is the settle door, not a role', async () => {
+    const w = await tillWorld(app)
+    const { note } = await heldThenOff(w)
+    const r = await pay(w, note.id, 6, 'cash', undefined, await w.tokenAs('sales'))
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_in_doubt')
+  })
+
+  it('what a bank refund takes is what no storno holds, as it was: it touches no device', async () => {
+    const w = await tillWorld(app)
+    const { note } = await heldThenOff(w)
+    expect((await pay(w, note.id, 18, 'bank_transfer')).status).toBe(200)
+    expect((await pay(w, note.id, 6, 'bank_transfer')).json.code).toBe('receipt_in_doubt')
+  })
+
+  it('settled, the rest is by decision: the switch is off, so a cash refund is recorded with nothing printed', async () => {
+    const w = await tillWorld(app)
+    const { note, storno } = await heldThenOff(w)
+    expect((await settle(w, storno._id, false)).status).toBe(200)
+    const printed = w.sim!.receipts.length
+
+    const r = await pay(w, note.id, 6)
+
+    expect(r.status).toBe(200)
+    expect(await raw(note.id)).toMatchObject({ status: 'partially_paid', amountPaid: 6 })
+    expect((await raw(note.id)).payments.at(-1).origin).toBeUndefined()
+    expect(w.sim!.receipts).toHaveLength(printed)
+  })
+
+  it('a new note in cash on an invoice with a receipt, the switch off: issued with no storno, by decision', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    await allowSalesWithoutPrinter(w.oid)
+    const printed = w.sim!.receipts.length
+    const note = await noteOn(w, inv)
+
+    expect((await send(w, note.id)).status).toBe(200)
+
+    expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect(await stornosOf(note.id)).toHaveLength(0)
+    expect(w.sim!.receipts).toHaveLength(printed)
   })
 })
 

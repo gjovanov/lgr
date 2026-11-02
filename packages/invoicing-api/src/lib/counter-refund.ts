@@ -77,6 +77,13 @@ async function finishDeadSaleBehind(orgId: string, user: RegisterUser, note: any
  */
 export async function prepareRefund(orgId: string, user: RegisterUser & { role?: string }, note: any, tender: ReceiptTender, atIssue: boolean): Promise<PreparedRefund | null> {
   if (!printsRefund(note, tender.method)) return null
+
+  // ⚠ A storno of this note nothing can prove: it may have printed, nobody has said, and pressing again
+  // is how a device ends up with two. Refused whatever the amount, even one that would fit beside it, and
+  // whatever the switch says: turned off, the refund goes past it with nothing on the device.
+  const held = await receiptInDoubt(orgId, String(note._id))
+  if (held) throw new RegisterRefusal(409, inDoubtRefusal(held))
+
   const settings = await tillSettings(orgId)
   if (!settings.requireConnectedDevice) return null
 
@@ -90,11 +97,6 @@ export async function prepareRefund(orgId: string, user: RegisterUser & { role?:
   if (!atIssue && (note.status === 'draft' || note.numberHistory?.at(-1)?.status === 'draft')) {
     throw new RegisterRefusal(422, { code: 'document_not_issued', message: 'Issue this document first: its storno names its number.' })
   }
-
-  // ⚠ A storno of this note nothing can prove: it may have printed, nobody has said, and pressing again
-  // is how a device ends up with two. Refused whatever the amount, even one that would fit beside it.
-  const held = await receiptInDoubt(orgId, String(note._id))
-  if (held) throw new RegisterRefusal(409, inDoubtRefusal(held))
 
   // What a request that died left on the invoice comes first: its receipt may have taken that money.
   // It prints nothing, and books nothing it cannot prove.
