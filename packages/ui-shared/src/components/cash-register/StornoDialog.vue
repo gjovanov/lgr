@@ -290,7 +290,8 @@ async function submit() {
       ...(mode.value === 'part'
         ? {
             lines: picked.value.map(l => ({ lineId: l.lineId, quantity: Number(l.take) })),
-            ...(method.value ? { payments: [{ method: method.value, amount: cents(goesBack.value) }] } : {}),
+            // A part worth nothing has no money to send anywhere, and a row of nothing is refused.
+            ...(method.value && goesBack.value > 0 ? { payments: [{ method: method.value, amount: cents(goesBack.value) }] } : {}),
           }
         : {}),
     }

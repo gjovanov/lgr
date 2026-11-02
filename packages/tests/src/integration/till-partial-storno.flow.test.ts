@@ -1102,6 +1102,80 @@ describe('the shapes a part comes in', () => {
   })
 })
 
+describe('a refund the operator names comes to what the storno gives back (the reader, finding 3)', () => {
+  /** Both doors, as the till and the journal each take a storno. */
+  const atBothDoors = (w: TillWorld, saleId: string, body: Record<string, unknown>) => Promise.all([
+    w.storno(saleId, undefined, body),
+    w.call('POST', `/cash-register/documents/${saleId}/storno`, { reason: 'customer_return', sessionId: w.sessionId, ...body }),
+  ])
+  /** Refused, with nothing claimed, printed or booked. */
+  async function nothingMoved(w: TillWorld, s: Sold, cash: number) {
+    const sale = await read(s.saleId)
+    expect(sale.register.stornoState).toBe('none')
+    expect(sale.register.stornoClaims ?? []).toHaveLength(0)
+    expect(await stornosOf(s.saleId)).toHaveLength(0)
+    expect(stornosOnDevice(w)).toHaveLength(0)
+    expect((await sessionOf(w)).totalCash).toBe(cash)
+  }
+
+  it('all of a sale with a refund of a thousand: refused at both doors, and the drawer does not move', async () => {
+    const w = await tillWorld(app)
+    const s = await threeArticles(w)
+    for (const r of await atBothDoors(w, s.saleId, { payments: [{ method: 'cash', amount: 1000 }] })) {
+      expect([r.status, r.json.code, r.json.amount]).toEqual([422, 'storno_refund_mismatch', 58.9])
+    }
+    await nothingMoved(w, s, 58.9)
+  })
+
+  it('a whole storno of 12 with a refund of 1000: the one the reader ran', async () => {
+    const w = await tillWorld(app)
+    const sold = await w.sell(1)
+    const id = String(sold.json.transaction.id)
+    const r = await w.storno(id, undefined, { payments: [{ method: 'cash', amount: 1000 }] })
+    expect([r.status, r.json.code, r.json.amount]).toEqual([422, 'storno_refund_mismatch', 12])
+    expect((await sessionOf(w)).totalCash).toBe(12)
+    expect((await w.storno(id, undefined, { payments: [{ method: 'cash', amount: 12 }] })).status).toBe(200)
+    expect((await sessionOf(w)).totalCash).toBe(0)
+  })
+
+  it('every line named in full takes the same check, by the sale\'s own total', async () => {
+    const w = await tillWorld(app)
+    const s = await threeArticles(w)
+    const r = await back(w, s, [[0, 3], [1, 2], [2, 1]], undefined, { payments: [{ method: 'cash', amount: 500 }] })
+    expect([r.status, r.json.code, r.json.amount]).toEqual([422, 'storno_refund_mismatch', 58.9])
+    await nothingMoved(w, s, 58.9)
+  })
+
+  it('a row below zero is refused however the rows add up: the drawer lost 50 for a part of 12', async () => {
+    const w = await tillWorld(app)
+    const s = await threeArticles(w)
+    const lines = [{ lineId: s.ids[0], quantity: 1 }]
+    for (const r of await atBothDoors(w, s.saleId, { lines, payments: [{ method: 'cash', amount: 50 }, { method: 'card', amount: -38 }] })) {
+      expect([r.status, r.json.code]).toEqual([422, 'storno_refund_not_positive'])
+    }
+    await nothingMoved(w, s, 58.9)
+  })
+
+  it('so is a row of nothing, and one below zero on all of a sale', async () => {
+    const w = await tillWorld(app)
+    const s = await threeArticles(w)
+    const zero = await back(w, s, [[0, 1]], undefined, { payments: [{ method: 'cash', amount: 12 }, { method: 'card', amount: 0 }] })
+    expect([zero.status, zero.json.code]).toEqual([422, 'storno_refund_not_positive'])
+    const whole = await w.storno(s.saleId, undefined, { payments: [{ method: 'cash', amount: 70 }, { method: 'card', amount: -11.1 }] })
+    expect([whole.status, whole.json.code]).toEqual([422, 'storno_refund_not_positive'])
+    await nothingMoved(w, s, 58.9)
+  })
+
+  it('rows that do come to it go through, split or not', async () => {
+    const w = await tillWorld(app)
+    const s = await threeArticles(w)
+    expect((await w.storno(s.saleId, undefined, { payments: [{ method: 'cash', amount: 50 }, { method: 'card', amount: 8.9 }] })).status).toBe(200)
+    const session = await sessionOf(w)
+    expect(session.totalCash).toBeCloseTo(8.9, 5)
+    expect(session.totalCard).toBeCloseTo(-8.9, 5)
+  })
+})
+
 describe('split tender: the refund goes by what the operator picks, or by what the sale still holds', () => {
   const split = [{ method: 'cash', amount: 30 }, { method: 'card', amount: 28.9 }]
 

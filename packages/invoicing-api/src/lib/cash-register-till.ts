@@ -693,6 +693,22 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
      * refund leaves the sale as it was. `duplicate`: a racing duplicate of it got there first, and that is its answer.
      */
     const prepared = async (): Promise<{ plan: StornoPlan; payments?: StornoDoorInput['payments'] } | { duplicate: any }> => {
+      // ⚠ What the operator names is what leaves the drawer, and the device prints the storno's own total whatever
+      // it says. So no row below nothing, which the session's buckets drop and a sum would net off, and no sum but
+      // the storno's: `{cash, 1000}` on a sale of 12 took 988 out of a drawer that never held it.
+      const named = input.payments?.length ? input.payments : undefined
+      if (named?.some(p => !((Number(p.amount) || 0) > 0))) {
+        throw new RegisterRefusal(422, { code: 'storno_refund_not_positive', message: 'Every row of a refund is above 0. Nothing was reversed.' })
+      }
+      const assertAddsUp = (total: number) => {
+        if (named && Math.round(named.reduce((s, p) => s + (Number(p.amount) || 0), 0) * 100) !== Math.round(total * 100)) {
+          throw new RegisterRefusal(422, {
+            code: 'storno_refund_mismatch',
+            amount: total,
+            message: `This storno gives back ${total.toFixed(2)}, and the refund named comes to something else. Nothing was reversed.`,
+          })
+        }
+      }
       const plan = planStorno(original, input.lines)
       if (isPlanRefusal(plan)) {
         const mine = await ownOnceWritten()
@@ -701,6 +717,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
       }
       if (!plan.partial) {
         assertStornoTender(input.payments, original, printsReceipt ? c.printer! : null)
+        assertAddsUp(plan.total)
         return { plan, payments: input.payments }
       }
       // ⚠ Lines that fit can still be more than a refund left of their rate: said here, in words a person can use.
@@ -712,17 +729,10 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
           message: `These lines are more than this sale's receipt still holds (${(totalOf(left) / 100).toFixed(2)}): a credit note's refund took the rest. Nothing was reversed.`,
         })
       }
-      const cents = Math.round(plan.total * 100)
-      if (input.payments?.length && Math.round(input.payments.reduce((s, p) => s + (Number(p.amount) || 0), 0) * 100) !== cents) {
-        throw new RegisterRefusal(422, {
-          code: 'storno_refund_mismatch',
-          amount: plan.total,
-          message: `These lines give back ${plan.total.toFixed(2)}, and the refund named comes to something else. Nothing was reversed.`,
-        })
-      }
+      assertAddsUp(plan.total)
       const ids: unknown[] = original.register?.stornoedBy ?? []
       const stornos: any[] = ids.length ? await Invoice.find({ _id: { $in: ids }, orgId }, { status: 1, payments: 1 }).lean().exec() : []
-      const payments = input.payments?.length ? input.payments : refundOfPart(leftByMethod(original, stornos), cents)
+      const payments = named ?? refundOfPart(leftByMethod(original, stornos), Math.round(plan.total * 100))
       assertStornoTender(payments, original, printsReceipt ? c.printer! : null, plan.total)
       return { plan, payments }
     }
