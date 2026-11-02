@@ -2769,6 +2769,9 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   bank refund takes no cap.
 - ⚠ **A held storno holds its note's cash and card refunds whatever the switch says** (above the gate), and `/void`
   on a till sale's invoice answers for its notes' stornos (`freezeUnderNotes`).
+- ⚠ **`bookedOnItsSession` names `payment_storno`:** the steps and the close's preview read it, and a type it does
+  not name books no totals, silently. A session not `open` takes no refund: 409 `session_closing` at the door, and
+  once written the storno looks again and gives way, as a sale does.
 - Refusals, before anything is written: 409 `no_receipt_to_storno` (with `reason`, says refund by bank), 422
   `refund_exceeds_receipts` (with `left`, what goes through if typed: `fittingAmount`), 403
   `refund_requires_manager` (H4: `STORNO_ROLES`, this is a storno door), and all of R1's.
