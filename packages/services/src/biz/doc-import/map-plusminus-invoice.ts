@@ -101,20 +101,87 @@ export function stripPartnerPrefix(v: string | undefined): string {
   return i >= 0 ? s.slice(i + 1).trim() : s
 }
 
-/** `"1"` → cash, `"2"` → bank_transfer, `"4"` → card. Confirmed, not guessed: `"1"`/`"2"` against
- * two live LGR-imported invoices (one of each); `"4"` independently twice — regal-sf's own data
- * carries a `paidCard` field alongside `paymentMethod:"4"`, and regal-pz's does too (`paidCard`
- * present, `paidCash`/`paid` present instead when `paymentMethod:"1"`, matching). `"3"` (presumably
- * check) has not occurred in any pulled batch — left unmapped rather than guessed. Anything
- * unmapped surfaces as a review gap instead of a wrong value. Deliberately returns the bare
- * English word: `parsePaymentMethod`'s regex (`/сметка|превод|transfer/i`, `/брой|cash/i`,
- * `/карта|card/i`, ...) matches these words directly, so feeding the word back through
- * `parsePaymentMethod` via the synthetic rawText (see below) reuses that function unchanged
- * rather than re-implementing its enum. */
-const PAYMENT_METHOD_BY_CODE: Record<string, string> = { '1': 'cash', '2': 'bank_transfer', '4': 'card' }
+/**
+ * PlusMinus's own table, from `_documentPaymentMethodName` in the client embedded in pmserver.exe:
+ * 1 В брой, 2 По сметка, 3 С авансов отчет, 4 С карта, 5 С наложен платеж, 6 Във валутна каса,
+ * 7 С ваучер, 8 С пощенски превод, 9 Смесено.
+ *
+ * Only 1, 2, 4 and 5 have occurred in any pulled batch. The rest stay unmapped rather than forced
+ * onto a method LGR has no word for: anything unmapped surfaces as a review gap instead of a wrong
+ * value. A code-5 invoice is not paid at issue: its header carries no `paid`, and the till's `ПЛ`
+ * for it holds no cash and no card. Deliberately returns the bare English word:
+ * `parsePaymentMethod`'s regex (`/сметка|превод|transfer/i`, `/cash on delivery/i`,
+ * `/брой|cash/i`, `/карта|card/i`, ...) matches these words directly, so feeding the word back
+ * through `parsePaymentMethod` via the synthetic rawText (see below) reuses that function unchanged
+ * rather than re-implementing its enum.
+ */
+const PAYMENT_METHOD_BY_CODE: Record<string, string> = { '1': 'cash', '2': 'bank_transfer', '4': 'card', '5': 'cash on delivery' }
 
 export function plusminusPaymentMethod(code: string | number | undefined): string | undefined {
   return code != null ? PAYMENT_METHOD_BY_CODE[String(code)] : undefined
+}
+
+/** PlusMinus's placeholder store: a line on it moved no stock there. */
+const NO_STOCK_STORE = 'БЕЗСКЛАД'
+
+export interface PlusMinusStockSource {
+  /** A till sale invoiced afterwards, a складова разписка, or a document that names neither. */
+  kind: 'till' | 'note' | 'none'
+  /** What `stockSource.marker` will say. A till sale's is its till day's reference. */
+  marker: string
+  docNumber: string
+  /** The day the till sold it, `YYYY-MM-DD`. The invoice's own date can be days later. */
+  tillDay?: string
+}
+
+const isoDay = (d: string, m: string, y: string) => `${y}-${m}-${d}`
+
+/**
+ * Did PlusMinus move this invoice's goods on the invoice, or on the document it came from?
+ *
+ * Its own record says, so nothing here is inferred. A line on `БЕЗСКЛАД` moved no stock, and its
+ * `fromDocument` names what did: `pos:20260105-1042` is a till receipt (the header's comment says
+ * `КБ 05.01.2026/<UNP>`), and `СР:615713` is a складова разписка at regal-pz but a till ticket at
+ * regal-sf, whose till IS type `СР` (`СР 70125/06.01.2026`), hence `tillDocType`. Over both orgs'
+ * 2,534 invoices every till or note reference sits on `БЕЗСКЛАД`, and nothing else does but a few
+ * lines of services.
+ *
+ * Booking a dispatch for such a line takes the same goods out twice. The containment test in
+ * `till-overlap.ts` is what a PDF leaves us; it flagged 47 of 49 on one day. This is not that.
+ *
+ * Returns null when the goods moved on this invoice, and `'mixed'` when only some did: LGR
+ * dispatches a document whole, so that one is for a person (one in 2,534).
+ * ⚠ JS's `\b` does not see Cyrillic, so the comment patterns spell their boundaries.
+ */
+export function plusminusStockSource(doc: PlusMinusDocument, tillDocType?: string): PlusMinusStockSource | 'mixed' | null {
+  const goods = (doc.lines || []).filter(l => Number(l.quantity || 0) !== 0)
+  const off = goods.filter(l => String(l.store ?? '').replace(/^.*:/, '').trim() === NO_STOCK_STORE)
+  if (!off.length) return null
+  if (off.length < goods.length) return 'mixed'
+
+  const comment = String(doc.header?.comment ?? '')
+  const from = String(off.find(l => l.fromDocument)?.fromDocument ?? '')
+  const pos = /^pos:(\d{4})(\d{2})(\d{2})-(\d+)$/.exec(from)
+  if (pos) {
+    const tillDay = isoDay(pos[3], pos[2], pos[1])
+    return { kind: 'till', marker: `salesAnalysis:${tillDay}`, docNumber: pos[4], tillDay }
+  }
+  const kb = /(?:^|\s)КБ\s+(\d{2})\.(\d{2})\.(\d{4})/.exec(comment)
+  if (kb) {
+    const tillDay = isoDay(kb[1], kb[2], kb[3])
+    return { kind: 'till', marker: `salesAnalysis:${tillDay}`, docNumber: comment.split('/')[1]?.trim() || tillDay, tillDay }
+  }
+  const named = /^([^:]+):(.+)$/.exec(from)
+  if (named && named[1] === tillDocType) {
+    const dated = new RegExp(`(?:^|\\s)${tillDocType}\\s+${named[2]}/(\\d{2})\\.(\\d{2})\\.(\\d{4})`).exec(comment)
+    // The ticket's day is only in the comment. Without it, a marker that names no till day: it moves
+    // no stock, and a person attaches it.
+    if (!dated) return { kind: 'till', marker: `plusminus:${from}`, docNumber: named[2] }
+    const tillDay = isoDay(dated[1], dated[2], dated[3])
+    return { kind: 'till', marker: `salesAnalysis:${tillDay}`, docNumber: named[2], tillDay }
+  }
+  if (named?.[1] === 'СР') return { kind: 'note', marker: `sklrazp:${named[2]}`, docNumber: named[2] }
+  return { kind: 'none', marker: `plusminus:${from || NO_STOCK_STORE}`, docNumber: from || NO_STOCK_STORE }
 }
 
 /** The ЗДДС/ДОПК consent + no-stamp clauses, copied verbatim from a real printed invoice

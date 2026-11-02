@@ -309,6 +309,7 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
             adjustStock: t.Optional(t.Boolean()),
             createMissingProducts: t.Optional(t.Boolean()),
             allowDuplicate: t.Optional(t.Boolean()),
+            stockSource: t.Optional(t.Object({ marker: t.String(), docNumber: t.String() })),
           })),
         })),
       }),

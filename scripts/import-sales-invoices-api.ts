@@ -21,19 +21,18 @@
  *   - direction resolved to `outgoing` and not flagged uncertain (`--include-uncertain` overrides)
  *   - not already imported (dedup by reference/invoiceNumber, same as the OCR script)
  *
- * ⚠ Till-overlap check (regal-sf's recurring trap — memory `lgr-regal-sf-org`: historically
- * roughly a third of regal-sf's daily invoices are till-duplicates): a sale rung on the till AND
- * separately invoiced must not dispatch stock twice. Before marking a candidate eligible, this
- * script looks up that invoice's OWN issueDate's already-committed cash sale (`reference
- * salesAnalysis:<date>`, same key `scripts/import-cash-register-sales(-api).ts` writes) over
- * `GET /invoices` and flags — never silently skips — one whose every line is covered by that
- * day's till quantities. The comparison mirrors
- * `packages/services/src/biz/doc-import/till-overlap.ts`'s `findTillOverlap`/`tillOverlapWarning`
- * exactly (re-implemented here rather than imported, so this HTTP-only script does not pull in
- * `db/models`); diff the two if that file's semantics ever change. A day with NO committed cash
- * sale yet (nothing imported there, or a non-regal-sf org) makes this a no-op, not a block — so
- * `--convert` with stock dispatch is safe to run directly as long as the day's till is imported
- * FIRST. `--include-till-overlap` forces a flagged invoice through anyway.
+ * ⚠ Which invoices move stock is PlusMinus's own record, not an inference (2026-11-02,
+ * `plusminusStockSource`). A line on its `БЕЗСКЛАД` store moved nothing: the goods left on the till
+ * receipt or складова разписка the line names. Such an invoice is issued with no dispatch and a
+ * `stockSource`, and a till sale's is then attached to its till day, so the sale is not counted
+ * twice either. It needs that day in LGR already: import the till FIRST. A document with only some
+ * lines on `БЕЗСКЛАД` is refused, because LGR dispatches a document whole.
+ *
+ * A line on a real store moved stock in PlusMinus on this invoice, so it dispatches here too, even
+ * when every line also fits the day's till (a person can sell the same thing twice). That quantity
+ * comparison mirrors `packages/services/src/biz/doc-import/till-overlap.ts`'s `findTillOverlap`
+ * (re-implemented here so this HTTP-only script does not pull in `db/models`) and is printed, no
+ * more: PlusMinus's snapshot is what LGR has to equal.
  *
  * Usage:
  *   bun run scripts/import-sales-invoices-api.ts --dir <dir with invoicem_*.json>   # analyze + summary (no commit)
@@ -47,7 +46,6 @@
  *   --convert                 commit AND issue eligible documents to INV-<legacy number>
  *   --no-stock                convert WITHOUT dispatching stock
  *   --include-uncertain       also convert documents flagged needs-review (direction uncertain)
- *   --include-till-overlap    also convert documents flagged as till-overlap (see above — verify first)
  *   --include-hand-entered    also import a number that LGR already holds as `INV-<year>-<number>` (typed in
  *                             the app by hand). Skipped by default: importing it books the sale twice.
  *   --only <nums>             comma-separated invoice numbers to limit the run to
@@ -60,9 +58,13 @@ import { assertTokenOrg } from './lib/token-org.js'
 import { indexExistingInvoices } from './lib/invoice-index.js'
 import {
   plusminusInvoiceToExtraction,
+  plusminusStockSource,
   buildSyntheticRawText,
   type PlusMinusDocument,
 } from '../packages/services/src/biz/doc-import/map-plusminus-invoice.js'
+
+/** The org whose till is a `documents()` type. At regal-pz `СР` is a складова разписка (`orgs.ts`). */
+const TILL_DOC_TYPE: Record<string, string> = { 'regal-sf': 'СР' }
 
 // ── args ──
 function parseArgs(argv: string[]) {
@@ -84,7 +86,6 @@ const warehouseCode = args.warehouse as string | undefined
 const doConvert = !!args.convert
 const noStock = !!args['no-stock']
 const includeUncertain = !!args['include-uncertain']
-const includeTillOverlap = !!args['include-till-overlap']
 const includeHandEntered = !!args['include-hand-entered']
 const only = args.only ? new Set(String(args.only).split(',').map(s => s.trim())) : null
 
@@ -162,7 +163,7 @@ async function pollTask(taskId: string, maxMs = 5 * 60_000): Promise<any> {
 }
 
 // ── till-overlap (see header comment) — one lookup per distinct issueDate in the batch ──
-interface TillDay { demand: Map<string, number>; docNumber: string | null; reference: string }
+interface TillDay { id: string; demand: Map<string, number>; docNumber: string | null; reference: string }
 const tillDayCache = new Map<string, TillDay | null>()
 
 async function loadCommittedTillDay(date: string | undefined): Promise<TillDay | null> {
@@ -180,7 +181,7 @@ async function loadCommittedTillDay(date: string | undefined): Promise<TillDay |
     const id = String(l.productId)
     demand.set(id, (demand.get(id) || 0) + Number(l.quantity || 0))
   }
-  const day: TillDay = { demand, docNumber: cs.invoiceNumber ? String(cs.invoiceNumber) : null, reference }
+  const day: TillDay = { id: String(cs._id || cs.id || hit._id || hit.id), demand, docNumber: cs.invoiceNumber ? String(cs.invoiceNumber) : null, reference }
   tillDayCache.set(date, day)
   return day
 }
@@ -293,14 +294,18 @@ async function main() {
     if (uncertain && !includeUncertain) problems.push('uncertain (needs-review)')
     if (String(doc.mapped?.reference) !== f.num) problems.push(`reference ${doc.mapped?.reference} != filename ${f.num}`)
 
-    const till = await loadCommittedTillDay(doc.mapped?.issueDate)
+    const source = plusminusStockSource(f.doc, TILL_DOC_TYPE[orgSlug])
+    if (source === 'mixed') problems.push('some lines are on БЕЗСКЛАД and some are not: LGR dispatches a document whole, so this one is for a person')
+    const stockSource = source && source !== 'mixed' ? source : null
+
+    const till = stockSource ? null : await loadCommittedTillDay(doc.mapped?.issueDate)
     const overlap = till ? findTillOverlap(doc.mapped, till) : null
-    if (overlap && !includeTillOverlap) {
+    if (overlap) {
       const where = overlap.docNumber ? `${overlap.docNumber} (${overlap.reference})` : `the day's till (${overlap.reference})`
-      problems.push(`till-overlap: all ${overlap.lines} line(s), ${overlap.quantity} unit(s), already covered by ${where} — VERIFY before forcing with --include-till-overlap`)
+      warnings.push(`till-overlap: all ${overlap.lines} line(s), ${overlap.quantity} unit(s), already covered by ${where} — VERIFY before forcing with --include-till-overlap`)
     }
 
-    rows.push({ num: f.num, ok: problems.length === 0, problems, warnings, mapped: doc.mapped })
+    rows.push({ num: f.num, ok: problems.length === 0, problems, warnings, mapped: doc.mapped, stockSource })
   }
 
   console.log('\n─── Analysis summary ───')
@@ -309,6 +314,7 @@ async function main() {
     const m = r.mapped
     console.log(`  ${flag} ${r.num} ${String(m?.contactName || '?').slice(0, 34).padEnd(36)} ${String((m?.lines || []).length).padStart(2)} lines  ${Number(m?.total ?? 0).toFixed(2)} ${m?.currency ?? ''}${r.problems?.length ? '   ⚠ ' + r.problems.join('; ') : ''}${r.warnings?.length ? '   (' + r.warnings.join('; ') + ')' : ''}`)
   }
+  for (const r of rows) if (r.stockSource) console.log(`  moves no stock: ${r.num}, its goods left on ${r.stockSource.marker}`)
   const eligible = rows.filter(r => r.ok)
   console.log(`Eligible for commit: ${eligible.length}/${rows.length} (pre-flight skipped: ${skipped.length})`)
 
@@ -323,7 +329,11 @@ async function main() {
   const commitItems = eligible.map(r => ({
     fileId: `plusminus:${r.num}`,
     mapped: r.mapped,
-    options: { convert: true, adjustStock: !noStock },
+    options: {
+      convert: true,
+      adjustStock: !noStock && !r.stockSource,
+      ...(r.stockSource ? { stockSource: { marker: r.stockSource.marker, docNumber: r.stockSource.docNumber } } : {}),
+    },
   }))
   const res = await http('POST', org('/doc-import/commit'), { target: 'sales_invoice', items: commitItems })
   const result = await pollTask(res.taskId)
@@ -336,6 +346,20 @@ async function main() {
   }
   const mvAfter = (await http('GET', org('/warehouse/movement?page=0&size=1'))).total ?? 0
   console.log(`Converted: ${results.filter(r => r.ok).length}/${eligible.length} | stock movements: ${mvBefore} → ${mvAfter} (+${mvAfter - mvBefore})`)
+
+  // A till sale's invoice becomes the till day's, or the sale counts twice: once here, once on the day.
+  // Refused or not, no stock moved: the invoice is real and stays, and it says what is left to do.
+  for (let i = 0; i < results.length; i++) {
+    const src = eligible[i].stockSource
+    if (!results[i].ok || src?.kind !== 'till') continue
+    const label = `${eligible[i].num} (${src.marker})`
+    const day = src.tillDay ? await loadCommittedTillDay(src.tillDay) : null
+    if (!day) { console.log(`  ⚠ ${label}: that till day is not in LGR, so it is not attached. Attach it once the day is booked.`); continue }
+    try {
+      await http('POST', org(`/invoices/${results[i].id}/attach-to-cash-sale`), { cashSaleId: day.id })
+      console.log(`  ✓ ${label} attached to ${day.docNumber}`)
+    } catch (e: any) { console.log(`  ✗ ${label} NOT attached to ${day.docNumber}: ${e?.message || e}`) }
+  }
 
   // sequence check: SALES_DOC must now be ≥ max imported number
   try {
