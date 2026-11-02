@@ -3,7 +3,7 @@ import { Elysia } from 'elysia'
 import { computePosTotals } from 'config/pos-totals'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
-import { createTestContact, createTestProduct, createTestStockLevel } from '../helpers/factories'
+import { createTestContact, createTestProduct, createTestStockLevel, createTestWarehouse } from '../helpers/factories'
 import { draftOf, line, pay, raw, send, sessionOf } from '../helpers/receipt-world'
 import { Invoice, POSSession, StockLevel, StockMovement } from 'db/models'
 import { contactController } from 'invoicing-api/src/controllers/contact.controller'
@@ -957,6 +957,148 @@ describe('what counts a partial storno: at its own amount', () => {
     const onStorno = (await w.call('GET', `/cash-register/documents/${storno._id}`)).json
     expect(onStorno.row).toMatchObject({ kind: 'storno', total: 12, relatedId: s.saleId })
     expect(onStorno.lines[0].lineId).toBeUndefined()
+  })
+})
+
+describe('the shapes a part comes in', () => {
+  /** One line of the world's article, in cash. */
+  async function oneLine(w: TillWorld, quantity: number, unitPrice = 10): Promise<Sold> {
+    const t = computePosTotals([{ quantity, unitPrice, taxRate: 20 }])
+    const res = await w.call('POST', `/trade/pos/session/${w.sessionId}/transaction`, {
+      type: 'sale',
+      lines: [{ productId: String(w.product._id), name: 'Болт', quantity, unitPrice, discount: 0, taxRate: 20, taxAmount: t.taxTotal, lineTotal: t.subtotal }],
+      subtotal: t.subtotal, discountTotal: 0, taxTotal: t.taxTotal, total: t.total,
+      payments: [{ method: 'cash', amount: t.total }], changeDue: 0, nonFiscal: false,
+    })
+    expect(res.status).toBe(200)
+    const saleId = String(res.json.transaction.id)
+    const sale = await read(saleId)
+    return { saleId, sale, ids: sale.lines.map((l: any) => String(l._id)), products: [w.product._id] }
+  }
+
+  it('fractions: 1.5 at 10 net, half of it back three times: the device and the document agree, and it ends full', async () => {
+    const w = await tillWorld(app)
+    const s = await oneLine(w, 1.5)
+    for (let i = 0; i < 3; i++) expect((await back(w, s, [[0, 0.5]])).status).toBe(200)
+    expect((await stornosOf(s.saleId)).map(d => d.total)).toEqual([6, 6, 6])
+    expect(stornosOnDevice(w).map(r => r.total)).toEqual([6, 6, 6])
+    expect((await read(s.saleId)).register.stornoState).toBe('full')
+    expect((await w.stock()).quantity).toBe(10)
+  })
+
+  it('a price no third of which is a cent: the parts come to the sale, within a cent of the device each, and the drawer to nothing', async () => {
+    const w = await tillWorld(app)
+    const s = await oneLine(w, 3, 0.1234)
+    for (let i = 0; i < 3; i++) expect((await back(w, s, [[0, 1]])).status).toBe(200)
+    const stornos = await stornosOf(s.saleId)
+    expect(stornos.reduce((c, d) => c + Math.round(d.total * 100), 0)).toBe(Math.round(s.sale.total * 100))
+    stornosOnDevice(w).forEach((r, i) => expect(Math.abs(r.total - stornos[i].total)).toBeLessThanOrEqual(0.01))
+    expect((await sessionOf(w)).totalCash).toBeCloseTo(0, 5)
+  })
+
+  it('a part of a sale whose session has closed: from a new session, booked on that one, and what is left after it', async () => {
+    const w = await tillWorld(app)
+    const s = await oneLine(w, 3)
+    expect((await back(w, s, [[0, 1]])).status).toBe(200)
+    expect((await closeOn(w, 124)).status).toBe(200)
+    const opened = await w.call('POST', '/trade/pos/session', { warehouseId: String(w.warehouse._id), openingBalance: 100, currency: 'EUR' })
+    const sessionId = String(opened.json.session.id ?? opened.json.session._id)
+
+    const r = await w.call('POST', `/cash-register/documents/${s.saleId}/storno`, { reason: 'customer_return', sessionId, lines: [{ lineId: s.ids[0], quantity: 1 }] })
+
+    expect(r.status).toBe(200)
+    expect((await w.call('GET', `/trade/pos/session/${sessionId}/close-preview`)).json.expected.cash).toBe(88)
+    expect((await w.call('POST', `/cash-register/documents/${s.saleId}/storno`, { reason: 'customer_return', sessionId })).status).toBe(200)
+    expect((await read(s.saleId)).register.stornoState).toBe('full')
+  })
+
+  it('a back-office sale in two warehouses: a part comes back where it left from, at what it cost there', async () => {
+    const w = await tillWorld(app)
+    const other = await createTestWarehouse(w.oid, { name: 'Втори', code: 'W2' } as any)
+    const nut = await createTestProduct(w.oid, { name: 'Гайка', sellingPrice: 5, purchasePrice: 2, taxRate: 20, unit: 'бр.' } as any)
+    await createTestStockLevel(w.oid, nut._id, other._id, { quantity: 10, availableQuantity: 10, avgCost: 2 } as any)
+    const sold = await w.call('POST', '/invoices', {
+      type: 'cash_sale', direction: 'outgoing', issueDate: '2026-10-26', currency: 'EUR',
+      lines: [
+        { productId: String(w.product._id), warehouseId: String(w.warehouse._id), description: 'Болт', quantity: 2, unit: 'бр.', unitPrice: 10, taxRate: 20 },
+        { productId: String(nut._id), warehouseId: String(other._id), description: 'Гайка', quantity: 4, unit: 'бр.', unitPrice: 5, taxRate: 20 },
+      ],
+      subtotal: 40, taxTotal: 8, total: 48, paymentMethod: 'cash',
+    }, undefined, w.clerkToken)
+    expect(sold.status).toBe(200)
+    const id = String(sold.json.invoice.id)
+    const sale = await read(id)
+
+    const r = await w.call('POST', `/cash-register/documents/${id}/storno`, { reason: 'customer_return', lines: [{ lineId: String(sale.lines[1]._id), quantity: 1 }] }, undefined, w.clerkToken)
+
+    expect(r.status).toBe(200)
+    const level: any = await StockLevel.findOne({ orgId: w.oid, productId: nut._id, warehouseId: other._id }).lean().exec()
+    expect(level.quantity).toBe(7)
+    expect((await w.stock()).quantity).toBe(8)
+    const [storno] = await stornosOf(id)
+    const moved: any[] = await StockMovement.find({ invoiceId: storno._id }).lean().exec()
+    expect(moved).toHaveLength(1)
+    expect(String(moved[0].toWarehouseId)).toBe(String(other._id))
+    expect(moved[0].lines[0].unitCost).toBe(2)
+  })
+
+  it('a part that stalled past a lease between its claim and its insert wakes with no claim, and prints nothing', async () => {
+    const w = await tillWorld(app)
+    const s = await oneLine(w, 3)
+    const real = Invoice.create
+    let stalled = false
+    let through: any
+    ;(Invoice as any).create = async function (...args: any[]) {
+      if (!stalled && args[0]?.type === 'cash_storno') {
+        stalled = true
+        await Invoice.updateOne({ _id: s.saleId }, { $set: { 'register.stornoClaims.0.at': new Date(Date.now() - 121_000) } })
+        through = await back(w, s, [[0, 3]])
+      }
+      return (real as any).apply(Invoice, args)
+    }
+    let woke: any
+    try {
+      woke = await back(w, s, [[0, 1]])
+    } finally {
+      ;(Invoice as any).create = real
+    }
+    expect(through.status).toBe(200)
+    expect(woke.status).toBe(503)
+    expect(woke.json.message).toContain('took over')
+    const sale = await read(s.saleId)
+    expect(sale.register.stornoState).toBe('full')
+    expect(sale.register.stornoClaims.reduce((c: number, x: any) => c + x.milli, 0)).toBe(3000)
+    expect(stornosOnDevice(w)).toHaveLength(1)
+    expect((await sessionOf(w)).totalReturns).toBe(36)
+  })
+
+  it('a keyed part whose request died after its insert: the retry prints it once, and another replays it', async () => {
+    const w = await tillWorld(app)
+    const s = await oneLine(w, 3)
+    const real = Invoice.findOneAndUpdate
+    let died = false
+    ;(Invoice as any).findOneAndUpdate = function (filter: any, update: any, ...rest: any[]) {
+      if (!died && update?.$set?.['register.unp']) {
+        died = true
+        throw new Error('the process died here')
+      }
+      return (real as any).call(Invoice, filter, update, ...rest)
+    }
+    try {
+      await back(w, s, [[0, 1]], 'partial-dead-key-1').catch(() => undefined)
+    } finally {
+      ;(Invoice as any).findOneAndUpdate = real
+    }
+    const [dead] = await stornosOf(s.saleId)
+    expect(stornosOnDevice(w)).toHaveLength(0)
+    await Invoice.updateOne({ _id: dead._id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+
+    expect((await back(w, s, [[0, 1]], 'partial-dead-key-1')).status).toBe(200)
+    expect((await back(w, s, [[0, 1]], 'partial-dead-key-1')).status).toBe(200)
+
+    expect(stornosOnDevice(w)).toHaveLength(1)
+    expect((await read(s.saleId)).register.stornoClaims).toHaveLength(1)
+    expect((await sessionOf(w)).totalReturns).toBe(12)
   })
 })
 
