@@ -185,6 +185,11 @@ export interface IInvoiceRegister {
    */
   stornoState?: 'none' | 'partial' | 'full'
   stornoedBy?: Types.ObjectId[]
+  /**
+   * On a `cash_sale` (#446): the invoices converting it, in the one order their claims are judged in. Each
+   * conversion adds itself in an atomic write after its claim is written, and reads the order from that write.
+   */
+  invoiceClaims?: Types.ObjectId[]
   /** When it was stornoed (a sale) or voided (a storno whose receipt failed) — SUPTO 18.5. */
   cancelledAt?: Date
   /** On a document copied from `postransactions`: where it came from. */
@@ -674,6 +679,7 @@ const invoiceSchema = new Schema<IInvoice>(
           },
           stornoState: { type: String, enum: ['none', 'partial', 'full'] },
           stornoedBy: [{ type: Schema.Types.ObjectId, ref: 'Invoice' }],
+          invoiceClaims: { type: [{ type: Schema.Types.ObjectId, ref: 'Invoice' }], default: undefined },
           cancelledAt: Date,
           legacy: { source: String, type: { type: String }, transactionNumber: String },
         },

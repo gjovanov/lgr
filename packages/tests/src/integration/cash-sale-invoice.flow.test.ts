@@ -145,9 +145,15 @@ describe('an invoice for a cash sale', () => {
     expect(posted.filter(p => p.invoiceId === String(inv._id))).toHaveLength(0)
     expect(paymentsRecorded).toHaveLength(0)
 
-    // The cash sale is untouched — the link lives on the invoice only (FR-20.51).
+    // The cash sale is untouched — the link lives on the invoice only (FR-20.51). All it gains is the
+    // invoice's place in the order its claims are judged in (#446), as a storno's claim is kept there.
     const after = await w.load(cs._id)
-    expect(after.updatedAt).toEqual(cs.updatedAt)
+    const { register: regAfter, updatedAt: _a, ...restAfter } = after
+    const { register: regBefore, updatedAt: _b, ...restBefore } = cs
+    expect(restAfter).toEqual(restBefore)
+    const { invoiceClaims, ...regRest } = regAfter || {}
+    expect(regRest).toEqual(regBefore || {})
+    expect((invoiceClaims || []).map(String)).toEqual([String(inv._id)])
 
     // Both directions are visible.
     const state = await w.stateOf(cs._id)
@@ -198,6 +204,21 @@ describe('an invoice for a cash sale', () => {
     expect(more.json.code).toBe('cash_sale_fully_invoiced')
     expect((await w.stateOf(cs._id)).state).toBe('full')
     expect(await w.stock(w.bolt)).toBe(90)
+  }, 60_000)
+
+  // #446: claims judged in the order each takes on the sale, not in `_id` order.
+  it('conversions at once for more than is left: what they invoice never passes what was sold', async () => {
+    const w = await world()
+    const cs = await w.cashSale([[w.bolt, 10, 10]])
+
+    const results = await Promise.all(Array.from({ length: 5 }, () =>
+      w.toInvoice(cs._id, { contactId: String(w.customer._id), lines: [{ lineId: w.lineId(cs, 0), quantity: 6 }] })))
+
+    expect(results.filter(r => r.status === 200)).toHaveLength(1)
+    for (const r of results.filter(r => r.status !== 200)) expect(r.json.code).toBe('cash_sale_quantity_exceeded')
+    expect((await w.stateOf(cs._id)).lines[0]).toMatchObject({ quantity: 10, invoiced: 6, remaining: 4 })
+    // Every one that took its turn is in the order, the refused too: a refusal deletes its claim, not its turn.
+    expect(((await w.load(cs._id)).register.invoiceClaims || []).length).toBe(5)
   }, 60_000)
 
   it('invoices a sale that names a customer whole, and once', async () => {
