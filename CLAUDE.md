@@ -2737,9 +2737,19 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   cash or card goes through on that note, even a part that fits: a device must never end up with two.
 - ⚠ **What backs a refund is only what is finished and known to have printed** (`refundBacking`). A receipt
   held for a person answers 409 `receipt_in_doubt`, a sale in doubt 409 `sale_receipt_in_doubt`, and settled
-  as printed each holds from then on. The door takes the number off the slip for a fiscal receipt too,
-  optionally: with none it stands as printed and its refund goes by bank. A receipt whose `unknown` stands
-  (an in-turn verdict, its money booked) has no door: it holds nothing, 409 `no_receipt_to_storno`.
+  as printed each holds from then on. A till sale nobody finished comes first: one whose request died is booked
+  (`finishDeadSale`), and one still running answers 409 `payment_in_progress`. The door takes the number off
+  the slip for a fiscal receipt too, optionally: with none it stands as printed and its refund goes by bank. One it
+  brought is held to all a sale's is, and corrected at the door until a refund's storno cites it: a storno's
+  claim is in the correction's filter (`stornoCites`), and what a storno cites is read after its claim
+  (`takeFromCited`). A receipt whose `unknown` stands (an in-turn verdict, its money booked) has no door: it holds
+  nothing, 409 `no_receipt_to_storno`. ⚠ So only its own print may leave one: what a leftover's close did says
+  nothing about it, at the driver (`cancelFiscalReceipt`) and, for one with no cancel, at `opening`
+  (`verdictOfFailedPrint`).
+- ⚠ **A refund at issue is for what the issue decided** (`issue.tender`, `tenderMoved`). Its claim stands until
+  the storno does, as a receipt's, and moved, nothing prints (`receiptCode: 'issue_tender_moved'`). Between two
+  stornos nothing holds the note, and on a retry nothing holds it at all, so `refund` asks `refundMoved` before each
+  part after the first: what printed stands, and the rest does not print.
 - ⚠ **A storno prints on the device that printed its receipt:** the driver names its own fiscal memory.
   Refused otherwise (`receipt_on_other_device`). One storno per receipt a refund draws on, keys
   `<key>#2`, `#3`, so a retry goes on from what printed.
@@ -2750,8 +2760,10 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   on one, for a bank refund too. Before R2 it posted every outgoing document's as money in.
 - Readers: `NOT_PAYMENT_RECEIPT` names both types, `TILL_DOCUMENT_TYPES` and `MONEY_DOCUMENT_TYPES` carry
   it, `refundGaveMoney` says when a session counts it negative. 18.2, 18.4 and 18.5 list it. SUPTO version 3.
-- A Files rollback skips one (`isImmutableRegisterDocument`) and no commit books one: nothing imported prints
-  a refund (`printsRefund`) or has a number to cite. A fenced import books nothing for it (`bookingOf`).
+- A Files rollback skips one (`isImmutableRegisterDocument`), and asks `freezeRefusal` of every document it would
+  void: a receipt or a storno on it, printed or held, skips it too, and `force` does not get past that. No commit
+  books one: nothing imported prints a refund (`printsRefund`) or has a number to cite. A fenced import books
+  nothing for it (`bookingOf`).
 - Mutation-tested: `integration/cash-invoice-refunds.flow.test.ts`; e2e `cash-invoice-refunds.spec.ts`.
 
 ## An article starts its documents: „Заприходи", „Продай", „Резервирай" (2026-10-26, FR-22.47)
