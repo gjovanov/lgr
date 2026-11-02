@@ -10,12 +10,13 @@ import { withLineAmounts } from '../document-amounts.js'
  *   pro rata. The last one takes what is left, so the receipts add up to the document exactly, rate
  *   by rate.
  *
- * A fiscal device totals a receipt from VAT-inclusive prices, rounded to the cent per line. An
- * invoice is totalled another way (components first, `document-payload.ts`), and a bolt at 0.1234 net
- * sold in thousands is several units away from `quantity × rounded price`. A fiscal receipt must
- * say what the invoice says to the cent, so lines the device would add up differently are not
- * printed as lines: such a payment prints the per-rate shape, which is exact by construction. So does
- * a device with no text line inside a fiscal receipt, and the number is then the line's name.
+ * A fiscal device totals a receipt from VAT-inclusive prices, rounded to the cent per line. A
+ * document is totalled another way (components first, `document-payload.ts`, `computePosTotals`), and a
+ * bolt at 0.1234 net sold in thousands is several units away from `quantity × rounded price`. A fiscal
+ * receipt must say what the document says to the cent, so lines the device would add up differently are
+ * not printed as lines: such a payment prints the per-rate shape, which is exact by construction. So does
+ * a device with no text line inside a fiscal receipt, and the number is then the line's name. A till sale
+ * and its storno, whole or in part, go by the same rule (`linesOnDevice`).
  *
  * The wording is Bulgarian on every org's receipt, as the device's own text is (Q-3). A line name
  * has to survive the device: a driver that cuts one (a Tremol, at 34) would otherwise cut the number,
@@ -159,7 +160,8 @@ export function printsExactly(doc: ReceiptSource, gross: RateShare[]): boolean {
   return gross.every(g => toCents(sum(lines.filter(l => num(l.taxRate) === g.rate).map(deviceAmount))) === toCents(g.gross))
 }
 
-const noun = (doc: ReceiptSource) => (doc.type === 'debit_note' ? 'дебитно известие' : doc.type === 'credit_note' ? 'кредитно известие' : 'фактура')
+const NOUNS: Record<string, string> = { debit_note: 'дебитно известие', credit_note: 'кредитно известие', cash_sale: 'продажба' }
+const noun = (doc: ReceiptSource) => NOUNS[String(doc.type)] ?? 'фактура'
 const capitalized = (s: string) => s[0].toUpperCase() + s.slice(1)
 
 /** The first wording that fits whole, then the number alone: it is what must never be cut. */
@@ -195,6 +197,24 @@ function rateLine(description: string, share: RateShare): ReceiptLine {
     taxAmount,
     lineTotal: share.gross,
   }
+}
+
+/**
+ * What a device is given for this document: the one rule, for a sale, a storno of it, whole or in part, and a
+ * receipt's money (the prod sweep's D2). Where prices at the device's precision reproduce the document's gross
+ * per rate, its lines print as they are. Where they do not, one line per rate at the exact gross, called `name`,
+ * so the device comes to the document to the cent, with no change shown and no cash added to close it, and a storno
+ * to what it reverses. The document keeps its articles: only the receipt says less.
+ *
+ * Null from `grossByRate` is a rate with a negative total, which no device takes either way: the lines go as they
+ * are, and the driver refuses them with the reason. Fastener prices are normal here, so this is the common case.
+ */
+export function linesOnDevice(doc: ReceiptSource, name: string): SourceLine[] {
+  const gross = grossByRate(doc)
+  if (!gross || printsExactly(doc, gross)) return doc.lines ?? []
+  const perRate = gross.filter(g => g.gross > 0).map(g => rateLine(name, g))
+  // A document that comes to nothing has no money to give a line: its own lines, for the driver to say.
+  return perRate.length ? perRate : doc.lines ?? []
 }
 
 /** The document's lines as a receipt carries them, without what ties them to orders and sales. */

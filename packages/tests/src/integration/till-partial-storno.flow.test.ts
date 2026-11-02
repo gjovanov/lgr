@@ -1004,13 +1004,13 @@ describe('the shapes a part comes in', () => {
     expect((await w.stock()).quantity).toBe(10)
   })
 
-  it('a price no third of which is a cent: the parts come to the sale, within a cent of the device each, and the drawer to nothing', async () => {
+  it('a price no third of which is a cent: the parts come to the sale, each to the cent on the device (#461, D2), and the drawer to nothing', async () => {
     const w = await tillWorld(app)
     const s = await oneLine(w, 3, 0.1234)
     for (let i = 0; i < 3; i++) expect((await back(w, s, [[0, 1]])).status).toBe(200)
     const stornos = await stornosOf(s.saleId)
     expect(stornos.reduce((c, d) => c + Math.round(d.total * 100), 0)).toBe(Math.round(s.sale.total * 100))
-    stornosOnDevice(w).forEach((r, i) => expect(Math.abs(r.total - stornos[i].total)).toBeLessThanOrEqual(0.01))
+    stornosOnDevice(w).forEach((r, i) => expect(r.total).toBe(stornos[i].total))
     expect((await sessionOf(w)).totalCash).toBeCloseTo(0, 5)
   })
 

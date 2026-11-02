@@ -25,7 +25,7 @@ import {
   releaseOrphanClaims, releaseStornoClaim, runStornoSteps, settleKeyedDocument, stornoClaimed, stornoDocument, stornoInDoubtRefusal, stornoRefusal,
   type RegisterContext, type RegisterSession, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
-import { fiscalUnitPrice } from 'services/biz/cash-register/receipt-lines'
+import { documentText, fiscalUnitPrice, linesOnDevice, refundText } from 'services/biz/cash-register/receipt-lines'
 import { leftByRate, totalOf } from 'services/biz/cash-register/refund-budget'
 import { isPlanRefusal, leftByMethod, planStorno, refundOfPart, type StornoPlan } from 'services/biz/cash-register/storno-lines'
 import { isDeviceConnected, getPrinter, type IFiscalPrinter } from 'fiscal/fiscal-device.service'
@@ -230,10 +230,11 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
     async printSale(doc) {
       // Read before the receipt opens: a payment no receipt can carry must not strand an open one.
       const payments = tendered(doc).map((t: any) => ({ type: toFiscalPaymentType(t.method), amount: t.amount }))
+      const lines: any[] = linesOnDevice(doc, documentText(doc, fiscal.lineNameMax))
       return stagedPrint(async (reached) => {
         await p.openFiscalReceipt(operatorCode, operatorName, doc.register?.unp)
         reached('lines')
-        for (const line of doc.lines || []) {
+        for (const line of lines) {
           const taxRate = line.taxRate ?? 0
           await p.printSaleLine(line.description, line.quantity, fiscalUnitPrice(line.unitPrice, taxRate), mapTaxRateToVatGroup(taxRate), line.discount || undefined, taxRate)
         }
@@ -263,8 +264,8 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
     },
     async printStorno(storno, original) {
       // Its own lines and its own total: a refund's storno takes part of a receipt, whichever lines
-      // and amounts that printed. A till sale's storno carries the sale's.
-      const stornoLines = (storno.lines || []).map((l: any) => ({
+      // and amounts that printed. A till sale's storno carries the sale's, by the rule the sale printed by.
+      const stornoLines = (linesOnDevice(storno, refundText(original ?? storno, fiscal.lineNameMax)) as any[]).map((l: any) => ({
         name: l.description,
         quantity: l.quantity,
         // VAT-inclusive, like the sale it reverses (see fiscalUnitPrice)

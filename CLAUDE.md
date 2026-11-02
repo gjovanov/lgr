@@ -2698,6 +2698,11 @@ invoice still due until the courier pays).
   ⚠ A whole payment prints per rate too when the device would total its lines differently (a price
   rounded to the cent × a thousand), or has no text line (`capabilities.ts`, `fiscalText`); the line is
   then named „Фактура № …". Lines are checked before printing, never after.
+- ⚠ **A till sale and its storno, whole or in part, come to their document to the cent** (#461 D2): both go through
+  `linesOnDevice` (`printsExactly`, the rule above). Prices that reproduce the gross per rate print as lines; anything
+  else is one line per rate at the exact gross, „Продажба № …" or „Връщане по продажба № …". 1000 × 0.0533 net at 20 % was
+  63.96 in LGR and 60.00 on the device, with 3.96 printed as change. The document keeps its articles and its stock, and
+  the text slip prints the document's own figures, as it always did.
 - **COD:** the receipt pays nothing. A later payment on it prints nothing, by any method: `prepareReceipt`
   stops at a live delivery receipt, which took all that was owed. ⚠ A second receipt would book the sale
   on the device twice.
