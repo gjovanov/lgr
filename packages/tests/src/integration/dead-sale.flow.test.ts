@@ -839,6 +839,41 @@ describe('a session takes nothing new unless it is open (the fourth read, findin
     expect((await w.sell(1)).status).toBe(200)
   })
 
+  it('a keyed retry of a sale that reached the device is not taken back, whatever the session says now', async () => {
+    const w = await tillWorld(app)
+    const key = 'reached-the-device'
+    const id = await deadSale(w, atItsPrint, { key })
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closing_control', closeLeaseUntil: new Date(Date.now() + 60_000) } })
+
+    const r = await w.sell(1, {}, key)
+
+    expect(r.status).toBe(200)
+    expect(r.json.transaction.id).toBe(id)
+    expect((await read(id)).completedAt).toBeTruthy()
+  })
+
+  it('a keyed retry of one that stopped after its totals is not taken back either, and books nothing twice', async () => {
+    const w = await tillWorld(app, { device: false })
+    const key = 'stopped-after-its-totals'
+    const undo = diesAt(update => !!update?.$set?.completedAt)
+    try {
+      expect((await w.sell(1, {}, key)).status).toBe(500)
+    } finally {
+      undo()
+    }
+    const sale = await lastSale(w)
+    expect(sale.register.sessionTotalsApplied).toBe(true)
+    await Invoice.updateOne({ _id: sale._id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closing_control', closeLeaseUntil: new Date(Date.now() + 60_000) } })
+
+    const r = await w.sell(1, {}, key)
+
+    expect(r.status).toBe(200)
+    expect((await read(sale._id)).completedAt).toBeTruthy()
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 12, transactionCount: 1 })
+    expect((await w.stock()).quantity).toBe(9)
+  })
+
   it('a closed session answers as it always did', async () => {
     const w = await tillWorld(app)
     expect((await close(w, 100)).status).toBe(200)

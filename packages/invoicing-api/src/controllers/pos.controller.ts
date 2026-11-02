@@ -9,7 +9,7 @@ import { eventBus } from 'services/events/event-bus'
 import { nextRegistryNumber } from 'services/biz/sequence-registry'
 import { assertDispatchAvailable } from 'services/biz/invoicing.service'
 import { logger } from 'services/logger'
-import { Invoice, Org, POSSession } from 'db/models'
+import { Org, POSSession } from 'db/models'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import {
@@ -81,15 +81,11 @@ const CLOSE_INTERRUPTED = {
   message: 'The last close of this session stopped during its Z-report, which may have printed, and the session is open again. Check the device. If the Z-report printed, close without a fiscal report (a manager can). If it did not, close again.',
 } as const
 
-/** The session as the close will read it: what it finishes first books, before it reads `expected`. */
-async function withWhatTheCloseBooks(session: any, finishing: any[]): Promise<any> {
-  const stornoed = finishing.filter(doc => doc.type === 'cash_storno').map(doc => doc.relatedInvoiceId)
-  const originals = new Map((stornoed.length ? await Invoice.find({ _id: { $in: stornoed } }, { total: 1 }).lean().exec() : []).map((o: any) => [String(o._id), o]))
+/** The session's drawer as the close will read it: what it finishes first books, before it reads `expected`. */
+function withWhatTheCloseBooks(session: any, finishing: any[]): any {
   const out = { ...session }
   for (const doc of finishing) {
-    for (const [bucket, amount] of Object.entries(bookedOnItsSession(doc, originals.get(String(doc.relatedInvoiceId))) ?? {})) {
-      out[bucket] = (Number(out[bucket]) || 0) + amount
-    }
+    for (const [bucket, amount] of Object.entries(bookedOnItsSession(doc) ?? {})) out[bucket] = (Number(out[bucket]) || 0) + amount
   }
   return out
 }
@@ -538,7 +534,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     const finishes = new Set([...dead, ...interrupted].map(doc => String(doc._id)))
 
     return {
-      expected: expectedTotals(await withWhatTheCloseBooks(session, [...dead, ...interrupted])),
+      expected: expectedTotals(withWhatTheCloseBooks(session, [...dead, ...interrupted])),
       currency: session.currency,
       // What the session sold so far, as its report will print it at close.
       report: buildSessionReport(session, await loadPosRows({ orgId, sessionId: id, withReceipts: true })),

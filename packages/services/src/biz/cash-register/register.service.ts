@@ -372,8 +372,7 @@ const sessionIsOpen = async (doc: any): Promise<boolean> =>
 /** Nothing of it has happened: not a print, nor the drawer, nor the stock. */
 function notStarted(doc: any): boolean {
   const reg = doc.register
-  return !doc.completedAt && (reg?.fiscal?.state === 'pending' || reg?.fiscal?.state === 'none')
-    && !reg.fiscal.attemptedAt && !reg.sessionTotalsApplied && !reg.movementId
+  return (reg?.fiscal?.state === 'pending' || reg?.fiscal?.state === 'none') && !reg.fiscal.attemptedAt && !reg.sessionTotalsApplied
 }
 
 /** What a receipt in doubt says: nothing was booked, and who does what next. */
