@@ -75,6 +75,9 @@ Options: `--org <slug>` (default `regal-pz`) · `--api <url>` ·
 
 ## What the script does
 
+- **`"qty": 0` only restates prices** (a price-only разписка): the product is repriced, no movement
+  is booked for it, and a name matching no product is reported and creates nothing.
+
 - **Corrects BOTH quantity AND prices for existing AND new products** (2026-08-03).
   Existing products are NOT re-created but ARE **repriced** via a product PUT —
   `sellingPrice` = разписка `Прод. цена` when the line has one, and `priceTiers` MERGED: the provided

@@ -8,6 +8,8 @@
  *                                          items file. Reuses its product create/reprice +
  *                                          receipt-movement logic verbatim — not re-implemented
  *                                          here. Marker `stokrazp:<N>` (its own default).
+ *   - lines with no quantity             → the same script, which reprices and receives nothing:
+ *     ("priceOnlyItems")                   PlusMinus issues a price-only разписка to restate prices.
  *   - negative lines ("adjustmentLines") → booked directly below as a `type:'adjustment'`
  *                                          movement (fromWarehouseId set, no toWarehouseId —
  *                                          same mechanics as `adjust-stock.ts`), marker
@@ -212,8 +214,9 @@ async function main() {
     if (only && !only.has(docNumber)) continue
     try {
       const m = mapStokrazpDoc(doc)
-      console.log(`── ${m.docNumber} (${m.date})${m.partner ? ` — ${m.partner}` : ''}: ${m.receiptItems.length} receipt line(s), ${m.adjustmentLines.length} adjustment line(s) ──`)
-      if (m.receiptItems.length) await bookReceipt(m.docNumber, m.date, m.partner, m.receiptItems)
+      console.log(`── ${m.docNumber} (${m.date})${m.partner ? ` — ${m.partner}` : ''}: ${m.receiptItems.length} receipt line(s), ${m.priceOnlyItems.length} price-only line(s), ${m.adjustmentLines.length} adjustment line(s) ──`)
+      const items = [...m.receiptItems, ...m.priceOnlyItems]
+      if (items.length) await bookReceipt(m.docNumber, m.date, m.partner, items)
       if (m.adjustmentLines.length) await bookAdjustment(m.docNumber, m.date, m.adjustmentLines, wh)
       ok++
     } catch (e: any) {

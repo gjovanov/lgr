@@ -81,7 +81,7 @@ if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date || '')) { console.error(`items JSON "
 if (!Array.isArray(input.items) || !input.items.length) { console.error('items JSON has no items.'); process.exit(2) }
 for (const [i, it] of input.items.entries()) {
   if (!it.name?.trim()) { console.error(`item[${i}]: missing name`); process.exit(2) }
-  if (!(it.qty > 0)) { console.error(`item[${i}] "${it.name}": qty must be > 0`); process.exit(2) }
+  if (!(it.qty >= 0)) { console.error(`item[${i}] "${it.name}": qty must be >= 0 (0 = it only restates prices)`); process.exit(2) }
   if (!(it.cost >= 0)) { console.error(`item[${i}] "${it.name}": cost must be >= 0`); process.exit(2) }
   for (const k of Object.keys(it.tiers || {})) {
     if (!TIER_NAMES.includes(k) || k === 'Доставна цена') { console.error(`item[${i}] "${it.name}": unknown tier "${k}" (allowed: ${TIER_NAMES.slice(1).join(', ')})`); process.exit(2) }
@@ -252,6 +252,8 @@ async function main() {
   const plan: Array<{ it: ItemIn; existing: any | null; selling: number; unit: string }> = []
   for (const it of input.items) {
     const existing = await matchProduct(it.name)
+    // A line with no quantity only restates prices, and it delivers nothing to open a new article with.
+    if (!existing && it.qty === 0) { console.log(`  ! NO MATCH "${it.name}": no product here, so a price-only line repriced nothing`); continue }
     const selling = it.selling != null ? round4(it.selling) : round4(it.cost * 1.1)
     plan.push({ it, existing, selling, unit: normalizeUnit(it.unit) })
   }
@@ -262,7 +264,7 @@ async function main() {
   for (const p of plan) {
     if (p.existing) {
       const tierStr = Object.entries(p.it.tiers || {}).map(([k, v]) => `${k}=${v}`).join(' | ')
-      console.log(`  ~ REPRICE ${p.existing.sku}  "${p.it.name}"  delivery ${p.it.cost} (purchase kept), selling ${p.it.selling != null ? `→${p.selling}` : 'kept'}${tierStr ? ` | ${tierStr}` : ''}${dupMv ? '' : `  + receive qty ${p.it.qty}`}`)
+      console.log(`  ~ REPRICE ${p.existing.sku}  "${p.it.name}"  delivery ${p.it.cost} (purchase kept), selling ${p.it.selling != null ? `→${p.selling}` : 'kept'}${tierStr ? ` | ${tierStr}` : ''}${dupMv || !p.it.qty ? '' : `  + receive qty ${p.it.qty}`}`)
     } else {
       const sku = `${prefix}-${String(skuCursor++).padStart(pad, '0')}`
       const tierStr = TIER_NAMES.filter(n => n === 'Доставна цена' || (p.it.tiers?.[n] ?? 0) > 0)
@@ -273,7 +275,7 @@ async function main() {
   }
   const totalQty = plan.reduce((s, p) => s + p.it.qty, 0)
   const totalAmount = round2(plan.reduce((s, p) => s + p.it.qty * p.it.cost, 0))
-  console.log(`\nPlanned: ${plan.filter(p => !p.existing).length} to create, ${plan.filter(p => p.existing).length} to reprice${dupMv ? '' : ' + receive'} | ${plan.length} lines | Σqty ${totalQty} | Σcost ${totalAmount} | → ${wh.name}`)
+  console.log(`\nPlanned: ${plan.filter(p => !p.existing).length} to create, ${plan.filter(p => p.existing).length} to reprice${dupMv || !totalQty ? '' : ' + receive'} | ${plan.length} lines | Σqty ${totalQty} | Σcost ${totalAmount} | → ${wh.name}`)
 
   if (!execute) {
     console.log('\nDry-run complete — no writes. Re-run with --execute.')
@@ -316,6 +318,7 @@ async function main() {
     const deliveredTiers = p.existing
       ? repriceTiers(prod.priceTiers, p.it.tiers, Number(prod.purchasePrice) || 0)
       : buildTiers(p.it.cost, p.it.tiers)
+    if (!p.it.qty) continue
     lines.push({
       productId: prod._id || prod.id, quantity: p.it.qty, unitCost: p.it.cost, totalCost: round2(p.it.qty * p.it.cost),
       productUpdate: sellingUpdate,
@@ -329,6 +332,10 @@ async function main() {
   // already-received delivery, prices are refreshed above and we stop here.
   if (dupMv) {
     console.log(`\n✓ Prices refreshed for ${plan.length} products. Quantity was already received (${dupMv.movementNumber || dupMv.number}) — no new movement.`)
+    return
+  }
+  if (!lines.length) {
+    console.log(`\n✓ Prices applied to ${plan.length} product(s). The document delivers nothing, so no movement.`)
     return
   }
   const mvBefore = (await http('GET', org('/warehouse/movement?page=0&size=1'))).total ?? 0
@@ -352,7 +359,7 @@ async function main() {
   let ok = true
   for (const [i, l] of lines.entries()) {
     const lv = await stockLevelFor(l.productId, wh._id)
-    if (!plan[i].existing && (!lv || Math.abs(lv.qty - l.quantity) > 0.001)) ok = false
+    if (!l._existing && (!lv || Math.abs(lv.qty - l.quantity) > 0.001)) ok = false
     console.log(`  ${lv ? '✓' : '✗'} "${String(l._name).replace(/\s+/g, ' ').slice(0, 34)}": qty=${lv?.qty} avgCost=${lv?.avgCost}`)
   }
   if (done.status !== 'completed' || !ok) process.exit(1)

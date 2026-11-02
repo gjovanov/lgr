@@ -77,7 +77,7 @@ bun run scripts/audit-coverage-api.ts --org regal-pz --dir "$R/<chunk1>/api,$R/<
 | `annulments … STILL LIVE` | Report. A `paid` invoice cannot be voided through the API (see §6). |
 | 2 `post-baseline` unbooked | Book them, §4a–b. |
 | 2 `pre-baseline` unbooked | **Do not book with stock.** Section 4 must show them `ALREADY`; any other class there is worth a look. |
-| 2 `price-only/empty` | Price restatements with no quantity — nothing to book for stock. (Prices are not audited here.) |
+| 2 `price-only/empty` | Price restatements with no quantity: no stock to book. `receive-stock-api.ts --only <n>` applies their prices, if no newer document repriced the same articles. (Prices are not audited here.) |
 | 3 TILL DAYS | Trading days with no cash-sale document: pull the POS receipts and book them, §5. |
 | 4 GUARD | For each unbooked document line: `EXACT`/`PARTIAL` book it; `ALREADY` booking would create drift; `CONTRA` the document is real but something else is off on that product too (the true-up settles it). |
 | 5 DRIFT | PlusMinus lets staff edit a booked document in place; LGR keeps the original. Expect dozens of lines. The true-up absorbs them. |

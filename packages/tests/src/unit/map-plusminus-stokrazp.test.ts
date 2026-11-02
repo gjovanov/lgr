@@ -42,7 +42,34 @@ const WHOLE_DOC_RETURN: PlusMinusDocument = {
   ],
 }
 
+/** A price-only разписка: no `quantity` at all, and a zero total. Regal-pz's shape, made up. */
+const PRICE_ONLY: PlusMinusDocument = {
+  date: '20261102',
+  num: '00000001',
+  header: { docDate: '20261102', docNumber: '3000619634', doc: 'СТ', sum: '0' },
+  lines: [
+    { item: 'СТОКИ:ПОП-НИТ 4х16', name: 'ПОП-НИТ 4х16', measure: 'БР', sum: '0', price: '0.11', price1: '0.09', price2: '0.08', retailPrice: '0.25', wholesalePrice: '0.3' },
+    { item: 'СТОКИ:ПОП-НИТ 4х20', name: 'ПОП-НИТ 4х20', measure: 'БР', sum: '0', price: '0.12' },
+  ],
+}
+
 describe('mapStokrazpDoc', () => {
+  it('keeps a line with no quantity when it restates a selling price or a tier, and says nothing else', () => {
+    const m = mapStokrazpDoc(PRICE_ONLY)
+    expect(m.receiptItems).toEqual([])
+    expect(m.adjustmentLines).toEqual([])
+    expect(m.priceOnlyItems).toEqual([
+      { name: 'ПОП-НИТ 4х16', qty: 0, unit: 'pcs', cost: 0.11, selling: 0.25, tiers: { 'Цена 1': 0.09, 'Цена 2': 0.08, 'Цена на едро': 0.3 } },
+    ])
+  })
+
+  it('a document with quantities has no price-only lines unless a line lacks one', () => {
+    expect(mapStokrazpDoc(PLAIN_RECEIPT).priceOnlyItems).toEqual([])
+    const mixed = mapStokrazpDoc({ ...PRICE_ONLY, lines: [...PRICE_ONLY.lines, { name: 'БОЛТ', quantity: '5', price: '1', retailPrice: '2' }] })
+    expect(mixed.receiptItems.map(i => i.name)).toEqual(['БОЛТ'])
+    expect(mixed.priceOnlyItems.map(i => i.name)).toEqual(['ПОП-НИТ 4х16'])
+  })
+
   it('maps a plain receipt into receiptItems, with generic price<N> tiers and no adjustment lines', () => {
     const m = mapStokrazpDoc(PLAIN_RECEIPT)
     expect(m.docNumber).toBe('2222639233')

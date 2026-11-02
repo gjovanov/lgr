@@ -89,9 +89,9 @@ Read every line, not just the final count:
 - `import-sales-invoices-api.ts` will flag `till-overlap` candidates (a фактура for a
   sale the till already rang) — **verify before** `--include-till-overlap`; see memory
   `lgr-regal-sf-org` / `lgr-till-overlap-backlog` for how that class was diagnosed before.
-- `receive-stock-api.ts`'s "0 receipt line(s), 0 adjustment line(s)" is normal for a
-  price-only разписка line (no `quantity` field at all in PlusMinus's JSON) — not a bug,
-  nothing to book for it.
+- `receive-stock-api.ts` applies a price-only разписка's prices (lines with no `quantity`
+  field in PlusMinus's JSON) and books no movement for it. Nothing marks it as done, so `--only`
+  an old one only if no newer document repriced the same articles.
 
 ## 3. Reconcile against the snapshot
 
