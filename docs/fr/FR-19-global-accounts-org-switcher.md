@@ -75,7 +75,7 @@ password, because each org's copy of it was theirs to set.
 
 ## Field test (lgrai.app)
 
-1. Goran signs in with Google, with no org: sees regal, regal-pz and regal-sf; switches.
+1. The owner signs in with Google, with no org: sees regal, regal-pz and regal-sf; switches.
 2. Password sign-in by username and by email; an ambiguous username asks for the org.
 3. A regal tab and a regal-pz tab side by side; a reload of either keeps its org; a POS tab with
    a sale in progress refuses a switch.

@@ -466,8 +466,8 @@ subtitles.
 | **D-2** | A bill for goods already received (#168): several receipts on one bill? One receipt billed in parts? When prices differ, does the bill correct `purchasePrice` / `avgCost`? In an org that keeps journals, which side posts the inventory? | One bill may cover several receipts of one supplier; a receipt is billed once and whole, with no partial billing in v1. The bill updates `purchasePrice` for future receipts but does not re-cost goods already received, and it shows the difference per line. Journals: verify the `stock.movement.confirmed` and `invoice.posted` handlers first. If both post inventory, the linked bill must post against "received, not invoiced", and that is its own slice. No prod org keeps journals today (e3ebe8e1). |
 | **D-3** | Does a card payment settle the invoice on issue? | Yes. Extend `syncCashSettlement` to `card` with origin `card_on_issue`. Bank transfer and cash on delivery stay open. |
 | **D-4** | What may change on an active reservation? What does "repeat" do? | Quantity only: down to what is already invoiced or dispatched, up to what the source can still hold. To change warehouse, client or order, cancel and repeat. Repeat creates a new reservation pre-filled from the cancelled one, which keeps the audit trail. |
-| **D-5** | Cash sale → invoice: now, or inside FR-21? | Now, as a small slice: the staff need it, and FR-21 §11 defers it. Agree with Atanas that R2's migration carries the link. |
-| **D-6** | Today's till: quick fixes before FR-21 R5, or R5 requirements only? | Two contained fixes now: FR-22.54 (reset, refocus, show the result) and FR-22.55 (Enter adds). The rest becomes R5 requirements, agreed with Atanas. |
+| **D-5** | Cash sale → invoice: now, or inside FR-21? | Now, as a small slice: the staff need it, and FR-21 §11 defers it. Agree with @lazarovski that R2's migration carries the link. |
+| **D-6** | Today's till: quick fixes before FR-21 R5, or R5 requirements only? | Two contained fixes now: FR-22.54 (reset, refocus, show the result) and FR-22.55 (Enter adds). The rest becomes R5 requirements, agreed with @lazarovski. |
 | **D-7** | Place of deal: from the warehouse, or per user? | The document warehouse's `address.city`, falling back to the org address. Editable on the form. |
 | **D-8** | #203.1 asks for "Create buttons in one place", but every list's Create is already rightmost in its header. Which inconsistency did the staff mean? | Ask them. Meanwhile ship what removes every candidate: FR-22.50 (labelled buttons, one notes menu), FR-22.16–.18 (one action bar on every form) and FR-22.49 (one „+ Нов" everywhere). **Settled 2026-10-26:** „+ Нов" is what #203.1 asked for, and it stays as it is. That was confirmed when #203 was closed as completed. |
 
@@ -512,7 +512,7 @@ subtitles.
 
 ## 6. Integration constraints
 
-- **FR-21 owns the cash register** (#171, Atanas). The journal and terminal are rebuilt once, in
+- **FR-21 owns the cash register** (#171, @lazarovski). The journal and terminal are rebuilt once, in
   ui-shared, at R5. Slice 7 sends its requirements there unless D-6 says otherwise. FR-21's
   decisions hold, whatever D-6 says:
   - route names `pos.orders`, `pos.orders.detail` and `invoicing.cash-sales(.new/.edit)`;

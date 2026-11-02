@@ -251,9 +251,9 @@ describe('Real-World Scenario: Product with tag prices, contact with matching ta
   it('should resolve "high volume" tag price for Venusart contact', async () => {
     const org = await createTestOrg()
 
-    // Simulate: product "Rozi Test" with two tag-based custom prices
+    // Simulate: product "Tag Price Test" with two tag-based custom prices
     const product = await createTestProduct(org._id, {
-      name: 'Rozi Test',
+      name: 'Tag Price Test',
       sellingPrice: 100,
       tagPrices: [
         { name: 'Price1', tag: 'loyal', price: 80 },
@@ -279,7 +279,7 @@ describe('Real-World Scenario: Product with tag prices, contact with matching ta
     const org = await createTestOrg()
 
     const product = await createTestProduct(org._id, {
-      name: 'Rozi Test',
+      name: 'Tag Price Test',
       sellingPrice: 100,
       tagPrices: [
         { name: 'Price1', tag: 'loyal', price: 80 },
@@ -302,7 +302,7 @@ describe('Real-World Scenario: Product with tag prices, contact with matching ta
     const org = await createTestOrg()
 
     const product = await createTestProduct(org._id, {
-      name: 'Rozi Test',
+      name: 'Tag Price Test',
       sellingPrice: 100,
       tagPrices: [
         { name: 'Price1', tag: 'loyal', price: 80 },
@@ -326,7 +326,7 @@ describe('Real-World Scenario: Product with tag prices, contact with matching ta
     const org = await createTestOrg()
 
     const product = await createTestProduct(org._id, {
-      name: 'Rozi Test',
+      name: 'Tag Price Test',
       sellingPrice: 100,
       tagPrices: [
         { name: 'Price1', tag: 'loyal', price: 80 },
@@ -355,7 +355,7 @@ describe('Real-World Scenario: Product with tag prices, contact with matching ta
 
     // Product has both a tag price AND a contact-specific price
     const product = await createTestProduct(org._id, {
-      name: 'Rozi Test',
+      name: 'Tag Price Test',
       sellingPrice: 100,
       tagPrices: [
         { name: 'Price2', tag: 'high volume', price: 70 },

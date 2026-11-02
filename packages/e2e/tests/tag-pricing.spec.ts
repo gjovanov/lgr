@@ -35,10 +35,10 @@ test.describe('Tag-Based Pricing — API Tests', () => {
   test('full scenario: product with tag prices, contact with matching tag', async () => {
     const ts = Date.now()
 
-    // 1. Create product "Rozi Test" with two tag prices
+    // 1. Create product "Tag Price Test" with two tag prices
     const productData = await apiCall('POST', `/org/${orgId}/warehouse/product`, token, {
       sku: `ROZI-${ts}`,
-      name: `Rozi Test ${ts}`,
+      name: `Tag Price Test ${ts}`,
       category: 'Test',
       type: 'goods',
       unit: 'pcs',

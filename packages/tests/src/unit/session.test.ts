@@ -55,20 +55,20 @@ const jwt = (claims: Record<string, unknown>) =>
 
 const REGAL = { id: 'org-regal', name: 'Regal', slug: 'regal' }
 const PZ = { id: 'org-pz', name: 'Regal PZ', slug: 'regal-pz' }
-const goranIn = (org: { id: string }, extra: Record<string, unknown> = {}) =>
-  jwt({ id: `user-goran-${org.id}`, orgId: org.id, role: 'admin', iid: 'iid-goran', tv: 0, ...extra })
+const ownerIn = (org: { id: string }, extra: Record<string, unknown> = {}) =>
+  jwt({ id: `user-owner-${org.id}`, orgId: org.id, role: 'admin', iid: 'iid-owner', tv: 0, ...extra })
 
 describe('a tab keeps its own org', () => {
   it('a new tab starts in the session of the tab that signed in, then goes its own way', () => {
     const { open } = browser()
     const first = open()
-    first.setSession(goranIn(REGAL), REGAL)
+    first.setSession(ownerIn(REGAL), REGAL)
 
     const second = open()
     expect(second.getOrg()?.slug).toBe('regal')
 
     // The first tab switches. The second one does NOT follow: it adopted a copy, once.
-    first.setSession(goranIn(PZ), PZ)
+    first.setSession(ownerIn(PZ), PZ)
     expect(first.getOrg()?.slug).toBe('regal-pz')
     expect(second.getOrg()?.slug).toBe('regal')
     expect(second.claims()?.orgId).toBe(REGAL.id)
@@ -76,7 +76,7 @@ describe('a tab keeps its own org', () => {
 
   it('a sign-in is the new-tab default at once, without waiting for a focus event', () => {
     const { open, shared } = browser()
-    const token = goranIn(PZ)
+    const token = ownerIn(PZ)
     open().setSession(token, PZ)
     expect(shared.getItem('lgr_token')).toBe(token)
     expect(JSON.parse(shared.getItem('lgr_org')!).slug).toBe('regal-pz')
@@ -86,9 +86,9 @@ describe('a tab keeps its own org', () => {
   it('focus makes a tab the one a new tab starts in', () => {
     const { open } = browser()
     const regalTab = open()
-    regalTab.setSession(goranIn(REGAL), REGAL)
+    regalTab.setSession(ownerIn(REGAL), REGAL)
     const pzTab = open()
-    pzTab.setSession(goranIn(PZ), PZ)
+    pzTab.setSession(ownerIn(PZ), PZ)
 
     regalTab.publish() // the regal tab got focus
     expect(open().getOrg()?.slug).toBe('regal')
@@ -105,7 +105,7 @@ describe('a tab keeps its own org', () => {
   it('a fresher org from /auth/me is kept only when it is the token\'s org', () => {
     const { open } = browser()
     const tab = open()
-    tab.setSession(goranIn(REGAL), REGAL)
+    tab.setSession(ownerIn(REGAL), REGAL)
     tab.updateOrg({ ...PZ })
     expect(tab.getOrg()?.slug).toBe('regal')
     tab.updateOrg({ ...REGAL, name: 'Regal Ltd' })
@@ -117,9 +117,9 @@ describe('a 401 signs out only the tab it happened in', () => {
   it('does not move the tab into another tab\'s org', () => {
     const { open } = browser()
     const regalTab = open()
-    const refused = goranIn(REGAL)
+    const refused = ownerIn(REGAL)
     regalTab.setSession(refused, REGAL)
-    open().setSession(goranIn(PZ), PZ) // the new-tab default is now regal-pz
+    open().setSession(ownerIn(PZ), PZ) // the new-tab default is now regal-pz
 
     expect(regalTab.recoverFrom401(refused)).toBe(false)
     expect(regalTab.getToken()).toBe('')
@@ -130,9 +130,9 @@ describe('a 401 signs out only the tab it happened in', () => {
   it('takes over a newer token for the SAME org (signed in again in another tab)', () => {
     const { open } = browser()
     const tab = open()
-    const refused = goranIn(REGAL, { tv: 0 })
+    const refused = ownerIn(REGAL, { tv: 0 })
     tab.setSession(refused, REGAL)
-    const fresh = goranIn(REGAL, { tv: 1 })
+    const fresh = ownerIn(REGAL, { tv: 1 })
     open().setSession(fresh, REGAL)
 
     expect(tab.recoverFrom401(refused)).toBe(true)
@@ -142,9 +142,9 @@ describe('a 401 signs out only the tab it happened in', () => {
   it('ignores a refusal of a token the tab no longer holds', () => {
     const { open } = browser()
     const tab = open()
-    const before = goranIn(REGAL, { tv: 0 })
+    const before = ownerIn(REGAL, { tv: 0 })
     tab.setSession(before, REGAL)
-    const after = goranIn(REGAL, { tv: 1 })
+    const after = ownerIn(REGAL, { tv: 1 })
     tab.setSession(after, REGAL) // e.g. a password change gave this tab a new token
 
     expect(tab.recoverFrom401(before)).toBe(true)
@@ -154,7 +154,7 @@ describe('a 401 signs out only the tab it happened in', () => {
   it('takes the dead token out of the new-tab default too', () => {
     const { open, shared } = browser()
     const tab = open()
-    const refused = goranIn(REGAL)
+    const refused = ownerIn(REGAL)
     tab.setSession(refused, REGAL)
     tab.recoverFrom401(refused)
     expect(shared.getItem('lgr_token')).toBeNull()
@@ -164,10 +164,10 @@ describe('a 401 signs out only the tab it happened in', () => {
   it('signing in again clears the signed-out mark', () => {
     const { open } = browser()
     const tab = open()
-    const refused = goranIn(REGAL)
+    const refused = ownerIn(REGAL)
     tab.setSession(refused, REGAL)
     tab.recoverFrom401(refused)
-    tab.setSession(goranIn(PZ), PZ)
+    tab.setSession(ownerIn(PZ), PZ)
     expect(tab.getOrg()?.slug).toBe('regal-pz')
   })
 })
@@ -176,9 +176,9 @@ describe('signing out', () => {
   it('signs out every tab of the same person, in any org, and nobody else', async () => {
     const { open, shared } = browser()
     const regalTab = open()
-    regalTab.setSession(goranIn(REGAL), REGAL)
+    regalTab.setSession(ownerIn(REGAL), REGAL)
     const pzTab = open()
-    pzTab.setSession(goranIn(PZ), PZ)
+    pzTab.setSession(ownerIn(PZ), PZ)
     const someoneElse = open()
     someoneElse.setSession(jwt({ id: 'user-ana', orgId: PZ.id, iid: 'iid-ana', tv: 0 }), PZ)
 
@@ -199,7 +199,7 @@ describe('signing out', () => {
   it('clears the new-tab default when it is the person who signed out, but keeps the last org', async () => {
     const { open } = browser()
     const tab = open()
-    tab.setSession(goranIn(PZ), PZ)
+    tab.setSession(ownerIn(PZ), PZ)
     await tab.logoutEverywhere()
     const next = open()
     expect(next.getToken()).toBe('')
@@ -209,7 +209,7 @@ describe('signing out', () => {
   it('still signs out when the server cannot be reached', async () => {
     const { open } = browser()
     const tab = open()
-    tab.setSession(goranIn(PZ), PZ)
+    tab.setSession(ownerIn(PZ), PZ)
     await tab.logoutEverywhere(() => Promise.reject(new Error('offline')))
     expect(tab.getToken()).toBe('')
   })
@@ -217,8 +217,8 @@ describe('signing out', () => {
   it('ignores a malformed or foreign message', () => {
     const { open } = browser()
     const tab = open()
-    tab.setSession(goranIn(PZ), PZ)
-    for (const message of [null, 'logout', { type: 'logout' }, { type: 'logout', person: 'iid:someone' }, { type: 'x', person: 'iid:iid-goran' }]) {
+    tab.setSession(ownerIn(PZ), PZ)
+    for (const message of [null, 'logout', { type: 'logout' }, { type: 'logout', person: 'iid:someone' }, { type: 'x', person: 'iid:iid-owner' }]) {
       expect(tab.receive(message)).toBe(false)
     }
     expect(tab.getOrg()?.slug).toBe('regal-pz')
@@ -244,11 +244,11 @@ describe('what a token says', () => {
   it('tells an identity-only token from an org session', () => {
     const { open } = browser()
     const tab = open()
-    tab.setSession(jwt({ type: 'identity', iid: 'iid-goran', tv: 0, email: 'g@example.com' }), null)
+    tab.setSession(jwt({ type: 'identity', iid: 'iid-owner', tv: 0, email: 'g@example.com' }), null)
     expect(tab.isPersonOnly()).toBe(true)
     expect(tab.hasOrgSession()).toBe(false)
     expect(tab.getOrg()).toBeNull()
-    tab.setSession(goranIn(PZ), PZ)
+    tab.setSession(ownerIn(PZ), PZ)
     expect(tab.isPersonOnly()).toBe(false)
     expect(tab.hasOrgSession()).toBe(true)
   })

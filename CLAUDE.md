@@ -810,7 +810,7 @@ Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models`
 
 ## One app, step by step (FR-24, #402)
 
-`docs/fr/FR-24-one-app.md`. Phase 0 put POS inside invoicing, and goran's decision then made the till
+`docs/fr/FR-24-one-app.md`. Phase 0 put POS inside invoicing, and the owner's decision then made the till
 part of that module ("The till lives in Invoicing" below); Phase 1 made every module the same pieces:
 - **One app store** (`ui-shared/stores/app.store.ts`, the portal's superset). Each package's
   `store/app.store.ts` only re-exports it. `logout` / `fetchProfile` keep each side's behaviour
@@ -2335,7 +2335,7 @@ stay in `invoicing-ui/src/pos/`, the routes are in `invoicing-ui/src/manifest.ts
   availability check and transfer offer stay with its draft page.
 - ⚠ **A new cash sale has no customer, so customer-aware prices no longer apply by themselves.** The
   terminal has no contact, so a contact tagged „Цена 4" gets the plain selling price unless the cashier
-  picks the tier. It follows from `/cash-sales/new` being the terminal (goran, 2026-10-31): nobody without
+  picks the tier. It follows from `/cash-sales/new` being the terminal (the owner, 2026-10-31): nobody without
   `pos.write` starts a new cash sale in the UI either.
 - Moved pages keep their stored state: `LEGACY_PAGE_IDS` remaps ★ and usage counts from `/pos/*` and
   from Phase 0's `/invoicing/pos/*` (one hop, so each names the final page). A pending change captured
@@ -2354,7 +2354,7 @@ it, whoever runs it.** That deploy needs four more steps (handover §5):
 - the field check again;
 - a device test in `acme-corp`.
 
-FR-21 is Atanas's (@lazarovski) since 2026-10-26: `docs/fr/FR-21-HANDOVER.md` §0.
+FR-21 is @lazarovski's since 2026-10-26: `docs/fr/FR-21-HANDOVER.md` §0.
 
 POS transactions and cash sales (`/invoicing/cash-sales`) are becoming one
 cash-register document. The spec is `docs/fr/FR-21-cash-register-pos-and-cash-sales.md`; #171

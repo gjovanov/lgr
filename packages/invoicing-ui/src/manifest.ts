@@ -5,7 +5,7 @@ import { pinShown, withTillRules } from './pos/till-rules'
  * FR-24.3: the invoicing module as data. Paths are relative to the module (`/invoicing`), never to a
  * router's base: the one SPA's router composes them under the module's shell record.
  *
- * The till is part of it (goran, 2026-10-31): its sources stay in `src/pos/`, its routes are here.
+ * The till is part of it (the owner, 2026-10-31): its sources stay in `src/pos/`, its routes are here.
  * `meta.till` marks the till's pages, the ones a PIN signs in to and all a till-only session sees
  * (`pos/till-rules.ts`). They keep their `pos.*` names: a pending change and a saved grid preference
  * name them.

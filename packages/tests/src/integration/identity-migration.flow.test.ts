@@ -112,19 +112,19 @@ describe('a user alone at their email', () => {
 describe('several users at one email (the people this is for)', () => {
   it('become ONE identity with no password, unioned unverified links, and no landing org', async () => {
     const old = await createTestUser(regal, {
-      email: 'goran@roomler.test',
-      username: 'goran_jovanov_aniv',
-      firstName: 'Goran',
+      email: 'ana@roomler.test',
+      username: 'ana_petrova_old',
+      firstName: 'Ana',
       lastName: 'J',
-      oauthProviders: [{ provider: 'google', providerId: 'g-goran' }],
+      oauthProviders: [{ provider: 'google', providerId: 'g-ana' }],
       lastLoginAt: new Date('2026-08-01'),
     } as any)
     const live = await createTestUser(regalPz, {
-      email: 'GORAN@roomler.test',
-      username: 'goran_jovanov',
-      firstName: 'Goran',
-      lastName: 'Jovanov',
-      oauthProviders: [{ provider: 'google', providerId: 'g-goran' }],
+      email: 'ANA@roomler.test',
+      username: 'ana_petrova',
+      firstName: 'Ana',
+      lastName: 'Petrova',
+      oauthProviders: [{ provider: 'google', providerId: 'g-ana' }],
       lastLoginAt: new Date('2026-10-01'),
     } as any)
 
@@ -132,13 +132,13 @@ describe('several users at one email (the people this is for)', () => {
     expect(p.identities).toHaveLength(1)
     const planned = p.identities[0]
     expect(planned.flags).toEqual(expect.arrayContaining(['multi-org', 'no-password', 'names-differ']))
-    expect(planned.usernames).toEqual(['goran_jovanov', 'goran_jovanov_aniv'])
+    expect(planned.usernames).toEqual(['ana_petrova', 'ana_petrova_old'])
 
     await executeIdentityMigration(p, 'run-merge')
-    const identity = await Identity.findOne({ email: 'goran@roomler.test' }).select('+password').lean().exec()
+    const identity = await Identity.findOne({ email: 'ana@roomler.test' }).select('+password').lean().exec()
     expect(identity!.password).toBeUndefined()
     expect(identity!.lastOrgId).toBeUndefined()
-    expect(identity!.lastName).toBe('Jovanov') // the most recently used account's profile
+    expect(identity!.lastName).toBe('Petrova') // the most recently used account's profile
     expect(identity!.oauthProviders).toHaveLength(1)
     expect(identity!.oauthProviders[0].verified).toBe(false)
     for (const u of [old, live]) {

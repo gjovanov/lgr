@@ -1,6 +1,6 @@
 # FR-21 — handover (2026-10-25, updated 2026-10-28)
 
-**To:** Atanas (@lazarovski) · **Tracking:** #171 · **Spec:** [FR-21](FR-21-cash-register-pos-and-cash-sales.md)
+**To:** @lazarovski · **Tracking:** #171 · **Spec:** [FR-21](FR-21-cash-register-pos-and-cash-sales.md)
 
 **Every release is on production (2026-10-27).** R1 shipped in `v20261026-ee6cc3b78103`, R2 (with
 #278's fixes) in `v20261026-91340a8573f1`, then R3 (#284) and R4 (#286), R5a (#315) in
@@ -22,16 +22,16 @@ turned up on the way that the spec does not say.
     sys-admin. It now asserts that a non-sys-admin is not offered it.
 
   ⚠ CI does not run e2e, which is how a spec stayed wrong for four weeks.
-- **The device test in `acme-corp` is skipped** (Atanas, 2026-10-28). The same flow runs end to end
+- **The device test in `acme-corp` is skipped** (@lazarovski, 2026-10-28). The same flow runs end to end
   on the simulated Eltrade (`cash-register-fiscal.spec`, #337), through the real driver and protocol,
   so R5's "prints on its device" is ticked on that.
-- **#351 is on production** (Goran's deploy, `eb002d50`): the digest's Payments line leaves out
+- **#351 is on production** (the owner's deploy, `eb002d50`): the digest's Payments line leaves out
   `origin: 'cash_register'` rows, so the till's money is only ever the Cash register line. The field
   check after it: only regal-sf's Payments moved.
 - **What comes after FR-21** is the spec's §11: the accountant's decisions (revenue for cash sales
   without a session, back-office stornos in SUPTO 18.4/18.5, VAT credited to revenue) and the
   partial storno.
-- **On production since 2026-10-28** (deploys `b3d8f7fe`, Goran, and `6de3e145`):
+- **On production since 2026-10-28** (deploys `b3d8f7fe`, the owner, and `6de3e145`):
   - #334: **#281** (no storno of a fiscal sale while its device is offline) and `warehouse_manager`
     leaving `STORNO_ROLES`;
   - #335: **#279** (a refused sessionless cash sale draws no CS number);
@@ -46,7 +46,7 @@ turned up on the way that the spec does not say.
 
 ## 0a. Start here (2026-10-26, kept as the record)
 
-Atanas takes FR-21 over from here. In order:
+@lazarovski takes FR-21 over from here. In order:
 
 1. **R2 is merged into master and not deployed.** #272 (`75ff7c80`), #273 (`0ff55bc9`) and #274
    (`3e020145`) merged on 2026-10-26, each with CI green. The next deploy of master ships R2,
