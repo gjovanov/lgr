@@ -21,6 +21,7 @@ const STUB = `http://127.0.0.1:${STUB_PORT + 1}`
 const SERIAL = 'ED123456' // the simulator's
 const PASSWORD = 'test12345'
 const LAST_NUMBER = 100_000 + (Date.now() % 800_000)
+const INVOICE_ACTION = 'Issue invoice'
 
 type Session = Awaited<ReturnType<typeof apiLogin>>
 async function call(s: Session, method: string, path: string, body?: unknown): Promise<{ status: number; json: any }> {
@@ -161,6 +162,9 @@ test.describe('FR-23 R3 — the till\'s partial storno', () => {
     await page.goto(`/invoicing/cash-sales?q=${row.number}`)
     const listed = page.locator('.v-data-table tbody tr').filter({ has: page.getByRole('link', { name: row.number, exact: true }) })
     await expect(listed.getByTestId('journal-status-chip')).toContainText('Partly stornoed', { timeout: 15000 })
+    // What is left can still be invoiced, and still go back.
+    await expect(listed.getByRole('button', { name: INVOICE_ACTION })).toBeVisible()
+    await expect(listed.getByTestId('storno-button')).toBeVisible()
     expect((await ok(manager, 'GET', '/cash-register/documents?status=partial&size=100')).rows.map((r: any) => r.id)).toContain(sale.id)
   })
 

@@ -1258,6 +1258,24 @@ describe('the owner\'s decision: a partly stornoed sale invoices only what is le
     expect(await Invoice.countDocuments({ orgId: w.oid, type: 'invoice' })).toBe(0)
   })
 
+  it('attaching an invoice that already exists: what came back is not there to attach to', async () => {
+    const w = await tillWorld(app)
+    const s = await threeArticles(w)
+    expect((await back(w, s, [[0, 2]])).status).toBe(200)
+
+    const tooMuch = await draftOf(w, { method: 'bank_transfer', lines: [line(w, 2)] })
+    expect((await send(w, tooMuch.id)).status).toBe(200)
+    const refused = await w.call('POST', `/invoices/${tooMuch.id}/attach-to-cash-sale`, { cashSaleId: s.saleId })
+    expect(refused.status).toBeGreaterThanOrEqual(400)
+    expect(refused.json.code).toBe('line_quantity_exceeds')
+    expect((await raw(tooMuch.id)).cashSaleRef).toBeUndefined()
+
+    const fits = await draftOf(w, { method: 'bank_transfer', lines: [line(w, 1)] })
+    expect((await send(w, fits.id)).status).toBe(200)
+    expect((await w.call('POST', `/invoices/${fits.id}/attach-to-cash-sale`, { cashSaleId: s.saleId })).status).toBe(200)
+    expect(String((await raw(fits.id)).cashSaleRef.cashSaleId)).toBe(s.saleId)
+  })
+
   it('the invoice mirrors what the sale still holds per method, not what it was paid', async () => {
     const w = await tillWorld(app)
     const s = await threeArticles(w, { payments: [{ method: 'cash', amount: 30 }, { method: 'card', amount: 28.9 }] })
