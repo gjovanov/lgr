@@ -2,6 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Issue workflow: assign before you implement
+
+An agent does not write code for a GitHub issue until the issue is assigned:
+
+1. Read the issue **and its comments** first. An owner's hold ("wait until X merges") blocks the work
+   just as an assignee does.
+2. If the issue is assigned to someone else, stop and ask the human you work for. Don't implement it.
+3. Otherwise assign it to the human you work for (the account `gh` is signed in as), then begin:
+   `gh issue edit <n> -R gjovanov/lgr --add-assignee @me`
+4. Confirm it took (`gh issue view <n> -R gjovanov/lgr --json assignees`), then branch, and put
+   `Closes #<n>` in the PR.
+
+Assigning first stops two agents from working the same issue in parallel. It applies to issues in
+`gjovanov/lgr-deploy` too.
+
 ## Project Overview
 
 **LGR (Ledger)** is a full-stack multi-tenant ERP system built as a Bun monorepo. Stack: Elysia.js + MongoDB/Mongoose + Vue 3/Vuetify 3 + Pinia.
