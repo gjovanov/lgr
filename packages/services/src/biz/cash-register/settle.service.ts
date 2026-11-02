@@ -165,7 +165,6 @@ const RECEIPT_NUMBER_CITED = {
 async function correctReceiptNumber(c: RegisterContext, doc: any, typed: string | undefined, lastOnDevice?: number): Promise<any | null> {
   const old = doc.register.settled.receiptNumber
   const cited = doc.register.stornoState === 'full'
-    || await Invoice.exists({ orgId: doc.orgId, type: 'cash_storno', relatedInvoiceId: doc._id, status: { $ne: 'voided' } }).exec()
     || await Invoice.exists({ orgId: doc.orgId, 'cashSaleRef.cashSaleId': doc._id, status: { $nin: ['voided', 'cancelled'] } }).exec()
   if (cited) throw new RegisterRefusal(409, { ...RECEIPT_NUMBER_CITED })
   const number = await typedReceiptNumber(doc, typed, lastOnDevice)

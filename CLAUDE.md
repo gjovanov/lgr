@@ -2588,7 +2588,8 @@ invoice still due until the courier pays).
   answers 409 `storno_in_doubt`, as does every press after it: voided, the next press printed a second
   fiscal storno. ⚠ The claim (`stornoState: 'full'`, `claimForStorno`) has no lease of its own; the lease on the
   storno document says who is working on that document. Only a claim whose storno was never written lapses, by
-  its age, id by id (`releaseOrphanClaims`). A dead storno is found by its lapsed lease, by the sale's next
+  its age, id by id (`releaseOrphanClaims`), and a request that stalled past that wakes with no claim and never was
+  (`lostItsClaim`). A dead storno is found by its lapsed lease, by the sale's next
   storno and by the close, and a storno in doubt holds the close. It counts nowhere until settled, and neither
   does a `failed` one not yet voided: `UNPROVED_STORNO_STATES`, `posRowSign` and `NOT_UNPROVED_STORNO`, which ⚠ a
   new reader that sums `cash_storno` must spread, and SUPTO's 18.2, 18.4, 18.5.

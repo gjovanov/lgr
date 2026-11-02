@@ -822,6 +822,10 @@ describe('a storno\'s claim with no document: the process died between the claim
 
     expect(r.status).toBe(400)
     expect((await read(saleId)).register.stornoState).toBe('full')
+
+    // With no such field at all, too.
+    await Invoice.collection.updateOne({ _id: new ObjectId(saleId) }, { $unset: { 'register.stornoedBy': '' } })
+    expect((await w.storno(saleId)).status).toBe(400)
   })
 })
 

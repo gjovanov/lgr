@@ -1017,8 +1017,8 @@ export async function releaseStornoClaim(original: any, stornoId: unknown): Prom
  */
 export async function releaseOrphanClaims(sale: any, now = Date.now()): Promise<boolean> {
   const reg = sale?.register
+  if (reg?.stornoState !== 'full' || !reg.stornoedBy?.length) return false
   const before = new Date(now - LEASE_MS)
-  if (reg?.stornoState !== 'full' || !reg.stornoedBy?.length || !reg.cancelledAt || new Date(reg.cancelledAt) >= before) return false
   const written = new Set((await Invoice.find({ _id: { $in: reg.stornoedBy }, orgId: sale.orgId }, { _id: 1 }).lean().exec()).map((d: any) => String(d._id)))
   let released = false
   for (const id of reg.stornoedBy) {

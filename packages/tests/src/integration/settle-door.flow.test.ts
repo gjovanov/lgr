@@ -586,6 +586,8 @@ describe('a number typed off the slip (finding 7)', () => {
       expect(r.status).toBe(409)
       expect(r.json.code).toBe('receipt_number_cited')
       expect((await fields(id)).number).toBe('2')
+      // And that is what it is told, whatever it typed: nothing it could type would be taken.
+      expect((await settle(w, id, true, '9999999')).json.code).toBe('receipt_number_cited')
     })
 
     it('a storno held in doubt cites it too', async () => {
