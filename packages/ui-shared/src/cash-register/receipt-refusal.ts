@@ -6,7 +6,7 @@
  */
 
 /** A refusal's message key, or null when it is none of the receipt's and the server's text will do. */
-export function receiptRefusalKey(data: { code?: string; noSession?: boolean; deviceConfigured?: boolean } | null | undefined): string | null {
+export function receiptRefusalKey(data: { code?: string; noSession?: boolean; deviceConfigured?: boolean; atIssue?: boolean } | null | undefined): string | null {
   switch (data?.code) {
     case 'fiscal_device_not_connected':
       if (data.noSession) return 'cashRegister.receipt.noSession'
@@ -38,6 +38,7 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     // FR-23 R2: a refund on a credit note.
     case 'no_receipt_to_storno': return 'cashRegister.receipt.noReceiptToStorno'
     case 'refund_exceeds_receipts': return 'cashRegister.receipt.refundExceeds'
+    case 'refund_exceeds_paid': return data.atIssue ? 'cashRegister.receipt.refundExceedsPaidAtIssue' : 'cashRegister.receipt.refundExceedsPaid'
     case 'receipt_on_other_device': return 'cashRegister.receipt.refundOtherDevice'
     case 'refund_requires_manager': return 'cashRegister.receipt.refundNeedsManager'
     case 'cash_sale_refunded': return 'cashRegister.receipt.saleRefunded'

@@ -19,8 +19,8 @@ import { outstandingOf } from 'services/biz/invoice-payment'
 import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { PAYMENT_STORNO } from 'services/biz/cash-register/pos-union'
 import {
-  PAYMENT_IN_PROGRESS, citeableElsewhere, citeableOn, doubtRefusal, exceedsReceipts, inDoubtRefusal, noReceiptToStorno, onOtherDevice, paymentStornoDocument,
-  printsRefund, receiptInDoubt, receiptsOf, refundBacking, refundNeed, runReceiptSteps, type ReceiptTender,
+  PAYMENT_IN_PROGRESS, citeableElsewhere, citeableOn, doubtRefusal, exceedsPaid, exceedsReceipts, inDoubtRefusal, noReceiptToStorno, onOtherDevice, paymentStornoDocument,
+  printsRefund, receiptInDoubt, receiptsOf, refundBacking, refundCap, refundNeed, runReceiptSteps, type ReceiptTender,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { drawOn, holdEnough } from 'services/biz/cash-register/refund-budget'
 import { receiptMode, type ReceiptMode } from 'services/biz/cash-register/receipt-mode'
@@ -109,6 +109,15 @@ export async function prepareRefund(orgId: string, user: RegisterUser & { role?:
     if (backing.doubt) throw doubtRefusal(backing.doubt)
     if (backing.printing) throw new RegisterRefusal(409, { ...PAYMENT_IN_PROGRESS })
     throw noReceiptToStorno()
+  }
+
+  // Past what the customer paid and has not had back, whatever the receipts hold. What is unresolved on the
+  // invoice may be the money this needs, and it has a way out of its own.
+  const cap = await refundCap(orgId, note)
+  if (cap !== null && Math.round(tender.amount * 100) > Math.round(cap * 100)) {
+    if (backing.doubt) throw doubtRefusal(backing.doubt)
+    if (backing.printing) throw new RegisterRefusal(409, { ...PAYMENT_IN_PROGRESS })
+    throw exceedsPaid(cap, atIssue)
   }
 
   const session = await openSessionOf(orgId, user.id)

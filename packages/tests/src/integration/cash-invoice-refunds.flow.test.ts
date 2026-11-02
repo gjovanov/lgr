@@ -358,7 +358,7 @@ describe('at issue: a credit note in cash or by card gives its money back as it 
     const beyond = await noteOn(w, inv, { method: 'card', quantity: 1 })
     const r = await send(w, beyond.id)
     expect(r.status).toBe(422)
-    expect(r.json).toMatchObject({ code: 'refund_exceeds_receipts', left: 0 })
+    expect(r.json).toMatchObject({ code: 'refund_exceeds_paid', left: 0 })
   })
 
   it('a credit note with no product on it lowers what was charged: the device\'s other reason', async () => {
@@ -404,6 +404,7 @@ describe('at issue: a credit note in cash or by card gives its money back as it 
     it('more than the invoice\'s receipts still hold: 422, and how much they do', async () => {
       const w = await tillWorld(app)
       const inv = await paidInParts(w, [12])
+      expect((await pay(w, inv.id, 12, 'bank_transfer')).status).toBe(200)
       const r = await refusedAtIssue(w, await noteOn(w, inv))
       expect(r.status).toBe(422)
       expect(r.json).toMatchObject({ code: 'refund_exceeds_receipts', left: 12 })
@@ -1250,6 +1251,7 @@ describe('a refund recorded later (/payments, §2.5)', () => {
     it('beyond the budget: 422', async () => {
       const w = await tillWorld(app)
       const inv = await paidInParts(w, [10])
+      expect((await pay(w, inv.id, 14, 'bank_transfer')).status).toBe(200)
       const note = await issuedNote(w, inv)
       const before = await footprint(w)
 
@@ -2934,7 +2936,7 @@ describe('an invoice issued for a till sale (R0): the refund cites the sale\'s o
     expect(leftByRate(await fresh(inv.saleId)).get(20)).toBe(3600)
   })
 
-  it('at issue too, and beyond what the sale holds: 422', async () => {
+  it('at issue too, and beyond what the invoice took: 422', async () => {
     const w = await tillWorld(app)
     const inv = await invoicedSale(w, 1)
     const note = await noteOn(w, inv, { quantity: 1 })
@@ -2943,7 +2945,7 @@ describe('an invoice issued for a till sale (R0): the refund cites the sale\'s o
     const beyond = await issuedNote(w, inv, { quantity: 1 })
     const r = await pay(w, beyond.id, 12)
     expect(r.status).toBe(422)
-    expect(r.json).toMatchObject({ code: 'refund_exceeds_receipts', left: 0 })
+    expect(r.json).toMatchObject({ code: 'refund_exceeds_paid', left: 0 })
   })
 
   it('a sale whose fiscal receipt may have printed cannot be reversed until a person says: it has no budget', async () => {
@@ -3174,6 +3176,178 @@ describe('an invoice issued for a till sale (R0): the refund cites the sale\'s o
       expect(w.sim!.receipts).toHaveLength(printed)
       expect((await fresh(saleId)).register.stornoState).not.toBe('full')
     })
+  })
+})
+
+describe('a refund that prints is capped at what the customer paid on the invoice (the readers, A1)', () => {
+  /** A till sale of 48, and an invoice for one unit of it, 12. */
+  async function invoicedInPart(w: TillWorld) {
+    const sale = await w.sell(4)
+    expect(sale.status).toBe(200)
+    const saleId = String(sale.json.transaction.id)
+    const contact = await draftOf(w, { method: 'bank_transfer' })
+    const state = (await w.call('GET', `/invoices/${saleId}/to-invoice`)).json.invoicing
+    const res = await w.call('POST', `/invoices/${saleId}/to-invoice`, { contactId: contact.contactId, lines: [{ lineId: state.lines[0].lineId, quantity: 1 }] })
+    expect(res.status).toBe(200)
+    expect(res.json.invoice.total).toBe(12)
+    return { saleId, id: String(res.json.invoice.id), contactId: contact.contactId }
+  }
+  const stornoCount = (w: TillWorld) => w.sim!.receipts.filter(r => r.kind === 'storno').length
+
+  it('an invoice for part of a sale: sale 48, invoice 12, a note of 48 in cash is refused as it is issued, with what the cap leaves', async () => {
+    const w = await tillWorld(app)
+    const inv = await invoicedInPart(w)
+    const note = await noteOn(w, inv, { quantity: 4 })
+    const before = await footprint(w)
+
+    const r = await send(w, note.id)
+
+    expect(r.status).toBe(422)
+    expect(r.json.code).toBe('refund_exceeds_paid')
+    expect(r.json.left).toBe(12)
+    expect(r.json.atIssue).toBe(true)
+    expect(r.json.message).toContain('by bank')
+    expect(r.json.message).toContain('storno')
+    expect(await footprint(w)).toEqual(before)
+    expect((await raw(note.id)).status).toBe('draft')
+    expect(stornoCount(w)).toBe(0)
+  })
+
+  it('the same through /payments: 48 refused, 12 goes back on the sale\'s receipt, and the bank takes the rest', async () => {
+    const w = await tillWorld(app)
+    const inv = await invoicedInPart(w)
+    const note = await issuedNote(w, inv, { quantity: 4 })
+
+    const over = await pay(w, note.id, 48)
+    expect(over.status).toBe(422)
+    expect(over.json).toMatchObject({ code: 'refund_exceeds_paid', left: 12 })
+    expect(over.json.atIssue).toBeUndefined()
+    expect(stornoCount(w)).toBe(0)
+
+    expect((await pay(w, note.id, 12)).status).toBe(200)
+    expect(stornoCount(w)).toBe(1)
+    expect(leftByRate(await fresh(inv.saleId)).get(20)).toBe(3600)
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 36, totalReturns: 12 })
+
+    // What the cap leaves is nothing now. By card too: it is the money, not the method.
+    const card = await pay(w, note.id, 1, 'card')
+    expect(card.status).toBe(422)
+    expect(card.json).toMatchObject({ code: 'refund_exceeds_paid', left: 0 })
+
+    // A bank refund takes no cap: it touches neither the device nor the drawer.
+    expect((await pay(w, note.id, 36, 'bank_transfer')).status).toBe(200)
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 48 })
+    expect(stornoCount(w)).toBe(1)
+  })
+
+  it('a bank refund on one note and a cash one on another: notes of 24 and 24 on an invoice of 24', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const byBank = await issuedNote(w, inv)
+    expect((await pay(w, byBank.id, 24, 'bank_transfer')).status).toBe(200)
+    const inCash = await noteOn(w, inv)
+
+    const r = await send(w, inCash.id)
+
+    expect(r.status).toBe(422)
+    expect(r.json).toMatchObject({ code: 'refund_exceeds_paid', left: 0, atIssue: true })
+    expect((await raw(inCash.id)).status).toBe('draft')
+    expect(stornoCount(w)).toBe(0)
+    expect((await sessionOf(w)).totalCash).toBe(24)
+    expect(leftByRate(await fresh(inv.receipt._id)).get(20)).toBe(2400)
+  })
+
+  it('a note refunded in parts: its earlier parts count, the last one goes through, and another note has nothing left', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+
+    expect((await pay(w, note.id, 10)).status).toBe(200)
+    expect((await pay(w, note.id, 14, 'card')).status).toBe(200)
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+
+    const another = await issuedNote(w, inv)
+    const r = await pay(w, another.id, 1)
+    expect(r.status).toBe(422)
+    expect(r.json).toMatchObject({ code: 'refund_exceeds_paid', left: 0 })
+  })
+
+  it('a part by bank on one note and the rest in cash on another: the cash is capped at the rest', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const first = await issuedNote(w, inv, { quantity: 1 })
+    expect((await pay(w, first.id, 10, 'bank_transfer')).status).toBe(200)
+    const second = await issuedNote(w, inv)
+
+    const over = await pay(w, second.id, 24)
+    expect(over.status).toBe(422)
+    expect(over.json).toMatchObject({ code: 'refund_exceeds_paid', left: 14 })
+
+    expect((await pay(w, second.id, 14)).status).toBe(200)
+    expect(await raw(second.id)).toMatchObject({ status: 'partially_paid', amountPaid: 14 })
+  })
+
+  it('a part-paid invoice: what it took, never its total', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    expect((await send(w, d.id)).status).toBe(200)
+    expect((await pay(w, d.id, 10)).status).toBe(200)
+
+    const atIssue = await send(w, (await noteOn(w, d)).id)
+    expect(atIssue.status).toBe(422)
+    expect(atIssue.json).toMatchObject({ code: 'refund_exceeds_paid', left: 10, atIssue: true })
+
+    const note = await issuedNote(w, d)
+    const over = await pay(w, note.id, 24)
+    expect(over.status).toBe(422)
+    expect(over.json).toMatchObject({ code: 'refund_exceeds_paid', left: 10 })
+    expect((await shown(w, note.id)).refundable).toBe(10)
+
+    expect((await pay(w, note.id, 10)).status).toBe(200)
+    expect(await raw(note.id)).toMatchObject({ amountPaid: 10 })
+  })
+
+  it('what a note gave back and then was voided, or never gave, does not count', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const gone = await issuedNote(w, inv)
+    expect((await w.call('POST', `/invoices/${gone.id}/void`)).status).toBe(200)
+    await issuedNote(w, inv)
+    const note = await issuedNote(w, inv)
+
+    expect((await pay(w, note.id, 24)).status).toBe(200)
+  })
+
+  it('what is unresolved on the invoice may be the money this needs: its way out comes before the cap', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInParts(w, [14, 10])
+    await Invoice.updateOne({ _id: inv.receipts[1]._id }, { $set: { 'register.fiscal.inDoubt': true, 'register.fiscal.state': 'unknown' }, $unset: { completedAt: 1 } })
+    await Invoice.updateOne({ _id: inv.id }, { $inc: { amountPaid: -10 } })
+    const note = await issuedNote(w, inv)
+
+    const r = await pay(w, note.id, 24)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_in_doubt')
+  })
+
+  it('what the dialog is told is what the cap leaves, when that is less than the receipts hold', async () => {
+    const w = await tillWorld(app)
+    const inv = await invoicedInPart(w)
+    const note = await issuedNote(w, inv, { quantity: 4 })
+    expect((await shown(w, note.id)).refundable).toBe(12)
+  })
+
+  it('a race past the guard is the budget\'s: never over the receipt', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const a = await issuedNote(w, inv)
+    const b = await issuedNote(w, inv)
+
+    const [one, two] = await Promise.all([pay(w, a.id, 24), pay(w, b.id, 24)])
+
+    expect([one.status, two.status].sort()).toEqual([200, 422])
+    expect(stornoCount(w)).toBe(1)
   })
 })
 

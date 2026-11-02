@@ -328,6 +328,8 @@ describe('the refusal, in words', () => {
     expect(receiptRefusalParams({ receipt: { number: 'CS-1' } }).number).toBe('CS-1')
     expect(receiptRefusalParams({ receipts: [{ number: 'CS-1' }, { number: null, invoice: 'INV-2' }] }).numbers).toBe('CS-1, INV-2')
     expect(receiptRefusalKey({ code: 'overpayment' })).toBeNull()
+    expect(receiptRefusalKey({ code: 'refund_exceeds_paid' })).toBe('cashRegister.receipt.refundExceedsPaid')
+    expect(receiptRefusalKey({ code: 'refund_exceeds_paid', atIssue: true })).toBe('cashRegister.receipt.refundExceedsPaidAtIssue')
   })
 
   it('every refusal a door answers reads in all four languages: a missing key renders literally', () => {
@@ -335,6 +337,7 @@ describe('the refusal, in words', () => {
       'payment_in_progress', 'document_claimed', 'document_changed', 'issue_in_progress', 'fiscally_paid', 'receipt_currency', 'receipt_not_printable', 'document_not_issued',
       'no_receipt_owed', 'receipt_in_doubt', 'storno_in_doubt', 'receipt_open_on_device', 'receipt_device_away', 'device_busy', 'fiscal_holder_unreachable', 'sale_receipt_in_doubt', 'sale_in_progress',
       'receipt_number_required', 'receipt_number_taken', 'receipt_number_off_device', 'receipt_number_cited', 'delivery_receipt_owed', 'receipts_unfinished', 'close_interrupted',
+      'refund_exceeds_paid',
     ]
     const locales = { en, bg, de, mk } as Record<string, any>
     for (const code of codes) {
@@ -354,6 +357,7 @@ describe('the refusal, in words', () => {
       'pos.close.deadSales', 'pos.close.interruptedTitle', 'pos.close.closeAgain', 'pos.sessions.states.closing_control',
       'cashRegister.receipt.correctNumber', 'cashRegister.receipt.correctNumberConfirm', 'cashRegister.receipt.numberCorrected',
       'cashRegister.receipt.issuedChanged', 'cashRegister.receipt.issuedChangedDelivery', 'cashRegister.receipt.issuedChangedRefund',
+      'cashRegister.receipt.refundExceedsPaid', 'cashRegister.receipt.refundExceedsPaidAtIssue',
     ]) {
       for (const [name, messages] of Object.entries(locales)) {
         const text = key.split('.').reduce((at: any, part) => at?.[part], messages)

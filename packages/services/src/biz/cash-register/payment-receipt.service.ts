@@ -729,6 +729,41 @@ export function exceedsReceipts(cited: any[], need: ByRate): RegisterRefusal {
   })
 }
 
+/**
+ * What a refund that prints may still give back on this note's invoice: what the invoice took, less what notes
+ * on it have given back, by any method, this note's earlier parts included. For an invoice for a till sale that
+ * is the invoice's own amount, never the sale's: its receipt's budget is the whole ticket. A bank refund takes
+ * no cap, because it touches neither the device nor the drawer, and it is counted all the same.
+ *
+ * The budget protects the receipt, and this protects the customer: one quantity typed wrong on a note of a
+ * part-invoiced sale refunded the whole ticket, and a note in cash beside one by bank paid back twice.
+ *
+ * ⚠ A guard against a wrong figure, not a lock. It is read before the claim, so two notes at once can both
+ * pass it. What is atomic is the receipt's budget (`takeBudget`), and neither ever goes past that.
+ *
+ * Null when there is nothing to compare with: no such invoice, or one in another currency, which no storno of
+ * this note can cite anyway.
+ */
+export async function refundCap(orgId: string, note: any): Promise<number | null> {
+  if (!note?.relatedInvoiceId) return null
+  const invoice: any = await Invoice.findOne({ _id: note.relatedInvoiceId, orgId: oid(orgId) }, { total: 1, amountPaid: 1, currency: 1, 'cashSaleRef.cashSaleId': 1 }).lean().exec()
+  if (!invoice || (note.currency && invoice.currency && note.currency !== invoice.currency)) return null
+  const notes: any[] = await Invoice.find({ orgId: oid(orgId), type: 'credit_note', relatedInvoiceId: invoice._id, status: { $nin: ['voided', 'cancelled'] } }, { amountPaid: 1 }).lean().exec()
+  const took = Number(invoice.cashSaleRef?.cashSaleId ? invoice.total : invoice.amountPaid) || 0
+  return Math.max(0, round2(took - notes.reduce((s, n) => s + (Number(n.amountPaid) || 0), 0)))
+}
+
+/** More than the customer paid and has not had back. `left`: what the cap leaves. */
+export function exceedsPaid(left: number, atIssue: boolean): RegisterRefusal {
+  const how = atIssue ? 'Issue it by bank, then refund that much with Refund.' : 'Refund that much this way.'
+  return new RegisterRefusal(422, {
+    code: 'refund_exceeds_paid',
+    left,
+    ...(atIssue ? { atIssue: true } : {}),
+    message: `This refund is more than the customer paid on this invoice and has not had back (${left.toFixed(2)}). ${how} A bank refund or the till's storno is the way for the rest.`,
+  })
+}
+
 /** The receipts behind a refund printed on another device: a storno prints where its receipt printed. */
 export const onOtherDevice = (cited: any[]) => {
   const deviceNumbers = [...new Set(cited.map(r => String(r.register?.fiscalDeviceNumber)))]
@@ -821,7 +856,9 @@ export function refundNeed(note: any, stornos: any[], amount: number): ByRate | 
 /** What the receipts behind this note still hold, wherever they printed: what the dialog says. */
 async function refundableOn(orgId: string, note: any): Promise<number> {
   const { cited } = await refundBacking(orgId, note)
-  return cited.reduce((s, c) => s + totalOf(leftByRate(c)), 0) / 100
+  const held = cited.reduce((s, c) => s + totalOf(leftByRate(c)), 0) / 100
+  const cap = await refundCap(orgId, note)
+  return cap === null ? held : Math.min(held, cap)
 }
 
 /**

@@ -1102,6 +1102,8 @@
       "paidInvoice": "Bezahlte Rechnung",
       "noReceiptToStorno": "Zur Rechnung dieser Gutschrift gibt es in LGR keinen Bon zum Stornieren: Sie wurde per Überweisung bezahlt, importiert oder bezahlt, bevor LGR druckte. Erstatten Sie per Überweisung.",
       "refundExceeds": "Diese Erstattung ist höher als das, was die Bons der Rechnung hier noch enthalten ({left}). Erstatten Sie so viel auf diesem Weg und den Rest per Überweisung.",
+      "refundExceedsPaid": "Diese Erstattung ist höher als das, was der Kunde auf diese Rechnung gezahlt und noch nicht zurückerhalten hat ({left}). Erstatten Sie diesen Betrag hier. Für den Rest: eine Erstattung per Überweisung oder das Storno an der Kasse.",
+      "refundExceedsPaidAtIssue": "Diese Gutschrift ist höher als das, was der Kunde auf diese Rechnung gezahlt und noch nicht zurückerhalten hat ({left}). Stellen Sie sie per Überweisung aus und erstatten Sie dann diesen Betrag mit „Erstatten“. Für den Rest: eine Erstattung per Überweisung oder das Storno an der Kasse.",
       "refundOtherDevice": "Die Bons der Rechnung wurden auf Gerät {devices} gedruckt. Ein Storno wird auf dem Gerät gedruckt, das seinen Bon gedruckt hat: Erstatten Sie aus einer Sitzung auf diesem Gerät oder per Überweisung.",
       "refundNeedsManager": "Eine Erstattung mit Stornobon erfordert einen Manager oder Administrator.",
       "saleRefunded": "Eine Gutschrift hat bereits einen Teil dieses Verkaufs mit einem Stornobon erstattet, daher kann der ganze Verkauf nicht storniert werden.",
