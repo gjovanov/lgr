@@ -170,6 +170,8 @@ const TIMEOUT_MS = {
 
 /** A retransmit reuses the SEQ, so the device replays rather than re-executes. */
 const MAX_ATTEMPTS = 3
+/** The longest a report can take once it has the device's turn: its status read and itself, each with its retransmits. */
+export const REPORT_MAX_MS = (TIMEOUT_MS.standard + TIMEOUT_MS.report) * MAX_ATTEMPTS
 /** Do not write the clock for drift smaller than this. */
 const CLOCK_TOLERANCE_MS = 5_000
 /**

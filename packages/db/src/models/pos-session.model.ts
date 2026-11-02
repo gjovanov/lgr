@@ -64,6 +64,8 @@ export interface IPOSSession extends Document {
   /** The key and request hash that closed it, so a retried close returns the close. */
   closeClientKey?: string
   closeRequestHash?: string
+  /** A close running its Z holds the session until then (`closing_control`). Past it, the process died. */
+  closeLeaseUntil?: Date
   createdAt: Date
   updatedAt: Date
 }
@@ -119,6 +121,7 @@ const posSessionSchema = new Schema<IPOSSession>(
     requestHash: String,
     closeClientKey: String,
     closeRequestHash: String,
+    closeLeaseUntil: Date,
   },
   { timestamps: true },
 )

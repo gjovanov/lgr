@@ -22,7 +22,8 @@ import { fiscalCapabilities } from 'fiscal/capabilities'
 import { DEVICE_REPORT_KINDS, FISCAL_ADMIN_ROLES, printDeviceReport } from 'fiscal/device-command'
 import { fiscalFailure } from 'fiscal/errors'
 import { unfinishedReceipts, unfinishedRefusal } from 'services/biz/cash-register/payment-receipt.service'
-import { deviceTurn } from 'fiscal/device-turn'
+import { TURN_WAIT_MS, deviceTurn } from 'fiscal/device-turn'
+import { REPORT_MAX_MS } from 'fiscal/eltrade'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
@@ -58,6 +59,27 @@ export function expectedTotals(session: any): ExpectedTotals {
     cashOnDelivery: round2(session.totalCashOnDelivery || 0),
   }
 }
+
+/**
+ * How long a close holds its session: the device's turn, which a slow report ahead of it can take all of,
+ * and then the Z, with its retransmits. Past that the process holding it has died, and nothing else ever
+ * lets go: the session stayed `closing_control` for good, never posted its entry and blocked a move of the org.
+ */
+export const CLOSE_LEASE_MS = TURN_WAIT_MS + REPORT_MAX_MS
+
+/** A close that died in its Z. One from before this lease existed is judged by the session's last write. */
+function closeIsDead(session: any, now = Date.now()): boolean {
+  if (session.status !== 'closing_control') return false
+  return session.closeLeaseUntil
+    ? new Date(session.closeLeaseUntil).getTime() < now
+    : new Date(session.updatedAt ?? 0).getTime() < now - CLOSE_LEASE_MS
+}
+
+/** Nobody knows whether its Z printed, and only the device can say. */
+const CLOSE_INTERRUPTED = {
+  code: 'close_interrupted',
+  message: 'The last close of this session stopped during its Z-report, which may have printed, and the session is open again. Check the device. If the Z-report printed, close without a fiscal report (a manager can). If it did not, close again.',
+} as const
 
 /** The session as the close will read it: what a sale whose request died books before it reads `expected`. */
 function withDeadSales(session: any, dead: any[]): any {
@@ -673,17 +695,39 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
       const session = await r.posSessions.findOne({ id, orgId } as any) as any
       if (!session) return status(404, { message: 'POS session not found' })
+
+      // The cashier who owns the session may close it; anyone else needs a manager role.
+      const isManager = user.role === 'admin' || user.role === 'manager'
+      const mayClose = String(session.cashierId) === String(user.id) || isManager
+
+      // ⚠ A close that died in its Z goes back to `open`, and whoever pressed is told, before anything else
+      // reads it: under its own key this waited for a close that was never coming. Both of two presses are
+      // told, whichever won the write: the Z may have printed, and only a person looking at the device knows
+      // which way on, so neither may run a second Z unasked.
+      if (mayClose && closeIsDead(session)) {
+        const before = new Date(Date.now() - CLOSE_LEASE_MS)
+        const reopened = await POSSession.findOneAndUpdate(
+          { _id: id, orgId, status: 'closing_control', $or: [{ closeLeaseUntil: { $lt: new Date() } }, { closeLeaseUntil: null, updatedAt: { $lt: before } }] },
+          {
+            $set: { status: 'open', fiscalStatus: 'failed', fiscalError: 'A close stopped during its Z-report, which may have printed.' },
+            $unset: { closeClientKey: 1, closeRequestHash: 1, closeLeaseUntil: 1 },
+          },
+        ).exec()
+        if (reopened) {
+          createAuditEntry({
+            orgId, userId: user.id, operatorCode: user.operatorCode, action: 'close_interrupted',
+            module: 'pos', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber,
+          })
+        }
+        return status(409, { ...CLOSE_INTERRUPTED })
+      }
+
       if (key && session.closeClientKey === key) {
         const replayed = await replayClose()
         if (replayed) return replayed
       }
       if (session.status === 'closed') return status(400, { message: 'Session already closed' })
-
-      // The cashier who owns the session may close it; anyone else needs a manager role.
-      const isManager = user.role === 'admin' || user.role === 'manager'
-      if (String(session.cashierId) !== String(user.id) && !isManager) {
-        return status(403, { message: 'Only the session owner or a manager can close it' })
-      }
+      if (!mayClose) return status(403, { message: 'Only the session owner or a manager can close it' })
 
       // Legacy single-number body maps onto the cash line.
       const counted = b.counted ?? { cash: Number(b.closingBalance) || 0 }
@@ -703,9 +747,10 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
        * used to both proceed, each firing its own Z-report. The loser now sees "already
        * closing" instead.
        */
+      const closeLeaseUntil = new Date(Date.now() + CLOSE_LEASE_MS)
       const claimed = await POSSession.findOneAndUpdate(
         { _id: id, orgId, status: 'open' },
-        { $set: { status: 'closing_control', ...(key ? { closeClientKey: key, closeRequestHash: hash } : {}) } },
+        { $set: { status: 'closing_control', closeLeaseUntil, ...(key ? { closeClientKey: key, closeRequestHash: hash } : {}) } },
         { new: true },
       ).exec()
       if (!claimed) {
@@ -717,13 +762,19 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         return status(400, { message: 'Session is already being closed' })
       }
 
+      /**
+       * What this close holds. ⚠ Every write from here on is conditional on it: past its lease somebody may
+       * have put the session back, or closed it, and a close that comes back then must not undo that.
+       */
+      const holdsIt = { _id: id, orgId, status: 'closing_control', closeLeaseUntil }
+
       /** Put the session back the way we found it — a failed close must not strand it. */
       const release = async (fiscalStatus?: 'failed', fiscalError?: string) => {
         await POSSession.updateOne(
-          { _id: id, orgId },
+          holdsIt,
           {
             $set: { status: 'open', ...(fiscalStatus ? { fiscalStatus, fiscalError } : {}) },
-            $unset: { closeClientKey: 1, closeRequestHash: 1 },
+            $unset: { closeClientKey: 1, closeRequestHash: 1, closeLeaseUntil: 1 },
           },
         ).exec()
       }
@@ -792,9 +843,10 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       const cashLine = breakdown.find(l => l.method === 'cash')!
 
       let updated: any
+      let lost: string | undefined
       try {
         updated = await POSSession.findOneAndUpdate(
-          { _id: id, orgId },
+          holdsIt,
           {
             $set: {
               status: 'closed',
@@ -806,19 +858,23 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
               closingBreakdown: breakdown,
               notes: b.notes ?? session.notes,
               fiscalStatus,
-              fiscalError: undefined,
               ...(zReportNumber ? { zReportNumber } : {}),
               ...(fiscalClosedAt ? { fiscalClosedAt } : {}),
               ...(device ? { fiscalDeviceId: device.id } : {}),
             },
+            $unset: { fiscalError: 1, closeLeaseUntil: 1 },
           },
           { new: true },
         ).exec()
+        if (!updated) lost = 'its lease lapsed, and somebody else has the session now'
       } catch (e: any) {
+        lost = e?.message
+      }
+      if (lost) {
         // FR-9 edge case 5: the fiscal day IS closed on the device but we could not record
         // it. Say so loudly — the recovery is a retry with closeWithoutFiscal.
         logger.error(
-          { orgId, sessionId: id, err: e?.message },
+          { orgId, sessionId: id, err: lost },
           'Z-report succeeded but the session update failed — retry the close with closeWithoutFiscal',
         )
         await release()

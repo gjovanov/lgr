@@ -332,7 +332,7 @@ describe('the refusal, in words', () => {
     const codes = [
       'payment_in_progress', 'document_claimed', 'document_changed', 'issue_in_progress', 'fiscally_paid', 'receipt_currency', 'receipt_not_printable', 'document_not_issued',
       'no_receipt_owed', 'receipt_in_doubt', 'storno_in_doubt', 'receipt_open_on_device', 'receipt_device_away', 'device_busy', 'sale_receipt_in_doubt', 'sale_in_progress',
-      'receipt_number_required', 'receipt_number_taken', 'delivery_receipt_owed', 'receipts_unfinished',
+      'receipt_number_required', 'receipt_number_taken', 'delivery_receipt_owed', 'receipts_unfinished', 'close_interrupted',
     ]
     const locales = { en, bg, de, mk } as Record<string, any>
     for (const code of codes) {
@@ -342,6 +342,16 @@ describe('the refusal, in words', () => {
         const text = key!.split('.').reduce((at: any, part) => at?.[part], messages)
         expect(typeof text, `${name}: ${key}`).toBe('string')
         expect(text.length, `${name}: ${key}`).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('what the close dialog and the sessions page say reads in all four languages too', () => {
+    const locales = { en, bg, de, mk } as Record<string, any>
+    for (const key of ['pos.close.deadSales', 'pos.close.interruptedTitle', 'pos.close.closeAgain', 'pos.sessions.states.closing_control']) {
+      for (const [name, messages] of Object.entries(locales)) {
+        const text = key.split('.').reduce((at: any, part) => at?.[part], messages)
+        expect(typeof text, `${name}: ${key}`).toBe('string')
       }
     }
   })

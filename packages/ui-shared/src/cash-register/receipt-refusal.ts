@@ -31,6 +31,7 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'receipt_number_taken': return 'cashRegister.receipt.numberTaken'
     case 'delivery_receipt_owed': return 'cashRegister.receipt.deliveryOwed'
     case 'receipts_unfinished': return 'cashRegister.receipt.unfinished'
+    case 'close_interrupted': return 'pos.close.interrupted'
     default: return null
   }
 }
