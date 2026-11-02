@@ -1,7 +1,7 @@
 /**
  * FR-23 (owner, 2026-11-01): the one org a migration cannot decide for.
  *
- * `0011-printer-gate-off` turns the printer gate off on every org with no active fiscal device whose
+ * `0012-printer-gate-off` turns the printer gate off on every org with no active fiscal device whose
  * switch is unset, on every node. What is left is an org that HAS a device and is not printing here
  * yet: `regal-pz`, whose till is still PlusMinus. Nothing in the data says that, so it is a named step.
  * Unset reads as ON, so left alone, a cash invoice there would need an LGR device.
@@ -40,7 +40,7 @@ export interface GatePlan {
 
 /**
  * What this run would do. Pure. ⚠ `regal` falls in no list that writes, whatever it holds, and an org
- * this script does not name stays as it is: that is `0011-printer-gate-off`'s, which reads the data.
+ * this script does not name stays as it is: that is `0012-printer-gate-off`'s, which reads the data.
  */
 export function planGateOff(orgs: OrgRow[]): GatePlan {
   const plan: GatePlan = { off: [], already: [], kept: [] }

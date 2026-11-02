@@ -2505,7 +2505,7 @@ invoice still due until the courier pays).
   creates an org writes `false` explicitly (`defaultOrgSettings`; `new-org-printer-gate.flow.test.ts`
   walks them, and a new `Org.create` fails it until it is named). Never change the reading: `regal`'s real
   till depends on unset being on. This narrows #390's "every org", the till's gate with the invoices'.
-- **Existing orgs are `0011-printer-gate-off`**: off on every org with no active fiscal device whose
+- **Existing orgs are `0012-printer-gate-off`**: off on every org with no active fiscal device whose
   switch is unset, node by node, `bun run migrate --dry-run` to read it first. ⚠ `MIGRATIONS_AUTO` is off
   on lgrai.app, so it runs by hand BEFORE the new image serves; a master runs it before it listens.
   `scripts/printer-gate-off.ts` is the one thing no data can say, `regal-pz`, which has a device and whose

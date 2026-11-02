@@ -12,7 +12,7 @@ is not regal-sf with a different slug. Read the differences first; most of this 
 | | regal-sf | **regal-pz** |
 |---|---|---|
 | Reach PlusMinus | through a tunnel | directly (a plain `curl -sk` of the server answers; if not, check the VPN) |
-| Till (cash register) | `storeOperations` documents in the API | **not a `documents()` family**: the POS module's own receipts (`posDocuments`, §5), not yet read live; today the `salesAnalysis` report from the GUI |
+| Till (cash register) | `storeOperations` documents in the API | **the POS module's own receipts** (`posDocuments … "receipts"`, §5), not a `documents()` family |
 | Invoice families | `-ФЕ` | `-ФЕ` **and `-ФЕА`** (an annulment: same number, negative sum) |
 | Other families | none | receipts `СТ`, transfers-out `СР`, write-offs `СИ` |
 | Baseline | opened 2026-09-30 | **quantities were re-baselined on 2026-07-30**: documents dated on/before it are already inside LGR's numbers |
@@ -78,7 +78,7 @@ bun run scripts/audit-coverage-api.ts --org regal-pz --dir "$R/<chunk1>/api,$R/<
 | 2 `post-baseline` unbooked | Book them, §4a–b. |
 | 2 `pre-baseline` unbooked | **Do not book with stock.** Section 4 must show them `ALREADY`; any other class there is worth a look. |
 | 2 `price-only/empty` | Price restatements with no quantity — nothing to book for stock. (Prices are not audited here.) |
-| 3 TILL DAYS | Trading days with no cash-sale document: needs the GUI export, §5. |
+| 3 TILL DAYS | Trading days with no cash-sale document: pull the POS receipts and book them, §5. |
 | 4 GUARD | For each unbooked document line: `EXACT`/`PARTIAL` book it; `ALREADY` booking would create drift; `CONTRA` the document is real but something else is off on that product too (the true-up settles it). |
 | 5 DRIFT | PlusMinus lets staff edit a booked document in place; LGR keeps the original. Expect dozens of lines. The true-up absorbs them. |
 
@@ -122,29 +122,49 @@ with nothing to derive (a bit set) rightly stays untagged in „Общи".
 
 ## 5. The till
 
-The daily path is still the `salesAnalysis_*.xlsx` report (skill `import-cash-register-sales`, exported with
-`pull-plusminus-docs`). The audit only tells you WHICH days are missing; their stock effect is already handled by
-the true-up (when one has run since the day), their revenue is not, so such a day is booked with `--no-stock`;
-a day no true-up has covered yet is booked with stock.
-
-**Is the till in the API? Probably, but not verified live.** It is not a `documents()` family (the POS module keeps
-its own receipt tables), and the earlier attempt used the `documents` call shape, which is why it "returned nothing
-for any option set tried". The vendor client's own wrappers (extracted from `pmserver.exe`) show the shape:
+The till is in the API, in the POS module's own receipt tables. It is **not** a `documents()` family, and the old attempt
+used the `documents` call shape, which is why it "returned nothing". The call carries a KIND as its last argument (the vendor
+client's own wrappers, confirmed live 2026-11-02):
 
 ```
-pm.posReceipts(e,t,n,s) -> ["posDocuments", object, "YYYYMMDD" from, "YYYYMMDD" to, s||"", "receipts"]   // "layaways" likewise
-pm.posReversals(e,t,n)  -> ["posReversals", object, from, to, "reversals"]
+posDocuments(object, "YYYYMMDD" from, "YYYYMMDD" to, "", "receipts")   // "layaways" likewise; posReversals(object, from, to, "reversals") (none seen)
 ```
 
-The LAST argument is a kind discriminator. `object` is the POS workplace's default object (`ОБЕКТИ:СКЛАД - 1`;
-`posObjects` reports it). A receipt is `{header, lines}` and `header` has `closedOn` (`YYYYMMDD:HHMMSS…`), `status` (contains
-"return" for a refund), `paid`, `paymentMethod`, `unp`; the line fields were not seen yet. Check a first pull against two
-booked days (the daily xlsx equals the CSR) and against the control "month aggregate minus the booked days" before trusting it.
-`posCashboxLastClosing` also works and returns the last cash-box closing; it is not a till feed.
+`object` is the POS workplace's default object (`ОБЕКТИ:СКЛАД - 1`; `posObjects` reports it). Pull and book it:
 
-⚠ **The one PlusMinus account slot is shared with the till GUI.** If the GUI holds it the tools exit 3 and touch nothing
-(they never evict); probe only 22:00–06:00 Sofia. A dedicated read-only PlusMinus user for the API (the server has user and
-role management) would remove the contention; it has to be created in the PlusMinus GUI.
+```bash
+bun .claude/skills/pull-plusminus-api/pull-api.ts --org regal-pz --from <day> --to <day> --families posReceipts --no-snapshot
+bun run scripts/import-cash-register-sales-api.ts --org regal-pz --dir "$R/<from>_<to>/api" --no-stock --no-prepared-by --dry-run
+```
+
+then the same without `--dry-run`. The first writes `posReceipts_<YYYYMMDD>.json` (the raw array, bucketed by the day each receipt
+was CLOSED); the second aggregates per article with `map-plusminus-pos.ts#aggregatePosDay` and books ONE cash sale per day.
+
+What the list holds, and the rules the mapper encodes (each checked against every booked day):
+- two kinds of entry: `header.doc` `КБ` (a cash receipt, with `lines`) and `ПЛ` (a payment taken at the till against an INVOICE,
+  no lines: money, not a sale of goods, so it is skipped);
+- the day is `header.closedOn` (`YYYYMMDD:HHMMSSmmm`);
+- `lines[].sum` is the NET list value, and a receipt-level percentage discount (`discountType 1`, `discount`) reduces every line:
+  value = `sum × (1 − discount/100)`. The gross `sumWithVat` is at a cent-rounded unit price and cannot be divided back;
+- a return (`status "return"`) already carries NEGATIVE lines: the sign is never flipped again; an article that nets to zero is
+  absent from the sales-analysis report, so it is dropped;
+- |`header.sum`| = Σ `sumWithVat` − `totalDiscountSum` on every receipt: the integrity check. Anything not seen (another document
+  type, status, discount type or VAT rate) throws instead of being guessed.
+
+How it was proven: the 19 October days LGR already held (every article's quantity and net value: 1 123 article-days, 0 mismatches);
+the month aggregate minus those days (the three days that were missing: all 185 articles); and the till's own cash-box closings
+(`posCashboxClosings(object, "", from, to)`: 22 of 22 daily card totals to the cent, counting the `ПЛ` card payments). After any change
+in PlusMinus's layout, replay a pull over the booked days before trusting it.
+
+The audit only tells you WHICH days are missing. Their stock effect is already in the true-up (when one has run since the day),
+their revenue is not, so such a day is booked with `--no-stock`; a day no true-up has covered yet is booked with stock. The GUI
+route (the `salesAnalysis_*.xlsx` report, skill `import-cash-register-sales`) remains the fallback.
+
+⚠ **The one PlusMinus account slot is shared with the till GUI.** If the GUI holds it the tools exit 3 and touch nothing (they
+never evict). The server has other accounts (each till has its own) and user and role management, so a dedicated read-only user
+for the API would end the contention for good; it has to be created in the PlusMinus GUI. A GUI session left open all day blocks the
+API: with the owner's say-so, and after checking it is idle (no GUI log entry today, no CPU movement), the admin console's
+`disconnectClient` ends that one session (the GUI shows a lost connection and logs in again). Never do that unasked.
 
 ## 6. Reconcile and true up
 
@@ -199,5 +219,7 @@ no tunnel.
 22 post-baseline documents had never been booked (several found only by number: backdated); all pre-baseline
 ones correctly `ALREADY`. Stock: 485 matched-product differences → 298 after the documents → **0** after the
 true-up, 129 products PlusMinus no longer carries zeroed. The untagged-product backlog (§4e) was cleared straight
-afterwards. Open: 2 annulled-but-live invoices, 3 trading days without a cash-sale document, one −0.005 float residue
-on a service item.
+afterwards. The 2 annulled-but-live invoices were voided on 2026-11-02 (§6). The 3 trading days without a cash-sale
+document (10-27, 10-28, 10-29) were booked the same day from the POS receipts (§5), `--no-stock`: `CSR-2026-00069`–`71`,
+189 lines, 3 166 units. After that, October's 22 cash sales equal PlusMinus's own month report for all 1 013 articles, and the
+stock comparison against the snapshot still says 0. Open: one −0.005 float residue on a service item.

@@ -22,7 +22,7 @@ import { captureRejection } from '../helpers/capture-rejection'
  * Every path that creates an org writes the printer gate OFF, explicitly, and the reading of an unset
  * value stays ON, because a real till depends on it: `regal`'s gate is unset, and a default flipped
  * under it would let it sell with no fiscal receipt. Existing orgs are a migration
- * (`0011-printer-gate-off`, `migrations.flow.test.ts`), but for the one org with a device that does not
+ * (`0012-printer-gate-off`, `migrations.flow.test.ts`), but for the one org with a device that does not
  * print here, which is the named step `scripts/printer-gate-off.ts`, and that script may never touch
  * `regal`.
  *

@@ -105,13 +105,20 @@ Options: `--date <YYYY-MM-DD>` (default: folder basename) · `--org <slug>`
 ## Direct from the API (no xlsx)
 
 `scripts/import-cash-register-sales-api.ts` books the same document from a folder of PlusMinus `/mobile`
-pulls instead of the GUI export. Today that is regal-sf: one `storeOperations_<n>.json` per till ticket
-(`header.doc = "СР"`), pulled with `pull-plusminus-api` and aggregated per article, per day, by
-`services/biz/doc-import/map-plusminus-till.ts`.
+pulls instead of the GUI export. Two kinds of folder, told apart by file name:
+
+- **regal-sf**: one `storeOperations_<n>.json` per till ticket (`header.doc = "СР"`), aggregated per article, per day, by
+  `services/biz/doc-import/map-plusminus-till.ts`.
+- **regal-pz**: `posReceipts_<YYYYMMDD>.json`, the POS module's receipts (`pull-api.ts --families posReceipts`), aggregated by
+  `services/biz/doc-import/map-plusminus-pos.ts`: cash receipts only (payments against invoices are skipped), the receipt-level
+  discount applied, returns netted, an article that nets to zero dropped. The rules, and how they were proven against the booked
+  days, are in `audit-regal-pz-period` §5. A day with no goods sold books nothing.
+
+A folder holding both kinds is refused.
 
 ```bash
-bun run scripts/import-cash-register-sales-api.ts --dir <pull dir> --org regal-sf --dry-run   # read-only
-bun run scripts/import-cash-register-sales-api.ts --dir <pull dir> --org regal-sf             # then for real
+bun run scripts/import-cash-register-sales-api.ts --dir <pull dir> --org <regal-sf|regal-pz> --dry-run   # read-only
+bun run scripts/import-cash-register-sales-api.ts --dir <pull dir> --org <regal-sf|regal-pz>             # then for real
 ```
 
 - `--dry-run` does everything but the POST (dedupe check, aggregation, product matching) and prints the

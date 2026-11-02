@@ -65,10 +65,10 @@ describe('bun run migrate --dry-run changes nothing (the second review)', () => 
   }, 60_000)
 })
 
-describe('0011-printer-gate-off (FR-23)', () => {
+describe('0012-printer-gate-off (FR-23)', () => {
   const GATE = 'settings.cashRegister.requireConnectedDevice'
   const gate = async (id: unknown) => ((await db().collection('orgs').findOne({ _id: id as any })) as any)?.settings?.cashRegister?.requireConnectedDevice
-  const migration = MIGRATIONS.find(m => m.id === '0011-printer-gate-off')!
+  const migration = MIGRATIONS.find(m => m.id === '0012-printer-gate-off')!
   const ctx = (orgFilter: Record<string, unknown> = {}) => ({ db: db(), log: () => {}, orgFilter })
 
   /** An org with its switch `value`, and a device or not. */
