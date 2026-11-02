@@ -1532,6 +1532,7 @@
       "receiptOpenTitle": "The session is still open",
       "receiptOpen": "A sale is printing on this device. Wait for it to finish, then close again.",
       "deadSales": "Sales {numbers} stopped before they finished, and nothing can say whether their receipts printed. Their money counts in what is expected here: the close books it. Check the device, then settle each one under Cash Register Sales.",
+      "deadSalesBooked": "Sales {numbers} stopped before they finished. Their money counts in what is expected here: the close books it.",
       "deadDocuments": "{numbers} stopped before they finished. The close finishes them first: what they took or gave back counts in what is expected here. One that nothing can prove stops the close, for a person to settle.",
       "interruptedTitle": "The last close stopped during its Z-report",
       "interrupted": "The Z-report may have printed, and the session is open again. Check the device. If the Z-report printed, close without a fiscal report (a manager can). If it did not, close again.",

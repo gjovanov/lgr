@@ -122,7 +122,7 @@ test('a close that died in its Z: POS Sessions is the way back, its figures read
   await page.route(`**/trade/pos/session/${sale.sessionId}/close-preview`, route => route.fulfill({
     json: {
       expected: { cash: 112, card: 0, other: 0 }, currency: 'EUR', report: null, openSessionsOnWarehouse: 0,
-      unfinishedReceipts: [], deadSales: [{ id: 'dead-sale-id', number: 'CS-DEAD-0001' }, { id: 'no-number-yet', number: null }],
+      unfinishedReceipts: [], deadSales: [{ id: 'dead-sale-id', number: 'CS-DEAD-0001', settles: true }, { id: 'no-number-yet', number: null, settles: true }, { id: 'text-sale-id', number: 'CS-DEAD-0003', settles: false }],
       deadDocuments: [{ id: 'dead-receipt-id', number: 'CS-DEAD-0002', kind: 'payment' }, { id: 'unnumbered-receipt-id', number: null, invoice: 'INV-0001', kind: 'payment' }],
       fiscalDevice: null,
     },
@@ -140,6 +140,9 @@ test('a close that died in its Z: POS Sessions is the way back, its figures read
   const dialog = page.getByRole('dialog').filter({ hasText: 'Close the register' })
   // Read as it opens, though this view mounts it already open: what the close books, and whose it is.
   await expect(dialog.getByTestId('close-dead-sales')).toContainText('CS-DEAD-0001, no-number-yet')
+  await expect(dialog.getByTestId('close-dead-sales')).toContainText('settle each one')
+  await expect(dialog.getByTestId('close-dead-sales-booked')).toContainText('CS-DEAD-0003')
+  await expect(dialog.getByTestId('close-dead-sales-booked')).not.toContainText('settle')
   await expect(dialog.getByTestId('close-dead-documents')).toContainText('CS-DEAD-0002, INV-0001')
   await expect(dialog).toContainText('112.00')
 

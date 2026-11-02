@@ -209,12 +209,28 @@ describe('the close finishes a sale whose request died (finding 3)', () => {
     expect(w.sim!.executed.filter(c => c.cmd === 0x90)).toHaveLength(0)
   })
 
+  it('the preview says which a person has to settle: a fiscal sale nothing can prove, never a text sale, nor one that printed', async () => {
+    const fiscal = await tillWorld(app)
+    await deadSale(fiscal, atItsPrint)
+    expect((await preview(fiscal)).json.deadSales).toEqual([expect.objectContaining({ settles: true })])
+    forgetDevices()
+
+    const text = await tillWorld(app)
+    await deadSale(text, atItsPrint, { nonFiscal: true })
+    expect((await preview(text)).json.deadSales).toEqual([expect.objectContaining({ settles: false })])
+    forgetDevices()
+
+    const printed = await tillWorld(app)
+    await deadSale(printed, atItsTotals)
+    expect((await preview(printed)).json.deadSales).toEqual([expect.objectContaining({ settles: false })])
+  })
+
   it('one that died before it drew its number is named by its id, never by its placeholder, and the close numbers it', async () => {
     const w = await tillWorld(app)
     const id = await deadSale(w, atItsPrint, { key: 'died-before-its-number' })
     await Invoice.updateOne({ _id: id }, { $set: { invoiceNumber: `${PENDING_NUMBER}died-before-its-number` } })
 
-    expect((await preview(w)).json.deadSales).toEqual([{ id, number: null }])
+    expect((await preview(w)).json.deadSales).toEqual([{ id, number: null, settles: true }])
 
     expect((await close(w, 112)).status).toBe(200)
     expect(isPendingNumber((await read(id)).invoiceNumber)).toBe(false)

@@ -15,7 +15,7 @@ import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import {
   RegisterRefusal, SESSION_CLOSING, bookedOnItsSession, insertRegisterDocument, isPendingNumber, releaseOrphanClaimsOfSession, runSaleSteps, settleKeyedDocument, tillSaleDocument,
 } from 'services/biz/cash-register/register.service'
-import { saleProgress } from 'services/biz/cash-register/in-doubt'
+import { saleInDoubt, saleProgress } from 'services/biz/cash-register/in-doubt'
 import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
 import { buildSessionReport, formatSessionReport, type SessionReport } from 'services/biz/cash-register/session-report'
 import { fiscalCapabilities } from 'fiscal/capabilities'
@@ -544,7 +544,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       report: buildSessionReport(session, await loadPosRows({ orgId, sessionId: id, withReceipts: true })),
       openSessionsOnWarehouse: openOnWarehouse,
       unfinishedReceipts: unfinishedRefusal(unfinished.filter(doc => !finishes.has(String(doc._id)))).receipts,
-      deadSales: dead.map(doc => ({ id: String(doc._id), number: isPendingNumber(doc.invoiceNumber) ? null : doc.invoiceNumber })),
+      deadSales: dead.map(doc => ({ id: String(doc._id), number: isPendingNumber(doc.invoiceNumber) ? null : doc.invoiceNumber, settles: saleInDoubt(doc) })),
       deadDocuments: unfinishedRefusal(interrupted).receipts,
       fiscalDevice: device
         ? { id: device.id, name: device.name, deviceNumber: device.deviceNumber, connected: isDeviceConnected(device.id) || !!(await livePresence({ orgId, deviceNumber: String(device.deviceNumber) })) }

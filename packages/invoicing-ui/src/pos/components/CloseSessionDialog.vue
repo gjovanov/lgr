@@ -54,7 +54,8 @@
               {{ $t('cashRegister.receipt.unfinished', { numbers: unfinishedReceipts }) }}
             </v-alert>
 
-            <!-- FR-23: sales whose request died. The close books them, printing nothing, so they count below. -->
+            <!-- FR-23: sales whose request died. The close books them, printing nothing, so they count below. Only
+                 one nothing can prove is a person's to settle: a text sale, or one that printed, has nothing to say. -->
             <v-alert
               v-if="deadSales"
               type="warning"
@@ -64,6 +65,16 @@
               data-testid="close-dead-sales"
             >
               {{ $t('pos.close.deadSales', { numbers: deadSales }) }}
+            </v-alert>
+            <v-alert
+              v-if="deadSalesBooked"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              data-testid="close-dead-sales-booked"
+            >
+              {{ $t('pos.close.deadSalesBooked', { numbers: deadSalesBooked }) }}
             </v-alert>
 
             <!-- FR-23: receipts and stornos whose request died. The close finishes them first, and what they took or
@@ -277,7 +288,9 @@ function diffClass(method: string): string {
 }
 
 const unfinishedReceipts = computed(() => (preview.value?.unfinishedReceipts ?? []).map((r: any) => r.number ?? r.invoice ?? r.id).join(', '))
-const deadSales = computed(() => (preview.value?.deadSales ?? []).map((s: any) => s.number ?? s.id).join(', '))
+const namesOf = (sales: any[]) => sales.map((s: any) => s.number ?? s.id).join(', ')
+const deadSales = computed(() => namesOf((preview.value?.deadSales ?? []).filter((s: any) => s.settles)))
+const deadSalesBooked = computed(() => namesOf((preview.value?.deadSales ?? []).filter((s: any) => !s.settles)))
 const deadDocuments = computed(() => (preview.value?.deadDocuments ?? []).map((r: any) => r.number ?? r.invoice ?? r.id).join(', '))
 
 async function loadPreview() {

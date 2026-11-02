@@ -349,7 +349,7 @@ describe('the refusal, in words', () => {
   it('what the close dialog and the sessions page say reads in all four languages too', () => {
     const locales = { en, bg, de, mk } as Record<string, any>
     for (const key of [
-      'pos.close.deadSales', 'pos.close.deadDocuments', 'pos.close.interruptedTitle', 'pos.close.closeAgain', 'pos.sessions.states.closing_control',
+      'pos.close.deadSales', 'pos.close.deadSalesBooked', 'pos.close.deadDocuments', 'pos.close.interruptedTitle', 'pos.close.closeAgain', 'pos.sessions.states.closing_control',
       'cashRegister.receipt.correctNumber', 'cashRegister.receipt.correctNumberConfirm', 'cashRegister.receipt.numberCorrected',
       'cashRegister.receipt.slipSaysThisNumber',
       'cashRegister.receipt.issuedChanged', 'cashRegister.receipt.issuedChangedDelivery',
