@@ -593,6 +593,11 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
     if (original?.register?.stornoState === 'full' && await finishInterruptedDocuments(orgId, user, { ids: original.register.stornoedBy ?? [] })) {
       original = await read()
     }
+    // And what a request that died left of the sale itself: its money stands, and it is booked before anything
+    // reverses it, or the refund leaves a drawer that never had it. An imported day is refused as it stands.
+    if (saleProgress(original) === 'dead' && originOf(original) !== 'import' && await finishDeadSale(orgId, user, original)) {
+      original = await read()
+    }
     const refusal = await stornoRefusal(original)
     if (refusal) {
       // ⚠ A duplicate sent at the same moment can read the sale AFTER the first request claimed it

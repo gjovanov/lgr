@@ -45,7 +45,7 @@ import { IdempotencyError, LEASE_MS, assertSameRequest, keepLease, takeLease, wa
 import { exchangeRateFor, fromPosTransaction } from './mapping.js'
 import { unitsOf } from './copy.js'
 import type { RegisterPrinter } from './printer.js'
-import { saleInDoubt } from './in-doubt.js'
+import { saleInDoubt, saleProgress } from './in-doubt.js'
 import { provedNotPrinted, verdictOfFailedPrint } from './print-verdict.js'
 import { PENDING_NUMBER, isPendingNumber } from './pending-number.js'
 
@@ -809,9 +809,8 @@ export async function stornoRefusal(original: any): Promise<RegisterRefusal | nu
     const held = await stornoInDoubtOf(original)
     return held ? new RegisterRefusal(409, stornoInDoubtRefusal(held)) : new RegisterRefusal(400, { message: 'Original transaction is already cancelled' })
   }
-  // ⚠ Read as not printed it refunds with no storno on the device, which #281 forbids: a person says
-  // first. Still `pending` it may be printing right now, and that is no sale to reverse either.
-  if (saleInDoubt(original) || (original.register?.isFiscal && original.register?.fiscal?.state === 'pending')) {
+  // ⚠ Read as not printed it refunds with no storno on the device, which #281 forbids: a person says first.
+  if (saleInDoubt(original)) {
     return new RegisterRefusal(409, {
       code: 'sale_receipt_in_doubt',
       receipt: { id: String(original._id), number: original.invoiceNumber },
@@ -822,6 +821,15 @@ export async function stornoRefusal(original: any): Promise<RegisterRefusal | nu
     return new RegisterRefusal(409, {
       code: 'storno_imported_day',
       message: 'An imported till day is corrected by importing it again, not by a storno.',
+    })
+  }
+  // ⚠ Whatever it prints, fiscal or text. Nothing of it is booked yet, so a storno refunds money that never
+  // landed, and the retry of the sale then books it and moves its stock with nothing to bring that back. One
+  // whose request died its door finishes first (`finishDeadSale`), so this is one still running.
+  if (saleProgress(original) || (original.register?.isFiscal && original.register?.fiscal?.state === 'pending')) {
+    return new RegisterRefusal(409, {
+      code: 'sale_in_progress',
+      message: 'This sale is still being rung up, so there is nothing to reverse yet. Nothing was reversed. Wait for it to finish, then try again.',
     })
   }
   return invoicedRefusal(original)

@@ -5,7 +5,7 @@ import { LEASE_MS } from '../hot-path-key.js'
  * or a storno it holds nothing back, but a storno of it cannot say what it reverses: read as not
  * printed, the refund leaves with no storno on the device (#281), which is why the door refuses it
  * (`stornoRefusal`) until a person has looked at the device (`settleInDoubt`). A text sale prints nothing
- * to reverse, and is not one of these.
+ * to reverse, and is not one of these: what stands in its way is `saleProgress`, when it is not finished.
  *
  * `unknown`, or still `pending` with nobody working on it: its request died. One with no key has no
  * lease to lapse, so its age says the same.

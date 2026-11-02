@@ -331,7 +331,7 @@ describe('the refusal, in words', () => {
   it('every refusal a door answers reads in all four languages: a missing key renders literally', () => {
     const codes = [
       'payment_in_progress', 'document_claimed', 'document_changed', 'issue_in_progress', 'fiscally_paid', 'receipt_currency', 'receipt_not_printable', 'document_not_issued',
-      'no_receipt_owed', 'receipt_in_doubt', 'storno_in_doubt', 'receipt_open_on_device', 'receipt_device_away', 'device_busy', 'sale_receipt_in_doubt',
+      'no_receipt_owed', 'receipt_in_doubt', 'storno_in_doubt', 'receipt_open_on_device', 'receipt_device_away', 'device_busy', 'sale_receipt_in_doubt', 'sale_in_progress',
       'receipt_number_required', 'receipt_number_taken', 'delivery_receipt_owed', 'receipts_unfinished',
     ]
     const locales = { en, bg, de, mk } as Record<string, any>

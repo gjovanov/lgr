@@ -373,6 +373,167 @@ describe('a sale not finished holds the close (finding 3)', () => {
   })
 })
 
+describe('the storno of a sale that died: it is finished first (finding 5)', () => {
+  it('a text sale: the reader\'s run. Its money is booked, the storno gives it back, and the retry changes nothing', async () => {
+    const w = await tillWorld(app)
+    const key = 'text-sale-died-0001'
+    const body = w.saleBody(1, { nonFiscal: true })
+    const id = await deadSale(w, atItsPrint, { nonFiscal: true, key })
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 0 })
+    expect((await w.stock()).quantity).toBe(10)
+
+    const storno = await w.storno(id)
+
+    expect(storno.status).toBe(200)
+    // Booked and then given back: not -12 in a drawer that never had it.
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalSales: 12, totalReturns: 12 })
+    expect((await w.stock()).quantity).toBe(10)
+    expect((await read(id)).completedAt).toBeTruthy()
+    const movements = await StockMovement.countDocuments({ orgId: w.oid })
+
+    const retry = await w.call('POST', `/trade/pos/session/${w.sessionId}/transaction`, body, key)
+
+    expect(retry.status).toBe(200)
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalSales: 12, totalReturns: 12 })
+    expect((await w.stock()).quantity).toBe(10)
+    expect(await StockMovement.countDocuments({ orgId: w.oid })).toBe(movements)
+    expect((await read(id)).register.stornoState).toBe('full')
+  })
+
+  it('a fiscal sale: its money is booked, and the storno answers that a person must say', async () => {
+    const w = await tillWorld(app)
+    const id = await deadSale(w, atItsPrint)
+
+    const r = await w.storno(id)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('sale_receipt_in_doubt')
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 12, totalReturns: 0 })
+    expect((await w.stock()).quantity).toBe(9)
+    expect((await read(id)).register.stornoState).not.toBe('full')
+    expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_storno' })).toBe(0)
+
+    // A person says, and the storno goes through, once.
+    expect((await settle(w, id, true, w.sim!.receipts.at(-1)!.number)).status).toBe(200)
+    expect((await w.storno(id)).status).toBe(200)
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+    expect((await w.stock()).quantity).toBe(10)
+  })
+
+  it('one stopped after its print: finished, and reversed, with the number it printed under', async () => {
+    const w = await tillWorld(app)
+    const id = await deadSale(w, atItsTotals)
+    expect((await read(id)).register.fiscal.state).toBe('printed')
+
+    const r = await w.storno(id)
+
+    expect(r.status).toBe(200)
+    expect(w.sim!.receipts.filter(x => x.kind === 'storno')).toHaveLength(1)
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalSales: 12, totalReturns: 12 })
+    expect((await w.stock()).quantity).toBe(10)
+  })
+
+  for (const nonFiscal of [true, false]) {
+    it(`a ${nonFiscal ? 'text' : 'fiscal'} sale still running: refused as that, whatever it prints, and it finishes as it would have`, async () => {
+      const w = await tillWorld(app)
+      const held = gate()
+      w.sim!.beforeCommand = cmd => (cmd === 0x27 || cmd === 0x38 ? held.closed : undefined)
+      const key = `sale-running-${nonFiscal}`
+      const selling = w.sell(1, { nonFiscal }, key)
+      await until(async () => !!(await lastSale(w))?.register?.fiscal?.attemptedAt, 'the sale to reach the device')
+      const id = String((await lastSale(w))._id)
+
+      const r = await w.storno(id)
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('sale_in_progress')
+      expect(r.json.message).toContain('Nothing was reversed')
+      expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_storno' })).toBe(0)
+      expect((await read(id)).register.stornoState).not.toBe('full')
+
+      w.sim!.beforeCommand = null
+      held.open()
+      expect((await selling).status).toBe(200)
+      expect(await sessionOf(w)).toMatchObject({ totalCash: 12, totalReturns: 0 })
+      expect((await w.stock()).quantity).toBe(9)
+      expect((await w.storno(id)).status).toBe(200)
+      expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+      expect((await w.stock()).quantity).toBe(10)
+    })
+  }
+
+  it('one whose finish throws is refused too, and refunds nothing', async () => {
+    const w = await tillWorld(app)
+    const id = await deadSale(w, atItsPrint, { nonFiscal: true })
+    const dies = spyOn(Invoice, 'startSession').mockImplementationOnce(() => { throw new Error('the database went away') })
+
+    const r = await w.storno(id)
+
+    dies.mockRestore()
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('sale_in_progress')
+    expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_storno' })).toBe(0)
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 0 })
+  })
+
+  it('a back-office sale with no session, whose keyed create died: finished the same, and the retry changes nothing', async () => {
+    const w = await tillWorld(app)
+    const key = 'backoffice-died-0001'
+    const undo = diesAt(update => !!update?.$set?.completedAt)
+    let r: any
+    try {
+      r = await w.backOfficeSale(1, {}, key)
+    } finally {
+      undo()
+    }
+    expect(r.status).toBe(500)
+    const sale = await lastSale(w)
+    expect(sale.register.sessionId).toBeUndefined()
+    await Invoice.updateOne({ _id: sale._id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+
+    const storno = await w.call('POST', `/cash-register/documents/${sale._id}/storno`, { reason: 'customer_return' }, undefined, w.clerkToken)
+
+    expect(storno.status).toBe(200)
+    expect((await read(sale._id)).completedAt).toBeTruthy()
+    expect((await w.stock()).quantity).toBe(10)
+    expect((await w.backOfficeSale(1, {}, key)).status).toBe(200)
+    expect((await w.stock()).quantity).toBe(10)
+  })
+
+  it('an imported day whose create died is refused as an imported day, and left as it is', async () => {
+    const w = await tillWorld(app)
+    const imported: any = await Invoice.create({
+      orgId: w.oid, invoiceNumber: 'CSR-DIED-0001', type: 'cash_sale', direction: 'outgoing', status: 'paid', issueDate: new Date(), dueDate: new Date(), currency: 'EUR', exchangeRate: 1, total: 12,
+      lines: [{ productId: w.product._id, warehouseId: w.warehouse._id, description: 'x', quantity: 1, unit: 'бр.', unitPrice: 10, taxRate: 20, taxAmount: 2, lineTotal: 12 }],
+      billingAddress: { street: '-' }, createdBy: w.user._id, leaseUntil: new Date(Date.now() - 1000),
+      register: { origin: 'import' }, tags: ['cash-register-import'],
+    })
+
+    const r = await w.call('POST', `/cash-register/documents/${imported._id}/storno`, { reason: 'customer_return' })
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('storno_imported_day')
+    expect((await read(imported._id)).completedAt).toBeUndefined()
+    expect((await w.stock()).quantity).toBe(10)
+  })
+
+  it('an old sale with no finish, no lease and no session is no dead sale: its steps do not run again', async () => {
+    const w = await tillWorld(app)
+    const old: any = await Invoice.create({
+      orgId: w.oid, invoiceNumber: 'CS-OLD-0002', type: 'cash_sale', direction: 'outgoing', status: 'paid', issueDate: new Date(), dueDate: new Date(), currency: 'EUR', exchangeRate: 1, total: 12,
+      lines: [{ productId: w.product._id, warehouseId: w.warehouse._id, description: 'x', quantity: 1, unit: 'бр.', unitPrice: 10, taxRate: 20, taxAmount: 2, lineTotal: 12 }],
+      billingAddress: { street: '-' }, createdBy: w.user._id, register: { origin: 'backoffice' },
+    })
+    await Invoice.collection.updateOne({ _id: old._id }, { $set: { createdAt: new Date(Date.now() - LEASE_MS - 1000) } })
+
+    const r = await w.call('POST', `/cash-register/documents/${old._id}/storno`, { reason: 'customer_return' })
+
+    expect(r.status).toBe(200)
+    expect(await StockMovement.countDocuments({ orgId: w.oid, invoiceId: old._id, type: 'dispatch' })).toBe(0)
+    expect((await w.stock()).quantity).toBe(10)
+  })
+})
+
 describe('a sale\'s progress, by the table', () => {
   const now = Date.now()
   const base = { type: 'cash_sale', register: { sessionId: 's' }, createdAt: new Date(now) }

@@ -1830,6 +1830,7 @@
       "deviceBusy": "The fiscal device is busy with another document, so it could not be asked. Nothing was changed. Try again in a moment.",
       "saleInDoubt": "Nothing can prove whether this sale's fiscal receipt printed. Its money stands, and its storno waits until someone checks the device and says which.",
       "saleInDoubtRefused": "Nothing can prove whether the receipt of sale {number} printed, so a storno cannot say what it reverses. Nothing was reversed. Check the device, then settle it on its page under Cash Register Sales.",
+      "saleInProgress": "This sale is still being rung up, so there is nothing to reverse yet. Nothing was reversed. Wait for it to finish, then try again.",
       "settleConfirmSale": {
         "printed": "The receipt is on the device. Type its number off the slip: the storno of this sale cites it. This cannot be undone.",
         "notPrinted": "The receipt is not on the device. The sale and its money stand, and its storno prints nothing. This cannot be undone."
