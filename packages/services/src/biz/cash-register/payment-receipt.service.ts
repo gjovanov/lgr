@@ -689,12 +689,21 @@ export async function finishInterruptedReceipt(c: RegisterContext, doc: any): Pr
 
 // ── R2: a refund on a credit note ────────────────────────────────────────────────────────────────
 
-/** A storno's claim on what the receipt it cites still holds; null when it took it, else why not. */
+/**
+ * A storno's claim on what the receipt it cites still holds; null when it took it, else why not.
+ *
+ * ⚠ From the claim on the number stands (`correctReceiptNumber`), and until it a person may correct one they
+ * typed. So what the storno cites is read after it: the door read the receipt before this document existed, and
+ * printed from that read, a storno cited the number the person had just said was wrong.
+ */
 async function takeFromCited(doc: any): Promise<RegisterRefusal | null> {
   if (doc.type !== PAYMENT_STORNO) return null
   const cited: any = await Invoice.findOne({ _id: doc.register.storno.originalId, orgId: doc.orgId }).lean().exec()
-  if (cited && await takeBudget(cited, doc._id, wantedBy(doc))) return null
-  return exceedsReceipts(cited ? [cited] : [], wantedBy(doc))
+  if (!cited || !(await takeBudget(cited, doc._id, wantedBy(doc)))) return exceedsReceipts(cited ? [cited] : [], wantedBy(doc))
+  const claimed: any = await Invoice.findOne({ _id: cited._id, orgId: doc.orgId }, { 'register.fiscalReceiptNumber': 1 }).lean().exec()
+  const number = claimed?.register?.fiscalReceiptNumber
+  if (number && number !== doc.register.storno.originalReceiptNumber) await setRegister(doc._id, { 'storno.originalReceiptNumber': number })
+  return null
 }
 
 async function giveBackCited(doc: any): Promise<void> {

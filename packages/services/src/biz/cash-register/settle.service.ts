@@ -37,7 +37,8 @@
  * receipt it cites go back. It runs a receipt's steps.
  *
  * ⚠ A storno cites a number, so a receipt that printed can bring one too, off the slip: a credit note's
- * refund cites it. With none it stands as printed, and that refund goes by bank.
+ * refund cites it. With none it stands as printed, and that refund goes by bank. One it brought is held to
+ * all a sale's is, and corrected the same way, until a refund's storno cites it.
  */
 import { AuditLog, Invoice } from 'db/models'
 import { recordAuditEntry } from '../audit-log.service.js'
@@ -160,31 +161,38 @@ async function typedReceiptNumber(doc: any, typed: string | undefined, lastOnDev
 /** A storno cites this number, or an invoice for the sale carries it, so it is a legal citation now. */
 const RECEIPT_NUMBER_CITED = {
   code: 'receipt_number_cited',
-  message: 'A storno or an invoice of this sale cites this receipt number, so it stands.',
+  message: 'A storno or an invoice cites this receipt number, so it stands.',
 } as const
+
+/**
+ * Whether a storno stands on this document's number: its claim, of either kind. A refund's storno holds its
+ * claim from before it prints until it is voided (`takeBudget`, `giveBackBudget`), on a sale as on a receipt.
+ */
+const stornoCites = (reg: any) => reg?.stornoState === 'full' || !!reg?.refundClaims?.length
 
 /**
  * A number typed off a slip, corrected by the door and the rights that took it, under the same checks. All
  * three places it is stored are rewritten and the trail says old to new. Once a storno cites it, it stands:
- * `register.stornoState` is what a storno's claim writes, so of a correction and a claim one gives way. A
- * storno voided since cites nothing: it gave the sale back, and a refused number is why one is corrected. An
- * invoice for the sale carries the number too (`cashSaleRef.receiptNumber`), printed, so it counts as citing.
+ * what a storno's claim writes is in the correction's filter (`stornoCites`), so of a correction and a claim
+ * one gives way. A storno voided since cites nothing: it gave its claim back, and a refused number is why one
+ * is corrected. An invoice for a sale carries the number too (`cashSaleRef.receiptNumber`), printed, so it
+ * counts as citing. A receipt's invoice does not: it reads the receipt's number as it prints.
  */
 async function correctReceiptNumber(c: RegisterContext, doc: any, typed: string | undefined, lastOnDevice?: number): Promise<any | null> {
   const old = doc.register.settled.receiptNumber
-  const cited = doc.register.stornoState === 'full'
+  const cited = stornoCites(doc.register)
     || await Invoice.exists({ orgId: doc.orgId, 'cashSaleRef.cashSaleId': doc._id, status: { $nin: ['voided', 'cancelled'] } }).exec()
   if (cited) throw new RegisterRefusal(409, { ...RECEIPT_NUMBER_CITED })
   const number = await typedReceiptNumber(doc, typed, lastOnDevice)
   if (number === old) return doc
   const corrected: any = await Invoice.findOneAndUpdate(
-    { _id: doc._id, orgId: doc.orgId, 'register.settled.receiptNumber': old, 'register.stornoState': { $ne: 'full' } },
+    { _id: doc._id, orgId: doc.orgId, 'register.settled.receiptNumber': old, 'register.stornoState': { $ne: 'full' }, 'register.refundClaims.0': { $exists: false } },
     { $set: { 'register.settled.receiptNumber': number, 'register.fiscal.receiptNo': number, 'register.fiscalReceiptNumber': number } },
     { new: true },
   ).lean().exec()
   if (!corrected) {
-    const now: any = await Invoice.findOne({ _id: doc._id, orgId: doc.orgId }, { 'register.stornoState': 1 }).lean().exec()
-    if (now?.register?.stornoState === 'full') throw new RegisterRefusal(409, { ...RECEIPT_NUMBER_CITED })
+    const now: any = await Invoice.findOne({ _id: doc._id, orgId: doc.orgId }, { 'register.stornoState': 1, 'register.refundClaims': 1 }).lean().exec()
+    if (stornoCites(now?.register)) throw new RegisterRefusal(409, { ...RECEIPT_NUMBER_CITED })
     return null
   }
   await recordAuditEntry({
@@ -262,9 +270,10 @@ export async function settleInDoubt(c: RegisterContext, id: string, answer: Sett
   const isSale = doc.type === 'cash_sale'
   const inDoubt = isSale ? saleInDoubt(doc, now.getTime()) : !!doc.register?.fiscal?.inDoubt
   // A sale must say. A fiscal receipt may: without it the refund of a credit note has nothing to cite.
-  const brought = doc.type === PAYMENT_RECEIPT && doc.register?.fiscal?.mode !== 'text' && !!String(answer.receiptNumber ?? '').trim()
+  const fiscalReceipt = doc.type === PAYMENT_RECEIPT && doc.register?.fiscal?.mode !== 'text'
+  const brought = fiscalReceipt && !!String(answer.receiptNumber ?? '').trim()
   // A number a person typed, typed again: the one thing this door takes on a document no longer in doubt.
-  const corrects = isSale && printed && !inDoubt && !!doc.register?.settled?.receiptNumber && answer.receiptNumber !== undefined
+  const corrects = (isSale || fiscalReceipt) && printed && !inDoubt && !!doc.register?.settled?.receiptNumber && answer.receiptNumber !== undefined
   let lastOnDevice: number | undefined
   if (inDoubt || corrects) {
     const device = await deviceOf?.(doc)

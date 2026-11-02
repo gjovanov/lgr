@@ -348,6 +348,46 @@ test.describe('FR-23 R2 — a storno for a refund on a credit note', () => {
     expect(said[2]).toEqual({ printed: true })
   })
 
+  test('a receipt whose number a person typed: its page corrects it, until a storno cites it', async ({ page }) => {
+    // What the server does with it is `cash-invoice-refunds.flow.test.ts`: this is the page.
+    const { id, total } = await draft('bank_transfer')
+    await ok(cashier, 'POST', `/invoices/${id}/send`, {})
+    const { receipt } = await ok(cashier, 'POST', `/invoices/${id}/payments`, { date: new Date().toISOString().slice(0, 10), amount: total, method: 'cash' })
+    let cited = false
+    await page.route(`**/cash-register/documents/${receipt.id}`, async (route) => {
+      const { json } = await call(cashier, 'GET', `/cash-register/documents/${receipt.id}`)
+      json.row.fiscal.numberTyped = true
+      if (cited) json.row.stornoedBy = [receipt.id]
+      return route.fulfill({ json })
+    })
+    const said: unknown[] = []
+    await page.route(`**/cash-register/documents/${receipt.id}/settle`, (route) => {
+      said.push(route.request().postDataJSON())
+      return route.fulfill({ json: { document: {} } })
+    })
+
+    await loginForApp(page, 'acme-corp', cashierName, PASSWORD)
+    await page.goto(`/invoicing/cash-sales/${receipt.id}/view`)
+    await page.getByTestId('receipt-correct-number').click()
+
+    // Correcting takes digits: nothing is no correction, unlike a first number, which is optional.
+    const confirm = page.getByTestId('receipt-settle-confirm')
+    const number = page.getByTestId('receipt-settle-number').locator('input')
+    await number.fill('')
+    await expect(confirm).toBeDisabled()
+    await number.fill('ФБ-1')
+    await expect(confirm).toBeDisabled()
+    await number.fill('123')
+    await confirm.click()
+    await expect.poll(() => said).toEqual([{ printed: true, receiptNumber: '123' }])
+
+    // A receipt's `invoices` is the one it paid, which holds nothing back. A storno citing it does.
+    cited = true
+    await page.reload()
+    await expect(page.getByTestId('journal-document-title')).toHaveText(receipt.number)
+    await expect(page.getByTestId('receipt-correct-number')).toHaveCount(0)
+  })
+
   test('a storno that may have printed: nothing is refunded, a second press prints nothing, and a person settles it on its page', async ({ page }) => {
     const inv = await paidInvoice(1)
     const note = await creditNote(inv.id, 'bank_transfer', 1)

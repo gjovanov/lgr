@@ -295,9 +295,11 @@ const settleNumberBad = computed(() => {
 })
 const settlingNow = ref(false)
 // A number a person typed off the slip, until a storno or an invoice cites it. The server has the last word.
+// An invoice for a sale carries its number. A receipt's `invoices` is the one it paid, which reads it as it prints.
 const canCorrectNumber = computed(() => {
   const row = doc.value?.row
-  return !!row && canSettle.value && row.kind === 'sale' && !!row.fiscal.numberTyped && !row.fiscal.inDoubt && !row.stornoedBy?.length && !row.invoices?.length
+  if (!row || !canSettle.value || !row.fiscal.numberTyped || row.fiscal.inDoubt || row.stornoedBy?.length) return false
+  return row.kind === 'payment' || (row.kind === 'sale' && !row.invoices?.length)
 })
 function openCorrection() {
   settleNumber.value = doc.value?.row.fiscal.receiptNumber ?? ''

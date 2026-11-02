@@ -1867,9 +1867,9 @@
       "numberRequired": "A sale that printed needs its receipt number off the slip, in digits: its storno cites it.",
       "numberTaken": "That receipt number on this device is {number}'s. Check the slip.",
       "numberOffDevice": "That receipt number is above the last one this device has given ({last}). Check the slip.",
-      "numberCited": "A storno or an invoice of this sale cites this receipt number, so it stands.",
+      "numberCited": "A storno or an invoice cites this receipt number, so it stands.",
       "correctNumber": "Correct the number",
-      "correctNumberConfirm": "Type the receipt number as it is on the slip. The storno of this sale cites it, and the audit trail keeps both.",
+      "correctNumberConfirm": "Type the receipt number as it is on the slip. A storno cites it, and the audit trail keeps both.",
       "numberCorrected": "Receipt number corrected"
     },
     "origin": {
