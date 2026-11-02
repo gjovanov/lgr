@@ -32,6 +32,7 @@ import { isDeviceConnected, getPrinter, type IFiscalPrinter } from 'fiscal/fisca
 import { maySaleOpen } from 'fiscal/device-reach'
 import { FiscalPaymentMethodError, toFiscalPaymentType } from 'fiscal/types'
 import { lineNameMaxOf, unsupportedReason } from 'fiscal/capabilities'
+import { receiptMode } from 'services/biz/cash-register/receipt-mode'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
 import { fiscalOperation } from 'fiscal/in-flight'
 import { deviceTurn } from 'fiscal/device-turn'
@@ -350,11 +351,23 @@ export function assertTillTender(tenders: { method: string; amount: number }[], 
   assertCashOnDeliveryExact(tenders, total)
 }
 
-/** A back-office sale joined to a session (D-13): its `method`, on the receipt it asked for. */
-export function assertJoinedSaleTender(method: string, receipt: 'fiscal' | 'text', printer: RegisterPrinter | null | undefined): void {
+/** A back-office sale joined to a session (D-13) that prints: its `method`, as the till's, whichever receipt the device prints. */
+export function assertJoinedSaleTender(method: string, printer: RegisterPrinter | null | undefined): void {
   if (!printer) return
-  if (receipt === 'fiscal') assertFiscalMethods([method])
+  assertFiscalMethods([method])
   assertDeviceTakes([method], printer)
+}
+
+/**
+ * A fiscal receipt names its operator, and a text one does not. Only for who has no code is the device asked here,
+ * so that it is refused before anything is written. The document's turn asks again, and decides: a device that cannot
+ * say counts as fiscal.
+ */
+export async function assertOperatorFor(user: RegisterUser, printer: RegisterPrinter | null | undefined): Promise<void> {
+  if (!printer || user.operatorCode) return
+  if ((await receiptMode(printer).catch(() => 'fiscal')) === 'fiscal') {
+    throw new RegisterRefusal(400, { message: 'User has no operator code. Contact admin to assign one before using POS with fiscal device.' })
+  }
 }
 
 /** The one method a storno receipt prints for the whole amount: the first the refund names. */

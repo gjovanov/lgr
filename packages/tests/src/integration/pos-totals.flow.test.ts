@@ -99,12 +99,12 @@ async function world(opts: { printer?: boolean } = {}) {
 }
 
 /** One line; `screenTotal` is what the client claims, `paid` what it pays in cash. */
-function sale(productId: string, unitPrice: number, screenTotal: number, paid: number, nonFiscal = true) {
+function sale(productId: string, unitPrice: number, screenTotal: number, paid: number) {
   return {
     type: 'sale',
     lines: [{ productId, name: '0014 ВЪЗВР. КЛАПАН', quantity: 1, unitPrice, discount: 0, taxRate: 20, lineTotal: unitPrice }],
     subtotal: unitPrice, discountTotal: 0, taxTotal: 0, total: screenTotal,
-    payments: [{ method: 'cash', amount: paid }], changeDue: 0, nonFiscal,
+    payments: [{ method: 'cash', amount: paid }], changeDue: 0,
   }
 }
 
@@ -158,6 +158,7 @@ describe('POS totals and cash', () => {
 
   it('prints a receipt whose subtotal and VAT add up to its total', async () => {
     const w = await world({ printer: true })
+    w.sim!.unfiscalizedUnit = true
     const { json } = await post(w.url, w.token, sale(w.productId, 17.8952, 21.47, 21.47))
 
     expect(json.receiptError).toBeUndefined()

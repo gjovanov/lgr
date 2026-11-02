@@ -262,7 +262,7 @@ The owner's only device is not fiscalized: it refuses a fiscal receipt, so a cas
 
 - Read fresh, in the document's turn on the device, with no cache: a unit fiscalized by service while connected goes fiscal on its next receipt.
 - A status read that fails is never "not fiscalized". The receipt takes the path of a device that went away: `failed` if it never reached the device, held if it did.
-- No request field, org setting or screen selects text. The till's „Нефискален" switch stays as it was, and it has no say here.
+- No request field, org setting or screen selects text. The till's „Нефискален" switch is gone: since the prod sweep a till sale follows this rule too (§9, D1).
 - It carries the same words: the lines plus „Фактура № …", or „Плащане по фактура № …" per rate, the wrapped number never cut, the method's name, and the non-fiscal banner. A device that prints no text fails with a message for the back office.
 - Money behaves as with a fiscal receipt: printed means payment row and `payment.recorded`. Session totals and the session report count it, as a text receipt.
 

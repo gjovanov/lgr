@@ -99,7 +99,7 @@ test.describe('FR-23 R3 — the till\'s partial storno', () => {
     saleTotal = t.total
     const rung = await ok(manager, 'POST', `/trade/pos/session/${till.id}/transaction`, {
       type: 'sale', lines, subtotal: t.subtotal, discountTotal: 0, taxTotal: t.taxTotal, total: t.total,
-      payments: [{ method: 'cash', amount: t.total }], changeDue: 0, nonFiscal: false,
+      payments: [{ method: 'cash', amount: t.total }], changeDue: 0,
     })
     sale = rung.transaction
     expect(sale.fiscalReceiptNumber).toBeTruthy()

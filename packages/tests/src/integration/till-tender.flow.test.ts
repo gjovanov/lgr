@@ -47,8 +47,8 @@ describe('the till', () => {
     const w = await tillWorld(app)
     const before = await footprint(w)
     for (const method of NOT_FISCAL) {
-      for (const nonFiscal of [false, true]) {
-        expectNotFiscal(await w.sell(1, { method, nonFiscal }), method)
+      for (const text of [false, true]) {
+        expectNotFiscal(await w.sell(1, { method, text }), method)
       }
     }
     expect(await footprint(w)).toEqual(before)
@@ -108,9 +108,17 @@ describe('a back-office sale joined to a session (D-13)', () => {
     expect(await footprint(w)).toEqual(before)
   })
 
-  it('leaves the sale alone when nothing fiscal prints: a text receipt, or none', async () => {
+  it('asking for text gets past nothing: the device says what prints, and neither takes the method (D1)', async () => {
     const w = await tillWorld(app)
-    expect((await w.cashierBackOfficeSale(1, { paymentMethod: 'bank_transfer', receipt: 'text' })).status).toBe(200)
+    const before = await footprint(w)
+    expectNotFiscal(await w.cashierBackOfficeSale(1, { paymentMethod: 'bank_transfer', receipt: 'text' }), 'bank_transfer')
+    w.sim!.unfiscalizedUnit = true
+    expectNotFiscal(await w.cashierBackOfficeSale(1, { paymentMethod: 'bank_transfer', receipt: 'text' }), 'bank_transfer')
+    expect(await footprint(w)).toEqual(before)
+  })
+
+  it('leaves the sale alone when it prints nothing', async () => {
+    const w = await tillWorld(app)
     expect((await w.cashierBackOfficeSale(1, { paymentMethod: 'bank_transfer' })).status).toBe(200)
     expect(w.sim!.receipts).toHaveLength(0)
   })

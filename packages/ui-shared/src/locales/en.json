@@ -1479,7 +1479,6 @@
     "mobile": "Mobile",
     "voucher": "Voucher",
     "connectPrinter": "Connect Printer",
-    "nonFiscalMode": "Non-fiscal",
     "joinSession": {
       "receipt": "Receipt on the session's device",
       "hint": "Joins your open session {session}: its drawer takes the money.",

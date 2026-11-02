@@ -71,14 +71,13 @@ async function post(path: string, token: string, body: any) {
 }
 
 /** 2 × 10.00 net at 20 % → 24.00 to pay. */
-function saleBody(productId: string, nonFiscal: boolean) {
+function saleBody(productId: string) {
   return {
     type: 'sale',
     lines: [{ productId, name: 'Болт DIN 933 М8Х25', quantity: 2, unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 4, lineTotal: 20 }],
     subtotal: 20, discountTotal: 0, taxTotal: 4, total: 24,
     payments: [{ method: 'cash', amount: 24 }],
     changeDue: 0,
-    nonFiscal,
   }
 }
 
@@ -114,7 +113,7 @@ async function world(extraDevices: { name: string; manufacturer: string; deviceN
 describe('POS sale on an Eltrade', () => {
   it('issues a fiscal receipt with the УНП, VAT-inclusive prices in group Б, and stores its number', async () => {
     const w = await world()
-    const { status, json } = await post(w.url, w.token, saleBody(String(w.product._id), false))
+    const { status, json } = await post(w.url, w.token, saleBody(String(w.product._id)))
 
     expect(status).toBe(200)
     expect(json.receiptError).toBeUndefined()
@@ -133,9 +132,10 @@ describe('POS sale on an Eltrade', () => {
     expect(saved.isFiscal).toBe(true)
   })
 
-  it('prints a non-fiscal text receipt when the toggle is on — and issues nothing fiscal', async () => {
+  it('prints a non-fiscal text receipt when the device says it is not fiscalized — and issues nothing fiscal', async () => {
     const w = await world()
-    const { status, json } = await post(w.url, w.token, saleBody(String(w.product._id), true))
+    w.sim.unfiscalizedUnit = true
+    const { status, json } = await post(w.url, w.token, saleBody(String(w.product._id)))
 
     expect(status).toBe(200)
     expect(json.receiptError).toBeUndefined()
@@ -148,7 +148,7 @@ describe('POS sale on an Eltrade', () => {
   it('uses the CONNECTED device when the warehouse also has another one set up', async () => {
     // Sorts first by name and is not connected — the old findOne could land on it.
     const w = await world([{ name: 'A Tremol M20', manufacturer: 'tremol', deviceNumber: 'ZK123456' }])
-    const { json } = await post(w.url, w.token, saleBody(String(w.product._id), false))
+    const { json } = await post(w.url, w.token, saleBody(String(w.product._id)))
 
     expect(json.transaction.fiscalReceiptNumber).toBe('0000101')
     expect(w.sim.receipts).toHaveLength(1)
@@ -157,7 +157,7 @@ describe('POS sale on an Eltrade', () => {
   it('reports a receipt that did not print instead of a silent success, and leaves nothing open', async () => {
     const w = await world()
     w.sim.paper = false
-    const { status, json } = await post(w.url, w.token, saleBody(String(w.product._id), false))
+    const { status, json } = await post(w.url, w.token, saleBody(String(w.product._id)))
 
     expect(status).toBe(200) // the sale itself is recorded
     expect(json.receiptError).toContain('out of paper')

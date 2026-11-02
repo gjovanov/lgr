@@ -49,9 +49,11 @@ Status*.
 
 ## 4. Printing
 
-- **"Non-fiscal" ON** (the default): the receipt prints as text on a *СЛУЖЕБЕН БОН*. Nothing is
-  registered in the fiscal memory — use this while testing.
-- **"Non-fiscal" OFF**: a real fiscal receipt — the УНП, each line at its VAT-inclusive price in
+- **The device decides, and nobody else.** A sale reads the device's status in its turn. The till has no
+  switch for this any more.
+- **A device that says it is not fiscalized**: the receipt prints as text on a *СЛУЖЕБЕН БОН*. Nothing is
+  registered in the fiscal memory, and the terminal carries a chip saying so.
+- **Any other device**: a real fiscal receipt — the УНП, each line at its VAT-inclusive price in
   its Н-18 group (20 % → **Б**, 9 % → **Г**, 0 % → **А**), the payment (cash `P`, card `L`), and the
   receipt number saved on the transaction.
 - If a receipt does not print, the sale is still saved and the cashier sees why (out of paper, not
@@ -139,14 +141,14 @@ Run in this order — only step 5 creates a fiscal record.
 
 1. *Device Status → Read Status*: serial and fiscal-memory numbers are right, the clock is close to
    real time, no errors. ⚠ **On a fiscalized device it must read Fiscalized: Yes, before it sells.** LGR
-   prints a payment's receipt as text when the device says it is not fiscalized (FR-23), and only the
-   not-fiscalized side of that reading has been seen on hardware. If it reads wrong on your device,
+   prints a sale's and a payment's receipt as text when the device says it is not fiscalized (FR-23), and
+   only the not-fiscalized side of that reading has been seen on hardware. If it reads wrong on your device,
    every receipt prints as text with its money booked, so stop and report it. A terminal on such a
    device shows a chip saying receipts print as text.
-2. Sell something with **Non-fiscal ON** → a service receipt prints.
+2. On a device that is not fiscalized, sell something → a service receipt prints.
 3. *Reports → Daily X-Report* → prints and does not close the day.
 4. Check the product you will sell has the VAT rate you expect (20 % for most goods).
-5. Sell one small item with **Non-fiscal OFF** → fiscal receipt: the УНП starts with the device
+5. On a fiscalized device, sell one small item → fiscal receipt: the УНП starts with the device
    number, the line is in group Б, and the POS transaction shows the fiscal receipt number.
 6. ⚠ **Hold that first real fiscal slip against the number LGR stored**, before relying on any citation. A
    storno cites that number, and LGR reads it from the device's document counter (71h), which counts every

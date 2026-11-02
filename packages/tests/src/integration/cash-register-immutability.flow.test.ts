@@ -141,7 +141,7 @@ describe('FR-21.10 — a keyed till retry finds its sale in either store', () =>
     type: 'sale',
     lines: [{ productId, name: 'Bolt M8', quantity: 2, unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 4, lineTotal: 20 }],
     subtotal: 20, discountTotal: 0, taxTotal: 4, total: 24,
-    payments: [{ method: 'cash', amount: 24 }], changeDue: 0, nonFiscal: true,
+    payments: [{ method: 'cash', amount: 24 }], changeDue: 0,
   })
 
   it('a sale R2 wrote as a document is replayed from it: no second sale', async () => {

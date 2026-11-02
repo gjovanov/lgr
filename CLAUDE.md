@@ -1150,9 +1150,12 @@ LGR implements СУПТО (Софтуер за Управление на Про�
 - **`vat-groups.ts`** — Н-18 чл. 27(1): **А = 0 %/exempt, Б = 20 %, В = liquid fuels, Г = 9 %** (until 2026-09-24
   this mapped 20 % → А, i.e. booked taxable sales as exempt; unnoticed because the POS printed non-fiscal text)
 - POS prices are NET; fiscal devices take VAT-inclusive prices — `fiscalUnitPrice()` in `pos.controller.ts`
-- The POS "Non-fiscal" toggle decides: ON = text on a service receipt (for non-fiscalized devices), OFF = real
-  fiscal receipt. A print failure returns `receiptError` (the sale is still saved) instead of a silent success.
-  The text receipt prints amounts in the **session's** currency (the org's `baseCurrency` printed BGN on a EUR till)
+- ⚠ **The device decides what a till sale prints, never a switch** (#461 D1, `decideSaleMode`): text on a service
+  receipt only when its own status says `fiscalized === false`, read fresh in the sale's turn; anything else is a fiscal
+  receipt. The till's „Нефискален" switch is gone, and in a fresh browser it had made a fiscal device print a slip the Z
+  never saw. An old tab still sends `nonFiscal`: the route takes it and reads nothing of it. A print failure returns
+  `receiptError` (the sale is still saved) instead of a silent success. The text receipt prints amounts in the
+  **session's** currency (the org's `baseCurrency` printed BGN on a EUR till)
 - **POS requests are idempotent** (#155, FR-20.37): session open/close, sale and storno take an
   `Idempotency-Key` header (`ui-shared/composables/idempotency` makes one per attempt and keeps it only
   while the outcome is unknown). The key is stored ON the document (`clientKey` + `requestHash`, unique
@@ -2443,8 +2446,8 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
 - **A back-office cash sale joins its author's open session** (FR-21.31, D-13): `POST /invoices`
   writes it with `register.origin: 'pos'`, `joinedFrom: 'backoffice'` and the session, so it counts
   in the drawer's totals, the close JE and SUPTO, is immutable and is reversed by a storno through a
-  till. Its lines keep their warehouses. It prints on the session's device only when the request
-  says `receipt: 'fiscal' | 'text'`. An imported day never joins. Test fixtures: `till-world`'s
+  till. Its lines keep their warehouses. It prints on the session's device when the request says
+  `receipt`, and either value only asks: the device says which it prints. An imported day never joins. Test fixtures: `till-world`'s
   `backOfficeSale` posts as a clerk with no session, `cashierBackOfficeSale` as the till's cashier.
 - **One selling surface** (FR-21.29): `ui-shared/components/cash-register/RegisterTerminal.vue` is
   the catalog, the cart and the totals of the till (`/invoicing/cash-sales/new`) AND of the form a
@@ -2721,8 +2724,8 @@ invoice still due until the courier pays).
   device's own status, fresh, in the turn, with no cache; `undefined` or `true` is fiscal, so a Tremol
   never gets text and a fiscalized device can never print it. ⚠ A status read that fails is never "not
   fiscalized": it is the path of a device that went away. No request field, org setting or screen
-  selects it, and the till's „Нефискален" has no say. The УНП is drawn in the turn, by `decideMode`, so a
-  text receipt has none. It stays out of what a text sale stays out of: no УНП, nothing fiscal on its
+  selects it. A till sale follows the same rule since #461 (`decideSaleMode`). The УНП is drawn in the turn, by
+  `decideMode`, so a text receipt has none. It stays out of what a text sale stays out of: no УНП, nothing fiscal on its
   18.1–18.3 rows, on no witness, no Z, no receipt range, and the invoice PDF does not call it a fiscal
   receipt. It freezes its document all the same. A text print that fails is `failed`, with no verdict:
   the device holds no money on one. One that started fiscally stays fiscal.

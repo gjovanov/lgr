@@ -64,7 +64,7 @@ describe('FR-21.32 — the till writes need pos.write', () => {
 
   it('a role without pos.write is refused at every till door, before anything is written', async () => {
     w = await tillWorld(app, { device: false })
-    const sale = await w.sell(1, { nonFiscal: true })
+    const sale = await w.sell(1, { text: true })
     expect(sale.status).toBe(200)
     const saleId = String(sale.json.transaction.id ?? sale.json.transaction._id)
 
@@ -72,7 +72,7 @@ describe('FR-21.32 — the till writes need pos.write', () => {
       const as = await tokenFor(role, code)
       const doors = [
         ['POST', '/trade/pos/session', { warehouseId: String(w.warehouse._id), openingBalance: 0, currency: 'EUR' }],
-        ['POST', `/trade/pos/session/${w.sessionId}/transaction`, w.saleBody(1, { nonFiscal: true })],
+        ['POST', `/trade/pos/session/${w.sessionId}/transaction`, w.saleBody(1)],
         ['POST', `/trade/pos/session/${w.sessionId}/storno`, { originalTransactionId: saleId, reason: 'customer_return' }],
         ['POST', `/trade/pos/session/${w.sessionId}/close`, { closingBalance: 0 }],
       ] as const
@@ -96,7 +96,7 @@ describe('FR-21.32 — the till writes need pos.write', () => {
     const opened = await w.call('POST', '/trade/pos/session', { warehouseId: String(w.warehouse._id), openingBalance: 0, currency: 'EUR' }, undefined, as)
     expect(opened.status).toBe(200)
     const sid = String(opened.json.session.id ?? opened.json.session._id)
-    const sale = await w.call('POST', `/trade/pos/session/${sid}/transaction`, w.saleBody(1, { nonFiscal: true }), undefined, as)
+    const sale = await w.call('POST', `/trade/pos/session/${sid}/transaction`, w.saleBody(1), undefined, as)
     expect(sale.status).toBe(200)
   })
 })

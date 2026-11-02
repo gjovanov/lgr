@@ -162,7 +162,7 @@ describe('a storno of a till sale', () => {
 
   it('a text-receipt sale is still reversed with its device offline: it printed nothing fiscal', async () => {
     const w = await tillWorld(app)
-    const sale = await w.sell(1, { nonFiscal: true })
+    const sale = await w.sell(1, { text: true })
     expect(sale.status).toBe(200)
     forgetDevices()
 

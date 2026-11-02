@@ -80,14 +80,13 @@ async function post(path: string, token: string, body: any) {
 }
 
 /** 2 × 10.00 net at 20 % → 24.00 to pay. */
-function saleBody(productId: string, nonFiscal = false) {
+function saleBody(productId: string) {
   return {
     type: 'sale',
     lines: [{ productId, name: 'Болт DIN 933 М8Х25', quantity: 2, unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 4, lineTotal: 20 }],
     subtotal: 20, discountTotal: 0, taxTotal: 4, total: 24,
     payments: [{ method: 'cash', amount: 24 }],
     changeDue: 0,
-    nonFiscal,
   }
 }
 
@@ -212,10 +211,11 @@ describe('POS stock movements', () => {
     } as any)
     const deviceId = String(device._id)
     const sim = new EltradeSimulator()
+    sim.unfiscalizedUnit = true
     registerPrinter(deviceId, new EltradeFiscalPrinter(sim.exchange, deviceId))
     registered.push(deviceId)
 
-    const { json } = await post(`${w.base}/transaction`, w.token, saleBody(String(w.product._id), true))
+    const { json } = await post(`${w.base}/transaction`, w.token, saleBody(String(w.product._id)))
 
     expect(json.receiptError).toBeUndefined()
     expect(sim.nonFiscalLines.some(l => l.includes('24.00 EUR'))).toBe(true)

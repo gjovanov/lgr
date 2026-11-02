@@ -126,7 +126,7 @@ export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
   const session = opened.json.session
 
   /** `quantity` × 10.00 net at 20 %, paid with `tendered` in cash (or by card). */
-  const saleBody = (quantity = 2, o: { nonFiscal?: boolean; method?: string; tendered?: number } = {}) => ({
+  const saleBody = (quantity = 2, o: { method?: string; tendered?: number } = {}) => ({
     type: 'sale',
     lines: [{
       productId: String(product._id), name: 'Болт DIN 933 М8Х25', quantity, unitPrice: 10, discount: 0,
@@ -135,11 +135,18 @@ export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
     subtotal: 10 * quantity, discountTotal: 0, taxTotal: 2 * quantity, total: 12 * quantity,
     payments: [{ method: o.method ?? 'cash', amount: o.tendered ?? 12 * quantity }],
     changeDue: 0,
-    nonFiscal: o.nonFiscal ?? false,
   })
   const sessionId = String(session.id ?? session._id)
-  const sell = (quantity = 2, o: Parameters<typeof saleBody>[1] = {}, key?: string) =>
-    call('POST', `/trade/pos/session/${sessionId}/transaction`, saleBody(quantity, o), key)
+  /** `text`: on a device that says it is not fiscalized, for this one sale: nothing a request says makes one (D1). */
+  const sell = async (quantity = 2, o: Parameters<typeof saleBody>[1] & { text?: boolean } = {}, key?: string) => {
+    const was = sim?.unfiscalizedUnit ?? false
+    if (sim && o.text) sim.unfiscalizedUnit = true
+    try {
+      return await call('POST', `/trade/pos/session/${sessionId}/transaction`, saleBody(quantity, o), key)
+    } finally {
+      if (sim && o.text) sim.unfiscalizedUnit = was
+    }
+  }
   const storno = (saleId: string, key?: string, body: Record<string, unknown> = {}) =>
     call('POST', `/trade/pos/session/${sessionId}/storno`, { originalTransactionId: saleId, reason: 'customer_return', ...body }, key)
 

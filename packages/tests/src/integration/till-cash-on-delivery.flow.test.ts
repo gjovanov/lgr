@@ -66,7 +66,7 @@ describe('a sale at the till', () => {
 
   it('on a text receipt, under its own name', async () => {
     const w = await tillWorld(app)
-    const r = await w.sell(1, { ...COD, nonFiscal: true })
+    const r = await w.sell(1, { ...COD, text: true })
     expect(r.status).toBe(200)
     expect(w.sim!.receipts).toHaveLength(0)
     expect(w.sim!.nonFiscalLines.join('\n')).toContain('ON DELIVERY:')
@@ -310,7 +310,7 @@ describe('a device with no slot for it', () => {
   it('refuses it on a text receipt too: the rule is the device\'s, and a retry with the switch off would fail anyway', async () => {
     const w = await tillWorld(app, { manufacturer: 'tremol' })
     const before = await footprint(w)
-    const r = await w.sell(1, { ...COD, nonFiscal: true })
+    const r = await w.sell(1, { ...COD, text: true })
     expect({ status: r.status, code: r.json.code }).toEqual(REFUSED)
     expect(await footprint(w)).toEqual(before)
   })

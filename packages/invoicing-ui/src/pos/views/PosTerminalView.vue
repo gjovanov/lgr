@@ -21,17 +21,7 @@
           </span>
         </div>
         <div class="d-flex align-center ga-3">
-          <!-- Non-Fiscal Mode Toggle -->
-          <v-switch
-            v-model="nonFiscalMode"
-            :label="$t('pos.nonFiscalMode')"
-            color="warning"
-            density="compact"
-            hide-details
-            class="flex-grow-0"
-            :disabled="basketFrozen"
-          />
-          <!-- FR-23: the device decides, and what it says must be seen: every receipt here is text. -->
+          <!-- The device decides, and what it says must be seen: every receipt here is text. -->
           <v-chip v-if="printsText" color="warning" size="small" prepend-icon="mdi-receipt-text-outline" data-testid="terminal-prints-text">
             {{ $t('pos.bridge.printsText') }}
           </v-chip>
@@ -253,8 +243,7 @@ const answerLost = ref(false)
  * A sale's basket holds still until its answer is in. A retry is the same sale only with the same
  * body (`createIdempotentAction`): any other body is a new key, and so a second sale. That is what
  * makes „Complete Sale will not ring it up twice" true of everything this screen then lets a cashier
- * do. So the cart, the method and the receipt stay as they were sent, and with the answer lost the
- * catalog goes too. The session stays as well: the key is good for that session only.
+ * do. So the cart and the method stay as they were sent, and with the answer lost the catalog goes too. The session stays as well: the key is good for that session only.
  */
 const basketFrozen = computed(() => selling.value || answerLost.value)
 /** FR-21.29: the catalog, the cart and the totals (`ui-shared`), which the back office sells through too. */
@@ -271,8 +260,6 @@ const canSkipFiscal = computed(() => ['admin', 'manager'].includes(appStore.user
 const warehouses = ref<Warehouse[]>([])
 const sessionWarehouseId = ref('')
 const sessions = ref<Session[]>([])
-const nonFiscalMode = ref(localStorage.getItem('pos.nonFiscalMode') !== 'false')
-watch(nonFiscalMode, (v) => localStorage.setItem('pos.nonFiscalMode', String(v)))
 watch(() => fiscalBridge.status.value, async (val) => {
   if (val === 'error' && fiscalBridge.errorMessage.value) {
     showError(fiscalBridge.errorMessage.value)
@@ -596,7 +583,6 @@ async function completeSale() {
       type: 'sale', lines,
       subtotal: subtotal.value, discountTotal: 0, taxTotal: taxAmount.value, total: total.value,
       payments: [{ method: paymentMethod.value, amount: total.value }], changeDue: 0,
-      nonFiscal: nonFiscalMode.value,
     }
     let data: any
     try {
@@ -636,8 +622,8 @@ async function completeSale() {
       paidBy: (txn.payments ?? body.payments).map((p: any) => t(paymentMethodKey(p.method))).join(' + '),
       receipt: receipt.text,
       warnings,
-      // A fiscal receipt was asked for („Нефискален" off) and nothing printed: not a clean success.
-      tone: warnings.length || (!receipt.printed && !body.nonFiscal) ? 'warning' : 'success',
+      // Nothing printed with no word why is a till with no device, in an org that lets it sell: a clean sale there.
+      tone: warnings.length ? 'warning' : 'success',
     }
     if (warnings.length) showSnackbar(warnings.join(' · '), 'warning', 15000)
     else showSuccess(t('pos.saleCompleted'))

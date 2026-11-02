@@ -56,7 +56,6 @@ import { Invoice, POSSession } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
 import { createAuditEntry } from '../audit-log.service.js'
 import { eventBus } from '../../events/event-bus.js'
-import { generateUNP } from '../sequence.service.js'
 import { LEASE_MS } from '../hot-path-key.js'
 import { fitsDue, heldOn, isBeingVoided, outstandingOf, overpays, paymentPipeline, type PaymentRow } from '../invoice-payment.js'
 import { printsHere } from '../sale-counting.js'
@@ -70,7 +69,7 @@ import type { RegisterPrinter } from './printer.js'
 import { grossByRate, receiptedByRate, refundBody, splitByRate, type ReceiptBody } from './receipt-lines.js'
 import { receiptMode } from './receipt-mode.js'
 import {
-  RegisterRefusal, applySessionTotals, bookedOnItsSession, couldNotPrint, decideInterrupted, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, rollBack,
+  RegisterRefusal, applySessionTotals, asFiscal, bookedOnItsSession, couldNotPrint, decideInterrupted, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, rollBack,
   saleInDoubtRefusal, setRegister, type RegisterContext, type RegisterSession, type RegisterUser,
 } from './register.service.js'
 
@@ -548,12 +547,7 @@ async function decideMode(c: RegisterContext, printer: RegisterPrinter, doc: any
     return fiscal?.mode === 'text' ? doc : setRegister(doc._id, { isFiscal: false, 'fiscal.mode': 'text' })
   }
   if (fiscal?.attemptedAt) return holdInDoubt(doc)
-  const operatorCode = c.user.operatorCode ?? doc.register?.operatorCode
-  if (!operatorCode) throw new Error('This user has no operator code, and a fiscal receipt names its operator.')
-  return setRegister(doc._id, {
-    isFiscal: true, 'fiscal.mode': 'fiscal',
-    ...(doc.register?.unp ? {} : { unp: await generateUNP(c.orgId, printer.deviceNumber, operatorCode as string) }),
-  })
+  return asFiscal(c, printer, doc)
 }
 
 /**

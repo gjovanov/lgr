@@ -137,7 +137,7 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
 
     const rung = await ok(cashier, 'POST', `/trade/pos/session/${till.id}/transaction`, {
       type: 'sale', lines, subtotal: t.subtotal, discountTotal: 0, taxTotal: t.taxTotal, total: t.total,
-      payments: [{ method: 'card', amount: t.total }], changeDue: 0, nonFiscal: false,
+      payments: [{ method: 'card', amount: t.total }], changeDue: 0,
     })
     sale = rung.transaction
 
@@ -196,12 +196,13 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
 
     await loginForApp(page, 'acme-corp', cashierName, 'test12345')
     await page.goto('/invoicing/cash-sales/new')
-    // A fiscal receipt: the switch starts on, for a till with a device that is not fiscalized yet.
-    const nonFiscal = page.getByLabel('Non-fiscal')
-    await expect(nonFiscal).toBeVisible({ timeout: 15000 })
-    await nonFiscal.uncheck({ force: true })
+    // A fresh browser, and nothing to set: the device says how it prints, and this one is fiscalized (#461, D1).
+    const search = page.getByRole('textbox', { name: /Search products/i })
+    await expect(search).toBeVisible({ timeout: 15000 })
+    await expect(page.getByLabel('Non-fiscal')).toHaveCount(0)
+    await expect(page.getByTestId('terminal-prints-text')).toHaveCount(0)
 
-    await page.getByRole('textbox', { name: /Search products/i }).fill(p.productName)
+    await search.fill(p.productName)
     const card = page.getByTestId('register-card').filter({ hasText: p.productName }).first()
     await expect(card).toBeVisible({ timeout: 15000 })
     await card.click()
