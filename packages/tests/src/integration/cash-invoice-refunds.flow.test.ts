@@ -3784,6 +3784,79 @@ describe('a held storno and the switch (the readers, B5)', () => {
   })
 })
 
+describe('a storno that stands on a note holds what the note corrects (the readers, A7)', () => {
+  /** Two receipted invoices of one customer, and a note on the first, issued by bank. */
+  async function twoInvoices(w: TillWorld) {
+    const a = await paidInvoice(w)
+    const b = await paidInvoice(w, { extra: { contactId: a.contactId } })
+    return { a, b, note: await issuedNote(w, a) }
+  }
+  const move = (w: TillWorld, id: string, to: string, extra: Record<string, unknown> = {}) => w.call('PUT', `/invoices/${id}`, { relatedInvoiceId: to, ...extra })
+
+  it('printed: it moves with `fiscally_paid`, as its money does, and the next refund cites the same invoice', async () => {
+    const w = await tillWorld(app)
+    const { a, b, note } = await twoInvoices(w)
+    expect((await pay(w, note.id, 12)).status).toBe(200)
+
+    const r = await move(w, note.id, b.id)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('fiscally_paid')
+    expect(String((await raw(note.id)).relatedInvoiceId)).toBe(a.id)
+
+    expect((await pay(w, note.id, 12)).status).toBe(200)
+    expect(w.sim!.receipts.at(-1)!.header[1]).toBe(a.receipt.register.unp)
+  })
+
+  it('what else it says stays editable, and so does sending the same one again', async () => {
+    const w = await tillWorld(app)
+    const { a, note } = await twoInvoices(w)
+    expect((await pay(w, note.id, 12)).status).toBe(200)
+
+    expect((await w.call('PUT', `/invoices/${note.id}`, { notes: 'edited' })).status).toBe(200)
+    expect((await move(w, note.id, a.id, { notes: 'and again' })).status).toBe(200)
+
+    expect(await raw(note.id)).toMatchObject({ notes: 'and again' })
+  })
+
+  it('held: refused in its own words', async () => {
+    const w = await tillWorld(app)
+    const { b, note } = await twoInvoices(w)
+    w.sim!.dropAfter = 0x38
+    expect((await pay(w, note.id, 12)).json.code).toBe('receipt_in_doubt')
+    w.sim!.disconnected = false
+
+    const r = await move(w, note.id, b.id)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_in_doubt')
+  })
+
+  it('one that failed holds nothing up, and neither does a refund by bank', async () => {
+    const w = await tillWorld(app)
+    const { b, note } = await twoInvoices(w)
+    w.sim!.paper = false
+    expect((await pay(w, note.id, 12)).status).toBe(503)
+    w.sim!.paper = true
+    expect((await pay(w, note.id, 5, 'bank_transfer')).status).toBe(200)
+
+    expect((await move(w, note.id, b.id)).status).toBe(200)
+
+    expect(String((await raw(note.id)).relatedInvoiceId)).toBe(b.id)
+    expect((await pay(w, note.id, 12)).status).toBe(200)
+    expect(w.sim!.receipts.at(-1)!.header[1]).toBe(b.receipt.register.unp)
+  })
+
+  it('an invoice\'s related document is none of this: only a credit note\'s stornos cite through it', async () => {
+    const w = await tillWorld(app)
+    const { a, b } = await twoInvoices(w)
+    const debit = await draftOf(w, { type: 'debit_note', method: 'bank_transfer', extra: { relatedInvoiceId: a.id, contactId: a.contactId } })
+    expect((await send(w, debit.id)).status).toBe(200)
+    expect((await pay(w, debit.id, 24)).status).toBe(200)
+    expect((await move(w, debit.id, b.id)).status).toBe(200)
+  })
+})
+
 describe('nothing prints: credit notes behave as today', () => {
   it('the switch off: a credit note in cash is issued and stays due, no session asked for, and a cash refund is recorded', async () => {
     const w = await tillWorld(app)

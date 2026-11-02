@@ -419,6 +419,14 @@ function refundMoved(note: any, stornos: any[]): boolean {
 }
 
 /**
+ * FR-23 §2.7: a credit note moved to correct another invoice. Its stornos cite the receipts of the one it
+ * corrects now, so once one stands this moves with its money: the device's storno would cite a receipt of
+ * an invoice the note no longer names.
+ */
+const correctsAnother = (doc: any, edit: any) =>
+  doc.type === 'credit_note' && edit.relatedInvoiceId !== undefined && String(edit.relatedInvoiceId ?? '') !== String(doc.relatedInvoiceId ?? '')
+
+/**
  * A refusal that answers for the key: the client keeps or drops its key by it, so it is never turned
  * into a 200 with a `receiptError`, as a refusal of the receipt is once the document is issued.
  */
@@ -1096,7 +1104,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (isImmutableRegisterDocument(existing as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
       // FR-23 §2.7: a printed receipt cannot change, so what it printed cannot either. Anything else
       // on the document stays editable, as on every other.
-      const movesMoney = (existing as any).direction === 'outgoing' && existing.status !== 'draft' && movesPrintedMoney(existing as any, body as any)
+      const movesMoney = (existing as any).direction === 'outgoing' && existing.status !== 'draft' && (movesPrintedMoney(existing as any, body as any) || correctsAnother(existing, body))
       if (movesMoney) {
         // A receipt whose request died is no reason to refuse, if it never printed.
         await finishInterruptedDocuments(orgId, user, id)
