@@ -146,7 +146,8 @@ Run in this order — only step 5 creates a fiscal record.
    every receipt prints as text with its money booked, so stop and report it. A terminal on such a
    device shows a chip saying receipts print as text.
 2. On a device that is not fiscalized, sell something → a service receipt prints.
-3. *Reports → Daily X-Report* → prints and does not close the day.
+3. *Reports → Daily X-Report* → prints and does not close the day. A Daily Z-Report there closes it, and asks first
+   when a session is open on the warehouse, naming it: that session's close would read 0.00 from the device.
 4. Check the product you will sell has the VAT rate you expect (20 % for most goods).
 5. On a fiscalized device, sell one small item → fiscal receipt: the УНП starts with the device
    number, the line is in group Б, and the POS transaction shows the fiscal receipt number.

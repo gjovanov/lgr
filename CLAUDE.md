@@ -1228,6 +1228,9 @@ Atomic counter using MongoDB `findOneAndUpdate` with `$inc`. Race-condition safe
 ### SUPTO Controller Endpoints
 
 - **Fiscal devices**: `GET/POST/PUT/DELETE /api/org/:orgId/fiscal/device` + `/connect`, `/disconnect`, `/status`, `/z-report`, `/sync-time` — restricted to admin/manager/warehouse_manager. Connection types: `tcp`, `serial`, `usb`, `browser`, `desktop`
+  - ⚠ **`/z-report` asks first with a session open on the device's warehouse** (#461 D5): 409 `sessions_open` naming them, and
+    it prints when asked again with `confirmed: true`. It closes the device's day under them, and their close then reads
+    0.00 from the device. A session's close is not this route.
   - The device page's commands — `/x-report`, `/fm-report`, `/operator-report`, `/ej-report`, `/program-operator`,
     `/read-operator`, `GET|POST /payment-names` (POST admin only) — go through `onDevice()`: a feature the driver
     lacks is 400 `unsupported` with the reason and nothing sent, then input checks (400 `bad_input`), then 503 when

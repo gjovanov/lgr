@@ -14,7 +14,8 @@ import { config } from 'config'
 import { PERMISSIONS } from 'config/constants'
 import { AuditLog, FiscalDevice } from 'db/models'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories'
+import { createTestOrg, createTestUser, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories'
+import { getRepos } from 'services/context'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { fiscalDeviceController } from '../../../portal-api/src/controllers/fiscal-device.controller'
 import { EltradeFiscalPrinter, ELTRADE_CMD } from 'fiscal/eltrade'
@@ -69,7 +70,17 @@ async function world(opts: { manufacturer?: string; connectionType?: string; con
     }))
     return { status: res.status, json: (await res.json().catch(() => null)) as any }
   }
-  return { orgId, deviceId, sim, printer, call }
+  return { orgId, warehouseId: String(wh._id), deviceId, sim, printer, call }
+}
+
+/** A session on that warehouse, or on another. */
+async function sessionIn(orgId: string, warehouseId: string, status = 'open') {
+  const cashier = await createTestUser(orgId as any, { firstName: 'Иван', lastName: 'Петров' } as any)
+  return getRepos().posSessions.create({
+    orgId, warehouseId, cashierId: String(cashier._id), sessionNumber: `POS-${Math.random().toString(36).slice(2, 8)}`,
+    openedAt: new Date(), status, openingBalance: 0, currency: 'EUR',
+    totalSales: 0, totalReturns: 0, totalCash: 0, totalCard: 0, transactionCount: 0,
+  } as any) as Promise<any>
 }
 
 /** The audit row an action left; createAuditEntry does not wait for its write. */
@@ -134,6 +145,74 @@ describe('every report an Eltrade has', () => {
     expect(r.json.zReport.reportNumber).toBe('0013')
     expect(w.sim.reports).toEqual([{ cmd: ELTRADE_CMD.DAILY_REPORT, data: '0' }])
     expect(w.sim.closure).toBe(13)
+  })
+
+  describe('a Z with a session open on that warehouse is asked about first (D5)', () => {
+    test('refused, naming them, with nothing sent to the device', async () => {
+      const w = await world()
+      const session = await sessionIn(w.orgId, w.warehouseId)
+      const frames = w.sim.frames
+
+      const r = await w.call('POST', '/z-report', undefined, 'manager')
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('sessions_open')
+      expect(r.json.sessions).toEqual([{ id: session.id, number: session.sessionNumber, cashier: 'Иван Петров' }])
+      expect(r.json.message).toContain(session.sessionNumber)
+      expect(w.sim.frames).toBe(frames)
+      expect(w.sim.closure).toBe(12)
+    })
+
+    test('the same request saying it means it prints', async () => {
+      const w = await world()
+      await sessionIn(w.orgId, w.warehouseId)
+
+      const r = await w.call('POST', '/z-report', { confirmed: true }, 'manager')
+
+      expect(r.status).toBe(200)
+      expect(r.json.zReport.reportNumber).toBe('0013')
+      expect(w.sim.closure).toBe(13)
+    })
+
+    test('confirmed means confirmed: anything else asks again', async () => {
+      const w = await world()
+      await sessionIn(w.orgId, w.warehouseId)
+      expect((await w.call('POST', '/z-report', { confirmed: false }, 'manager')).status).toBe(409)
+      expect((await w.call('POST', '/z-report', {}, 'manager')).status).toBe(409)
+      expect(w.sim.closure).toBe(12)
+    })
+
+    test('one being closed is named too, and a closed one or another warehouse\'s is none of this', async () => {
+      const w = await world()
+      const other = await createTestWarehouse(w.orgId as any, { name: 'Друг', code: 'W2' } as any)
+      await sessionIn(w.orgId, String(other._id))
+      await sessionIn(w.orgId, w.warehouseId, 'closed')
+      expect((await w.call('POST', '/z-report', undefined, 'manager')).status).toBe(200)
+      expect(w.sim.closure).toBe(13)
+
+      const closing = await sessionIn(w.orgId, w.warehouseId, 'closing_control')
+      const r = await w.call('POST', '/z-report', undefined, 'manager')
+      expect(r.status).toBe(409)
+      expect(r.json.sessions.map((s: any) => s.id)).toEqual([closing.id])
+    })
+
+    test('who may not print one hears that, and one that cannot print hears why, before anyone is asked', async () => {
+      const w = await world()
+      await sessionIn(w.orgId, w.warehouseId)
+      expect((await w.call('POST', '/z-report', undefined, 'warehouse_manager')).status).toBe(403)
+
+      const away = await world({ connected: false })
+      await sessionIn(away.orgId, away.warehouseId)
+      const r = await away.call('POST', '/z-report', undefined, 'manager')
+      expect(r.status).toBe(503)
+      expect(r.json.code).toBe('not_connected')
+    })
+
+    test('an X is no such thing: it closes nothing, and prints with the session open', async () => {
+      const w = await world()
+      await sessionIn(w.orgId, w.warehouseId)
+      expect((await w.call('POST', '/x-report', undefined, 'manager')).status).toBe(200)
+    })
   })
 
   test('fiscal memory by date: short 4Fh, detailed 5Eh, in the device\'s DDMMYY', async () => {
