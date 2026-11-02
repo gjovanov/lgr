@@ -55,6 +55,16 @@ const DEFAULT_PERMISSION_SETS: PermissionSetDef[] = [
     isAdmin: false,
     isDefault: true,
   },
+  // A tax inspector reads and exports and changes nothing. A set outranks the role's defaults at
+  // sign-in, and this role used to map to Accountant: writes, and no audit log.
+  {
+    name: 'NRA Auditor (Read Only)',
+    description: 'Read-only access for a tax inspector, with the audit log and report export',
+    permissions: [...DEFAULT_ROLE_PERMISSIONS.nra_auditor],
+    ownRecordsOnly: {},
+    isAdmin: false,
+    isDefault: false,
+  },
 ]
 
 /**
@@ -91,5 +101,5 @@ export const ROLE_TO_PERMISSION_SET: Record<string, string> = {
   accountant: 'Accountant',
   warehouse_manager: 'Warehouse Manager',
   member: 'Member (Read Only)',
-  nra_auditor: 'Accountant',
+  nra_auditor: 'NRA Auditor (Read Only)',
 }
