@@ -280,17 +280,20 @@ const mayOweDeliveryReceipt = (doc: any) => !!doc?.deliveryReceiptOwed && doc.pa
   && PAYABLE.includes(doc.status) && printsAtCounter(doc, doc.paymentMethod, true)
 
 /** What a document's receipts are read for. A receipt printed whole holds the invoice's lines. */
-const RECEIPT_FIELDS = { type: 1, status: 1, invoiceNumber: 1, paymentMethod: 1, issueDate: 1, register: 1 }
+const RECEIPT_FIELDS = { type: 1, status: 1, invoiceNumber: 1, total: 1, paymentMethod: 1, issueDate: 1, register: 1 }
 
 /** What the form and the PDF say of a document's receipts, of those that took money on it; the form, of a credit note's stornos. */
-function paidBy(receipts: any[]): Array<{ number: string; method?: string; unp?: string; receiptNumber?: string; date?: Date; text?: true }> {
+function paidBy(receipts: any[]): Array<{ id: string; number: string; amount: number; state?: string; method?: string; unp?: string; receiptNumber?: string; date?: Date; text?: true }> {
   return receipts
     .filter((d) => {
       const row = toPosTransaction(d) as any
       return receiptTookMoney(row) || refundGaveMoney(row)
     })
     .map(d => ({
+      id: String(d._id),
       number: d.invoiceNumber,
+      amount: Number(d.total) || 0,
+      state: d.register?.fiscal?.state,
       method: d.paymentMethod,
       ...(d.register?.unp ? { unp: d.register.unp } : {}),
       ...(d.register?.fiscalReceiptNumber ? { receiptNumber: d.register.fiscalReceiptNumber } : {}),

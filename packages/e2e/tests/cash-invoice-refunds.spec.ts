@@ -417,6 +417,29 @@ test.describe('FR-23 R2 — a storno for a refund on a credit note', () => {
     await expect.poll(() => said).toEqual([{ printed: true, receiptNumber: '123' }])
   })
 
+  test('the forms list what moved their money: a receipt on its invoice, a storno on its note, each a way to its page', async ({ page }) => {
+    const inv = await paidInvoice()
+    const note = await creditNote(inv.id, 'bank_transfer')
+    await ok(cashier, 'POST', `/invoices/${note.id}/send`, {})
+    await ok(cashier, 'POST', `/invoices/${note.id}/payments`, { date: new Date().toISOString().slice(0, 10), amount: note.total, method: 'cash' })
+    const { invoice: refunded } = await ok(cashier, 'GET', `/invoices/${note.id}`)
+    const storno = refunded.paymentReceipts[0]
+
+    await loginForApp(page, 'acme-corp', cashierName, PASSWORD)
+    await page.goto(`/invoicing/invoices/${inv.id}/edit`)
+    const onInvoice = page.getByTestId('document-receipts')
+    await expect(onInvoice.getByTestId('document-receipt-link')).toHaveText(inv.receipt.number)
+    await expect(onInvoice.getByTestId('document-receipt')).toContainText('Printed')
+
+    await page.goto(`/invoicing/invoices/${note.id}/edit`)
+    const onNote = page.getByTestId('document-receipts')
+    await expect(onNote).toContainText('Stornos of this credit note')
+    await expect(onNote.getByTestId('document-receipt-link')).toHaveText(storno.number)
+    await onNote.getByTestId('document-receipt-link').click()
+    await expect(page).toHaveURL(new RegExp(`/cash-sales/${storno.id}/view`))
+    await expect(page.getByTestId('journal-document-title')).toHaveText(storno.number)
+  })
+
   test('a storno that may have printed: nothing is refunded, a second press prints nothing, and a person settles it on its page', async ({ page }) => {
     const inv = await paidInvoice(1)
     const note = await creditNote(inv.id, 'bank_transfer', 1)

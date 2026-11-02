@@ -1512,6 +1512,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const deliveryReceiptDue = computed(() => !!invoiceData.value?.receiptToPrint)
   /** A receipt nothing can prove: this document waits for someone to settle it in the journal. */
   const receiptInDoubt = computed<{ id: string; number: string } | null>(() => invoiceData.value?.receiptInDoubt ?? null)
+  // FR-23: the fiscal documents that moved this document's money, each a way to its page.
+  const paymentReceipts = computed<{ id: string; number: string; amount: number; state?: string }[]>(() => invoiceData.value?.paymentReceipts ?? [])
   const printingReceipt = ref(false)
   const deliveryReceipt = createIdempotentAction()
   async function printDeliveryReceipt() {
@@ -1997,6 +1999,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     receiptTakesPayment,
     deliveryReceiptDue,
     receiptInDoubt,
+    paymentReceipts,
     printingReceipt,
     printDeliveryReceipt,
     paymentDialog,

@@ -369,6 +369,7 @@ describe('the refusal, in words', () => {
       'cashRegister.receipt.refundExceedsPaid', 'cashRegister.receipt.refundExceedsPaidAtIssue', 'cashRegister.receipt.issuedPartlyRefunded',
       'cashRegister.receipt.fiscallyPaidUnderNote', 'cashRegister.receipt.noReceiptNumber', 'cashRegister.receipt.noReceiptOfKind',
       'cashRegister.receipt.bringNumber', 'cashRegister.receipt.bringNumberConfirm', 'cashRegister.receipt.refundExceedsAtIssue', 'cashRegister.receipt.fiscallyPaidNote',
+      'cashRegister.receipt.listReceipts', 'cashRegister.receipt.listStornos',
     ]) {
       for (const [name, messages] of Object.entries(locales)) {
         const text = key.split('.').reduce((at: any, part) => at?.[part], messages)

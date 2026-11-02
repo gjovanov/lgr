@@ -4824,6 +4824,19 @@ describe('what the dialog is told: the server answers it', () => {
     expect(done.paymentReceipts[0]).toMatchObject({ method: 'cash' })
   })
 
+  it('what the form lists: each receipt or storno by its number, amount and state, with what its page needs', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv, { quantity: 1 })
+    expect((await pay(w, note.id, 12)).status).toBe(200)
+    const [storno] = await stornosOf(note.id)
+
+    expect((await shown(w, inv.id)).paymentReceipts).toEqual([expect.objectContaining({ id: String(inv.receipt._id), number: inv.receipt.invoiceNumber, amount: 24, state: 'printed' })])
+    expect((await shown(w, note.id)).paymentReceipts).toEqual([expect.objectContaining({ id: String(storno._id), number: storno.invoiceNumber, amount: 12, state: 'printed' })])
+    // The printout's list is a list of what it names, and it stays one.
+    expect((await printableDocument(w.orgId, await raw(inv.id))).paymentReceipts[0]).toMatchObject({ number: inv.receipt.invoiceNumber })
+  })
+
   it('with the switch off, or imported, nothing is said to print', async () => {
     const w = await tillWorld(app)
     const inv = await paidInvoice(w)

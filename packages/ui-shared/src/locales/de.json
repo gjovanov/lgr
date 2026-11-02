@@ -1129,6 +1129,8 @@
       "receiptNumberHint": "Vom Beleg. Ein späteres Storno zitiert sie: ohne sie kann dieser Bon nur per Überweisung erstattet werden.",
       "inDoubt": "Nichts kann belegen, ob dieser Beleg gedruckt wurde. Sein Geld ist weder gebucht noch frei. Prüfen Sie das Journal des Geräts und geben Sie dann an, was zutrifft.",
       "inDoubtDocument": "Nichts kann belegen, ob Beleg {number} gedruckt wurde. Sein Geld ist weder gebucht noch frei, bis jemand ihn klärt.",
+      "listReceipts": "Fiskalbelege dieses Dokuments",
+      "listStornos": "Stornos dieser Gutschrift",
       "inDoubtRefused": "Nichts kann belegen, ob Beleg {number} gedruckt wurde, daher geht dies nicht weiter. Prüfen Sie das Gerät und klären Sie den Beleg unter Kassenverkäufe.",
       "settleIt": "Klären",
       "settlePrinted": "Wurde gedruckt",
