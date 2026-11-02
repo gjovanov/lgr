@@ -348,14 +348,16 @@ describe('a storno that may have printed is held, not voided (finding 1)', () =>
 })
 
 describe('a person settles a storno in doubt (finding 1)', () => {
-  it('it printed: the rest runs with no device, the refund leaves the session, the goods come back, and it says who said so', async () => {
+  it('it printed: the rest prints nothing, the refund leaves the session, the goods come back, and it says who said so', async () => {
     const w = await tillWorld(app)
     const { saleId, storno } = await held(w)
-    forgetDevices()
+    const printing = () => w.sim!.executed.filter(c => [0x90, LINE, PAYMENT, CLOSE].includes(c.cmd)).length
+    const before = printing()
 
     const answer = await settle(w, String(storno._id), true)
 
     expect(answer.status).toBe(200)
+    expect(printing()).toBe(before)
     expect(answer.json.document.row.fiscal.state).toBe('printed')
     expect(answer.json.document.row.status).toBe('completed')
     const after = await read(storno._id)
@@ -422,12 +424,15 @@ describe('a person settles a storno in doubt (finding 1)', () => {
     expect(stornosOnDevice(w)).toHaveLength(1)
   })
 
-  it('a device that is not here says nothing, and the person\'s word stands', async () => {
+  it('a device that is not here may still hold it: refused, until it is back or its row is deactivated', async () => {
     const w = await tillWorld(app)
     const { storno } = await heldBeforeItsMoney(w)
     forgetDevices()
     await FiscalDevice.updateOne({ _id: w.deviceId }, { $set: { status: 'online' } })
 
+    expect((await settle(w, String(storno._id), false)).json.code).toBe('receipt_device_away')
+
+    await FiscalDevice.updateOne({ _id: w.deviceId }, { $set: { isActive: false } })
     expect((await settle(w, String(storno._id), false)).status).toBe(200)
   })
 

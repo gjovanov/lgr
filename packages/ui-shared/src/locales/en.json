@@ -1822,6 +1822,8 @@
       },
       "stornoSettled": "Storno settled",
       "openOnDevice": "A receipt is still open on the fiscal device, so nothing is final yet. Print an X report on the device page, which clears it, then look at the device again: whatever printed then, printed.",
+      "deviceAway": "The fiscal device this document printed on is not answering, and what it holds decides this. Nothing was changed. Connect it, then look at it again. A device gone for good is deactivated on its page, after which your word stands.",
+      "deviceBusy": "The fiscal device is busy with another document, so it could not be asked. Nothing was changed. Try again in a moment.",
       "saleInDoubt": "Nothing can prove whether this sale's fiscal receipt printed. Its money stands, and its storno waits until someone checks the device and says which.",
       "saleInDoubtRefused": "Nothing can prove whether the receipt of sale {number} printed, so a storno cannot say what it reverses. Nothing was reversed. Check the device, then settle it on its page under Cash Register Sales.",
       "settleConfirmSale": {

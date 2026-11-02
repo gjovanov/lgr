@@ -10,6 +10,10 @@ import { isImmutableRegisterDocument } from 'services/biz/cash-register/immutabi
 import { sequenceGroupFor } from 'services/biz/sequence-registry'
 import { posRowSign, receiptTookMoney } from 'services/biz/cash-register/counting'
 import { toPosTransaction } from 'services/biz/cash-register/mapping'
+import en from '../../../ui-shared/src/locales/en.json'
+import bg from '../../../ui-shared/src/locales/bg.json'
+import de from '../../../ui-shared/src/locales/de.json'
+import mk from '../../../ui-shared/src/locales/mk.json'
 
 /** FR-23 §2.2 — what a payment's receipt prints, with no database and no device in the way. */
 
@@ -317,6 +321,24 @@ describe('the refusal, in words', () => {
     expect(receiptRefusalParams({ receipt: { number: 'CS-1' } }).number).toBe('CS-1')
     expect(receiptRefusalParams({ receipts: [{ number: 'CS-1' }, { number: null, invoice: 'INV-2' }] }).numbers).toBe('CS-1, INV-2')
     expect(receiptRefusalKey({ code: 'overpayment' })).toBeNull()
+  })
+
+  it('every refusal a door answers reads in all four languages: a missing key renders literally', () => {
+    const codes = [
+      'payment_in_progress', 'document_claimed', 'document_changed', 'fiscally_paid', 'receipt_currency', 'receipt_not_printable', 'document_not_issued',
+      'no_receipt_owed', 'receipt_in_doubt', 'storno_in_doubt', 'receipt_open_on_device', 'receipt_device_away', 'device_busy', 'sale_receipt_in_doubt',
+      'receipt_number_required', 'receipt_number_taken', 'delivery_receipt_owed', 'receipts_unfinished',
+    ]
+    const locales = { en, bg, de, mk } as Record<string, any>
+    for (const code of codes) {
+      const key = receiptRefusalKey({ code })
+      expect(key, code).toBeTruthy()
+      for (const [name, messages] of Object.entries(locales)) {
+        const text = key!.split('.').reduce((at: any, part) => at?.[part], messages)
+        expect(typeof text, `${name}: ${key}`).toBe('string')
+        expect(text.length, `${name}: ${key}`).toBeGreaterThan(0)
+      }
+    }
   })
 
   it('a failed print is the one that offers a retry', () => {

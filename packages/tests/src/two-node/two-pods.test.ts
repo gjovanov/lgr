@@ -49,6 +49,8 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
   let stillDue = ''
   let owedReceipt = ''
   let cashDraft = ''
+  /** A sale in doubt the crash leaves behind, its receipt open on the device. */
+  let heldSale = ''
   let token = ''
   const sim = new EltradeSimulator()
   const bridges: WebSocket[] = []
@@ -203,6 +205,46 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
     expect(sim.receipts.length).toBe(before + 1)
   })
 
+  /**
+   * A sale whose paper ran out at the close, its money on the device and its receipt open: `unknown`,
+   * and a person has to settle it. Rung on the pod holding the device.
+   */
+  async function saleInDoubt(session: string): Promise<string> {
+    let closes = 0
+    sim.beforeCommand = (cmd) => { if (cmd === 0x38) { closes++; sim.paper = false } }
+    const res = await api(holder, 'POST', `/trade/pos/session/${session}/transaction`, saleBody(1))
+    sim.beforeCommand = null
+    sim.paper = true
+    expect(closes).toBeGreaterThan(0)
+    expect(res.status).toBe(200)
+    expect(res.json.transaction.fiscal.state).toBe('unknown')
+    return String(res.json.transaction?.id ?? res.json.transaction?._id)
+  }
+
+  it('a settle asked of pod B asks the device pod A holds, by the document\'s own number, and nothing else decides (FR-23)', async () => {
+    const id = await saleInDoubt(sessionId)
+    expect(sim.receipt?.payments.length).toBeGreaterThan(0)
+
+    // Run here it could only read "not here" or 503. Through the hop the device answers.
+    for (const printed of [false, true]) {
+      const refused = await api('b', 'POST', `/cash-register/documents/${id}/settle`, { printed, ...(printed ? { receiptNumber: '1' } : {}) })
+      expect(refused.status).toBe(409)
+      expect(refused.json.code).toBe('receipt_open_on_device')
+    }
+    expect((await Invoice.findById(id).lean().exec() as any).register.settled).toBeUndefined()
+
+    // The X report it asks for finishes it, on paper, once.
+    const before = sim.receipts.length
+    expect((await api('b', 'POST', `/fiscal/device/${deviceId}/x-report`)).status).toBe(200)
+    expect(sim.receipts.length).toBe(before + 1)
+
+    const number = sim.receipts.at(-1)!.number!
+    const settled = await api('b', 'POST', `/cash-register/documents/${id}/settle`, { printed: true, receiptNumber: number })
+    expect(settled.status).toBe(200)
+    expect(sim.receipts.length).toBe(before + 1)
+    expect((await Invoice.findById(id).lean().exec() as any).register.fiscalReceiptNumber).toBe(number)
+  })
+
   it('a cash invoice issued on pod B prints once, on the device pod A holds, and is paid (FR-23)', async () => {
     const before = sim.receipts.length
     const id = await invoiceOnPodB('cash')
@@ -339,7 +381,10 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
   it('the holder crashes: the other pod refuses with nothing done, never prints elsewhere or skips the receipt (FR-24.51/24.52)', async () => {
     const before = sim.reports.length
     // A session stands open: FR-23's doors follow it to the printer.
-    expect((await api(other(holder), 'POST', '/trade/pos/session', { warehouseId, openingBalance: 0, currency: 'EUR' })).status).toBe(200)
+    const opened = await api(other(holder), 'POST', '/trade/pos/session', { warehouseId, openingBalance: 0, currency: 'EUR' })
+    expect(opened.status).toBe(200)
+    // And a sale in doubt, whose device a person's word has to get past.
+    heldSale = await saleInDoubt(String(opened.json.session.id ?? opened.json.session._id))
     // A crash, not a graceful stop: a graceful stop releases the presence row (Phase 5), and the
     // other pod then rightly answers `not_connected`. Killed, the row still names the holder, whose
     // address answers nothing.
@@ -356,6 +401,12 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
       expect(answer.json.code).toBe('fiscal_holder_unreachable')
     }
     expect(await theBooks()).toEqual(books)
+
+    // The settle door likewise: held elsewhere is never "not here", and a person's word waits.
+    const word = await api(other(holder), 'POST', `/cash-register/documents/${heldSale}/settle`, { printed: false })
+    expect(word.status).toBe(503)
+    expect(word.json.code).toBe('fiscal_holder_unreachable')
+    expect((await Invoice.findById(heldSale).lean().exec() as any).register.settled).toBeUndefined()
   }, 60_000)
 
   it('its row lapsed: "offline" at last, and the printer gate still refuses, so no money is booked without a receipt (FR-24.52)', async () => {
@@ -374,6 +425,12 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
       expect(answer.json.code).toBe('fiscal_device_not_connected')
     }
     expect(await theBooks()).toEqual(books)
+
+    // Nobody holds it now, and it may still hold the receipt: the word waits until it is back, or deactivated.
+    const word = await api(other(holder), 'POST', `/cash-register/documents/${heldSale}/settle`, { printed: false })
+    expect(word.status).toBe(409)
+    expect(word.json.code).toBe('receipt_device_away')
+    expect((await Invoice.findById(heldSale).lean().exec() as any).register.settled).toBeUndefined()
   }, 70_000)
 
   /** A draft of one free line, 12 gross at 20 %, as the form saves it: it moves no stock. */

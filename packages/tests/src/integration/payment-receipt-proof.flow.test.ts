@@ -1065,6 +1065,9 @@ describe('a receipt whose request died (ruling 6)', () => {
     expect((await w.call('POST', `/invoices/${d.id}/void`)).json.code).toBe('receipt_in_doubt')
     expect((await w.call('PUT', `/invoices/${d.id}`, { total: 36 })).json.code).toBe('receipt_in_doubt')
 
+    // The device may still hold it, so a person's word waits for the device, or for its row to go.
+    expect((await settle(w, String(r._id), false)).json.code).toBe('receipt_device_away')
+    await FiscalDevice.updateOne({ _id: w.deviceId }, { $set: { isActive: false } })
     expect((await settle(w, String(r._id), false)).status).toBe(200)
     expect((await pay(w, d.id, 24, 'bank_transfer')).status).toBe(200)
   })

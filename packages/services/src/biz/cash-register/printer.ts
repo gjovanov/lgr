@@ -67,6 +67,9 @@ export interface RegisterPrinter {
   reached(): Promise<void>
   /** The device failed: mark it, so the next operation does not walk into it blind. */
   failed(): Promise<void>
-  /** One fiscal operation from the first command to the last, so a graceful stop cannot split it (FR-20.23). */
-  operation<T>(fn: () => Promise<T>): Promise<T>
+  /**
+   * One fiscal operation from the first command to the last, so a graceful stop cannot split it (FR-20.23).
+   * `waitMs`: how long the device's turn is waited for before `device_busy`; its own default otherwise.
+   */
+  operation<T>(fn: () => Promise<T>, opts?: { waitMs?: number }): Promise<T>
 }

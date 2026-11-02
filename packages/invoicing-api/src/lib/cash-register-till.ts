@@ -15,10 +15,10 @@ import { logger } from 'services/logger'
 import { toPosTransaction } from 'services/biz/cash-register/mapping'
 import { finishInterruptedReceipt, interruptedDocuments } from 'services/biz/cash-register/payment-receipt.service'
 import { asEntity } from 'services/biz/cash-register/pos-union'
-import { auditStoppedSettlement } from 'services/biz/cash-register/settle.service'
+import { RECEIPT_DEVICE_AWAY, auditStoppedSettlement } from 'services/biz/cash-register/settle.service'
 import type { RegisterPrinter } from 'services/biz/cash-register/printer'
 import { takeLease } from 'services/biz/hot-path-key'
-import { livePresence } from 'services/biz/fiscal-presence.service'
+import { POD_ID, livePresence } from 'services/biz/fiscal-presence.service'
 import {
   RegisterRefusal, claimForStorno, finishInterruptedStorno, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally,
   releaseStornoClaim, runStornoSteps, settleKeyedDocument, stornoDocument, stornoInDoubtRefusal, stornoRefusal,
@@ -282,7 +282,7 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
       await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
     },
     // Counted from the moment it is asked for, so a graceful stop waits for one still in the queue.
-    operation: fn => fiscalOperation(() => deviceTurn(fiscal.deviceId, fn)),
+    operation: (fn, opts) => fiscalOperation(() => deviceTurn(fiscal.deviceId, fn, opts)),
   }
 }
 
@@ -420,6 +420,34 @@ export async function documentContext(orgId: string, user: RegisterUser, doc: an
     if (e instanceof RegisterRefusal) return deviceless(orgId, user)
     throw e
   }
+}
+
+/**
+ * The device a person's word about `doc` has to get past at the settle door, by the number on the document.
+ * Null when the word stands: a text document, which leaves no money on a device; one with no number; and a
+ * device with no row or deactivated, which is the way out for one gone for good. Otherwise it refuses,
+ * with nothing written, until the device can be asked.
+ *
+ * ⚠ Not `documentContext`. That turns every refusal into "no device", 503s included, which here would read
+ * as "the word stands" with the money still on the device, and it needs a session. Not `getFiscalContext`
+ * either: a device away whose row reads `error` throws there. A device connected while its row reads
+ * `error` is asked here, as it is there, and a document on a closed session, or on none, reaches its device.
+ */
+export async function settleDevice(orgId: string, user: RegisterUser, doc: any): Promise<RegisterPrinter | null> {
+  const deviceNumber = doc.register?.isFiscal ? doc.register.fiscalDeviceNumber : undefined
+  if (!deviceNumber) return null
+  const device: any = await getRepos().fiscalDevices.findOne({ orgId, deviceNumber, isActive: true } as any)
+  if (!device) return null
+  if (isDeviceConnected(device.id)) {
+    return tillPrinter(orgId, { deviceId: device.id, deviceNumber, printer: getPrinter(device.id), cashOnDeliveryRefusal: null, printsFiscalText: false }, user, null)
+  }
+  // ⚠ FR-24.52: held elsewhere is never "not here". The route hops to the holder first, so this is a
+  // request no hop reached. A row naming this process, with nothing connected, is a bridge that just went.
+  const row = await livePresence({ orgId, deviceNumber: String(deviceNumber) })
+  if (row && row.podId !== POD_ID) {
+    throw new RegisterRefusal(503, { code: 'fiscal_holder_unreachable', message: `Fiscal device "${device.name}" is connected to another server process. Nothing was done; try again.` })
+  }
+  throw new RegisterRefusal(409, { ...RECEIPT_DEVICE_AWAY })
 }
 
 /**

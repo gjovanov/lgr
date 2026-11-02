@@ -16,11 +16,20 @@
  * next touch, or by its session's close, with no device. Unsetting the lease left a receipt nothing
  * could find, with its hold on the invoice and its session unable to close.
  *
- * ⚠ Nothing is final while the device holds a receipt open, and a person cannot see that from its
- * journal. The next document clears it: voided if it took no money, and finished in cash if it did,
- * which prints it. Settled "not printed" first, that is a fiscal receipt nobody booked, and the next
- * press prints a second. So where the device can be asked it is, in its turn, and refused until it is
- * cleared (`RECEIPT_OPEN_ON_DEVICE`). A device that is not here, or cannot say, leaves it to the person.
+ * ⚠ A person's word is taken only for what only a person can know: what the device can still change, or
+ * can answer, it is asked first. Nothing is final while it holds a receipt open, and a person cannot see
+ * that from its journal. The next document clears it: voided if it took no money, and finished in cash if
+ * it did, which prints it. Settled "not printed" first, that is a fiscal receipt nobody booked, and the
+ * next press prints a second. So for a fiscal document the door goes to the device the document printed
+ * on, by its number (`settleDevice`, in the till):
+ *  - **Active and here:** asked, in its turn. Open: `RECEIPT_OPEN_ON_DEVICE`. Busy: 409 `device_busy`. A read
+ *    that failed is no answer: `RECEIPT_DEVICE_AWAY`. Only a driver with no way to ask (no `isReceiptOpen`:
+ *    Tremol, Datecs) leaves it to the person.
+ *  - **Active and not here:** `RECEIPT_DEVICE_AWAY`, both answers, nothing written. A half-printed slip with
+ *    no money on the device reads as printed, and the next clear voids it, so "printed" waits too.
+ *  - **No row, or deactivated:** the person's word stands. That is the way out for a device gone for good,
+ *    so nothing is stuck.
+ * A text document is none of this: the device holds no money on one.
  *
  * R2's `payment_storno` joins `FINISHES`, and needs nothing else here.
  */
@@ -51,6 +60,24 @@ export const RECEIPT_OPEN_ON_DEVICE = {
   code: 'receipt_open_on_device',
   message: 'A receipt is still open on the fiscal device, so nothing is final yet. Print an X report on the device page, which clears it, then look at the device again: whatever printed then, printed.',
 } as const
+
+/** The device holds what decides this and is not there to say: connect it, or say it is gone for good. */
+export const RECEIPT_DEVICE_AWAY = {
+  code: 'receipt_device_away',
+  message: 'The fiscal device this document printed on is not answering, and what it holds decides this. Nothing was changed. Connect it, then look at it again. A device gone for good is deactivated on its page, after which your word stands.',
+} as const
+
+/** Another document holds the device right now. It was not asked. */
+export const SETTLE_DEVICE_BUSY = {
+  code: 'device_busy',
+  message: 'The fiscal device is busy with another document, so it could not be asked. Nothing was changed. Try again in a moment.',
+} as const
+
+/**
+ * How long the door waits for the device's turn. ⚠ Well under the 30 s a request is cut at (`idleTimeout`):
+ * someone is looking at this page, and a Z can hold the device for minutes. They hear busy, and press again.
+ */
+const ASK_WAIT_MS = 10_000
 
 /** Whose words these are, in the words the message has to use. */
 const NAMES: Record<string, string> = { [PAYMENT_RECEIPT]: 'receipt', cash_storno: 'storno', cash_sale: 'sale' }
@@ -114,20 +141,34 @@ export async function auditStoppedSettlement(c: RegisterContext, doc: any): Prom
   if (!written) await auditSettlement(c, doc)
 }
 
+/** What the door asks of a device that is here, in its turn. Refuses until nothing it holds can change the answer. */
+async function askDevice(device: RegisterPrinter): Promise<void> {
+  try {
+    const open = await device.operation(async () => device.receiptOpen?.(), { waitMs: ASK_WAIT_MS })
+    if (open === true) throw new RegisterRefusal(409, { ...RECEIPT_OPEN_ON_DEVICE })
+  } catch (e: any) {
+    if (e instanceof RegisterRefusal) throw e
+    // ⚠ Not left to the person. A driver that cannot say answers `undefined` above, and this one could
+    // and did not: read as "cannot say", a dropped line was what let a real receipt be settled away.
+    throw new RegisterRefusal(409, e?.code === 'device_busy' ? { ...SETTLE_DEVICE_BUSY } : { ...RECEIPT_DEVICE_AWAY })
+  }
+}
+
 /**
  * What a person says about a document in doubt. Answers what it became, or null when it is not in
- * doubt. What they said, and who said it, stays on the document and in the audit trail.
+ * doubt. What they said, and who said it, stays on the document and in the audit trail. `deviceOf` finds
+ * the device that has to be asked first, and may refuse (`settleDevice`); null when the word stands.
  */
-export async function settleInDoubt(c: RegisterContext, id: string, answer: SettleAnswer, device?: RegisterPrinter | null): Promise<any | null> {
+export async function settleInDoubt(c: RegisterContext, id: string, answer: SettleAnswer, deviceOf?: (doc: any) => Promise<RegisterPrinter | null>): Promise<any | null> {
   const now = new Date()
   const { printed } = answer
   const doc: any = await Invoice.findOne({ _id: oid(id), orgId: oid(c.orgId), type: { $in: SETTLEABLE_TYPES } }).lean().exec()
   if (!doc) return null
   const isSale = doc.type === 'cash_sale'
   const inDoubt = isSale ? saleInDoubt(doc, now.getTime()) : !!doc.register?.fiscal?.inDoubt
-  if (device && inDoubt) {
-    const open = await device.operation(async () => device.receiptOpen?.()).catch(() => undefined)
-    if (open === true) throw new RegisterRefusal(409, { ...RECEIPT_OPEN_ON_DEVICE })
+  if (inDoubt) {
+    const device = await deviceOf?.(doc)
+    if (device) await askDevice(device)
   }
   const receiptNumber = isSale && printed && inDoubt ? await saleReceiptNumber(doc, answer.receiptNumber) : undefined
   const receiptError = `A person who checked the device settled this ${NAMES[doc.type]} as not printed.`
