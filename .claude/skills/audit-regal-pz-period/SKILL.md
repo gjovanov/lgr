@@ -147,8 +147,17 @@ Take a fresh snapshot just before; a true-up against a stale one books yesterday
 
 ⚠ A large decrease is usually one absurd opening balance. Read the cost column before executing.
 
-An annulled **paid** invoice stays live in LGR (its stock is corrected by the true-up, its revenue is not).
-That is a person's call: it needs the payment undone first.
+An annulled **paid** invoice (the pull has an `invoicem_<n>.fea.json`: a `-ФЕА` with the invoice's own number and
+negated amounts) cannot be voided through the API, which refuses `paid`, so it stays in LGR's sales figures. The
+call was made (2026-11-02): mark it `voided`, do not delete it. From a host that reaches the prod Mongo (like
+§4e): `bun run scripts/void-annulled-invoices.ts --org regal-pz --only <n>,<n>`, read the plan, then
+`--execute --expect <N>`. It changes the status, one history entry and one audit row, and **nothing else**: it
+reverses no stock and touches no payment. The goods are already right: PlusMinus's stock moved when it annulled
+the invoice, and the true-up brought LGR to that figure, so reversing the dispatch again would leave LGR above
+it. (If no true-up has run since the annulment, run one.) The tool does not look at PlusMinus: read the
+`.fea.json` and what replaced the invoice (a new invoice, or a credit note) first. It never voids a credit
+note, which PlusMinus keeps as a valid document, and it refuses an invoice that a live credit note already
+cancels.
 
 ## 7. Pitfalls this audit paid for
 
