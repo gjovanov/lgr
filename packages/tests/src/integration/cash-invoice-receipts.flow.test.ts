@@ -3903,8 +3903,10 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
       w.sim!.paper = false
       await send(w, d.id)
       w.sim!.paper = true
-      const note = await draftOf(w, { type: 'credit_note', extra: { relatedInvoiceId: d.id, contactId: d.contactId } })
+      // Issued by bank, and said in cash after: with no receipt behind it, R2 refuses one issued in cash.
+      const note = await draftOf(w, { type: 'credit_note', method: 'bank_transfer', extra: { relatedInvoiceId: d.id, contactId: d.contactId } })
       await send(w, note.id)
+      expect((await w.call('PUT', `/invoices/${note.id}`, { paymentMethod: 'cash' })).status).toBe(200)
       expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0, paymentMethod: 'cash' })
       return { d, note }
     }

@@ -286,7 +286,7 @@ const takesNumber = computed(() => doc.value?.row.kind === 'sale' || (doc.value?
 const settleNumberBad = computed(() => {
   if (!takesNumber.value) return false
   const typed = settleNumber.value.trim()
-  return !/^\d+$/.test(typed) && (doc.value?.row.kind === 'sale' || typed !== '')
+  return !/^\d{1,10}$/.test(typed) && (doc.value?.row.kind === 'sale' || typed !== '')
 })
 const settlingNow = ref(false)
 async function settle() {
