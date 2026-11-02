@@ -437,8 +437,9 @@ export async function documentContext(orgId: string, user: RegisterUser, doc: an
 export async function settleDevice(orgId: string, user: RegisterUser, doc: any): Promise<RegisterPrinter | null> {
   const deviceNumber = doc.register?.isFiscal ? doc.register.fiscalDeviceNumber : undefined
   if (!deviceNumber) return null
-  const device: any = await getRepos().fiscalDevices.findOne({ orgId, deviceNumber, isActive: true } as any)
-  if (!device) return null
+  const device: any = await getRepos().fiscalDevices.findOne({ orgId, deviceNumber } as any)
+  // ⚠ Deactivated means said so: a row with no such field has not been, and the money may be on it.
+  if (!device || device.isActive === false) return null
   if (isDeviceConnected(device.id)) {
     return tillPrinter(orgId, { deviceId: device.id, deviceNumber, printer: getPrinter(device.id), cashOnDeliveryRefusal: null, printsFiscalText: false }, user, null)
   }

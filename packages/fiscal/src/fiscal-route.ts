@@ -197,8 +197,8 @@ export const deviceFromSettledDocument: FiscalResolver = async ({ params }) => {
   const doc: any = await Invoice.findOne({ _id, orgId: params.orgId }, { 'register.isFiscal': 1, 'register.fiscalDeviceNumber': 1 }).lean().exec()
   const deviceNumber = doc?.register?.isFiscal ? doc.register.fiscalDeviceNumber : undefined
   if (!deviceNumber) return null
-  const device: any = await FiscalDevice.findOne({ orgId: params.orgId, deviceNumber, isActive: true }, { deviceNumber: 1 }).lean().exec()
-  return device ? { orgId: params.orgId, deviceId: String(device._id), deviceNumber: String(device.deviceNumber) } : null
+  const device: any = await FiscalDevice.findOne({ orgId: params.orgId, deviceNumber }, { deviceNumber: 1, isActive: 1 }).lean().exec()
+  return device && device.isActive !== false ? { orgId: params.orgId, deviceId: String(device._id), deviceNumber: String(device.deviceNumber) } : null
 }
 
 /**

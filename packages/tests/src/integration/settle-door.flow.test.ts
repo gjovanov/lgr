@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test'
 import { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, reconnect, type TillWorld } from '../helpers/till-world'
@@ -8,7 +8,7 @@ import { AuditLog, FiscalDevice, FiscalPresence, Invoice, POSSession } from 'db/
 import { paymentReceiptDocument } from 'services/biz/cash-register/payment-receipt.service'
 import { receiptBody } from 'services/biz/cash-register/receipt-lines'
 import { POD_ID } from 'services/biz/fiscal-presence.service'
-import { deviceFromJournalDocument, deviceFromSettledDocument } from 'fiscal/fiscal-route'
+import { deviceFromJournalDocument, deviceFromSettledDocument, setFiscalForwarding } from 'fiscal/fiscal-route'
 import { deviceTurn } from 'fiscal/device-turn'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { getPrinter, registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
@@ -285,6 +285,16 @@ describe('the way out, and what must not make a real settle impossible (finding 
 
     expect((await settle(w, held.id, true)).status).toBe(200)
     expect(w.sim!.executed.length).toBe(commands)
+  })
+
+  it('a row that does not say it is deactivated is not: only `false` lets the word stand', async () => {
+    const w = await tillWorld(app)
+    const held = await storno(w)
+    forgetDevices()
+    await FiscalDevice.collection.updateOne({ _id: new FiscalDevice.base.Types.ObjectId(w.deviceId) }, { $unset: { isActive: '' } })
+
+    expect((await settle(w, held.id, false)).json.code).toBe('receipt_device_away')
+    expect(await deviceFromSettledDocument({ params: { orgId: w.orgId, id: held.id }, user: {}, body: {} })).toEqual({ orgId: w.orgId, deviceId: w.deviceId, deviceNumber: 'ED123456' })
   })
 
   it('no row at all: the word stands', async () => {
@@ -688,6 +698,63 @@ describe('a number typed off the slip (finding 7)', () => {
 })
 
 describe('the route: the document\'s own device (finding 1)', () => {
+  describe('with the device on another pod, this one holding the warehouse\'s other', () => {
+    const forwarded: { to: string; path: string }[] = []
+    let reachable = true
+    beforeEach(() => {
+      setFiscalForwarding({
+        async forward(to, request) {
+          forwarded.push({ to, path: new URL(request.url).pathname })
+          return reachable ? new Response(JSON.stringify({ from: 'pod-b' }), { status: 200, headers: { 'content-type': 'application/json' } }) : null
+        },
+        isHop: () => false,
+        clientIp: () => '203.0.113.7',
+      })
+    })
+    afterEach(() => {
+      setFiscalForwarding(null)
+      forwarded.splice(0)
+      reachable = true
+    })
+
+    /** A sale in doubt on a second device, whose till is on pod B. The device this process holds is the warehouse's other. */
+    async function heldOnPodB(w: TillWorld) {
+      const held = await sale(w)
+      const other = await createTestFiscalDevice(w.oid, w.warehouse._id, { name: 'Second', deviceNumber: 'ED654321', manufacturer: 'eltrade', connectionType: 'browser', status: 'online' } as any)
+      await Invoice.updateOne({ _id: held.id }, { $set: { 'register.fiscalDeviceNumber': 'ED654321' } })
+      const now = new Date()
+      await FiscalPresence.create({
+        orgId: w.orgId, deviceNumber: 'ED654321', deviceId: String(other._id), kind: 'user', label: 'Till on B', podId: 'pod-b', podAddr: 'http://10.0.0.2:4001', connId: 'conn-b', connectedAt: now, heartbeatAt: now,
+      } as any)
+      return held
+    }
+
+    it('it runs where its own device is: hopped there, its answer is this answer, and nothing is written here', async () => {
+      const w = await tillWorld(app)
+      const held = await heldOnPodB(w)
+      const before = await everything(w, held.id)
+
+      const r = await settle(w, held.id, false)
+
+      expect(r).toEqual({ status: 200, json: { from: 'pod-b' } })
+      expect(forwarded).toEqual([{ to: 'http://10.0.0.2:4001', path: `/org/${w.orgId}/cash-register/documents/${held.id}/settle` }])
+      expect(await everything(w, held.id)).toEqual(before)
+    })
+
+    it('that pod unreachable: 503, nothing written, and never the word', async () => {
+      const w = await tillWorld(app)
+      const held = await heldOnPodB(w)
+      reachable = false
+      const before = await everything(w, held.id)
+
+      const r = await settle(w, held.id, false)
+
+      expect(r.status).toBe(503)
+      expect(r.json.code).toBe('fiscal_holder_unreachable')
+      expect(await everything(w, held.id)).toEqual(before)
+    })
+  })
+
   it('by the number on the document, never its warehouse\'s, where a warehouse holds two', async () => {
     const w = await tillWorld(app)
     const held = await sale(w)
