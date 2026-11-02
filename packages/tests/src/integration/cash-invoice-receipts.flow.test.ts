@@ -3759,6 +3759,21 @@ describe('the issue holds its claim until the receipt does (the third read, find
     })
   })
 
+  it('an edit of that re-issue settles nothing: the rule takes its money as it issues, and only then', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    await Invoice.updateOne({ _id: d.id }, { $set: { 'stockSource.detectedBy': 'number_clash' } })
+
+    const r = await w.call('PUT', `/invoices/${d.id}`, { paymentMethod: 'cash' })
+
+    expect(r.status).toBe(200)
+    const inv = await raw(d.id)
+    expect(inv).toMatchObject({ status: 'sent', amountPaid: 0 })
+    expect(inv.payments).toHaveLength(0)
+    expect(closed(w)).toHaveLength(0)
+  })
+
   it('where LGR prints nothing the rule still settles as it issues', async () => {
     const w = await tillWorld(app)
     await allowSalesWithoutPrinter(w.oid)

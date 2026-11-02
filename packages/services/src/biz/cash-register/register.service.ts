@@ -40,7 +40,6 @@ import { getNextInvoiceNumber, issuableRefusal } from '../invoice-numbering.serv
 import { createInvoiceStockMovement, createNumberedMovement, reverseInvoiceStockMovement } from '../invoicing.service.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { PendingTransferError, confirmTransferMovements } from '../stock-transfer.service.js'
-import { syncOrderForInvoice } from '../reservation.service.js'
 import { IdempotencyError, LEASE_MS, assertSameRequest, keepLease, takeLease, waitForCompletion } from '../hot-path-key.js'
 import { exchangeRateFor, fromPosTransaction } from './mapping.js'
 import { unitsOf } from './copy.js'
@@ -709,7 +708,7 @@ export async function runSaleSteps(c: RegisterContext, id: string): Promise<any>
  * after it the dispatch must not fail.
  */
 export function finishSale(c: RegisterContext, id: string): Promise<any> {
-  return runSaleSteps({ ...c, printer: null, allowNegative: true, afterStock: doc => syncOrderForInvoice(c.orgId, doc, c.user.id) }, id)
+  return runSaleSteps({ ...c, printer: null, allowNegative: true }, id)
 }
 
 /** The outcome of an insert: the new document, or the one a concurrent request with the key made. */

@@ -481,6 +481,22 @@ describe('EltradeFiscalPrinter — fiscal receipt', () => {
       expect(sim.receipt).toBeNull()
     })
 
+    it('neither, of what an earlier turn left on the driver: a new storno forgets it, even when it gets no further', async () => {
+      const sim = new EltradeSimulator()
+      const p = printerFor(sim)
+      await p.openFiscalReceipt('0001', 'Op', UNP)
+      await p.printSaleLine('A', 1, 5, 'Б', undefined, 20)
+      sim.disconnected = true
+      await captureRejection(p.printStornoReceipt(
+        '0001', 'Op', 'ED123456-0001-0000009', '0000101', new Date('2026-07-15T09:00:05Z'), UNP, 'customer_return',
+        [{ name: 'A', quantity: 1, price: 6, vatGroup: 'Б', taxRate: 20 }], { type: 'cash', amount: 6 },
+      ))
+      sim.disconnected = false
+
+      expect(await p.cancelFiscalReceipt()).toBeUndefined()
+      expect(sim.receipt).toBeNull()
+    })
+
     it('a storno leaves it to its caller, who has to hear what cancelling did', async () => {
       const sim = new EltradeSimulator()
       const p = printerFor(sim)

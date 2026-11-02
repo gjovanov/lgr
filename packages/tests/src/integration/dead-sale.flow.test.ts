@@ -205,6 +205,40 @@ describe('the close finishes a sale whose request died (finding 3)', () => {
     expect(w.sim!.executed.filter(c => c.cmd === 0x90)).toHaveLength(0)
   })
 
+  it('with nothing left on the shelf it goes below zero and says no more: the till\'s rule, and the goods have left', async () => {
+    const w = await tillWorld(app)
+    const id = await deadSale(w, atItsPrint)
+    // Somebody sold the rest while it lay dead.
+    await StockLevel.updateOne({ orgId: w.oid, productId: w.product._id, warehouseId: w.warehouse._id }, { $set: { quantity: 0, availableQuantity: 0 } })
+
+    expect((await close(w, 112)).status).toBe(200)
+
+    const sale = await read(id)
+    expect(sale.completedAt).toBeTruthy()
+    expect(sale.register.stockError).toBeUndefined()
+    expect((await w.stock()).quantity).toBe(-1)
+  })
+
+  it('a sale with no key has a lease while it waits its turn, so a slow Z does not read it as dead, and none once it is done', async () => {
+    const w = await tillWorld(app)
+    const held = gate()
+    w.sim!.beforeCommand = cmd => (cmd === 0x90 ? held.closed : undefined)
+    const selling = w.sell(1)
+    await until(async () => !!(await lastSale(w))?.register?.fiscal?.attemptedAt, 'the sale to reach the device')
+
+    const waiting = await lastSale(w)
+    expect(waiting.clientKey).toBeUndefined()
+    expect(new Date(waiting.leaseUntil).getTime()).toBeGreaterThan(Date.now())
+    expect(saleProgress(waiting)).toBe('live')
+
+    w.sim!.beforeCommand = null
+    held.open()
+    expect((await selling).status).toBe(200)
+    const done = await lastSale(w)
+    expect(done.leaseUntil).toBeUndefined()
+    expect(saleProgress(done)).toBeNull()
+  })
+
   it('with no lease its age says it died, and younger than a lease it may not have', async () => {
     const w = await tillWorld(app)
     const id = await deadSale(w, atItsPrint)
