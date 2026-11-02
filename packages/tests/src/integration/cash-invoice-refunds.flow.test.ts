@@ -3444,6 +3444,21 @@ describe('an invoice issued for a till sale (R0): the refund cites the sale\'s o
     })
   })
 
+  it('a legacy sale with a number and no device on record: no device can cite it, and it says that, naming none', async () => {
+    const w = await tillWorld(app)
+    const inv = await invoicedSale(w)
+    await Invoice.collection.updateOne({ _id: new Invoice.base.Types.ObjectId(inv.saleId) }, { $unset: { 'register.fiscalDeviceNumber': 1 } })
+    const note = await issuedNote(w, inv, { quantity: 1 })
+
+    expect((await shown(w, note.id)).refundable).toBe(0)
+    const r = await pay(w, note.id, 12)
+
+    expect(r.status).toBe(409)
+    expect(r.json).toMatchObject({ code: 'no_receipt_to_storno', reason: 'other_kind' })
+    expect(r.json.deviceNumbers).toBeUndefined()
+    expect(r.json.message).toContain('Refund it by bank')
+  })
+
   it('settled as not printed: it holds nothing and the refund goes by bank, with the sale\'s money standing', async () => {
     const w = await tillWorld(app)
     const inv = await invoicedSale(w)

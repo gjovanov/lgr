@@ -954,7 +954,7 @@ export function citeableOn(cited: any[], deviceNumber: string, mode: 'fiscal' | 
 
 /** Those a fiscal storno could cite, had it come from another device. */
 export const citeableElsewhere = (cited: any[], deviceNumber: string) =>
-  cited.filter(r => !isTextReceipt(r) && hasReceiptNumber(r) && r.register?.fiscalDeviceNumber !== deviceNumber)
+  cited.filter(r => !isTextReceipt(r) && hasReceiptNumber(r) && !!r.register?.fiscalDeviceNumber && r.register.fiscalDeviceNumber !== deviceNumber)
 
 /** The devices that could reverse these, the one a refund draws on first at the head: what holds money, newest first. */
 export function devicesThatCite(cited: any[]): string[] {
