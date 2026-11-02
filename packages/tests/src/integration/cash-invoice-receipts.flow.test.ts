@@ -2138,10 +2138,21 @@ describe('cash on delivery on an invoice (Q-2)', () => {
       const w = await tillWorld(app)
       const created = await draftOf(w, { method: 'bank_transfer', extra: { deliveryReceiptOwed: true } })
       await send(w, created.id)
-      await w.call('PUT', `/invoices/${created.id}`, { paymentMethod: 'cash_on_delivery', deliveryReceiptOwed: true })
+      expect((await raw(created.id)).deliveryReceiptOwed).toBeUndefined()
+      // A receipt stands on it, so the edit owes none, whatever the copy says.
+      expect((await pay(w, created.id, 10)).status).toBe(200)
+      expect((await w.call('PUT', `/invoices/${created.id}`, { paymentMethod: 'cash_on_delivery', deliveryReceiptOwed: true })).status).toBe(200)
 
       expect((await raw(created.id)).deliveryReceiptOwed).toBeUndefined()
       expect((await shown(w, created.id)).receiptToPrint).toBe(false)
+
+      // And an edit that does owe one cannot be told otherwise.
+      const moved = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, moved.id)
+      expect((await w.call('PUT', `/invoices/${moved.id}`, { paymentMethod: 'cash_on_delivery', deliveryReceiptOwed: false })).status).toBe(200)
+
+      expect((await raw(moved.id)).deliveryReceiptOwed).toBe(true)
+      expect((await shown(w, moved.id)).receiptToPrint).toBe(true)
     })
 
     it('voided, it is no longer owed: there is nothing left to print for', async () => {
