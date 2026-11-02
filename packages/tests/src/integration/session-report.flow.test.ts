@@ -286,6 +286,63 @@ describe('the session report at close', () => {
     })
   })
 
+  describe('a closed session with no kept report: it closed before `session.report` existed', () => {
+    const forget = (w: Awaited<ReturnType<typeof tillWorld>>, fields: string[]) =>
+      POSSession.updateOne({ _id: w.sessionId }, { $unset: Object.fromEntries(fields.map((f) => [f, 1])) }).exec()
+
+    it('is rebuilt with its drawer lines, its Z and the Z\'s answer, as its close would have kept it', async () => {
+      const w = await tillWorld(app)
+      await w.sell(2)
+      const closed = await close(w, 120)
+      expect(closed.json.report.drawer).toEqual({ opening: 100, expected: 124, counted: 120, difference: -4 })
+      await forget(w, ['report'])
+
+      const rebuilt = await w.call('GET', `/trade/pos/session/${w.sessionId}/report`)
+
+      expect(rebuilt.json.report).toEqual(closed.json.report)
+    })
+
+    it('prints them too', async () => {
+      const w = await tillWorld(app)
+      await w.sell(2)
+      await close(w, 120)
+      await forget(w, ['report'])
+      w.sim!.nonFiscalLines.length = 0
+
+      expect((await w.call('POST', `/trade/pos/session/${w.sessionId}/report/print`)).status).toBe(200)
+
+      const printed = w.sim!.nonFiscalLines
+      for (const expected of [['Expected cash', '124.00'], ['Counted', '120.00'], ['Difference', '-4.00'], ['Z-report No.', '0013']]) {
+        expect({ expected, on: printed.some((s) => s.startsWith(expected[0]) && s.endsWith(expected[1])) }).toEqual({ expected, on: true })
+      }
+    })
+
+    it('one that has none of those shows what it has: its rows and its float', async () => {
+      const w = await tillWorld(app)
+      await w.sell(2)
+      await close(w, 124)
+      await forget(w, ['report', 'closingBreakdown', 'zReportNumber', 'zReport'])
+
+      const { report } = (await w.call('GET', `/trade/pos/session/${w.sessionId}/report`)).json
+
+      expect(report.counts.sales).toBe(1)
+      expect(report.drawer).toEqual({ opening: 100 })
+      expect(report.zReportNumber).toBeUndefined()
+      expect(report.deviceZ).toBeUndefined()
+    })
+
+    it('a report that was kept stays as it was printed', async () => {
+      const w = await tillWorld(app)
+      await w.sell(2)
+      await close(w, 124)
+      await POSSession.updateOne({ _id: w.sessionId }, { $set: { 'report.zReportNumber': 'kept', zReportNumber: 'not this' } }).exec()
+
+      const { report } = (await w.call('GET', `/trade/pos/session/${w.sessionId}/report`)).json
+
+      expect(report.zReportNumber).toBe('kept')
+    })
+  })
+
   it('a keyed retry of the close returns its report and prints nothing again', async () => {
     const w = await tillWorld(app)
     await w.sell(1)

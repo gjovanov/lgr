@@ -72,7 +72,10 @@ function deviceZOf(z: any): SessionReport['deviceZ'] {
   }
 }
 
-/** The report of a session from its till rows, oldest first; `closing` once it is closed. */
+/**
+ * The report of a session from its till rows, oldest first. Its closing lines and its Z are the session's
+ * where it has them, so that one closed before it kept a report rebuilds like any other.
+ */
 export function buildSessionReport(
   session: any,
   rows: any[],
@@ -125,7 +128,9 @@ export function buildSessionReport(
     if (row.fiscalReceiptNumber) receipts.push(String(row.fiscalReceiptNumber))
   }
 
-  const cash = opts.closing?.find((l) => l.method === 'cash')
+  const closing: ClosingLine[] | undefined = opts.closing ?? session.closingBreakdown
+  const zReportNumber: string | undefined = opts.zReportNumber ?? session.zReportNumber
+  const cash = closing?.find((l) => l.method === 'cash')
   const deviceZ = deviceZOf(session.zReport)
   return {
     sessionNumber: session.sessionNumber,
@@ -145,7 +150,7 @@ export function buildSessionReport(
     },
     ...(numbers.length ? { documents: { first: numbers[0], last: numbers[numbers.length - 1] } } : {}),
     ...(receipts.length ? { receipts: { first: receipts[0], last: receipts[receipts.length - 1] } } : {}),
-    ...(opts.zReportNumber ? { zReportNumber: opts.zReportNumber } : {}),
+    ...(zReportNumber ? { zReportNumber } : {}),
     amounts: { fiscal: cents(amounts.fiscal), text: cents(amounts.text), unprinted: cents(amounts.unprinted) },
     ...(deviceZ ? { deviceZ } : {}),
   }
