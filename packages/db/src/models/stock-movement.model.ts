@@ -28,6 +28,8 @@ export interface IStockMovement extends Document {
   movementNumber: string
   type: string
   status: string
+  /** A draft's confirm or delete under way holds it until then (#448): one of them, never both. */
+  claimedUntil?: Date
   date: Date
   fromWarehouseId?: Types.ObjectId
   toWarehouseId?: Types.ObjectId
@@ -74,6 +76,7 @@ const stockMovementSchema = new Schema<IStockMovement>(
       enum: ['receipt', 'dispatch', 'transfer', 'adjustment', 'return', 'production_in', 'production_out'],
     },
     status: { type: String, required: true, default: 'draft', enum: ['draft', 'confirmed', 'completed', 'cancelled'] },
+    claimedUntil: Date,
     date: { type: Date, default: Date.now },
     fromWarehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse' },
     toWarehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse' },

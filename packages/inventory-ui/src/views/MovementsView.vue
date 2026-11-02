@@ -128,6 +128,8 @@
           <template #item.actions="{ item }">
             <v-btn icon="mdi-eye" size="small" variant="text" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
             <v-btn v-if="item.status === 'draft'" icon="mdi-check" size="small" variant="text" color="success" :title="$t('warehouse.confirm')" @click="confirmMovement(item)" />
+            <!-- #448: a draft saved by mistake can go. The API refuses one another document names. -->
+            <v-btn v-if="item.status === 'draft'" icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" data-testid="movement-delete" @click="askDelete(item)" />
           </template>
         </v-data-table-server>
       </v-card-text>
@@ -177,6 +179,18 @@
       mode="batch"
       @committed="onImported"
     />
+
+    <v-dialog v-model="deleteDialog" max-width="420">
+      <v-card>
+        <v-card-title>{{ $t('common.confirm') }}</v-card-title>
+        <v-card-text>{{ deleteTarget?.number }} — {{ $t('warehouse.deleteMovementConfirm') }}</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="deleteDialog = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="error" :loading="deleting" data-testid="movement-delete-confirm" @click="doDelete">{{ $t('common.delete') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
@@ -391,6 +405,26 @@ async function confirmMovement(item: Item) {
     showSuccess(t('common.completedSuccessfully'))
   } catch (e: any) {
     showError(stockRefusalMessage(e, t))
+  }
+}
+
+const deleteDialog = ref(false)
+const deleteTarget = ref<Item | null>(null)
+const deleting = ref(false)
+function askDelete(item: Item) { deleteTarget.value = item; deleteDialog.value = true }
+async function doDelete() {
+  if (!deleteTarget.value) return
+  deleting.value = true
+  try {
+    await httpClient.delete(`${appStore.orgUrl()}/warehouse/movement/${deleteTarget.value._id}`)
+    deleteDialog.value = false
+    await fetchItems()
+    showSuccess(t('common.deletedSuccessfully'))
+  } catch (e: any) {
+    // The API names what holds it: the document it belongs to, or a confirm under way.
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    deleting.value = false
   }
 }
 
