@@ -6,7 +6,7 @@
  */
 
 /** A refusal's message key, or null when it is none of the receipt's and the server's text will do. */
-export function receiptRefusalKey(data: { code?: string; noSession?: boolean; deviceConfigured?: boolean; atIssue?: boolean } | null | undefined): string | null {
+export function receiptRefusalKey(data: { code?: string; noSession?: boolean; deviceConfigured?: boolean; atIssue?: boolean; document?: string } | null | undefined): string | null {
   switch (data?.code) {
     case 'fiscal_device_not_connected':
       if (data.noSession) return 'cashRegister.receipt.noSession'
@@ -15,7 +15,7 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'document_claimed': return 'cashRegister.receipt.documentClaimed'
     case 'document_changed': return 'cashRegister.receipt.documentChanged'
     case 'issue_in_progress': return 'cashRegister.receipt.issueInProgress'
-    case 'fiscally_paid': return 'cashRegister.receipt.fiscallyPaid'
+    case 'fiscally_paid': return data.document ? 'cashRegister.receipt.fiscallyPaidUnderNote' : 'cashRegister.receipt.fiscallyPaid'
     case 'receipt_currency': return 'cashRegister.receipt.currency'
     case 'receipt_not_printable': return 'cashRegister.receipt.notPrintable'
     case 'document_not_issued': return 'cashRegister.receipt.notIssued'

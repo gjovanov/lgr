@@ -226,6 +226,30 @@ export async function freezeRefusal(orgId: string, documentId: string): Promise<
 }
 
 /**
+ * An invoice for a till sale has no money document of its own: its receipt is the sale's, so `freezeRefusal`
+ * finds nothing on it. A refund's storno citing that sale stands under a note on it all the same, and voided
+ * under that, two fiscal stornos sit under a note whose invoice is annulled, and the sale can be invoiced anew,
+ * born paid, for money that has come back. So it answers for its live notes' stornos, each in the note's own
+ * refusal. One that failed holds nothing up, and neither does a refund by bank.
+ */
+export async function freezeUnderNotes(orgId: string, invoice: any): Promise<Record<string, unknown> | null> {
+  if (!invoice?.cashSaleRef?.cashSaleId) return null
+  const notes: any[] = await Invoice.find(
+    { orgId: oid(orgId), type: 'credit_note', relatedInvoiceId: oid(invoice._id ?? invoice.id), status: { $nin: ['voided', 'cancelled'] } },
+    { invoiceNumber: 1 },
+  ).sort({ _id: 1 }).lean().exec()
+  for (const note of notes) {
+    const frozen = await freezeRefusal(orgId, String(note._id))
+    if (frozen) {
+      return frozen.code === FISCALLY_PAID.code
+        ? { ...frozen, document: note.invoiceNumber, message: `Credit note ${note.invoiceNumber} gave money back on a storno, so the invoice it corrects cannot be voided. Correct it with another credit note.` }
+        : frozen
+    }
+  }
+  return null
+}
+
+/**
  * A cash-on-delivery invoice with no receipt, whose print failed as it was issued. The courier owes
  * the money, so there is no payment to take again, and one recorded by hand would leave the sale with
  * no receipt or part of one: the receipt prints on its own (`POST /invoices/:id/receipt`), for what

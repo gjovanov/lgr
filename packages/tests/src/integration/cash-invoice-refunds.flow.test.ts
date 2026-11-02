@@ -3472,6 +3472,117 @@ describe('a refund that prints is capped at what the customer paid on the invoic
   })
 })
 
+describe('a till sale\'s invoice stands under its note\'s storno (the readers, B3)', () => {
+  /** A till sale of 24, its invoice, and a credit note of 24 issued by bank. */
+  async function invoiced(w: TillWorld) {
+    const sale = await w.sell(2)
+    const saleId = String(sale.json.transaction.id)
+    const contact = await draftOf(w, { method: 'bank_transfer' })
+    const res = await w.call('POST', `/invoices/${saleId}/to-invoice`, { contactId: contact.contactId })
+    expect(res.status).toBe(200)
+    const inv = { saleId, id: String(res.json.invoice.id), contactId: contact.contactId }
+    return { inv, note: await issuedNote(w, inv) }
+  }
+  const voidIt = (w: TillWorld, id: string) => w.call('POST', `/invoices/${id}/void`)
+
+  it('a storno printed for part of it: the void names the note, and the rest of the refund and the note\'s own edits go on', async () => {
+    const w = await tillWorld(app)
+    const { inv, note } = await invoiced(w)
+    expect((await pay(w, note.id, 12)).status).toBe(200)
+    const stock = (await w.stock()).quantity
+
+    const r = await voidIt(w, inv.id)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('fiscally_paid')
+    expect(r.json.document).toBe(note.doc.invoiceNumber)
+    expect(r.json.message).toContain(note.doc.invoiceNumber)
+    expect(await raw(inv.id)).toMatchObject({ status: 'paid' })
+    expect((await raw(inv.id)).voidingUntil ?? null).toBeNull()
+    expect((await w.stock()).quantity).toBe(stock)
+
+    // With the invoice standing, the note's edit is no longer refused for what it corrects.
+    expect((await w.call('PUT', `/invoices/${note.id}`, { notes: 'edited' })).status).toBe(200)
+
+    expect((await pay(w, note.id, 12)).status).toBe(200)
+    expect(w.sim!.receipts.at(-1)!.header[5]).toBe((await fresh(inv.saleId)).register.fiscalReceiptNumber)
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+
+    // A new invoice for the sale is unreachable by this road: its invoice stands, and it covers the sale.
+    const again = await w.call('POST', `/invoices/${inv.saleId}/to-invoice`, { contactId: inv.contactId })
+    expect(again.status).not.toBe(200)
+    expect(await Invoice.countDocuments({ orgId: w.oid, type: 'invoice', 'cashSaleRef.cashSaleId': inv.saleId })).toBe(1)
+  })
+
+  it('a storno held in doubt: refused too, in its own words, with the way to settle it', async () => {
+    const w = await tillWorld(app)
+    const { inv, note } = await invoiced(w)
+    w.sim!.dropAfter = 0x38
+    expect((await pay(w, note.id, 12)).json.code).toBe('receipt_in_doubt')
+    w.sim!.disconnected = false
+    const [storno] = await stornosOf(note.id)
+
+    const r = await voidIt(w, inv.id)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_in_doubt')
+    expect(r.json.receipt.number).toBe(storno.invoiceNumber)
+    expect(await raw(inv.id)).toMatchObject({ status: 'paid' })
+
+    // Settled as not printed it holds nothing up.
+    expect((await w.call('POST', `/cash-register/documents/${storno._id}/settle`, { printed: false })).status).toBe(200)
+    expect((await voidIt(w, inv.id)).status).toBe(200)
+  })
+
+  it('a storno whose request died and never reached the device is no reason to refuse', async () => {
+    const w = await tillWorld(app)
+    const { inv, note } = await invoiced(w)
+    w.sim!.paper = false
+    expect((await pay(w, note.id, 12)).status).toBe(503)
+    w.sim!.paper = true
+    const [storno] = await stornosOf(note.id)
+    expect(storno.status).toBe('voided')
+
+    expect((await voidIt(w, inv.id)).status).toBe(200)
+  })
+
+  it('a note refunded by bank, or by nothing, holds up no void, as before', async () => {
+    const w = await tillWorld(app)
+    const { inv, note } = await invoiced(w)
+    expect((await pay(w, note.id, 12, 'bank_transfer')).status).toBe(200)
+
+    expect((await voidIt(w, inv.id)).status).toBe(200)
+  })
+
+  it('a refund\'s storno landing while the void is being claimed: its second look refuses and lets go', async () => {
+    const w = await tillWorld(app)
+    const { inv, note } = await invoiced(w)
+    let refund: any
+    const undo = during(update => !!update?.$set?.voidingUntil, async () => { refund = await pay(w, note.id, 12) })
+    let r: any
+    try {
+      r = await voidIt(w, inv.id)
+    } finally {
+      undo()
+    }
+
+    expect(refund.status).toBe(200)
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('fiscally_paid')
+    expect((await raw(inv.id)).voidingUntil ?? null).toBeNull()
+    expect((await raw(inv.id)).status).toBe('paid')
+  })
+
+  it('the void of an invoice with receipts of its own is what it was: its own receipts answer', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const r = await voidIt(w, inv.id)
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('fiscally_paid')
+    expect(r.json.document).toBeUndefined()
+  })
+})
+
 describe('a device that is not fiscalized: the device decides, never a switch', () => {
   /** Open, line, free text, payment, close: nothing of a fiscal receipt. */
   const FISCAL = [0x90, 0x31, 0x36, 0x35, 0x38]

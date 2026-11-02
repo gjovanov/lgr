@@ -329,6 +329,8 @@ describe('the refusal, in words', () => {
     expect(receiptRefusalParams({ receipts: [{ number: 'CS-1' }, { number: null, invoice: 'INV-2' }] }).numbers).toBe('CS-1, INV-2')
     expect(receiptRefusalKey({ code: 'overpayment' })).toBeNull()
     expect(receiptRefusalKey({ code: 'refund_exceeds_paid' })).toBe('cashRegister.receipt.refundExceedsPaid')
+    expect(receiptRefusalKey({ code: 'fiscally_paid', document: 'CN-1' })).toBe('cashRegister.receipt.fiscallyPaidUnderNote')
+    expect(receiptRefusalParams({ code: 'fiscally_paid', document: 'CN-1' } as any).number).toBe('CN-1')
     expect(receiptRefusalKey({ code: 'refund_exceeds_paid', atIssue: true })).toBe('cashRegister.receipt.refundExceedsPaidAtIssue')
   })
 
@@ -358,6 +360,7 @@ describe('the refusal, in words', () => {
       'cashRegister.receipt.correctNumber', 'cashRegister.receipt.correctNumberConfirm', 'cashRegister.receipt.numberCorrected',
       'cashRegister.receipt.issuedChanged', 'cashRegister.receipt.issuedChangedDelivery', 'cashRegister.receipt.issuedChangedRefund',
       'cashRegister.receipt.refundExceedsPaid', 'cashRegister.receipt.refundExceedsPaidAtIssue', 'cashRegister.receipt.issuedPartlyRefunded',
+      'cashRegister.receipt.fiscallyPaidUnderNote',
     ]) {
       for (const [name, messages] of Object.entries(locales)) {
         const text = key.split('.').reduce((at: any, part) => at?.[part], messages)

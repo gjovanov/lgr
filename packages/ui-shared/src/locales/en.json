@@ -1792,6 +1792,7 @@
       "documentClaimed": "This document is being voided or attached to a cash sale right now. Try again in a moment.",
       "documentChanged": "This document changed while you were working on it. Open it again.",
       "fiscallyPaid": "A receipt has printed for this document, so its total can no longer change and it cannot be voided. Correct it with a credit or a debit note.",
+      "fiscallyPaidUnderNote": "Credit note {number} gave money back on a storno, so the invoice it corrects cannot be voided. Correct it with another credit note.",
       "currency": "The till's device prints in another currency than this document's. Take this payment by bank.",
       "notPrintable": "This document's money cannot be split per VAT rate for a receipt. Take this payment by bank.",
       "notIssued": "Issue this document first: its receipt names its number.",

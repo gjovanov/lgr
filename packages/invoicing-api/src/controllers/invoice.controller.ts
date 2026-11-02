@@ -26,7 +26,7 @@ import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement } from 'services/biz/cash-settlement.service'
 import { fitsDue, heldOn, isBeingVoided, issueLeaseFree, notBeingVoided, outstandingOf, paymentPipeline, unclaimedDraft } from 'services/biz/invoice-payment'
 import {
-  DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, inDoubtRefusal, isImportedDocument, owesDeliveryReceipt,
+  DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, freezeUnderNotes, inDoubtRefusal, isImportedDocument, owesDeliveryReceipt,
   paymentRefusal, printsOnPayment, receiptFacts, receiptInDoubt,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { movesPrintedMoney } from 'services/biz/cash-register/receipt-lines'
@@ -1930,7 +1930,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (isImmutableRegisterDocument(invoice as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
     // FR-23 §2.7: the receipt stands, so the document it paid does.
     await finishInterruptedDocuments(orgId, user, id)
-    const frozen = await freezeRefusal(orgId, id)
+    const frozen = await freezeRefusal(orgId, id) ?? await freezeUnderNotes(orgId, invoice)
     if (frozen) return status(409, frozen)
     // #171: an invoice for a cash sale is born paid, but the money is the cash sale's, so voiding
     // it gives nothing back — it only releases the sale's quantities for a new invoice.
@@ -1950,7 +1950,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (!claimed) return whoHolds(status, orgId, id)
     const release = () => Invoice.updateOne({ _id: id, orgId }, { $set: { voidingUntil: null } }).exec()
     // A receipt written before the claim that had not taken its hold yet will now be refused one.
-    const late = await freezeRefusal(orgId, id)
+    const late = await freezeRefusal(orgId, id) ?? await freezeUnderNotes(orgId, invoice)
     if (late) {
       await release()
       return status(409, late)
