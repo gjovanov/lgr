@@ -3665,6 +3665,24 @@ describe('the issue holds its claim until the receipt does (the third read, find
       expect((await raw(onDelivery.id)).deliveryReceiptOwed).toBeUndefined()
     })
 
+    it('a note edited onto it writes nothing: on cash on delivery, only an invoice prints', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+
+      for (const type of ['credit_note', 'debit_note']) {
+        const note = await draftOf(w, { type, method: 'bank_transfer', extra: { relatedInvoiceId: d.id, contactId: d.contactId } })
+        expect((await send(w, note.id)).status).toBe(200)
+        expect((await toDelivery(w, note.id)).status).toBe(200)
+
+        expect(await raw(note.id)).toMatchObject({ status: 'sent', paymentMethod: 'cash_on_delivery' })
+        expect((await raw(note.id)).deliveryReceiptOwed).toBeUndefined()
+        expect((await shown(w, note.id)).receiptToPrint).toBe(false)
+        expect((await printIt(w, note.id)).json.code).toBe('no_receipt_owed')
+      }
+      expect(closed(w)).toHaveLength(0)
+    })
+
     it('the re-issue of a number issued twice prints nothing, so it owes nothing', async () => {
       const w = await tillWorld(app)
       const d = await draftOf(w, { method: 'bank_transfer' })

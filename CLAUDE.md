@@ -2669,8 +2669,8 @@ invoice still due until the courier pays).
   discards the transfers it was asked for on every refusal that means it will not issue, ⚠ never on
   `issue_in_progress`, whose holder may confirm those same ids.
 - **Whether a COD invoice owes a receipt is a fact** (`deliveryReceiptOwed`, in the issue's own write, or by an edit
-  moving an issued document with no live receipt onto COD, never by a client), because an issue can leave no
-  receipt document at all. `/receipt` waits for an issue under way.
+  moving an issued invoice with no live receipt onto COD, never on a note, never by a client), because an issue can
+  leave no receipt document at all. `/receipt` waits for an issue under way.
 - **What it prints** (`receipt-lines.ts`, pure): a whole payment at issue, the document's lines and
   `printFiscalText` „Фактура № …"; anything else, one line per VAT rate, „Плащане по фактура № …", pro
   rata of what is left of each rate, so the last takes the remainder and the receipts add up exactly.
