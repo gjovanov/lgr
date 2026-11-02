@@ -44,9 +44,9 @@ bun run scripts/seed-contacts.ts --org <slug> --type customer --file ap_КЛИЕ
 Local (dev DB):
 ```bash
 docker compose up -d mongo
-bun run scripts/seed-contacts.ts --org <slug> --type customer --file ap_КЛИЕНТИ_112500982.json            # dry-run
+bun run scripts/seed-contacts.ts --org <slug> --type customer --file ap_КЛИЕНТИ_<ЕИК>.json            # dry-run
 MONGODB_URI='mongodb://lgr_admin:LgR_5uper5ecretPa55word@localhost:27018/lgr?authSource=admin&directConnection=true' \
-  bun run scripts/seed-contacts.ts --org <slug> --type customer --file ap_КЛИЕНТИ_112500982.json --execute
+  bun run scripts/seed-contacts.ts --org <slug> --type customer --file ap_КЛИЕНТИ_<ЕИК>.json --execute
 ```
 
 Production (cluster Mongo) — the `ap_*.json` is gitignored, so ship it to the build

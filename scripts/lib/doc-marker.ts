@@ -3,9 +3,9 @@
  *
  * A booked document leaves `<family>:<number>` in the movement's notes (and, from the Files app,
  * `<family>_<number>[.pdf]` in its reference). The SAME document has been written two ways:
- *   - the PDF-era flow used the number as PRINTED, zero-padded to ten digits: `sklrazp:0000012705`
- *   - the direct-API flow uses `header.docNumber`, unpadded:                    `sklrazp:12705`
- * A plain `notes.includes('sklrazp:12705')` therefore misses every transfer or write-off booked the
+ *   - the PDF-era flow used the number as PRINTED, zero-padded to ten digits: `sklrazp:0000615705`
+ *   - the direct-API flow uses `header.docNumber`, unpadded:                    `sklrazp:615705`
+ * A plain `notes.includes('sklrazp:615705')` therefore misses every transfer or write-off booked the
  * old way, and a re-run books all of them a second time. On regal-pz (2026-11-01) a dry-run of
  * `transfer-stock-api.ts` over October reported "56 to book, 3 skipped" for a month in which all but
  * three transfers were already in — executing it would have dispatched ~50 transfers twice.

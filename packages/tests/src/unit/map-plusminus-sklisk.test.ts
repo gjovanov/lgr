@@ -10,34 +10,34 @@ import type { PlusMinusDocument } from 'services/biz/doc-import/map-plusminus-in
 const PLAIN: PlusMinusDocument = {
   date: '20261030',
   num: '00000001',
-  header: { docDate: '20261030', docNumber: '135', doc: 'СИ', sum: '58.46' },
+  header: { docDate: '20261030', docNumber: '603135', doc: 'СИ', sum: '40.01' },
   lines: [
-    { name: 'ТИКСО - ПРОЗР.', quantity: '12', measure: 'БР', price: '1', sum: '12' },
-    { name: 'СТРЕЧ - ФОЛИО', quantity: '12', measure: 'БР', price: '3.8716500935', sum: '46.46' },
+    { name: 'ТИКСО - ПРОЗР.', quantity: '10', measure: 'БР', price: '1', sum: '10' },
+    { name: 'СТРЕЧ - ФОЛИО', quantity: '10', measure: 'БР', price: '3.0012345678', sum: '30.01' },
   ],
 }
 
 describe('mapSkliskDoc', () => {
   it('maps a plain write-off, keeping the number unpadded as PlusMinus stores it', () => {
     expect(mapSkliskDoc(PLAIN)).toEqual({
-      number: '135', date: '2026-10-30', total: 58.46,
+      number: '603135', date: '2026-10-30', total: 40.01,
       lines: [
-        { name: 'ТИКСО - ПРОЗР.', qty: 12, value: 12 },
-        { name: 'СТРЕЧ - ФОЛИО', qty: 12, value: 46.46 },
+        { name: 'ТИКСО - ПРОЗР.', qty: 10, value: 10 },
+        { name: 'СТРЕЧ - ФОЛИО', qty: 10, value: 30.01 },
       ],
     })
   })
 
   it('counts a line with no sum as zero value — PlusMinus\'s own header total does too', () => {
-    // Real shape (СИ 135): the header total is the sum of the OTHER lines; the decimal-comma-priced
-    // line has no sum and is not in it. Deriving price × qty = 0.8 would put Σvalue 0.8 over the
+    // Real shape (СИ 603135): the header total is the sum of the OTHER lines; the decimal-comma-priced
+    // line has no sum and is not in it. Deriving price × qty = 0.7 would put Σvalue 0.7 over the
     // total and trip adjust-stock.ts's ±0.5 guard.
     const noSum: PlusMinusDocument = {
       ...PLAIN,
-      header: { ...PLAIN.header, sum: '12' },
+      header: { ...PLAIN.header, sum: '10' },
       lines: [
-        { name: 'ТИКСО - ПРОЗР.', quantity: '12', price: '1', sum: '12' },
-        { name: 'НОЖ   ТЕХНИЧЕСКИ   -   РЕЗЕРВ.   /10 бр./', quantity: '1', price: '0,8' },
+        { name: 'ТИКСО - ПРОЗР.', quantity: '10', price: '1', sum: '10' },
+        { name: 'НОЖ   ТЕХНИЧЕСКИ   -   РЕЗЕРВ.   /10 бр./', quantity: '1', price: '0,7' },
       ],
     }
     const m = mapSkliskDoc(noSum)
@@ -61,7 +61,7 @@ describe('mapSkliskDoc', () => {
   })
 
   it('refuses a negative-quantity line rather than guessing a direction', () => {
-    const negative: PlusMinusDocument = { ...PLAIN, lines: [{ name: 'X', quantity: '-6', sum: '10.61' }] }
+    const negative: PlusMinusDocument = { ...PLAIN, lines: [{ name: 'X', quantity: '-6', sum: '9.5' }] }
     expect(() => mapSkliskDoc(negative)).toThrow(/negative quantity/)
   })
 

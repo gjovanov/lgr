@@ -38,7 +38,7 @@ export interface IStockMovement extends Document {
   totalAmount: number
   /**
    * The source document this movement was booked from, as its file stem —
-   * `stokrazp_3000016317`, `sklrazp_0000012698`. It used to live only inside `notes`,
+   * `stokrazp_3000619317`, `sklrazp_0000615698`. It used to live only inside `notes`,
    * where nothing could filter, join or display it.
    */
   reference?: string

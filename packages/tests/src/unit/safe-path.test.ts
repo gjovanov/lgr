@@ -15,7 +15,7 @@ const BASE = resolve('/srv/uploads/org1/docs')
 
 describe('safeFileName', () => {
   it('keeps an ordinary export name intact', () => {
-    expect(safeFileName('stokrazp_3000016311.pdf')).toBe('stokrazp_3000016311.pdf')
+    expect(safeFileName('stokrazp_3000619311.pdf')).toBe('stokrazp_3000619311.pdf')
     expect(safeFileName('salesAnalysis_20260813_172956.xlsx')).toBe('salesAnalysis_20260813_172956.xlsx')
   })
 
@@ -125,7 +125,7 @@ describe('stampedUploadPath', () => {
   const NOW = 1761206400000
 
   it('stores an ordinary export name as those writers always did', () => {
-    expect(stampedUploadPath(DIR, 'invoicem_3000100855.pdf', NOW)).toBe(resolve(DIR, `${NOW}-invoicem_3000100855.pdf`))
+    expect(stampedUploadPath(DIR, 'invoicem_3000703855.pdf', NOW)).toBe(resolve(DIR, `${NOW}-invoicem_3000703855.pdf`))
     // Cyrillic and spaces were always `_` in these two directories; that does not change.
     expect(stampedUploadPath(DIR, 'Фактура 12.pdf', NOW)).toBe(resolve(DIR, `${NOW}-${"_".repeat(8)}12.pdf`))
   })

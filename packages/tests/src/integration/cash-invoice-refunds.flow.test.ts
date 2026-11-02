@@ -2630,7 +2630,7 @@ describe('a Files rollback asks what stands on the document first (ruling 4)', (
   /** A sales invoice as a Files commit books it: analysed, committed through the real engine, issued, named by its file. */
   async function bookedByFiles(w: TillWorld, o: { type?: string; method?: string; number?: string } = {}) {
     const l = line(w)
-    const number = o.number ?? '3000100974'
+    const number = o.number ?? '3000703974'
     const file: any = await DocFile.create({
       orgId: w.oid, docType: 'invoice', docNumber: number, docDate: TODAY(), originalName: `invoicem_${number}.pdf`,
       currentPath: `x-${number}`, currentChecksum: number, mimeType: 'application/pdf', size: 1, uploadedBy: w.user._id,
@@ -2733,7 +2733,7 @@ describe('a Files rollback asks what stands on the document first (ruling 4)', (
   it('a credit note whose storno printed: the device gave that money back, so it stays', async () => {
     const w = await tillWorld(app)
     const inv = await paidInvoice(w)
-    const { id, fileId } = await bookedByFiles(w, { type: 'credit_note', number: '3000100975' })
+    const { id, fileId } = await bookedByFiles(w, { type: 'credit_note', number: '3000703975' })
     await withoutTheMark(id)
     await Invoice.updateOne({ _id: id }, { $set: { relatedInvoiceId: inv.id } })
     expect((await pay(w, id, 24)).status).toBe(200)

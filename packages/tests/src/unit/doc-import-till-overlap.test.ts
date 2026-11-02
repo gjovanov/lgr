@@ -42,7 +42,7 @@ const invoice = (lines: Array<{ productId?: string; quantity: number }>, over: P
 
 describe('an invoice the till already rang', () => {
   it('is reported, with the line and unit counts', () => {
-    // INV-2000128367 in miniature: ten lines, every one inside the till.
+    // INV-2000731367 in miniature: ten lines, every one inside the till.
     const hit = findTillOverlap(
       invoice([{ productId: 'a', quantity: 6 }, { productId: 'b', quantity: 24 }]),
       till([['a', 6], ['b', 34]]),

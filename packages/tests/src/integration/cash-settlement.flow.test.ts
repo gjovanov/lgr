@@ -200,7 +200,7 @@ describe('editing an issued invoice', () => {
 describe('the other ways in', () => {
   it('an imported cash invoice is paid when the import issues it', async () => {
     const w = await world()
-    const id = await w.draft('cash', 80, { reference: '3000101999' })
+    const id = await w.draft('cash', 80, { reference: '3000704999' })
     const res = await convertDraftInvoice(w.orgId, id, w.userId, { adjustStock: false })
     expect(res.ok).toBe(true)
     const inv = await w.load(id)

@@ -632,7 +632,7 @@ export async function seed() {
 
   const regalWarehouses = await Promise.all([
     Warehouse.create({ orgId: org3._id, name: 'Sofia', code: 'sof', type: 'warehouse', isDefault: true, isActive: true, address: { street: '1 Vitosha Blvd', city: 'Sofia', postalCode: '1000', country: 'BG' } }),
-    Warehouse.create({ orgId: org3._id, name: 'Pazardzhik', code: 'paz', type: 'warehouse', isDefault: false, isActive: true, address: { street: '5 Bulgaria Blvd', city: 'Pazardzhik', postalCode: '4400', country: 'BG' } }),
+    Warehouse.create({ orgId: org3._id, name: 'Testograd', code: 'tgd', type: 'warehouse', isDefault: false, isActive: true, address: { street: '5 Bulgaria Blvd', city: 'Testograd', postalCode: '9999', country: 'BG' } }),
   ])
 
   // ── Import products from Excel ──

@@ -38,7 +38,7 @@ async function world() {
   const org = await createTestOrg()
   const orgId = String(org._id)
   const user = await createTestUser(org._id, { firstName: 'Мария', lastName: 'Иванова' } as any)
-  const supplier = await createTestContact(org._id, { type: 'supplier', companyName: 'Fastbolt' } as any)
+  const supplier = await createTestContact(org._id, { type: 'supplier', companyName: 'Beispiel Schrauben' } as any)
   const c1 = await createTestContact(org._id, { type: 'customer', companyName: 'Клиент 1' } as any)
   const c2 = await createTestContact(org._id, { type: 'customer', companyName: 'Клиент 2' } as any)
   const product = await createTestProduct(org._id, { name: 'Болт М8', unit: 'pcs' } as any)
@@ -151,7 +151,7 @@ describe('what a new reservation can take', () => {
       { warehouseId: String(w.w1._id), warehouseName: 'Склад 1', isDefault: true, onHand: 10, reserved: 4, free: 6 },
     ])
     expect(res.json.allocations.map((a: any) => [a.orderNumber, a.orderStatus, a.warehouseName, a.supplierName, a.quantity, a.reserved, a.free]))
-      .toEqual([[sent.number, 'sent', 'Склад 1', 'Fastbolt', 6, 2, 4]])
+      .toEqual([[sent.number, 'sent', 'Склад 1', 'Beispiel Schrauben', 6, 2, 4]])
     expect(res.json.allocations[0]).toMatchObject(sent.alloc(0))
     expect(new Date(res.json.allocations[0].expectedDate).toISOString().slice(0, 10)).toBe('2026-11-05')
     expect(res.json.demand.map((d: any) => [d.internalOrderNumber, d.lineId, d.quantity, d.reserved, d.open, d.priority]))
@@ -225,7 +225,7 @@ describe('a reservation\'s page', () => {
     const id = made.json.reservation._id
 
     const before = (await w.call('GET', `/reservations/${id}`)).json.detail
-    expect(before.order).toMatchObject({ _id: sent.id, orderNumber: sent.number, status: 'sent', supplierName: 'Fastbolt' })
+    expect(before.order).toMatchObject({ _id: sent.id, orderNumber: sent.number, status: 'sent', supplierName: 'Beispiel Schrauben' })
     expect(before.allocation).toMatchObject({ _id: sent.alloc(0).allocationId, warehouseName: 'Склад 2', quantity: 6, receivedQuantity: 0 })
     expect(before.repeatedAs).toBeNull()
 

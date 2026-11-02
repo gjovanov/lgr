@@ -52,13 +52,13 @@ describe('void-annulled: planVoid / applyVoid', () => {
     const product = await createTestProduct(org._id)
     const warehouse = await createTestWarehouse(org._id)
     await createTestStockLevel(org._id, product._id, warehouse._id, { quantity: 7, availableQuantity: 7 })
-    const inv = await paid(org._id, contact._id, '3000200001')
+    const inv = await paid(org._id, contact._id, '3000803001')
     const mv = await createTestStockMovement(org._id, {
       type: 'dispatch', status: 'completed', invoiceId: inv._id, fromWarehouseId: warehouse._id,
       lines: [{ productId: product._id, quantity: 3, unitCost: 10, totalCost: 30 }] as any,
     })
 
-    const plan = await planVoid(org._id, '3000200001')
+    const plan = await planVoid(org._id, '3000803001')
     expect(plan.ok).toBe(true)
     expect(plan.movements).toEqual([{ number: mv.movementNumber, type: 'dispatch', status: 'completed', quantity: 3 }])
 
@@ -81,71 +81,71 @@ describe('void-annulled: planVoid / applyVoid', () => {
 
     const audit: any[] = await AuditLog.find({ orgId: org._id, entityType: 'invoice' }).lean()
     expect(audit).toHaveLength(1)
-    expect(audit[0]).toMatchObject({ action: 'void', module: 'invoicing', entityName: 'INV-3000200001' })
+    expect(audit[0]).toMatchObject({ action: 'void', module: 'invoicing', entityName: 'INV-3000803001' })
     expect(audit[0].changes.map((c: any) => [c.field, c.oldValue, c.newValue])).toEqual([['status', 'paid', 'voided'], ['reason', null, 'annulled in PlusMinus']])
   })
 
   it('a plan alone writes nothing', async () => {
     const { org, contact } = await world()
-    const inv = await paid(org._id, contact._id, '3000200001')
-    await planVoid(org._id, '3000200001')
+    const inv = await paid(org._id, contact._id, '3000803001')
+    await planVoid(org._id, '3000803001')
     expect((await Invoice.findById(inv._id).lean() as any).status).toBe('paid')
     expect(await AuditLog.countDocuments({ orgId: org._id })).toBe(0)
   })
 
   it('is conditional on the status it planned: a second apply changes nothing and audits nothing', async () => {
     const { org, contact } = await world()
-    await paid(org._id, contact._id, '3000200001')
-    const plan = await planVoid(org._id, '3000200001')
+    await paid(org._id, contact._id, '3000803001')
+    const plan = await planVoid(org._id, '3000803001')
     expect(await applyVoid(org._id, plan, org.ownerId, 'r')).toBe(true)
     expect(await applyVoid(org._id, plan, org.ownerId, 'r')).toBe(false)
     expect(await AuditLog.countDocuments({ orgId: org._id })).toBe(1)
-    const again = await planVoid(org._id, '3000200001')
+    const again = await planVoid(org._id, '3000803001')
     expect(again).toMatchObject({ ok: false, already: true })
   })
 
   it('refuses what is not an annulled outgoing invoice, and says why', async () => {
     const { org, contact } = await world()
     const mk = (n: string, o: Record<string, unknown>) => createTestInvoice(org._id, contact._id, { invoiceNumber: `INV-${n}`, ...o })
-    await mk('3000200004', { type: 'credit_note', status: 'sent' })
-    await mk('3000200005', { status: 'sent' })
-    await mk('3000200006', { status: 'draft' })
-    await mk('3000200007', { status: 'cancelled' })
-    await mk('3000200008', { status: 'paid', direction: 'incoming' })
+    await mk('3000803004', { type: 'credit_note', status: 'sent' })
+    await mk('3000803005', { status: 'sent' })
+    await mk('3000803006', { status: 'draft' })
+    await mk('3000803007', { status: 'cancelled' })
+    await mk('3000803008', { status: 'paid', direction: 'incoming' })
 
     const why = async (n: string) => planVoid(org._id, n)
-    const credit = await why('3000200004')
+    const credit = await why('3000803004')
     expect(credit.ok).toBe(false)
     expect(credit.reason).toMatch(/credit_note/)
-    expect((await why('3000200005')).reason).toMatch(/POST \/invoices\/:id\/void/) // the API does these, stock included
-    expect((await why('3000200006')).reason).toMatch(/POST \/invoices\/:id\/void/)
-    expect((await why('3000200007')).reason).toMatch(/not one this handles/)
-    expect((await why('3000200008')).reason).toMatch(/outgoing/)
-    expect((await why('3000200099')).reason).toMatch(/holds no INV-3000200099/)
+    expect((await why('3000803005')).reason).toMatch(/POST \/invoices\/:id\/void/) // the API does these, stock included
+    expect((await why('3000803006')).reason).toMatch(/POST \/invoices\/:id\/void/)
+    expect((await why('3000803007')).reason).toMatch(/not one this handles/)
+    expect((await why('3000803008')).reason).toMatch(/outgoing/)
+    expect((await why('3000803099')).reason).toMatch(/holds no INV-3000803099/)
     expect((await why('abc')).reason).toMatch(/digits only/)
-    for (const n of ['3000200004', '3000200005', '3000200006', '3000200007', '3000200008', '3000200099', 'abc']) {
+    for (const n of ['3000803004', '3000803005', '3000803006', '3000803007', '3000803008', '3000803099', 'abc']) {
       expect((await why(n)).ok).toBe(false)
     }
   })
 
   it('refuses an invoice a live credit note already cancels; a voided credit note does not block it', async () => {
     const { org, contact } = await world()
-    const inv = await paid(org._id, contact._id, '3000200003')
-    const cn = await createTestInvoice(org._id, contact._id, { invoiceNumber: 'INV-3000200004', type: 'credit_note', status: 'sent', relatedInvoiceId: inv._id })
+    const inv = await paid(org._id, contact._id, '3000803003')
+    const cn = await createTestInvoice(org._id, contact._id, { invoiceNumber: 'INV-3000803004', type: 'credit_note', status: 'sent', relatedInvoiceId: inv._id })
 
-    const blocked = await planVoid(org._id, '3000200003')
+    const blocked = await planVoid(org._id, '3000803003')
     expect(blocked.ok).toBe(false)
-    expect(blocked.reason).toMatch(/INV-3000200004.*twice/)
+    expect(blocked.reason).toMatch(/INV-3000803004.*twice/)
 
     await Invoice.updateOne({ _id: cn._id }, { $set: { status: 'voided' } })
-    expect((await planVoid(org._id, '3000200003')).ok).toBe(true)
+    expect((await planVoid(org._id, '3000803003')).ok).toBe(true)
   })
 
   it("never reaches another org's invoice of the same number", async () => {
     const a = await world()
     const b = await world()
-    await paid(b.org._id, b.contact._id, '3000200001')
-    expect((await planVoid(a.org._id, '3000200001')).reason).toMatch(/holds no INV-3000200001/)
+    await paid(b.org._id, b.contact._id, '3000803001')
+    expect((await planVoid(a.org._id, '3000803001')).reason).toMatch(/holds no INV-3000803001/)
   })
 })
 
@@ -163,8 +163,8 @@ async function cli(...args: string[]) {
 describe('void-annulled-invoices.ts', () => {
   it('a dry run shows the plan and writes nothing', async () => {
     const { org, contact } = await world()
-    const inv = await paid(org._id, contact._id, '3000200001')
-    const res = await cli('--org', org.slug, '--only', '3000200001')
+    const inv = await paid(org._id, contact._id, '3000803001')
+    const res = await cli('--org', org.slug, '--only', '3000803001')
     expect(res.code).toBe(0)
     expect(res.out).toContain('DRY-RUN')
     expect(res.out).toContain('Would void: 1')
@@ -174,18 +174,18 @@ describe('void-annulled-invoices.ts', () => {
 
   it('--execute needs --expect to match the dry run, and one refused number stops the whole run', async () => {
     const { org, contact } = await world()
-    const ok = await paid(org._id, contact._id, '3000200001')
-    await createTestInvoice(org._id, contact._id, { invoiceNumber: 'INV-3000200005', status: 'sent' })
+    const ok = await paid(org._id, contact._id, '3000803001')
+    await createTestInvoice(org._id, contact._id, { invoiceNumber: 'INV-3000803005', status: 'sent' })
 
-    const noExpect = await cli('--org', org.slug, '--only', '3000200001', '--execute')
+    const noExpect = await cli('--org', org.slug, '--only', '3000803001', '--execute')
     expect(noExpect.code).toBe(2)
     expect(noExpect.out).toContain('--expect must be 1')
 
-    const wrong = await cli('--org', org.slug, '--only', '3000200001', '--execute', '--expect', '2')
+    const wrong = await cli('--org', org.slug, '--only', '3000803001', '--execute', '--expect', '2')
     expect(wrong.code).toBe(2)
 
     // One of the two named numbers is refused (the API voids a `sent` one): NOTHING is written.
-    const mixed = await cli('--org', org.slug, '--only', '3000200001,3000200005', '--execute', '--expect', '1')
+    const mixed = await cli('--org', org.slug, '--only', '3000803001,3000803005', '--execute', '--expect', '1')
     expect(mixed.code).toBe(2)
     expect(mixed.out).toContain('nothing was written')
     expect((await Invoice.findById(ok._id).lean() as any).status).toBe('paid')
@@ -194,13 +194,13 @@ describe('void-annulled-invoices.ts', () => {
 
   it('--execute --expect N voids exactly the named invoices, backs them up first, and leaves the rest', async () => {
     const { org, contact } = await world()
-    const a = await paid(org._id, contact._id, '3000200001')
-    const b = await paid(org._id, contact._id, '3000200003')
-    const other = await paid(org._id, contact._id, '3000200002')
+    const a = await paid(org._id, contact._id, '3000803001')
+    const b = await paid(org._id, contact._id, '3000803003')
+    const other = await paid(org._id, contact._id, '3000803002')
     const dir = mkdtempSync(join(tmpdir(), 'void-annulled-test-'))
     const backup = join(dir, 'backup.ndjson')
     try {
-      const res = await cli('--org', org.slug, '--only', '3000200001,3000200003', '--execute', '--expect', '2', '--backup', backup)
+      const res = await cli('--org', org.slug, '--only', '3000803001,3000803003', '--execute', '--expect', '2', '--backup', backup)
       expect(res.code).toBe(0)
       expect(res.out).toContain('Voided: 2 | failed: 0')
       expect((await Invoice.findById(a._id).lean() as any).status).toBe('voided')
@@ -211,11 +211,11 @@ describe('void-annulled-invoices.ts', () => {
       expect(existsSync(backup)).toBe(true)
       const lines = readFileSync(backup, 'utf8').trim().split('\n').map(l => JSON.parse(l))
       expect(lines[0].kind).toBe('header')
-      expect(lines.slice(1).map(l => l.doc.invoiceNumber).sort()).toEqual(['INV-3000200001', 'INV-3000200003'])
+      expect(lines.slice(1).map(l => l.doc.invoiceNumber).sort()).toEqual(['INV-3000803001', 'INV-3000803003'])
       expect(lines.slice(1).every(l => l.doc.status === 'paid')).toBe(true) // the state BEFORE the change
 
       // Running it again reports them as already voided and is not an error.
-      const again = await cli('--org', org.slug, '--only', '3000200001,3000200003')
+      const again = await cli('--org', org.slug, '--only', '3000803001,3000803003')
       expect(again.code).toBe(0)
       expect(again.out).toContain('already voided: 2')
     } finally {

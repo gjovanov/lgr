@@ -5,8 +5,8 @@
  * on the разписка, so the invoice must not dispatch them again — but the PDF export drops the
  * comment that records the conversion, so it has to be recognised from the shipment itself.
  *
- * The live failure this encodes: INV-3000100974 (БеПро ЕАД, 2026-09-08) re-dispatched all 50 lines
- * of складова разписка 0000012713 and put 47 products out by exactly the note's quantity.
+ * The live failure this encodes: INV-3000703974 (Тест Фирма ЕАД, 2026-09-08) re-dispatched all 50 lines
+ * of складова разписка 0000615713 and put 47 products out by exactly the note's quantity.
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
@@ -22,10 +22,10 @@ beforeAll(async () => { await setupTestDB() }, 60_000)
 afterAll(async () => { await teardownTestDB() }, 60_000)
 afterEach(async () => { await clearCollections() }, 30_000)
 
-const ORG_EIK = '112500982'
-const ORG_PARTY = { name: 'РЕГАЛ ООД', company_id: ORG_EIK, vat_id: 'BG' + ORG_EIK }
-const PARTNER = { name: 'БеПро ЕАД', company_id: '175302437', vat_id: 'BG175302437', address: 'бул. Черни връх 51' }
-const OTHER = { name: 'ЕТ ПРИМЕРОВ П', company_id: '123456786', vat_id: 'BG123456786', address: 'ул. Примерна 25' }
+const ORG_EIK = '123456786'
+const ORG_PARTY = { name: 'ПРОБА ООД', company_id: ORG_EIK, vat_id: 'BG' + ORG_EIK }
+const PARTNER = { name: 'Тест Фирма ЕАД', company_id: '999000113', vat_id: 'BG999000113', address: 'бул. Тестов връх 51' }
+const OTHER = { name: 'ЕТ ПРИМЕРОВ П', company_id: '999000214', vat_id: 'BG999000214', address: 'ул. Примерна 25' }
 
 /** A складова разписка naming a partner — what `parseStockNoteParty` yields off a real note. */
 function noteDraft(number: string, lines: any[], customer: any = PARTNER): DraftResult {
@@ -71,12 +71,12 @@ const NOTE_LINES = [
   { description: 'Гайка М12', quantity: 300, unit: 'бр' },
 ]
 const INVOICE_LINES = [
-  { description: 'Болт М16Х75', quantity: 300, unit: 'бр', unit_price: 0.57, vat_rate: 20, total: 171 },
-  { description: 'Гайка М12', quantity: 300, unit: 'бр', unit_price: 0.05, vat_rate: 20, total: 15.33 },
+  { description: 'Болт М16Х75', quantity: 300, unit: 'бр', unit_price: 0.5, vat_rate: 20, total: 150 },
+  { description: 'Гайка М12', quantity: 300, unit: 'бр', unit_price: 0.05, vat_rate: 20, total: 15 },
 ]
 
 /** Book the разписка and return the stock left after it. */
-async function bookNote(ctx: any, number = '0000012713', lines = NOTE_LINES, customer = PARTNER) {
+async function bookNote(ctx: any, number = '0000615713', lines = NOTE_LINES, customer = PARTNER) {
   const [doc] = await analyzeDocuments(
     String(ctx.org._id), 'movement',
     [{ fileId: 'n1', filename: `sklrazp_${number}.pdf`, text: 'СКЛАДОВА РАЗПИСКА за приемане/предаване на МЦ', draft: noteDraft(number, lines, customer) }],
@@ -88,7 +88,7 @@ async function bookNote(ctx: any, number = '0000012713', lines = NOTE_LINES, cus
   return { mapped, res }
 }
 
-async function analyzeInvoice(ctx: any, number = '3000100974', lines = INVOICE_LINES, customer = PARTNER) {
+async function analyzeInvoice(ctx: any, number = '3000703974', lines = INVOICE_LINES, customer = PARTNER) {
   const [doc] = await analyzeDocuments(
     String(ctx.org._id), 'sales_invoice',
     [{ fileId: 'i1', filename: `invoicem_${number}.pdf`, text: 'ФАКТУРА', draft: invoiceDraft(number, lines, customer) }],
@@ -115,15 +115,15 @@ describe('складова разписка → фактура conversion', () =
 
     const mapped = await analyzeInvoice(ctx)
     const hit = await findStockNoteConversion(String(ctx.org._id), mapped)
-    expect(hit?.marker).toBe('sklrazp:0000012713')
+    expect(hit?.marker).toBe('sklrazp:0000615713')
 
     const [res] = await commitDocuments(String(ctx.org._id), String(ctx.user._id), 'sales_invoice', [
       { fileId: 'i1', mapped, options: { convert: true, adjustStock: true } },
     ])
     expect(res.ok).toBe(true)
-    expect(res.issuedNumber).toBe('INV-3000100974')
-    expect(res.stockSource).toBe('sklrazp:0000012713')
-    expect(res.error).toContain('0000012713')
+    expect(res.issuedNumber).toBe('INV-3000703974')
+    expect(res.stockSource).toBe('sklrazp:0000615713')
+    expect(res.error).toContain('0000615713')
 
     // The whole point: the note's 300 left, the invoice's 300 did not.
     const after: any = await StockLevel.findOne({ orgId: ctx.org._id, productId: ctx.bolt._id }).lean()
@@ -131,7 +131,7 @@ describe('складова разписка → фактура conversion', () =
     expect(await StockMovement.countDocuments({ orgId: ctx.org._id, type: 'dispatch' })).toBe(0)
 
     const inv: any = await Invoice.findById(res.id).lean()
-    expect(inv.stockSource.marker).toBe('sklrazp:0000012713')
+    expect(inv.stockSource.marker).toBe('sklrazp:0000615713')
     expect(inv.stockSource.detectedBy).toBe('lines')
     const mv: any = await StockMovement.findOne({ orgId: ctx.org._id, type: 'transfer' }).lean()
     expect(String(mv.invoiceId)).toBe(String(res.id))
@@ -140,7 +140,7 @@ describe('складова разписка → фактура conversion', () =
   it('books normally when the quantities differ — a subset is not a conversion', async () => {
     const ctx = await scenario()
     await bookNote(ctx)
-    const mapped = await analyzeInvoice(ctx, '3000100975', [
+    const mapped = await analyzeInvoice(ctx, '3000703975', [
       { ...INVOICE_LINES[0], quantity: 200, total: 114 },
       INVOICE_LINES[1],
     ])
@@ -157,7 +157,7 @@ describe('складова разписка → фактура conversion', () =
   it('books normally when the note went to a different partner', async () => {
     const ctx = await scenario()
     await Contact.create({ orgId: ctx.org._id, type: 'customer', companyName: OTHER.name, taxId: OTHER.company_id, isActive: true } as any)
-    await bookNote(ctx, '0000012713', NOTE_LINES, OTHER)
+    await bookNote(ctx, '0000615713', NOTE_LINES, OTHER)
 
     const mapped = await analyzeInvoice(ctx)
     expect(await findStockNoteConversion(String(ctx.org._id), mapped)).toBeNull()
@@ -172,7 +172,7 @@ describe('складова разписка → фактура conversion', () =
     ])
 
     // Same shipment, same partner, a different document number — the note is already claimed.
-    const second = await analyzeInvoice(ctx, '3000100999')
+    const second = await analyzeInvoice(ctx, '3000703999')
     expect(await findStockNoteConversion(String(ctx.org._id), second)).toBeNull()
     const [res] = await commitDocuments(String(ctx.org._id), String(ctx.user._id), 'sales_invoice', [
       { mapped: second, options: { convert: true, adjustStock: true } },
@@ -183,23 +183,23 @@ describe('складова разписка → фактура conversion', () =
   })
 
   it('counts the lines a reconcile added to the note, not just its first booking', async () => {
-    // The live shape: разписка 0000012713 was re-uploaded with two more lines, which
+    // The live shape: разписка 0000615713 was re-uploaded with two more lines, which
     // `reconcileDocFile` booked under `reconcile:<doc>-v<n>` rather than the note's own marker.
     // Grouping on the note marker alone left the shipment short by exactly those lines.
     const ctx = await scenario()
-    await bookNote(ctx, '0000012713', [NOTE_LINES[0]])   // only the bolts went out at first
+    await bookNote(ctx, '0000615713', [NOTE_LINES[0]])   // only the bolts went out at first
     const note: any = await StockMovement.findOne({ orgId: ctx.org._id, type: 'transfer' }).lean()
     await StockMovement.create({
       orgId: ctx.org._id, movementNumber: 'SM-TEST-REC', type: 'transfer', status: 'completed',
       date: new Date('2026-09-01'), fromWarehouseId: ctx.wh._id, contactId: note.contactId,
-      notes: 'Reconcile sklrazp_0000012713.pdf v2 (reconcile:0000012713-v2)',
+      notes: 'Reconcile sklrazp_0000615713.pdf v2 (reconcile:0000615713-v2)',
       lines: [{ productId: ctx.nut._id, quantity: 300, unitCost: 0.05, totalCost: 15 }],
       totalAmount: 15, createdBy: ctx.user._id,
     } as any)
 
     const mapped = await analyzeInvoice(ctx)
     const hit = await findStockNoteConversion(String(ctx.org._id), mapped)
-    expect(hit?.marker).toBe('sklrazp:0000012713')
+    expect(hit?.marker).toBe('sklrazp:0000615713')
     expect(hit?.movementNumbers).toContain('SM-TEST-REC')
   })
 
@@ -231,7 +231,7 @@ describe('складова разписка → фактура conversion', () =
     // Regression: `byWarehouse` keyed on the raw warehouseId, so a caller passing a lean invoice
     // (ObjectId ids, compared by reference) turned one 50-line invoice into 50 movements.
     const ctx = await scenario()
-    const mapped = await analyzeInvoice(ctx, '3000100977')
+    const mapped = await analyzeInvoice(ctx, '3000703977')
     const [res] = await commitDocuments(String(ctx.org._id), String(ctx.user._id), 'sales_invoice', [
       { mapped, options: { convert: true, adjustStock: true } },
     ])

@@ -15,13 +15,13 @@ afterAll(async () => {
 
 /**
  * These hit eik.bg live, and as of 2026-08 that site serves a data-less placeholder page
- * ("Информацията за ЕИК … се обновява") for the EIKs below — so nothing can assert a real
- * company name or address today.
+ * ("Информацията за ЕИК … се обновява") for a number it has nothing on, and the EIKs below are made up — so nothing can assert
+ * a real company name or address.
  *
  * What IS worth asserting, and what these tests now cover, is the adapter's contract when
  * the registry has nothing: it must report `isValid: false` rather than manufacture an
- * answer. It used to read the page <title> — literally "ЕИК 112500982 | EIK.bg" — and hand
- * back "ЕИК 112500982" as the company name, which callers then wrote into contact records
+ * answer. It used to read the page <title> — literally "ЕИК 123456786 | EIK.bg" — and hand
+ * back "ЕИК 123456786" as the company name, which callers then wrote into contact records
  * as though it were a real firm.
  */
 describe('Company Lookup Service — Bulgaria (eik.bg)', () => {
@@ -41,21 +41,21 @@ describe('Company Lookup Service — Bulgaria (eik.bg)', () => {
   }
 
   it('never invents a company name when the registry has no data', async () => {
-    expectHonestResult(await lookupBulgaria('205174895'), '205174895')
+    expectHonestResult(await lookupBulgaria('999000106'), '999000106')
   })
 
   it('never invents a company name for an EIK with a placeholder page', async () => {
-    expectHonestResult(await lookupBulgaria('112500982'), '112500982')
+    expectHonestResult(await lookupBulgaria('123456786'), '123456786')
   })
 
   it('routes a bare EIK to the Bulgarian adapter', async () => {
-    const result = await lookupCompany('205174895')
-    expectHonestResult(result, '205174895')
+    const result = await lookupCompany('999000106')
+    expectHonestResult(result, '999000106')
   })
 
   it('routes a BG-prefixed VAT number to the Bulgarian adapter', async () => {
-    const result = await lookupCompany('BG112500982')
-    expectHonestResult(result, '112500982')
+    const result = await lookupCompany('BG123456786')
+    expectHonestResult(result, '123456786')
   })
 
   it('rejects malformed input without calling out', async () => {
@@ -67,6 +67,7 @@ describe('Company Lookup Service — Bulgaria (eik.bg)', () => {
   })
 })
 
+// These assert a live hit: to run them, put a registered firm's VAT number where the made-up BG one is.
 describe.skip('Company Lookup Service — EU (verifyvat.com) — skipped: external API rate-limited', () => {
   it('should lookup EU company by VAT (AT)', async () => {
     const result = await lookupEU('ATU66280133')
@@ -85,15 +86,15 @@ describe.skip('Company Lookup Service — EU (verifyvat.com) — skipped: extern
 
   it('should lookup Bulgarian VAT number via EU adapter', async () => {
     await wait(6000)
-    const result = await lookupEU('BG205174895')
+    const result = await lookupEU('BG999000106')
     expect(result.isValid).toBe(true)
-    expect(result.vatNumber).toContain('BG205174895')
+    expect(result.vatNumber).toContain('BG999000106')
   })
 
   it('should auto-detect country from VAT prefix via lookupCompany', async () => {
     await wait(6000)
     // BG prefix -> Bulgaria adapter first (eik.bg, no verifyvat)
-    const bgResult = await lookupCompany('BG205174895')
+    const bgResult = await lookupCompany('BG999000106')
     expect(bgResult.isValid).toBe(true)
     expect(bgResult.taxNumber).toBeTruthy()
 

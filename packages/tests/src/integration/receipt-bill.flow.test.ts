@@ -226,8 +226,8 @@ describe('a bill made from a goods receipt (FR-22.31)', () => {
     const r = await w.receipt([[w.bolt, 10, 5]])
     const bill = (await w.fromReceipt([r._id])).json.invoice
     const doc = await DocFile.create({
-      orgId: w.org._id, docType: 'stokrazp', docNumber: '3000016317', docDate: '2026-10-20',
-      originalName: 'stokrazp_3000016317.pdf', currentPath: '/nowhere', currentChecksum: 'x',
+      orgId: w.org._id, docType: 'stokrazp', docNumber: '3000619317', docDate: '2026-10-20',
+      originalName: 'stokrazp_3000619317.pdf', currentPath: '/nowhere', currentChecksum: 'x',
       mimeType: 'application/pdf', size: 1, uploadedBy: w.user._id, status: 'committed', committedIds: [r._id],
       uploadedAt: new Date(Date.now() - 3_600_000),
     } as any)
@@ -1065,7 +1065,7 @@ describe('a receipt naming no supplier that says it is no delivery (FR-22.31a)',
   it('the positive half of a КОРЕКЦИЯ, as the import maps it', async () => {
     const w = await world()
     const { movements } = await mapMovementExtraction(w.orgId, {
-      document_number: '3000000101', issue_date: '2026-10-20', supplier: { name: '2000 КОРЕКЦИЯ' },
+      document_number: '3000603101', issue_date: '2026-10-20', supplier: { name: '2000 КОРЕКЦИЯ' },
       line_items: [{ description: w.bolt.name, quantity: 5, unit_price: 5 }, { description: w.nut.name, quantity: -2, unit_price: 2 }],
     } as any, 'correction', { warehouseId: String(w.warehouse._id), date: '2026-10-20' })
     const plus = movements.find(m => m.type === 'receipt')!
@@ -1076,7 +1076,7 @@ describe('a receipt naming no supplier that says it is no delivery (FR-22.31a)',
     const w = await world()
     const created = await w.call('POST', '/warehouse/movement', {
       type: 'receipt', date: '2026-10-20', toWarehouseId: String(w.warehouse._id), totalAmount: 25,
-      notes: deliveryNote('2026-10-20', movementMarker('goods_receipt', '3000000102'), '2000 КОРЕКЦИЯ'),
+      notes: deliveryNote('2026-10-20', movementMarker('goods_receipt', '3000603102'), '2000 КОРЕКЦИЯ'),
       lines: [{ productId: String(w.bolt._id), quantity: 5, unitCost: 5, totalCost: 25 }],
     })
     const id = created.json.stockMovement._id || created.json.stockMovement.id
@@ -1105,7 +1105,7 @@ describe('a receipt naming no supplier that says it is no delivery (FR-22.31a)',
     const w = await world()
     // The document names another of the org's own stores: nothing marks that, so a person decides.
     const { movements } = await mapMovementExtraction(w.orgId, {
-      document_number: '3000000104', issue_date: '2026-10-20', supplier: { name: 'МАГАЗИН ДРУГ ОБЕКТ' },
+      document_number: '3000603104', issue_date: '2026-10-20', supplier: { name: 'МАГАЗИН ДРУГ ОБЕКТ' },
       line_items: [{ description: w.bolt.name, quantity: 5, unit_price: 5 }],
     } as any, 'goods_receipt', { warehouseId: String(w.warehouse._id), date: '2026-10-20' })
     const m = await booked(w, movements[0])

@@ -17,8 +17,8 @@ function fixture(kind: CompanionDocData['kind']): CompanionDocData {
     kind,
     number: kind === 'certificate' ? 'CERT-2026-00007' : 'PPP-2026-00011',
     date: new Date('2026-09-03'),
-    recipient: { name: 'СОЛИТЕХ АД', city: 'СОФИЯ', address: 'БУЛ.ГОЦЕ ДЕЛЧЕВ 55', taxId: '200610482' },
-    supplier: { name: 'РЕГАЛ ООД', city: 'ПАЗАРДЖИК', address: 'ПЛОВДИВСКА 110', taxId: '112500982' },
+    recipient: { name: 'ТЕСТ ТЕХНИК АД', city: 'СОФИЯ', address: 'БУЛ.ТЕСТОВ 55', taxId: '999000184' },
+    supplier: { name: 'ПРОБА ООД', city: 'ТЕСТОГРАД', address: 'УЛ.ТЕСТОВА 101', taxId: '123456786' },
     lines: [
       { name: 'БОЛТ М10Х30 - DIN 933 - K 8.8 - ZN', unit: 'БР', quantity: 15 },
       { name: 'ВИНТ 6Х160 - ТХ - EVOLUTION', unit: 'БР', quantity: 300 },

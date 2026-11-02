@@ -9,10 +9,10 @@
  *
  * Detection is O(n) over the SORTED present numbers (jumps between consecutive docs) — it
  * never enumerates min..max, so unrelated number spaces (e.g. proforma 7xxx vs sales
- * 3000100xxx) can't blow up. invoicem and invoiceProf are kept as SEPARATE spaces.
+ * 3000703xxx) can't blow up. invoicem and invoiceProf are kept as SEPARATE spaces.
  *
  * LGR cross-check (--org): movement notes carry `stokrazp:` / `corr:` / `sklrazp:` /
- * `sklisk:` markers and issued sales invoices carry the original 3000100… number, so we
+ * `sklisk:` markers and issued sales invoices carry the original 3000703… number, so we
  * can report (a) folder docs with NO LGR record ("not imported") and (b) gaps in LGR's own
  * per-type sequence near the scanned range (catches cross-day gaps even for a single day).
  *
@@ -29,6 +29,8 @@
  *   --out <path>     also write a CSV of every finding
  *   --json           print machine-readable JSON instead of the text report
  *   --quiet          suppress the per-type "✓ contiguous" lines (only show problems)
+ * Env: DELETED_DOC_NUMBERS_FILE, the list of numbers deleted in the source (default: the gitignored
+ *   .secrets/deleted-doc-numbers.json). With no list, those numbers report as missing and the run exits 1.
  * Exit code: 0 = no missing docs, 1 = at least one missing/not-imported doc found.
  */
 import { readFileSync, readdirSync, writeFileSync, statSync } from 'node:fs'
@@ -99,7 +101,15 @@ function gapRuns(nums: number[]): Array<{ a: number; b: number }> {
 const showRun = (r: { a: number; b: number }) => r.a === r.b ? `${r.a}` : `${r.a}–${r.b} (${r.b - r.a + 1})`
 
 /**
- * Numbers PlusMinus allocated and then DELETED — `scripts/data/deleted-doc-numbers.json`.
+ * Numbers PlusMinus allocated and then DELETED, read from the gitignored
+ * `.secrets/deleted-doc-numbers.json` or from `DELETED_DOC_NUMBERS_FILE`. They are the customer's real
+ * document numbers and this repo is public, so the list is not tracked. It is keyed by org slug, then
+ * by document family as this script names them:
+ *   { "<org slug>": { "stokrazp": [{ "number": <n>, "deletedPer": "operator, <date>", "note": "…" }] } }
+ * A number belongs there only on the operator's word that the source document was deleted. It is NOT a
+ * place to silence a gap nobody has explained.
+ * With no list (unset, absent or unreadable) every such number stays a gap: it reports as missing and
+ * the run exits 1, and the report says no list was read.
  *
  * A gap where one of these sits is CLOSED, not pending: the document will never be exported, so
  * reporting it as missing every single run teaches people to ignore the warning, which is worse
@@ -108,7 +118,7 @@ const showRun = (r: { a: number; b: number }) => r.a === r.b ? `${r.a}` : `${r.a
  * ⚠ A deleted document brought no stock on either side. So it can never explain a quantity
  * difference — if a reconciliation was blaming one of these for a shortfall, that attribution is
  * wrong and the shortfall still needs a cause. (It happened: regal-pz's 2026-10-02 report pinned
- * 2,030 units on 3000016475-477/479 before they turned out to be deleted.)
+ * 2,030 units on 3000619475-477/479 before they turned out to be deleted.)
  *
  * The same number means different documents in different orgs, so the list has to be attributed.
  * `--org` is the explicit answer — but it also switches on the LGR cross-check and therefore
@@ -117,11 +127,12 @@ const showRun = (r: { a: number; b: number }) => r.a === r.b ? `${r.a}` : `${r.a
  * the file's own top-level keys (`_docs/regal-pz/2026-10-01` → `regal-pz`). An offline gap scan
  * gets the list too, and nothing is hardcoded here beyond the filename.
  */
-function loadDeleted(slug: string | undefined, scanned: string): { byType: Record<string, Set<number>>; org?: string; inferred: boolean } {
+const DELETED_FILE = process.env.DELETED_DOC_NUMBERS_FILE || join(import.meta.dir, '..', '.secrets', 'deleted-doc-numbers.json')
+function loadDeleted(slug: string | undefined, scanned: string): { byType: Record<string, Set<number>>; org?: string; inferred: boolean; unavailable?: boolean } {
   const byType: Record<string, Set<number>> = {}
   let raw: any
-  try { raw = JSON.parse(readFileSync(join(import.meta.dir, 'data', 'deleted-doc-numbers.json'), 'utf8')) }
-  catch { return { byType, inferred: false } }           // absent or unreadable: every gap stays a gap
+  try { raw = JSON.parse(readFileSync(DELETED_FILE, 'utf8')) }
+  catch { return { byType, inferred: false, unavailable: true } }   // absent or unreadable: every gap stays a gap
   const orgs = Object.keys(raw).filter((k) => !k.startsWith('_'))
   const segs = scanned.split(/[\\/,]+/).map((s) => s.trim().toLowerCase()).filter(Boolean)
   const explicit = slug && orgs.includes(slug) ? slug : undefined
@@ -204,6 +215,8 @@ async function main() {
   if (deletedList.org) {
     const n = Object.values(DELETED).reduce((a, s2) => a + s2.size, 0)
     report.push(`  deleted-in-source list: ${deletedList.org} (${n} number(s))${deletedList.inferred ? ' — recognised from the path' : ''}`)
+  } else if (deletedList.unavailable) {
+    report.push(`  deleted-in-source list: none read (${DELETED_FILE}), so a number deleted in the source reports as missing`)
   }
 
   let anyMissing = false

@@ -83,18 +83,18 @@ async function world() {
   const pos = (over: Record<string, any>) => createTestPOSTransaction(orgId, session._id as Types.ObjectId, user._id as Types.ObjectId, {
     lines: [{ productId: product._id, name: 'Bolt M8', quantity: 1, unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 2, lineTotal: 10 }] as any,
     subtotal: 10, discountTotal: 0, taxTotal: 2, total: 12, payments: [{ method: 'cash', amount: 20 }], changeDue: 8,
-    isFiscal: true, fiscalDeviceNumber: 'ED399266', fiscal: { state: 'printed', mode: 'fiscal' },
+    isFiscal: true, fiscalDeviceNumber: 'ED777001', fiscal: { state: 'printed', mode: 'fiscal' },
     ...over,
   } as any)
   // A till sale still a POS row, at 22:30 on the 21st in Sofia (19:30 UTC), with its dispatch.
   const tillMovement = await createTestStockMovement(orgId, { type: 'dispatch', status: 'completed', movementNumber: 'SM-2026-00002' } as any)
-  await pos({ transactionNumber: 'TXN-2026-0000001', createdAt: sofia('2026-10-21T22:30:00'), unpNumber: 'ED399266-0001-0000001', movementId: tillMovement._id })
+  await pos({ transactionNumber: 'TXN-2026-0000001', createdAt: sofia('2026-10-21T22:30:00'), unpNumber: 'ED777001-0001-0000001', movementId: tillMovement._id })
   // A till sale copied to a document (both stores), stornoed by a storno held only as a document.
   const copied = await pos({
-    transactionNumber: 'TXN-2026-0000002', createdAt: sofia('2026-10-21T10:00:00'), unpNumber: 'ED399266-0001-0000002', status: 'cancelled',
+    transactionNumber: 'TXN-2026-0000002', createdAt: sofia('2026-10-21T10:00:00'), unpNumber: 'ED777001-0001-0000002', status: 'cancelled',
   })
   const stornoRow = await pos({
-    transactionNumber: 'TXN-2026-0000003', type: 'storno', createdAt: sofia('2026-10-21T10:30:00'), unpNumber: 'ED399266-0001-0000003',
+    transactionNumber: 'TXN-2026-0000003', type: 'storno', createdAt: sofia('2026-10-21T10:30:00'), unpNumber: 'ED777001-0001-0000003',
     originalTransactionId: copied._id, stornoReason: 'customer_return', changeDue: 0, payments: [{ method: 'cash', amount: 12 }],
   })
   await Invoice.collection.insertOne(fromPosTransaction(copied.toObject(), session.toObject(), { stornoedBy: [stornoRow._id] }) as any)
@@ -134,7 +134,7 @@ describe('the journal list', () => {
     expect(by('TXN-2026-0000001')).toMatchObject({
       store: 'invoice', kind: 'sale', origin: 'pos', status: 'completed', total: 12, currency: 'EUR', hasTime: true,
       payments: [{ method: 'cash', amount: 12, tendered: 20 }], sessionNumber: 'POS-2026-000009', warehouseName: 'Склад 1',
-      cashierName: 'Ivan Testov', stock: 'moved', fiscal: { isFiscal: true, state: 'printed', unp: 'ED399266-0001-0000001', deviceNumber: 'ED399266' },
+      cashierName: 'Ivan Testov', stock: 'moved', fiscal: { isFiscal: true, state: 'printed', unp: 'ED777001-0001-0000001', deviceNumber: 'ED777001' },
     })
     expect(by('TXN-2026-0000002')).toMatchObject({ status: 'stornoed', stornoedBy: [String(w.stornoRow._id)] })
     expect(by('TXN-2026-0000003')).toMatchObject({ kind: 'storno', relatedId: String(w.copied._id) })
@@ -157,7 +157,7 @@ describe('the journal list', () => {
   it('searches the number and the УНП, filters by method, session and warehouse', async () => {
     const w = await world()
     expect(numbers(await w.get('/documents?search=0000003'))).toEqual(['TXN-2026-0000003'])
-    expect(numbers(await w.get('/documents?search=ED399266-0001-0000001'))).toEqual(['TXN-2026-0000001'])
+    expect(numbers(await w.get('/documents?search=ED777001-0001-0000001'))).toEqual(['TXN-2026-0000001'])
     expect(numbers(await w.get('/documents?paymentMethod=card'))).toEqual(['CS-2026-00001'])
     expect((await w.get(`/documents?sessionId=${w.session._id}`)).json.total).toBe(3)
     expect((await w.get(`/documents?warehouseId=${w.other._id}`)).json.total).toBe(0)
@@ -171,7 +171,7 @@ describe('the journal list', () => {
       subtotal: 10, discountTotal: 0, taxTotal: 2, total: 12, payments: [{ method: 'card', amount: 12 }], changeDue: 0,
       createdAt: sofia('2026-10-19T09:00:00'), ...over,
     } as any)
-    await legacy({ transactionNumber: 'TXN-2026-0000101', isFiscal: true, fiscalReceiptNumber: '0000412', unpNumber: 'ED399266-0001-0000101' })
+    await legacy({ transactionNumber: 'TXN-2026-0000101', isFiscal: true, fiscalReceiptNumber: '0000412', unpNumber: 'ED777001-0001-0000101' })
     await legacy({ transactionNumber: 'TXN-2026-0000102', isFiscal: false })
     await migrateTill(w.orgId)
 

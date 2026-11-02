@@ -538,7 +538,7 @@ describe('the switch is off: LGR prints nothing (Q-4)', () => {
 
 describe('an imported document never prints (§2.2)', () => {
   const mapped = (w: TillWorld, method: string): any => ({
-    type: 'invoice', direction: 'outgoing', reference: '3000100974', currency: 'EUR', exchangeRate: 1, issueDate: TODAY,
+    type: 'invoice', direction: 'outgoing', reference: '3000703974', currency: 'EUR', exchangeRate: 1, issueDate: TODAY,
     lines: [line(w)], subtotal: 20, taxTotal: 4, total: 24, paymentMethod: method, tags: ['ocr-import'],
     billingAddress: { street: '-', city: '-', postalCode: '-', country: '-' },
   })
@@ -1468,7 +1468,7 @@ describe('an edit does not settle silently where LGR prints', () => {
 
   async function imported(w: TillWorld) {
     const draft = await persistInvoiceDraft(w.orgId, String(w.user._id), {
-      type: 'invoice', direction: 'outgoing', reference: '3000100975', currency: 'EUR', exchangeRate: 1, issueDate: TODAY,
+      type: 'invoice', direction: 'outgoing', reference: '3000703975', currency: 'EUR', exchangeRate: 1, issueDate: TODAY,
       lines: [line(w)], subtotal: 20, taxTotal: 4, total: 24, paymentMethod: 'cash', tags: ['ocr-import'],
       billingAddress: { street: '-', city: '-', postalCode: '-', country: '-' },
     } as any)

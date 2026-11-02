@@ -108,13 +108,13 @@ describe('Aggregated cash-register export (FR-03)', () => {
     expect(buffer.length).toBeGreaterThan(1000)
 
     const { html } = buildCashAggHtml({
-      title: 'Касови продажби — по продукт', sections, locale: 'bg', orgName: 'РЕГАЛ',
+      title: 'Касови продажби — по продукт', sections, locale: 'bg', orgName: 'ПРОБА',
       period: { from: '2026-08-01', to: '2026-08-21' },
     })
     expect(html).toContain('Болт М8х25 ZN')
     expect(html).toContain('BOLT-M8X25')
     expect(html).toContain('1,92') // bg money format
-    expect(html).toContain('РЕГАЛ')
+    expect(html).toContain('ПРОБА')
 
     const empty = buildCashAggHtml({ title: 'x', sections: [], locale: 'en', orgName: 'Org' })
     expect(empty.html).toContain('(no lines)')

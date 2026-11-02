@@ -2,7 +2,7 @@
  * PlusMinus `/mobile` `document()` JSON (header + lines) → `DocumentExtraction`.
  *
  * No OCR, no AI: PlusMinus's own structured data IS the extraction. Field mapping confirmed
- * 2026-10-28 against a real sample (`header.docNumber` `3000101649`, pulled live by
+ * 2026-10-28 against a real sample (`header.docNumber` `3000704649`, pulled live by
  * `pull-plusminus-api`) cross-checked byte-for-byte against that exact invoice, already
  * correctly imported into LGR via the OCR path:
  *   - `header.sum` / `header.vat` are copied VERBATIM as gross/VAT totals — the existing OCR
@@ -27,9 +27,9 @@
  * below emits the same "Кредитно известие" + "Известие към: <ref>" signal a printed note's OCR'd
  * text already carries, so `detectNoteType`/`parseNoteReference` (detect.ts) — unchanged,
  * text-based, written for the OCR path — classify it and resolve what it corrects without any
- * server-side code touched. `header.ОСНИЗВ` ("-ФЕ 3000101701/29.10.2026") already has the exact
+ * server-side code touched. `header.ОСНИЗВ` ("-ФЕ 3000704701/29.10.2026") already has the exact
  * "<code> <number>/<date>" shape `parseNoteReference`'s regex looks for. Confirmed on two real
- * notes, both orgs (regal-pz 3000101716, regal-sf 2000129342): `ОСНИЗВ`, `header.comment` and
+ * notes, both orgs (regal-pz 3000704716, regal-sf 2000732342): `ОСНИЗВ`, `header.comment` and
  * every line's `fromDocument` all agree on the same original invoice number. No debit notes have
  * been observed in either org's data — only the credit-note title is ever emitted.
  *
@@ -94,7 +94,7 @@ function pmDate(v: string | undefined): string | undefined {
   return m ? `${m[1]}-${m[2]}-${m[3]}` : undefined
 }
 
-/** `"ПАРТНЬОРИ:БИОВЕТ АД"` / `"КЛИЕНТИ:ВАДИС - ООД"` → the bare counterparty name. */
+/** `"ПАРТНЬОРИ:ТЕСТ КЛИЕНТ АД"` / `"КЛИЕНТИ:ТЕСТ ПАРТНЬОР - ООД"` → the bare counterparty name. */
 export function stripPartnerPrefix(v: string | undefined): string {
   const s = (v || '').trim()
   const i = s.indexOf(':')
@@ -118,7 +118,7 @@ export function plusminusPaymentMethod(code: string | number | undefined): strin
 }
 
 /** The ЗДДС/ДОПК consent + no-stamp clauses, copied verbatim from a real printed invoice
- * (`invoicem_3000101637.pdf`, 2026-10-26) — invariant boilerplate, same on every invoice. */
+ * (`invoicem_3000704637.pdf`, 2026-10-26) — invariant boilerplate, same on every invoice. */
 export const INVOICE_TERMS_BOILERPLATE = [
   'Получателят е дал съгласие горепосочените лични данни да бъдат използвани от администратора на '
   + 'лични данни във връзка с изпълнението на чл. 114, ал. 1, т. 7 и т. 8 от ЗДДС и чл. 84, ал. 2 от ДОПК',
@@ -128,7 +128,7 @@ export const INVOICE_TERMS_BOILERPLATE = [
 /**
  * `detectNoteType`/`parseNoteReference` (detect.ts) are text-based and unchanged — this emits
  * exactly the two phrases they look for, from `header.ОСНИЗВ`, when `header.sum` is negative.
- * `ОСНИЗВ` ("-ФЕ 3000101701/29.10.2026") already has the "<code> <number>/<date>" shape
+ * `ОСНИЗВ` ("-ФЕ 3000704701/29.10.2026") already has the "<code> <number>/<date>" shape
  * `parseNoteReference`'s regex scans for, so the whole value is reused verbatim rather than
  * re-parsed. A malformed/absent `ОСНИЗВ` omits the "Известие към" line — the note still types
  * correctly as credit_note, just with no resolvable `relatedReference`, the same graceful

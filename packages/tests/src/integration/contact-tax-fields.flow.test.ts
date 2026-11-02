@@ -19,15 +19,15 @@ describe('Contact Tax Fields', () => {
   it('should persist taxNumber and vatNumber on contact', async () => {
     const org = await createTestOrg()
     const contact = await createTestContact(org._id, {
-      taxNumber: '205174895',
-      vatNumber: 'BG205174895',
+      taxNumber: '999000106',
+      vatNumber: 'BG999000106',
     })
 
     // Re-fetch from DB
     const fetched = await Contact.findById(contact._id)
     expect(fetched).toBeDefined()
-    expect(fetched!.taxNumber).toBe('205174895')
-    expect(fetched!.vatNumber).toBe('BG205174895')
+    expect(fetched!.taxNumber).toBe('999000106')
+    expect(fetched!.vatNumber).toBe('BG999000106')
   })
 
   it('should find contact by vatNumber', async () => {
@@ -57,14 +57,14 @@ describe('Contact Tax Fields', () => {
   it('should store both taxNumber and vatNumber independently', async () => {
     const org = await createTestOrg()
     const contact = await createTestContact(org._id, {
-      taxNumber: '205174895',
-      vatNumber: 'BG205174895',
+      taxNumber: '999000106',
+      vatNumber: 'BG999000106',
       taxId: 'legacy-id',
     })
 
     const fetched = await Contact.findById(contact._id)
-    expect(fetched!.taxNumber).toBe('205174895')
-    expect(fetched!.vatNumber).toBe('BG205174895')
+    expect(fetched!.taxNumber).toBe('999000106')
+    expect(fetched!.vatNumber).toBe('BG999000106')
     expect(fetched!.taxId).toBe('legacy-id')
   })
 })

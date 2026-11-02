@@ -53,7 +53,7 @@ export function parsePreparedBy(rawText: string): string | undefined {
   return clean(m?.[1]) || undefined
 }
 
-/** The place of transaction ("Място на сделката: : гр.Пазарджик" — tolerates the doubled colon). */
+/** The place of transaction ("Място на сделката: : гр.Тестоград" — tolerates the doubled colon). */
 export function parsePlaceOfTransaction(rawText: string): string | undefined {
   const m = /Място на сделката\s*:?\s*:?\s*([^\n]+)/i.exec(rawText || '')
   // The value shares its line with other columns — cut at 3+ consecutive spaces.

@@ -21,29 +21,29 @@ beforeAll(async () => { await setupTestDB() }, 60_000)
 afterAll(async () => { await teardownTestDB() }, 60_000)
 afterEach(async () => { await clearCollections() }, 30_000)
 
-const ORG_EIK = '112500982'
-const ORG_PARTY = { name: 'РЕГАЛ ООД', company_id: ORG_EIK, vat_id: 'BG' + ORG_EIK }
-const CUSTOMER = { name: 'КОЛОВАГ АД', company_id: '112131492', vat_id: 'BG112131492', address: 'ул.Любен Каравелов 2' }
+const ORG_EIK = '123456786'
+const ORG_PARTY = { name: 'ПРОБА ООД', company_id: ORG_EIK, vat_id: 'BG' + ORG_EIK }
+const CUSTOMER = { name: 'ТЕСТ ВАГОН АД', company_id: '999000177', vat_id: 'BG999000177', address: 'ул.Тестова 2' }
 
-/** The letterhead of a real кредитно известие: the credited document sits BELOW its label. */
+/** The letterhead of a кредитно известие: the credited document sits BELOW its label. */
 const NOTE_TEXT = [
   ' Кредитно известие                                          Номер:',
   '                                                              Дата:',
-  '                                                         3000100983',
+  '                                                         3000703983',
   '                                                         09.09.2026',
   '                                              ОРИГИНАЛ',
   '                                              Известие към: -ФЕ',
-  '                                            3000100972/08.09.2026',
+  '                                            3000703972/08.09.2026',
 ].join('\n')
 
 /** PlusMinus prints a note's quantity and every value NEGATIVE. */
 function noteDraft(): DraftResult {
   return {
     extraction: {
-      document_number: '3000100983', issue_date: '2026-09-09', currency: 'EUR', exchange_rate: 1.95583,
+      document_number: '3000703983', issue_date: '2026-09-09', currency: 'EUR', exchange_rate: 1.95583,
       supplier: ORG_PARTY, customer: CUSTOMER,
-      line_items: [{ description: 'БОЛТ М16Х70', quantity: -1000, unit: 'бр', unit_price: 0.82, vat_rate: 20, total: -818.10 }],
-      net_total: -818.10, vat_total: -163.62, gross_total: -981.72,
+      line_items: [{ description: 'БОЛТ М16Х70', quantity: -1000, unit: 'бр', unit_price: 0.5, vat_rate: 20, total: -500 }],
+      net_total: -500, vat_total: -100, gross_total: -600,
     },
     validation: { status: 'valid', checks: [] }, model: 'test', engine: 'test',
   }
@@ -52,7 +52,7 @@ function noteDraft(): DraftResult {
 describe('кредитно известие', () => {
   it('reads the title and the document it corrects', () => {
     expect(detectNoteType(NOTE_TEXT)).toBe('credit_note')
-    expect(parseNoteReference(NOTE_TEXT)).toBe('3000100972')
+    expect(parseNoteReference(NOTE_TEXT)).toBe('3000703972')
     expect(detectNoteType('ФАКТУРА ОРИГИНАЛ')).toBeNull()
     expect(parseNoteReference('ФАКТУРА ОРИГИНАЛ')).toBeUndefined()
   })
@@ -65,15 +65,15 @@ describe('кредитно известие', () => {
 
     const [doc] = await analyzeDocuments(
       String(org._id), 'sales_invoice',
-      [{ fileId: 'f1', filename: 'invoicem_3000100983.pdf', text: NOTE_TEXT, draft: noteDraft() }],
+      [{ fileId: 'f1', filename: 'invoicem_3000703983.pdf', text: NOTE_TEXT, draft: noteDraft() }],
       { warehouseId: String(wh._id) },
     )
     const mapped = doc.mapped as MappedInvoice
     expect(mapped.type).toBe('credit_note')
     expect(mapped.direction).toBe('outgoing')
     expect(mapped.lines[0].quantity).toBe(1000)
-    expect(mapped.total).toBeCloseTo(981.72, 2)
-    expect(mapped.relatedReference).toBe('3000100972')
+    expect(mapped.total).toBeCloseTo(600, 2)
+    expect(mapped.relatedReference).toBe('3000703972')
   })
 
   it('books it as a RETURN into the warehouse and links the invoice it corrects', async () => {
@@ -85,8 +85,8 @@ describe('кредитно известие', () => {
 
     // the invoice this note corrects has to exist for the link to resolve
     const orig = await Invoice.create({
-      orgId: org._id, type: 'invoice', direction: 'outgoing', invoiceNumber: 'INV-3000100972',
-      reference: '3000100972', issueDate: new Date('2026-09-08'), dueDate: new Date('2026-10-08'),
+      orgId: org._id, type: 'invoice', direction: 'outgoing', invoiceNumber: 'INV-3000703972',
+      reference: '3000703972', issueDate: new Date('2026-09-08'), dueDate: new Date('2026-10-08'),
       currency: 'EUR', exchangeRate: 1.95583, lines: [], subtotal: 0, taxTotal: 0, total: 0,
       totalBase: 0, amountDue: 0, amountPaid: 0, status: 'sent',
       billingAddress: { street: 'x', city: 'y', postalCode: '1', country: 'BG' }, createdBy: user._id,
@@ -94,7 +94,7 @@ describe('кредитно известие', () => {
 
     const [doc] = await analyzeDocuments(
       String(org._id), 'sales_invoice',
-      [{ fileId: 'f1', filename: 'invoicem_3000100983.pdf', text: NOTE_TEXT, draft: noteDraft() }],
+      [{ fileId: 'f1', filename: 'invoicem_3000703983.pdf', text: NOTE_TEXT, draft: noteDraft() }],
       { warehouseId: String(wh._id) },
     )
     const [res] = await commitDocuments(String(org._id), String(user._id), 'sales_invoice', [
@@ -104,10 +104,10 @@ describe('кредитно известие', () => {
 
     const saved: any = await Invoice.findById(res.id).lean()
     expect(saved.type).toBe('credit_note')
-    expect(saved.total).toBeCloseTo(981.72, 2)
+    expect(saved.total).toBeCloseTo(600, 2)
     expect(String(saved.relatedInvoiceId)).toBe(String(orig._id))
     // Numbered in the sales series, exactly as PlusMinus does.
-    expect(res.issuedNumber).toBe('INV-3000100983')
+    expect(res.issuedNumber).toBe('INV-3000703983')
 
     const mv: any = await StockMovement.findOne({ orgId: org._id, invoiceId: res.id }).lean()
     expect(mv.type).toBe('return')
@@ -124,13 +124,13 @@ describe('кредитно известие', () => {
     await createTestProduct(org._id, { name: 'БОЛТ М16Х70' } as any)
     const draft = noteDraft()
     draft.extraction.line_items![0].quantity = 1000
-    draft.extraction.line_items![0].total = 818.10
-    draft.extraction.net_total = 818.10
-    draft.extraction.gross_total = 981.72
+    draft.extraction.line_items![0].total = 500
+    draft.extraction.net_total = 500
+    draft.extraction.gross_total = 600
 
     const [doc] = await analyzeDocuments(
       String(org._id), 'sales_invoice',
-      [{ fileId: 'f1', filename: 'invoicem_3000100984.pdf', text: 'ФАКТУРА ОРИГИНАЛ Номер: 3000100984', draft }],
+      [{ fileId: 'f1', filename: 'invoicem_3000703984.pdf', text: 'ФАКТУРА ОРИГИНАЛ Номер: 3000703984', draft }],
       { warehouseId: String(wh._id) },
     )
     const mapped = doc.mapped as MappedInvoice

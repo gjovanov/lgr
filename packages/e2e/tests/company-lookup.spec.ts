@@ -27,7 +27,7 @@ test.describe('Company Lookup', () => {
 
   test('should lookup Bulgarian company by EIK and fill address', async ({ page }) => {
     await stubCompanyLookup(page, {
-      companyName: 'ТЕСТ ЕООД', taxNumber: '112500982',
+      companyName: 'ТЕСТ ЕООД', taxNumber: '123456786',
       address: { street: 'ул. Тестова 1', city: 'София', postalCode: '1000', country: 'BG' },
     })
     await loginForApp(page)
@@ -36,7 +36,7 @@ test.describe('Company Lookup', () => {
     await expect(page.getByRole('heading', { name: /new contact/i })).toBeVisible()
 
     // Fill tax number with Bulgarian EIK
-    await page.getByLabel(/tax number/i).fill('112500982')
+    await page.getByLabel(/tax number/i).fill('123456786')
 
     // Click lookup button for tax number field
     const lookupBtn = page.locator('.v-input:has(label:text-matches("Tax Number", "i")) button.v-btn')
@@ -143,7 +143,7 @@ test.describe('Company Lookup', () => {
 
   test('should fill address in inline create dialog after lookup', async ({ page }) => {
     await stubCompanyLookup(page, {
-      companyName: 'ТЕСТ ЕООД', taxNumber: '112500982',
+      companyName: 'ТЕСТ ЕООД', taxNumber: '123456786',
       address: { street: 'ул. Тестова 1', city: 'София', postalCode: '1000', country: 'BG' },
     })
     await loginForApp(page)
@@ -164,7 +164,7 @@ test.describe('Company Lookup', () => {
     await expect(dialog).toBeVisible({ timeout: 5000 })
 
     // Fill tax number with Bulgarian EIK and lookup
-    await dialog.getByLabel(/tax number/i).fill('112500982')
+    await dialog.getByLabel(/tax number/i).fill('123456786')
     const lookupBtn = dialog.locator('.v-input:has(label:text-matches("Tax Number", "i")) button.v-btn')
     await lookupBtn.click()
 

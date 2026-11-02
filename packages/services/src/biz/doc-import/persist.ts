@@ -38,7 +38,7 @@ import type { MappedInvoice } from './types.js'
  * invoice that sells it (that is what `inProcessingOrder` is for) — but both were ANALYSED earlier,
  * when the product did not exist yet. The invoice therefore kept `productId: null`, and because
  * `createInvoiceStockMovement` only books lines that carry a product and a warehouse, it sold 40 of
- * something and moved no stock at all (INV-3000100879 on 2026-08-31: four ШПИЛКА lines, 160 units
+ * something and moved no stock at all (INV-3000703879 on 2026-08-31: four ШПИЛКА lines, 160 units
  * that stayed on the shelf in LGR). Re-matching here closes the window between analysis and commit.
  *
  * Exact-name matching only — the same rung the analysis used — so this resolves what has appeared
@@ -272,7 +272,7 @@ export async function convertDraftInvoice(
    * re-commit could not fix it, because `persist` creates invoices and never upserts by number,
    * so the retry produced a second row of the same number.
    *
-   * It happened three times on regal-sf in two days (INV-2000129121, -151, -165), each needing a
+   * It happened three times on regal-sf in two days (INV-2000732121, -151, -165), each needing a
    * manual delete before the document could be booked. Same predicate as the booking guard, so
    * the two cannot disagree about what is bookable.
    */

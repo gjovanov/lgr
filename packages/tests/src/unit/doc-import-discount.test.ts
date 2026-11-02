@@ -6,22 +6,22 @@
  * PlusMinus has three, and they are NOT variations on one rule. Two of them move the money in
  * opposite directions, which is why a single "allow some slack" fix would have been wrong:
  *
- *   „ТО" column   (3000100960)  per line, printed beside the price. The VALUE is already net, so
+ *   „ТО" column   (3000703960)  per line, printed beside the price. The VALUE is already net, so
  *                               the line fails its own arithmetic: 2 × 4.86 is 9.72, printed 9.23.
- *   „Отстъпка"    (3000101029)  once for the whole document, in the footer. Here the values are
+ *   „Отстъпка"    (3000704029)  once for the whole document, in the footer. Here the values are
  *                               GROSS, every line reconciles, and it is the document total that
  *                               fails: lines sum to 18.14 against a Данъчна основа of 16.32.
- *   nothing       (3000101088)  a customer tier price applied while the base price is printed.
+ *   nothing       (3000704088)  a customer tier price applied while the base price is printed.
  *                               No column, no footer line, no statement of any kind.
  *
- * All three are real documents of regal-pz, embedded verbatim from the table header to the last
- * footer row. The assertions are about the two things that must be true of any of them: the
+ * All three reproduce PlusMinus's layouts from the table header to the last footer row, with the
+ * figures exact because their rounding is what this file tests. The assertions are about the two things that must be true of any of them: the
  * QUANTITIES are what the paper says, and the line values sum to the total the paper charges.
  */
 import { describe, it, expect } from 'bun:test'
 import { parseTable } from 'services/biz/doc-import/parse-table'
 
-/** фактура 3000100960 — 5% in a „ТО" column on every line. */
+/** фактура 3000703960 — 5% in a „ТО" column on every line. */
 const TO_COLUMN = [
   "    No                              Име                               Мяр           Кол           Цена          ТО         Стойност",
   "1            260001 КОЗИ КРАК - 600ММ - ТМ                             БР                 1         11.25            5           10.69",
@@ -34,7 +34,7 @@ const TO_COLUMN = [
   "                                                                                Сума за плащане                                36.30 €"
 ].join('\n')
 
-/** фактура 3000101029 — one „Отстъпка ( 10.00% )" for the document. */
+/** фактура 3000704029 — one „Отстъпка ( 10.00% )" for the document. */
 const FOOTER_DISCOUNT = [
   "    No                              Име                               Мяр           Кол            Цена          ТО         Стойност",
   "1            5476 ВИНКЕЛ - УСИЛЕН - 55Х70Х70                           БР                 10          0.68                         6.83",
@@ -50,7 +50,7 @@ const FOOTER_DISCOUNT = [
   "                                                                                Сума за плащане                                 19.59 €"
 ].join('\n')
 
-/** фактура 3000101088 — 5% applied and stated nowhere. */
+/** фактура 3000704088 — 5% applied and stated nowhere. */
 const UNSTATED = [
   "       No                              Име                               Мяр             Кол           Цена            Стойност",
   "1               ГРУНД - СЕЛТ - 22 кг - сив                               БР                       2      66.0419             125.48",
@@ -157,7 +157,7 @@ describe('a discount the document never states', () => {
 })
 
 describe('the stated and the inferred rule agree', () => {
-  /** 3000100960 with its „ТО" column blanked out — the same invoice, saying nothing about 5%. */
+  /** 3000703960 with its „ТО" column blanked out — the same invoice, saying nothing about 5%. */
   const withoutTO = TO_COLUMN.split('\n')
     .map(l => (l.length > 122 ? l.slice(0, 110) + ' '.repeat(12) + l.slice(122) : l))
     .join('\n')
@@ -193,7 +193,7 @@ describe('what must NOT be mistaken for a discount', () => {
 })
 
 /**
- * INV-3000101279 (2026-10-01, ТЕХНО-КОНСУЛТ 2000) — ONE line, and PlusMinus wrapped its unit price
+ * INV-3000704279 (2026-10-01, ТЕХНО-КОНСУЛТ 2000) — ONE line, and PlusMinus wrapped its unit price
  * onto the line directly BELOW the header, where the name and quantity cells are both empty.
  *
  * Two faults in one document. The floating price folded into the heading („Цена1.3207"), so no

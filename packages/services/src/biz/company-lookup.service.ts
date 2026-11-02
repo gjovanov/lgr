@@ -69,7 +69,7 @@ export async function lookupBulgaria(eik: string): Promise<CompanyInfo> {
     // eik.bg serves a placeholder page for records it has no data for ("Информацията за
     // ЕИК … се обновява"), whose <h1>/<title> is just the number we asked about. Taking
     // that as the company name manufactures a plausible-looking answer out of nothing —
-    // the caller then writes "ЕИК 112500982" into a contact as if it were a real firm.
+    // the caller then writes "ЕИК 123456786" into a contact as if it were a real firm.
     // No data must read as no data.
     const isPlaceholderName = !rawName
       || new RegExp(`^ЕИК\\s*${cleaned}$`, 'i').test(rawName)
@@ -77,7 +77,7 @@ export async function lookupBulgaria(eik: string): Promise<CompanyInfo> {
     const companyName = isPlaceholderName ? '' : rawName
 
     // Extract address from address-related sections
-    // eik.bg format: <strong>Седалище адрес:</strong> БЪЛГАРИЯ, Пазарджик, гр. Пазарджик, ПК 4400, ул. ПЛОВДИВСКА, № 110
+    // eik.bg format: <strong>Седалище адрес:</strong> БЪЛГАРИЯ, София, гр. София, ПК 1000, ул. ТЕСТОВА, № 1
     const addrMatch = html.match(/Седалище\s+адрес:<\/strong>\s*([^<]+)/i)
       || html.match(/(?:Адрес|Седалище)[^:]*:<\/strong>\s*([^<]+)/i)
       || html.match(/(?:Адрес|Седалище)[^:]*:\s*([^<]+)/i)
@@ -95,7 +95,7 @@ export async function lookupBulgaria(eik: string): Promise<CompanyInfo> {
     }
 
     // Parse address parts (Bulgarian addresses)
-    // Format: "БЪЛГАРИЯ, Пазарджик, гр. Пазарджик, ПК 4400, ул. ПЛОВДИВСКА, № 110"
+    // Format: "БЪЛГАРИЯ, София, гр. София, ПК 1000, ул. ТЕСТОВА, № 1"
     let address: CompanyInfo['address']
     if (rawAddr) {
       const parts = rawAddr.split(/[,;]/).map(s => s.trim()).filter(Boolean)

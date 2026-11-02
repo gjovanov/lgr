@@ -459,7 +459,7 @@ const selected = reactive(new Set<string>())
 const expandedDocs = reactive(new Set<string>())
 const busy = ref(false)
 const progress = ref(0)
-/** Last line the running job reported ("12/42 3000016320") — a long batch must not look frozen. */
+/** Last line the running job reported ("12/42 3000619320") — a long batch must not look frozen. */
 const jobLabel = ref('')
 const options = reactive({ force: false, adjustStock: true, allowDuplicate: false })
 

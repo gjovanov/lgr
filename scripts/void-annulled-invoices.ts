@@ -8,9 +8,9 @@
  * document with the invoice's own number and negated amounts. Check that file (and what replaced the
  * invoice) before naming a number here: this does not look at PlusMinus.
  *
- *   bun scripts/void-annulled-invoices.ts --org regal-pz --only 3000200001,3000200003
+ *   bun scripts/void-annulled-invoices.ts --org regal-pz --only 3000803001,3000803003
  *       the dry run: for each number, the invoice, its stock movements, and every reason it would refuse.
- *   bun scripts/void-annulled-invoices.ts --org regal-pz --only 3000200001,3000200003 \
+ *   bun scripts/void-annulled-invoices.ts --org regal-pz --only 3000803001,3000803003 \
  *       --execute --expect 2 [--backup <file.ndjson>] [--as <userId>] [--reason "<text>"]
  *
  * It refuses, and on --execute then writes nothing at all if ANY named number is refused:

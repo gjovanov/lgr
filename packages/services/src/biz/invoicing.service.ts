@@ -375,7 +375,7 @@ async function stockBooking(invoice: IInvoice): Promise<{ refusal: StockBookingR
    * the document is issued, the stock is not — and it is silent, which is what makes it worse.
    *
    * It has happened ten times across the two regal orgs for **3,413 units**: regal-pz
-   * INV-3000101246 alone invoiced 3,000 × „ГАЙКА М6 - DIN 985 - A2-Gleitmo" that never left,
+   * INV-3000704246 alone invoiced 3,000 × „ГАЙКА М6 - DIN 985 - A2-Gleitmo" that never left,
    * and regal-sf did 400 on 2026-10-06 and 4 more on 10-07.
    *
    * ⚠ But a product-less line is NOT always a mistake, and the test

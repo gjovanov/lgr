@@ -21,7 +21,7 @@ from the day folder's `salesAnalysis_*.xlsx` (АРТИКУЛИ report, ПЕРИ�
 
 ## Source format (fixed)
 
-Sheet1: rows 1–8 title block (`Валута: Евро`, `Фирма: РЕГАЛ ООД`, ЕИК), **row 9
+Sheet1: rows 1–8 title block (`Валута: Евро`, `Фирма: ПРОБА ООД`, ЕИК), **row 9
 headers** `Артикул | Количество | Стойност | % Ст-ст | % Кол-во`, then item rows,
 group rows (`СТОКИ`, `УСЛУГИ`, …) and a final `Общо` row. **Стойност is NET (EUR)**
 — it equals the products' net selling prices; 20% VAT is added on top. The script
@@ -78,7 +78,7 @@ regal-pz had 0 of 44, so it is a per-shop habit, not a universal one.
    product (canonical UOM codes).
 5. `POST /invoices` `type=cash_sale` → issued immediately (status `paid`),
    `paymentMethod=cash`, currency EUR @ 1.95583, `issueDate` = the folder date,
-   `preparedBy` = the importing user, `placeOfTransaction` (default гр.Пазарджик),
+   `preparedBy` = the importing user, `placeOfTransaction` (default: the store's city, `--place` overrides),
    notes `Дневни продажби каса — <date>`, tag `cash-register-import`.
 6. **Stock**: dispatches by default (negatives allowed — migration). Pass
    `--no-stock` when the inventory baseline (availability snapshot) already

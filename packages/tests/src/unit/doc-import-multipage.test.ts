@@ -7,7 +7,7 @@ import { parseTable } from 'services/biz/doc-import/parse-table'
  * `parseTable` decided which pages hold a table by looking for the literal „Кол" — which that
  * header never spells on one line. No page matched, the multi-page branch was skipped, and the
  * whole document was parsed as ONE page, which stops at the first page trailer: page 1 was read and
- * every later page silently dropped (19 of stokrazp 3000016370's 37 rows). The document then failed
+ * every later page silently dropped (19 of stokrazp 3000619370's 37 rows). The document then failed
  * its own footer check — correctly — and fell to the model, which misread the wrapped quantities by
  * a factor of ten and put 12 products wrong on 2026-09-09.
  */
@@ -101,7 +101,7 @@ describe('a row straddling a page break', () => {
 
   it('does not fold the orphan digits into the HEADINGS', () => {
     // `Кол` became `Кол00` and `Цена` became `Цена9`, and since the price is looked up by the exact
-    // label `Цена` it was then read as null — 47 of stokrazp 3000016398's 63 lines could not
+    // label `Цена` it was then read as null — 47 of stokrazp 3000619398's 63 lines could not
     // reconcile, and the document fell to the model, which returned 18,695,071 units.
     const t = parseTable(withOrphan)
     expect(t.columns).toContain('Кол')
@@ -195,7 +195,7 @@ describe('a document whose line values are DERIVED', () => {
   /**
    * Some корекция exports carry no Стойност column: each line value is qty × price, rounded to 2 dp,
    * while PlusMinus totals the unrounded products. Over 70 lines that is 0.07 of legitimate drift —
-   * stokrazp 3000016398 was refused for exactly that, on a flat allowance of 0.05.
+   * stokrazp 3000619398 was refused for exactly that, on a flat allowance of 0.05.
    */
   const noTotals = (rows: Array<[string, number, string]>, footer: string) => [
     row([0, 'N'], [21, 'Име'], [46, 'М'], [52, 'Кол'], [60, 'Цена'], [75, 'Забележка']),

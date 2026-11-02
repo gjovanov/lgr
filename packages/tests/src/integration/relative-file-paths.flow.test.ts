@@ -73,9 +73,9 @@ const fileRow = async (id: unknown) => File.findById(id).lean() as Promise<any>
 describe('the Files app stores relative paths', () => {
   it('an upload stores the relative form in the DocFile and File rows, and a download reads it', async () => {
     const { orgId, userId } = await world()
-    const r = await storeDocument(orgId, userId, fakeFile('invoicem_3000100855.pdf', 'v1'))
+    const r = await storeDocument(orgId, userId, fakeFile('invoicem_3000703855.pdf', 'v1'))
 
-    const stored = `${orgId}/docs/inbox/invoicem_3000100855.pdf`
+    const stored = `${orgId}/docs/inbox/invoicem_3000703855.pdf`
     expect(r.docFile.currentPath).toBe(stored)
     expect((await fileRow(r.docFile.fileId)).storagePath).toBe(stored)
     const got = await resolveDownload(orgId, String(r.docFile._id))
@@ -84,16 +84,16 @@ describe('the Files app stores relative paths', () => {
 
   it('a re-upload moves the previous File row with its bytes into versions/ (#180)', async () => {
     const { orgId, userId } = await world()
-    const first = await storeDocument(orgId, userId, fakeFile('stokrazp_3000016216.pdf', 'v1'))
-    const second = await storeDocument(orgId, userId, fakeFile('stokrazp_3000016216.pdf', 'v2'))
+    const first = await storeDocument(orgId, userId, fakeFile('stokrazp_3000619216.pdf', 'v1'))
+    const second = await storeDocument(orgId, userId, fakeFile('stokrazp_3000619216.pdf', 'v2'))
 
     const previous = await fileRow(first.docFile.fileId)
-    expect(previous.storagePath).toMatch(new RegExp(`^${orgId}/docs/inbox/versions/stokrazp_3000016216_[^/]+\\.pdf$`))
+    expect(previous.storagePath).toMatch(new RegExp(`^${orgId}/docs/inbox/versions/stokrazp_3000619216_[^/]+\\.pdf$`))
     expect(readFileSync(abs(previous.storagePath), 'utf8')).toBe('v1')
     expect(previous.sha256).toBe(sha('v1'))
 
     const current = await fileRow(second.docFile.fileId)
-    expect(current.storagePath).toBe(`${orgId}/docs/inbox/stokrazp_3000016216.pdf`)
+    expect(current.storagePath).toBe(`${orgId}/docs/inbox/stokrazp_3000619216.pdf`)
     expect(readFileSync(abs(current.storagePath), 'utf8')).toBe('v2')
   })
 })
@@ -101,29 +101,29 @@ describe('the Files app stores relative paths', () => {
 describe('assignDateAfterOcr moves the document, and its File row with it (#180)', () => {
   it('both rows name the date folder, where the bytes are', async () => {
     const { orgId, userId } = await world()
-    const r = await storeDocument(orgId, userId, fakeFile('invoicem_3000100900.pdf', 'pdf-bytes'))
+    const r = await storeDocument(orgId, userId, fakeFile('invoicem_3000703900.pdf', 'pdf-bytes'))
 
     const doc: any = await assignDateAfterOcr(orgId, String(r.docFile._id), '2026-09-14', 'invoice')
 
-    const dest = `${orgId}/docs/2026-09-14/invoicem_3000100900.pdf`
+    const dest = `${orgId}/docs/2026-09-14/invoicem_3000703900.pdf`
     expect(doc.currentPath).toBe(dest)
     expect(doc.docDate).toBe('2026-09-14')
     expect(doc.status).toBe('extracted')
     expect((await fileRow(r.docFile.fileId)).storagePath).toBe(dest)
     expect(readFileSync(abs(dest), 'utf8')).toBe('pdf-bytes')
-    expect(existsSync(abs(`${orgId}/docs/inbox/invoicem_3000100900.pdf`))).toBe(false)
+    expect(existsSync(abs(`${orgId}/docs/inbox/invoicem_3000703900.pdf`))).toBe(false)
   })
 
   it('a row the previous release wrote, absolute, comes out relative', async () => {
     const { orgId, userId } = await world()
-    const r = await storeDocument(orgId, userId, fakeFile('invoicem_3000100904.pdf', 'legacy'))
+    const r = await storeDocument(orgId, userId, fakeFile('invoicem_3000703904.pdf', 'legacy'))
     const legacy = abs(r.docFile.currentPath)
     await DocFile.updateOne({ _id: r.docFile._id }, { $set: { currentPath: legacy } })
     await File.updateOne({ _id: r.docFile.fileId }, { $set: { storagePath: legacy } })
 
     const doc: any = await assignDateAfterOcr(orgId, String(r.docFile._id), '2026-09-14')
 
-    const dest = `${orgId}/docs/2026-09-14/invoicem_3000100904.pdf`
+    const dest = `${orgId}/docs/2026-09-14/invoicem_3000703904.pdf`
     expect(doc.currentPath).toBe(dest)
     expect((await fileRow(r.docFile.fileId)).storagePath).toBe(dest)
     expect(readFileSync(abs(dest), 'utf8')).toBe('legacy')
@@ -131,10 +131,10 @@ describe('assignDateAfterOcr moves the document, and its File row with it (#180)
 
   it('a move that fails is not swallowed: both rows keep naming the bytes, and the date still lands', async () => {
     const { orgId, userId } = await world()
-    const r = await storeDocument(orgId, userId, fakeFile('invoicem_3000100901.pdf', 'still-here'))
+    const r = await storeDocument(orgId, userId, fakeFile('invoicem_3000703901.pdf', 'still-here'))
     const inbox = r.docFile.currentPath
     // Something already sits where the document would go, so the rename fails.
-    mkdirSync(abs(`${orgId}/docs/2026-09-14/invoicem_3000100901.pdf`), { recursive: true })
+    mkdirSync(abs(`${orgId}/docs/2026-09-14/invoicem_3000703901.pdf`), { recursive: true })
 
     const doc: any = await assignDateAfterOcr(orgId, String(r.docFile._id), '2026-09-14')
 
@@ -148,19 +148,19 @@ describe('assignDateAfterOcr moves the document, and its File row with it (#180)
 
   it('bytes that are gone leave both rows as they were', async () => {
     const { orgId, userId } = await world()
-    const r = await storeDocument(orgId, userId, fakeFile('invoicem_3000100905.pdf', 'lost'))
+    const r = await storeDocument(orgId, userId, fakeFile('invoicem_3000703905.pdf', 'lost'))
     rmSync(abs(r.docFile.currentPath))
 
     const doc: any = await assignDateAfterOcr(orgId, String(r.docFile._id), '2026-09-14')
 
-    expect(doc.currentPath).toBe(`${orgId}/docs/inbox/invoicem_3000100905.pdf`)
-    expect((await fileRow(r.docFile.fileId)).storagePath).toBe(`${orgId}/docs/inbox/invoicem_3000100905.pdf`)
+    expect(doc.currentPath).toBe(`${orgId}/docs/inbox/invoicem_3000703905.pdf`)
+    expect((await fileRow(r.docFile.fileId)).storagePath).toBe(`${orgId}/docs/inbox/invoicem_3000703905.pdf`)
   })
 
   it('a retry after the bytes already moved records where they are', async () => {
     const { orgId, userId } = await world()
-    const r = await storeDocument(orgId, userId, fakeFile('invoicem_3000100902.pdf', 'moved-once'))
-    const dest = `${orgId}/docs/2026-09-14/invoicem_3000100902.pdf`
+    const r = await storeDocument(orgId, userId, fakeFile('invoicem_3000703902.pdf', 'moved-once'))
+    const dest = `${orgId}/docs/2026-09-14/invoicem_3000703902.pdf`
     mkdirSync(dirname(abs(dest)), { recursive: true })
     renameSync(abs(r.docFile.currentPath), abs(dest))
 
@@ -174,13 +174,13 @@ describe('assignDateAfterOcr moves the document, and its File row with it (#180)
 describe('deleting a document', () => {
   it('moves its File row with the bytes into the trash folder', async () => {
     const { orgId, userId } = await world()
-    const r = await storeDocument(orgId, userId, fakeFile('invoicem_3000100903.pdf', 'to-trash'))
+    const r = await storeDocument(orgId, userId, fakeFile('invoicem_3000703903.pdf', 'to-trash'))
 
     const res = await deleteDocFiles(orgId, userId, [String(r.docFile._id)], { execute: true })
 
-    expect(res.deleted).toEqual(['3000100903'])
+    expect(res.deleted).toEqual(['3000703903'])
     const row = await fileRow(r.docFile.fileId)
-    expect(row.storagePath).toMatch(new RegExp(`^${orgId}/docs/_deleted/inbox/invoicem_3000100903_[^/]+\\.pdf$`))
+    expect(row.storagePath).toMatch(new RegExp(`^${orgId}/docs/_deleted/inbox/invoicem_3000703903_[^/]+\\.pdf$`))
     expect(readFileSync(abs(row.storagePath), 'utf8')).toBe('to-trash')
   })
 })

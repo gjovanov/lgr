@@ -17,14 +17,14 @@ beforeAll(async () => { await setupTestDB() }, 60_000)
 afterAll(async () => { await teardownTestDB() }, 60_000)
 afterEach(async () => { await clearCollections() }, 30_000)
 
-const ORG_EIK = '112500982'
+const ORG_EIK = '123456786'
 
 /** A canned sidecar response — `analyze` accepts `draft` so no OCR server is needed. */
 function draftResult(supplier: any, customer: any, lines: any[], overrides: any = {}): DraftResult {
   const net = lines.reduce((s, l) => s + l.total, 0)
   return {
     extraction: {
-      document_number: '2000122757', issue_date: '2026-03-31', currency: 'EUR', exchange_rate: 1.95583,
+      document_number: '2000725757', issue_date: '2026-03-31', currency: 'EUR', exchange_rate: 1.95583,
       supplier, customer, line_items: lines,
       net_total: net, vat_total: +(net * 0.2).toFixed(2), gross_total: +(net * 1.2).toFixed(2),
       ...overrides,
@@ -33,9 +33,9 @@ function draftResult(supplier: any, customer: any, lines: any[], overrides: any 
   }
 }
 
-const ORG_PARTY = { name: 'РЕГАЛ ООД', company_id: ORG_EIK, vat_id: 'BG' + ORG_EIK }
-const CUSTOMER = { name: 'ЕТ ПРИМЕРОВ П', company_id: '123456786', vat_id: 'BG123456786', address: 'ул. Примерна 25' }
-const SUPPLIER = { name: 'ПРОЯН ЕООД', company_id: '831643582', vat_id: 'BG831643582', address: 'бул. Цариградско шосе 7' }
+const ORG_PARTY = { name: 'ПРОБА ООД', company_id: ORG_EIK, vat_id: 'BG' + ORG_EIK }
+const CUSTOMER = { name: 'ЕТ ПРИМЕРОВ П', company_id: '999000214', vat_id: 'BG999000214', address: 'ул. Примерна 25' }
+const SUPPLIER = { name: 'ТЕСТ ДОСТАВКА ЕООД', company_id: '999000120', vat_id: 'BG999000120', address: 'бул. Тестов 7' }
 
 describe('doc-import engine', () => {
   it('analyze maps a document without persisting anything', async () => {
@@ -51,7 +51,7 @@ describe('doc-import engine', () => {
     const [doc] = await analyzeDocuments(
       String(org._id),
       'sales_invoice',
-      [{ fileId: 'f1', filename: 'invoicem_2000122757.pdf', text: 'ФАКТУРА Номер: 2000122757', draft }],
+      [{ fileId: 'f1', filename: 'invoicem_2000725757.pdf', text: 'ФАКТУРА Номер: 2000725757', draft }],
       { warehouseId: String(wh._id) },
       { createMissingContact: false },
     )
@@ -60,7 +60,7 @@ describe('doc-import engine', () => {
     expect(doc.docKind).toBe('invoice')
     expect(doc.direction).toBe('outgoing')
     const mapped = doc.mapped as MappedInvoice
-    expect(mapped.reference).toBe('2000122757')
+    expect(mapped.reference).toBe('2000725757')
     expect(mapped.lines).toHaveLength(1)
     expect(mapped.lines[0].productId).toBeTruthy()
     expect(mapped.lines[0].unit).toBe('pcs')
@@ -70,21 +70,21 @@ describe('doc-import engine', () => {
     expect(await Invoice.countDocuments({ orgId: org._id })).toBe(0)
     expect(await Contact.countDocuments({ orgId: org._id })).toBe(0)
     expect(doc.diagnostics.contactSuggestion?.name).toContain('ПРИМЕРОВ')
-    expect(doc.diagnostics.contactSuggestion?.eik).toBe('123456786')
+    expect(doc.diagnostics.contactSuggestion?.eik).toBe('999000214')
   })
 
-  // INV-3000101474 on prod (2026-10-13) printed PlusMinus's own line, digit cents and all.
+  // INV-3000704474 on prod (2026-10-13) printed PlusMinus's own line, digit cents and all.
   it('an outgoing import writes our amount-in-words line; a bill keeps the supplier\'s', async () => {
     const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
     await createTestUser(org._id)
-    const raw = 'ФАКТУРА\nСловом : деветнадесет евро и 76 цента                Данъчна основа          16.47 €\nОтстъпка: 0'
-    const lines = [{ description: 'Болт М12', quantity: 1, unit: 'бр', unit_price: 16.47, vat_rate: 20, total: 16.47 }]
+    const raw = 'ФАКТУРА\nСловом : осемнадесет евро и 36 цента                 Данъчна основа          15.30 €\nОтстъпка: 0'
+    const lines = [{ description: 'Болт М12', quantity: 1, unit: 'бр', unit_price: 15.3, vat_rate: 20, total: 15.3 }]
 
     const out = await mapInvoiceExtraction(String(org._id), draftResult(ORG_PARTY, CUSTOMER, lines), raw, { direction: 'outgoing' })
-    expect(out.mapped.notes).toBe('Словом : деветнадесет евро и седемдесет и шест цента, Данъчна основа 16.47 €')
+    expect(out.mapped.notes).toBe('Словом : осемнадесет евро и тридесет и шест цента, Данъчна основа 15.30 €')
 
     const bill = await mapInvoiceExtraction(String(org._id), draftResult(SUPPLIER, ORG_PARTY, lines), raw, { direction: 'incoming' })
-    expect(bill.mapped.notes).toBe('Словом : деветнадесет евро и 76 цента Данъчна основа 16.47 €')
+    expect(bill.mapped.notes).toBe('Словом : осемнадесет евро и 36 цента Данъчна основа 15.30 €')
   })
 
   it('commit creates a draft, and convert issues it with the legacy number + stock', async () => {
@@ -99,7 +99,7 @@ describe('doc-import engine', () => {
     ])
     const [doc] = await analyzeDocuments(
       String(org._id), 'sales_invoice',
-      [{ fileId: 'f1', filename: 'invoicem_2000122757.pdf', text: 'ФАКТУРА Номер: 2000122757', draft }],
+      [{ fileId: 'f1', filename: 'invoicem_2000725757.pdf', text: 'ФАКТУРА Номер: 2000725757', draft }],
       { warehouseId: String(wh._id) }, { batchId: 'b1' },
     )
 
@@ -108,7 +108,7 @@ describe('doc-import engine', () => {
     ])
     expect(res.ok).toBe(true)
     expect(res.number).toMatch(/^DRF-INV-/)
-    expect(res.issuedNumber).toBe('INV-2000122757')
+    expect(res.issuedNumber).toBe('INV-2000725757')
 
     const posted: any = await Invoice.findById(res.id).lean()
     expect(posted.status).toBe('sent')
@@ -119,7 +119,7 @@ describe('doc-import engine', () => {
     expect(sl.quantity).toBe(-30) // 10 − 40, negatives allowed for migration
 
     const seq = await getCurrentNumber(String(org._id), 'SALES_DOC', new Date().getFullYear())
-    expect(seq).toBeGreaterThanOrEqual(2000122757)
+    expect(seq).toBeGreaterThanOrEqual(2000725757)
   })
 
   it('commit without convert leaves a draft and does not touch stock', async () => {
@@ -185,16 +185,16 @@ describe('doc-import engine', () => {
       { mapped: first.mapped!, options: { convert: true, adjustStock: false } },
     ])
     // The issued number uses the configured prefix, not a hardcoded "INV".
-    expect(res.issuedNumber).toBe('FKT-2000122757')
+    expect(res.issuedNumber).toBe('FKT-2000725757')
 
     // Re-importing the same document is recognised even though the prefix is non-default.
     const [again] = await analyzeDocuments(
       String(org._id), 'sales_invoice', [{ fileId: 'f2', text: 'ФАКТУРА', draft }], { warehouseId: String(wh._id) },
     )
     expect(again.duplicate).toBeTruthy()
-    expect(again.duplicate!.number).toBe('FKT-2000122757')
+    expect(again.duplicate!.number).toBe('FKT-2000725757')
 
-    const direct = await findDuplicateInvoice(String(org._id), '2000122757', 'invoice', 'outgoing')
+    const direct = await findDuplicateInvoice(String(org._id), '2000725757', 'invoice', 'outgoing')
     expect(direct?.reason).toBe('already issued')
   })
 
@@ -241,8 +241,8 @@ describe('doc-import engine', () => {
     const docs = await analyzeDocuments(
       String(org._id), 'sales_invoice',
       [
-        { fileId: 'f1', filename: 'invoicem_2000122757.pdf', text: 'ФАКТУРА', draft },
-        { fileId: 'f2', filename: 'invoicem_2000122757 (1).pdf', text: 'ФАКТУРА', draft },
+        { fileId: 'f1', filename: 'invoicem_2000725757.pdf', text: 'ФАКТУРА', draft },
+        { fileId: 'f2', filename: 'invoicem_2000725757 (1).pdf', text: 'ФАКТУРА', draft },
       ],
       { warehouseId: String(wh._id) },
     )
@@ -261,7 +261,7 @@ describe('doc-import engine', () => {
 
     const [doc] = await analyzeDocuments(
       String(org._id), 'sales_invoice',
-      [{ fileId: 'f1', filename: 'invoicem_2000199999.pdf', text: 'ФАКТУРА', draft }],
+      [{ fileId: 'f1', filename: 'invoicem_2000802999.pdf', text: 'ФАКТУРА', draft }],
       { warehouseId: String(wh._id) },
     )
     expect(doc.diagnostics.warnings.join(' ')).toContain('does not appear in the filename')
@@ -406,7 +406,7 @@ describe('doc-import engine', () => {
 
   it('detects the movement document kinds from their printed headers', () => {
     expect(detectDocKind('СКЛАДОВА РАЗПИСКА за приемане/предаване на МЦ')).toBe('transfer_note')
-    expect(detectDocKind('СТОКОВА РАЗПИСКА №3000016107')).toBe('goods_receipt')
+    expect(detectDocKind('СТОКОВА РАЗПИСКА №3000619107')).toBe('goods_receipt')
     expect(detectDocKind('Тип на документа: 2000 КОРЕКЦИЯ')).toBe('correction')
     expect(detectDocKind('ИСКАНЕ\nЗа отпускане на материали')).toBe('issue_note')
   })
@@ -427,7 +427,7 @@ describe('doc-import engine', () => {
 function stockDraft(overrides: any, lines: any[]): DraftResult {
   return {
     extraction: {
-      document_number: '3000016107',
+      document_number: '3000619107',
       issue_date: '2026-07-27',
       supplier: {}, customer: {},
       line_items: lines,
@@ -452,14 +452,14 @@ describe('doc-import — stock movements', () => {
 
     const [doc] = await analyzeDocuments(
       String(org._id), 'movement',
-      [{ fileId: 'f1', filename: 'stokrazp_3000016107.pdf', text: 'СТОКОВА РАЗПИСКА №3000016107', draft }],
+      [{ fileId: 'f1', filename: 'stokrazp_3000619107.pdf', text: 'СТОКОВА РАЗПИСКА №3000619107', draft }],
       { warehouseId: String(wh._id) },
     )
     expect(doc.docKind).toBe('goods_receipt')
     const mapped = doc.mapped as MappedMovement
     expect(mapped.type).toBe('receipt')
     expect(mapped.toWarehouseId).toBe(String(wh._id))
-    expect(mapped.marker).toBe('stokrazp:3000016107')
+    expect(mapped.marker).toBe('stokrazp:3000619107')
     // THE costing rule: an existing product keeps its avgCost, so confirming is cost-neutral.
     expect(mapped.lines[0].unitCost).toBe(5)
 
@@ -470,7 +470,7 @@ describe('doc-import — stock movements', () => {
 
     const mv: any = await StockMovement.findById(res.id).lean()
     expect(mv.status).toBe('completed')
-    expect(mv.notes).toContain('stokrazp:3000016107')
+    expect(mv.notes).toContain('stokrazp:3000619107')
 
     const sl: any = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: wh._id }).lean()
     expect(sl.quantity).toBe(14)
@@ -485,8 +485,8 @@ describe('doc-import — stock movements', () => {
 
     // Real OCR of a landscape stokrazp: the title splits across columns with the number/date
     // interposed, so `detectDocKind` (adjacent-phrase regex) returns unknown.
-    const fragmented = 'СТОКОВА                  Номер:\n                        Дата:\n                        3000016291\n                        25.08.2026\n\n              РАЗПИСКА\n       за получаване на стоки'
-    const draft = stockDraft({ document_number: '3000016291', warehouse_to: 'СКЛАД - 1' }, [
+    const fragmented = 'СТОКОВА                  Номер:\n                        Дата:\n                        3000619291\n                        25.08.2026\n\n              РАЗПИСКА\n       за получаване на стоки'
+    const draft = stockDraft({ document_number: '3000619291', warehouse_to: 'СКЛАД - 1' }, [
       { description: 'Гайка М8', quantity: 4, unit: 'бр', unit_price: 8.24 },
     ])
 
@@ -509,7 +509,7 @@ describe('doc-import — stock movements', () => {
     const wh = await createTestWarehouse(org._id)
     const product = await createTestProduct(org._id, { name: 'Гайка М8' } as any)
     await createTestStockLevel(org._id, product._id, wh._id, { quantity: 10, avgCost: 5 } as any)
-    const draft = stockDraft({ document_number: '3000016300', warehouse_to: 'СКЛАД - 1' }, [
+    const draft = stockDraft({ document_number: '3000619300', warehouse_to: 'СКЛАД - 1' }, [
       { description: 'Гайка М8', quantity: 4, unit: 'бр' },
     ])
     // Filename says stokrazp (goods_receipt), but the content is a 2000 КОРЕКЦИЯ → content wins.
@@ -769,23 +769,23 @@ describe('doc-import — stock movements', () => {
     const wh = await createTestWarehouse(org._id)
     await createTestProduct(org._id, { name: 'ВИНТ 8Х200 - ТХ', sku: 'REGAL-00007' } as any)
 
-    const draft = stockDraft({ warehouse_from: 'СКЛАД - 1', document_number: '0000012698' }, [
+    const draft = stockDraft({ warehouse_from: 'СКЛАД - 1', document_number: '0000615698' }, [
       { description: 'ВИНТ 8Х200 - ТХ', quantity: 600, unit: 'бр', unit_price: 0.5, total: 300, prices: { 'Цена': 0.5 } },
     ])
     const [doc] = await analyzeDocuments(
       String(org._id), 'movement',
-      [{ fileId: 'f1', filename: 'sklrazp_0000012698.pdf', text: 'СКЛАДОВА РАЗПИСКА', draft, kind: 'transfer_note' }],
+      [{ fileId: 'f1', filename: 'sklrazp_0000615698.pdf', text: 'СКЛАДОВА РАЗПИСКА', draft, kind: 'transfer_note' }],
       { warehouseId: String(wh._id) },
     )
-    expect(doc.mapped!.reference).toBe('sklrazp_0000012698')
+    expect(doc.mapped!.reference).toBe('sklrazp_0000615698')
 
     const [res] = await commitDocuments(String(org._id), String(user._id), 'movement', [
       { mapped: doc.mapped!, options: { adjustStock: true } },
     ])
     expect(res.ok).toBe(true)
     const mv: any = await StockMovement.findById(res.id).lean()
-    expect(mv.reference).toBe('sklrazp_0000012698')
-    expect(mv.notes).toContain('sklrazp:0000012698')   // the marker still drives idempotency
+    expect(mv.reference).toBe('sklrazp_0000615698')
+    expect(mv.notes).toContain('sklrazp:0000615698')   // the marker still drives idempotency
   })
 
   it('refuses to book when nothing matched and product creation was declined', async () => {
@@ -824,7 +824,7 @@ describe('doc-import — stock movements', () => {
 
     const [again] = await analyzeDocuments(String(org._id), 'movement', [item], { warehouseId: String(wh._id) })
     expect(again.duplicate).toBeTruthy()
-    expect(again.duplicate!.reason).toContain('stokrazp:3000016107')
+    expect(again.duplicate!.reason).toContain('stokrazp:3000619107')
   })
 
   it('imports a storeOperations export as a receipt keyed on its business day', async () => {
@@ -937,7 +937,7 @@ describe('doc-import — stock movements', () => {
   })
 
   it('a negative line on a разписка takes stock OUT, it does not add it', async () => {
-    // Стокова разписка 3000016326: 40 БОЛТ М20Х100 handed back, 40 М20Х95 taken in, the document
+    // Стокова разписка 3000619326: 40 БОЛТ М20Х100 handed back, 40 М20Х95 taken in, the document
     // printing a negative total to say so. Folding |−40| into the receipt ADDED what had just left
     // the warehouse — the error is twice the line.
     const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
@@ -945,12 +945,12 @@ describe('doc-import — stock movements', () => {
     const wh = await createTestWarehouse(org._id)
     const back = await createTestProduct(org._id, { name: 'БОЛТ М20Х100', sku: 'B100' } as any)
     const taken = await createTestProduct(org._id, { name: 'БОЛТ М20Х95', sku: 'B95' } as any)
-    await createTestStockLevel(org._id, back._id, wh._id, { quantity: 100, avgCost: 2.06 } as any)
-    await createTestStockLevel(org._id, taken._id, wh._id, { quantity: 0, avgCost: 1.738 } as any)
+    await createTestStockLevel(org._id, back._id, wh._id, { quantity: 100, avgCost: 2 } as any)
+    await createTestStockLevel(org._id, taken._id, wh._id, { quantity: 0, avgCost: 1.5 } as any)
 
-    const draft = stockDraft({ document_number: '3000016326', warehouse_to: 'СКЛАД - 1' }, [
-      { description: 'БОЛТ М20Х100', quantity: -40, unit: 'бр', unit_price: 2.06, total: -82.4 },
-      { description: 'БОЛТ М20Х95', quantity: 40, unit: 'бр', unit_price: 1.738, total: 69.54 },
+    const draft = stockDraft({ document_number: '3000619326', warehouse_to: 'СКЛАД - 1' }, [
+      { description: 'БОЛТ М20Х100', quantity: -40, unit: 'бр', unit_price: 2, total: -80 },
+      { description: 'БОЛТ М20Х95', quantity: 40, unit: 'бр', unit_price: 1.5, total: 60 },
     ])
     const [doc] = await analyzeDocuments(
       String(org._id), 'movement',
@@ -980,14 +980,14 @@ describe('doc-import — stock movements', () => {
 
   it('sells a product the SAME batch created — matched at commit, not left on the shelf', async () => {
     // The разписка that creates a product commits before the invoice that sells it, but both were
-    // ANALYSED before either ran, when the product did not exist. INV-3000100879 (2026-08-31) kept
+    // ANALYSED before either ran, when the product did not exist. INV-3000703879 (2026-08-31) kept
     // productId null on four ШПИЛКА lines and moved no stock: 160 units sold, none dispatched.
     const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
     const user = await createTestUser(org._id)
     const wh = await createTestWarehouse(org._id)
 
     // 1. the receipt brings in a product the catalog has never seen
-    const receipt = stockDraft({ document_number: '3000016325', warehouse_to: 'СКЛАД - 1' }, [
+    const receipt = stockDraft({ document_number: '3000619325', warehouse_to: 'СКЛАД - 1' }, [
       { description: 'ШПИЛКА - М16Х85 - DIN 976 - 5.6 - ZN', quantity: 40, unit: 'бр', unit_price: 1, total: 40 },
     ])
     const [rDoc] = await analyzeDocuments(String(org._id), 'movement',
@@ -1047,7 +1047,7 @@ describe('matching — a name written with a look-alike letter', () => {
 
 describe('matching — a dropped " - " field separator', () => {
   /**
-   * INV-3000101340 (regal-pz, 2026-10-05) could not be booked: PlusMinus printed
+   * INV-3000704340 (regal-pz, 2026-10-05) could not be booked: PlusMinus printed
    * „ШАЙБА - КОНУСНА 22ММ - DIN 435 - 14% - HDG" while the catalog holds the same name with
    * the separator after КОНУСНА. A hyphen is a real character, so neither the exact rung nor
    * either whitespace rung could see past it, and the line stayed free-text.
@@ -1168,7 +1168,7 @@ describe('createMissingProducts — a name that differs only in separators', () 
 describe('doc-import — a price-only разписка books nothing', () => {
   /**
    * PlusMinus issues стокови разписки with an EMPTY „Кол" column and „Крайна сума 0.00" purely to
-   * restate prices. 3000016390 was one; refused by the parser and handed to the model, it came back
+   * restate prices. 3000619390 was one; refused by the parser and handed to the model, it came back
    * with 1500 of each ИЗОЛИРБАНД against a real stock of ~13. The parser reads it now, and a line
    * that delivers nothing must not enter a movement.
    */
@@ -1179,12 +1179,12 @@ describe('doc-import — a price-only разписка books nothing', () => {
     const product = await createTestProduct(org._id, { name: 'ИЗОЛИРБАНД - 20Х19 - СИН' } as any)
     await createTestStockLevel(org._id, product._id, wh._id, { quantity: 13, avgCost: 1 } as any)
 
-    const draft = stockDraft({ document_number: '3000016390', warehouse_from: 'СКЛАД - 1' }, [
-      { description: 'ИЗОЛИРБАНД - 20Х19 - СИН', quantity: 0, unit: 'бр', prices: { 'Цена': 1.5, 'Прод. цена': 1.58 } },
+    const draft = stockDraft({ document_number: '3000619390', warehouse_from: 'СКЛАД - 1' }, [
+      { description: 'ИЗОЛИРБАНД - 20Х19 - СИН', quantity: 0, unit: 'бр', prices: { 'Цена': 1.6, 'Прод. цена': 1.78 } },
     ])
     const [doc] = await analyzeDocuments(
       String(org._id), 'movement',
-      [{ fileId: 'f1', filename: 'stokrazp_3000016390.pdf', text: 'СТОКОВА РАЗПИСКА за получаване на стоки', draft }],
+      [{ fileId: 'f1', filename: 'stokrazp_3000619390.pdf', text: 'СТОКОВА РАЗПИСКА за получаване на стоки', draft }],
       { warehouseId: String(wh._id) },
     )
     expect(doc.error).toBeUndefined()          // a complete read, not a failure
@@ -1212,16 +1212,16 @@ describe('doc-import — a price-only разписка books nothing', () => {
     } as any)
     await createTestStockLevel(org._id, product._id, wh._id, { quantity: 13, avgCost: 0.3 } as any)
 
-    const draft = stockDraft({ document_number: '3000016504', warehouse_from: 'СКЛАД - 1' }, [
+    const draft = stockDraft({ document_number: '3000619504', warehouse_from: 'СКЛАД - 1' }, [
       {
         description: 'ГАЙКА М6 - I 7042 - BN 205107 T1 - МЕТ.ПР.', quantity: 0, unit: 'бр',
-        // The real 3000016504's first line.
-        prices: { 'Цена': 0.4090, 'Прод. цена': 0.4600, 'Цена на едро': 0.5500, 'Цена 1': 0.5215, 'Цена 2': 0.3360 },
+        // The shape of a real first line.
+        prices: { 'Цена': 0.4000, 'Прод. цена': 0.4500, 'Цена на едро': 0.5400, 'Цена 1': 0.5100, 'Цена 2': 0.3300 },
       },
     ])
     const [doc] = await analyzeDocuments(
       String(org._id), 'movement',
-      [{ fileId: 'f1', filename: 'stokrazp_3000016504.pdf', text: 'СТОКОВА РАЗПИСКА за получаване на стоки', draft }],
+      [{ fileId: 'f1', filename: 'stokrazp_3000619504.pdf', text: 'СТОКОВА РАЗПИСКА за получаване на стоки', draft }],
       { warehouseId: String(wh._id) },
     )
     expect(doc.nothingToMove).toBe(true)
@@ -1232,14 +1232,14 @@ describe('doc-import — a price-only разписка books nothing', () => {
     expect(repriced).toBe(1)
 
     const after: any = await Product.findOne({ _id: product._id }).lean()
-    expect(after.sellingPrice).toBe(0.46)                       // Прод. цена
+    expect(after.sellingPrice).toBe(0.45)                       // Прод. цена
     expect(after.purchasePrice).toBe(0.3)                       // ⚠ never written by an import
     const tier = (n: string) => (after.priceTiers || []).find((t: any) => t.name === n)
-    expect(tier('Цена 1')?.finalPrice).toBe(0.5215)
-    expect(tier('Цена 2')?.finalPrice).toBe(0.336)
+    expect(tier('Цена 1')?.finalPrice).toBe(0.51)
+    expect(tier('Цена 2')?.finalPrice).toBe(0.33)
     // PROTECTED_TIERS: a разписка prices what we SELL, never the cost slots.
-    expect(tier('Цена на едро')?.finalPrice ?? 0).not.toBe(0.55)
-    expect(tier('Доставна цена')?.finalPrice ?? 0).not.toBe(0.409)
+    expect(tier('Цена на едро')?.finalPrice ?? 0).not.toBe(0.54)
+    expect(tier('Доставна цена')?.finalPrice ?? 0).not.toBe(0.4)
 
     // and still nothing moved
     const sl: any = await StockLevel.findOne({ orgId: org._id, productId: product._id, warehouseId: wh._id }).lean()
@@ -1255,12 +1255,12 @@ describe('doc-import — a price-only разписка books nothing', () => {
     const product = await createTestProduct(org._id, { name: 'ГАЙКА М8 - DIN 934', sellingPrice: 0.4 } as any)
     await createTestStockLevel(org._id, product._id, wh._id, { quantity: 10, avgCost: 1 } as any)
 
-    const draft = stockDraft({ document_number: '0000012770', warehouse_from: 'СКЛАД - 1' }, [
+    const draft = stockDraft({ document_number: '0000615770', warehouse_from: 'СКЛАД - 1' }, [
       { description: 'ГАЙКА М8 - DIN 934', quantity: 0, unit: 'бр', prices: { 'Цена': 1.5, 'Прод. цена': 9.99 } },
     ])
     const [doc] = await analyzeDocuments(
       String(org._id), 'movement',
-      [{ fileId: 'f1', filename: 'sklrazp_0000012770.pdf', text: 'СКЛАДОВА РАЗПИСКА за прехвърляне на стоки', draft }],
+      [{ fileId: 'f1', filename: 'sklrazp_0000615770.pdf', text: 'СКЛАДОВА РАЗПИСКА за прехвърляне на стоки', draft }],
       { warehouseId: String(wh._id) },
     )
     expect(doc.nothingToMove).toBe(true)
@@ -1287,9 +1287,8 @@ describe('doc-import — a till export that is a history dump, not a day', () =>
   })
 
   it('refuses a two-year span and says why, instead of booking it as one day', async () => {
-    // The real file: exported 2026-10-05, „Период: 01.01.2025 - 31.12.2026", 5,287 articles,
-    // 1,145,236 units. Its rows summed to its own footer to the cent, so every arithmetic gate
-    // passed — only the span gives it away.
+    // A file exported with a two-year „Период:". Its rows summed to its own footer to the cent, so
+    // every arithmetic gate passed — only the span gives it away.
     const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
     const wh = await createTestWarehouse(org._id)
     const [doc] = await analyzeDocuments(
@@ -1332,7 +1331,7 @@ describe('doc-import — a till export that is a history dump, not a day', () =>
 
 describe('matching — a missing TERMINAL period', () => {
   /**
-   * regal-pz transfer note 0000012802 (2026-10-23) moved 1000 units of
+   * regal-pz transfer note 0000615802 (2026-10-23) moved 1000 units of
    * „ШАЙБА - ПОДЛ. - Ф6Х24 - Ш.П" while the catalog holds „… - Ш.П." — identical but for the
    * final dot. No rung folded it, because dots are preserved on purpose (`13.5ММ` must not
    * collapse onto `135ММ`), so the line read as a NEW article. On a transfer note that fork
@@ -1388,7 +1387,7 @@ describe('an unmatchable line refuses BEFORE the invoice is issued', () => {
    * re-commit could not repair it, because `persist` creates invoices and never upserts by
    * number, so the retry produced a SECOND row of the same number.
    *
-   * Three times on regal-sf in two days (INV-2000129121, -151, -165), each needing a manual
+   * Three times on regal-sf in two days (INV-2000732121, -151, -165), each needing a manual
    * delete before the day could be booked.
    */
   async function draftWithOneFreeTextLine() {
@@ -1405,7 +1404,7 @@ describe('an unmatchable line refuses BEFORE the invoice is issued', () => {
     ])
     const [doc] = await analyzeDocuments(
       String(org._id), 'sales_invoice',
-      [{ fileId: 'f1', filename: 'invoicem_2000129121.pdf', text: 'ФАКТУРА Номер: 2000129121', draft }],
+      [{ fileId: 'f1', filename: 'invoicem_2000732121.pdf', text: 'ФАКТУРА Номер: 2000732121', draft }],
       { warehouseId: String(wh._id) }, { batchId: 'b1' },
     )
     return { org, user, wh, doc }
@@ -1446,8 +1445,8 @@ describe('an unmatchable line refuses BEFORE the invoice is issued', () => {
     ])
 
     expect(res.ok).toBe(true)
-    // The canned draft carries document_number 2000122757, which is what the issued number reuses.
-    expect(res.issuedNumber).toBe('INV-2000122757')
+    // The canned draft carries document_number 2000725757, which is what the issued number reuses.
+    expect(res.issuedNumber).toBe('INV-2000725757')
     expect(res.error).toBeUndefined()
     const sl: any = await StockLevel.findOne({ orgId: org._id, productId: created._id, warehouseId: wh._id }).lean()
     expect(sl.quantity).toBe(0)   // 1000 on hand, 1000 sold

@@ -39,6 +39,12 @@
  *   --only <nums>         comma-separated invoice numbers to limit the run to
  *
  * Credentials (env): LGR_TOKEN, or LGR_USERNAME + LGR_PASSWORD (login via /api/auth/login).
+ *
+ * Org identity (env, optional): CUSTOMER_EIK and CUSTOMER_NAME, the org's ЕИК and its name as printed
+ * on its invoices. They are the customer's, so they live in the gitignored .secrets/customer-identity.env:
+ *   bun --env-file=.secrets/customer-identity.env run scripts/import-sales-invoices.ts --folder <dir>
+ * With neither set the "org identity not found in text" warning is skipped (the run says so) and
+ * nothing else changes.
  */
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -67,6 +73,11 @@ const includeUncertain = !!args['include-uncertain']
 const only = args.only ? new Set(String(args.only).split(',').map(s => s.trim())) : null
 
 if (!folder) { console.error('Required: --folder <dir with invoicem_*.pdf>. See header for options.'); process.exit(2) }
+
+// The org's legal identity is the customer's, so it is not in this public file (see the header).
+const ORG_EIK = (process.env.CUSTOMER_EIK ?? '').replace(/\s/g, '')
+const ORG_NAME_MARKER = process.env.CUSTOMER_NAME ?? ''
+if (!ORG_EIK && !ORG_NAME_MARKER) console.warn('CUSTOMER_EIK and CUSTOMER_NAME are unset: the "org identity not found in text" warning is off for this run.')
 
 const EXTRACT_CHUNK = 4
 const POLL_MS = 5000
@@ -186,7 +197,9 @@ async function main() {
       if (f.error) warn.push(`extract error: ${f.error}`)
       else {
         if (!f.text.includes(src.num)) warn.push('number NOT found in text')
-        if (!f.text.replace(/\s/g, '').includes('112500982') && !f.text.includes('РЕГАЛ')) warn.push('org identity not found in text')
+        if ((ORG_EIK || ORG_NAME_MARKER)
+          && !(ORG_EIK && f.text.replace(/\s/g, '').includes(ORG_EIK))
+          && !(ORG_NAME_MARKER && f.text.includes(ORG_NAME_MARKER))) warn.push('org identity not found in text')
       }
       items.push({ fileId: f.fileId, text: f.text, num: src.num, name: src.name, warn })
       console.log(`  extract ${src.num}: ${f.method ?? 'ERR'} ${f.pages ?? '-'}p ${f.chars ?? 0}ch${warn.length ? '  ⚠ ' + warn.join('; ') : ''}`)

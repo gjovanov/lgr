@@ -36,7 +36,7 @@ async function refusal(p: Promise<unknown>): Promise<Error | null> {
 }
 
 async function world() {
-  const org = await createTestOrg({ slug: 'regal', name: 'Регал' } as any)
+  const org = await createTestOrg({ slug: 'regal', name: 'Проба' } as any)
   const orgId = org._id as Types.ObjectId
   const owner = await createTestUser(orgId, { username: 'owner' } as any)
   const uid = owner._id as Types.ObjectId

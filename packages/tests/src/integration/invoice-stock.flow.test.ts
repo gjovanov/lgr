@@ -285,7 +285,7 @@ describe('Invoice Stock Movement Flow', () => {
  * A line that claims a quantity but names no product.
  *
  * It moves nothing while its money still counts, and it is silent — ten of them across the two
- * regal orgs invoiced 3,413 units that never left the warehouse (INV-3000101246 alone 3,000 ×
+ * regal orgs invoiced 3,413 units that never left the warehouse (INV-3000704246 alone 3,000 ×
  * „ГАЙКА М6 - DIN 985 - A2-Gleitmo"; regal-sf 400 on 2026-10-06 and 4 more on 10-07). Every one
  * came from an import line that failed to match the catalog.
  *

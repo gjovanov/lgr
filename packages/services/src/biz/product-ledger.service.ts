@@ -24,7 +24,7 @@ export interface ProductLedgerEntry {
   runningValue: number
   invoiceId?: string
   invoiceNumber?: string
-  /** Source document the movement was booked from, e.g. "sklrazp_0000012698". */
+  /** Source document the movement was booked from, e.g. "sklrazp_0000615698". */
   reference?: string
   movementType?: string
 }

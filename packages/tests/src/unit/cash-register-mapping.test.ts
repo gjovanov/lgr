@@ -22,7 +22,7 @@ function sale(over: Record<string, any> = {}) {
     subtotal: 30, discountTotal: 0, taxTotal: 6, total: 36,
     payments: [{ method: 'cash', amount: 50 }], changeDue: 14,
     movementId: 'M1',
-    unpNumber: 'ED399266-0001-0000042', fiscalReceiptNumber: '0000117', fiscalDeviceNumber: 'ED399266',
+    unpNumber: 'ED777001-0001-0000042', fiscalReceiptNumber: '0000117', fiscalDeviceNumber: 'ED777001',
     printedAt: at, isFiscal: true,
     fiscal: { state: 'printed', mode: 'fiscal', receiptNo: '0000117', printedAt: at },
     clientKey: 'key-0001', requestHash: 'h1', completedAt: at, sessionTotalsApplied: true,
@@ -40,7 +40,7 @@ describe('fromPosTransaction', () => {
       amountPaid: 36, amountDue: 0, paymentMethod: 'cash', clientKey: 'key-0001', requestHash: 'h1',
     })
     expect(doc.register).toMatchObject({
-      origin: 'pos', sessionId: 'S1', warehouseId: 'W1', cashierId: 'U1', unp: 'ED399266-0001-0000042',
+      origin: 'pos', sessionId: 'S1', warehouseId: 'W1', cashierId: 'U1', unp: 'ED777001-0001-0000042',
       operatorCode: '0001', fiscalReceiptNumber: '0000117', isFiscal: true, changeDue: 14, movementId: 'M1',
       stornoState: 'none', legacy: { source: 'postransactions', type: 'sale', transactionNumber: 'TXN-2026-0000001' },
     })
@@ -57,12 +57,12 @@ describe('fromPosTransaction', () => {
 
     const storno = fromPosTransaction(sale({
       _id: 'T2', transactionNumber: 'TXN-2026-0000002', type: 'storno', changeDue: 0, payments: [{ method: 'cash', amount: 36 }],
-      originalTransactionId: 'T1', originalUNP: 'ED399266-0001-0000042', originalFiscalReceiptNumber: '0000117',
+      originalTransactionId: 'T1', originalUNP: 'ED777001-0001-0000042', originalFiscalReceiptNumber: '0000117',
       originalTransactionDate: at, stornoReason: 'customer_return',
     }), session)
     expect(storno).toMatchObject({ type: 'cash_storno', status: 'paid', relatedInvoiceId: 'T1', total: 36 })
     expect(storno.register.storno).toEqual({
-      originalId: 'T1', originalUnp: 'ED399266-0001-0000042', originalReceiptNumber: '0000117', originalDate: at, reason: 'customer_return',
+      originalId: 'T1', originalUnp: 'ED777001-0001-0000042', originalReceiptNumber: '0000117', originalDate: at, reason: 'customer_return',
     })
   })
 
@@ -147,7 +147,7 @@ describe('helpers', () => {
   })
 
   it('operatorCodeOfUnp', () => {
-    expect(operatorCodeOfUnp('ED399266-0007-0000042')).toBe('0007')
+    expect(operatorCodeOfUnp('ED777001-0007-0000042')).toBe('0007')
     expect(operatorCodeOfUnp('garbage')).toBeUndefined()
   })
 })

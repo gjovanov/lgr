@@ -144,7 +144,7 @@ describe('Invoice Stock Movement — Dispatch Validation', () => {
     const user = await createTestUser(org._id)
     const contact = await createTestContact(org._id)
     const product = await createTestProduct(org._id, { name: 'Bolt M20' })
-    const warehouse = await createTestWarehouse(org._id, { name: 'Pazardzhik' })
+    const warehouse = await createTestWarehouse(org._id, { name: 'Testograd' })
     await createTestStockLevel(org._id, product._id, warehouse._id, {
       quantity: 5,
       availableQuantity: 5,

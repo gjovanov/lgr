@@ -333,7 +333,7 @@ export function squashSeparators(s: string): string {
  * freely (`Ш.П.` / `ПОДЛ.` / `ОРАНЖ.`), and no quantity or dimension ever ENDS in one, which makes
  * the final character the one place it is safe to ignore.
  *
- * Found 2026-10-23: regal-pz transfer note 0000012802 moved 1000 units of
+ * Found 2026-10-23: regal-pz transfer note 0000615802 moved 1000 units of
  * „ШАЙБА - ПОДЛ. - Ф6Х24 - Ш.П" while the catalog held „… - Ш.П." — identical but for that dot.
  * No rung folded it, so the line read as a NEW article; on a transfer note the fork would have
  * gone to −1000 while the real product kept its stock, drifting two rows from one character.

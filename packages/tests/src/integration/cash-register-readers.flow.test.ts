@@ -82,7 +82,7 @@ async function tillSale(s: S, how: 'pos' | 'document' | 'both', over: Record<str
     lines: [{ productId: s.product._id, name: 'Bolt M8', quantity: 3, unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 6, lineTotal: 30 }] as any,
     subtotal: 30, discountTotal: 0, taxTotal: 6, total: 36,
     payments: [{ method: 'cash', amount: 36 }], changeDue: 0,
-    fiscalDeviceNumber: 'ED399266', unpNumber: 'ED399266-0001-0000001', fiscalReceiptNumber: '0000001', isFiscal: true,
+    fiscalDeviceNumber: 'ED777001', unpNumber: 'ED777001-0001-0000001', fiscalReceiptNumber: '0000001', isFiscal: true,
     ...over,
   } as any)
   if (how !== 'pos') {
@@ -104,7 +104,7 @@ describe('FR-21.8 / FR-21.27 — a till sale counts once, read from its document
         const { transactions, cashSales } = await exportSummarizedSales(period)
         expect(transactions.map((t: any) => t.transactionNumber)).toEqual(['TXN-2026-0000001'])
         expect(cashSales).toHaveLength(0)
-        expect(transactions[0].unpNumber).toBe('ED399266-0001-0000001')
+        expect(transactions[0].unpNumber).toBe('ED777001-0001-0000001')
         // As the DAL handed it out: string ids.
         expect(typeof transactions[0].sessionId).toBe('string')
         expect(await exportPaymentDetails(period)).toHaveLength(1)
@@ -200,8 +200,8 @@ describe('FR-21.8 / FR-21.27 — a till sale counts once, read from its document
     const sale = await tillSale(s, 'both', { status: 'cancelled' })
     await tillSale(s, 'document', {
       transactionNumber: 'TXN-2026-0000002', type: 'storno', createdAt: new Date(AT.getTime() + 60_000),
-      originalTransactionId: sale._id, originalUNP: 'ED399266-0001-0000001', stornoReason: 'customer_return',
-      unpNumber: 'ED399266-0001-0000002',
+      originalTransactionId: sale._id, originalUNP: 'ED777001-0001-0000001', stornoReason: 'customer_return',
+      unpNumber: 'ED777001-0001-0000002',
     })
     const period = { orgId: String(s.orgId), ...suptoPeriod(DAY, DAY) }
     expect((await exportReversedSales(period)).map((t: any) => t.transactionNumber)).toEqual(['TXN-2026-0000002'])

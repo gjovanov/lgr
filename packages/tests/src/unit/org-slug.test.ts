@@ -9,7 +9,7 @@ import { currentAppId, orgSlugFromName, switchLanding } from 'ui-shared/session/
  */
 describe('orgSlugFromName', () => {
   it('transliterates Bulgarian and Macedonian names', () => {
-    expect(orgSlugFromName('Регал Пловдив')).toBe('regal-plovdiv')
+    expect(orgSlugFromName('Проба Варна')).toBe('proba-varna')
     expect(orgSlugFromName('Щастие ООД')).toBe('shtastie-ood')
     expect(orgSlugFromName('Ѓорѓи Њушки')).toBe('gjorgji-njushki')
   })
@@ -25,7 +25,7 @@ describe('orgSlugFromName', () => {
     const slug = orgSlugFromName(`${'a'.repeat(49)} b`)
     expect(slug.length).toBeLessThanOrEqual(50)
     expect(slug.endsWith('-')).toBe(false)
-    expect(/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(orgSlugFromName('Регал - Пловдив / Склад 2'))).toBe(true)
+    expect(/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(orgSlugFromName('Проба - Варна / Склад 2'))).toBe(true)
   })
 })
 

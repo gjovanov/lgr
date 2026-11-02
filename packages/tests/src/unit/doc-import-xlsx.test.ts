@@ -17,7 +17,7 @@ async function salesAnalysisBook(
   const ws = wb.addWorksheet('Sheet1')
   ws.getRow(1).getCell(1).value = 'АРТИКУЛИ'
   ws.getRow(2).getCell(1).value = 'Валута: Евро'
-  ws.getRow(5).getCell(1).value = 'Фирма: РЕГАЛ ООД'
+  ws.getRow(5).getCell(1).value = 'Фирма: ПРОБА ООД'
   ws.getRow(9).getCell(1).value = headerCell
   ws.getRow(9).getCell(2).value = 'Количество'
   ws.getRow(9).getCell(3).value = 'Стойност'

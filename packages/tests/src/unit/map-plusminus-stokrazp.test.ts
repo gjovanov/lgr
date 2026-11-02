@@ -1,5 +1,5 @@
 /**
- * `mapStokrazpDoc` against real PlusMinus pulls: a plain receipt (regal-sf, tier fields
+ * `mapStokrazpDoc` against the shapes of PlusMinus pulls: a plain receipt (regal-sf, tier fields
  * `price0`/`price9`), a mixed "2000 КОРЕКЦИЯ" receipt+correction (regal-pz, tier fields
  * `price1`/`price2`), and a whole-document return with an ordinary partner name (regal-sf).
  */
@@ -7,62 +7,62 @@ import { describe, it, expect } from 'bun:test'
 import { mapStokrazpDoc } from 'services/biz/doc-import/map-plusminus-stokrazp'
 import type { PlusMinusDocument } from 'services/biz/doc-import/map-plusminus-invoice'
 
-/** stokrazp_2222036233.json verbatim (trimmed to 2 of its 4 lines) — regal-sf, price0/price9 tiers. */
+/** stokrazp_2222639233.json, 2 lines — regal-sf shape, price0/price9 tiers. */
 const PLAIN_RECEIPT: PlusMinusDocument = {
   date: '20261027',
   num: '00000005',
-  header: { docDate: '20261027', docNumber: '2222036233', doc: 'СТ', partner: 'ПАРТНЬОРИ:МАКСИМУМ СЕНТЕР ЕООД', sum: '132.11' },
+  header: { docDate: '20261027', docNumber: '2222639233', doc: 'СТ', partner: 'ПАРТНЬОРИ:ТЕСТ СЕНТЕР ЕООД', sum: '60' },
   lines: [
-    { item: 'СТОКИ:Стом. въже ф5 inox', name: 'Стом. въже ф5 inox', quantity: '30', measure: 'М', sum: '53.4', price: '1.78', price0: '1.78', price9: '0.76', retailPrice: '2', wholesalePrice: '2.4' },
-    { item: 'СТОКИ:Полиестерен сапан 1т/3м', name: 'Полиестерен сапан 1т/3м', quantity: '4', measure: 'БР', sum: '18', price: '4.5', price0: '3.7', price9: '2.7', retailPrice: '5.25', wholesalePrice: '6.3' },
+    { item: 'СТОКИ:Стом. въже ф5 inox', name: 'Стом. въже ф5 inox', quantity: '20', measure: 'М', sum: '30', price: '1.5', price0: '1.5', price9: '0.7', retailPrice: '1.8', wholesalePrice: '2.1' },
+    { item: 'СТОКИ:Полиестерен сапан 1т/3м', name: 'Полиестерен сапан 1т/3м', quantity: '5', measure: 'БР', sum: '20', price: '4', price0: '3.2', price9: '2.4', retailPrice: '4.8', wholesalePrice: '5.6' },
   ],
 }
 
-/** stokrazp_3000016618.json verbatim — regal-pz, "2000 КОРЕКЦИЯ" partner, mixed signs, price1/price2 tiers. */
+/** stokrazp_3000619618.json — regal-pz shape, "2000 КОРЕКЦИЯ" partner, mixed signs, price1/price2 tiers. */
 const MIXED_CORRECTION: PlusMinusDocument = {
   date: '20261029',
   num: '00000064',
-  header: { docDate: '20261029', docNumber: '3000016618', doc: 'СТ', partner: 'ПАРТНЬОРИ:2000 КОРЕКЦИЯ', sum: '-15.11' },
+  header: { docDate: '20261029', docNumber: '3000619618', doc: 'СТ', partner: 'ПАРТНЬОРИ:2000 КОРЕКЦИЯ', sum: '-20' },
   lines: [
-    { item: 'СТОКИ:БОЛТ М10Х150 - DIN 933 - А2', name: 'БОЛТ М10Х150 - DIN 933 - А2', quantity: '70', measure: 'БР', sum: '29.4', price: '0.42', price1: '0.3286', price2: '0.274', retailPrice: '0.46', wholesalePrice: '0.51' },
-    { item: 'СТОКИ:БОЛТ М10Х160 - DIN 933 - A2', name: 'БОЛТ М10Х160 - DIN 933 - A2', quantity: '-50', measure: 'БР', sum: '-29.91', price: '0.5982', price1: '0.477', price2: '0.3988', retailPrice: '0.6647', wholesalePrice: '0.7976' },
-    { item: 'СТОКИ:БОЛТ М10Х200 - DIN 933 - А2', name: 'БОЛТ М10Х200 - DIN 933 - А2', quantity: '-20', measure: 'БР', sum: '-14.6', price: '0.73', price1: '0.582', price2: '0.485', retailPrice: '0.8', wholesalePrice: '0.96' },
+    { item: 'СТОКИ:БОЛТ М10Х150 - DIN 933 - А2', name: 'БОЛТ М10Х150 - DIN 933 - А2', quantity: '50', measure: 'БР', sum: '20', price: '0.4', price1: '0.3', price2: '0.25', retailPrice: '0.44', wholesalePrice: '0.5' },
+    { item: 'СТОКИ:БОЛТ М10Х160 - DIN 933 - A2', name: 'БОЛТ М10Х160 - DIN 933 - A2', quantity: '-40', measure: 'БР', sum: '-24', price: '0.6', price1: '0.48', price2: '0.4', retailPrice: '0.66', wholesalePrice: '0.8' },
+    { item: 'СТОКИ:БОЛТ М10Х200 - DIN 933 - А2', name: 'БОЛТ М10Х200 - DIN 933 - А2', quantity: '-20', measure: 'БР', sum: '-16', price: '0.8', price1: '0.64', price2: '0.5', retailPrice: '0.88', wholesalePrice: '1' },
   ],
 }
 
-/** stokrazp_2222036216.json verbatim — regal-sf, ordinary partner "ДЕЧКО", ALL lines negative
+/** stokrazp_2222639216.json — regal-sf shape, ordinary partner "ПРИМЕРЕН ДОСТАВЧИК", ALL lines negative
  *  (a return to the supplier) — no "КОРЕКЦИЯ" text anywhere on the document. */
 const WHOLE_DOC_RETURN: PlusMinusDocument = {
   date: '20261026',
   num: '00000001',
-  header: { docDate: '20261026', docNumber: '2222036216', doc: 'СТ', partner: 'ПАРТНЬОРИ:ДЕЧКО', sum: '-33.23' },
+  header: { docDate: '20261026', docNumber: '2222639216', doc: 'СТ', partner: 'ПАРТНЬОРИ:ПРИМЕРЕН ДОСТАВЧИК', sum: '-15' },
   lines: [
-    { name: 'СВРЕДЛО Ф13 - КОБАЛТ', quantity: '-1', price: '14.56671', sum: '-14.57' },
-    { name: 'СВРЕДЛО Ф6 - КОБАЛТ', quantity: '-1', price: '2.81211', sum: '-2.81' },
+    { name: 'СВРЕДЛО Ф13 - КОБАЛТ', quantity: '-1', price: '12.34567', sum: '-12.35' },
+    { name: 'СВРЕДЛО Ф6 - КОБАЛТ', quantity: '-1', price: '2.65432', sum: '-2.65' },
   ],
 }
 
 describe('mapStokrazpDoc', () => {
   it('maps a plain receipt into receiptItems, with generic price<N> tiers and no adjustment lines', () => {
     const m = mapStokrazpDoc(PLAIN_RECEIPT)
-    expect(m.docNumber).toBe('2222036233')
+    expect(m.docNumber).toBe('2222639233')
     expect(m.date).toBe('2026-10-27')
     expect(m.adjustmentLines).toEqual([])
     expect(m.receiptItems).toEqual([
-      { name: 'Стом. въже ф5 inox', qty: 30, unit: 'm', cost: 1.78, selling: 2, tiers: { 'Цена 0': 1.78, 'Цена 9': 0.76, 'Цена на едро': 2.4 } },
-      { name: 'Полиестерен сапан 1т/3м', qty: 4, unit: 'pcs', cost: 4.5, selling: 5.25, tiers: { 'Цена 0': 3.7, 'Цена 9': 2.7, 'Цена на едро': 6.3 } },
+      { name: 'Стом. въже ф5 inox', qty: 20, unit: 'm', cost: 1.5, selling: 1.8, tiers: { 'Цена 0': 1.5, 'Цена 9': 0.7, 'Цена на едро': 2.1 } },
+      { name: 'Полиестерен сапан 1т/3м', qty: 5, unit: 'pcs', cost: 4, selling: 4.8, tiers: { 'Цена 0': 3.2, 'Цена 9': 2.4, 'Цена на едро': 5.6 } },
     ])
   })
 
   it('splits a mixed-sign document into receiptItems (positive) and adjustmentLines (negative, made positive), same docNumber for both halves', () => {
     const m = mapStokrazpDoc(MIXED_CORRECTION)
-    expect(m.docNumber).toBe('3000016618')
+    expect(m.docNumber).toBe('3000619618')
     expect(m.receiptItems).toEqual([
-      { name: 'БОЛТ М10Х150 - DIN 933 - А2', qty: 70, unit: 'pcs', cost: 0.42, selling: 0.46, tiers: { 'Цена 1': 0.3286, 'Цена 2': 0.274, 'Цена на едро': 0.51 } },
+      { name: 'БОЛТ М10Х150 - DIN 933 - А2', qty: 50, unit: 'pcs', cost: 0.4, selling: 0.44, tiers: { 'Цена 1': 0.3, 'Цена 2': 0.25, 'Цена на едро': 0.5 } },
     ])
     expect(m.adjustmentLines).toEqual([
-      { name: 'БОЛТ М10Х160 - DIN 933 - A2', qty: 50, value: 29.91 },
-      { name: 'БОЛТ М10Х200 - DIN 933 - А2', qty: 20, value: 14.6 },
+      { name: 'БОЛТ М10Х160 - DIN 933 - A2', qty: 40, value: 24 },
+      { name: 'БОЛТ М10Х200 - DIN 933 - А2', qty: 20, value: 16 },
     ])
   })
 
@@ -70,8 +70,8 @@ describe('mapStokrazpDoc', () => {
     const m = mapStokrazpDoc(WHOLE_DOC_RETURN)
     expect(m.receiptItems).toEqual([])
     expect(m.adjustmentLines).toEqual([
-      { name: 'СВРЕДЛО Ф13 - КОБАЛТ', qty: 1, value: 14.57 },
-      { name: 'СВРЕДЛО Ф6 - КОБАЛТ', qty: 1, value: 2.81 },
+      { name: 'СВРЕДЛО Ф13 - КОБАЛТ', qty: 1, value: 12.35 },
+      { name: 'СВРЕДЛО Ф6 - КОБАЛТ', qty: 1, value: 2.65 },
     ])
   })
 

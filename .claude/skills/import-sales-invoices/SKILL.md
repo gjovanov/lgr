@@ -26,7 +26,7 @@ One folder per day (WSL path works from Windows via `//wsl.localhost/...`):
   stokrazp_*.pdf, *.xlsx    ← other daily exports (ignored)
 ```
 
-The `<number>` in the filename is the legacy invoice `Номер` (e.g. `3000100390`)
+The `<number>` in the filename is the legacy invoice `Номер` (e.g. `3000703390`)
 and is the ground truth the pipeline is checked against.
 
 ## What one run does
@@ -36,12 +36,13 @@ and is the ground truth the pipeline is checked against.
    daily and after partial failures.
 2. **Extract** — uploads PDFs (chunks of 4) to `POST /bills/import/extract`
    (pdftotext native-text fast-path, Tesseract-bul fallback). Warns if the
-   filename number or the org identity (ЕИК `112500982` / РЕГАЛ as ДОСТАВЧИК)
-   is missing from the text.
+   filename number or the org identity (`CUSTOMER_EIK` / `CUSTOMER_NAME` as ДОСТАВЧИК)
+   is missing from the text. With neither set that one warning is skipped and the run says
+   so; nothing else changes. Both live in the gitignored `.secrets/customer-identity.env`.
 3. **Draft** — `POST /bills/import/draft` background job (Claude via ocr-server);
    polls the invoice list by batch tag `ocr:<batchId>`. Each draft: direction
    auto-detected (org tax number as ДОСТАВЧИК → `outgoing`), counterparty
-   (ПОЛУЧАТЕЛ, e.g. ЕЛКОНТРОЛ-КОРЕКТ ЕООД) matched to existing customers by
+   (ПОЛУЧАТЕЛ, e.g. ТЕСТ-КОРЕКТ ЕООД) matched to existing customers by
    ЕИК → VAT → name or auto-created, `reference` = legacy number, draft number
    `DRF-INV-*`. Line products are **exact-matched by name** (bg-lowercased
    `nameLower`, then `skuLower`) — never fuzzy; an unmatched line stays
@@ -62,7 +63,7 @@ and is the ground truth the pipeline is checked against.
    (`--include-uncertain` overrides). Without `--convert` the run **stops
    here** — that's the review/confirmation gate.
 5. **Convert** (`--convert`) — `POST /bills/import/convert`: status → `sent`,
-   `invoiceNumber` → **`INV-<legacy number>`** (e.g. `INV-3000100390`), the
+   `invoiceNumber` → **`INV-<legacy number>`** (e.g. `INV-3000703390`), the
    `SALES_DOC` sequence is bumped to ≥ the max imported number (future normal
    invoices continue after the legacy series), and a dispatch **stock movement**
    decreases the warehouse quantities (negative stock allowed — migration mode).

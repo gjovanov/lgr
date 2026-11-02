@@ -130,7 +130,7 @@ are migrated to a CSI driver that enforces it.
 
 ## 2. Measured growth of regal-pz, and the yearly projection
 
-Org `regal-pz` = `6a5ddbafdf2fc7b03bf596d2`, created **2026-07-20**, catalog seeded
+Org `regal-pz` = `<org-id>`, created **2026-07-20**, catalog seeded
 **2026-07-23**, first real trading day **2026-07-26**. Measurement window for rates:
 **2026-07-26 … 2026-09-02** (39 calendar days, 26 of them with invoice activity ⇒ ~5 trading
 days/week ⇒ **260 trading days/year** is used throughout).
@@ -168,7 +168,7 @@ Whole `lgr` database (all 80 orgs):
 That is a *level*, not a *rate* — projecting it forward is the easiest mistake to make here,
 and it would overstate the yearly figure by roughly 5×. Everything in §2.2 excludes it.
 
-Uploads PV, `/app/uploads/6a5ddbafdf2fc7b03bf596d2`: **1,532 files / 79,546,838 B (75.9 MiB)**,
+Uploads PV, `/app/uploads/<org-id>`: **1,532 files / 79,546,838 B (75.9 MiB)**,
 mean 51,923 B/file — 1,426 pdf, 90 xlsx, 8 txt, 8 csv. Split: `docs/` 60 MB, `bill-ocr/` 20 MB,
 `doc-import/` 156 KB.
 
@@ -1158,19 +1158,19 @@ P=$(kubectl -n lgr get secret mongodb-secret -o jsonpath='{.data.MONGO_INITDB_RO
 M="kubectl -n lgr exec mongodb-0 -c mongodb -- mongosh -u $U -p $P --authenticationDatabase admin --quiet"
 
 # §2.1 per-org BSON footprint
-$M --eval 'const d=db.getSiblingDB("lgr"), O=ObjectId("6a5ddbafdf2fc7b03bf596d2");
+$M --eval 'const d=db.getSiblingDB("lgr"), O=ObjectId("<org-id>");
  d.getCollectionNames().forEach(n=>{const r=d[n].aggregate([{$match:{orgId:O}},
    {$group:{_id:null,n:{$sum:1},b:{$sum:{$bsonSize:"$$ROOT"}}}}]).toArray()[0];
    if(r) print(n, r.n, r.b)})'
 
 # §2.2 daily creation histogram
-$M --eval 'const d=db.getSiblingDB("lgr"), O=ObjectId("6a5ddbafdf2fc7b03bf596d2");
+$M --eval 'const d=db.getSiblingDB("lgr"), O=ObjectId("<org-id>");
  d.invoices.aggregate([{$match:{orgId:O}},{$group:{_id:{$dateToString:{format:"%Y-%m-%d",date:"$createdAt"}},
    n:{$sum:1},b:{$sum:{$bsonSize:"$$ROOT"}}}},{$sort:{_id:1}}]).toArray().forEach(r=>print(JSON.stringify(r)))'
 # NB: auditlogs are keyed on `timestamp`, not `createdAt` — a $dateToString over createdAt yields null.
 
 # §2.1/§2.2 uploads
-kubectl -n lgr exec deploy/lgr -- find /app/uploads/6a5ddbafdf2fc7b03bf596d2 -type f -printf '%TY-%Tm-%Td %s\n'
+kubectl -n lgr exec deploy/lgr -- find /app/uploads/<org-id> -type f -printf '%TY-%Tm-%Td %s\n'
 
 # §3.1 the archive, and the compressor benchmark
 kubectl -n lgr exec mongodb-0 -c mongodb -- mongodump -u "$U" -p "$P" \

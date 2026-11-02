@@ -2,7 +2,7 @@
  * Backfill StockMovement.reference from the idempotency marker inside `notes`.
  *
  * Movements booked from a PlusMinus export carry their source document only as a marker in the
- * notes text — "Доставки — 2026-08-28 (stokrazp:3000016317)". `reference` promotes that to a real
+ * notes text — "Доставки — 2026-08-28 (stokrazp:3000619317)". `reference` promotes that to a real
  * field so it can be filtered, joined and shown in the product ledger. The marker prefix is NOT
  * always the file prefix: a 2000 КОРЕКЦИЯ marks itself `corr:` but arrives in a stokrazp_*.pdf.
  *
@@ -27,7 +27,7 @@ const FILE_PREFIX: Record<string, string> = {
   salesAnalysis: 'salesAnalysis',
 }
 
-/** `(stokrazp:3000016317)` → `stokrazp_3000016317` */
+/** `(stokrazp:3000619317)` → `stokrazp_3000619317` */
 export function referenceFromNotes(notes: string | undefined): string | undefined {
   const m = /\(([A-Za-z]+):([^)]+)\)/.exec(String(notes || ''))
   if (!m) return undefined
@@ -100,8 +100,8 @@ async function main() {
   }
 
   // Third pass: invoices imported by the CLI skills predate the Files app, so they have no
-  // DocFile. Their number IS the PlusMinus document number — INV-3000100855 came out of
-  // invoicem_3000100855.pdf. Only that exact shape qualifies: an LGR-issued number
+  // DocFile. Their number IS the PlusMinus document number — INV-3000703855 came out of
+  // invoicem_3000703855.pdf. Only that exact shape qualifies: an LGR-issued number
   // (INV-2026-00042) names no file and is left alone.
   let viaNumber = 0
   {

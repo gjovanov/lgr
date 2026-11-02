@@ -7,14 +7,14 @@
  * which carries the prices the storeOperations xlsx lacks):
  *
  *   {
- *     "receipt": "3000016107",            // стокова разписка number (dedup key)
+ *     "receipt": "3000619107",            // стокова разписка number (dedup key)
  *     "date": "2026-07-27",               // delivery date (movement date)
- *     "supplier": "PROJAHN-...",           // optional, recorded in movement notes
+ *     "supplier": "BEISPIEL-...",           // optional, recorded in movement notes
  *     "items": [
  *       { "name": "<exact name from разписка>", "qty": 2, "unit": "pcs",
- *         "cost": 8.24,                    // разписка "Цена" → sellingPrice (NOT the buying price)
- *         "selling": 9.064,                // optional; default = cost × 1.10 (org's observed retail markup)
- *         "tiers": { "Цена 1": 7.49, "Цена 2": 6.24 } }   // разписка "Цена N" → tier "Цена N"
+ *         "cost": 8.00,                    // разписка "Цена" → sellingPrice (NOT the buying price)
+ *         "selling": 8.80,                // optional; default = cost × 1.10 (org's observed retail markup)
+ *         "tiers": { "Цена 1": 7.00, "Цена 2": 6.00 } }   // разписка "Цена N" → tier "Цена N"
  *     ]
  *   }
  *

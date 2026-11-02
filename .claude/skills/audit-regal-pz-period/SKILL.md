@@ -98,7 +98,7 @@ re-run a booked document whose products a still-newer document also touched.
 
 **b. Transfers / write-offs** — `transfer-stock-api.ts` and `adjust-stock-api.ts`, both with `--only`.
 ⚠ Their "already booked" check reads the document NUMBER out of the movement notes (`lib/doc-marker.ts`):
-the PDF-era flow wrote `sklrazp:0000012705`, the API flow writes `sklrazp:12705`. Before 2026-11-01 a
+the PDF-era flow wrote `sklrazp:0000615705`, the API flow writes `sklrazp:615705`. Before 2026-11-01 a
 substring check missed the padded form, and the dry-run said "book 56" for a month in which 3 were missing.
 **Always read the dry-run's `Would book:` count against the audit's list before `--execute`.**
 

@@ -45,7 +45,7 @@ async function captureRejection<T>(p: Promise<T>): Promise<Error | null> {
  * Reservations are first-class RES- documents pointing into the order's allocations. */
 async function buildOrderFixture() {
   const org = await createTestOrg()
-  const supplier = await createTestContact(org._id, { type: 'supplier', companyName: 'Fastbolt' })
+  const supplier = await createTestContact(org._id, { type: 'supplier', companyName: 'Beispiel Schrauben' })
   const c1 = await createTestContact(org._id, { companyName: 'Client One' })
   const c2 = await createTestContact(org._id, { companyName: 'Client Two' })
   const c3 = await createTestContact(org._id, { companyName: 'Client Three' })
