@@ -11,7 +11,7 @@
       <v-spacer />
       <!-- What the app around it offers on the document (the invoicing app: Печат). -->
       <slot v-if="doc" name="actions" :row="doc.row" />
-      <v-btn v-if="doc && documentLink" variant="outlined" prepend-icon="mdi-file-document-outline" :href="typeof documentLink === 'string' ? documentLink : undefined" :to="typeof documentLink === 'string' ? undefined : documentLink">
+      <v-btn v-if="doc && documentLink" variant="outlined" prepend-icon="mdi-file-document-outline" :to="documentLink">
         {{ $t('cashRegister.detail.openDocument') }}
       </v-btn>
       <!-- #145: STORNO from the document itself, as in the journal. -->
@@ -31,9 +31,9 @@
     <v-alert v-if="notFound" type="warning" variant="tonal">{{ $t('cashRegister.detail.notFound') }}</v-alert>
 
     <template v-if="doc">
-      <!-- FR-23: nothing could prove whether this receipt printed. Someone looks at the device and says. -->
+      <!-- FR-23: nothing could prove whether this receipt or storno printed. Someone looks at the device and says. -->
       <v-alert v-if="doc.row.fiscal.inDoubt" type="warning" variant="tonal" class="mb-4" data-testid="receipt-in-doubt">
-        {{ $t('cashRegister.receipt.inDoubt') }}
+        {{ $t(`cashRegister.receipt.${settleWords.inDoubt}`) }}
         <div v-if="canSettle" class="mt-2 d-flex flex-wrap ga-2">
           <v-btn size="small" variant="outlined" data-testid="receipt-settle-printed" @click="settling = 'printed'">{{ $t('cashRegister.receipt.settlePrinted') }}</v-btn>
           <v-btn size="small" variant="outlined" data-testid="receipt-settle-not-printed" @click="settling = 'notPrinted'">{{ $t('cashRegister.receipt.settleNotPrinted') }}</v-btn>
@@ -44,11 +44,25 @@
       <v-dialog :model-value="!!settling" max-width="480" @update:model-value="settling = null">
         <v-card>
           <v-card-title>{{ doc.row.number }}</v-card-title>
-          <v-card-text>{{ settling ? $t(`cashRegister.receipt.settleConfirm.${settling}`) : '' }}</v-card-text>
+          <v-card-text>
+            {{ settling ? $t(`cashRegister.receipt.${settleWords.confirm}.${settling}`) : '' }}
+            <!-- A storno cites it, and only the slip knows it. -->
+            <v-text-field
+              v-if="settling === 'printed' && takesNumber"
+              v-model="settleNumber"
+              :label="$t('cashRegister.receipt.receiptNumber')"
+              :hint="doc.row.kind === 'payment' ? $t('cashRegister.receipt.receiptNumberHint') : undefined"
+              :persistent-hint="doc.row.kind === 'payment'"
+              :hide-details="doc.row.kind !== 'payment'"
+              inputmode="numeric"
+              class="mt-3"
+              data-testid="receipt-settle-number"
+            />
+          </v-card-text>
           <v-card-actions>
             <v-spacer />
             <v-btn variant="text" :disabled="settlingNow" @click="settling = null">{{ $t('common.cancel') }}</v-btn>
-            <v-btn color="primary" variant="flat" :loading="settlingNow" data-testid="receipt-settle-confirm" @click="settle">{{ $t('common.confirm') }}</v-btn>
+            <v-btn color="primary" variant="flat" :loading="settlingNow" :disabled="settling === 'printed' && settleNumberBad" data-testid="receipt-settle-confirm" @click="settle">{{ $t('common.confirm') }}</v-btn>
           </v-card-actions>
         </v-card>
       </v-dialog>
@@ -72,7 +86,8 @@
             <!-- FR-23: the invoice a payment's receipt took money for, or the credit note a refund's storno gave it back on. -->
             <v-col v-for="inv in doc.row.kind === 'payment' || doc.row.kind === 'refund' ? doc.row.invoices : []" :key="inv.id" cols="12" sm="6" md="3">
               <div class="text-caption text-medium-emphasis">{{ doc.row.kind === 'refund' ? $t('cashRegister.receipt.refundOf') : $t('cashRegister.receipt.paidInvoice') }}</div>
-              <a :href="appHref('invoicing', `/invoicing/invoices/${inv.id}/edit`)" class="text-decoration-none" data-testid="journal-paid-invoice">{{ inv.number }}</a>
+              <router-link v-if="invoiceRoute" :to="invoiceRoute(inv)" class="text-decoration-none" data-testid="journal-paid-invoice">{{ inv.number }}</router-link>
+              <span v-else data-testid="journal-paid-invoice">{{ inv.number }}</span>
             </v-col>
           </v-row>
         </v-card-text>
@@ -86,6 +101,7 @@
             <span class="text-caption text-medium-emphasis">{{ givesBack(r.kind) ? $t('cashRegister.detail.stornoedBy') : $t('cashRegister.detail.stornoOf') }}</span>
             <router-link :to="relatedRoute(r)" class="text-decoration-none">{{ r.number }}</router-link>
             <span>{{ fmtCurrency(givesBack(r.kind) ? -r.total : r.total, r.currency) }}</span>
+            <v-chip v-if="r.status === 'inDoubt'" size="x-small" label color="warning" data-testid="journal-related-in-doubt">{{ $t('cashRegister.status.inDoubt') }}</v-chip>
           </div>
         </v-card-text>
       </v-card>
@@ -172,6 +188,7 @@
       :user-id="userId"
       :locale="locale"
       @done="onStornoDone"
+      @held="load"
     />
   </v-container>
 </template>
@@ -192,7 +209,7 @@ import { useSnackbar } from '../../composables/useSnackbar'
 import { paymentMethodKey } from '../../composables/usePaymentMethods'
 import { STORNO_ROLES, canStornoJournalRow } from '../../cash-register/storno'
 import { givesBack, kindColor } from '../../cash-register/journal-kind'
-import { appHref } from '../../nav/navigate'
+import { receiptRefusalMessage } from '../../cash-register/receipt-refusal'
 
 const props = defineProps<{
   orgUrl: string
@@ -204,7 +221,9 @@ const props = defineProps<{
   /** Where a row of the storno chain opens. */
   relatedRoute: (row: any) => RouteLocationRaw
   /** The full document page for a row (print, email), or null where there is none. */
-  documentRoute?: (row: any) => RouteLocationRaw | string | null
+  documentRoute?: (row: any) => RouteLocationRaw | null
+  /** Where the invoice a payment's receipt paid opens. A reader with no such page gets its number alone. */
+  invoiceRoute?: (inv: { id: string; number: string }) => RouteLocationRaw
 }>()
 
 const { t } = useI18n()
@@ -249,21 +268,37 @@ function fmtDate(row: any): string {
 }
 
 function statusColor(s: string) {
-  return ({ completed: 'success', stornoed: 'warning', voided: 'grey-darken-1' } as Record<string, string>)[s] || 'grey'
+  return ({ completed: 'success', stornoed: 'warning', voided: 'grey-darken-1', inDoubt: 'warning' } as Record<string, string>)[s] || 'grey'
 }
 
 // ── FR-23: a receipt in doubt ──
 // It decides what happened to money, so the same people as a storno, and asked twice.
+const settleWords = computed(() => (({
+  storno: { inDoubt: 'stornoInDoubt', confirm: 'settleConfirmStorno', done: 'stornoSettled' },
+  refund: { inDoubt: 'refundInDoubt', confirm: 'settleConfirmRefund', done: 'refundSettled' },
+  sale: { inDoubt: 'saleInDoubt', confirm: 'settleConfirmSale', done: 'saleSettled' },
+} as Record<string, { inDoubt: string; confirm: string; done: string }>)[doc.value?.row.kind] ?? { inDoubt: 'inDoubt', confirm: 'settleConfirm', done: 'settled' }))
+const settleNumber = ref('')
 const canSettle = computed(() => !!props.role && (STORNO_ROLES as readonly string[]).includes(props.role))
 const settling = ref<'printed' | 'notPrinted' | null>(null)
+/** A storno cites the number: a sale must bring it, and a fiscal receipt may (R2's refund cites it). */
+const takesNumber = computed(() => doc.value?.row.kind === 'sale' || (doc.value?.row.kind === 'payment' && !!doc.value?.row.fiscal?.isFiscal))
+const settleNumberBad = computed(() => {
+  if (!takesNumber.value) return false
+  const typed = settleNumber.value.trim()
+  return !/^\d+$/.test(typed) && (doc.value?.row.kind === 'sale' || typed !== '')
+})
 const settlingNow = ref(false)
 async function settle() {
   settlingNow.value = true
   try {
-    await httpClient.post(`${props.orgUrl}/cash-register/documents/${props.id}/settle`, { printed: settling.value === 'printed' })
-    showSuccess(t('cashRegister.receipt.settled'))
+    const printed = settling.value === 'printed'
+    await httpClient.post(`${props.orgUrl}/cash-register/documents/${props.id}/settle`, {
+      printed, ...(printed && takesNumber.value && settleNumber.value.trim() ? { receiptNumber: settleNumber.value.trim() } : {}),
+    })
+    showSuccess(t(`cashRegister.receipt.${settleWords.value.done}`))
   } catch (e: any) {
-    showSnackbar(e?.response?.data?.message || t('common.operationFailed'), 'error', 8000)
+    showSnackbar(receiptRefusalMessage(t, e, t('common.operationFailed')), 'error', 12000)
   } finally {
     settlingNow.value = false
     settling.value = null

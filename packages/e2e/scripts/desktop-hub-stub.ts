@@ -47,8 +47,13 @@ const CONTROL_PORT = PORT + 1
  * ⚠ Not `/`. The point of the `startPath` assertion is that Open LGR lands somewhere OTHER than
  * the default, because `/` is also what the fallback produces — a test that asserted `/` would
  * pass against a shell that ignored the assignment entirely.
+ *
+ * `/pos/` on purpose: the path the tills in the field store, which the POS app's move into
+ * Invoicing left to a server-side redirect. The hub answers it the way the real one does
+ * (`portal-api/src/lib/pos-redirect.ts`), so the walk proves the shell follows that 302 into a page.
  */
 const START_PATH = process.env.LGR_STUB_START_PATH || '/pos/'
+const TERMINAL_PATH = '/invoicing/cash-sales/new'
 
 const state = {
   /** Enrollments the stub has accepted, so a spec can assert the shell sent a public key. */
@@ -196,6 +201,8 @@ function handle(req: Request): Response | Promise<Response> | undefined {
   }
 
   // ── The fake SPA ──────────────────────────────────────────────────────────────────────────
+  if (p === '/pos' || p.startsWith('/pos/')) return new Response(null, { status: 302, headers: { Location: TERMINAL_PATH } })
+
   if (p === '/' || p === START_PATH || p.startsWith(START_PATH)) return spa(p)
 
   // Anything else still answers HTML: the shell may navigate within the origin, and a 404 in the

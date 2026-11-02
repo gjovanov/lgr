@@ -40,6 +40,7 @@ const SAYS_SO: Record<string, string> = {
   'services/src/biz/sale-counting.ts distinct CASH_SALE_REF_ID': 'only invoices carry a cash-sale link',
   'services/src/biz/settlement-backlog.ts distinct \'register.paidInvoiceId\'': 'names the type in its second argument',
   'services/src/biz/supto-export.service.ts findMany invoiceQuery': 'names cash_sale where it is built',
+  'services/src/biz/supto-export.service.ts distinct \'relatedInvoiceId\'': 'names the type in its second argument',
 }
 
 const READ = /\b(?:Invoice|invoices)\.(find|aggregate|countDocuments|distinct|findAll|findMany|count)\(/g

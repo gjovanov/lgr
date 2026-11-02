@@ -221,6 +221,7 @@
               style="max-width: 160px"
               @update:model-value="onLinePriceChange(cartLines[i].idx, $event)"
               @update:price-explanation="line.priceExplanation = $event"
+              @chosen="line.pricePinned = true"
             />
             <PriceSelectButton
               :product-id="line.productId"
@@ -319,6 +320,10 @@ import type { DocumentTypeConfig } from '../../composables/document-form/types'
  *
  * FR-21.29: the catalog, the cart and the totals are `ui-shared`'s RegisterTerminal, the one the till
  * sells through. This form keeps its document header, its customer-aware prices and its Save.
+ *
+ * `/cash-sales/:id/edit` mounts it, and `/cash-sales/draft` for a draft of a new sale reopened from
+ * Pending changes. ⚠ So what serves a sale that does not exist yet is live: a new sale is rung up on
+ * the till (`/cash-sales/new`), and those drafts are saved through here.
  */
 const props = defineProps<{
   config: DocumentTypeConfig

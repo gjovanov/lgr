@@ -258,7 +258,7 @@ describe('client assertions', () => {
 
 describe('startPath', () => {
   it('accepts a path, including the empty "no start path" case', () => {
-    for (const s of ['', '/', '/pos/', '/invoicing/invoices', '/a-b_c.d~e/']) {
+    for (const s of ['', '/', '/pos/', '/invoicing/invoices', '/invoicing/cash-sales/new', '/a-b_c.d~e/']) {
       expect(isValidStartPath(s)).toBe(true)
     }
   })

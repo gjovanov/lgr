@@ -44,6 +44,27 @@ function counting(id: string, sink: string[], extra: Partial<Migration> = {}): M
   }
 }
 
+describe('bun run migrate --dry-run changes nothing (the second review)', () => {
+  it('does not build the new commit\'s collections or indexes on the way in', async () => {
+    const uri = (mongoose.connection as any)._connectionString as string
+    const name = `lgr_dry_run_${Date.now()}`
+    const target = uri.replace(/\/[^/?]*(\?|$)/, `/${name}$1`)
+    const run = Bun.spawn(['bun', 'run', 'packages/migrations/src/cli.ts', '--dry-run'], {
+      cwd: new URL('../../../..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'),
+      env: { ...process.env, MONGODB_URI: target }, stdout: 'pipe', stderr: 'pipe',
+    })
+    const exit = await run.exited
+    const out = await new Response(run.stdout).text()
+    const db = (mongoose.connection as any).client.db(name)
+    const collections = (await db.listCollections().toArray()).map((c: any) => c.name)
+    await db.dropDatabase()
+
+    expect(exit, out).toBe(0)
+    expect(out).toContain('pending')
+    expect(collections).toEqual([])
+  }, 60_000)
+})
+
 describe('0011-printer-gate-off (FR-23)', () => {
   const GATE = 'settings.cashRegister.requireConnectedDevice'
   const gate = async (id: unknown) => ((await db().collection('orgs').findOne({ _id: id as any })) as any)?.settings?.cashRegister?.requireConnectedDevice

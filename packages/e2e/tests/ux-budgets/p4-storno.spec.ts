@@ -3,7 +3,7 @@ import { startWalk, uxApi, closeOpenTillSessions } from '../helpers/ux-budget'
 
 /**
  * P4-storno — a customer brings the goods back: the cashier, standing at the till
- * (`/pos/terminal`), reaches the sale in the journal and reverses (STORNO) it in full.
+ * (`/invoicing/cash-sales/new`), reaches the sale in the journal and reverses (STORNO) it in full.
  *
  * The sale is made in setup through the API (uncounted): PRD-0020 ×1, cash, on the open session
  * of Main Warehouse — a storno is refunded from an open session of the sale's own warehouse.
@@ -90,17 +90,16 @@ test('P4-storno: reverse a till sale, starting at the terminal', async ({ page }
   const walk = await startWalk(page, testInfo, {
     id: 'P4-storno',
     title: 'Till — a customer returns the goods: STORNO a till sale (PRD-0020 ×1) in full, starting at the terminal',
-    start: '/pos/terminal',
+    start: '/invoicing/cash-sales/new',
   })
   await expect(page.getByRole('textbox', { name: 'Търси продукти...' })).toBeVisible()
   await walk.shot('terminal')
   const tillTexts = await page.locator('.v-main').innerText()
   if (!/сторно|рекламац|върн/i.test(tillTexts)) walk.note('The till itself offers no return or storno: the cashier leaves the terminal for the transactions journal.')
 
-  // The top menus open on hover (FR-05): pointing at „Поръчки“ costs no click.
-  // FR-21.13: the journal is „Касови продажби“ now, in the POS app as in invoicing.
-  await walk.menu('Поръчки', 'Касови продажби')
-  await page.waitForURL(/\/pos\/orders(\?|$)/)
+  // The top menus open on hover (FR-05): pointing at „Изходящи документи“ costs no click.
+  await walk.menu('Изходящи документи', 'Касови продажби')
+  await page.waitForURL(/\/invoicing\/cash-sales(\?|$)/)
 
   const rows = page.locator('.v-main tbody tr')
   const row = rows.filter({ hasText: sale.transactionNumber })

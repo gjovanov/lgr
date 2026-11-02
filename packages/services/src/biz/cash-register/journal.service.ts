@@ -11,16 +11,17 @@
  * the server refuses it until that holds (`freeze-check.ts`, FR-21.28). A row's `store` is
  * always `'invoice'` now; the field stays for the UI that still branches on it.
  *
- * The same journal is mounted at `/pos/orders` and `/invoicing/cash-sales` (D-10).
+ * The journal is mounted at `/invoicing/cash-sales`, for the till and the back office alike (D-10).
  */
 import { Contact, Invoice, POSSession, StockMovement, User, Warehouse } from 'db/models'
 import { localDayWindow, BULGARIAN_TIME_ZONE } from '../local-day.js'
+import { saleInDoubt } from './in-doubt.js'
 import { PAYMENT_RECEIPT, PAYMENT_STORNO, TILL_DOCUMENT_TYPES } from './pos-union.js'
 import { invoicedCashSaleIds, invoicingByCashSale } from '../cash-sale-invoice.service.js'
 
 export type JournalKind = 'sale' | 'storno' | 'payment' | 'refund'
 export type JournalOrigin = 'pos' | 'backoffice' | 'import'
-export type JournalStatus = 'completed' | 'stornoed' | 'voided'
+export type JournalStatus = 'completed' | 'stornoed' | 'voided' | 'inDoubt'
 export type JournalStock = 'moved' | 'error' | 'none'
 
 export interface JournalQuery {
@@ -216,6 +217,7 @@ function documentMatch(q: JournalQuery, invoiced: any[] | null): Record<string, 
 
 function documentStatus(doc: any): JournalStatus {
   if (doc.status === 'voided') return 'voided'
+  if (doc.register?.fiscal?.inDoubt || saleInDoubt(doc)) return 'inDoubt'
   if (doc.register?.stornoState === 'full') return 'stornoed'
   return 'completed'
 }
@@ -262,7 +264,7 @@ function fromDocument(doc: any, moved: Set<string>): JournalRow {
       ...(reg.fiscalReceiptNumber ? { receiptNumber: reg.fiscalReceiptNumber } : {}),
       ...(reg.fiscalDeviceNumber ? { deviceNumber: reg.fiscalDeviceNumber } : {}),
       ...(reg.printedAt ? { printedAt: new Date(reg.printedAt).toISOString() } : {}),
-      ...(reg.fiscal?.inDoubt ? { inDoubt: true } : {}),
+      ...(reg.fiscal?.inDoubt || saleInDoubt(doc) ? { inDoubt: true } : {}),
     },
     stock: reg.stockError ? 'error' : moved.has(id) || reg.movementId ? 'moved' : 'none',
     ...(doc.reference ? { reference: doc.reference } : {}),

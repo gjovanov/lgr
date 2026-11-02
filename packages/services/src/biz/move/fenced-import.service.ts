@@ -10,7 +10,9 @@
  *   - an issued sale: its stock, below zero if need be (the goods left), its journal entry, its
  *     payments' entries, and the orders it fulfils;
  *   - a till sale: its stock; its till session, imported with it, is journaled at its close;
- *   - a stock movement of its own (a delivery, a transfer, a write-off): confirmed here;
+ *   - a stock movement of its own (a delivery, a transfer, a write-off): confirmed here. So is one a
+ *     document lists as its stock (a bill made from a receipt, an invoice converted from a note):
+ *     that document moved nothing on the site, and books nothing here;
  *   - documents and their files, put where their rows say; the site's audit trail.
  * - **All or nothing per document**: a sale whose stock cannot be booked is taken out again, and listed.
  * - **Never overwritten, never deleted**: a document lgrai.app already has (changed on both sides), a
@@ -125,6 +127,9 @@ export function bookingOf(doc: Doc): 'none' | 'sale' | 'bill' | 'register' {
   // payment row; `createInvoiceStockMovement` below would dispatch its lines a second time. A refund's
   // storno the same: its credit note comes in with the return and the payment row.
   if (doc.type === 'payment_receipt' || doc.type === 'payment_storno') return 'none'
+  // A storno nothing has proved has booked nothing, and a person may yet say it never was. The settle
+  // door books it, here, as the till's would have.
+  if (doc.type === 'cash_storno' && ['pending', 'unknown'].includes(doc.register?.fiscal?.state)) return 'none'
   if (doc.type === 'cash_sale' || doc.type === 'cash_storno') return 'register'
   return doc.direction === 'incoming' ? 'bill' : 'sale'
 }
@@ -170,11 +175,12 @@ function asKept(doc: Doc, ctx: Ctx, number?: string): Doc {
     out.register = { ...out.register }
     delete out.register.movementId
     delete out.register.stockError
-    // FR-23: a receipt whose request died on the site, with its hold on its invoice. Every one arrives
-    // finishable, or its invoice stays locked for good. Its device stayed behind, so one that was
-    // still printing cannot be proved, and a person settles it, as anything that cannot be. Past the
-    // print only the money is left, and a lapsed lease is what lets the next touch finish that.
-    if ((out.type === 'payment_receipt' || out.type === 'payment_storno') && !out.completedAt) {
+    // FR-23: a receipt or a refund's storno whose request died on the site, with its hold on its document,
+    // or a storno with its claim on its sale. Every one arrives finishable, or what it holds stays locked for good. Its
+    // device stayed behind, so one that was still printing cannot be proved, and a person settles it, as
+    // anything that cannot be. Past the print only the money is left, and a lapsed lease is what lets
+    // the next touch finish that. A copied POS row carries no `completedAt` of its own.
+    if ((out.type === 'payment_receipt' || out.type === 'payment_storno' || out.type === 'cash_storno') && !out.completedAt && !out.register.legacy) {
       if (out.register.fiscal?.state === 'pending') out.register.fiscal = { ...out.register.fiscal, state: 'unknown', inDoubt: true }
       else if (!out.register.fiscal?.inDoubt) out.leaseUntil = ctx.at
     }
@@ -296,9 +302,24 @@ export async function importSession(ctx: Ctx, doc: Doc): Promise<Outcome> {
   return imported(undefined, undefined, doc.status === 'closed' ? 'closed' : undefined)
 }
 
-export async function importMovement(ctx: Ctx, doc: Doc): Promise<Outcome> {
-  // Made by a sale: the sale's import books it again here, or the sale stayed behind with it.
-  if (doc.invoiceId) return skipped('made_by_its_sale', `the stock of ${keyOf(doc.invoiceId)}`, String(doc.movementNumber ?? ''))
+/**
+ * `<document>|<movement>` per movement a document lists as its stock (`stockSource.movementIds`).
+ * ⚠ The pair, never the movement alone: an invoice for a cash sale lists the sale's dispatch, whose
+ * `invoiceId` names the sale, and the sale's import books that one again.
+ */
+export function noteListedMovements(doc: Doc, listed: Set<string>): void {
+  for (const id of doc.stockSource?.movementIds ?? []) listed.add(`${keyOf(doc._id)}|${keyOf(id)}`)
+}
+
+/** A movement the document in its `invoiceId` lists as its stock: that document moved nothing itself. */
+export function isListedByItsDocument(doc: Doc, listed: ReadonlySet<string>): boolean {
+  return !!doc.invoiceId && listed.has(`${keyOf(doc.invoiceId)}|${keyOf(doc._id)}`)
+}
+
+export async function importMovement(ctx: Ctx, doc: Doc, listed: ReadonlySet<string> = new Set()): Promise<Outcome> {
+  // Made by a sale: the sale's import books it again here, or the sale stayed behind with it. Not one
+  // its document lists: it is the site's own, confirmed like any other, and it keeps its claim.
+  if (doc.invoiceId && !isListedByItsDocument(doc, listed)) return skipped('made_by_its_sale', `the stock of ${keyOf(doc.invoiceId)}`, String(doc.movementNumber ?? ''))
   const there: any = await StockMovement.collection.findOne({ _id: doc._id } as any, { projection: { importedFrom: 1, status: 1 } })
   if (there && !isOurs(there.importedFrom, ctx)) return skipped('same_id', 'lgrai.app holds this movement, changed since the cutoff')
   // Applied on the site, so applied here: inserted as a draft, then confirmed against lgrai.app's stock.
@@ -389,6 +410,9 @@ export async function runImportBatch(row: any, budget = IMPORT_BATCH): Promise<{
     done.add(`${coll}|${docKey}`)
     processed++
   }
+  // Read from the export as it goes by, and not from what the import left
+  // here: a bill that stayed behind (its number taken, an article missing) moved no stock either.
+  const listed = new Set<string>()
   for (const phase of PHASES) {
     const files = phase.includes('docfiles')
     const rows: Array<{ coll: string; doc: Doc }> = []
@@ -398,6 +422,7 @@ export async function runImportBatch(row: any, budget = IMPORT_BATCH): Promise<{
         if (files) bytes.set(it.path, it.bytes)
         continue
       }
+      if (it.kind === 'doc' && it.coll === 'invoices') noteListedMovements(it.doc, listed)
       if (it.kind !== 'doc' || !phase.includes(it.coll) || done.has(`${it.coll}|${keyOf(it.doc._id)}`)) continue
       if (files) {
         // A row waits for the files section, which comes after every document.
@@ -408,7 +433,7 @@ export async function runImportBatch(row: any, budget = IMPORT_BATCH): Promise<{
       const key = keyOf(it.doc._id)
       if (it.coll === 'invoices') await handle(it.coll, key, () => importSale(ctx, it.doc), it.doc.register?.sessionId ? keyOf(it.doc.register.sessionId) : undefined)
       else if (it.coll === 'possessions') await handle(it.coll, key, () => importSession(ctx, it.doc))
-      else if (it.coll === 'stockmovements') await handle(it.coll, key, () => importMovement(ctx, it.doc))
+      else if (it.coll === 'stockmovements') await handle(it.coll, key, () => importMovement(ctx, it.doc, listed))
       else await handle(it.coll, key, () => importPlain(ctx, it.coll, it.doc))
     }
     for (const r of rows) await handle(r.coll, keyOf(r.doc._id), () => importDocument(ctx, r.coll, r.doc, bytes))

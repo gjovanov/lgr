@@ -412,6 +412,7 @@
         "reporting": "workspace:*",
         "services": "workspace:*",
         "ui-shared": "workspace:*",
+        "vue-router": "^4.5.1",
         "warehouse-api": "workspace:*",
       },
     },

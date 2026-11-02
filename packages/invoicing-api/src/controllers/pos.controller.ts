@@ -21,14 +21,13 @@ import { fiscalCapabilities } from 'fiscal/capabilities'
 import { DEVICE_REPORT_KINDS, FISCAL_ADMIN_ROLES, printDeviceReport } from 'fiscal/device-command'
 import { fiscalFailure } from 'fiscal/errors'
 import { unfinishedReceipts, unfinishedRefusal } from 'services/biz/cash-register/payment-receipt.service'
-import { finishInterruptedReceipts } from '../lib/counter-receipt.js'
 import { deviceTurn } from 'fiscal/device-turn'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
 import {
-  STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, findKeyedTillDocument, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
+  STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, findKeyedTillDocument, finishInterruptedDocuments, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
 } from '../lib/cash-register-till.js'
 
 // FR-21: the till's device, its receipts and the price a device is given live with the cash-register
@@ -672,9 +671,9 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       // Legacy single-number body maps onto the cash line.
       const counted = b.counted ?? { cash: Number(b.closingBalance) || 0 }
 
-      // FR-23: a session does not close over a receipt nobody finished. Its money would land after
-      // the day was counted, on a device whose Z already has it, or the drawer would read as over.
-      await finishInterruptedReceipts(orgId, user, { sessionId: id })
+      // FR-23: a session does not close over a receipt or a storno nobody finished. Its money would land
+      // after the day was counted, on a device whose Z already has it, or the drawer would read as over.
+      await finishInterruptedDocuments(orgId, user, { sessionId: id })
       const unfinished = await unfinishedReceipts(orgId, id)
       if (unfinished.length) return status(409, unfinishedRefusal(unfinished))
 

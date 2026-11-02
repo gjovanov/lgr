@@ -225,8 +225,119 @@ them into PRs.
   - The receipt links to its bill and the bill to its receipt.
   - A receipt is billed once; a second link answers 409.
   - Several receipts per bill, and price differences, follow D-2.
+  - **FR-22.31a (MUST)** A completed, unclaimed receipt with no supplier can be billed too.
+    - „Входяща фактура" asks for the supplier first, with the server-searched supplier picker.
+    - `POST /invoicing/bills/from-receipt` takes an optional `contactId`. It is required when a
+      named receipt has no supplier (422 `receipt_without_supplier`). It must be an active
+      supplier-or-both contact of this org (422 `supplier_not_found`), and it must not contradict a
+      receipt that names another supplier (422 `supplier_mismatch`). A supplier the receipts already
+      name needs no proving: one since deactivated can still be billed for its own delivery.
+    - The supplier is written onto the receipt in the claim's own compare-and-set, and only onto one
+      that has none. Of two conversions naming different suppliers, one wins and the receipt keeps
+      that supplier. Each write is audit-logged.
+    - Voiding or deleting the bill takes the supplier off again (`stockSource.supplierGivenTo`): a
+      completed receipt cannot be edited, so a wrong choice would otherwise refuse every other
+      supplier for ever. A delete releases before it deletes, because the bill is the only record of
+      the supplier it wrote. A void that died before its release is finished by the next touch of
+      the receipt: its page, or a bill or a link naming it.
+    - The supplier feeds no journal entry: a receipt's valuation entry carries no contact. The
+      product ledger, the reports and the contact's movement count name it from then on.
+    - A receipt that still cannot be billed says why on its page (`notBillable`): not completed yet,
+      a voided document's own, a reversal, or no delivery at all. None of the following can be billed
+      or overlap a bill, because a bill linked to one moves no stock and the real delivery is never
+      booked:
+      - `reverseMovement` (Files rollback) books the mirror of a dispatch as a `receipt`;
+      - a receipt rolled back with its document stays `completed`, but its goods have left again.
+        `reverseMovement` stamps it (`reversedBy`, `reversedAt`), and it answers
+        `receipt_rolled_back`;
+      - a rolled-back till sale that named no customer leaves one pointing at a document that is gone.
+        One that named a customer reads as a claim a crash left behind, and stays free;
+      - a receipt naming no supplier whose notes mark a correction (its `corr:` marker, or the partner
+        „2000 КОРЕКЦИЯ", which is all the API scripts leave), a reconcile delta, a day's aggregate, or
+        the goods coming back on a negative line of a transfer or write-off note
+        (`receipt_not_a_delivery`, `config/movement-notes`, which the writers and this reader share).
+        A day's aggregate holds several suppliers, and a bill takes a receipt whole.
+    - Own-store and „склад" разписки carry no such mark, so the two dialogs show a no-supplier
+      receipt's notes on its row, and never tick one for the person. Only a lone receipt naming the
+      supplier is ticked, however many that name nobody stand beside it.
+  - **FR-22.31b (MUST)** A movement's warehouses fit its type (`config/movement-warehouses`).
+    - A `dispatch` names From and never To; a `receipt` names To and never From (422
+      `dispatch_with_to_warehouse`, `receipt_with_from_warehouse`). A `transfer` naming To with no
+      From is refused (422 `transfer_without_from_warehouse`): it adds stock from nowhere. An
+      `adjustment` naming both is refused (422 `adjustment_with_both_warehouses`): it takes the goods
+      out and puts them straight back. Naming neither stays allowed. The imports' from-only transfers
+      and write-offs stand, as do a count's and a true-up's to-only adjustments.
+    - `confirmMovement` ignores `type`, so a dispatch naming only To added stock. The rule stands at
+      the doors a user comes through: `POST /warehouse/movement`, `/with-update`, `PUT /:id`,
+      `/:id/confirm`, `/doc-import/convert` and `/doc-import/commit`.
+    - It is deliberately not inside `confirmMovement`. Everything else that reaches it sets the side
+      from the type (invoices, the till, stornos, imports, reversals, transfers, counts), or replays
+      a movement a site already booked (`importMovement`), where a refusal would drop goods that
+      moved. And `/receive` reaches it after it has written the bill as received.
+    - A booked document stays as it is, and reads as it was booked. `PUT` takes `null` to clear a
+      warehouse, so a draft saved before the rule can be repaired, and to clear a draft receipt's
+      supplier, so a wrong pick need not be confirmed.
+    - The form clears the warehouse the new type does not use when the USER changes the type (a
+      watcher would also fire on loading a booked document), and offers no such field, unless the
+      movement already names one.
+    - A new movement's To warehouse is the form's guess for a receipt, not a choice. Changing to any
+      other type clears it, so a write-off typed in the form takes goods out, and its count carries
+      the right sign. A To the person picked, a stored draft and a booked movement are untouched.
+      Going back to a receipt restores the guess.
+  - **FR-22.31c (MUST)** Receiving an unlinked bill warns before it double-books.
+    - `POST /invoices/:id/receive` answers 409 `receipt_overlap`, naming the receipts, when an
+      unclaimed completed receipt that put goods in stock lies within
+      `RECEIPT_OVERLAP_WINDOW_DAYS` (60) either way of the bill's issue date and shares a line with
+      it: naming the bill's supplier, any stock-held article; naming no supplier, the same article
+      at the same quantity on one line. Without the quantity rule, stores whose receipts carry no
+      supplier would be asked on nearly every bill.
+    - `{ acknowledgeOverlap: true }` receives anyway, and is audit-logged
+      (`receive_overlap_acknowledged`). The body stays optional.
+    - `/send` books an incoming bill the same way, so it asks the same question.
+    - A bill leaves draft once. The write that takes it out holds on `status: 'draft'`, and on an issue
+      under way on `/send`. The loser answers 409 `bill_not_draft` with nothing booked. A number it drew
+      is a gap in an internal series, which is accepted. The form, the list and the question's buttons
+      send nothing while one is running.
+    - What booking would refuse is refused before the number is drawn, by the one function booking
+      itself uses (`stockBookingRefusal`): 422 `stock_line_without_warehouse` or
+      `stock_line_without_product`, in the user's language, and the bill stays the draft it was. It
+      used to be written as received first, with no stock, and a retry answered 400.
+    - On a bill with no supplier, the question offers the supplier picker: a link has to be told who.
+    - The form's „Запази и получи" and the list's Receive icon show the receipts and offer both ways
+      out. Linking stops short of receiving: the delivery's lines carry the receipt's costs, and the
+      user reads them against the supplier's paper first (D-2). From the list it opens the bill.
+    - The import paths are not asked: a batch cannot answer a question.
+      `/bills/import/{extract,draft,convert}` stays byte-compatible, and `/doc-import/commit` has its
+      own duplicate and conversion checks. So `convertDraftInvoice` (`/doc-import/convert`,
+      `/doc-import/commit` with convert, `/bills/import/convert`) can still book goods a receipt
+      already booked.
 - **FR-22.32 (SHOULD)** The bill form has „Свържи с доставка": pick received, not-yet-billed
-  receipts of the chosen supplier, with the same linkage.
+  receipts of the chosen supplier, with the same linkage. Receipts with no supplier follow, marked,
+  and take the bill's supplier when linked (FR-22.31a).
+  - **FR-22.32a (MUST)** A draft bill with typed lines can take a delivery.
+    - `POST /:id/link-receipts` takes `replaceLines: true`; without it, 422 `bill_not_empty` stands,
+      so an older client changes nothing. Only drafts: `bill_not_draft` stands.
+    - The form says first that the typed lines and their prices are replaced by the delivery's lines,
+      at the receipt's costs. The bill keeps its own number, reference, dates, payment method and
+      notes. After a replacement both doors say to check the prices, then receive it: the user reads
+      them against the supplier's paper (D-2).
+    - The audit entry keeps what the bill no longer holds: the typed lines (article, quantity, price),
+      the old and new totals, and a supplier the link wrote.
+    - The save before a link sends no product updates: the typed lines' staged prices must not reach
+      the catalog from lines about to be thrown away. „Запази и получи" that ends in the overlap
+      question is different. That save is the person's own, it stands, and linking from the question
+      afterwards leaves the product as that save wrote it.
+    - A bill written against a supplier order keeps its lines (422 `bill_on_order`): they book the
+      delivery onto the order. The form does not offer it „Свържи с доставка".
+    - A fenced or a kept import brings a receipt a bill lists in like any other delivery, claim and
+      all. The bill moved no stock on the site and books none on the way in, so reading the receipt's
+      `invoiceId` as „made by its sale" would lose the goods. It holds for any document that lists a
+      movement as its stock (`stockSource.movementIds`), and only for that document: an invoice for a
+      cash sale lists the sale's dispatch, whose `invoiceId` names the sale.
+    - A bill in a currency other than the org's is not linked (422 `bill_foreign_currency`): the
+      delivery's lines carry its costs in the org's currency, and nothing converts them. In the org's
+      currency `totalBase` is the total, whatever a stale rate on the bill says. A linked bill's
+      currency can still be edited, and then receiving it carries no price to the products.
 - **FR-22.33 (MUST)** The bill form offers „Запази и получи". Payment method starts empty, then
   per FR-22.26.
 
@@ -394,6 +505,10 @@ subtitles.
    `lgr_token` directly).
 10. **Keyboard shortcuts** never fire inside a dialog's text area or the line grid's own keys
     (Enter adds a line there).
+11. **A receipt that names no warehouse** moved no stock. It can still be billed, as it always could:
+    the user chose a movement with no stock effect, and the bill keeps it that way. It never counts
+    as an overlap, because a bill receiving those goods books them for the first time.
+12. **A bill's line with no warehouse** will not book, so it overlaps nothing.
 
 ## 6. Integration constraints
 
@@ -490,6 +605,7 @@ the owner asks. Everything merged is on production.
 | 2a: documents flow | FR-22.16–.22 (save stays, the form issues, „Издай и печатай", one-click print, notes from the invoice, card paid on issue, proforma) | merged: #264. P5-invoice 20 → 14, P5-credit 11 → 5, P6 17 → 12 |
 | 2b | FR-22.23–.27, .50 (one row menu at 1366 px, partner picker by recent use, remembered method and last price, place of deal, labelled Create) | merged: #266 |
 | 3: receipt → bill (#168) | FR-22.28–.33 | merged: #261. P2 17 clicks (was a dead end, target ≤ 20); P3 3 clicks with stock unchanged (was 14 and stock booked twice) |
+| 3a: its dead ends (#168) | FR-22.31a–c, .32a | a receipt with no supplier, a typed bill taking a delivery, the question before a bill books goods twice, a movement's warehouses fitting its type. P2 and P3 unchanged |
 | 4: orders and reservations | FR-22.34 (names), .35–.36 (links, linked invoices), .37 (repeat, quantity edit only), .39–.40 (list links, who reserved what) | merged: #252 (owned by another session). P7-chain 27 → 26, P7-repeat 4 → 3, P7-who → 1 |
 | 4 | D-1 subtitles | merged: #260 |
 | 4a | FR-22.37 rest (create on the list, `/reservations/:id`, partial release, cancel-dialog wording); the reservation in „+ Нов"; RES numbers link to their page | merged: #265. P7-new: 4 clicks |

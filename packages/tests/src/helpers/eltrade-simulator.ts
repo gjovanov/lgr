@@ -119,6 +119,8 @@ export class EltradeSimulator {
   disconnected = false
   /** 3Ch moves 71h too. The protocol does not say whether it does, and no physical device has shown it. */
   numbersVoided = false
+  /** 3Ch is refused this many times with no payment made: what the driver's fallback closes. The protocol does not describe it. */
+  refuseVoids = 0
   /** Bytes prepended to the next answer once (e.g. a stale frame from an earlier command). */
   prependOnce: Uint8Array | null = null
   synPrefix = 0
@@ -333,6 +335,7 @@ export class EltradeSimulator {
       }
       case 0x3C:
         if (!this.receipt || this.receipt.payments.length) { flags.notAllowed = true; return '' }
+        if (this.refuseVoids > 0) { this.refuseVoids--; flags.notAllowed = true; return '' }
         this.receipts.push({ ...this.receipt, voided: true })
         this.receipt = null
         if (this.numbersVoided) this.lastDocNumber++

@@ -38,6 +38,9 @@ export const CURRENCIES = [
 
 export const SUBSCRIPTION_PLANS = ['free', 'starter', 'professional', 'enterprise'] as const
 
+/** Who runs a fiscal device: its connection, its operators and its reports. */
+export const FISCAL_ADMIN_ROLES: readonly string[] = ['admin', 'manager', 'warehouse_manager']
+
 export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   admin: ['admin.users', 'admin.settings', ...PERMISSIONS.filter(p => !p.startsWith('admin.'))],
   manager: PERMISSIONS.filter(p => !p.startsWith('admin.')).slice(),
@@ -114,7 +117,9 @@ export const DOCUMENT_ACCESS_LEVELS = ['private', 'workspace', 'public'] as cons
 
 // ── Multi-App Architecture ──
 
-export const APP_IDS = ['accounting', 'inventory', 'invoicing', 'pos', 'payroll', 'reports', 'files'] as const
+// POS is no app of its own: the till lives in Invoicing. `pos` stays a module with its `pos.*`
+// permissions, and an org's old `OrgApp` row for it is simply never read again.
+export const APP_IDS = ['accounting', 'inventory', 'invoicing', 'payroll', 'reports', 'files'] as const
 export type AppId = (typeof APP_IDS)[number]
 
 export const APP_REGISTRY: Record<AppId, {
@@ -123,12 +128,15 @@ export const APP_REGISTRY: Record<AppId, {
   color: string
   path: string
   requiredPermission: string
+  /** Other permissions that open the tile too (`app-hub.service`). */
+  alsoOpenedBy?: readonly string[]
   description: string
 }> = {
   accounting: { name: 'Accounting', icon: 'mdi-chart-bar',     color: '#4caf50', path: '/accounting/', requiredPermission: 'accounting.read', description: 'Chart of accounts, journal entries, financial statements' },
   inventory:  { name: 'Inventory',  icon: 'mdi-warehouse',     color: '#ff9800', path: '/inventory/', requiredPermission: 'inventory.read', description: 'Products, stock, movements, valuations' },
-  invoicing:  { name: 'Invoicing',  icon: 'mdi-receipt-text',  color: '#2196f3', path: '/invoicing/', requiredPermission: 'invoicing.read', description: 'Contacts, invoices, payments' },
-  pos:        { name: 'POS',        icon: 'mdi-point-of-sale', color: '#e91e63', path: '/invoicing/pos/', requiredPermission: 'pos.read', description: 'Point of sale, sessions, fiscal' },
+  // The till's pages live here, and the server reads the app for any of its permissions, so each of
+  // these opens a page of it. `unit/page-registry.test.ts` holds this list to `canOpenPage`.
+  invoicing:  { name: 'Invoicing',  icon: 'mdi-receipt-text',  color: '#2196f3', path: '/invoicing/', requiredPermission: 'invoicing.read', alsoOpenedBy: ['invoicing.write', 'invoicing.send', 'pos.read', 'pos.write'], description: 'Contacts, invoices, payments' },
   payroll:    { name: 'Payroll',    icon: 'mdi-cash-multiple',  color: '#9c27b0', path: '/payroll/',  requiredPermission: 'payroll.read', description: 'Employees, payroll runs, payslips, timesheets' },
   // FR-6.1/6.2 (#14): P1 gated this tile on `invoicing.read` to avoid a backfill. P2
   // introduces the real `reports.read` — the SUPTO tables are not an invoicing concern,

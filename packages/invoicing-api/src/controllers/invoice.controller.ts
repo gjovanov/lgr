@@ -2,7 +2,7 @@ import { FiscalRoute, deviceFromAuthorSession, deviceFromCounter, deviceFromDead
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
-import { createInvoiceStockMovement, reverseInvoiceStockMovement, validateStockAvailability } from 'services/biz/invoicing.service'
+import { createInvoiceStockMovement, reverseInvoiceStockMovement, stockBookingRefusal, validateStockAvailability } from 'services/biz/invoicing.service'
 import { syncOrderForInvoice } from 'services/biz/reservation.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
@@ -12,16 +12,16 @@ import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumbe
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
 import { Invoice, Org, POSSession, Reservation, StockMovement } from 'db/models'
-import { assertJoinedSaleTender, assertPrinterConnected, openSessionOf, tillContext, tillSettings } from '../lib/cash-register-till.js'
+import { assertJoinedSaleTender, assertPrinterConnected, finishInterruptedDocuments, openSessionOf, tillContext, tillSettings } from '../lib/cash-register-till.js'
 import {
-  finishInterruptedReceipts, keyedReceipt, prepareIssueReceipt, prepareReceipt, printReceipt, receiptOutcome, settleKeyedReceipt,
+  keyedReceipt, prepareIssueReceipt, prepareReceipt, printReceipt, receiptOutcome, settleKeyedReceipt,
   type PreparedReceipt,
 } from '../lib/counter-receipt.js'
 import { issueTender, prepareIssueRefund, prepareRefund, refund, refundOutcome, refundedBy, type PreparedRefund } from '../lib/counter-refund.js'
 import { computePosTotals } from 'config/pos-totals'
 import { assertHomeIsHere } from 'db/home/home'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
-import { createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
+import { InvoiceWriteLost, createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement } from 'services/biz/cash-settlement.service'
 import { fitsDue, heldOn, isBeingVoided, notBeingVoided, outstandingOf, paymentPipeline } from 'services/biz/invoice-payment'
@@ -47,7 +47,8 @@ import {
   RegisterRefusal, insertRegisterDocument, originOf, runSaleSteps, settleKeyedDocument, type RegisterContext,
 } from 'services/biz/cash-register/register.service'
 import {
-  ReceiptBillError, applyLinkedBillPrices, checkLinkedBillEdit, isReceiptLinked, linkedReceiptsOf, releaseReceiptLinks,
+  ReceiptBillError, applyLinkedBillPrices, checkLinkedBillEdit, isReceiptLinked, linkedReceiptsOf, receiptsOverlapping, releaseReceiptLinks,
+  type ReceiptOverlap,
 } from 'services/biz/receipt-bill.service'
 import { PAYMENT_STORNO, REGISTER_TYPES } from 'services/biz/cash-register/pos-union'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
@@ -368,13 +369,24 @@ async function receiptPrinting(status: Status, orgId: string, id: string) {
 /** No issue is under way on the document: its claim is gone, finished, or lapsed. */
 const issueLeaseFree = (now: Date) => ({ $or: [{ 'issue.leaseUntil': null }, { 'issue.leaseUntil': { $lt: now } }] })
 
-/** Why a claim on this document was refused: who holds it now. */
-async function whoHolds(status: Status, orgId: string, id: string) {
-  const doc: any = await Invoice.findOne({ _id: id, orgId }, { voidingUntil: 1, 'issue.leaseUntil': 1 }).lean().exec()
+/**
+ * A draft nothing has claimed: still a draft, no issue under way, no void or attach. ⚠ One mechanism, on
+ * every write that decides on a draft. `/send` reads a draft, claims it, and goes on from what it read:
+ * an edit inside that made the device, the stock and the books disagree, a bank draft edited to cash
+ * settled with no receipt, and a delete left a number drawn and the stock moved with no document.
+ */
+const unclaimedDraft = (now = new Date()) => ({ status: 'draft', $and: [issueLeaseFree(now), notBeingVoided(now)] })
+
+/** Why a claim on this document was refused: who holds it now. `otherwise`: nobody does. */
+async function whoHolds(status: Status, orgId: string, id: string, otherwise?: (doc: any) => Record<string, unknown>) {
+  const doc: any = await Invoice.findOne({ _id: id, orgId }, { status: 1, voidingUntil: 1, 'issue.leaseUntil': 1 }).lean().exec()
   if (doc?.issue?.leaseUntil && new Date(doc.issue.leaseUntil).getTime() >= Date.now()) return status(409, ISSUE_IN_PROGRESS)
   if (isBeingVoided(doc)) return status(409, { ...DOCUMENT_CLAIMED })
-  return receiptPrinting(status, orgId, id)
+  return otherwise ? status(409, otherwise(doc)) : receiptPrinting(status, orgId, id)
 }
+
+/** A draft's write that lost: an issue, a void or an attach holds it, or it is no longer the draft that was read. */
+const draftTaken = (status: Status, orgId: string, id: string) => whoHolds(status, orgId, id, () => ({ ...DOCUMENT_CHANGED }))
 
 /**
  * A refusal that answers for the key: the client keeps or drops its key by it, so it is never turned
@@ -440,6 +452,27 @@ export async function getNextCompanionNumber(orgId: string, kind: CompanionDocKi
   const seqPart = numberFromService.split('-').pop()!
   const display = await resolveSequencePrefix(orgId, group, 'issued')
   return `${display}-${year}-${seqPart}`
+}
+
+/**
+ * FR-22.31c: the receipts an unlinked bill may be for. The answer to it is `{ acknowledgeOverlap:
+ * true }`, or linking the bill to one of them; the UI offers both (`ReceiptOverlapDialog.vue`).
+ */
+function receiptOverlapRefusal(bill: any, overlap: ReceiptOverlap) {
+  const numbers = overlap.receipts.map(r => r.number).join(', ')
+  return {
+    code: 'receipt_overlap',
+    message: `${bill.invoiceNumber} may be for goods already in stock (${numbers}): link it to the delivery, or receive it anyway`,
+    ...overlap,
+  }
+}
+
+/** Someone was shown these receipts and booked the goods again anyway: that stays on the record. */
+function auditOverlapAcknowledged(orgId: string, userId: string, id: string, number: string, overlap: ReceiptOverlap) {
+  createAuditEntry({
+    orgId, userId, action: 'receive_overlap_acknowledged', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: number,
+    changes: [{ field: 'receipts', oldValue: null, newValue: overlap.receipts.map(r => r.number).join(', ') }],
+  })
 }
 
 export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
@@ -1034,7 +1067,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       const movesMoney = (existing as any).direction === 'outgoing' && existing.status !== 'draft' && movesPrintedMoney(existing as any, body as any)
       if (movesMoney) {
         // A receipt whose request died is no reason to refuse, if it never printed.
-        await finishInterruptedReceipts(orgId, user, id)
+        await finishInterruptedDocuments(orgId, user, id)
         const frozen = await freezeRefusal(orgId, id)
         if (frozen) return status(409, frozen)
       }
@@ -1144,16 +1177,22 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // (bills touch stock only via /receive). Not reachable from desktop/SQLite.
         let updatedProductIds: string[] = []
         try {
-          const res = await updateInvoiceWithProductUpdates({ orgId, invoiceId: id, update: body as any, productUpdates })
+          const res = await updateInvoiceWithProductUpdates({
+            orgId, invoiceId: id, update: body as any, productUpdates, ...(existing.status === 'draft' ? { where: unclaimedDraft() } : {}),
+          })
           updatedProductIds = res.updatedProductIds
         } catch (e: any) {
           if (e instanceof GRValidationError) return status(422, { message: e.message })
+          if (e instanceof InvoiceWriteLost) return draftTaken(status, orgId, id)
           throw e
         }
         updated = await r.invoices.findOne({ id, orgId } as any)
         for (const pid of updatedProductIds) {
           createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: pid, correlationId: id })
         }
+      } else if (existing.status === 'draft') {
+        updated = await r.invoices.updateInOrg(id, orgId, body as any, unclaimedDraft())
+        if (!updated) return draftTaken(status, orgId, id)
       } else if (movesMoney) {
         // ⚠ The read above is a check, and this is what makes it hold. A receipt that took its hold
         // since prints the old total, and one that finished since has paid it, and both would leave
@@ -1266,12 +1305,28 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (isImmutableRegisterDocument(existing as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
     if (existing.status !== 'draft') return status(400, { message: 'Can only delete draft invoices' })
 
+    // ⚠ The claim first, which nothing writes past, then the receipts, then the delete. A draft bill made
+    // from goods receipts gives them back before it goes, because it is the only record of the supplier
+    // it wrote on them, and a crash after the delete would leave that on the receipt with nothing to take
+    // it off again (FR-22.31). And it must not give them back unless it goes: a delete that lost to
+    // an issue under way left a bill issued with its receipts released. A claim that a crash leaves
+    // behind lapses, and pressing again finishes it.
+    const claimedAt = new Date()
+    const claimed = await Invoice.findOneAndUpdate(
+      { _id: id, orgId, ...unclaimedDraft(claimedAt) },
+      { $set: { voidingUntil: new Date(claimedAt.getTime() + LEASE_MS) } },
+    ).exec()
+    if (!claimed) return draftTaken(status, orgId, id)
+    try {
+      await releaseReceiptLinks(orgId, existing, user.id)
+    } catch (e) {
+      await Invoice.updateOne({ _id: id, orgId }, { $set: { voidingUntil: null } }).exec()
+      throw e
+    }
     await r.invoices.deleteInOrg(id, orgId)
 
     // Deleting a draft conversion invoice re-opens the order reservations it consumed.
     await syncOrderForInvoice(orgId, existing, user.id)
-    // …and a draft bill made from goods receipts gives them back, to be billed again (FR-22.31).
-    await releaseReceiptLinks(orgId, existing)
 
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (existing as any)?.invoiceNumber })
 
@@ -1369,6 +1424,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const frozen = await issuableRefusal(orgId, invoice.direction as string, invoice.type as string)
     if (frozen) return status(409, { code: frozen.code, message: frozen.message })
 
+    // A bill issued here books its goods as `/receive` does, so it answers the same question first.
+    const overlap = await receiptsOverlapping(orgId, invoice)
+    // `/send` has no schema, so this reads the answer itself: only the answer counts as one.
+    if (overlap && (body as any)?.acknowledgeOverlap !== true) return status(409, receiptOverlapRefusal(invoice, overlap))
+
     // FR-23 §2.3: a document paid at the counter prints, in the open session of whoever issues it.
     // No session, no device: refused here, with no number drawn, no stock moved, no claim taken. R2: a
     // credit note the same way, with no receipt to storno or more than it still holds on top.
@@ -1386,10 +1446,14 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
      * the `draft` check above, so both dispatched the stock, both drew an issued number and both
      * posted a journal entry. Exactly one request holds this claim; a crashed holder's lease
      * lapses and the next Issue finishes what it started.
+     *
+     * ⚠ And a compare-and-set on what it read: the tender, the stock and the receipt below are decided
+     * from that read, so a draft edited between the read and this claim is refused with nothing moved
+     * and no number drawn. From the claim on `unclaimedDraft` refuses the edit instead.
      */
     const now = new Date()
     const claimed = await Invoice.findOneAndUpdate(
-      { _id: id, orgId, status: 'draft', $and: [issueLeaseFree(now), notBeingVoided(now)] },
+      { _id: id, orgId, updatedAt: (invoice as any).updatedAt ?? null, ...unclaimedDraft(now) },
       { $set: { issue: { clientKey: key, requestHash: hash, leaseUntil: new Date(now.getTime() + LEASE_MS) } } },
       { new: true },
     ).exec()
@@ -1398,7 +1462,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         const replayed = await replayIssue()
         if (replayed) return replayed
       }
-      return status(409, isBeingVoided(await Invoice.findOne({ _id: id, orgId }, { voidingUntil: 1 }).lean().exec() as any) ? { ...DOCUMENT_CLAIMED } : ISSUE_IN_PROGRESS)
+      return whoHolds(status, orgId, id, doc => (doc?.status === 'draft' ? { ...DOCUMENT_CHANGED } : ISSUE_IN_PROGRESS))
     }
     /** Give the draft back — a failed issue must not leave it claimed. */
     const release = () => Invoice.updateOne({ _id: id, orgId, status: 'draft' }, { $unset: { issue: 1 } }).exec()
@@ -1463,6 +1527,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (invoice.direction === 'incoming') await applyLinkedBillPrices(orgId, updated || invoice, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'send', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: issuedNumber, changes: { draftNumber: { from: draftNumber, to: null }, invoiceNumber: { from: draftNumber, to: issuedNumber } } })
+    if (overlap) auditOverlapAcknowledged(orgId, user.id, id, issuedNumber, overlap)
 
     // The sale's revenue belongs to its cash sale: an invoice for one posts no second entry.
     if (forCashSale) return { invoice: updated }
@@ -1490,14 +1555,23 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     return { invoice: updated }
   }, { isSignIn: true, fiscalDevice: deviceFromCounter })
-  .post('/:id/receive', async ({ params: { orgId, id }, user, status }) => {
+  .post('/:id/receive', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
 
     const invoice = await r.invoices.findOne({ id, orgId } as any)
     if (!invoice) return status(404, { message: 'Invoice not found' })
     if (invoice.direction !== 'incoming') return status(400, { message: 'Only incoming invoices can be received' })
-    if (invoice.status !== 'draft') return status(400, { message: 'Invoice is not in draft status' })
+    if (invoice.status !== 'draft') return status(400, { code: 'bill_not_draft', message: 'Invoice is not in draft status' })
+    if (isBeingVoided(invoice as any)) return status(409, { ...DOCUMENT_CLAIMED })
+
+    // Before the number is drawn: a bill refused here is the draft it was. Booking it would refuse
+    // the same thing after the bill was written as received, with no stock and no way back. A bill
+    // that cannot book at all is told so before it is asked what to do about its goods.
+    const unbookable = await stockBookingRefusal(invoice as any)
+    if (unbookable) return status(422, { ...unbookable })
+    const overlap = await receiptsOverlapping(orgId, invoice)
+    if (overlap && !body?.acknowledgeOverlap) return status(409, receiptOverlapRefusal(invoice, overlap))
 
     // Allocate the issued BILL-* number, preserve the prior draft number for audit history.
     const draftNumber = (invoice as any).invoiceNumber
@@ -1507,14 +1581,24 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       ...((invoice as any).numberHistory || []),
       { number: issuedNumber, allocatedAt: new Date(), status: 'received' },
     ]
-    const updated = await r.invoices.updateInOrg(id, orgId, {
-      status: 'received',
-      sentAt: new Date(),
-      statusHistory: history,
-      invoiceNumber: issuedNumber,
-      draftNumber,
-      numberHistory,
-    } as any)
+    /**
+     * ⚠ Out of draft once. Two Receives can both pass the check above, and each would book the goods
+     * and draw a number. Exactly one takes the bill here, and the other books nothing; an issue under
+     * way on `/send` holds the draft as well, and so does a void's or a delete's claim (`unclaimedDraft`; a
+     * lease that lapsed is a crash, and holds nothing). The number the loser drew is a gap in an internal
+     * series, and is accepted: drawing it after this write would leave a received bill with no number if
+     * the request died in between.
+     */
+    const now = new Date()
+    const taken = await Invoice.findOneAndUpdate(
+      { _id: id, orgId, ...unclaimedDraft(now) },
+      { $set: { status: 'received', sentAt: now, statusHistory: history, invoiceNumber: issuedNumber, draftNumber, numberHistory } },
+    ).exec()
+    if (!taken) {
+      if (isBeingVoided(await Invoice.findOne({ _id: id, orgId }, { voidingUntil: 1 }).lean().exec() as any)) return status(409, { ...DOCUMENT_CLAIMED })
+      return status(409, { code: 'bill_not_draft', message: `${draftNumber} is no longer a draft: another request is receiving or issuing it` })
+    }
+    const updated = await r.invoices.findOne({ id, orgId } as any)
 
     await createInvoiceStockMovement(updated || invoice, user.id)
 
@@ -1526,9 +1610,14 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     await applyLinkedBillPrices(orgId, updated || invoice, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'receive', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: issuedNumber, changes: { invoiceNumber: { from: draftNumber, to: issuedNumber } } })
+    if (overlap) auditOverlapAcknowledged(orgId, user.id, id, issuedNumber, overlap)
 
     return { invoice: updated }
-  }, { isSignIn: true })
+  }, {
+    isSignIn: true,
+    // Optional: every caller before FR-22.31c sends none, and a bill with no overlap needs none.
+    body: t.Optional(t.Object({ acknowledgeOverlap: t.Optional(t.Boolean()) })),
+  })
   .post(
     '/:id/payments',
     async ({ params: { orgId, id }, body, user, status, headers }) => {
@@ -1604,7 +1693,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       }
       // FR-23: what a request that died left on this document comes first: its receipt may have
       // printed, and then this money is already taken.
-      if (await finishInterruptedReceipts(orgId, user, id)) invoice = (await r.invoices.findOne({ id, orgId } as any))!
+      if (await finishInterruptedDocuments(orgId, user, id)) invoice = (await r.invoices.findOne({ id, orgId } as any))!
       const refused = await paymentRefusal(orgId, invoice, body.amount)
       if (refused) return status(refused.statusCode, refused.body)
       // FR-23 §2.2: the courier's money does not go past a receipt that never printed, or the sale
@@ -1730,7 +1819,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (replay) return await answer(await settleKeyedReceipt(orgId, user, replay, hash!))
 
       // What a request that died left comes first: its receipt may have printed.
-      await finishInterruptedReceipts(orgId, user, id)
+      await finishInterruptedDocuments(orgId, user, id)
       const doc: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
       const prepared = (await owesDeliveryReceipt(orgId, doc)) ? await prepareIssueReceipt(orgId, user, doc) : null
       if (!prepared) {
@@ -1752,7 +1841,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (!invoice) return status(404, { message: 'Invoice not found' })
     if (isImmutableRegisterDocument(invoice as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
     // FR-23 §2.7: the receipt stands, so the document it paid does.
-    await finishInterruptedReceipts(orgId, user, id)
+    await finishInterruptedDocuments(orgId, user, id)
     const frozen = await freezeRefusal(orgId, id)
     if (frozen) return status(409, frozen)
     // #171: an invoice for a cash sale is born paid, but the money is the cash sale's, so voiding
@@ -1794,7 +1883,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     await syncOrderForInvoice(orgId, updated || invoice, user.id)
     // FR-22 §5.3: a voided bill made from goods receipts gives them back — they can be billed
     // again. Nothing moved above (its `stockSource` stops the reversal) and nothing moves here.
-    await releaseReceiptLinks(orgId, invoice)
+    await releaseReceiptLinks(orgId, invoice, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'void', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
 

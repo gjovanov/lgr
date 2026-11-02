@@ -1,18 +1,18 @@
 <template>
   <EntityFormShell
-    :title="isNew ? 'New POS Device' : (device.name || 'POS Device')"
+    :title="isNew ? t('pos.device.newTitle') : (device.name || t('pos.device.title'))"
     :subtitle="!isNew && device.deviceNumber ? device.deviceNumber : ''"
-    :status="!isNew && device.status ? { steps: ['offline', 'online', 'error'], current: device.status } : undefined"
+    :status="!isNew && device.status ? { steps: ['offline', 'online', 'error'].map(s => `pos.device.states.${s}`), current: `pos.device.states.${device.status}` } : undefined"
     :actions="formActions"
     :loading="loading"
-    back-to="/devices"
-    back-label="Devices"
+    back-to="/configuration/devices"
+    :back-label="t('nav.devices')"
   >
     <v-form ref="formRef" @submit.prevent="handleSave">
       <v-tabs v-model="tab">
-        <v-tab value="general">General</v-tab>
-        <v-tab v-if="!isNew" value="operators">Operators</v-tab>
-        <v-tab v-if="!isNew" value="reports">Reports</v-tab>
+        <v-tab value="general">{{ t('pos.device.tabs.general') }}</v-tab>
+        <v-tab v-if="!isNew" value="operators">{{ t('pos.device.tabs.operators') }}</v-tab>
+        <v-tab v-if="!isNew" value="reports">{{ t('pos.device.tabs.reports') }}</v-tab>
       </v-tabs>
 
       <v-tabs-window v-model="tab" class="mt-6 pt-4">
@@ -20,32 +20,32 @@
         <v-tabs-window-item value="general">
           <v-row>
             <v-col cols="12" md="4">
-              <v-text-field v-model="device.name" label="Name" :rules="[rules.required]" density="compact" />
+              <v-text-field v-model="device.name" :label="t('common.name')" :rules="[rules.required]" density="compact" />
             </v-col>
             <v-col cols="12" md="4">
               <v-text-field
                 v-model="device.deviceNumber"
-                label="Device Number"
+                :label="t('pos.device.number')"
                 :rules="[rules.required, rules.deviceNumber]"
                 maxlength="8"
-                hint="The device's serial number (ИН на ФУ) as printed on its receipts, e.g. ED123456 — every УНП starts with it"
+                :hint="t('pos.device.numberHint')"
                 persistent-hint
                 density="compact"
                 @blur="device.deviceNumber = device.deviceNumber.trim().toUpperCase()"
               />
             </v-col>
             <v-col cols="12" md="4">
-              <v-select v-model="device.manufacturer" label="Manufacturer" :items="manufacturers" :rules="[rules.required]" density="compact" />
+              <v-select v-model="device.manufacturer" :label="t('pos.device.manufacturer')" :items="manufacturers" :rules="[rules.required]" density="compact" />
             </v-col>
           </v-row>
           <v-row>
             <v-col cols="12" md="4">
-              <v-select v-model="device.connectionType" label="Connection Type" :items="connectionTypes" :rules="[rules.required]" density="compact" />
+              <v-select v-model="device.connectionType" :label="t('pos.device.connectionType')" :items="connectionTypes" :rules="[rules.required]" density="compact" />
             </v-col>
             <v-col cols="12" md="4">
               <v-autocomplete
                 v-model="device.warehouseId"
-                label="Warehouse"
+                :label="t('warehouse.warehouse')"
                 :items="warehouses"
                 item-title="name"
                 item-value="_id"
@@ -55,7 +55,7 @@
               />
             </v-col>
             <v-col cols="12" md="4">
-              <v-switch v-model="device.isActive" label="Active" color="primary" density="compact" />
+              <v-switch v-model="device.isActive" :label="t('common.active')" color="primary" density="compact" />
             </v-col>
           </v-row>
           <!-- A TCP device is opened by the LGR server itself, so it needs an address the server can
@@ -64,15 +64,15 @@
             <v-col cols="12" md="4">
               <v-text-field
                 v-model="device.ip"
-                label="IP address or host"
+                :label="t('pos.device.ip')"
                 :rules="[rules.required]"
-                hint="Reachable from the LGR server. A printer on the shop's own network is connected through the browser or LGR Desktop instead."
+                :hint="t('pos.device.ipHint')"
                 persistent-hint
                 density="compact"
               />
             </v-col>
             <v-col cols="12" md="2">
-              <v-text-field v-model.number="device.tcpPort" label="Port" type="number" density="compact" />
+              <v-text-field v-model.number="device.tcpPort" :label="t('pos.device.port')" type="number" density="compact" />
             </v-col>
           </v-row>
         </v-tabs-window-item>
@@ -87,9 +87,9 @@
             <thead>
               <tr>
                 <th style="width: 60px">#</th>
-                <th>Name</th>
-                <th>Password</th>
-                <th style="width: 280px">Actions</th>
+                <th>{{ t('common.name') }}</th>
+                <th>{{ t('pos.device.operators.password') }}</th>
+                <th style="width: 280px">{{ t('common.actions') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -111,7 +111,7 @@
                     :loading="op.programming"
                     @click="programOperator(op)"
                   >
-                    Program on Device
+                    {{ t('pos.device.operators.program') }}
                   </v-btn>
                   <v-btn
                     size="small"
@@ -120,7 +120,7 @@
                     :loading="op.reading"
                     @click="readOperator(op)"
                   >
-                    Read from Device
+                    {{ t('pos.device.operators.read') }}
                   </v-btn>
                 </td>
               </tr>
@@ -134,38 +134,38 @@
             <!-- Device status: what the device itself reports — the first thing to check in the field -->
             <v-col cols="12">
               <v-card variant="outlined">
-                <v-card-title class="text-subtitle-1">Device Status</v-card-title>
+                <v-card-title class="text-subtitle-1">{{ t('pos.device.status.title') }}</v-card-title>
                 <v-card-text>
                   <p v-if="!deviceStatus" class="text-body-2 text-medium-emphasis">
-                    Read the serial number, fiscal state, clock and error flags straight from the device (it must be connected).
+                    {{ t('pos.device.status.hint') }}
                   </p>
                   <v-table v-else density="compact">
                     <tbody>
-                      <tr><td style="width: 220px">Responding</td><td>{{ deviceStatus.connected ? 'Yes' : 'No' }}</td></tr>
-                      <tr v-if="deviceStatus.model"><td>Model</td><td>{{ deviceStatus.model }}</td></tr>
+                      <tr><td style="width: 220px">{{ t('pos.device.status.responding') }}</td><td>{{ deviceStatus.connected ? t('common.yes') : t('common.no') }}</td></tr>
+                      <tr v-if="deviceStatus.model"><td>{{ t('pos.device.status.model') }}</td><td>{{ deviceStatus.model }}</td></tr>
                       <tr v-if="deviceStatus.serialNumber">
-                        <td>Serial number</td>
+                        <td>{{ t('pos.device.status.serial') }}</td>
                         <td>
                           {{ deviceStatus.serialNumber }}
                           <v-chip v-if="deviceStatus.serialNumber.toUpperCase() !== device.deviceNumber.toUpperCase()" color="error" size="x-small" class="ml-2">
-                            does not match Device Number {{ device.deviceNumber }}
+                            {{ t('pos.device.status.mismatch', { device: device.deviceNumber }) }}
                           </v-chip>
                         </td>
                       </tr>
-                      <tr v-if="deviceStatus.fiscalMemoryNumber"><td>Fiscal memory</td><td>{{ deviceStatus.fiscalMemoryNumber }}</td></tr>
-                      <tr v-if="deviceStatus.firmwareVersion"><td>Firmware</td><td>{{ deviceStatus.firmwareVersion }}</td></tr>
-                      <tr v-if="deviceStatus.fiscalized !== undefined"><td>Fiscalized</td><td>{{ deviceStatus.fiscalized ? 'Yes' : 'No — receipts print as service documents' }}</td></tr>
-                      <tr v-if="deviceStatus.dateTime"><td>Device clock</td><td>{{ new Date(deviceStatus.dateTime).toLocaleString() }}</td></tr>
-                      <tr v-if="deviceStatus.lastReceiptNumber !== undefined"><td>Last document no.</td><td>{{ deviceStatus.lastReceiptNumber }}</td></tr>
-                      <tr><td>Paper</td><td>{{ deviceStatus.paperPresent ? 'OK' : 'Out of paper' }}</td></tr>
-                      <tr v-if="deviceStatus.errors?.length"><td>Errors</td><td class="text-error">{{ deviceStatus.errors.join(', ') }}</td></tr>
-                      <tr v-if="deviceStatus.warnings?.length"><td>Warnings</td><td class="text-warning">{{ deviceStatus.warnings.join(', ') }}</td></tr>
+                      <tr v-if="deviceStatus.fiscalMemoryNumber"><td>{{ t('pos.device.status.fiscalMemory') }}</td><td>{{ deviceStatus.fiscalMemoryNumber }}</td></tr>
+                      <tr v-if="deviceStatus.firmwareVersion"><td>{{ t('pos.device.status.firmware') }}</td><td>{{ deviceStatus.firmwareVersion }}</td></tr>
+                      <tr v-if="deviceStatus.fiscalized !== undefined"><td>{{ t('pos.device.status.fiscalized') }}</td><td>{{ deviceStatus.fiscalized ? t('common.yes') : t('pos.device.status.notFiscalized') }}</td></tr>
+                      <tr v-if="deviceStatus.dateTime"><td>{{ t('pos.device.status.clock') }}</td><td>{{ new Date(deviceStatus.dateTime).toLocaleString() }}</td></tr>
+                      <tr v-if="deviceStatus.lastReceiptNumber !== undefined"><td>{{ t('pos.device.status.lastDocument') }}</td><td>{{ deviceStatus.lastReceiptNumber }}</td></tr>
+                      <tr><td>{{ t('pos.device.status.paper') }}</td><td>{{ deviceStatus.paperPresent ? t('pos.device.status.paperOk') : t('pos.device.status.paperOut') }}</td></tr>
+                      <tr v-if="deviceStatus.errors?.length"><td>{{ t('pos.device.status.errors') }}</td><td class="text-error">{{ deviceStatus.errors.join(', ') }}</td></tr>
+                      <tr v-if="deviceStatus.warnings?.length"><td>{{ t('pos.device.status.warnings') }}</td><td class="text-warning">{{ deviceStatus.warnings.join(', ') }}</td></tr>
                     </tbody>
                   </v-table>
                 </v-card-text>
                 <v-card-actions>
                   <v-spacer />
-                  <v-btn color="primary" :loading="reportLoading.status" @click="readDeviceStatus">Read Status</v-btn>
+                  <v-btn color="primary" :loading="reportLoading.status" @click="readDeviceStatus">{{ t('pos.device.status.read') }}</v-btn>
                 </v-card-actions>
               </v-card>
             </v-col>
@@ -176,16 +176,16 @@
             <!-- Daily X-Report -->
             <v-col cols="12" md="6" lg="4">
               <v-card variant="outlined" data-testid="report-xReport">
-                <v-card-title class="text-subtitle-1">Daily X-Report</v-card-title>
+                <v-card-title class="text-subtitle-1">{{ t('pos.device.reports.x') }}</v-card-title>
                 <v-card-text>
-                  <p class="text-body-2 text-medium-emphasis">Print daily X-report (without closing the day).</p>
+                  <p class="text-body-2 text-medium-emphasis">{{ t('pos.device.reports.xHint') }}</p>
                   <p v-if="!has('xReport')" class="text-caption text-medium-emphasis mt-2" data-testid="why-xReport">
                     <v-icon icon="mdi-information-outline" size="small" class="mr-1" />{{ why('xReport') }}
                   </p>
                 </v-card-text>
                 <v-card-actions>
                   <v-spacer />
-                  <v-btn color="primary" :disabled="!has('xReport')" :loading="reportLoading.xReport" @click="printXReport">Print</v-btn>
+                  <v-btn color="primary" :disabled="!has('xReport')" :loading="reportLoading.xReport" @click="printXReport">{{ t('common.print') }}</v-btn>
                 </v-card-actions>
               </v-card>
             </v-col>
@@ -193,16 +193,16 @@
             <!-- Daily Z-Report -->
             <v-col cols="12" md="6" lg="4">
               <v-card variant="outlined" data-testid="report-zReport">
-                <v-card-title class="text-subtitle-1">Daily Z-Report</v-card-title>
+                <v-card-title class="text-subtitle-1">{{ t('pos.device.reports.z') }}</v-card-title>
                 <v-card-text>
-                  <p class="text-body-2 text-medium-emphasis">Print daily Z-report (closes the fiscal day).</p>
+                  <p class="text-body-2 text-medium-emphasis">{{ t('pos.device.reports.zHint') }}</p>
                   <p v-if="!has('zReport')" class="text-caption text-medium-emphasis mt-2" data-testid="why-zReport">
                     <v-icon icon="mdi-information-outline" size="small" class="mr-1" />{{ why('zReport') }}
                   </p>
                 </v-card-text>
                 <v-card-actions>
                   <v-spacer />
-                  <v-btn color="primary" :disabled="!has('zReport')" :loading="reportLoading.zReport" @click="printZReport">Print</v-btn>
+                  <v-btn color="primary" :disabled="!has('zReport')" :loading="reportLoading.zReport" @click="printZReport">{{ t('common.print') }}</v-btn>
                 </v-card-actions>
               </v-card>
             </v-col>
@@ -210,11 +210,11 @@
             <!-- Operator Report -->
             <v-col cols="12" md="6" lg="4">
               <v-card variant="outlined" data-testid="report-operatorReport">
-                <v-card-title class="text-subtitle-1">Operator Report</v-card-title>
+                <v-card-title class="text-subtitle-1">{{ t('pos.device.reports.operator') }}</v-card-title>
                 <v-card-text>
                   <v-select
                     v-model="reportParams.operatorNumber"
-                    label="Operator"
+                    :label="t('pos.deviceReport.operatorNumber')"
                     :items="operatorSelectOptions"
                     :disabled="!has('operatorReport')"
                     density="compact"
@@ -226,7 +226,7 @@
                 </v-card-text>
                 <v-card-actions>
                   <v-spacer />
-                  <v-btn color="primary" :disabled="!has('operatorReport')" :loading="reportLoading.operatorReport" @click="printOperatorReport">Print</v-btn>
+                  <v-btn color="primary" :disabled="!has('operatorReport')" :loading="reportLoading.operatorReport" @click="printOperatorReport">{{ t('common.print') }}</v-btn>
                 </v-card-actions>
               </v-card>
             </v-col>
@@ -234,18 +234,18 @@
             <!-- Fiscal Memory Report by Date -->
             <v-col cols="12" md="6" lg="4">
               <v-card variant="outlined" data-testid="report-fmReportByDate">
-                <v-card-title class="text-subtitle-1">FM Report by Date</v-card-title>
+                <v-card-title class="text-subtitle-1">{{ t('pos.device.reports.fmByDate') }}</v-card-title>
                 <v-card-text>
-                  <v-text-field v-model="reportParams.fmDateFrom" label="From" type="date" :disabled="!has('fmReportByDate')" density="compact" hide-details class="mb-2" />
-                  <v-text-field v-model="reportParams.fmDateTo" label="To" type="date" :disabled="!has('fmReportByDate')" density="compact" hide-details class="mb-2" />
-                  <v-switch v-model="reportParams.fmDateDetailed" label="Detailed" :disabled="!has('fmReportByDate')" density="compact" hide-details color="primary" />
+                  <v-text-field v-model="reportParams.fmDateFrom" :label="t('common.from')" type="date" :disabled="!has('fmReportByDate')" density="compact" hide-details class="mb-2" />
+                  <v-text-field v-model="reportParams.fmDateTo" :label="t('common.to')" type="date" :disabled="!has('fmReportByDate')" density="compact" hide-details class="mb-2" />
+                  <v-switch v-model="reportParams.fmDateDetailed" :label="t('pos.deviceReport.detailed')" :disabled="!has('fmReportByDate')" density="compact" hide-details color="primary" />
                   <p v-if="!has('fmReportByDate')" class="text-caption text-medium-emphasis mt-2" data-testid="why-fmReportByDate">
                     <v-icon icon="mdi-information-outline" size="small" class="mr-1" />{{ why('fmReportByDate') }}
                   </p>
                 </v-card-text>
                 <v-card-actions>
                   <v-spacer />
-                  <v-btn color="primary" :disabled="!has('fmReportByDate')" :loading="reportLoading.fmReportDate" @click="printFmReportByDate">Print</v-btn>
+                  <v-btn color="primary" :disabled="!has('fmReportByDate')" :loading="reportLoading.fmReportDate" @click="printFmReportByDate">{{ t('common.print') }}</v-btn>
                 </v-card-actions>
               </v-card>
             </v-col>
@@ -253,18 +253,18 @@
             <!-- Fiscal Memory Report by Number -->
             <v-col cols="12" md="6" lg="4">
               <v-card variant="outlined" data-testid="report-fmReportByNumber">
-                <v-card-title class="text-subtitle-1">FM Report by Number</v-card-title>
+                <v-card-title class="text-subtitle-1">{{ t('pos.device.reports.fmByNumber') }}</v-card-title>
                 <v-card-text>
-                  <v-text-field v-model.number="reportParams.fmStartNumber" label="Start Number" type="number" :disabled="!has('fmReportByNumber')" density="compact" hide-details class="mb-2" />
-                  <v-text-field v-model.number="reportParams.fmEndNumber" label="End Number" type="number" :disabled="!has('fmReportByNumber')" density="compact" hide-details class="mb-2" />
-                  <v-switch v-model="reportParams.fmNumberDetailed" label="Detailed" :disabled="!has('fmReportByNumber')" density="compact" hide-details color="primary" />
+                  <v-text-field v-model.number="reportParams.fmStartNumber" :label="t('pos.device.reports.startNumber')" type="number" :disabled="!has('fmReportByNumber')" density="compact" hide-details class="mb-2" />
+                  <v-text-field v-model.number="reportParams.fmEndNumber" :label="t('pos.device.reports.endNumber')" type="number" :disabled="!has('fmReportByNumber')" density="compact" hide-details class="mb-2" />
+                  <v-switch v-model="reportParams.fmNumberDetailed" :label="t('pos.deviceReport.detailed')" :disabled="!has('fmReportByNumber')" density="compact" hide-details color="primary" />
                   <p v-if="!has('fmReportByNumber')" class="text-caption text-medium-emphasis mt-2" data-testid="why-fmReportByNumber">
                     <v-icon icon="mdi-information-outline" size="small" class="mr-1" />{{ why('fmReportByNumber') }}
                   </p>
                 </v-card-text>
                 <v-card-actions>
                   <v-spacer />
-                  <v-btn color="primary" :disabled="!has('fmReportByNumber')" :loading="reportLoading.fmReportNumber" @click="printFmReportByNumber">Print</v-btn>
+                  <v-btn color="primary" :disabled="!has('fmReportByNumber')" :loading="reportLoading.fmReportNumber" @click="printFmReportByNumber">{{ t('common.print') }}</v-btn>
                 </v-card-actions>
               </v-card>
             </v-col>
@@ -272,17 +272,17 @@
             <!-- Electronic Journal (KLEN) -->
             <v-col cols="12" md="6" lg="4">
               <v-card variant="outlined" data-testid="report-electronicJournal">
-                <v-card-title class="text-subtitle-1">Electronic Journal (KLEN)</v-card-title>
+                <v-card-title class="text-subtitle-1">{{ t('pos.device.reports.ej') }}</v-card-title>
                 <v-card-text>
-                  <v-text-field v-model="reportParams.ejDateFrom" label="From" type="date" :disabled="!has('electronicJournal')" density="compact" hide-details class="mb-2" />
-                  <v-text-field v-model="reportParams.ejDateTo" label="To" type="date" :disabled="!has('electronicJournal')" density="compact" hide-details />
+                  <v-text-field v-model="reportParams.ejDateFrom" :label="t('common.from')" type="date" :disabled="!has('electronicJournal')" density="compact" hide-details class="mb-2" />
+                  <v-text-field v-model="reportParams.ejDateTo" :label="t('common.to')" type="date" :disabled="!has('electronicJournal')" density="compact" hide-details />
                   <p v-if="!has('electronicJournal')" class="text-caption text-medium-emphasis mt-2" data-testid="why-electronicJournal">
                     <v-icon icon="mdi-information-outline" size="small" class="mr-1" />{{ why('electronicJournal') }}
                   </p>
                 </v-card-text>
                 <v-card-actions>
                   <v-spacer />
-                  <v-btn color="primary" :disabled="!has('electronicJournal')" :loading="reportLoading.ejReport" @click="printEjReport">Print</v-btn>
+                  <v-btn color="primary" :disabled="!has('electronicJournal')" :loading="reportLoading.ejReport" @click="printEjReport">{{ t('common.print') }}</v-btn>
                 </v-card-actions>
               </v-card>
             </v-col>
@@ -348,7 +348,7 @@
     </v-form>
 
     <template #sidebar>
-      <div class="text-caption text-medium-emphasis pa-2">No notes</div>
+      <div class="text-caption text-medium-emphasis pa-2">{{ t('pos.device.noNotes') }}</div>
     </template>
   </EntityFormShell>
 </template>
@@ -383,7 +383,7 @@ watch(() => fiscalBridge.status.value, async (val) => {
     }
   }
   if (val === 'connected' && fiscalBridge.deviceNumber.value) {
-    showSuccess(`Device ${fiscalBridge.deviceNumber.value} reconnected`)
+    showSuccess(t('pos.device.reconnected', { device: fiscalBridge.deviceNumber.value }))
     device.status = 'online'
     if (!isNew.value) {
       try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status: 'online' }) } catch {}
@@ -414,15 +414,13 @@ const device = reactive({
 })
 
 const { markSaved, tryRestore } = usePendingChanges({
-  // The SPA this route lives in (FR-24): `routePath` is the router's `/pos/devices/…`, and a
-  // restore from another app builds `/<appId><routePath>`, which is `/invoicing/pos/devices/…`.
   appId: 'invoicing',
   entityType: 'posDevice',
   icon: 'mdi-printer-pos',
   getFormData: () => ({ ...device }),
   getPreviewFields: () => [
-    { label: 'Name', value: device.name },
-    { label: 'Number', value: device.deviceNumber },
+    { label: t('common.name'), value: device.name },
+    { label: t('pos.device.number'), value: device.deviceNumber },
   ],
   setFormData: (data) => Object.assign(device, data),
   isEdit: () => !isNew.value,
@@ -436,18 +434,18 @@ const warehouses = ref<any[]>([])
 const loadingWarehouses = ref(false)
 
 const rules = {
-  required: (v: any) => !!v || 'Required',
-  deviceNumber: (v: string) => (v && v.length === 8) || 'Must be 8 characters',
+  required: (v: any) => !!v || t('validation.required'),
+  deviceNumber: (v: string) => (v && v.length === 8) || t('pos.device.numberLength'),
 }
 
 // Form actions
 const formActions = computed<FormAction[]>(() => {
   const actions: FormAction[] = [
-    { label: isNew.value ? 'Create' : 'Save', color: 'primary', icon: 'mdi-content-save', handler: handleSave, loading: saving.value },
+    { label: isNew.value ? t('common.create') : t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSave, loading: saving.value },
   ]
   if (!isNew.value && device.connectionType === 'browser') {
     actions.push({
-      label: fiscalBridge.status.value === 'connected' ? 'Disconnect' : 'Connect',
+      label: fiscalBridge.status.value === 'connected' ? t('pos.device.disconnect') : t('pos.device.connect'),
       color: fiscalBridge.status.value === 'connected' ? 'error' : 'success',
       icon: fiscalBridge.status.value === 'connected' ? 'mdi-printer-off' : 'mdi-printer',
       handler: toggleConnection,
@@ -538,8 +536,8 @@ const reportLoading = reactive({
 })
 
 const operatorSelectOptions = computed(() => [
-  { title: 'All Operators', value: 0 },
-  ...Array.from({ length: operatorCount.value }, (_, i) => ({ title: `Operator ${i + 1}`, value: i + 1 })),
+  { title: t('pos.deviceReport.allOperators'), value: 0 },
+  ...Array.from({ length: operatorCount.value }, (_, i) => ({ title: t('pos.device.operators.numbered', { n: i + 1 }), value: i + 1 })),
 ])
 
 // Payment types (the names the device prints for its payment slots)
@@ -560,7 +558,7 @@ async function toggleConnection() {
     await fiscalBridge.disconnect()
     try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status: 'offline' }) } catch {}
     device.status = 'offline'
-    showSuccess('Device disconnected')
+    showSuccess(t('pos.device.disconnected'))
     return
   }
   try {
@@ -573,14 +571,14 @@ async function toggleConnection() {
     if (!connected) {
       const reason = fiscalBridge.errorMessage.value
       await fiscalBridge.disconnect() // release the port so a retry can open it again
-      showError(`Connection failed: ${reason}`)
+      showError(t('pos.connectFailed', { reason }))
       return
     }
     try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status: 'online' }) } catch {}
     device.status = 'online'
-    showSuccess(`Connected to ${device.deviceNumber}`)
+    showSuccess(t('pos.device.connected', { device: device.deviceNumber }))
   } catch (e: any) {
-    showError(e.message || 'Connection failed')
+    showError(e.message || t('pos.device.connectFailed'))
   }
 }
 
@@ -590,7 +588,7 @@ async function readDeviceStatus() {
     const { data } = await httpClient.get(`${deviceUrl.value}/${deviceId.value}/status`)
     deviceStatus.value = data.deviceStatus
   } catch (e: any) {
-    showError(e?.response?.data?.message || 'Failed to read device status')
+    showError(e?.response?.data?.message || t('pos.device.status.readFailed'))
   } finally {
     reportLoading.status = false
   }
@@ -627,7 +625,7 @@ async function fetchDevice() {
     })
     setCapabilities(d)
   } catch (e: any) {
-    showError(e?.response?.data?.message || 'Failed to load device')
+    showError(e?.response?.data?.message || t('pos.device.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -668,7 +666,7 @@ async function handleSave() {
     if (isNew.value) {
       const { data } = await httpClient.post(deviceUrl.value, payload)
       markSaved()
-      showSuccess('Device created')
+      showSuccess(t('pos.device.created'))
       const newId = data.fiscalDevice?._id || data.fiscalDevice?.id || data._id || data.id
       if (newId) {
         router.replace({ name: 'pos.devices.detail', params: { id: newId } })
@@ -676,11 +674,11 @@ async function handleSave() {
     } else {
       await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, payload)
       markSaved()
-      showSuccess('Device saved')
+      showSuccess(t('pos.device.saved'))
       await refreshCapabilities()
     }
   } catch (e: any) {
-    showError(e?.response?.data?.message || 'Failed to save device')
+    showError(e?.response?.data?.message || t('pos.device.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -695,9 +693,9 @@ async function programOperator(op: any) {
       name: op.name,
       password: op.password,
     })
-    showSuccess(`Operator ${op.number} programmed on device`)
+    showSuccess(t('pos.device.operators.programmed', { n: op.number }))
   } catch (e: any) {
-    showError(e?.response?.data?.message || `Failed to program operator ${op.number}`)
+    showError(e?.response?.data?.message || t('pos.device.operators.programFailed', { n: op.number }))
   } finally {
     op.programming = false
   }
@@ -712,9 +710,9 @@ async function readOperator(op: any) {
     const result = data.operator || data
     if (result.name !== undefined) op.name = result.name.trim()
     if (result.password !== undefined) op.password = result.password.trim()
-    showSuccess(`Operator ${op.number} read from device`)
+    showSuccess(t('pos.device.operators.wasRead', { n: op.number }))
   } catch (e: any) {
-    showError(e?.response?.data?.message || `Failed to read operator ${op.number}`)
+    showError(e?.response?.data?.message || t('pos.device.operators.readFailed', { n: op.number }))
   } finally {
     op.reading = false
   }
@@ -725,9 +723,9 @@ async function printXReport() {
   reportLoading.xReport = true
   try {
     await httpClient.post(`${deviceUrl.value}/${deviceId.value}/x-report`)
-    showSuccess('X-Report printed')
+    showSuccess(t('pos.device.reports.xPrinted'))
   } catch (e: any) {
-    showError(e?.response?.data?.message || 'Failed to print X-Report')
+    showError(e?.response?.data?.message || t('pos.device.reports.xFailed'))
   } finally {
     reportLoading.xReport = false
   }
@@ -737,9 +735,9 @@ async function printZReport() {
   reportLoading.zReport = true
   try {
     await httpClient.post(`${deviceUrl.value}/${deviceId.value}/z-report`)
-    showSuccess('Z-Report printed')
+    showSuccess(t('pos.device.reports.zPrinted'))
   } catch (e: any) {
-    showError(e?.response?.data?.message || 'Failed to print Z-Report')
+    showError(e?.response?.data?.message || t('pos.device.reports.zFailed'))
   } finally {
     reportLoading.zReport = false
   }
@@ -751,9 +749,9 @@ async function printOperatorReport() {
     await httpClient.post(`${deviceUrl.value}/${deviceId.value}/operator-report`, {
       operatorNumber: reportParams.operatorNumber,
     })
-    showSuccess('Operator report printed')
+    showSuccess(t('pos.device.reports.operatorPrinted'))
   } catch (e: any) {
-    showError(e?.response?.data?.message || 'Failed to print operator report')
+    showError(e?.response?.data?.message || t('pos.device.reports.operatorFailed'))
   } finally {
     reportLoading.operatorReport = false
   }
@@ -768,9 +766,9 @@ async function printFmReportByDate() {
       endDate: reportParams.fmDateTo,
       detailed: reportParams.fmDateDetailed,
     })
-    showSuccess('FM report printed')
+    showSuccess(t('pos.device.reports.fmPrinted'))
   } catch (e: any) {
-    showError(e?.response?.data?.message || 'Failed to print FM report')
+    showError(e?.response?.data?.message || t('pos.device.reports.fmFailed'))
   } finally {
     reportLoading.fmReportDate = false
   }
@@ -785,9 +783,9 @@ async function printFmReportByNumber() {
       endNumber: reportParams.fmEndNumber,
       detailed: reportParams.fmNumberDetailed,
     })
-    showSuccess('FM report printed')
+    showSuccess(t('pos.device.reports.fmPrinted'))
   } catch (e: any) {
-    showError(e?.response?.data?.message || 'Failed to print FM report')
+    showError(e?.response?.data?.message || t('pos.device.reports.fmFailed'))
   } finally {
     reportLoading.fmReportNumber = false
   }
@@ -800,9 +798,9 @@ async function printEjReport() {
       startDate: reportParams.ejDateFrom,
       endDate: reportParams.ejDateTo,
     })
-    showSuccess('Electronic journal report printed')
+    showSuccess(t('pos.device.reports.ejPrinted'))
   } catch (e: any) {
-    showError(e?.response?.data?.message || 'Failed to print EJ report')
+    showError(e?.response?.data?.message || t('pos.device.reports.ejFailed'))
   } finally {
     reportLoading.ejReport = false
   }
@@ -815,7 +813,7 @@ async function readPaymentNames() {
     const { data } = await httpClient.get(`${deviceUrl.value}/${deviceId.value}/payment-names`)
     paymentNames.value = data.paymentNames || []
   } catch (e: any) {
-    showError(e?.response?.data?.message || 'Failed to read the payment types')
+    showError(e?.response?.data?.message || t('pos.device.paymentTypes.readFailed'))
   } finally {
     paymentLoading.reading = false
   }
@@ -836,7 +834,7 @@ async function nameCashOnDeliverySlot() {
     }
     showSuccess(t('pos.device.paymentTypes.named', { code: named.code, name: named.name }))
   } catch (e: any) {
-    showError(e?.response?.data?.message || 'Failed to name the payment type')
+    showError(e?.response?.data?.message || t('pos.device.paymentTypes.nameFailed'))
   } finally {
     paymentLoading.naming = false
   }

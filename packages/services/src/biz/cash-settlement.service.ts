@@ -4,6 +4,7 @@ import { eventBus } from '../events/event-bus.js'
 import { logger } from '../logger/logger.js'
 import { createAuditEntry } from './audit-log.service.js'
 import { voidJournalEntry } from './accounting.service.js'
+import { notBeingVoided } from './invoice-payment.js'
 
 /**
  * A sales invoice paid at the counter — in cash or by card — is paid the moment it is issued.
@@ -37,6 +38,12 @@ import { voidJournalEntry } from './accounting.service.js'
  * shrinks a payment, withdraws only this rule's own rows the method no longer says, and derives
  * status and due. The import conversion settles as it always did, in every org: another system
  * printed that receipt. Printing never lives in here, because the conversion comes through here.
+ *
+ * ⚠ What it read is a check, and its write is what makes it hold: conditional, as a money-moving `PUT` is,
+ * on the `amountPaid` it read and no hold. A payment forced between the read and an unconditional write
+ * left a row of 10 on `amountPaid` 0, and the next payment took the whole total: rows of 46 on a total of
+ * 36. A write that lost reads again and runs the rule once more. If that loses too the document is left
+ * alone: every payment derives what is due in its own write, so it stands as the last one left it.
  */
 
 /** Marks the cash payments this rule records, so it can tell them from ones a person entered. */
@@ -65,6 +72,8 @@ export interface CashSettlementResult {
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 const sum = (ps: any[]) => round2(ps.reduce((s, p) => s + (Number(p.amount) || 0), 0))
 const NONE: CashSettlementResult = { action: 'none', amount: 0 }
+/** Something got between the read and the write. */
+const LOST = Symbol('settlement lost its race')
 
 /** Status from the amounts, for a document whose payments just changed under it. */
 function statusFor(total: number, paid: number): string {
@@ -89,6 +98,15 @@ async function retireAll(payments: any[]): Promise<void> {
 export const retireAutomaticPayments = retireAll
 
 export async function syncCashSettlement(orgId: string, invoiceId: string, userId: string, opts: { settles?: boolean } = {}): Promise<CashSettlementResult> {
+  const first = await applySettlement(orgId, invoiceId, userId, opts)
+  if (first !== LOST) return first
+  const second = await applySettlement(orgId, invoiceId, userId, opts)
+  if (second !== LOST) return second
+  logger.warn({ orgId, invoiceId }, 'Counter settlement lost its race twice: the document is left as it stands')
+  return NONE
+}
+
+async function applySettlement(orgId: string, invoiceId: string, userId: string, opts: { settles?: boolean }): Promise<CashSettlementResult | typeof LOST> {
   const settles = opts.settles !== false
   const r = getRepos()
   const inv: any = await r.invoices.findOne({ id: invoiceId, orgId } as any)
@@ -135,7 +153,8 @@ export async function syncCashSettlement(orgId: string, invoiceId: string, userI
   // Not settling, only what this rule would have kept in line where nothing prints is its business.
   if (!settles && !origin && !auto.length) return NONE
 
-  const paid = sum(next)
+  // A rule that moved no money leaves what was paid as it was: a paid old document may have no rows.
+  const paid = added || removed ? sum(next) : round2(inv.amountPaid)
   // What is owed now. A total lowered below what was taken stays paid, and that stays recorded for a
   // person to correct; with nothing paid and nothing withdrawn the status is not this rule's to move.
   const status = paid > 0 || removed ? statusFor(total, paid) : inv.status
@@ -150,7 +169,7 @@ export async function syncCashSettlement(orgId: string, invoiceId: string, userI
   const statusHistory = status === inv.status
     ? inv.statusHistory || []
     : [...(inv.statusHistory || []), { status, fromStatus: inv.status, changedAt: new Date(), changedBy: userId, reason }]
-  await r.invoices.update(invoiceId, {
+  const written = await r.invoices.updateInOrg(invoiceId, orgId, {
     ...(added || removed ? { payments: next } : {}),
     amountPaid: paid,
     amountDue,
@@ -159,7 +178,8 @@ export async function syncCashSettlement(orgId: string, invoiceId: string, userI
     // on a receipt: a total raised and lowered again is paid once more, and needs a date to say so.
     paidAt: status !== 'paid' ? null : settles ? (inv.status === 'paid' && inv.paidAt ? inv.paidAt : paymentDate(inv)) : inv.paidAt ?? new Date(),
     statusHistory,
-  } as any)
+  } as any, { 'receiptHolds.0': { $exists: false }, amountPaid: inv.amountPaid ?? null, ...notBeingVoided() })
+  if (!written) return LOST
   if (!added && !removed) return { action, amount: 0 }
 
   const changes: Array<{ field: string; oldValue: unknown; newValue: unknown }> = []

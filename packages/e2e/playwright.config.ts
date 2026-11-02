@@ -81,7 +81,7 @@ export default defineConfig({
     {
       name: 'invoicing-inventory',
       use: { ...devices['Desktop Chrome'], baseURL },
-      testMatch: ['invoicing.spec.ts', 'invoicing-crud.spec.ts', 'invoicing-export.spec.ts', 'proforma-convert.spec.ts', 'credit-notes-fix.spec.ts', 'invoice-stock-adjustment.spec.ts', 'bill-stock-receipt.spec.ts', 'bill-product-update.spec.ts', 'receipt-product-update.spec.ts', 'payment-orders.spec.ts', 'cash-orders.spec.ts', 'cash-sales.spec.ts', 'cash-sale-invoice.spec.ts', 'orders-reservations.spec.ts', 'orders-product-autocomplete.spec.ts', 'reservations-page.spec.ts', 'order-forms.spec.ts', 'contact-inline-create.spec.ts', 'company-lookup.spec.ts', 'invoicing-product-autocomplete.spec.ts', 'tag-pricing.spec.ts', 'warehouse.spec.ts', 'warehouse-crud.spec.ts', 'tags.spec.ts', 'movements-product-filter.spec.ts', 'product-stock-page.spec.ts', 'product-actions.spec.ts', 'products-price-columns.spec.ts', 'products-stock-sort.spec.ts', 'product-ledger-sort.spec.ts','stock-validation.spec.ts', 'pos-transactions.spec.ts', 'pos-devices.spec.ts', 'pos-terminal.spec.ts', 'pos-printer-gate.spec.ts', 'pos-session-report.spec.ts', 'grid-url-state.spec.ts', 'document-lists.spec.ts', 'cash-register.spec.ts'],
+      testMatch: ['invoicing.spec.ts', 'invoicing-crud.spec.ts', 'invoicing-export.spec.ts', 'proforma-convert.spec.ts', 'credit-notes-fix.spec.ts', 'invoice-stock-adjustment.spec.ts', 'bill-stock-receipt.spec.ts', 'bill-product-update.spec.ts', 'receipt-to-bill.spec.ts', 'receipt-product-update.spec.ts', 'payment-orders.spec.ts', 'cash-orders.spec.ts', 'cash-sales.spec.ts', 'cash-sale-invoice.spec.ts', 'orders-reservations.spec.ts', 'orders-product-autocomplete.spec.ts', 'reservations-page.spec.ts', 'order-forms.spec.ts', 'contact-inline-create.spec.ts', 'company-lookup.spec.ts', 'invoicing-product-autocomplete.spec.ts', 'tag-pricing.spec.ts', 'warehouse.spec.ts', 'warehouse-crud.spec.ts', 'tags.spec.ts', 'movements-product-filter.spec.ts', 'product-stock-page.spec.ts', 'product-actions.spec.ts', 'products-price-columns.spec.ts', 'products-stock-sort.spec.ts', 'product-ledger-sort.spec.ts','stock-validation.spec.ts', 'pos-transactions.spec.ts', 'pos-devices.spec.ts', 'pos-terminal.spec.ts', 'pos-printer-gate.spec.ts', 'pos-session-report.spec.ts', 'pos-redirects.spec.ts', 'till-only.spec.ts', 'till-printer-walk.spec.ts', 'till-cart-leave.spec.ts', 'grid-url-state.spec.ts', 'document-lists.spec.ts', 'cash-register.spec.ts'],
     },
     {
       // Needs a deterministic OCR sidecar — see the header of doc-import.spec.ts for how
@@ -100,7 +100,7 @@ export default defineConfig({
       // ⚠ Run it with `--workers=1`: the specs print on the one stub and use its one device row.
       name: 'cash-register-fiscal',
       use: { ...devices['Desktop Chrome'], baseURL },
-      testMatch: ['cash-register-fiscal.spec.ts', 'cash-invoice-receipts.spec.ts', 'cash-invoice-refunds.spec.ts', 'cash-invoice-text-receipts.spec.ts', 'eltrade-device-page.spec.ts'],
+      testMatch: ['cash-register-fiscal.spec.ts', 'cash-invoice-receipts.spec.ts', 'cash-invoice-refunds.spec.ts', 'cash-invoice-text-receipts.spec.ts', 'storno-in-doubt.spec.ts', 'eltrade-device-page.spec.ts'],
       fullyParallel: false,
     },
     {

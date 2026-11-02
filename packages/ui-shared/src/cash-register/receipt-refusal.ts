@@ -20,6 +20,11 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'document_not_issued': return 'cashRegister.receipt.notIssued'
     case 'no_receipt_owed': return 'cashRegister.receipt.noneOwed'
     case 'receipt_in_doubt': return 'cashRegister.receipt.inDoubtRefused'
+    case 'storno_in_doubt': return 'cashRegister.receipt.stornoInDoubtRefused'
+    case 'receipt_open_on_device': return 'cashRegister.receipt.openOnDevice'
+    case 'sale_receipt_in_doubt': return 'cashRegister.receipt.saleInDoubtRefused'
+    case 'receipt_number_required': return 'cashRegister.receipt.numberRequired'
+    case 'receipt_number_taken': return 'cashRegister.receipt.numberTaken'
     case 'delivery_receipt_owed': return 'cashRegister.receipt.deliveryOwed'
     case 'receipts_unfinished': return 'cashRegister.receipt.unfinished'
     // FR-23 R2: a refund on a credit note.
@@ -38,9 +43,9 @@ export function isFailedPrint(data: { code?: string } | null | undefined): boole
 }
 
 /** The receipts a refusal names: the one in doubt, or the ones a session cannot close over. */
-export function receiptRefusalParams(data: { receipt?: { number?: string }; receipts?: Array<{ number?: string | null; invoice?: string }>; left?: number; deviceNumbers?: string[] } | null | undefined): { number: string; numbers: string; left: string; devices: string } {
+export function receiptRefusalParams(data: { receipt?: { number?: string }; document?: string; receipts?: Array<{ number?: string | null; invoice?: string }>; left?: number; deviceNumbers?: string[] } | null | undefined): { number: string; numbers: string; left: string; devices: string } {
   const numbers = (data?.receipts ?? []).map(r => r.number ?? r.invoice ?? '').filter(Boolean).join(', ')
-  return { number: data?.receipt?.number ?? '', numbers, left: (Number(data?.left) || 0).toFixed(2), devices: (data?.deviceNumbers ?? []).join(', ') }
+  return { number: data?.receipt?.number ?? data?.document ?? '', numbers, left: (Number(data?.left) || 0).toFixed(2), devices: (data?.deviceNumbers ?? []).join(', ') }
 }
 
 /** The message for a refused request: the receipt's own, the server's, or `fallback`. */

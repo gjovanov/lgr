@@ -40,7 +40,7 @@
  * as stored added every refund to Общо instead of taking it off.
  */
 
-import { headerIsNoMoney, printsHere } from '../sale-counting.js'
+import { NOT_UNPROVED_STORNO, headerIsNoMoney, printsHere } from '../sale-counting.js'
 import { Invoice } from 'db/models'
 import {
   rowCapFor,
@@ -277,7 +277,7 @@ export function makeDocumentsReport(kind: DocumentKind) {
     const cap = rowCapFor(ctx.output)
     const period = (ctx.params.period || {}) as { from?: string; to?: string }
 
-    const match: Record<string, any> = { orgId: oid(ctx.orgId), ...KIND_FILTER[kind] }
+    const match: Record<string, any> = { orgId: oid(ctx.orgId), ...KIND_FILTER[kind], ...NOT_UNPROVED_STORNO }
 
     if (period.from || period.to) {
       match.issueDate = {

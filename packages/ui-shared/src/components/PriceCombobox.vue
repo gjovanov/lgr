@@ -62,6 +62,11 @@ const emit = defineEmits<{
   'update:modelValue': [price: number]
   'update:priceExplanation': [steps: { type: string; label: string; price: number }[]]
   'price-selected': [option: PriceOption | null]
+  /**
+   * The person typed or picked this price, so a resolved one must not come back over it.
+   * `update:modelValue` cannot say so: a resolved price arrives by it too.
+   */
+  'chosen': []
 }>()
 
 const { t } = useI18n()
@@ -202,6 +207,7 @@ function onValueChange(val: any) {
 
   if (isNaN(price) || price < 0) return
 
+  emit('chosen')
   emit('update:modelValue', price)
 
   // Build full price explanation chain

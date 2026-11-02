@@ -58,6 +58,7 @@ import {
 } from './zoned-time.js'
 import { logger } from 'services/logger'
 import { stagedPrint } from './print-stage.js'
+import type { AbandonOutcome } from 'services/biz/cash-register/print-verdict'
 
 export const ELTRADE_CMD = {
   OPEN_NON_FISCAL: 0x26,
@@ -798,20 +799,42 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     await this.ensureNoOpenReceipt()
   }
 
-  async cancelFiscalReceipt(): Promise<void> {
+  /**
+   * ⚠ Reads the open flag FIRST. After a close whose answer was lost no receipt is open, 3Ch does
+   * nothing and the status reads not open, so "voided" read off the cancel alone would book a real
+   * receipt as failed and print it again. Nothing open: there is nothing to cancel, and it says nothing.
+   * A flag it cannot read is no sight of a receipt: it cancels as it always did, and never says voided.
+   */
+  async cancelFiscalReceipt(): Promise<AbandonOutcome | undefined> {
     this.receipt = null
-    await this.serialize(() => this.voidFiscalReceipt())
+    return this.serialize(async () => {
+      const open = await this.primedTransact(ELTRADE_CMD.GET_STATUS, 'X', { check: false }).then(r => r.status.fiscalReceiptOpen, () => undefined)
+      if (open === false) return undefined
+      const outcome = await this.voidFiscalReceipt()
+      return outcome === 'voided' && !open ? undefined : outcome
+    })
   }
 
-  /** 3Ch, or the receipt finished in cash where 3Ch is refused. Only ever runs inside `serialize`. */
-  private async voidFiscalReceipt(): Promise<void> {
+  /**
+   * 3Ch, or the receipt finished in cash where 3Ch is refused. Says which: `finished` from the moment
+   * the fallback starts and until its close says otherwise, because a close whose answer is lost may
+   * have gone through. Nothing, when the close was refused and the receipt is still open. Only ever
+   * runs inside `serialize`.
+   */
+  private async voidFiscalReceipt(): Promise<AbandonOutcome | undefined> {
     const { status } = await this.primedTransact(ELTRADE_CMD.CANCEL_FISCAL, '', { check: false, timeoutMs: TIMEOUT_MS.print })
-    if (!status.fiscalReceiptOpen) return
+    if (!status.fiscalReceiptOpen) return 'voided'
     // 3Ch is refused once a payment has gone through; such a receipt can only be finished.
     // Leaving it open would block the device, so settle the remainder in cash and close it.
     logger.error({ deviceId: this.deviceId }, 'Eltrade: receipt could not be voided after a payment — completing it with the remainder in cash')
-    await this.transact(ELTRADE_CMD.TOTAL, '\t', { check: false, timeoutMs: TIMEOUT_MS.print })
-    await this.transact(ELTRADE_CMD.CLOSE_FISCAL, '', { check: false, timeoutMs: TIMEOUT_MS.print })
+    try {
+      await this.transact(ELTRADE_CMD.TOTAL, '\t', { check: false, timeoutMs: TIMEOUT_MS.print })
+      const closed = await this.transact(ELTRADE_CMD.CLOSE_FISCAL, '', { check: false, timeoutMs: TIMEOUT_MS.print })
+      return closed.status.fiscalReceiptOpen ? undefined : 'finished'
+    } catch (e: any) {
+      logger.error({ deviceId: this.deviceId, error: e?.message }, 'Eltrade: the fallback lost its answer — the receipt may be on the device')
+      return 'finished'
+    }
   }
 
   private operatorLabel(name: string, code: string): string {
@@ -1017,21 +1040,18 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
       await this.openReceipt(header, await this.unpHint(unp))
       reached('lines')
 
-      try {
-        // Quantities and amounts on a reversal are POSITIVE; the receipt type carries the sign.
-        for (const line of lines) {
-          await this.printSaleLine(line.name, Math.abs(line.quantity), Math.abs(line.price), line.vatGroup, undefined, line.taxRate)
-        }
-        reached('paying')
-        await this.printPayment(payment.type, Math.abs(payment.amount))
-        reached('closing')
-        const result = await this.closeFiscalReceipt()
-        logger.info({ deviceId: this.deviceId, stornoReceiptNumber: result.fiscalReceiptNumber, originalReceiptNumber, reason }, 'Eltrade storno receipt printed')
-        return result
-      } catch (e) {
-        await this.cancelFiscalReceipt().catch(() => undefined)
-        throw e
+      // ⚠ No cancel of its own here. Its caller abandons a print that threw, as it does a sale's, and has
+      // to hear what that did: a cancel in here left the second one nothing to see (`AbandonOutcome`).
+      // Quantities and amounts on a reversal are POSITIVE; the receipt type carries the sign.
+      for (const line of lines) {
+        await this.printSaleLine(line.name, Math.abs(line.quantity), Math.abs(line.price), line.vatGroup, undefined, line.taxRate)
       }
+      reached('paying')
+      await this.printPayment(payment.type, Math.abs(payment.amount))
+      reached('closing')
+      const result = await this.closeFiscalReceipt()
+      logger.info({ deviceId: this.deviceId, stornoReceiptNumber: result.fiscalReceiptNumber, originalReceiptNumber, reason }, 'Eltrade storno receipt printed')
+      return result
     })
   }
 

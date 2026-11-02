@@ -19,8 +19,6 @@
     "inventoryDesc": "Products, stock, movements, valuations",
     "invoicing": "Invoicing",
     "invoicingDesc": "Contacts, invoices, payments",
-    "pos": "POS",
-    "posDesc": "Point of sale, sessions, fiscal",
     "trade": "Trade",
     "tradeDesc": "Products, stock, invoices, contacts, payments",
     "payroll": "Payroll",
@@ -60,8 +58,6 @@
     "inventoryDesc": "Products, stock, movements, valuations",
     "invoicing": "Invoicing",
     "invoicingDesc": "Contacts, invoices, payments",
-    "pos": "POS",
-    "posDesc": "Point of sale, sessions, fiscal",
     "trade": "Trade",
     "tradeDesc": "Products, stock, invoices, contacts, payments",
     "payroll": "Payroll",
@@ -115,7 +111,6 @@
       "creditNote": "New credit note",
       "debitNote": "New debit note",
       "proforma": "New proforma invoice",
-      "cashSale": "New cash sale",
       "bill": "New incoming invoice",
       "goodsReceipt": "New goods receipt",
       "customerOrder": "New customer order",
@@ -171,15 +166,15 @@
     "cashRegister": "Cash Register",
     "export": "Export",
     "payments": "Payments",
-    "terminal": "Terminal",
+    "csTerminal": "CS Terminal",
+    "crSales": "CR Sales",
+    "crSessions": "CR Sessions",
     "transactions": "Transactions",
-    "sessions": "Sessions",
     "devices": "Devices",
     "configuration": "Configuration",
     "reporting": "Reporting",
     "trade": "Trade",
     "inventory": "Inventory",
-    "pos": "Point of Sale",
     "payroll": "Payroll",
     "employees": "Employees",
     "payrollRuns": "Payroll Runs",
@@ -334,6 +329,7 @@
   "common": {
     "newVersion": "A new version of LGR is available.",
     "reload": "Reload",
+    "pageNotLoaded": "This page could not be loaded. Check the connection and try again.",
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
@@ -1066,7 +1062,6 @@
     "accountNumber": "Account Number",
     "billingAddress": "Billing Address",
     "cashOrders": "Cash Orders",
-    "posTerminal": "POS Terminal",
     "contacts": "Contacts",
     "creditNotes": "Credit Notes",
     "direction": "Direction",
@@ -1240,8 +1235,11 @@
     "linkDelivery": {
       "action": "Link to a delivery",
       "hint": "Goods already received?",
-      "dialogHint": "This supplier's goods receipts that no bill pays for yet. Their lines become the bill's lines, and the bill moves no stock.",
-      "none": "This supplier has no goods receipt left to bill.",
+      "dialogHint": "This supplier's goods receipts that no bill pays for yet, and receipts that name no supplier. Their lines become the bill's lines, and the bill moves no stock.",
+      "none": "No goods receipt left to bill, from this supplier or from none.",
+      "noSupplier": "no supplier",
+      "replaceWarning": "The line typed on this bill and its price will be replaced by the delivery's lines, at the prices on the receipt. The bill's number, dates and payment method stay. | The {count} lines typed on this bill and their prices will be replaced by the delivery's lines, at the prices on the receipt. The bill's number, dates and payment method stay.",
+      "replaceConfirm": "Replace the lines and link",
       "receiptLines": "{n} lines",
       "confirm": "Link",
       "linked": "The bill is linked to the delivery",
@@ -1249,6 +1247,14 @@
       "noStock": "The goods were put in stock by the receipt: this bill moves no stock.",
       "receiptCost": "Receipt: {price}",
       "received": "Bill received — the stock came in on its receipt"
+    },
+    "receiptOverlap": {
+      "chooseSupplier": "This bill names no supplier. Choose it, and linking writes it on the bill and on the receipt.",
+      "title": "These goods may already be in stock",
+      "text": "Goods receipts for the same goods have no bill yet. Received as it is, this bill puts the goods in stock a second time.",
+      "link": "Link to the delivery",
+      "receiveAnyway": "Receive anyway",
+      "linked": "The bill is linked to the delivery. Check the prices, then receive it."
     },
     "stockReceipt": {
       "print": "Stock receipt",
@@ -1483,7 +1489,7 @@
       "textReceipt": "A non-fiscal receipt was printed",
       "notPrinted": "Nothing was printed: no fiscal device is connected to this till"
     },
-    "saleOutcomeUnknown": "No answer from the server — the sale may already be recorded. Press Complete Sale again: it will not ring the basket up twice.",
+    "saleOutcomeUnknown": "No answer from the server — the sale may already be recorded. Press Complete Sale again: it will not ring the basket up twice. The basket stays locked until then.",
     "printerDisconnected": "Disconnected",
     "receiptNotPrinted": "Sale saved, but the receipt was NOT printed: {reason}",
     "fiscalDeviceUnreached": "The fiscal device {device} has not answered for more than 2 hours. A sale cannot open until it does: check its cable and power (Н-18, Прил. 29 т. 8).",
@@ -1496,14 +1502,15 @@
       "fiscalized": "fiscalized",
       "notFiscalized": "not fiscalized — fiscal receipts print as service documents",
       "notResponding": "The fiscal device does not answer. Check that it is on and at its main menu (not inside a sub-menu) and that the right port was picked, then connect again.",
-      "serialMismatch": "This device reports serial number {device}, but it is set up in LGR as {configured}. Fiscal receipts will be rejected — correct the device number in POS → Devices.",
+      "serialMismatch": "This device reports serial number {device}, but it is set up in LGR as {configured}. Fiscal receipts will be rejected — correct the device number in Configuration → Devices.",
       "connectedElsewhere": "{device} · connected in another tab",
       "connectedElsewhereHint": "Sales from this tab print through it. To connect here instead, close that tab or window first.",
       "inUseConnectedElsewhere": "The printer ({device}) is already connected in another tab or window, and sales from this tab print through it. To connect here instead, close that tab first.",
       "portInUse": "The printer's port is in use by another tab, window or program, and only one can hold it. Close the other one (or unplug the printer and plug it back in), then connect again.",
       "deviceErrors": "Fiscal device problem: {errors}",
       "connectedVia": "Connected via {name}",
-      "waitingForDesktop": "waiting for its LGR Desktop"
+      "waitingForDesktop": "waiting for its LGR Desktop",
+      "printsText": "Not fiscalized: receipts print as text"
     },
     "filterByTags": "Filter by tags",
     "close": {
@@ -1531,6 +1538,16 @@
         "other": "Other payments",
         "cashOnDelivery": "Cash on delivery"
       }
+    },
+    "leaveCart": {
+      "title": "Leave this sale?",
+      "body": "The cart holds {n} line(s) that are not sold yet. Leaving drops them.",
+      "stay": "Stay at the till",
+      "leave": "Leave and drop the cart",
+      "printingTitle": "The sale is printing",
+      "printingBody": "It is on its way to the server and the printer, so this page cannot be left yet. This message closes by itself when the sale is done.",
+      "unknownTitle": "This sale may already be booked",
+      "unknownBody": "The server's answer never arrived. Check {journal} before ringing it again."
     },
     "pin": {
       "title": "Sign in at the till",
@@ -1575,7 +1592,7 @@
       "view": "Session report",
       "print": "Print report",
       "printed": "The session report was printed on the fiscal device.",
-      "notPrinted": "The session report did not print: {error}. The session is closed; print it again from here or from POS Sessions.",
+      "notPrinted": "The session report did not print: {error}. The session is closed; print it again from here or from CR Sessions.",
       "sales": "Sales",
       "refunds": "Credit note refunds",
       "payments": "Invoice payments",
@@ -1614,7 +1631,15 @@
         "noDriver": "LGR cannot open this {brand} device over this connection"
       },
       "operators": {
-        "eltradePassword": "On an Eltrade the password authorises the change: enter the operator's password on the device (4–8 digits). Three wrong passwords lock the device until it is switched off and on."
+        "eltradePassword": "On an Eltrade the password authorises the change: enter the operator's password on the device (4–8 digits). Three wrong passwords lock the device until it is switched off and on.",
+        "password": "Password",
+        "program": "Program on Device",
+        "read": "Read from Device",
+        "programmed": "Operator {n} programmed on device",
+        "wasRead": "Operator {n} read from device",
+        "programFailed": "Failed to program operator {n}",
+        "readFailed": "Failed to read operator {n}",
+        "numbered": "Operator {n}"
       },
       "paymentTypes": {
         "title": "Payment types",
@@ -1633,7 +1658,99 @@
         "nameCod": "Name {code} \"{name}\"",
         "codHint": "A cash-on-delivery payment prints in {code}. Name it so the receipt says \"{name}\".",
         "named": "{code} is now named \"{name}\" on the device",
-        "adminOnly": "Only an admin can name a payment type."
+        "adminOnly": "Only an admin can name a payment type.",
+        "readFailed": "Failed to read the payment types",
+        "nameFailed": "Failed to name the payment type"
+      },
+      "newTitle": "New POS Device",
+      "title": "POS Device",
+      "new": "New Device",
+      "tabs": {
+        "general": "General",
+        "operators": "Operators",
+        "reports": "Reports"
+      },
+      "number": "Device Number",
+      "numberHint": "The device's serial number (ИН на ФУ) as printed on its receipts, e.g. ED123456 — every УНП starts with it",
+      "numberLength": "Must be 8 characters",
+      "manufacturer": "Manufacturer",
+      "connectionType": "Connection Type",
+      "ip": "IP address or host",
+      "ipHint": "Reachable from the LGR server. A printer on the shop's own network is connected through the browser or LGR Desktop instead.",
+      "port": "Port",
+      "lastCommunication": "Last Communication",
+      "connect": "Connect",
+      "disconnect": "Disconnect",
+      "connected": "Connected to {device}",
+      "reconnected": "Device {device} reconnected",
+      "disconnected": "Device disconnected",
+      "connectFailed": "Connection failed",
+      "created": "Device created",
+      "saved": "Device saved",
+      "saveFailed": "Failed to save device",
+      "loadFailed": "Failed to load device",
+      "noNotes": "No notes",
+      "states": {
+        "online": "online",
+        "offline": "offline",
+        "error": "error"
+      },
+      "status": {
+        "title": "Device Status",
+        "hint": "Read the serial number, fiscal state, clock and error flags straight from the device (it must be connected).",
+        "responding": "Responding",
+        "model": "Model",
+        "serial": "Serial number",
+        "mismatch": "does not match Device Number {device}",
+        "fiscalMemory": "Fiscal memory",
+        "firmware": "Firmware",
+        "fiscalized": "Fiscalized",
+        "notFiscalized": "No — receipts print as service documents",
+        "clock": "Device clock",
+        "lastDocument": "Last document no.",
+        "paper": "Paper",
+        "paperOk": "OK",
+        "paperOut": "Out of paper",
+        "errors": "Errors",
+        "warnings": "Warnings",
+        "read": "Read Status",
+        "readFailed": "Failed to read device status"
+      },
+      "reports": {
+        "x": "Daily X-Report",
+        "xHint": "Print daily X-report (without closing the day).",
+        "z": "Daily Z-Report",
+        "zHint": "Print daily Z-report (closes the fiscal day).",
+        "operator": "Operator Report",
+        "fmByDate": "FM Report by Date",
+        "fmByNumber": "FM Report by Number",
+        "startNumber": "Start Number",
+        "endNumber": "End Number",
+        "ej": "Electronic Journal (KLEN)",
+        "xPrinted": "X-Report printed",
+        "xFailed": "Failed to print X-Report",
+        "zPrinted": "Z-Report printed",
+        "zFailed": "Failed to print Z-Report",
+        "operatorPrinted": "Operator report printed",
+        "operatorFailed": "Failed to print operator report",
+        "fmPrinted": "FM report printed",
+        "fmFailed": "Failed to print FM report",
+        "ejPrinted": "Electronic journal report printed",
+        "ejFailed": "Failed to print EJ report"
+      }
+    },
+    "sessions": {
+      "paymentDistribution": "Payment Distribution",
+      "sales": "Session Sales",
+      "number": "Session #",
+      "totalReturns": "Total Returns",
+      "transactions": "Transactions",
+      "openedAt": "Opened At",
+      "closedAt": "Closed At",
+      "salesSeries": "Sales",
+      "states": {
+        "open": "open",
+        "closed": "closed"
       }
     }
   },
@@ -1668,7 +1785,7 @@
       "noSession": "Open a session at the till first: a payment at the counter prints its receipt on that session's device. An organization that prints nothing here turns \"A sale needs a connected fiscal printer\" off in Settings → Organization → Cash register.",
       "inProgress": "Another payment on this document is printing. Wait for it to finish, then try again.",
       "documentClaimed": "This document is being voided or attached to a cash sale right now. Try again in a moment.",
-      "documentChanged": "A payment was recorded on this document while you edited it. Open it again.",
+      "documentChanged": "This document changed while you were working on it. Open it again.",
       "fiscallyPaid": "A receipt has printed for this document, so its total can no longer change and it cannot be voided. Correct it with a credit or a debit note.",
       "currency": "The till's device prints in another currency than this document's. Take this payment by bank.",
       "notPrintable": "This document's money cannot be split per VAT rate for a receipt. Take this payment by bank.",
@@ -1698,20 +1815,45 @@
       "takeRefund": "Give the refund",
       "refundOf": "Credit note refunded",
       "partlyRefunded": "{amount} of this refund went back and stands.",
-        "inDoubt": "Nothing can prove whether this receipt printed, so its money is neither booked nor free. Check the device's journal, then say which.",
-        "inDoubtDocument": "Nothing can prove whether receipt {number} printed. Its money is neither booked nor free until someone settles it.",
-        "inDoubtRefused": "Nothing can prove whether receipt {number} printed, so this cannot go on. Check the device, then settle it under Cash Register Sales.",
-        "settleIt": "Settle it",
-        "settlePrinted": "It printed",
-        "settleNotPrinted": "It did not print",
-        "settleWho": "A manager or an admin settles it.",
-        "settleConfirm": {
-          "printed": "The receipt is on the device. Its money is recorded on the invoice and in the session. This cannot be undone.",
-          "notPrinted": "The receipt is not on the device. It is voided with its number, and the amount is due again. This cannot be undone."
-        },
-        "settled": "Receipt settled",
-        "deliveryOwed": "This cash-on-delivery invoice has no fiscal receipt: its print failed. Print the receipt first.",
-        "unfinished": "Receipts {numbers} are not finished, so this session cannot close. Wait for one that is printing, and settle one in doubt under Cash Register Sales."
+      "refundInDoubt": "Nothing can prove whether this storno printed, so nothing was refunded. Check the device's journal, then say which.",
+      "settleConfirmRefund": {
+        "printed": "The storno is on the device. The refund is recorded on the credit note and leaves the session. This cannot be undone.",
+        "notPrinted": "The storno is not on the device. It is voided with its number, and the amount is due on the credit note again. This cannot be undone."
+      },
+      "refundSettled": "Storno settled",
+      "receiptNumberHint": "Off the slip. A later storno cites it: without it this receipt can only be refunded by bank.",
+      "inDoubt": "Nothing can prove whether this receipt printed, so its money is neither booked nor free. Check the device's journal, then say which.",
+      "inDoubtDocument": "Nothing can prove whether receipt {number} printed. Its money is neither booked nor free until someone settles it.",
+      "inDoubtRefused": "Nothing can prove whether receipt {number} printed, so this cannot go on. Check the device, then settle it under Cash Register Sales.",
+      "settleIt": "Settle it",
+      "settlePrinted": "It printed",
+      "settleNotPrinted": "It did not print",
+      "settleWho": "A manager or an admin settles it.",
+      "settleConfirm": {
+        "printed": "The receipt is on the device. Its money is recorded on the invoice and in the session. This cannot be undone.",
+        "notPrinted": "The receipt is not on the device. It is voided with its number, and the amount is due again. This cannot be undone."
+      },
+      "settled": "Receipt settled",
+      "deliveryOwed": "This cash-on-delivery invoice has no fiscal receipt: its print failed. Print the receipt first.",
+      "unfinished": "Receipts {numbers} are not finished, so this session cannot close. Wait for one that is printing, and settle one in doubt under Cash Register Sales.",
+      "stornoInDoubt": "Nothing can prove whether this storno printed, so nothing was reversed: no refund, no stock. Check the device's journal, then say which.",
+      "stornoInDoubtRefused": "Storno {number} may have printed, and nothing was reversed. Check the device, then settle it on its page under Cash Register Sales. Do not press storno again.",
+      "settleConfirmStorno": {
+        "printed": "The storno is on the device. The refund leaves the session and the goods come back. This cannot be undone.",
+        "notPrinted": "The storno is not on the device. It is voided with its number, and the sale stands as it did. This cannot be undone."
+      },
+      "stornoSettled": "Storno settled",
+      "openOnDevice": "A receipt is still open on the fiscal device, so nothing is final yet. Print an X report on the device page, which clears it, then look at the device again: whatever printed then, printed.",
+      "saleInDoubt": "Nothing can prove whether this sale's fiscal receipt printed. Its money stands, and its storno waits until someone checks the device and says which.",
+      "saleInDoubtRefused": "Nothing can prove whether the receipt of sale {number} printed, so a storno cannot say what it reverses. Nothing was reversed. Check the device, then settle it on its page under Cash Register Sales.",
+      "settleConfirmSale": {
+        "printed": "The receipt is on the device. Type its number off the slip: the storno of this sale cites it. This cannot be undone.",
+        "notPrinted": "The receipt is not on the device. The sale and its money stand, and its storno prints nothing. This cannot be undone."
+      },
+      "saleSettled": "Sale settled",
+      "receiptNumber": "Receipt number",
+      "numberRequired": "A sale that printed needs its receipt number off the slip, in digits: its storno cites it.",
+      "numberTaken": "That receipt number on this device is {number}'s. Check the slip."
     },
     "origin": {
       "pos": "Till",
@@ -1721,7 +1863,8 @@
     "status": {
       "completed": "Completed",
       "stornoed": "Stornoed",
-      "voided": "Voided"
+      "voided": "Voided",
+      "inDoubt": "In doubt"
     },
     "stock": {
       "moved": "Moved",
@@ -2028,6 +2171,40 @@
     "incomingInvoice": "Supplier bill",
     "billed": "Billed",
     "billedBy": "Billed by the supplier's bill",
+    "billSupplier": {
+      "title": "Who delivered these goods?",
+      "hint": "This receipt names no supplier. The bill is made out to the one you choose, and the receipt keeps it.",
+      "confirm": "Make the bill"
+    },
+    "notBillable": {
+      "receipt_rolled_back": "This receipt was rolled back with its document: the goods left again, and no bill pays for it.",
+      "receipt_not_a_delivery": "This receipt is a correction or a day's total, not one supplier's delivery, so no bill pays for it.",
+      "receipt_not_completed": "A supplier bill is made from a completed receipt.",
+      "receipt_not_billable": "This receipt was booked by {number}, which is voided. It is no delivery, and no bill pays for it.",
+      "orphan": "This receipt gives back the goods of a document that no longer exists. It is no delivery, and no bill pays for it.",
+      "receipt_is_reversal": "This receipt gives back the goods of a removed document. It is no delivery, and no bill pays for it."
+    },
+    "refusals": {
+      "transfer_without_from_warehouse": "A transfer takes goods out of a warehouse: choose „From Warehouse“ too. Goods arriving from outside are a receipt.",
+      "adjustment_with_both_warehouses": "An adjustment changes one warehouse: choose „From Warehouse“ to take goods out or „To Warehouse“ to add them, not both. Goods moving between warehouses are a transfer.",
+      "receipt_rolled_back": "Receipt {movementNumber} was rolled back with its document: the goods left again, and no bill pays for it.",
+      "bill_foreign_currency": "This bill is in {currency}, and the delivery's prices are in {baseCurrency}: a bill in another currency is not linked to a delivery.",
+      "receipt_not_a_delivery": "Receipt {movementNumber} is a correction or a day's total, not one supplier's delivery, so no bill pays for it.",
+      "dispatch_with_to_warehouse": "A dispatch takes goods out of a warehouse: choose it as „From Warehouse“ and leave „To Warehouse“ empty.",
+      "receipt_with_from_warehouse": "A receipt brings goods into a warehouse: choose it as „To Warehouse“ and leave „From Warehouse“ empty.",
+      "receipt_without_supplier": "Receipt {movementNumber} names no supplier: choose it.",
+      "supplier_not_found": "Choose a supplier of this organization.",
+      "supplier_mismatch": "The receipts are from another supplier.",
+      "mixed_suppliers": "One bill covers the receipts of one supplier, and these are from different suppliers.",
+      "receipt_already_billed": "Receipt {movementNumber} is already billed.",
+      "bill_not_empty": "The bill already has lines. Open it again and confirm replacing them.",
+      "bill_on_order": "The bill is written against a supplier order: its lines book the delivery onto the order, so they cannot be replaced.",
+      "bill_not_draft": "The bill is no longer a draft.",
+      "bill_already_linked": "The bill is already linked to a delivery.",
+      "nothing_to_bill": "The receipts carry no quantities to bill.",
+      "stock_line_without_warehouse": "The stock lines of this bill name no warehouse, so nothing would reach stock. Choose the warehouse on the bill, then receive it.",
+      "stock_line_without_product": "A line of this bill has a quantity but no product: it would be paid for and never reach stock. Choose the product on the line, then receive it."
+    },
     "supply": {
       "reserved": "Reserved",
       "available": "Available",
@@ -3885,7 +4062,7 @@
     "fiscalDevices": "Fiscal devices",
     "fiscalDevicesHint": "Devices this desktop is allowed to bridge.",
     "startPath": "Start path",
-    "startPathHint": "Where Open LGR lands, e.g. /pos/ for a till. Blank means the app hub.",
+    "startPathHint": "Where Open LGR lands, e.g. /invoicing/cash-sales/new for a till. Blank means the app hub.",
     "lastSeen": "Last seen",
     "clock": "Clock",
     "presence": {

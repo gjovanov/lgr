@@ -1255,11 +1255,13 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
   }
 
   // Finished: no stock from now on, paid with the till's money, dated as the sale.
+  // ⚠ From the document as claimed, never the first read: an edit between the two moved its total, and
+  // from the claim on nothing does. Paid from the total it read, it ended paid with money still due.
   const now = new Date()
   const paidOn = new Date(cs.paidAt || cs.issueDate || now)
-  const payments = mirroredPayments(cs, num(inv.total), paidOn)
+  const payments = mirroredPayments(cs, num(claimedDoc.total), paidOn)
   const csMovements = (await StockMovement.find({ orgId, invoiceId: cs._id } as any, { _id: 1 }).lean().exec()).map((x: any) => x._id)
-  const replaced = (inv.payments || []).filter((p: any) => AUTO_PAYMENT_ORIGINS.has(p.origin))
+  const replaced = (claimedDoc.payments || []).filter((p: any) => AUTO_PAYMENT_ORIGINS.has(p.origin))
   const done = await Invoice.findOneAndUpdate(
     { _id: inv._id, orgId, [CASH_SALE_REF_ID]: cs._id } as any,
     {
@@ -1268,13 +1270,13 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
         taxEventDate: cs.issueDate,
         payments,
         paymentMethod: mainMethod(payments),
-        amountPaid: round2(num(inv.total)),
+        amountPaid: round2(num(claimedDoc.total)),
         amountDue: 0,
         status: 'paid',
         paidAt: paidOn,
       },
       $unset: { leaseUntil: 1, voidingUntil: 1 },
-      $push: { statusHistory: { status: 'paid', fromStatus: inv.status, changedAt: now, changedBy: actor.id, reason: `attached to cash sale ${cs.invoiceNumber}` } },
+      $push: { statusHistory: { status: 'paid', fromStatus: claimedDoc.status, changedAt: now, changedBy: actor.id, reason: `attached to cash sale ${cs.invoiceNumber}` } },
     },
     { new: true },
   ).lean().exec()

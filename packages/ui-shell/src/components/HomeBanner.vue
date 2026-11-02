@@ -74,12 +74,12 @@ watch(() => props.orgId, id => {
 }, { immediate: true })
 
 const REFUSALS: Record<string, string> = { org_home_elsewhere: 'home.writeRefused', series_frozen: 'home.seriesFrozen' }
-setRefusalTranslator(code => (REFUSALS[code] ? t(REFUSALS[code]) : null))
+const stopTranslating = setRefusalTranslator(code => (REFUSALS[code] ? t(REFUSALS[code]) : null))
 // A page that moved the org, or reopened its numbering, says so: look again now.
 const stopListening = onHomeChanged(() => void load(props.orgId))
 onUnmounted(() => {
   if (timer) clearInterval(timer)
-  setRefusalTranslator(null)
+  stopTranslating()
   stopListening()
 })
 

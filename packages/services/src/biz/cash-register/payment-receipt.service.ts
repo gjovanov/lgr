@@ -54,25 +54,24 @@
  */
 import { Invoice, POSSession } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
-import { createAuditEntry, recordAuditEntry } from '../audit-log.service.js'
+import { createAuditEntry } from '../audit-log.service.js'
 import { eventBus } from '../../events/event-bus.js'
-import { logger } from '../../logger/logger.js'
 import { generateUNP } from '../sequence.service.js'
-import { LEASE_MS, takeLease } from '../hot-path-key.js'
+import { LEASE_MS } from '../hot-path-key.js'
 import { fitsDue, heldOn, isBeingVoided, outstandingOf, overpays, paymentPipeline, type PaymentRow } from '../invoice-payment.js'
 import { printsHere } from '../sale-counting.js'
 import { SETTLED_ON_ISSUE } from '../cash-settlement.service.js'
 import { receiptTookMoney, refundGaveMoney } from './counting.js'
 import { toPosTransaction } from './mapping.js'
+import { saleInDoubt } from './in-doubt.js'
 import { MONEY_DOCUMENT_TYPES, PAYMENT_RECEIPT, PAYMENT_STORNO } from './pos-union.js'
-import { giveBackBudget, holdEnough, leftByRate, takeBudget, totalOf, wantedBy, type ByRate } from './refund-budget.js'
-import { provedNotPrinted } from './print-verdict.js'
+import { giveBackBudget, leftByRate, takeBudget, totalOf, wantedBy, type ByRate } from './refund-budget.js'
 import type { RegisterPrinter } from './printer.js'
 import { grossByRate, receiptedByRate, refundBody, splitByRate, type ReceiptBody } from './receipt-lines.js'
 import { receiptMode } from './receipt-mode.js'
 import {
-  RegisterRefusal, applySessionTotals, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, readDevice, rollBack,
-  saleIncrements, setRegister, stornoIncrements, type RegisterContext, type RegisterSession, type RegisterUser,
+  RegisterRefusal, applySessionTotals, couldNotPrint, decideInterrupted, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, rollBack,
+  saleInDoubtRefusal, saleIncrements, setRegister, stornoIncrements, type RegisterContext, type RegisterSession, type RegisterUser,
 } from './register.service.js'
 
 type ObjectId = InstanceType<typeof Invoice.base.Types.ObjectId>
@@ -87,6 +86,9 @@ const FISCALLY_PAID = {
 
 /** The payment methods a receipt prints for at the counter (owner, Q-2): those taken as a document is issued. */
 const COUNTER_METHODS = Object.keys(SETTLED_ON_ISSUE)
+
+/** What a session does not close over, nobody having finished it. */
+const HOLDS_THE_CLOSE = [...MONEY_DOCUMENT_TYPES, 'cash_storno']
 
 /**
  * A document §2.2 means by imported: written by the Files app, the conversion or the API import
@@ -187,10 +189,10 @@ export const DOCUMENT_CLAIMED = {
   message: 'This document is being voided or attached to a cash sale right now. Try again in a moment.',
 } as const
 
-/** An edit that moves its total, and a payment that came in since the edit read it. */
+/** It is not what the request read: a payment came in since an edit read it, or an edit since `/send` did. */
 export const DOCUMENT_CHANGED = {
   code: 'document_changed',
-  message: 'A payment was recorded on this document while you edited it. Open it again.',
+  message: 'This document changed while you were working on it. Open it again.',
 } as const
 
 /** The courier's money, on an invoice whose receipt has not printed. */
@@ -483,7 +485,10 @@ async function giveUp(c: RegisterContext, doc: any): Promise<any> {
  *
  * ⚠ A receipt that started fiscally stays fiscal, whatever the device says now: what it may have left
  * there is `printOnce`'s to judge. One that started as text is asked again, so a fiscalized device
- * can never print text. It then goes to `printOnce`, which has no counter to read for it, and holds it.
+ * can never print text. And on a device fiscalized since it stays text on the record, and is held: a
+ * text attempt has no counter to read, and rewritten as fiscal, a person who said it printed booked a
+ * fiscal receipt with a УНП no device ever saw. A new attempt that never started prints as the device
+ * says now.
  */
 async function decideMode(c: RegisterContext, printer: RegisterPrinter, doc: any): Promise<any> {
   const fiscal = doc.register?.fiscal
@@ -493,6 +498,7 @@ async function decideMode(c: RegisterContext, printer: RegisterPrinter, doc: any
   if (mode === 'text') {
     return fiscal?.mode === 'text' ? doc : setRegister(doc._id, { isFiscal: false, 'fiscal.mode': 'text' })
   }
+  if (fiscal?.attemptedAt) return holdInDoubt(doc)
   const operatorCode = c.user.operatorCode ?? doc.register?.operatorCode
   if (!operatorCode) throw new Error('This user has no operator code, and a fiscal receipt names its operator.')
   return setRegister(doc._id, {
@@ -515,30 +521,27 @@ class NotCiteable extends Error {
 
 /** The print, in the receipt's turn. What cannot print: failed if it never reached the device, else in doubt. */
 async function printReceiptStep(c: RegisterContext, doc: any): Promise<any> {
-  const couldNot = (receipt: any, reason: string) => (receipt.register?.fiscal?.attemptedAt
-    ? holdInDoubt(receipt)
-    : setRegister(receipt._id, { 'fiscal.state': 'failed', 'fiscal.error': reason, receiptError: reason }))
   const printer = c.printer
-  if (!printer) return couldNot(doc, 'The fiscal device is no longer connected, so the receipt was not printed.')
+  if (!printer) return couldNotPrint(doc, 'The fiscal device is no longer connected, so the receipt was not printed.')
   try {
     return await inTurn(printer, doc, async (fresh) => {
       // In the turn, so that a close finds this receipt or this receipt finds the close: money that
       // lands after the day was counted is in no session's drawer (`pos.controller.ts`, the close).
       const open = await POSSession.exists({ _id: fresh.register?.sessionId, status: 'open' }).exec()
-      if (!open) return couldNot(fresh, 'The session closed before this receipt could print.')
+      if (!open) return couldNotPrint(fresh, 'The session closed before this receipt could print.')
       let decided: any
       try {
         decided = await decideMode(c, printer, fresh)
       } catch (e: any) {
-        if (e instanceof NotCiteable) return couldNot(fresh, e.message)
+        if (e instanceof NotCiteable) return couldNotPrint(fresh, e.message)
         // ⚠ Never text: the path of a device that went away.
-        return couldNot(fresh, `The device could not say how it prints, so the receipt was not printed: ${e?.message}`)
+        return couldNotPrint(fresh, `The device could not say how it prints, so the receipt was not printed: ${e?.message}`)
       }
-      return printSaleStep(c, decided)
+      return decided.register?.fiscal?.state === 'pending' ? printSaleStep(c, decided) : decided
     })
   } catch (e: any) {
     if (e?.code !== 'device_busy') throw e
-    return couldNot(doc, e.message)
+    return couldNotPrint(doc, e.message)
   }
 }
 
@@ -585,7 +588,14 @@ export async function runReceiptSteps(c: RegisterContext, id: string, opts: { ne
   // never prints again. A person who looks at the device settles it.
   if (doc.type === PAYMENT_STORNO && doc.register?.fiscal?.state === 'unknown') return holdInDoubt(doc)
 
-  // Printed, or it may have: the money stands from here on (D-4).
+  // Printed, or it may have: the money stands from here on (D-4). One that never had its number and a
+  // person settled, which arrived through a move between nodes, is numbered first: it is booked under
+  // a real one, and a number that cannot be drawn leaves it for the next touch.
+  if (isPendingNumber(doc.invoiceNumber)) {
+    const numbered = await numberPending(c.orgId, doc)
+    if (!numbered) throw new RegisterRefusal(409, { message: 'Could not allocate the cash-register number after 3 attempts' })
+    doc = numbered
+  }
   const sessionId = doc.register?.sessionId ? String(doc.register.sessionId) : undefined
   if (sessionId && !doc.register?.sessionTotalsApplied) {
     await applySessionTotals(doc, sessionId, doc.type === PAYMENT_STORNO ? stornoIncrements(doc) : saleIncrements(doc))
@@ -608,27 +618,29 @@ export async function runReceiptSteps(c: RegisterContext, id: string, opts: { ne
 }
 
 /**
- * The receipts nobody finished, of a document or of a session: their request died, and their lease
- * has lapsed. One held for a person is not among them: there is nothing left to work out.
+ * The receipts and stornos nobody finished, of a document, of a session or by id: their request died,
+ * and their lease has lapsed. One held for a person is not among them: there is nothing left to work out.
  */
-export async function interruptedReceipts(orgId: string, where: { documentId?: string; sessionId?: string }): Promise<any[]> {
+export async function interruptedDocuments(orgId: string, where: { documentId?: string; sessionId?: string; ids?: unknown[] }): Promise<any[]> {
   return Invoice.find({
-    orgId: oid(orgId), type: { $in: MONEY_DOCUMENT_TYPES },
+    orgId: oid(orgId), type: { $in: HOLDS_THE_CLOSE },
     ...(where.documentId ? ofDocument(where.documentId) : {}),
     ...(where.sessionId ? { 'register.sessionId': oid(where.sessionId) } : {}),
-    completedAt: { $exists: false }, leaseUntil: { $lt: new Date() }, 'register.fiscal.inDoubt': { $ne: true },
+    ...(where.ids ? { _id: { $in: where.ids } } : {}),
+    completedAt: { $exists: false }, status: { $ne: 'voided' }, leaseUntil: { $lt: new Date() }, 'register.fiscal.inDoubt': { $ne: true },
   }).sort({ _id: 1 }).lean().exec()
 }
 
-/** A close refused over its unfinished receipts, naming them. */
+/** A close refused over its unfinished receipts and stornos, naming them. */
 export function unfinishedRefusal(receipts: any[]) {
   const named = receipts.map(r => ({
     id: String(r._id),
     number: isPendingNumber(r.invoiceNumber) ? null : r.invoiceNumber,
     invoice: documentNumberOf(r),
     inDoubt: !!r.register?.fiscal?.inDoubt,
+    kind: r.type === 'cash_storno' ? 'storno' : r.type === PAYMENT_STORNO ? 'refund' : 'payment',
   }))
-  const list = named.map(r => r.number ?? `for ${r.invoice}`).join(', ')
+  const list = named.map(r => r.number ?? (r.invoice ? `for ${r.invoice}` : r.id)).join(', ')
   return {
     code: 'receipts_unfinished',
     receipts: named,
@@ -636,11 +648,18 @@ export function unfinishedRefusal(receipts: any[]) {
   }
 }
 
-/** The session's receipts that are not finished, whatever they are waiting for. */
+/**
+ * The session's receipts and stornos that are not finished, whatever they are waiting for: the Z and
+ * the books would otherwise disagree. A copied POS row carries no `completedAt` of its own, and what it
+ * did is long done.
+ */
 export async function unfinishedReceipts(orgId: string, sessionId: string): Promise<any[]> {
   return Invoice.find(
-    { orgId: oid(orgId), type: { $in: MONEY_DOCUMENT_TYPES }, 'register.sessionId': oid(sessionId), completedAt: { $exists: false } },
-    { invoiceNumber: 1, 'register.fiscal': 1, 'register.paidInvoiceNumber': 1, 'register.refundOfNumber': 1 },
+    {
+      orgId: oid(orgId), type: { $in: HOLDS_THE_CLOSE }, 'register.sessionId': oid(sessionId),
+      completedAt: { $exists: false }, status: { $ne: 'voided' }, 'register.legacy': { $exists: false },
+    },
+    { type: 1, invoiceNumber: 1, 'register.fiscal': 1, 'register.paidInvoiceNumber': 1, 'register.refundOfNumber': 1 },
   ).sort({ _id: 1 }).lean().exec()
 }
 
@@ -661,80 +680,8 @@ export async function unfinishedReceipts(orgId: string, sessionId: string): Prom
  * device's answer lost), and only the money is left to record.
  */
 export async function finishInterruptedReceipt(c: RegisterContext, doc: any): Promise<any> {
-  const decide = async (fresh: any) => {
-    const fiscal = fresh.register?.fiscal
-    const neverPrinted = !fiscal?.attemptedAt
-      || (!!c.printer && provedNotPrinted({ before: fiscal.counterBefore, ...(await readDevice(c.printer)) }))
-    if (!neverPrinted) {
-      logger.warn({ documentId: String(fresh._id) }, 'Interrupted payment receipt cannot be proved either way — held for a person')
-      return holdInDoubt(fresh)
-    }
-    logger.warn({ documentId: String(fresh._id) }, 'Interrupted payment receipt did not print — given up')
-    const receiptError = 'The payment was interrupted before its receipt printed.'
-    return setRegister(fresh._id, { 'fiscal.state': 'failed', 'fiscal.error': receiptError, receiptError })
-  }
-  if (doc.register?.fiscal?.state === 'pending') {
-    if (c.printer) await inTurn(c.printer, doc, decide)
-    else await decide(doc)
-  }
+  await decideInterrupted(c, doc, doc.type === PAYMENT_STORNO ? 'The refund was interrupted before its storno printed.' : 'The payment was interrupted before its receipt printed.')
   return runReceiptSteps(c, String(doc._id), { neverPrint: true })
-}
-
-/**
- * A person looked at the device and says whether a receipt in doubt printed. Printed: its session
- * counts it and its payment is recorded. Not printed: it is voided with its number and УНП, and its
- * amount goes back to the invoice. Answers null when it is not in doubt. What they said, and who said
- * it, stays on the document and in the audit trail.
- *
- * ⚠ What they said is durable from the claim on, and the claim leaves a lease: a receipt is found by
- * its lapsing until `completedAt`. A settle that stops before the money is booked is finished by the
- * next touch of its document, or by its session's close, with no device. Unsetting the lease left a
- * receipt nothing could find, with its hold on the invoice and its session unable to close.
- */
-export async function settleReceipt(c: RegisterContext, receiptId: string, printed: boolean): Promise<any | null> {
-  const now = new Date()
-  const receiptError = 'A person who checked the device settled this receipt as not printed.'
-  const claimed: any = await Invoice.findOneAndUpdate(
-    { _id: oid(receiptId), orgId: oid(c.orgId), type: { $in: MONEY_DOCUMENT_TYPES }, 'register.fiscal.inDoubt': true, completedAt: { $exists: false }, status: { $ne: 'voided' } },
-    {
-      $set: {
-        'register.settled': { printed, by: oid(c.user.id), at: now },
-        leaseUntil: new Date(now.getTime() + LEASE_MS),
-        ...(printed
-          ? { 'register.fiscal.state': 'printed', 'register.fiscal.printedAt': now, 'register.printedAt': now }
-          : { 'register.fiscal.state': 'failed', 'register.fiscal.error': receiptError, 'register.receiptError': receiptError }),
-      },
-      $unset: { 'register.fiscal.inDoubt': 1, ...(printed ? { 'register.receiptError': 1 } : {}) },
-    },
-    { new: true },
-  ).lean().exec()
-  if (!claimed) return resumeSettled(c, receiptId, printed)
-  await recordAuditEntry({
-    orgId: c.orgId, userId: c.user.id, operatorCode: c.user.operatorCode, action: 'settle_receipt', module: c.audit.module,
-    entityType: c.audit.entityType, entityId: String(claimed._id), entityName: claimed.invoiceNumber, unpNumber: claimed.register?.unp,
-    changes: [{ field: 'printed', oldValue: 'unknown', newValue: printed ? 'yes' : 'no' }],
-  })
-  return runReceiptSteps(c, String(claimed._id))
-}
-
-/**
- * A second `/settle` of one that stopped halfway. What was said first stands: the same answer finishes
- * it once its lease has lapsed, and the opposite is refused. Null when there is nothing to finish, or
- * the first still holds it.
- */
-async function resumeSettled(c: RegisterContext, receiptId: string, printed: boolean): Promise<any | null> {
-  const stopped: any = await Invoice.findOne({
-    _id: oid(receiptId), orgId: oid(c.orgId), type: { $in: MONEY_DOCUMENT_TYPES }, 'register.settled': { $exists: true }, completedAt: { $exists: false },
-  }).lean().exec()
-  if (!stopped) return null
-  if (stopped.register.settled.printed !== printed) {
-    throw new RegisterRefusal(409, {
-      code: 'receipt_already_settled',
-      message: `This receipt was already settled as ${stopped.register.settled.printed ? 'printed' : 'not printed'}, and that stands.`,
-    })
-  }
-  if (!(await takeLease(Invoice, c.orgId, stopped._id))) return null
-  return runReceiptSteps(c, String(stopped._id))
 }
 
 // ── R2: a refund on a credit note ────────────────────────────────────────────────────────────────
@@ -754,7 +701,7 @@ async function giveBackCited(doc: any): Promise<void> {
 /** A refund with no receipt behind it: §2.5, the owner's decision. */
 export const noReceiptToStorno = () => new RegisterRefusal(409, {
   code: 'no_receipt_to_storno',
-  message: 'This credit note\'s invoice has no receipt in LGR to storno: it was paid by bank, imported, or paid before LGR printed. Refund it by bank.',
+  message: 'This credit note\'s invoice has no receipt in LGR to storno: it was paid by bank, imported, paid before LGR printed, or nothing proves its receipt printed. Refund it by bank.',
 })
 
 /** More than they hold. `left`: what they do hold of it, which is what can still go back this way. */
@@ -783,7 +730,7 @@ export const onOtherDevice = (cited: any[]) => {
 export interface RefundBacking {
   /** What a storno can cite, as it stands now, oldest first. */
   cited: any[]
-  /** A receipt or a sale nothing can prove: a person has to look at the device before it holds anything. */
+  /** A receipt or a sale nothing can prove yet: a person has to look at the device before it holds anything. */
   doubt: any | null
   /** A receipt of the invoice still going through: its money may be coming. */
   printing: boolean
@@ -800,7 +747,10 @@ const hasReceiptNumber = (d: any) => /^\d+$/.test(String(d?.register?.fiscalRece
  * Only what is finished and known to have printed. ⚠ `unknown` means a person must look at the device,
  * so nothing reads it as printed: a receipt or a sale in that state has no budget until they say, and no
  * number to cite either. A storno of what never printed would put a refund on the device with no sale
- * behind it. ⚠ Not a receipt on delivery: its money is the courier's, and until they bring it there is
+ * behind it. A person settles one in doubt at the settle door, and what they said as printed holds from
+ * then on, by the number they typed. ⚠ A receipt whose `unknown` stands (its verdict in its turn, its
+ * money booked) has no such door: it holds nothing, and its refund goes by bank.
+ * ⚠ Not a receipt on delivery: its money is the courier's, and until they bring it there is
  * nothing to give back. Such a refund goes by bank, as one on an invoice with no receipt does.
  */
 export async function refundBacking(orgId: string, note: any): Promise<RefundBacking> {
@@ -810,19 +760,22 @@ export async function refundBacking(orgId: string, note: any): Promise<RefundBac
   if (!invoice) return none
   if (invoice.cashSaleRef?.cashSaleId) {
     const sale: any = await Invoice.findOne({ _id: invoice.cashSaleRef.cashSaleId, orgId: oid(orgId), type: 'cash_sale', status: 'paid' }).lean().exec()
+    if (saleInDoubt(sale)) return { ...none, doubt: sale }
     const state = sale?.register?.fiscal?.state
-    if (sale?.register?.isFiscal && state === 'unknown') return { ...none, doubt: sale }
+    if (sale?.register?.isFiscal && state === 'pending') return { ...none, printing: true }
     const printed = state ? state === 'printed' : hasReceiptNumber(sale)
     return { ...none, cited: sale && printed ? [sale] : [] }
   }
   const live: any[] = await Invoice.find(liveReceipts(orgId, invoice._id)).sort({ _id: 1 }).lean().exec()
-  const unproved = (r: any) => r.register?.fiscal?.inDoubt || r.register?.fiscal?.state === 'unknown'
   return {
     cited: live.filter(r => r.completedAt && r.paymentMethod !== 'cash_on_delivery' && r.register?.fiscal?.state === 'printed'),
-    doubt: live.find(unproved) ?? null,
-    printing: live.some(r => !r.completedAt && !unproved(r)),
+    doubt: live.find(r => r.register?.fiscal?.inDoubt) ?? null,
+    printing: live.some(r => !r.completedAt && !r.register?.fiscal?.inDoubt),
   }
 }
+
+/** The refusal of what backs a refund and nothing can prove: each names its own way out. */
+export const doubtRefusal = (doc: any) => new RegisterRefusal(409, doc.type === 'cash_sale' ? saleInDoubtRefusal(doc) : inDoubtRefusal(doc))
 
 /**
  * Which of them this device can reverse. A fiscal storno names the receipt's number and this device's

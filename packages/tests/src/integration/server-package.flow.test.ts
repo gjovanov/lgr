@@ -26,7 +26,15 @@ const PKG = configured ? (isAbsolute(configured) ? configured : join(REPO_ROOT, 
 const enabled = !!PKG && existsSync(join(PKG, MANIFEST))
 
 const random = () => Buffer.from(crypto.getRandomValues(new Uint8Array(48))).toString('base64')
-const PORT = 43000 + Math.floor(Math.random() * 2000)
+// Never a random one: on a shared runner it was taken once in a while, the server died at once with
+// EADDRINUSE, and the boot read as a 90 s hang with nothing listening.
+const freePort = () => {
+  const s = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } })
+  const { port } = s
+  s.stop(true)
+  return port
+}
+const PORT = freePort()
 const BASE = `http://127.0.0.1:${PORT}`
 
 function env(extra: Record<string, string | undefined> = {}): Record<string, string> {
@@ -82,12 +90,20 @@ describe.skipIf(!enabled)('a built server package', () => {
   }, 90_000)
 
   it('boots, serves the web app from its ui/, signs in and prints an invoice', async () => {
-    server = Bun.spawn(['bun', manifest.entries.server], { cwd: PKG, env: productionEnv(), stdout: 'ignore', stderr: 'ignore' })
+    server = Bun.spawn(['bun', manifest.entries.server], { cwd: PKG, env: productionEnv(), stdout: 'pipe', stderr: 'pipe' })
+    // Read as it comes, so a chatty server never fills the pipe, and a boot that hangs says where.
+    let said = ''
+    const keep = async (stream: ReadableStream<Uint8Array>) => {
+      const decoder = new TextDecoder()
+      for await (const chunk of stream) said = (said + decoder.decode(chunk)).slice(-4000)
+    }
+    void keep(server.stdout as ReadableStream<Uint8Array>)
+    void keep(server.stderr as ReadableStream<Uint8Array>)
     const deadline = Date.now() + 90_000
     for (;;) {
       const up = await fetch(`${BASE}/api/health`).then(r => r.status === 200, () => false)
       if (up) break
-      if (Date.now() > deadline) throw new Error('the package did not answer /api/health within 90 s')
+      if (Date.now() > deadline) throw new Error(`the package did not answer /api/health within 90 s. It said:\n${said}`)
       await Bun.sleep(500)
     }
 
@@ -115,6 +131,16 @@ describe.skipIf(!enabled)('a built server package', () => {
     expect({ step: 'pdf', status: pdf.status }).toEqual({ step: 'pdf', status: 200 })
     expect(new TextDecoder().decode((await pdf.arrayBuffer()).slice(0, 5))).toBe('%PDF-')
   }, 240_000)
+
+  // A package has the one SPA: what a till stores has to come from the server, and lead to a page.
+  it("answers a till's stored /pos/ with a 302 into Invoicing, which it serves", async () => {
+    const moved = await fetch(`${BASE}/pos/`, { redirect: 'manual' })
+    expect({ status: moved.status, location: moved.headers.get('location') }).toEqual({ status: 302, location: '/invoicing/cash-sales/new' })
+    const shell = await fetch(`${BASE}/invoicing/cash-sales/new`)
+    expect(shell.status).toBe(200)
+    expect(await shell.text()).toContain('/ui/')
+    expect(manifest.ui).toEqual(['web'])
+  })
 
   it('its migrate reads what a source runner applied as applied, and applies nothing', async () => {
     await runMigrations({ db: mongoose.connection.db! })

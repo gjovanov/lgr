@@ -3,42 +3,38 @@ import { loginForApp } from './helpers/login'
 import { apiLogin, apiGet, apiPost } from './helpers/api'
 import { lineUnitPrice } from './helpers/document-form'
 import { rowAction, rowOf, rowsWithStatus } from './helpers/row-actions'
-import { appears } from './helpers/vuetify'
+import { createBackOfficeCashSale } from './helpers/cash-register'
 
 test.describe('Stock Validation on Invoicing', () => {
-  test('should show error when creating cash register sale with insufficient stock', async ({ page }) => {
-    await loginForApp(page)
-    await page.goto('/invoicing/cash-sales/new')
-    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
+  // ⚠ Through the API: `/cash-sales/new` is the till now, which sells from whatever the warehouse
+  // shows (`settings.cashRegister.allowNegativeStock`). The back-office door is `POST /invoices`,
+  // the imports' and the API's, and that one refuses a sale the warehouse cannot cover.
+  test('should refuse a back-office cash register sale with insufficient stock', async () => {
+    const admin = await apiLogin()
+    const author = await apiLogin('acme-corp', 'accountant', 'test123')
+    const { warehouses } = await apiGet(admin, '/warehouse/warehouse?size=50')
+    const wh = warehouses.find((w: any) => w.code === 'WH-01') || warehouses[0]
+    const warehouseId = wh.id || wh._id
+    const { products } = await apiGet(admin, `/trade/pos/catalog?warehouseId=${warehouseId}&type=goods&size=1`)
+    expect(products?.length, 'an article — is the DB seeded?').toBeTruthy()
+    const p = products[0]
 
-    // ⚠ Rewritten for the POS terminal. FR-03 replaced the cash-sale line editor with
-    // `CashSaleTerminal.vue` — product CARDS on the left, a cart on the right — so there is no
-    // `.v-table` line row, no ProductLineDescription and no per-line warehouse select on this
-    // screen any more. The old flow waited 10s for an input that no longer exists.
-    const card = page.getByTestId('register-card').first()
-    test.skip(!(await appears(card, 10000)), 'no products seeded')
-    await card.click()
+    const quantity = 999999
+    const net = quantity * p.unitPrice
+    const tax = Math.round(net * (p.taxRate || 0)) / 100
+    const res = await apiPost(author, '/invoices', {
+      type: 'cash_sale', direction: 'outgoing', issueDate: new Date().toISOString().slice(0, 10), currency: 'EUR',
+      lines: [{
+        productId: p.productId, warehouseId, description: p.productName, unit: p.unit || 'pcs',
+        quantity, unitPrice: p.unitPrice, discount: 0, taxRate: p.taxRate || 0, taxAmount: tax, lineTotal: net + tax,
+      }],
+      subtotal: net, taxTotal: tax, total: net + tax, paymentMethod: 'cash',
+    })
 
-    const cartRow = page.locator('[data-testid^="cart-line-"]').first()
-    await expect(cartRow).toBeVisible()
-
-    // Ask for far more than anyone has in stock.
-    const qtyInput = cartRow.locator('input[type="number"]').first()
-    await qtyInput.fill('999999')
-    await qtyInput.blur()
-
-    await page.getByRole('button', { name: /^save$/i }).first().click()
-
-    // The server refuses on stock. Either surface is acceptable — a snackbar, or the
-    // stock-transfer dialog that offers to cover the shortfall — but something MUST say so,
-    // and we must not have navigated away to the list as if the sale succeeded.
-    //
-    // ⚠ The previous version wrapped this in `if (hasError)`, so a silent failure to validate
-    // passed the test.
-    await expect(
-      page.locator('.v-snackbar').or(page.locator('.v-dialog')),
-    ).toBeVisible({ timeout: 10000 })
-    await expect(page).toHaveURL(/cash-sales\/new/)
+    // ⚠ Not `if (res.ok)`: the version this replaced let a silent failure to validate pass.
+    expect(res.ok, `a sale of ${quantity} → ${res.status}`).toBe(false)
+    expect(res.status).toBeLessThan(500)
+    expect(JSON.stringify(await res.json())).toMatch(/stock/i)
   })
 
   test('should show error when sending outgoing invoice with insufficient stock', async ({ page }) => {
@@ -85,61 +81,14 @@ test.describe('Stock Validation on Invoicing', () => {
     expect(again.invoice).toMatchObject({ status: 'draft', invoiceNumber: draft.invoiceNumber })
   })
 
-  test('should successfully create cash register sale when stock is sufficient', async ({ page }) => {
+  test('should save a back-office cash register sale when stock is sufficient', async ({ page }) => {
+    // `createBackOfficeCashSale` picks an article the warehouse can actually sell (`stockAvailable`,
+    // reservations taken off), and throws on a refusal: that it returned is half of this test.
+    const sale = await createBackOfficeCashSale()
     await loginForApp(page)
-
-    // First check stock levels to find a product with stock
-    await page.goto('/inventory/stock-levels')
-    await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
-    await page.waitForTimeout(1000)
-
-    // Check if any stock levels exist
-    const rows = page.locator('.v-data-table tbody tr')
-    const rowCount = await rows.count()
-    const hasNoData = rowCount > 0
-      ? await rows.first().getByText('No data available').isVisible().catch(() => false)
-      : true
-
-    if (hasNoData || rowCount === 0) {
-      // No stock data, skip
-      return
-    }
-
-    // ⚠ Rewritten for the POS terminal (FR-03) — see the first test. There is no free-text
-    // line editor on this screen, so "a service item with no warehouse" is not a thing a cash
-    // sale can contain any more; every line comes from a product card.
-    //
-    // Pick a product that genuinely HAS stock, rather than whichever card happens to be first:
-    // the point of this test is the sufficient-stock path, and a short product would take the
-    // shortfall dialog instead.
-    //
-    // ⚠ By what the form's OWN warehouse can sell (`stockAvailable`, reservations taken off), never
-    // by a stock level's quantity anywhere: in a full run that picked an article the reservation
-    // specs hold (on hand 10, free 0), and the form rightly offered a transfer instead of saving.
-    const session = await apiLogin()
-    const { warehouses } = await apiGet(session, '/warehouse/warehouse?size=1000')
-    const wh = warehouses.find((w: any) => w.isDefault) || warehouses[0]
-    const { products } = await apiGet(session, `/trade/pos/catalog?warehouseId=${wh.id || wh._id}&type=goods&size=100`)
-    const stocked = (products || []).find((p: any) => (p.stockAvailable ?? 0) > 5 && p.unitPrice > 0)
-    test.skip(!stocked, 'no article with spare stock in the default warehouse')
-
-    await page.goto('/invoicing/cash-sales/new')
-    await expect(page.locator('.v-form')).toBeVisible({ timeout: 10000 })
-
-    await page.getByRole('textbox', { name: /search/i }).first().fill(stocked.sku || stocked.productName)
-    await page.waitForTimeout(800)
-
-    const card = page.getByTestId('register-card').filter({ hasText: stocked.productName }).first()
-    test.skip(!(await appears(card, 10000)), 'product not in catalog')
-    await card.click()
-    await expect(page.locator('[data-testid^="cart-line-"]').first()).toBeVisible()
-
-    await page.getByRole('button', { name: /^save$/i }).first().click()
-
-    // ⚠ The old assertion was `expect(onList || onForm).toBe(true)` — one of those is always
-    // true, so it could not fail. A sale with stock behind it must actually save and land back
-    // on the list.
+    await page.goto(`/invoicing/cash-sales?q=${sale.number}`)
     await expect(page.getByRole('heading', { name: 'Cash Register Sales' })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByRole('link', { name: sale.number, exact: true })).toBeVisible({ timeout: 15000 })
   })
 
   test('should show error when voiding invoice would cause negative stock', async ({ page }) => {

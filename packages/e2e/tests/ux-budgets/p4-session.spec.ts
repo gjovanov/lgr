@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { startWalk, uxApi, closeOpenTillSessions } from '../helpers/ux-budget'
 
 /**
- * P4-open — start of the day at the till: from `/pos/terminal` with no open session, open one
+ * P4-open — start of the day at the till: from `/invoicing/cash-sales/new` with no open session, open one
  * (warehouse + opening float) and stop once the catalog is ready to sell.
  *
  * acme-corp has no fiscal device, so opening touches no device at all (`getFiscalContext` finds
@@ -30,7 +30,7 @@ const DATA = /^(Product \d+|PRD-|TXN-|POS-|CSR?-|SM-|Main Warehouse|Retail Store
 function englishOnly(texts: string[]): string[] {
   return [...new Set(texts.filter(t => /[A-Za-z]/.test(t) && !/[А-Яа-я]/.test(t) && !DATA.test(t)))]
 }
-
+
 
 // The walk leaves its session open: close it, so later specs find the terminal without one.
 test.afterAll(async () => {
@@ -52,7 +52,7 @@ test('P4-open: open the till for the day', async ({ page }, testInfo) => {
   const walk = await startWalk(page, testInfo, {
     id: 'P4-open',
     title: 'Till — open the day’s session (warehouse + opening float) until the catalog is ready to sell',
-    start: '/pos/terminal',
+    start: '/invoicing/cash-sales/new',
   })
   const openButton = page.getByRole('button', { name: 'Отвори сесия' })
   await expect(openButton).toBeVisible()

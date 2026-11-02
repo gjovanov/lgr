@@ -190,8 +190,8 @@ interface IInvoice extends Document {
 | GET | `/:id` | Get invoice by ID (populates contact) | Yes | - |
 | PUT | `/:id` | Update invoice (draft only) | Yes | - |
 | DELETE | `/:id` | Delete invoice (draft only) | Yes | - |
-| POST | `/:id/send` | Mark invoice as sent + create stock movement | Yes | - |
-| POST | `/:id/receive` | Mark incoming invoice as received + create stock movement | Yes | - |
+| POST | `/:id/send` | Mark invoice as sent + create stock movement. An unlinked bill may answer 409 `receipt_overlap`, as `/receive` does | Yes | - |
+| POST | `/:id/receive` | Mark incoming invoice as received + create stock movement. An unlinked bill answers 409 `receipt_overlap` while an unclaimed goods receipt may be the same delivery; the optional body `{ acknowledgeOverlap: true }` receives anyway (FR-22.31c). 409 `bill_not_draft` when another request took it first; 422 `stock_line_without_warehouse` or `stock_line_without_product` when booking it would be refused, with the bill still a draft | Yes | - |
 | POST | `/:id/payments` | Record a payment on invoice. Cash or card on an issued sales invoice or debit note prints a `payment_receipt` where the org prints (FR-23); on a credit note it is a refund, and prints a `payment_storno` citing a receipt that paid its invoice | Yes | - |
 | POST | `/:id/void` | Void invoice + reverse stock movement | Yes | - |
 | POST | `/:id/convert` | Convert proforma to invoice | Yes | - |

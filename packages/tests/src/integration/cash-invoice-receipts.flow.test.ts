@@ -10,6 +10,7 @@ import { AuditLog, FiscalDevice, FiscalPresence, Invoice, Journal, JournalEntry,
 import { deviceFromCounter, deviceFromDeadReceipt, setFiscalForwarding } from 'fiscal/fiscal-route'
 import { deviceTurn } from 'fiscal/device-turn'
 import { statsController } from 'invoicing-api/src/controllers/stats.controller'
+import { fiscalDeviceController } from '../../../portal-api/src/controllers/fiscal-device.controller'
 import { contactController } from 'invoicing-api/src/controllers/contact.controller'
 import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller'
 import { agingReportController } from 'invoicing-api/src/controllers/aging-report.controller'
@@ -60,7 +61,7 @@ const TODAY = new Date().toISOString().slice(0, 10)
 let app: Elysia
 beforeAll(async () => {
   await setupTestDB()
-  app = tillApp().use(statsController).use(contactController).use(invoiceExportController).use(agingReportController) as any
+  app = tillApp().use(statsController).use(contactController).use(invoiceExportController).use(agingReportController).use(fiscalDeviceController) as any
 }, 60_000)
 afterAll(async () => { await teardownTestDB() }, 60_000)
 afterEach(async () => { forgetDevices(); await clearCollections() }, 30_000)
@@ -1266,6 +1267,89 @@ describe('a device that is not fiscalized: the device decides, never a switch (o
       expect(r.json.code).toBe('receipt_in_doubt')
       expect(w.sim!.receipts).toHaveLength(0)
       expect(closedTexts(w)).toBe(0)
+
+      // ⚠ It stays what it started as: no УНП a device never saw, and nothing fiscal on the record.
+      const held: any = await Invoice.findById(dead._id).lean().exec()
+      expect(held.register.isFiscal).toBe(false)
+      expect(held.register.fiscal).toMatchObject({ mode: 'text', state: 'unknown', inDoubt: true })
+      expect(held.register.unp).toBeUndefined()
+
+      // A person who saw the slip come out books a text receipt.
+      expect((await w.call('POST', `/cash-register/documents/${dead._id}/settle`, { printed: true })).status).toBe(200)
+
+      const settled: any = await Invoice.findById(dead._id).lean().exec()
+      expect(settled.register.isFiscal).toBe(false)
+      expect(settled.register.fiscal).toMatchObject({ mode: 'text', state: 'printed' })
+      expect(settled.register.unp).toBeUndefined()
+      expect(settled.register.fiscalReceiptNumber).toBeUndefined()
+      expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+
+      // Its documents say so: the form lists the money, and the PDF names no fiscal receipt.
+      expect((await shown(w, d.id)).paymentReceipts).toEqual([expect.objectContaining({ number: 'CS-2026-77002', text: true })])
+      const printable = await printableDocument(w.orgId, await raw(d.id))
+      expect(printable.paymentReceipts).toBeUndefined()
+      expect(buildInvoiceHtml(printable as any, { name: 'Org' } as any, {} as any, undefined, { locale: 'bg' }).html).not.toContain('касов бон')
+      // SUPTO lists it blank, as a text sale, and no device witness reads it.
+      const row = (await exportPaymentDetails({ orgId: w.orgId, dateFrom: new Date(Date.now() - 86_400_000), dateTo: new Date(Date.now() + 86_400_000) } as any))
+        .find((t: any) => t.transactionNumber === 'CS-2026-77002')
+      expect(row).toMatchObject({ isFiscal: false })
+      expect(row.unpNumber).toBeUndefined()
+      expect(row.fiscalReceiptNumber).toBeUndefined()
+    })
+
+    it('a new attempt on that device, which never started, prints fiscally', async () => {
+      const w = await theUnit()
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      w.sim!.unfiscalizedUnit = false
+
+      const r = await pay(w, d.id, 24)
+
+      expect(r.status).toBe(200)
+      expect(w.sim!.receipts.filter(x => !x.voided)).toHaveLength(1)
+      const [receipt] = await receiptsOf(d.id)
+      expect(receipt.register.isFiscal).toBe(true)
+      expect(receipt.register.fiscal.mode).toBe('fiscal')
+      expect(receipt.register.unp).toBeTruthy()
+    })
+
+    it('a text decided and never started, on a device fiscalized since: fiscal too', async () => {
+      const w = await theUnit()
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      const key = 'decided-text-0001'
+      const hash = requestHash(`invoice.payment:${d.id}`, { date: TODAY, amount: 24, method: 'cash' })
+      const body = receiptBody({ doc: await raw(d.id), amount: 24, whole: false, printsText: true, receipts: [] })!
+      const document = paymentReceiptDocument({
+        invoice: await raw(d.id), body, tender: { method: 'cash', amount: 24, date: new Date() },
+        session: { id: w.sessionId, warehouseId: String(w.warehouse._id) }, user: { id: String(w.user._id), operatorCode: '0001' }, printer: { deviceNumber: 'ED123456' } as any,
+      })
+      const dead: any = await Invoice.create({
+        ...document, invoiceNumber: 'CS-2026-77003', leaseUntil: new Date(Date.now() - 1000), clientKey: key, requestHash: hash,
+        register: { ...document.register, isFiscal: false, fiscal: { state: 'pending', mode: 'text' } },
+      })
+      await Invoice.updateOne({ _id: d.id }, { $push: { receiptHolds: { receiptId: dead._id, amount: 24 } } })
+      w.sim!.unfiscalizedUnit = false
+
+      const r = await w.call('POST', `/invoices/${d.id}/payments`, { date: TODAY, amount: 24, method: 'cash' }, key)
+
+      expect(r.status).toBe(200)
+      const after: any = await Invoice.findById(dead._id).lean().exec()
+      expect(after.register.isFiscal).toBe(true)
+      expect(after.register.fiscal).toMatchObject({ mode: 'fiscal', state: 'printed' })
+      expect(w.sim!.receipts.filter(x => !x.voided)).toHaveLength(1)
+    })
+
+    it('the device list says what its status last said, with no command to the device: the terminal shows it', async () => {
+      const w = await theUnit()
+      const d = await draftOf(w)
+      await send(w, d.id)
+      const frames = w.sim!.frames
+
+      const { json } = await w.call('GET', '/fiscal/device?size=10')
+
+      expect(json.fiscalDevices.find((x: any) => String(x.id ?? x._id) === w.deviceId).fiscalized).toBe(false)
+      expect(w.sim!.frames).toBe(frames)
     })
 
     it('a device that prints no text fails with a message that makes sense in the back office', async () => {
@@ -2775,6 +2859,44 @@ describe('§2.7 — once a receipt has printed, the total is the receipt\'s', ()
       expect(inv.voidingUntil ?? null).toBeNull()
     })
 
+    it('a total moved as it claimed: it pays what the document says now, and nothing is left due on a paid invoice', async () => {
+      const w = await tillWorld(app)
+      const { d, cashSaleId } = await attachable(w)
+      let edit: any
+      const undo = during(update => !!update?.$set?.cashSaleRef, async () => { edit = await w.call('PUT', `/invoices/${d.id}`, { total: 30 }) })
+      let r: any
+      try {
+        r = await attach(w, d.id, cashSaleId)
+      } finally {
+        undo()
+      }
+
+      expect(edit.status).toBe(200)
+      expect(r.status).toBe(200)
+      const inv = await raw(d.id)
+      expect(inv).toMatchObject({ status: 'paid', total: 30, amountPaid: 30, amountDue: 0 })
+      expect(inv.payments.reduce((s: number, p: any) => s + p.amount, 0)).toBe(30)
+    })
+
+    it('an automatic row that came in as it claimed: its entry is retired with the rows it replaces', async () => {
+      const w = await tillWorld(app)
+      const { d, cashSaleId } = await attachable(w)
+      const entryId = new (Invoice.base as any).Types.ObjectId()
+      await JournalEntry.collection.insertOne({ _id: entryId, orgId: w.oid, entryNumber: 'JE-AUTO-1', status: 'draft', date: new Date(), lines: [] } as any)
+      const undo = during(update => !!update?.$set?.cashSaleRef, () => Invoice.updateOne({ _id: d.id }, {
+        $push: { payments: { date: new Date(), amount: 24, method: 'cash', origin: 'cash_on_issue', journalEntryId: entryId } },
+      }))
+      let r: any
+      try {
+        r = await attach(w, d.id, cashSaleId)
+      } finally {
+        undo()
+      }
+
+      expect(r.status).toBe(200)
+      expect(((await JournalEntry.collection.findOne({ _id: entryId } as any)) as any).status).toBe('voided')
+    })
+
     it('a hand payment that came in as it claimed stops it too: the final write would have dropped it', async () => {
       const w = await tillWorld(app)
       const { d, cashSaleId } = await attachable(w)
@@ -2868,6 +2990,423 @@ describe('§2.7 — once a receipt has printed, the total is the receipt\'s', ()
     const r = await w.storno(String(receipt._id))
     expect(r.status).toBe(404)
     expect(w.sim!.receipts).toHaveLength(1)
+  })
+})
+
+describe('a notes edit on a paid document with no payment rows (the second review, finding 8)', () => {
+  it('moves no money, so amountPaid stays, and the register keeps its column', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    await Invoice.updateOne({ _id: d.id }, { $set: { paymentMethod: 'cash', status: 'paid', amountPaid: 24, amountDue: 0, payments: [] } })
+
+    expect((await w.call('PUT', `/invoices/${d.id}`, { notes: 'a note' })).status).toBe(200)
+
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24, amountDue: 0, notes: 'a note' })
+  })
+})
+
+describe('the write that follows a money-moving edit (the second review, finding 5)', () => {
+  /** A cash invoice whose receipt failed: issued, unpaid, its total free to move. */
+  async function unpaidCash(w: TillWorld) {
+    const d = await draftOf(w)
+    w.sim!.paper = false
+    await send(w, d.id)
+    w.sim!.paper = true
+    expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0, total: 24 })
+    return d
+  }
+  const raiseTotal = (w: TillWorld, id: string) => {
+    const l = line(w, 3)
+    return w.call('PUT', `/invoices/${id}`, { lines: [l], subtotal: +(l.lineTotal - l.taxAmount).toFixed(2), taxTotal: l.taxAmount, total: l.lineTotal })
+  }
+  /** The settlement's own write: what is due, and not the total the edit itself wrote. */
+  const settlementWrite = (update: any) => update?.$set?.amountDue !== undefined && update?.$set?.total === undefined
+  const rowsOf = async (id: string) => ((await raw(id)).payments as any[]).reduce((s, p) => s + p.amount, 0)
+
+  it('a bank payment forced into the gap: it is kept, what is due follows it, and the rows can never exceed the total', async () => {
+    const w = await tillWorld(app)
+    const d = await unpaidCash(w)
+    let inside: any
+    const undo = during(settlementWrite, async () => { inside = await pay(w, d.id, 10, 'bank_transfer') })
+    let edit: any
+    try {
+      edit = await raiseTotal(w, d.id)
+    } finally {
+      undo()
+    }
+
+    expect(inside.status).toBe(200)
+    expect(edit.status).toBe(200)
+    expect(await raw(d.id)).toMatchObject({ total: 36, amountPaid: 10, amountDue: 26, status: 'partially_paid' })
+    expect(await rowsOf(d.id)).toBe(10)
+
+    const whole = await pay(w, d.id, 36, 'bank_transfer')
+    expect(whole.status).toBe(422)
+    expect(whole.json.code).toBe('overpayment')
+    expect((await pay(w, d.id, 26, 'bank_transfer')).status).toBe(200)
+    expect(await raw(d.id)).toMatchObject({ amountPaid: 36, amountDue: 0, status: 'paid' })
+    expect(await rowsOf(d.id)).toBe(36)
+  })
+
+  it('a cash payment forced there, its receipt on the device: its row stays linked', async () => {
+    const w = await tillWorld(app)
+    const d = await unpaidCash(w)
+    const undo = during(settlementWrite, () => pay(w, d.id, 10))
+    try {
+      await raiseTotal(w, d.id)
+    } finally {
+      undo()
+    }
+
+    const inv = await raw(d.id)
+    expect(inv).toMatchObject({ total: 36, amountPaid: 10, amountDue: 26, status: 'partially_paid' })
+    expect(inv.payments).toHaveLength(1)
+    expect(inv.payments[0].receiptId).toBeTruthy()
+  })
+
+  it('what the rule had to withdraw is withdrawn on its second read: a stale row does not outlive a payment in the gap', async () => {
+    const w = await tillWorld(app)
+    const d = await unpaidCash(w)
+    await Invoice.updateOne({ _id: d.id }, {
+      $set: { amountPaid: 12, amountDue: 12, status: 'partially_paid', payments: [{ date: new Date(), amount: 12, method: 'cash', origin: 'cash_on_issue' }] },
+    })
+    const undo = during(settlementWrite, () => pay(w, d.id, 5, 'bank_transfer'))
+    let edit: any
+    try {
+      edit = await w.call('PUT', `/invoices/${d.id}`, { paymentMethod: 'bank_transfer' })
+    } finally {
+      undo()
+    }
+
+    expect(edit.status).toBe(200)
+    const inv = await raw(d.id)
+    expect(inv.payments.map((p: any) => [p.amount, p.origin ?? null])).toEqual([[5, null]])
+    expect(inv).toMatchObject({ amountPaid: 5, amountDue: 19, status: 'partially_paid' })
+  })
+
+  it('a second one in the second gap: the rule gives up, logs, and leaves the document as the payments left it', async () => {
+    const w = await tillWorld(app)
+    const d = await unpaidCash(w)
+    let second: () => void = () => {}
+    const undo = during(settlementWrite, async () => {
+      await pay(w, d.id, 10, 'bank_transfer')
+      // A payment leaves what is due right, and then the rule has nothing to write: this gives it something.
+      await Invoice.updateOne({ _id: d.id }, { $set: { amountDue: 99 } })
+      second = during(settlementWrite, () => pay(w, d.id, 5, 'bank_transfer'))
+    })
+    let edit: any
+    try {
+      edit = await raiseTotal(w, d.id)
+    } finally {
+      second()
+      undo()
+    }
+
+    expect(edit.status).toBe(200)
+    expect(await raw(d.id)).toMatchObject({ total: 36, amountPaid: 15, amountDue: 21, status: 'partially_paid' })
+    expect(await rowsOf(d.id)).toBe(15)
+  })
+
+  it('a hold taken in the gap: nothing writes under it', async () => {
+    const w = await tillWorld(app)
+    const d = await unpaidCash(w)
+    const receiptId = new (Invoice.base as any).Types.ObjectId()
+    const undo = during(settlementWrite, () => Invoice.updateOne({ _id: d.id }, { $push: { receiptHolds: { receiptId, amount: 5 } } }))
+    let edit: any
+    try {
+      edit = await raiseTotal(w, d.id)
+    } finally {
+      undo()
+    }
+
+    expect(edit.status).toBe(200)
+    const inv = await raw(d.id)
+    expect(inv.total).toBe(36)
+    expect(inv.amountPaid).toBe(0)
+    expect(inv.receiptHolds).toHaveLength(1)
+  })
+
+  it('with nothing in the gap it writes as it did', async () => {
+    const w = await tillWorld(app)
+    const d = await unpaidCash(w)
+
+    expect((await raiseTotal(w, d.id)).status).toBe(200)
+
+    expect(await raw(d.id)).toMatchObject({ total: 36, amountPaid: 0, amountDue: 36, status: 'sent' })
+  })
+})
+
+describe('a draft and the issue that claimed it (the second review, finding 3)', () => {
+  /** A `PUT` as the form sends one: every line and every total, at `quantity`. */
+  const editTo = (w: TillWorld, id: string, quantity: number, extra: Record<string, unknown> = {}) => {
+    const l = line(w, quantity)
+    return w.call('PUT', `/invoices/${id}`, {
+      lines: [l], subtotal: +(l.lineTotal - l.taxAmount).toFixed(2), taxTotal: l.taxAmount, total: l.lineTotal, ...extra,
+    })
+  }
+  const issueWrite = (update: any) => !!update?.$set?.['issue.completedAt']
+  const closedReceipts = (w: TillWorld) => w.sim!.receipts.filter(r => !r.voided)
+
+  /** Right before a delete takes its claim. */
+  const deleteClaim = (update: any) => !!update?.$set?.voidingUntil && !update?.$set?.status
+
+  /** Right before the driver's delete of a document, which `during` cannot see. */
+  function duringDelete(meanwhile: () => Promise<unknown>) {
+    const real = Invoice.findOneAndDelete
+    let done = false
+    ;(Invoice as any).findOneAndDelete = function (filter: any) {
+      if (done) return (real as any).call(Invoice, filter)
+      done = true
+      return { exec: async () => { await meanwhile(); return (real as any).call(Invoice, filter).exec() } }
+    }
+    return () => { (Invoice as any).findOneAndDelete = real }
+  }
+
+  it('PUT inside /send, the quantity up: refused, and what was rung is what is booked', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    let inside: any
+    const undo = during(issueWrite, async () => { inside = await editTo(w, d.id, 3) })
+    let issued: any
+    try {
+      issued = await send(w, d.id)
+    } finally {
+      undo()
+    }
+
+    expect(inside.status).toBe(409)
+    expect(inside.json.code).toBe('issue_in_progress')
+    expect(issued.status).toBe(200)
+    expect(issued.json.receipt.state).toBe('printed')
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', total: 24, amountPaid: 24, amountDue: 0 })
+    expect(closedReceipts(w).map(r => r.total)).toEqual([24])
+    expect(closedReceipts(w)[0].payments.reduce((s, p) => s + p.amount, 0)).toBe(24)
+    expect((await w.stock()).quantity).toBe(8)
+  })
+
+  it('PUT that read the draft, /send finishes, PUT writes: refused, and the freeze holds', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    let issued: any
+    const undo = during(update => update?.$set?.total === 12, async () => { issued = await send(w, d.id) })
+    let edit: any
+    try {
+      edit = await editTo(w, d.id, 1)
+    } finally {
+      undo()
+    }
+
+    expect(issued.status).toBe(200)
+    expect(edit.status).toBe(409)
+    expect(edit.json.code).toBe('document_changed')
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', total: 24, amountPaid: 24, amountDue: 0 })
+    expect(closedReceipts(w).map(r => r.total)).toEqual([24])
+  })
+
+  it('PUT inside /send, bank to cash: refused, and nothing settles with no receipt', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    let inside: any
+    const undo = during(issueWrite, async () => { inside = await w.call('PUT', `/invoices/${d.id}`, { paymentMethod: 'cash' }) })
+    let issued: any
+    try {
+      issued = await send(w, d.id)
+    } finally {
+      undo()
+    }
+
+    expect(inside.status).toBe(409)
+    expect(issued.status).toBe(200)
+    const inv = await raw(d.id)
+    expect(inv).toMatchObject({ status: 'sent', paymentMethod: 'bank_transfer', amountPaid: 0 })
+    expect(inv.payments).toHaveLength(0)
+    expect((await sessionOf(w)).totalCash).toBe(0)
+    expect(closedReceipts(w)).toHaveLength(0)
+  })
+
+  it('DELETE inside /send: refused, and the document stands with its number and its stock', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    let inside: any
+    const undo = during(issueWrite, async () => { inside = await w.call('DELETE', `/invoices/${d.id}`) })
+    let issued: any
+    try {
+      issued = await send(w, d.id)
+    } finally {
+      undo()
+    }
+
+    expect(inside.status).toBe(409)
+    expect(inside.json.code).toBe('issue_in_progress')
+    expect(issued.status).toBe(200)
+    expect((await raw(d.id)).status).toBe('sent')
+    expect((await w.stock()).quantity).toBe(8)
+  })
+
+  it('DELETE that read the draft, /send finishes, DELETE claims: refused', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    let issued: any
+    const undo = during(deleteClaim, async () => { issued = await send(w, d.id) })
+    let del: any
+    try {
+      del = await w.call('DELETE', `/invoices/${d.id}`)
+    } finally {
+      undo()
+    }
+
+    expect(issued.status).toBe(200)
+    expect(del.status).toBe(409)
+    expect(del.json.code).toBe('document_changed')
+    expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
+  it('/receive of a bill a void or a delete holds gives way, with no number drawn and no stock booked', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { extra: { direction: 'incoming' } })
+    await Invoice.updateOne({ _id: d.id }, { $set: { voidingUntil: new Date(Date.now() + 60_000) } })
+    const before = await footprint(w)
+
+    const r = await w.call('POST', `/invoices/${d.id}/receive`, {})
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('document_claimed')
+    expect((await raw(d.id)).status).toBe('draft')
+    expect(await footprint(w)).toEqual(before)
+  })
+
+  it('/receive whose claim lands after its read: its write gives way too, and it books nothing', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { extra: { direction: 'incoming' } })
+    const stock = await w.stock()
+    const undo = during(update => update?.$set?.status === 'received', () => Invoice.updateOne({ _id: d.id }, { $set: { voidingUntil: new Date(Date.now() + 60_000) } }))
+    let r: any
+    try {
+      r = await w.call('POST', `/invoices/${d.id}/receive`, {})
+    } finally {
+      undo()
+    }
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('document_claimed')
+    expect((await raw(d.id)).status).toBe('draft')
+    expect((await w.stock()).quantity).toBe(stock.quantity)
+  })
+
+  it('/send inside a DELETE, past its claim: /send gives way, and the draft goes', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    const before = await footprint(w)
+    let inside: any
+    const undo = duringDelete(async () => { inside = await send(w, d.id) })
+    let del: any
+    try {
+      del = await w.call('DELETE', `/invoices/${d.id}`)
+    } finally {
+      undo()
+    }
+
+    expect(del.status).toBe(200)
+    expect(inside.status).toBe(409)
+    expect(inside.json.code).toBe('document_claimed')
+    expect(await raw(d.id)).toBeNull()
+    expect(await footprint(w)).toEqual({ ...before, documents: before.documents - 1 })
+  })
+
+  it('DELETE of a draft a void or an attach holds gives way too', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    await Invoice.updateOne({ _id: d.id }, { $set: { voidingUntil: new Date(Date.now() + 60_000) } })
+
+    const r = await w.call('DELETE', `/invoices/${d.id}`)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('document_claimed')
+    expect(await raw(d.id)).toBeTruthy()
+  })
+
+  it('an issue that crashed stops no edit for long: its lease lapses', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    await Invoice.updateOne({ _id: d.id }, { $set: { issue: { leaseUntil: new Date(Date.now() - 1000) } } })
+
+    expect((await editTo(w, d.id, 1)).status).toBe(200)
+    expect((await w.call('DELETE', `/invoices/${d.id}`)).status).toBe(200)
+  })
+
+  it('a bill with product updates, its draft claimed: refused, and the product is as it was', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { extra: { direction: 'incoming' } })
+    await Invoice.updateOne({ _id: d.id }, { $set: { issue: { leaseUntil: new Date(Date.now() + 60_000) } } })
+
+    const r = await w.call('PUT', `/invoices/${d.id}`, {
+      notes: 'x', productUpdates: [{ productId: String(w.product._id), sellingPrice: 99 }],
+    })
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('issue_in_progress')
+    expect(((await Product.findById(w.product._id).lean().exec()) as any).sellingPrice).toBe(10)
+  })
+
+  describe('/send decided on what it read: a draft that changed before its claim', () => {
+    const claimWrite = (update: any) => !!update?.$set?.issue
+
+    it('the quantity up: 409, nothing moved and no number drawn, and the next press prints what it now says', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w)
+      const before = await footprint(w)
+      let edit: any
+      const undo = during(claimWrite, async () => { edit = await editTo(w, d.id, 3) })
+      let r: any
+      try {
+        r = await send(w, d.id)
+      } finally {
+        undo()
+      }
+
+      expect(edit.status).toBe(200)
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('document_changed')
+      expect(await footprint(w)).toEqual({ ...before, device: w.sim!.executed.length })
+      expect(closedReceipts(w)).toHaveLength(0)
+      expect((await raw(d.id)).issue?.leaseUntil ?? null).toBeNull()
+
+      const again = await send(w, d.id)
+      expect(again.status).toBe(200)
+      expect(closedReceipts(w).map(r => r.total)).toEqual([36])
+      expect(await raw(d.id)).toMatchObject({ status: 'paid', total: 36, amountPaid: 36 })
+      expect((await w.stock()).quantity).toBe(7)
+    })
+
+    it('bank to cash: 409, and the next press prints', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      const undo = during(claimWrite, () => w.call('PUT', `/invoices/${d.id}`, { paymentMethod: 'cash' }))
+      let r: any
+      try {
+        r = await send(w, d.id)
+      } finally {
+        undo()
+      }
+
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('document_changed')
+      expect(await raw(d.id)).toMatchObject({ status: 'draft', amountPaid: 0 })
+
+      expect((await send(w, d.id)).status).toBe(200)
+      expect(await raw(d.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+      expect(closedReceipts(w)).toHaveLength(1)
+    })
+
+    it('a draft nothing touched issues as it always did, and a crashed claim is taken over', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await Invoice.updateOne({ _id: d.id }, { $set: { issue: { leaseUntil: new Date(Date.now() - 1000) } } })
+
+      expect((await send(w, d.id)).status).toBe(200)
+      expect((await raw(d.id)).status).toBe('sent')
+    })
   })
 })
 
@@ -3355,6 +3894,64 @@ describe('§2.6 — who reads what: revenue counts the money once', () => {
     expect(await row(cash.id)).toMatchObject({ total: 24, paidCash: 0, paidCard: 0, bank: 24 })
     expect(await row(card.id)).toMatchObject({ total: 24, paidCash: 0, paidCard: 0, bank: 24 })
     expect(await row(part.id)).toMatchObject({ total: 24, paidCash: 10, paidCard: 0, bank: 14 })
+  })
+
+  describe('a credit note with a cash header (the second review, finding 7)', () => {
+    /** An invoice whose receipt failed, and a credit note against it in cash, on a day no money moved. */
+    async function noMoneyMoved(w: TillWorld) {
+      const d = await draftOf(w)
+      w.sim!.paper = false
+      await send(w, d.id)
+      w.sim!.paper = true
+      const note = await draftOf(w, { type: 'credit_note', extra: { relatedInvoiceId: d.id, contactId: d.contactId } })
+      await send(w, note.id)
+      expect(await raw(note.id)).toMatchObject({ status: 'sent', amountPaid: 0, paymentMethod: 'cash' })
+      return { d, note }
+    }
+
+    it('sales history: the two foot to nothing, and no money shows, where LGR prints', async () => {
+      const w = await tillWorld(app)
+      await noMoneyMoved(w)
+
+      const out = await report('sales-history', w.orgId, { period: around(), includeNonRegister: true, source: 'documents' })
+
+      expect(out.meta.summary[0]).toMatchObject({ total: 0, cash: 0, unpaid: 0 })
+    })
+
+    it('the register: its open part goes to „По банка", never В брой', async () => {
+      const w = await tillWorld(app)
+      const { d, note } = await noMoneyMoved(w)
+
+      const out = await report('sales-documents', w.orgId, { period: around() })
+
+      expect(out.rows.find((r: any) => r.invoiceId === note.id)).toMatchObject({ total: -24, paidCash: 0, bank: -24 })
+      expect(out.rows.find((r: any) => r.invoiceId === d.id)).toMatchObject({ total: 24, paidCash: 0, bank: 24 })
+      expect(out.totals).toMatchObject({ total: 0, paidCash: 0, bank: 0 })
+    })
+
+    it('the digest skips the header of a credit note too', async () => {
+      const w = await tillWorld(app)
+      await noMoneyMoved(w)
+      const now = new Date()
+      const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      await Invoice.updateMany({ orgId: w.oid }, { $set: { issueDate: new Date(`${date}T12:00:00`) } })
+
+      const digest: any = await buildDailyDigest(w.orgId, date)
+
+      expect(digest.kpis.byMethod.find((m: any) => m.method === 'cash')?.amount ?? 0).toBe(0)
+    })
+
+    it('where LGR does not print nothing changes: the header stays the money', async () => {
+      const w = await tillWorld(app, { device: false })
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      const note = await draftOf(w, { type: 'credit_note', extra: { relatedInvoiceId: d.id, contactId: d.contactId } })
+      await send(w, note.id)
+
+      const out = await report('sales-documents', w.orgId, { period: around() })
+
+      expect(out.rows.find((r: any) => r.invoiceId === note.id)).toMatchObject({ total: -24, paidCash: -24, bank: 0 })
+    })
   })
 
   it('an old invoice paid with no payment row keeps its column, where LGR prints too', async () => {

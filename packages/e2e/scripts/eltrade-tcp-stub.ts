@@ -14,7 +14,7 @@
  *   FISCAL_TCP_ALLOW_LOOPBACK=1 bun packages/portal-api/src/unified.ts
  *
  * HTTP on the next port, for the spec: `GET /state` (receipts with their free text, reports, closures,
- * operators, payment type names), `POST /paper` (`{ "on": false }`: the roll runs out), `POST /reset` (a fresh device; `{ "rates": [А..З] }` programs its VAT groups, `{ "unfiscalized": true }` makes it the unit in the field).
+ * operators, payment type names), `POST /paper` (`{ "on": false }`: the roll runs out), `POST /fault` (`{ "paperOutAt": 56 }`: the roll runs out as that command arrives; `{}` clears it), `POST /reset` (a fresh device; `{ "rates": [А..З] }` programs its VAT groups, `{ "unfiscalized": true }` makes it the unit in the field).
  */
 import { createServer, type Socket } from 'node:net'
 import { EltradeSimulator } from '../../tests/src/helpers/eltrade-simulator'
@@ -112,6 +112,12 @@ Bun.serve({
       const body: any = await req.json().catch(() => ({}))
       sim.paper = body?.on !== false
       return Response.json({ paper: sim.paper })
+    }
+    if (url.pathname === '/fault' && req.method === 'POST') {
+      const body: any = await req.json().catch(() => ({}))
+      const at = body?.paperOutAt
+      sim.beforeCommand = at === undefined ? null : (cmd: number) => { if (cmd === at) sim.paper = false }
+      return Response.json({ paperOutAt: at ?? null })
     }
     if (url.pathname === '/reset' && req.method === 'POST') {
       const body: any = await req.json().catch(() => ({}))

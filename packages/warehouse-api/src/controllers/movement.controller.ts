@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { movementWarehouseRefusal } from 'config/movement-warehouses'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { confirmMovement } from 'services/biz/warehouse.service'
@@ -186,6 +187,9 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
 
+      const misfit = movementWarehouseRefusal(body)
+      if (misfit) return status(422, misfit)
+
       const movementNumber = body.movementNumber || await getNextMovementNumber(orgId)
 
       const movement = await r.stockMovements.create({
@@ -239,6 +243,8 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     '/with-update',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const misfit = movementWarehouseRefusal(body)
+      if (misfit) return status(422, misfit)
       const movementNumber = body.movementNumber || await getNextMovementNumber(orgId)
       try {
         const { movementId, updatedProductIds } = await createMovementWithProductUpdates(
@@ -313,7 +319,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
     // FR-22.31: the bill that holds this receipt, or whether one may be made from it.
     const billing = movement.type === 'receipt'
-      ? await receiptBillingFor(orgId, { ...movement, _id: movement.id })
+      ? await receiptBillingFor(orgId, { ...movement, _id: movement.id }, user.id)
       : { billable: false }
 
     return { stockMovement: { ...movement, number: movement.movementNumber, lines, ...billing } }
@@ -327,6 +333,15 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       const existing = await r.stockMovements.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Stock movement not found' })
       if (existing.status !== 'draft') return status(400, { message: 'Can only edit draft movements' })
+
+      // The movement as it would stand after this edit. A warehouse the body does not mention
+      // stays; `null` clears it, which is how a draft saved with the wrong side gets repaired.
+      const misfit = movementWarehouseRefusal({
+        type: existing.type,
+        fromWarehouseId: body.fromWarehouseId === undefined ? existing.fromWarehouseId : body.fromWarehouseId,
+        toWarehouseId: body.toWarehouseId === undefined ? existing.toWarehouseId : body.toWarehouseId,
+      })
+      if (misfit) return status(422, misfit)
 
       // Inline product-master updates (receipts only) ride the edit in one transaction.
       const productUpdates = (body as any).productUpdates as any[] | undefined
@@ -361,9 +376,10 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       isSignIn: true,
       body: t.Object({
         date: t.Optional(t.String()),
-        fromWarehouseId: t.Optional(t.String()),
-        toWarehouseId: t.Optional(t.String()),
-        contactId: t.Optional(t.String()),
+        // `null` clears the warehouse or the partner; left out, it stays as it is.
+        fromWarehouseId: t.Optional(t.Union([t.String(), t.Null()])),
+        toWarehouseId: t.Optional(t.Union([t.String(), t.Null()])),
+        contactId: t.Optional(t.Union([t.String(), t.Null()])),
         lines: t.Optional(t.Array(t.Object({
           productId: t.String(),
           quantity: t.Number({ minimum: 0 }),
@@ -387,6 +403,10 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     const movement = await r.stockMovements.findOne({ id, orgId } as any)
     if (!movement) return status(404, { message: 'Stock movement not found' })
     if (movement.status !== 'draft') return status(400, { message: 'Movement is not in draft status' })
+
+    // A draft saved before the rule existed reaches the stock through here: this is the last door.
+    const misfit = movementWarehouseRefusal(movement)
+    if (misfit) return status(422, misfit)
 
     // FR-04 (#11): confirming a MANUAL adjustment can auto-create its completed inventory
     // count (the reverse of count-complete → adjustment). Opt-in via createCount — the UI

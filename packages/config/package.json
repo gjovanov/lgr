@@ -9,6 +9,8 @@
     "./pos-totals": "./src/pos-totals.ts",
     "./amount-in-words": "./src/amount-in-words.ts",
     "./order-coverage": "./src/order-coverage.ts",
+    "./movement-warehouses": "./src/movement-warehouses.ts",
+    "./movement-notes": "./src/movement-notes.ts",
     "./supto": "./src/supto.ts",
     "./licence-keys": "./src/licence-keys.json",
     "./idp-keys": "./src/idp-keys.json",

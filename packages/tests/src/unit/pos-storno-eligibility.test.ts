@@ -22,6 +22,10 @@ describe('canStornoTransaction', () => {
     expect(canStornoTransaction({ type: 'storno', status: 'completed' }, 'admin')).toBe(false)
     expect(canStornoTransaction({ type: 'sale', status: 'cancelled' }, 'admin')).toBe(false)
     expect(canStornoTransaction(null, 'admin')).toBe(false)
+    // FR-23: a fiscal receipt nothing can prove: a person settles it first, and the server refuses until then.
+    expect(canStornoTransaction({ type: 'sale', status: 'completed', isFiscal: true, fiscal: { state: 'unknown' } }, 'admin')).toBe(false)
+    expect(canStornoTransaction({ type: 'sale', status: 'completed', isFiscal: false, fiscal: { state: 'unknown' } }, 'admin')).toBe(true)
+    expect(canStornoJournalRow({ kind: 'sale', status: 'inDoubt', origin: 'pos' }, 'admin')).toBe(false)
   })
 })
 

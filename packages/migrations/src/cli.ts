@@ -18,7 +18,8 @@ for (let i = 0; i < args.length; i++) if (args[i] === '--accept-changed' && args
 
 let code = 0
 try {
-  await connectDB()
+  // ⚠ What says it changes nothing must not build the new commit's indexes on the way in.
+  await connectDB({ readOnly: args.includes('--status') || args.includes('--dry-run') })
   const db = mongoose.connection.db!
   if (args.includes('--status')) {
     for (const s of await migrationStatus(db)) {

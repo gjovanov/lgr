@@ -1,18 +1,18 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
 
-test.describe('POS Devices', () => {
-  test('should navigate to POS Devices page and verify heading renders', async ({ page }) => {
+test.describe('Devices', () => {
+  test('should navigate to the Devices page and verify heading renders', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/pos/devices')
+    await page.goto('/invoicing/configuration/devices')
     await page.waitForLoadState('networkidle')
 
-    await expect(page.getByRole('heading', { name: /POS Devices/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Devices', exact: true })).toBeVisible()
   })
 
   test('should verify "New Device" button is present', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/pos/devices')
+    await page.goto('/invoicing/configuration/devices')
     await page.waitForLoadState('networkidle')
 
     await expect(page.getByRole('link', { name: /New Device/i })).toBeVisible()
@@ -20,7 +20,7 @@ test.describe('POS Devices', () => {
 
   test('should click "New Device" and navigate to new device form', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/pos/devices')
+    await page.goto('/invoicing/configuration/devices')
     await page.waitForLoadState('networkidle')
 
     await page.getByRole('link', { name: /New Device/i }).click()
@@ -31,7 +31,7 @@ test.describe('POS Devices', () => {
 
   test('should verify new device form has tabs (General, Operators tab hidden for new)', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/pos/devices/new')
+    await page.goto('/invoicing/configuration/devices/new')
     await page.waitForLoadState('networkidle')
 
     // General tab should be visible
@@ -44,7 +44,7 @@ test.describe('POS Devices', () => {
 
   test('should fill General tab fields and verify save button exists', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/pos/devices/new')
+    await page.goto('/invoicing/configuration/devices/new')
     await page.waitForLoadState('networkidle')
 
     // Fill Name field
@@ -59,7 +59,7 @@ test.describe('POS Devices', () => {
 
   test('should verify operator table renders on Operators tab for existing device', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/pos/devices')
+    await page.goto('/invoicing/configuration/devices')
     await page.waitForLoadState('networkidle')
 
     const table = page.locator('.v-data-table-server, .v-data-table')
@@ -96,7 +96,7 @@ test.describe('POS Devices', () => {
 
   test('should verify Reports tab has report buttons for existing device', async ({ page }) => {
     await loginForApp(page)
-    await page.goto('/pos/devices')
+    await page.goto('/invoicing/configuration/devices')
     await page.waitForLoadState('networkidle')
 
     const table = page.locator('.v-data-table-server, .v-data-table')

@@ -1,8 +1,11 @@
 <template>
   <!-- FR-03: the cash-sale detail page is a POS-terminal layout (cards left, cart right).
        CashSaleTerminal keeps useDocumentForm as the engine, so the payload/save/stock-check
-       contract is byte-identical to the old DocumentForm rendering. -->
-  <CashSaleTerminal ref="docFormRef" :config="DOCUMENT_CONFIGS.cash_sale" :on-before-create="onBeforeCreate">
+       contract is byte-identical to the old DocumentForm rendering.
+       Keyed as the other document views are: a sale's page and a restored draft's are one view
+       at two addresses, and left mounted it shows the sale's lines under a New title, ready to be
+       issued a second time. -->
+  <CashSaleTerminal ref="docFormRef" :key="formKey" :config="DOCUMENT_CONFIGS.cash_sale" :on-before-create="onBeforeCreate">
     <!-- Cash sales dispatch on create: if stock is short, offer cross-warehouse transfers
          before the document is created. The generic composable stays stock-agnostic — this
          flow lives entirely in the wrapper via the onBeforeCreate hook + #dialogs slot. -->
@@ -26,12 +29,14 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
 import CashSaleTerminal from '../components/document-form/CashSaleTerminal.vue'
 import { DOCUMENT_CONFIGS } from '../composables/document-form/configs'
+import { useDocumentRouteKey } from '../composables/document-form/useDocumentRouteKey'
 import { stockCheckLines, useStockTransfer } from '../composables/useDocumentIssue'
 
 const { t } = useI18n()
 const { showError } = useSnackbar()
 
 const docFormRef = ref<any>(null)
+const { formKey } = useDocumentRouteKey()
 // FR-22.17: the same availability check and transfer dialog the invoices issue through.
 const {
   open: transferDialog,

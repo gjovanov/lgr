@@ -148,10 +148,10 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     }
   }
 
-  async deleteInOrg(id: string, orgId: string): Promise<boolean> {
+  async deleteInOrg(id: string, orgId: string, where: Record<string, unknown> = {}): Promise<boolean> {
     if (!orgId) return false
     try {
-      const result = await this.model.findOneAndDelete({ _id: id, orgId }).exec()
+      const result = await this.model.findOneAndDelete({ ...where, _id: id, orgId }).exec()
       return result !== null
     } catch (err: any) {
       if (err.name === 'CastError') return false

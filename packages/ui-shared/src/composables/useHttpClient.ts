@@ -10,8 +10,17 @@ import { currentReturnPath, signInPath } from '../nav/return-path'
  * refusal it knows reaches every view in the reader's language.
  */
 let translateRefusal: ((code: string) => string | null) | null = null
-export function setRefusalTranslator(fn: ((code: string) => string | null) | null): void {
+
+/**
+ * Returns the way to take it back. ⚠ That undoes THIS translator only: in the one SPA two shells
+ * trade places in one document (the portal's and a module's), and the new one's banner sets its
+ * translator before the old one's unmount runs.
+ */
+export function setRefusalTranslator(fn: (code: string) => string | null): () => void {
   translateRefusal = fn
+  return () => {
+    if (translateRefusal === fn) translateRefusal = null
+  }
 }
 
 /**

@@ -26,6 +26,8 @@ import { analyzeDocuments, type AnalyzeItem } from 'services/biz/doc-import/anal
 import { commitDocuments, type CommitItem } from 'services/biz/doc-import/commit'
 import { convertDraftInvoice } from 'services/biz/doc-import/persist'
 import { confirmMovement } from 'services/biz/warehouse.service'
+import { getRepos } from 'services/context'
+import { movementWarehouseRefusal } from 'config/movement-warehouses'
 import type { ImportTarget } from 'services/biz/doc-import/types'
 import { containedJoin, stampedUploadPath } from 'services/biz/files/safe-path'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -327,6 +329,17 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
       for (const id of body.ids) {
         try {
           if (target === 'movement') {
+            // The same door as `/warehouse/movement/:id/confirm`, for a draft of this org.
+            const draft = await getRepos().stockMovements.findOne({ id, orgId } as any)
+            if (!draft) {
+              results.push({ id, ok: false, error: 'not found' })
+              continue
+            }
+            const misfit = movementWarehouseRefusal(draft)
+            if (misfit) {
+              results.push({ id, ok: false, code: misfit.code, error: misfit.message })
+              continue
+            }
             // Confirming is what writes stock — the movement equivalent of issuing a draft.
             const m = await confirmMovement(id)
             results.push({ id, ok: true, invoiceNumber: (m as any)?.movementNumber, status: (m as any)?.status })

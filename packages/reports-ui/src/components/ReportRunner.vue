@@ -518,7 +518,7 @@ function drilldownHref(row: Record<string, any>): string | undefined {
   if ('_href' in row) return row._href ? appHref(String(row._href).split('/')[1], row._href) : undefined
   // Most specific id wins: a sales-history POS row and a warehouse-operations document row
   // both also carry a productId, and the source document is the more useful target.
-  if (row.posId) return appHref('pos', `/invoicing/pos/orders/${row.posId}`)
+  if (row.posId) return appHref('invoicing', `/invoicing/cash-sales/${row.posId}/view`)
   if (row.invoiceId) return appHref('invoicing', `/invoicing/invoices/${row.invoiceId}/edit`)
   if (row.productId) return appHref('inventory', `/inventory/products/${row.productId}/edit`)
   if (row.contactId && row.contactId !== 'unknown') return appHref('invoicing', `/invoicing/contacts/${row.contactId}/edit`)

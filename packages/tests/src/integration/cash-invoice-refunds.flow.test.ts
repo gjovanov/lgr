@@ -5,11 +5,11 @@ import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
 import { draftOf, gate, line, pay, raw, receiptsOf, send, sessionOf, shown, TODAY, until } from '../helpers/receipt-world'
 import { allowSalesWithoutPrinter, createTestAccount, createTestUser } from '../helpers/factories'
-import { AuditLog, FiscalDevice, Invoice, Journal, JournalEntry, Org, POSSession, Sequence, StockMovement } from 'db/models'
+import { AuditLog, DocFile, FiscalDevice, Invoice, Journal, JournalEntry, Org, POSSession, Sequence, StockMovement } from 'db/models'
 import { config } from 'config'
 import { isImmutableRegisterDocument } from 'services/biz/cash-register/immutability'
 import { deviceFromCounter, deviceFromDeadReceipt, setFiscalForwarding } from 'fiscal/fiscal-route'
-import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
+import { getPrinter, registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { statsController } from 'invoicing-api/src/controllers/stats.controller'
@@ -26,7 +26,11 @@ import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { getJournalDocument, listJournal } from 'services/biz/cash-register/journal.service'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { buildSessionReport, formatSessionReport } from 'services/biz/cash-register/session-report'
-import { paymentStornoDocument } from 'services/biz/cash-register/payment-receipt.service'
+import { paymentReceiptDocument, paymentStornoDocument } from 'services/biz/cash-register/payment-receipt.service'
+import { receiptBody } from 'services/biz/cash-register/receipt-lines'
+import { stornoUnproved } from 'services/biz/cash-register/counting'
+import { planDeleteDocFiles } from 'services/biz/files/doc-delete.service'
+import { NOT_UNPROVED_STORNO } from 'services/biz/sale-counting'
 import { takeBudget, giveBackBudget, leftByRate } from 'services/biz/cash-register/refund-budget'
 import {
   exportCancelledSales, exportItemizedSales, exportPaymentDetails, exportReversedSales, exportSummarizedSales,
@@ -55,6 +59,8 @@ afterEach(async () => { forgetDevices(); await clearCollections() }, 30_000)
 
 const stornosOf = (id: string) => Invoice.find({ type: 'payment_storno', 'register.refundOf': id }).sort({ _id: 1 }).lean().exec() as Promise<any[]>
 const fresh = (id: unknown) => Invoice.findById(id).lean().exec() as Promise<any>
+const settle = (w: TillWorld, id: unknown, printed: boolean, as?: string, receiptNumber?: string) =>
+  w.call('POST', `/cash-register/documents/${id}/settle`, { printed, ...(receiptNumber !== undefined ? { receiptNumber } : {}) }, undefined, as)
 
 /** What a device executes to print: open, line, text, payment, close, and a text slip's. Asking it how it prints prints nothing. */
 const PRINTING = [0x90, 0x31, 0x36, 0x35, 0x38, 0x3C, 0x26, 0x27, 0x2A]
@@ -913,21 +919,25 @@ describe('a refund recorded later (/payments, §2.5)', () => {
       expect(r.json.code).toBe('payment_in_progress')
     })
 
-    it('a receipt that may have printed has no budget until a person says: it has no number to cite, and the money may never have been on the device', async () => {
+    it('a receipt whose `unknown` stands holds nothing: it has no number to cite, no door settles it, and the refund goes by bank', async () => {
       const w = await tillWorld(app)
       const inv = await paidInvoice(w)
       // As an in-turn verdict leaves one: it stands, its money booked, and nothing proves it printed.
-      await Invoice.updateOne({ _id: inv.receipt._id }, { $set: { 'register.fiscal.state': 'unknown' } })
+      await Invoice.updateOne({ _id: inv.receipt._id }, { $set: { 'register.fiscal.state': 'unknown' }, $unset: { 'register.fiscalReceiptNumber': 1 } })
       const note = await issuedNote(w, inv)
       const before = await footprint(w)
 
       const r = await pay(w, note.id, 24)
 
       expect(r.status).toBe(409)
-      expect(r.json.code).toBe('receipt_in_doubt')
-      expect(r.json.receipt.number).toBe(inv.receipt.invoiceNumber)
+      expect(r.json.code).toBe('no_receipt_to_storno')
+      expect(r.json.message).toContain('Refund it by bank')
       expect(await footprint(w)).toEqual(before)
       expect((await shown(w, note.id)).refundable).toBe(0)
+      // Nobody can settle it, so this is the way out, and it is open.
+      expect((await settle(w, inv.receipt._id, true)).status).toBe(409)
+      expect((await pay(w, note.id, 24, 'bank_transfer')).status).toBe(200)
+      expect(await stornosOf(note.id)).toHaveLength(0)
     })
 
     it('another receipt that printed still holds its own: only what is unknown has no budget', async () => {
@@ -940,14 +950,14 @@ describe('a refund recorded later (/payments, §2.5)', () => {
       expect(String((await stornosOf(note.id))[0].register.storno.originalId)).toBe(String(inv.receipts[0]._id))
 
       const beyond = await pay(w, note.id, 1)
-      expect(beyond.status).toBe(409)
-      expect(beyond.json.code).toBe('receipt_in_doubt')
+      expect(beyond.status).toBe(422)
+      expect(beyond.json).toMatchObject({ code: 'refund_exceeds_receipts', left: 0 })
     })
 
     it('a receipt in doubt: its way out comes first, whichever the money it may be', async () => {
       const w = await tillWorld(app)
       const inv = await paidInvoice(w)
-      await Invoice.updateOne({ _id: inv.receipt._id }, { $set: { 'register.fiscal.inDoubt': true, 'register.fiscal.state': 'unknown' } })
+      await Invoice.updateOne({ _id: inv.receipt._id }, { $set: { 'register.fiscal.inDoubt': true, 'register.fiscal.state': 'unknown' }, $unset: { completedAt: 1 } })
       const note = await issuedNote(w, inv)
       const r = await pay(w, note.id, 24)
       expect(r.status).toBe(409)
@@ -1199,6 +1209,179 @@ async function importedInvoice(w: TillWorld, contactId: string) {
   return { invoiceId: id }
 }
 
+describe('what backs a refund, in doubt: a person settles it, and it holds what they said', () => {
+  /** An invoice whose only receipt its request left past the print: no money booked yet, held for a person. */
+  async function heldReceipt(w: TillWorld) {
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    expect((await send(w, d.id)).status).toBe(200)
+    const invoice = await raw(d.id)
+    const body = receiptBody({ doc: invoice, amount: 24, whole: false, printsText: true, receipts: [] })!
+    const document = paymentReceiptDocument({
+      invoice, body, tender: { method: 'cash', amount: 24, date: new Date() },
+      session: { id: w.sessionId, warehouseId: String(w.warehouse._id) },
+      user: { id: String(w.user._id), operatorCode: '0001' },
+      printer: { deviceNumber: 'ED123456' } as any,
+    })
+    const attemptedAt = new Date(Date.now() - 60_000)
+    const receipt: any = await Invoice.create({
+      ...document, invoiceNumber: `CS-2026-${String(Math.floor(Math.random() * 90000) + 10000)}`, leaseUntil: new Date(Date.now() - 1000),
+      register: { ...document.register, unp: 'ED123456-0001-0000077', fiscal: { state: 'pending', mode: 'fiscal', attemptedAt, counterBefore: w.sim!.lastDocNumber - 1 } },
+    })
+    await Invoice.updateOne({ _id: d.id }, { $push: { receiptHolds: { receiptId: receipt._id, amount: 24 } } })
+    return { ...d, receipt, attemptedAt }
+  }
+
+  it('held: the refund names it, and nothing prints', async () => {
+    const w = await tillWorld(app)
+    const inv = await heldReceipt(w)
+    const note = await issuedNote(w, inv)
+    const before = await footprint(w)
+
+    const r = await pay(w, note.id, 24)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_in_doubt')
+    expect(r.json.receipt.number).toBe(inv.receipt.invoiceNumber)
+    expect(await footprint(w)).toEqual(before)
+    expect((await shown(w, note.id)).refundable).toBe(0)
+    expect((await fresh(inv.receipt._id)).register.fiscal).toMatchObject({ state: 'unknown', inDoubt: true })
+  })
+
+  it('settled as printed with the number off its slip: the refund cites that number, dated when it printed', async () => {
+    const w = await tillWorld(app)
+    const inv = await heldReceipt(w)
+    const note = await issuedNote(w, inv)
+    await pay(w, note.id, 24)
+
+    const said = await settle(w, inv.receipt._id, true, undefined, '77')
+    expect(said.status).toBe(200)
+
+    const settled = await fresh(inv.receipt._id)
+    expect(settled.completedAt).toBeTruthy()
+    expect(settled.register).toMatchObject({ fiscalReceiptNumber: '77', settled: { printed: true, receiptNumber: '77' } })
+    expect(settled.register.fiscal).toMatchObject({ state: 'printed', receiptNo: '77' })
+    expect(new Date(settled.register.printedAt).getTime()).toBe(inv.attemptedAt.getTime())
+    expect(await raw(inv.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+
+    const r = await pay(w, note.id, 24)
+
+    expect(r.status).toBe(200)
+    const printed = w.sim!.receipts.at(-1)!
+    expect(printed.kind).toBe('storno')
+    expect(printed.header[1]).toBe('ED123456-0001-0000077')
+    expect(printed.header[5]).toBe('77')
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    const [storno] = await stornosOf(note.id)
+    expect(String(storno.register.storno.originalId)).toBe(String(inv.receipt._id))
+    expect(new Date(storno.register.storno.originalDate).getTime()).toBe(inv.attemptedAt.getTime())
+  })
+
+  it('settled as printed with no number: it took the money, and with nothing to cite the refund goes by bank', async () => {
+    const w = await tillWorld(app)
+    const inv = await heldReceipt(w)
+    const note = await issuedNote(w, inv)
+    await pay(w, note.id, 24)
+
+    expect((await settle(w, inv.receipt._id, true)).status).toBe(200)
+
+    expect(await raw(inv.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect((await fresh(inv.receipt._id)).register.fiscalReceiptNumber).toBeUndefined()
+    const r = await pay(w, note.id, 24)
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('no_receipt_to_storno')
+    expect((await pay(w, note.id, 24, 'bank_transfer')).status).toBe(200)
+  })
+
+  it('a number that is none, or that this device gave another document, is refused and nothing is settled', async () => {
+    const w = await tillWorld(app)
+    const other = await paidInvoice(w)
+    const inv = await heldReceipt(w)
+    const note = await issuedNote(w, inv)
+    await pay(w, note.id, 24)
+
+    const bad = await settle(w, inv.receipt._id, true, undefined, 'abc')
+    expect(bad.status).toBe(422)
+    expect(bad.json.code).toBe('receipt_number_required')
+    expect(bad.json.message).toContain('a refund of it goes by bank')
+
+    const taken = await settle(w, inv.receipt._id, true, undefined, other.receipt.register.fiscalReceiptNumber)
+    expect(taken.status).toBe(422)
+    expect(taken.json.code).toBe('receipt_number_taken')
+    expect(taken.json.document).toBe(other.receipt.invoiceNumber)
+
+    const still = await fresh(inv.receipt._id)
+    expect(still.register.fiscal.inDoubt).toBe(true)
+    expect(still.register.settled).toBeUndefined()
+  })
+
+  it('a number on one settled as not printed changes nothing: it printed nothing', async () => {
+    const w = await tillWorld(app)
+    const inv = await heldReceipt(w)
+    const note = await issuedNote(w, inv)
+    await pay(w, note.id, 24)
+
+    expect((await settle(w, inv.receipt._id, false, undefined, '77')).status).toBe(200)
+
+    const gone = await fresh(inv.receipt._id)
+    expect(gone.status).toBe('voided')
+    expect(gone.register.fiscalReceiptNumber).toBeUndefined()
+    expect(await raw(inv.id)).toMatchObject({ amountPaid: 0 })
+    expect((await pay(w, note.id, 24)).json.code).toBe('no_receipt_to_storno')
+  })
+
+  it('a text receipt has no number to bring, whatever is typed: its text storno names it by its own', async () => {
+    const w = await tillWorld(app)
+    const inv = await heldReceipt(w)
+    await Invoice.updateOne({ _id: inv.receipt._id }, { $set: { 'register.isFiscal': false, 'register.fiscal.mode': 'text' }, $unset: { 'register.unp': 1 } })
+    const note = await issuedNote(w, inv)
+    await pay(w, note.id, 24)
+
+    expect((await settle(w, inv.receipt._id, true, undefined, '77')).status).toBe(200)
+
+    const settled = await fresh(inv.receipt._id)
+    expect(settled.completedAt).toBeTruthy()
+    expect(settled.register.fiscalReceiptNumber).toBeUndefined()
+    expect(settled.register.settled.receiptNumber).toBeUndefined()
+  })
+
+  it('a Files rollback leaves a refund\'s storno, and says why: it is corrected by nothing but its own door', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    expect((await pay(w, note.id, 24)).status).toBe(200)
+    const [storno] = await stornosOf(note.id)
+    const file = await DocFile.create({
+      orgId: w.oid, docType: 'cash_register', docNumber: 'X1', docDate: '2026-10-21', originalName: 'x.xlsx',
+      currentPath: 'x', currentChecksum: 'x', mimeType: 'application/octet-stream', size: 1, uploadedBy: w.user._id,
+      status: 'committed', committedIds: [storno._id],
+    } as any)
+
+    const plan: any = (await planDeleteDocFiles(w.orgId, [String(file._id)], { rollback: true, force: true })).plans[0]
+
+    expect(plan.invoices[0].action).toBe('skip')
+    expect(plan.warnings.join(' ')).toMatch(/cannot be edited, deleted or voided/)
+  })
+
+  it('a storno that may have printed is money nobody can count on: every reader of a sum says the same', async () => {
+    const row = (state: string, status = 'completed') => ({ type: 'payment_storno', status, fiscal: { state } }) as any
+    for (const state of ['pending', 'unknown']) expect(stornoUnproved(row(state))).toBe(true)
+    for (const state of ['printed', 'failed', 'none']) expect(stornoUnproved(row(state))).toBe(false)
+    expect(stornoUnproved(row('unknown', 'cancelled'))).toBe(false)
+
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    w.sim!.dropAfter = 0x38
+    await pay(w, note.id, 24)
+    w.sim!.disconnected = false
+    const [storno] = await stornosOf(note.id)
+    const seen = () => Invoice.countDocuments({ _id: storno._id, ...NOT_UNPROVED_STORNO })
+    expect(await seen()).toBe(0)
+    expect((await settle(w, storno._id, true)).status).toBe(200)
+    expect(await seen()).toBe(1)
+  })
+})
+
 describe('print-once, the receipt\'s own (#155): a storno on a device', () => {
   /** A storno its request left at `fiscal`, its lease lapsed: the process died there, holding what it held. */
   async function interrupted(w: TillWorld, inv: { receipt: any }, note: { id: string; total?: number }, fiscal: Record<string, unknown>, amount = 24) {
@@ -1218,8 +1401,6 @@ describe('print-once, the receipt\'s own (#155): a storno on a device', () => {
     expect(await takeBudget(cited, inserted._id, new Map([[20, Math.round(amount * 100)]]))).toBe(true)
     return inserted
   }
-  const settle = (w: TillWorld, id: unknown, printed: boolean, as?: string) =>
-    w.call('POST', `/cash-register/documents/${id}/settle`, { printed }, undefined, as)
 
   it('the next refund finds one that may have printed: nothing is booked and nothing prints, and a person settles it', async () => {
     const w = await tillWorld(app)
@@ -1389,6 +1570,62 @@ describe('print-once, the receipt\'s own (#155): a storno on a device', () => {
     expect((await pay(w, note.id, 24)).status).toBe(200)
   })
 
+  it('the device still holds it open: nothing is final, either way, until it is cleared', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    // The line went as its lines did, so the device holds it open, with no money on it yet.
+    w.sim!.beforeCommand = cmd => { if (cmd === 0x31) w.sim!.disconnected = true }
+    const first = await pay(w, note.id, 24)
+    w.sim!.beforeCommand = null
+    w.sim!.disconnected = false
+    expect(first.json.code).toBe('receipt_in_doubt')
+    const [storno] = await stornosOf(note.id)
+    expect(w.sim!.receipt).not.toBeNull()
+
+    for (const printed of [true, false]) {
+      const r = await settle(w, storno._id, printed)
+      expect(r.status).toBe(409)
+      expect(r.json.code).toBe('receipt_open_on_device')
+    }
+    expect((await fresh(storno._id)).register.fiscal.inDoubt).toBe(true)
+    expect((await fresh(storno._id)).register.settled).toBeUndefined()
+
+    await getPrinter(w.deviceId).printDailyXReport()
+    expect(w.sim!.receipt).toBeNull()
+    expect((await settle(w, storno._id, false)).status).toBe(200)
+
+    expect(await fresh(storno._id)).toMatchObject({ status: 'voided' })
+    expect(leftByRate(await fresh(inv.receipt._id)).get(20)).toBe(2400)
+    expect((await pay(w, note.id, 24)).status).toBe(200)
+  })
+
+  it('a settle that stopped halfway is finished by the next touch, with no device, and what was said stands', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    const r = await interrupted(w, inv, note, { attemptedAt: new Date(), counterBefore: w.sim!.lastDocNumber - 1 })
+    await pay(w, note.id, 24, 'card')
+    // Claimed and said, and the process died before the money.
+    await Invoice.updateOne({ _id: r._id }, {
+      $set: { 'register.settled': { printed: true, by: w.user._id, at: new Date() }, 'register.fiscal.state': 'printed', leaseUntil: new Date(Date.now() - 1000) },
+      $unset: { 'register.fiscal.inDoubt': 1 },
+    })
+    const printed = w.sim!.receipts.length
+
+    const again = await settle(w, r._id, false)
+    expect(again.status).toBe(409)
+    expect(again.json.code).toBe('receipt_already_settled')
+    expect(again.json.message).toContain('storno')
+
+    // The next press finds it: the money went back, it is written down, and nothing printed.
+    const next = await pay(w, note.id, 24)
+    expect(next.status).toBe(400)
+    expect(w.sim!.receipts).toHaveLength(printed)
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'settle_receipt', entityId: r._id })).toBe(1)
+  })
+
   it('settling takes a storno\'s roles: it decides what happened to money', async () => {
     const w = await tillWorld(app)
     const inv = await paidInvoice(w)
@@ -1499,9 +1736,53 @@ describe('an invoice issued for a till sale (R0): the refund cites the sale\'s o
     const r = await pay(w, note.id, 12)
 
     expect(r.status).toBe(409)
-    expect(r.json.code).toBe('receipt_in_doubt')
+    expect(r.json.code).toBe('sale_receipt_in_doubt')
     expect(r.json.receipt.number).toBe(inv.sale.invoiceNumber)
     expect(await footprint(w)).toEqual(before)
+  })
+
+  it('the same of a sale whose request died, still pending; one still printing says so', async () => {
+    const w = await tillWorld(app)
+    const inv = await invoicedSale(w)
+    await Invoice.updateOne({ _id: inv.saleId }, { $set: { 'register.fiscal.state': 'pending', leaseUntil: new Date(Date.now() + 60_000) }, $unset: { 'register.fiscalReceiptNumber': 1 } })
+    const note = await issuedNote(w, inv, { quantity: 1 })
+    expect((await pay(w, note.id, 12)).json.code).toBe('payment_in_progress')
+
+    await Invoice.updateOne({ _id: inv.saleId }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+    expect((await pay(w, note.id, 12)).json.code).toBe('sale_receipt_in_doubt')
+  })
+
+  it('settled as printed with the number off its slip: the refund cites that number and takes from the sale', async () => {
+    const w = await tillWorld(app)
+    const inv = await invoicedSale(w)
+    await Invoice.updateOne({ _id: inv.saleId }, { $set: { 'register.fiscal.state': 'unknown' }, $unset: { 'register.fiscalReceiptNumber': 1 } })
+    const note = await issuedNote(w, inv, { quantity: 1 })
+    expect((await pay(w, note.id, 12)).json.code).toBe('sale_receipt_in_doubt')
+
+    expect((await settle(w, inv.saleId, true, undefined, '456')).status).toBe(200)
+
+    const r = await pay(w, note.id, 12)
+    expect(r.status).toBe(200)
+    const printed = w.sim!.receipts.at(-1)!
+    expect(printed.kind).toBe('storno')
+    expect(printed.header[5]).toBe('456')
+    expect(leftByRate(await fresh(inv.saleId)).get(20)).toBe(3600)
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 12 })
+  })
+
+  it('settled as not printed: it holds nothing and the refund goes by bank, with the sale\'s money standing', async () => {
+    const w = await tillWorld(app)
+    const inv = await invoicedSale(w)
+    await Invoice.updateOne({ _id: inv.saleId }, { $set: { 'register.fiscal.state': 'unknown' }, $unset: { 'register.fiscalReceiptNumber': 1 } })
+    const note = await issuedNote(w, inv, { quantity: 1 })
+
+    expect((await settle(w, inv.saleId, false)).status).toBe(200)
+
+    expect(await fresh(inv.saleId)).toMatchObject({ status: 'paid' })
+    const r = await pay(w, note.id, 12)
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('no_receipt_to_storno')
+    expect((await pay(w, note.id, 12, 'bank_transfer')).status).toBe(200)
   })
 
   it('a sale that printed nothing has nothing to cite', async () => {

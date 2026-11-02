@@ -42,6 +42,7 @@ import { readdirSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import ExcelJS from 'exceljs'
 import { assertTokenOrg } from './lib/token-org.js'
+import { deliveryNote, movementMarker } from '../packages/config/src/movement-notes.js'
 
 const HEADER_ROW = 9 // "Име | Мярка | Количество | ..."
 
@@ -229,7 +230,7 @@ async function main() {
   await login()
 
   // dedup — one receipt per day, marker in movement notes (movements have no reference field)
-  const marker = `storeOperations:${dateArg}`
+  const marker = movementMarker('store_operations', dateArg)
   for (const q of [marker, 'storeOperations']) {
     const d = await http('GET', org(`/warehouse/movement?type=receipt&search=${encodeURIComponent(q)}&page=0&size=50`))
     const dup = (d.stockMovements || []).find((m: any) => String(m.notes || '').includes(marker))
@@ -296,7 +297,7 @@ async function main() {
     date: dateArg,
     toWarehouseId: wh._id,
     totalAmount,
-    notes: `Доставки — ${dateArg} (${marker})`,
+    notes: deliveryNote(dateArg, marker),
     lines,
   })
   const mv = created.stockMovement || created.movement || created

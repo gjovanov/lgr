@@ -394,6 +394,8 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
       reached('refused')
       // A payment this driver cannot print is refused before the storno receipt is opened.
       paymentCode(PAYMENT_CODE, payment.type, DRIVER)
+      // This driver closes a sale before it can ask for its number, so a sale may have none to cite.
+      if (!/^\d+$/.test(String(originalReceiptNumber ?? ''))) throw new Error('This sale has no fiscal receipt number on record, so its storno has nothing to cite. Nothing was sent to the device.')
       reached('opening')
       // Command 30h with storno format:
       // OpNum;OpPass;ReceiptFormat;PrintVAT;StornoRcpPrintType;StornoReason;RelatedToRcpNum;RelatedToRcpDateTime;FMNum$UNP

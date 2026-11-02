@@ -1,5 +1,5 @@
 import { Invoice, Product } from 'db/models'
-import { NOT_PAYMENT_RECEIPT, saleScopeFilter } from './sale-counting.js'
+import { NOT_PAYMENT_RECEIPT, NOT_UNPROVED_STORNO, saleScopeFilter } from './sale-counting.js'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
 
@@ -66,6 +66,7 @@ export async function getContactLedger(
     ...(await saleScopeFilter(orgId, contactId)),
     // FR-23: nor does the receipt of a payment on an invoice: the invoice is that sale.
     ...NOT_PAYMENT_RECEIPT,
+    ...NOT_UNPROVED_STORNO,
   }
 
   if (options.documentTypes?.length) {

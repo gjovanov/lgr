@@ -1,5 +1,5 @@
 import { StockMovement, InventoryCount, Warehouse, Invoice } from 'db/models'
-import { saleScopeFilter } from './sale-counting.js'
+import { NOT_UNPROVED_STORNO, saleScopeFilter } from './sale-counting.js'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
 
@@ -432,6 +432,7 @@ async function computeSalesSummary(
     direction: 'outgoing',
     status: { $nin: ['draft', 'cancelled', 'voided'] },
     'lines.productId': productOid,
+    ...NOT_UNPROVED_STORNO,
   }
 
   if (contactId) {

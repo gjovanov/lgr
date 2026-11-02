@@ -4,7 +4,7 @@
     <v-card class="mb-4" v-if="!activeSession">
       <v-card-text class="d-flex align-center justify-space-between">
         <div>
-          <h1 class="text-h5">{{ $t('invoicing.posTerminal') }}</h1>
+          <h1 class="text-h5">{{ $t('nav.csTerminal') }}</h1>
           <p class="text-body-2 text-medium-emphasis">{{ $t('pos.noActiveSession') }}</p>
         </div>
         <v-btn color="primary" @click="openSessionDialog = true">{{ $t('pos.openSession') }}</v-btn>
@@ -15,7 +15,7 @@
     <template v-if="activeSession">
       <div class="d-flex align-center justify-space-between mb-4">
         <div>
-          <h1 class="text-h5">{{ $t('invoicing.posTerminal') }}</h1>
+          <h1 class="text-h5">{{ $t('nav.csTerminal') }}</h1>
           <span class="text-caption text-medium-emphasis">
             {{ $t('pos.session') }}: {{ activeSession.sessionNumber }} | {{ activeSession.openedAt?.split('T')[0] }}
           </span>
@@ -29,7 +29,12 @@
             density="compact"
             hide-details
             class="flex-grow-0"
+            :disabled="basketFrozen"
           />
+          <!-- FR-23: the device decides, and what it says must be seen: every receipt here is text. -->
+          <v-chip v-if="printsText" color="warning" size="small" prepend-icon="mdi-receipt-text-outline" data-testid="terminal-prints-text">
+            {{ $t('pos.bridge.printsText') }}
+          </v-chip>
           <!-- Fiscal Bridge Status -->
           <template v-if="fiscalBridge.isSupported">
             <v-chip v-if="fiscalBridge.status.value === 'connected'" color="success" size="small" prepend-icon="mdi-printer-check">
@@ -39,7 +44,7 @@
               {{ $t('common.connecting') }}...
             </v-chip>
             <v-chip v-else-if="fiscalBridge.status.value === 'reconnecting'" color="warning" size="small" prepend-icon="mdi-printer-search">
-              {{ $t('common.reconnecting') || 'Reconnecting' }}...
+              {{ $t('common.reconnecting') }}...
             </v-chip>
             <!-- Held by another tab: sales here print through it, so there is nothing to connect. -->
             <v-tooltip v-else-if="connectedElsewhere" :text="$t('pos.bridge.connectedElsewhereHint')" location="bottom">
@@ -62,7 +67,7 @@
               </v-btn>
             </template>
           </template>
-          <v-btn color="error" variant="outlined" @click="closeSessionDialog = true">{{ $t('pos.closeSession') }}</v-btn>
+          <v-btn color="error" variant="outlined" :disabled="answerLost" @click="closeSessionDialog = true">{{ $t('pos.closeSession') }}</v-btn>
         </div>
       </div>
 
@@ -74,13 +79,14 @@
         :currency="currency"
         :warehouse-id="activeSession.warehouseId"
         :active="!!activeSession"
+        :readonly="answerLost"
         :lines="cart"
         :totals="totals"
         :line-gross="lineGross"
         :filters="{ type: true, tags: true }"
         @add="addToCart"
-        @quantity="(idx: number, q: number) => { cart[idx].quantity = q }"
-        @remove="(idx: number) => cart.splice(idx, 1)"
+        @quantity="(idx: number, q: number) => { if (!basketFrozen) cart[idx].quantity = q }"
+        @remove="(idx: number) => { if (!basketFrozen) cart.splice(idx, 1) }"
         @price="onLinePriceSelected"
       >
         <template #cart-top>
@@ -115,7 +121,7 @@
                 item-title="title"
                 item-value="value"
                 :loading="docPriceLoading"
-                :disabled="cart.length === 0 && !docPriceName"
+                :disabled="basketFrozen || (cart.length === 0 && !docPriceName)"
                 hide-details
                 clearable
                 class="mb-4"
@@ -123,7 +129,10 @@
                 @update:menu="(open: boolean) => open && loadDocPriceNames()"
                 @update:model-value="applyDocPrice"
               />
-              <v-select v-model="paymentMethod" :label="$t('pos.paymentMethod')" :items="paymentMethods" item-title="title" item-value="value" hide-details class="mb-4" />
+              <v-select v-model="paymentMethod" :label="$t('pos.paymentMethod')" :items="paymentMethods" item-title="title" item-value="value" hide-details class="mb-4" :disabled="basketFrozen" />
+              <v-alert v-if="answerLost" type="warning" variant="tonal" density="compact" class="mb-3" data-testid="sale-unknown">
+                {{ $t('pos.saleOutcomeUnknown') }}
+              </v-alert>
               <v-alert v-if="saleBlocked" type="warning" variant="tonal" density="compact" class="mb-3" data-testid="printer-required">
                 {{ warehouseHasDevice === false ? $t('pos.printerRequired.notConfigured') : $t('pos.printerRequired.notConnected') }}
               </v-alert>
@@ -175,6 +184,19 @@
       </v-card>
     </v-dialog>
 
+    <!-- The menu, ★, „+ Нов" and Back are a click from here, and the cart lives in this view. -->
+    <v-dialog :model-value="leaveAsked" max-width="440" persistent data-testid="leave-cart-dialog">
+      <v-card>
+        <v-card-title>{{ leaveWords.title }}</v-card-title>
+        <v-card-text>{{ leaveWords.body }}</v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn v-if="!selling" data-testid="leave-cart-go" @click="answerLeave(true)">{{ $t('pos.leaveCart.leave') }}</v-btn>
+          <v-btn color="primary" variant="flat" data-testid="leave-cart-stay" @click="answerLeave(false)">{{ $t('pos.leaveCart.stay') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- FR-09 (#18): the real end-of-day close — expected vs counted per method, then the
          fiscal Z-report. Replaces a single-number dialog that never touched the device. -->
     <CloseSessionDialog
@@ -190,8 +212,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { computePosTotals } from 'config/pos-totals'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -199,7 +222,8 @@ import { createIdempotentAction, isOutcomeUnknown } from 'ui-shared/composables/
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { paymentMethodKey } from 'ui-shared/composables/usePaymentMethods'
-import { registerSwitchGuard } from 'ui-shared/session/switch-guards'
+import { registerSwitchGuard, registerUnsavedCheck } from 'ui-shared/session/switch-guards'
+import { getOrg } from 'ui-shared/session/session'
 import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
 import RegisterTerminal from 'ui-shared/components/cash-register/RegisterTerminal.vue'
 import { fetchPriceOptions, priceOptionLabel, type PriceOption } from 'ui-shared/composables/usePriceOptions'
@@ -220,8 +244,20 @@ const fiscalBridge = useFiscalBridge()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const loading = ref(false)
+/** A sale on its way to the server, and through it to the printer. */
+const selling = ref(false)
+/** The answer to a sale never came (`isOutcomeUnknown`): the sale may exist. Only a real answer ends this. */
+const answerLost = ref(false)
+/**
+ * A sale's basket holds still until its answer is in. A retry is the same sale only with the same
+ * body (`createIdempotentAction`): any other body is a new key, and so a second sale. That is what
+ * makes „Complete Sale will not ring it up twice" true of everything this screen then lets a cashier
+ * do. So the cart, the method and the receipt stay as they were sent, and with the answer lost the
+ * catalog goes too. The session stays as well: the key is good for that session only.
+ */
+const basketFrozen = computed(() => selling.value || answerLost.value)
 /** FR-21.29: the catalog, the cart and the totals (`ui-shared`), which the back office sells through too. */
-const terminal = ref<{ reset: () => Promise<void>; refresh: () => Promise<void> } | null>(null)
+const terminal = ref<{ reset: () => Promise<void>; refresh: () => Promise<void>; focusSearch: () => void } | null>(null)
 const cart = ref<CartItem[]>([])
 const paymentMethod = ref('cash')
 const lastSale = ref<LastSale | null>(null)
@@ -280,6 +316,7 @@ const total = computed(() => totals.value.total)
 const lineGross = (l: { quantity: number; unitPrice: number; taxRate?: number }) => computePosTotals([l]).total
 
 function addToCart(p: CatalogProduct) {
+  if (basketFrozen.value) return
   // The next customer's first article: the last sale's result has been seen.
   lastSale.value = null
   const existing = cart.value.find(c => c.productId === p.productId)
@@ -310,7 +347,7 @@ function optionValue(o: PriceOption) { return o.type === 'base' ? BASE_PRICE : o
 
 function onLinePriceSelected(idx: number, opt: PriceOption) {
   const line = cart.value[idx]
-  if (!line) return
+  if (!line || basketFrozen.value) return
   line.unitPrice = opt.price
   line.priceName = opt.type === 'base' ? undefined : opt.name
 }
@@ -367,6 +404,9 @@ const deviceCandidates = ref<any[]>([])
  * "Failed to open serial port".
  */
 const connectedElsewhere = ref<{ deviceNumber: string; name: string } | null>(null)
+/** What a device this tab does not hold said of itself. The pod that answers may have heard nothing, so the last word stands. */
+const fiscalizedElsewhere = ref<boolean | undefined>()
+const printsText = computed(() => (fiscalBridge.status.value === 'connected' ? fiscalBridge.deviceInfo.value?.fiscalized : fiscalizedElsewhere.value) === false)
 /** Whether the session's warehouse has a device set up at all (null until asked). */
 const warehouseHasDevice = ref<boolean | null>(null)
 
@@ -384,6 +424,8 @@ async function refreshConnectedElsewhere() {
     warehouseHasDevice.value = devices.length > 0
     const dev = devices.find((d: any) => d.connected)
     connectedElsewhere.value = dev ? { deviceNumber: dev.deviceNumber, name: dev.name } : null
+    if (!dev) fiscalizedElsewhere.value = undefined
+    else if (dev.fiscalized !== undefined) fiscalizedElsewhere.value = dev.fiscalized
   } catch { /* keep the last known state */ }
 }
 
@@ -541,6 +583,7 @@ function receiptOutcome(txn: any, receiptError?: string): { text: string; printe
 async function completeSale() {
   if (cart.value.length === 0 || !activeSession.value) return
   loading.value = true
+  selling.value = true
   try {
     const lines = cart.value.map(c => ({
       productId: c.productId, name: c.name, quantity: c.quantity, unitPrice: c.unitPrice,
@@ -558,11 +601,13 @@ async function completeSale() {
     try {
       ({ data } = await httpClient.post(`${orgUrl()}/trade/pos/session/${activeSession.value._id}/transaction`, body, { headers: saleAttempt.headers(body) }))
       saleAttempt.settle()
+      answerLost.value = false
     } catch (e: any) {
       saleAttempt.settle(e)
       // The answer never came: the sale may have happened. Pressing Complete again sends the
       // same key and gets that sale back, rather than ringing the basket up a second time.
-      if (isOutcomeUnknown(e)) throw Object.assign(e, { outcomeUnknown: true })
+      answerLost.value = isOutcomeUnknown(e)
+      if (answerLost.value) throw Object.assign(e, { outcomeUnknown: true })
       throw e
     }
     cart.value = []
@@ -571,7 +616,9 @@ async function completeSale() {
     // FR-22.54 (B-18): and on cash, with the cursor in an empty search — the method used to stay
     // on „card", so the next cash customer was booked as card, and the scanner typed into nowhere.
     paymentMethod.value = 'cash'
-    // An empty search, the cursor in it, and the catalog's stock figures after the sale.
+    // An empty search, the cursor in it, and the catalog's stock figures after the sale. After a
+    // lost answer the catalog comes back first: it left with the answer.
+    await nextTick()
     void terminal.value?.reset()
     // The sale is recorded either way; a receipt that did not print, or stock that did not
     // move, must not look like success.
@@ -607,15 +654,83 @@ async function completeSale() {
     }
     else showError(e?.outcomeUnknown ? t('pos.saleOutcomeUnknown') : (refused?.message || t('common.operationFailed')))
   }
-  finally { loading.value = false }
+  finally {
+    loading.value = false
+    selling.value = false
+  }
+}
+
+/** A cart with something in it, or a sale on its way to the server. */
+const saleInHand = () => cart.value.length > 0 || loading.value
+
+// Nobody loses a cart without being asked, and whoever means to leave can, except from a sale on
+// its way: that stays until it has answered, and the person sees how it ended.
+const leaveAsked = ref(false)
+let settleLeave: ((leave: boolean) => void) | null = null
+
+/** What the question says. „Not sold yet" is true of a cart only until its sale is sent. */
+const leaveWords = computed(() => {
+  if (selling.value) return { title: t('pos.leaveCart.printingTitle'), body: t('pos.leaveCart.printingBody') }
+  if (answerLost.value) return { title: t('pos.leaveCart.unknownTitle'), body: t('pos.leaveCart.unknownBody', { journal: t('nav.crSales') }) }
+  return { title: t('pos.leaveCart.title'), body: t('pos.leaveCart.body', { n: cart.value.length }) }
+})
+
+function answerLeave(leave: boolean) {
+  leaveAsked.value = false
+  settleLeave?.(leave)
+  settleLeave = null
+  // The next scan lands in the search, as after a sale (FR-22.54).
+  if (!leave) void nextTick(() => terminal.value?.focusSearch())
+}
+
+// The sale has answered, so the refusal has nothing left to say.
+watch(selling, (now) => { if (!now && !settleLeave) leaveAsked.value = false })
+
+function askBeforeLeaving() {
+  if (selling.value) {
+    leaveAsked.value = true
+    return false
+  }
+  if (cart.value.length === 0) return true
+  settleLeave?.(false) // a second move while the first is asked about replaces it
+  leaveAsked.value = true
+  return new Promise<boolean>((resolve) => { settleLeave = resolve })
+}
+
+onBeforeRouteLeave(askBeforeLeaving)
+// This page under another address: nothing leaves it, but `openPage` remounts the view.
+onBeforeRouteUpdate(askBeforeLeaving)
+
+/** The org this cart is rung up in. The tab's session can leave it: a switch, a sign-out, a dead token. */
+const ringingIn = getOrg()?.id
+
+/**
+ * F5, the tab closed, an address typed: the ways off this page only the browser can ask about, in
+ * its own words. A sale on its way or with its answer lost still has its lines in the cart, so it is
+ * asked about too.
+ *
+ * ⚠ The app's own page loads do not meet this question. A failed move (`web/src/stale.ts`) and an
+ * org switch both refuse a cart that holds lines (`registerUnsavedCheck`, `registerSwitchGuard`, below).
+ * The one way past them is a line added while a switch is on its way, and by then the tab's session
+ * is in the other org: „stay" would keep a page whose every call is refused. So once the session has
+ * left `ringingIn` nothing is asked. That also covers a sign-out and a session that died.
+ */
+function askBeforeUnload(e: BeforeUnloadEvent) {
+  if (cart.value.length === 0 || getOrg()?.id !== ringingIn) return
+  e.preventDefault()
+  e.returnValue = '' // what Chromium before 119 reads, and a webview can lag it
 }
 
 let unregisterSwitchGuard: (() => void) | null = null
+let unregisterUnsaved: (() => void) | null = null
 
 onMounted(async () => {
   // A sale in progress would be lost (or, mid-completion, half-done) if the org menu reloaded
   // this tab into another org.
-  unregisterSwitchGuard = registerSwitchGuard(() => (cart.value.length > 0 || loading.value ? 'orgSwitcher.blockedSale' : null))
+  unregisterSwitchGuard = registerSwitchGuard(() => (saleInHand() ? 'orgSwitcher.blockedSale' : null))
+  // The same goes for the page load a new build asks for (`web/src/stale.ts`).
+  unregisterUnsaved = registerUnsavedCheck(saleInHand)
+  window.addEventListener('beforeunload', askBeforeUnload)
   document.addEventListener('visibilitychange', onVisibilityChange)
   connectedElsewhereTimer = setInterval(refreshConnectedElsewhere, 15000)
   await Promise.all([fetchSessions(), fetchWarehouses()])
@@ -623,6 +738,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   unregisterSwitchGuard?.()
+  unregisterUnsaved?.()
+  window.removeEventListener('beforeunload', askBeforeUnload)
   document.removeEventListener('visibilitychange', onVisibilityChange)
   clearInterval(connectedElsewhereTimer)
 })

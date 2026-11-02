@@ -323,6 +323,8 @@ export interface IInvoice extends Document {
     marker: string
     docNumber: string
     movementIds: Types.ObjectId[]
+    /** The receipts that named no supplier and took this bill's: releasing the link takes it off. */
+    supplierGivenTo?: Types.ObjectId[]
     /** How the link was established — `lines` (detected) or `manual`. */
     detectedBy: string
     linkedAt: Date
@@ -563,6 +565,8 @@ const invoiceSchema = new Schema<IInvoice>(
       marker: String,
       docNumber: String,
       movementIds: [{ type: Schema.Types.ObjectId, ref: 'StockMovement' }],
+      // No default: `movementIds` is materialised on every invoice, and this has no business there.
+      supplierGivenTo: { type: [{ type: Schema.Types.ObjectId, ref: 'StockMovement' }], default: undefined },
       detectedBy: String,
       linkedAt: Date,
     },
@@ -617,8 +621,8 @@ const invoiceSchema = new Schema<IInvoice>(
             /** FR-23: nothing can prove whether it printed: no money booked, until a person settles it. */
             inDoubt: Boolean,
           },
-          /** What the person who settled a receipt in doubt said, and who it was. */
-          settled: { printed: Boolean, by: { type: Schema.Types.ObjectId, ref: 'User' }, at: Date },
+          /** What the person who settled a document in doubt said, and who it was. A sale's number comes off its slip. */
+          settled: { printed: Boolean, by: { type: Schema.Types.ObjectId, ref: 'User' }, at: Date, receiptNumber: String },
           changeDue: Number,
           sessionTotalsApplied: Boolean,
           receiptError: String,

@@ -6,6 +6,10 @@ allowed-tools: Bash(bun:*), Bash(roomler:*)
 
 # Audit regal-sf for a period
 
+> regal-pz is **not** this cycle with another slug (no tunnel, no till in the API, annulments, a quantity
+> baseline, hand-entered invoices): see `audit-regal-pz-period`. Its read-only audit tool,
+> `scripts/audit-coverage-api.ts`, was written against regal-pz and has not been run on regal-sf yet.
+
 Backed by `.claude/skills/pull-plusminus-api/pull-api.ts` (pull) +
 `scripts/import-sales-invoices-api.ts` / `scripts/import-cash-register-sales-api.ts` /
 `scripts/receive-stock-api.ts` (import, all already-proven, all idempotent) +

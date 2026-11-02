@@ -51,12 +51,12 @@ async function seed() {
 
 describe('effectiveMethods (FR-8.4)', () => {
   it('where LGR prints, a cash or card header on an unpaid invoice is not money yet (FR-23): its receipt did not print', () => {
-    // A credit note the same way (R2): its storno is the refund, and until one prints no money went back.
+    // A credit note's money is its refund row, which R2 adds: until one says so its header is none either.
     for (const type of ['invoice', 'debit_note', 'credit_note']) {
       expect(effectiveMethods({ type, paymentMethod: 'cash', total: 50, amountPaid: 0 }, true)).toEqual([{ method: 'cash', amount: 0 }])
       expect(effectiveMethods({ type, paymentMethod: 'card', total: 50, amountPaid: 0 }, true)).toEqual([{ method: 'card', amount: 0 }])
     }
-    // Where nothing prints the header stays the money, as it always was.
+    // Where nothing prints the header stays the money, a credit note's too.
     expect(effectiveMethods({ type: 'credit_note', paymentMethod: 'cash', total: 50, amountPaid: 0 }, false)).toEqual([{ method: 'cash', amount: 50 }])
     expect(effectiveMethods({ type: 'invoice', paymentMethod: 'bank_transfer', total: 50, amountPaid: 0 }, true)).toEqual([{ method: 'bank_transfer', amount: 50 }])
   })
@@ -359,6 +359,8 @@ describe('sales-history — POS rows', () => {
     expect(row.rowType).toBe('pos')
     expect(row.status).toBe('paid')
     expect(res.columns.find(c => c.key === 'status')!.type).toBe('status')
+    // The journal's page, in the invoicing app: the till has no app of its own any more.
+    expect(entry().drilldown!(row)).toBe(`/invoicing/cash-sales/${row.posId}/view`)
   })
 })
 

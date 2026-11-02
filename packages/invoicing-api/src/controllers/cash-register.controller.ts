@@ -6,19 +6,17 @@ import { getJournalDocument, listJournal } from 'services/biz/cash-register/jour
 import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import { readIdempotencyKey, requestHash } from 'services/biz/hot-path-key'
 import { Invoice, POSSession } from 'db/models'
-import { MONEY_DOCUMENT_TYPES } from 'services/biz/cash-register/pos-union'
-import { settleReceipt } from 'services/biz/cash-register/payment-receipt.service'
+import { SETTLEABLE_TYPES, settleInDoubt } from 'services/biz/cash-register/settle.service'
 import { RegisterRefusal } from 'services/biz/cash-register/register.service'
-import { STORNO_ROLES, stornoDoor } from '../lib/cash-register-till.js'
-import { deviceless } from '../lib/counter-receipt.js'
+import { STORNO_ROLES, deviceless, documentContext, stornoDoor } from '../lib/cash-register-till.js'
 
 /**
  * FR-21.12 — the cash-register journal („Касови продажби").
  *
  * One list and one detail for every cash-register sale and storno: the till's, the back office's
- * and the PlusMinus imports'. The POS app shows it at `/pos/orders` and the invoicing app at
- * `/invoicing/cash-sales`, so its readers are either app's (`route-permission.ts`, `cash-register`),
- * and a till signed in with a PIN reaches it too.
+ * and the PlusMinus imports'. The invoicing app shows it at `/invoicing/cash-sales`, to whoever holds
+ * `pos.*` or `invoicing.*` (`route-permission.ts`, `cash-register`), and a till signed in with a
+ * PIN reaches it too.
  *
  * Its one write is the storno (FR-21.18): the till's own route needs the session in its path, but a
  * back-office sale has no receipt and no drawer, so it is reversed here without one. A till sale
@@ -92,7 +90,7 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
     if (!doc) return status(404, { message: 'Cash-register document not found' })
     return doc
   }, { isSignIn: true })
-  // FR-23: a person who looked at the device says whether a receipt, or a refund's storno, nothing could prove printed.
+  // FR-23: a person who looked at the device says whether a receipt or a storno nothing could prove printed.
   .post(
     '/documents/:id/settle',
     async ({ params: { orgId, id }, body, user, status }) => {
@@ -101,20 +99,22 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
       if (!STORNO_ROLES.includes(user.role)) {
         return status(403, { message: 'Settling a receipt requires manager or admin authorization' })
       }
-      const receipt = Invoice.base.Types.ObjectId.isValid(id)
-        ? await Invoice.exists({ _id: id, orgId, type: { $in: MONEY_DOCUMENT_TYPES } }).exec()
+      const held: any = Invoice.base.Types.ObjectId.isValid(id)
+        ? await Invoice.findOne({ _id: id, orgId, type: { $in: SETTLEABLE_TYPES } }).lean().exec()
         : null
-      if (!receipt) return status(404, { message: 'Receipt not found' })
+      if (!held) return status(404, { message: 'Receipt not found' })
       try {
-        const settled = await settleReceipt(deviceless(orgId, user), id, body.printed)
-        if (!settled) return status(409, { code: 'receipt_not_in_doubt', message: 'This receipt is not waiting to be settled.' })
+        // What the device says, when it is here. Nothing that follows reaches it.
+        const { printer } = await documentContext(orgId, user, held)
+        const settled = await settleInDoubt(deviceless(orgId, user), id, body, printer)
+        if (!settled) return status(409, { code: 'receipt_not_in_doubt', message: 'This document is not waiting to be settled.' })
       } catch (e: any) {
         if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
         throw e
       }
       return { document: await getJournalDocument(orgId, id) }
     },
-    { isSignIn: true, body: t.Object({ printed: t.Boolean() }) },
+    { isSignIn: true, fiscalDevice: deviceFromJournalDocument, body: t.Object({ printed: t.Boolean(), receiptNumber: t.Optional(t.String({ maxLength: 20 })) }) },
   )
   .post(
     '/documents/:id/storno',

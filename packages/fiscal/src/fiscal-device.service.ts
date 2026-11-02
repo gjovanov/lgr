@@ -45,7 +45,7 @@ export function createPrinter(
       }
       throw new Error(
         `Eltrade over '${config.type}' is not opened by the server. Use connection type 'browser' `
-        + `(connect from the POS / Devices page) or 'tcp' through the serial-to-TCP bridge.`,
+        + `(connect from the CS Terminal or the Devices page) or 'tcp' through the serial-to-TCP bridge.`,
       )
     }
     case 'incotex':
@@ -136,6 +136,14 @@ export function getPrinter(deviceId: string): IFiscalPrinter {
  */
 export function isDeviceConnected(deviceId: string): boolean {
   return activeConnections.has(deviceId)
+}
+
+/**
+ * What the device said of itself in the status every answer carries (FR-23): `false` is what makes a
+ * receipt print as text. Undefined when this process holds no answer from it. No command is sent.
+ */
+export function lastFiscalized(deviceId: string): boolean | undefined {
+  return (activeConnections.get(deviceId) as { lastStatus?: { fiscalized?: boolean } | null } | undefined)?.lastStatus?.fiscalized
 }
 
 /**

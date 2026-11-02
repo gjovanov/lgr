@@ -19,8 +19,6 @@
     "inventoryDesc": "Produkte, Bestand, Bewegungen, Bewertungen",
     "invoicing": "Rechnungen",
     "invoicingDesc": "Kontakte, Rechnungen, Zahlungen",
-    "pos": "POS",
-    "posDesc": "Kasse, Sitzungen, Fiskal",
     "trade": "Handel",
     "tradeDesc": "Produkte, Bestand, Rechnungen, Kontakte, Zahlungen",
     "payroll": "Lohnbuchhaltung",
@@ -60,8 +58,6 @@
     "inventoryDesc": "Produkte, Bestand, Bewegungen, Bewertungen",
     "invoicing": "Rechnungen",
     "invoicingDesc": "Kontakte, Rechnungen, Zahlungen",
-    "pos": "POS",
-    "posDesc": "Kasse, Sitzungen, Fiskal",
     "trade": "Handel",
     "tradeDesc": "Produkte, Lager, Rechnungen, Kontakte, Zahlungen",
     "payroll": "Lohnabrechnung",
@@ -115,7 +111,6 @@
       "creditNote": "Neue Gutschrift",
       "debitNote": "Neue Lastschrift",
       "proforma": "Neue Proformarechnung",
-      "cashSale": "Neuer Kassenverkauf",
       "bill": "Neue Eingangsrechnung",
       "goodsReceipt": "Neuer Wareneingang",
       "customerOrder": "Neuer Kundenauftrag",
@@ -171,15 +166,15 @@
     "cashRegister": "Kasse",
     "export": "Export",
     "payments": "Zahlungen",
-    "terminal": "Terminal",
+    "csTerminal": "Kassenterminal",
+    "crSales": "Kassenverkäufe",
+    "crSessions": "Kassensitzungen",
     "transactions": "Transaktionen",
-    "sessions": "Sitzungen",
     "devices": "Geräte",
     "configuration": "Konfiguration",
     "reporting": "Berichte",
     "trade": "Handel",
     "inventory": "Lager",
-    "pos": "Kasse",
     "payroll": "Lohnabrechnung",
     "employees": "Mitarbeiter",
     "payrollRuns": "Lohnabrechnungsläufe",
@@ -334,6 +329,7 @@
   "common": {
     "newVersion": "Eine neue Version von LGR ist verfügbar.",
     "reload": "Neu laden",
+    "pageNotLoaded": "Diese Seite konnte nicht geladen werden. Prüfen Sie die Verbindung und versuchen Sie es erneut.",
     "save": "Speichern",
     "selectAll": "Alle auswählen",
     "selectNone": "Leeren",
@@ -783,14 +779,15 @@
       "fiscalized": "fiskalisiert",
       "notFiscalized": "nicht fiskalisiert — Fiskalbelege werden als Dienstbelege gedruckt",
       "notResponding": "Das Fiskalgerät antwortet nicht. Prüfen Sie, dass es eingeschaltet ist und im Hauptmenü steht (nicht in einem Untermenü) und dass der richtige Port gewählt ist, und verbinden Sie erneut.",
-      "serialMismatch": "Das Gerät meldet die Seriennummer {device}, ist in LGR aber als {configured} eingerichtet. Fiskalbelege werden abgelehnt — Gerätenummer unter POS → Geräte korrigieren.",
+      "serialMismatch": "Das Gerät meldet die Seriennummer {device}, ist in LGR aber als {configured} eingerichtet. Fiskalbelege werden abgelehnt — Gerätenummer unter Konfiguration → Geräte korrigieren.",
       "connectedElsewhere": "{device} · in einem anderen Tab verbunden",
       "connectedElsewhereHint": "Verkäufe aus diesem Tab werden darüber gedruckt. Um ihn hier zu verbinden, schließen Sie zuerst den anderen Tab oder das andere Fenster.",
       "inUseConnectedElsewhere": "Der Drucker ({device}) ist bereits in einem anderen Tab oder Fenster verbunden, und Verkäufe aus diesem Tab werden darüber gedruckt. Um ihn hier zu verbinden, schließen Sie zuerst den anderen Tab.",
       "portInUse": "Der Anschluss des Druckers wird von einem anderen Tab, Fenster oder Programm verwendet, und nur eines kann ihn nutzen. Schließen Sie das andere (oder stecken Sie den Drucker aus und wieder ein) und verbinden Sie erneut.",
       "deviceErrors": "Problem am Fiskalgerät: {errors}",
       "connectedVia": "Verbunden über {name}",
-      "waitingForDesktop": "wartet auf seinen LGR Desktop"
+      "waitingForDesktop": "wartet auf seinen LGR Desktop",
+      "printsText": "Nicht fiskalisiert: Belege werden als Text gedruckt"
     },
     "noFiscalDevice": "Kein Fiskalgerät für Browser konfiguriert. Wenden Sie sich an den Administrator.",
     "saleCompleted": "Verkauf abgeschlossen",
@@ -802,7 +799,7 @@
       "textReceipt": "Ein nicht-fiskalischer Beleg wurde gedruckt",
       "notPrinted": "Es wurde nichts gedruckt: An dieser Kasse ist kein Fiskalgerät angeschlossen"
     },
-    "saleOutcomeUnknown": "Keine Antwort vom Server — der Verkauf ist möglicherweise schon gebucht. Erneut auf „Verkauf abschließen“ drücken: der Warenkorb wird nicht doppelt verbucht.",
+    "saleOutcomeUnknown": "Keine Antwort vom Server — der Verkauf ist möglicherweise schon gebucht. Erneut auf „Verkauf abschließen“ drücken: der Warenkorb wird nicht doppelt verbucht. Bis dahin bleibt der Warenkorb gesperrt.",
     "filterByTags": "Nach Tags filtern",
     "close": {
       "title": "Kassenabschluss",
@@ -829,6 +826,16 @@
         "other": "Sonstige Zahlungen",
         "cashOnDelivery": "Nachnahme"
       }
+    },
+    "leaveCart": {
+      "title": "Diesen Verkauf verlassen?",
+      "body": "Der Warenkorb enthält {n} Position(en), die noch nicht verkauft sind. Beim Verlassen werden sie verworfen.",
+      "stay": "An der Kasse bleiben",
+      "leave": "Verlassen und Warenkorb verwerfen",
+      "printingTitle": "Der Verkauf wird gedruckt",
+      "printingBody": "Er ist auf dem Weg zum Server und zum Drucker, diese Seite kann noch nicht verlassen werden. Diese Meldung schließt sich von selbst, sobald der Verkauf abgeschlossen ist.",
+      "unknownTitle": "Dieser Verkauf ist möglicherweise schon gebucht",
+      "unknownBody": "Die Antwort des Servers kam nicht an. Prüfen Sie {journal}, bevor Sie ihn erneut erfassen."
     },
     "pin": {
       "title": "An der Kasse anmelden",
@@ -873,7 +880,7 @@
       "view": "Sitzungsbericht",
       "print": "Bericht drucken",
       "printed": "Der Sitzungsbericht wurde auf dem Fiskalgerät gedruckt.",
-      "notPrinted": "Der Sitzungsbericht wurde nicht gedruckt: {error}. Die Sitzung ist geschlossen; drucken Sie ihn hier oder unter POS-Sitzungen erneut.",
+      "notPrinted": "Der Sitzungsbericht wurde nicht gedruckt: {error}. Die Sitzung ist geschlossen; drucken Sie ihn hier oder unter Kassensitzungen erneut.",
       "sales": "Verkäufe",
       "refunds": "Gutschrift-Erstattungen",
       "payments": "Rechnungszahlungen",
@@ -912,7 +919,15 @@
         "noDriver": "LGR kann dieses {brand}-Gerät über diese Verbindung nicht öffnen"
       },
       "operators": {
-        "eltradePassword": "Bei Eltrade bestätigt das Passwort die Änderung: Geben Sie das Passwort des Bedieners am Gerät ein (4–8 Ziffern). Drei falsche Passwörter sperren das Gerät, bis es aus- und wieder eingeschaltet wird."
+        "eltradePassword": "Bei Eltrade bestätigt das Passwort die Änderung: Geben Sie das Passwort des Bedieners am Gerät ein (4–8 Ziffern). Drei falsche Passwörter sperren das Gerät, bis es aus- und wieder eingeschaltet wird.",
+        "password": "Passwort",
+        "program": "Auf Gerät programmieren",
+        "read": "Vom Gerät lesen",
+        "programmed": "Bediener {n} auf dem Gerät programmiert",
+        "wasRead": "Bediener {n} vom Gerät gelesen",
+        "programFailed": "Bediener {n} konnte nicht programmiert werden",
+        "readFailed": "Bediener {n} konnte nicht gelesen werden",
+        "numbered": "Bediener {n}"
       },
       "paymentTypes": {
         "title": "Zahlungsarten",
@@ -931,7 +946,99 @@
         "nameCod": "{code} „{name}“ benennen",
         "codHint": "Eine Nachnahme wird als {code} gedruckt. Benennen Sie es, damit der Beleg „{name}“ zeigt.",
         "named": "{code} heißt auf dem Gerät jetzt „{name}“",
-        "adminOnly": "Nur ein Administrator kann eine Zahlungsart benennen."
+        "adminOnly": "Nur ein Administrator kann eine Zahlungsart benennen.",
+        "readFailed": "Zahlungsarten konnten nicht gelesen werden",
+        "nameFailed": "Zahlungsart konnte nicht benannt werden"
+      },
+      "newTitle": "Neues POS-Gerät",
+      "title": "POS-Gerät",
+      "new": "Neues Gerät",
+      "tabs": {
+        "general": "Allgemein",
+        "operators": "Bediener",
+        "reports": "Berichte"
+      },
+      "number": "Gerätenummer",
+      "numberHint": "Die Seriennummer des Geräts (ИН на ФУ), wie sie auf seinen Belegen steht, z. B. ED123456 — jede УНП beginnt damit",
+      "numberLength": "Muss 8 Zeichen lang sein",
+      "manufacturer": "Hersteller",
+      "connectionType": "Verbindungsart",
+      "ip": "IP-Adresse oder Host",
+      "ipHint": "Vom LGR-Server erreichbar. Ein Drucker im eigenen Netz des Geschäfts wird stattdessen über den Browser oder LGR Desktop verbunden.",
+      "port": "Port",
+      "lastCommunication": "Letzte Kommunikation",
+      "connect": "Verbinden",
+      "disconnect": "Trennen",
+      "connected": "Verbunden mit {device}",
+      "reconnected": "Gerät {device} wieder verbunden",
+      "disconnected": "Gerät getrennt",
+      "connectFailed": "Verbindung fehlgeschlagen",
+      "created": "Gerät erstellt",
+      "saved": "Gerät gespeichert",
+      "saveFailed": "Gerät konnte nicht gespeichert werden",
+      "loadFailed": "Gerät konnte nicht geladen werden",
+      "noNotes": "Keine Notizen",
+      "states": {
+        "online": "online",
+        "offline": "offline",
+        "error": "Fehler"
+      },
+      "status": {
+        "title": "Gerätestatus",
+        "hint": "Liest Seriennummer, Fiskalstatus, Uhrzeit und Fehlerflags direkt vom Gerät (es muss verbunden sein).",
+        "responding": "Antwortet",
+        "model": "Modell",
+        "serial": "Seriennummer",
+        "mismatch": "stimmt nicht mit der Gerätenummer {device} überein",
+        "fiscalMemory": "Fiskalspeicher",
+        "firmware": "Firmware",
+        "fiscalized": "Fiskalisiert",
+        "notFiscalized": "Nein — Belege werden als Servicedokumente gedruckt",
+        "clock": "Geräteuhr",
+        "lastDocument": "Letzte Belegnr.",
+        "paper": "Papier",
+        "paperOk": "OK",
+        "paperOut": "Kein Papier",
+        "errors": "Fehler",
+        "warnings": "Warnungen",
+        "read": "Status lesen",
+        "readFailed": "Gerätestatus konnte nicht gelesen werden"
+      },
+      "reports": {
+        "x": "Täglicher X-Bericht",
+        "xHint": "Druckt den täglichen X-Bericht (ohne den Tag abzuschließen).",
+        "z": "Täglicher Z-Bericht",
+        "zHint": "Druckt den täglichen Z-Bericht (schließt den Fiskaltag ab).",
+        "operator": "Bedienerbericht",
+        "fmByDate": "FS-Bericht nach Datum",
+        "fmByNumber": "FS-Bericht nach Nummer",
+        "startNumber": "Startnummer",
+        "endNumber": "Endnummer",
+        "ej": "Elektronisches Journal (KLEN)",
+        "xPrinted": "X-Bericht gedruckt",
+        "xFailed": "X-Bericht konnte nicht gedruckt werden",
+        "zPrinted": "Z-Bericht gedruckt",
+        "zFailed": "Z-Bericht konnte nicht gedruckt werden",
+        "operatorPrinted": "Bedienerbericht gedruckt",
+        "operatorFailed": "Bedienerbericht konnte nicht gedruckt werden",
+        "fmPrinted": "FS-Bericht gedruckt",
+        "fmFailed": "FS-Bericht konnte nicht gedruckt werden",
+        "ejPrinted": "Bericht des elektronischen Journals gedruckt",
+        "ejFailed": "Bericht des elektronischen Journals konnte nicht gedruckt werden"
+      }
+    },
+    "sessions": {
+      "paymentDistribution": "Zahlungsverteilung",
+      "sales": "Sitzungsverkäufe",
+      "number": "Sitzung Nr.",
+      "totalReturns": "Retouren gesamt",
+      "transactions": "Transaktionen",
+      "openedAt": "Geöffnet am",
+      "closedAt": "Geschlossen am",
+      "salesSeries": "Verkäufe",
+      "states": {
+        "open": "offen",
+        "closed": "geschlossen"
       }
     }
   },
@@ -966,7 +1073,7 @@
       "noSession": "Öffnen Sie zuerst eine Kassensitzung: Eine Zahlung an der Kasse druckt ihren Beleg auf dem Gerät dieser Sitzung. Eine Organisation, die hier nichts druckt, schaltet „Verkauf nur mit verbundenem Fiskaldrucker“ unter Einstellungen → Organisation → Kasse aus.",
       "inProgress": "Eine andere Zahlung zu diesem Dokument wird gerade gedruckt. Warten Sie, bis sie fertig ist, und versuchen Sie es erneut.",
       "documentClaimed": "Dieses Dokument wird gerade storniert oder einem Barverkauf zugeordnet. Versuchen Sie es gleich noch einmal.",
-      "documentChanged": "Während Ihrer Bearbeitung wurde eine Zahlung zu diesem Dokument erfasst. Öffnen Sie es erneut.",
+      "documentChanged": "Dieses Dokument wurde geändert, während Sie damit gearbeitet haben. Öffnen Sie es erneut.",
       "fiscallyPaid": "Für dieses Dokument wurde ein Beleg gedruckt: Sein Betrag kann nicht mehr geändert und es kann nicht storniert werden. Korrigieren Sie es mit einer Gut- oder Lastschrift.",
       "currency": "Das Kassengerät druckt in einer anderen Währung als dieses Dokument. Nehmen Sie diese Zahlung per Bank an.",
       "notPrintable": "Die Beträge dieses Dokuments lassen sich für einen Beleg nicht nach Steuersätzen aufteilen. Nehmen Sie diese Zahlung per Bank an.",
@@ -996,20 +1103,45 @@
       "takeRefund": "Erstattung geben",
       "refundOf": "Gutschrift",
       "partlyRefunded": "{amount} dieser Erstattung wurden ausgezahlt und bleiben bestehen.",
-        "inDoubt": "Nichts kann belegen, ob dieser Beleg gedruckt wurde. Sein Geld ist weder gebucht noch frei. Prüfen Sie das Journal des Geräts und geben Sie dann an, was zutrifft.",
-        "inDoubtDocument": "Nichts kann belegen, ob Beleg {number} gedruckt wurde. Sein Geld ist weder gebucht noch frei, bis jemand ihn klärt.",
-        "inDoubtRefused": "Nichts kann belegen, ob Beleg {number} gedruckt wurde, daher geht dies nicht weiter. Prüfen Sie das Gerät und klären Sie den Beleg unter Kassenverkäufe.",
-        "settleIt": "Klären",
-        "settlePrinted": "Wurde gedruckt",
-        "settleNotPrinted": "Wurde nicht gedruckt",
-        "settleWho": "Das klärt ein Manager oder ein Administrator.",
-        "settleConfirm": {
-          "printed": "Der Beleg ist auf dem Gerät. Sein Geld wird auf der Rechnung und in der Sitzung erfasst. Das lässt sich nicht rückgängig machen.",
-          "notPrinted": "Der Beleg ist nicht auf dem Gerät. Er wird mit seiner Nummer storniert, und der Betrag ist wieder offen. Das lässt sich nicht rückgängig machen."
-        },
-        "settled": "Beleg geklärt",
-        "deliveryOwed": "Diese Nachnahme-Rechnung hat keinen Fiskalbeleg: Sein Druck ist fehlgeschlagen. Drucken Sie zuerst den Beleg.",
-        "unfinished": "Die Belege {numbers} sind nicht abgeschlossen, daher kann diese Sitzung nicht geschlossen werden. Warten Sie auf einen Beleg im Druck und klären Sie einen ungeklärten unter Kassenverkäufe."
+      "refundInDoubt": "Nichts kann belegen, ob dieses Storno gedruckt wurde, daher wurde nichts erstattet. Prüfen Sie das Journal des Geräts und geben Sie dann an, was zutrifft.",
+      "settleConfirmRefund": {
+        "printed": "Das Storno ist auf dem Gerät. Die Erstattung wird auf der Gutschrift erfasst und verlässt die Sitzung. Dies kann nicht rückgängig gemacht werden.",
+        "notPrinted": "Das Storno ist nicht auf dem Gerät. Es wird mit seiner Nummer ungültig gemacht, und der Betrag ist auf der Gutschrift wieder fällig. Dies kann nicht rückgängig gemacht werden."
+      },
+      "refundSettled": "Storno geklärt",
+      "receiptNumberHint": "Vom Beleg. Ein späteres Storno zitiert sie: ohne sie kann dieser Bon nur per Überweisung erstattet werden.",
+      "inDoubt": "Nichts kann belegen, ob dieser Beleg gedruckt wurde. Sein Geld ist weder gebucht noch frei. Prüfen Sie das Journal des Geräts und geben Sie dann an, was zutrifft.",
+      "inDoubtDocument": "Nichts kann belegen, ob Beleg {number} gedruckt wurde. Sein Geld ist weder gebucht noch frei, bis jemand ihn klärt.",
+      "inDoubtRefused": "Nichts kann belegen, ob Beleg {number} gedruckt wurde, daher geht dies nicht weiter. Prüfen Sie das Gerät und klären Sie den Beleg unter Kassenverkäufe.",
+      "settleIt": "Klären",
+      "settlePrinted": "Wurde gedruckt",
+      "settleNotPrinted": "Wurde nicht gedruckt",
+      "settleWho": "Das klärt ein Manager oder ein Administrator.",
+      "settleConfirm": {
+        "printed": "Der Beleg ist auf dem Gerät. Sein Geld wird auf der Rechnung und in der Sitzung erfasst. Das lässt sich nicht rückgängig machen.",
+        "notPrinted": "Der Beleg ist nicht auf dem Gerät. Er wird mit seiner Nummer storniert, und der Betrag ist wieder offen. Das lässt sich nicht rückgängig machen."
+      },
+      "settled": "Beleg geklärt",
+      "deliveryOwed": "Diese Nachnahme-Rechnung hat keinen Fiskalbeleg: Sein Druck ist fehlgeschlagen. Drucken Sie zuerst den Beleg.",
+      "unfinished": "Die Belege {numbers} sind nicht abgeschlossen, daher kann diese Sitzung nicht geschlossen werden. Warten Sie auf einen Beleg im Druck und klären Sie einen ungeklärten unter Kassenverkäufe.",
+      "stornoInDoubt": "Nichts kann belegen, ob dieser Storno gedruckt wurde, daher wurde nichts rückgängig gemacht: weder Geld noch Ware. Prüfen Sie das Journal des Geräts und geben Sie dann an, was zutrifft.",
+      "stornoInDoubtRefused": "Storno {number} wurde möglicherweise gedruckt, und nichts wurde rückgängig gemacht. Prüfen Sie das Gerät und klären Sie den Storno auf seiner Seite unter Kassenverkäufe. Drücken Sie Storno nicht noch einmal.",
+      "settleConfirmStorno": {
+        "printed": "Der Storno ist auf dem Gerät. Der Betrag verlässt die Sitzung und die Ware kommt zurück. Das lässt sich nicht rückgängig machen.",
+        "notPrinted": "Der Storno ist nicht auf dem Gerät. Er wird mit seiner Nummer ungültig, und der Verkauf bleibt, wie er war. Das lässt sich nicht rückgängig machen."
+      },
+      "stornoSettled": "Storno geklärt",
+      "openOnDevice": "Auf dem Fiskalgerät ist noch ein Beleg offen, daher ist noch nichts endgültig. Drucken Sie auf der Geräteseite einen X-Bericht, der ihn bereinigt, und prüfen Sie das Gerät erneut: Was dann gedruckt wurde, ist gedruckt.",
+      "saleInDoubt": "Nichts kann belegen, ob der Fiskalbeleg dieses Verkaufs gedruckt wurde. Sein Geld bleibt, und sein Storno wartet, bis jemand das Gerät prüft und angibt, was zutrifft.",
+      "saleInDoubtRefused": "Nichts kann belegen, ob der Beleg des Verkaufs {number} gedruckt wurde, daher weiß ein Storno nicht, was es rückgängig macht. Nichts wurde rückgängig gemacht. Prüfen Sie das Gerät und klären Sie den Verkauf auf seiner Seite unter Kassenverkäufe.",
+      "settleConfirmSale": {
+        "printed": "Der Beleg ist auf dem Gerät. Geben Sie seine Nummer vom Bon ein: das Storno dieses Verkaufs zitiert sie. Das lässt sich nicht rückgängig machen.",
+        "notPrinted": "Der Beleg ist nicht auf dem Gerät. Der Verkauf und sein Geld bleiben, und sein Storno druckt nichts. Das lässt sich nicht rückgängig machen."
+      },
+      "saleSettled": "Verkauf geklärt",
+      "receiptNumber": "Belegnummer",
+      "numberRequired": "Ein gedruckter Verkauf braucht seine Belegnummer vom Bon, in Ziffern: sein Storno zitiert sie.",
+      "numberTaken": "Diese Belegnummer gehört auf diesem Gerät zu {number}. Prüfen Sie den Bon."
     },
     "origin": {
       "pos": "Kasse",
@@ -1019,7 +1151,8 @@
     "status": {
       "completed": "Abgeschlossen",
       "stornoed": "Storniert",
-      "voided": "Ungültig"
+      "voided": "Ungültig",
+      "inDoubt": "Ungeklärt"
     },
     "stock": {
       "moved": "Ausgebucht",
@@ -1417,7 +1550,6 @@
     "accountNumber": "Kontonummer",
     "billingAddress": "Rechnungsadresse",
     "cashOrders": "Kassenbelege",
-    "posTerminal": "POS-Terminal",
     "contacts": "Kontakte",
     "creditNotes": "Gutschriften",
     "direction": "Richtung",
@@ -1591,8 +1723,11 @@
     "linkDelivery": {
       "action": "Mit Lieferung verknüpfen",
       "hint": "Ware schon eingebucht?",
-      "dialogHint": "Wareneingänge dieses Lieferanten, die noch keine Rechnung bezahlt. Ihre Zeilen werden die Zeilen der Rechnung; die Rechnung bewegt keinen Bestand.",
-      "none": "Von diesem Lieferanten gibt es keinen offenen Wareneingang.",
+      "dialogHint": "Wareneingänge dieses Lieferanten, die noch keine Rechnung bezahlt, und Wareneingänge ohne Lieferant. Ihre Zeilen werden die Zeilen der Rechnung; die Rechnung bewegt keinen Bestand.",
+      "none": "Es gibt keinen offenen Wareneingang von diesem Lieferanten oder ohne Lieferant.",
+      "noSupplier": "ohne Lieferant",
+      "replaceWarning": "Die erfasste Zeile dieser Rechnung und ihr Preis werden durch die Zeilen der Lieferung ersetzt, zu den Preisen des Wareneingangs. Nummer, Daten und Zahlungsart bleiben. | Die {count} erfassten Zeilen dieser Rechnung und ihre Preise werden durch die Zeilen der Lieferung ersetzt, zu den Preisen des Wareneingangs. Nummer, Daten und Zahlungsart bleiben.",
+      "replaceConfirm": "Zeilen ersetzen und verknüpfen",
       "receiptLines": "{n} Zeilen",
       "confirm": "Verknüpfen",
       "linked": "Die Rechnung ist mit der Lieferung verknüpft",
@@ -1600,6 +1735,14 @@
       "noStock": "Die Ware wurde mit dem Wareneingang eingebucht: diese Rechnung bewegt keinen Bestand.",
       "receiptCost": "Wareneingang: {price}",
       "received": "Rechnung empfangen — die Ware kam mit dem Wareneingang"
+    },
+    "receiptOverlap": {
+      "chooseSupplier": "Diese Rechnung nennt keinen Lieferanten. Wählen Sie ihn, und das Verknüpfen trägt ihn auf der Rechnung und dem Wareneingang ein.",
+      "title": "Diese Ware ist vielleicht schon im Bestand",
+      "text": "Für dieselbe Ware gibt es Wareneingänge ohne Rechnung. Wird diese Rechnung so empfangen, kommt die Ware ein zweites Mal in den Bestand.",
+      "link": "Mit der Lieferung verknüpfen",
+      "receiveAnyway": "Trotzdem empfangen",
+      "linked": "Die Rechnung ist mit der Lieferung verknüpft. Prüfen Sie die Preise und empfangen Sie sie dann."
     },
     "stockReceipt": {
       "print": "Wareneingangsschein",
@@ -2028,6 +2171,40 @@
     "incomingInvoice": "Eingangsrechnung",
     "billed": "Abgerechnet",
     "billedBy": "Abgerechnet mit der Eingangsrechnung",
+    "billSupplier": {
+      "title": "Wer hat diese Ware geliefert?",
+      "hint": "Dieser Wareneingang nennt keinen Lieferanten. Die Rechnung lautet auf den gewählten Lieferanten, und der Wareneingang behält ihn.",
+      "confirm": "Rechnung erstellen"
+    },
+    "notBillable": {
+      "receipt_rolled_back": "Dieser Wareneingang wurde mit seinem Dokument zurückgenommen: Die Ware ist wieder abgegangen, und er wird nicht abgerechnet.",
+      "receipt_not_a_delivery": "Dieser Wareneingang ist eine Korrektur oder eine Tagessumme, keine Lieferung eines Lieferanten, und wird nicht abgerechnet.",
+      "receipt_not_completed": "Eine Eingangsrechnung entsteht aus einem abgeschlossenen Wareneingang.",
+      "receipt_not_billable": "Dieser Wareneingang wurde von {number} gebucht, das storniert ist. Er ist keine Lieferung und wird nicht abgerechnet.",
+      "orphan": "Dieser Wareneingang gibt die Ware eines Dokuments zurück, das es nicht mehr gibt. Er ist keine Lieferung und wird nicht abgerechnet.",
+      "receipt_is_reversal": "Dieser Wareneingang gibt die Ware eines entfernten Dokuments zurück. Er ist keine Lieferung und wird nicht abgerechnet."
+    },
+    "refusals": {
+      "transfer_without_from_warehouse": "Eine Umlagerung nimmt Ware aus einem Lager: Wählen Sie auch „Von Lager“. Ware von außen ist ein Zugang.",
+      "adjustment_with_both_warehouses": "Eine Korrektur ändert ein Lager: Wählen Sie „Von Lager“, um Ware abzubuchen, oder „Zu Lager“, um sie zuzubuchen, nicht beides. Ware zwischen Lagern ist eine Umlagerung.",
+      "receipt_rolled_back": "Wareneingang {movementNumber} wurde mit seinem Dokument zurückgenommen: Die Ware ist wieder abgegangen, und er wird nicht abgerechnet.",
+      "bill_foreign_currency": "Diese Rechnung lautet auf {currency}, die Preise der Lieferung auf {baseCurrency}: Eine Rechnung in anderer Währung wird nicht mit einer Lieferung verknüpft.",
+      "receipt_not_a_delivery": "Wareneingang {movementNumber} ist eine Korrektur oder eine Tagessumme, keine Lieferung eines Lieferanten, und wird nicht abgerechnet.",
+      "dispatch_with_to_warehouse": "Ein Abgang nimmt Ware aus einem Lager: Wählen Sie es unter „Von Lager“ und lassen Sie „Zu Lager“ leer.",
+      "receipt_with_from_warehouse": "Ein Zugang bringt Ware in ein Lager: Wählen Sie es unter „Zu Lager“ und lassen Sie „Von Lager“ leer.",
+      "receipt_without_supplier": "Wareneingang {movementNumber} nennt keinen Lieferanten: Wählen Sie ihn.",
+      "supplier_not_found": "Wählen Sie einen Lieferanten dieser Organisation.",
+      "supplier_mismatch": "Die Wareneingänge stammen von einem anderen Lieferanten.",
+      "mixed_suppliers": "Eine Rechnung deckt die Wareneingänge eines Lieferanten ab, diese stammen von verschiedenen.",
+      "receipt_already_billed": "Wareneingang {movementNumber} ist bereits abgerechnet.",
+      "bill_not_empty": "Die Rechnung hat bereits Zeilen. Öffnen Sie sie erneut und bestätigen Sie das Ersetzen.",
+      "bill_on_order": "Die Rechnung gehört zu einer Lieferantenbestellung: Ihre Zeilen buchen die Lieferung auf die Bestellung und können nicht ersetzt werden.",
+      "bill_not_draft": "Die Rechnung ist kein Entwurf mehr.",
+      "bill_already_linked": "Die Rechnung ist bereits mit einer Lieferung verknüpft.",
+      "nothing_to_bill": "Die Wareneingänge enthalten keine abzurechnenden Mengen.",
+      "stock_line_without_warehouse": "Die Bestandszeilen dieser Rechnung nennen kein Lager, die Ware käme nicht in den Bestand. Wählen Sie das Lager auf der Rechnung und empfangen Sie sie dann.",
+      "stock_line_without_product": "Eine Zeile dieser Rechnung hat eine Menge, aber kein Produkt: Sie würde bezahlt, und die Ware käme nie in den Bestand. Wählen Sie das Produkt in der Zeile und empfangen Sie die Rechnung dann."
+    },
     "supply": {
       "reserved": "Reserviert",
       "available": "Verfügbar",
@@ -3885,7 +4062,7 @@
     "fiscalDevices": "Fiskalgeräte",
     "fiscalDevicesHint": "Geräte, die dieser Desktop bedienen darf.",
     "startPath": "Startpfad",
-    "startPathHint": "Wohin „LGR öffnen“ führt, z. B. /pos/ für eine Kasse. Leer bedeutet App-Hub.",
+    "startPathHint": "Wohin „LGR öffnen“ führt, z. B. /invoicing/cash-sales/new für eine Kasse. Leer bedeutet App-Hub.",
     "lastSeen": "Zuletzt gesehen",
     "clock": "Uhr",
     "presence": {

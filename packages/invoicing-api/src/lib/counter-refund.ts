@@ -18,7 +18,7 @@ import { Invoice } from 'db/models'
 import { outstandingOf } from 'services/biz/invoice-payment'
 import { PAYMENT_STORNO } from 'services/biz/cash-register/pos-union'
 import {
-  PAYMENT_IN_PROGRESS, citeableElsewhere, citeableOn, exceedsReceipts, inDoubtRefusal, noReceiptToStorno, onOtherDevice, paymentStornoDocument,
+  PAYMENT_IN_PROGRESS, citeableElsewhere, citeableOn, doubtRefusal, exceedsReceipts, inDoubtRefusal, noReceiptToStorno, onOtherDevice, paymentStornoDocument,
   printsRefund, receiptInDoubt, receiptsOf, refundBacking, refundNeed, runReceiptSteps, type ReceiptTender,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { drawOn, holdEnough } from 'services/biz/cash-register/refund-budget'
@@ -26,8 +26,8 @@ import { receiptMode, type ReceiptMode } from 'services/biz/cash-register/receip
 import {
   RegisterRefusal, insertRegisterDocument, type RegisterContext, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
-import { PRINTER_GATE_SWITCH, STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
-import { finishInterruptedReceipts, settleKeyedReceipt } from './counter-receipt.js'
+import { PRINTER_GATE_SWITCH, STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, finishInterruptedDocuments, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
+import { settleKeyedReceipt } from './counter-receipt.js'
 
 export interface PreparedRefund {
   context: RegisterContext
@@ -50,7 +50,7 @@ async function assertBacked(orgId: string, note: any, amount: number, deviceNumb
   }
   if (holdEnough(need, citeable)) return
   // What is unresolved on the invoice may be the money this needs, and it has a way out of its own.
-  if (backing.doubt) throw new RegisterRefusal(409, inDoubtRefusal(backing.doubt))
+  if (backing.doubt) throw doubtRefusal(backing.doubt)
   if (backing.printing) throw new RegisterRefusal(409, { ...PAYMENT_IN_PROGRESS })
   if (citeable.length) throw exceedsReceipts(citeable, need)
   const elsewhere = citeableElsewhere(backing.cited, deviceNumber)
@@ -84,12 +84,12 @@ export async function prepareRefund(orgId: string, user: RegisterUser & { role?:
 
   // What a request that died left on the invoice comes first: its receipt may have taken that money.
   // It prints nothing, and books nothing it cannot prove.
-  if (note.relatedInvoiceId) await finishInterruptedReceipts(orgId, user, String(note.relatedInvoiceId))
+  if (note.relatedInvoiceId) await finishInterruptedDocuments(orgId, user, String(note.relatedInvoiceId))
 
   // Nothing to reverse, whoever asks and wherever: said before anyone is sent to open a session.
   const backing = await refundBacking(orgId, note)
   if (!backing.cited.length) {
-    if (backing.doubt) throw new RegisterRefusal(409, inDoubtRefusal(backing.doubt))
+    if (backing.doubt) throw doubtRefusal(backing.doubt)
     if (backing.printing) throw new RegisterRefusal(409, { ...PAYMENT_IN_PROGRESS })
     throw noReceiptToStorno()
   }

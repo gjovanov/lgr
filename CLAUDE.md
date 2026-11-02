@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **LGR (Ledger)** is a full-stack multi-tenant ERP system built as a Bun monorepo. Stack: Elysia.js + MongoDB/Mongoose + Vue 3/Vuetify 3 + Pinia.
 
-The system follows a **multi-app architecture** (Google Workspace model): a Portal app handles auth, tenant management, and an App Hub that links to 7 domain app UIs. All APIs run as a **single unified process** on one port, while each domain has its own UI package.
+The system follows a **multi-app architecture** (Google Workspace model): a Portal app handles auth, tenant management, and an App Hub that links to 6 domain app UIs. All APIs run as a **single unified process** on one port, while each domain has its own UI package.
 
 ## Commands
 
@@ -68,16 +68,14 @@ packages/
   ocr-server/          → OCR + AI drafting sidecar (its own Deployment, `Dockerfile.ocr`)
 
   # ── The web app: ONE Vue 3 + Vuetify 3 SPA (FR-24.21) ──
-  web/                 → index.html, main.ts, the router composing every module (router.ts, modules.ts),
+  web/                 → index.html, main.ts, the router composing every module (routes.ts, router.ts, modules.ts),
                          the one shell (OneShell.vue → ui-shell ModuleLayout), stale-build handling (stale.ts)
   # ── UI modules: views, stores and a manifest each (src/manifest.ts); no build of their own ──
   portal-ui/           → Login, register, oauth-callback, app-hub, settings, admin, billing, audit log (routes.ts)
   inventory-ui/        → Products, stock, movements, valuations (/inventory/*)
-  invoicing-ui/        → Contacts, invoices, bills, cash sales, payments (/invoicing/*)
+  invoicing-ui/        → Contacts, invoices, bills, cash sales, payments, and the till (sources in src/pos/):
+                         terminal, sessions, fiscal devices, PIN pad (/invoicing/*)
   accounting-ui/       → 10 accounting views + store
-  (pos)                → POS lives in invoicing-ui/src/pos since FR-24 Phase 0, at /invoicing/pos/*;
-                         /pos/* answers 302 there (desktops hold startPath /pos/). Still its own App Hub
-                         app (pos.read, OrgApp, the PIN scope)
   payroll-ui/          → 5 payroll views + store
   files-ui/            → Document ingest: upload, analyze, commit, reconcile (/files/*)
   reports-ui/          → Report card hub + generic runner + the two moved invoicing report pages (/reports/*)
@@ -102,7 +100,7 @@ All controllers (portal + 7 domains) are mounted in a single Elysia server at `p
 - All routes under `/api` (e.g., `/api/org/:orgId/accounting/accounts`)
 - Serves the built web app (`packages/web/dist`, or a server package's `ui/web`): its files under `/ui/`
 - SPA fallback answers every non-API, non-asset path with its `index.html`: a module's path gets the
-  variant without lgrai.app's analytics tag (FR-24.18), `/pos/*` a 302 to `/invoicing/pos/*`
+  variant without lgrai.app's analytics tag (FR-24.18), `/pos/*` a 302 to the till's pages in Invoicing
 - Swagger docs at `/swagger`
 - WebSocket server for real-time updates
 
@@ -812,13 +810,15 @@ Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models`
 
 ## One app, step by step (FR-24, #402)
 
-`docs/fr/FR-24-one-app.md`. Phase 0 put POS inside invoicing; Phase 1 made every module the same pieces:
+`docs/fr/FR-24-one-app.md`. Phase 0 put POS inside invoicing, and goran's decision then made the till
+part of that module ("The till lives in Invoicing" below); Phase 1 made every module the same pieces:
 - **One app store** (`ui-shared/stores/app.store.ts`, the portal's superset). Each package's
   `store/app.store.ts` only re-exports it. `logout` / `fetchProfile` keep each side's behaviour
   (`onPortal()`): a domain page goes to the portal's sign-in, the portal's router handles its own.
-- **A module is a manifest** (`<pkg>/src/manifest.ts`, POS: `invoicing-ui/src/pos/manifest.ts`;
-  type `ui-shell/module`): id, base, menu (i18n keys, data), routes, `outside` routes, pendingChanges.
-  The one router composes them (`web/src/router.ts`); every module renders in `ui-shell` `<ModuleLayout>`.
+- **A module is a manifest** (`<pkg>/src/manifest.ts`, type `ui-shell/module`): id, base, menu (i18n
+  keys, data), routes, `outside` routes, pendingChanges. A menu entry may carry `when(who)` and a group
+  a `divider`; `visibleMenu` applies them, and drops a group or a divider left with nothing to do.
+  The one router composes them (`web/src/routes.ts`); every module renders in `ui-shell` `<ModuleLayout>`.
 - ⚠ **Paths in routes, menus, breadcrumbs and back-to are relative to the MODULE** (`/orders`), never
   to a router base. `inModule(route, to)` adds the path of the module's shell record (`meta.module`).
   `unit/module-manifests.test.ts` resolves every one of them against its module's own routes.
@@ -830,7 +830,8 @@ Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models`
 - **The one SPA, `packages/web`** (Phase 2; since Phase 3 the ONLY web build, FR-24.21). Its router is
   `portal-ui/src/routes.ts` (the portal's routes and `portalGuard`) plus every manifest (`web/src/modules.ts`)
   under ONE shell record (`OneShell` → `ModuleLayout`), so a move between modules never remounts the layout.
-  One guard: portal rules for portal routes, an org session for a module's.
+  One guard: portal rules for portal routes, an org session for a module's, after the till's rules
+  (`invoicing-ui/src/pos/till-rules.ts#tillRedirect`).
   - Its files are under `/ui/`. Every page gets its `index.html` (`spa-fallback.ts`). `/__ui/one` and
     `/__ui/split`, the Phase 2 switch, now only redirect home and clear the old `lgr_ui` cookie.
   - **Phase 3 deleted the seven split builds** (2026-11-01): each module's `index.html`, `vite.config.ts`,
@@ -846,7 +847,24 @@ Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models`
   - ⚠ Redirects in a manifest go by NAME: a path names a router's base (the products redirect broke in the
     one SPA). `unit/module-manifests.test.ts` refuses a path redirect.
   - Stale code (FR-24.14): `<meta name="lgr-build">` vs the server's `x-lgr-build`; the next move loads the
-    page only when no form is dirty and no printer is held, else the shell offers it (`web/src/stale.ts`).
+    page only when the tab holds no work (a dirty form, a sale in flight, a printer), else the shell offers it
+    (`web/src/stale.ts`).
+  - **A move that fails has one rule, `stale.ts#installChunkRecovery`.** A deploy takes the files of every page
+    a tab has not opened, and only a page load brings the new build, so it loads the page: for a chunk that did not
+    arrive (any engine's wording, and Vite's `Unable to preload CSS`, the first failure a real deploy gives),
+    once per build, with `/api/health` answering, and with no work in the tab. Never for a thrown guard, a bug
+    or an API call. A lazy part of a page comes through `vite:preloadError`, which it never `preventDefault`s.
+    ⚠ Asking the server takes a while, so what decides is read AFTER the wait: the newest failure is the one
+    answered (a ticket per failure, never a latch, which a hung probe would hold), and a page the person reached
+    or a move they started meanwhile stands. The probe has a time limit.
+    ⚠ **"A new version" is the server's to say.** `/api/health` carries `x-lgr-build`, and only a build that differs
+    from the page's offers the reload. A chunk that failed under the same build is a blip: the tab says the page
+    did not load, and the same click may work. Calling that a new version also armed a forced load for the next
+    move. ⚠ A first navigation that fails has nothing on screen: the tab says so (`deadStart`, App.vue), as
+    `index.html` does once its entry's retries are spent, or at once with no storage to count them in.
+  - ⚠ **Two shells trade places in one document** in the one SPA: the portal's layout and `ModuleLayout`. The new
+    one renders before the old one's unmount runs, so a shell-wide slot is set by a setter that returns its own
+    undo, never cleared with `null` (`setRefusalTranslator`).
   - Budget (FR-24.15): `bun run check:web` (CI and the Dockerfile): first-load JS ≤ 360 KB gzipped, no view in
     the entry, the fiscal bridge in one chunk. Read the bridge's status from `fiscalBridgeStatus`, never by
     importing `useFiscalBridge` into the shell's first load.
@@ -911,7 +929,7 @@ The Portal's main authenticated view is the **App Hub** — a grid of available 
 
 **App availability** is determined by:
 1. Org subscription plan (free = 2 apps, starter = 4, professional = all, enterprise = all + priority)
-2. User permissions (user with `accounting.read` sees Accounting app tile)
+2. User permissions (user with `accounting.read` sees Accounting app tile; `pos.read` opens the Invoicing tile too, where the till lives)
 3. Org-level app activation (admin enables/disables apps in settings)
 
 **`APP_REGISTRY`** in `config/` defines metadata for all apps (name, icon, color, path, requiredPermission).
@@ -997,6 +1015,7 @@ Products support custom pricing based on contact tags. Each custom price entry c
 - **Product form "Pricing" tab**: 10-row compact tier table. Always-visible columns: Name / % / Final Price. Filter chips (Contact, Tags, Min Qty, Validity) reveal optional columns. Editing `purchasePrice` cascades into all non-overridden tiers; editing a tier's `finalPrice` sets `manualOverride=true` (shown with lock icon).
 - **Goods-receipt with product update**: `POST /warehouse/movement/with-update` — atomic via Mongo transaction. Updates product fields (purchasePrice, sellingPrice, priceTiers, type, category, unit) AND creates the stock movement in one session. Requires replica set. On failure, transaction aborts → full rollback, no partial state. Audit-log: one entry per product update + one for the movement, correlated by movement id.
 - **Invoice lines**: `priceExplanation: IPriceStep[]` persisted for audit trail (types: `base | category | tag | contact | tier | override`)
+- ⚠ **A price the person typed or picked is pinned, on every document** (`pricePinned`, `PriceCombobox#chosen`), so a resolved one does not come back over it on a quantity edit or a restored draft. `update:modelValue` cannot say so: a resolved price arrives by it too. A draft from before this has no pin, and its trail's `override` step stands in. A change of contact still re-resolves every line.
 - **Backfill**: `bun run scripts/backfill-price-tiers.ts [--execute] [--org slug]` — idempotent, seeds 10 default slots with `percent=0, finalPrice=sellingPrice`, no filters
 
 ---
@@ -2050,14 +2069,17 @@ receives its own goods, so a bill typed in for them booked the stock twice (FR-2
 `services/biz/receipt-bill.service.ts`, routes `/org/:orgId/invoicing/bills/{from-receipt,
 billable-receipts,:id/link-receipts}`.
 
-- „Входяща фактура" on a completed receipt with a supplier makes a DRAFT bill from it (one bill may
+- „Входяща фактура" on a completed receipt makes a DRAFT bill from it (one bill may
   cover several receipts of ONE supplier, D-2). The bill carries `stockSource { marker:
   'movement:<ids>', detectedBy: 'manual' }`, so receive, issue, void and the Files rollback move no
   stock (`movesNoStock`). The receipt's `invoiceId` is the CLAIM, a compare-and-set: a receipt is
   billed once (409), and the product ledger names the bill next to it.
-- ⚠ Void and DELETE of such a bill give the receipts back (`releaseReceiptLinks`, only the claims
-  that bill still holds). A Files rollback of a receipt a live document stands on is blocked — for
-  ANY `stockSource` link (§5.4).
+- ⚠ Void, DELETE and a Files rollback of such a bill give the receipts back (`releaseReceiptLinks`,
+  only the claims that bill still holds). A Files rollback of a receipt a live document stands on is blocked — for
+  ANY `stockSource` link (§5.4). ⚠ DELETE releases BEFORE it deletes: the bill is the only record of
+  the supplier it wrote. A void writes first, so a crash leaves a voided bill listing a receipt it still
+  holds: the next touch of that receipt finishes the release (`finishReleases`: its page, a bill or a
+  link naming it), which is why a GET can write here.
 - ⚠ PUT keeps the bill to what was received (D-2: billed once and whole): every stock-tracked
   quantity must equal the receipts' (422 `receipt_quantity_mismatch`), the supplier cannot change.
   Prices, text and lines that hold no stock (a fee, a service) stay free.
@@ -2065,8 +2087,57 @@ billable-receipts,:id/link-receipts}`.
   equals the receipts' cost (a newer price stays); avgCost and cost layers are never re-costed, and
   posting is unchanged (FR-22's D-2 note).
 - `POST`/`PUT /invoices` strip `stockSource` (Elysia's schema already drops it; this is defence in
-  depth). `link-receipts` takes only an EMPTY draft: lines already on a bill would silently never be
-  received once it is linked.
+  depth). `link-receipts` takes an EMPTY draft, or a draft with lines given `replaceLines: true`
+  (FR-22.32a): lines left on a bill would silently never be received once it is linked. A bill on a
+  supplier order keeps its lines (`bill_on_order`): they book the delivery onto the order. ⚠ A bill
+  in another currency is not linked (`bill_foreign_currency`): the delivery's lines carry costs in the
+  org's. ⚠ The undo after a lost claim holds on the draft still carrying the marker it just wrote: it
+  restores lines read several awaits earlier. ⚠ The audit entry keeps the typed lines and old totals,
+  because the bill no longer does. ⚠ The save before a link sends no `productUpdates`, from lines about
+  to be replaced; „Запази и получи" that ends in the question is the person's own save and does.
+- A receipt with no supplier is billable (FR-22.31a): `from-receipt` takes `contactId`, required
+  then. ⚠ The supplier is written in the claim's own compare-and-set, guarded on the receipt still
+  naming none, never in a second write. ⚠ Releasing the claim takes it off again
+  (`stockSource.supplierGivenTo`): a completed receipt cannot be edited, so a supplier that stayed
+  would refuse every other one for ever. ⚠ Link with the `contactId` the form shows: a saved bill may
+  name someone else, and the receipt would silently take the wrong supplier.
+- ⚠ **No supplier does not mean a delivery**, and linking a real bill to a receipt that is none means
+  the real delivery is never booked. `billingStateOf` keeps out what names nobody: the mirror of a
+  removed document (`(docdelete:`, `reverseMovement`); a no-supplier receipt whose notes mark a
+  correction, a reconcile delta, a day's aggregate or the back half of a transfer or write-off note
+  (`receipt_not_a_delivery`, `config/movement-notes`: ⚠ every writer of those notes imports it, so
+  they cannot drift from the reader); and one whose `invoiceId` names nothing (a claim always writes
+  a supplier, so that was never a claim: it is what a rolled-back till sale leaves). A receipt rolled
+  back with its document stays `completed`, so `reverseMovement` stamps it (`reversedBy`,
+  `receipt_rolled_back`). Own-store and „склад" разписки carry no mark: the dialogs show their notes
+  on the row. ⚠ Neither dialog ever ticks a receipt that names nobody (`preselectedReceipts`).
+- ⚠ **`/receive` leaves draft once**: a compare-and-set on `status: 'draft'` and on `/send`'s lease, and
+  the loser answers 409 `bill_not_draft` with nothing booked. ⚠ What booking refuses is checked before
+  the number is drawn (`stockBookingRefusal`, shared with `createInvoiceStockMovement`).
+- ⚠ **`/receive` and `/send` ask before a bill books goods a receipt may have booked** (FR-22.31c,
+  `receiptsOverlapping`): 409 `receipt_overlap`, answered by `{ acknowledgeOverlap: true }` or by
+  linking. ⚠ It runs BEFORE the issued number is drawn. An API client or script that receives a bill
+  now has to expect this answer; the imports do not get it (`persist.ts`, `bills/import`), so an
+  imported bill can still book goods a receipt booked.
+- ⚠ **A movement's warehouses must fit its type** (FR-22.31b, `config/movement-warehouses`): a
+  `dispatch` never names To, a `receipt` never names From, a `transfer` naming To names From too, and
+  an `adjustment` names one side, because `confirmMovement` ignores `type` and each of those ADDS
+  stock or books it out and straight back. A to-only adjustment stays legal: a count and a true-up write
+  one. ⚠ The rule stands at the doors a user comes through (`POST`, `/with-update`, `PUT`, `/confirm`,
+  `/doc-import/convert`, `/doc-import/commit`), NOT inside `confirmMovement`, which replays what a site
+  already booked (`importMovement`). A new door that confirms a user's draft calls
+  `movementWarehouseRefusal` itself.
+- ⚠ `PUT /warehouse/movement/:id` takes `null` to clear a warehouse or the partner. Left out, it stays:
+  sending `undefined` for an emptied field silently kept the old one.
+- ⚠ The form clears the unused warehouse in the type field's own `update:model-value`, never in a
+  `watch` on `form.type`: loading a movement changes that too, and a booked document would lose a
+  warehouse on screen. A field the type does not use still shows when the movement names one.
+  ⚠ A new movement's To is the form's guess for a receipt (`form.toGuessed`), and goes when the type
+  changes: left there, a write-off typed in the form added stock. A To the person picked stays.
+- ⚠ A fenced or kept import reads a movement with an `invoiceId` as made by its sale, whose import
+  books it again, EXCEPT one that document lists in `stockSource.movementIds`: that document moved
+  nothing, so the goods would vanish. ⚠ Match the pair (`isListedByItsDocument`), never the movement
+  alone: an invoice for a cash sale lists the sale's dispatch, whose `invoiceId` names the sale.
 - ⚠ The warehouse report and the digest date a billed receipt by its OWN date
   (`warehouse-operations.report.ts#EFFECTIVE_DATE`): the bill's issueDate would move the delivery to
   the day its invoice came, and the digest would count it twice.
@@ -2079,8 +2150,9 @@ billable-receipts,:id/link-receipts}`.
   org default; the product-update switch remembered (`lgr:gr-with-update:<user>:<org>`, both via
   `ui-shared/composables/useUserDefaults`); „Запази и потвърди" first; „Наличност" reads the
   destination on a receipt. `useGridNavigation` lives in ui-shared now.
-- Tests: `integration/receipt-bill.flow` (13), `quick-product.flow` (2); walks P2 (17 clicks · 12
-  typed · 0 hops) and P3 (3 · 1 · 1, stock unchanged).
+- Tests: `integration/receipt-bill.flow`, `movement-warehouses.flow`, `quick-product.flow` (2);
+  `e2e/receipt-to-bill.spec`; walks P2 (17 clicks · 12 typed · 0 hops) and P3 (3 · 1 · 1, stock
+  unchanged).
 
 ## Issue, print and get paid on the document (2026-10-26, FR-22 slice 2a: FR-22.16–.22)
 
@@ -2161,6 +2233,117 @@ or cash sale and prints it — one click (P5-invoice 20 → 14 clicks, 2 dialogs
   deal and the 1366 fit; P7-chain issues through ⋮ → „Издай", one click more than the old row icon,
   until the client order links its invoice (FR-22.35).
 
+## The till lives in Invoicing (2026-10-31)
+
+There is no POS app any more. `pos` left `APP_IDS`, `APP_REGISTRY`, `APP_NAV_META` and the App Hub, and
+`pos.*` opens the Invoicing tile (`alsoOpenedBy`). `pos` stays a module, and `pos.*` stay
+permissions. This overrides FR-24's "URLs and the App Hub do not change" for the till. The sources
+stay in `invoicing-ui/src/pos/`, the routes are in `invoicing-ui/src/manifest.ts`, the moves go through
+`goTo`, and the rules are `pos/till-rules.ts`.
+
+| Menu | Path | Route name |
+|---|---|---|
+| Outgoing Documents → CS Terminal | `/invoicing/cash-sales/new` | `invoicing.cash-sales.new` (`PosTerminalView`) |
+| Outgoing Documents → CR Sales | `/invoicing/cash-sales`, `/:id/view` | `invoicing.cash-sales`, `.view` |
+| (a draft from Pending changes) | `/invoicing/cash-sales/draft` | `invoicing.cash-sales.draft` (`CashSaleFormView`) |
+| Outgoing Documents → CR Sessions | `/invoicing/cash-register/sessions` | `pos.sessions` |
+| Configuration → Devices | `/invoicing/configuration/devices[/new\|/:id]` | `pos.devices`, `.new`, `.detail` |
+| (outside the shell) | `/invoicing/pin` | `pos.pin` |
+
+- ⚠ **`/pos/*` still answers, and must.** Tills store `Desktop.startPath: /pos/`, and the shell opens
+  it on the server. `portal-api/src/lib/pos-redirect.ts` is the map, called from `spaErrorHandler`'s
+  NOT_FOUND branch just before the shell is chosen, so `spa-fallback.flow.test.ts` drives it through
+  the real plugins in both static modes. An on-prem master runs the same file.
+  - **302, never 301**, with `no-store`: a browser keeps a permanent redirect, and a rollback has to
+    bring the old app back.
+  - **A relative `Location`**: the desktop's loopback proxy and an org's own address both need it.
+  - **`/pos` or `/pos/…`, never a prefix**: `/posters` is not the POS. A file (`/pos/assets/*`) is a 404.
+  - `/pos/pin` drops `to`: it was relative to the old app.
+- ⚠ **`/invoicing/pos/*` answers too**, in the router: Phase 0 served the till there, so a bookmark, a
+  desktop's start path or a sign-in's return may name it. Named redirects in the manifest, which keep
+  the query, and `pos.terminal`, `pos.orders` and `pos.orders.detail` alive as names.
+  `module-manifests.test.ts` drives them on the real route table and holds them to the server's map.
+- **`meta.till` on a route, `till: true` on its `PageDef`.** That pair is what a PIN session reaches
+  (`canOpenPage`), and the till's pages name the server's permissions (`need`), not the app's: the
+  terminal needs `pos.write`, sessions and devices `pos.read | pos.write`, the journal either side.
+- ⚠ **`canOpenPage` is the one rule for who may open what.** ★, „+ Нов", the menu, `tillRedirect`, the
+  PIN's landing and the org switch's all ask it. `module-manifests.test.ts` is the table: each kind of
+  person, every page, on the real router. It mirrors the server: a page of the app opens for every
+  `invoicing.*`, as the server reads it (`APP_NAV_META.invoicing.reads`); Orders and Contacts for
+  `inventory.*` too, which the server reads them for; Devices for `FISCAL_ADMIN_ROLES` as well
+  (`PageDef.roles`), since the server's rule there is a role. Writes stay the server's.
+- **The Invoicing tile follows the journal**, which the whole app reads: `page-registry.test.ts` holds
+  `APP_REGISTRY.invoicing.alsoOpenedBy` to it. A page opened by another right earns no tile, because
+  the app's home would refuse them.
+- **`isTillOnly`** (`ui-shared/nav/page-registry.ts`): a PIN session, or `pos.*` with no right that
+  opens another page of the app (`invoicing.*`, `inventory.*`). No default role is one today.
+  ⚠ **`readsDocuments` is another question**: whether a session reads `/invoices`. `CashSalesView`
+  drops export, import, print, email and the document page without it. `pos.*` + `inventory.*` is not
+  till-only and still reads no documents.
+- **`tillRedirect` holds the links the menu does not offer.** A till-only session on any other page of
+  the module, and anyone on a till page `canOpenPage` refuses (an accountant's old bookmark of
+  `/cash-sales/new`), go to `tillLanding`: the terminal, or the journal for someone who may only read
+  it (`pos.read`, a PIN of someone without `pos.write`). So does someone with the till on the app's
+  home who cannot read it, which is where the tile leads. Never to a page they cannot use. Someone who
+  may read neither stays: the server answers them. ⚠ The router matches without regard to case, and the
+  registry's paths are lower case: the guard lowers the path before it asks.
+- **The menu's rules are `when`s.** `withTillRules` puts `canOpenPage` on every entry of the invoicing
+  manifest. So an accountant keeps CR Sales and is offered no terminal. „Switch operator" adds its own
+  `when` (`pinShown`).
+- ⚠ **A till sale's row opens on `/view` (`CashRegisterDocument`), for every role** (`journalRoute`): its
+  tender, its stock and its storno chain are there, and the back-office form shows none of them. A
+  back-office sale or an import keeps its document page, `/edit`.
+- ⚠ **The PIN guard is for `meta.till` routes only.** Every other invoicing page keeps the portal's
+  sign-in. `tillRedirect` asks `pinOffered()` first, so a session-less till page costs a request, and
+  three seconds at most: the router waits for it, and no answer is a no. The pad's password link carries `?to=` on as `?next=`, so that way in returns to the page too.
+- ⚠ **A filled cart is asked about, and a sale on its way cannot be left.** The menu, ★, „+ Нов" and Back
+  are a click from the terminal, and the cart lives in the view, so `PosTerminalView` has a leave guard
+  (`leave-cart-dialog`), on update too: `openPage` remounts this page under another address, and no leave
+  guard runs for that. It also counts as work (`registerUnsavedCheck`), so a new build never reloads it away.
+  - **While a sale is on its way** (`selling`) a move is refused: no Leave button, a message that it is
+    printing, and it closes by itself. The person sees how it ended.
+  - ⚠ **A lost answer** (`answerLost`, `isOutcomeUnknown`): the sale may exist. The question says so and
+    sends them to CR Sales first. It never says "not sold yet". ⚠ The idempotency key dies with the view, so
+    someone who leaves and rings the same basket again books a second sale (reproduced): that is what the
+    question is for.
+  - ⚠ **The basket holds still from the moment it is sent until a real answer.** A retry is the same sale
+    only with the same body, and any other body is a new key: that is what keeps „Complete Sale will not ring
+    it up twice" true. So the lines, the method and the receipt type freeze, and with the answer lost the
+    catalog goes and Close Session is off (the key is good for that session only).
+  - **F5, a closed tab, an address typed, the shell's Reload** get the browser's own question while the cart
+    holds lines, those two states included. ⚠ The app's own page loads do not stop at it: a failed move and an
+    org switch both refuse a filled cart first. A line added while a switch is on its way gets past them, and
+    by then the tab's session has left the org the cart was rung in, so nothing is asked (`askBeforeUnload`).
+    A sign-out and a dead session go the same way, unasked.
+- ⚠ **Only the till's views ask for a port, and a page load reopens one anywhere.** Web Serial gives a
+  port to ONE tab. `requestPort`, the browser's picker, is a gesture on the terminal or the device page.
+  The state is a module singleton, so a bridge opened there stays open while the tab moves around, and
+  the shell's chip reads its status (FR-24.17). But the module also reopens a remembered port by itself
+  500 ms after a page load (FR-24.41, `resume`, with no gesture), and `ModuleLayout` imports it, so this
+  runs on any module's page, in every tab of that org: the one that loses gets `port_in_use`, never status
+  `error`. `e2e/tests/till-printer-walk.spec.ts` walks the menu with one up, on a stand-in port
+  (`helpers/fake-serial.ts`), and fails on a page load.
+- **`CashSaleFormView` serves `/cash-sales/:id/edit`, and `/cash-sales/draft` for a draft left on it.**
+  It stood at `/cash-sales/new` until the terminal took that address, and a Pending-changes entry
+  names that route: `tillRedirect` brings `?restore=` to `draft`, ahead of the till's permissions, since
+  the person who wrote it may hold no `pos.*`. Nothing links to it otherwise. ⚠ It is keyed with
+  `useDocumentRouteKey`, as the other document views are: both addresses are one view, and left mounted
+  it showed an open sale's lines under a New title, and Save issued them a second time. The back office's
+  `POST /invoices` for a cash sale stays: the import skills and the tests use it.
+- ⚠ **The till sells past stock by default** (FR-21.16: `allowNegative` comes from an org setting,
+  default allowed), and CS Terminal is the only way to ring up a new cash sale now. The old form's
+  availability check and transfer offer stay with its draft page.
+- ⚠ **A new cash sale has no customer, so customer-aware prices no longer apply by themselves.** The
+  terminal has no contact, so a contact tagged „Цена 4" gets the plain selling price unless the cashier
+  picks the tier. It follows from `/cash-sales/new` being the terminal (goran, 2026-10-31): nobody without
+  `pos.write` starts a new cash sale in the UI either.
+- Moved pages keep their stored state: `LEGACY_PAGE_IDS` remaps ★ and usage counts from `/pos/*` and
+  from Phase 0's `/invoicing/pos/*` (one hop, so each names the final page). A pending change captured
+  under `appId: 'pos'` still restores: `handleRestore` reopens it by route name, and an entry whose name
+  is gone takes the server's 302 by its URL. `/pos` stays a return root (`return-path.ts`). An org's old
+  `OrgApp` row for `pos` is simply never read, whichever way it was set: `pos.*` alone decides who sees
+  the till now.
+
 ## FR-21 — one cash register (#171; R1–R5 on production 2026-10-27)
 
 ⚠ **R2 (#272–#274) is on master since 2026-10-26 and NOT deployed: the next deploy of master ships
@@ -2173,7 +2356,7 @@ it, whoever runs it.** That deploy needs four more steps (handover §5):
 
 FR-21 is Atanas's (@lazarovski) since 2026-10-26: `docs/fr/FR-21-HANDOVER.md` §0.
 
-POS transactions (`/pos/orders`) and cash sales (`/invoicing/cash-sales`) are becoming one
+POS transactions and cash sales (`/invoicing/cash-sales`) are becoming one
 cash-register document. The spec is `docs/fr/FR-21-cash-register-pos-and-cash-sales.md`; #171
 tracks the steps. R1a (the correctness fixes the merge's parity checks depend on) has landed:
 
@@ -2226,8 +2409,8 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
 - **The journal**: `GET /org/:orgId/cash-register/documents` and `/:id`
   (`cash-register/journal.service.ts`), gated on `pos.read || invoicing.read` and readable by a
   PIN till. One component, `ui-shared/components/cash-register/CashRegisterJournal.vue`, is
-  `/pos/orders` and `/invoicing/cash-sales` (route names unchanged); a till row that is not a
-  document yet opens at `invoicing.cash-sales.view`. Its column choices live under ONE grid id
+  `/invoicing/cash-sales`; a till sale's row opens at `invoicing.cash-sales.view`
+  (`till-rules.ts#journalRoute`). Its column choices live under ONE grid id
   (`ListScaffold`'s `gridId` prop), and headers may be `defaultHidden` (`useGridColumns`).
   It also carries #249's invoices for a cash sale: the `invoiced=yes|no` filter (sales only),
   `invoices` and `invoicingState` on document sale rows (`invoicingByCashSale`), the Invoice column and
@@ -2246,10 +2429,11 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
   says `receipt: 'fiscal' | 'text'`. An imported day never joins. Test fixtures: `till-world`'s
   `backOfficeSale` posts as a clerk with no session, `cashierBackOfficeSale` as the till's cashier.
 - **One selling surface** (FR-21.29): `ui-shared/components/cash-register/RegisterTerminal.vue` is
-  the catalog, the cart and the totals of `/pos/terminal` AND `/invoicing/cash-sales/new`; each app
-  hands in its own parts through slots (the till: session, bridge, last sale, payment; the form:
-  header, `PriceCombobox`, notes, receipt, Save). It takes `totals`/`lineGross` as props: ui-shared
-  does not depend on `config`.
+  the catalog, the cart and the totals of the till (`/invoicing/cash-sales/new`) AND of the form a
+  saved sale opens on (`/invoicing/cash-sales/:id/edit`), which a restored draft opens on too
+  (`/invoicing/cash-sales/draft`); each hands in its own parts through slots (the till: session,
+  bridge, last sale, payment; the form: header, `PriceCombobox`, notes, receipt, Save). It takes
+  `totals`/`lineGross` as props, from the door that holds the lines.
 - ⚠ **One totals function** (FR-21.30): a cash sale is totalled with `config/pos-totals#computePosTotals`
   everywhere — the till, the form (`document-payload.ts#computeTotals` branches on `cash_sale`), and
   `POST /invoices`, which refuses a back-office cash sale off by more than 0.02 (422
@@ -2379,20 +2563,45 @@ invoice still due until the courier pays).
   `unknown` and a receipt is held, a counter moved by exactly one included. ⚠ Never bring back "+1 on a
   resume is ours": it recorded a sale under a payment's receipt number, and a storno refunded money with
   no storno on the device. An answer genuinely lost now means a look at the device.
-- **A print that throws in its turn** (`verdictOfFailedPrint`): before the money it is `failed`, ⚠ whatever
-  the counter says, because nothing at those stages can close the document. What an earlier document
-  left open is cleared BEFORE the counter is read (`clearLeftovers`), in the same turn. Whether a real
-  device's 71h numbers a voided receipt is not known. Past the money, +1 is `printed`, and unmoved and
-  idle is `failed`: the receipt is voided with its number (18.5 lists it), no payment, and the document
-  stays as it was; `/payments` answers 503 `fiscal_error`, `/send` 200 with `receiptError`, because issued
-  is issued. ⚠ Anything else is `unknown`: the money stands and it never prints again, because a real
-  receipt voided and printed again is two fiscal receipts for one payment. A driver with no
-  `cancelFiscalReceipt` closes the receipt on failure, and a close that goes through is `unknown`. A driver
-  says how far it got (`stagedPrint`), a storno too; `refused` means it sent nothing, so the device is not
-  marked and nothing is read.
+- **A print that throws in its turn** (`verdictOfFailedPrint`). First what the driver saw:
+  `cancelFiscalReceipt` says `voided`, `finished` or nothing (`AbandonOutcome`). Voided is `failed` at every
+  stage, whatever the counter reads, so whether a real 71h numbers a voided receipt does not matter
+  there. Finished is its fallback closing the receipt: `printed` past the money on +1, otherwise `unknown`,
+  never `failed`. ⚠ **It may say voided only if it SAW a receipt open before it cancelled**: after a close
+  whose answer was lost nothing is open, 3Ch does nothing and the status reads not open, and read as voided
+  that books a real receipt as failed and prints it again. So it reads the open flag first, and not open
+  or unreadable says neither. With no word: before the money it is `failed`, whatever the counter says;
+  past it +1 is `printed`, and unmoved and idle is `failed`: the receipt is voided with its number (18.5
+  lists it), no payment, and the document stays as it was; `/payments` answers 503 `fiscal_error`, `/send`
+  200 with `receiptError`, because issued is issued. ⚠ Anything else is `unknown`: never printed again,
+  because a real receipt voided and printed again is two fiscal receipts for one payment. What an earlier
+  document left open is cleared BEFORE the counter is read (`clearLeftovers`), in the same turn. A driver
+  with no `cancelFiscalReceipt` closes the receipt on failure, and a close that goes through says finished.
+  A driver says how far it got (`stagedPrint`), a storno too; `refused` means it sent nothing, so the device
+  is not marked and nothing is read.
+- ⚠ **`unknown` means a person must look at the device: nothing reads it as `failed` and nothing reads it
+  as `printed`.** A receipt's money stands when its print was in its own turn; a sale's always does (D-4).
+  A storno's never does.
+- ⚠ **A storno that may have printed is held, never voided** (`runStornoSteps`). Only `failed` voids it and
+  gives the sale back. An `unknown` one keeps its claim, books no refund, no stock and no session totals, and
+  answers 409 `storno_in_doubt`, as does every press after it: voided, the next press printed a second
+  fiscal storno. ⚠ The claim (`stornoState: 'full'`, `claimForStorno`) has no lease and nothing lapses it;
+  the lease on the storno document says who is working on that document. A dead storno is found by its
+  lapsed lease, by the sale's next storno and by the close, and a storno in doubt holds the close. It
+  counts nowhere until settled: `posRowSign` and `NOT_UNPROVED_STORNO`, which ⚠ a new reader that sums
+  a storno of either kind must spread, and SUPTO's 18.2, 18.4, 18.5.
+- ⚠ **A fiscal sale still `unknown` or `pending` cannot be stornoed** (409 `sale_receipt_in_doubt`, before the
+  claim): read as not printed it refunds with no storno on the device (#281). A text sale prints nothing
+  to reverse.
+- **The settle door** (`settle.service.ts`, `POST /cash-register/documents/:id/settle`, `STORNO_ROLES`) takes a
+  receipt, a storno and a sale, by the table `FINISHES`; R2's `payment_storno` is one more row. A sale's
+  "printed" needs `receiptNumber` off the slip, because its storno cites it and the drivers refuse one with
+  no digits. A sale's money stands either way. ⚠ Where the device can be asked the door refuses while a
+  receipt is open on it (409 `receipt_open_on_device`): the next document voids it, or finishes it in cash
+  if it took money, which prints it, so nothing is final yet. An X report clears it.
 - **`printed` keeps the error** (`receiptError`): a driver that finishes a part-paid receipt tenders the rest
   in cash, so the device's payment types may differ from the document's.
-- ⚠ **A request that died** (`finishInterruptedReceipt`, which NEVER prints). A lease lapsed is not a
+- ⚠ **A request that died** (`finishInterruptedReceipt`, `finishInterruptedStorno`, which NEVER print). A lease lapsed is not a
   dead request by itself: `keepLease` renews it for as long as a print waits or runs. A dead receipt is
   given up only if it never reached the device, or the device confirms the counter unmoved AND nothing
   open. A moved counter proves nothing, and no device is no proof: such a receipt goes `unknown` +
@@ -2400,12 +2609,13 @@ invoice still due until the courier pays).
   answers 409 `receipt_in_doubt` to payment, edit of the total and void, and a person settles it
   (`POST /cash-register/documents/:id/settle {printed}`, the storno's roles, audited as `settle_receipt`,
   `register.settled`), from the journal. It reaches no device. A keyed retry of the same request may print
-  only when the proof holds on the device it started on (`receiptContext`). ⚠ A settle is durable from its
-  claim, which leaves a lease, so one that stops halfway is finished by the next touch or the close. The
-  doors and the context follow `register.fiscalDeviceNumber`, never the warehouse: it can hold two.
-- **A session cannot close over an unfinished receipt.** The close finishes what it can prove, refuses the
-  rest with 409 `receipts_unfinished` naming them, re-checks once it holds the claim (a receipt checks the
-  session in its turn, so one of them sees the other), and takes `expected` from the claimed session. It
+  only when the proof holds on the device it started on (`documentContext`). ⚠ A settle is durable from its
+  claim, which leaves a lease, so one that stops halfway is finished by the next touch or the close, and
+  whatever finishes it writes the audit row if it is missing. The doors and the context follow
+  `register.fiscalDeviceNumber`, never the warehouse: it can hold two.
+- **A session cannot close over an unfinished receipt or storno.** The close finishes what it can prove,
+  refuses the rest with 409 `receipts_unfinished` naming them, re-checks once it holds the claim (each checks
+  the session in its turn, so one of them sees the other), and takes `expected` from the claimed session. It
   applies to `closeWithoutFiscal` too. `applySessionTotals` never increments a closed session.
 - **`setRegister` and `recordPayment` refuse a voided receipt**, so a live print coming back to a receipt
   given up writes nothing and books nothing.
@@ -2416,8 +2626,16 @@ invoice still due until the courier pays).
 - ⚠ **The freeze and a void are claims, not checks.** `voidingUntil` is the one claim on a document's money,
   taken by `/void` and by attach, lapsing, and honoured in `fitsDue` (`notBeingVoided`), so a payment of any
   method gives way. `/send` and `/void` respect each other's claim. A money-moving `PUT` is a conditional
-  write on no hold, the `amountPaid` it read and no claim. Attach re-reads what got in before its claim:
-  its last step replaces `payments`.
+  write on no hold, the `amountPaid` it read and no claim, and so is the settlement write after it, which
+  reads again once and otherwise leaves the document alone. Attach re-reads what got in before its claim,
+  because its last step replaces `payments`, and pays from the document as claimed.
+- ⚠ **A draft has the same mechanism** (`unclaimedDraft`, `invoice.controller.ts`): its `PUT` and `DELETE` are
+  conditional on still being a draft with no issue under way and no claim. `/send` goes on from what it
+  read, so its claim is a compare-and-set on `updatedAt`: changed since, 409 `document_changed`, nothing
+  moved and no number drawn. Left out, an edit inside `/send` rang one amount and booked another, and bank
+  to cash settled with no receipt. `/receive` honours it too. ⚠ A `DELETE` takes the claim first, releases a
+  bill's receipts, then deletes: the bill is the only record of the supplier it wrote on them, so they go
+  first, and a delete that lost must not have released them.
 - **Whether a COD invoice owes a receipt is a fact of its issue** (`deliveryReceiptOwed`, in the issue's own
   write, never by a client), because an issue can leave no receipt document at all.
 - **What it prints** (`receipt-lines.ts`, pure): a whole payment at issue, the document's lines and
@@ -2489,10 +2707,15 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   (`register.refundClaims`: storno, rate, cents), taken in one conditional update with the check that it
   fits. Not `_id` order: a claim that writes then reads cannot know what is written after its read, so
   two pods could both pass (§7). R3's partial storno feeds it with `takeBudget`.
-- ⚠ **`unknown` on a storno is held, never voided, never printed again.** It keeps its claim and hold,
-  books nothing, and a person settles it. While one is in doubt no other refund by cash or card goes
-  through on that note, even a part that fits: a device must never end up with two. A receipt or a sale
-  that is `unknown` has no budget until a person says.
+- ⚠ **`unknown` on a storno is held (`holdInDoubt`), never voided, never printed again.** It keeps its
+  claim and hold, books nothing, holds the close (`HOLDS_THE_CLOSE`), counts nowhere (`stornoUnproved`,
+  `NOT_UNPROVED_STORNO`), and a person settles it at R1's door. While one is in doubt no other refund by
+  cash or card goes through on that note, even a part that fits: a device must never end up with two.
+- ⚠ **What backs a refund is only what is finished and known to have printed** (`refundBacking`). A receipt
+  held for a person answers 409 `receipt_in_doubt`, a sale in doubt 409 `sale_receipt_in_doubt`, and settled
+  as printed each holds from then on. The door takes the number off the slip for a fiscal receipt too,
+  optionally: with none it stands as printed and its refund goes by bank. A receipt whose `unknown` stands
+  (an in-turn verdict, its money booked) has no door: it holds nothing, 409 `no_receipt_to_storno`.
 - ⚠ **A storno prints on the device that printed its receipt:** the driver names its own fiscal memory.
   Refused otherwise (`receipt_on_other_device`). One storno per receipt a refund draws on, keys
   `<key>#2`, `#3`, so a retry goes on from what printed.
@@ -2503,6 +2726,8 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   on one, for a bank refund too. Before R2 it posted every outgoing document's as money in.
 - Readers: `NOT_PAYMENT_RECEIPT` names both types, `TILL_DOCUMENT_TYPES` and `MONEY_DOCUMENT_TYPES` carry
   it, `refundGaveMoney` says when a session counts it negative. 18.2, 18.4 and 18.5 list it. SUPTO version 3.
+- A Files rollback skips one (`isImmutableRegisterDocument`) and no commit books one: nothing imported prints
+  a refund (`printsRefund`) or has a number to cite. A fenced import books nothing for it (`bookingOf`).
 - Mutation-tested: `integration/cash-invoice-refunds.flow.test.ts`; e2e `cash-invoice-refunds.spec.ts`.
 
 ## An article starts its documents: „Заприходи", „Продай", „Резервирай" (2026-10-26, FR-22.47)
@@ -2714,8 +2939,8 @@ master** (`portal-api/src/controllers/local-auth.controller.ts`).
   to `PIN_SCOPE_ORG`, or a till breaks on it. ⚠ Keep `/auth/switch` out: it would mint a FULL
   session from a PIN session.
 - **The UI** (P1-5b) appears only where `GET /auth/local/methods` says `pin: true`:
-  - The till's `/invoicing/pos/pin` (`PosPinView`) opens when a tab has no session there, and from the POS menu
-    ("Switch operator");
+  - The till's `/invoicing/pin` (`PosPinView`) opens when a tab has no session on one of the till's
+    pages, and from the menu ("Switch operator");
   - a "Till PIN" card under the portal's account (`TillPinCard`, hidden on a 404).
   - ⚠ Those calls use plain `fetch` (`invoicing-ui/src/pos/composables/useTillPin.ts`), never the shared
     HTTP client. They run with no session, or with the last operator's, and the client's 401

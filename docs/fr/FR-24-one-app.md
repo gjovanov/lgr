@@ -90,6 +90,8 @@ N pods             one image, same process, Mongo for what they share
 
 **URLs, route names, API paths, permissions, `OrgApp` activation and the App Hub do not change.** This FR moves code. Apart from the page load going away, a user sees nothing new, and no e2e URL needs editing.
 
+⚠ **The till is the exception, by the owner's decision of 2026-10-31, which overrides the line above for it.** POS stops being an app: its tile leaves the App Hub, `pos.read` opens Invoicing's, and its pages move to `/invoicing/cash-sales/new`, `/invoicing/cash-register/sessions`, `/invoicing/configuration/devices` and `/invoicing/pin`, under Invoicing's menu. `/pos/*` stays a 302 (FR-24.22), to those addresses, and Phase 0's `/invoicing/pos/*` redirects there in the router. See "The till lives in Invoicing" in `CLAUDE.md`.
+
 ## 3. Plan
 
 | # | Phase | Size | What it ships | Rollback |
