@@ -364,12 +364,17 @@ const issueLeaseFree = (now: Date) => ({ $or: [{ 'issue.leaseUntil': null }, { '
 const unclaimedDraft = (now = new Date()) => ({ status: 'draft', $and: [issueLeaseFree(now), notBeingVoided(now)] })
 
 /** Why a claim on this document was refused: who holds it now. `otherwise`: nobody does. */
-async function whoHolds(status: Status, orgId: string, id: string, otherwise?: (doc: any) => Record<string, unknown>) {
+async function holderOf(orgId: string, id: string, otherwise?: (doc: any) => Record<string, unknown>): Promise<Record<string, unknown>> {
   const doc: any = await Invoice.findOne({ _id: id, orgId }, { status: 1, voidingUntil: 1, 'issue.leaseUntil': 1 }).lean().exec()
-  if (doc?.issue?.leaseUntil && new Date(doc.issue.leaseUntil).getTime() >= Date.now()) return status(409, ISSUE_IN_PROGRESS)
-  if (isBeingVoided(doc)) return status(409, { ...DOCUMENT_CLAIMED })
-  return otherwise ? status(409, otherwise(doc)) : receiptPrinting(status, orgId, id)
+  if (doc?.issue?.leaseUntil && new Date(doc.issue.leaseUntil).getTime() >= Date.now()) return ISSUE_IN_PROGRESS
+  if (isBeingVoided(doc)) return { ...DOCUMENT_CLAIMED }
+  if (otherwise) return otherwise(doc)
+  const doubt = await receiptInDoubt(orgId, id)
+  return doubt ? inDoubtRefusal(doubt) : { ...PAYMENT_IN_PROGRESS }
 }
+
+const whoHolds = async (status: Status, orgId: string, id: string, otherwise?: (doc: any) => Record<string, unknown>) =>
+  status(409, await holderOf(orgId, id, otherwise))
 
 /** A draft's write that lost: an issue, a void or an attach holds it, or it is no longer the draft that was read. */
 const draftTaken = (status: Status, orgId: string, id: string) => whoHolds(status, orgId, id, () => ({ ...DOCUMENT_CHANGED }))
@@ -1446,12 +1451,31 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       const replayed = await replayIssue()
       if (replayed) return replayed
     }
-    if (invoice.status !== 'draft') return status(400, { message: 'Invoice is not in draft status' })
+    /**
+     * The dialog draws up the transfers before it issues, and each retry from it draws new ones, so what a
+     * request that will not issue leaves in draft stays in the movements list, and moves goods if somebody
+     * confirms it. ⚠ Only on a refusal that means this request will not issue. Never on `issue_in_progress`,
+     * where the holder may confirm those same ids, nor on the overlap question, whose answer sends them again,
+     * nor any id the document already carries: that one was confirmed for it.
+     */
+    const discardAsked = () => {
+      const carried = ((invoice as any).pendingTransferIds ?? []).map(String)
+      const asked = (body as any)?.pendingTransferIds
+      return discardPendingTransfers(orgId, Array.isArray(asked) ? asked.filter((t: unknown) => !carried.includes(String(t))) : asked)
+    }
+
+    if (invoice.status !== 'draft') {
+      await discardAsked()
+      return status(400, { message: 'Invoice is not in draft status' })
+    }
 
     // FR-20.81 (P3-6d): no issued number while the series waits for a lost site's last numbers.
     // Refused here, before the claim and the dispatch, never at the allocation after them.
     const frozen = await issuableRefusal(orgId, invoice.direction as string, invoice.type as string)
-    if (frozen) return status(409, { code: frozen.code, message: frozen.message })
+    if (frozen) {
+      await discardAsked()
+      return status(409, { code: frozen.code, message: frozen.message })
+    }
 
     // A bill issued here books its goods as `/receive` does, so it answers the same question first.
     const overlap = await receiptsOverlapping(orgId, invoice)
@@ -1465,7 +1489,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       counter = await prepareIssueReceipt(orgId, user, invoice)
     } catch (e: any) {
       if (!(e instanceof RegisterRefusal)) throw e
-      await discardPendingTransfers(orgId, (body as any)?.pendingTransferIds)
+      await discardAsked()
       return status(e.statusCode, e.body)
     }
 
@@ -1490,7 +1514,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         const replayed = await replayIssue()
         if (replayed) return replayed
       }
-      return whoHolds(status, orgId, id, doc => (doc?.status === 'draft' ? { ...DOCUMENT_CHANGED } : ISSUE_IN_PROGRESS))
+      const held = await holderOf(orgId, id, doc => (doc?.status === 'draft' ? { ...DOCUMENT_CHANGED } : ISSUE_IN_PROGRESS))
+      if (held !== ISSUE_IN_PROGRESS) await discardAsked()
+      return status(409, held)
     }
     /** Give the draft back — a failed issue must not leave it claimed. */
     const release = () => Invoice.updateOne({ _id: id, orgId, status: 'draft' }, { $unset: { issue: 1 } }).exec()

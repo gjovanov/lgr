@@ -1282,6 +1282,22 @@ describe('a typed draft bill takes a delivery (FR-22.32a)', () => {
 })
 
 describe('receiving a bill warns before it double-books (FR-22.31c)', () => {
+  it('issued by `/send`, the question leaves the transfers it was sent with: its answer sends them again', async () => {
+    const w = await world()
+    await w.receipt([[w.bolt, 10, 5]])
+    const typed = await w.typedBill([[w.bolt, 10, 5]])
+    const transfer: any = await StockMovement.create({
+      orgId: w.org._id, movementNumber: 'SM-2026-90011', type: 'transfer', status: 'draft', date: new Date(),
+      fromWarehouseId: w.warehouse._id, toWarehouseId: w.warehouse._id, createdBy: w.user._id,
+      lines: [{ productId: w.bolt._id, quantity: 1, unitCost: 1, totalCost: 1 }],
+    })
+
+    const asked = await w.call('POST', `/invoices/${typed.id}/send`, { pendingTransferIds: [String(transfer._id)] })
+
+    expect([asked.status, asked.json.code]).toEqual([409, 'receipt_overlap'])
+    expect((await w.mv(transfer._id)).status).toBe('draft')
+  })
+
   it('names the receipts, books nothing, draws no number, and receives when told to', async () => {
     const w = await world()
     const r = await w.receipt([[w.bolt, 10, 5]])

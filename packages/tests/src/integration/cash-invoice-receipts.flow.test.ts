@@ -6,7 +6,7 @@ import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/ti
 import { gate, until } from '../helpers/receipt-world'
 import { allowSalesWithoutPrinter, createTestAccount, createTestContact } from '../helpers/factories'
 import { captureRejection } from '../helpers/capture-rejection'
-import { AuditLog, FiscalDevice, FiscalPresence, Invoice, Journal, JournalEntry, Org, POSSession, Product, Sequence, StockLevel, StockMovement } from 'db/models'
+import { AuditLog, FiscalDevice, FiscalPresence, Invoice, Journal, JournalEntry, Org, OrgHome, POSSession, Product, Sequence, StockLevel, StockMovement } from 'db/models'
 import { deviceFromCounter, deviceFromDeadReceipt, setFiscalForwarding } from 'fiscal/fiscal-route'
 import { deviceTurn } from 'fiscal/device-turn'
 import { statsController } from 'invoicing-api/src/controllers/stats.controller'
@@ -3698,6 +3698,135 @@ describe('the issue holds its claim until the receipt does (the third read, find
     expect(inv).toMatchObject({ status: 'paid', amountPaid: 24 })
     expect(inv.payments.map((p: any) => p.origin)).toEqual(['cash_on_issue'])
     expect(closed(w)).toHaveLength(0)
+  })
+})
+
+describe('a /send that will not issue leaves no transfer behind (the third read, finding 8)', () => {
+  async function drafted(w: TillWorld) {
+    const m: any = await StockMovement.create({
+      orgId: w.oid, movementNumber: `SM-2026-${Math.floor(Math.random() * 90000) + 10000}`, type: 'transfer', status: 'draft', date: new Date(),
+      fromWarehouseId: w.warehouse._id, toWarehouseId: w.warehouse._id, createdBy: w.user._id,
+      lines: [{ productId: w.product._id, quantity: 1, unitCost: 1, totalCost: 1 }],
+    })
+    return String(m._id)
+  }
+  const stateOf = async (id: string) => ((await StockMovement.findById(id).lean().exec()) as any).status
+  const sendAsking = (w: TillWorld, id: string, ids: string[], extra: Record<string, unknown> = {}) =>
+    w.call('POST', `/invoices/${id}/send`, { pendingTransferIds: ids, ...extra })
+  const claimWrite = (update: any) => !!update?.$set?.issue
+
+  it('a document that changed since it was read: `document_changed`, and the transfer goes', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    const t = await drafted(w)
+    const undo = during(claimWrite, () => w.call('PUT', `/invoices/${d.id}`, { notes: 'edited' }))
+    let r: any
+    try {
+      r = await sendAsking(w, d.id, [t])
+    } finally {
+      undo()
+    }
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('document_changed')
+    expect(await stateOf(t)).toBe('cancelled')
+  })
+
+  it('a void\'s claim on it: `document_claimed`, and the transfer goes', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    const t = await drafted(w)
+    const undo = during(claimWrite, () => Invoice.updateOne({ _id: d.id }, { $set: { voidingUntil: new Date(Date.now() + 60_000) } }))
+    let r: any
+    try {
+      r = await sendAsking(w, d.id, [t])
+    } finally {
+      undo()
+    }
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('document_claimed')
+    expect(await stateOf(t)).toBe('cancelled')
+  })
+
+  it('a frozen series: refused before the claim, and the transfer goes', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    const t = await drafted(w)
+    await OrgHome.create({ orgId: w.oid, home: 'global', seriesFrozen: { since: new Date(), reason: 'restored' } })
+
+    const r = await sendAsking(w, d.id, [t])
+
+    expect(r.status).toBe(409)
+    expect(await stateOf(t)).toBe('cancelled')
+    expect((await raw(d.id)).status).toBe('draft')
+  })
+
+  it('not a draft: refused, and what this request drew up goes, but never an id the document carries', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    const carried = await drafted(w)
+    expect((await sendAsking(w, d.id, [carried])).status).toBe(200)
+    expect(await stateOf(carried)).toBe('completed')
+    // Drawn up for it and never confirmed, as a crash can leave it: still the document's.
+    const notYet = await drafted(w)
+    await Invoice.updateOne({ _id: d.id }, { $set: { pendingTransferIds: [carried, notYet] } })
+    const mine = await drafted(w)
+
+    const r = await sendAsking(w, d.id, [mine, notYet])
+
+    expect(r.status).toBe(400)
+    expect(await stateOf(mine)).toBe('cancelled')
+    expect(await stateOf(notYet)).toBe('draft')
+    expect(await stateOf(carried)).toBe('completed')
+  })
+
+  it('an issue under way may confirm those same ids: `issue_in_progress` leaves them', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    const t = await drafted(w)
+    let inside: any
+    const undo = during(claimWrite, async () => {
+      await Invoice.updateOne({ _id: d.id }, { $set: { 'issue.leaseUntil': new Date(Date.now() + 60_000) } })
+    })
+    try {
+      inside = await sendAsking(w, d.id, [t])
+    } finally {
+      undo()
+    }
+
+    expect(inside.status).toBe(409)
+    expect(inside.json.code).toBe('issue_in_progress')
+    expect(await stateOf(t)).toBe('draft')
+  })
+
+  it('two presses of one dialog: the second is told it is under way, and the first confirms the ids they share', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    const t = await drafted(w)
+    let second: any
+    const undo = during(update => !!update?.$set?.['issue.completedAt'], async () => { second = await sendAsking(w, d.id, [t]) })
+    let first: any
+    try {
+      first = await sendAsking(w, d.id, [t])
+    } finally {
+      undo()
+    }
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(409)
+    expect(second.json.code).toBe('issue_in_progress')
+    expect(await stateOf(t)).toBe('completed')
+  })
+
+  it('a refused print before the claim still cancels them, and a completed one is left alone', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w)
+    const t = await drafted(w)
+    const r = await w.call('POST', `/invoices/${d.id}/send`, { pendingTransferIds: [t] }, undefined, w.clerkToken)
+
+    expect(r.json.code).toBe('fiscal_device_not_connected')
+    expect(await stateOf(t)).toBe('cancelled')
   })
 })
 
