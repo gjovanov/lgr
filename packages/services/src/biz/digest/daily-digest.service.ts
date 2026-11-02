@@ -36,6 +36,7 @@ import {
   readArchiveTriggers, readBackupStatus, readOrgBackupRun, readOrgRestores,
 } from '../backup/backup-status.service.js'
 import { effectiveMethods, bucketFor } from '../reports/sales-history.report.js'
+import { moneySign, signedAmount } from '../money-sign.js'
 import { EFFECTIVE_DATE } from '../reports/warehouse-operations.report.js'
 import { INVOICING_SEQUENCE_KEYS, closedSeriesOf, resolveDefPrefix } from '../sequence-registry.js'
 import { NOT_INVOICE_FOR_CASH_SALE, NOT_PAYMENT_RECEIPT, NOT_UNPROVED_STORNO, printsHere } from '../sale-counting.js'
@@ -125,7 +126,7 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
     const isRegister = d.type === 'cash_sale' || d.type === 'cash_storno'
     if (isRegister && d.status === 'voided') continue
     // FR-23 R2: a credit note's money goes the other way, now that it can have some.
-    const sign = d.type === 'cash_storno' || d.type === 'credit_note' ? -1 : 1
+    const sign = moneySign(d.type)
 
     if (d.direction === 'outgoing' && SALES_TYPES.includes(d.type)) {
       kpis.salesCount++
@@ -162,7 +163,7 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
     { $match: { orgId: org, 'payments.date': { $gte: from, $lte: to }, status: { $ne: 'voided' }, ...NOT_PAYMENT_RECEIPT, ...NOT_UNPROVED_STORNO } },
     { $unwind: '$payments' },
     { $match: { 'payments.date': { $gte: from, $lte: to }, 'payments.origin': { $ne: 'cash_register' } } },
-    { $group: { _id: null, count: { $sum: 1 }, total: { $sum: { $cond: [{ $in: ['$type', ['credit_note', 'cash_storno']] }, { $multiply: ['$payments.amount', -1] }, '$payments.amount'] } } } },
+    { $group: { _id: null, count: { $sum: 1 }, total: { $sum: signedAmount('$payments.amount') } } },
   ]).exec()
 
   kpis.paymentsCount = paid[0]?.count || 0
@@ -298,7 +299,11 @@ async function buildDocuments(orgId: string, date: string): Promise<DigestDocume
     count: list.length,
   })
 
-  const salesFamily = pack(sales, 'sales', DIGEST_CAPS.documents)
+  const salesFamily = {
+    ...pack(sales, 'sales', DIGEST_CAPS.documents),
+    // A credit note's money goes the other way (#447), as in the KPIs' `salesTotal` above: they have to foot.
+    total: round2(sales.reduce((s, r) => s + moneySign(r.type) * (r.total || 0), 0)),
+  }
   const cashFamily = {
     ...pack(cash, 'cash', DIGEST_CAPS.documents),
     // A storno counts against its sale and a voided document counts nothing (FR-21.9); every

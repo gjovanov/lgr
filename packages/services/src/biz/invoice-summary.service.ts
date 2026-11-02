@@ -1,5 +1,6 @@
 import { Invoice } from 'db/models'
 import { NOT_INVOICE_FOR_CASH_SALE, NOT_PAYMENT_RECEIPT, NOT_UNPROVED_STORNO } from './sale-counting.js'
+import { signedAmount } from './money-sign.js'
 
 /**
  * Invoice KPI summary ($facet): outstanding / overdue / paid-30d / drafts.
@@ -52,7 +53,8 @@ export async function getInvoiceSummary(
 
   const since30 = new Date(Date.now() - 30 * 86400000)
   // Outstanding/overdue measure what's still owed; paid measures completed value.
-  const dueAmt = { $sum: { $ifNull: ['$amountDue', '$total'] } }
+  // ⚠ Signed (#447): what a credit note still owes is money going back, and takes from what is owed.
+  const dueAmt = { $sum: signedAmount({ $ifNull: ['$amountDue', '$total'] }) }
   const [res] = await Invoice.aggregate([
     { $match: match },
     {
@@ -74,7 +76,7 @@ export async function getInvoiceSummary(
           {
             $group: {
               _id: null,
-              amount: { $sum: { $cond: [{ $in: ['$type', ['cash_storno', 'credit_note']] }, { $multiply: ['$total', -1] }, '$total'] } },
+              amount: { $sum: signedAmount('$total') },
               count: { $sum: 1 },
             },
           },
