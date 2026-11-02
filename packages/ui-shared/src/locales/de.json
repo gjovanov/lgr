@@ -1127,7 +1127,7 @@
       "holderUnreachable": "Das Fiskalgerät wird von einem anderen Serverprozess gehalten, der gerade nicht erreichbar ist. Nichts wurde geändert. Versuchen Sie es gleich noch einmal.",
       "saleInDoubt": "Nichts kann belegen, ob der Fiskalbeleg dieses Verkaufs gedruckt wurde. Sein Geld bleibt, und sein Storno wartet, bis jemand das Gerät prüft und angibt, was zutrifft.",
       "saleInDoubtRefused": "Nichts kann belegen, ob der Beleg des Verkaufs {number} gedruckt wurde, daher weiß ein Storno nicht, was es rückgängig macht. Nichts wurde rückgängig gemacht. Prüfen Sie das Gerät und klären Sie den Verkauf auf seiner Seite unter Kassenverkäufe.",
-      "saleInProgress": "Dieser Verkauf wird noch erfasst, daher gibt es noch nichts zu stornieren. Nichts wurde storniert. Warten Sie, bis er abgeschlossen ist, und versuchen Sie es erneut.",
+      "saleInProgress": "Dieser Verkauf wird noch erfasst. Nichts wurde geändert. Warten Sie, bis er abgeschlossen ist, und versuchen Sie es erneut.",
       "sessionClosing": "Diese Sitzung wird gerade geschlossen und nimmt nichts Neues mehr an. Nichts wurde gebucht, storniert oder gedruckt. Warten Sie, bis der Abschluss fertig ist, und öffnen Sie dann eine neue Sitzung.",
       "settleConfirmSale": {
         "printed": "Der Beleg ist auf dem Gerät. Geben Sie seine Nummer vom Bon ein: das Storno dieses Verkaufs zitiert sie. Das lässt sich nicht rückgängig machen.",

@@ -37,13 +37,18 @@ export function saleProgress(doc: any, now = Date.now()): 'live' | 'dead' | null
   return new Date(doc.createdAt ?? 0).getTime() < now - LEASE_MS ? 'dead' : 'live'
 }
 
-/** The same, as a filter on a sale: what the settle door claims. */
+/**
+ * The same, as a filter on a sale: what the settle door claims. ⚠ An `unknown` one only with its lease free: a
+ * sale goes `unknown` before its totals and its stock, and a settle landing there ran its steps beside whoever
+ * was finishing it, and dispatched it twice. A lease left by a crash lapses, and then this finds it.
+ */
 export function saleInDoubtFilter(now = new Date()): Record<string, unknown> {
   return {
     type: 'cash_sale',
     'register.isFiscal': true,
     $or: [
-      { 'register.fiscal.state': 'unknown' },
+      { 'register.fiscal.state': 'unknown', leaseUntil: null },
+      { 'register.fiscal.state': 'unknown', leaseUntil: { $lt: now } },
       { 'register.fiscal.state': 'pending', leaseUntil: { $lt: now } },
       { 'register.fiscal.state': 'pending', leaseUntil: null, createdAt: { $lt: new Date(now.getTime() - LEASE_MS) } },
     ],

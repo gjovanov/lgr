@@ -7,6 +7,7 @@ import { createTestAccount, createTestStockLevel, createTestWarehouse } from '..
 import { AuditLog, Invoice, Journal, JournalEntry, Org, POSSession, StockLevel, StockMovement } from 'db/models'
 import { LEASE_MS } from 'services/biz/hot-path-key'
 import { deviceTurn } from 'fiscal/device-turn'
+import { getPrinter } from 'fiscal/fiscal-device.service'
 import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { PENDING_NUMBER, isPendingNumber } from 'services/biz/cash-register/pending-number'
 import { bookedOnItsSession } from 'services/biz/cash-register/register.service'
@@ -418,6 +419,120 @@ describe('a sale not finished holds the close (finding 3)', () => {
     expect((await read(id)).completedAt).toBeTruthy()
     expect((await read(id)).register.fiscalReceiptNumber).toBe(number)
     expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'settle_receipt' })).toBe(1)
+  })
+})
+
+describe('a settle beside whatever is finishing the sale (the fourth read, finding 5)', () => {
+  /** Run `meanwhile` right before the sale's dispatch is looked for, with the lease held by what is finishing it. */
+  function atItsDispatch(id: string, meanwhile: () => Promise<unknown>) {
+    const real = StockMovement.find
+    let done = false
+    ;(StockMovement as any).find = function (filter: any, ...rest: any[]) {
+      if (done || filter?.type !== 'dispatch' || String(filter?.invoiceId) !== id) return (real as any).call(StockMovement, filter, ...rest)
+      done = true
+      return {
+        lean: () => ({
+          exec: async () => {
+            await meanwhile()
+            return (real as any).call(StockMovement, filter, ...rest).lean().exec()
+          },
+        }),
+      }
+    }
+    return () => { (StockMovement as any).find = real }
+  }
+  const dispatches = (w: TillWorld, id: string) => StockMovement.countDocuments({ orgId: w.oid, invoiceId: id, type: 'dispatch' })
+
+  it('the reader\'s run: a settle inside the close\'s finish hears one is finishing it: one dispatch, stock 9', async () => {
+    const w = await tillWorld(app)
+    const id = await deadSale(w, atItsPrint)
+    const number = w.sim!.receipts.at(-1)!.number!
+    let settled: any
+    const undo = atItsDispatch(id, async () => { settled = await settle(w, id, true, number) })
+    let closed: any
+    try {
+      closed = await close(w, 112)
+    } finally {
+      undo()
+    }
+
+    expect(settled.status).toBe(409)
+    expect(settled.json.code).toBe('sale_in_progress')
+    expect(closed.status).toBe(200)
+    expect(await dispatches(w, id)).toBe(1)
+    expect((await w.stock()).quantity).toBe(9)
+    expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 12, difference: 0 })
+
+    // And once that is done a person says, and nothing moves again.
+    expect((await settle(w, id, true, number)).status).toBe(200)
+    expect((await read(id)).register.fiscalReceiptNumber).toBe(number)
+    expect(await dispatches(w, id)).toBe(1)
+    expect((await w.stock()).quantity).toBe(9)
+  })
+
+  it('a settle inside its own request, past its print: the same', async () => {
+    const w = await tillWorld(app)
+    let settled: any
+    const key = 'unknown-and-still-going'
+    w.sim!.dropAfter = 0x38
+    const real = StockMovement.find
+    let done = false
+    ;(StockMovement as any).find = function (filter: any, ...rest: any[]) {
+      if (done || filter?.type !== 'dispatch') return (real as any).call(StockMovement, filter, ...rest)
+      done = true
+      return {
+        lean: () => ({
+          exec: async () => {
+            const sale = await lastSale(w)
+            expect(sale.register.fiscal.state).toBe('unknown')
+            w.sim!.disconnected = false
+            settled = await settle(w, sale._id, false)
+            return (real as any).call(StockMovement, filter, ...rest).lean().exec()
+          },
+        }),
+      }
+    }
+    let r: any
+    try {
+      r = await w.sell(1, {}, key)
+    } finally {
+      ;(StockMovement as any).find = real
+    }
+
+    expect(settled.json.code).toBe('sale_in_progress')
+    expect(r.status).toBe(200)
+    expect((await w.stock()).quantity).toBe(9)
+  })
+
+  it('a lease left by a crash lapses into what a settle can finish', async () => {
+    const w = await tillWorld(app)
+    const id = await deadSale(w, atItsPrint)
+    const number = w.sim!.receipts.at(-1)!.number!
+    // Something took it over, turned it `unknown`, and died there, with its lease still good.
+    await Invoice.updateOne({ _id: id }, { $set: { 'register.fiscal.state': 'unknown', leaseUntil: new Date(Date.now() + 60_000) } })
+
+    const refused = await settle(w, id, true, number)
+    expect(refused.status).toBe(409)
+    expect(refused.json.code).toBe('sale_in_progress')
+    expect((await read(id)).register.settled).toBeUndefined()
+
+    await Invoice.updateOne({ _id: id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+
+    expect((await settle(w, id, true, number)).status).toBe(200)
+    expect((await read(id)).completedAt).toBeTruthy()
+    expect(await dispatches(w, id)).toBe(1)
+    expect((await w.stock()).quantity).toBe(9)
+  })
+
+  it('an `unknown` sale that finished has no lease to wait for', async () => {
+    const w = await tillWorld(app)
+    w.sim!.dropAfter = 0x38
+    const sold = await w.sell(1)
+    w.sim!.disconnected = false
+    expect(sold.json.transaction.fiscal.state).toBe('unknown')
+    await getPrinter(w.deviceId).printDailyXReport()
+
+    expect((await settle(w, sold.json.transaction.id, false)).status).toBe(200)
   })
 })
 

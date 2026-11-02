@@ -37,7 +37,7 @@
 import { AuditLog, Invoice } from 'db/models'
 import { recordAuditEntry } from '../audit-log.service.js'
 import { LEASE_MS, takeLease } from '../hot-path-key.js'
-import { saleInDoubt, saleInDoubtFilter } from './in-doubt.js'
+import { saleInDoubt, saleInDoubtFilter, saleProgress } from './in-doubt.js'
 import { runReceiptSteps } from './payment-receipt.service.js'
 import { PAYMENT_RECEIPT } from './pos-union.js'
 import type { RegisterPrinter } from './printer.js'
@@ -71,6 +71,12 @@ export const RECEIPT_DEVICE_AWAY = {
 export const SETTLE_DEVICE_BUSY = {
   code: 'device_busy',
   message: 'The fiscal device is busy with another document, so it could not be asked. Nothing was changed. Try again in a moment.',
+} as const
+
+/** Somebody is finishing this sale right now. A person can say once that is done. */
+const SALE_BEING_FINISHED = {
+  code: 'sale_in_progress',
+  message: 'This sale is still being rung up. Nothing was changed. Wait for it to finish, then try again.',
 } as const
 
 /**
@@ -321,7 +327,14 @@ export async function settleInDoubt(c: RegisterContext, id: string, answer: Sett
     },
     { new: true },
   ).lean().exec()
-  if (!claimed) return resumeSettled(c, doc, printed)
+  if (!claimed) {
+    const resumed = await resumeSettled(c, doc, printed)
+    if (resumed) return resumed
+    // Whoever holds its lease is finishing it: not "nothing to settle", because in a moment there is.
+    const stands: any = isSale ? await Invoice.findOne({ _id: doc._id, orgId: oid(c.orgId) }).lean().exec() : null
+    if (saleProgress(stands) === 'live') throw new RegisterRefusal(409, { ...SALE_BEING_FINISHED })
+    return null
+  }
   await auditSettlement(c, claimed)
   if (claimed.completedAt) return claimed
   return FINISHES[claimed.type](c, String(claimed._id))
