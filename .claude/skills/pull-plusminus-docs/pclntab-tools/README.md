@@ -48,3 +48,17 @@ here (third-party vendor binary; this repo is public). Pull it fresh with
 (the regal-pz one: agent `$PZ_ROOMLER_AGENT` from `.secrets/plusminus-stores.env`), then `upx -d` it (the public
 [UPX releases](https://github.com/upx/upx/releases)) — it's UPX-packed, 11MB → 27MB
 unpacked. All tools here expect the **unpacked** copy.
+
+## No Go toolchain: `goann.mjs`
+
+`goann.mjs` reads the same unpacked `pmserver.exe` with Node and `llvm-objdump` only. It parses `runtime.pclntab` itself and
+annotates the disassembly (CALL targets become function names, string loads become the string):
+
+```bash
+node goann.mjs pmserver-unpacked.exe funcs '^pmapi\.UserDataAdd$'      # VA, size, name
+node goann.mjs pmserver-unpacked.exe refs   pmapi.UserDataAdd          # who reaches it (a handler is often entered by a CALL into its body)
+node goann.mjs pmserver-unpacked.exe dis    0x1404b0060 0x1404b0da0     # annotated disassembly of a range, or `dis <function name>`
+```
+
+It is how `pmapi.UserDataAdd` was read (see the reference doc, "`userDataAdd`: the eight strings"): the dispatcher's CALL site shows how the
+arguments are unpacked, and the handler's prologue spills each one to a fixed stack slot that the field writes then read back.
