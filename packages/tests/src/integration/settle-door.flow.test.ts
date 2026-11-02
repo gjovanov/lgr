@@ -733,6 +733,19 @@ describe('a number typed off the slip (finding 7)', () => {
         expect((await read(id)).register.fiscalReceiptNumber).toBe('2')
       })
 
+      it('nor is one an invoice for the sale carries, printed', async () => {
+        const w = await tillWorld(app)
+        const { id, theirs } = await typed(w, '2')
+        const contact = await createTestContact(w.oid, { companyName: 'Клиент ООД', type: 'customer' } as any)
+        expect((await w.call('POST', `/invoices/${id}/to-invoice`, { contactId: String(contact._id), issue: false })).status).toBe(200)
+
+        const r = await settle(w, id, true, theirs, CONFIRM)
+
+        expect(r.status).toBe(409)
+        expect(r.json.code).toBe('receipt_number_cited')
+        expect((await read(id)).register.fiscalReceiptNumber).toBe('2')
+      })
+
       it('the rights stay the door\'s', async () => {
         const w = await tillWorld(app)
         const { id, theirs } = await typed(w, '1')

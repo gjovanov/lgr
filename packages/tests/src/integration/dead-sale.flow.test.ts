@@ -4,7 +4,7 @@ import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
 import { draftOf, gate, pay, send, sessionOf, until } from '../helpers/receipt-world'
 import { createTestAccount, createTestStockLevel, createTestWarehouse } from '../helpers/factories'
-import { AuditLog, Invoice, Journal, JournalEntry, Org, POSSession, StockLevel, StockMovement } from 'db/models'
+import { AuditLog, Invoice, Journal, JournalEntry, Org, POSSession, Sequence, StockLevel, StockMovement } from 'db/models'
 import { LEASE_MS } from 'services/biz/hot-path-key'
 import { deviceTurn } from 'fiscal/device-turn'
 import { getPrinter } from 'fiscal/fiscal-device.service'
@@ -717,6 +717,7 @@ describe('the preview says what the close will book, by the function the close b
 describe('a session takes nothing new unless it is open (the fourth read, finding 1)', () => {
   const Z = 0x45
   const closedOnDevice = (w: TillWorld) => w.sim!.receipts.filter(r => !r.voided)
+  const counters = (w: TillWorld) => Sequence.find({ orgId: w.oid }, { _id: 0, prefix: 1, year: 1, lastNumber: 1 }).sort({ prefix: 1, year: 1 }).lean().exec()
   /** A close with its Z held on the device: claimed, its `expected` read, and nothing left but to wait. */
   async function closingInItsZ(w: TillWorld, cash: number) {
     const held = gate()
@@ -744,12 +745,15 @@ describe('a session takes nothing new unless it is open (the fourth read, findin
       const w = await tillWorld(app)
       const z = await closingInItsZ(w, 100)
       const printed = closedOnDevice(w).length
+      const numbers = await counters(w)
 
       const r = await w.sell(1, { nonFiscal })
 
       expect(r.status).toBe(409)
       expect(r.json.code).toBe('session_closing')
       expect(r.json.message).toContain('being closed')
+      // At the door: not even a number. Past it, one that gives way can leave a gap.
+      expect(await counters(w)).toEqual(numbers)
       const done = await z.finish()
       expect(done.status).toBe(200)
       expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_sale' })).toBe(0)
