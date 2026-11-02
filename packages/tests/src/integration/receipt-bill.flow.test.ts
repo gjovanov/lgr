@@ -1281,6 +1281,65 @@ describe('a typed draft bill takes a delivery (FR-22.32a)', () => {
   }, 60_000)
 })
 
+describe('a link and the issue of the same bill (the third read of FR-23)', () => {
+  /** Run `meanwhile` once, right before the write `at` picks. */
+  function beforeWrite(at: (update: any) => boolean, meanwhile: () => Promise<unknown>) {
+    const real = Invoice.findOneAndUpdate
+    let done = false
+    ;(Invoice as any).findOneAndUpdate = function (filter: any, update: any, ...rest: any[]) {
+      if (done || !at(update)) return (real as any).call(Invoice, filter, update, ...rest)
+      done = true
+      const chain = { lean: () => chain, exec: async () => { await meanwhile(); return (real as any).call(Invoice, filter, update, ...rest).lean().exec() } }
+      return chain
+    }
+    return () => { (Invoice as any).findOneAndUpdate = real }
+  }
+
+  it('a link inside a bill\'s `/send`: refused, and what was issued is what was booked', async () => {
+    const w = await world()
+    const delivered = await w.receipt([[w.bolt, 4, 5]])
+    const typed = await w.typedBill([[w.bolt, 2, 5]])
+    let link: any
+    const undo = beforeWrite(update => !!update?.$set?.['issue.completedAt'], async () => { link = await w.linkReceipts(typed, [delivered._id], { replaceLines: true }) })
+    let issued: any
+    try {
+      issued = await w.call('POST', `/invoices/${typed.id}/send`, { acknowledgeOverlap: true })
+    } finally {
+      undo()
+    }
+
+    expect(link.status).toBe(409)
+    expect(issued.status).toBe(200)
+    const bill = await w.load(typed.id)
+    expect(bill.status).toBe('received')
+    expect(bill.stockSource?.marker ?? null).toBeNull()
+    expect(bill.lines.map((l: any) => l.quantity)).toEqual([2])
+    // The two the bill booked, on the four the receipt did. Nothing claims the receipt.
+    expect(await w.stock(w.bolt)).toBe(6)
+    expect((await w.mv(delivered._id)).invoiceId).toBeUndefined()
+  })
+
+  it('a draft nothing has claimed still takes its link', async () => {
+    const w = await world()
+    const delivered = await w.receipt([[w.bolt, 4, 5]])
+    const typed = await w.typedBill([[w.bolt, 2, 5]])
+
+    expect((await w.linkReceipts(typed, [delivered._id], { replaceLines: true })).status).toBe(200)
+  })
+
+  it('a void\'s or a delete\'s claim on it holds the link off too, and one that lapsed does not', async () => {
+    const w = await world()
+    const delivered = await w.receipt([[w.bolt, 4, 5]])
+    const typed = await w.typedBill([[w.bolt, 2, 5]])
+    await Invoice.updateOne({ _id: typed.id }, { $set: { voidingUntil: new Date(Date.now() + 60_000) } })
+
+    expect((await w.linkReceipts(typed, [delivered._id], { replaceLines: true })).status).toBe(409)
+
+    await Invoice.updateOne({ _id: typed.id }, { $set: { voidingUntil: new Date(Date.now() - 1000) } })
+    expect((await w.linkReceipts(typed, [delivered._id], { replaceLines: true })).status).toBe(200)
+  })
+})
+
 describe('receiving a bill warns before it double-books (FR-22.31c)', () => {
   it('issued by `/send`, the question leaves the transfers it was sent with: its answer sends them again', async () => {
     const w = await world()

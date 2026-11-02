@@ -39,6 +39,17 @@ export function isBeingVoided(doc: { voidingUntil?: Date | string | null } | nul
   return !!doc?.voidingUntil && new Date(doc.voidingUntil).getTime() >= now.getTime()
 }
 
+/** No issue is under way on the document: its claim is gone, finished, or lapsed. */
+export const issueLeaseFree = (now: Date) => ({ $or: [{ 'issue.leaseUntil': null }, { 'issue.leaseUntil': { $lt: now } }] })
+
+/**
+ * A draft nothing has claimed: still a draft, no issue under way, no void or attach. ⚠ One mechanism, on
+ * every write that decides on a draft. `/send` reads a draft, claims it, and goes on from what it read:
+ * an edit inside that made the device, the stock and the books disagree, a bank draft edited to cash
+ * settled with no receipt, and a delete left a number drawn and the stock moved with no document.
+ */
+export const unclaimedDraft = (now = new Date()) => ({ status: 'draft', $and: [issueLeaseFree(now), notBeingVoided(now)] })
+
 /**
  * The filter that lets a payment through only while it fits, inside the update: two payments
  * recorded at once each fit what was owed when they were read, and must not overpay it between

@@ -23,7 +23,7 @@ import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { InvoiceWriteLost, createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
 import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement } from 'services/biz/cash-settlement.service'
-import { fitsDue, heldOn, isBeingVoided, notBeingVoided, outstandingOf, paymentPipeline } from 'services/biz/invoice-payment'
+import { fitsDue, heldOn, isBeingVoided, issueLeaseFree, notBeingVoided, outstandingOf, paymentPipeline, unclaimedDraft } from 'services/biz/invoice-payment'
 import {
   DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, inDoubtRefusal, isImportedDocument, owesDeliveryReceipt,
   paymentRefusal, printsOnPayment, receiptFacts, receiptInDoubt,
@@ -351,17 +351,6 @@ async function receiptPrinting(status: Status, orgId: string, id: string) {
   const doubt = await receiptInDoubt(orgId, id)
   return status(409, doubt ? inDoubtRefusal(doubt) : { ...PAYMENT_IN_PROGRESS })
 }
-
-/** No issue is under way on the document: its claim is gone, finished, or lapsed. */
-const issueLeaseFree = (now: Date) => ({ $or: [{ 'issue.leaseUntil': null }, { 'issue.leaseUntil': { $lt: now } }] })
-
-/**
- * A draft nothing has claimed: still a draft, no issue under way, no void or attach. ⚠ One mechanism, on
- * every write that decides on a draft. `/send` reads a draft, claims it, and goes on from what it read:
- * an edit inside that made the device, the stock and the books disagree, a bank draft edited to cash
- * settled with no receipt, and a delete left a number drawn and the stock moved with no document.
- */
-const unclaimedDraft = (now = new Date()) => ({ status: 'draft', $and: [issueLeaseFree(now), notBeingVoided(now)] })
 
 /** Why a claim on this document was refused: who holds it now. `otherwise`: nobody does. */
 async function holderOf(orgId: string, id: string, otherwise?: (doc: any) => Record<string, unknown>): Promise<Record<string, unknown>> {
