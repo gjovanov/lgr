@@ -2514,8 +2514,8 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
 
 ## A fiscal receipt for every payment on an invoice (2026-10-31, FR-23 R1)
 
-Spec: `docs/fr/FR-23-cash-invoice-receipts.md`; §6 lists what the build decided, §7 what R2's did. R3
-(the till's partial storno, #363) is not built.
+Spec: `docs/fr/FR-23-cash-invoice-receipts.md`; §6 lists what the build decided, §7 what R2's did, §8 what R3's did,
+and §9 what the prod sweep changed (#461).
 
 **The invoice is the sale** (Q-1): it moves the stock and posts the revenue, as it always did. A
 `payment_receipt` is the money: an `Invoice` row of its own type, in the register's `CS`/`CSR` series,

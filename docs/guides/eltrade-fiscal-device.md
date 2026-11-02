@@ -58,8 +58,8 @@ Status*.
   receipt number saved on the transaction.
 - If a receipt does not print, the sale is still saved and the cashier sees why (out of paper, not
   in „Регистрация“, …) instead of "Sale completed".
-- **A storno that may have printed** is held: nothing is refunded, and pressing Storno again prints
-  nothing and says so. Check the device, then settle it on its page in the cash-register journal. If a
+- **A payment's receipt or a storno that may have printed** is held: nothing is booked or refunded, and
+  pressing again prints nothing and says so. Check the device, then settle it on its page in the cash-register journal. If a
   receipt is still open on the device, LGR says so first: an X report clears it, and whatever prints
   then has printed. With the device not connected it takes neither answer, because what the device holds
   decides: connect it, or, for a device gone for good, deactivate it on its page, after which your word
