@@ -41,8 +41,8 @@
               {{ $t('pos.close.otherSessionsOpen', { n: preview.openSessionsOnWarehouse }) }}
             </v-alert>
 
-            <!-- FR-23: a session does not close over a receipt nobody finished. The close finishes
-                 what it can prove, so this warns and does not forbid. -->
+            <!-- FR-23: what the close will refuse over: one still running, and one held for a person. What it
+                 finishes first is the next two, and does not stop it. -->
             <v-alert
               v-if="unfinishedReceipts"
               type="warning"
@@ -64,6 +64,19 @@
               data-testid="close-dead-sales"
             >
               {{ $t('pos.close.deadSales', { numbers: deadSales }) }}
+            </v-alert>
+
+            <!-- FR-23: receipts and stornos whose request died. The close finishes them first, and what they took or
+                 gave back counts below. One nothing can prove stops it, for a person to settle. -->
+            <v-alert
+              v-if="deadDocuments"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              data-testid="close-dead-documents"
+            >
+              {{ $t('pos.close.deadDocuments', { numbers: deadDocuments }) }}
             </v-alert>
 
             <!-- FR-23: the last close stopped in its Z. The session is open again, and only the device can say
@@ -265,6 +278,7 @@ function diffClass(method: string): string {
 
 const unfinishedReceipts = computed(() => (preview.value?.unfinishedReceipts ?? []).map((r: any) => r.number ?? r.invoice ?? r.id).join(', '))
 const deadSales = computed(() => (preview.value?.deadSales ?? []).map((s: any) => s.number ?? s.id).join(', '))
+const deadDocuments = computed(() => (preview.value?.deadDocuments ?? []).map((r: any) => r.number ?? r.invoice ?? r.id).join(', '))
 
 async function loadPreview() {
   loadingPreview.value = true

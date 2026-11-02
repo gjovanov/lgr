@@ -9,11 +9,11 @@ import { eventBus } from 'services/events/event-bus'
 import { nextRegistryNumber } from 'services/biz/sequence-registry'
 import { assertDispatchAvailable } from 'services/biz/invoicing.service'
 import { logger } from 'services/logger'
-import { Org, POSSession } from 'db/models'
+import { Invoice, Org, POSSession } from 'db/models'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import {
-  RegisterRefusal, SESSION_CLOSING, insertRegisterDocument, isPendingNumber, releaseOrphanClaimsOfSession, runSaleSteps, saleIncrements, settleKeyedDocument, tillSaleDocument,
+  RegisterRefusal, SESSION_CLOSING, bookedOnItsSession, insertRegisterDocument, isPendingNumber, releaseOrphanClaimsOfSession, runSaleSteps, settleKeyedDocument, tillSaleDocument,
 } from 'services/biz/cash-register/register.service'
 import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
@@ -21,7 +21,7 @@ import { buildSessionReport, formatSessionReport, type SessionReport } from 'ser
 import { fiscalCapabilities } from 'fiscal/capabilities'
 import { DEVICE_REPORT_KINDS, FISCAL_ADMIN_ROLES, printDeviceReport } from 'fiscal/device-command'
 import { fiscalFailure } from 'fiscal/errors'
-import { unfinishedReceipts, unfinishedRefusal } from 'services/biz/cash-register/payment-receipt.service'
+import { interruptedDocuments, unfinishedReceipts, unfinishedRefusal } from 'services/biz/cash-register/payment-receipt.service'
 import { TURN_WAIT_MS, deviceTurn } from 'fiscal/device-turn'
 import { REPORT_MAX_MS } from 'fiscal/eltrade'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
@@ -81,12 +81,15 @@ const CLOSE_INTERRUPTED = {
   message: 'The last close of this session stopped during its Z-report, which may have printed, and the session is open again. Check the device. If the Z-report printed, close without a fiscal report (a manager can). If it did not, close again.',
 } as const
 
-/** The session as the close will read it: what a sale whose request died books before it reads `expected`. */
-function withDeadSales(session: any, dead: any[]): any {
+/** The session as the close will read it: what it finishes first books, before it reads `expected`. */
+async function withWhatTheCloseBooks(session: any, finishing: any[]): Promise<any> {
+  const stornoed = finishing.filter(doc => doc.type === 'cash_storno').map(doc => doc.relatedInvoiceId)
+  const originals = new Map((stornoed.length ? await Invoice.find({ _id: { $in: stornoed } }, { total: 1 }).lean().exec() : []).map((o: any) => [String(o._id), o]))
   const out = { ...session }
-  for (const doc of dead) {
-    if (doc.register?.sessionTotalsApplied) continue
-    for (const [bucket, amount] of Object.entries(saleIncrements(doc))) out[bucket] = (Number(out[bucket]) || 0) + amount
+  for (const doc of finishing) {
+    for (const [bucket, amount] of Object.entries(bookedOnItsSession(doc, originals.get(String(doc.relatedInvoiceId))) ?? {})) {
+      out[bucket] = (Number(out[bucket]) || 0) + amount
+    }
   }
   return out
 }
@@ -526,19 +529,23 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       orgId, warehouseId: session.warehouseId, status: 'open', _id: { $ne: id },
     }).exec()
 
-    // ⚠ The same story as the close, which finishes a sale whose request died before it reads `expected`. A
-    // GET writes nothing, so it adds what that would book, and says which sales they are.
+    // ⚠ The same story as the close, which finishes what a request that died left before it reads `expected`.
+    // A GET writes nothing, so it adds what that would book, by the function that books it, and says which
+    // they are. What is left is what the close will refuse over: one still running, and one held for a person.
     const unfinished = await unfinishedReceipts(orgId, id)
     const dead = unfinished.filter(doc => saleProgress(doc) === 'dead')
+    const interrupted = await interruptedDocuments(orgId, { sessionId: id })
+    const finishes = new Set([...dead, ...interrupted].map(doc => String(doc._id)))
 
     return {
-      expected: expectedTotals(withDeadSales(session, dead)),
+      expected: expectedTotals(await withWhatTheCloseBooks(session, [...dead, ...interrupted])),
       currency: session.currency,
       // What the session sold so far, as its report will print it at close.
       report: buildSessionReport(session, await loadPosRows({ orgId, sessionId: id, withReceipts: true })),
       openSessionsOnWarehouse: openOnWarehouse,
-      unfinishedReceipts: unfinishedRefusal(unfinished.filter(doc => !dead.includes(doc))).receipts,
+      unfinishedReceipts: unfinishedRefusal(unfinished.filter(doc => !finishes.has(String(doc._id)))).receipts,
       deadSales: dead.map(doc => ({ id: String(doc._id), number: isPendingNumber(doc.invoiceNumber) ? null : doc.invoiceNumber })),
+      deadDocuments: unfinishedRefusal(interrupted).receipts,
       fiscalDevice: device
         ? { id: device.id, name: device.name, deviceNumber: device.deviceNumber, connected: isDeviceConnected(device.id) || !!(await livePresence({ orgId, deviceNumber: String(device.deviceNumber) })) }
         : null,

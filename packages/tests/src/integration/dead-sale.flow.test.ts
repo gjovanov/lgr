@@ -2,13 +2,14 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, spyOn } from 'bun
 import { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
-import { gate, sessionOf, until } from '../helpers/receipt-world'
+import { draftOf, gate, pay, send, sessionOf, until } from '../helpers/receipt-world'
 import { createTestAccount, createTestStockLevel, createTestWarehouse } from '../helpers/factories'
 import { AuditLog, Invoice, Journal, JournalEntry, Org, POSSession, StockLevel, StockMovement } from 'db/models'
 import { LEASE_MS } from 'services/biz/hot-path-key'
 import { deviceTurn } from 'fiscal/device-turn'
 import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { PENDING_NUMBER, isPendingNumber } from 'services/biz/cash-register/pending-number'
+import { bookedOnItsSession } from 'services/biz/cash-register/register.service'
 import { postPosSessionJournal } from 'services/events/handlers'
 
 /**
@@ -417,6 +418,168 @@ describe('a sale not finished holds the close (finding 3)', () => {
     expect((await read(id)).completedAt).toBeTruthy()
     expect((await read(id)).register.fiscalReceiptNumber).toBe(number)
     expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'settle_receipt' })).toBe(1)
+  })
+})
+
+describe('the preview says what the close will book, by the function the close books with (the fourth read, finding 4)', () => {
+  /** The write `at` picks never lands, and the lease on what that left has lapsed. */
+  async function stopsAt(at: (update: any) => boolean, run: () => Promise<any>, of: () => Promise<any>) {
+    const undo = diesAt(at)
+    try {
+      expect((await run()).status).toBe(500)
+    } finally {
+      undo()
+    }
+    const doc = await of()
+    expect(doc.completedAt).toBeUndefined()
+    await Invoice.updateOne({ _id: doc._id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+    return String(doc._id)
+  }
+  const lastOf = (w: TillWorld, type: string): Promise<any> => Invoice.findOne({ orgId: w.oid, type }).sort({ _id: -1 }).lean().exec()
+
+  it('a receipt that printed and stopped before its totals: the prefilled count is what the close expects, and the difference is 0', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    const id = await stopsAt(atItsTotals, () => pay(w, d.id, 24), () => lastOf(w, 'payment_receipt'))
+    expect((await read(id)).register.fiscal.state).toBe('printed')
+
+    const shown = await preview(w)
+
+    expect(shown.json.expected.cash).toBe(124)
+    expect(shown.json.report.total).toBe(24)
+    expect(shown.json.unfinishedReceipts).toEqual([])
+    expect(shown.json.deadDocuments).toEqual([expect.objectContaining({ id, kind: 'payment' })])
+    // A GET writes nothing.
+    expect((await sessionOf(w)).totalCash).toBe(0)
+
+    const closed = await close(w, shown.json.expected.cash)
+
+    expect(closed.status).toBe(200)
+    expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 24, expectedBalance: 124, difference: 0 })
+    expect((await read(id)).completedAt).toBeTruthy()
+  })
+
+  it('a storno that printed and stopped before its totals: the same', async () => {
+    const w = await tillWorld(app)
+    const saleId = String((await w.sell(1)).json.transaction.id)
+    const id = await stopsAt(atItsTotals, () => w.storno(saleId), () => lastOf(w, 'cash_storno'))
+    expect((await read(id)).register.fiscal.state).toBe('printed')
+
+    const shown = await preview(w)
+
+    expect(shown.json.expected.cash).toBe(100)
+    expect(shown.json.report.total).toBe(0)
+    expect(shown.json.unfinishedReceipts).toEqual([])
+    expect(shown.json.deadDocuments).toEqual([expect.objectContaining({ id, kind: 'storno' })])
+    expect((await sessionOf(w)).totalCash).toBe(12)
+
+    const closed = await close(w, shown.json.expected.cash)
+
+    expect(closed.status).toBe(200)
+    expect(await sessionOf(w)).toMatchObject({ status: 'closed', totalCash: 0, totalReturns: 12, expectedBalance: 100, difference: 0 })
+  })
+
+  it('a storno of a text sale, with nothing to print: the same', async () => {
+    const w = await tillWorld(app)
+    const saleId = String((await w.sell(1, { nonFiscal: true })).json.transaction.id)
+    await stopsAt(atItsTotals, () => w.storno(saleId), () => lastOf(w, 'cash_storno'))
+
+    const shown = await preview(w)
+
+    expect(shown.json.expected.cash).toBe(100)
+    expect((await close(w, shown.json.expected.cash)).status).toBe(200)
+    expect(await sessionOf(w)).toMatchObject({ status: 'closed', expectedBalance: 100, difference: 0 })
+  })
+
+  it('one that stopped after its totals is in the session already, and is not added twice', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    await stopsAt(update => !!update?.$set?.completedAt, () => pay(w, d.id, 24), () => lastOf(w, 'payment_receipt'))
+    expect((await sessionOf(w)).totalCash).toBe(24)
+
+    const shown = await preview(w)
+
+    expect(shown.json.expected.cash).toBe(124)
+    expect((await close(w, shown.json.expected.cash)).status).toBe(200)
+    expect((await sessionOf(w)).difference).toBe(0)
+  })
+
+  it('a receipt that never reached the device takes nothing, and the close gives it up: named, and not added', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    const id = await stopsAt(atItsAttempt, () => pay(w, d.id, 24), () => lastOf(w, 'payment_receipt'))
+
+    const shown = await preview(w)
+
+    expect(shown.json.expected.cash).toBe(100)
+    expect(shown.json.unfinishedReceipts).toEqual([])
+    expect(shown.json.deadDocuments).toEqual([expect.objectContaining({ id })])
+    expect((await close(w, 100)).status).toBe(200)
+    expect((await read(id)).status).toBe('voided')
+    expect((await sessionOf(w)).difference).toBe(0)
+  })
+
+  it('one nothing can prove: named as one the close will look at, it holds the close, and then it is one that holds it', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    // It reached the device and its answer never came back to anyone.
+    const id = await stopsAt(atItsPrint, () => pay(w, d.id, 24), () => lastOf(w, 'payment_receipt'))
+    expect((await read(id)).register.fiscal.state).toBe('pending')
+
+    const shown = await preview(w)
+    expect(shown.json.expected.cash).toBe(100)
+    expect(shown.json.deadDocuments).toEqual([expect.objectContaining({ id })])
+    expect(shown.json.unfinishedReceipts).toEqual([])
+
+    const refused = await close(w, 100)
+    expect(refused.status).toBe(409)
+    expect(refused.json.code).toBe('receipts_unfinished')
+
+    const again = await preview(w)
+    expect(again.json.deadDocuments).toEqual([])
+    expect(again.json.unfinishedReceipts).toEqual([expect.objectContaining({ id, inDoubt: true })])
+  })
+
+  it('one still running is no business of the preview\'s figures: it holds the close, and it is said so', async () => {
+    const w = await tillWorld(app)
+    const held = gate()
+    w.sim!.beforeCommand = cmd => (cmd === 0x38 ? held.closed : undefined)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    const paying = pay(w, d.id, 24)
+    await until(() => w.sim!.receipt?.payments.length === 1, 'the receipt to take its money')
+
+    const shown = await preview(w)
+
+    expect(shown.json.expected.cash).toBe(100)
+    expect(shown.json.deadDocuments).toEqual([])
+    expect(shown.json.unfinishedReceipts).toEqual([expect.objectContaining({ kind: 'payment' })])
+    w.sim!.beforeCommand = null
+    held.open()
+    expect((await paying).status).toBe(200)
+  })
+
+  it('what a sale, a receipt and a storno book is one function, read by the preview and by the steps', () => {
+    const payments = [{ method: 'cash', amount: 12 }]
+    const reg = (fiscal: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ fiscal, ...extra })
+    const sale = { type: 'cash_sale', total: 12, payments, register: reg({ state: 'pending' }) }
+    const receipt = (state: string, extra = {}) => ({ type: 'payment_receipt', total: 24, payments: [{ method: 'cash', amount: 24 }], register: reg({ state }, extra) })
+    const storno = (state: string) => ({ type: 'cash_storno', total: 12, payments, register: reg({ state }) })
+
+    expect(bookedOnItsSession(sale)).toMatchObject({ totalCash: 12, totalSales: 12, transactionCount: 1 })
+    expect(bookedOnItsSession(receipt('printed'))).toMatchObject({ totalCash: 24 })
+    expect(bookedOnItsSession(receipt('unknown'))).toMatchObject({ totalCash: 24 })
+    for (const state of ['pending', 'failed']) expect(bookedOnItsSession(receipt(state))).toBeNull()
+    expect(bookedOnItsSession(receipt('unknown', { inDoubt: undefined }))).toMatchObject({ totalCash: 24 })
+    expect(bookedOnItsSession({ ...receipt('unknown'), register: { fiscal: { state: 'unknown', inDoubt: true } } })).toBeNull()
+    expect(bookedOnItsSession(receipt('printed', { sessionTotalsApplied: true }))).toBeNull()
+    expect(bookedOnItsSession({ ...receipt('printed'), status: 'voided' })).toBeNull()
+    for (const state of ['printed', 'none']) expect(bookedOnItsSession(storno(state), { total: 12 })).toMatchObject({ totalCash: -12, totalReturns: 12, transactionCount: 1 })
+    for (const state of ['pending', 'unknown', 'failed']) expect(bookedOnItsSession(storno(state), { total: 12 })).toBeNull()
   })
 })
 

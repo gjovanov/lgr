@@ -821,6 +821,7 @@
       "receiptOpenTitle": "Die Sitzung bleibt geöffnet",
       "receiptOpen": "Auf diesem Gerät wird gerade ein Verkauf gedruckt. Warten Sie, bis er fertig ist, und schließen Sie dann erneut ab.",
       "deadSales": "Die Verkäufe {numbers} wurden vor ihrem Abschluss unterbrochen, und nichts kann sagen, ob ihre Belege gedruckt wurden. Ihr Geld zählt hier zum Erwartungswert: Der Abschluss bucht es. Prüfen Sie das Gerät und klären Sie dann jeden unter „Kassenverkäufe“.",
+      "deadDocuments": "{numbers} wurden vor ihrem Abschluss unterbrochen. Der Abschluss stellt sie zuerst fertig: Was sie eingenommen oder zurückgegeben haben, zählt hier zum Erwartungswert. Ein Dokument, das nichts beweisen kann, hält den Abschluss an, bis eine Person es klärt.",
       "interruptedTitle": "Der letzte Abschluss wurde während des Z-Berichts unterbrochen",
       "interrupted": "Der Z-Bericht wurde möglicherweise gedruckt, und die Sitzung ist wieder offen. Prüfen Sie das Gerät. Wurde der Z-Bericht gedruckt, schließen Sie ohne Fiskalbericht ab (das kann ein Manager). Wenn nicht, schließen Sie erneut ab.",
       "closeAgain": "Diese Sitzung erneut abschließen",

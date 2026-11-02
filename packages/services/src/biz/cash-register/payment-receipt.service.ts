@@ -61,8 +61,8 @@ import type { RegisterPrinter } from './printer.js'
 import type { ReceiptBody } from './receipt-lines.js'
 import { receiptMode } from './receipt-mode.js'
 import {
-  RegisterRefusal, applySessionTotals, couldNotPrint, decideInterrupted, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, rollBack,
-  saleIncrements, setRegister, type RegisterContext, type RegisterSession, type RegisterUser,
+  RegisterRefusal, applySessionTotals, bookedOnItsSession, couldNotPrint, decideInterrupted, holdInDoubt, inTurn, isPendingNumber, numberPending, printSaleStep, rollBack,
+  setRegister, type RegisterContext, type RegisterSession, type RegisterUser,
 } from './register.service.js'
 
 type ObjectId = InstanceType<typeof Invoice.base.Types.ObjectId>
@@ -531,8 +531,9 @@ export async function runReceiptSteps(c: RegisterContext, id: string, opts: { ne
     doc = numbered
   }
   const sessionId = doc.register?.sessionId ? String(doc.register.sessionId) : undefined
-  if (sessionId && !doc.register?.sessionTotalsApplied) {
-    await applySessionTotals(doc, sessionId, saleIncrements(doc))
+  const booked = bookedOnItsSession(doc)
+  if (sessionId && booked) {
+    await applySessionTotals(doc, sessionId, booked)
     doc = await Invoice.findById(doc._id).lean().exec()
   }
   await recordPayment(c, doc)

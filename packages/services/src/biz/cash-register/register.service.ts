@@ -45,6 +45,7 @@ import { exchangeRateFor, fromPosTransaction } from './mapping.js'
 import { unitsOf } from './copy.js'
 import type { RegisterPrinter } from './printer.js'
 import { saleInDoubt, saleProgress } from './in-doubt.js'
+import { UNPROVED_STORNO_STATES } from './counting.js'
 import { provedNotPrinted, verdictOfFailedPrint } from './print-verdict.js'
 import { PENDING_NUMBER, isPendingNumber } from './pending-number.js'
 
@@ -570,6 +571,40 @@ export function saleIncrements(doc: any): Record<string, number> {
   return inc
 }
 
+/**
+ * H1 + #145: the refund leaves the drawer by the method it is paid out in, so the close screen expects what is
+ * actually left: the same buckets as a sale, reversed. The storno's payments are the refund: the operator's, or
+ * what the sale kept (cash tendered minus its change).
+ */
+function stornoIncrements(doc: any, original: any): Record<string, number> {
+  const refund = stornoRefundBuckets(doc.payments, {})
+  const inc: Record<string, number> = { totalReturns: Number(original?.total) || 0, transactionCount: 1 }
+  if (refund.cash) inc.totalCash = -refund.cash
+  if (refund.card) inc.totalCard = -refund.card
+  if (refund.other) inc.totalOther = -refund.other
+  if (refund.cashOnDelivery) inc.totalCashOnDelivery = -refund.cashOnDelivery
+  return inc
+}
+
+/**
+ * What a document books on its session, as it stands now, or null when it books nothing. ⚠ One function, read
+ * by the steps that book it and by the close's preview, which writes nothing and has to say what the close
+ * will do: its count is prefilled from that, and read as anything else the drawer closed short or over.
+ *  - **A sale:** always. Its money stands (D-4).
+ *  - **A receipt:** once it printed or may have, in its own turn. Still `pending` it books nothing whoever
+ *    finishes it: that gives it up or holds it. `failed` is given up, and one in doubt is a person's.
+ *  - **A storno:** once it printed, or had nothing to print. `unknown` is held, and `failed` is voided.
+ */
+export function bookedOnItsSession(doc: any, original?: any): Record<string, number> | null {
+  const reg = doc.register
+  if (reg?.sessionTotalsApplied || doc.status === 'voided' || reg?.fiscal?.inDoubt) return null
+  const state = reg?.fiscal?.state
+  if (doc.type === 'cash_sale') return saleIncrements(doc)
+  if (doc.type === 'payment_receipt') return state === 'pending' || state === 'failed' ? null : saleIncrements(doc)
+  if (doc.type === 'cash_storno') return UNPROVED_STORNO_STATES.includes(String(state)) ? null : stornoIncrements(doc, original)
+  return null
+}
+
 /** The document as `createInvoiceStockMovement` reads an invoice: an entity, with `id`. */
 // A sale numbered after its stock (#279) still holds its placeholder here: the stock path's messages
 // quote `invoiceNumber || id`, so they name the id rather than `~pending:…`.
@@ -688,8 +723,9 @@ export async function runSaleSteps(c: RegisterContext, id: string, opts: { finis
   }
 
   const sessionId = doc.register?.sessionId ? String(doc.register.sessionId) : c.session?.id
-  if (sessionId && !doc.register?.sessionTotalsApplied) {
-    await applySessionTotals(doc, sessionId, saleIncrements(doc))
+  const booked = bookedOnItsSession(doc)
+  if (sessionId && booked) {
+    await applySessionTotals(doc, sessionId, booked)
     doc = await Invoice.findById(doc._id).lean().exec()
   }
 
@@ -1237,17 +1273,9 @@ export async function runStornoSteps(c: RegisterContext, id: string): Promise<an
   }
 
   const sessionId = doc.register?.sessionId ? String(doc.register.sessionId) : undefined
-  if (sessionId && !doc.register?.sessionTotalsApplied) {
-    // H1 + #145: the refund leaves the drawer by the method it is paid out in, so the close screen
-    // expects what is actually left — the same buckets as a sale, reversed. The storno's payments
-    // are the refund: the operator's, or what the sale kept (cash tendered minus its change).
-    const refund = stornoRefundBuckets(doc.payments, {})
-    const inc: Record<string, number> = { totalReturns: Number(original.total) || 0, transactionCount: 1 }
-    if (refund.cash) inc.totalCash = -refund.cash
-    if (refund.card) inc.totalCard = -refund.card
-    if (refund.other) inc.totalOther = -refund.other
-    if (refund.cashOnDelivery) inc.totalCashOnDelivery = -refund.cashOnDelivery
-    await applySessionTotals(doc, sessionId, inc)
+  const booked = bookedOnItsSession(doc, original)
+  if (sessionId && booked) {
+    await applySessionTotals(doc, sessionId, booked)
     doc = await Invoice.findById(doc._id).lean().exec()
   }
 
