@@ -32,7 +32,7 @@
  *    so nothing is stuck.
  * A text document is none of this: the device holds no money on one.
  *
- * R2's `payment_storno` joins `FINISHES`, and needs nothing else here.
+ * R2's `payment_storno` joins `FINISHES`.
  */
 import { AuditLog, Invoice } from 'db/models'
 import { recordAuditEntry } from '../audit-log.service.js'

@@ -2570,7 +2570,8 @@ invoice still due until the courier pays).
   never `failed`. ⚠ **It may say voided only if it SAW a receipt open before it cancelled**: after a close
   whose answer was lost nothing is open, 3Ch does nothing and the status reads not open, and read as voided
   that books a real receipt as failed and prints it again. So it reads the open flag first, and not open
-  or unreadable says neither. With no word: before the money it is `failed`, whatever the counter says;
+  or unreadable says neither. ⚠ And only of a receipt THIS document opened (`this.receipt`, which only speaks for this
+  turn): a leftover its 90h was refused over, finished by its fallback, booked a payment the device never saw. With no word: before the money it is `failed`, whatever the counter says;
   past it +1 is `printed`, and unmoved and idle is `failed`: the receipt is voided with its number (18.5
   lists it), no payment, and the document stays as it was; `/payments` answers 503 `fiscal_error`, `/send`
   200 with `receiptError`, because issued is issued. ⚠ Anything else is `unknown`: never printed again,
@@ -2585,20 +2586,33 @@ invoice still due until the courier pays).
 - ⚠ **A storno that may have printed is held, never voided** (`runStornoSteps`). Only `failed` voids it and
   gives the sale back. An `unknown` one keeps its claim, books no refund, no stock and no session totals, and
   answers 409 `storno_in_doubt`, as does every press after it: voided, the next press printed a second
-  fiscal storno. ⚠ The claim (`stornoState: 'full'`, `claimForStorno`) has no lease and nothing lapses it;
-  the lease on the storno document says who is working on that document. A dead storno is found by its
-  lapsed lease, by the sale's next storno and by the close, and a storno in doubt holds the close. It
-  counts nowhere until settled: `posRowSign` and `NOT_UNPROVED_STORNO`, which ⚠ a new reader that sums
-  `cash_storno` must spread, and SUPTO's 18.2, 18.4, 18.5.
-- ⚠ **A fiscal sale still `unknown` or `pending` cannot be stornoed** (409 `sale_receipt_in_doubt`, before the
-  claim): read as not printed it refunds with no storno on the device (#281). A text sale prints nothing
-  to reverse.
+  fiscal storno. ⚠ The claim (`stornoState: 'full'`, `claimForStorno`) has no lease of its own; the lease on the
+  storno document says who is working on that document. Only a claim whose storno was never written lapses, by
+  its age, id by id (`releaseOrphanClaims`). A dead storno is found by its lapsed lease, by the sale's next
+  storno and by the close, and a storno in doubt holds the close. It counts nowhere until settled, and neither
+  does a `failed` one not yet voided: `UNPROVED_STORNO_STATES`, `posRowSign` and `NOT_UNPROVED_STORNO`, which ⚠ a
+  new reader that sums `cash_storno` must spread, and SUPTO's 18.2, 18.4, 18.5.
+- ⚠ **A fiscal sale in doubt cannot be stornoed** (409 `sale_receipt_in_doubt`, before the claim): read as not
+  printed it refunds with no storno on the device (#281). A sale still running cannot either, fiscal or text
+  (409 `sale_in_progress`): nothing of it is booked yet.
+- ⚠ **A sale whose request died is finished before anything reads its session's figures or reverses it**
+  (`saleProgress`, `finishDeadSale`), printing nothing: the rows count it and its session does not. Dead means no
+  `completedAt`, never "`pending`": a sale can stop after its print. The close runs it before `expected`, the
+  preview adds what that would book, and the storno door runs it before `stornoRefusal`. What is left, live or
+  whose finish threw, holds the close. A joined sale's transfers are on the document (`register.transfersToConfirm`).
 - **The settle door** (`settle.service.ts`, `POST /cash-register/documents/:id/settle`, `STORNO_ROLES`) takes a
   receipt, a storno and a sale, by the table `FINISHES`; R2's `payment_storno` is one more row. A sale's
   "printed" needs `receiptNumber` off the slip, because its storno cites it and the drivers refuse one with
-  no digits. A sale's money stands either way. ⚠ Where the device can be asked the door refuses while a
-  receipt is open on it (409 `receipt_open_on_device`): the next document voids it, or finishes it in cash
-  if it took money, which prints it, so nothing is final yet. An X report clears it.
+  no digits. A sale's money stands either way. ⚠ **A person's word is taken only for what only a person can
+  know.** For a fiscal document both answers get past the device it printed on, by `fiscalDeviceNumber`
+  (`settleDevice`), never `documentContext` or `getFiscalContext`. Here: asked in its turn, and refused while a
+  receipt is open on it (409 `receipt_open_on_device`, an X report clears it), because the next document voids it,
+  or finishes it in cash if it took money, which prints it. Busy: 409 `device_busy`. A read that failed, or a device
+  not here: 409 `receipt_device_away`. Only a driver with no `isReceiptOpen` leaves it to the person. No row or
+  `isActive: false`: the word stands, and that is the way out, by deactivating it on its page. A typed number is
+  read against the device's last (`receipt_number_off_device`, ⚠ no lower bound: nobody has held a slip against
+  71h), checked taken by device for 31 days either side, and corrected at this door until a storno or an invoice
+  cites it (`receipt_number_cited`).
 - **`printed` keeps the error** (`receiptError`): a driver that finishes a part-paid receipt tenders the rest
   in cash, so the device's payment types may differ from the document's.
 - ⚠ **A request that died** (`finishInterruptedReceipt`, `finishInterruptedStorno`, which NEVER print). A lease lapsed is not a
@@ -2608,7 +2622,7 @@ invoice still due until the courier pays).
   `register.fiscal.inDoubt`. **In doubt books nothing and prints nothing**, keeps its hold, so the document
   answers 409 `receipt_in_doubt` to payment, edit of the total and void, and a person settles it
   (`POST /cash-register/documents/:id/settle {printed}`, the storno's roles, audited as `settle_receipt`,
-  `register.settled`), from the journal. It reaches no device. A keyed retry of the same request may print
+  `register.settled`), from the journal. What finishes it reaches no device. A keyed retry of the same request may print
   only when the proof holds on the device it started on (`documentContext`). ⚠ A settle is durable from its
   claim, which leaves a lease, so one that stops halfway is finished by the next touch or the close, and
   whatever finishes it writes the audit row if it is missing. The doors and the context follow
@@ -2616,7 +2630,10 @@ invoice still due until the courier pays).
 - **A session cannot close over an unfinished receipt or storno.** The close finishes what it can prove,
   refuses the rest with 409 `receipts_unfinished` naming them, re-checks once it holds the claim (each checks
   the session in its turn, so one of them sees the other), and takes `expected` from the claimed session. It
-  applies to `closeWithoutFiscal` too. `applySessionTotals` never increments a closed session.
+  applies to `closeWithoutFiscal` too. `applySessionTotals` never increments a closed session. ⚠ A close that
+  dies in its Z has a lease (`closeLeaseUntil`, `TURN_WAIT_MS + REPORT_MAX_MS`): lapsed, the next close puts it back
+  to `open` and answers 409 `close_interrupted`, because the Z may have printed and only the device can say. Its
+  writes from the claim on are conditional on what it holds.
 - **`setRegister` and `recordPayment` refuse a voided receipt**, so a live print coming back to a receipt
   given up writes nothing and books nothing.
 - ⚠ **`payment.recorded` never writes the `payments` array back.** The array it read is stale by then:
@@ -2627,15 +2644,21 @@ invoice still due until the courier pays).
   taken by `/void` and by attach, lapsing, and honoured in `fitsDue` (`notBeingVoided`), so a payment of any
   method gives way. `/send` and `/void` respect each other's claim. A money-moving `PUT` is a conditional
   write on no hold, the `amountPaid` it read and no claim, and so is the settlement write after it, which
-  reads again once and otherwise leaves the document alone. Attach re-reads what got in before its claim,
+  reads again once and otherwise leaves the document alone, retiring a journal entry only once it has landed. Attach re-reads what got in before its claim,
   because its last step replaces `payments`, and pays from the document as claimed.
-- ⚠ **A draft has the same mechanism** (`unclaimedDraft`, `invoice.controller.ts`): its `PUT` and `DELETE` are
-  conditional on still being a draft with no issue under way and no claim. `/send` goes on from what it
+- ⚠ **A draft has the same mechanism** (`unclaimedDraft`, `invoice-payment.ts`): its `PUT`, its `DELETE` and a link
+  to goods receipts are conditional on still being a draft with no issue under way and no claim. `/send` goes on from what it
   read, so its claim is a compare-and-set on `updatedAt`: changed since, 409 `document_changed`, nothing
   moved and no number drawn. Left out, an edit inside `/send` rang one amount and booked another, and bank
   to cash settled with no receipt. `/receive` honours it too. ⚠ A `DELETE` takes the claim first, releases a
   bill's receipts, then deletes: the bill is the only record of the supplier it wrote on them, so they go
   first, and a delete that lost must not have released them.
+- ⚠ **The issue holds its claim until the receipt does.** When `/send` will print, its write keeps `issue.leaseUntil`
+  and records `issue.tender`; `printAtIssue` lets go in a `finally`, and a crash lets it lapse. A money-moving `PUT`
+  honours it (409 `issue_in_progress`). A lapsed lease or a retry holds no claim, so the last check before the device
+  compares the document with `issue.tender`: moved, nothing prints (`receiptCode: 'issue_tender_moved'`). `/send`
+  discards the transfers it was asked for on every refusal that means it will not issue, ⚠ never on
+  `issue_in_progress`, whose holder may confirm those same ids.
 - **Whether a COD invoice owes a receipt is a fact of its issue** (`deliveryReceiptOwed`, in the issue's own
   write, never by a client), because an issue can leave no receipt document at all.
 - **What it prints** (`receipt-lines.ts`, pure): a whole payment at issue, the document's lines and
