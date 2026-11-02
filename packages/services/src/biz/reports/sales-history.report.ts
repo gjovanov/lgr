@@ -23,7 +23,7 @@
 
 import { Invoice, POSSession, Contact, User, Warehouse } from 'db/models'
 import { rowCapFor, type ReportHandlerContext, type ReportResult, type ReportColumn } from '../report-registry.types.js'
-import { saleScopeFilter } from '../sale-counting.js'
+import { headerIsNoMoney, printsHere, saleScopeFilter } from '../sale-counting.js'
 import { invoicingByCashSale } from '../cash-sale-invoice.service.js'
 import { keptByMethod, posRowSign } from '../cash-register/counting.js'
 import { loadPosRows } from '../cash-register/pos-union.js'
@@ -52,7 +52,8 @@ export interface MethodAmount { method: string; amount: number }
  * (a split-tender document contributes to two buckets, not one).
  *
  *   1. `payments[]` when present — the real record of what was tendered;
- *   2. else the header `paymentMethod` for the full amount;
+ *   2. else the header `paymentMethod` for the full amount, except where it says nothing about money
+ *      (`headerIsNoMoney`, FR-23): the document stays listed, and no money counts;
  *   3. else, for a cash sale that was actually paid, infer cash.
  *
  * Exported for its unit test: the card-marked cash sale is the case that regresses.
@@ -63,12 +64,13 @@ export function effectiveMethods(doc: {
   payments?: { method?: string; amount?: number }[]
   amountPaid?: number
   total?: number
-}): MethodAmount[] {
+}, prints = false): MethodAmount[] {
   const rows = (doc.payments || []).filter(p => p && Number(p.amount))
   if (rows.length) {
     return rows.map(p => ({ method: String(p.method || 'other'), amount: Number(p.amount) || 0 }))
   }
   const total = Number(doc.total) || 0
+  if (!Number(doc.amountPaid) && headerIsNoMoney(doc, prints)) return [{ method: String(doc.paymentMethod), amount: 0 }]
   if (doc.paymentMethod) return [{ method: String(doc.paymentMethod), amount: total }]
   // A cash sale with no payment row was paid in cash at the till; its storno refunds in cash.
   if ((doc.type === 'cash_sale' || doc.type === 'cash_storno') && Number(doc.amountPaid) > 0) return [{ method: 'cash', amount: total }]
@@ -128,6 +130,7 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
     ? ctx.params.paymentMethods
     : ['cash', 'card']
   const includeNonRegister = ctx.params.includeNonRegister === true
+  const prints = await printsHere(ctx.orgId)
 
   const rows: Record<string, any>[] = []
   let creditNoteCount = 0
@@ -168,7 +171,7 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
     const invoicedAs = cashSaleIds.length ? await invoicingByCashSale(ctx.orgId, cashSaleIds) : new Map()
 
     for (const d of docs as any[]) {
-      const methods = effectiveMethods(d)
+      const methods = effectiveMethods(d, prints)
       const buckets = methods.map(m => bucketFor(m.method))
       // Register scope: keep a document only if some tender lands in a requested bucket.
       // `includeNonRegister` widens it to bank transfers and cheques.
@@ -303,6 +306,9 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
     cash: +v.cash.toFixed(2),
     card: +v.card.toFixed(2),
     other: +v.other.toFixed(2),
+    // FR-23: a row keeps its document's total, because it is issued revenue, and what no payment
+    // took is here, so the reconciliation foots: total = cash + card + other + unpaid.
+    ...(prints ? { unpaid: +(v.total - v.cash - v.card - v.other).toFixed(2) } : {}),
   }))
 
   // Presentation: resolve names and collapse the per-method amounts into one label.

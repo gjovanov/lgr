@@ -12,8 +12,8 @@ const key = (a: ReturnType<typeof createIdempotentAction>, b: unknown = body) =>
 const err = (status?: number, data?: unknown) => (status === undefined ? { message: 'Network Error' } : { response: { status, data } })
 
 describe('Idempotency-Key on the client', () => {
-  it('keeps the key while the outcome is unknown: no answer, a proxy timeout, still in progress', () => {
-    for (const e of [err(), err(408), err(502), err(504), err(409, { code: 'idempotency_in_progress' })]) {
+  it('keeps the key while the outcome is unknown: no answer, a proxy timeout, the printer\'s pod gone, still in progress', () => {
+    for (const e of [err(), err(408), err(502), err(504), err(503, { code: 'fiscal_holder_unreachable' }), err(409, { code: 'idempotency_in_progress' })]) {
       const a = createIdempotentAction()
       const first = key(a)
       a.settle(e)

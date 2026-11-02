@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestWarehouse, createTestUser, createTestPOSSession } from '../helpers/factories'
-import { forgetDevices, tillApp, tillWorld } from '../helpers/till-world'
-import { expectedTotals, buildClosingBreakdown } from 'invoicing-api/src/controllers/pos.controller'
+import { forgetDevices, tillApp, tillWorld, type TillWorld } from '../helpers/till-world'
+import { gate, until } from '../helpers/receipt-world'
+import { CLOSE_LEASE_MS, expectedTotals, buildClosingBreakdown } from 'invoicing-api/src/controllers/pos.controller'
 import { getPrinter } from 'fiscal/fiscal-device.service'
 import { AuditLog, FiscalDevice, POSSession } from 'db/models'
 import type { Elysia } from 'elysia'
@@ -111,6 +112,208 @@ describe('close concurrency guard (FR-9.4)', () => {
       { $set: { status: 'closing_control' } },
     ).exec()
     expect(claimed).toBeNull()
+  })
+})
+
+describe('a close that dies in its Z (the third read of FR-23, finding 6)', () => {
+  const Z = 0x45
+  const close = (w: TillWorld, body: Record<string, unknown>, key?: string, as?: string) => w.call('POST', `/trade/pos/session/${w.sessionId}/close`, body, key, as)
+  const session = (w: TillWorld): Promise<any> => POSSession.findById(w.sessionId).lean().exec()
+  /** The state it leaves: claimed, its Z asked for, and nobody coming back. */
+  const died = (w: TillWorld, set: Record<string, unknown> = {}) => POSSession.updateOne({ _id: w.sessionId }, {
+    $set: { status: 'closing_control', closeLeaseUntil: new Date(Date.now() - 1000), closeClientKey: 'close-died-0001', closeRequestHash: 'x', ...set },
+  }).exec()
+
+  it('the claim holds a lease long enough for the device\'s turn and the Z, and a close that ends lets go of it', async () => {
+    const w = await tillWorld(app)
+    const held = gate()
+    w.sim!.beforeCommand = cmd => (cmd === Z ? held.closed : undefined)
+    const closing = close(w, { counted: { cash: 100 } })
+    await until(async () => (await session(w)).status === 'closing_control', 'the claim')
+
+    const lease = new Date((await session(w)).closeLeaseUntil).getTime()
+    expect(lease - Date.now()).toBeGreaterThan(CLOSE_LEASE_MS - 60_000)
+    expect(CLOSE_LEASE_MS).toBeGreaterThanOrEqual(330_000 + 300_000)
+
+    // A live claim answers as it always did.
+    const second = await close(w, { counted: { cash: 100 } })
+    expect(second.status).toBe(400)
+    expect(second.json.message).toContain('already being closed')
+    expect((await session(w)).status).toBe('closing_control')
+
+    w.sim!.beforeCommand = null
+    held.open()
+    expect((await closing).status).toBe(200)
+    const closed = await session(w)
+    expect(closed.status).toBe('closed')
+    expect(closed.closeLeaseUntil).toBeUndefined()
+  })
+
+  it('a failed Z lets go of it too', async () => {
+    const w = await tillWorld(app)
+    w.sim!.paper = false
+
+    expect((await close(w, { counted: { cash: 100 } })).status).toBe(503)
+
+    const s = await session(w)
+    expect(s.status).toBe('open')
+    expect(s.closeLeaseUntil).toBeUndefined()
+  })
+
+  it('lapsed: the next close puts it back, says what to do, prints nothing; and closing again prints the Z', async () => {
+    const w = await tillWorld(app)
+    await died(w)
+
+    const r = await close(w, { counted: { cash: 100 } })
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('close_interrupted')
+    expect(r.json.message).toContain('Check the device')
+    expect(r.json.message).toContain('close without a fiscal report')
+    expect(w.sim!.reports).toHaveLength(0)
+    const s = await session(w)
+    expect(s).toMatchObject({ status: 'open', fiscalStatus: 'failed' })
+    expect(s.fiscalError).toContain('may have printed')
+    expect(s.closeClientKey).toBeUndefined()
+    expect(s.closeLeaseUntil).toBeUndefined()
+    expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'close_interrupted' })).toBe(1)
+
+    const again = await close(w, { counted: { cash: 100 } })
+    expect(again.status).toBe(200)
+    expect(again.json.fiscalStatus).toBe('closed')
+    expect(w.sim!.reports).toHaveLength(1)
+    const closed = await session(w)
+    expect(closed.status).toBe('closed')
+    expect(closed.fiscalError).toBeUndefined()
+  })
+
+  it('its Z did print: a manager closes without a fiscal report, and a cashier cannot', async () => {
+    const w = await tillWorld(app, { role: 'sales' })
+    await died(w)
+    expect((await close(w, { counted: { cash: 100 } })).json.code).toBe('close_interrupted')
+
+    const cashier = await close(w, { counted: { cash: 100 }, closeWithoutFiscal: true })
+    expect(cashier.status).toBe(403)
+    expect((await session(w)).status).toBe('open')
+
+    const manager = await close(w, { counted: { cash: 100 }, closeWithoutFiscal: true }, undefined, await w.tokenAs('manager'))
+    expect(manager.status).toBe(200)
+    expect(manager.json.fiscalStatus).toBe('skipped')
+    expect(w.sim!.reports).toHaveLength(0)
+  })
+
+  it('a retry under the dead close\'s key is told at once, and never waits for it', async () => {
+    const w = await tillWorld(app)
+    await died(w)
+    const started = Date.now()
+
+    const r = await close(w, { counted: { cash: 100 } }, 'close-died-0001')
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('close_interrupted')
+    expect(Date.now() - started).toBeLessThan(5_000)
+
+    // The key is cleared, so the same key is a new close now.
+    const again = await close(w, { counted: { cash: 100 } }, 'close-died-0001')
+    expect(again.status).toBe(200)
+    expect(w.sim!.reports).toHaveLength(1)
+  })
+
+  it('no lease, from before there was one: its last write says, not its status alone', async () => {
+    const w = await tillWorld(app)
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closing_control' } })
+
+    const young = await close(w, { counted: { cash: 100 } })
+    expect(young.status).toBe(400)
+    expect((await session(w)).status).toBe('closing_control')
+
+    await POSSession.collection.updateOne({ _id: new POSSession.base.Types.ObjectId(w.sessionId) }, { $set: { updatedAt: new Date(Date.now() - CLOSE_LEASE_MS - 1000) } })
+    const old = await close(w, { counted: { cash: 100 } })
+    expect(old.json.code).toBe('close_interrupted')
+    expect((await session(w)).status).toBe('open')
+  })
+
+  it('two presses at one that died: both are told, whichever won the write, and neither runs a Z', async () => {
+    const w = await tillWorld(app)
+    await died(w)
+    const real = POSSession.findOneAndUpdate
+    let inner: any
+    let done = false
+    ;(POSSession as any).findOneAndUpdate = function (filter: any, update: any, ...rest: any[]) {
+      if (done || update?.$set?.status !== 'open') return (real as any).call(POSSession, filter, update, ...rest)
+      done = true
+      return {
+        exec: async () => {
+          inner = await close(w, { counted: { cash: 100 } })
+          return (real as any).call(POSSession, filter, update, ...rest).exec()
+        },
+      }
+    }
+    let outer: any
+    try {
+      outer = await close(w, { counted: { cash: 100 } })
+    } finally {
+      ;(POSSession as any).findOneAndUpdate = real
+    }
+
+    expect(inner.json.code).toBe('close_interrupted')
+    expect(outer.status).toBe(409)
+    expect(outer.json.code).toBe('close_interrupted')
+    expect(w.sim!.reports).toHaveLength(0)
+    expect((await session(w)).status).toBe('open')
+    expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'close_interrupted' })).toBe(1)
+  })
+
+  it('only who may close it can put it back', async () => {
+    const w = await tillWorld(app)
+    await died(w)
+
+    // The clerk is nobody's manager here, and it is not their session.
+    const stranger = await w.tokenAs('sales')
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { cashierId: w.clerk._id } })
+    const r = await close(w, { counted: { cash: 100 } }, undefined, stranger)
+
+    expect(r.status).toBe(403)
+    expect((await session(w)).status).toBe('closing_control')
+  })
+
+  it('a close that comes back past its lease undoes nothing: put back since, it does not close it', async () => {
+    const w = await tillWorld(app)
+    const held = gate()
+    w.sim!.beforeCommand = cmd => (cmd === Z ? held.closed : undefined)
+    const first = close(w, { counted: { cash: 100 } })
+    await until(async () => (await session(w)).status === 'closing_control', 'the claim')
+    await until(() => w.sim!.executed.some(c => c.cmd === 0x4A), 'the Z to be under way')
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { closeLeaseUntil: new Date(Date.now() - 1000) } })
+
+    expect((await close(w, { counted: { cash: 100 } })).json.code).toBe('close_interrupted')
+    expect((await session(w)).status).toBe('open')
+
+    w.sim!.beforeCommand = null
+    held.open()
+    const came = await first
+
+    expect(came.status).toBe(500)
+    expect(came.json.message).toContain('without a fiscal report')
+    expect((await session(w)).status).toBe('open')
+  })
+
+  it('and closed since by someone else, it does not reopen it', async () => {
+    const w = await tillWorld(app)
+    const held = gate()
+    w.sim!.beforeCommand = cmd => (cmd === Z ? held.closed : undefined)
+    const first = close(w, { counted: { cash: 100 } })
+    await until(async () => (await session(w)).status === 'closing_control', 'the claim')
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { closeLeaseUntil: new Date(Date.now() - 1000) } })
+    expect((await close(w, { counted: { cash: 100 } })).json.code).toBe('close_interrupted')
+
+    const second = await close(w, { counted: { cash: 90 }, closeWithoutFiscal: true })
+    expect(second.status).toBe(200)
+
+    w.sim!.beforeCommand = null
+    held.open()
+    expect((await first).status).toBe(500)
+    expect(await session(w)).toMatchObject({ status: 'closed', closingBalance: 90 })
   })
 })
 

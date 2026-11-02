@@ -23,6 +23,7 @@ import { sendEmail } from 'services/biz/email.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { EmailLog } from 'db/models'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
+import { NOT_UNPROVED_STORNO } from 'services/biz/sale-counting'
 
 const MAX_ROWS = 1000
 
@@ -120,6 +121,7 @@ function buildFilter(orgId: string, q: Record<string, any>): Record<string, any>
   } else if (docType === 'cash_sale') {
     // The cash register: its sales and their stornos, which count against them (FR-21.9).
     f.type = { $in: ['cash_sale', 'cash_storno'] }
+    Object.assign(f, NOT_UNPROVED_STORNO)
   } else {
     f.type = docType
     if (docType === 'invoice') f.direction = q.direction || 'outgoing'
@@ -386,10 +388,10 @@ const COMPANION_KINDS = new Set<CompanionDocKind>(['certificate', 'ppprotocol'])
 
 /**
  * Only outgoing documents get companion prints — on an incoming bill we are the recipient — and
- * never a storno: it delivers nothing to declare or hand over.
+ * never a storno or a payment's receipt: they deliver nothing to declare or hand over.
  */
 function companionAllowed(invoice: any): boolean {
-  return invoice?.direction === 'outgoing' && invoice?.type !== 'cash_storno'
+  return invoice?.direction === 'outgoing' && invoice?.type !== 'cash_storno' && invoice?.type !== 'payment_receipt'
 }
 
 /**
@@ -653,6 +655,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
       } else if (kind === 'cash_register') {
         // Its sales and their stornos, which count against them (FR-21.9).
         filter.type = { $in: ['cash_sale', 'cash_storno'] }
+        Object.assign(filter, NOT_UNPROVED_STORNO)
         title = i18n.docTitle.cash_sale
       } else {
         return status(400, { message: `Unknown kind: ${kind}` })

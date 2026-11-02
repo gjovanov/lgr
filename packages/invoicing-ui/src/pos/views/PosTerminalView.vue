@@ -31,6 +31,10 @@
             class="flex-grow-0"
             :disabled="basketFrozen"
           />
+          <!-- FR-23: the device decides, and what it says must be seen: every receipt here is text. -->
+          <v-chip v-if="printsText" color="warning" size="small" prepend-icon="mdi-receipt-text-outline" data-testid="terminal-prints-text">
+            {{ $t('pos.bridge.printsText') }}
+          </v-chip>
           <!-- Fiscal Bridge Status -->
           <template v-if="fiscalBridge.isSupported">
             <v-chip v-if="fiscalBridge.status.value === 'connected'" color="success" size="small" prepend-icon="mdi-printer-check">
@@ -224,6 +228,7 @@ import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
 import RegisterTerminal from 'ui-shared/components/cash-register/RegisterTerminal.vue'
 import { fetchPriceOptions, priceOptionLabel, type PriceOption } from 'ui-shared/composables/usePriceOptions'
 import CloseSessionDialog from '../components/CloseSessionDialog.vue'
+import { receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 
 /** `priceName`: the named price chosen for the line (#145), shown beside it; unset = selling price. */
 interface CartItem { productId: string; name: string; quantity: number; unitPrice: number; taxRate: number; priceName?: string }
@@ -400,6 +405,9 @@ const deviceCandidates = ref<any[]>([])
  * "Failed to open serial port".
  */
 const connectedElsewhere = ref<{ deviceNumber: string; name: string } | null>(null)
+/** What a device this tab does not hold said of itself. The pod that answers may have heard nothing, so the last word stands. */
+const fiscalizedElsewhere = ref<boolean | undefined>()
+const printsText = computed(() => (fiscalBridge.status.value === 'connected' ? fiscalBridge.deviceInfo.value?.fiscalized : fiscalizedElsewhere.value) === false)
 /** Whether the session's warehouse has a device set up at all (null until asked). */
 const warehouseHasDevice = ref<boolean | null>(null)
 
@@ -417,6 +425,8 @@ async function refreshConnectedElsewhere() {
     warehouseHasDevice.value = devices.length > 0
     const dev = devices.find((d: any) => d.connected)
     connectedElsewhere.value = dev ? { deviceNumber: dev.deviceNumber, name: dev.name } : null
+    if (!dev) fiscalizedElsewhere.value = undefined
+    else if (dev.fiscalized !== undefined) fiscalizedElsewhere.value = dev.fiscalized
   } catch { /* keep the last known state */ }
 }
 
@@ -643,7 +653,7 @@ async function completeSale() {
       showError(t(refused.deviceConfigured ? 'pos.printerRequired.notConnected' : 'pos.printerRequired.notConfigured'))
       refreshConnectedElsewhere()
     }
-    else showError(e?.outcomeUnknown ? t('pos.saleOutcomeUnknown') : (refused?.message || t('common.operationFailed')))
+    else showError(e?.outcomeUnknown ? t('pos.saleOutcomeUnknown') : receiptRefusalMessage(t, e, t('common.operationFailed')))
   }
   finally {
     loading.value = false

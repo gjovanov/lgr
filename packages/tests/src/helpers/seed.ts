@@ -533,6 +533,8 @@ export async function seed() {
       taxConfig: { vatEnabled: false, defaultVatRate: 0, vatRates: [], taxIdLabel: 'EIN' },
       payroll: { payFrequency: 'biweekly', socialSecurityRate: 6.2, healthInsuranceRate: 1.45, pensionRate: 0 },
       modules: [...MODULES],
+      // The demo org that opted in, with no device: `pos-printer-gate.spec` reads its refusal.
+      cashRegister: { requireConnectedDevice: true },
     },
     subscription: { plan: 'starter', maxUsers: 10 },
   })
@@ -581,6 +583,7 @@ export async function seed() {
       },
       payroll: { payFrequency: 'monthly', socialSecurityRate: 24.7, healthInsuranceRate: 8, pensionRate: 5 },
       modules: [...MODULES],
+      cashRegister: { requireConnectedDevice: false },
     },
     subscription: { plan: 'professional', maxUsers: 50 },
   })

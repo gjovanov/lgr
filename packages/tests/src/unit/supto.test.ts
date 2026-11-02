@@ -30,6 +30,12 @@ describe('a SUPTO version travels only once declared (FR-20.50)', () => {
     expect(suptoOffer(' 2\n', ['2'])).toEqual({ version: '2', declared: true, enforced: true })
   })
 
+  it('FR-23 changed the database structure (a `payment_receipt` in 18.1–18.3 and 18.5), and that is a new version', () => {
+    // By hand, in the commit that makes such a change (the file's own rule). Declaring it is the owner's act.
+    expect(SUPTO_VERSION).toBe('2')
+    expect(SUPTO_DECLARED).toEqual([])
+  })
+
   it('the data file: a version, the declared ones, in the shape the deploy gate reads with jq', () => {
     const file = JSON.parse(readFileSync(join(ROOT, 'packages', 'config', 'src', 'supto.json'), 'utf8'))
     expect(typeof file.about).toBe('string')

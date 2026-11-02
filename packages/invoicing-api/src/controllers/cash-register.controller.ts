@@ -1,12 +1,14 @@
-import { FiscalRoute, deviceFromJournalDocument } from 'fiscal/fiscal-route'
+import { FiscalRoute, deviceFromJournalDocument, deviceFromSettledDocument } from 'fiscal/fiscal-route'
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { orgDao } from 'services/dao/org.dao'
 import { getJournalDocument, listJournal } from 'services/biz/cash-register/journal.service'
 import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import { readIdempotencyKey, requestHash } from 'services/biz/hot-path-key'
-import { POSSession } from 'db/models'
-import { STORNO_ROLES, stornoDoor } from '../lib/cash-register-till.js'
+import { Invoice, POSSession } from 'db/models'
+import { SETTLEABLE_TYPES, settleInDoubt } from 'services/biz/cash-register/settle.service'
+import { RegisterRefusal } from 'services/biz/cash-register/register.service'
+import { STORNO_ROLES, deviceless, settleDevice, stornoDoor } from '../lib/cash-register-till.js'
 
 /**
  * FR-21.12 — the cash-register journal („Касови продажби").
@@ -63,7 +65,7 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
       isSignIn: true,
       query: t.Object({
         search: t.Optional(t.String()),
-        kind: literal('sale', 'storno'),
+        kind: literal('sale', 'storno', 'payment'),
         origin: literal('pos', 'backoffice', 'import'),
         status: literal('completed', 'stornoed', 'voided'),
         fiscalState: t.Optional(t.String()),
@@ -88,6 +90,32 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
     if (!doc) return status(404, { message: 'Cash-register document not found' })
     return doc
   }, { isSignIn: true })
+  // FR-23: a person who looked at the device says whether a document nothing could prove printed. The device
+  // it printed on is asked first, wherever it stands (`settle.service.ts`).
+  .post(
+    '/documents/:id/settle',
+    async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      // It decides what happened to money: the same roles as a storno.
+      if (!STORNO_ROLES.includes(user.role)) {
+        return status(403, { message: 'Settling a receipt requires manager or admin authorization' })
+      }
+      const held = Invoice.base.Types.ObjectId.isValid(id)
+        ? await Invoice.exists({ _id: id, orgId, type: { $in: SETTLEABLE_TYPES } }).exec()
+        : null
+      if (!held) return status(404, { message: 'Receipt not found' })
+      try {
+        // It asks the device, and nothing that follows reaches it.
+        const settled = await settleInDoubt(deviceless(orgId, user), id, body, doc => settleDevice(orgId, user, doc))
+        if (!settled) return status(409, { code: 'receipt_not_in_doubt', message: 'This document is not waiting to be settled.' })
+      } catch (e: any) {
+        if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
+        throw e
+      }
+      return { document: await getJournalDocument(orgId, id) }
+    },
+    { isSignIn: true, fiscalDevice: deviceFromSettledDocument, body: t.Object({ printed: t.Boolean(), receiptNumber: t.Optional(t.String({ maxLength: 20 })), confirmNumber: t.Optional(t.Boolean()) }) },
+  )
   .post(
     '/documents/:id/storno',
     async ({ params: { orgId, id }, body, user, status, headers }) => {

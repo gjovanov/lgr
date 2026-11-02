@@ -30,6 +30,7 @@ import type {
 } from './types.js'
 import { paymentCode } from './types.js'
 import { logger } from 'services/logger'
+import { stagedPrint } from './print-stage.js'
 
 // Datecs protocol constants
 const STX = 0x01
@@ -304,37 +305,44 @@ export class DatecsFiscalPrinter implements IFiscalPrinter {
     lines: { name: string; quantity: number; price: number; vatGroup: VatGroup }[],
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
-    // A payment this driver cannot print is refused before the storno receipt is opened.
-    paymentCode(PAYMENT_CODE, payment.type, DRIVER)
-    // Open storno receipt with reason and original receipt reference
-    const dateStr = formatDatecsDate(originalDate)
-    const reasonCode = STORNO_REASON_CODE[reason]
-    const stornoData = `${operatorCode}\t${operatorCode}\t${unpNumber}\t${reasonCode}\t${originalReceiptNumber}\t${dateStr}\t${originalUNP}`
-    await this.transport.sendCommand(CMD.OPEN_STORNO, stornoData)
+    return stagedPrint(async (reached) => {
+      reached('refused')
+      // A payment this driver cannot print is refused before the storno receipt is opened.
+      paymentCode(PAYMENT_CODE, payment.type, DRIVER)
+      reached('opening')
+      // Open storno receipt with reason and original receipt reference
+      const dateStr = formatDatecsDate(originalDate)
+      const reasonCode = STORNO_REASON_CODE[reason]
+      const stornoData = `${operatorCode}\t${operatorCode}\t${unpNumber}\t${reasonCode}\t${originalReceiptNumber}\t${dateStr}\t${originalUNP}`
+      await this.transport.sendCommand(CMD.OPEN_STORNO, stornoData)
+      reached('lines')
 
-    // Print each storno line (negative quantities)
-    for (const line of lines) {
-      await this.printSaleLine(line.name, -line.quantity, line.price, line.vatGroup)
-    }
+      // Print each storno line (negative quantities)
+      for (const line of lines) {
+        await this.printSaleLine(line.name, -line.quantity, line.price, line.vatGroup)
+      }
 
-    // Payment and close
-    await this.printPayment(payment.type, -payment.amount)
-    const data = await this.transport.sendCommand(CMD.CLOSE_RECEIPT)
-    const parts = data.split(',')
+      // Payment and close
+      reached('paying')
+      await this.printPayment(payment.type, -payment.amount)
+      reached('closing')
+      const data = await this.transport.sendCommand(CMD.CLOSE_RECEIPT)
+      const parts = data.split(',')
 
-    const result: FiscalStornoResult = {
-      fiscalReceiptNumber: parts[0] || 'unknown',
-      dateTime: new Date(),
-    }
+      const result: FiscalStornoResult = {
+        fiscalReceiptNumber: parts[0] || 'unknown',
+        dateTime: new Date(),
+      }
 
-    logger.info({
-      deviceId: this.deviceId,
-      stornoReceiptNumber: result.fiscalReceiptNumber,
-      originalReceiptNumber,
-      reason,
-    }, 'Storno fiscal receipt printed')
+      logger.info({
+        deviceId: this.deviceId,
+        stornoReceiptNumber: result.fiscalReceiptNumber,
+        originalReceiptNumber,
+        reason,
+      }, 'Storno fiscal receipt printed')
 
-    return result
+      return result
+    })
   }
 
   async printDailyZReport(): Promise<ZReportResult> {

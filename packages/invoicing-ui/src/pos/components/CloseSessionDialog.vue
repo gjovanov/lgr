@@ -10,7 +10,7 @@
         <!-- Result states (FR-9.10). Rendered instead of the form once we have an outcome. -->
         <template v-if="result">
           <v-alert
-            :type="result.kind === 'error' ? 'error' : result.kind === 'skipped' ? 'info' : 'success'"
+            :type="result.kind === 'error' ? 'error' : result.kind === 'unknown' ? 'warning' : result.kind === 'skipped' ? 'info' : 'success'"
             variant="tonal"
             class="mb-2"
           >
@@ -39,6 +39,68 @@
               class="mb-3"
             >
               {{ $t('pos.close.otherSessionsOpen', { n: preview.openSessionsOnWarehouse }) }}
+            </v-alert>
+
+            <!-- FR-23: what the close will refuse over: one still running, and one held for a person. What it
+                 finishes first is the next two, and does not stop it. -->
+            <v-alert
+              v-if="unfinishedReceipts"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              data-testid="close-receipts-unfinished"
+            >
+              {{ $t('cashRegister.receipt.unfinished', { numbers: unfinishedReceipts }) }}
+            </v-alert>
+
+            <!-- FR-23: sales whose request died. The close books them, printing nothing, so they count below. Only
+                 one nothing can prove is a person's to settle: a text sale, or one that printed, has nothing to say. -->
+            <v-alert
+              v-if="deadSales"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              data-testid="close-dead-sales"
+            >
+              {{ $t('pos.close.deadSales', { numbers: deadSales }) }}
+            </v-alert>
+            <v-alert
+              v-if="deadSalesBooked"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              data-testid="close-dead-sales-booked"
+            >
+              {{ $t('pos.close.deadSalesBooked', { numbers: deadSalesBooked }) }}
+            </v-alert>
+
+            <!-- FR-23: receipts and stornos whose request died. The close finishes them first, and what they took or
+                 gave back counts below. One nothing can prove stops it, for a person to settle. -->
+            <v-alert
+              v-if="deadDocuments"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              data-testid="close-dead-documents"
+            >
+              {{ $t('pos.close.deadDocuments', { numbers: deadDocuments }) }}
+            </v-alert>
+
+            <!-- FR-23: the last close stopped in its Z. The session is open again, and only the device can say
+                 which way on: the checkbox below if the Z printed, the close if it did not. -->
+            <v-alert
+              v-if="interrupted"
+              type="warning"
+              variant="tonal"
+              class="mb-3"
+              data-testid="close-interrupted"
+            >
+              <div class="font-weight-medium">{{ $t('pos.close.interruptedTitle') }}</div>
+              <div class="text-body-2 mt-1">{{ interrupted }}</div>
             </v-alert>
 
             <v-alert
@@ -120,7 +182,7 @@
             {{ $t('pos.sessionReport.print') }}
           </v-btn>
           <v-btn variant="text" @click="finish">{{ $t('common.close') }}</v-btn>
-          <v-btn v-if="result.kind === 'error'" color="primary" variant="flat" :loading="submitting" @click="submit">
+          <v-btn v-if="result.kind === 'error' || result.kind === 'unknown'" color="primary" variant="flat" :loading="submitting" @click="submit">
             {{ $t('pos.close.retry') }}
           </v-btn>
         </template>
@@ -139,8 +201,9 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { createIdempotentAction } from 'ui-shared/composables/idempotency'
+import { createIdempotentAction, isOutcomeUnknown } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import { useAppStore } from '../../store/app.store'
 import SessionReportCard, { type SessionReportData } from './SessionReportCard.vue'
 
@@ -191,8 +254,9 @@ const expected = ref<Record<string, number>>({ cash: 0, card: 0, other: 0 })
 const counted = ref<Record<string, number>>({ cash: 0, card: 0, other: 0 })
 const notes = ref('')
 const closeWithoutFiscal = ref(false)
+const interrupted = ref('')
 const result = ref<{
-  kind: 'success' | 'skipped' | 'error'
+  kind: 'success' | 'skipped' | 'error' | 'unknown'
   title: string
   detail?: string
   /** The session's own figures, which the close printed after the Z-report — or why it did not. */
@@ -223,9 +287,16 @@ function diffClass(method: string): string {
   return d > 0 ? 'text-success' : 'text-error'
 }
 
+const unfinishedReceipts = computed(() => (preview.value?.unfinishedReceipts ?? []).map((r: any) => r.number ?? r.invoice ?? r.id).join(', '))
+const namesOf = (sales: any[]) => sales.map((s: any) => s.number ?? s.id).join(', ')
+const deadSales = computed(() => namesOf((preview.value?.deadSales ?? []).filter((s: any) => s.settles)))
+const deadSalesBooked = computed(() => namesOf((preview.value?.deadSales ?? []).filter((s: any) => !s.settles)))
+const deadDocuments = computed(() => (preview.value?.deadDocuments ?? []).map((r: any) => r.number ?? r.invoice ?? r.id).join(', '))
+
 async function loadPreview() {
   loadingPreview.value = true
   result.value = null
+  interrupted.value = ''
   closeWithoutFiscal.value = false
   notes.value = ''
   try {
@@ -276,12 +347,27 @@ async function submit() {
   } catch (e: any) {
     // An unanswered attempt keeps its key: closing again returns that close, never a second Z-report.
     attempt.settle(e)
-    // The session is still open — the server reverted it. Say so plainly.
+    // ⚠ With no answer nobody knows: a Z runs for longer than a request is let wait, so that close may be running
+    // now. Read as "still open", the next sale went into a session whose day had been counted.
+    if (isOutcomeUnknown(e)) {
+      result.value = { kind: 'unknown', title: t('pos.close.outcomeUnknownTitle'), detail: t('pos.close.outcomeUnknown') }
+      return
+    }
+    // The server answered: it reverted the session, and it is open. Say so plainly.
     const refused = e?.response?.data
+    if (refused?.code === 'close_interrupted') {
+      // Back to the form, read afresh: what to do next is theirs to choose once they have looked.
+      await loadPreview()
+      interrupted.value = receiptRefusalMessage(t, e, refused.message)
+      return
+    }
     result.value = refused?.code === 'receipt_open'
       // Not a failure: a sale is printing on the device, and closing again after it works.
       ? { kind: 'error', title: t('pos.close.receiptOpenTitle'), detail: t('pos.close.receiptOpen') }
-      : { kind: 'error', title: t('pos.close.fiscalFailed'), detail: refused?.message || t('common.operationFailed') }
+      : refused?.code === 'receipts_unfinished'
+        // FR-23: nothing failed and no Z printed. It says which receipts stand in the way.
+        ? { kind: 'error', title: t('pos.close.receiptOpenTitle'), detail: receiptRefusalMessage(t, e, refused.message) }
+        : { kind: 'error', title: t('pos.close.fiscalFailed'), detail: refused?.message || t('common.operationFailed') }
   } finally {
     submitting.value = false
   }
@@ -303,12 +389,13 @@ async function reprint() {
 }
 
 function finish() {
-  const wasClosed = result.value?.kind !== 'error'
+  const wasClosed = result.value?.kind === 'success' || result.value?.kind === 'skipped'
   open.value = false
   if (wasClosed) emit('closed')
 }
 
+// Immediately: the sessions list mounts this already open.
 watch(open, (isOpen) => {
   if (isOpen) loadPreview()
-})
+}, { immediate: true })
 </script>

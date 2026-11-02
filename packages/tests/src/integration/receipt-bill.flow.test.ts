@@ -733,6 +733,89 @@ describe('a receipt that names no supplier (FR-22.31a)', () => {
     }, 60_000)
   })
 
+  describe('a delete that loses gives nothing back (FR-23, and the rule of #422)', () => {
+    const bill = async (w: any) => {
+      const r = await w.receipt([[w.bolt, 7, 3]], { contactId: null })
+      const made = (await w.fromReceipt([r._id], { contactId: String(w.other._id) })).json.invoice
+      return { r, made }
+    }
+    /** What a release would have undone: the claim on the receipt, and the supplier the bill wrote on it. */
+    const stillClaimed = async (w: any, r: any, made: any) => {
+      const m = await w.mv(r._id)
+      expect(String(m.invoiceId)).toBe(String(made.id))
+      expect(String(m.contactId)).toBe(String(w.other._id))
+    }
+
+    it('an issue under way holds the draft: 409, and the receipt keeps its claim and its supplier', async () => {
+      const w = await world()
+      const { r, made } = await bill(w)
+      await Invoice.updateOne({ _id: made.id }, { $set: { issue: { leaseUntil: new Date(Date.now() + 60_000) } } }).exec()
+
+      const del = await w.call('DELETE', `/invoices/${made.id}`)
+
+      expect(del.status).toBe(409)
+      expect(del.json.code).toBe('issue_in_progress')
+      expect(await w.load(made.id)).toBeTruthy()
+      await stillClaimed(w, r, made)
+    }, 60_000)
+
+    it('a void or an attach holds it: the same', async () => {
+      const w = await world()
+      const { r, made } = await bill(w)
+      await Invoice.updateOne({ _id: made.id }, { $set: { voidingUntil: new Date(Date.now() + 60_000) } }).exec()
+
+      const del = await w.call('DELETE', `/invoices/${made.id}`)
+
+      expect(del.status).toBe(409)
+      expect(del.json.code).toBe('document_claimed')
+      await stillClaimed(w, r, made)
+    }, 60_000)
+
+    it('a Receive that finished after it read: it is no draft any more, and the receipt stays the bill\'s', async () => {
+      const w = await world()
+      const { r, made } = await bill(w)
+      // Right before the delete takes its claim, as `during` does it.
+      const real = Invoice.findOneAndUpdate
+      let received: any
+      let done = false
+      ;(Invoice as any).findOneAndUpdate = function (filter: any, update: any, ...rest: any[]) {
+        if (done || !update?.$set?.voidingUntil) return (real as any).call(Invoice, filter, update, ...rest)
+        done = true
+        return { exec: async () => {
+          ;(Invoice as any).findOneAndUpdate = real
+          received = await w.call('POST', `/invoices/${made.id}/receive`, {})
+          return (real as any).call(Invoice, filter, update, ...rest).exec()
+        } }
+      }
+      let del: any
+      try {
+        del = await w.call('DELETE', `/invoices/${made.id}`)
+      } finally {
+        ;(Invoice as any).findOneAndUpdate = real
+      }
+
+      expect(received.status).toBe(200)
+      expect(del.status).toBe(409)
+      expect(del.json.code).toBe('document_changed')
+      expect((await w.load(made.id)).status).toBe('received')
+      await stillClaimed(w, r, made)
+    }, 60_000)
+
+    it('a release that throws gives the claim back: pressing again is not told to wait', async () => {
+      const w = await world()
+      const { r, made } = await bill(w)
+      const dies = spyOn(StockMovement, 'updateMany').mockImplementationOnce((() => { throw new Error('the pod went away') }) as any)
+      const first = await w.call('DELETE', `/invoices/${made.id}`)
+      dies.mockRestore()
+
+      expect(first.status).toBe(500)
+      expect(((await w.load(made.id)) as any).voidingUntil ?? null).toBeNull()
+
+      expect((await w.call('DELETE', `/invoices/${made.id}`)).status).toBe(200)
+      expect((await w.mv(r._id)).invoiceId ?? null).toBeNull()
+    }, 60_000)
+  })
+
   it('a Files rollback that voids the bill gives the receipt back the same way', async () => {
     const w = await world()
     const r = await w.receipt([[w.bolt, 3, 5]], { contactId: null })
@@ -1198,7 +1281,82 @@ describe('a typed draft bill takes a delivery (FR-22.32a)', () => {
   }, 60_000)
 })
 
+describe('a link and the issue of the same bill (the third read of FR-23)', () => {
+  /** Run `meanwhile` once, right before the write `at` picks. */
+  function beforeWrite(at: (update: any) => boolean, meanwhile: () => Promise<unknown>) {
+    const real = Invoice.findOneAndUpdate
+    let done = false
+    ;(Invoice as any).findOneAndUpdate = function (filter: any, update: any, ...rest: any[]) {
+      if (done || !at(update)) return (real as any).call(Invoice, filter, update, ...rest)
+      done = true
+      const chain = { lean: () => chain, exec: async () => { await meanwhile(); return (real as any).call(Invoice, filter, update, ...rest).lean().exec() } }
+      return chain
+    }
+    return () => { (Invoice as any).findOneAndUpdate = real }
+  }
+
+  it('a link inside a bill\'s `/send`: refused, and what was issued is what was booked', async () => {
+    const w = await world()
+    const delivered = await w.receipt([[w.bolt, 4, 5]])
+    const typed = await w.typedBill([[w.bolt, 2, 5]])
+    let link: any
+    const undo = beforeWrite(update => !!update?.$set?.['issue.completedAt'], async () => { link = await w.linkReceipts(typed, [delivered._id], { replaceLines: true }) })
+    let issued: any
+    try {
+      issued = await w.call('POST', `/invoices/${typed.id}/send`, { acknowledgeOverlap: true })
+    } finally {
+      undo()
+    }
+
+    expect(link.status).toBe(409)
+    expect(issued.status).toBe(200)
+    const bill = await w.load(typed.id)
+    expect(bill.status).toBe('received')
+    expect(bill.stockSource?.marker ?? null).toBeNull()
+    expect(bill.lines.map((l: any) => l.quantity)).toEqual([2])
+    // The two the bill booked, on the four the receipt did. Nothing claims the receipt.
+    expect(await w.stock(w.bolt)).toBe(6)
+    expect((await w.mv(delivered._id)).invoiceId).toBeUndefined()
+  })
+
+  it('a draft nothing has claimed still takes its link', async () => {
+    const w = await world()
+    const delivered = await w.receipt([[w.bolt, 4, 5]])
+    const typed = await w.typedBill([[w.bolt, 2, 5]])
+
+    expect((await w.linkReceipts(typed, [delivered._id], { replaceLines: true })).status).toBe(200)
+  })
+
+  it('a void\'s or a delete\'s claim on it holds the link off too, and one that lapsed does not', async () => {
+    const w = await world()
+    const delivered = await w.receipt([[w.bolt, 4, 5]])
+    const typed = await w.typedBill([[w.bolt, 2, 5]])
+    await Invoice.updateOne({ _id: typed.id }, { $set: { voidingUntil: new Date(Date.now() + 60_000) } })
+
+    expect((await w.linkReceipts(typed, [delivered._id], { replaceLines: true })).status).toBe(409)
+
+    await Invoice.updateOne({ _id: typed.id }, { $set: { voidingUntil: new Date(Date.now() - 1000) } })
+    expect((await w.linkReceipts(typed, [delivered._id], { replaceLines: true })).status).toBe(200)
+  })
+})
+
 describe('receiving a bill warns before it double-books (FR-22.31c)', () => {
+  it('issued by `/send`, the question leaves the transfers it was sent with: its answer sends them again', async () => {
+    const w = await world()
+    await w.receipt([[w.bolt, 10, 5]])
+    const typed = await w.typedBill([[w.bolt, 10, 5]])
+    const transfer: any = await StockMovement.create({
+      orgId: w.org._id, movementNumber: 'SM-2026-90011', type: 'transfer', status: 'draft', date: new Date(),
+      fromWarehouseId: w.warehouse._id, toWarehouseId: w.warehouse._id, createdBy: w.user._id,
+      lines: [{ productId: w.bolt._id, quantity: 1, unitCost: 1, totalCost: 1 }],
+    })
+
+    const asked = await w.call('POST', `/invoices/${typed.id}/send`, { pendingTransferIds: [String(transfer._id)] })
+
+    expect([asked.status, asked.json.code]).toEqual([409, 'receipt_overlap'])
+    expect((await w.mv(transfer._id)).status).toBe('draft')
+  })
+
   it('names the receipts, books nothing, draws no number, and receives when told to', async () => {
     const w = await world()
     const r = await w.receipt([[w.bolt, 10, 5]])

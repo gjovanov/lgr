@@ -144,8 +144,10 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
   .get('/:id/summary', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
 
-    const [invoiceCount, unpaid, movementCount] = await Promise.all([
+    const [documents, receipts, unpaid, movementCount] = await Promise.all([
+      // FR-23: the two counts, not a `$ne` on the type, which would fetch every document the contact has.
       Invoice.countDocuments({ orgId, contactId: id } as any),
+      Invoice.countDocuments({ orgId, type: 'payment_receipt', contactId: id } as any),
       Invoice.find({
         orgId,
         contactId: id,
@@ -154,6 +156,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       StockMovement.countDocuments({ orgId, contactId: id } as any),
     ])
 
+    const invoiceCount = documents - receipts
     let openBalance = 0
     let mixedCurrency = false
     let currency: string | null = null

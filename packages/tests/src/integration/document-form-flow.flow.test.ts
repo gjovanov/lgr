@@ -4,7 +4,7 @@ import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { captureRejection } from '../helpers/capture-rejection'
 import {
-  createTestOrg, createTestUser, createTestContact, createTestProduct, createTestWarehouse, createTestStockLevel,
+  allowSalesWithoutPrinter, createTestOrg, createTestUser, createTestContact, createTestProduct, createTestWarehouse, createTestStockLevel,
 } from '../helpers/factories'
 import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
 import { stockAvailabilityController } from 'invoicing-api/src/controllers/stock-availability.controller'
@@ -80,6 +80,7 @@ function clientFor(token: string): IssueClient {
 
 async function world() {
   const org = await createTestOrg()
+  await allowSalesWithoutPrinter(org._id)
   const orgId = String(org._id)
   const orgUrl = `/org/${orgId}`
   const user = await createTestUser(org._id)

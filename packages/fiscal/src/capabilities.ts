@@ -30,6 +30,7 @@ export const FISCAL_FEATURES = [
   'textReceipt',
   'paymentNames',
   'cashOnDelivery',
+  'fiscalText',
 ] as const
 export type FiscalFeature = typeof FISCAL_FEATURES[number]
 
@@ -48,6 +49,7 @@ export const FEATURE_METHODS: Record<Exclude<FiscalFeature, 'cashOnDelivery'>, r
   programOperator: ['programOperator'],
   textReceipt: ['openNonFiscalReceipt', 'printNonFiscalText', 'closeNonFiscalReceipt'],
   paymentNames: ['readPaymentNames', 'programPaymentName'],
+  fiscalText: ['printFiscalText'],
 }
 
 /**
@@ -69,6 +71,8 @@ export interface FiscalCapabilities {
   maxOperators: number
   /** The payment slot cash on delivery prints in, and the name the device page gives it. */
   cashOnDeliverySlot?: { code: string; name: string }
+  /** The longest line name the driver sends, when it cuts one: what must fit for a name to survive. */
+  lineNameMax?: number
 }
 
 /** What the reserve slot is named, so a COD receipt says what it was. Printed — always Bulgarian. */
@@ -77,7 +81,7 @@ export const CASH_ON_DELIVERY_NAME = 'НАЛОЖЕН ПЛАТЕЖ'
 function driverCapabilities(
   on: readonly FiscalFeature[],
   notInProtocol: readonly FiscalFeature[],
-  extra: Pick<FiscalCapabilities, 'maxOperators' | 'cashOnDeliverySlot'>,
+  extra: Pick<FiscalCapabilities, 'maxOperators' | 'cashOnDeliverySlot' | 'lineNameMax'>,
 ): Omit<FiscalCapabilities, 'driver'> {
   const features = {} as Record<FiscalFeature, boolean>
   const missing: Partial<Record<FiscalFeature, FiscalMissing>> = {}
@@ -90,9 +94,10 @@ function driverCapabilities(
 
 const DRIVERS: Record<FiscalDriver, Omit<FiscalCapabilities, 'driver'>> = {
   // Protocol v1.1.7: no command reads an operator (66h only sets one), none prints an operator
-  // report or the КЛЕН. 66h takes operators 1–16; the reserve payment slot 'R' carries COD.
+  // report or the КЛЕН. 66h takes operators 1–16; the reserve payment slot 'R' carries COD; 36h
+  // prints free text inside a fiscal receipt.
   eltrade: driverCapabilities(
-    ['zReport', 'xReport', 'fmReportByDate', 'fmReportByNumber', 'programOperator', 'textReceipt', 'paymentNames', 'cashOnDelivery'],
+    ['zReport', 'xReport', 'fmReportByDate', 'fmReportByNumber', 'programOperator', 'textReceipt', 'paymentNames', 'cashOnDelivery', 'fiscalText'],
     ['operatorReport', 'electronicJournal', 'readOperator'],
     { maxOperators: 16, cashOnDeliverySlot: { code: 'R', name: CASH_ON_DELIVERY_NAME } },
   ),
@@ -103,8 +108,14 @@ const DRIVERS: Record<FiscalDriver, Omit<FiscalCapabilities, 'driver'>> = {
   'tremol-bridge': driverCapabilities(
     ['zReport', 'xReport', 'operatorReport', 'fmReportByDate', 'fmReportByNumber', 'electronicJournal', 'readOperator', 'programOperator', 'textReceipt'],
     [],
-    { maxOperators: 8 },
+    { maxOperators: 8, lineNameMax: 34 },
   ),
+}
+
+/** The longest line name a device's driver sends, when it cuts one. */
+export function lineNameMaxOf(manufacturer: string, connectionType: string): number | undefined {
+  const driver = fiscalDriverFor(manufacturer, connectionType)
+  return driver ? DRIVERS[driver].lineNameMax : undefined
 }
 
 /** A bridge holds the port at the far end of a socket; the driver still runs on the server. */
@@ -161,6 +172,7 @@ const FEATURE_LABEL: Record<FiscalFeature, string> = {
   textReceipt: 'non-fiscal (text) receipts',
   paymentNames: 'naming payment types',
   cashOnDelivery: 'a cash-on-delivery payment',
+  fiscalText: 'free text inside a fiscal receipt',
 }
 
 const brand = (manufacturer: string) => manufacturer ? manufacturer[0].toUpperCase() + manufacturer.slice(1) : 'This'

@@ -178,25 +178,53 @@ export interface TwoPods {
   readonly jwtSecret: string
   /** Shared by both pods: what a test signs a desktop's credential with. */
   readonly desktopTokenSecret: string
+  /** With `startTwoPods({ front })`: what every request carries to get past the front. */
+  readonly frontHeaders: Record<string, string>
+  /** Another pod of the same global, as a roll starts one before it stops the last. */
+  startPod(): Promise<Node>
+  /**
+   * With `startTwoPods({ front })`: the graceful stop, whatever the platform. SIGTERM ends a Bun
+   * process at once on Windows, so the control socket is the one way there too.
+   */
+  drain(pod: Node): Promise<void>
   stop(): Promise<void>
 }
 
-export async function startTwoPods(): Promise<TwoPods> {
+export async function startTwoPods(opts: { front?: boolean } = {}): Promise<TwoPods> {
   const scratch = mkdtempSync(join(tmpdir(), 'lgr-two-pods-'))
   const mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 } })
   const mongoUri = mongo.getUri('lgr')
   const shared = { JWT_SECRET: random(), DESKTOP_TOKEN_SECRET: random(), NODE_TOKEN_SECRET: random(), UPLOAD_DIR: join(scratch, 'uploads') }
+  const secret = opts.front ? random() : ''
+  const frontHeaders: Record<string, string> = opts.front ? { 'x-lgr-front': secret, 'x-lgr-source': 'tunnel' } : {}
+  const pods: Node[] = []
+  const sockets = new Map<Node, string>()
+  const startPod = async () => {
+    const socket = join(scratch, `pod-${pods.length}.sock`)
+    const env = opts.front ? { ...shared, LGR_FRONT_SECRET: secret, LGR_CONTROL_SOCKET: socket } : shared
+    const pod = await startNode('global', scratch, { mongoUri, env, probeHeaders: frontHeaders })
+    pods.push(pod)
+    sockets.set(pod, socket)
+    return pod
+  }
   // One after the other: both would run the migrations at once otherwise (the lock makes one wait).
-  const a = await startNode('global', scratch, { mongoUri, env: shared })
-  const b = await startNode('global', scratch, { mongoUri, env: shared })
+  const a = await startPod()
+  const b = await startPod()
   return {
     a,
     b,
     mongoUri,
     jwtSecret: shared.JWT_SECRET,
     desktopTokenSecret: shared.DESKTOP_TOKEN_SECRET,
+    frontHeaders,
+    startPod,
+    async drain(pod) {
+      const r = await fetch('http://lgr-api/stop', { method: 'POST', unix: sockets.get(pod), headers: { 'x-lgr-front': secret } } as any)
+      if (r.status !== 202) throw new Error(`the stop was refused: ${r.status}`)
+      await pod.exited
+    },
     async stop() {
-      await Promise.all([a.stop().catch(() => undefined), b.stop().catch(() => undefined)])
+      await Promise.all(pods.map(p => p.stop().catch(() => undefined)))
       await mongo.stop()
       rmSync(scratch, { recursive: true, force: true })
     },

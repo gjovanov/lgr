@@ -8,6 +8,7 @@
  *   400 bad_input        the request's data — refused before anything was sent
  *   400 unsupported      the driver or the device cannot do it at all (`FiscalUnsupportedError`)
  *   409 receipt_open     a receipt is open, and the command will not touch it
+ *   409 device_busy      another document held the device for as long as this one could wait
  *   409 device_refused   the device answered and did not execute it (out of paper, not allowed now…)
  *   502 device_protocol  the device answered something that cannot be read
  *   503 not_connected    nothing holds the device: no bridge, the socket is gone
@@ -30,6 +31,7 @@ export type FiscalFailureCode =
   | 'bad_input'
   | 'unsupported'
   | 'receipt_open'
+  | 'device_busy'
   | 'device_refused'
   | 'device_protocol'
   | 'not_connected'
@@ -57,6 +59,7 @@ export function fiscalFailure(e: unknown): FiscalFailure {
   if (err?.name === 'EltradeError' && err.kind && err.kind in BY_KIND) {
     return { ...BY_KIND[err.kind as EltradeErrorKind], message }
   }
+  if (err?.name === 'DeviceBusyError') return { status: 409, code: 'device_busy', message }
   if (err?.name === 'FiscalUnsupportedError') return { status: 400, code: 'unsupported', message }
   if (err?.name === 'FiscalNotConnectedError') return { status: 503, code: 'not_connected', message }
   if (/not connected|disconnected|failed to send/i.test(message)) return { status: 503, code: 'not_connected', message }

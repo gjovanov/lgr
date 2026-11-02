@@ -84,6 +84,7 @@ try {
       cashSales: await Invoice.countDocuments({ orgId: o, type: 'cash_sale' }).exec(),
       cashSalesVoided: await Invoice.countDocuments({ orgId: o, type: 'cash_sale', status: 'voided' }).exec(),
       cashStornos: await Invoice.countDocuments({ orgId: o, type: 'cash_storno' }).exec(),
+      paymentReceipts: await Invoice.countDocuments({ orgId: o, type: 'payment_receipt' }).exec(),
       tillDocuments: await Invoice.countDocuments({ orgId: o, 'register.origin': 'pos' }).exec(),
       copies: await Invoice.countDocuments({ orgId: o, 'register.legacy.source': 'postransactions' }).exec(),
       origins: await Invoice.aggregate([{ $match: { orgId: o, type: 'cash_sale' } }, { $group: { _id: '$register.origin', n: { $sum: 1 } } }, { $sort: { _id: 1 } }]).exec(),
@@ -95,10 +96,11 @@ try {
       digestKpis: digest.kpis,
     }
 
-    // The journal lists every sale once: a copied POS row is read as its document.
+    // The journal lists every sale once: a copied POS row is read as its document. It lists a
+    // payment's receipt too (FR-23).
     const all = await listJournal({ orgId, size: 1 })
     row.journalTotal = all.total
-    row.journalInvariant = all.total === row.pos - row.copies + row.cashSales + row.cashStornos
+    row.journalInvariant = all.total === row.pos - row.copies + row.cashSales + row.cashStornos + row.paymentReceipts
     // Every page of the day: a page holds at most 500 rows, and a busy day has more.
     const dayQuery = { orgId, dateFrom: DIGEST_DAY, dateTo: DIGEST_DAY, timeZone: org.settings?.timezone, size: 500 }
     const dayRows = await listJournal({ ...dayQuery, page: 0 })

@@ -25,7 +25,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
  * every app. Only on an on-prem master: lgrai.app answers `{applies: false}` and nothing shows.
  *
  * Shown while the server is on its evaluation, in its grace, or restricted. Only the restricted
- * banner cannot be closed: it is the one that explains why a till will not open.
+ * banner cannot be closed: it is the one that explains why a till will not sell.
  */
 
 const props = defineProps<{ orgId?: string | null }>()

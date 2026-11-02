@@ -64,6 +64,8 @@ export interface IPOSSession extends Document {
   /** The key and request hash that closed it, so a retried close returns the close. */
   closeClientKey?: string
   closeRequestHash?: string
+  /** A close running its Z holds the session until then (`closing_control`). Past it, the process died. */
+  closeLeaseUntil?: Date
   createdAt: Date
   updatedAt: Date
 }
@@ -119,12 +121,16 @@ const posSessionSchema = new Schema<IPOSSession>(
     requestHash: String,
     closeClientKey: String,
     closeRequestHash: String,
+    closeLeaseUntil: Date,
   },
   { timestamps: true },
 )
 
 posSessionSchema.plugin(tenantPlugin)
 posSessionSchema.index({ orgId: 1, cashierId: 1, openedAt: -1 })
+// FR-23: every `/send`, `/payments` and `/receipt` asks for whoever's open session, and with none open
+// the index above fetches every session they ever had, each with its stored report.
+posSessionSchema.index({ orgId: 1, cashierId: 1, openedAt: -1 }, { name: 'open_session_of_cashier', partialFilterExpression: { status: 'open' } })
 posSessionSchema.index(
   { orgId: 1, clientKey: 1 },
   { unique: true, partialFilterExpression: { clientKey: { $type: 'string' } } },

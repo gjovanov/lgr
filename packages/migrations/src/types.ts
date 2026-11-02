@@ -22,6 +22,12 @@ export interface Migration {
   description: string
   up(ctx: MigrationContext): Promise<void>
   /**
+   * What `up` would do, a line per change, writing nothing: `bun run migrate --dry-run`. Optional: a
+   * migration that decides per org has an answer worth reading before it runs, and a schema change
+   * does not.
+   */
+  preview?(ctx: MigrationContext): Promise<string[]>
+  /**
    * The SHA-256 of the migration's file (`fingerprints.json`, attached by the registry). The
    * runner's checksum is taken over it, never over `up`, which a bundle prints differently. A
    * migration without one (a test's) is checksummed over `up` as before.

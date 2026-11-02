@@ -786,7 +786,8 @@
       "portInUse": "Der Anschluss des Druckers wird von einem anderen Tab, Fenster oder Programm verwendet, und nur eines kann ihn nutzen. Schließen Sie das andere (oder stecken Sie den Drucker aus und wieder ein) und verbinden Sie erneut.",
       "deviceErrors": "Problem am Fiskalgerät: {errors}",
       "connectedVia": "Verbunden über {name}",
-      "waitingForDesktop": "wartet auf seinen LGR Desktop"
+      "waitingForDesktop": "wartet auf seinen LGR Desktop",
+      "printsText": "Nicht fiskalisiert: Belege werden als Text gedruckt"
     },
     "noFiscalDevice": "Kein Fiskalgerät für Browser konfiguriert. Wenden Sie sich an den Administrator.",
     "saleCompleted": "Verkauf abgeschlossen",
@@ -819,6 +820,14 @@
       "notCounted": "Beim Kurier, wird nicht gezählt",
       "receiptOpenTitle": "Die Sitzung bleibt geöffnet",
       "receiptOpen": "Auf diesem Gerät wird gerade ein Verkauf gedruckt. Warten Sie, bis er fertig ist, und schließen Sie dann erneut ab.",
+      "deadSales": "Die Verkäufe {numbers} wurden vor ihrem Abschluss unterbrochen, und nichts kann sagen, ob ihre Belege gedruckt wurden. Ihr Geld zählt hier zum Erwartungswert: Der Abschluss bucht es. Prüfen Sie das Gerät und klären Sie dann jeden unter „Kassenverkäufe“.",
+      "deadSalesBooked": "Die Verkäufe {numbers} wurden vor ihrem Abschluss unterbrochen. Ihr Geld zählt hier zum Erwartungswert: Der Abschluss bucht es.",
+      "deadDocuments": "{numbers} wurden vor ihrem Abschluss unterbrochen. Der Abschluss stellt sie zuerst fertig: Was sie eingenommen oder zurückgegeben haben, zählt hier zum Erwartungswert. Ein Dokument, das nichts beweisen kann, hält den Abschluss an, bis eine Person es klärt.",
+      "interruptedTitle": "Der letzte Abschluss wurde während des Z-Berichts unterbrochen",
+      "interrupted": "Der Z-Bericht wurde möglicherweise gedruckt, und die Sitzung ist wieder offen. Prüfen Sie das Gerät. Wurde der Z-Bericht gedruckt, schließen Sie ohne Fiskalbericht ab (das kann ein Manager). Wenn nicht, schließen Sie erneut ab.",
+      "closeAgain": "Diese Sitzung erneut abschließen",
+      "outcomeUnknownTitle": "Es kam keine Antwort, daher weiß noch niemand, wie dieser Abschluss ausgegangen ist",
+      "outcomeUnknown": "Der Abschluss läuft möglicherweise noch und mit ihm der Z-Bericht. Verkaufen Sie nicht in dieser Sitzung. Prüfen Sie das Gerät. Ein erneuter Versuch liefert denselben Abschluss zurück und druckt nie einen zweiten Z-Bericht.",
       "method": {
         "cash": "Bar",
         "card": "Karte",
@@ -853,8 +862,8 @@
       "switchOperator": "Bediener wechseln"
     },
     "printerRequired": {
-      "notConnected": "Verbinden Sie den Fiskaldrucker, um zu verkaufen.",
-      "notConfigured": "Für dieses Lager ist kein Fiskaldrucker eingerichtet. Wenden Sie sich an den Administrator."
+      "notConnected": "Verbinden Sie den Fiskaldrucker, um zu verkaufen. Eine Organisation, die hier nichts druckt, schaltet „Verkauf nur mit verbundenem Fiskaldrucker“ unter Einstellungen → Organisation → Kasse aus.",
+      "notConfigured": "Für dieses Lager ist kein Fiskaldrucker eingerichtet. Wenden Sie sich an den Administrator. Eine Organisation, die hier nichts druckt, schaltet „Verkauf nur mit verbundenem Fiskaldrucker“ unter Einstellungen → Organisation → Kasse aus."
     },
     "sessionDocuments": "Barverkäufe der Sitzung {number}",
     "deviceReport": {
@@ -881,6 +890,7 @@
       "printed": "Der Sitzungsbericht wurde auf dem Fiskalgerät gedruckt.",
       "notPrinted": "Der Sitzungsbericht wurde nicht gedruckt: {error}. Die Sitzung ist geschlossen; drucken Sie ihn hier oder unter Kassensitzungen erneut.",
       "sales": "Verkäufe",
+      "payments": "Rechnungszahlungen",
       "stornos": "Stornos",
       "voided": "Ungültige Stornos",
       "fiscal": "Fiskalbelege",
@@ -1035,7 +1045,8 @@
       "salesSeries": "Verkäufe",
       "states": {
         "open": "offen",
-        "closed": "geschlossen"
+        "closed": "geschlossen",
+        "closing_control": "wird abgeschlossen"
       }
     }
   },
@@ -1062,7 +1073,79 @@
     },
     "kind": {
       "sale": "Verkauf",
-      "storno": "Storno"
+      "storno": "Storno",
+      "payment": "Rechnungszahlung"
+    },
+    "receipt": {
+      "noSession": "Öffnen Sie zuerst eine Kassensitzung: Eine Zahlung an der Kasse druckt ihren Beleg auf dem Gerät dieser Sitzung. Eine Organisation, die hier nichts druckt, schaltet „Verkauf nur mit verbundenem Fiskaldrucker“ unter Einstellungen → Organisation → Kasse aus.",
+      "inProgress": "Eine andere Zahlung zu diesem Dokument wird gerade gedruckt. Warten Sie, bis sie fertig ist, und versuchen Sie es erneut.",
+      "documentClaimed": "Dieses Dokument wird gerade storniert oder einem Barverkauf zugeordnet. Versuchen Sie es gleich noch einmal.",
+      "documentChanged": "Dieses Dokument wurde geändert, während Sie damit gearbeitet haben. Öffnen Sie es erneut.",
+      "fiscallyPaid": "Für dieses Dokument wurde ein Beleg gedruckt: Sein Betrag kann nicht mehr geändert und es kann nicht storniert werden. Korrigieren Sie es mit einer Gut- oder Lastschrift.",
+      "currency": "Das Kassengerät druckt in einer anderen Währung als dieses Dokument. Nehmen Sie diese Zahlung per Bank an.",
+      "notPrintable": "Die Beträge dieses Dokuments lassen sich für einen Beleg nicht nach Steuersätzen aufteilen. Nehmen Sie diese Zahlung per Bank an.",
+      "notIssued": "Stellen Sie dieses Dokument zuerst aus: Der Beleg nennt seine Nummer.",
+      "willPrint": "Beim Speichern wird ein Beleg auf dem Gerät Ihrer Sitzung gedruckt.",
+      "printAgain": "Erneut drucken",
+      "printed": "Zahlung erfasst, Beleg {number} gedruckt",
+      "unknown": "Zahlung erfasst, aber prüfen Sie das Gerät: {reason}",
+      "issuedNotPaid": "Ausgestellt, aber der Beleg wurde nicht gedruckt, daher ist es noch unbezahlt: {reason}",
+      "takePayment": "Zahlung annehmen",
+      "issuedNoReceipt": "Ausgestellt, aber der Beleg wurde nicht gedruckt: {reason}",
+      "issuedUnknown": "Ausgestellt, aber prüfen Sie das Gerät: {reason}",
+      "issuedChanged": "Ausgestellt, aber das Dokument hat sich während der Ausstellung geändert, daher wurde kein Beleg gedruckt und nichts bezahlt. Nehmen Sie die Zahlung für den aktuellen Betrag an.",
+      "issuedChangedDelivery": "Ausgestellt, aber das Dokument hat sich während der Ausstellung geändert, daher wurde kein Beleg gedruckt. Drucken Sie den Beleg auf dieser Seite.",
+      "issueInProgress": "Dieses Dokument wird gerade ausgestellt. Versuchen Sie es gleich noch einmal.",
+      "deliveryMissing": "Der Beleg dieser Nachnahme-Rechnung wurde nicht gedruckt.",
+      "printIt": "Beleg drucken",
+      "deliveryPrinted": "Beleg {number} gedruckt",
+      "noneOwed": "Für dieses Dokument ist kein Beleg mehr zu drucken.",
+      "paidInvoice": "Bezahlte Rechnung",
+      "inDoubt": "Nichts kann belegen, ob dieser Beleg gedruckt wurde. Sein Geld ist weder gebucht noch frei. Prüfen Sie das Journal des Geräts und geben Sie dann an, was zutrifft.",
+      "inDoubtDocument": "Nichts kann belegen, ob Beleg {number} gedruckt wurde. Sein Geld ist weder gebucht noch frei, bis jemand ihn klärt.",
+      "inDoubtRefused": "Nichts kann belegen, ob Beleg {number} gedruckt wurde, daher geht dies nicht weiter. Prüfen Sie das Gerät und klären Sie den Beleg unter Kassenverkäufe.",
+      "settleIt": "Klären",
+      "settlePrinted": "Wurde gedruckt",
+      "settleNotPrinted": "Wurde nicht gedruckt",
+      "settleWho": "Das klärt ein Manager oder ein Administrator.",
+      "settleConfirm": {
+        "printed": "Der Beleg ist auf dem Gerät. Sein Geld wird auf der Rechnung und in der Sitzung erfasst. Das lässt sich nicht rückgängig machen.",
+        "notPrinted": "Der Beleg ist nicht auf dem Gerät. Er wird mit seiner Nummer storniert, und der Betrag ist wieder offen. Das lässt sich nicht rückgängig machen."
+      },
+      "settled": "Beleg geklärt",
+      "deliveryOwed": "Diese Nachnahme-Rechnung hat keinen Fiskalbeleg: Sein Druck ist fehlgeschlagen. Drucken Sie zuerst den Beleg.",
+      "unfinished": "Die Belege {numbers} sind nicht abgeschlossen, daher kann diese Sitzung nicht geschlossen werden. Warten Sie auf einen Beleg im Druck und klären Sie einen ungeklärten unter Kassenverkäufe.",
+      "stornoInDoubt": "Nichts kann belegen, ob dieser Storno gedruckt wurde, daher wurde nichts rückgängig gemacht: weder Geld noch Ware. Prüfen Sie das Journal des Geräts und geben Sie dann an, was zutrifft.",
+      "stornoInDoubtRefused": "Storno {number} wurde möglicherweise gedruckt, und nichts wurde rückgängig gemacht. Prüfen Sie das Gerät und klären Sie den Storno auf seiner Seite unter Kassenverkäufe. Drücken Sie Storno nicht noch einmal.",
+      "settleConfirmStorno": {
+        "printed": "Der Storno ist auf dem Gerät. Der Betrag verlässt die Sitzung und die Ware kommt zurück. Das lässt sich nicht rückgängig machen.",
+        "notPrinted": "Der Storno ist nicht auf dem Gerät. Er wird mit seiner Nummer ungültig, und der Verkauf bleibt, wie er war. Das lässt sich nicht rückgängig machen."
+      },
+      "stornoSettled": "Storno geklärt",
+      "openOnDevice": "Auf dem Fiskalgerät ist noch ein Beleg offen, daher ist noch nichts endgültig. Drucken Sie auf der Geräteseite einen X-Bericht, der ihn bereinigt, und prüfen Sie das Gerät erneut: Was dann gedruckt wurde, ist gedruckt.",
+      "deviceAway": "Das Fiskalgerät, auf dem dieses Dokument gedruckt wurde, antwortet nicht, und was es enthält, entscheidet darüber. Nichts wurde geändert. Verbinden Sie es und prüfen Sie es erneut. Ein endgültig verlorenes Gerät wird auf seiner Seite deaktiviert, danach gilt Ihre Angabe.",
+      "deviceBusy": "Das Fiskalgerät ist mit einem anderen Dokument beschäftigt und konnte nicht gefragt werden. Nichts wurde geändert. Versuchen Sie es gleich noch einmal.",
+      "holderUnreachable": "Das Fiskalgerät wird von einem anderen Serverprozess gehalten, der gerade nicht erreichbar ist. Nichts wurde geändert. Versuchen Sie es gleich noch einmal.",
+      "holderMoved": "Das Fiskalgerät ist zu einem anderen Serverprozess gewechselt, während diese Anfrage unterwegs war. Es wurde nichts ausgeführt. Drücken Sie noch einmal.",
+      "saleInDoubt": "Nichts kann belegen, ob der Fiskalbeleg dieses Verkaufs gedruckt wurde. Sein Geld bleibt, und sein Storno wartet, bis jemand das Gerät prüft und angibt, was zutrifft.",
+      "saleInDoubtRefused": "Nichts kann belegen, ob der Beleg des Verkaufs {number} gedruckt wurde, daher weiß ein Storno nicht, was es rückgängig macht. Nichts wurde rückgängig gemacht. Prüfen Sie das Gerät und klären Sie den Verkauf auf seiner Seite unter Kassenverkäufe.",
+      "saleInProgress": "Dieser Verkauf wird noch erfasst. Nichts wurde geändert. Warten Sie, bis er abgeschlossen ist, und versuchen Sie es erneut.",
+      "stornoInProgress": "Dieser Verkauf wird bereits storniert. Es wurde nichts Neues begonnen. Warten Sie einen Moment und sehen Sie ihn sich dann erneut an.",
+      "sessionClosing": "Diese Sitzung wird gerade geschlossen und nimmt nichts Neues mehr an. Nichts wurde gebucht, storniert oder gedruckt. Warten Sie, bis der Abschluss fertig ist, und öffnen Sie dann eine neue Sitzung.",
+      "settleConfirmSale": {
+        "printed": "Der Beleg ist auf dem Gerät. Geben Sie seine Nummer vom Bon ein: das Storno dieses Verkaufs zitiert sie. Das lässt sich nicht rückgängig machen.",
+        "notPrinted": "Der Beleg ist nicht auf dem Gerät. Der Verkauf und sein Geld bleiben, und sein Storno druckt nichts. Das lässt sich nicht rückgängig machen."
+      },
+      "saleSettled": "Verkauf geklärt",
+      "receiptNumber": "Belegnummer",
+      "numberRequired": "Ein gedruckter Verkauf braucht seine Belegnummer vom Bon, in Ziffern: sein Storno zitiert sie.",
+      "numberTaken": "Diese Belegnummer gehört auf diesem Gerät zu {number}. Prüfen Sie den Bon. Steht diese Nummer darauf, bestätigen Sie sie: Das Protokoll hält das fest.",
+      "numberOffDevice": "Diese Belegnummer liegt über der letzten, die dieses Gerät vergeben hat ({last}). Prüfen Sie den Bon. Steht diese Nummer darauf, bestätigen Sie sie: Das Protokoll hält das fest.",
+      "slipSaysThisNumber": "Auf dem Bon steht diese Nummer",
+      "numberCited": "Ein Storno oder eine Rechnung dieses Verkaufs nennt diese Belegnummer, daher bleibt sie bestehen.",
+      "correctNumber": "Nummer korrigieren",
+      "correctNumberConfirm": "Geben Sie die Belegnummer so ein, wie sie auf dem Bon steht. Das Storno dieses Verkaufs nennt sie, und das Protokoll behält beide.",
+      "numberCorrected": "Belegnummer korrigiert"
     },
     "origin": {
       "pos": "Kasse",
@@ -1072,7 +1155,8 @@
     "status": {
       "completed": "Abgeschlossen",
       "stornoed": "Storniert",
-      "voided": "Ungültig"
+      "voided": "Ungültig",
+      "inDoubt": "Ungeklärt"
     },
     "stock": {
       "moved": "Ausgebucht",
@@ -1211,7 +1295,7 @@
     "cashRegister": {
       "title": "Kasse",
       "requireConnectedDevice": "Verkauf nur mit verbundenem Fiskaldrucker",
-      "requireConnectedDeviceHint": "Nur für eine Organisation ohne Fiskalgerät ausschalten, etwa eine Demo- oder Testorganisation: ihre Verkäufe werden nicht gedruckt."
+      "requireConnectedDeviceHint": "Ein: Ein Verkauf und eine Bar- oder Kartenrechnung brauchen eine offene Sitzung und einen verbundenen Fiskaldrucker, und LGR druckt den Fiskalbeleg. Aus: LGR druckt nichts, Bar- und Kartenrechnungen gelten bei der Ausstellung als bezahlt, ohne Beleg. Eine neue Organisation beginnt mit Aus."
     }
   },
   "admin": {
@@ -3208,7 +3292,8 @@
       "systemSales": "Verkäufe im System",
       "expectedCash": "Erwarteter Bargeldbestand",
       "cardPayments": "Kartenzahlungen",
-      "otherPayments": "Sonstige Zahlungen"
+      "otherPayments": "Sonstige Zahlungen",
+      "unpaid": "Noch nicht bezahlt"
     },
     "exportDialog": {
       "xlsxHint": "Alle Zeilen in einem Blatt — zum eigenen Sortieren, Filtern und Summieren.",
@@ -3443,10 +3528,10 @@
     "saved": "Gespeichert"
   },
   "licence": {
-    "evaluation": "Dieser Server hat noch keine Lizenz für diese Organisation und läuft in einer 30-tägigen Testphase. Neue Kassensitzungen und Verkaufsbelege werden am {date} gestoppt, wenn er nicht mit lgrai.app verbunden wird oder eine Lizenzdatei erhält.",
-    "grace": "Die Lizenz dieses Servers ist am {paid} abgelaufen. Neue Kassensitzungen und Verkaufsbelege werden am {date} gestoppt, wenn sie nicht auf lgrai.app verlängert wird.",
-    "restricted": "Die Lizenz dieses Servers ist abgelaufen: Seit dem {date} werden keine neuen Kassensitzungen geöffnet und keine neuen Verkaufsbelege ausgestellt. Lesen, Exporte, Tagesabschluss, Gutschriften und Zahlungen funktionieren weiterhin. Ein Administrator verlängert sie auf lgrai.app.",
-    "restrictedEvaluation": "Dieser Server hat keine Lizenz für diese Organisation und die 30-tägige Testphase ist abgelaufen: Seit dem {date} werden keine neuen Kassensitzungen geöffnet und keine neuen Verkaufsbelege ausgestellt. Lesen, Exporte, Tagesabschluss, Gutschriften und Zahlungen funktionieren weiterhin.",
+    "evaluation": "Dieser Server hat noch keine Lizenz für diese Organisation und läuft in einer 30-tägigen Testphase. Neue Kassenverkäufe und Verkaufsbelege werden am {date} gestoppt, wenn er nicht mit lgrai.app verbunden wird oder eine Lizenzdatei erhält.",
+    "grace": "Die Lizenz dieses Servers ist am {paid} abgelaufen. Neue Kassenverkäufe und Verkaufsbelege werden am {date} gestoppt, wenn sie nicht auf lgrai.app verlängert wird.",
+    "restricted": "Die Lizenz dieses Servers ist abgelaufen: Seit dem {date} werden an der Kasse keine neuen Verkäufe erfasst und keine neuen Verkaufsbelege ausgestellt. Eine Kassensitzung lässt sich weiterhin öffnen, um Zahlungen auf bestehende Belege anzunehmen. Lesen, Exporte, Tagesabschluss, Gutschriften und Zahlungen funktionieren weiterhin. Ein Administrator verlängert sie auf lgrai.app.",
+    "restrictedEvaluation": "Dieser Server hat keine Lizenz für diese Organisation und die 30-tägige Testphase ist abgelaufen: Seit dem {date} werden an der Kasse keine neuen Verkäufe erfasst und keine neuen Verkaufsbelege ausgestellt. Eine Kassensitzung lässt sich weiterhin öffnen, um Zahlungen auf bestehende Belege anzunehmen. Lesen, Exporte, Tagesabschluss, Gutschriften und Zahlungen funktionieren weiterhin.",
     "problem": "Eine Lizenzdatei ist vorhanden und wurde nicht verwendet: {why}.",
     "problems": {
       "malformed": "sie ist keine Lizenz",

@@ -18,6 +18,7 @@
  * `services` never imports `fiscal` (it depends on us), so the API hands the reader in.
  */
 import { FiscalDevice, Invoice } from 'db/models'
+import { TILL_DOCUMENT_TYPES } from '../cash-register/pos-union.js'
 
 export type DeviceReading =
   | { state: 'read'; lastDocument: number; readAt: Date }
@@ -52,7 +53,7 @@ async function lastRecorded(orgId: string, deviceNumber: string): Promise<Device
   const doc: any = await Invoice.findOne(
     {
       orgId,
-      type: { $in: ['cash_sale', 'cash_storno'] },
+      type: { $in: TILL_DOCUMENT_TYPES },
       'register.fiscalDeviceNumber': deviceNumber,
       'register.fiscalReceiptNumber': { $type: 'string', $ne: '' },
     },

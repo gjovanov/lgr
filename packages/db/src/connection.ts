@@ -37,10 +37,11 @@ function hookWarmup(): void {
   mongoose.connection.on('reconnected', () => { void warmupSchemas() })
 }
 
-export async function connectDB(): Promise<typeof mongoose> {
+/** `readOnly`: registering a model builds its indexes and its collection, unless told not to. */
+export async function connectDB(opts: { readOnly?: boolean } = {}): Promise<typeof mongoose> {
   if (isConnected) return mongoose
   hookWarmup()
-  const conn = await mongoose.connect(config.mongodb.uri)
+  const conn = await mongoose.connect(config.mongodb.uri, opts.readOnly ? { autoIndex: false, autoCreate: false } : {})
   isConnected = true
   return conn
 }

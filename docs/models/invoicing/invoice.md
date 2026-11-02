@@ -122,6 +122,7 @@ interface IInvoice extends Document {
 | sentAt / sent_at | Date | TEXT | No | - | |
 | paidAt / paid_at | Date | TEXT | No | - | |
 | tags | [String] | TEXT (JSON) | No | `[]` | |
+| voidingUntil | Date | - | No | - | FR-23: a void under way holds the document until then, against the hold a receipt takes |
 | createdBy / created_by | ObjectId | TEXT | Yes | - | Ref: User |
 | createdAt / created_at | Date | TEXT | Yes | auto | |
 | updatedAt / updated_at | Date | TEXT | Yes | auto | |
@@ -156,7 +157,7 @@ interface IInvoice extends Document {
 | method | String | TEXT | Yes | - | `cash`, `bank_transfer`, `card`, `check`, `other` |
 | reference | String | TEXT | No | - | |
 | bankAccountId / bank_account_id | ObjectId | TEXT | No | - | Ref: BankAccount |
-| journalEntryId / journal_entry_id | ObjectId | TEXT | No | - | Ref: JournalEntry |
+| journalEntryId / journal_entry_id | ObjectId | TEXT | No | - | Ref: JournalEntry. Stamped in place by `payment.recorded`, on `receiptId` or on the row's own id |
 | sort_order | - | INTEGER | No | 0 | SQLite only |
 
 ## Relationships
@@ -191,7 +192,7 @@ interface IInvoice extends Document {
 | DELETE | `/:id` | Delete invoice (draft only) | Yes | - |
 | POST | `/:id/send` | Mark invoice as sent + create stock movement. An unlinked bill may answer 409 `receipt_overlap`, as `/receive` does | Yes | - |
 | POST | `/:id/receive` | Mark incoming invoice as received + create stock movement. An unlinked bill answers 409 `receipt_overlap` while an unclaimed goods receipt may be the same delivery; the optional body `{ acknowledgeOverlap: true }` receives anyway (FR-22.31c). 409 `bill_not_draft` when another request took it first; 422 `stock_line_without_warehouse` or `stock_line_without_product` when booking it would be refused, with the bill still a draft | Yes | - |
-| POST | `/:id/payments` | Record a payment on invoice | Yes | - |
+| POST | `/:id/payments` | Record a payment on invoice. Cash or card on an issued sales invoice or debit note prints a `payment_receipt` where the org prints (FR-23) | Yes | - |
 | POST | `/:id/void` | Void invoice + reverse stock movement | Yes | - |
 | POST | `/:id/convert` | Convert proforma to invoice | Yes | - |
 

@@ -218,6 +218,36 @@
       {{ $t('invoicing.issueFlow.notIssued', { reason: issueError }) }}
     </v-alert>
 
+    <!-- FR-23: issued, and its receipt did not print. The money is taken again; on delivery it is the
+         courier's, so the receipt prints on its own, and this stays until it has. -->
+    <v-alert
+      v-if="(receiptError || deliveryReceiptDue) && !isDraftDoc"
+      type="error"
+      variant="tonal"
+      density="compact"
+      class="mb-3"
+      :closable="!deliveryReceiptDue"
+      data-testid="receipt-error"
+      @click:close="receiptError = ''"
+    >
+      {{ receiptError || $t('cashRegister.receipt.deliveryMissing') }}
+      <template #append>
+        <v-btn v-if="deliveryReceiptDue" size="small" variant="outlined" :loading="printingReceipt" data-testid="receipt-print" @click="printDeliveryReceipt">{{ $t('cashRegister.receipt.printIt') }}</v-btn>
+        <v-btn v-else-if="receiptTakesPayment" size="small" variant="outlined" data-testid="receipt-retry" @click="paymentDialog = true">{{ $t('cashRegister.receipt.takePayment') }}</v-btn>
+      </template>
+    </v-alert>
+
+    <!-- FR-23: nothing can prove whether a receipt of this document printed. Its money is neither
+         booked nor free until someone settles it. -->
+    <v-alert v-if="receiptInDoubt" type="warning" variant="tonal" density="compact" class="mb-3" data-testid="receipt-in-doubt">
+      {{ $t('cashRegister.receipt.inDoubtDocument', { number: receiptInDoubt.number }) }}
+      <template #append>
+        <v-btn size="small" variant="outlined" data-testid="receipt-in-doubt-open" :to="{ name: 'invoicing.cash-sales.view', params: { id: receiptInDoubt.id } }">{{ $t('cashRegister.receipt.settleIt') }}</v-btn>
+      </template>
+    </v-alert>
+
+    <RecordPaymentDialog v-model="paymentDialog" :document="payableDoc" @recorded="onPaymentRecorded" />
+
     <SendEmailDialog
       v-model="showEmailDialog"
       :default-to="contactEmail"
@@ -531,6 +561,7 @@ import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
 import AttachToCashSaleDialog from '../AttachToCashSaleDialog.vue'
 import ReceiptOverlapDialog from '../ReceiptOverlapDialog.vue'
+import RecordPaymentDialog from '../RecordPaymentDialog.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import BankInfoRow from '../BankInfoRow.vue'
@@ -626,6 +657,15 @@ const {
   onAttached,
   lastPrint,
   issueError,
+  receiptError,
+  receiptTakesPayment,
+  deliveryReceiptDue,
+  receiptInDoubt,
+  printingReceipt,
+  printDeliveryReceipt,
+  paymentDialog,
+  payableDoc,
+  onPaymentRecorded,
   isDraftDoc,
   confirmTransfers,
   stockReceipts,

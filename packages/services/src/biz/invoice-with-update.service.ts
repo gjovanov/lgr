@@ -52,13 +52,18 @@ export async function createInvoiceWithProductUpdates(
  * here, so the ledger keeps the pre-edit amounts — see the note in `invoice.controller.ts`'s
  * PUT handler for the full consequence and why it was chosen.
  */
+/** The document no longer meets what the caller asked for: nothing was written, its products included. */
+export class InvoiceWriteLost extends Error {}
+
 export async function updateInvoiceWithProductUpdates(params: {
   orgId: string
   invoiceId: string
   update: Record<string, any>
   productUpdates: ProductUpdateInput[]
+  /** What the document must still be for this to happen (a draft nothing has claimed). */
+  where?: Record<string, unknown>
 }): Promise<{ updatedProductIds: string[] }> {
-  const { orgId, invoiceId, update, productUpdates } = params
+  const { orgId, invoiceId, update, productUpdates, where = {} } = params
 
   const existing: any = await Invoice.findOne({ _id: invoiceId, orgId } as any).lean()
   if (!existing) throw new GRValidationError('Invoice not found')
@@ -73,7 +78,8 @@ export async function updateInvoiceWithProductUpdates(params: {
   try {
     await session.withTransaction(async () => {
       updatedProductIds = await applyProductUpdates(session, orgId, safeUpdates)
-      await Invoice.findOneAndUpdate({ _id: invoiceId, orgId } as any, { $set: update }, { new: true, session })
+      const written = await Invoice.findOneAndUpdate({ ...where, _id: invoiceId, orgId } as any, { $set: update }, { new: true, session })
+      if (!written) throw new InvoiceWriteLost()
     })
   } finally {
     await session.endSession()

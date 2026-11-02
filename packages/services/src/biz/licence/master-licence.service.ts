@@ -2,6 +2,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { config, nodeRole } from 'config'
 import { Org } from 'db/models'
+import { orgLocalParts } from '../digest/digest-time.js'
 import { licensedAction } from './licence-gate.js'
 import { licenceStatus, type LicenceProblem, type LicenceStatus } from './licence-state.js'
 import { acceptedKeys, verifyLicence, type LicenceClaims } from './licence-token.js'
@@ -86,6 +87,17 @@ export async function licenceOf(orgId: string, now = new Date()): Promise<Licenc
   return licenceStatus({ claims, problem, now, timezone: await zoneOf(String(orgId)), evaluationStart: evaluationStart() })
 }
 
+/**
+ * Registered by the auth plugins right after the home gate: on a master, a request that would start
+ * a new sale (`licence-gate.ts`) is answered **402** once the org's licence is restricted. Every other
+ * request goes through, whatever the licence says. A route that decides on its body calls this from
+ * its handler, with the body, and with `started` when what it belongs to can predate the restriction.
+ */
+export async function licenceGate(method: string, route: string, orgId: string | undefined, body?: unknown, started?: Date): Promise<LicenceRefusal | null> {
+  const action = licensedAction(method, route, body)
+  return action ? licenceRefusal(orgId, action.what, started) : null
+}
+
 export interface LicenceRefusal {
   code: 'licence_expired'
   message: string
@@ -95,24 +107,21 @@ export interface LicenceRefusal {
 }
 
 /**
- * Registered by the auth plugins right after the home gate: on a master, a request that would open
- * a till session or start a sales document (`licence-gate.ts`) is answered **402** once the org's
- * licence is restricted. Every other request goes through, whatever the licence says. A route that
- * decides on its body calls this from its handler, with the body.
+ * `what`, refused where the org's licence is restricted; null anywhere else. With `started`, what it
+ * belongs to began then: anything begun before the restriction went on past it, and is left alone.
  */
-export async function licenceGate(method: string, route: string, orgId: string | undefined, body?: unknown): Promise<LicenceRefusal | null> {
+export async function licenceRefusal(orgId: string | undefined, what: string, started?: Date): Promise<LicenceRefusal | null> {
   if (nodeRole() !== 'master' || !orgId) return null
-  const action = licensedAction(method, route, body)
-  if (!action) return null
   const status = await licenceOf(orgId)
   if (!status.applies || status.state !== 'restricted') return null
+  if (started && orgLocalParts(new Date(started), await zoneOf(orgId)).date < status.restrictedFrom) return null
   const why = status.basis === 'evaluation'
     ? 'This server holds no licence for the organisation and its 30-day evaluation has ended'
     : "This server's licence for the organisation has run out"
   return {
     code: 'licence_expired',
-    action: action.what,
+    action: what,
     restrictedFrom: status.restrictedFrom,
-    message: `${why}, so ${action.what} is paused. Reading, exports, closing the day, credit notes and payments still work. An administrator renews the licence on lgrai.app.`,
+    message: `${why}, so ${what} is paused. Reading, exports, closing the day, credit notes and payments still work. An administrator renews the licence on lgrai.app.`,
   }
 }

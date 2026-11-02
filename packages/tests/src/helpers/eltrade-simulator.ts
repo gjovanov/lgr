@@ -28,6 +28,8 @@ export interface SimReceipt {
   kind: 'fiscal' | 'storno'
   header: string[]
   sales: SimSale[]
+  /** Free text printed inside the receipt (36h), in order. */
+  texts: string[]
   payments: SimPayment[]
   total: number
   paid: number
@@ -39,7 +41,7 @@ const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 const GROUPS = ['А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'З']
 
 /** Commands that print: refused with "no paper" when the roll is out. */
-const PRINTING = [0x26, 0x27, 0x2A, 0x31, 0x35, 0x38, 0x45, 0x49, 0x4F, 0x5E, 0x5F, 0x90]
+const PRINTING = [0x26, 0x27, 0x2A, 0x31, 0x35, 0x36, 0x38, 0x45, 0x49, 0x4F, 0x5E, 0x5F, 0x90]
 
 /**
  * The data each fiscal-memory report takes (v1.1.7). By number: `Start,End`, 4 digits each — 49h
@@ -85,6 +87,11 @@ export class EltradeSimulator {
   fiscalMemory = '44123456'
   rates: number[] = [0, 20, 20, 9, 0, 0, 0, 0]
   fiscalized = true
+  /**
+   * The unit in the field: serial set, nothing else. No ЕИК and a fiscal memory not formatted, so its
+   * status reads S4=84h, S5=90h, and 90h is refused until service sets it up. Text receipts print.
+   */
+  unfiscalizedUnit = false
   paper = true
   clockNotSet = false
   /** Mimic the ErpNet.FP #166 A1: "general error" + NRA-link bits raised on a healthy device. */
@@ -102,6 +109,18 @@ export class EltradeSimulator {
   nakNext = 0
   loseNextAnswers = 0
   silent = false
+  /** What a serial line costs per command: how two requests get to interleave. */
+  latencyMs = 0
+  /** Runs before a command executes, with its code: a fault, or a wait, at an exact point. */
+  beforeCommand: ((cmd: number) => void | Promise<void>) | null = null
+  /** This command executes, then the connection drops before its answer: the bridge went away. */
+  dropAfter: number | null = null
+  /** The connection is gone: nothing reaches the device. */
+  disconnected = false
+  /** 3Ch moves 71h too. The protocol does not say whether it does, and no physical device has shown it. */
+  numbersVoided = false
+  /** 3Ch is refused this many times with no payment made: what the driver's fallback closes. The protocol does not describe it. */
+  refuseVoids = 0
   /** Bytes prepended to the next answer once (e.g. a stale frame from an earlier command). */
   prependOnce: Uint8Array | null = null
   synPrefix = 0
@@ -138,6 +157,8 @@ export class EltradeSimulator {
   exchange = async (frame: Buffer | Uint8Array): Promise<Buffer> => {
     this.frames++
     const f = new Uint8Array(frame)
+    if (this.latencyMs) await new Promise(r => setTimeout(r, this.latencyMs))
+    if (this.disconnected) throw new Error('Bridge disconnected')
     if (this.silent) throw new Error('Serial read timeout — no answer from the device')
     if (this.nakNext > 0) {
       this.nakNext--
@@ -152,9 +173,15 @@ export class EltradeSimulator {
     } else {
       const cmd = f[3]
       const data = f.subarray(4, f.length - 6)
+      await this.beforeCommand?.(cmd)
       answer = this.execute(seq, cmd, data)
       this.lastSeq = seq
       this.lastAnswer = answer
+      if (this.dropAfter === cmd) {
+        this.dropAfter = null
+        this.disconnected = true
+        throw new Error('Bridge disconnected')
+      }
     }
 
     if (this.loseNextAnswers > 0) {
@@ -231,7 +258,7 @@ export class EltradeSimulator {
         return '0002'
 
       case 0x90: {
-        if (receiptOpen || this.nonFiscalOpen) { flags.notAllowed = true; return '' }
+        if (this.unfiscalizedUnit || receiptOpen || this.nonFiscalOpen) { flags.notAllowed = true; return '' }
         const header = text.split(',')
         const unp = header[1] || ''
         if (!/^[A-Z]{2}\d{6}-[0-9A-Za-z]{4}-\d{7}$/.test(unp) || unp.slice(0, 8) !== this.serial) {
@@ -243,7 +270,7 @@ export class EltradeSimulator {
           flags.syntax = true
           return ''
         }
-        this.receipt = { kind: storno ? 'storno' : 'fiscal', header, sales: [], payments: [], total: 0, paid: 0 }
+        this.receipt = { kind: storno ? 'storno' : 'fiscal', header, sales: [], texts: [], payments: [], total: 0, paid: 0 }
         return '0003,0001'
       }
       case 0x31: {
@@ -288,6 +315,12 @@ export class EltradeSimulator {
         const left = round2(this.receipt.total - this.receipt.paid)
         return left > 0 ? `D${this.money(left)}` : `R${this.money(-left)}`
       }
+      case 0x36:
+        // "A fiscal receipt must be opened because in the opposite case the text will not be
+        // printed and the S1.1 flag is raised"; past 46 symbols it is cut off (v1.1.1).
+        if (!this.receipt) { flags.notAllowed = true; return '' }
+        this.receipt.texts.push(text.slice(0, 46))
+        return ''
       case 0x38: {
         if (!this.receipt || !this.receipt.payments.length || this.receipt.paid + 0.001 < this.receipt.total) {
           flags.notAllowed = true
@@ -302,8 +335,10 @@ export class EltradeSimulator {
       }
       case 0x3C:
         if (!this.receipt || this.receipt.payments.length) { flags.notAllowed = true; return '' }
+        if (this.refuseVoids > 0) { this.refuseVoids--; flags.notAllowed = true; return '' }
         this.receipts.push({ ...this.receipt, voided: true })
         this.receipt = null
+        if (this.numbersVoided) this.lastDocNumber++
         return ''
       case 0x45: {
         if (this.receipt || this.nonFiscalOpen) { flags.notAllowed = true; return '' }
@@ -364,9 +399,9 @@ export class EltradeSimulator {
     if (!this.paper) s[2] |= 0x01
     if (this.receipt) s[2] |= 0x08
     if (this.nonFiscalOpen) s[2] |= 0x20
-    s[4] |= 0x06 // serial + FM number set, EIK set
-    s[5] |= 0x12 // FM formatted, tax rates set
-    if (this.fiscalized) s[5] |= 0x08
+    s[4] |= this.unfiscalizedUnit ? 0x04 : 0x06 // serial set; with it, FM number and EIK
+    s[5] |= this.unfiscalizedUnit ? 0x10 : 0x12 // tax rates set; with it, FM formatted
+    if (this.fiscalized && !this.unfiscalizedUnit) s[5] |= 0x08
     return Uint8Array.from(s)
   }
 }

@@ -186,6 +186,28 @@ async function releaseLock(db: Db, owner: string): Promise<void> {
   await db.collection<any>(COLLECTION).deleteOne({ _id: LOCK_ID, owner })
 }
 
+export interface MigrationPreview {
+  id: string
+  description: string
+  /** What it would do; null when it cannot say. */
+  lines: string[] | null
+}
+
+/**
+ * What the pending migrations would do, as far as each can say. Writes nothing and takes no lock, so
+ * it records nothing either: a run after it still applies them.
+ */
+export async function previewMigrations(opts: Pick<RunOptions, 'db' | 'migrations' | 'orgFilter' | 'log'>): Promise<MigrationPreview[]> {
+  const { db, migrations = MIGRATIONS, orgFilter = {}, log = () => {} } = opts
+  const applied = new Set((await db.collection<MigrationRecord>(COLLECTION).find({}, { projection: { _id: 1 } }).toArray()).map(r => r._id))
+  const out: MigrationPreview[] = []
+  for (const m of migrations) {
+    if (applied.has(m.id)) continue
+    out.push({ id: m.id, description: m.description, lines: m.preview ? await m.preview({ db, log, orgFilter }) : null })
+  }
+  return out
+}
+
 export async function runMigrations(opts: RunOptions): Promise<RunResult> {
   const {
     db,

@@ -5,6 +5,7 @@ import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 import { createAuditEntry } from './audit-log.service.js'
 import { getNextDraftInvoiceNumber, getNextInvoiceNumber } from './invoice-numbering.service.js'
+import { unclaimedDraft } from './invoice-payment.js'
 
 /**
  * The supplier's bill for goods already received (FR-22.31 / #168, FR-22 D-2).
@@ -653,8 +654,10 @@ export async function linkReceiptsToBill(orgId: string, actor: Actor, billId: st
   if (bill.contactId) before.contactId = bill.contactId
   else unsetOnUndo.contactId = 1
   const link = stockSourceFor(movements, unnamed)
+  // ⚠ `unclaimedDraft`, not a status: a link inside a bill's `/send` replaced the lines it was issuing, and
+  // the bill came out received, booking its own goods and claiming a delivery's.
   const linked = await Invoice.findOneAndUpdate(
-    { _id: billId, orgId, status: 'draft', 'stockSource.marker': { $in: [null, ''] } } as any,
+    { _id: billId, orgId, ...unclaimedDraft(), 'stockSource.marker': { $in: [null, ''] } } as any,
     {
       $set: {
         contactId: supplierId,

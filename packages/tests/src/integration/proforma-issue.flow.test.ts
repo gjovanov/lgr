@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestUser, createTestContact, createTestProduct, createTestWarehouse, createTestStockLevel } from '../helpers/factories'
+import { allowSalesWithoutPrinter, createTestOrg, createTestUser, createTestContact, createTestProduct, createTestWarehouse, createTestStockLevel } from '../helpers/factories'
 import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
 import { emailRequestBlock } from 'invoicing-api/src/lib/email-guards'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
@@ -62,6 +62,7 @@ const YEAR = new Date().getFullYear()
 
 async function world() {
   const org = await createTestOrg()
+  await allowSalesWithoutPrinter(org._id)
   const orgId = String(org._id)
   const user = await createTestUser(org._id)
   const contact = await createTestContact(org._id)

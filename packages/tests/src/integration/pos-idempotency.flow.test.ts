@@ -224,21 +224,23 @@ describe('a sale interrupted by a crash is finished by its retry, never printed 
     expect((await session(w.sessionId)).transactionCount).toBe(1)
   }, 60_000)
 
-  it('died after the device printed: the retry records that receipt and prints nothing', async () => {
+  it('died after the device printed: the retry cannot tell that receipt from anybody else\'s, so unknown, and nothing prints', async () => {
     const w = await world()
     const { body, unpNumber } = await interruptedSale(w, 'crash-key-0002')
     // The device printed the receipt; the process died before saving its number.
     await w.eltrade.openFiscalReceipt('0001', 'Иван Петров', unpNumber)
     await w.eltrade.printSaleLine('Болт DIN 933 М8Х25', 2, 12, 'Б' as any, undefined, 20)
     await w.eltrade.printPayment('cash' as any, 24)
-    const printed = await w.eltrade.closeFiscalReceipt()
+    await w.eltrade.closeFiscalReceipt()
 
     const res = await post(w.url, w.token, body, 'crash-key-0002')
 
     expect(res.status).toBe(200)
     expect(fiscalReceipts(w.sim)).toHaveLength(1)
-    expect(res.json.transaction.fiscalReceiptNumber).toBe(printed.fiscalReceiptNumber)
-    expect(res.json.transaction.fiscal.state).toBe('printed')
+    expect(res.json.transaction.fiscalReceiptNumber).toBeUndefined()
+    expect(res.json.transaction.fiscal.state).toBe('unknown')
+    expect(res.json.receiptError).toMatch(/cannot confirm/)
+    // The money stands and the goods left, as for any receipt nothing proves.
     expect(await movements(w.orgId)).toBe(1)
     expect((await session(w.sessionId)).transactionCount).toBe(1)
   }, 60_000)

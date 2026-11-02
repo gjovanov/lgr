@@ -40,10 +40,11 @@ export interface IRepository<T extends BaseEntity> {
    * Update an entity by ID **within one org**; null when it is not that org's. `orgId` in
    * `data` is ignored: a document can never be moved to another org through an update.
    */
-  updateInOrg(id: string, orgId: string, data: Partial<T>): Promise<T | null>
+  /** `where`: what else must hold for the write to happen. A caller's condition, never a client's. */
+  updateInOrg(id: string, orgId: string, data: Partial<T>, where?: Record<string, unknown>): Promise<T | null>
 
   /** Delete an entity by ID **within one org**; false when it is not that org's. */
-  deleteInOrg(id: string, orgId: string): Promise<boolean>
+  deleteInOrg(id: string, orgId: string, where?: Record<string, unknown>): Promise<boolean>
 
   /** Atomically find one entity matching the filter and update it. Returns null if no match. */
   findOneAndUpdate(filter: Filter<T>, data: Partial<T>): Promise<T | null>

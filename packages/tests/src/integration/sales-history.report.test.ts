@@ -50,6 +50,28 @@ async function seed() {
 // ── the precedence rule, in isolation ───────────────────────────────────────
 
 describe('effectiveMethods (FR-8.4)', () => {
+  it('where LGR prints, a cash or card header on an unpaid invoice is not money yet (FR-23): its receipt did not print', () => {
+    // A credit note's money is its refund row, which R2 adds: until one says so its header is none either.
+    for (const type of ['invoice', 'debit_note', 'credit_note']) {
+      expect(effectiveMethods({ type, paymentMethod: 'cash', total: 50, amountPaid: 0 }, true)).toEqual([{ method: 'cash', amount: 0 }])
+      expect(effectiveMethods({ type, paymentMethod: 'card', total: 50, amountPaid: 0 }, true)).toEqual([{ method: 'card', amount: 0 }])
+    }
+    // Where nothing prints the header stays the money, a credit note's too.
+    expect(effectiveMethods({ type: 'credit_note', paymentMethod: 'cash', total: 50, amountPaid: 0 }, false)).toEqual([{ method: 'cash', amount: 50 }])
+    expect(effectiveMethods({ type: 'invoice', paymentMethod: 'bank_transfer', total: 50, amountPaid: 0 }, true)).toEqual([{ method: 'bank_transfer', amount: 50 }])
+  })
+
+  it('paid with no payment row, an old document keeps what its header says, wherever', () => {
+    expect(effectiveMethods({ type: 'invoice', paymentMethod: 'cash', total: 50, amountPaid: 50 }, true)).toEqual([{ method: 'cash', amount: 50 }])
+  })
+
+  it('where it does not, the header is the money, a debit note in cash included: such a document stays unpaid there', () => {
+    for (const type of ['invoice', 'debit_note']) {
+      expect(effectiveMethods({ type, paymentMethod: 'cash', total: 50, amountPaid: 0 }, false)).toEqual([{ method: 'cash', amount: 50 }])
+      expect(effectiveMethods({ type, paymentMethod: 'card', total: 50, amountPaid: 0 })).toEqual([{ method: 'card', amount: 50 }])
+    }
+  })
+
   it('prefers payment rows over the header method', () => {
     expect(effectiveMethods({
       type: 'invoice', paymentMethod: 'cash', total: 100,

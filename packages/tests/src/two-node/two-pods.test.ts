@@ -4,9 +4,9 @@ import jwt from '@elysiajs/jwt'
 import { PERMISSIONS } from 'config/constants'
 import { createHmac } from 'node:crypto'
 import { mongoose } from 'db/connection'
-import { Desktop } from 'db/models'
+import { Desktop, FiscalDevice, Invoice } from 'db/models'
 import { DESKTOP_TOKEN_AUDIENCE } from 'services/biz/desktop/desktop.service'
-import { createTestOrg, createTestWarehouse, createTestFiscalDevice, createTestProduct, createTestStockLevel } from '../helpers/factories'
+import { createTestContact, createTestOrg, createTestWarehouse, createTestFiscalDevice, createTestProduct, createTestStockLevel } from '../helpers/factories'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { IslResponseCollector } from 'ui-shared/composables/fiscalIslResponse'
 import { startTwoPods, type TwoPods } from './harness'
@@ -18,6 +18,10 @@ import { startTwoPods, type TwoPods } from './harness'
  * holding it, exactly once. Then an admin on pod B takes the device over (FR-24.48), and the holder
  * crashes: the other pod refuses with nothing done. Runs with `LGR_TWO_NODE=1` (CI, beside
  * two-node.test.ts).
+ *
+ * FR-23's doors are in it: an invoice issued, a payment and a delivery receipt, asked of pod B. With
+ * the holder gone no receipt is skipped and no money is booked without one (FR-24.52): held
+ * elsewhere is never offline, and once the row has lapsed and it is, the printer gate refuses.
  */
 
 const enabled = process.env.LGR_TWO_NODE === '1'
@@ -40,6 +44,13 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
   let productId = ''
   let sessionId = ''
   let saleId = ''
+  let contactId = ''
+  /** What the holder's crash leaves to ask of the other pod: part paid, a delivery receipt owed, a cash draft. */
+  let stillDue = ''
+  let owedReceipt = ''
+  let cashDraft = ''
+  /** A sale in doubt the crash leaves behind, its receipt open on the device. */
+  let heldSale = ''
   let token = ''
   const sim = new EltradeSimulator()
   const bridges: WebSocket[] = []
@@ -124,6 +135,7 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
     deviceId = String(device._id)
     warehouseId = String(wh._id)
     productId = String(product._id)
+    contactId = String((await createTestContact(org._id, { companyName: 'Клиент ООД', type: 'customer' } as any))._id)
     const signer = new Elysia().use(jwt({ name: 'jwt', secret: pods.jwtSecret })) as any
     token = await signer.decorator.jwt.sign({
       id: '000000000000000000000001', orgId, role: 'admin', firstName: 'Ana', lastName: 'Till',
@@ -193,6 +205,125 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
     expect(sim.receipts.length).toBe(before + 1)
   })
 
+  /**
+   * A sale whose paper ran out at the close, its money on the device and its receipt open: `unknown`,
+   * and a person has to settle it. Rung on the pod holding the device.
+   */
+  async function saleInDoubt(session: string): Promise<string> {
+    let closes = 0
+    sim.beforeCommand = (cmd) => { if (cmd === 0x38) { closes++; sim.paper = false } }
+    const res = await api(holder, 'POST', `/trade/pos/session/${session}/transaction`, saleBody(1))
+    sim.beforeCommand = null
+    sim.paper = true
+    expect(closes).toBeGreaterThan(0)
+    expect(res.status).toBe(200)
+    expect(res.json.transaction.fiscal.state).toBe('unknown')
+    return String(res.json.transaction?.id ?? res.json.transaction?._id)
+  }
+
+  it('a settle asked of pod B asks the device pod A holds, by the document\'s own number, and nothing else decides (FR-23)', async () => {
+    const id = await saleInDoubt(sessionId)
+    expect(sim.receipt?.payments.length).toBeGreaterThan(0)
+
+    // Run here it could only read "not here" or 503. Through the hop the device answers.
+    for (const printed of [false, true]) {
+      const refused = await api('b', 'POST', `/cash-register/documents/${id}/settle`, { printed, ...(printed ? { receiptNumber: '1' } : {}) })
+      expect(refused.status).toBe(409)
+      expect(refused.json.code).toBe('receipt_open_on_device')
+    }
+    expect((await Invoice.findById(id).lean().exec() as any).register.settled).toBeUndefined()
+
+    // The X report it asks for finishes it, on paper, once.
+    const before = sim.receipts.length
+    expect((await api('b', 'POST', `/fiscal/device/${deviceId}/x-report`)).status).toBe(200)
+    expect(sim.receipts.length).toBe(before + 1)
+
+    const number = sim.receipts.at(-1)!.number!
+    const settled = await api('b', 'POST', `/cash-register/documents/${id}/settle`, { printed: true, receiptNumber: number })
+    expect(settled.status).toBe(200)
+    expect(sim.receipts.length).toBe(before + 1)
+    expect((await Invoice.findById(id).lean().exec() as any).register.fiscalReceiptNumber).toBe(number)
+  })
+
+  it('a cash invoice issued on pod B prints once, on the device pod A holds, and is paid (FR-23)', async () => {
+    const before = sim.receipts.length
+    const id = await invoiceOnPodB('cash')
+
+    const res = await api('b', 'POST', `/invoices/${id}/send`, {})
+
+    expect(res.status).toBe(200)
+    expect(res.json.receipt.state).toBe('printed')
+    expect(res.json.invoice).toMatchObject({ status: 'paid', amountPaid: 12 })
+    expect(sim.receipts.length).toBe(before + 1)
+    expect(sim.receipts.at(-1)).toMatchObject({ total: 12, texts: [`Фактура № ${res.json.invoice.invoiceNumber}`] })
+  })
+
+  it('a part payment asked of pod B prints once, through pod A, and its retry none (FR-23)', async () => {
+    const before = sim.receipts.length
+    const id = await invoiceOnPodB('bank_transfer')
+    expect((await api('b', 'POST', `/invoices/${id}/send`, {})).status).toBe(200)
+    expect(sim.receipts.length).toBe(before)
+    const payment = { date: new Date().toISOString().slice(0, 10), amount: 4, method: 'cash' }
+
+    const res = await api('b', 'POST', `/invoices/${id}/payments`, payment, 'two-pods-payment-01')
+
+    expect(res.status).toBe(200)
+    expect(res.json.invoice).toMatchObject({ status: 'partially_paid', amountPaid: 4 })
+    expect(sim.receipts.length).toBe(before + 1)
+    expect(sim.receipts.at(-1)!.total).toBe(4)
+
+    // The client retrying under the same key (FR-24.51): the first outcome, nothing printed again.
+    const again = await api('b', 'POST', `/invoices/${id}/payments`, payment, 'two-pods-payment-01')
+    expect(again.status).toBe(200)
+    expect(again.json.invoice).toMatchObject({ status: 'partially_paid', amountPaid: 4 })
+    expect(sim.receipts.length).toBe(before + 1)
+    stillDue = id
+  })
+
+  it('a sale and a payment at once, asked of either pod, take turns on the device pod A holds (FR-23)', async () => {
+    const id = await invoiceOnPodB('bank_transfer')
+    expect((await api('b', 'POST', `/invoices/${id}/send`, {})).status).toBe(200)
+    const before = sim.receipts.length
+    sim.latencyMs = 15
+    try {
+      const [sale, payment] = await Promise.all([
+        api('b', 'POST', `/trade/pos/session/${sessionId}/transaction`, saleBody(1)),
+        api('a', 'POST', `/invoices/${id}/payments`, { date: new Date().toISOString().slice(0, 10), amount: 12, method: 'cash' }),
+      ])
+      expect(sale.status).toBe(200)
+      expect(sale.json.receiptError).toBeFalsy()
+      expect(payment.status).toBe(200)
+      expect(payment.json.invoice).toMatchObject({ status: 'paid', amountPaid: 12 })
+    } finally {
+      sim.latencyMs = 0
+    }
+    expect(sim.receipts.slice(before).map(r => [r.total, !!r.voided])).toEqual([[12, false], [12, false]])
+  })
+
+  it('a cash-on-delivery print that failed prints on its own, asked of pod B, and books no money (FR-23)', async () => {
+    const failsAtIssue = async () => {
+      const id = await invoiceOnPodB('cash_on_delivery')
+      sim.paper = false
+      const res = await api('b', 'POST', `/invoices/${id}/send`, {})
+      sim.paper = true
+      expect(res.status).toBe(200)
+      expect(res.json.receipt.state).toBe('failed')
+      return id
+    }
+    owedReceipt = await failsAtIssue()
+    const id = await failsAtIssue()
+    const before = sim.receipts.length
+
+    const res = await api('b', 'POST', `/invoices/${id}/receipt`, {})
+
+    expect(res.status).toBe(200)
+    expect(res.json.receipt.state).toBe('printed')
+    expect(res.json.invoice).toMatchObject({ status: 'sent', amountPaid: 0, amountDue: 12 })
+    expect(sim.receipts.length).toBe(before + 1)
+    expect(sim.receipts.at(-1)!.payments).toEqual([{ mode: 'R', amount: 12 }])
+    cashDraft = await invoiceOnPodB('cash')
+  })
+
   it('closing the session on pod B prints its Z-report once, on the device pod A holds', async () => {
     const before = sim.reports.length
     const res = await api('b', 'POST', `/trade/pos/session/${sessionId}/close`, { counted: { cash: 0 } }, 'two-pods-close-001')
@@ -249,6 +380,13 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
 
   it('the holder crashes: the other pod refuses with nothing done, never prints elsewhere or skips the receipt (FR-24.51/24.52)', async () => {
     const before = sim.reports.length
+    // A session stands open: FR-23's doors follow it to the printer.
+    const opened = await api(other(holder), 'POST', '/trade/pos/session', { warehouseId, openingBalance: 0, currency: 'EUR' })
+    expect(opened.status).toBe(200)
+    // And a sale in doubt, whose device a person's word has to get past.
+    heldSale = await saleInDoubt(String(opened.json.session.id ?? opened.json.session._id))
+    // Its print marked the device `error`, which would answer the doors below for a reason of its own.
+    await FiscalDevice.updateOne({ _id: deviceId }, { $set: { status: 'online' } })
     // A crash, not a graceful stop: a graceful stop releases the presence row (Phase 5), and the
     // other pod then rightly answers `not_connected`. Killed, the row still names the holder, whose
     // address answers nothing.
@@ -257,5 +395,76 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
     expect(res.status).toBe(503)
     expect(res.json.code).toBe('fiscal_holder_unreachable')
     expect(sim.reports.length).toBe(before)
+
+    // FR-23's doors likewise: no receipt prints somewhere else or not at all, and no money is booked.
+    const books = await theBooks()
+    for (const answer of await theDoors()) {
+      expect(answer.status).toBe(503)
+      expect(answer.json.code).toBe('fiscal_holder_unreachable')
+    }
+    expect(await theBooks()).toEqual(books)
+
+    // The settle door likewise: held elsewhere is never "not here", and a person's word waits.
+    const word = await api(other(holder), 'POST', `/cash-register/documents/${heldSale}/settle`, { printed: false })
+    expect(word.status).toBe(503)
+    expect(word.json.code).toBe('fiscal_holder_unreachable')
+    expect((await Invoice.findById(heldSale).lean().exec() as any).register.settled).toBeUndefined()
   }, 60_000)
+
+  it('its row lapsed: "offline" at last, and the printer gate still refuses, so no money is booked without a receipt (FR-24.52)', async () => {
+    // A crashed pod's row is dead after 20 s. Only now may a device read as offline at all.
+    const deadline = Date.now() + 45_000
+    for (;;) {
+      const { json } = await api(other(holder), 'GET', '/fiscal/device')
+      if (!json.fiscalDevices.find((x: any) => String(x._id ?? x.id) === deviceId).connected) break
+      expect(Date.now()).toBeLessThan(deadline)
+      await Bun.sleep(1000)
+    }
+
+    const books = await theBooks()
+    for (const answer of await theDoors()) {
+      expect(answer.status).toBe(409)
+      expect(answer.json.code).toBe('fiscal_device_not_connected')
+    }
+    expect(await theBooks()).toEqual(books)
+
+    // Nobody holds it now, and it may still hold the receipt: the word waits until it is back, or deactivated.
+    const word = await api(other(holder), 'POST', `/cash-register/documents/${heldSale}/settle`, { printed: false })
+    expect(word.status).toBe(409)
+    expect(word.json.code).toBe('receipt_device_away')
+    expect((await Invoice.findById(heldSale).lean().exec() as any).register.settled).toBeUndefined()
+  }, 70_000)
+
+  /** A draft of one free line, 12 gross at 20 %, as the form saves it: it moves no stock. */
+  async function invoiceOnPodB(paymentMethod: string) {
+    const res = await api('b', 'POST', '/invoices', {
+      type: 'invoice', direction: 'outgoing', contactId, issueDate: new Date().toISOString().slice(0, 10), currency: 'EUR', paymentMethod,
+      lines: [{ description: 'Услуга', quantity: 1, unit: 'бр.', unitPrice: 10, taxRate: 20, taxAmount: 2, lineTotal: 12 }],
+      subtotal: 10, taxTotal: 2, total: 12,
+    })
+    expect(res.status).toBe(200)
+    return String(res.json.invoice.id)
+  }
+
+  /** Issue a cash draft, pay part of an invoice, print a delivery receipt: all of it on the pod still up. */
+  const theDoors = async () => [
+    await api(other(holder), 'POST', `/invoices/${cashDraft}/send`, {}),
+    await api(other(holder), 'POST', `/invoices/${stillDue}/payments`, { date: new Date().toISOString().slice(0, 10), amount: 8, method: 'cash' }),
+    await api(other(holder), 'POST', `/invoices/${owedReceipt}/receipt`, {}),
+  ]
+
+  /** What a refused door must leave as it was: the documents, their money, and the device's paper. */
+  async function theBooks() {
+    const money = async (id: string) => {
+      const d: any = await Invoice.findById(id).lean().exec()
+      return { status: d.status, number: d.invoiceNumber, paid: d.amountPaid, due: d.amountDue, payments: d.payments.length, holds: (d.receiptHolds ?? []).length }
+    }
+    return {
+      printed: sim.receipts.length,
+      documents: await Invoice.countDocuments({ orgId }),
+      draft: await money(cashDraft),
+      partPaid: await money(stillDue),
+      owed: await money(owedReceipt),
+    }
+  }
 })

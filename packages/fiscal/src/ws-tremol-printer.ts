@@ -18,6 +18,7 @@ import type {
 import { paymentCode } from './types.js'
 import { buildTremolFrame, parseTremolResponse, TREMOL_CMD } from './tremol.js'
 import { logger } from 'services/logger'
+import { stagedPrint } from './print-stage.js'
 import type { SendCommandFn } from './ws-fiscal-printer.js'
 
 /** No cash on delivery: it is refused, never printed as cash. */
@@ -108,26 +109,35 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
     lines: { name: string; quantity: number; price: number; vatGroup: VatGroup }[],
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
-    // A payment this driver cannot print is refused before the storno receipt is opened.
-    paymentCode(PAYMENT_CODE, payment.type, DRIVER)
-    const dd = String(originalDate.getDate()).padStart(2, '0')
-    const mm = String(originalDate.getMonth() + 1).padStart(2, '0')
-    const yy = String(originalDate.getFullYear()).slice(-2)
-    const hh = String(originalDate.getHours()).padStart(2, '0')
-    const min = String(originalDate.getMinutes()).padStart(2, '0')
-    const ss = String(originalDate.getSeconds()).padStart(2, '0')
-    const dt = `${dd}-${mm}-${yy} ${hh}:${min}:${ss}`
-    const rc = STORNO_REASON[reason]
+    return stagedPrint(async (reached) => {
+      reached('refused')
+      // A payment this driver cannot print is refused before the storno receipt is opened.
+      paymentCode(PAYMENT_CODE, payment.type, DRIVER)
+      // This driver closes a sale before it can ask for its number, so a sale may have none to cite.
+      if (!/^\d+$/.test(String(originalReceiptNumber ?? ''))) throw new Error('This sale has no fiscal receipt number on record, so its storno has nothing to cite. Nothing was sent to the device.')
+      reached('opening')
+      const dd = String(originalDate.getDate()).padStart(2, '0')
+      const mm = String(originalDate.getMonth() + 1).padStart(2, '0')
+      const yy = String(originalDate.getFullYear()).slice(-2)
+      const hh = String(originalDate.getHours()).padStart(2, '0')
+      const min = String(originalDate.getMinutes()).padStart(2, '0')
+      const ss = String(originalDate.getSeconds()).padStart(2, '0')
+      const dt = `${dd}-${mm}-${yy} ${hh}:${min}:${ss}`
+      const rc = STORNO_REASON[reason]
 
-    await this.send(TREMOL_CMD.OPEN_FISCAL_RECEIPT, `1;0000;1;1;E;${rc};${originalReceiptNumber};${dt};$${unpNumber}`)
-    for (const line of lines) await this.printSaleLine(line.name, -line.quantity, line.price, line.vatGroup)
-    await this.printPayment(payment.type, -payment.amount)
-    await this.send(TREMOL_CMD.CLOSE_RECEIPT)
+      await this.send(TREMOL_CMD.OPEN_FISCAL_RECEIPT, `1;0000;1;1;E;${rc};${originalReceiptNumber};${dt};$${unpNumber}`)
+      reached('lines')
+      for (const line of lines) await this.printSaleLine(line.name, -line.quantity, line.price, line.vatGroup)
+      reached('paying')
+      await this.printPayment(payment.type, -payment.amount)
+      reached('closing')
+      await this.send(TREMOL_CMD.CLOSE_RECEIPT)
 
-    let receiptNumber = 'unknown'
-    try { receiptNumber = (await this.send(TREMOL_CMD.READ_RECEIPT_INFO)).split(';')[0] || 'unknown' } catch {}
-    logger.info({ deviceId: this.deviceId, receiptNumber, reason }, 'Tremol storno via WS')
-    return { fiscalReceiptNumber: receiptNumber, dateTime: new Date() }
+      let receiptNumber = 'unknown'
+      try { receiptNumber = (await this.send(TREMOL_CMD.READ_RECEIPT_INFO)).split(';')[0] || 'unknown' } catch {}
+      logger.info({ deviceId: this.deviceId, receiptNumber, reason }, 'Tremol storno via WS')
+      return { fiscalReceiptNumber: receiptNumber, dateTime: new Date() }
+    })
   }
 
   async printDailyZReport(): Promise<ZReportResult> {

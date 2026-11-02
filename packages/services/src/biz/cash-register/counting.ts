@@ -18,6 +18,24 @@
 export interface PosRowLike {
   type?: string
   status?: string
+  fiscal?: { state?: string; inDoubt?: boolean }
+}
+
+/**
+ * The fiscal states of a storno that has refunded nothing, whatever its status still says: printing, nothing
+ * can prove it, or proved not to have printed, or settled so, and about to be voided. ⚠ That last one is
+ * `paid` for as long as a crash leaves it, up to the next touch, and read as a refund it counted money that
+ * never left. One list: every reader that asks (`stornoUnproved`, `NOT_UNPROVED_STORNO`) takes it from here.
+ */
+export const UNPROVED_STORNO_STATES: readonly string[] = ['pending', 'unknown', 'failed']
+
+/**
+ * FR-23 (#145): a storno whose receipt is still printing, or that nothing can prove, has refunded
+ * nothing. It counts nowhere until the device's answer is known or a person settles it, so a reader
+ * that sums stornos skips it. The same rule as a filter: `NOT_UNPROVED_STORNO` (`sale-counting.ts`).
+ */
+export function stornoUnproved(row: PosRowLike): boolean {
+  return row.type === 'storno' && row.status !== 'cancelled' && UNPROVED_STORNO_STATES.includes(String(row.fiscal?.state))
 }
 
 /** +1, −1 or 0: what a POS row contributes to a sum of sales. */
@@ -26,6 +44,7 @@ export function posRowSign(row: PosRowLike): 1 | -1 | 0 {
     case 'sale':
       return 1
     case 'storno':
+      return row.status === 'completed' && !stornoUnproved(row) ? -1 : 0
     case 'return':
       return row.status === 'completed' ? -1 : 0
     case 'exchange':
@@ -33,6 +52,16 @@ export function posRowSign(row: PosRowLike): 1 | -1 | 0 {
     default:
       return 0
   }
+}
+
+/**
+ * FR-23: a payment's receipt took its money once it printed, or may have (D-4). One that failed, is
+ * still printing, or is held for a person to settle took nothing yet. A session's figures count it;
+ * it has no sign, because it is no sale and `posRowSign` is what the session's journal entry and sales
+ * history sum.
+ */
+export function receiptTookMoney(row: PosRowLike): boolean {
+  return row.type === 'payment_receipt' && (row.fiscal?.state === 'printed' || row.fiscal?.state === 'unknown') && !row.fiscal?.inDoubt && row.status === 'completed'
 }
 
 export interface MethodTotals {

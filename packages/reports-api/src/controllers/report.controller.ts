@@ -135,6 +135,7 @@ function totalsBoxFor(result: ReportResult, b: any) {
         { label: labels.expectedCash, value: money(summary.cash), separator: true },
         { label: labels.cardPayments, value: money(summary.card) },
         ...(summary.other ? [{ label: labels.otherPayments, value: money(summary.other) }] : []),
+        ...(summary.unpaid && labels.unpaid ? [{ label: labels.unpaid, value: money(summary.unpaid) }] : []),
         { label: labels.systemSales, value: money(summary.total), grand: true },
       ],
     }
@@ -318,6 +319,7 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
         expectedCash: t.String(),
         cardPayments: t.String(),
         otherPayments: t.String(),
+        unpaid: t.Optional(t.String()),
       })),
       /** Extra localized header lines describing the filters that produced this run. */
       meta: t.Optional(t.Array(t.Object({

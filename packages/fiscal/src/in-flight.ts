@@ -39,8 +39,14 @@ export async function fiscalOperation<T>(run: () => Promise<T>): Promise<T> {
  *
  * `onAnswered`, when given, hears of every command that FULFILLED, with its name and its result:
  * the device answered it. A rejection is the device not answering, and says nothing (FR-20.49).
+ *
+ * `around`, when given, runs each command: how a command that prints takes the device's turn.
  */
-export function tracked<P extends object>(printer: P, onAnswered?: (method: string, result: unknown) => void): P {
+export function tracked<P extends object>(
+  printer: P,
+  onAnswered?: (method: string, result: unknown) => void,
+  around?: (method: string, run: () => unknown) => unknown,
+): P {
   const wrapped = new Map<PropertyKey, unknown>()
   return new Proxy(printer, {
     get(target, prop, receiver) {
@@ -49,7 +55,8 @@ export function tracked<P extends object>(printer: P, onAnswered?: (method: stri
       let w = wrapped.get(prop)
       if (!w || (w as any).__of !== value) {
         const fn = function (this: unknown, ...args: unknown[]) {
-          const result = value.apply(target, args)
+          const run = () => value.apply(target, args)
+          const result = around ? around(String(prop), run) : run()
           if (!result || typeof (result as any).then !== 'function') return result
           inFlight++
           const settled = Promise.resolve(result).finally(() => { inFlight-- })

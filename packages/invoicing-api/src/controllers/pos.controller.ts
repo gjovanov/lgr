@@ -13,19 +13,23 @@ import { Org, POSSession } from 'db/models'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import {
-  RegisterRefusal, insertRegisterDocument, runSaleSteps, settleKeyedDocument, tillSaleDocument,
+  RegisterRefusal, SESSION_CLOSING, bookedOnItsSession, insertRegisterDocument, isPendingNumber, releaseOrphanClaimsOfSession, runSaleSteps, settleKeyedDocument, tillSaleDocument,
 } from 'services/biz/cash-register/register.service'
+import { saleInDoubt, saleProgress } from 'services/biz/cash-register/in-doubt'
 import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
 import { buildSessionReport, formatSessionReport, type SessionReport } from 'services/biz/cash-register/session-report'
-import { maySaleOpen } from 'fiscal/device-reach'
 import { fiscalCapabilities } from 'fiscal/capabilities'
 import { DEVICE_REPORT_KINDS, FISCAL_ADMIN_ROLES, printDeviceReport } from 'fiscal/device-command'
 import { fiscalFailure } from 'fiscal/errors'
+import { interruptedDocuments, unfinishedReceipts, unfinishedRefusal } from 'services/biz/cash-register/payment-receipt.service'
+import { TURN_WAIT_MS, deviceTurn } from 'fiscal/device-turn'
+import { REPORT_MAX_MS } from 'fiscal/eltrade'
+import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
 import {
-  STORNO_ROLES, assertPrinterConnected, assertTillTender, findKeyedTillDocument, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
+  STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, findKeyedTillDocument, finishDeadSales, finishInterruptedDocuments, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
 } from '../lib/cash-register-till.js'
 
 // FR-21: the till's device, its receipts and the price a device is given live with the cash-register
@@ -54,6 +58,36 @@ export function expectedTotals(session: any): ExpectedTotals {
     other: round2(session.totalOther || 0),
     cashOnDelivery: round2(session.totalCashOnDelivery || 0),
   }
+}
+
+/**
+ * How long a close holds its session: the device's turn, which a slow report ahead of it can take all of,
+ * and then the Z, with its retransmits. Past that the process holding it has died, and nothing else ever
+ * lets go: the session stayed `closing_control` for good, never posted its entry and blocked a move of the org.
+ */
+export const CLOSE_LEASE_MS = TURN_WAIT_MS + REPORT_MAX_MS
+
+/** A close that died in its Z. One from before this lease existed is judged by the session's last write. */
+function closeIsDead(session: any, now = Date.now()): boolean {
+  if (session.status !== 'closing_control') return false
+  return session.closeLeaseUntil
+    ? new Date(session.closeLeaseUntil).getTime() < now
+    : new Date(session.updatedAt ?? 0).getTime() < now - CLOSE_LEASE_MS
+}
+
+/** Nobody knows whether its Z printed, and only the device can say. */
+const CLOSE_INTERRUPTED = {
+  code: 'close_interrupted',
+  message: 'The last close of this session stopped during its Z-report, which may have printed, and the session is open again. Check the device. If the Z-report printed, close without a fiscal report (a manager can). If it did not, close again.',
+} as const
+
+/** The session's drawer as the close will read it: what it finishes first books, before it reads `expected`. */
+function withWhatTheCloseBooks(session: any, finishing: any[]): any {
+  const out = { ...session }
+  for (const doc of finishing) {
+    for (const [bucket, amount] of Object.entries(bookedOnItsSession(doc) ?? {})) out[bucket] = (Number(out[bucket]) || 0) + amount
+  }
+  return out
 }
 
 export interface ClosingLine { method: string; expected: number; counted?: number; difference?: number }
@@ -115,12 +149,15 @@ async function printSessionReport(orgId: string, deviceId: string, report: Sessi
       return 'This fiscal device cannot print a text receipt'
     }
     const org: any = await Org.findById(orgId, { 'settings.locale': 1, 'settings.timezone': 1 }).lean().exec()
-    await printer.openNonFiscalReceipt(operatorCode || '1')
-    opened = true
-    for (const line of formatSessionReport(report, org?.settings?.locale || 'en', org?.settings?.timezone || 'Europe/Sofia')) {
-      await printer.printNonFiscalText(line)
-    }
-    await printer.closeNonFiscalReceipt()
+    // One turn on the device: a service receipt moves its counter, like any document.
+    await deviceTurn(deviceId, async () => {
+      await printer.openNonFiscalReceipt(operatorCode || '1')
+      opened = true
+      for (const line of formatSessionReport(report, org?.settings?.locale || 'en', org?.settings?.timezone || 'Europe/Sofia')) {
+        await printer.printNonFiscalText(line)
+      }
+      await printer.closeNonFiscalReceipt()
+    })
     return undefined
   } catch (e: any) {
     // A failed line leaves the receipt open on the device, and every later sale would have to clear
@@ -488,12 +525,23 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       orgId, warehouseId: session.warehouseId, status: 'open', _id: { $ne: id },
     }).exec()
 
+    // ⚠ The same story as the close, which finishes what a request that died left before it reads `expected`.
+    // A GET writes nothing, so it adds what that would book, by the function that books it, and says which
+    // they are. What is left is what the close will refuse over: one still running, and one held for a person.
+    const unfinished = await unfinishedReceipts(orgId, id)
+    const dead = unfinished.filter(doc => saleProgress(doc) === 'dead')
+    const interrupted = await interruptedDocuments(orgId, { sessionId: id })
+    const finishes = new Set([...dead, ...interrupted].map(doc => String(doc._id)))
+
     return {
-      expected: expectedTotals(session),
+      expected: expectedTotals(withWhatTheCloseBooks(session, [...dead, ...interrupted])),
       currency: session.currency,
       // What the session sold so far, as its report will print it at close.
-      report: buildSessionReport(session, await loadPosRows({ orgId, sessionId: id })),
+      report: buildSessionReport(session, await loadPosRows({ orgId, sessionId: id, withReceipts: true })),
       openSessionsOnWarehouse: openOnWarehouse,
+      unfinishedReceipts: unfinishedRefusal(unfinished.filter(doc => !finishes.has(String(doc._id)))).receipts,
+      deadSales: dead.map(doc => ({ id: String(doc._id), number: isPendingNumber(doc.invoiceNumber) ? null : doc.invoiceNumber, settles: saleInDoubt(doc) })),
+      deadDocuments: unfinishedRefusal(interrupted).receipts,
       fiscalDevice: device
         ? { id: device.id, name: device.name, deviceNumber: device.deviceNumber, connected: isDeviceConnected(device.id) || !!(await livePresence({ orgId, deviceNumber: String(device.deviceNumber) })) }
         : null,
@@ -509,7 +557,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     const session = await getRepos().posSessions.findOne({ id, orgId } as any) as any
     if (!session) return status(404, { message: 'POS session not found' })
     return {
-      report: session.report ?? buildSessionReport(session, await loadPosRows({ orgId, sessionId: id })),
+      report: session.report ?? buildSessionReport(session, await loadPosRows({ orgId, sessionId: id, withReceipts: true })),
       printedAt: session.reportPrintedAt ?? null,
       error: session.reportError ?? null,
     }
@@ -526,7 +574,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     const device = await resolveFiscalDeviceForClose(orgId, String(session.warehouseId))
     if (!device) return status(409, { code: 'fiscal_device_not_connected', message: 'No fiscal printer is set up for this warehouse' })
 
-    const report: SessionReport = session.report ?? buildSessionReport(session, await loadPosRows({ orgId, sessionId: id }))
+    const report: SessionReport = session.report ?? buildSessionReport(session, await loadPosRows({ orgId, sessionId: id, withReceipts: true }))
     const error = await printSessionReport(orgId, device.id, report, user.operatorCode)
     if (error) return status(409, { code: 'report_not_printed', message: error })
     await POSSession.updateOne({ _id: id, orgId }, { $set: { reportPrintedAt: new Date() }, $unset: { reportError: 1 } }).exec()
@@ -650,30 +698,62 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
       const session = await r.posSessions.findOne({ id, orgId } as any) as any
       if (!session) return status(404, { message: 'POS session not found' })
+
+      // The cashier who owns the session may close it; anyone else needs a manager role.
+      const isManager = user.role === 'admin' || user.role === 'manager'
+      const mayClose = String(session.cashierId) === String(user.id) || isManager
+
+      // ⚠ A close that died in its Z goes back to `open`, and whoever pressed is told, before anything else
+      // reads it: under its own key this waited for a close that was never coming. Both of two presses are
+      // told, whichever won the write: the Z may have printed, and only a person looking at the device knows
+      // which way on, so neither may run a second Z unasked.
+      if (mayClose && closeIsDead(session)) {
+        const before = new Date(Date.now() - CLOSE_LEASE_MS)
+        const reopened = await POSSession.findOneAndUpdate(
+          { _id: id, orgId, status: 'closing_control', $or: [{ closeLeaseUntil: { $lt: new Date() } }, { closeLeaseUntil: null, updatedAt: { $lt: before } }] },
+          {
+            $set: { status: 'open', fiscalStatus: 'failed', fiscalError: 'A close stopped during its Z-report, which may have printed.' },
+            $unset: { closeClientKey: 1, closeRequestHash: 1, closeLeaseUntil: 1 },
+          },
+        ).exec()
+        if (reopened) {
+          createAuditEntry({
+            orgId, userId: user.id, operatorCode: user.operatorCode, action: 'close_interrupted',
+            module: 'pos', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber,
+          })
+        }
+        return status(409, { ...CLOSE_INTERRUPTED })
+      }
+
       if (key && session.closeClientKey === key) {
         const replayed = await replayClose()
         if (replayed) return replayed
       }
       if (session.status === 'closed') return status(400, { message: 'Session already closed' })
-
-      // The cashier who owns the session may close it; anyone else needs a manager role.
-      const isManager = user.role === 'admin' || user.role === 'manager'
-      if (String(session.cashierId) !== String(user.id) && !isManager) {
-        return status(403, { message: 'Only the session owner or a manager can close it' })
-      }
+      if (!mayClose) return status(403, { message: 'Only the session owner or a manager can close it' })
 
       // Legacy single-number body maps onto the cash line.
       const counted = b.counted ?? { cash: Number(b.closingBalance) || 0 }
-      const expected = expectedTotals(session)
+
+      // FR-23: a session does not close over a receipt or a storno nobody finished. Its money would land
+      // after the day was counted, on a device whose Z already has it, or the drawer would read as over.
+      await finishInterruptedDocuments(orgId, user, { sessionId: id })
+      // ⚠ Before `expected` is read, as the session is claimed below: the rows count a sale that died in its
+      // print and the session does not, and the drawer read as over by exactly that.
+      await finishDeadSales(orgId, user, id)
+      await releaseOrphanClaimsOfSession(orgId, id)
+      const unfinished = await unfinishedReceipts(orgId, id)
+      if (unfinished.length) return status(409, unfinishedRefusal(unfinished))
 
       /**
        * A conditional transition, not a read-then-write: two tills hitting Close at once
        * used to both proceed, each firing its own Z-report. The loser now sees "already
        * closing" instead.
        */
+      const closeLeaseUntil = new Date(Date.now() + CLOSE_LEASE_MS)
       const claimed = await POSSession.findOneAndUpdate(
         { _id: id, orgId, status: 'open' },
-        { $set: { status: 'closing_control', ...(key ? { closeClientKey: key, closeRequestHash: hash } : {}) } },
+        { $set: { status: 'closing_control', closeLeaseUntil, ...(key ? { closeClientKey: key, closeRequestHash: hash } : {}) } },
         { new: true },
       ).exec()
       if (!claimed) {
@@ -685,16 +765,33 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         return status(400, { message: 'Session is already being closed' })
       }
 
+      /**
+       * What this close holds. ⚠ Every write from here on is conditional on it: past its lease somebody may
+       * have put the session back, or closed it, and a close that comes back then must not undo that.
+       */
+      const holdsIt = { _id: id, orgId, status: 'closing_control', closeLeaseUntil }
+
       /** Put the session back the way we found it — a failed close must not strand it. */
       const release = async (fiscalStatus?: 'failed', fiscalError?: string) => {
         await POSSession.updateOne(
-          { _id: id, orgId },
+          holdsIt,
           {
             $set: { status: 'open', ...(fiscalStatus ? { fiscalStatus, fiscalError } : {}) },
-            $unset: { closeClientKey: 1, closeRequestHash: 1 },
+            $unset: { closeClientKey: 1, closeRequestHash: 1, closeLeaseUntil: 1 },
           },
         ).exec()
       }
+
+      // Again, now that nothing new can join it: a sale, a receipt and a storno each look at the session
+      // once they are written, so either it finds this claim and gives way, or this finds it.
+      const late = await unfinishedReceipts(orgId, id)
+      if (late.length) {
+        await release()
+        return status(409, unfinishedRefusal(late))
+      }
+      // ⚠ The session as it stands after that look, not as claimed: one that finished between the two is
+      // found by neither, and what it booked is here. Nothing can land after this.
+      const expected = expectedTotals((await POSSession.findOne({ _id: id, orgId }).lean().exec()) ?? claimed)
 
       const device = await resolveFiscalDeviceForClose(orgId, String(session.warehouseId))
 
@@ -723,7 +820,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
           // #394: the driver refused the Z because a sale is printing on it right now. Nothing
           // failed: the device stays as it is, the session goes back to open and keeps no failure,
           // and closing again once the sale has finished works.
-          if (fiscalFailure(e).code === 'receipt_open') {
+          if (['receipt_open', 'device_busy'].includes(fiscalFailure(e).code)) {
             await release()
             logger.info({ orgId, sessionId: id, deviceId: device.id }, 'Z-report waits for a sale printing on the device — session left open')
             return status(409, { code: 'receipt_open', message: 'A sale is printing on this device. Wait for it to finish, then close again.' })
@@ -750,9 +847,10 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       const cashLine = breakdown.find(l => l.method === 'cash')!
 
       let updated: any
+      let lost: string | undefined
       try {
         updated = await POSSession.findOneAndUpdate(
-          { _id: id, orgId },
+          holdsIt,
           {
             $set: {
               status: 'closed',
@@ -764,19 +862,23 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
               closingBreakdown: breakdown,
               notes: b.notes ?? session.notes,
               fiscalStatus,
-              fiscalError: undefined,
               ...(zReportNumber ? { zReportNumber } : {}),
               ...(fiscalClosedAt ? { fiscalClosedAt } : {}),
               ...(device ? { fiscalDeviceId: device.id } : {}),
             },
+            $unset: { fiscalError: 1, closeLeaseUntil: 1 },
           },
           { new: true },
         ).exec()
+        if (!updated) lost = 'its lease lapsed, and somebody else has the session now'
       } catch (e: any) {
+        lost = e?.message
+      }
+      if (lost) {
         // FR-9 edge case 5: the fiscal day IS closed on the device but we could not record
         // it. Say so loudly — the recovery is a retry with closeWithoutFiscal.
         logger.error(
-          { orgId, sessionId: id, err: e?.message },
+          { orgId, sessionId: id, err: lost },
           'Z-report succeeded but the session update failed — retry the close with closeWithoutFiscal',
         )
         await release()
@@ -807,7 +909,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       // The session's own figures, printed after the Z-report: a device's Z counts only its fiscal
       // receipts, so a till printing text receipts closed on a report of zeros. Kept on the
       // session for a reprint; a print that fails is recorded and never undoes the close.
-      const report = buildSessionReport(updated, await loadPosRows({ orgId, sessionId: id }), { closing: breakdown, zReportNumber })
+      const report = buildSessionReport(updated, await loadPosRows({ orgId, sessionId: id, withReceipts: true }), { closing: breakdown, zReportNumber })
       const reportError = device && !b.closeWithoutFiscal
         ? await printSessionReport(orgId, device.id, report, user.operatorCode)
         : undefined
@@ -877,6 +979,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         }
 
         if (session.status === 'closed') return status(400, { message: 'Session is closed' })
+        // ⚠ Not "closed" alone: one being closed takes nothing new either, and goes on selling if it goes back to open.
+        if (session.status !== 'open') return status(409, { ...SESSION_CLOSING })
         // FR-21 R5 (owner, 2026-10-27): a cashier rings into their OWN session — its drawer is theirs,
         // and D-13 joins their back-office sales to it. A retry of a sale already made is answered above.
         if (String(session.cashierId) !== String(user.id)) {
@@ -888,6 +992,11 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
           return status(422, { code: 'register_type_unsupported', message: 'Only sales are rung up at the till; a sale is reversed by its storno' })
         }
 
+        // FR-20.55: a session opened under an expired licence takes the money of what already exists,
+        // and rings up nothing new. One already open when the restriction began keeps selling.
+        const unlicensed = await licenceGate('POST', '/api/org/:orgId/trade/pos/session/:id/transaction', orgId, body, session.openedAt)
+        if (unlicensed) return status(402, unlicensed)
+
         const c = await context()
         // No sale without a connected printer (2026-10-31): refused before anything is written, so
         // no number or УНП is drawn. A keyed retry is answered above and may still finish.
@@ -897,17 +1006,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         // FR-20.49 — Прил. 29 т. 8: no fiscal sale opens on a device not reached in two hours (SUPTO
         // production mode only). ⚠ Here, for a NEW sale only: a keyed retry above is a sale that
         // already opened, and refusing it now would strand its receipt.
-        if (!nonFiscal) {
-          const verdict = await maySaleOpen(orgId, session.warehouseId)
-          if (!verdict.ok) {
-            return status(409, {
-              code: 'fiscal_device_unreached',
-              message: `The fiscal device "${verdict.deviceName}" has not answered for more than 2 hours. A sale cannot open until it does (Н-18, Прил. 29 т. 8).`,
-              deviceName: verdict.deviceName,
-              lastCommunicationAt: verdict.lastCommunicationAt,
-            })
-          }
-        }
+        if (!nonFiscal) await assertSaleMayOpen(orgId, session.warehouseId)
 
         const settings = await tillSettings(orgId)
         // FR-21.16: refused before a receipt can print, when the org does not let the till sell what

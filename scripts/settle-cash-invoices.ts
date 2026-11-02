@@ -18,6 +18,11 @@
  * Dry-run by default: lists what would be settled and how much, writes nothing. Idempotent: a
  * document paid in full is left alone, so a second run settles nothing.
  *
+ * ⚠ FR-23: only where nothing prints. Where LGR prints, the receipt and its payment are the settlement,
+ * and an unpaid cash invoice is one whose money nobody took: settling it books money with no receipt.
+ * So an org where LGR prints is refused by name and skipped otherwise, and a document with a receipt
+ * tried is never selected, in any org: its money is that receipt's.
+ *
  * `--as` names the person recorded as having done it (status history + audit log); default is
  * each org's earliest admin.
  *
@@ -32,9 +37,10 @@
 // From db, not 'mongoose': portal-api (where this runs on prod) resolves db, not mongoose itself.
 import { mongoose } from 'db/connection'
 import { assertHomeIsHere, isHomeHere } from 'db/home/home'
-import { Invoice, Org, User } from 'db/models'
+import { Org, User } from 'db/models'
 import { initServiceContext } from 'services/context'
 import { syncCashSettlement, SETTLED_ON_ISSUE } from 'services/biz/cash-settlement.service'
+import { orgsToSettle, unsettledInvoices } from 'services/biz/settlement-backlog'
 
 const EXECUTE = process.argv.includes('--execute')
 const arg = (name: string) => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : undefined }
@@ -44,8 +50,6 @@ const METHOD = arg('--method')
 const METHODS = METHOD ? [METHOD] : Object.keys(SETTLED_ON_ISSUE)
 if (METHODS.some(m => !SETTLED_ON_ISSUE[m])) throw new Error(`--method must be one of: ${Object.keys(SETTLED_ON_ISSUE).join(', ')}`)
 
-/** The states in which an invoice paid at the counter can still show money due. */
-const UNSETTLED = ['sent', 'overdue', 'partially_paid']
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 
 async function actorFor(orgId: any): Promise<string> {
@@ -69,31 +73,18 @@ async function main() {
   if (ORG_SLUG && !found.length) throw new Error(`org "${ORG_SLUG}" not found`)
   // FR-20.4: settle only where the org's home is. Runs from portal-api in the pod, so it checks the
   // home directly rather than through scripts/lib/home-guard.
-  const orgs: any[] = []
+  const here: any[] = []
   for (const o of found) {
     if (ORG_SLUG) await assertHomeIsHere(String(o._id), { fresh: true })
     else if (!(await isHomeHere(o._id))) { console.log(`skip ${o.slug}: homed elsewhere`); continue }
-    orgs.push(o)
+    here.push(o)
   }
-
-  /**
-   * This org's invoices paid at the counter that still show money due (a zero-total one is never
-   * "due"). An invoice for a cash sale is the cash sale's to settle (#171): the rule skips it.
-   */
-  async function unsettled(orgId: any) {
-    const docs: any[] = await Invoice.find({
-      orgId, direction: 'outgoing', type: 'invoice', paymentMethod: { $in: METHODS }, status: { $in: UNSETTLED },
-      'cashSaleRef.cashSaleId': { $exists: false },
-    }).select('_id invoiceNumber total payments issueDate paymentMethod').sort({ issueDate: 1 }).lean()
-    return docs
-      .map(d => ({ id: String(d._id), number: d.invoiceNumber, method: d.paymentMethod as string, outstanding: round2(d.total - (d.payments || []).reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0)) }))
-      .filter(d => d.outstanding > 0)
-  }
+  const orgs = await orgsToSettle(here, !!ORG_SLUG)
 
   let grandCount = 0
   let grandAmount = 0
   for (const org of orgs) {
-    const due = await unsettled(org._id)
+    const due = await unsettledInvoices(org._id, METHODS)
     if (!due.length) continue
     const amount = round2(due.reduce((s, d) => s + d.outstanding, 0))
     grandCount += due.length
@@ -112,7 +103,7 @@ async function main() {
     }
     console.log(`  settled: ${JSON.stringify(tally)}, ${round2(recorded).toFixed(2)} recorded`)
     // Verify: none of this org's counter-paid invoices may still show money due.
-    const left = await unsettled(org._id)
+    const left = await unsettledInvoices(org._id, METHODS)
     if (left.length) throw new Error(`${org.slug}: ${left.length} invoice(s) still unsettled after the run (${left.slice(0, 3).map(d => d.number).join(', ')})`)
   }
   console.log(`${EXECUTE ? 'SETTLED' : 'DRY RUN — would settle'} ${grandCount} invoice(s), ${round2(grandAmount).toFixed(2)} in total${EXECUTE ? '' : ' (pass --execute to write)'}`)

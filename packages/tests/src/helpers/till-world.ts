@@ -41,6 +41,17 @@ export function forgetDevices() {
   for (const id of registered.splice(0)) unregisterPrinter(id)
 }
 
+/**
+ * The bridge comes back: a new driver on the same device, as a reconnect makes. It knows nothing of what
+ * the last one was printing, and the device still holds whatever that left open.
+ */
+export function reconnect(w: { deviceId: string; sim: EltradeSimulator | null }) {
+  w.sim!.beforeCommand = null
+  w.sim!.disconnected = false
+  registerPrinter(w.deviceId, new EltradeFiscalPrinter(w.sim!.exchange, w.deviceId))
+  registered.push(w.deviceId)
+}
+
 const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
 
 export interface TillWorldOptions {
