@@ -541,7 +541,7 @@ describe('at issue: a credit note in cash or by card gives its money back as it 
     })
   })
 
-  it('a note that moved after its issue was decided: it rings what it says now, never one amount and books another', async () => {
+  it('a note that moved after its issue was decided: nothing rings and it says so, never one amount and books another', async () => {
     const w = await tillWorld(app)
     const inv = await paidInvoice(w)
     const note = await noteOn(w, inv)
@@ -564,7 +564,13 @@ describe('at issue: a credit note in cash or by card gives its money back as it 
       ;(Invoice as any).findOneAndUpdate = real
     }
     expect(r.status).toBe(200)
-    expect(r.json.receiptError).toBeUndefined()
+    expect(r.json.receiptCode).toBe('issue_tender_moved')
+    expect(r.json.receiptError).toContain('changed')
+    expect(w.sim!.receipts.filter(x => x.kind === 'storno')).toHaveLength(0)
+    expect(await raw(note.id)).toMatchObject({ total: 12, amountPaid: 0, status: 'sent' })
+
+    // The way on: Refund, for what it says now.
+    expect((await pay(w, note.id, 12)).status).toBe(200)
     expect(w.sim!.receipts.at(-1)).toMatchObject({ kind: 'storno', total: 12 })
     expect(w.sim!.receipts.at(-1)!.payments).toEqual([{ mode: 'P', amount: 12 }])
     expect(await raw(note.id)).toMatchObject({ total: 12, amountPaid: 12, amountDue: 0, status: 'paid' })
