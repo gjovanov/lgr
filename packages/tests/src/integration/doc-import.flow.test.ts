@@ -34,7 +34,7 @@ function draftResult(supplier: any, customer: any, lines: any[], overrides: any 
 }
 
 const ORG_PARTY = { name: 'РЕГАЛ ООД', company_id: ORG_EIK, vat_id: 'BG' + ORG_EIK }
-const CUSTOMER = { name: 'ЕТ МАРИЦА М', company_id: '040406418', vat_id: 'BG040406418', address: 'ул. Царица Йоана 25' }
+const CUSTOMER = { name: 'ЕТ ПРИМЕРОВ П', company_id: '123456786', vat_id: 'BG123456786', address: 'ул. Примерна 25' }
 const SUPPLIER = { name: 'ПРОЯН ЕООД', company_id: '831643582', vat_id: 'BG831643582', address: 'бул. Цариградско шосе 7' }
 
 describe('doc-import engine', () => {
@@ -69,8 +69,8 @@ describe('doc-import engine', () => {
     // Nothing reached the database: no invoice, and no contact was invented.
     expect(await Invoice.countDocuments({ orgId: org._id })).toBe(0)
     expect(await Contact.countDocuments({ orgId: org._id })).toBe(0)
-    expect(doc.diagnostics.contactSuggestion?.name).toContain('МАРИЦА')
-    expect(doc.diagnostics.contactSuggestion?.eik).toBe('040406418')
+    expect(doc.diagnostics.contactSuggestion?.name).toContain('ПРИМЕРОВ')
+    expect(doc.diagnostics.contactSuggestion?.eik).toBe('123456786')
   })
 
   // INV-3000101474 on prod (2026-10-13) printed PlusMinus's own line, digit cents and all.

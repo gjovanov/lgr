@@ -98,8 +98,12 @@ let wrote = false
 const adminToken = await mobile('', ['userLogin', admin.un, admin.pw])
 if (adminToken === '-2') die('userLogin -> -2: the admin account is connected. Not evicting.', 3)
 if (adminToken.length <= 10) die(`admin userLogin failed: ${JSON.stringify(adminToken)}`, 1)
-try {
-  if ((await mobile(adminToken, ['companySelect', org.company])) !== 'true') die('companySelect failed', 1)
+// Nothing inside the session may call process.exit() or die(): that skips the `finally` below and leaves the admin
+// account connected on the store's server (one session per name, so its GUI and the nightly jobs are locked out).
+// A failure records itself in `stop` and breaks out; the process exits after the disconnect.
+let stop: { code: number; msg?: string } | undefined
+session: try {
+  if ((await mobile(adminToken, ['companySelect', org.company])) !== 'true') { stop = { code: 1, msg: 'companySelect failed' }; break session }
   const acting = (await mobile(adminToken, ['currentUser'])).trim()
   const snapshot = async () => {
     const users: string[] = JSON.parse(await mobile(adminToken, ['users']))
@@ -110,13 +114,14 @@ try {
   }
   const before = await snapshot()
   console.log(`acting user: ${JSON.stringify(acting)}; existing accounts: ${before.users.length}`)
+  const roles: string[] = JSON.parse(await mobile(adminToken, ['roles']))
   if (before.users.includes(name)) {
     console.log(`"${name}" already exists: NOT writing (userDataAdd would replace it). Verifying only.`)
-  } else if (!(JSON.parse(await mobile(adminToken, ['roles'])) as string[]).includes(role)) {
-    die(`role ${JSON.stringify(role)} is not one of this server's roles`)
+  } else if (!roles.includes(role)) {
+    stop = { code: 2, msg: `role ${JSON.stringify(role)} is not one of this server's roles: ${roles.join(', ')}` }; break session
   } else {
     console.log('planned call:', JSON.stringify(['userDataAdd', name, role, '<password>', '', person, job, '', acting]))
-    if (!execute) { console.log('dry run: nothing written'); process.exit(0) }
+    if (!execute) { console.log('dry run: nothing written'); stop = { code: 0 }; break session }
     const answer = await mobile(adminToken, ['userDataAdd', name, role, pw, '', person, job, '', acting])
     wrote = true
     console.log('userDataAdd answered:', JSON.stringify(answer.length > 120 ? answer.slice(0, 120) + '…' : answer))
@@ -131,6 +136,7 @@ try {
 } finally {
   await mobile(adminToken, ['disconnect']).catch(() => {})
 }
+if (stop) { if (stop.msg) die(stop.msg, stop.code); process.exit(stop.code) }
 
 // 4) prove the new account
 if (execute || wrote) {

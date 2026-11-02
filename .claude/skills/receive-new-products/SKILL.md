@@ -64,7 +64,7 @@ missing quantities as ONE completed receipt movement.
 4. **Dry-run, review, execute**:
 
    ```bash
-   export LGR_USERNAME=rdodova LGR_PASSWORD=…   # or LGR_TOKEN
+   export LGR_USERNAME=<your-account> LGR_PASSWORD=…   # or LGR_TOKEN
    bun run scripts/receive-new-products.ts --items <items.json>            # dry-run
    bun run scripts/receive-new-products.ts --items <items.json> --execute
    ```

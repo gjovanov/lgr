@@ -55,7 +55,7 @@ positive `Кол`; `value` = `Стойност`. Per doc the script cross-checks
 against `total` (±0.5).
 
 ```bash
-export LGR_USERNAME=rdodova LGR_PASSWORD=…   # or LGR_TOKEN
+export LGR_USERNAME=<your-account> LGR_PASSWORD=…   # or LGR_TOKEN
 bun run scripts/adjust-stock.ts --items <adjustments.json>              # dry-run
 bun run scripts/adjust-stock.ts --items <adjustments.json> --execute
 ```

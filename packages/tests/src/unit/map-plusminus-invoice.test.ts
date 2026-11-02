@@ -39,7 +39,7 @@ const SAMPLE_INVOICE: PlusMinusDocument = {
   date: '20261026',
   num: '00000129',
   header: {
-    bic: 'UBBSBGSF', iban: 'BG04UBBS80021080268040', vatPercent: '20', createdBy: 'kasa 2',
+    bic: 'BNBGBGSD', iban: 'BG80BNBG96611020345678', vatPercent: '20', createdBy: 'kasa 2',
     createdOn: '20261026:133218379083300', docDate: '20261026', module: 'sales',
     placeOfIssue: 'гр.Пазарджик', unp: 'ED338085-1111-0085683', vatRate: '20',
     bank: 'ОББ АД', docType: '1', paymentMethod: '2', taxEventDate: '20261026', vat: '60.31',

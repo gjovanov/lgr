@@ -25,7 +25,7 @@ afterEach(async () => { await clearCollections() }, 30_000)
 const ORG_EIK = '112500982'
 const ORG_PARTY = { name: 'РЕГАЛ ООД', company_id: ORG_EIK, vat_id: 'BG' + ORG_EIK }
 const PARTNER = { name: 'БеПро ЕАД', company_id: '175302437', vat_id: 'BG175302437', address: 'бул. Черни връх 51' }
-const OTHER = { name: 'ЕТ МАРИЦА М', company_id: '040406418', vat_id: 'BG040406418', address: 'ул. Царица Йоана 25' }
+const OTHER = { name: 'ЕТ ПРИМЕРОВ П', company_id: '123456786', vat_id: 'BG123456786', address: 'ул. Примерна 25' }
 
 /** A складова разписка naming a partner — what `parseStockNoteParty` yields off a real note. */
 function noteDraft(number: string, lines: any[], customer: any = PARTNER): DraftResult {
