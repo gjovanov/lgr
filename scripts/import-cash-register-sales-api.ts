@@ -20,6 +20,10 @@
  *   --api <url>      API base (default: https://lgrai.app)
  *   --warehouse <c>  warehouse code for matched lines (default: org default)
  *   --no-stock       do NOT dispatch stock for these documents
+ *   --dry-run        do everything except the POST: dedupe check, aggregation, product matching,
+ *                    then print what WOULD be created (day, lines, qty, net/VAT/total)
+ *   --no-prepared-by leave "prepared by" empty instead of the signed-in account's name (use it
+ *                    when the account is a throwaway, so its name does not land in the document)
  *   --place <text>   Място на сделката (default: гр.София for regal-sf, гр.Пазарджик for regal-pz)
  *
  * Credentials (env): LGR_TOKEN, or LGR_USERNAME + LGR_PASSWORD.
@@ -51,6 +55,8 @@ const orgSlug = (args.org as string) || 'regal-sf'
 const api = ((args.api as string) || 'https://lgrai.app').replace(/\/$/, '')
 const warehouseCode = args.warehouse as string | undefined
 const noStock = !!args['no-stock']
+const dryRun = !!args['dry-run']
+const noPreparedBy = !!args['no-prepared-by']
 const place = (args.place as string) || (orgSlug === 'regal-sf' ? 'гр.София' : orgSlug === 'regal-pz' ? 'гр.Пазарджик' : undefined)
 
 if (!dir) { console.error('Required: --dir <dir with storeOperations_*.json>. See header for options.'); process.exit(2) }
@@ -89,6 +95,7 @@ async function login() {
   console.log(`auth: ${USER_NAME || '?'} → org ${orgSlug} (${ORG_ID})`)
 }
 
+const round2 = (v: number) => +v.toFixed(2)
 const round4 = (v: number) => +v.toFixed(4)
 
 /** Exact product match by name (bg-lowercased) — identical to import-cash-register-sales.ts. */
@@ -128,10 +135,14 @@ async function importDay(date: string, docs: PlusMinusDocument[], wh: any) {
     const m = await matchProduct(r.name)
     if (m) matched++
     const unitPrice = r.qty !== 0 ? round4(r.value / r.qty) : r.value
+    const taxAmount = round2(r.value * VAT_RATE / 100)
     lines.push({
       productId: m?.id, description: r.name, quantity: r.qty,
       unit: m?.unit || 'pcs', unitPrice, discount: 0,
-      taxRate: VAT_RATE, taxAmount: +( (r.value * VAT_RATE) / 100 ).toFixed(2), lineTotal: +r.value.toFixed(2),
+      // lineTotal is GROSS, as on every document the UI creates (FR-21.5) and as import-cash-register-sales.ts
+      // writes it. This script used to send the NET value here, so regal-sf's API-imported days differ from its
+      // xlsx-imported ones (and from every regal-pz day).
+      taxRate: VAT_RATE, taxAmount, lineTotal: round2(r.value + taxAmount),
       warehouseId: m ? wh._id : undefined,
     })
   }
@@ -139,9 +150,16 @@ async function importDay(date: string, docs: PlusMinusDocument[], wh: any) {
   console.log(`Matched products: ${matched}/${agg.rows.length}${unmatched ? ` | free-text: ${unmatched}` : ''}`)
   if (unmatched) for (const l of lines.filter(l => !l.productId).slice(0, 10)) console.log(`  ✗ unmatched: ${l.description}`)
 
-  const subtotal = +lines.reduce((s, l) => s + l.lineTotal, 0).toFixed(2)
-  const taxTotal = +(subtotal * VAT_RATE / 100).toFixed(2)
-  const total = +(subtotal + taxTotal).toFixed(2)
+  // The net, from the aggregate's own values: the lines carry gross.
+  const subtotal = round2(agg.rows.reduce((s, r) => s + r.value, 0))
+  const taxTotal = round2(subtotal * VAT_RATE / 100)
+  const total = round2(subtotal + taxTotal)
+
+  if (dryRun) {
+    const qty = +lines.reduce((s, l) => s + l.quantity, 0).toFixed(3)
+    console.log(`DRY RUN, nothing posted | ${date} | ${lines.length} lines | qty ${qty} | net ${subtotal} + VAT ${taxTotal} = ${total} EUR | stock: ${noStock ? 'skip' : 'dispatch'}`)
+    return
+  }
 
   const mvBefore = (await http('GET', org('/warehouse/movement?page=0&size=1'))).total ?? 0
   const res = await http('POST', org('/invoices'), {
@@ -149,9 +167,9 @@ async function importDay(date: string, docs: PlusMinusDocument[], wh: any) {
     issueDate: date, currency: 'EUR', exchangeRate: EXCHANGE_RATE_BGN,
     reference,
     lines, subtotal, discountTotal: 0, taxTotal, total,
-    totalBase: +(total * EXCHANGE_RATE_BGN).toFixed(2),
+    totalBase: round2(total * EXCHANGE_RATE_BGN),
     paymentMethod: 'cash',
-    preparedBy: USER_NAME || undefined,
+    preparedBy: noPreparedBy ? undefined : (USER_NAME || undefined),
     placeOfTransaction: place,
     notes: `Дневни продажби каса — ${date}`,
     tags: ['cash-register-import'],
@@ -166,7 +184,7 @@ async function importDay(date: string, docs: PlusMinusDocument[], wh: any) {
 
 async function main() {
   console.log(`Import cash-register sales (direct API) | dir: ${dir}`)
-  console.log(`Org: ${orgSlug} | API: ${api} | stock: ${noStock ? 'SKIP' : 'dispatch'}`)
+  console.log(`Org: ${orgSlug} | API: ${api} | stock: ${noStock ? 'SKIP' : 'dispatch'}${dryRun ? ' | DRY RUN' : ''}`)
 
   const files = readdirSync(dir).filter(f => /^storeOperations_\d+\.json$/i.test(f))
   if (!files.length) { console.error('No storeOperations_*.json in dir.'); process.exit(1) }

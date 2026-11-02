@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-08**, **S-17**–**S-30** are fixed. The rest are open, ordered by severity below.
+**S-01**–**S-08**, **S-17**–**S-31** are fixed. The rest are open, ordered by severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger could join
@@ -21,7 +21,7 @@ S-25–S-28 were found in October 2026 while specifying and building offline ope
 was fixed in a private fork, deployed the same day, and published as a GitHub security advisory once
 the fix had been verified on production. They are written up at the end too. S-29 and S-30 came
 out of the same month: S-29 while designing FR-20's till PINs, S-30 during FR-22's review of the till
-and fiscal-device screens.
+and fiscal-device screens, and S-31 while fixing #168.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -55,6 +55,7 @@ and fiscal-device screens.
 | **S-28** | **High** | **A role's permissions were enforced by the UI alone: read-only roles could write invoices, journal entries, payroll and stock through the API** ([GHSA-gg6h-4gv9-w2hx](https://github.com/gjovanov/lgr/security/advisories/GHSA-gg6h-4gv9-w2hx)) | **Fixed 2026-10-23** |
 | **S-29** | **High** | **Role permissions were not enforced on reads: any member of an org could read its payroll, ledgers and audit trail through the API** ([GHSA-9h98-9jvm-p9qw](https://github.com/gjovanov/lgr/security/advisories/GHSA-9h98-9jvm-p9qw)) | **Fixed 2026-10-25** |
 | **S-30** | **High** | **A fiscal device's TCP address was checked on create only, and by prefix: any user could make the server open connections to its own loopback and the cluster network** ([GHSA-5qqr-5jf7-pq2q](https://github.com/gjovanov/lgr/security/advisories/GHSA-5qqr-5jf7-pq2q)) | **Fixed 2026-10-26** |
+| S-31 | Medium | `POST /doc-import/convert` confirmed a draft stock movement by id with no org check: a caller who knew the id could book another org's draft | **Fixed** (#422) |
 
 ---
 
@@ -1401,3 +1402,39 @@ create, but only when one was given, and only by string prefix (`127.`, `169.254
 - Tests: `unit/fiscal-tcp-target.test.ts`, `integration/fiscal-device-target.flow.test.ts`.
 - Verified on production on 2026-10-26: a device with no host, `127.1`, `10.0.0.5` or
   `169.254.169.254` is refused with 400, and nothing is stored.
+
+## S-31 — A document-import conversion confirmed another org's stock movement (Medium, **fixed 2026-11-01**)
+
+> Found on 2026-11-01 while fixing #168. Fixed in #422, whose wording does not describe the flaw, and
+> written up here once the fix had been verified on production.
+
+**Where:** `POST /org/:orgId/doc-import/convert` with `target: 'movement'`
+(`invoicing-api/src/controllers/doc-import.controller.ts`).
+
+**What was wrong:** the route took movement ids from the body and passed each to `confirmMovement`,
+which reads by id alone. The tenant guard checks the org in the path against the caller's, and the
+path here was the caller's own, so nothing compared the movement's org with either. S-25 closed this
+for the by-id routes of 21 controllers. This route takes its ids from the body, which is why that
+sweep did not see it.
+
+- **Who:** a user holding `inventory.write` in any org, which on lgrai.app means anyone who signs up.
+- **Impact:** with the id of another org's DRAFT movement, they could book it there: that org's stock
+  moved, its valuation entry posted, and the answer named the movement's number and status. Nothing
+  else about the movement came back. Only a draft could be confirmed.
+- **Why Medium:** it needed an id no route gives to another org, and a draft is short-lived.
+- **Exposure on the day:** none found, and not fully provable. This route wrote no audit row, so the
+  trail cannot show every use. It does show that none of its rows on a movement names one of another
+  org, and production held a single draft movement on the day.
+
+### Fix
+
+- The route reads the draft with `{ id, orgId }` first, so another org's reads as not found, and it
+  applies the same warehouse rule as `/warehouse/movement/:id/confirm` (`config/movement-warehouses`).
+- `confirmMovement` itself still reads by id, because its callers include the imports. Every door that
+  takes an id from a request has to read it in the org first, as this one now does.
+- Tests: `integration/movement-warehouses.flow.test.ts`.
+- Verified on production on 2026-11-01, with a draft in one demo org and the admin of another: the
+  route under the second org's own path answers `ok: false`, `not found`, the route under the first
+  org's path answers 403, the draft stays a draft and the stock does not move. The first org's admin
+  then confirmed it at the same route, and the stock moved.
+

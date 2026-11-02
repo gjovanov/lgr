@@ -41,13 +41,19 @@ set -a && source .secrets/lgr-session.env && set +a   # before every step below
 ## 1. Pull everything for the range
 
 regal-sf's PlusMinus is only reachable through a tunnel to its till PC
-(`Regal-Dechko-SO`), which **can drop mid-pull** on a long range (seen both on
+(`$SF_STORE_PC`), which **can drop mid-pull** on a long range (seen both on
 2026-10-27 and again today, ECONNRESET) — if a family fails partway, just re-forward
 and re-run with `--families <whatever didn't finish>`; already-written files are
 skipped (content-addressed, see `pull-api.ts`'s manifest).
 
+The till PC's Roomler agent id, its name and the server's LAN address are **not in this
+repo** (it is public). They live in the gitignored `.secrets/plusminus-stores.env` as
+`SF_STORE_PC`, `SF_ROOMLER_AGENT` and `SF_PM_REMOTE`; if that file is missing, ask goran
+for the values and recreate it. Never paste them back into a skill, issue or PR.
+
 ```bash
-roomler forward --agent 6a687648c8141b25961ebde6 --local 17000 --remote 192.168.0.103:7000 --daemon
+set -a && source .secrets/plusminus-stores.env && set +a
+roomler forward --agent "$SF_ROOMLER_AGENT" --local 17000 --remote "$SF_PM_REMOTE" --daemon
 bun .claude/skills/pull-plusminus-api/pull-api.ts --org regal-sf --base-url https://127.0.0.1:17000 \
   --from <YYYY-MM-DD> --to <YYYY-MM-DD>
 roomler kill fl-N   # fl-N from `roomler flows`, once done

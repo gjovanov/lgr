@@ -12,7 +12,7 @@ is not regal-sf with a different slug. Read the differences first; most of this 
 | | regal-sf | **regal-pz** |
 |---|---|---|
 | Reach PlusMinus | through a tunnel | directly (a plain `curl -sk` of the server answers; if not, check the VPN) |
-| Till (cash register) | `storeOperations` documents in the API | **not in the API** — only the `salesAnalysis` report from the GUI |
+| Till (cash register) | `storeOperations` documents in the API | **not a `documents()` family**: the POS module's own receipts (`posDocuments`, §5), not yet read live; today the `salesAnalysis` report from the GUI |
 | Invoice families | `-ФЕ` | `-ФЕ` **and `-ФЕА`** (an annulment: same number, negative sum) |
 | Other families | none | receipts `СТ`, transfers-out `СР`, write-offs `СИ` |
 | Baseline | opened 2026-09-30 | **quantities were re-baselined on 2026-07-30**: documents dated on/before it are already inside LGR's numbers |
@@ -122,11 +122,29 @@ with nothing to derive (a bit set) rightly stays untagged in „Общи".
 
 ## 5. The till
 
-Not in the API. The daily path is the `salesAnalysis_*.xlsx` report (skill `import-cash-register-sales`,
-exported with `pull-plusminus-docs`). The audit only tells you WHICH days are missing; their stock effect is
-already handled by the true-up, their revenue is not. (`posDocuments` accepts the six-argument form that
-`documents` uses but returns nothing for any option set tried; `posCashboxLastClosing` works and returns the
-last cash-box closing. Neither is a till feed.)
+The daily path is still the `salesAnalysis_*.xlsx` report (skill `import-cash-register-sales`, exported with
+`pull-plusminus-docs`). The audit only tells you WHICH days are missing; their stock effect is already handled by
+the true-up (when one has run since the day), their revenue is not, so such a day is booked with `--no-stock`;
+a day no true-up has covered yet is booked with stock.
+
+**Is the till in the API? Probably, but not verified live.** It is not a `documents()` family (the POS module keeps
+its own receipt tables), and the earlier attempt used the `documents` call shape, which is why it "returned nothing
+for any option set tried". The vendor client's own wrappers (extracted from `pmserver.exe`) show the shape:
+
+```
+pm.posReceipts(e,t,n,s) -> ["posDocuments", object, "YYYYMMDD" from, "YYYYMMDD" to, s||"", "receipts"]   // "layaways" likewise
+pm.posReversals(e,t,n)  -> ["posReversals", object, from, to, "reversals"]
+```
+
+The LAST argument is a kind discriminator. `object` is the POS workplace's default object (`ОБЕКТИ:СКЛАД - 1`;
+`posObjects` reports it). A receipt is `{header, lines}` and `header` has `closedOn` (`YYYYMMDD:HHMMSS…`), `status` (contains
+"return" for a refund), `paid`, `paymentMethod`, `unp`; the line fields were not seen yet. Check a first pull against two
+booked days (the daily xlsx equals the CSR) and against the control "month aggregate minus the booked days" before trusting it.
+`posCashboxLastClosing` also works and returns the last cash-box closing; it is not a till feed.
+
+⚠ **The one PlusMinus account slot is shared with the till GUI.** If the GUI holds it the tools exit 3 and touch nothing
+(they never evict); probe only 22:00–06:00 Sofia. A dedicated read-only PlusMinus user for the API (the server has user and
+role management) would remove the contention; it has to be created in the PlusMinus GUI.
 
 ## 6. Reconcile and true up
 
@@ -147,8 +165,17 @@ Take a fresh snapshot just before; a true-up against a stale one books yesterday
 
 ⚠ A large decrease is usually one absurd opening balance. Read the cost column before executing.
 
-An annulled **paid** invoice stays live in LGR (its stock is corrected by the true-up, its revenue is not).
-That is a person's call: it needs the payment undone first.
+An annulled **paid** invoice (the pull has an `invoicem_<n>.fea.json`: a `-ФЕА` with the invoice's own number and
+negated amounts) cannot be voided through the API, which refuses `paid`, so it stays in LGR's sales figures. The
+call was made (2026-11-02): mark it `voided`, do not delete it. From a host that reaches the prod Mongo (like
+§4e): `bun run scripts/void-annulled-invoices.ts --org regal-pz --only <n>,<n>`, read the plan, then
+`--execute --expect <N>`. It changes the status, one history entry and one audit row, and **nothing else**: it
+reverses no stock and touches no payment. The goods are already right: PlusMinus's stock moved when it annulled
+the invoice, and the true-up brought LGR to that figure, so reversing the dispatch again would leave LGR above
+it. (If no true-up has run since the annulment, run one.) The tool does not look at PlusMinus: read the
+`.fea.json` and what replaced the invoice (a new invoice, or a credit note) first. It never voids a credit
+note, which PlusMinus keeps as a valid document, and it refuses an invoice that a live credit note already
+cancels.
 
 ## 7. Pitfalls this audit paid for
 

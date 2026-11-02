@@ -1,6 +1,6 @@
 ---
 name: import-cash-register-sales
-description: Import a day's cash-register (каса) sales from the legacy PlusMinus salesAnalysis_*.xlsx export into an LGR org as ONE issued cash-sale document (CSR-...) with a line per sold product. Use when the user wants to import daily каса/cash-register sales, with or without dispatching stock. Runs against the deployed API.
+description: Import a day's cash-register (каса) sales from the legacy PlusMinus salesAnalysis_*.xlsx export (or, for regal-sf, from its direct /mobile API pull) into an LGR org as ONE issued cash-sale document (CSR-...) with a line per sold product. Use when the user wants to import daily каса/cash-register sales, with or without dispatching stock. Runs against the deployed API.
 allowed-tools: Bash(bun:*)
 ---
 
@@ -101,6 +101,30 @@ bun run scripts/import-cash-register-sales.ts --folder "$FOLDER"
 
 Options: `--date <YYYY-MM-DD>` (default: folder basename) · `--org <slug>`
 (default `regal-pz`) · `--api <url>` · `--warehouse <code>` · `--place <text>`.
+
+## Direct from the API (no xlsx)
+
+`scripts/import-cash-register-sales-api.ts` books the same document from a folder of PlusMinus `/mobile`
+pulls instead of the GUI export. Today that is regal-sf: one `storeOperations_<n>.json` per till ticket
+(`header.doc = "СР"`), pulled with `pull-plusminus-api` and aggregated per article, per day, by
+`services/biz/doc-import/map-plusminus-till.ts`.
+
+```bash
+bun run scripts/import-cash-register-sales-api.ts --dir <pull dir> --org regal-sf --dry-run   # read-only
+bun run scripts/import-cash-register-sales-api.ts --dir <pull dir> --org regal-sf             # then for real
+```
+
+- `--dry-run` does everything but the POST (dedupe check, aggregation, product matching) and prints the
+  day, line count, quantity and net / VAT / total it would create. Run it first.
+- `--no-prepared-by` leaves "prepared by" empty instead of the signed-in account's name. Use it under a
+  throwaway account, so that name does not land in a document.
+- It writes the same document as the xlsx importer: one `CSR` per day, `reference = salesAnalysis:<date>`
+  (a day can arrive either way and is booked once), the subtotal is the net, and each line carries a
+  **gross** `lineTotal` (FR-21.5). The other options are the xlsx importer's.
+- ⚠ Until 2026-11-02 this script wrote the NET value as `lineTotal`, so regal-sf cash sales imported
+  before then have net line totals. The document totals are right; only the per-line column differs.
+- ⚠ **Stock mode follows the snapshot.** A day whose sales a stock true-up has already absorbed (the
+  snapshot reflects them) is booked with `--no-stock`; with stock it would be counted twice.
 
 ## Verify
 
