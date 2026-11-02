@@ -3926,6 +3926,77 @@ describe('a till sale\'s invoice stands under its note\'s storno (the readers, B
   })
 })
 
+describe('the loser of a race is told it lost (the readers, A5)', () => {
+  /** A storno of this note in the instant between its insert and its hold: written, live, holding nothing yet. */
+  async function justInserted(w: TillWorld, inv: { receipt: any }, noteId: string, amount = 24) {
+    const document = paymentStornoDocument({
+      note: await raw(noteId), cited: await fresh(inv.receipt._id), take: new Map([[20, Math.round(amount * 100)]]), tender: { method: 'cash', amount, date: new Date() },
+      session: { id: w.sessionId, warehouseId: String(w.warehouse._id) },
+      user: { id: String(w.user._id), operatorCode: '0001' },
+      printer: { deviceNumber: 'ED123456' } as any,
+    })
+    return Invoice.create({ ...document, invoiceNumber: `CS-2026-${String(Math.floor(Math.random() * 90000) + 10000)}`, leaseUntil: new Date(Date.now() + 60_000) })
+  }
+
+  it('/payments: another request\'s storno holds it: `payment_in_progress`, never "not printable"', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    await justInserted(w, inv, note.id)
+    const printed = w.sim!.receipts.length
+
+    const r = await pay(w, note.id, 24)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('payment_in_progress')
+    expect(w.sim!.receipts).toHaveLength(printed)
+  })
+
+  it('/send, at its print: another person\'s storno is refunding the note, and the answer says so, not "no receipt"', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await noteOn(w, inv)
+    const undo = justAfter(update => !!update?.$set?.['issue.completedAt'], () => justInserted(w, inv, note.id))
+    let r: any
+    try {
+      r = await send(w, note.id)
+    } finally {
+      undo()
+    }
+
+    expect(r.status).toBe(200)
+    expect(r.json.receiptError).toContain('printing')
+    expect(r.json.receiptError).not.toContain('by bank')
+  })
+
+  it('five refunds in cash and one by bank at once: nobody is told anything untrue, and the money is right', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv, { quantity: 1 })
+
+    const answers = await Promise.all([
+      ...[1, 2, 3, 4, 5].map(i => pay(w, note.id, 12, 'cash', `refund-race-${i}`)),
+      pay(w, note.id, 12, 'bank_transfer', 'refund-race-bank'),
+    ])
+
+    const codes = answers.filter(a => a.status !== 200).map(a => a.json.code ?? a.status)
+    for (const code of codes) expect(['payment_in_progress', 400, 'overpayment']).toContain(code)
+    expect(answers.filter(a => a.status === 200).length).toBeGreaterThan(0)
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 12 })
+  })
+
+  it('money that truly cannot be split still says so: a rate with a negative total, no storno anywhere', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv, { lines: [line(w, 2), line(w, 1, -5, 9)] })
+
+    const r = await pay(w, note.id, 1)
+
+    expect(r.status).toBe(422)
+    expect(r.json.code).toBe('receipt_not_printable')
+  })
+})
+
 describe('a device that is not fiscalized: the device decides, never a switch', () => {
   /** Open, line, free text, payment, close: nothing of a fiscal receipt. */
   const FISCAL = [0x90, 0x31, 0x36, 0x35, 0x38]

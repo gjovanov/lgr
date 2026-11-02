@@ -23,6 +23,7 @@ import {
   printsRefund, receiptInDoubt, receiptsOf, refundBacking, refundCap, refundNeed, runReceiptSteps, whyNoCitation, type ReceiptTender,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { drawOn, holdEnough } from 'services/biz/cash-register/refund-budget'
+import { grossByRate } from 'services/biz/cash-register/receipt-lines'
 import { receiptMode, type ReceiptMode } from 'services/biz/cash-register/receipt-mode'
 import {
   RegisterRefusal, insertRegisterDocument, originOf, type RegisterContext, type RegisterUser,
@@ -41,14 +42,22 @@ const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 /** One request, one key per storno. The first keeps the request's: that is what a retry finds first. */
 const partKey = (key: string, index: number) => (index ? `${key}#${index + 1}` : key)
 
+/**
+ * Why `amount` could not be split per rate. Its money may have a rate with a negative total. Otherwise it is the
+ * note's own stornos that hold what is left: another request's, between its insert and its hold, which is a
+ * race this one lost.
+ */
+const noNeed = (note: any, stornos: any[]) => (stornos.length && grossByRate(note)
+  ? new RegisterRefusal(409, { ...PAYMENT_IN_PROGRESS })
+  : new RegisterRefusal(422, { code: 'receipt_not_printable', message: 'This document\'s money cannot be split per VAT rate: a rate with a negative total does not print.' }))
+
 /** Why what stands behind this note cannot back a refund of `amount` on this device, or null when it can. */
 async function assertBacked(orgId: string, note: any, amount: number, deviceNumber: string, mode: ReceiptMode): Promise<void> {
   const backing = await refundBacking(orgId, note)
   const citeable = citeableOn(backing.cited, deviceNumber, mode, note.currency)
-  const need = refundNeed(note, await receiptsOf(orgId, String(note._id)), amount)
-  if (!need) {
-    throw new RegisterRefusal(422, { code: 'receipt_not_printable', message: 'This document\'s money cannot be split per VAT rate: a rate with a negative total does not print.' })
-  }
+  const stornos = await receiptsOf(orgId, String(note._id))
+  const need = refundNeed(note, stornos, amount)
+  if (!need) throw noNeed(note, stornos)
   if (holdEnough(need, citeable)) return
   // What is unresolved on the invoice may be the money this needs, and it has a way out of its own.
   if (backing.doubt) throw doubtRefusal(backing.doubt)
@@ -231,9 +240,11 @@ async function nextPart(orgId: string, prepared: PreparedRefund, note: any, amou
   const printer = c.printer!
   const backing = await refundBacking(orgId, note)
   const citeable = citeableOn(backing.cited, printer.deviceNumber, prepared.mode, note.currency)
-  const need = refundNeed(note, await receiptsOf(orgId, String(note._id)), amount)
-  const part = need && drawOn(need, citeable)
-  if (!part) throw need ? exceedsReceipts(citeable, need) : noReceiptToStorno()
+  const stornos = await receiptsOf(orgId, String(note._id))
+  const need = refundNeed(note, stornos, amount)
+  if (!need) throw noNeed(note, stornos)
+  const part = drawOn(need, citeable)
+  if (!part) throw exceedsReceipts(citeable, need)
   const document = paymentStornoDocument({
     note, cited: part.cited, take: part.take, tender: prepared.tender, session: c.session!, user: c.user, printer,
   })
