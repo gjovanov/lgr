@@ -1088,6 +1088,41 @@ describe('a storno in doubt counts nowhere until it is settled (finding 1)', () 
     })
   })
 
+  it('settled not printed, and stopped before its void: `failed` and still `paid`, and it refunded nothing', async () => {
+    const w = await tillWorld(app)
+    const contact = await createTestContact(w.oid, { companyName: 'Клиент ООД', type: 'customer' } as any)
+    const contactId = String(contact._id)
+    const sale = await w.sell(1)
+    const saleId = String(sale.json.transaction.id)
+    await Invoice.updateOne({ _id: saleId }, { $set: { contactId: contact._id } })
+    w.sim!.beforeCommand = cmd => { if (cmd === LINE) w.sim!.disconnected = true }
+    expect((await w.storno(saleId)).json.code).toBe('storno_in_doubt')
+    w.sim!.beforeCommand = null
+    w.sim!.disconnected = false
+    const storno = await stornoOf(w)
+    await Invoice.updateOne({ _id: storno._id }, { $set: { contactId: contact._id } })
+    await getPrinter(w.deviceId).printDailyXReport()
+    const dies = spyOn(Invoice, 'updateOne').mockImplementationOnce(() => { throw new Error('the pod went away') })
+
+    expect((await settle(w, String(storno._id), false)).status).toBe(500)
+
+    dies.mockRestore()
+    expect((await read(storno._id))).toMatchObject({ status: 'paid', register: expect.objectContaining({ fiscal: expect.objectContaining({ state: 'failed' }) }) })
+    // Nothing moved on the session, and no reader may say otherwise.
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 12, totalReturns: 0 })
+    expect(await readings(w, contactId)).toEqual({
+      digestCash: 12, digestPayments: 12, digestFamily: 12, history: 0, historyCash: 12, register: 0, ledgerSales: 12, ledgerRows: 0, productSales: 12,
+      paid30d: 12, session: 12, suptoPayments: 0, suptoReversed: 0, suptoCancelled: 0, export: false,
+    })
+
+    // The next touch voids it, and gives the sale back.
+    await Invoice.updateOne({ _id: storno._id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
+    const again = await w.storno(saleId)
+    expect(again.status).toBe(200)
+    expect((await read(storno._id)).status).toBe('voided')
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+  })
+
   it('the session\'s journal entry: posted over a held storno by any way round, it takes no refund', async () => {
     const w = await tillWorld(app)
     const { storno } = await held(w)

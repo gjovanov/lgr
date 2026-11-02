@@ -22,12 +22,20 @@ export interface PosRowLike {
 }
 
 /**
+ * The fiscal states of a storno that has refunded nothing, whatever its status still says: printing, nothing
+ * can prove it, or proved not to have printed, or settled so, and about to be voided. ⚠ That last one is
+ * `paid` for as long as a crash leaves it, up to the next touch, and read as a refund it counted money that
+ * never left. One list: every reader that asks (`stornoUnproved`, `NOT_UNPROVED_STORNO`) takes it from here.
+ */
+export const UNPROVED_STORNO_STATES: readonly string[] = ['pending', 'unknown', 'failed']
+
+/**
  * FR-23 (#145): a storno whose receipt is still printing, or that nothing can prove, has refunded
  * nothing. It counts nowhere until the device's answer is known or a person settles it, so a reader
  * that sums stornos skips it. The same rule as a filter: `NOT_UNPROVED_STORNO` (`sale-counting.ts`).
  */
 export function stornoUnproved(row: PosRowLike): boolean {
-  return row.type === 'storno' && row.status !== 'cancelled' && (row.fiscal?.state === 'pending' || row.fiscal?.state === 'unknown')
+  return row.type === 'storno' && row.status !== 'cancelled' && UNPROVED_STORNO_STATES.includes(String(row.fiscal?.state))
 }
 
 /** +1, −1 or 0: what a POS row contributes to a sum of sales. */

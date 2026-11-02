@@ -1,6 +1,7 @@
 import { mongoose } from 'db/connection'
 import { Invoice, Org } from 'db/models'
 import { SETTLED_ON_ISSUE } from './cash-settlement.service.js'
+import { UNPROVED_STORNO_STATES } from './cash-register/counting.js'
 
 const { Types } = mongoose
 
@@ -46,7 +47,7 @@ export const NOT_PAYMENT_RECEIPT: Record<string, any> = { type: { $ne: 'payment_
  * the same rule in `posRowSign`.
  */
 export const NOT_UNPROVED_STORNO: Record<string, any> = {
-  $nor: [{ type: 'cash_storno', status: { $ne: 'voided' }, 'register.fiscal.state': { $in: ['pending', 'unknown'] } }],
+  $nor: [{ type: 'cash_storno', status: { $ne: 'voided' }, 'register.fiscal.state': { $in: UNPROVED_STORNO_STATES } }],
 }
 
 /** Whether LGR prints this org's sales: the printer gate's one switch (#390). ⚠ Unset reads as on. */

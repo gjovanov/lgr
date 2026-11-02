@@ -46,6 +46,7 @@ import { normalizeStored, resolveStored } from '../files/stored-path.js'
 import { idKey } from '../replication/pages.js'
 import { fencedExportPath, readFencedExport, type FencedItem } from './fenced-export.service.js'
 import { MoveError } from './move.service.js'
+import { UNPROVED_STORNO_STATES } from '../cash-register/counting.js'
 
 type ObjectId = mongo.ObjectId
 type Doc = Record<string, any>
@@ -128,7 +129,7 @@ export function bookingOf(doc: Doc): 'none' | 'sale' | 'bill' | 'register' {
   if (doc.type === 'payment_receipt') return 'none'
   // A storno nothing has proved has booked nothing, and a person may yet say it never was. The settle
   // door books it, here, as the till's would have.
-  if (doc.type === 'cash_storno' && ['pending', 'unknown'].includes(doc.register?.fiscal?.state)) return 'none'
+  if (doc.type === 'cash_storno' && UNPROVED_STORNO_STATES.includes(doc.register?.fiscal?.state)) return 'none'
   if (doc.type === 'cash_sale' || doc.type === 'cash_storno') return 'register'
   return doc.direction === 'incoming' ? 'bill' : 'sale'
 }
