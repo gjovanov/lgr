@@ -5,10 +5,10 @@
  * on a credit note (`payment_storno`), citing a `payment_receipt` or, for an invoice issued for a till
  * sale (R0), that sale's own receipt. A sale a full storno reversed holds nothing.
  *
- * ⚠ R3 feeds this: a partial storno at the till takes what it returns per rate with `takeBudget` on
- * its sale, and gives it back with `giveBackBudget` when its receipt does not print. A refund citing
- * that sale then counts what its stornos gave back, and the other way round, because both read and
- * write `register.refundClaims` on the one document they both reverse.
+ * ⚠ R3 feeds this: a storno at the till takes what it returns per rate in the update that claims its lines
+ * (`claimForStorno`, on `fitsBudget`), and that goes when its receipt does not print (`releaseStornoClaim`). A
+ * refund citing that sale then counts what its stornos gave back, and the other way round, because both read
+ * and write `register.refundClaims` on the one document they both reverse.
  *
  * ⚠ The claim is ONE atomic update on the cited document, with the check that it fits inside it
  * (`fitsBudget`), as a payment's hold is (`fitsDue`). The spec asked for R0's `_id` order, and that
@@ -98,7 +98,7 @@ export function drawOn(need: ByRate, cited: any[]): { cited: any; take: ByRate }
 }
 
 /** The filter that lets a claim through only while it fits, per rate, inside the update. */
-function fitsBudget(printed: ByRate, want: ByRate): Record<string, unknown> {
+export function fitsBudget(printed: ByRate, want: ByRate): Record<string, unknown> {
   const claims = { $ifNull: ['$register.refundClaims', []] }
   return {
     $expr: {
@@ -117,6 +117,9 @@ function fitsBudget(printed: ByRate, want: ByRate): Record<string, unknown> {
   }
 }
 
+/** `want` as the rows a storno's claim writes. */
+export const budgetClaims = (stornoId: unknown, want: ByRate) => [...want].map(([rate, cents]) => ({ stornoId, rate, cents }))
+
 /**
  * Take `want` from what `cited` holds, for `stornoId`, atomically. False when it does not fit, and it
  * then takes nothing: the storno gives way. Safe to repeat: a resume finds its claim standing.
@@ -131,7 +134,7 @@ export async function takeBudget(cited: any, stornoId: unknown, want: ByRate): P
       'register.refundClaims.stornoId': { $ne: id },
       ...fitsBudget(printedByRate(cited), want),
     },
-    { $push: { 'register.refundClaims': { $each: [...want].map(([rate, cents]) => ({ stornoId: id, rate, cents })) } } },
+    { $push: { 'register.refundClaims': { $each: budgetClaims(id, want) } } },
     { new: true },
   ).lean().exec()
   return !!taken || !!(await Invoice.exists({ _id: cited._id, orgId: cited.orgId, 'register.refundClaims.stornoId': id }).exec())

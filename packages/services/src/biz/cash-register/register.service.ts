@@ -47,6 +47,8 @@ import type { RegisterPrinter } from './printer.js'
 import { saleInDoubt, saleProgress } from './in-doubt.js'
 import { UNPROVED_STORNO_STATES } from './counting.js'
 import { provedNotPrinted, verdictOfFailedPrint } from './print-verdict.js'
+import { budgetClaims, fitsBudget, printedByRate } from './refund-budget.js'
+import { asPlanRead, stornoLine, type StornoPlan } from './storno-lines.js'
 import { PENDING_NUMBER, isPendingNumber } from './pending-number.js'
 
 export { PENDING_NUMBER, isPendingNumber }
@@ -892,15 +894,31 @@ const REFUNDED_SALE = () => new RegisterRefusal(409, {
   message: 'A credit note already refunded part of this sale on a storno receipt, so the whole sale cannot be stornoed.',
 })
 
-/** Why a sale cannot be stornoed, or null when it can. */
-export async function stornoRefusal(original: any): Promise<RegisterRefusal | null> {
+/** A storno has a claim on this sale, on part of it or on all of it. */
+export const stornoClaimed = (doc: any): boolean => doc?.register?.stornoState === 'full' || doc?.register?.stornoState === 'partial'
+
+/** Something other than the sale's own stornos took from what it printed: a credit note's refund. */
+const refundTookFrom = (sale: any): boolean => {
+  const own = new Set((sale.register?.stornoedBy ?? []).map(String))
+  return (sale.register?.refundClaims ?? []).some((c: any) => !own.has(String(c.stornoId)))
+}
+
+/**
+ * Why a sale cannot be stornoed, or null when it can. `part`: the request names its lines. What is left of a sale a
+ * refund took from can go back line by line, while it fits (`claimForStorno`), but "all of it" is not there any more.
+ */
+export async function stornoRefusal(original: any, opts: { part?: boolean } = {}): Promise<RegisterRefusal | null> {
   if (!original) return new RegisterRefusal(404, { message: 'Original transaction not found' })
   if (original.type === 'cash_storno') return new RegisterRefusal(400, { message: 'Cannot storno a storno transaction' })
   if (original.type !== 'cash_sale') return new RegisterRefusal(404, { message: 'Original transaction not found' })
   if (original.status !== 'paid') return new RegisterRefusal(400, { code: 'storno_not_paid', message: 'Only a completed sale can be stornoed' })
-  if (original.register?.stornoState === 'full') {
+  // ⚠ While one may have printed nothing else of the sale goes through, even a line it does not name: a person is
+  // about to look at the device, and pressing on past it is how the device ends up with two.
+  if (stornoClaimed(original)) {
     const held = await stornoInDoubtOf(original)
     if (held) return new RegisterRefusal(409, stornoInDoubtRefusal(held))
+  }
+  if (original.register?.stornoState === 'full') {
     // A claim with no storno yet: one being written right now, or one that died, whose age has not lapsed.
     const ids = original.register?.stornoedBy ?? []
     if (ids.length && !(await Invoice.exists({ _id: { $in: ids }, orgId: original.orgId }).exec())) {
@@ -912,9 +930,9 @@ export async function stornoRefusal(original: any): Promise<RegisterRefusal | nu
   if (saleInDoubt(original)) {
     return new RegisterRefusal(409, saleInDoubtRefusal(original))
   }
-  // FR-23: a credit note's refund took part of what its receipt printed, and until R3 a storno here
-  // is the whole sale. It would give that part back a second time.
-  if (original.register?.refundClaims?.length) return REFUNDED_SALE()
+  // FR-23: a credit note's refund took part of what its receipt printed, so all of it would give that part
+  // back a second time. What is left of it goes back by its lines.
+  if (!opts.part && refundTookFrom(original)) return REFUNDED_SALE()
   if (originOf(original) === 'import') {
     return new RegisterRefusal(409, {
       code: 'storno_imported_day',
@@ -991,6 +1009,8 @@ export interface StornoInput {
   reason: string
   /** How the refund is paid back. Absent: as the sale was paid. */
   payments?: { method: string; amount: number; reference?: string }[]
+  /** What it takes of the sale (`planStorno`). */
+  plan: StornoPlan
   /** The session the refund leaves; a till sale's storno needs one in its own warehouse. */
   session: RegisterSession | null
   /** Whether a storno receipt prints: the sale's was fiscal and the device is there. */
@@ -1000,8 +1020,10 @@ export interface StornoInput {
 
 /** The storno document of a sale: positive amounts, the sign is the type (D-2). */
 export function stornoDocument(input: StornoInput): Record<string, any> {
-  const { original, session, user, printer, printsReceipt } = input
+  const { original, session, user, printer, printsReceipt, plan } = input
   const reg = original.register || {}
+  // Not the whole sale in one go: its own lines and its own money, and only those print and come back.
+  const part = plan.partial
   const now = new Date()
   // The refund as the operator pays it back, or as the sale was paid: what it KEPT per method (the
   // change it handed back stays handed back). A back-office sale may carry no payment rows; its
@@ -1025,13 +1047,13 @@ export function stornoDocument(input: StornoInput): Record<string, any> {
     dueDate: now,
     currency: original.currency,
     exchangeRate: original.exchangeRate,
-    lines: (original.lines || []).map(({ _id, cashSaleLineId, ...l }: any) => l),
-    subtotal: original.subtotal,
-    discountTotal: original.discountTotal || 0,
-    taxTotal: original.taxTotal || 0,
-    total: original.total,
-    totalBase: original.totalBase,
-    amountPaid: original.total,
+    lines: part ? plan.lines.map(p => stornoLine(original, p)) : (original.lines || []).map(({ _id, cashSaleLineId, ...l }: any) => l),
+    subtotal: part ? plan.subtotal : original.subtotal,
+    discountTotal: part ? plan.discountTotal : original.discountTotal || 0,
+    taxTotal: part ? plan.taxTotal : original.taxTotal || 0,
+    total: part ? plan.total : original.total,
+    totalBase: part ? round2(plan.total * (Number(original.exchangeRate) || 1)) : original.totalBase,
+    amountPaid: part ? plan.total : original.total,
     amountDue: 0,
     paidAt: now,
     payments: refund,
@@ -1058,6 +1080,7 @@ export function stornoDocument(input: StornoInput): Record<string, any> {
         // The moment of the sale, which the storno receipt cites, as the till always printed it.
         originalDate: original.createdAt ?? original.issueDate,
         reason: input.reason,
+        ...(part ? { partial: true } : {}),
       },
     },
     createdBy: oid(user.id),
@@ -1075,14 +1098,54 @@ export function stornoDocument(input: StornoInput): Record<string, any> {
  *
  * ⚠ Answers the sale as claimed, and the storno is written from that: a receipt number corrected since the
  * door read the sale is the one it cites, and from here on a correction gives way (`correctReceiptNumber`).
+ *
+ * ⚠ R3: one atomic update for all of it, lines and money, with the check that it fits inside it. Each line as the plan
+ * read it, so several parts never reverse more than was sold, and what it takes per VAT rate within what the receipt
+ * still holds (`fitsBudget`), so a refund citing the sale and a storno of it each take from one budget, whichever comes
+ * first: of the two at once one gives way (`takeBudget` asks the reverse). Each claim carries its own age (`at`):
+ * `cancelledAt` is one per sale, and a second claim refreshing it hid an older orphan. It is written only by the claim
+ * that leaves nothing of the sale, which is when the sale reads as cancelled.
  */
-export async function claimForStorno(original: any, stornoId: ObjectId): Promise<any | null> {
+export async function claimForStorno(original: any, stornoId: ObjectId, plan: StornoPlan): Promise<any | null> {
+  const now = new Date()
+  const fits: any = fitsBudget(printedByRate(original), plan.want)
   return Invoice.findOneAndUpdate(
-    // No refund has taken from it: of the two at once one gives way (`takeBudget` asks the reverse).
-    { _id: original._id, orgId: original.orgId, type: 'cash_sale', status: 'paid', 'register.stornoState': { $ne: 'full' }, 'register.refundClaims.0': { $exists: false } },
-    { $set: { 'register.stornoState': 'full', 'register.cancelledAt': new Date() }, $push: { 'register.stornoedBy': stornoId } },
+    {
+      _id: original._id, orgId: original.orgId, type: 'cash_sale', status: 'paid', 'register.stornoState': { $ne: 'full' },
+      $expr: { $and: [...fits.$expr.$and, ...asPlanRead(plan.read)] },
+    },
+    {
+      $set: { 'register.stornoState': plan.completes ? 'full' : 'partial', ...(plan.completes ? { 'register.cancelledAt': now } : {}) },
+      $push: {
+        'register.stornoedBy': stornoId,
+        'register.stornoClaims': { $each: plan.lines.map(p => ({ stornoId, lineId: p.key, milli: p.milli, at: now })) },
+        'register.refundClaims': { $each: budgetClaims(stornoId, plan.want) },
+      },
+    },
     { new: true },
   ).lean().exec()
+}
+
+/**
+ * The update that takes one storno's claim off its sale, lines and money with it. The sale is given back with nothing
+ * left on it, and a part given back leaves a sale that is no longer all reversed, whoever else is on it.
+ */
+function withoutClaim(id: ObjectId): any[] {
+  const not = { $ne: ['$$this', id] }
+  const notIts = { $ne: ['$$this.stornoId', id] }
+  const others = { $filter: { input: { $ifNull: ['$register.stornoedBy', []] }, cond: not } }
+  const none = { $eq: [{ $size: others }, 0] }
+  const lines = { $in: [id, { $ifNull: ['$register.stornoClaims.stornoId', []] }] }
+  const money = { $in: [id, { $ifNull: ['$register.refundClaims.stornoId', []] }] }
+  return [{
+    $set: {
+      'register.stornoedBy': others,
+      'register.stornoState': { $cond: [none, 'none', { $cond: [lines, 'partial', '$register.stornoState'] }] },
+      'register.cancelledAt': { $cond: [{ $or: [none, lines] }, '$$REMOVE', '$register.cancelledAt'] },
+      'register.stornoClaims': { $cond: [lines, { $filter: { input: '$register.stornoClaims', cond: notIts } }, '$register.stornoClaims'] },
+      'register.refundClaims': { $cond: [money, { $filter: { input: '$register.refundClaims', cond: notIts } }, '$register.refundClaims'] },
+    },
+  }]
 }
 
 /**
@@ -1095,7 +1158,7 @@ export async function claimForStorno(original: any, stornoId: ObjectId): Promise
 export async function releaseStornoClaim(original: any, stornoId: unknown): Promise<void> {
   await Invoice.updateOne(
     { _id: original._id, orgId: original.orgId, 'register.stornoedBy': oid(stornoId) },
-    { $set: { 'register.stornoState': 'none' }, $pull: { 'register.stornoedBy': oid(stornoId) }, $unset: { 'register.cancelledAt': 1 } },
+    withoutClaim(oid(stornoId)),
   ).exec()
 }
 
@@ -1105,29 +1168,25 @@ export async function releaseStornoClaim(original: any, stornoId: unknown): Prom
  * press is refused, and SUPTO 18.5 lists a cancellation that never happened. So an id in `stornoedBy` with no
  * document, on a claim older than a lease, is pulled, by whoever reads the sale next. True when one was.
  *
- * ⚠ Id by id, never the sale: R3 keeps several there, and a live insert is milliseconds behind its claim. So
- * the write is conditional on the id and on the age, in one atomic update that only gives the sale back with
- * nothing left on it.
+ * ⚠ Id by id, never the sale: several can be there, and a live insert is milliseconds behind its claim. So the
+ * write is conditional on the id and on that claim's own age (`at`), in one atomic update that only gives the sale
+ * back with nothing left on it. `cancelledAt` is written by the claim that took the last of the sale, so past a lease
+ * it says that of every claim on it, and it is the only age a claim from before R3 has.
  */
 export async function releaseOrphanClaims(sale: any, now = Date.now()): Promise<boolean> {
   const reg = sale?.register
-  if (reg?.stornoState !== 'full' || !reg.stornoedBy?.length) return false
+  if (!stornoClaimed(sale) || !reg.stornoedBy?.length) return false
   const before = new Date(now - LEASE_MS)
   const written = new Set((await Invoice.find({ _id: { $in: reg.stornoedBy }, orgId: sale.orgId }, { _id: 1 }).lean().exec()).map((d: any) => String(d._id)))
   let released = false
   for (const id of reg.stornoedBy) {
     if (written.has(String(id))) continue
-    const left = { $filter: { input: '$register.stornoedBy', cond: { $ne: ['$$this', oid(id)] } } }
-    const none = { $eq: [{ $size: left }, 0] }
     const pulled = await Invoice.updateOne(
-      { _id: sale._id, orgId: sale.orgId, 'register.stornoState': 'full', 'register.stornoedBy': oid(id), 'register.cancelledAt': { $lt: before } },
-      [{
-        $set: {
-          'register.stornoedBy': left,
-          'register.stornoState': { $cond: [none, 'none', '$register.stornoState'] },
-          'register.cancelledAt': { $cond: [none, '$$REMOVE', '$register.cancelledAt'] },
-        },
-      }],
+      {
+        _id: sale._id, orgId: sale.orgId, 'register.stornoedBy': oid(id),
+        $or: [{ 'register.stornoClaims': { $elemMatch: { stornoId: oid(id), at: { $lt: before } } } }, { 'register.cancelledAt': { $lt: before } }],
+      },
+      withoutClaim(oid(id)),
     ).exec()
     if (pulled.modifiedCount) {
       logger.warn({ saleId: String(sale._id), stornoId: String(id) }, 'A storno claim with no document was released')
@@ -1139,8 +1198,12 @@ export async function releaseOrphanClaims(sale: any, now = Date.now()): Promise<
 
 /** The same, for the sales of a session as it closes: what a request that died left must not outlive its day. */
 export async function releaseOrphanClaimsOfSession(orgId: string, sessionId: string): Promise<void> {
+  const before = new Date(Date.now() - LEASE_MS)
   const claimed: any[] = await Invoice.find(
-    { orgId: oid(orgId), type: 'cash_sale', 'register.sessionId': oid(sessionId), 'register.stornoState': 'full', 'register.cancelledAt': { $lt: new Date(Date.now() - LEASE_MS) } },
+    {
+      orgId: oid(orgId), type: 'cash_sale', 'register.sessionId': oid(sessionId), 'register.stornoState': { $in: ['full', 'partial'] },
+      $or: [{ 'register.cancelledAt': { $lt: before } }, { 'register.stornoClaims.at': { $lt: before } }],
+    },
     { orgId: 1, register: 1 },
   ).lean().exec()
   for (const sale of claimed) await releaseOrphanClaims(sale)
@@ -1153,6 +1216,7 @@ export async function releaseOrphanClaimsOfSession(orgId: string, sessionId: str
  * original dispatch recorded what each line cost when it left (`resolvedUnitCost`); the return
  * brings it back at that, through `confirmMovement` like every movement. If the sale moved no stock,
  * neither does its storno. A crash after the return was created finds it again by the storno's id.
+ * A part brings back what its own lines name, and nothing else (`partReturned`).
  */
 async function returnStornoStock(c: RegisterContext, storno: any, original: any): Promise<string | undefined> {
   const r = getRepos()
@@ -1166,10 +1230,12 @@ async function returnStornoStock(c: RegisterContext, storno: any, original: any)
   }).lean().exec()
   let first: string | undefined
   for (const d of dispatches) {
-    const lines = (d.lines || []).map((l: any) => {
-      const unitCost = Number(l.resolvedUnitCost ?? l.unitCost) || 0
-      return { productId: l.productId, quantity: l.quantity, unitCost, totalCost: round2(unitCost * l.quantity) }
-    })
+    const lines = storno.register?.storno?.partial
+      ? partReturned(d, storno)
+      : (d.lines || []).map((l: any) => {
+        const unitCost = Number(l.resolvedUnitCost ?? l.unitCost) || 0
+        return { productId: l.productId, quantity: l.quantity, unitCost, totalCost: round2(unitCost * l.quantity) }
+      })
     if (!lines.length) continue
     const movement = await createNumberedMovement(r, String(storno.orgId), {
       type: 'return',
@@ -1187,6 +1253,25 @@ async function returnStornoStock(c: RegisterContext, storno: any, original: any)
     first ??= movement.id
   }
   return first
+}
+
+/**
+ * What a part brings back of one dispatch: the lines it names that left from there, at the cost that product left at.
+ * A product the sale's dispatch does not carry (no stock kept on it) moved nothing, and comes back as nothing. Several
+ * lines of one product are one cost, weighted, because which of them a part returns is not something the shelf knows.
+ */
+function partReturned(dispatch: any, storno: any): { productId: unknown; quantity: number; unitCost: number; totalCost: number }[] {
+  const out: { productId: unknown; quantity: number; unitCost: number; totalCost: number }[] = []
+  for (const l of storno.lines || []) {
+    if (!l.productId || (l.warehouseId && String(l.warehouseId) !== String(dispatch.fromWarehouseId))) continue
+    const left = (dispatch.lines || []).filter((x: any) => String(x.productId) === String(l.productId))
+    const quantity = left.reduce((s: number, x: any) => s + (Number(x.quantity) || 0), 0)
+    if (!(quantity > 0)) continue
+    const cost = left.reduce((s: number, x: any) => s + (Number(x.resolvedUnitCost ?? x.unitCost) || 0) * (Number(x.quantity) || 0), 0)
+    const unitCost = cost / quantity
+    out.push({ productId: l.productId, quantity: l.quantity, unitCost, totalCost: round2(unitCost * l.quantity) })
+  }
+  return out
 }
 
 /**

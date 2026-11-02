@@ -906,7 +906,8 @@ export const claimantsOf = (cited: any[]): string[] =>
 async function claimantInDoubt(orgId: string, cited: any[]): Promise<any | null> {
   const ids = claimantsOf(cited)
   if (!ids.length) return null
-  return Invoice.findOne({ orgId: oid(orgId), _id: { $in: ids.map(oid) }, type: PAYMENT_STORNO, status: { $ne: 'voided' }, 'register.fiscal.inDoubt': true }, { type: 1, invoiceNumber: 1 }).sort({ _id: 1 }).lean().exec()
+  // A till's partial storno holds its claim here too (R3), and settled not printed that money is there again.
+  return Invoice.findOne({ orgId: oid(orgId), _id: { $in: ids.map(oid) }, type: { $in: [PAYMENT_STORNO, 'cash_storno'] }, status: { $ne: 'voided' }, 'register.fiscal.inDoubt': true }, { type: 1, invoiceNumber: 1 }).sort({ _id: 1 }).lean().exec()
 }
 
 const isTextReceipt = (d: any) => d.register?.fiscal?.mode === 'text' || (!d.register?.fiscal?.mode && !d.register?.isFiscal)

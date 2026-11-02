@@ -9,7 +9,7 @@
  *
  * What it covers: a till sale or storno (`register.origin: 'pos'`), every `cash_storno`, every
  * `payment_receipt` and `payment_storno` (FR-23), and any sale a storno has claimed or reversed
- * (`register.stornoState: 'full'`). Other back-office and imported cash sales keep today's rules;
+ * (`register.stornoState: 'partial'` or `'full'`). Other back-office and imported cash sales keep today's rules;
  * FR-20.51 owns those.
  *
  * ⚠ A back-office sale can be stornoed from the journal since R2. Its storno already returned the
@@ -27,5 +27,5 @@ export const REGISTER_DOCUMENT_IMMUTABLE = {
 export function isImmutableRegisterDocument(
   doc: { type?: string; register?: { origin?: string; stornoState?: string } } | null | undefined,
 ): boolean {
-  return !!doc && (doc.type === 'cash_storno' || doc.type === 'payment_receipt' || doc.type === 'payment_storno' || doc.register?.origin === 'pos' || doc.register?.stornoState === 'full')
+  return !!doc && (doc.type === 'cash_storno' || doc.type === 'payment_receipt' || doc.type === 'payment_storno' || doc.register?.origin === 'pos' || doc.register?.stornoState === 'full' || doc.register?.stornoState === 'partial')
 }

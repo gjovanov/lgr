@@ -160,6 +160,12 @@ export interface IInvoiceRegister {
    * that it fits, and given back by a storno that did not print (`refund-budget.ts`).
    */
   refundClaims?: Array<{ stornoId: Types.ObjectId; rate: number; cents: number }>
+  /**
+   * On a `cash_sale`: how much of each line its stornos took, in thousandths of a unit (R3, #363), each claim with
+   * its own age. Written in the update that writes its `refundClaims`, and given back the same way
+   * (`storno-lines.ts`, `claimForStorno`, `releaseStornoClaim`).
+   */
+  stornoClaims?: Array<{ stornoId: Types.ObjectId; lineId: string; milli: number; at: Date }>
   /** On a `cash_storno` or a `payment_storno`: the sale or the receipt it reverses, as its fiscal receipt names it. */
   storno?: {
     originalId?: Types.ObjectId
@@ -167,12 +173,14 @@ export interface IInvoiceRegister {
     originalReceiptNumber?: string
     originalDate?: Date
     reason?: string
+    /** On a `cash_storno` that is not the whole sale in one go: its lines are the ones it returned (R3). */
+    partial?: boolean
   }
   /**
-   * On a `cash_sale`: whether a storno reversed it. The sale stays `paid` and keeps counting; its
-   * storno counts against it (FR-21.1). Never flip the sale to `cancelled`.
+   * On a `cash_sale`: whether a storno reversed it, part of it, or all of it by now. The sale stays `paid` and keeps
+   * counting; its stornos count against it, each at its own amount (FR-21.1). Never flip the sale to `cancelled`.
    */
-  stornoState?: 'none' | 'full'
+  stornoState?: 'none' | 'partial' | 'full'
   stornoedBy?: Types.ObjectId[]
   /** When it was stornoed (a sale) or voided (a storno whose receipt failed) — SUPTO 18.5. */
   cancelledAt?: Date
@@ -649,14 +657,19 @@ const invoiceSchema = new Schema<IInvoice>(
             type: [{ _id: false, stornoId: { type: Schema.Types.ObjectId, ref: 'Invoice', required: true }, rate: { type: Number, required: true }, cents: { type: Number, required: true } }],
             default: undefined,
           },
+          stornoClaims: {
+            type: [{ _id: false, stornoId: { type: Schema.Types.ObjectId, ref: 'Invoice', required: true }, lineId: { type: String, required: true }, milli: { type: Number, required: true }, at: { type: Date, required: true } }],
+            default: undefined,
+          },
           storno: {
             originalId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
             originalUnp: String,
             originalReceiptNumber: String,
             originalDate: Date,
             reason: { type: String, enum: ['operator_error', 'customer_return', 'price_reduction', 'tax_base_reduction'] },
+            partial: Boolean,
           },
-          stornoState: { type: String, enum: ['none', 'full'] },
+          stornoState: { type: String, enum: ['none', 'partial', 'full'] },
           stornoedBy: [{ type: Schema.Types.ObjectId, ref: 'Invoice' }],
           cancelledAt: Date,
           legacy: { source: String, type: { type: String }, transactionNumber: String },

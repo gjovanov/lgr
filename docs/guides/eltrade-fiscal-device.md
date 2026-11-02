@@ -64,6 +64,10 @@ Status*.
   stands. **A sale that may have printed** can't be stornoed until it is settled the same way: "it printed"
   asks for the number off the slip, which its storno cites. A number typed wrong is corrected the same way,
   until a storno or an invoice cites it.
+- **A partial storno** (FR-23 R3, "Part of it" in the storno dialog) prints only the lines that came back, citing
+  the sale's УНП and number, and takes one payment type for the whole of it, the first the refund names. ⚠ Not run
+  on a physical device yet. On the walk: storno one line of a sale with two, then the rest, and hold both slips
+  against the sale's. The device should read each at its own amount, and the day's cash should come to the drawer's.
 - **A cash-on-delivery invoice** prints in slot R as it is issued, and stays due until the courier
   pays. If that print fails, the invoice's form offers „Print the receipt": it prints alone, and
   records no money.

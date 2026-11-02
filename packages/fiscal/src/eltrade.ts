@@ -1025,7 +1025,7 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     originalDate: Date,
     originalUNP: string,
     reason: StornoReason,
-    lines: { name: string; quantity: number; price: number; vatGroup: VatGroup; taxRate?: number }[],
+    lines: { name: string; quantity: number; price: number; vatGroup: VatGroup; taxRate?: number; discount?: number }[],
     payment: { type: FiscalPaymentType; amount: number },
   ): Promise<FiscalStornoResult> {
     this.receipt = null
@@ -1060,7 +1060,7 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
       // to hear what that did: a cancel in here left the second one nothing to see (`AbandonOutcome`).
       // Quantities and amounts on a reversal are POSITIVE; the receipt type carries the sign.
       for (const line of lines) {
-        await this.printSaleLine(line.name, Math.abs(line.quantity), Math.abs(line.price), line.vatGroup, undefined, line.taxRate)
+        await this.printSaleLine(line.name, Math.abs(line.quantity), Math.abs(line.price), line.vatGroup, line.discount, line.taxRate)
       }
       reached('paying')
       await this.printPayment(payment.type, Math.abs(payment.amount))

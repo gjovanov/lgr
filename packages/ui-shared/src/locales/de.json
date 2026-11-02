@@ -731,7 +731,17 @@
       "noReceipt": "Ein Verkauf aus dem Büro: Der Storno druckt keinen Beleg und braucht keine Sitzung.",
       "fromSession": "Erstattet aus Sitzung {session}",
       "confirm": "Stornieren",
-      "done": "Storno {number} durchgeführt"
+      "done": "Storno {number} durchgeführt",
+      "whole": "Ganzer Verkauf",
+      "allLeft": "Alles Verbleibende",
+      "part": "Ein Teil davon",
+      "left": "Rest dieses Verkaufs",
+      "leftQuantity": "Verbleibend",
+      "returnQuantity": "Rückgabe",
+      "goesBack": "Wird erstattet",
+      "refundBy": "Erstattung per",
+      "asPaid": "Wie der Verkauf bezahlt wurde",
+      "returned": "{quantity} zurück"
     },
     "noActiveSession": "Keine aktive Sitzung. Öffnen Sie eine Sitzung, um mit dem Verkauf zu beginnen.",
     "openSession": "Sitzung öffnen",
@@ -1182,7 +1192,13 @@
       "bringNumber": "Nummer vom Bon eintragen",
       "bringNumberConfirm": "Geben Sie die Belegnummer so ein, wie sie auf dem Bon steht. Eine Erstattung nennt sie auf dem Gerät, und das Protokoll behält sie.",
       "correctNumberConfirm": "Geben Sie die Belegnummer so ein, wie sie auf dem Bon steht. Das Storno nennt sie, und das Protokoll behält beide.",
-      "numberCorrected": "Belegnummer korrigiert"
+      "numberCorrected": "Belegnummer korrigiert",
+      "stornoExceedsLeft": "Das ist mehr, als von diesem Verkauf zur Rückgabe übrig ist: Ein anderes Storno hat einen Teil davon genommen. Es wurde nichts storniert. Sehen Sie nach, was übrig ist, und versuchen Sie es erneut.",
+      "stornoExceedsBudget": "Diese Zeilen sind mehr, als der Bon dieses Verkaufs noch hält ({left}): Eine Erstattung per Gutschrift hat den Rest genommen. Es wurde nichts storniert.",
+      "stornoRefundMismatch": "Diese Zeilen erstatten einen anderen Betrag als die genannte Erstattung. Es wurde nichts storniert.",
+      "stornoLineUnknown": "Eine dieser Zeilen gehört nicht zu diesem Verkauf. Es wurde nichts storniert.",
+      "stornoQuantityInvalid": "Eine Rückgabemenge ist größer als 0, mit höchstens drei Dezimalstellen. Es wurde nichts storniert.",
+      "stornoNotSplittable": "Eine Zeile dieses Verkaufs hat einen negativen Betrag, daher kann er nicht zeilenweise zurückgegeben werden. Stornieren Sie ihn ganz. Es wurde nichts storniert."
     },
     "origin": {
       "pos": "Kasse",
@@ -1193,7 +1209,8 @@
       "completed": "Abgeschlossen",
       "stornoed": "Storniert",
       "voided": "Ungültig",
-      "inDoubt": "Ungeklärt"
+      "inDoubt": "Ungeklärt",
+      "partial": "Teilweise storniert"
     },
     "stock": {
       "moved": "Ausgebucht",

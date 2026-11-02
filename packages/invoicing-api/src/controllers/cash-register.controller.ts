@@ -67,7 +67,7 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
         search: t.Optional(t.String()),
         kind: literal('sale', 'storno', 'payment', 'refund'),
         origin: literal('pos', 'backoffice', 'import'),
-        status: literal('completed', 'stornoed', 'voided'),
+        status: literal('completed', 'partial', 'stornoed', 'voided'),
         fiscalState: t.Optional(t.String()),
         sessionId: t.Optional(t.String()),
         warehouseId: t.Optional(t.String()),
@@ -141,7 +141,7 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
       }
 
       const out = await stornoDoor({
-        orgId, user, originalId: id, reason: body.reason, payments: body.payments, session,
+        orgId, user, originalId: id, reason: body.reason, payments: body.payments, lines: body.lines, session,
         key, hash: key ? requestHash(`cash-register.storno:${id}`, body) : undefined,
       })
       return 'status' in out ? status(out.status, out.body) : out
@@ -158,6 +158,8 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
           amount: t.Number(),
           reference: t.Optional(t.String()),
         }))),
+        /** FR-23 R3: which lines come back, and how much of each. Absent: all that is left. */
+        lines: t.Optional(t.Array(t.Object({ lineId: t.String(), quantity: t.Number() }), { minItems: 1 })),
       }),
     },
   )

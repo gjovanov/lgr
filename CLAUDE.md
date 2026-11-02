@@ -2,6 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Issue workflow: assign before you implement
+
+An agent does not write code for a GitHub issue until the issue is assigned:
+
+1. Read the issue **and its comments** first. An owner's hold ("wait until X merges") blocks the work
+   just as an assignee does.
+2. If the issue is assigned to someone else, stop and ask the human you work for. Don't implement it.
+3. Otherwise assign it to the human you work for (the account `gh` is signed in as), then begin:
+   `gh issue edit <n> -R gjovanov/lgr --add-assignee @me`
+4. Confirm it took (`gh issue view <n> -R gjovanov/lgr --json assignees`), then branch, and put
+   `Closes #<n>` in the PR.
+
+Assigning first stops two agents from working the same issue in parallel. It applies to issues in
+`gjovanov/lgr-deploy` too.
+
 ## Project Overview
 
 **LGR (Ledger)** is a full-stack multi-tenant ERP system built as a Bun monorepo. Stack: Elysia.js + MongoDB/Mongoose + Vue 3/Vuetify 3 + Pinia.
@@ -2785,6 +2800,17 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   books one: nothing imported prints a refund (`printsRefund`) or has a number to cite. A fenced import books
   nothing for it (`bookingOf`).
 - Mutation-tested: `integration/cash-invoice-refunds.flow.test.ts`; e2e `cash-invoice-refunds.spec.ts`.
+- **R3, the till's partial storno (#363, FR-23 §8).** `POST …/storno` takes `lines: [{ lineId, quantity }]`; none is all
+  that is left, so a whole storno is the request it was. `register.stornoState` gains `partial`, and a sale all of whose
+  quantity has gone back ends `full`. ⚠ **One claim, one update** (`claimForStorno`): `register.stornoClaims` per line
+  and R2's `refundClaims` per rate, with the checks inside it, each line as the plan read it (`asPlanRead`) and each rate
+  within `fitsBudget`. A part's money is read off its line's running total (`config/pos-totals#partOfLine`,
+  `storno-lines.ts`), so any number of parts comes to the receipt to the cent. ⚠ While one may have printed no other
+  storno of that sale goes through, even of another line. ⚠ Each claim has its own age (`stornoClaims[].at`).
+  `to-invoice` invoices only what is left. A refund and a part draw on one budget, either way round. A device prints
+  one payment type per storno, so with no method named a part goes by one method when one still holds it
+  (`refundOfPart`). A line on a storno carries its discount, whole or in part. SUPTO version 4. Tests:
+  `integration/till-partial-storno.flow.test.ts`, `unit/storno-lines.test.ts`; e2e `till-partial-storno.spec.ts`.
 
 ## An article starts its documents: „Заприходи", „Продай", „Резервирай" (2026-10-26, FR-22.47)
 

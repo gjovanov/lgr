@@ -202,7 +202,7 @@ const RECEIPT_NUMBER_CITED = {
  * Whether a storno stands on this document's number: its claim, of either kind. A refund's storno holds its
  * claim from before it prints until it is voided (`takeBudget`, `giveBackBudget`), on a sale as on a receipt.
  */
-const stornoCites = (reg: any) => reg?.stornoState === 'full' || !!reg?.refundClaims?.length
+const stornoCites = (reg: any) => reg?.stornoState === 'full' || reg?.stornoState === 'partial' || !!reg?.refundClaims?.length
 
 /**
  * A number typed off a slip, corrected by the door and the rights that took it, under the same checks. All
@@ -224,7 +224,7 @@ async function correctReceiptNumber(c: RegisterContext, doc: any, typed: string 
   if (number === old) return doc
   const corrected: any = await Invoice.findOneAndUpdate(
     {
-      _id: doc._id, orgId: doc.orgId, 'register.stornoState': { $ne: 'full' }, 'register.refundClaims.0': { $exists: false },
+      _id: doc._id, orgId: doc.orgId, 'register.stornoState': { $nin: ['full', 'partial'] }, 'register.refundClaims.0': { $exists: false },
       ...(old ? { 'register.settled.receiptNumber': old } : { 'register.fiscalReceiptNumber': null }),
     },
     {

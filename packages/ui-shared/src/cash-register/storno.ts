@@ -37,7 +37,8 @@ export interface StornoableRow {
 
 /**
  * A row of the journal a storno can reverse (FR-21 §3.5): a completed sale, rung up at the till or
- * entered in the back office, in either store (the server copies a POS row first).
+ * entered in the back office, in either store (the server copies a POS row first), or what is left of a
+ * partly stornoed one (FR-23 R3).
  *
  * Not an imported till day: it is corrected by importing it again. Not an invoiced sale: an
  * invoice was issued for it, and the credit note to that invoice is its correction (a quantity is
@@ -47,7 +48,7 @@ export function canStornoJournalRow(row: StornoableRow | null | undefined, role:
   if (!row || !role) return false
   // `inDoubt` is a status of its own: a person settles it first, and the server refuses until then.
   return row.kind === 'sale'
-    && row.status === 'completed'
+    && (row.status === 'completed' || row.status === 'partial')
     && (row.origin === 'pos' || row.origin === 'backoffice')
     && (row.invoicingState ?? 'none') === 'none'
     && (STORNO_ROLES as readonly string[]).includes(role)

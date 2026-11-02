@@ -347,6 +347,7 @@ describe('the refusal, in words', () => {
       'no_receipt_owed', 'receipt_in_doubt', 'storno_in_doubt', 'receipt_open_on_device', 'receipt_device_away', 'device_busy', 'fiscal_holder_unreachable', 'fiscal_holder_moved', 'storno_in_progress', 'sale_receipt_in_doubt', 'sale_in_progress', 'session_closing',
       'receipt_number_required', 'receipt_number_taken', 'receipt_number_off_device', 'receipt_number_cited', 'delivery_receipt_owed', 'receipts_unfinished', 'close_interrupted',
       'refund_exceeds_paid',
+      'storno_exceeds_left', 'storno_exceeds_budget', 'storno_refund_mismatch', 'storno_line_unknown', 'storno_quantity_invalid', 'storno_not_splittable',
     ]
     const locales = { en, bg, de, mk } as Record<string, any>
     for (const code of codes) {
