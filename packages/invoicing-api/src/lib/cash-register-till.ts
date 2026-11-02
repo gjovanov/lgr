@@ -104,6 +104,17 @@ export async function getFiscalContext(orgId: string, warehouseId: string, devic
   }
 }
 
+/**
+ * The first of these devices that is connected in this warehouse, when one is. A warehouse can hold two while one
+ * replaces the other, and `getFiscalContext` takes whichever it comes to first, so a door that needs a particular
+ * one asks for it by number, as a document's own device is found (`deviceFromDeadReceipt`).
+ */
+export async function connectedInWarehouse(orgId: string, warehouseId: string, deviceNumbers: string[]): Promise<string | undefined> {
+  if (!deviceNumbers.length) return undefined
+  const devices = await getRepos().fiscalDevices.findMany({ orgId, warehouseId, isActive: true } as any) as any[]
+  return deviceNumbers.find(n => devices.some(d => d.deviceNumber === n && isDeviceConnected(d.id)))
+}
+
 /** What the customer handed over, per payment: the device computes the change itself. */
 const tendered = (doc: any) => (doc.payments || []).map((p: any) => ({ method: p.method, amount: Number(p.tendered ?? p.amount) || 0 }))
 

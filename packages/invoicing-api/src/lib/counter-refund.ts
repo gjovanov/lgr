@@ -19,7 +19,7 @@ import { outstandingOf } from 'services/biz/invoice-payment'
 import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { PAYMENT_STORNO } from 'services/biz/cash-register/pos-union'
 import {
-  PAYMENT_IN_PROGRESS, citeableElsewhere, citeableOn, claimantsOf, doubtRefusal, exceedsPaid, exceedsReceipts, fittingAmount, inDoubtRefusal, noReceiptToStorno, onOtherDevice, paymentStornoDocument,
+  PAYMENT_IN_PROGRESS, citeableElsewhere, citeableOn, claimantsOf, devicesThatCite, doubtRefusal, exceedsPaid, exceedsReceipts, fittingAmount, inDoubtRefusal, noReceiptToStorno, onOtherDevice, paymentStornoDocument,
   printsRefund, receiptInDoubt, receiptsOf, refundBacking, refundCap, refundNeed, runReceiptSteps, whyNoCitation, type ReceiptTender,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { drawOn, holdEnough } from 'services/biz/cash-register/refund-budget'
@@ -28,7 +28,7 @@ import { receiptMode, type ReceiptMode } from 'services/biz/cash-register/receip
 import {
   RegisterRefusal, insertRegisterDocument, originOf, type RegisterContext, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
-import { PRINTER_GATE_SWITCH, STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, finishDeadSale, finishInterruptedDocuments, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
+import { PRINTER_GATE_SWITCH, STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, connectedInWarehouse, finishDeadSale, finishInterruptedDocuments, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
 import { settleKeyedReceipt } from './counter-receipt.js'
 
 export interface PreparedRefund {
@@ -150,7 +150,10 @@ export async function prepareRefund(orgId: string, user: RegisterUser & { role?:
       message: `Open a session at the till first: a refund at the counter prints its storno on that session's device. ${PRINTER_GATE_SWITCH}`,
     })
   }
-  const context = await tillContext(orgId, user, session, { needsOperator: false })
+  // ⚠ A storno prints on the device that printed its receipt. With two connected here the context takes either, and
+  // the other one's receipt was refused, naming a device standing in this warehouse.
+  const deviceNumber = await connectedInWarehouse(orgId, String(session.warehouseId), devicesThatCite(backing.cited))
+  const context = await tillContext(orgId, user, session, { needsOperator: false, ...(deviceNumber ? { deviceNumber } : {}) })
   await assertPrinterConnected(orgId, String(session.warehouseId), context)
   const printer = context.printer!
   assertTillTender([tender], tender.amount, printer)

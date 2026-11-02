@@ -854,7 +854,7 @@ export const onOtherDevice = (cited: any[]) => {
   return new RegisterRefusal(409, {
     code: 'receipt_on_other_device',
     deviceNumbers,
-    message: `The invoice's receipts printed on device ${deviceNumbers.join(', ')}. A storno prints on the device that printed its receipt: refund from a session on it, or by bank.`,
+    message: `The invoice's receipts printed on device ${deviceNumbers.join(', ')}. A storno prints on the device that printed its receipt: connect it in this warehouse, refund from a session in its own, or refund by bank.`,
   })
 }
 
@@ -947,6 +947,13 @@ export function citeableOn(cited: any[], deviceNumber: string, mode: 'fiscal' | 
 /** Those a fiscal storno could cite, had it come from another device. */
 export const citeableElsewhere = (cited: any[], deviceNumber: string) =>
   cited.filter(r => !isTextReceipt(r) && hasReceiptNumber(r) && r.register?.fiscalDeviceNumber !== deviceNumber)
+
+/** The devices that could reverse these, the one a refund draws on first at the head: what holds money, newest first. */
+export function devicesThatCite(cited: any[]): string[] {
+  const empty = (r: any) => (leftByRate(r).size ? 0 : 1)
+  const order = cited.filter(r => isTextReceipt(r) || hasReceiptNumber(r)).reverse().sort((a, b) => empty(a) - empty(b))
+  return [...new Set<string>(order.map(r => r.register?.fiscalDeviceNumber).filter(Boolean))]
+}
 
 /** What `amount` of a refund on this note comes to per rate, out of what no storno of it holds yet. */
 export function refundNeed(note: any, stornos: any[], amount: number): ByRate | null {

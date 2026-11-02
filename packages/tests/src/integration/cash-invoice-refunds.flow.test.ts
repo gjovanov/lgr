@@ -4,7 +4,7 @@ import ExcelJS from 'exceljs'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, reconnect, type TillWorld } from '../helpers/till-world'
 import { clerkSale, clerkSession, draftOf, gate, line, pay, raw, receiptsOf, send, sessionOf, shown, TODAY, until } from '../helpers/receipt-world'
-import { allowSalesWithoutPrinter, createTestAccount } from '../helpers/factories'
+import { allowSalesWithoutPrinter, createTestAccount, createTestWarehouse } from '../helpers/factories'
 import { AuditLog, DocFile, FiscalDevice, Invoice, Journal, JournalEntry, Org, POSSession, Sequence, StockMovement } from 'db/models'
 import { config } from 'config'
 import { isImmutableRegisterDocument } from 'services/biz/cash-register/immutability'
@@ -12,6 +12,7 @@ import { deviceFromCounter, deviceFromDeadReceipt, deviceFromSettledDocument, se
 import { deviceTurn } from 'fiscal/device-turn'
 import { getPrinter, registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
+import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { statsController } from 'invoicing-api/src/controllers/stats.controller'
 import { contactController } from 'invoicing-api/src/controllers/contact.controller'
 import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller'
@@ -4041,6 +4042,143 @@ describe('the 422\'s `left`: a person who types it goes through (the readers, A6
 
     const byBank = await issuedNote(w, inv, { lines: cent() })
     expect((await pay(w, byBank.id, 0.16)).status).toBe(200)
+  })
+})
+
+describe('two devices connected in one warehouse: the door asks for the receipt\'s (the readers, A9)', () => {
+  /** A second device connected in the same warehouse, on a simulator of its own, as while one replaces another. */
+  async function secondConnected(w: TillWorld) {
+    const device: any = await FiscalDevice.create({
+      orgId: w.oid, warehouseId: w.warehouse._id, name: 'Eltrade B', deviceNumber: 'ED654321', manufacturer: 'eltrade',
+      connectionType: 'browser', status: 'online', isActive: true,
+    } as any)
+    const sim = new EltradeSimulator()
+    registerPrinter(String(device._id), new EltradeFiscalPrinter(sim.exchange, String(device._id)))
+    return { device, sim, gone: () => unregisterPrinter(String(device._id)) }
+  }
+
+  it('the receipt printed on the one the door would not pick: its storno prints there, and the other sees nothing', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    // The newest, which is the one a warehouse's lookup comes to first.
+    const second = await secondConnected(w)
+    try {
+      const onFirst = w.sim!.receipts.length
+
+      const r = await pay(w, note.id, 24)
+
+      expect(r.status).toBe(200)
+      expect(w.sim!.receipts).toHaveLength(onFirst + 1)
+      expect(w.sim!.receipts.at(-1)!.kind).toBe('storno')
+      expect(w.sim!.receipts.at(-1)!.header[5]).toBe(inv.receipt.register.fiscalReceiptNumber)
+      expect(second.sim.receipts).toHaveLength(0)
+      const [storno] = await stornosOf(note.id)
+      expect(storno.register.fiscalDeviceNumber).toBe('ED123456')
+      expect(storno.register.unp).toContain('ED123456')
+    } finally {
+      second.gone()
+    }
+  })
+
+  it('at issue too', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const second = await secondConnected(w)
+    try {
+      const note = await noteOn(w, inv)
+
+      const r = await send(w, note.id)
+
+      expect(r.status).toBe(200)
+      expect(r.json.receipt.state).toBe('printed')
+      expect(w.sim!.receipts.at(-1)!.kind).toBe('storno')
+      expect(second.sim.receipts).toHaveLength(0)
+    } finally {
+      second.gone()
+    }
+  })
+
+  it('receipts on both: what still holds money is asked for, so a person who typed a part can type the rest', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInParts(w, [12, 12])
+    const note = await issuedNote(w, inv)
+    const second = await secondConnected(w)
+    try {
+      await Invoice.updateOne({ _id: inv.receipts[1]._id }, { $set: { 'register.fiscalDeviceNumber': 'ED654321' } })
+      const onFirst = w.sim!.receipts.length
+
+      const all = await pay(w, note.id, 24)
+      expect(all.status).toBe(422)
+      expect(all.json).toMatchObject({ code: 'refund_exceeds_receipts', left: 12 })
+
+      expect((await pay(w, note.id, 12)).status).toBe(200)
+      expect(second.sim.receipts.at(-1)!.kind).toBe('storno')
+      expect(w.sim!.receipts).toHaveLength(onFirst)
+
+      expect((await pay(w, note.id, 12)).status).toBe(200)
+      expect(w.sim!.receipts.at(-1)!.kind).toBe('storno')
+      expect(w.sim!.receipts).toHaveLength(onFirst + 1)
+      expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    } finally {
+      second.gone()
+    }
+  })
+
+  it('the receipt\'s device connected in another warehouse: not this door\'s to ask for, and it says so', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    const second = await secondConnected(w)
+    const elsewhere: any = await createTestWarehouse(w.oid, { code: 'WH-FAR', name: 'Far' })
+    try {
+      await FiscalDevice.updateOne({ _id: second.device._id }, { $set: { warehouseId: elsewhere._id } })
+      await Invoice.updateOne({ _id: inv.receipt._id }, { $set: { 'register.fiscalDeviceNumber': 'ED654321' } })
+
+      const r = await pay(w, note.id, 24)
+
+      expect(r.json.code).toBe('receipt_on_other_device')
+      expect(second.sim.receipts).toHaveLength(0)
+    } finally {
+      second.gone()
+    }
+  })
+
+  it('the receipt\'s device is not connected: the one that is stands, and what it says is what a person can do', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    await FiscalDevice.create({
+      orgId: w.oid, warehouseId: w.warehouse._id, name: 'Eltrade B', deviceNumber: 'ED654321', manufacturer: 'eltrade',
+      connectionType: 'browser', status: 'offline', isActive: true,
+    } as any)
+    await Invoice.updateOne({ _id: inv.receipt._id }, { $set: { 'register.fiscalDeviceNumber': 'ED654321' } })
+
+    const r = await pay(w, note.id, 24)
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('receipt_on_other_device')
+    expect(r.json.deviceNumbers).toEqual(['ED654321'])
+    expect(r.json.message).not.toContain('a session on it')
+    expect(r.json.message).toContain('connect it')
+  })
+
+  it('a device deactivated, connected or not, is nobody\'s to ask for', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    const second = await secondConnected(w)
+    try {
+      await FiscalDevice.updateOne({ _id: second.device._id }, { $set: { isActive: false } })
+      await Invoice.updateOne({ _id: inv.receipt._id }, { $set: { 'register.fiscalDeviceNumber': 'ED654321' } })
+
+      const r = await pay(w, note.id, 24)
+
+      expect(r.json.code).toBe('receipt_on_other_device')
+      expect(second.sim.receipts).toHaveLength(0)
+    } finally {
+      second.gone()
+    }
   })
 })
 

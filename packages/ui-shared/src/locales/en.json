@@ -1820,7 +1820,7 @@
       "refundExceedsAtIssue": "This credit note is more than the invoice's receipts still hold here ({left}). Issue it by bank, then refund that much with Refund, and the rest by bank.",
       "refundExceedsPaid": "This refund is more than the customer paid on this invoice and has not had back ({left}). Refund that much this way. A bank refund or the till's storno is the way for the rest.",
       "refundExceedsPaidAtIssue": "This credit note is more than the customer paid on this invoice and has not had back ({left}). Issue it by bank, then refund that much with Refund. A bank refund or the till's storno is the way for the rest.",
-      "refundOtherDevice": "The invoice's receipts printed on device {devices}. A storno prints on the device that printed its receipt: refund from a session on it, or by bank.",
+      "refundOtherDevice": "The invoice's receipts printed on device {devices}. A storno prints on the device that printed its receipt: connect it in this warehouse, refund from a session in its own, or refund by bank.",
       "refundNeedsManager": "A refund on a storno receipt needs a manager or an admin.",
       "saleRefunded": "A credit note already refunded part of this sale on a storno receipt, so the whole sale cannot be stornoed.",
       "refundPrinted": "Refund recorded, storno {number} printed",
