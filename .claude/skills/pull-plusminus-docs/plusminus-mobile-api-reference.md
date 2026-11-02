@@ -1099,3 +1099,32 @@ The first POS pull worked as written (`posDocuments`, kind last). What it return
 - `posCashboxClosings(object, workplaceCode, from, to)` (workplace "" works) returns one closing per day: `expectedCard/countedCard` equal the day's card receipts
   plus card `ПЛ` payments to the cent; `expectedCash` is mostly empty. `posCashboxLastClosing(object, workplace)` the last one.
 - Accounts on this server: `users` → the admin account, one per staff member and one per till; `roles` → three. The slot rule is per account name.
+
+### `userDataAdd`: the eight strings, read from the server's code (2026-11-02, build `20260805:101606`)
+
+`pm.userDataAdd(e,t,n,s,o,i,a,r)` only forwards its arguments, and the arity table does not say what they are. The meaning comes from
+`pmapi.UserDataAdd`'s machine code: the dispatcher lowercases the method name and requires 9 JSON elements (the name plus eight strings),
+and the handler reads each string from a fixed stack slot.
+
+| wire arg | meaning | stored under `ПРАВА НА ДОСТЪП\ПОТРЕБИТЕЛИ\<user>\` |
+|---|---|---|
+| 1 | user (the account name, and the key) | |
+| 2 | role | `РОЛЯ` |
+| 3 | password | `ПАРОЛА` |
+| 4 | code | `КОД`, plus an index `ПРАВА НА ДОСТЪП\КОД\<code>` |
+| 5 | name (the person) | `ИМЕ` |
+| 6 | job title | `ДЛЪЖНОСТ` |
+| 7 | signature | `ПОДПИС` |
+| 8 | acting user | `modifiedBy` (and `createdBy` for a new record) |
+
+It is a **replace**: it first deletes every stored field of the user (the six above plus `ГРУПА` and `ПИН`, which nothing in this function
+writes back), then writes the non-empty ones. A user that already exists, passed as argument 1, is wiped and rewritten; an empty value
+means "no value", so an empty code leaves the account unable to sign in by code. Verified live on a new account: one account added, the
+other accounts' records identical before and after.
+
+Reads: `usersData()` returns `user, role, name, code, job` and the audit stamps; `userData(user)` only `name` and `code`; the password is
+never returned. Permissions are a separate record (`userPermissions` / `userPermissionsAdd`, keys `modules`, `companies`, `service`,
+`buttons`, `security`): an account without one is unrestricted, as the admin's is.
+
+⚠ The admin console's `/login` accepts ANY account's name and password and answers with the `/server` token, so every PlusMinus account can
+reach `archive`, `restore` and `disconnectClient`. A dedicated API account is a separate slot, not a reduced set of rights.

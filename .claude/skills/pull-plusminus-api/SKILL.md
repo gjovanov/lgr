@@ -100,6 +100,37 @@ The local port isn't reserved — pick any free one. The forward can drop on its
 means re-run `roomler forward` and retry, not that the org's config is wrong. Leave other flows
 in `roomler flows` alone — this machine may have unrelated forwards already running.
 
+## A dedicated account per store
+
+PlusMinus allows ONE session per account name, so a tool that signs in as the shared admin account
+collides with the store's own admin GUI (`userLogin` → `-2`, exit 3) and has to wait for the evening.
+Each store's tools therefore sign in as their own account, `lgr-api`, created once with
+`create-api-user.ts`; the path of its credentials file is that org's `<PREFIX>_PM_CREDS` in
+`.secrets/plusminus-stores.env`. regal-pz has one (2026-11-02): a pull as `lgr-api` ran while the
+admin account's session was held, and the receipts it fetched were byte-identical to the admin
+account's. regal-sf still signs in as the shared admin account.
+
+```bash
+# dry run (the default): checks the server and the name, prints the call, writes nothing
+bun .claude/skills/pull-plusminus-api/create-api-user.ts --org regal-pz --role "<an existing role>" --creds-out .secrets/plusminus-api.txt
+# then the same line with --execute
+```
+
+What it relies on, and what it does not give you:
+
+- `userDataAdd(user, role, password, code, name, job, signature, actingUser)`. The meaning of the
+  eight strings was read from the server's own machine code, for ONE build (`buildTime()` =
+  `20260805:101606`); the tool refuses any other build unless `--allow-other-build`, so re-read
+  `pmapi.UserDataAdd` (`pclntab-tools/`) before trusting it there. It REPLACES the user named in
+  argument 1 and stores only non-empty values: the name must be new (the tool checks), and an
+  empty code means the account cannot sign in by code. See the reference doc for the table.
+- The account carries no permission record, like the admin's, so it is **not read-only**. The admin
+  console (`/login` → `/server`) also accepts any account's login, so whoever holds this password
+  can reach `archive`, `restore` and `disconnectClient`. The tool says so after every run. Keep the
+  file under `.secrets/`.
+- Pulling as it needs no `/server` rights. The puller's `clients()` pre-check still works with it,
+  and is skipped, with a note, if a store's console ever refuses the login.
+
 ## Running it
 
 ```bash
