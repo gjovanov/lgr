@@ -62,6 +62,49 @@ describe('the session report: its figures', () => {
     expect(lines.some((s) => s.startsWith('Z-отчет №') && s.endsWith('0042'))).toBe(true)
   })
 
+  describe('what each kind of receipt came to', () => {
+    const unprinted = { type: 'sale', status: 'completed', transactionNumber: 'CS-5', total: 6, lines: [line(20, 5)], payments: [{ method: 'cash', amount: 6 }], fiscal: { state: 'failed', mode: 'fiscal' } }
+    const paid = { type: 'payment_receipt', status: 'completed', transactionNumber: 'PR-1', total: 5, lines: [line(0, 5)], payments: [{ method: 'cash', amount: 5 }], isFiscal: true, fiscal: { state: 'printed', mode: 'fiscal' } }
+
+    it('beside its count: a storno takes back, and what is fiscal is what a Z should show', () => {
+      const r = buildSessionReport(session, [...rows, unprinted, paid])
+      expect(r.counts).toMatchObject({ fiscal: 3, text: 1, unprinted: 1 })
+      // 24 + 5 − 12 on the device; 12 as a text receipt, which moves no counter on it; 6 printed nowhere.
+      expect(r.amounts).toEqual({ fiscal: 17, text: 12, unprinted: 6 })
+      expect(r.amounts!.fiscal + r.amounts!.text + r.amounts!.unprinted).toBe(r.total)
+    })
+
+    it('a row from before the state was recorded reads as the journal reads it', () => {
+      const legacy = (over: Record<string, unknown>) => ({ type: 'sale', status: 'completed', total: 10, lines: [], payments: [], ...over })
+      const r = buildSessionReport(session, [
+        legacy({ isFiscal: true, fiscalReceiptNumber: '0001' }),
+        legacy({ isFiscal: false, fiscalReceiptNumber: '0002', total: 3 }),
+        legacy({ total: 4 }),
+      ])
+      expect(r.amounts).toEqual({ fiscal: 10, text: 3, unprinted: 4 })
+    })
+
+    it('prints beside the count, at the till\'s 28 characters', () => {
+      const lines = formatSessionReport(buildSessionReport(session, [...rows, unprinted]), 'bg')
+      expect(lines).toContain('Фискални бонове 2      12.00')
+      expect(lines).toContain('Служебни бонове 1      12.00')
+      expect(lines).toContain('Неотпечатани 1          6.00')
+    })
+
+    it('when they do not fit beside it, the amount takes a line of its own: the label is never cut', () => {
+      const r = { ...buildSessionReport(session, rows), counts: { sales: 0, stornos: 0, voided: 0, fiscal: 999, text: 0, unprinted: 0 }, amounts: { fiscal: 123456.78, text: 0, unprinted: 0 } }
+      const lines = formatSessionReport(r, 'bg')
+      expect(lines).toContain('Фискални бонове          999')
+      expect(lines).toContain('                   123456.78')
+      expect(lines.every((s) => s.length <= 28)).toBe(true)
+    })
+
+    it('a report kept by a close before it had amounts prints its counts, as it did', () => {
+      const { amounts: _a, ...kept } = buildSessionReport(session, rows)
+      expect(formatSessionReport(kept, 'bg')).toContain('Фискални бонове            2')
+    })
+  })
+
   // Everything that can print, at the largest figures a day of a shop reaches.
   const everything = () => {
     const big = (over: Record<string, unknown>) => ({
@@ -127,6 +170,20 @@ describe('the session report at close', () => {
     expect((await w.call('POST', `/trade/pos/session/${w.sessionId}/report/print`)).status).toBe(200)
     expect(w.sim!.executed.filter((e) => e.cmd === OPEN_NONFISCAL).length).toBe(printed + 1)
     expect((await w.call('GET', `/trade/pos/session/${w.sessionId}/report`)).json.report.total).toBe(36)
+  })
+
+  it('a close says what its fiscal and its text receipts came to', async () => {
+    const w = await tillWorld(app)
+    expect((await w.sell(2)).status).toBe(200)
+    expect((await w.sell(1, { nonFiscal: true })).status).toBe(200)
+
+    const closed = await close(w, 124)
+
+    expect(closed.status).toBe(200)
+    expect(closed.json.report.counts).toMatchObject({ fiscal: 1, text: 1, unprinted: 0 })
+    expect(closed.json.report.amounts).toEqual({ fiscal: 24, text: 12, unprinted: 0 })
+    expect(w.sim!.nonFiscalLines.join('\n')).toContain('Fiscal receipts 1')
+    expect((await POSSession.findById(w.sessionId).lean().exec() as any).report.amounts).toEqual({ fiscal: 24, text: 12, unprinted: 0 })
   })
 
   it('a keyed retry of the close returns its report and prints nothing again', async () => {

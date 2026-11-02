@@ -9,9 +9,9 @@
         <tr v-if="report.counts.payments" data-testid="session-report-payments"><td>{{ $t('pos.sessionReport.payments') }}</td><td class="text-end">{{ report.counts.payments }}</td></tr>
         <tr><td>{{ $t('pos.sessionReport.stornos') }}</td><td class="text-end">{{ report.counts.stornos }}</td></tr>
         <tr v-if="report.counts.voided"><td>{{ $t('pos.sessionReport.voided') }}</td><td class="text-end">{{ report.counts.voided }}</td></tr>
-        <tr><td>{{ $t('pos.sessionReport.fiscal') }}</td><td class="text-end">{{ report.counts.fiscal }}</td></tr>
-        <tr><td>{{ $t('pos.sessionReport.text') }}</td><td class="text-end">{{ report.counts.text }}</td></tr>
-        <tr v-if="report.counts.unprinted"><td>{{ $t('pos.sessionReport.unprinted') }}</td><td class="text-end">{{ report.counts.unprinted }}</td></tr>
+        <tr data-testid="session-report-fiscal"><td>{{ $t('pos.sessionReport.fiscal') }}</td><td class="text-end">{{ kind('fiscal') }}</td></tr>
+        <tr data-testid="session-report-text"><td>{{ $t('pos.sessionReport.text') }}</td><td class="text-end">{{ kind('text') }}</td></tr>
+        <tr v-if="report.counts.unprinted" data-testid="session-report-unprinted"><td>{{ $t('pos.sessionReport.unprinted') }}</td><td class="text-end">{{ kind('unprinted') }}</td></tr>
         <template v-for="v in report.vat" :key="v.rate">
           <tr class="bg-surface-light"><td colspan="2" class="font-weight-medium">{{ $t('pos.sessionReport.vatRate', { rate: v.rate }) }}</td></tr>
           <tr><td class="ps-6">{{ $t('pos.sessionReport.net') }}</td><td class="text-end">{{ money(v.net) }}</td></tr>
@@ -53,6 +53,8 @@ export interface SessionReportData {
   documents?: { first: string; last: string }
   receipts?: { first: string; last: string }
   zReportNumber?: string
+  /** What each kind of receipt came to. A report kept before it existed has none. */
+  amounts?: { fiscal: number; text: number; unprinted: number }
 }
 
 const props = defineProps<{ report: SessionReportData }>()
@@ -60,4 +62,9 @@ const appStore = useAppStore()
 const localeTag = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 const money = (n: number) =>
   new Intl.NumberFormat(localeTag.value, { style: 'currency', currency: props.report.currency || 'EUR' }).format(Number(n) || 0)
+/** A kind of receipt: how many, and what they came to. */
+const kind = (k: 'fiscal' | 'text' | 'unprinted') => {
+  const amount = props.report.amounts?.[k]
+  return amount === undefined ? String(props.report.counts[k]) : `${props.report.counts[k]} · ${money(amount)}`
+}
 </script>

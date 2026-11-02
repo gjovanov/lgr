@@ -35,6 +35,12 @@ export interface SessionReport {
   documents?: { first: string; last: string }
   receipts?: { first: string; last: string }
   zReportNumber?: string
+  /**
+   * What each kind of receipt came to, signed like `total`, which they add up to. Only the fiscal part
+   * moves a device's counters: it is what a Z should show, and a text receipt moves none. A report kept
+   * by a close before it existed has no such key.
+   */
+  amounts?: { fiscal: number; text: number; unprinted: number }
 }
 
 interface ClosingLine { method: string; expected: number; counted?: number; difference?: number }
@@ -59,6 +65,7 @@ export function buildSessionReport(
   const counts: SessionReport['counts'] = { sales: 0, stornos: 0, voided: 0, fiscal: 0, text: 0, unprinted: 0 }
   const vat = new Map<number, { net: number; vat: number }>()
   const byMethod = { cash: 0, card: 0, other: 0, cashOnDelivery: 0 }
+  const amounts = { fiscal: 0, text: 0, unprinted: 0 }
   let total = 0
   let change = 0
   const numbers: string[] = []
@@ -97,6 +104,7 @@ export function buildSessionReport(
     byMethod.other += sign * (kept.other - courier)
     byMethod.cashOnDelivery += sign * courier
     total += sign * (Number(row.total) || 0)
+    amounts[receiptOf(row)] += sign * (Number(row.total) || 0)
     if (sign > 0) change += Number(row.changeDue) || 0
     if (row.fiscalReceiptNumber) receipts.push(String(row.fiscalReceiptNumber))
   }
@@ -121,6 +129,7 @@ export function buildSessionReport(
     ...(numbers.length ? { documents: { first: numbers[0], last: numbers[numbers.length - 1] } } : {}),
     ...(receipts.length ? { receipts: { first: receipts[0], last: receipts[receipts.length - 1] } } : {}),
     ...(opts.zReportNumber ? { zReportNumber: opts.zReportNumber } : {}),
+    amounts: { fiscal: cents(amounts.fiscal), text: cents(amounts.text), unprinted: cents(amounts.unprinted) },
   }
 }
 
@@ -170,6 +179,13 @@ export function formatSessionReport(report: SessionReport, locale = 'en', timeZo
     return head + ' '.repeat(Math.max(1, W - head.length - right.length)) + right
   }
   const center = (s: string) => ' '.repeat(Math.max(0, Math.floor((W - s.length) / 2))) + s
+  // A kind of receipt: its count beside its name, its amount at the right. A name is never cut: past the
+  // width the amount takes a line of its own.
+  const kind = (label: string, count: number, amount: number | undefined) => {
+    if (amount === undefined) return [lr(label, String(count))]
+    const left = `${label} ${count}`
+    return left.length + 1 + money(amount).length <= W ? [lr(left, money(amount))] : [lr(label, String(count)), lr('', money(amount))]
+  }
   // One short shape in every language: `02.11.2026 г., 13:20` left a label 7 characters, „Затворе".
   const when = (at?: string) => {
     if (!at) return ''
@@ -186,9 +202,9 @@ export function formatSessionReport(report: SessionReport, locale = 'en', timeZo
   if (report.counts.payments) lines.push(lr(l.payments, String(report.counts.payments)))
   lines.push(lr(l.stornos, String(report.counts.stornos)))
   if (report.counts.voided) lines.push(lr(l.voided, String(report.counts.voided)))
-  lines.push(lr(l.fiscal, String(report.counts.fiscal)))
-  lines.push(lr(l.text, String(report.counts.text)))
-  if (report.counts.unprinted) lines.push(lr(l.unprinted, String(report.counts.unprinted)))
+  lines.push(...kind(l.fiscal, report.counts.fiscal, report.amounts?.fiscal))
+  lines.push(...kind(l.text, report.counts.text, report.amounts?.text))
+  if (report.counts.unprinted) lines.push(...kind(l.unprinted, report.counts.unprinted, report.amounts?.unprinted))
   lines.push(sep)
   for (const v of report.vat) {
     lines.push(`${l.vat} ${v.rate}%`)

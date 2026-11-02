@@ -101,6 +101,10 @@ test('POS Sessions shows the report again, and says why it cannot print it', asy
   const dialog = page.getByRole('dialog').filter({ has: page.getByTestId('session-report') })
   await expect(dialog.getByTestId('session-report')).toContainText(sessionNumber)
   await expect(dialog.getByTestId('session-report-total')).toContainText(sale.total.toFixed(2))
+  // What each kind of receipt came to, beside its count. Nothing to print on: the sale printed nowhere.
+  await expect(dialog.getByTestId('session-report-unprinted')).toContainText(`1 · `)
+  await expect(dialog.getByTestId('session-report-unprinted')).toContainText(sale.total.toFixed(2))
+  await expect(dialog.getByTestId('session-report-fiscal')).toContainText('0.00')
 
   // No device on the store: nothing prints, and it says so.
   const printing = page.waitForResponse(r => r.url().includes(`/trade/pos/session/${sale.sessionId}/report/print`))
