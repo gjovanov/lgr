@@ -1148,7 +1148,7 @@ describe('a storno in doubt counts nowhere until it is settled (finding 1)', () 
 
     expect(await readings(w, contactId)).toEqual({
       digestCash: 0,
-      digestPayments: 24,
+      digestPayments: 0,
       digestFamily: 0,
       history: 1,
       historyCash: 0,

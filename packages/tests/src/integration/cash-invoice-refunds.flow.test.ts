@@ -4946,6 +4946,28 @@ describe('§2.6 — who reads what: each counts the money once', () => {
     expect(digest.duplicates.count).toBe(0)
   })
 
+  it('the digest\'s payments: a sale and its storno read nothing for the day, and a storno that failed gave nothing back', async () => {
+    const w = await tillWorld(app)
+    const day = localDayOf(new Date(), 'Europe/Sofia')
+    const onTheDay = async () => {
+      const noon = new Date(`${day}T10:00:00Z`)
+      await Invoice.updateMany({ orgId: w.oid }, { $set: { issueDate: noon } })
+      await Invoice.updateMany({ orgId: w.oid, 'payments.0': { $exists: true } }, { $set: { 'payments.$[].date': noon } })
+      return ((await buildDailyDigest(w.orgId, day)) as any).kpis
+    }
+    const sold = await w.sell(2)
+    const id = String(sold.json.transaction.id)
+    expect((await onTheDay()).paymentsTotal).toBe(24)
+
+    w.sim!.paper = false
+    expect((await w.storno(id)).status).toBe(503)
+    w.sim!.paper = true
+    expect(await onTheDay()).toMatchObject({ paymentsTotal: 24, paymentsCount: 1 })
+
+    expect((await w.storno(id)).status).toBe(200)
+    expect(await onTheDay()).toMatchObject({ paymentsTotal: 0, paymentsCount: 2 })
+  })
+
   it('the exports: the sales documents name the credit note, and neither export names the storno', async () => {
     const w = await tillWorld(app)
     const d = await refundedDay(w)

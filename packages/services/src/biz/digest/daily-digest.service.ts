@@ -153,17 +153,16 @@ async function buildKpis(orgId: string, date: string): Promise<DigestKpis> {
     }
   }
 
-  // Payments recorded ON the day, wherever their document was issued. Not the till's money: an
-  // invoice for a cash sale is born paid with rows marked `origin: 'cash_register'`, the cash sale's
-  // own takings, which are the Cash register line. A cash sale carries no payment rows, so those rows
-  // put the same money on this line too — and only for a cash sale someone invoiced (#171, R0 and §11).
-  // A receipt's own tender is the row on its invoice again (FR-23). A refund's row on a credit note is
-  // money going back: it counts against the day's.
+  // Payments recorded ON the day, wherever their document was issued. Not an invoice for a cash sale's: it is
+  // born paid with rows marked `origin: 'cash_register'`, the cash sale's own takings, so those rows would put
+  // the same money here twice (#171, R0 and §11). A receipt's own tender is the row on its invoice again
+  // (FR-23). A refund's row on a credit note and a till storno's are money going back: they count against the
+  // day's, so a sale and its storno read nothing. What was voided took and gave nothing.
   const paid: any[] = await Invoice.aggregate([
-    { $match: { orgId: org, 'payments.date': { $gte: from, $lte: to }, ...NOT_PAYMENT_RECEIPT, ...NOT_UNPROVED_STORNO } },
+    { $match: { orgId: org, 'payments.date': { $gte: from, $lte: to }, status: { $ne: 'voided' }, ...NOT_PAYMENT_RECEIPT, ...NOT_UNPROVED_STORNO } },
     { $unwind: '$payments' },
     { $match: { 'payments.date': { $gte: from, $lte: to }, 'payments.origin': { $ne: 'cash_register' } } },
-    { $group: { _id: null, count: { $sum: 1 }, total: { $sum: { $cond: [{ $eq: ['$type', 'credit_note'] }, { $multiply: ['$payments.amount', -1] }, '$payments.amount'] } } } },
+    { $group: { _id: null, count: { $sum: 1 }, total: { $sum: { $cond: [{ $in: ['$type', ['credit_note', 'cash_storno']] }, { $multiply: ['$payments.amount', -1] }, '$payments.amount'] } } } },
   ]).exec()
 
   kpis.paymentsCount = paid[0]?.count || 0
