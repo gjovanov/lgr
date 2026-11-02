@@ -84,6 +84,15 @@ export function issuedReceiptNotice(issued: { receiptError?: string; receiptCode
   return { key: 'cashRegister.receipt.issuedNotPaid', takesPayment: true }
 }
 
+/**
+ * What the cash-sale form asks of its session's device. Where LGR prints there is nothing to choose: the sale prints, and
+ * the device says how. An org where it prints nothing keeps what it had, which is nothing unless the person asks.
+ */
+export function joinedSaleReceipt(o: { sessionOpen: boolean; prints: boolean; chosen: '' | 'fiscal' }): { receipt?: 'fiscal' } {
+  if (!o.sessionOpen) return {}
+  return o.prints || o.chosen ? { receipt: 'fiscal' } : {}
+}
+
 /** Ask whether the warehouses hold what `lines` take. */
 export async function checkStock(client: IssueClient, orgUrl: string, lines: StockCheckLine[]): Promise<StockCheck> {
   const { data } = await client.post(`${orgUrl}/invoicing/stock-availability/check`, { lines })

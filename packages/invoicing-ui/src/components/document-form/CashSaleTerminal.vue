@@ -235,10 +235,13 @@
           <template #cart-actions>
             <v-textarea v-model="notesModel" :label="$t(config.notesFieldLabelKey)" rows="2" auto-grow />
             <TagInput v-model="form.tags" type="invoice" :org-url="orgUrl()" class="mt-1" />
-            <!-- FR-21.31 (D-13): the author's open session takes this sale; it prints on that
-                 session's device only when asked, as the till's „Нефискален" switch asks. -->
+            <!-- FR-21.31 (D-13): the author's open session takes this sale. Where LGR prints, it prints on
+                 that session's device, and the device says how, so there is nothing to choose. -->
+            <p v-if="!readonly && openSession && printsHere" class="text-body-2 text-medium-emphasis mt-2" data-testid="cash-sale-prints">
+              {{ $t('pos.joinSession.hint', { session: openSession.sessionNumber }) }} {{ $t('pos.joinSession.prints') }}
+            </p>
             <v-select
-              v-if="!readonly && openSession"
+              v-else-if="!readonly && openSession"
               v-model="receipt"
               :items="receiptOptions"
               item-title="title"
@@ -308,6 +311,7 @@ import BankInfoRow from '../BankInfoRow.vue'
 import SignatureFooter from '../SignatureFooter.vue'
 import ContactAutocompleteWithCreate from 'ui-shared/components/ContactAutocompleteWithCreate.vue'
 import CashSaleInvoiceDialog from '../CashSaleInvoiceDialog.vue'
+import { joinedSaleReceipt } from '../../composables/document-issue'
 import { useRouter } from 'vue-router'
 import { useDocumentForm, type UseDocumentFormOptions } from '../../composables/document-form/useDocumentForm'
 import type { DocumentTypeConfig } from '../../composables/document-form/types'
@@ -332,8 +336,7 @@ const props = defineProps<{
 
 const doc = useDocumentForm(props.config, {
   onBeforeCreate: props.onBeforeCreate,
-  // FR-21.31: a joined sale prints on its session's device only when asked.
-  extraPayload: () => (openSession.value && receipt.value ? { receipt: receipt.value } : {}),
+  extraPayload: () => joinedSaleReceipt({ sessionOpen: !!openSession.value, prints: printsHere.value, chosen: receipt.value }),
 })
 const {
   config, isEdit, route, invoiceNumber, documentNumber, statusDef, formActions,
@@ -429,12 +432,12 @@ async function addToCart(p: RegisterCatalogProduct) {
 // ── FR-21.31 (D-13): the author's open session, which this sale joins ──
 const { t } = useI18n()
 const openSession = ref<{ _id: string; sessionNumber: string } | null>(null)
-/** How the joined sale prints on the session's device: nothing (''), a fiscal receipt, or text. */
-const receipt = ref<'' | 'fiscal' | 'text'>('')
+/** Where LGR prints nothing there is something to choose: whether this sale prints on the session's device anyway. */
+const printsHere = computed(() => (appStore.currentOrg as any)?.settings?.cashRegister?.requireConnectedDevice !== false)
+const receipt = ref<'' | 'fiscal'>('')
 const receiptOptions = computed(() => [
   { title: t('pos.joinSession.noReceipt'), value: '' },
   { title: t('pos.joinSession.fiscal'), value: 'fiscal' },
-  { title: t('pos.joinSession.text'), value: 'text' },
 ])
 async function loadOpenSession() {
   if (readonly.value) return

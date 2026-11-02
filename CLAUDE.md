@@ -2449,8 +2449,10 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
 - **A back-office cash sale joins its author's open session** (FR-21.31, D-13): `POST /invoices`
   writes it with `register.origin: 'pos'`, `joinedFrom: 'backoffice'` and the session, so it counts
   in the drawer's totals, the close JE and SUPTO, is immutable and is reversed by a storno through a
-  till. Its lines keep their warehouses. It prints on the session's device when the request says
-  `receipt`, and either value only asks: the device says which it prints. An imported day never joins. Test fixtures: `till-world`'s
+  till. Its lines keep their warehouses. ⚠ Where LGR prints it prints on the session's device whether or not the
+  request says `receipt` (#461 D6: with none it went past the gate, paid, in the drawer, printing nothing), and where
+  LGR prints nothing only when it says so. Either value only asks: the device says which it prints. An imported day
+  never joins, so the import skills are not this path, `--no-stock` or not. Test fixtures: `till-world`'s
   `backOfficeSale` posts as a clerk with no session, `cashierBackOfficeSale` as the till's cashier.
 - **One selling surface** (FR-21.29): `ui-shared/components/cash-register/RegisterTerminal.vue` is
   the catalog, the cart and the totals of the till (`/invoicing/cash-sales/new`) AND of the form a

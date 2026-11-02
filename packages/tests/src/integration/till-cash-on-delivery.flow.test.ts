@@ -4,7 +4,7 @@ import ExcelJS from 'exceljs'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
 import { createTestAccount } from '../helpers/factories'
-import { FiscalDevice, Invoice, Journal, JournalEntry, POSSession, Sequence } from 'db/models'
+import { FiscalDevice, Invoice, Journal, JournalEntry, Org, POSSession, Sequence } from 'db/models'
 import { createPOSSessionJournalEntry } from 'services/biz/auto-journal.service'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { buildSessionReport, formatSessionReport } from 'services/biz/cash-register/session-report'
@@ -334,8 +334,17 @@ describe('a device with no slot for it', () => {
     expect(await footprint(w)).toEqual(before)
   })
 
-  it('a joined sale that asks for no receipt prints nothing, so nothing refuses it', async () => {
+  it('a joined sale that asks for nothing is asking for a receipt, where LGR prints (D6): refused the same way', async () => {
     const w = await tillWorld(app, { manufacturer: 'tremol' })
+    const before = await footprint(w)
+    const r = await w.cashierBackOfficeSale(1, { paymentMethod: 'cash_on_delivery' })
+    expect({ status: r.status, code: r.json.code }).toEqual(REFUSED)
+    expect(await footprint(w)).toEqual(before)
+  })
+
+  it('in an org with the gate off it prints nothing, so nothing refuses it', async () => {
+    const w = await tillWorld(app, { manufacturer: 'tremol' })
+    await Org.updateOne({ _id: w.oid }, { $set: { 'settings.cashRegister.requireConnectedDevice': false } })
     const r = await w.cashierBackOfficeSale(1, { paymentMethod: 'cash_on_delivery' })
     expect(r.status).toBe(200)
     expect((await sessionOf(w)).totalCashOnDelivery).toBe(12)

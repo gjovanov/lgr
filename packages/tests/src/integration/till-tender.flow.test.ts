@@ -117,10 +117,11 @@ describe('a back-office sale joined to a session (D-13)', () => {
     expect(await footprint(w)).toEqual(before)
   })
 
-  it('leaves the sale alone when it prints nothing', async () => {
+  it('asking for nothing is asking for a receipt, where LGR prints (D6), and it is refused the same way', async () => {
     const w = await tillWorld(app)
-    expect((await w.cashierBackOfficeSale(1, { paymentMethod: 'bank_transfer' })).status).toBe(200)
-    expect(w.sim!.receipts).toHaveLength(0)
+    const before = await footprint(w)
+    expectNotFiscal(await w.cashierBackOfficeSale(1, { paymentMethod: 'bank_transfer' }), 'bank_transfer')
+    expect(await footprint(w)).toEqual(before)
   })
 
   it('a clerk with no session prints nothing, so the method is theirs to name', async () => {

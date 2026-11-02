@@ -813,7 +813,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // FR-21.31 (D-13): a sale entered here by someone with an open session joins it. An imported
         // till day never does: it is a day's takings, not one drawer's sale.
         createCtx.joined = origin === 'backoffice' ? await openSessionOf(orgId, user.id) : null
-        createCtx.receipt = (body as any).receipt
+        // ⚠ Where LGR prints, a sale that joins a drawer prints. With no `receipt` one got past the gate with the
+        // device gone: 200, paid, in the drawer, and nothing on the device. An imported day joins nothing, so it
+        // never comes this far, and where LGR prints nothing it still takes asking.
+        createCtx.receipt = (body as any).receipt ?? (createCtx.joined && (await tillSettings(orgId)).requireConnectedDevice ? 'fiscal' : undefined)
         let context: RegisterContext
         try {
           context = await cashSaleContext(createCtx)
@@ -1021,8 +1024,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // (`/stock-availability/create-transfers`), confirmed before the sale dispatches.
         // Undeclared, Elysia's normalize dropped it and the sale failed for want of stock.
         pendingTransferIds: t.Optional(t.Array(t.String())),
-        // FR-21.31: a cash sale that joins its author's open session prints on that session's device
-        // when asked. Either value asks, and the device says which it prints (`decideSaleMode`).
+        // FR-21.31: a cash sale that joins its author's open session prints on that session's device, where LGR
+        // prints whether it asks or not, and elsewhere when it asks. Either value asks, and the device says which
+        // it prints (`decideSaleMode`).
         receipt: t.Optional(t.Union([t.Literal('fiscal'), t.Literal('text')])),
         notes: t.Optional(t.String()),
         // Free text printed under the number block of the form; stored with the document.

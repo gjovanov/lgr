@@ -1483,8 +1483,8 @@
       "receipt": "Receipt on the session's device",
       "hint": "Joins your open session {session}: its drawer takes the money.",
       "noReceipt": "No receipt",
-      "fiscal": "Fiscal receipt",
-      "text": "Non-fiscal (text) receipt"
+      "fiscal": "Print a receipt",
+      "prints": "It prints on that session's device."
     },
     "printerError": "Printer Error",
     "printerConnected": "Fiscal printer connected",

@@ -4,7 +4,7 @@ import {
 } from 'services/biz/cash-register/receipt-lines'
 import { receiptRefusalKey, receiptRefusalMessage, receiptRefusalParams, isFailedPrint } from 'ui-shared/cash-register/receipt-refusal'
 import { kindColor } from 'ui-shared/cash-register/journal-kind'
-import { issuedReceiptNotice } from '../../../invoicing-ui/src/composables/document-issue'
+import { issuedReceiptNotice, joinedSaleReceipt } from '../../../invoicing-ui/src/composables/document-issue'
 import { isImportedDocument, printsAtCounter } from 'services/biz/cash-register/payment-receipt.service'
 import { isImmutableRegisterDocument } from 'services/biz/cash-register/immutability'
 import { sequenceGroupFor } from 'services/biz/sequence-registry'
@@ -328,6 +328,22 @@ describe('the type, as the readers see it', () => {
 
   it('is immutable', () => {
     expect(isImmutableRegisterDocument({ type: 'payment_receipt' })).toBe(true)
+  })
+})
+
+describe('what the cash-sale form asks of its session\'s device (D6)', () => {
+  it('where LGR prints there is nothing to choose: it asks, whatever the form was left at', () => {
+    expect(joinedSaleReceipt({ sessionOpen: true, prints: true, chosen: '' })).toEqual({ receipt: 'fiscal' })
+    expect(joinedSaleReceipt({ sessionOpen: true, prints: true, chosen: 'fiscal' })).toEqual({ receipt: 'fiscal' })
+  })
+
+  it('where it does not, what the person chose, and by default nothing', () => {
+    expect(joinedSaleReceipt({ sessionOpen: true, prints: false, chosen: '' })).toEqual({})
+    expect(joinedSaleReceipt({ sessionOpen: true, prints: false, chosen: 'fiscal' })).toEqual({ receipt: 'fiscal' })
+  })
+
+  it('with no session there is no device to ask', () => {
+    expect(joinedSaleReceipt({ sessionOpen: false, prints: true, chosen: 'fiscal' })).toEqual({})
   })
 })
 
