@@ -198,6 +198,38 @@ describe('doc-import engine', () => {
     expect(direct?.reason).toBe('already issued')
   })
 
+  it('a source the document names moves no stock, whatever it is told about stock', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const product = await createTestProduct(org._id, { name: 'Болт М8', sku: 'B-8' } as any)
+    await createTestStockLevel(org._id, product._id, wh._id, { quantity: 10 })
+    await StockMovement.create({
+      orgId: org._id, movementNumber: 'SM-2026-90001', type: 'transfer', status: 'completed', date: new Date(), fromWarehouseId: wh._id,
+      notes: 'Прехвърляне — 2026-09-01 (sklrazp:615713)', lines: [], totalAmount: 0, createdBy: user._id,
+    })
+    await StockMovement.create({
+      orgId: org._id, movementNumber: 'SM-2026-90002', type: 'transfer', status: 'completed', date: new Date(), fromWarehouseId: wh._id,
+      notes: 'Прехвърляне — 2026-09-01 (sklrazp:6157131)', lines: [], totalAmount: 0, createdBy: user._id,
+    })
+    const draft = draftResult(ORG_PARTY, CUSTOMER, [
+      { description: 'Болт М8', quantity: 2, unit: 'бр', unit_price: 1, vat_rate: 20, total: 2 },
+    ])
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'sales_invoice', [{ fileId: 'f1', text: 'ФАКТУРА', draft }], { warehouseId: String(wh._id) },
+    )
+    const [res] = await commitDocuments(String(org._id), String(user._id), 'sales_invoice', [
+      { mapped: doc.mapped!, options: { convert: true, adjustStock: true, stockSource: { marker: 'sklrazp:615713', docNumber: '615713' } } },
+    ])
+    expect(res.ok).toBe(true)
+    const inv: any = await Invoice.findById(res.id).lean()
+    expect(inv.status).not.toBe('draft')
+    expect(inv.stockSource).toMatchObject({ marker: 'sklrazp:615713', docNumber: '615713', detectedBy: 'plusminus' })
+    expect(inv.stockSource.movementIds).toHaveLength(1)
+    expect((await StockLevel.findOne({ orgId: org._id, productId: product._id }).lean() as any).quantity).toBe(10)
+    expect(await StockMovement.countDocuments({ orgId: org._id, type: 'dispatch' })).toBe(0)
+  })
+
   it('refuses to commit an already-imported document rather than orphaning a draft', async () => {
     const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
     const user = await createTestUser(org._id)

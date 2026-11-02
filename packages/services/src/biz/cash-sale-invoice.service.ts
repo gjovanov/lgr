@@ -1150,7 +1150,9 @@ export async function attachInvoiceToCashSale(orgId: string, actor: Actor, invoi
     throw new CashSaleInvoiceError(422, 'invoice_moves_no_stock',
       `${inv.invoiceNumber}'s goods were already given back to the till day ${tillMarker}, which is not ${cs.invoiceNumber}`)
   }
-  if (saleDay(inv.issueDate) !== saleDay(cs.issueDate)) {
+  // Its marker already names this till day, which the check above held it to. PlusMinus issues an
+  // invoice days after the ticket it is for, and that is not the day being guessed here.
+  if (!tillMarker && saleDay(inv.issueDate) !== saleDay(cs.issueDate)) {
     throw new CashSaleInvoiceError(422, 'different_day',
       `${inv.invoiceNumber} is dated ${saleDay(inv.issueDate)} and ${cs.invoiceNumber} ${saleDay(cs.issueDate)} — an invoice attaches to the cash sale of its own day`)
   }

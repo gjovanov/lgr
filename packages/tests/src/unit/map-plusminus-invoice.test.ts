@@ -9,12 +9,14 @@ import { describe, it, expect } from 'bun:test'
 import {
   plusminusInvoiceToExtraction,
   plusminusPaymentMethod,
+  plusminusStockSource,
   stripPartnerPrefix,
   buildSyntheticRawText,
   INVOICE_TERMS_BOILERPLATE,
   type PlusMinusDocument,
 } from 'services/biz/doc-import/map-plusminus-invoice'
 import { detectNoteType, parseNoteReference } from 'services/biz/doc-import/detect'
+import { parsePaymentMethod } from 'services/biz/doc-import/parse-text'
 
 const SUPPLIER = { name: 'Проба ООД', eik: '123456786', vatNumber: 'BG123456786', address: 'ул.Тестова 101', city: 'Тестоград' }
 
@@ -90,15 +92,67 @@ describe('plusminusInvoiceToExtraction', () => {
 })
 
 describe('plusminusPaymentMethod', () => {
-  it('maps the three confirmed codes', () => {
+  it('maps the four codes that occur', () => {
     expect(plusminusPaymentMethod('1')).toBe('cash')
     expect(plusminusPaymentMethod('2')).toBe('bank_transfer')
     expect(plusminusPaymentMethod('4')).toBe('card')
+    expect(plusminusPaymentMethod('5')).toBe('cash on delivery')
   })
 
-  it('leaves an unconfirmed or missing code unmapped rather than guessing', () => {
+  it('leaves a code LGR has no method for, or a missing one, unmapped rather than guessing', () => {
     expect(plusminusPaymentMethod('3')).toBeUndefined()
     expect(plusminusPaymentMethod(undefined)).toBeUndefined()
+  })
+
+  it('code 5 reaches the invoice as cash on delivery, never as cash, which would settle it on issue', () => {
+    expect(parsePaymentMethod(buildSyntheticRawText({ paymentMethod: '5' }))).toBe('cash_on_delivery')
+  })
+})
+
+describe('plusminusStockSource', () => {
+  const NO_STOCK = 'ОБЕКТИ:БЕЗСКЛАД'
+  const REAL = 'ОБЕКТИ:СКЛАД - 1'
+  const doc = (comment: string, lines: Array<Record<string, unknown>>): PlusMinusDocument => ({ header: { comment }, lines })
+
+  it('a line on a real store moved stock on this invoice', () => {
+    expect(plusminusStockSource(doc('Стоки', [{ quantity: '2', store: REAL }]))).toBeNull()
+    // From a proforma, or a credit note's invoice: still the invoice's own movement.
+    expect(plusminusStockSource(doc('Стоки -ФП 9001/01.07.2026', [{ quantity: '2', store: REAL, fromDocument: '-ФП:9001' }]))).toBeNull()
+  })
+
+  it('a till receipt: the day comes from the reference, not from the invoice', () => {
+    const d = doc('Стоки  КБ 05.01.2026/ED777002-1111-0000802', [
+      { quantity: '100', store: NO_STOCK, fromDocument: 'pos:20260105-1042' },
+      { quantity: '2', store: NO_STOCK, fromDocument: 'pos:20260105-1042' },
+    ])
+    expect(plusminusStockSource(d)).toEqual({ kind: 'till', marker: 'salesAnalysis:2026-01-05', docNumber: '1042', tillDay: '2026-01-05' })
+  })
+
+  it('the comment alone is enough, "ОТ КБ" included, and it is not fooled by an article code', () => {
+    const lines = [{ quantity: '1', store: NO_STOCK }]
+    expect(plusminusStockSource(doc('Стоки ОТ КБ 05.01.2026/ED777002-1111-0000802', lines))).toMatchObject({ kind: 'till', tillDay: '2026-01-05', docNumber: 'ED777002-1111-0000802' })
+    expect(plusminusStockSource(doc('КБС-16', lines))).toMatchObject({ kind: 'none' })
+  })
+
+  it('СР is a till ticket only where the till is СР', () => {
+    const lines = [{ quantity: '13', store: NO_STOCK, fromDocument: 'СР:70125' }]
+    const comment = 'Стоки СР 70125/06.01.2026'
+    expect(plusminusStockSource(doc(comment, lines), 'СР')).toEqual({ kind: 'till', marker: 'salesAnalysis:2026-01-06', docNumber: '70125', tillDay: '2026-01-06' })
+    expect(plusminusStockSource(doc(comment, lines))).toEqual({ kind: 'note', marker: 'sklrazp:70125', docNumber: '70125' })
+  })
+
+  it('a till ticket with no readable day moves no stock, and names no till day to attach to', () => {
+    const src = plusminusStockSource(doc('Стоки', [{ quantity: '1', store: NO_STOCK, fromDocument: 'СР:70125' }]), 'СР')
+    expect(src).toEqual({ kind: 'till', marker: 'plusminus:СР:70125', docNumber: '70125' })
+  })
+
+  it('a line with no quantity says nothing, so a text line on a real store does not make it mixed', () => {
+    const src = plusminusStockSource(doc('Услуги', [{ store: REAL }, { quantity: '0.01', store: NO_STOCK }]))
+    expect(src).toEqual({ kind: 'none', marker: 'plusminus:БЕЗСКЛАД', docNumber: 'БЕЗСКЛАД' })
+  })
+
+  it('only some lines on БЕЗСКЛАД is for a person: LGR dispatches a document whole', () => {
+    expect(plusminusStockSource(doc('Стоки', [{ quantity: '1', store: REAL }, { quantity: '1', store: NO_STOCK }]))).toBe('mixed')
   })
 })
 
