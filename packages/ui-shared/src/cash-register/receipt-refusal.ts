@@ -40,8 +40,8 @@ export function isFailedPrint(data: { code?: string } | null | undefined): boole
 }
 
 /** The receipts a refusal names: the one in doubt, or the ones a session cannot close over. */
-export function receiptRefusalParams(data: { receipt?: { number?: string }; document?: string; receipts?: Array<{ number?: string | null; invoice?: string }> } | null | undefined): { number: string; numbers: string } {
-  const numbers = (data?.receipts ?? []).map(r => r.number ?? r.invoice ?? '').filter(Boolean).join(', ')
+export function receiptRefusalParams(data: { receipt?: { number?: string }; document?: string; receipts?: Array<{ id?: string; number?: string | null; invoice?: string }> } | null | undefined): { number: string; numbers: string } {
+  const numbers = (data?.receipts ?? []).map(r => r.number ?? r.invoice ?? r.id ?? '').filter(Boolean).join(', ')
   return { number: data?.receipt?.number ?? data?.document ?? '', numbers }
 }
 

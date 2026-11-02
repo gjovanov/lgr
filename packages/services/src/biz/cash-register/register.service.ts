@@ -39,6 +39,8 @@ import { generateUNP } from '../sequence.service.js'
 import { getNextInvoiceNumber, issuableRefusal } from '../invoice-numbering.service.js'
 import { createInvoiceStockMovement, createNumberedMovement, reverseInvoiceStockMovement } from '../invoicing.service.js'
 import { confirmMovement } from '../warehouse.service.js'
+import { PendingTransferError, confirmTransferMovements } from '../stock-transfer.service.js'
+import { syncOrderForInvoice } from '../reservation.service.js'
 import { IdempotencyError, LEASE_MS, assertSameRequest, keepLease, takeLease, waitForCompletion } from '../hot-path-key.js'
 import { exchangeRateFor, fromPosTransaction } from './mapping.js'
 import { unitsOf } from './copy.js'
@@ -99,11 +101,9 @@ export interface RegisterContext {
   /** Move no stock at all: an import whose goods another document already moved. */
   skipStock?: boolean
   /**
-   * A door's own work around the dispatch, under the same failure rule: the back office confirms
-   * the transfers a sale asked for before it dispatches (FR-21.24), and re-derives the order a
-   * sale consumes once it has. Both run again on a resume, so each must be safe to repeat.
+   * A door's own work after the dispatch: the back office re-derives the order a sale consumes. It
+   * runs again on a resume, so it must be safe to repeat.
    */
-  beforeStock?: (doc: any) => Promise<void>
   afterStock?: (doc: any) => Promise<void>
   /** How the audit trail names the document: the till's `pos_transaction`, the back office's `invoice`. */
   audit: { module: string; entityType: string }
@@ -585,6 +585,25 @@ async function moveSaleStock(c: RegisterContext, doc: any): Promise<string | und
 }
 
 /**
+ * The transfers a sale asked for (FR-21.24), confirmed before it dispatches, under the same failure rule.
+ * ⚠ They are the document's (`register.transfersToConfirm`), so that whatever finishes the sale confirms
+ * them. They lived only in the request, and a sale settled after its request died dispatched from a
+ * warehouse that never received them: -1 there, the source untouched, and nothing said so.
+ * `pendingTransferIds` says they are confirmed, so a resume does not ask again.
+ */
+async function confirmAskedTransfers(orgId: string, doc: any): Promise<any> {
+  const asked = doc.register?.transfersToConfirm
+  if (!asked?.length || doc.pendingTransferIds?.length) return doc
+  try {
+    await confirmTransferMovements(orgId, asked.map(String), { forDocumentId: String(doc._id) })
+  } catch (e: any) {
+    if (e instanceof PendingTransferError) throw e
+    throw new Error(`Transfer confirmation failed: ${e.message}`)
+  }
+  return Invoice.findOneAndUpdate({ _id: doc._id, orgId: doc.orgId }, { $set: { pendingTransferIds: asked } }, { new: true }).lean().exec()
+}
+
+/**
  * Whether a failure can still take the sale back (D-4): not once a receipt may have printed, nor
  * once the drawer has counted the money.
  */
@@ -634,10 +653,7 @@ export async function runSaleSteps(c: RegisterContext, id: string): Promise<any>
 
   if (!c.skipStock && !doc.register?.movementId && !doc.register?.stockError) {
     try {
-      if (c.beforeStock) {
-        await c.beforeStock(doc)
-        doc = await Invoice.findById(doc._id).lean().exec()
-      }
+      doc = await confirmAskedTransfers(c.orgId, doc)
       const movementId = await moveSaleStock(c, doc)
       if (movementId) doc = await setRegister(doc._id, { movementId: oid(movementId) })
     } catch (e: any) {
@@ -686,6 +702,16 @@ export async function runSaleSteps(c: RegisterContext, id: string): Promise<any>
   return done ?? Invoice.findById(doc._id).lean().exec()
 }
 
+/**
+ * A sale whose request died, finished for whoever comes to it: a person settling it, its session's close, its
+ * storno. It prints nothing: a receipt still `pending` goes `unknown`, as a keyed retry with no printer
+ * leaves it, and its money stands (D-4). The till's rule on stock: its own check ran before the print, and
+ * after it the dispatch must not fail.
+ */
+export function finishSale(c: RegisterContext, id: string): Promise<any> {
+  return runSaleSteps({ ...c, printer: null, allowNegative: true, afterStock: doc => syncOrderForInvoice(c.orgId, doc, c.user.id) }, id)
+}
+
 /** The outcome of an insert: the new document, or the one a concurrent request with the key made. */
 export type InsertOutcome = { inserted: any } | { existing: any }
 
@@ -716,6 +742,9 @@ export async function insertRegisterDocument(
       invoiceNumber: number,
       numberHistory: [{ number, allocatedAt: new Date(), status: document.status }],
       ...(keyed ? { clientKey: keyed.key, requestHash: keyed.hash, leaseUntil: new Date(Date.now() + LEASE_MS) } : {}),
+      // ⚠ Unkeyed too: a close finishes a sale of its session that died, and with no lease `keepLease` has
+      // nothing to renew, so one waiting its turn behind a slow Z would read as dead by its age alone.
+      ...(!keyed && document.type === 'cash_sale' && document.register?.sessionId ? { leaseUntil: new Date(Date.now() + LEASE_MS) } : {}),
     }
     try {
       return { inserted: (await Invoice.create(fields)).toObject() }

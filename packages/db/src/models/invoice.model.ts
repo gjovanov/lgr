@@ -144,7 +144,9 @@ export interface IInvoiceRegister {
   /** On a `payment_receipt` (FR-23): the invoice or debit note it took money for. */
   paidInvoiceId?: Types.ObjectId
   /** What the person who settled a receipt in doubt said, and who it was. */
-  settled?: { printed: boolean; by: Types.ObjectId; at: Date }
+  settled?: { printed: boolean; by: Types.ObjectId; at: Date; receiptNumber?: string }
+  /** The transfers a sale asked for, as its request named them. Confirmed, they are `pendingTransferIds`. */
+  transfersToConfirm?: Types.ObjectId[]
   paidInvoiceNumber?: string
   /** On a `payment_receipt`: the free text printed under its lines, „Фактура № …". */
   receiptText?: string
@@ -620,6 +622,8 @@ const invoiceSchema = new Schema<IInvoice>(
           },
           /** What the person who settled a document in doubt said, and who it was. A sale's number comes off its slip. */
           settled: { printed: Boolean, by: { type: Schema.Types.ObjectId, ref: 'User' }, at: Date, receiptNumber: String },
+          /** The transfers a sale asked for, as its request named them. Confirmed, they are `pendingTransferIds`. */
+          transfersToConfirm: [{ type: Schema.Types.ObjectId, ref: 'StockMovement' }],
           changeDue: Number,
           sessionTotalsApplied: Boolean,
           receiptError: String,

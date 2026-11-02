@@ -13,8 +13,9 @@ import { Org, POSSession } from 'db/models'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import {
-  RegisterRefusal, insertRegisterDocument, runSaleSteps, settleKeyedDocument, tillSaleDocument,
+  RegisterRefusal, insertRegisterDocument, runSaleSteps, saleIncrements, settleKeyedDocument, tillSaleDocument,
 } from 'services/biz/cash-register/register.service'
+import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
 import { buildSessionReport, formatSessionReport, type SessionReport } from 'services/biz/cash-register/session-report'
 import { fiscalCapabilities } from 'fiscal/capabilities'
@@ -27,7 +28,7 @@ import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
 import {
-  STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, findKeyedTillDocument, finishInterruptedDocuments, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
+  STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, findKeyedTillDocument, finishDeadSales, finishInterruptedDocuments, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
 } from '../lib/cash-register-till.js'
 
 // FR-21: the till's device, its receipts and the price a device is given live with the cash-register
@@ -56,6 +57,16 @@ export function expectedTotals(session: any): ExpectedTotals {
     other: round2(session.totalOther || 0),
     cashOnDelivery: round2(session.totalCashOnDelivery || 0),
   }
+}
+
+/** The session as the close will read it: what a sale whose request died books before it reads `expected`. */
+function withDeadSales(session: any, dead: any[]): any {
+  const out = { ...session }
+  for (const doc of dead) {
+    if (doc.register?.sessionTotalsApplied) continue
+    for (const [bucket, amount] of Object.entries(saleIncrements(doc))) out[bucket] = (Number(out[bucket]) || 0) + amount
+  }
+  return out
 }
 
 export interface ClosingLine { method: string; expected: number; counted?: number; difference?: number }
@@ -493,13 +504,19 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       orgId, warehouseId: session.warehouseId, status: 'open', _id: { $ne: id },
     }).exec()
 
+    // ⚠ The same story as the close, which finishes a sale whose request died before it reads `expected`. A
+    // GET writes nothing, so it adds what that would book, and says which sales they are.
+    const unfinished = await unfinishedReceipts(orgId, id)
+    const dead = unfinished.filter(doc => saleProgress(doc) === 'dead')
+
     return {
-      expected: expectedTotals(session),
+      expected: expectedTotals(withDeadSales(session, dead)),
       currency: session.currency,
       // What the session sold so far, as its report will print it at close.
       report: buildSessionReport(session, await loadPosRows({ orgId, sessionId: id, withReceipts: true })),
       openSessionsOnWarehouse: openOnWarehouse,
-      unfinishedReceipts: unfinishedRefusal(await unfinishedReceipts(orgId, id)).receipts,
+      unfinishedReceipts: unfinishedRefusal(unfinished.filter(doc => !dead.includes(doc))).receipts,
+      deadSales: dead.map(doc => ({ id: String(doc._id), number: doc.invoiceNumber })),
       fiscalDevice: device
         ? { id: device.id, name: device.name, deviceNumber: device.deviceNumber, connected: isDeviceConnected(device.id) || !!(await livePresence({ orgId, deviceNumber: String(device.deviceNumber) })) }
         : null,
@@ -674,6 +691,9 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       // FR-23: a session does not close over a receipt or a storno nobody finished. Its money would land
       // after the day was counted, on a device whose Z already has it, or the drawer would read as over.
       await finishInterruptedDocuments(orgId, user, { sessionId: id })
+      // ⚠ Before `expected` is read, as the session is claimed below: the rows count a sale that died in its
+      // print and the session does not, and the drawer read as over by exactly that.
+      await finishDeadSales(orgId, user, id)
       const unfinished = await unfinishedReceipts(orgId, id)
       if (unfinished.length) return status(409, unfinishedRefusal(unfinished))
 

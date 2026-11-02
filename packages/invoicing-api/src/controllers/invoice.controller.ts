@@ -77,7 +77,6 @@ interface CreateCtx {
   isCashSale: boolean
   skipStockMovement: boolean
   allowNegativeStock: boolean
-  pendingTransferIds?: string[]
   /** FR-21.31: the author's open session, which a back-office cash sale joins. */
   joined?: any | null
   /** How a joined sale prints on its session's device; absent, it prints nothing. */
@@ -90,8 +89,8 @@ const refused = (status: Status, e: CashSaleInvoiceError) => status(e.statusCode
 
 /**
  * FR-21 (D-4): a back-office cash sale is a cash-register document, written by the one service
- * that writes the till's. It brings its own work around the dispatch — the transfers the cash-sale
- * form asked for (FR-21.24) before it, the order the sale consumes after it — and its request flags.
+ * that writes the till's. It brings its own work after the dispatch, the order the sale consumes, and
+ * its request flags. The transfers the cash-sale form asked for (FR-21.24) go on the document.
  *
  * FR-21.31 (D-13): when its author has an open session, it joins it. The session's drawer takes the
  * money (its totals, its close JE) and, when the request asks for a receipt, the session's device
@@ -107,16 +106,6 @@ async function cashSaleContext(c: CreateCtx): Promise<RegisterContext> {
     allowNegative: c.allowNegativeStock,
     skipStock: c.skipStockMovement,
     audit: { module: 'invoicing', entityType: 'invoice' },
-    beforeStock: async (doc: any) => {
-      if (!c.pendingTransferIds?.length || doc.pendingTransferIds?.length) return
-      try {
-        await confirmTransferMovements(c.orgId, c.pendingTransferIds, { forDocumentId: String(doc._id) })
-      } catch (e: any) {
-        if (e instanceof PendingTransferError) throw e
-        throw new Error(`Transfer confirmation failed: ${e.message}`)
-      }
-      await getRepos().invoices.updateInOrg(String(doc._id), c.orgId, { pendingTransferIds: c.pendingTransferIds } as any)
-    },
     afterStock: async (doc: any) => syncOrderForInvoice(c.orgId, doc, c.user.id),
   }
 }
@@ -701,7 +690,6 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         isCashSale: body.type === 'cash_sale',
         skipStockMovement: (body as any).skipStockMovement === true,
         allowNegativeStock: (body as any).allowNegativeStock === true,
-        pendingTransferIds: (body as any).pendingTransferIds,
       }
       if (key) {
         const existing = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
@@ -780,8 +768,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       const allowNegativeStock = (body as any).allowNegativeStock === true
       delete (body as any).skipStockMovement
       delete (body as any).allowNegativeStock
-      // FR-21.24: the transfers a cash sale asked for, confirmed before it dispatches. Not a
-      // document field until they are confirmed: a resumed create reads its absence as "not yet".
+      // FR-21.24: the transfers a cash sale asked for, confirmed before it dispatches. On the document
+      // under their own name until they are: `pendingTransferIds` there means "already confirmed".
       const pendingTransferIds = isCashSale && !skipStockMovement ? (body as any).pendingTransferIds as string[] | undefined : undefined
       delete (body as any).pendingTransferIds
       if (pendingTransferIds?.length) {
@@ -853,7 +841,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           createdBy: user.id,
           // §3.2: a PlusMinus till day (the CLI import tags it, its reference names the day) or a sale
           // entered here.
-          register: joined
+          register: {
+            ...(pendingTransferIds?.length ? { transfersToConfirm: pendingTransferIds } : {}),
+            ...(joined
             ? {
                 // FR-21.31: the drawer's sale, as the till's are: its totals, its close JE, SUPTO, a
                 // storno through a till of that session's warehouse. Its lines keep their own
@@ -869,7 +859,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
                 fiscal: printer && createCtx.receipt ? { state: 'pending', mode: createCtx.receipt } : { state: 'none' },
                 changeDue: 0,
               }
-            : { origin },
+            : { origin }),
+          },
           // The drawer counts payments: a joined sale sent with its header method only gets its row.
           ...(joined && !(body as any).payments?.length
             ? { payments: [{ date: new Date(), method: (body as any).paymentMethod || 'cash', amount: pos ? pos.total : body.total }] }

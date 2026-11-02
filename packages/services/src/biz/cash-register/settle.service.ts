@@ -40,7 +40,7 @@ import { saleInDoubt, saleInDoubtFilter } from './in-doubt.js'
 import { runReceiptSteps } from './payment-receipt.service.js'
 import { PAYMENT_RECEIPT } from './pos-union.js'
 import type { RegisterPrinter } from './printer.js'
-import { RegisterRefusal, runSaleSteps, runStornoSteps, type RegisterContext } from './register.service.js'
+import { RegisterRefusal, finishSale, runStornoSteps, type RegisterContext } from './register.service.js'
 
 const oid = (v: unknown) => new Invoice.base.Types.ObjectId(String(v))
 
@@ -48,8 +48,7 @@ const oid = (v: unknown) => new Invoice.base.Types.ObjectId(String(v))
 const FINISHES: Record<string, (c: RegisterContext, id: string) => Promise<any>> = {
   [PAYMENT_RECEIPT]: (c, id) => runReceiptSteps(c, id),
   cash_storno: runStornoSteps,
-  // The till's rule: its own check ran before the print, and after it the dispatch must not fail.
-  cash_sale: (c, id) => runSaleSteps({ ...c, allowNegative: true }, id),
+  cash_sale: finishSale,
 }
 
 /** The types the door takes. */

@@ -565,14 +565,14 @@ export async function interruptedDocuments(orgId: string, where: { documentId?: 
   }).sort({ _id: 1 }).lean().exec()
 }
 
-/** A close refused over its unfinished receipts and stornos, naming them. */
+/** A close refused over its unfinished documents, naming them. */
 export function unfinishedRefusal(receipts: any[]) {
   const named = receipts.map(r => ({
     id: String(r._id),
     number: isPendingNumber(r.invoiceNumber) ? null : r.invoiceNumber,
     invoice: r.register?.paidInvoiceNumber,
     inDoubt: !!r.register?.fiscal?.inDoubt,
-    kind: r.type === 'cash_storno' ? 'storno' : 'payment',
+    kind: r.type === 'cash_storno' ? 'storno' : r.type === 'cash_sale' ? 'sale' : 'payment',
   }))
   const list = named.map(r => r.number ?? (r.invoice ? `for ${r.invoice}` : r.id)).join(', ')
   return {
@@ -583,17 +583,20 @@ export function unfinishedRefusal(receipts: any[]) {
 }
 
 /**
- * The session's receipts and stornos that are not finished, whatever they are waiting for: the Z and
- * the books would otherwise disagree. A copied POS row carries no `completedAt` of its own, and what it
- * did is long done.
+ * The session's documents that are not finished, whatever they are waiting for: the Z and the books would
+ * otherwise disagree. A copied POS row carries no `completedAt` of its own, and what it did is long done.
+ *
+ * ⚠ A sale too. A closed session is never incremented, so a sale that closes under its session has its money
+ * in no drawer, while every reader of the rows counts it. One whose request died the close finishes first
+ * (`finishDeadSales`); what is left is live, or its finish threw, and it holds the close.
  */
 export async function unfinishedReceipts(orgId: string, sessionId: string): Promise<any[]> {
   return Invoice.find(
     {
-      orgId: oid(orgId), type: { $in: HOLDS_THE_CLOSE }, 'register.sessionId': oid(sessionId),
+      orgId: oid(orgId), type: { $in: [...HOLDS_THE_CLOSE, 'cash_sale'] }, 'register.sessionId': oid(sessionId),
       completedAt: { $exists: false }, status: { $ne: 'voided' }, 'register.legacy': { $exists: false },
     },
-    { type: 1, invoiceNumber: 1, 'register.fiscal': 1, 'register.paidInvoiceNumber': 1 },
+    { type: 1, invoiceNumber: 1, leaseUntil: 1, createdAt: 1, total: 1, payments: 1, register: 1 },
   ).sort({ _id: 1 }).lean().exec()
 }
 

@@ -13,14 +13,15 @@ import { getRepos } from 'services/context'
 import { orgDao } from 'services/dao/org.dao'
 import { logger } from 'services/logger'
 import { toPosTransaction } from 'services/biz/cash-register/mapping'
-import { finishInterruptedReceipt, interruptedDocuments } from 'services/biz/cash-register/payment-receipt.service'
+import { finishInterruptedReceipt, interruptedDocuments, unfinishedReceipts } from 'services/biz/cash-register/payment-receipt.service'
+import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { asEntity } from 'services/biz/cash-register/pos-union'
 import { RECEIPT_DEVICE_AWAY, auditStoppedSettlement } from 'services/biz/cash-register/settle.service'
 import type { RegisterPrinter } from 'services/biz/cash-register/printer'
 import { takeLease } from 'services/biz/hot-path-key'
 import { POD_ID, livePresence } from 'services/biz/fiscal-presence.service'
 import {
-  RegisterRefusal, claimForStorno, finishInterruptedStorno, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally,
+  RegisterRefusal, claimForStorno, finishInterruptedStorno, finishSale, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally,
   releaseStornoClaim, runStornoSteps, settleKeyedDocument, stornoDocument, stornoInDoubtRefusal, stornoRefusal,
   type RegisterContext, type RegisterSession, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
@@ -471,6 +472,32 @@ export async function finishInterruptedDocuments(orgId: string, user: RegisterUs
     }
   }
   return any
+}
+
+/**
+ * Finish the sales of a session whose request died, before anything reads its figures. It prints nothing and
+ * books what the sale's own request would have. One that cannot be finished stays what it was, and what it
+ * holds stands: the close is refused over it, and the next attempt finds it again.
+ */
+export async function finishDeadSales(orgId: string, user: RegisterUser, sessionId: string): Promise<void> {
+  for (const doc of await unfinishedReceipts(orgId, sessionId)) {
+    if (saleProgress(doc) === 'dead') await finishDeadSale(orgId, user, doc)
+  }
+}
+
+/** One sale whose request died. True when this request finished it. */
+export async function finishDeadSale(orgId: string, user: RegisterUser, doc: any): Promise<boolean> {
+  if (!(await takeLease(Invoice, orgId, doc._id))) return false
+  try {
+    const c = deviceless(orgId, user)
+    // One a person settled, that stopped there: what they said reaches the trail however it ended.
+    await auditStoppedSettlement(c, doc)
+    await finishSale(c, String(doc._id))
+    return true
+  } catch (e: any) {
+    logger.error({ orgId, documentId: String(doc._id), error: e?.message }, 'Interrupted sale could not be finished')
+    return false
+  }
 }
 
 /**

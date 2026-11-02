@@ -54,6 +54,18 @@
               {{ $t('cashRegister.receipt.unfinished', { numbers: unfinishedReceipts }) }}
             </v-alert>
 
+            <!-- FR-23: sales whose request died. The close books them, printing nothing, so they count below. -->
+            <v-alert
+              v-if="deadSales"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              data-testid="close-dead-sales"
+            >
+              {{ $t('pos.close.deadSales', { numbers: deadSales }) }}
+            </v-alert>
+
             <v-alert
               v-if="preview && !preview.fiscalDevice"
               type="info"
@@ -237,7 +249,8 @@ function diffClass(method: string): string {
   return d > 0 ? 'text-success' : 'text-error'
 }
 
-const unfinishedReceipts = computed(() => (preview.value?.unfinishedReceipts ?? []).map((r: any) => r.number ?? r.invoice).join(', '))
+const unfinishedReceipts = computed(() => (preview.value?.unfinishedReceipts ?? []).map((r: any) => r.number ?? r.invoice ?? r.id).join(', '))
+const deadSales = computed(() => (preview.value?.deadSales ?? []).map((s: any) => s.number).join(', '))
 
 async function loadPreview() {
   loadingPreview.value = true

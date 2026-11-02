@@ -18,6 +18,25 @@ export function saleInDoubt(doc: any, now = Date.now()): boolean {
   return doc.leaseUntil ? new Date(doc.leaseUntil).getTime() < now : new Date(doc.createdAt ?? now).getTime() < now - LEASE_MS
 }
 
+/**
+ * How far a sale nobody finished got: `live` while someone is working on it, `dead` once its request died,
+ * and null when it is finished or none of this applies. It has to be "no `completedAt`", not "`pending`": a
+ * sale can stop after its print and before its session's totals, and the rows count it all the same. The
+ * money of one that died stands (D-4), so it is finished, printing nothing, before anything reads the
+ * session's figures or reverses it (`finishSale`).
+ *
+ * A copied POS row carries no `completedAt` of its own, and what it did is long done. ⚠ No lease says nothing
+ * on its own: a sale from before `completedAt` existed has neither, and running its steps would dispatch it
+ * again. So only a sale of a session is judged by its age. A lapsed lease is a request that died, whatever
+ * else the sale is.
+ */
+export function saleProgress(doc: any, now = Date.now()): 'live' | 'dead' | null {
+  if (doc?.type !== 'cash_sale' || doc.completedAt || doc.register?.legacy) return null
+  if (doc.leaseUntil) return new Date(doc.leaseUntil).getTime() < now ? 'dead' : 'live'
+  if (!doc.register?.sessionId) return null
+  return new Date(doc.createdAt ?? 0).getTime() < now - LEASE_MS ? 'dead' : 'live'
+}
+
 /** The same, as a filter on a sale: what the settle door claims. */
 export function saleInDoubtFilter(now = new Date()): Record<string, unknown> {
   return {
