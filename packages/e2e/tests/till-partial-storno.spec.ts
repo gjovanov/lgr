@@ -129,7 +129,7 @@ test.describe('FR-23 R3 — the till\'s partial storno', () => {
     await expect(page.getByTestId('storno-line')).toHaveCount(2)
     // A part with nothing picked, or with more than is left, cannot be confirmed.
     await expect(confirm).toBeDisabled()
-    const quantity = page.getByTestId('storno-line-quantity').first()
+    const quantity = page.getByTestId('storno-line-quantity').first().locator('input')
     await quantity.fill('4')
     await expect(confirm).toBeDisabled()
     await quantity.fill('1')
