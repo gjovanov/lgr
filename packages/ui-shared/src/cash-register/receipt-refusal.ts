@@ -14,6 +14,7 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'payment_in_progress': return 'cashRegister.receipt.inProgress'
     case 'document_claimed': return 'cashRegister.receipt.documentClaimed'
     case 'document_changed': return 'cashRegister.receipt.documentChanged'
+    case 'issue_in_progress': return 'cashRegister.receipt.issueInProgress'
     case 'fiscally_paid': return 'cashRegister.receipt.fiscallyPaid'
     case 'receipt_currency': return 'cashRegister.receipt.currency'
     case 'receipt_not_printable': return 'cashRegister.receipt.notPrintable'

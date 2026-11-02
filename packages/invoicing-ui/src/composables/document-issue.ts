@@ -65,10 +65,15 @@ export const ISSUED_KEY: Record<string, string> = {
  * One in doubt comes here as `unknown` too, and nothing was booked for it, but the reason says so,
  * and Pay is no way on: it waits for a person to settle it. A cash-on-delivery invoice owes the
  * courier's money, not a payment at the counter: its receipt prints on its own, and Pay would record
- * money nobody brought.
+ * money nobody brought. A document that changed under its issue printed nothing, and says so in words.
  */
-export function issuedReceiptNotice(issued: { receiptError?: string; paymentMethod?: string; receipt?: { state?: string } } | null | undefined): { key: string; takesPayment: boolean } | null {
+export function issuedReceiptNotice(issued: { receiptError?: string; receiptCode?: string; paymentMethod?: string; receipt?: { state?: string } } | null | undefined): { key: string; takesPayment: boolean } | null {
   if (!issued?.receiptError) return null
+  if (issued.receiptCode === 'issue_tender_moved') {
+    return issued.paymentMethod === 'cash_on_delivery'
+      ? { key: 'cashRegister.receipt.issuedChangedDelivery', takesPayment: false }
+      : { key: 'cashRegister.receipt.issuedChanged', takesPayment: true }
+  }
   if (issued.receipt?.state === 'unknown' || issued.receipt?.state === 'printed') return { key: 'cashRegister.receipt.issuedUnknown', takesPayment: false }
   if (issued.paymentMethod === 'cash_on_delivery') return { key: 'cashRegister.receipt.issuedNoReceipt', takesPayment: false }
   return { key: 'cashRegister.receipt.issuedNotPaid', takesPayment: true }
@@ -111,5 +116,5 @@ export async function sendIssue(
 ): Promise<any> {
   const { data } = await client.post(`${orgUrl}/invoices/${id}/send`, body, { headers })
   // FR-23: issued, and its receipt did not print. The issue stands; the caller says so.
-  return data?.receiptError ? { ...data.invoice, receiptError: data.receiptError, receipt: data.receipt } : data?.invoice
+  return data?.receiptError ? { ...data.invoice, receiptError: data.receiptError, receiptCode: data.receiptCode, receipt: data.receipt } : data?.invoice
 }

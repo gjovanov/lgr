@@ -305,6 +305,11 @@ describe('issued, and the receipt did not print', () => {
       .toEqual({ key: 'cashRegister.receipt.issuedUnknown', takesPayment: false })
     expect(issuedReceiptNotice({ paymentMethod: 'cash' })).toBeNull()
     expect(issuedReceiptNotice(null)).toBeNull()
+    // A document that changed under its issue: Pay is the way on, but for the courier's money.
+    expect(issuedReceiptNotice({ receiptError: 'x', receiptCode: 'issue_tender_moved', paymentMethod: 'cash' }))
+      .toEqual({ key: 'cashRegister.receipt.issuedChanged', takesPayment: true })
+    expect(issuedReceiptNotice({ receiptError: 'x', receiptCode: 'issue_tender_moved', paymentMethod: 'cash_on_delivery' }))
+      .toEqual({ key: 'cashRegister.receipt.issuedChangedDelivery', takesPayment: false })
   })
 })
 
@@ -325,7 +330,7 @@ describe('the refusal, in words', () => {
 
   it('every refusal a door answers reads in all four languages: a missing key renders literally', () => {
     const codes = [
-      'payment_in_progress', 'document_claimed', 'document_changed', 'fiscally_paid', 'receipt_currency', 'receipt_not_printable', 'document_not_issued',
+      'payment_in_progress', 'document_claimed', 'document_changed', 'issue_in_progress', 'fiscally_paid', 'receipt_currency', 'receipt_not_printable', 'document_not_issued',
       'no_receipt_owed', 'receipt_in_doubt', 'storno_in_doubt', 'receipt_open_on_device', 'receipt_device_away', 'device_busy', 'sale_receipt_in_doubt',
       'receipt_number_required', 'receipt_number_taken', 'delivery_receipt_owed', 'receipts_unfinished',
     ]
