@@ -1823,6 +1823,7 @@
       "refundWillPrint": "Saving prints a storno on your session's device.",
       "refundable": "The invoice's receipts still hold {amount}.",
       "issuedNotRefunded": "Issued, but the storno did not print, so nothing was refunded: {reason}",
+      "issuedPartlyRefunded": "Issued. {amount} of this refund went back and stands, and the rest did not: {reason}",
       "takeRefund": "Give the refund",
       "refundOf": "Credit note refunded",
       "partlyRefunded": "{amount} of this refund went back and stands.",

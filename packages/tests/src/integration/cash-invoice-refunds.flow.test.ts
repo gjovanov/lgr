@@ -38,6 +38,7 @@ import {
 import { deviceEvidence } from 'services/biz/home/device-witness.service'
 import { bookingOf } from 'services/biz/move/fenced-import.service'
 import { printableDocument } from 'invoicing-api/src/lib/invoice-pdf'
+import { issuedReceiptNotice, sendIssue } from '../../../invoicing-ui/src/composables/document-issue'
 import { localDayOf } from 'services/biz/local-day'
 
 /**
@@ -3176,6 +3177,126 @@ describe('an invoice issued for a till sale (R0): the refund cites the sale\'s o
       expect(w.sim!.receipts).toHaveLength(printed)
       expect((await fresh(saleId)).register.stornoState).not.toBe('full')
     })
+  })
+})
+
+describe('an issue whose refund stopped after a part printed says how much went back (the readers, A2 and B2)', () => {
+  /** Its first storno done. */
+  const firstPartDone = (update: any) => !!update?.$set?.completedAt
+  /** `/send` as the form sends it, `meanwhile` right after the first part, through what the form reads. */
+  async function issuedThroughTheForm(w: TillWorld, id: string, meanwhile: () => Promise<unknown>) {
+    let answer: any
+    const client: any = { post: async () => { answer = (await send(w, id)); return { data: answer.json } } }
+    const undo = justAfter(firstPartDone, meanwhile)
+    try {
+      const issued = await sendIssue(client, '', id)
+      return { answer, issued, notice: issuedReceiptNotice(issued) }
+    } finally {
+      undo()
+    }
+  }
+  const onDevice = (w: TillWorld) => w.sim!.receipts.filter(r => !r.voided && r.kind === 'storno').map(r => r.total)
+
+  it('the second print fails: 10 went back, the answer says so on its stornos, and the screen does not say nothing did', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInParts(w, [14, 10])
+    const note = await noteOn(w, inv)
+
+    const { answer, issued, notice } = await issuedThroughTheForm(w, note.id, async () => { w.sim!.paper = false })
+
+    w.sim!.paper = true
+    expect(answer.status).toBe(200)
+    expect(answer.json.refunded).toBe(10)
+    expect(answer.json.stornos.map((s: any) => [s.amount, s.state])).toEqual([[10, 'printed'], [14, 'failed']])
+    expect(await raw(note.id)).toMatchObject({ status: 'partially_paid', amountPaid: 10, amountDue: 14 })
+    expect(onDevice(w)).toEqual([10])
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 14, totalReturns: 10 })
+
+    expect(issued.refunded).toBe(10)
+    expect(issued.stornos).toHaveLength(2)
+    expect(notice).toEqual({ key: 'cashRegister.receipt.issuedPartlyRefunded', takesPayment: true })
+
+    // The way on is what it says: the rest goes back with Refund.
+    expect((await pay(w, note.id, 14)).status).toBe(200)
+    expect(onDevice(w)).toEqual([10, 14])
+  })
+
+  it('two receipts of 12, the second storno\'s open fails: the same', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInParts(w, [12, 12])
+    const note = await noteOn(w, inv)
+    const fails = () => { w.sim!.beforeCommand = (cmd) => { if (cmd === 0x90) throw new Error('Bridge disconnected') } }
+
+    const { answer, notice } = await issuedThroughTheForm(w, note.id, async () => fails())
+
+    w.sim!.beforeCommand = null
+    expect(answer.json.refunded).toBe(12)
+    expect(answer.json.stornos.map((s: any) => s.state)).toEqual(['printed', 'failed'])
+    expect(notice?.key).toBe('cashRegister.receipt.issuedPartlyRefunded')
+    expect(await sessionOf(w)).toMatchObject({ totalCash: 12, totalReturns: 12 })
+  })
+
+  it('the second part refused, another note took the older receipt: the refusal keeps what the first part did', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInParts(w, [14, 10])
+    const other = await issuedNote(w, inv)
+    const note = await noteOn(w, inv)
+
+    const { answer, issued, notice } = await issuedThroughTheForm(w, note.id, () => pay(w, other.id, 14))
+
+    expect(answer.status).toBe(200)
+    expect(answer.json.refunded).toBe(10)
+    expect(answer.json.stornos.map((s: any) => [s.amount, s.state])).toEqual([[10, 'printed']])
+    expect(answer.json.receiptError).toBeTruthy()
+    expect(await raw(note.id)).toMatchObject({ status: 'partially_paid', amountPaid: 10 })
+    expect(issued.refunded).toBe(10)
+    expect(notice).toEqual({ key: 'cashRegister.receipt.issuedPartlyRefunded', takesPayment: true })
+  })
+
+  it('a second part held in doubt: part of it went back, and Refund is no way on until a person says', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInParts(w, [14, 10])
+    const note = await noteOn(w, inv)
+
+    const { answer, notice } = await issuedThroughTheForm(w, note.id, async () => { w.sim!.dropAfter = 0x38 })
+
+    w.sim!.disconnected = false
+    expect(answer.json.refunded).toBe(10)
+    expect(answer.json.stornos.map((s: any) => s.state)).toEqual(['printed', 'unknown'])
+    expect(notice).toEqual({ key: 'cashRegister.receipt.issuedPartlyRefunded', takesPayment: false })
+  })
+
+  it('a retry that finds a part printed and the next one refused: the same on its own path', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInParts(w, [14, 10])
+    const other = await issuedNote(w, inv)
+    const note = await noteOn(w, inv)
+    const undo = justAfter(firstPartDone, () => { throw new Error('the pod went away') })
+    try {
+      expect((await send(w, note.id, 'part-then-refused')).status).toBe(500)
+    } finally {
+      undo()
+    }
+    expect((await pay(w, other.id, 14)).status).toBe(200)
+
+    const r = await send(w, note.id, 'part-then-refused')
+
+    expect(r.status).toBe(200)
+    expect(r.json.refunded).toBe(10)
+    expect(r.json.stornos.map((s: any) => s.amount)).toEqual([10])
+    expect(r.json.receiptError).toBeTruthy()
+  })
+
+  it('nothing went back: the words stay what they were, and a refund that went through says nothing', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await noteOn(w, inv)
+    w.sim!.paper = false
+    const failed = await send(w, note.id)
+    w.sim!.paper = true
+    expect(failed.json.refunded).toBe(0)
+    expect(issuedReceiptNotice({ ...failed.json.invoice, receiptError: failed.json.receiptError, refunded: failed.json.refunded, receipt: failed.json.receipt }))
+      .toEqual({ key: 'cashRegister.receipt.issuedNotRefunded', takesPayment: true })
   })
 })
 

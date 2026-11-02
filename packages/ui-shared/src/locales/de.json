@@ -1111,6 +1111,7 @@
       "refundWillPrint": "Beim Speichern wird ein Storno auf dem Gerät Ihrer Sitzung gedruckt.",
       "refundable": "Die Bons der Rechnung enthalten noch {amount}.",
       "issuedNotRefunded": "Ausgestellt, aber das Storno wurde nicht gedruckt, daher wurde nichts erstattet: {reason}",
+      "issuedPartlyRefunded": "Ausgestellt. {amount} dieser Erstattung wurden ausgezahlt und bleiben bestehen, der Rest nicht: {reason}",
       "takeRefund": "Erstattung geben",
       "refundOf": "Gutschrift",
       "partlyRefunded": "{amount} dieser Erstattung wurden ausgezahlt und bleiben bestehen.",

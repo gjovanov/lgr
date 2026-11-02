@@ -206,7 +206,7 @@ export async function refund(
     }
   } catch (e) {
     // A later part refused, a race for what a receipt held: what printed before it stands, and says so.
-    if (e instanceof RegisterRefusal && stornos.length) e.body.refunded = refundedBy(stornos)
+    if (e instanceof RegisterRefusal && stornos.length) Object.assign(e.body, { refunded: refundedBy(stornos), stornos: refundOutcome(stornos) })
     throw e
   }
   return stornos

@@ -1383,8 +1383,14 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const withReceipt = async (receipt: any) => ({ invoice: await r.invoices.findOne({ id, orgId } as any), ...receiptOutcome(receipt) })
     /** The same of a refund: its last storno says what became of it, and all of them are named. */
     const withStornos = async (stornos: any[]) => (stornos.length
-      ? { ...await withReceipt(stornos.at(-1)), stornos: refundOutcome(stornos) }
+      ? { ...await withReceipt(stornos.at(-1)), stornos: refundOutcome(stornos), refunded: refundedBy(stornos) }
       : { invoice: await r.invoices.findOne({ id, orgId } as any) })
+    /** Refused once it was issued. What a refund's earlier parts did stands, and the refusal says so (`refund`). */
+    const refusedAfterIssue = async (e: RegisterRefusal) => ({
+      invoice: await r.invoices.findOne({ id, orgId } as any),
+      receiptError: e.message,
+      ...(e.body.stornos ? { refunded: e.body.refunded, stornos: e.body.stornos } : {}),
+    })
     /** What an issue's refund answers. What printed stands, and it says when the rest stopped because the note moved. */
     const withIssuedRefund = async (stornos: any[]) => {
       const now = await rawOf(id, orgId)
@@ -1413,7 +1419,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       } catch (e: any) {
         if (!(e instanceof RegisterRefusal)) throw e
         if (answersForTheKey(e)) return status(e.statusCode, e.body)
-        return { invoice: await r.invoices.findOne({ id, orgId } as any), receiptError: e.message }
+        return await refusedAfterIssue(e)
       } finally {
         // A failure here must not answer for a receipt that printed: the lease lapses by itself.
         await Invoice.updateOne({ _id: id, orgId }, { $set: { 'issue.leaseUntil': null } }).exec().catch(() => undefined)
@@ -1440,7 +1446,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       } catch (e: any) {
         if (!(e instanceof RegisterRefusal)) throw e
         if (answersForTheKey(e)) return status(e.statusCode, e.body)
-        return { invoice: await r.invoices.findOne({ id, orgId } as any), receiptError: e.message }
+        return refusedAfterIssue(e)
       }
       return { invoice: await r.invoices.findOne({ id, orgId } as any) }
     }
