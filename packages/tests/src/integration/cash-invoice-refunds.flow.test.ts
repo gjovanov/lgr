@@ -27,7 +27,8 @@ import { buildSessionReport, formatSessionReport } from 'services/biz/cash-regis
 import { paymentReceiptDocument, paymentStornoDocument } from 'services/biz/cash-register/payment-receipt.service'
 import { receiptBody } from 'services/biz/cash-register/receipt-lines'
 import { stornoUnproved } from 'services/biz/cash-register/counting'
-import { planDeleteDocFiles } from 'services/biz/files/doc-delete.service'
+import { deleteDocFiles, planDeleteDocFiles } from 'services/biz/files/doc-delete.service'
+import { commitDocFile } from 'services/biz/files/doc-pipeline.service'
 import { NOT_UNPROVED_STORNO } from 'services/biz/sale-counting'
 import { takeBudget, giveBackBudget, leftByRate } from 'services/biz/cash-register/refund-budget'
 import {
@@ -1746,6 +1747,167 @@ describe('what backs a refund, in doubt: a person settles it, and it holds what 
     expect(await seen()).toBe(0)
     expect((await settle(w, storno._id, true)).status).toBe(200)
     expect(await seen()).toBe(1)
+  })
+})
+
+describe('a Files rollback asks what stands on the document first (ruling 4)', () => {
+  /** A sales invoice as a Files commit books it: analysed, committed through the real engine, issued, named by its file. */
+  async function bookedByFiles(w: TillWorld, o: { type?: string; method?: string; number?: string } = {}) {
+    const l = line(w)
+    const number = o.number ?? '3000100974'
+    const file: any = await DocFile.create({
+      orgId: w.oid, docType: 'invoice', docNumber: number, docDate: TODAY(), originalName: `invoicem_${number}.pdf`,
+      currentPath: `x-${number}`, currentChecksum: number, mimeType: 'application/pdf', size: 1, uploadedBy: w.user._id,
+      uploadedAt: new Date(Date.now() - 60_000), status: 'analyzed',
+      analysis: {
+        target: 'invoice',
+        mapped: {
+          type: o.type ?? 'invoice', direction: 'outgoing', reference: number, currency: 'EUR', exchangeRate: 1, issueDate: TODAY(),
+          lines: [l], subtotal: 20, taxTotal: 4, total: 24, paymentMethod: o.method ?? 'bank_transfer', tags: ['ocr-import'],
+          billingAddress: { street: '-', city: '-', postalCode: '-', country: '-' },
+        },
+      },
+    })
+    const committed = await commitDocFile(w.orgId, String(w.user._id), String(file._id), { convert: true })
+    expect(committed?.ok).toBe(true)
+    const stamped: any = await DocFile.findById(file._id).lean().exec()
+    expect(stamped.status).toBe('committed')
+    const id = String(stamped.committedIds[0])
+    expect((await raw(id)).status).toBe('sent')
+    expect((await raw(id)).statusHistory[0].reason).toBe('ocr_import')
+    return { id, fileId: String(file._id) }
+  }
+  /**
+   * The one line no door writes. The import's mark is what keeps a receipt off a document a commit booked
+   * (`printsAtCounter`), so with it a cash payment prints nothing, and the first test here is that. Everything
+   * else in this chain is the real thing: the rule must hold the day that mark no longer does.
+   */
+  const withoutTheMark = (id: string) => Invoice.updateOne({ _id: id }, { $set: { 'statusHistory.0.reason': 'created' } })
+  const stockNow = async (w: TillWorld) => (await w.stock()).quantity
+  const printedSoFar = (w: TillWorld) => w.sim!.executed.length
+
+  it('import, a cash payment at the counter, rollback: an imported document prints nothing, so nothing holds it back', async () => {
+    const w = await tillWorld(app)
+    const { id, fileId } = await bookedByFiles(w)
+    const shelf = await stockNow(w)
+
+    expect((await pay(w, id, 24)).status).toBe(200)
+    expect(await receiptsOf(id)).toHaveLength(0)
+    expect(w.sim!.receipts).toHaveLength(0)
+
+    const dry = await planDeleteDocFiles(w.orgId, [fileId], { rollback: true })
+    expect(dry.plans[0].invoices[0].action).toBe('void')
+    expect(dry.plans[0].warnings).toEqual([])
+
+    const done = await deleteDocFiles(w.orgId, String(w.user._id), [fileId], { rollback: true, execute: true })
+    expect(done.voided).toHaveLength(1)
+    expect((await raw(id)).status).toBe('voided')
+    expect(await stockNow(w)).toBe(shelf + 2)
+  })
+
+  it('import, a cash payment with a receipt, rollback: a dry-run shows it, and the real run leaves the invoice, the receipt and the device alone', async () => {
+    const w = await tillWorld(app)
+    const { id, fileId } = await bookedByFiles(w)
+    await withoutTheMark(id)
+    const r = await pay(w, id, 24)
+    expect(r.status).toBe(200)
+    const [receipt] = await receiptsOf(id)
+    expect(receipt.register.fiscal.state).toBe('printed')
+    const shelf = await stockNow(w)
+    const device = printedSoFar(w)
+
+    const dry: any = await planDeleteDocFiles(w.orgId, [fileId], { rollback: true })
+
+    expect(dry.executed).toBe(false)
+    expect(dry.plans[0].invoices[0].action).toBe('skip')
+    expect(dry.plans[0].warnings.join(' ')).toContain('A receipt has printed for this document')
+    expect(dry.plans[0].warnings.join(' ')).toContain('Correct it with a credit or a debit note')
+    expect(dry.totals.invoices).toBe(0)
+    expect(dry.stockImpact).toEqual([])
+
+    // Force does not get past it: this is no question of which upload made what.
+    const done: any = await deleteDocFiles(w.orgId, String(w.user._id), [fileId], { rollback: true, force: true, execute: true })
+
+    expect(done.executed).toBe(true)
+    expect(done.voided).toEqual([])
+    expect(await raw(id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect(await fresh(receipt._id)).toMatchObject({ status: 'paid', completedAt: expect.anything() })
+    expect(await stockNow(w)).toBe(shelf)
+    expect(printedSoFar(w)).toBe(device)
+    expect((await sessionOf(w)).totalCash).toBe(24)
+    expect(await StockMovement.countDocuments({ orgId: w.oid, invoiceId: id, status: 'cancelled' })).toBe(0)
+  })
+
+  it('a receipt held in doubt: skipped too, and its own way out is what it says', async () => {
+    const w = await tillWorld(app)
+    const { id, fileId } = await bookedByFiles(w)
+    await withoutTheMark(id)
+    w.sim!.dropAfter = 0x38
+    await pay(w, id, 24)
+    w.sim!.disconnected = false
+    const [receipt] = await receiptsOf(id)
+    await Invoice.updateOne({ _id: receipt._id }, { $set: { 'register.fiscal.inDoubt': true }, $unset: { completedAt: 1 } })
+
+    const dry: any = await planDeleteDocFiles(w.orgId, [fileId], { rollback: true })
+
+    expect(dry.plans[0].invoices[0].action).toBe('skip')
+    expect(dry.plans[0].warnings.join(' ')).toContain(`Nothing can prove whether receipt ${receipt.invoiceNumber} printed`)
+  })
+
+  it('a credit note whose storno printed: the device gave that money back, so it stays', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const { id, fileId } = await bookedByFiles(w, { type: 'credit_note', number: '3000100975' })
+    await withoutTheMark(id)
+    await Invoice.updateOne({ _id: id }, { $set: { relatedInvoiceId: inv.id } })
+    expect((await pay(w, id, 24)).status).toBe(200)
+    expect(await stornosOf(id)).toHaveLength(1)
+
+    const dry: any = await planDeleteDocFiles(w.orgId, [fileId], { rollback: true })
+
+    expect(dry.plans[0].invoices[0].action).toBe('skip')
+
+    const done: any = await deleteDocFiles(w.orgId, String(w.user._id), [fileId], { rollback: true, execute: true })
+    expect(done.voided).toEqual([])
+    expect(await raw(id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+  })
+
+  it('a receipt that failed holds nothing: it printed nothing, and the rollback goes through', async () => {
+    const w = await tillWorld(app)
+    const { id, fileId } = await bookedByFiles(w)
+    await withoutTheMark(id)
+    w.sim!.paper = false
+    expect((await pay(w, id, 24)).status).toBe(503)
+    w.sim!.paper = true
+    expect((await receiptsOf(id))[0].status).toBe('voided')
+
+    const done: any = await deleteDocFiles(w.orgId, String(w.user._id), [fileId], { rollback: true, execute: true })
+
+    expect(done.voided).toHaveLength(1)
+    expect((await raw(id)).status).toBe('voided')
+  })
+
+  it('with no rollback asked for, a file goes and says nothing of it: its bookings stay either way', async () => {
+    const w = await tillWorld(app)
+    const { id, fileId } = await bookedByFiles(w)
+    await withoutTheMark(id)
+    expect((await pay(w, id, 24)).status).toBe(200)
+
+    const dry: any = await planDeleteDocFiles(w.orgId, [fileId], { rollback: false })
+
+    expect(dry.plans[0].invoices[0].action).toBe('skip')
+    expect(dry.plans[0].warnings).toEqual([])
+  })
+
+  it('a document a storno claimed: the plan reads what it asks about', async () => {
+    const w = await tillWorld(app)
+    const { id, fileId } = await bookedByFiles(w)
+    await Invoice.updateOne({ _id: id }, { $set: { 'register.stornoState': 'full' } })
+
+    const dry: any = await planDeleteDocFiles(w.orgId, [fileId], { rollback: true })
+
+    expect(dry.plans[0].invoices[0].action).toBe('skip')
+    expect(dry.plans[0].warnings.join(' ')).toMatch(/cannot be edited, deleted or voided/)
   })
 })
 
