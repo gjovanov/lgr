@@ -12,8 +12,8 @@
  *     "supplier": "BEISPIEL-...",           // optional, recorded in movement notes
  *     "items": [
  *       { "name": "<exact name from разписка>", "qty": 2, "unit": "pcs",
- *         "cost": 8.00,                    // разписка "Цена" → sellingPrice (NOT the buying price)
- *         "selling": 8.80,                // optional; default = cost × 1.10 (org's observed retail markup)
+ *         "cost": 8.00,                    // разписка "Цена", the delivery price: opens a NEW product's cost, never written to an existing one
+ *         "selling": 8.80,                // разписка "Прод. цена"; optional. Without it an existing product keeps its selling price and a new one opens at cost × 1.10 (org's observed retail markup)
  *         "tiers": { "Цена 1": 7.00, "Цена 2": 6.00 } }   // разписка "Цена N" → tier "Цена N"
  *     ]
  *   }
@@ -181,9 +181,8 @@ const PROTECTED_TIERS = new Set(['Доставна цена', 'Цена на е�
 
 /** Overlay an EXISTING product's tiers with the sale prices a разписка delivered.
  *
- *  A разписка carries Цена and Цена 1..N, and Цена is the base SELLING price — not the cost.
- *  Writing it into Доставна цена / purchasePrice (as this used to) overwrote the buying price
- *  with a sale price on every receipt, so the cost slots are never touched here. Neither is any
+ *  A разписка carries Цена and Цена 1..N. Цена is the delivery price, and cost belongs to the
+ *  storeAvailability re-baseline, so the cost slots are never touched here. Neither is any
  *  Цена N the document is silent about: a receipt must not wipe prices a snapshot seed set.
  *
  *  costBasis only expresses each tier as a margin percentage; it is never written. */
@@ -263,7 +262,7 @@ async function main() {
   for (const p of plan) {
     if (p.existing) {
       const tierStr = Object.entries(p.it.tiers || {}).map(([k, v]) => `${k}=${v}`).join(' | ')
-      console.log(`  ~ REPRICE ${p.existing.sku}  "${p.it.name}"  purchase→${p.it.cost}${p.it.selling != null ? ` selling→${p.selling}` : ''}${tierStr ? ` | ${tierStr}` : ''}${dupMv ? '' : `  + receive qty ${p.it.qty}`}`)
+      console.log(`  ~ REPRICE ${p.existing.sku}  "${p.it.name}"  delivery ${p.it.cost} (purchase kept), selling ${p.it.selling != null ? `→${p.selling}` : 'kept'}${tierStr ? ` | ${tierStr}` : ''}${dupMv ? '' : `  + receive qty ${p.it.qty}`}`)
     } else {
       const sku = `${prefix}-${String(skuCursor++).padStart(pad, '0')}`
       const tierStr = TIER_NAMES.filter(n => n === 'Доставна цена' || (p.it.tiers?.[n] ?? 0) > 0)
@@ -288,6 +287,8 @@ async function main() {
   let created = 0, repriced = 0
   for (const p of plan) {
     let prod = p.existing
+    // ⚠ `cost` is what we paid, never a selling price. A line with no retail price says nothing about it.
+    const sellingUpdate = p.it.selling != null ? { sellingPrice: p.selling } : {}
     if (!prod) {
       const res = await http('POST', org('/warehouse/product'), {
         sku: `${prefix}-${String(next + created).padStart(pad, '0')}`,
@@ -300,14 +301,14 @@ async function main() {
       created++
       console.log(`  + created ${prod.sku} "${String(prod.name).replace(/\s+/g, ' ').slice(0, 40)}"  purchase=${p.it.cost}`)
     } else {
-      // The buying price is NOT among the updates: Цена is what we sell it for.
+      // The buying price is NOT among the updates: it belongs to the storeAvailability re-baseline.
       const body: Record<string, any> = {
-        sellingPrice: p.it.selling != null ? p.selling : p.it.cost,
+        ...sellingUpdate,
         priceTiers: repriceTiers(prod.priceTiers, p.it.tiers, Number(prod.purchasePrice) || 0),
       }
       await http('PUT', org(`/warehouse/product/${prod._id || prod.id}`), body)
       repriced++
-      console.log(`  ~ repriced ${prod.sku} "${String(prod.name).replace(/\s+/g, ' ').slice(0, 40)}"  selling=${body.sellingPrice} (purchase ${prod.purchasePrice} kept)`)
+      console.log(`  ~ repriced ${prod.sku} "${String(prod.name).replace(/\s+/g, ' ').slice(0, 40)}"  selling=${body.sellingPrice ?? 'kept'} (purchase ${prod.purchasePrice} kept)`)
     }
     // Record the DELIVERED prices on the movement line as well as on the product, so the
     // movement reopens as a "with product update" goods receipt showing the Цена / Цена1..Цена5
@@ -317,7 +318,7 @@ async function main() {
       : buildTiers(p.it.cost, p.it.tiers)
     lines.push({
       productId: prod._id || prod.id, quantity: p.it.qty, unitCost: p.it.cost, totalCost: round2(p.it.qty * p.it.cost),
-      productUpdate: { sellingPrice: p.it.selling != null ? p.selling : p.it.cost },
+      productUpdate: sellingUpdate,
       priceTiers: deliveredTiers,
       _name: prod.name, _existing: !!p.existing,
     })

@@ -1607,7 +1607,10 @@ over the batch, because a day is uploaded whole and the till export's own mappin
 until every document in the batch has been analyzed.
 **Costing rule:** existing product → `unitCost = current avgCost` (confirm-time WAC recompute
 is a no-op); new product → разписка `Цена` opens its avgCost.
-**Pricing rule (2026-08-29):** a разписка prices what we SELL. `Цена` → `sellingPrice`;
+**Pricing rule (2026-08-29, corrected 2026-08-31):** a разписка's `Цена` is the DELIVERY price and
+`Прод. цена` is what we sell for. `Прод. цена` → `sellingPrice`, and a line without one leaves it
+alone: filling it from `Цена` sets the price to what we paid (`scripts/receive-new-products.ts` still
+did until 2026-11-02);
 `Цена N` → the tier named `Цена N`, and only the N the document carries. `purchasePrice` and the
 cost tiers (`Доставна цена`, `Цена на едро`, `Цена 0` — `PROTECTED_TIERS`) are **never written**
 by an import; they belong to the storeAvailability re-baseline. A NEW product is the exception —

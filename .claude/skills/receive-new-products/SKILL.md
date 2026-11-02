@@ -48,19 +48,20 @@ missing quantities as ONE completed receipt movement.
    Cross-check each `qty × cost` against the разписка's `Стойност` column
    before proceeding.
 
-   **Column mapping — a разписка prices what we SELL, never what we PAY:**
+   **Column mapping — `Цена` is what we PAID, and an import never writes it to an existing product:**
 
    | разписка column | product field | |
    |---|---|---|
    | *(nothing)* | `purchasePrice` ("Buying Price") | **never written** |
-   | `Цена` | `sellingPrice` ("Selling Price") | |
+   | `Прод. цена` (`selling`) | `sellingPrice` ("Selling Price") | a line without one leaves it alone |
+   | `Цена` (`cost`) | *(nothing)* | the delivery price |
    | *(nothing)* | tiers `Доставна цена`, `Цена на едро`, `Цена 0` | **never written** |
    | `Цена N` | tier `Цена N` ("Price N") | only the N the document carries |
 
-   Writing `Цена` into `purchasePrice` / `Доставна цена` — which this skill used
-   to do — overwrote the buying price with a sale price on every receipt, and with
-   it the margin on every tier. A **new** product is the one exception: it has no
-   buying price to protect, so `cost` still opens its `purchasePrice` and avgCost.
+   ⚠ Until 2026-11-02 a line with no `Прод. цена` wrote `Цена` into `sellingPrice`, so
+   the product sold at what we paid for it. A **new** product is the one exception:
+   it has no prices to protect, so `cost` opens its `purchasePrice` and avgCost, and
+   with no `selling` it opens at cost × 1.10.
 4. **Dry-run, review, execute**:
 
    ```bash
@@ -76,7 +77,7 @@ Options: `--org <slug>` (default `regal-pz`) · `--api <url>` ·
 
 - **Corrects BOTH quantity AND prices for existing AND new products** (2026-08-03).
   Existing products are NOT re-created but ARE **repriced** via a product PUT —
-  `sellingPrice` = разписка `Цена`, and `priceTiers` MERGED: the provided
+  `sellingPrice` = разписка `Прод. цена` when the line has one, and `priceTiers` MERGED: the provided
   `Цена N` overlaid onto the current tiers, so slots the разписка does not carry
   (Цена на едро / Цена 0/6/7 from a prior storeAvailability seed) are preserved,
   not wiped. **`purchasePrice` and the cost tiers are never touched** — see the
