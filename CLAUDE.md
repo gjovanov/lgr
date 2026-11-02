@@ -2672,7 +2672,7 @@ its database is on the same disk as everything else.
 
 An operator signs in at a till with **operator code + PIN** (6–12 digits, `pinRuleViolation`
 refuses runs and repeats). Routes are under `/api/auth/local`, and **every one answers 404 off a
-master** (`portal-api/src/controllers/local-auth.controller.ts`).
+master**, but the `/methods` probe, which says no (`portal-api/src/controllers/local-auth.controller.ts`).
 - **Where.** Only a paired desktop on the LAN ingress (`x-lgr-source: lan` plus its token: the
   desktop's org is the org signed in to), or the console. ⚠ Never the tunnel. `frontSource` is the
   supervisor's stamp, and a master with no front offers no PIN at all.
