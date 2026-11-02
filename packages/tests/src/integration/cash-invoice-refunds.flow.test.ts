@@ -3929,6 +3929,121 @@ describe('a till sale\'s invoice stands under its note\'s storno (the readers, B
   })
 })
 
+describe('the 422\'s `left`: a person who types it goes through (the readers, A6)', () => {
+  it('two rates, a receipt holding only one: the first retry ends it', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w, { lines: [line(w, 1)] })
+    const note = await issuedNote(w, inv, { lines: [line(w, 1), line(w, 1, 10, 9)] })
+
+    const r = await pay(w, note.id, 12)
+
+    expect(r.status).toBe(422)
+    expect(r.json.code).toBe('refund_exceeds_receipts')
+    expect(r.json.atIssue).toBeUndefined()
+    expect(r.json.message).toContain('rest by bank')
+    const retry = await pay(w, note.id, r.json.left)
+    expect(retry.status).toBe(200)
+    expect(await raw(note.id)).toMatchObject({ amountPaid: r.json.left })
+  })
+
+  it('two rates, both held in part: the largest that fits as the door splits it, and a cent more does not', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w, { lines: [line(w, 2), line(w, 1, 10, 9)] })
+    expect(inv.receipt.total).toBe(34.9)
+    // Half of what the receipt holds at 9 % goes back first.
+    const first = await issuedNote(w, inv, { lines: [line(w, 1, 5, 9)] })
+    expect((await pay(w, first.id, 5.45)).status).toBe(200)
+    const note = await issuedNote(w, inv, { lines: [line(w, 1), line(w, 1, 10, 9)] })
+
+    const r = await pay(w, note.id, 22.9)
+
+    expect(r.status).toBe(422)
+    expect(r.json.code).toBe('refund_exceeds_receipts')
+    // Per rate it holds 12 and 5.45, which is what this said, and 17.45 does not go through.
+    expect(r.json.left).toBe(11.46)
+    expect((await pay(w, note.id, 11.47)).json.code).toBe('refund_exceeds_receipts')
+    expect((await pay(w, note.id, 17.45)).json.left).toBe(11.46)
+
+    expect((await pay(w, note.id, r.json.left)).status).toBe(200)
+    expect(await raw(note.id)).toMatchObject({ amountPaid: 11.46 })
+  })
+
+  it('nothing fits: 0, and the bank', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInParts(w, [12])
+    expect((await pay(w, inv.id, 12, 'bank_transfer')).status).toBe(200)
+    const first = await issuedNote(w, inv, { quantity: 1 })
+    expect((await pay(w, first.id, 12)).status).toBe(200)
+    const note = await issuedNote(w, inv, { quantity: 1 })
+
+    const r = await pay(w, note.id, 12)
+
+    expect(r.status).toBe(422)
+    expect(r.json).toMatchObject({ code: 'refund_exceeds_receipts', left: 0 })
+    expect((await pay(w, note.id, 12, 'bank_transfer')).status).toBe(200)
+  })
+
+  it('a race for the claim says what the receipt holds as the door would split it', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const other = await issuedNote(w, inv, { quantity: 1 })
+    const note = await issuedNote(w, inv)
+    // The other note's claim lands between this door's check and its own claim.
+    const undo = during(update => !!update?.$push?.['register.refundClaims'], () => pay(w, other.id, 12))
+    let r: any
+    try {
+      r = await pay(w, note.id, 24)
+    } finally {
+      undo()
+    }
+
+    expect(r.status).toBe(422)
+    expect(r.json).toMatchObject({ code: 'refund_exceeds_receipts', left: 12 })
+    expect((await pay(w, note.id, r.json.left)).status).toBe(200)
+  })
+
+  it('at issue there is no amount to type: part by bank and part by receipt, it says to issue by bank and refund, and that way goes through', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInParts(w, [12])
+    expect((await pay(w, inv.id, 12, 'bank_transfer')).status).toBe(200)
+    const note = await noteOn(w, inv)
+    const before = await footprint(w)
+
+    const r = await send(w, note.id)
+
+    expect(r.status).toBe(422)
+    expect(r.json).toMatchObject({ code: 'refund_exceeds_receipts', left: 12, atIssue: true })
+    expect(r.json.message).toContain('Issue it by bank')
+    expect(await footprint(w)).toEqual(before)
+    expect((await raw(note.id)).status).toBe('draft')
+
+    expect((await w.call('PUT', `/invoices/${note.id}`, { paymentMethod: 'bank_transfer' })).status).toBe(200)
+    expect((await send(w, note.id)).status).toBe(200)
+    expect((await pay(w, note.id, 12)).status).toBe(200)
+    expect((await pay(w, note.id, 12, 'bank_transfer')).status).toBe(200)
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
+    expect(w.sim!.receipts.filter(x => x.kind === 'storno')).toHaveLength(1)
+  })
+
+  it('a cent: the first note prints, the second is one over, and the way it names goes through', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w, { lines: [{ ...line(w, 2), unitPrice: 0.14, taxAmount: 0.05, lineTotal: 0.33 }] })
+    const cent = () => [{ ...line(w, 1), unitPrice: 0.14, taxAmount: 0.03, lineTotal: 0.17 }]
+    expect((await send(w, (await noteOn(w, inv, { lines: cent() })).id)).status).toBe(200)
+
+    const second = await noteOn(w, inv, { lines: cent() })
+    const r = await send(w, second.id)
+
+    expect(r.status).toBe(422)
+    expect(r.json).toMatchObject({ left: 0.16, atIssue: true })
+    expect(r.json.message).toContain('Issue it by bank')
+    expect((await raw(second.id)).status).toBe('draft')
+
+    const byBank = await issuedNote(w, inv, { lines: cent() })
+    expect((await pay(w, byBank.id, 0.16)).status).toBe(200)
+  })
+})
+
 describe('the loser of a race is told it lost (the readers, A5)', () => {
   /** A storno of this note in the instant between its insert and its hold: written, live, holding nothing yet. */
   async function justInserted(w: TillWorld, inv: { receipt: any }, noteId: string, amount = 24) {

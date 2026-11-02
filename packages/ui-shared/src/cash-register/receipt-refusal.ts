@@ -39,7 +39,7 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'no_receipt_to_storno':
       if (data.reason === 'no_number') return 'cashRegister.receipt.noReceiptNumber'
       return data.reason === 'other_kind' ? 'cashRegister.receipt.noReceiptOfKind' : 'cashRegister.receipt.noReceiptToStorno'
-    case 'refund_exceeds_receipts': return 'cashRegister.receipt.refundExceeds'
+    case 'refund_exceeds_receipts': return data.atIssue ? 'cashRegister.receipt.refundExceedsAtIssue' : 'cashRegister.receipt.refundExceeds'
     case 'refund_exceeds_paid': return data.atIssue ? 'cashRegister.receipt.refundExceedsPaidAtIssue' : 'cashRegister.receipt.refundExceedsPaid'
     case 'receipt_on_other_device': return 'cashRegister.receipt.refundOtherDevice'
     case 'refund_requires_manager': return 'cashRegister.receipt.refundNeedsManager'

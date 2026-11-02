@@ -65,7 +65,7 @@ import { receiptTookMoney, refundGaveMoney } from './counting.js'
 import { toPosTransaction } from './mapping.js'
 import { saleInDoubt, saleProgress } from './in-doubt.js'
 import { MONEY_DOCUMENT_TYPES, PAYMENT_RECEIPT, PAYMENT_STORNO } from './pos-union.js'
-import { giveBackBudget, leftByRate, takeBudget, totalOf, wantedBy, type ByRate } from './refund-budget.js'
+import { giveBackBudget, holdEnough, leftByRate, takeBudget, totalOf, wantedBy, type ByRate } from './refund-budget.js'
 import type { RegisterPrinter } from './printer.js'
 import { grossByRate, receiptedByRate, refundBody, splitByRate, type ReceiptBody } from './receipt-lines.js'
 import { receiptMode } from './receipt-mode.js'
@@ -723,7 +723,15 @@ export async function finishInterruptedReceipt(c: RegisterContext, doc: any): Pr
 async function takeFromCited(doc: any): Promise<RegisterRefusal | null> {
   if (doc.type !== PAYMENT_STORNO) return null
   const cited: any = await Invoice.findOne({ _id: doc.register.storno.originalId, orgId: doc.orgId }).lean().exec()
-  if (!cited || !(await takeBudget(cited, doc._id, wantedBy(doc)))) return exceedsReceipts(cited ? [cited] : [], wantedBy(doc))
+  if (!cited || !(await takeBudget(cited, doc._id, wantedBy(doc)))) {
+    // Read again: what took it is why this one gave way, and its claim counts.
+    const [now, note, stornos]: any[] = await Promise.all([
+      Invoice.findOne({ _id: doc.register.storno.originalId, orgId: doc.orgId }).lean().exec(),
+      Invoice.findOne({ _id: doc.register.refundOf, orgId: doc.orgId }).lean().exec(),
+      receiptsOf(String(doc.orgId), String(doc.register.refundOf)),
+    ])
+    return exceedsReceipts(fittingAmount(note, stornos.filter((s: any) => String(s._id) !== String(doc._id)), now ? [now] : [], Number(doc.total) || 0))
+  }
   const claimed: any = await Invoice.findOne({ _id: cited._id, orgId: doc.orgId }, { 'register.fiscalReceiptNumber': 1 }).lean().exec()
   const number = claimed?.register?.fiscalReceiptNumber
   if (number && number !== doc.register.storno.originalReceiptNumber) await setRegister(doc._id, { 'storno.originalReceiptNumber': number })
@@ -764,16 +772,44 @@ export function whyNoCitation(backing: RefundBacking): NoCitation {
   return backing.cited.length || backing.uncitable.length ? { reason: 'other_kind' } : { reason: 'none' }
 }
 
-/** More than they hold. `left`: what they do hold of it, which is what can still go back this way. */
-export function exceedsReceipts(cited: any[], need: ByRate): RegisterRefusal {
-  const lefts = cited.map(leftByRate)
-  let held = 0
-  for (const [rate, cents] of need) held += Math.min(cents, lefts.reduce((s, l) => s + (l.get(rate) || 0), 0))
-  const left = held / 100
+/**
+ * The largest amount up to `upTo` that fits as the door will split it: pro rata of what is left of the note per
+ * rate (`refundNeed`), against what `citeable` holds per rate. So a person who types it goes through. What they
+ * hold added up rate by rate is not that: 12 at 20 % and nothing at 9 % read as 12, and 12 split over both rates
+ * asked 5.71 of a rate that holds nothing, sending the person round in circles.
+ */
+export function fittingAmount(note: any, stornos: any[], citeable: any[], upTo: number): number {
+  const gross = grossByRate(note)
+  if (!gross) return 0
+  const receipted = receiptedByRate(stornos)
+  const lefts = citeable.map(leftByRate)
+  const toCents = (v: number) => Math.round(v * 100)
+  const left = gross.map(g => Math.max(0, toCents(g.gross) - (receipted.get(g.rate) || 0)))
+  const room = left.reduce((s, c) => s + c, 0)
+  // Above this a rate's share is more than it holds, however the rounding falls: the search starts here.
+  let top = Math.min(toCents(upTo), room)
+  gross.forEach((g, i) => {
+    if (left[i] > 0) top = Math.min(top, Math.ceil(((lefts.reduce((s, l) => s + (l.get(g.rate) || 0), 0) + 1) * room) / left[i]))
+  })
+  for (let cents = top; cents > 0; cents--) {
+    const shares = splitByRate(gross, receipted, cents / 100)
+    if (shares?.length && holdEnough(new Map(shares.map(s => [s.rate, toCents(s.gross)])), citeable)) return cents / 100
+  }
+  return 0
+}
+
+/**
+ * More than they hold. `left`: what goes through as the door will split it (`fittingAmount`). At issue there
+ * is no amount to type, so it says how: the note all goes back as it is issued, or it does not issue.
+ */
+export function exceedsReceipts(left: number, atIssue = false): RegisterRefusal {
   return new RegisterRefusal(422, {
     code: 'refund_exceeds_receipts',
     left,
-    message: `This refund is more than the invoice's receipts still hold here (${left.toFixed(2)}). Refund that much this way, and the rest by bank.`,
+    ...(atIssue ? { atIssue: true } : {}),
+    message: atIssue
+      ? `This credit note is more than the invoice's receipts still hold here (${left.toFixed(2)}). Issue it by bank, then refund that much with Refund, and the rest by bank.`
+      : `This refund is more than the invoice's receipts still hold here (${left.toFixed(2)}). Refund that much this way, and the rest by bank.`,
   })
 }
 

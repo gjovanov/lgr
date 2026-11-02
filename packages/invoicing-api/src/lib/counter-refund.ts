@@ -19,7 +19,7 @@ import { outstandingOf } from 'services/biz/invoice-payment'
 import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { PAYMENT_STORNO } from 'services/biz/cash-register/pos-union'
 import {
-  PAYMENT_IN_PROGRESS, citeableElsewhere, citeableOn, claimantsOf, doubtRefusal, exceedsPaid, exceedsReceipts, inDoubtRefusal, noReceiptToStorno, onOtherDevice, paymentStornoDocument,
+  PAYMENT_IN_PROGRESS, citeableElsewhere, citeableOn, claimantsOf, doubtRefusal, exceedsPaid, exceedsReceipts, fittingAmount, inDoubtRefusal, noReceiptToStorno, onOtherDevice, paymentStornoDocument,
   printsRefund, receiptInDoubt, receiptsOf, refundBacking, refundCap, refundNeed, runReceiptSteps, whyNoCitation, type ReceiptTender,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { drawOn, holdEnough } from 'services/biz/cash-register/refund-budget'
@@ -52,7 +52,7 @@ const noNeed = (note: any, stornos: any[]) => (stornos.length && grossByRate(not
   : new RegisterRefusal(422, { code: 'receipt_not_printable', message: 'This document\'s money cannot be split per VAT rate: a rate with a negative total does not print.' }))
 
 /** Why what stands behind this note cannot back a refund of `amount` on this device, or null when it can. */
-async function assertBacked(orgId: string, note: any, amount: number, deviceNumber: string, mode: ReceiptMode): Promise<void> {
+async function assertBacked(orgId: string, note: any, amount: number, deviceNumber: string, mode: ReceiptMode, atIssue: boolean): Promise<void> {
   const backing = await refundBacking(orgId, note)
   const citeable = citeableOn(backing.cited, deviceNumber, mode, note.currency)
   const stornos = await receiptsOf(orgId, String(note._id))
@@ -62,7 +62,7 @@ async function assertBacked(orgId: string, note: any, amount: number, deviceNumb
   // What is unresolved on the invoice may be the money this needs, and it has a way out of its own.
   if (backing.doubt) throw doubtRefusal(backing.doubt)
   if (backing.printing) throw new RegisterRefusal(409, { ...PAYMENT_IN_PROGRESS })
-  if (citeable.length) throw exceedsReceipts(citeable, need)
+  if (citeable.length) throw exceedsReceipts(fittingAmount(note, stornos, citeable, amount), atIssue)
   const elsewhere = citeableElsewhere(backing.cited, deviceNumber)
   throw elsewhere.length ? onOtherDevice(elsewhere) : noReceiptToStorno(whyNoCitation(backing))
 }
@@ -166,7 +166,7 @@ export async function prepareRefund(orgId: string, user: RegisterUser & { role?:
   if (note.currency && currency && note.currency !== currency) {
     throw new RegisterRefusal(422, { code: 'receipt_currency', message: `The session's device prints in ${currency}, and this document is in ${note.currency}.` })
   }
-  await assertBacked(orgId, note, tender.amount, printer.deviceNumber, mode)
+  await assertBacked(orgId, note, tender.amount, printer.deviceNumber, mode, atIssue)
   return { context, tender, mode }
 }
 
@@ -244,7 +244,7 @@ async function nextPart(orgId: string, prepared: PreparedRefund, note: any, amou
   const need = refundNeed(note, stornos, amount)
   if (!need) throw noNeed(note, stornos)
   const part = drawOn(need, citeable)
-  if (!part) throw exceedsReceipts(citeable, need)
+  if (!part) throw exceedsReceipts(fittingAmount(note, stornos, citeable, amount))
   const document = paymentStornoDocument({
     note, cited: part.cited, take: part.take, tender: prepared.tender, session: c.session!, user: c.user, printer,
   })

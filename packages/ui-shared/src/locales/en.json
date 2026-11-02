@@ -1817,6 +1817,7 @@
       "noReceiptNumber": "Receipt {number} has no number from the device on record, and a storno cites that number. Bring it off the slip on the receipt's page, or refund it by bank.",
       "noReceiptOfKind": "This credit note's invoice has a receipt, but not one a storno from here can reverse: a text receipt on a fiscal device or the reverse, one on delivery, one nothing proves printed, or one with no number or device on record. Refund it by bank.",
       "refundExceeds": "This refund is more than the invoice's receipts still hold here ({left}). Refund that much this way, and the rest by bank.",
+      "refundExceedsAtIssue": "This credit note is more than the invoice's receipts still hold here ({left}). Issue it by bank, then refund that much with Refund, and the rest by bank.",
       "refundExceedsPaid": "This refund is more than the customer paid on this invoice and has not had back ({left}). Refund that much this way. A bank refund or the till's storno is the way for the rest.",
       "refundExceedsPaidAtIssue": "This credit note is more than the customer paid on this invoice and has not had back ({left}). Issue it by bank, then refund that much with Refund. A bank refund or the till's storno is the way for the rest.",
       "refundOtherDevice": "The invoice's receipts printed on device {devices}. A storno prints on the device that printed its receipt: refund from a session on it, or by bank.",
