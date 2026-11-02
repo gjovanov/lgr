@@ -18,8 +18,8 @@ import { logger } from 'services/logger'
  *    handler, and the raw body travels as it came, never re-encoded;
  *  - that pod cannot be reached: 503 `fiscal_holder_unreachable`, nothing written. The terminal
  *    retries under the sale's idempotency key;
- *  - a hop that arrives where the device has just left: 409 `fiscal_holder_moved`, and the client
- *    retries once. ⚠ A hop is never forwarded again.
+ *  - a hop that arrives where the device has just left: 409 `fiscal_holder_moved`, nothing done, and the
+ *    person presses again, as the message says. No client retries it. ⚠ A hop is never forwarded again.
  *
  * On one pod, and on a master, the row always names this process: nothing is ever forwarded.
  *

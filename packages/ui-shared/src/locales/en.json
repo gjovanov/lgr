@@ -1836,9 +1836,11 @@
       "deviceAway": "The fiscal device this document printed on is not answering, and what it holds decides this. Nothing was changed. Connect it, then look at it again. A device gone for good is deactivated on its page, after which your word stands.",
       "deviceBusy": "The fiscal device is busy with another document, so it could not be asked. Nothing was changed. Try again in a moment.",
       "holderUnreachable": "The fiscal device is held by another server process that cannot be reached right now. Nothing was changed. Try again in a moment.",
+      "holderMoved": "The fiscal device moved to another server process while this was on its way. Nothing was done. Press again.",
       "saleInDoubt": "Nothing can prove whether this sale's fiscal receipt printed. Its money stands, and its storno waits until someone checks the device and says which.",
       "saleInDoubtRefused": "Nothing can prove whether the receipt of sale {number} printed, so a storno cannot say what it reverses. Nothing was reversed. Check the device, then settle it on its page under Cash Register Sales.",
       "saleInProgress": "This sale is still being rung up. Nothing was changed. Wait for it to finish, then try again.",
+      "stornoInProgress": "This sale is already being reversed. Nothing new was started. Wait a moment, then look at it again.",
       "sessionClosing": "This session is being closed, so it takes nothing new. Nothing was rung up, reversed or printed. Wait for the close to finish, then open a new session.",
       "settleConfirmSale": {
         "printed": "The receipt is on the device. Type its number off the slip: the storno of this sale cites it. This cannot be undone.",
