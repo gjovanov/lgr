@@ -4,7 +4,7 @@ import jwt from '@elysiajs/jwt'
 import { PERMISSIONS } from 'config/constants'
 import { createHmac } from 'node:crypto'
 import { mongoose } from 'db/connection'
-import { Desktop, Invoice } from 'db/models'
+import { Desktop, FiscalDevice, Invoice } from 'db/models'
 import { DESKTOP_TOKEN_AUDIENCE } from 'services/biz/desktop/desktop.service'
 import { createTestContact, createTestOrg, createTestWarehouse, createTestFiscalDevice, createTestProduct, createTestStockLevel } from '../helpers/factories'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
@@ -385,6 +385,8 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
     expect(opened.status).toBe(200)
     // And a sale in doubt, whose device a person's word has to get past.
     heldSale = await saleInDoubt(String(opened.json.session.id ?? opened.json.session._id))
+    // Its print marked the device `error`, which would answer the doors below for a reason of its own.
+    await FiscalDevice.updateOne({ _id: deviceId }, { $set: { status: 'online' } })
     // A crash, not a graceful stop: a graceful stop releases the presence row (Phase 5), and the
     // other pod then rightly answers `not_connected`. Killed, the row still names the holder, whose
     // address answers nothing.
