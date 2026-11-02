@@ -1665,6 +1665,99 @@ describe('the owner\'s decision: a partly stornoed sale invoices only what is le
   })
 })
 
+describe('a sale whose lines have no ids, copied raw from an old POS row (the reader, finding 6)', () => {
+  /** Three articles, their lines' ids gone, and one of the first back. */
+  async function stripped(w: TillWorld) {
+    const s = await threeArticles(w)
+    await Invoice.collection.updateOne({ _id: s.sale._id }, { $unset: { 'lines.$[]._id': '' } })
+    expect((await w.storno(s.saleId, undefined, { lines: [{ lineId: '#0', quantity: 1 }] })).status).toBe(200)
+    return s
+  }
+  const stateOf = async (w: TillWorld, s: Sold) => (await w.call('GET', `/invoices/${s.saleId}/to-invoice`)).json.invoicing
+  const invoiceIt = async (w: TillWorld, s: Sold, lines?: { lineId: string; quantity: number }[]) => {
+    const contact = await createTestContact(w.oid)
+    return w.call('POST', `/invoices/${s.saleId}/to-invoice`, { contactId: String(contact._id), ...(lines ? { lines } : {}) })
+  }
+
+  it('names them by their place, as the storno does, and each keeps what it sold and what came back', async () => {
+    const w = await tillWorld(app)
+    const s = await stripped(w)
+    const state = await stateOf(w, s)
+    expect(state.lines.map((l: any) => [l.lineId, l.quantity, l.returned, l.remaining])).toEqual([['#0', 3, 1, 2], ['#1', 2, 0, 2], ['#2', 1, 0, 1]])
+    expect(state.remainingTotals.total).toBe(46.9)
+  })
+
+  it('invoices all that is left, on every line, and claims it: a second invoice finds nothing', async () => {
+    const w = await tillWorld(app)
+    const s = await stripped(w)
+
+    const r = await invoiceIt(w, s)
+
+    expect(r.status).toBe(200)
+    const invoice = await raw(r.json.invoice.id)
+    expect(invoice.lines.map((l: any) => [l.description, l.quantity, l.cashSaleLineId])).toEqual([['Болт', 2, '#0'], ['Гайка', 2, '#1'], ['Шайба', 1, '#2']])
+    expect(invoice.total).toBe(46.9)
+    expect((await stateOf(w, s)).state).toBe('full')
+
+    const again = await invoiceIt(w, s)
+    expect([again.status, again.json.code]).toEqual([409, 'cash_sale_fully_invoiced'])
+    expect((await w.call('GET', `/cash-register/documents/${s.saleId}`)).json.row.invoicingState).toBe('full')
+  })
+
+  it('in parts, by place, never past what is left, and a void gives it back', async () => {
+    const w = await tillWorld(app)
+    const s = await stripped(w)
+
+    const part = await invoiceIt(w, s, [{ lineId: '#1', quantity: 1 }])
+    expect(part.status).toBe(200)
+    expect(part.json.invoice.total).toBe(6)
+    const over = await invoiceIt(w, s, [{ lineId: '#1', quantity: 2 }])
+    expect([over.status, over.json.code]).toEqual([409, 'cash_sale_quantity_exceeded'])
+    expect((await stateOf(w, s)).lines[1]).toMatchObject({ invoiced: 1, remaining: 1 })
+
+    expect((await w.call('POST', `/invoices/${part.json.invoice.id}/void`, {})).status).toBe(200)
+    expect((await stateOf(w, s)).lines[1]).toMatchObject({ invoiced: 0, remaining: 2 })
+  })
+
+  it('a draft keeps its place through an edit', async () => {
+    const w = await tillWorld(app)
+    const s = await stripped(w)
+    const contact = await createTestContact(w.oid)
+    const draft = await w.call('POST', `/invoices/${s.saleId}/to-invoice`, { contactId: String(contact._id), issue: false })
+    expect(draft.status).toBe(200)
+    const lines = (await raw(draft.json.invoice.id)).lines.map((l: any) => ({ productId: String(l.productId), description: l.description, quantity: l.cashSaleLineId === '#0' ? 1 : l.quantity, unit: l.unit, unitPrice: l.unitPrice, discount: l.discount, taxRate: l.taxRate, cashSaleLineId: l.cashSaleLineId }))
+
+    const edited = await w.call('PUT', `/invoices/${draft.json.invoice.id}`, { lines })
+
+    expect(edited.status).toBe(200)
+    expect((await raw(draft.json.invoice.id)).lines.map((l: any) => [l.cashSaleLineId, l.quantity])).toEqual([['#0', 1], ['#1', 2], ['#2', 1]])
+    expect((await stateOf(w, s)).lines[0]).toMatchObject({ invoiced: 1, remaining: 1 })
+  })
+
+  it('an invoice attached to it claims by place too', async () => {
+    const w = await tillWorld(app)
+    const s = await stripped(w)
+    const d = await draftOf(w, { method: 'bank_transfer', lines: [line(w, 1)] })
+    expect((await send(w, d.id)).status).toBe(200)
+
+    const r = await w.call('POST', `/invoices/${d.id}/attach-to-cash-sale`, { cashSaleId: s.saleId })
+
+    expect(r.status).toBe(200)
+    expect((await raw(d.id)).lines[0].cashSaleLineId).toBe('#0')
+    expect((await stateOf(w, s)).lines[0]).toMatchObject({ invoiced: 1, remaining: 1 })
+  })
+
+  it('a sale whose lines have ids is as it was: the invoice line points at its id', async () => {
+    const w = await tillWorld(app)
+    const s = await threeArticles(w)
+    const r = await invoiceIt(w, s)
+    expect(r.status).toBe(200)
+    const invoice = await raw(r.json.invoice.id)
+    expect(invoice.lines.map((l: any) => String(l.cashSaleLineId))).toEqual(s.ids)
+    expect(invoice.lines[0].cashSaleLineId instanceof Invoice.base.Types.ObjectId).toBe(true)
+  })
+})
+
 describe('a partial storno and a credit note\'s refund draw on one budget, per VAT rate', () => {
   /** A note on an invoice for that sale, for `quantity` of the world's article, issued giving nothing back yet. */
   async function noteFor(w: TillWorld, invoice: { id: string; contactId: string }, quantity = 1, productLine?: any) {

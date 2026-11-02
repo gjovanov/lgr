@@ -43,8 +43,11 @@ export interface IInvoiceLine {
   orderRef?: IInvoiceLineOrderRef
   /** Original OCR-extracted description (before product matching) — feeds alias learning. */
   sourceText?: string
-  /** On an invoice for a cash sale: the `_id` of the cash-sale line this line invoices. */
-  cashSaleLineId?: Types.ObjectId
+  /**
+   * On an invoice for a cash sale: the `_id` of the cash-sale line this line invoices, or its place (`#1`) on a sale
+   * copied raw from an old POS row, whose lines have none (`lineKey`).
+   */
+  cashSaleLineId?: Types.ObjectId | string
 }
 
 /**
@@ -457,7 +460,7 @@ const invoiceSchema = new Schema<IInvoice>(
           required: false,
         },
         sourceText: String,
-        cashSaleLineId: Schema.Types.ObjectId,
+        cashSaleLineId: Schema.Types.Mixed,
       },
     ],
     subtotal: { type: Number, default: 0 },
