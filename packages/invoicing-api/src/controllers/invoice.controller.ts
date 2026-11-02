@@ -25,7 +25,7 @@ import { GRValidationError } from 'services/biz/product-update.service'
 import { syncCashSettlement } from 'services/biz/cash-settlement.service'
 import { fitsDue, heldOn, isBeingVoided, issueLeaseFree, notBeingVoided, outstandingOf, paymentPipeline, unclaimedDraft } from 'services/biz/invoice-payment'
 import {
-  DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, inDoubtRefusal, isImportedDocument, owesDeliveryReceipt,
+  DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, inDoubtRefusal, isImportedDocument, owedByMovingToDelivery, owesDeliveryReceipt,
   paymentRefusal, printsOnPayment, receiptFacts, receiptInDoubt,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { movesPrintedMoney } from 'services/biz/cash-register/receipt-lines'
@@ -1172,6 +1172,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       delete (body as any).status
       delete (body as any).draftNumber
       delete (body as any).numberHistory
+      if ((body as any).paymentMethod === 'cash_on_delivery' && await owedByMovingToDelivery(orgId, existing)) {
+        ;(body as any).deliveryReceiptOwed = true
+      }
 
       let updated: any
       if (Array.isArray(productUpdates) && productUpdates.length > 0) {

@@ -210,6 +210,18 @@ export async function owesDeliveryReceipt(orgId: string, doc: any): Promise<bool
   return !live && printsHere(orgId)
 }
 
+/**
+ * Whether an edit moving this issued document onto cash on delivery makes it owe a receipt. Written by the edit, as
+ * the issue writes it: with nothing owed the page offered no button, Pay printed nothing on the courier's money,
+ * and the sale ended with no fiscal receipt. A document a receipt stands on owes none: that money has its receipt.
+ * Moving away needs nothing, because `mayOweDeliveryReceipt` asks the method.
+ */
+export async function owedByMovingToDelivery(orgId: string, doc: any): Promise<boolean> {
+  if (doc.paymentMethod === 'cash_on_delivery' || !PAYABLE.includes(doc.status) || !printsAtCounter(doc, 'cash_on_delivery', true)) return false
+  if (await Invoice.exists(liveReceipts(orgId, doc._id ?? doc.id)).exec()) return false
+  return printsHere(orgId)
+}
+
 /** What the document alone says about it: the rest is whether one printed, and whether LGR still prints. */
 const mayOweDeliveryReceipt = (doc: any) => !!doc?.deliveryReceiptOwed && doc.paymentMethod === 'cash_on_delivery'
   && PAYABLE.includes(doc.status) && printsAtCounter(doc, doc.paymentMethod, true)

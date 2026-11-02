@@ -3550,6 +3550,137 @@ describe('the issue holds its claim until the receipt does (the third read, find
     }
   }
 
+  describe('an edit onto cash on delivery owes the receipt the courier\'s money needs (the fourth read, finding 6)', () => {
+    const toDelivery = (w: TillWorld, id: string) => w.call('PUT', `/invoices/${id}`, { paymentMethod: 'cash_on_delivery' })
+    /** What the courier's sale ends with: one receipt, in slot R, for what is owed, and the invoice still due. */
+    async function printedOnSlotR(w: TillWorld, id: string, owed: number) {
+      expect((await shown(w, id)).receiptToPrint).toBe(true)
+      const printed = await printIt(w, id)
+      expect(printed.status).toBe(200)
+      expect(closed(w).at(-1)!.payments).toEqual([{ mode: 'R', amount: owed }])
+      expect((await shown(w, id)).receiptToPrint).toBe(false)
+      expect((await sessionOf(w)).totalCashOnDelivery).toBe(owed)
+    }
+
+    it('the reader\'s run: cash edited to it in the issue\'s gap, and the message points at a button that is there', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w)
+      let edit: any
+      const r = await sendWith(w, d.id, async () => { edit = await toDelivery(w, d.id) })
+
+      expect(edit.status).toBe(200)
+      expect(r.status).toBe(200)
+      expect(r.json.receiptCode).toBe('issue_tender_moved')
+      expect(r.json.receiptError).toContain('print its receipt on its page')
+      expect(closed(w)).toHaveLength(0)
+
+      await printedOnSlotR(w, d.id, 24)
+      expect(closed(w)).toHaveLength(1)
+      expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0, paymentMethod: 'cash_on_delivery' })
+    })
+
+    it('the same on a bank invoice, with no race', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      expect((await printIt(w, d.id)).json.code).toBe('no_receipt_owed')
+
+      expect((await toDelivery(w, d.id)).status).toBe(200)
+
+      await printedOnSlotR(w, d.id, 24)
+      expect(closed(w)).toHaveLength(1)
+    })
+
+    it('part paid by bank: for what is still owed', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      expect((await pay(w, d.id, 10, 'bank_transfer')).status).toBe(200)
+
+      expect((await toDelivery(w, d.id)).status).toBe(200)
+
+      await printedOnSlotR(w, d.id, 14)
+    })
+
+    it('until it has printed the courier\'s money waits for it, as on any delivery invoice', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      await toDelivery(w, d.id)
+
+      const money = await pay(w, d.id, 24, 'cash_on_delivery')
+
+      expect(money.status).toBe(409)
+      expect(money.json.code).toBe('delivery_receipt_owed')
+    })
+
+    it('where LGR prints nothing it writes nothing that shows', async () => {
+      const w = await tillWorld(app)
+      await allowSalesWithoutPrinter(w.oid)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+
+      expect((await toDelivery(w, d.id)).status).toBe(200)
+
+      expect((await raw(d.id)).deliveryReceiptOwed).toBeUndefined()
+      expect((await shown(w, d.id)).receiptToPrint).toBe(false)
+      expect((await printIt(w, d.id)).json.code).toBe('no_receipt_owed')
+      expect((await pay(w, d.id, 24, 'cash_on_delivery')).status).toBe(200)
+    })
+
+    it('a document a receipt stands on owes none: that money has its receipt', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      expect((await pay(w, d.id, 10)).status).toBe(200)
+
+      expect((await toDelivery(w, d.id)).status).toBe(200)
+
+      expect((await raw(d.id)).deliveryReceiptOwed).toBeUndefined()
+    })
+
+    it('a draft owes nothing until it is issued, and a document already on it is not moved', async () => {
+      const w = await tillWorld(app)
+      const draft = await draftOf(w, { method: 'bank_transfer' })
+      expect((await toDelivery(w, draft.id)).status).toBe(200)
+      expect((await raw(draft.id)).deliveryReceiptOwed).toBeUndefined()
+
+      const onDelivery = await draftOf(w, { method: 'cash_on_delivery' })
+      w.sim!.paper = false
+      await send(w, onDelivery.id)
+      w.sim!.paper = true
+      await Invoice.updateOne({ _id: onDelivery.id }, { $unset: { deliveryReceiptOwed: 1 } })
+      expect((await w.call('PUT', `/invoices/${onDelivery.id}`, { notes: 'edited', paymentMethod: 'cash_on_delivery' })).status).toBe(200)
+      expect((await raw(onDelivery.id)).deliveryReceiptOwed).toBeUndefined()
+    })
+
+    it('the re-issue of a number issued twice prints nothing, so it owes nothing', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      await Invoice.updateOne({ _id: d.id }, { $set: { 'stockSource.detectedBy': 'number_clash' } })
+
+      expect((await toDelivery(w, d.id)).status).toBe(200)
+
+      expect((await raw(d.id)).deliveryReceiptOwed).toBeUndefined()
+    })
+
+    it('moved away again it owes nothing, and Pay takes the money', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'bank_transfer' })
+      await send(w, d.id)
+      await toDelivery(w, d.id)
+      expect((await shown(w, d.id)).receiptToPrint).toBe(true)
+
+      expect((await w.call('PUT', `/invoices/${d.id}`, { paymentMethod: 'cash' })).status).toBe(200)
+
+      expect((await shown(w, d.id)).receiptToPrint).toBe(false)
+      expect((await printIt(w, d.id)).json.code).toBe('no_receipt_owed')
+      expect((await pay(w, d.id, 24)).status).toBe(200)
+      expect(closed(w)).toHaveLength(1)
+    })
+  })
+
   describe('a delivery receipt pressed in that gap (the fourth read, finding 2)', () => {
     it('it is refused while the issue holds: one receipt, the issue\'s', async () => {
       const w = await tillWorld(app)
