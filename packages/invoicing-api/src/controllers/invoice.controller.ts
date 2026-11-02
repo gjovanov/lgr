@@ -1379,6 +1379,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         if (tenderMoved(doc, doc.issue?.tender ?? prepared.tender)) {
           return { invoice: await r.invoices.findOne({ id, orgId } as any), ...nothingPrinted(doc) }
         }
+        // ⚠ And a lapsed lease let the page's press through: what `prepared` read of the receipts is from before
+        // the claim, and a second delivery receipt books the sale on the device twice.
+        if (prepared.tender.method === 'cash_on_delivery' && !(await owesDeliveryReceipt(orgId, doc))) {
+          return { invoice: await r.invoices.findOne({ id, orgId } as any) }
+        }
         return await withReceipt(await printReceipt(orgId, prepared, doc, key ? { key, hash: hash! } : undefined))
       } catch (e: any) {
         if (!(e instanceof RegisterRefusal)) throw e
@@ -1841,6 +1846,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // What a request that died left comes first: its receipt may have printed.
       await finishInterruptedDocuments(orgId, user, id)
       const doc: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
+      // ⚠ Right after the issue's write this owes a receipt, and the issue is about to print it. A delivery
+      // receipt pays nothing and lets go of its hold, so nothing the issue reads next would tell.
+      if (doc?.issue?.leaseUntil && new Date(doc.issue.leaseUntil).getTime() >= Date.now()) return status(409, ISSUE_IN_PROGRESS)
       const prepared = (await owesDeliveryReceipt(orgId, doc)) ? await prepareIssueReceipt(orgId, user, doc) : null
       if (!prepared) {
         const doubt = await receiptInDoubt(orgId, id)

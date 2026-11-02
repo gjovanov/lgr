@@ -3550,6 +3550,54 @@ describe('the issue holds its claim until the receipt does (the third read, find
     }
   }
 
+  describe('a delivery receipt pressed in that gap (the fourth read, finding 2)', () => {
+    it('it is refused while the issue holds: one receipt, the issue\'s', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'cash_on_delivery' })
+      let pressed: any
+      const r = await sendWith(w, d.id, async () => { pressed = await printIt(w, d.id) })
+
+      expect(pressed.status).toBe(409)
+      expect(pressed.json.code).toBe('issue_in_progress')
+      expect(r.status).toBe(200)
+      expect(closed(w)).toHaveLength(1)
+      expect(await receiptsOf(d.id)).toHaveLength(1)
+      expect((await sessionOf(w)).totalCashOnDelivery).toBe(24)
+      expect(await raw(d.id)).toMatchObject({ status: 'sent', amountPaid: 0 })
+    })
+
+    it('a lease lapsed in that gap holds no claim, so the press prints, and the issue finds that and prints nothing', async () => {
+      const w = await tillWorld(app)
+      const d = await draftOf(w, { method: 'cash_on_delivery' })
+      let pressed: any
+      const r = await sendWith(w, d.id, async () => {
+        await Invoice.updateOne({ _id: d.id }, { $set: { 'issue.leaseUntil': new Date(Date.now() - 1000) } })
+        pressed = await printIt(w, d.id)
+      })
+
+      expect(pressed.status).toBe(200)
+      expect(r.status).toBe(200)
+      expect(r.json.receiptError).toBeUndefined()
+      expect(closed(w)).toHaveLength(1)
+      expect(await receiptsOf(d.id)).toHaveLength(1)
+      expect((await sessionOf(w)).totalCashOnDelivery).toBe(24)
+    })
+
+    it('once the issue has let go the press goes on as it always did: nothing left to print, or the one a failed print owes', async () => {
+      const w = await tillWorld(app)
+      const printed = await draftOf(w, { method: 'cash_on_delivery' })
+      expect((await send(w, printed.id)).status).toBe(200)
+      expect((await printIt(w, printed.id)).json.code).toBe('no_receipt_owed')
+
+      const failed = await draftOf(w, { method: 'cash_on_delivery' })
+      w.sim!.paper = false
+      expect((await send(w, failed.id)).json.receiptError).toBeTruthy()
+      w.sim!.paper = true
+      expect((await printIt(w, failed.id)).status).toBe(200)
+      expect(closed(w)).toHaveLength(2)
+    })
+  })
+
   it('quantity 2 to 3 right after the issue\'s write: refused while it holds, and what was rung is what is booked', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w)
