@@ -47,7 +47,7 @@ afterEach(async () => {
   ;(config.upload as any).dir = saved.upload
   forgetAllHomes()
   await (mongoose.connection as any).client.db(siteDbName).dropDatabase().catch(() => {})
-  rmSync(root, { recursive: true, force: true })
+  if (root) rmSync(root, { recursive: true, force: true })
   await clearCollections()
 }, 60_000)
 

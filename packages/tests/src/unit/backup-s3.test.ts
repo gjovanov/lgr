@@ -199,7 +199,7 @@ describe('the object-storage destination', () => {
   })
   afterEach(() => {
     globalThis.fetch = realFetch
-    rmSync(dir, { recursive: true, force: true })
+    if (dir) rmSync(dir, { recursive: true, force: true })
     Object.assign(config.backup.s3, saved.s3)
     config.backup.encryptionPublicKey = saved.key
   })
@@ -318,7 +318,7 @@ describe('which destinations a run attempts', () => {
   })
   afterEach(() => {
     globalThis.fetch = realFetch
-    rmSync(dir, { recursive: true, force: true })
+    if (dir) rmSync(dir, { recursive: true, force: true })
     Object.assign(config.backup.s3, saved)
   })
 

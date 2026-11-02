@@ -46,7 +46,7 @@ beforeAll(async () => {
 }, 60_000)
 afterAll(async () => {
   await teardownTestDB()
-  rmSync(TMP, { recursive: true, force: true })
+  if (TMP) rmSync(TMP, { recursive: true, force: true })
 }, 60_000)
 afterEach(async () => { await clearCollections() }, 30_000)
 
