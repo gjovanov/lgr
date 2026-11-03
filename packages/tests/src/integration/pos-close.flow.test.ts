@@ -176,7 +176,8 @@ describe('a close that dies in its Z (the third read of FR-23, finding 6)', () =
     expect(s.fiscalError).toContain('may have printed')
     expect(s.closeClientKey).toBeUndefined()
     expect(s.closeLeaseUntil).toBeUndefined()
-    expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'close_interrupted' })).toBe(1)
+    // Written in the background (`createAuditEntry`), so it may land just after the answer.
+    await until(async () => (await AuditLog.countDocuments({ orgId: w.oid, action: 'close_interrupted' })) === 1, 'the audit entry')
 
     const again = await close(w, { counted: { cash: 100 } })
     expect(again.status).toBe(200)
