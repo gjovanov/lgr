@@ -42,8 +42,8 @@
         <v-card variant="outlined">
           <v-card-title class="text-subtitle-1">{{ $t('accounting.vat.files') }}</v-card-title>
           <v-list density="compact">
-            <v-list-item v-for="file in taxReturn.files" :key="file.name" :title="file.name" :subtitle="`${file.bytes} B`" @click="download(file.name)">
-              <template #append><v-icon size="small">mdi-download</v-icon></template>
+            <v-list-item v-for="file in taxReturn.files" :key="file.name" :title="file.name" :subtitle="`${file.bytes} B`" :disabled="!canDownload" @click="download(file.name)">
+              <template v-if="canDownload" #append><v-icon size="small">mdi-download</v-icon></template>
             </v-list-item>
           </v-list>
           <v-divider />
@@ -163,6 +163,8 @@ const busy = ref(false)
 /** A return that has not been filed. The server holds the same line (`vat-return.service.ts`). */
 const open = computed(() => !taxReturn.value || ['draft', 'generated'].includes(taxReturn.value.status))
 const canFile = computed(() => appStore.user?.role === 'admin' || !!appStore.user?.permissions?.includes('accounting.file'))
+/** The files name a person, so they go to who files them or audits them, as the server's read rule says. */
+const canDownload = computed(() => canFile.value || !!appStore.user?.permissions?.includes('admin.audit'))
 
 const localeCode = computed(() => ({ en: 'en-US', bg: 'bg-BG', mk: 'mk-MK', de: 'de-DE' } as Record<string, string>)[appStore.locale] || 'en-US')
 const money = (cents = 0) => formatCurrency(cents / 100, currency.value, localeCode.value)
