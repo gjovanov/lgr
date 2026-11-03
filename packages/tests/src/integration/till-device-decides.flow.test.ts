@@ -202,19 +202,35 @@ describe('the device decides what a till sale prints (D1)', () => {
       expect(back.json.transaction.fiscal).toMatchObject({ state: 'printed' })
     })
 
-    it('a text sale\'s storno prints nothing fiscal, on the device that printed it', async () => {
+    /** All the slips the device printed, as one line of words: a slip wraps what it says at its width. */
+    const slipWords = (w: TillWorld) => w.sim!.nonFiscalLines.join(' ').replace(/\s+/g, ' ')
+
+    it('a text sale\'s storno prints a slip, nothing fiscal, on the device that printed it (#467)', async () => {
       const w = await tillWorld(app)
       w.sim!.unfiscalizedUnit = true
       const r = await sale(w)
+      const sold = await docOf(r.json.transaction.id)
 
       const back = await w.storno(r.json.transaction.id)
 
       expect(back.status).toBe(200)
+      expect(back.json.receiptError).toBeUndefined()
+      expect(back.json.transaction.fiscal).toMatchObject({ state: 'printed', mode: 'text' })
       expect(fiscalCommands(w)).toHaveLength(0)
+      expect(textsClosed(w)).toBe(2)
+      // It says what it reverses, as a refund's storno does.
+      expect(slipWords(w)).toContain(`Сторно на бон № ${sold.invoiceNumber}`)
+      const storno = await docOf(back.json.transaction.id)
+      expect(storno.register).toMatchObject({ isFiscal: false, receiptText: `Сторно на бон № ${sold.invoiceNumber}`, fiscalDeviceNumber: 'ED123456' })
+      expect(storno.register.unp).toBeUndefined()
+      expect(await Sequence.countDocuments({ orgId: w.oid, prefix: /^UNP/ })).toBe(0)
       expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+      // The session's report counts it among the slips. Printing nothing, it read as unprinted.
+      const shown = await w.call('GET', `/trade/pos/session/${w.sessionId}/close-preview`)
+      expect(shown.json.report.counts).toMatchObject({ text: 2, unprinted: 0 })
     })
 
-    it('and on one fiscalized since: the device holds no record of that sale, so nothing fiscal cites it', async () => {
+    it('and on one fiscalized since: the device holds no record of that sale, so nothing fiscal cites it, nor a slip', async () => {
       const w = await tillWorld(app)
       w.sim!.unfiscalizedUnit = true
       const r = await sale(w)
@@ -224,7 +240,46 @@ describe('the device decides what a till sale prints (D1)', () => {
 
       expect(back.status).toBe(200)
       expect(fiscalCommands(w)).toHaveLength(0)
+      // A fiscalized device never prints text.
+      expect(textsClosed(w)).toBe(1)
+      const storno = await docOf(back.json.transaction.id)
+      expect(storno.register.fiscal).toMatchObject({ state: 'none' })
+      expect(storno.register.fiscal.mode).toBeUndefined()
+      expect(storno.register.receiptText ?? null).toBeNull()
       expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+    })
+
+    it('with the device away, nothing prints and it goes through, as before: a slip has no legal weight', async () => {
+      const w = await tillWorld(app)
+      w.sim!.unfiscalizedUnit = true
+      const r = await sale(w)
+      forgetDevices()
+
+      const back = await w.storno(r.json.transaction.id)
+
+      expect(back.status).toBe(200)
+      expect(textsClosed(w)).toBe(1)
+      expect((await docOf(back.json.transaction.id)).register.fiscal).toMatchObject({ state: 'none' })
+      expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+    })
+
+    it('a slip that does not print gives the sale back, and nothing is reversed', async () => {
+      const w = await tillWorld(app)
+      w.sim!.unfiscalizedUnit = true
+      const r = await sale(w)
+      w.sim!.paper = false
+
+      const back = await w.storno(r.json.transaction.id)
+
+      w.sim!.paper = true
+      expect(back.status).toBe(503)
+      expect(back.json.code).toBe('fiscal_error')
+      const sold = await docOf(r.json.transaction.id)
+      expect(sold.register.stornoState ?? 'none').toBe('none')
+      expect(sold.register.stornoedBy ?? []).toHaveLength(0)
+      expect(await sessionOf(w)).toMatchObject({ totalCash: 12, totalReturns: 0 })
+      expect((await w.stock()).quantity).toBe(9)
+      expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_storno', status: { $ne: 'voided' } })).toBe(0)
     })
   })
 

@@ -1045,6 +1045,11 @@ export function printedFiscally(original: any): boolean {
   return !!original.register?.isFiscal && (!!original.register?.fiscalReceiptNumber || original.register?.fiscal?.state === 'printed')
 }
 
+/** Whether the sale printed a text slip: its storno prints one too, where the device still prints them (#467). */
+export function printedAsText(original: any): boolean {
+  return original.register?.fiscal?.mode === 'text' && original.register?.fiscal?.state === 'printed'
+}
+
 export interface StornoInput {
   orgId: string
   user: RegisterUser
@@ -1058,6 +1063,8 @@ export interface StornoInput {
   session: RegisterSession | null
   /** Whether a storno receipt prints: the sale's was fiscal and the device is there. */
   printsReceipt: boolean
+  /** Whether a slip prints instead: the sale printed one, and the device is there and prints text (#467). */
+  printsSlip?: boolean
   printer: RegisterPrinter | null
 }
 
@@ -1079,6 +1086,7 @@ export function stornoDocument(input: StornoInput): Record<string, any> {
   const refund = paid.map((p: any) => ({ date: now, method: p.method, amount: round2(p.amount), ...(p.reference ? { reference: p.reference } : {}) }))
   const methods = [...new Set(refund.map((p: any) => p.method))]
   const warehouseId = session?.warehouseId ?? reg.warehouseId ?? (original.lines || []).find((l: any) => l.warehouseId)?.warehouseId
+  const slip = !printsReceipt && !!input.printsSlip && !!printer
   return {
     orgId: original.orgId,
     type: 'cash_storno',
@@ -1111,10 +1119,12 @@ export function stornoDocument(input: StornoInput): Record<string, any> {
       ...(session ? { sessionId: oid(session.id) } : {}),
       ...(warehouseId ? { warehouseId: oid(warehouseId) } : {}),
       cashierId: session?.cashierId ? oid(session.cashierId) : oid(user.id),
-      ...(printsReceipt && printer ? { fiscalDeviceNumber: printer.deviceNumber } : {}),
+      ...((printsReceipt || slip) && printer ? { fiscalDeviceNumber: printer.deviceNumber } : {}),
       ...(user.operatorCode ? { operatorCode: user.operatorCode } : {}),
       isFiscal: printsReceipt,
-      fiscal: printsReceipt ? { state: 'pending', mode: 'fiscal' } : { state: 'none' },
+      fiscal: printsReceipt ? { state: 'pending', mode: 'fiscal' } : slip ? { state: 'pending', mode: 'text' } : { state: 'none' },
+      // What the slip says it reverses, in the words a refund's storno uses (`paymentStornoDocument`).
+      ...(slip ? { receiptText: `Сторно на бон № ${original.invoiceNumber}` } : {}),
       changeDue: 0,
       storno: {
         originalId: original._id,
@@ -1341,6 +1351,42 @@ export async function finishInterruptedStorno(c: RegisterContext, doc: any): Pro
 }
 
 /**
+ * A text sale's storno (#467): a slip, as the sale's was, with „Сторно на бон № …" under its lines, as a refund's
+ * storno prints one, on the device that printed the sale. No УНП: nothing on a device cites it. In its turn, as a
+ * fiscal storno: a close finds it, or it finds the close.
+ *
+ * ⚠ Only on a device that still says it is not fiscalized: a fiscalized one never prints text, and holds no record of
+ * the sale a storno of its own would cite. There, or where the device cannot say, nothing prints and the storno is
+ * booked as one of a text sale always was (`none`). A slip that fails gives the sale back, as a sale's does: it has
+ * no legal weight, and the next press prints it again.
+ */
+async function printStornoSlip(printer: RegisterPrinter, doc: any): Promise<any> {
+  return printInTurn(printer, doc, async (fresh) => {
+    if (fresh.register?.sessionId && !(await POSSession.exists({ _id: fresh.register.sessionId, status: 'open' }).exec())) {
+      return couldNotPrint(fresh, 'The session closed before this storno could print.')
+    }
+    const mode = await receiptMode(printer).catch((e: any) => {
+      logger.warn({ documentId: String(fresh._id), error: e?.message }, 'The device could not say how it prints: the storno of a text sale prints nothing')
+      return undefined
+    })
+    if (mode !== 'text' || !printer.printsText) return setRegister(fresh._id, { fiscal: { state: 'none' }, receiptText: null })
+    await registerOpeningFloat(printer, fresh.register?.sessionId)
+    await setRegister(fresh._id, { 'fiscal.attemptedAt': new Date() })
+    try {
+      await printer.printText(fresh)
+      await printer.reached()
+      logger.info({ documentId: String(fresh._id), number: fresh.invoiceNumber }, 'Storno printed (non-fiscal text mode)')
+      return setRegister(fresh._id, { 'fiscal.state': 'printed', 'fiscal.printedAt': new Date(), printedAt: new Date() })
+    } catch (e: any) {
+      await printer.abandonText().catch(() => {})
+      logger.error({ documentId: String(fresh._id), error: e?.message }, 'Storno slip printing FAILED')
+      await printer.failed().catch(() => {})
+      return setRegister(fresh._id, { 'fiscal.state': 'failed', 'fiscal.error': e?.message, receiptError: e?.message })
+    }
+  })
+}
+
+/**
  * A storno that has not started, and whose sale no longer names it. Past a lease a claim with no document is
  * pulled (`releaseOrphanClaims`), so a request that stalled that long between its claim and its insert wakes
  * with no claim, and another storno may hold the sale by now. Going on, that is two stornos of one sale. A
@@ -1389,7 +1435,11 @@ export async function runStornoSteps(c: RegisterContext, id: string): Promise<an
     doc = await couldNotPrint(doc, 'The session closed before this storno could be booked.')
   }
 
-  if (doc.register?.fiscal?.state === 'pending') {
+  if (doc.register?.fiscal?.state === 'pending' && doc.register.fiscal.mode === 'text') {
+    doc = c.printer
+      ? await printStornoSlip(c.printer, doc)
+      : await couldNotPrint(doc, 'The fiscal device is no longer connected, so the storno was not printed.')
+  } else if (doc.register?.fiscal?.state === 'pending') {
     if (c.printer && !doc.register?.unp) {
       doc = await setRegister(doc._id, { unp: await generateUNP(c.orgId, c.printer.deviceNumber, c.user.operatorCode as string) })
     }
