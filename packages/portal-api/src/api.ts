@@ -43,6 +43,7 @@ import { journalConfigController } from 'accounting-api/src/controllers/journal-
 import { paymentTermController } from 'accounting-api/src/controllers/payment-term.controller.js'
 import { fiscalPositionController } from 'accounting-api/src/controllers/fiscal-position.controller.js'
 import { journalAnalysisController } from 'accounting-api/src/controllers/journal-analysis.controller.js'
+import { booksImportController, booksLedgerController } from 'accounting-api/src/controllers/books-import.controller.js'
 
 // Invoicing controllers
 import { contactController } from 'invoicing-api/src/controllers/contact.controller.js'
@@ -237,6 +238,8 @@ export function createApiApp() {
         .use(paymentTermController)
         .use(fiscalPositionController)
         .use(journalAnalysisController)
+        .use(booksImportController)
+        .use(booksLedgerController)
 
         // Invoicing
         .use(contactController)

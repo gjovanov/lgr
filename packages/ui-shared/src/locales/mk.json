@@ -3299,6 +3299,7 @@
       "purchase": "Набавки",
       "receivables": "Побарувања",
       "inventory": "Магацин",
+      "accounting": "Сметководство",
       "fiscal": "Фискални / УЈП"
     },
     "periods": {
@@ -3339,7 +3340,9 @@
       "belowMin": "Само под минимум",
       "onlyOutstanding": "Само непримени",
       "groupByWarehouse": "По склад",
-      "groupByLine": "По ставка"
+      "groupByLine": "По ставка",
+      "analyticRoot": "Аналитика",
+      "accountCode": "Сметка"
     },
     "columns": {
       "sku": "Шифра",
@@ -3524,6 +3527,66 @@
       "t18_9": {
         "label": "СУПТО 18.9 — Шифрарници",
         "description": "Референтни табели: артикли, групи, оператори, уреди."
+      }
+    },
+    "accountingTrialBalance": {
+      "label": "Бруто биланс",
+      "description": "Почетно салдо, промет и крајно салдо, должи и побарува, по сметки"
+    },
+    "accountingAnalyticBalance": {
+      "label": "Аналитички бруто биланс",
+      "description": "Истите шест колони по аналитика, со количини за стоките"
+    },
+    "accountingMainBook": {
+      "label": "Главна книга",
+      "description": "Секоја сметка со нејзините спротивни сметки"
+    },
+    "accountingChronology": {
+      "label": "Хронолошка евиденција",
+      "description": "Операциите на една сметка по ред, со тековно салдо"
+    },
+    "accountingDocuments": {
+      "label": "Дневник на документи",
+      "description": "Документите во книгите, со суми и ДДВ"
+    },
+    "accountingBooks": {
+      "columns": {
+        "code": "Код",
+        "account": "Сметка",
+        "analytic": "Аналитика",
+        "counterAccount": "Спротивна сметка",
+        "counterAnalytic": "Спротивна аналитика",
+        "comment": "Коментар",
+        "openingDebit": "Почетно салдо должи",
+        "openingCredit": "Почетно салдо побарува",
+        "turnoverDebit": "Промет должи",
+        "turnoverCredit": "Промет побарува",
+        "closingDebit": "Крајно салдо должи",
+        "closingCredit": "Крајно салдо побарува",
+        "openingQuantity": "Почетна кол.",
+        "turnoverDebitQuantity": "Кол. должи",
+        "turnoverCreditQuantity": "Кол. побарува",
+        "closingQuantity": "Крајна кол.",
+        "balance": "Салдо",
+        "vatKind": "Вид ДДВ",
+        "total": "Сума",
+        "vat": "ДДВ",
+        "currency": "Валута"
+      },
+      "roots": {
+        "goods": "Стоки",
+        "materials": "Материјали",
+        "production": "Производство",
+        "services": "Услуги",
+        "customers": "Клиенти",
+        "suppliers": "Добавувачи",
+        "partners": "Партнери",
+        "bankAccounts": "Банкарски сметки",
+        "expenses": "Расходи",
+        "income": "Приходи",
+        "settlements": "Пресметки",
+        "personnel": "Персонал",
+        "fixedAssets": "Основни средства"
       }
     }
   },
@@ -3765,6 +3828,7 @@
       "check": {
         "home": "Организацијата се запишува на lgrai.app",
         "no_move": "Нема друго започнато преместување",
+        "not_books": "Организацијата не ги води книгите на фирма",
         "registered": "Серверот е регистриран за оваа организација",
         "full": "Серверот е поврзан на ниво Full",
         "no_clone_alarm": "Нема аларм за клонирање",

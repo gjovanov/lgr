@@ -12,7 +12,7 @@
  * the caller may not run never appears in the response at all.
  */
 
-export type ReportCategory = 'sales' | 'purchase' | 'receivables' | 'inventory' | 'fiscal'
+export type ReportCategory = 'sales' | 'purchase' | 'receivables' | 'inventory' | 'accounting' | 'fiscal'
 
 export type ReportOutput = 'table' | 'xlsx' | 'pdf'
 

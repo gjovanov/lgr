@@ -36,6 +36,12 @@ export const EXACT_WRITE_RULES: ReadonlyMap<string, WriteRule> = new Map<string,
   // FR-25 R2: LGR produces the files and records who filed them; `accounting.write` opens neither.
   ['POST accounting/vat/:period/generate', { need: ['accounting.file'] }],
   ['POST accounting/vat/:period/mark-filed', { need: ['accounting.file'] }],
+  // FR-25 §5: `accounting/import/*` answers what it would change, and writes on `dryRun: false`.
+  ['POST accounting/import/chart', { need: ['accounting.import'] }],
+  ['POST accounting/import/analytics', { need: ['accounting.import'] }],
+  ['POST accounting/import/opening', { need: ['accounting.import'] }],
+  ['POST accounting/import/journal', { need: ['accounting.import'] }],
+  ['POST accounting/import/finish', { need: ['accounting.import'] }],
   ['POST payroll/run/:id/approve', { need: ['payroll.approve'] }],
 
   // Reads sent as POSTs (`route-class.ts#READ_ONLY_WRITES`) and writes that decide for themselves.

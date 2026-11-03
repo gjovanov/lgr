@@ -3299,6 +3299,7 @@
       "purchase": "Einkauf",
       "receivables": "Forderungen",
       "inventory": "Lager",
+      "accounting": "Buchhaltung",
       "fiscal": "Fiskal / NRA"
     },
     "periods": {
@@ -3339,7 +3340,9 @@
       "belowMin": "Nur unter Mindestbestand",
       "onlyOutstanding": "Nur ausstehende",
       "groupByWarehouse": "Pro Lager",
-      "groupByLine": "Pro Position"
+      "groupByLine": "Pro Position",
+      "analyticRoot": "Analytik",
+      "accountCode": "Konto"
     },
     "columns": {
       "sku": "Art.-Nr.",
@@ -3524,6 +3527,66 @@
       "t18_9": {
         "label": "SUPTO 18.9 — Stammdaten",
         "description": "Referenztabellen: Artikel, Gruppen, Bediener, Geräte."
+      }
+    },
+    "accountingTrialBalance": {
+      "label": "Summen- und Saldenliste",
+      "description": "Anfangssaldo, Umsatz und Endsaldo, Soll und Haben, je Konto"
+    },
+    "accountingAnalyticBalance": {
+      "label": "Analytische Saldenliste",
+      "description": "Dieselben sechs Spalten je Analytik, mit Mengen für Waren"
+    },
+    "accountingMainBook": {
+      "label": "Hauptbuch",
+      "description": "Jedes Konto mit seinen Gegenkonten"
+    },
+    "accountingChronology": {
+      "label": "Kontochronik",
+      "description": "Die Buchungen eines Kontos der Reihe nach, mit laufendem Saldo"
+    },
+    "accountingDocuments": {
+      "label": "Belegjournal",
+      "description": "Die Belege der Bücher, mit Summen und Umsatzsteuer"
+    },
+    "accountingBooks": {
+      "columns": {
+        "code": "Code",
+        "account": "Konto",
+        "analytic": "Analytik",
+        "counterAccount": "Gegenkonto",
+        "counterAnalytic": "Gegenanalytik",
+        "comment": "Kommentar",
+        "openingDebit": "Anfangssaldo Soll",
+        "openingCredit": "Anfangssaldo Haben",
+        "turnoverDebit": "Umsatz Soll",
+        "turnoverCredit": "Umsatz Haben",
+        "closingDebit": "Endsaldo Soll",
+        "closingCredit": "Endsaldo Haben",
+        "openingQuantity": "Anfangsmenge",
+        "turnoverDebitQuantity": "Menge Soll",
+        "turnoverCreditQuantity": "Menge Haben",
+        "closingQuantity": "Endmenge",
+        "balance": "Saldo",
+        "vatKind": "USt-Art",
+        "total": "Summe",
+        "vat": "USt",
+        "currency": "Währung"
+      },
+      "roots": {
+        "goods": "Waren",
+        "materials": "Material",
+        "production": "Produktion",
+        "services": "Dienstleistungen",
+        "customers": "Kunden",
+        "suppliers": "Lieferanten",
+        "partners": "Partner",
+        "bankAccounts": "Bankkonten",
+        "expenses": "Aufwand",
+        "income": "Ertrag",
+        "settlements": "Verrechnungen",
+        "personnel": "Personal",
+        "fixedAssets": "Anlagevermögen"
       }
     }
   },
@@ -3765,6 +3828,7 @@
       "check": {
         "home": "Die Organisation wird auf lgrai.app geschrieben",
         "no_move": "Kein anderer Umzug läuft",
+        "not_books": "Die Organisation führt nicht die Bücher einer Firma",
         "registered": "Der Server ist für diese Organisation registriert",
         "full": "Der Server ist mit der Stufe Full verbunden",
         "no_clone_alarm": "Kein Klon-Alarm",

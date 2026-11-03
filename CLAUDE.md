@@ -4250,3 +4250,34 @@ row's path is the master's to choose.
   - Rust `replication::tests` (6 new);
   - `two-node/mirror-e2e.script.ts`, with a real supervisor: two files, one in three chunks, reach
     global and open there; records only stops a new file, and switching back sends it.
+
+## A company's books, imported as booked (2026-11-03, FR-25 R1)
+
+Plan: `docs/fr/FR-25-books-payroll-and-bg-filings.md`, §5 and "R1 — as built". The books of one legal
+entity live in a **books org** (`settings.accounting.books.mode: 'books'`), and its stores are
+branches. `services/biz/accounting-books/`: `registry` (document types, analytic roots, an account's
+shape; nothing else spells them) · `plusminus-exports` (the parsers, import-pure) · `journal-plan`
+(what a month becomes) · `import.service` · `books-ledger` (the reports' one reading) · `compare` ·
+`link-books.service`.
+
+- ⚠ **Import as booked.** A correction is a negative amount on the same side, an amount keeps every
+  decimal the file has, and cost of sales stays a debit on 702. Only the base amount rounds.
+- ⚠ **The exports refuse rather than guess.** A journal filtered to one account looks like a whole
+  one, and a re-import replaces months: anything in the title block that is not known is a filter.
+  The file's own counts and totals must hold, and its ЕИК must be the org's.
+- ⚠ **Every reading of the books leaves out the shadow ledger.** `sumPostedLines` is the one for
+  balances; anything else spreads `POSTED_BOOKS` from `db/models`. Unset `ledger` is books, so it is
+  a `$ne`, never an equality.
+- ⚠ **An imported opening restates the year before.** Adding lines across two imported years counts
+  it twice, so a balance starts at the last one (`sumPostedLines`, `before`, `turnoverOnly`).
+- ⚠ **`contactId` belongs on a line whose analytic has a Contact.** The balance sheet splits 411 and
+  401 by it; without it a debtor and a customer who paid in advance are netted, and the sheet still
+  balances. Only an account with `balanceSide: 'both'`, or none set, is split: cash paid to a supplier
+  names the supplier on 501 too, and that is still cash.
+- **The commands.** Sys-admin, on global: `scripts/link-books.ts --books <slug> --create "<name>"
+  --branch <slug>:<CODE>:<series> [--execute]`. Then, with an admin of the books org,
+  `scripts/import-accounting-books.ts` (dry run by default; a dry rerun with `unchanged` equal to
+  `entries` is the proof of a re-import) and `scripts/compare-accounting-books.ts`, which prints
+  "equal" or counts, never an amount, so its output can go in a public PR.
+- **Tests:** `unit/accounting-books.test.ts`, `integration/accounting-books-import.flow.test.ts` (every
+  row of §1.4 as a made-up fixture), `dal/repos/journal-entry.repo.test.ts`.
