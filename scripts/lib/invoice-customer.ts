@@ -11,9 +11,11 @@
  * Everything else is counted and left alone: equal already; the printed party names no company number; the
  * linked contact holds no number, so nothing says it is another company; several contacts hold the number,
  * or only a deactivated or supplier-only one; a draft; anything a till holds (a session, a receipt holding
- * it, a receipt that paid it, a cash sale naming the old customer).
+ * it, a receipt that paid it, a cash sale naming the old customer); an invoice whose customer someone changed
+ * after the import, on the form or with `--printed`, which its PDF does not overrule (a store can re-issue a
+ * number to another customer after the PDF was exported).
  */
-import { Contact, DocFile, Invoice } from '../../packages/db/src/models/index.js'
+import { AuditLog, Contact, DocFile, Invoice } from '../../packages/db/src/models/index.js'
 import { recordAuditEntry, type AuditEntry } from '../../packages/services/src/biz/audit-log.service.js'
 import { partyAddressEntry } from '../../packages/services/src/biz/doc-import/matching.js'
 import { draftFromLayoutText } from '../../packages/services/src/biz/doc-import/parse-table.js'
@@ -86,6 +88,9 @@ async function planOne(orgId: unknown, inv: any, party: Party | undefined, sourc
   const held = new Set([digits(current?.taxId), digits(current?.taxNumber), digits(current?.vatNumber)].filter(Boolean))
   if (held.has(ids.eik)) { bump('equal: the linked contact holds the printed number'); return }
   if (!held.size) { bump('left: the linked contact holds no company number, so nothing says it is another company'); return }
+  // A store can re-issue an invoice under its number to another customer after its PDF was imported. Whoever
+  // then moved it, a person on the form or a `--printed` run, knew better than the PDF: it is not moved back.
+  if (source === 'pdf' && await customerChangedSinceImport(orgId, inv)) { bump('left: its customer was changed after the import, so its PDF is not the last word'); return }
 
   if (inv.register?.sessionId) { bump('left: in a till session'); return }
   if ((inv.receiptHolds ?? []).length) { bump('left: held by a payment receipt'); return }
@@ -115,6 +120,13 @@ async function planOne(orgId: unknown, inv: any, party: Party | undefined, sourc
     target: { create: { type: 'customer', companyName: name, taxId: ids.eik, taxNumber: ids.eik, vatNumber: ids.vat || undefined, addresses } },
     billingAddress: invoiceAddress(addresses[0]),
   }
+}
+
+/** The invoice's last audited change of customer set the contact it has now: the form's edit audits it, and so does this. */
+async function customerChangedSinceImport(orgId: unknown, inv: any): Promise<boolean> {
+  const last: any = await AuditLog.findOne({ orgId, entityType: 'invoice', entityId: inv._id, 'changes.field': 'contactId' }).sort({ timestamp: -1 }).select('changes').lean()
+  const change = (last?.changes ?? []).find((c: any) => c.field === 'contactId')
+  return !!change && String(change.newValue) === String(inv.contactId)
 }
 
 const SELECT = 'invoiceNumber type status contactId billingAddress register receiptHolds cashSaleRef'

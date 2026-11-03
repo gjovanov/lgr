@@ -10,9 +10,11 @@
  *       --expect-contacts <created contacts> [--backup <file.ndjson>] [--as <userId>] [--reason "<text>"]
  *
  * What an invoice prints comes from the PDF it was committed from. `--printed` adds documents whose original
- * LGR does not hold, typed into LGR from another program's invoice: a JSON list of
+ * LGR does not hold, typed into LGR from another program's invoice, and documents the store re-issued under
+ * their number to another customer after the PDF was imported: a JSON list of
  * `{ invoiceNumber, customer: { name, company_id, vat_id, address, city } }`. ⚠ It names real customers: keep it
- * outside the repo.
+ * outside the repo. A later run without it leaves such a move alone: an invoice whose customer was changed after
+ * the import, on the form or by this, is not moved back to what its older PDF prints.
  *
  * It refuses to write without `--expect` and `--expect-contacts` equal to the dry run's counts, and on any node
  * that is not the org's home (FR-20, P0b-6). Before the first write every invoice it will touch goes to an
