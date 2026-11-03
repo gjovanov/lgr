@@ -59,6 +59,7 @@ if (command === 'generate') {
   const { PersonalDataKey } = await import('../packages/db/src/models/personal-data-key.model')
   const { config } = await import('../packages/config/src/index')
   const service = await import('../packages/services/src/biz/personal-data/personal-data.service')
+  const { tenantHomeScope } = await import('./lib/home-guard')
   await mongoose.connect(config.mongodb.uri, { autoIndex: false, autoCreate: false })
   try {
     if (command === 'check') {
@@ -67,10 +68,10 @@ if (command === 'generate') {
       if (status.unopenable.length) process.exitCode = 1
     } else if (!rest.includes('--execute')) {
       const current = kekIdOf(parseKek(config.personalData.kek ?? die('PERSONAL_DATA_KEK is not set')))
-      const rows: any[] = await PersonalDataKey.find({}, { kekId: 1 }).lean().exec()
+      const rows: any[] = await PersonalDataKey.find(await tenantHomeScope(), { kekId: 1 }).lean().exec()
       console.log(`dry run: ${rows.filter(r => r.kekId !== current).length} of ${rows.length} orgs would be rewrapped to ${current}. --execute to do it`)
     } else {
-      console.log(await service.rewrapKeyRows())
+      console.log(await service.rewrapKeyRows(await tenantHomeScope()))
     }
   } finally {
     await mongoose.disconnect()

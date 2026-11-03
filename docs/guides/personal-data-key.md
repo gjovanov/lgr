@@ -44,7 +44,7 @@ Rotate it if it may have leaked, and otherwise when policy says. It touches no d
 1. Generate a new one, as above, under new file names.
 2. Deploy with `PERSONAL_DATA_KEK` = the new one and `PERSONAL_DATA_KEK_PREVIOUS` = the old one. Both
    open everything meanwhile.
-3. `bun --env-file=.env scripts/personal-data-key.ts rewrap` shows how many; `--execute` does it.
+3. `bun --env-file=.env scripts/personal-data-key.ts rewrap` shows how many; `--execute` does it. It covers the orgs homed on that node: a master rotates its own.
 4. `check`, then remove `PERSONAL_DATA_KEK_PREVIOUS` and deploy.
 5. Keep the old escrow until no backup wrapped under the old key is still wanted: **a bundle carries
    its key row as it was**, so opening an old backup needs the KEK of its day.

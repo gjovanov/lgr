@@ -184,12 +184,16 @@ export function vaultFromRow(row: unknown): OrgVault {
   return vaultOver(openRow(row))
 }
 
-/** KEK rotation: rewraps every key row with the current KEK. Touches no data. Returns how many. */
-export async function rewrapKeyRows(): Promise<{ rewrapped: number; alreadyCurrent: number }> {
+/**
+ * KEK rotation: rewraps every key row in `scope` with the current KEK. Touches no data. Returns how
+ * many. ⚠ A row homed on another node is refused by the write guard, half way through a rotation:
+ * a script passes `tenantHomeScope()`, and that node rotates its own.
+ */
+export async function rewrapKeyRows(scope: Record<string, unknown> = {}): Promise<{ rewrapped: number; alreadyCurrent: number }> {
   const kek = currentKek()
   const keks = configuredKeks()
   const kekId = kekIdOf(kek)
-  const rows: any[] = await PersonalDataKey.find({}).lean().exec()
+  const rows: any[] = await PersonalDataKey.find(scope).lean().exec()
   let rewrapped = 0
   let alreadyCurrent = 0
   for (const row of rows) {

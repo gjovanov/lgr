@@ -7,6 +7,7 @@ import { createTestEmployee, createTestOrg, createTestUser } from '../helpers/fa
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
+import { mongoose } from 'db/connection'
 import { AuditLog, Employee, PersonalDataKey } from 'db/models'
 import { clearVaultCache, checkPersonalDataKeys, forOrg, keyRowOpens, rewrapKeyRows } from 'services/biz/personal-data/personal-data.service'
 import { openEmployeePersonal, sealPlainEmployees } from 'services/biz/personal-data/employee-personal'
@@ -341,6 +342,29 @@ describe('rotating the KEK', () => {
     const after: any = await Employee.collection.findOne({ employeeNumber: employee.employeeNumber })
     expect(after.personal).toBe(before.personal)
     expect((await openEmployeePersonal(orgId, after)).nationalId).toBe(FAKE_EGN)
+    // Put the keys back under the suite's own KEK for the tests after this one.
+    ;(config.personalData as any).previousKek = (config.personalData as any).kek
+    ;(config.personalData as any).kek = realKek
+    clearVaultCache()
+    await rewrapKeyRows()
+  })
+})
+
+describe('rotating the KEK on a node that holds other orgs\' rows', () => {
+  it('rewraps what is in scope and leaves the rest as they were', async () => {
+    await createSealed()
+    await forOrg(otherOrgId)
+    const other: any = await PersonalDataKey.collection.findOne({ orgId: new mongoose.Types.ObjectId(otherOrgId) })
+    ;(config.personalData as any).previousKek = realKek
+    ;(config.personalData as any).kek = generateKey().toString('base64')
+    clearVaultCache()
+
+    const { rewrapped } = await rewrapKeyRows({ orgId })
+    expect(rewrapped).toBe(1)
+    const untouched: any = await PersonalDataKey.collection.findOne({ orgId: new mongoose.Types.ObjectId(otherOrgId) })
+    expect(untouched.kekId).toBe(other.kekId)
+    expect(untouched.indexKey).toBe(other.indexKey)
+
     // Put the keys back under the suite's own KEK for the tests after this one.
     ;(config.personalData as any).previousKek = (config.personalData as any).kek
     ;(config.personalData as any).kek = realKek
