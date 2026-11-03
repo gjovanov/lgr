@@ -37,7 +37,7 @@ import { logger } from '../../logger/logger.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { generateUNP } from '../sequence.service.js'
 import { getNextInvoiceNumber, issuableRefusal } from '../invoice-numbering.service.js'
-import { createInvoiceStockMovement, createNumberedMovement, reverseInvoiceStockMovement } from '../invoicing.service.js'
+import { createInvoiceStockMovement, createNumberedMovement, returnedUnitCost, reverseInvoiceStockMovement } from '../invoicing.service.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { PendingTransferError, confirmTransferMovements } from '../stock-transfer.service.js'
 import { IdempotencyError, LEASE_MS, assertSameRequest, keepLease, takeLease, waitForCompletion } from '../hot-path-key.js'
@@ -1045,6 +1045,11 @@ export function printedFiscally(original: any): boolean {
   return !!original.register?.isFiscal && (!!original.register?.fiscalReceiptNumber || original.register?.fiscal?.state === 'printed')
 }
 
+/** Whether the sale printed a text slip: its storno prints one too, where the device still prints them (#467). */
+export function printedAsText(original: any): boolean {
+  return original.register?.fiscal?.mode === 'text' && original.register?.fiscal?.state === 'printed'
+}
+
 export interface StornoInput {
   orgId: string
   user: RegisterUser
@@ -1058,6 +1063,8 @@ export interface StornoInput {
   session: RegisterSession | null
   /** Whether a storno receipt prints: the sale's was fiscal and the device is there. */
   printsReceipt: boolean
+  /** Whether a slip prints instead: the sale printed one, and the device is there and prints text (#467). */
+  printsSlip?: boolean
   printer: RegisterPrinter | null
 }
 
@@ -1079,6 +1086,7 @@ export function stornoDocument(input: StornoInput): Record<string, any> {
   const refund = paid.map((p: any) => ({ date: now, method: p.method, amount: round2(p.amount), ...(p.reference ? { reference: p.reference } : {}) }))
   const methods = [...new Set(refund.map((p: any) => p.method))]
   const warehouseId = session?.warehouseId ?? reg.warehouseId ?? (original.lines || []).find((l: any) => l.warehouseId)?.warehouseId
+  const slip = !printsReceipt && !!input.printsSlip && !!printer
   return {
     orgId: original.orgId,
     type: 'cash_storno',
@@ -1111,10 +1119,12 @@ export function stornoDocument(input: StornoInput): Record<string, any> {
       ...(session ? { sessionId: oid(session.id) } : {}),
       ...(warehouseId ? { warehouseId: oid(warehouseId) } : {}),
       cashierId: session?.cashierId ? oid(session.cashierId) : oid(user.id),
-      ...(printsReceipt && printer ? { fiscalDeviceNumber: printer.deviceNumber } : {}),
+      ...((printsReceipt || slip) && printer ? { fiscalDeviceNumber: printer.deviceNumber } : {}),
       ...(user.operatorCode ? { operatorCode: user.operatorCode } : {}),
       isFiscal: printsReceipt,
-      fiscal: printsReceipt ? { state: 'pending', mode: 'fiscal' } : { state: 'none' },
+      fiscal: printsReceipt ? { state: 'pending', mode: 'fiscal' } : slip ? { state: 'pending', mode: 'text' } : { state: 'none' },
+      // What the slip says it reverses, in the words a refund's storno uses (`paymentStornoDocument`).
+      ...(slip ? { receiptText: `Сторно на бон № ${original.invoiceNumber}` } : {}),
       changeDue: 0,
       storno: {
         originalId: original._id,
@@ -1252,14 +1262,21 @@ export async function releaseOrphanClaimsOfSession(orgId: string, sessionId: str
   for (const sale of claimed) await releaseOrphanClaims(sale)
 }
 
+/** A line of a storno's return: what it sold for, as FR-07 and the digest read `totalCost`, and what it cost apart. */
+interface ReturnedLine { productId: unknown; quantity: number; unitCost: number; totalCost: number; resolvedUnitCost: number }
+
 /**
  * The storno's return (D-7): the goods go back where they left from, at the cost they left at.
  *
  * The till restocked at the SALE price, which pulled `avgCost` towards the selling price. The
- * original dispatch recorded what each line cost when it left (`resolvedUnitCost`); the return
- * brings it back at that, through `confirmMovement` like every movement. If the sale moved no stock,
+ * original dispatch recorded what each line cost when it left; the return brings it back at that
+ * (`returnedUnitCost`), through `confirmMovement` like every movement. If the sale moved no stock,
  * neither does its storno. A crash after the return was created finds it again by the storno's id.
  * A part brings back what its own lines name, and nothing else (`partReturned`).
+ *
+ * ⚠ The cost goes in `resolvedUnitCost`, which stock, the layers and the valuation entry read, and
+ * `unitCost` stays the price, as on every invoice-born line (#467). At cost there, FR-07 showed a
+ * returned line's cost as its value, and the period's profit kept what the customer took back.
  */
 export async function returnStornoStock(userId: string, storno: any, original: any): Promise<string | undefined> {
   const r = getRepos()
@@ -1271,14 +1288,18 @@ export async function returnStornoStock(userId: string, storno: any, original: a
   const dispatches: any[] = await StockMovement.find({
     orgId: original.orgId, invoiceId: original._id, type: 'dispatch', status: 'completed',
   }).lean().exec()
+  const orgId = String(storno.orgId)
   let first: string | undefined
   for (const d of dispatches) {
-    const lines = storno.register?.storno?.partial
-      ? partReturned(d, storno)
-      : (d.lines || []).map((l: any) => {
-        const unitCost = Number(l.resolvedUnitCost ?? l.unitCost) || 0
-        return { productId: l.productId, quantity: l.quantity, unitCost, totalCost: round2(unitCost * l.quantity) }
-      })
+    const lines: ReturnedLine[] = storno.register?.storno?.partial
+      ? await partReturned(orgId, d, storno)
+      : await Promise.all((d.lines || []).map(async (l: any) => {
+        const price = Number(l.unitCost) || 0
+        return {
+          productId: l.productId, quantity: l.quantity, unitCost: price, totalCost: price * l.quantity,
+          resolvedUnitCost: await returnedUnitCost(orgId, String(l.productId), String(d.fromWarehouseId), [l], r),
+        }
+      }))
     if (!lines.length) continue
     const movement = await createNumberedMovement(r, String(storno.orgId), {
       type: 'return',
@@ -1302,17 +1323,20 @@ export async function returnStornoStock(userId: string, storno: any, original: a
  * What a part brings back of one dispatch: the lines it names that left from there, at the cost that product left at.
  * A product the sale's dispatch does not carry (no stock kept on it) moved nothing, and comes back as nothing. Several
  * lines of one product are one cost, weighted, because which of them a part returns is not something the shelf knows.
+ * Its price is its own line's, which is the sale's.
  */
-function partReturned(dispatch: any, storno: any): { productId: unknown; quantity: number; unitCost: number; totalCost: number }[] {
-  const out: { productId: unknown; quantity: number; unitCost: number; totalCost: number }[] = []
+async function partReturned(orgId: string, dispatch: any, storno: any): Promise<ReturnedLine[]> {
+  const out: ReturnedLine[] = []
   for (const l of storno.lines || []) {
     if (!l.productId || (l.warehouseId && String(l.warehouseId) !== String(dispatch.fromWarehouseId))) continue
     const left = (dispatch.lines || []).filter((x: any) => String(x.productId) === String(l.productId))
     const quantity = left.reduce((s: number, x: any) => s + (Number(x.quantity) || 0), 0)
     if (!(quantity > 0)) continue
-    const cost = left.reduce((s: number, x: any) => s + (Number(x.resolvedUnitCost ?? x.unitCost) || 0) * (Number(x.quantity) || 0), 0)
-    const unitCost = cost / quantity
-    out.push({ productId: l.productId, quantity: l.quantity, unitCost, totalCost: round2(unitCost * l.quantity) })
+    const price = Number(l.unitPrice) || 0
+    out.push({
+      productId: l.productId, quantity: l.quantity, unitCost: price, totalCost: price * l.quantity,
+      resolvedUnitCost: await returnedUnitCost(orgId, String(l.productId), String(dispatch.fromWarehouseId), left, getRepos()),
+    })
   }
   return out
 }
@@ -1324,6 +1348,42 @@ function partReturned(dispatch: any, storno: any): { productId: unknown; quantit
 export async function finishInterruptedStorno(c: RegisterContext, doc: any): Promise<any> {
   await decideInterrupted(c, doc, 'The storno was interrupted before its receipt printed.')
   return runStornoSteps({ ...c, printer: null }, String(doc._id))
+}
+
+/**
+ * A text sale's storno (#467): a slip, as the sale's was, with „Сторно на бон № …" under its lines, as a refund's
+ * storno prints one, on the device that printed the sale. No УНП: nothing on a device cites it. In its turn, as a
+ * fiscal storno: a close finds it, or it finds the close.
+ *
+ * ⚠ Only on a device that still says it is not fiscalized: a fiscalized one never prints text, and holds no record of
+ * the sale a storno of its own would cite. There, or where the device cannot say, nothing prints and the storno is
+ * booked as one of a text sale always was (`none`). A slip that fails gives the sale back, as a sale's does: it has
+ * no legal weight, and the next press prints it again.
+ */
+async function printStornoSlip(printer: RegisterPrinter, doc: any): Promise<any> {
+  return printInTurn(printer, doc, async (fresh) => {
+    if (fresh.register?.sessionId && !(await POSSession.exists({ _id: fresh.register.sessionId, status: 'open' }).exec())) {
+      return couldNotPrint(fresh, 'The session closed before this storno could print.')
+    }
+    const mode = await receiptMode(printer).catch((e: any) => {
+      logger.warn({ documentId: String(fresh._id), error: e?.message }, 'The device could not say how it prints: the storno of a text sale prints nothing')
+      return undefined
+    })
+    if (mode !== 'text' || !printer.printsText) return setRegister(fresh._id, { fiscal: { state: 'none' }, receiptText: null })
+    await registerOpeningFloat(printer, fresh.register?.sessionId)
+    await setRegister(fresh._id, { 'fiscal.attemptedAt': new Date() })
+    try {
+      await printer.printText(fresh)
+      await printer.reached()
+      logger.info({ documentId: String(fresh._id), number: fresh.invoiceNumber }, 'Storno printed (non-fiscal text mode)')
+      return setRegister(fresh._id, { 'fiscal.state': 'printed', 'fiscal.printedAt': new Date(), printedAt: new Date() })
+    } catch (e: any) {
+      await printer.abandonText().catch(() => {})
+      logger.error({ documentId: String(fresh._id), error: e?.message }, 'Storno slip printing FAILED')
+      await printer.failed().catch(() => {})
+      return setRegister(fresh._id, { 'fiscal.state': 'failed', 'fiscal.error': e?.message, receiptError: e?.message })
+    }
+  })
 }
 
 /**
@@ -1375,7 +1435,11 @@ export async function runStornoSteps(c: RegisterContext, id: string): Promise<an
     doc = await couldNotPrint(doc, 'The session closed before this storno could be booked.')
   }
 
-  if (doc.register?.fiscal?.state === 'pending') {
+  if (doc.register?.fiscal?.state === 'pending' && doc.register.fiscal.mode === 'text') {
+    doc = c.printer
+      ? await printStornoSlip(c.printer, doc)
+      : await couldNotPrint(doc, 'The fiscal device is no longer connected, so the storno was not printed.')
+  } else if (doc.register?.fiscal?.state === 'pending') {
     if (c.printer && !doc.register?.unp) {
       doc = await setRegister(doc._id, { unp: await generateUNP(c.orgId, c.printer.deviceNumber, c.user.operatorCode as string) })
     }

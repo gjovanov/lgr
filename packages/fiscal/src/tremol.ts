@@ -225,6 +225,40 @@ export function parseTremolResponse(buffer: Buffer): { data: string; isAck: bool
 }
 
 /**
+ * A Tremol answer's payload as the bytes it is: the status bytes do not survive `parseTremolResponse`, which reads text
+ * (most of 80h–BFh decode to '?'). Null when the answer carries no frame, as an ACK alone does, or when its checksum
+ * does not match: XOR from LEN to the last data byte, two nibbles + 30h, as a request's (ErpNet.FP refuses such a frame).
+ */
+export function tremolPayload(buffer: Buffer | Uint8Array): Uint8Array | null {
+  const buf = Buffer.from(buffer)
+  const stxIdx = buf.indexOf(STX)
+  const etxIdx = stxIdx !== -1 ? buf.indexOf(ETX, stxIdx) : -1
+  if (stxIdx === -1 || etxIdx === -1 || etxIdx - 2 < stxIdx + 4) return null
+  let xor = 0
+  for (let i = stxIdx + 1; i < etxIdx - 2; i++) xor ^= buf[i]
+  if (buf[etxIdx - 2] !== ((xor >> 4) & 0x0F) + 0x30 || buf[etxIdx - 1] !== (xor & 0x0F) + 0x30) return null
+  return new Uint8Array(buf.subarray(stxIdx + 4, etxIdx - 2))
+}
+
+/**
+ * Whether a Tremol says its fiscal memory is fiscalized, from the 7 bytes that answer 20h: byte 3, bit 5 („FM
+ * fiscalized"), bit 6 being „FM produced" (ErpNet.FP's ZFP status table, which every Tremol ZFP model shares). #467: a
+ * Tremol always read as fiscal, so one that is not fiscalized refused every till sale.
+ *
+ * ⚠ `false` only from a status read whole: seven bytes, each with the bit 7 the protocol always sets, and a fiscal
+ * memory that is there and not in error. A fiscalized device read as not fiscalized prints every sale as a slip, with
+ * its money booked and nothing on the device. Anything short of that is `undefined`, which counts as fiscal. Seen on
+ * no physical unit yet, from either side.
+ */
+export function tremolFiscalized(status: Uint8Array | null): boolean | undefined {
+  if (!status || status.length !== 7 || status.some(b => (b & 0x80) === 0)) return undefined
+  if (status[3] & 0x20) return true
+  // No FM module (bit 0) or an FM error (bit 1): it says nothing of whether the device was fiscalized.
+  if (status[3] & 0x03) return undefined
+  return false
+}
+
+/**
  * TCP/Serial transport for Tremol fiscal printers.
  */
 class TremolTransport {
@@ -259,6 +293,11 @@ class TremolTransport {
   }
 
   async sendCommand(cmd: number, data: string = ''): Promise<string> {
+    return parseTremolResponse(await this.sendCommandRaw(cmd, data)).data
+  }
+
+  /** The answer as it came, a NAK refused as every command's is: what a status read takes its bytes from. */
+  async sendCommandRaw(cmd: number, data: string = ''): Promise<Buffer> {
     if (!this.socket) throw new Error('Not connected to Tremol device')
 
     this.seq = (this.seq + 1) % 0x7F
@@ -276,8 +315,8 @@ class TremolTransport {
           clearTimeout(timeout)
           this.socket.removeListener('data', onData)
           try {
-            const response = parseTremolResponse(buf)
-            resolve(response.data)
+            parseTremolResponse(buf)
+            resolve(buf)
           } catch (e) {
             reject(e)
           }
@@ -318,12 +357,13 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
 
   async getStatus(): Promise<FiscalDeviceStatus> {
     try {
-      const data = await this.transport.sendCommand(TREMOL_CMD.STATUS)
+      const fiscalized = tremolFiscalized(tremolPayload(await this.transport.sendCommandRaw(TREMOL_CMD.STATUS)))
       return {
         connected: true,
         paperPresent: true,
         fiscalMemoryOk: true,
         errors: [],
+        ...(fiscalized === undefined ? {} : { fiscalized }),
       }
     } catch (e: any) {
       return { connected: false, paperPresent: false, fiscalMemoryOk: false, errors: [e.message] }

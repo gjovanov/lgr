@@ -160,6 +160,28 @@ describe('digest content (FR-11.7 …)', () => {
     expect(m.loaded.rows[0].sku).toBe('NUT-1')
   })
 
+  it('files a return under what it reverses, as FR-07 does: a customer\'s off sold, at its price, a supplier\'s off loaded (#467)', async () => {
+    const { orgId, wh, bolt, nut } = await seedDay()
+    // One of the two bolts sold comes back from the customer, at its price: a till storno's return and a credit
+    // note's both keep the price in `unitCost` and the cost in `resolvedUnitCost`.
+    await createTestStockMovement(orgId as any, {
+      movementNumber: 'SM-RET-IN', type: 'return', status: 'completed', date: dayDate(15), toWarehouseId: wh._id,
+      lines: [{ productId: bolt._id, quantity: 1, unitCost: 50, totalCost: 50, resolvedUnitCost: 2 }] as any,
+    })
+    // Two of the ten nuts go back to the supplier.
+    await createTestStockMovement(orgId as any, {
+      movementNumber: 'SM-RET-OUT', type: 'return', status: 'completed', date: dayDate(16), fromWarehouseId: wh._id,
+      lines: [{ productId: nut._id, quantity: 2, unitCost: 3, totalCost: 6 }] as any,
+    })
+
+    const m: any = (await buildDailyDigest(orgId, DAY)).materials
+
+    expect(m.sold.rows[0]).toMatchObject({ sku: 'BOLT-1', quantity: 1, value: 50 })
+    expect(m.sold.totalValue).toBe(50)
+    // Filed as loaded by its side alone, the bolt took its sale value off the deliveries: −50.00 beside 30.00.
+    expect(m.loaded.rows.map((r: any) => [r.sku, r.quantity, r.value])).toEqual([['NUT-1', 8, 24]])
+  })
+
   it('lists stock at or below zero, negatives included', async () => {
     const { orgId } = await seedDay()
     const s: any = (await buildDailyDigest(orgId, DAY)).stock

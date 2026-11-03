@@ -193,7 +193,12 @@ describe('one article of three comes back', () => {
     expect(m.toWarehouseId).toEqual(w.warehouse._id)
     expect(m.status).toBe('completed')
     expect(m.lines).toHaveLength(1)
-    expect(m.lines[0]).toMatchObject({ quantity: 2, unitCost: 4, totalCost: 8 })
+    // Its price as its value, for FR-07, and the cost it left at apart (#467).
+    expect(m.lines[0]).toMatchObject({ quantity: 2, unitCost: 10, totalCost: 20, resolvedUnitCost: 4 })
+    expect(await levelOf(w, s.products[0])).toBe(10 - 3 + 2)
+    const level: any = await StockLevel.findOne({ orgId: w.oid, productId: s.products[0], warehouseId: w.warehouse._id }).lean()
+    // (7 × 7.00 + 2 × 4.00) / 9: back at 4.00, whatever the article costs now and whatever it sold for.
+    expect(level.avgCost).toBeCloseTo(57 / 9, 6)
     expect(String(m.lines[0].productId)).toBe(String(s.products[0]))
   })
 
@@ -1060,7 +1065,9 @@ describe('the shapes a part comes in', () => {
     const moved: any[] = await StockMovement.find({ invoiceId: storno._id }).lean().exec()
     expect(moved).toHaveLength(1)
     expect(String(moved[0].toWarehouseId)).toBe(String(other._id))
-    expect(moved[0].lines[0].unitCost).toBe(2)
+    // What it cost there, apart from its price, which stays its value (#467).
+    expect(moved[0].lines[0]).toMatchObject({ unitCost: 5, resolvedUnitCost: 2 })
+    expect(level.avgCost).toBe(2)
   })
 
   it('a part that stalled past a lease between its claim and its insert wakes with no claim, and prints nothing', async () => {

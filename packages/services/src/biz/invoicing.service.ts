@@ -452,6 +452,35 @@ function addLeftAt(leftAt: LeftAt, key: string, line: any): void {
 }
 
 /**
+ * Whether a dispatched line says what it cost. One that consumed nothing resolved to its own price, and says nothing. ⚠ A
+ * line that consumed does say, even at its own price: WAC keeps no allocations, and an article sold at cost, or a 0.00
+ * line, resolves to what it sold for. Its `costingMethod` is what says it consumed (`costOfSoldGoods` reads it the same way).
+ */
+function saysItsCost(line: any): boolean {
+  return !!line.costAllocations?.length || !!line.costingMethod || Number(line.resolvedUnitCost) !== Number(line.unitCost)
+}
+
+/** What a returned unit costs when no dispatch says: today's average in that warehouse, so a return moves no average, then what the article is bought at. */
+async function costNoDispatchSays(orgId: string, productId: string, warehouseId: string, r: RepositoryRegistry): Promise<number> {
+  const level: any = await r.stockLevels.findOne({ orgId, productId, warehouseId } as any)
+  if (Number(level?.avgCost) > 0) return Number(level.avgCost)
+  const product: any = await r.products.findById(productId)
+  return Number(product?.purchasePrice) || 0
+}
+
+/**
+ * What goods that left on these dispatched lines come back at, per unit, into `warehouseId`: what they cost when they
+ * left, weighted over the lines that say so, as a credit note's return reads it (D4). ⚠ Never the selling price.
+ */
+export async function returnedUnitCost(orgId: string, productId: string, warehouseId: string, dispatched: any[], r: RepositoryRegistry): Promise<number> {
+  const leftAt: LeftAt = new Map()
+  for (const line of dispatched) if (saysItsCost(line)) addLeftAt(leftAt, productId, line)
+  const left = leftAt.get(productId)
+  if (left?.qty) return left.cost / left.qty
+  return costNoDispatchSays(orgId, productId, warehouseId, r)
+}
+
+/**
  * What a customer's credit note brings its goods back at (the prod sweep's D4). At the selling price, every return pulled
  * the article's average towards it: 4.00 became 4.1394 after 23 came back at 10.00. So what they left at: the dispatch
  * of the invoice it corrects, or of the till sale that invoice was issued for, whose dispatch moved them. With none to
@@ -470,7 +499,7 @@ async function returnCostOf(invoice: IInvoice, r: RepositoryRegistry): Promise<(
   const leftAt: LeftAt = new Map()
   for (const mov of dispatches) {
     for (const line of mov.lines as any[]) {
-      if (!line.costAllocations?.length && Number(line.resolvedUnitCost) === Number(line.unitCost)) continue
+      if (!saysItsCost(line)) continue
       addLeftAt(leftAt, `${String(line.productId)}|${String(mov.fromWarehouseId)}`, line)
       addLeftAt(leftAt, String(line.productId), line)
     }
@@ -478,10 +507,7 @@ async function returnCostOf(invoice: IInvoice, r: RepositoryRegistry): Promise<(
   return async (productId, warehouseId) => {
     const left = leftAt.get(`${productId}|${warehouseId}`) ?? leftAt.get(productId)
     if (left?.qty) return left.cost / left.qty
-    const level: any = await r.stockLevels.findOne({ orgId: invoice.orgId, productId, warehouseId } as any)
-    if (Number(level?.avgCost) > 0) return Number(level.avgCost)
-    const product: any = await r.products.findById(productId)
-    return Number(product?.purchasePrice) || 0
+    return costNoDispatchSays(invoice.orgId, productId, warehouseId, r)
   }
 }
 

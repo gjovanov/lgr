@@ -378,8 +378,10 @@ async function buildMaterials(orgId: string, date: string): Promise<DigestMateri
               { case: { $eq: ['$type', 'transfer'] }, then: 'transferred' },
               { case: { $eq: ['$type', 'dispatch'] }, then: 'sold' },
               { case: { $eq: ['$type', 'receipt'] }, then: 'loaded' },
-              // A return belongs to the family of the side that carries a warehouse.
-              { case: { $ifNull: ['$toWarehouseId', false] }, then: 'loaded' },
+              // A return belongs to the family it reverses, as in FR-07: goods a customer brings back come off what was
+              // sold, at its price, and goods sent back to a supplier off what was loaded. ⚠ Not by the side alone: a
+              // customer's return carries `toWarehouseId`, and filed as loaded it took its sale value off the deliveries.
+              { case: { $ifNull: ['$fromWarehouseId', false] }, then: 'loaded' },
             ],
             default: 'sold',
           },

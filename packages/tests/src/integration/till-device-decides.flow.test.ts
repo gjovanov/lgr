@@ -8,6 +8,7 @@ import { Invoice, Sequence } from 'db/models'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { WsTremolFiscalPrinter } from 'fiscal/ws-tremol-printer'
+import { TREMOL_CMD, TremolFiscalPrinter, tremolFiscalized, tremolPayload } from 'fiscal/tremol'
 import { WebSocketFiscalPrinter } from 'fiscal/ws-fiscal-printer'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
@@ -175,8 +176,8 @@ describe('the device decides what a till sale prints (D1)', () => {
     expect((await w.stock()).quantity).toBe(9)
   })
 
-  describe('what a Tremol and a Datecs report: nothing, so they never print text', () => {
-    it('a Tremol over its bridge says nothing about it', async () => {
+  describe('what a Tremol and a Datecs report', () => {
+    it('a Tremol whose answer carries no status says nothing about it', async () => {
       const printer = new WsTremolFiscalPrinter(async () => Buffer.from([0x06]), 'tremol-1') as any
       const status = await printer.getStatus()
       expect(status.connected).toBe(true)
@@ -187,6 +188,95 @@ describe('the device decides what a till sale prints (D1)', () => {
       const printer = new WebSocketFiscalPrinter(async () => { throw new Error('no answer') }, 'datecs-1') as any
       const status = await printer.getStatus()
       expect(status.fiscalized).toBeUndefined()
+    })
+
+    describe('a Tremol says it in its 20h status, byte 3 bit 5 (#467)', () => {
+      /**
+       * The answer to 20h: ACK, then STX LEN NBL CMD, the status bytes, the checksum (XOR of LEN..data, two nibbles + 30h)
+       * and ETX. Bit 7 of each status byte is always set.
+       */
+      const statusAnswer = (bytes: number[], o: { checksumOff?: boolean } = {}) => {
+        const body = [0x20 + 3 + bytes.length, 0x21, 0x20, ...bytes]
+        const xor = body.reduce((x, b) => x ^ b, 0)
+        return Buffer.from([0x06, 0x02, ...body, ((xor >> 4) & 0x0F) + 0x30, (xor & 0x0F) + 0x30 + (o.checksumOff ? 1 : 0), 0x0A])
+      }
+      // FM produced (bit 6), with bit 5 (FM fiscalized) set or not.
+      const FISCALIZED = [0x80, 0x80, 0x80, 0xE0, 0x80, 0x80, 0x80]
+      const NOT_FISCALIZED = [0x80, 0x80, 0x80, 0xC0, 0x80, 0x80, 0x80]
+      const readStatus = (bytes: number[]) =>
+        (new WsTremolFiscalPrinter(async () => statusAnswer(bytes), 'tremol-1') as any).getStatus()
+
+      it('fiscalized, and not', async () => {
+        expect((await readStatus(FISCALIZED)).fiscalized).toBe(true)
+        expect((await readStatus(NOT_FISCALIZED)).fiscalized).toBe(false)
+        expect(tremolFiscalized(Uint8Array.from(NOT_FISCALIZED))).toBe(false)
+      })
+
+      it('anything short of a status read whole says nothing, which counts as fiscal', async () => {
+        // Six bytes; a byte without its bit 7; no FM module; an FM error.
+        for (const bytes of [NOT_FISCALIZED.slice(0, 6), [0x80, 0x00, 0x80, 0xC0, 0x80, 0x80, 0x80], [0x80, 0x80, 0x80, 0xC1, 0x80, 0x80, 0x80], [0x80, 0x80, 0x80, 0xC2, 0x80, 0x80, 0x80]]) {
+          expect((await readStatus(bytes)).fiscalized).toBeUndefined()
+        }
+        expect(tremolFiscalized(null)).toBeUndefined()
+        expect(tremolPayload(Buffer.from([0x06]))).toBeNull()
+      })
+
+      it('a frame whose checksum does not match says nothing either: one flipped bit 5 would read a fiscalized device as not', async () => {
+        const flipped = [0x80, 0x80, 0x80, 0xE0 ^ 0x20, 0x80, 0x80, 0x80]
+        const answer = statusAnswer(FISCALIZED)
+        // The checksum of a fiscalized status, over a byte 3 that lost its bit 5 on the way.
+        answer[1 + 1 + 3 + 3] = flipped[3]
+        expect((await (new WsTremolFiscalPrinter(async () => answer, 'tremol-1') as any).getStatus()).fiscalized).toBeUndefined()
+        expect(tremolPayload(statusAnswer(NOT_FISCALIZED, { checksumOff: true }))).toBeNull()
+      })
+
+      it('its payload is read as bytes: a status of 0xA0 is no "?"', async () => {
+        expect(Array.from(tremolPayload(statusAnswer(NOT_FISCALIZED))!)).toEqual(NOT_FISCALIZED)
+      })
+
+      it('the TCP driver reads it the same way', async () => {
+        const printer = new TremolFiscalPrinter({ type: 'tcp' }, 'tremol-tcp') as any
+        printer.transport.sendCommandRaw = async () => statusAnswer(NOT_FISCALIZED)
+        expect((await printer.getStatus()).fiscalized).toBe(false)
+      })
+
+      /** A till whose device is a Tremol over the bridge, answering every command with an ACK and 20h with `status`. */
+      async function onTremol(status: number[]) {
+        const w = await tillWorld(app, { manufacturer: 'tremol' })
+        const sent: number[] = []
+        unregisterPrinter(w.deviceId)
+        registerPrinter(w.deviceId, new WsTremolFiscalPrinter(async (frame: Buffer | Uint8Array) => {
+          const cmd = Buffer.from(frame)[3]
+          sent.push(cmd)
+          return cmd === TREMOL_CMD.STATUS ? statusAnswer(status) : Buffer.from([0x06])
+        }, w.deviceId) as any)
+        return { w, sent }
+      }
+
+      it('one that is not fiscalized prints a till sale as a slip: it refused every one, printed fiscally', async () => {
+        const { w, sent } = await onTremol(NOT_FISCALIZED)
+
+        const r = await sale(w)
+
+        expect(r.status).toBe(200)
+        expect(r.json.receiptError).toBeUndefined()
+        expect(r.json.transaction.fiscal).toMatchObject({ state: 'printed', mode: 'text' })
+        expect(r.json.transaction.unpNumber).toBeUndefined()
+        expect(sent).toContain(TREMOL_CMD.OPEN_NON_FISCAL_RECEIPT)
+        expect(sent).toContain(TREMOL_CMD.CLOSE_NON_FISCAL_RECEIPT)
+        expect(sent).not.toContain(TREMOL_CMD.OPEN_FISCAL_RECEIPT)
+      })
+
+      it('one that is fiscalized prints it fiscally, as every Tremol did', async () => {
+        const { w, sent } = await onTremol(FISCALIZED)
+
+        const r = await sale(w)
+
+        expect(r.status).toBe(200)
+        expect(r.json.transaction.fiscal).toMatchObject({ mode: 'fiscal' })
+        expect(sent).toContain(TREMOL_CMD.OPEN_FISCAL_RECEIPT)
+        expect(sent).not.toContain(TREMOL_CMD.OPEN_NON_FISCAL_RECEIPT)
+      })
     })
   })
 
@@ -202,19 +292,35 @@ describe('the device decides what a till sale prints (D1)', () => {
       expect(back.json.transaction.fiscal).toMatchObject({ state: 'printed' })
     })
 
-    it('a text sale\'s storno prints nothing fiscal, on the device that printed it', async () => {
+    /** All the slips the device printed, as one line of words: a slip wraps what it says at its width. */
+    const slipWords = (w: TillWorld) => w.sim!.nonFiscalLines.join(' ').replace(/\s+/g, ' ')
+
+    it('a text sale\'s storno prints a slip, nothing fiscal, on the device that printed it (#467)', async () => {
       const w = await tillWorld(app)
       w.sim!.unfiscalizedUnit = true
       const r = await sale(w)
+      const sold = await docOf(r.json.transaction.id)
 
       const back = await w.storno(r.json.transaction.id)
 
       expect(back.status).toBe(200)
+      expect(back.json.receiptError).toBeUndefined()
+      expect(back.json.transaction.fiscal).toMatchObject({ state: 'printed', mode: 'text' })
       expect(fiscalCommands(w)).toHaveLength(0)
+      expect(textsClosed(w)).toBe(2)
+      // It says what it reverses, as a refund's storno does.
+      expect(slipWords(w)).toContain(`Сторно на бон № ${sold.invoiceNumber}`)
+      const storno = await docOf(back.json.transaction.id)
+      expect(storno.register).toMatchObject({ isFiscal: false, receiptText: `Сторно на бон № ${sold.invoiceNumber}`, fiscalDeviceNumber: 'ED123456' })
+      expect(storno.register.unp).toBeUndefined()
+      expect(await Sequence.countDocuments({ orgId: w.oid, prefix: /^UNP/ })).toBe(0)
       expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+      // The session's report counts it among the slips. Printing nothing, it read as unprinted.
+      const shown = await w.call('GET', `/trade/pos/session/${w.sessionId}/close-preview`)
+      expect(shown.json.report.counts).toMatchObject({ text: 2, unprinted: 0 })
     })
 
-    it('and on one fiscalized since: the device holds no record of that sale, so nothing fiscal cites it', async () => {
+    it('and on one fiscalized since: the device holds no record of that sale, so nothing fiscal cites it, nor a slip', async () => {
       const w = await tillWorld(app)
       w.sim!.unfiscalizedUnit = true
       const r = await sale(w)
@@ -224,7 +330,46 @@ describe('the device decides what a till sale prints (D1)', () => {
 
       expect(back.status).toBe(200)
       expect(fiscalCommands(w)).toHaveLength(0)
+      // A fiscalized device never prints text.
+      expect(textsClosed(w)).toBe(1)
+      const storno = await docOf(back.json.transaction.id)
+      expect(storno.register.fiscal).toMatchObject({ state: 'none' })
+      expect(storno.register.fiscal.mode).toBeUndefined()
+      expect(storno.register.receiptText ?? null).toBeNull()
       expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+    })
+
+    it('with the device away, nothing prints and it goes through, as before: a slip has no legal weight', async () => {
+      const w = await tillWorld(app)
+      w.sim!.unfiscalizedUnit = true
+      const r = await sale(w)
+      forgetDevices()
+
+      const back = await w.storno(r.json.transaction.id)
+
+      expect(back.status).toBe(200)
+      expect(textsClosed(w)).toBe(1)
+      expect((await docOf(back.json.transaction.id)).register.fiscal).toMatchObject({ state: 'none' })
+      expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
+    })
+
+    it('a slip that does not print gives the sale back, and nothing is reversed', async () => {
+      const w = await tillWorld(app)
+      w.sim!.unfiscalizedUnit = true
+      const r = await sale(w)
+      w.sim!.paper = false
+
+      const back = await w.storno(r.json.transaction.id)
+
+      w.sim!.paper = true
+      expect(back.status).toBe(503)
+      expect(back.json.code).toBe('fiscal_error')
+      const sold = await docOf(r.json.transaction.id)
+      expect(sold.register.stornoState ?? 'none').toBe('none')
+      expect(sold.register.stornoedBy ?? []).toHaveLength(0)
+      expect(await sessionOf(w)).toMatchObject({ totalCash: 12, totalReturns: 0 })
+      expect((await w.stock()).quantity).toBe(9)
+      expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_storno', status: { $ne: 'voided' } })).toBe(0)
     })
   })
 

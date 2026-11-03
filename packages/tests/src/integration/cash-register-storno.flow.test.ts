@@ -2,13 +2,17 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import type { Elysia } from 'elysia'
 import type { Types } from 'mongoose'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestContact, createTestInvoice, createTestPOSTransaction, createTestStockMovement } from '../helpers/factories'
-import { tillApp, tillWorld, forgetDevices } from '../helpers/till-world'
+import { createTestAccount, createTestContact, createTestInvoice, createTestPOSTransaction, createTestStockMovement } from '../helpers/factories'
+import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
 import { tillRow } from '../helpers/till-row'
 import { migrateTill } from '../helpers/migrate-till'
-import { Invoice, POSSession, POSTransaction, StockMovement } from 'db/models'
+import { Invoice, Org, POSSession, POSTransaction, StockLevel, StockMovement } from 'db/models'
 import { buildInvoiceHtml } from 'reporting/pdf/invoice.pdf'
 import { requestHash } from 'services/biz/hot-path-key'
+import { createMovementValuationEntry } from 'services/biz/auto-journal.service'
+import { reportById } from 'services/biz/report-registry'
+import { validateParams } from 'services/biz/report-registry.types'
+import { getRepos } from 'services/context'
 
 /**
  * FR-21.18 — a storno is its own `cash_storno` document (D-2, §3.5).
@@ -87,7 +91,8 @@ describe('a storno of a till sale', () => {
     const ret: any[] = await StockMovement.find({ orgId: w.oid, type: 'return' }).lean()
     expect(ret).toHaveLength(1)
     expect(String(ret[0].invoiceId)).toBe(res.json.transaction.id)
-    expect(ret[0].lines.map((l: any) => [l.quantity, l.unitCost])).toEqual([[2, 4]])
+    // What it sold for stays its `unitCost`, which FR-07 reads as its value; what it is worth is apart (#467).
+    expect(ret[0].lines.map((l: any) => [l.quantity, l.unitCost, l.resolvedUnitCost])).toEqual([[2, 10, 4]])
   }, 60_000)
 
   it('the journal reverses it too, from an open session of its warehouse; without one it says so', async () => {
@@ -269,7 +274,89 @@ describe('a sale an older release rang up (§6 edge 3)', () => {
     expect(String(storno.relatedInvoiceId)).toBe(String(row._id))
     expect(storno.invoiceNumber).toBe(`CS-${year}-00001`)
     const ret: any[] = await StockMovement.find({ orgId: w.oid, type: 'return', invoiceId: storno._id }).lean()
-    expect(ret.map(m => m.lines[0].unitCost)).toEqual([4])
+    expect(ret.map(m => [m.lines[0].unitCost, m.lines[0].resolvedUnitCost])).toEqual([[10, 4]])
+  }, 60_000)
+})
+
+describe('a till storno\'s return: its price as its value, its cost apart (#467)', () => {
+  const returnOf = async (w: TillWorld, stornoId: string) =>
+    StockMovement.findOne({ orgId: w.oid, invoiceId: stornoId, type: 'return' }).lean() as Promise<any>
+
+  it('FR-07: a sale given back whole leaves nothing sold, no value and no profit', async () => {
+    const w = await tillWorld(app, { device: false })
+    const sale = await w.sell(3)
+    expect((await w.storno(sale.json.transaction.id)).status).toBe(200)
+    const keep = await w.sell(2)
+    expect(keep.status).toBe(200)
+
+    // The report reads its days on the process's clock (`dayStart`), so the day is today's there, not UTC's.
+    const now = new Date()
+    const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const entry = reportById('warehouse-operations')!
+    const result = await entry.handler!({ orgId: w.orgId, params: validateParams(entry, { operation: 'sales', period: { preset: 'custom', from: day, to: day } }), output: 'table' } as any)
+
+    const row: any = result.rows.find((x: any) => x.productId === String(w.product._id))
+    // Sold 3 and 2 at 10.00, the 3 back: 2 sold, for 20.00, at a cost of 8.00. At cost, the 3 took 12.00 off the value
+    // and the profit kept the 18.00 the customer took back.
+    expect(row).toMatchObject({ quantity: 2, value: 20, cost: 8, profit: 12 })
+  }, 60_000)
+
+  it('the valuation entry takes it back at what it left at, not at what the article costs by now', async () => {
+    const w = await tillWorld(app, { device: false })
+    const inventory = await createTestAccount(w.oid, { code: '304', name: 'Goods', type: 'asset', subType: 'current_asset' })
+    const cogs = await createTestAccount(w.oid, { code: '601', name: 'Cost of sales', type: 'expense', subType: 'cost_of_goods_sold' })
+    await Org.updateOne({ _id: w.oid }, { $set: {
+      'settings.inventory.defaultInventoryAccountId': inventory._id,
+      'settings.inventory.defaultCOGSAccountId': cogs._id,
+    } })
+    const sale = await w.sell(2)
+    // A delivery since, at a higher price.
+    await StockLevel.updateOne({ orgId: w.oid, productId: w.product._id, warehouseId: w.warehouse._id }, { $set: { avgCost: 7 } })
+    const res = await w.storno(sale.json.transaction.id)
+    expect(res.status).toBe(200)
+
+    const ret = await getRepos().stockMovements.findById(String((await returnOf(w, res.json.transaction.id))._id))
+    const je = await createMovementValuationEntry(w.orgId, ret, ret!.lines, new Date())
+    // 2 × 4.00. With its cost in `unitCost` too, the entry read the line as saying nothing, and took 2 × 7.00.
+    expect(je?.lines?.[0]?.baseDebit).toBe(8)
+    expect(String(je.lines[0].accountId)).toBe(String(inventory._id))
+  }, 60_000)
+
+  it('an article sold at what it cost comes back at that, though the line resolved to its own price', async () => {
+    const w = await tillWorld(app, { device: false })
+    // The average is the selling price, 10.00: WAC keeps no allocations, so the line says only `resolvedUnitCost` 10.
+    await StockLevel.updateOne({ orgId: w.oid, productId: w.product._id, warehouseId: w.warehouse._id }, { $set: { avgCost: 10 } })
+    const sale = await w.sell(2)
+    const dispatch: any = await StockMovement.findOne({ orgId: w.oid, invoiceId: sale.json.transaction.id, type: 'dispatch' }).lean()
+    expect(dispatch.lines[0]).toMatchObject({ unitCost: 10, resolvedUnitCost: 10, costingMethod: 'wac' })
+    // A delivery since, at a lower price.
+    await StockLevel.updateOne({ orgId: w.oid, productId: w.product._id, warehouseId: w.warehouse._id }, { $set: { avgCost: 7 } })
+
+    const res = await w.storno(sale.json.transaction.id)
+
+    expect(res.status).toBe(200)
+    expect((await returnOf(w, res.json.transaction.id)).lines[0].resolvedUnitCost).toBe(10)
+    // (8 × 7.00 + 2 × 10.00) / 10. Read as saying nothing, it came back at 7.00, and FR-07 kept 6.00 of cost for a sale given back.
+    const { quantity, avgCost } = await w.stock()
+    expect(quantity).toBe(10)
+    expect(avgCost).toBeCloseTo(7.6, 6)
+  }, 60_000)
+
+  it('sold out of a warehouse with no stock of it: back at what the article is bought at, never at the selling price', async () => {
+    const w = await tillWorld(app, { device: false })
+    await StockLevel.deleteOne({ orgId: w.oid, productId: w.product._id, warehouseId: w.warehouse._id })
+    const sale = await w.sell(2)
+    expect(sale.status).toBe(200)
+    const dispatch: any = await StockMovement.findOne({ orgId: w.oid, invoiceId: sale.json.transaction.id, type: 'dispatch' }).lean()
+    // It consumed nothing, so its line says only its price (`confirmMovement`).
+    expect(dispatch.lines[0]).toMatchObject({ unitCost: 10, resolvedUnitCost: 10 })
+
+    const res = await w.storno(sale.json.transaction.id)
+
+    expect(res.status).toBe(200)
+    expect((await returnOf(w, res.json.transaction.id)).lines[0]).toMatchObject({ unitCost: 10, resolvedUnitCost: 4 })
+    // At 10.00 the level would hold the selling price as its average, for the next sale to read as its cost.
+    expect(await w.stock()).toEqual({ quantity: 0, avgCost: 4 })
   }, 60_000)
 })
 

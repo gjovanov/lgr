@@ -12,7 +12,7 @@ import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumbe
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
 import { Invoice, Org, POSSession, Reservation, StockMovement } from 'db/models'
-import { assertJoinedSaleTender, assertOperatorFor, assertPrinterConnected, finishInterruptedDocuments, openSessionOf, tillContext, tillSettings } from '../lib/cash-register-till.js'
+import { assertJoinedSaleTender, assertOperatorFor, assertPrinterConnected, assertSaleMayOpen, finishInterruptedDocuments, openSessionOf, tillContext, tillSettings } from '../lib/cash-register-till.js'
 import {
   keyedReceipt, prepareIssueReceipt, prepareReceipt, printReceipt, receiptOutcome, settleKeyedReceipt,
   type PreparedReceipt,
@@ -826,6 +826,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
             await assertPrinterConnected(orgId, String(createCtx.joined.warehouseId), context)
             await assertOperatorFor(user, context.printer)
             assertJoinedSaleTender((body as any).paymentMethod || 'cash', context.printer)
+            // FR-20.49 — Прил. 29 т. 8, as at the till: no receipt opens on a device not reached in two hours. A NEW
+            // sale only: a keyed retry was settled above, and refusing it now would strand its receipt.
+            await assertSaleMayOpen(orgId, createCtx.joined.warehouseId)
           }
         } catch (e: any) {
           if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)

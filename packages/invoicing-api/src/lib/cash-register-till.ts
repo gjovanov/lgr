@@ -22,7 +22,7 @@ import type { RegisterPrinter } from 'services/biz/cash-register/printer'
 import { takeLease } from 'services/biz/hot-path-key'
 import { POD_ID, livePresence } from 'services/biz/fiscal-presence.service'
 import {
-  RegisterRefusal, SESSION_CLOSING, claimForStorno, finishInterruptedStorno, finishSale, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedFiscally,
+  RegisterRefusal, SESSION_CLOSING, claimForStorno, finishInterruptedStorno, finishSale, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedAsText, printedFiscally,
   releaseOrphanClaims, releaseStornoClaim, runStornoSteps, settleKeyedDocument, stornoClaimed, stornoDocument, stornoInDoubtRefusal, stornoRefusal,
   type RegisterContext, type RegisterSession, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
@@ -258,6 +258,8 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
         payments: tendered(doc), changeDue: doc.register?.changeDue || 0,
         // FR-23: the same words a fiscal receipt of this payment prints. A refund's storno says what it reverses there.
         ...(doc.type === 'payment_receipt' || doc.type === 'payment_storno' ? { keepNames: true, receiptText: doc.register?.receiptText } : {}),
+        // And a till sale's storno, under the articles it gives back (#467).
+        ...(doc.type === 'cash_storno' ? { receiptText: doc.register?.receiptText } : {}),
       }
       await p.openNonFiscalReceipt!(operatorCode || '1')
       for (const line of formatNonFiscalLines(body, doc.invoiceNumber, operatorName, locale, currency)) await p.printNonFiscalText!(line)
@@ -767,6 +769,9 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
       })
     }
     const printsReceipt = !!c.printer && printedFiscally(original)
+    // #467: a sale that printed a slip is reversed by one, on its device, as a refund's storno is. With the device
+    // away nothing prints, as before: a slip has no legal weight, and nothing on the device holds the sale.
+    const printsSlip = !printsReceipt && !!c.printer?.printsText && printedAsText(original)
 
     /**
      * What this request takes of the sale as it stands, and how it goes back. All before the claim: a refused
@@ -865,7 +870,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
       if (invoicedMeanwhile) throw invoicedMeanwhile
       const doc = stornoDocument({
         orgId, user, original, reason: input.reason, payments, plan,
-        session: tillSale ? registerSessionOf(session) : null, printsReceipt, printer: c.printer ?? null,
+        session: tillSale ? registerSessionOf(session) : null, printsReceipt, printsSlip, printer: c.printer ?? null,
       })
       const outcome = await insertRegisterDocument(orgId, { ...doc, _id: stornoId }, key ? { key, hash: hash! } : undefined)
       if ('existing' in outcome) {
@@ -878,7 +883,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
       await releaseStornoClaim(original, stornoId)
       throw e
     }
-    return answer(await runStornoSteps({ ...c, printer: printsReceipt ? c.printer : null }, String(inserted._id)))
+    return answer(await runStornoSteps({ ...c, printer: printsReceipt || printsSlip ? c.printer : null }, String(inserted._id)))
   } catch (e: any) {
     if (e instanceof RegisterRefusal) return { status: e.statusCode, body: e.body }
     throw e

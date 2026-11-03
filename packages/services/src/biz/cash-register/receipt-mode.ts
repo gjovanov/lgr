@@ -6,8 +6,8 @@ import type { RegisterPrinter } from './printer.js'
  *
  * A device that is not fiscalized refuses a fiscal receipt, so a cash invoice on it would be issued,
  * unpaid, with an error, however it was paid. A device that reports `fiscalized === false` in its own
- * status prints text. `undefined` or `true` is fiscal: a device that does not report it (a Tremol or a
- * Datecs today) never gets text, and a fiscalized device can never print it.
+ * status prints text. `undefined` or `true` is fiscal: a device that does not report it (a Datecs today,
+ * and a Tremol whose 20h status is not read whole) never gets text, and a fiscalized device can never print it.
  *
  * ⚠ No request field, org setting or screen selects this. The till had a switch, and in a fresh browser it
  * made a fiscal device print a slip the Z never saw, with the money booked. An old tab still sends
@@ -18,7 +18,8 @@ import type { RegisterPrinter } from './printer.js'
  * "not fiscalized", or a device that stopped answering would print a fiscalized shop's sale as text.
  *
  * A receipt, a refund's storno and a till sale decide with this, each in its turn. A till sale's storno
- * prints what its sale printed, so it asks nothing here.
+ * prints what its sale printed: a fiscal one asks nothing here, and a slip asks whether the device still
+ * prints them (`printStornoSlip`, #467).
  */
 export type ReceiptMode = 'fiscal' | 'text'
 

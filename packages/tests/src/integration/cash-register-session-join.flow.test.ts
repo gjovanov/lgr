@@ -2,8 +2,10 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import type { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices } from '../helpers/till-world'
-import { Invoice, Org, POSSession, StockMovement } from 'db/models'
+import { FiscalDevice, Invoice, Org, POSSession, StockMovement } from 'db/models'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
+import { setReachWriterForTests } from 'fiscal/device-reach'
+import { config } from 'config'
 
 /**
  * FR-21.31 (D-13, owner 2026-10-21) — a back-office cash sale by a user with an open session joins it.
@@ -106,6 +108,80 @@ describe('FR-21.31 — a back-office sale joins its author\'s open session', () 
     expect(again.json.invoice.id).toBe(first.json.invoice.id)
     expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_sale' })).toBe(1)
     expect((await session(w.sessionId)).transactionCount).toBe(1)
+  }, 60_000)
+})
+
+describe('FR-20.49 — a joined sale that prints meets Прил. 29 т. 8, as the till\'s does (#467)', () => {
+  const HOUR = 60 * 60 * 1000
+
+  /** A till whose device was last reached three hours ago, and nothing since writes that it was. */
+  async function staleTill() {
+    setReachWriterForTests(async () => {})
+    const w = await tillWorld(app)
+    await FiscalDevice.updateOne({ _id: w.deviceId }, { $set: { lastCommunicationAt: new Date(Date.now() - 3 * HOUR) } })
+    return w
+  }
+
+  async function inProduction(run: () => Promise<void>) {
+    const mode = config.supto.mode
+    config.supto.mode = 'production'
+    try {
+      await run()
+    } finally {
+      config.supto.mode = mode
+      setReachWriterForTests(null)
+    }
+  }
+
+  it('refuses one on a device not reached in two hours and silent now, and writes nothing', async () => {
+    await inProduction(async () => {
+      const w = await staleTill()
+      // The bridge is gone and the org sells without a printer, so only the two-hour rule is left to say no.
+      forgetDevices()
+      await Org.updateOne({ _id: w.oid }, { $set: { 'settings.cashRegister.requireConnectedDevice': false } })
+      const res = await w.cashierBackOfficeSale(1, { receipt: 'fiscal' })
+      expect(res.status).toBe(409)
+      expect(res.json.code).toBe('fiscal_device_unreached')
+      expect(res.json.deviceName).toBe('Eltrade A3')
+      expect(await Invoice.countDocuments({ orgId: w.oid })).toBe(0)
+      expect((await session(w.sessionId)).transactionCount).toBe(0)
+    })
+  }, 60_000)
+
+  it('asks a stale device first: one that answers is reached, and the sale prints', async () => {
+    await inProduction(async () => {
+      const w = await staleTill()
+      const res = await w.cashierBackOfficeSale(1)
+      expect(res.status).toBe(200)
+      const doc: any = await Invoice.findById(res.json.invoice.id).lean()
+      expect(doc.register.fiscal.state).toBe('printed')
+    })
+  }, 60_000)
+
+  it('a keyed retry of one that already opened is never refused by it', async () => {
+    await inProduction(async () => {
+      setReachWriterForTests(async () => {})
+      const w = await tillWorld(app)
+      const first = await w.cashierBackOfficeSale(1, {}, 'join-stale-0001')
+      expect(first.status).toBe(200)
+      await FiscalDevice.updateOne({ _id: w.deviceId }, { $set: { lastCommunicationAt: new Date(Date.now() - 3 * HOUR) } })
+      forgetDevices()
+      const again = await w.cashierBackOfficeSale(1, {}, 'join-stale-0001')
+      expect(again.status).toBe(200)
+      expect(again.json.invoice.id).toBe(first.json.invoice.id)
+    })
+  }, 60_000)
+
+  it('a joined sale that asks for no receipt opens none, so the rule is not its to meet', async () => {
+    await inProduction(async () => {
+      const w = await staleTill()
+      forgetDevices()
+      await Org.updateOne({ _id: w.oid }, { $set: { 'settings.cashRegister.requireConnectedDevice': false } })
+      const res = await w.cashierBackOfficeSale(1)
+      expect(res.status).toBe(200)
+      const doc: any = await Invoice.findById(res.json.invoice.id).lean()
+      expect(doc.register).toMatchObject({ joinedFrom: 'backoffice', fiscal: { state: 'none' } })
+    })
   }, 60_000)
 })
 
