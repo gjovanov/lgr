@@ -1,6 +1,6 @@
 import { Contact, DocFile, Invoice, Org, Product, VatRegisterEntry } from 'db/models'
 import {
-  compareSalesRegister, salesRegisterRow,
+  REGISTER_DOC_TYPES, compareSalesRegister, salesRegisterRow,
   type DerivedSalesRow, type FiledSalesRow, type RegisterComparison, type RegisterDocument, type SeriesOwner,
 } from './sales-register.js'
 
@@ -30,6 +30,8 @@ export async function booksBranches(booksOrgId: unknown): Promise<BooksBranches>
   return { booksOrgId, branches: books.branches }
 }
 
+const REGISTER_TYPES = Object.keys(REGISTER_DOC_TYPES)
+
 /** When a voided document was voided: the last time its history says so. */
 function voidedAt(doc: any): Date | undefined {
   const entries = (doc.statusHistory ?? []).filter((h: any) => h.status === 'voided' && h.changedAt)
@@ -41,13 +43,13 @@ async function branchRows(branch: BooksBranches['branches'][number], period: str
   const y = Number(period.slice(0, 4)), m = Number(period.slice(4))
   // A day either side: the business day is Sofia's, and `salesRegisterRow` keeps only the period's.
   const from = new Date(Date.UTC(y, m - 1, 1) - 86_400_000), to = new Date(Date.UTC(y, m, 1) + 86_400_000)
-  const kinds = { orgId: branch.orgId, direction: 'outgoing', type: { $in: ['invoice', 'credit_note', 'debit_note'] } }
-  const docs: any[] = await Invoice.find({ ...kinds, issueDate: { $gte: from, $lt: to } })
+  // The register's documents only: a payment receipt is an Invoice row too, and is in no register.
+  const docs: any[] = await Invoice.find({ orgId: branch.orgId, direction: 'outgoing', type: { $in: REGISTER_TYPES }, issueDate: { $gte: from, $lt: to } })
     .select('invoiceNumber type status statusHistory tags issueDate currency subtotal discountTotal taxTotal total contactId lines.taxRate lines.productId').lean()
   // Annulled in this period, issued before it: their row of opposite sign belongs here, and is not
   // derived yet. Counted, so the month says it is missing them.
   const annulledOfEarlier = await Invoice.countDocuments({
-    ...kinds, status: 'voided', issueDate: { $lt: from },
+    orgId: branch.orgId, direction: 'outgoing', type: { $in: REGISTER_TYPES }, status: 'voided', issueDate: { $lt: from },
     statusHistory: { $elemMatch: { status: 'voided', changedAt: { $gte: from, $lt: to } } },
   })
   if (annulledOfEarlier) refusals[`${branch.code}: annulled this period, issued before it: no row derived`] = annulledOfEarlier
