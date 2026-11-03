@@ -141,7 +141,7 @@ function wrapped(text: string, width: number): string[] {
  * Format receipt as text lines for non-fiscal printing (testing with non-fiscalized devices).
  * Uses the org locale for translated labels and the given (session) currency for amounts.
  */
-export function formatNonFiscalLines(body: any, transactionNumber: string, operatorName: string, locale: string, currency: string): string[] {
+export function formatNonFiscalLines(body: any, transactionNumber: string, operatorName: string, locale: string, currency: string, timeZone = 'Europe/Sofia'): string[] {
   const labels: Record<string, Record<string, string>> = {
     en: { subtotal: 'Subtotal:', vat: 'VAT:', total: 'TOTAL:', cash: 'CASH:', card: 'CARD:', cod: 'ON DELIVERY:', change: 'CHANGE:', nonFiscal: '* NON-FISCAL *', operator: 'Op:' },
     bg: { subtotal: 'Междинна сума:', vat: 'ДДС:', total: 'ОБЩО:', cash: 'В БРОЙ:', card: 'КАРТА:', cod: 'НАЛОЖЕН ПЛАТЕЖ:', change: 'РЕСТО:', nonFiscal: '* НЕФИСКАЛЕН *', operator: 'Оп:' },
@@ -176,7 +176,8 @@ export function formatNonFiscalLines(body: any, transactionNumber: string, opera
   lines.push(center(l.nonFiscal))
   lines.push(sep)
   lines.push(transactionNumber)
-  lines.push(new Date().toLocaleString(`${locale}-${locale.toUpperCase()}`, { timeZone: 'Europe/Sofia' }))
+  // #454: the org's clock, as the session report reads it (`formatSessionReport`), Sofia when it names none.
+  lines.push(new Date().toLocaleString(`${locale}-${locale.toUpperCase()}`, { timeZone }))
   lines.push(`${l.operator} ${operatorName.substring(0, W - l.operator.length - 1)}`)
   lines.push(sep)
   for (const item of body.lines) {
@@ -262,7 +263,7 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
         ...(doc.type === 'cash_storno' ? { receiptText: doc.register?.receiptText } : {}),
       }
       await p.openNonFiscalReceipt!(operatorCode || '1')
-      for (const line of formatNonFiscalLines(body, doc.invoiceNumber, operatorName, locale, currency)) await p.printNonFiscalText!(line)
+      for (const line of formatNonFiscalLines(body, doc.invoiceNumber, operatorName, locale, currency, org?.settings?.timezone || 'Europe/Sofia')) await p.printNonFiscalText!(line)
       await p.closeNonFiscalReceipt!()
     },
     async printStorno(storno, original) {

@@ -323,7 +323,10 @@ export async function settleInDoubt(c: RegisterContext, id: string, answer: Sett
   const inDoubt = isSale ? saleInDoubt(doc, now.getTime()) : !!doc.register?.fiscal?.inDoubt
   // A sale must say. A fiscal receipt may: without it the refund of a credit note has nothing to cite.
   const fiscalReceipt = doc.type === PAYMENT_RECEIPT && doc.register?.fiscal?.mode !== 'text'
-  const brought = fiscalReceipt && !!String(answer.receiptNumber ?? '').trim()
+  // #454: a fiscal storno settled as printed may bring its number off the slip too. Without it SUPTO 18.4
+  // lists the storno with a blank Fiscal Receipt #. It is the storno's own number: nothing cites it.
+  const fiscalStorno = (doc.type === PAYMENT_STORNO || doc.type === 'cash_storno') && doc.register?.fiscal?.mode !== 'text'
+  const brought = (fiscalReceipt || fiscalStorno) && !!String(answer.receiptNumber ?? '').trim()
   // A number a person typed, typed again, or a receipt's first: the one thing this door takes on a document no longer in doubt.
   const numberless = fiscalReceipt && doc.register?.fiscal?.state === 'printed' && !doc.register?.fiscalReceiptNumber
   const corrects = (isSale || fiscalReceipt) && printed && !inDoubt && (!!doc.register?.settled?.receiptNumber || numberless) && answer.receiptNumber !== undefined

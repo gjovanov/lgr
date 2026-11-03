@@ -289,8 +289,11 @@ const settleWords = computed(() => (({
 const settleNumber = ref('')
 const canSettle = computed(() => !!props.role && (STORNO_ROLES as readonly string[]).includes(props.role))
 const settling = ref<'printed' | 'notPrinted' | 'correct' | null>(null)
-/** A storno cites the number: a sale must bring it, and a fiscal receipt may (R2's refund cites it). */
-const takesNumber = computed(() => doc.value?.row.kind === 'sale' || (doc.value?.row.kind === 'payment' && !!doc.value?.row.fiscal?.isFiscal))
+/**
+ * A storno cites the number: a sale must bring it, and a fiscal receipt may (R2's refund cites it). A fiscal
+ * storno may bring its own too (#454): SUPTO 18.4 lists it by that number.
+ */
+const takesNumber = computed(() => doc.value?.row.kind === 'sale' || (['payment', 'storno', 'refund'].includes(doc.value?.row.kind ?? '') && !!doc.value?.row.fiscal?.isFiscal))
 const settleNumberBad = computed(() => {
   const typed = settleNumber.value.trim()
   const digits = /^\d{1,10}$/.test(typed)
