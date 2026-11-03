@@ -1,6 +1,6 @@
 # Entity Model Reference
 
-LGR has 49 entity types across 8 modules. Each entity has a TypeScript interface (`packages/dal/src/entities/`) and a MongoDB schema (`packages/db/src/models/`).
+LGR has 50 entity types across 8 modules. Each entity has a TypeScript interface (`packages/dal/src/entities/`) and a MongoDB schema (`packages/db/src/models/`).
 
 > ⚠ **The SQLite columns below and in the per-entity pages are historical.** `packages/dal-sqlite`
 > was the desktop's local-mode backend and was deleted on 2026-09-29 (FR-14.34). The per-entity
@@ -25,7 +25,7 @@ LGR has 49 entity types across 8 modules. Each entity has a TypeScript interface
 | [OrgApp](core/org-app.md) | `IOrgApp` | `org_apps` | App activation per org |
 | [Tag](core/tag.md) | `ITag` | `tags` | Categorization tag |
 
-## Accounting (9 entities)
+## Accounting (10 entities)
 
 | Entity | Interface | SQLite Table | Description |
 |--------|-----------|-------------|-------------|
@@ -37,6 +37,7 @@ LGR has 49 entity types across 8 modules. Each entity has a TypeScript interface
 | [BankAccount](accounting/bank-account.md) | `IBankAccount` | `bank_accounts` | Bank account |
 | [BankReconciliation](accounting/bank-reconciliation.md) | `IBankReconciliation` | `bank_reconciliations` | Statement reconciliation |
 | [TaxReturn](accounting/tax-return.md) | `ITaxReturn` | `tax_returns` | Tax filing |
+| [VatRegisterEntry](accounting/vat-register-entry.md) | `IVatRegisterEntry` | — | One row of a VAT register |
 | [ExchangeRate](accounting/exchange-rate.md) | `IExchangeRate` | `exchange_rates` | Currency rate |
 
 ## Invoicing (4 entities)
