@@ -380,7 +380,8 @@ export async function mapMovementExtraction(
   const party = partySide === 'supplier' ? ext.supplier : ext.customer
   let partnerRefused: string | undefined
   const partner = clean(party?.name)
-    ? await matchContact(orgId, party!, partySide, { create: false, onRefused: reason => { partnerRefused = reason } })
+    // #484: never created, and not filled either: an analysis persists nothing. The commit fills it.
+    ? await matchContact(orgId, party!, partySide, { create: false, enrich: false, onRefused: reason => { partnerRefused = reason } })
     : null
   if (partnerRefused) {
     warnings.push(`partner: ${partnerRefused}. Booked without one, so the invoice this note may later be converted into will not be recognised as its conversion.`)
@@ -394,6 +395,7 @@ export async function mapMovementExtraction(
     date,
     ...(side === 'to' ? { toWarehouseId: warehouseId } : { fromWarehouseId: warehouseId }),
     ...(partner ? { contactId: partner.contactId } : {}),
+    ...(partner?.fill ? { contactFill: partner.fill } : {}),
     notes: suffix ? `${baseNotes} ${suffix}` : baseNotes,
     marker,
     ...(reference ? { reference } : {}),

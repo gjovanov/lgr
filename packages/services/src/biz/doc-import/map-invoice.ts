@@ -1,19 +1,22 @@
 /**
- * Extraction → a form-shaped invoice mapping. **Nothing is persisted here.**
+ * Extraction → a form-shaped invoice mapping. **Nothing is persisted here** when `persistContacts` is
+ * false, which is how the analysis calls it (#484).
  *
  * The batch path hands the result to `persistInvoiceDraft`; the single-document path
  * returns it to the browser, where the user diffs it against the open form. Splitting
  * mapping from persistence is what lets one engine serve both.
  *
- * The one deliberate side effect is contact creation, and only when the caller asks for it
- * (`createMissingContact`) — the migration importer has always created counterparties it
- * had never seen, while the single-document path offers the user a choice instead.
+ * Contacts: a counterparty no contact matches is created when the caller asks (`createMissingContact`),
+ * and a matched contact's empty ЕИК and address are filled from the document. The legacy
+ * `/bills/import/draft` path does both here (`persistContacts`, default true). The analysis does
+ * neither: it leaves `mapped.newContact` and `mapped.contactFill`, and the commit writes them
+ * (`settleMappedContact`).
  */
 import { Order, Org } from 'db/models'
 import { amountInWordsLocale, upsertAmountInWords } from 'config/amount-in-words'
 import { normalizeUomBg } from '../uom.utils.js'
 import { clean, detectDirection, num } from './detect.js'
-import { matchContact, matchLines, type ContactMatch, type ProductMatch } from './matching.js'
+import { matchContact, matchLines, partyAddressEntry, type ContactMatch, type ProductMatch } from './matching.js'
 import { parseNoteReference } from './detect.js'
 import {
   parsePartyAddresses,
@@ -39,6 +42,11 @@ export interface MapInvoiceOptions {
   orderId?: string
   /** Create the counterparty when no contact matches. Batch: true. Single-document: false. */
   createMissingContact?: boolean
+  /**
+   * Write contacts now (default true, the legacy draft path). False: write nothing, and leave on `mapped`
+   * what the commit writes (#484).
+   */
+  persistContacts?: boolean
   /** Correlation tag written onto the draft (`ocr:<batchId>`). */
   batchId?: string
   /** Force the document type. Defaults to 'invoice'; cash-sale imports pass 'cash_sale'. */
@@ -120,13 +128,18 @@ export async function mapInvoiceExtraction(
   if (!clean(counterparty?.city) && cpParsed.city) counterparty.city = cpParsed.city
 
   let contactRefused: string | undefined
+  const persistContacts = opts.persistContacts !== false
   const contact = await matchContact(orgId, counterparty, contactType, {
-    create: opts.createMissingContact !== false,
+    create: persistContacts && opts.createMissingContact !== false,
+    enrich: persistContacts,
     onRefused: reason => { contactRefused = reason },
   })
   if (contactRefused) warnings.push(contactRefused)
+  // #484: a counterparty the commit will create. Its address is the one it will be created with.
+  const willCreate = !persistContacts && !contact && !contactRefused && opts.createMissingContact !== false && !!clean(counterparty?.name)
   // Billing address = the counterparty's (the invoice recipient), not the warehouse's.
-  const billingAddress = toAddress(contact?.address)
+  const billingAddress = toAddress(contact?.address
+    ?? (willCreate && clean(counterparty?.address) ? partyAddressEntry(clean(counterparty.address), clean(counterparty?.city) || undefined) : undefined))
 
   // No suggestion for a refused name: creating it would add one more contact of that name.
   let contactSuggestion: ContactSuggestion | undefined
@@ -268,6 +281,9 @@ export async function mapInvoiceExtraction(
     preparedBy: parsePreparedBy(rawText),
     placeOfTransaction: parsePlaceOfTransaction(rawText),
     billingAddress,
+    // #484: what the commit writes about the counterparty, when this mapping wrote nothing.
+    ...(contact?.fill ? { contactFill: contact.fill } : {}),
+    ...(willCreate && contactSuggestion ? { newContact: { type: contactType, ...contactSuggestion } } : {}),
     lines,
     subtotal,
     taxTotal,

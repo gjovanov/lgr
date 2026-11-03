@@ -285,8 +285,8 @@ async function main() {
         // issued — found live 2026-10-28 on regal-pz's first real batch (16 invoices issued
         // with no stock movement, fixed by a one-off remediation script; see git history).
         context: { warehouseId: wh._id },
-        // The analysis creates a customer it cannot match. A run that commits needs it; a review run
-        // must not leave customers behind for invoices it never imports.
+        // A customer it cannot match is created by the commit, never by the analysis (#484). Only a run
+        // that commits asks for it, so a review run's documents carry no customer to create.
         options: { createMissingContact: doConvert },
       })
       result = await pollTask(res.taskId)
@@ -301,10 +301,12 @@ async function main() {
     if (doc.duplicate) problems.push(`duplicate: ${doc.duplicate.reason} — ${doc.duplicate.number}`)
     if (uncertain && !includeUncertain) problems.push('uncertain (needs-review)')
     if (String(doc.mapped?.reference) !== f.num) problems.push(`reference ${doc.mapped?.reference} != filename ${f.num}`)
-    // Never issued without its customer. A new one carries a suggestion and is created by --convert;
-    // a refused name (several contacts share it, see the warnings) carries none.
+    // Never issued without its customer. A new one carries a suggestion, and under --convert a
+    // `newContact` the commit creates (#484); a refused name (several contacts share it, see the
+    // warnings) carries neither.
     const newCustomer = !doc.mapped?.contactId && !!doc.diagnostics?.contactSuggestion
-    if (!doc.mapped?.contactId && (doConvert || !newCustomer)) problems.push('no customer: choose one in LGR')
+    const createdAtCommit = !doc.mapped?.contactId && !!doc.mapped?.newContact
+    if (!doc.mapped?.contactId && !(doConvert ? createdAtCommit : newCustomer)) problems.push('no customer: choose one in LGR')
 
     const source = plusminusStockSource(f.doc, TILL_DOC_TYPE[orgSlug])
     if (source === 'mixed') problems.push('some lines are on БЕЗСКЛАД and some are not: LGR dispatches a document whole, so this one is for a person')

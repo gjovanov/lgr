@@ -298,6 +298,8 @@ async function analyzeOne(
     warehouseId: context.warehouseId,
     orderId: context.orderId,
     createMissingContact: options.createMissingContact !== false,
+    // #484: the analysis persists nothing; what it would write about the contact, the commit writes.
+    persistContacts: false,
     batchId: options.batchId,
     type,
   })

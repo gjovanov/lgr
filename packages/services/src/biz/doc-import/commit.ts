@@ -12,6 +12,7 @@ import { persistInvoiceDraft, persistCashSale, convertDraftInvoice } from './per
 import { persistMovement } from './persist-movement.js'
 import { findDuplicateCashSale, findDuplicateInvoice, findDuplicateMovement } from './dedupe.js'
 import { conversionWarning, findStockNoteConversion, linkNamedStockSource, linkStockSource } from './conversion.js'
+import { settleMappedContact } from './matching.js'
 import type { ImportTarget, MappedInvoice, MappedMovement } from './types.js'
 
 export interface CommitItemOptions {
@@ -205,6 +206,9 @@ export async function commitDocuments(
     try {
       const dup = await duplicateGuard(orgId, items[i])
       if (dup) { out.push(dup); continue }
+      // #484: the contact the analysis only described, created or filled now, before the document names it.
+      await settleMappedContact(orgId, items[i].mapped as any)
+      for (const extra of (items[i].extraMovements || []) as any[]) await settleMappedContact(orgId, extra)
       if (target === 'movement') {
         out.push(await commitMovement(orgId, userId, items[i]))
       } else {

@@ -128,6 +128,10 @@ export interface MappedInvoice {
   type: string
   direction: 'outgoing' | 'incoming'
   contactId?: string
+  /** #484: a matched contact's empty fields the document fills, written at commit (`settleMappedContact`). */
+  contactFill?: import('./matching.js').ContactFill
+  /** #484: a counterparty no contact matched, created at commit after matching it again. */
+  newContact?: import('./matching.js').NewContact
   /** Display name of the resolved counterparty — the review table and field diff show this. */
   contactName?: string
   /** The legacy/supplier document number — becomes the issued number on convert. */
@@ -180,6 +184,8 @@ export interface MappedMovement {
   fromWarehouseId?: string
   toWarehouseId?: string
   contactId?: string
+  /** #484: the partner's empty fields the note fills, written at commit. A partner is never created. */
+  contactFill?: import('./matching.js').ContactFill
   /** Carries the idempotency marker, e.g. "Доставки — 2026-07-27 (stokrazp:3000619107)". */
   notes: string
   /** The marker alone, for duplicate detection. */
