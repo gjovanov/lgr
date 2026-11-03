@@ -164,4 +164,19 @@ describe('repair-invoice-customer: an invoice back on the customer it prints', (
     try { await createContact(org._id, c, user._id, 'test') } catch (e) { refused = e }
     expect(String(refused)).toContain('holds that number by now')
   })
+
+  it('does not move back an invoice the store re-issued to another customer after its PDF was imported', async () => {
+    const first = await createTestContact(org._id, { companyName: 'ПЪРВИ КЛИЕНТ ЕООД', taxId: '999000241' } as any)
+    await imported('reissued', '3000700111', first._id, { name: 'ПЪРВИ КЛИЕНТ ЕООД', eik: '999000241' })
+    const later: PrintedDocument[] = [{ invoiceNumber: 'INV-3000700111', customer: { name: PRINTED.name, company_id: PRINTED.eik, vat_id: `BG${PRINTED.eik}` } }]
+    const { plans } = await planInvoiceCustomers(org._id, later)
+    expect(plans.map(p => [p.invoiceNumber, p.source])).toEqual([['INV-3000700111', 'printed']])
+    expect(await applyInvoiceCustomer(org._id, plans[0], String(printedOne._id), user._id, 'test')).toBe(true)
+
+    // A run without the list reads the older PDF again, and leaves the move alone.
+    const again = await planInvoiceCustomers(org._id)
+    expect(again.plans).toEqual([])
+    expect(again.counts['left: its customer was changed after the import, so its PDF is not the last word']).toBe(1)
+    expect(String((await Invoice.findById(ids.reissued).lean() as any).contactId)).toBe(String(printedOne._id))
+  })
 })
