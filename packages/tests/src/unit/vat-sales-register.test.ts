@@ -148,4 +148,18 @@ describe('the derived register against the filed one', () => {
       "filed 81, no branch's series (a 0-character number)": 1,
     })
   })
+
+  it('names the rows of a store that sells outside LGR, which LGR never holds', () => {
+    const withOutside = [...owners, { branch: 'PZW', docSeries: ['00000'], outsideLgr: true }]
+    const r = compareSalesRegister([derived(invoice())], [
+      filed(),
+      filed({ docNumber: '0000012345' }),
+      filed({ docNumber: '0000123456' }),
+    ], withOutside)
+    expect(r.counts).toEqual({
+      'PZ imported: equal': 1,
+      "filed 01, PZW's series: a store outside LGR": 1,
+      "filed 01, no branch's series": 1,
+    })
+  })
 })

@@ -5,6 +5,7 @@
  * Usage:
  *   bun --env-file=.env run scripts/link-books.ts --books <slug> --branch <slug>:<CODE>[:<series>,<series>] [--branch …]
  *   bun --env-file=.env run scripts/link-books.ts --books <slug> --create "<name>" --branch … --execute
+ *   bun --env-file=.env run scripts/link-books.ts --books <slug> --branch … --external <CODE>:<series>[,<series>]
  *
  * Options:
  *   --books <slug>    (required) the books org
@@ -12,6 +13,10 @@
  *   --branch <spec>   (required, repeat) a store: slug, a short code, and what its sales documents'
  *                     numbers start with (the accountant's journal names no store; without a series
  *                     its documents stay the books org's)
+ *   --external <spec> (repeat) a store of the same legal entity that sells outside LGR, in its own program:
+ *                     a code and what its documents' numbers start with. It gets no org; the sales
+ *                     register's comparison names its rows instead of counting them missing. Given, it
+ *                     replaces the stores outside LGR the books org holds; left out, those are kept
  *   --execute         write (default: dry run)
  *
  * A new books org has no people: add its first admin with `scripts/seed-user.ts --set-owner`.
@@ -19,10 +24,10 @@
 import { mongoose } from '../packages/db/src/connection.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { Org } from '../packages/db/src/models/index.js'
-import { BooksLinkError, linkBooks, type BranchSpec } from '../packages/services/src/biz/accounting-books/link-books.service.js'
+import { BooksLinkError, linkBooks, type BranchSpec, type ExternalBranchSpec } from '../packages/services/src/biz/accounting-books/link-books.service.js'
 
 function parseArgs(argv: string[]) {
-  const o: { books?: string; create?: string; branches: BranchSpec[]; execute: boolean } = { branches: [], execute: false }
+  const o: { books?: string; create?: string; branches: BranchSpec[]; external?: ExternalBranchSpec[]; execute: boolean } = { branches: [], execute: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--books') o.books = argv[++i]
@@ -31,6 +36,9 @@ function parseArgs(argv: string[]) {
     else if (a === '--branch') {
       const [slug, code, series] = String(argv[++i] ?? '').split(':')
       o.branches.push({ slug, code, ...(series ? { docSeries: series.split(',').filter(Boolean) } : {}) })
+    } else if (a === '--external') {
+      const [code, series] = String(argv[++i] ?? '').split(':')
+      ;(o.external ??= []).push({ code, docSeries: String(series ?? '').split(',').filter(Boolean) })
     } else {
       console.error(`Unknown option: ${a}`)
       process.exit(2)
@@ -59,12 +67,13 @@ try {
   if (existing) await assertScriptHome(existing._id, args.books)
 
   const answer = await linkBooks(
-    { booksSlug: args.books, createWithName: args.create, branches: args.branches },
+    { booksSlug: args.books, createWithName: args.create, branches: args.branches, externalBranches: args.external },
     { dryRun: !args.execute },
   )
   console.log(args.execute ? 'Written.' : 'Dry run: nothing written. Add --execute.')
   console.log(`books org ${answer.booksOrg.slug}: ${answer.booksOrg.state}`)
   for (const b of answer.branches) console.log(`branch ${b.slug} (${b.code}): ${b.state}`)
+  for (const b of answer.externalBranches) console.log(`outside LGR ${b.code} (series ${b.docSeries.join(', ')}): ${b.state}`)
 } catch (e) {
   failed = true
   console.error(e instanceof BooksLinkError ? `Refused (${e.code}): ${e.message}` : e)

@@ -1082,6 +1082,7 @@ describe('linking a legal entity', () => {
       dryRun: true,
       booksOrg: { slug: 'the-books', state: 'would_create' },
       branches: [{ slug: 'store-a', code: 'A', state: 'would_link' }, { slug: 'store-b', code: 'B', state: 'would_link' }],
+      externalBranches: [],
     })
     expect(await Org.findOne({ slug: 'the-books' })).toBeNull()
 
@@ -1100,6 +1101,29 @@ describe('linking a legal entity', () => {
     expect(store.settings.accounting.books).toEqual({ mode: 'branch', booksOrgId: books._id, branchCode: 'A' })
 
     expect((await linkBooks({ ...spec, createWithName: undefined }, { dryRun: true })).branches.map(b => b.state)).toEqual(['already', 'already'])
+  })
+
+  it('names a store that sells outside LGR by its series, keeps it on a re-run that leaves it out, and refuses an overlap', async () => {
+    await orgWith('store-a', EIK)
+    await orgWith('the-books', EIK)
+    const branches = [{ slug: 'store-a', code: 'A', docSeries: ['3000'] }]
+    const spec = { booksSlug: 'the-books', branches, externalBranches: [{ code: 'W', docSeries: ['00000'] }] }
+
+    expect((await linkBooks(spec, { dryRun: true })).externalBranches).toEqual([{ code: 'W', docSeries: ['00000'], state: 'would_set' }])
+    expect((await Org.findOne({ slug: 'the-books' }).lean() as any).settings.accounting?.books).toBeUndefined()
+    expect((await linkBooks(spec, { dryRun: false })).externalBranches[0].state).toBe('set')
+    const held = async () => ((await Org.findOne({ slug: 'the-books' }).lean()) as any).settings.accounting.books
+    expect((await held()).externalBranches).toEqual([{ code: 'W', docSeries: ['00000'] }])
+
+    // Left out of a later run, it stays; named again, it is already there.
+    expect((await linkBooks({ booksSlug: 'the-books', branches }, { dryRun: false })).externalBranches).toEqual([{ code: 'W', docSeries: ['00000'], state: 'already' }])
+    expect((await held()).externalBranches).toEqual([{ code: 'W', docSeries: ['00000'] }])
+    expect((await held()).branches.map((b: any) => b.code)).toEqual(['A'])
+
+    const refused = (s: any) => linkBooks(s, { dryRun: true }).then(() => 'linked', e => (e instanceof BooksLinkError ? e.code : String(e)))
+    expect(await refused({ ...spec, externalBranches: [{ code: 'W', docSeries: ['30001'] }] })).toBe('series_overlap')
+    expect(await refused({ ...spec, externalBranches: [{ code: 'A', docSeries: ['00000'] }] })).toBe('duplicate_code')
+    expect(await refused({ ...spec, externalBranches: [{ code: 'W', docSeries: [] }] })).toBe('no_series')
   })
 
   it('links an org that exists', async () => {

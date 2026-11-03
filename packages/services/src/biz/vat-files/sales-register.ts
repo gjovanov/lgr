@@ -154,6 +154,8 @@ export interface DerivedSalesRow {
 export interface SeriesOwner {
   branch: string
   docSeries: readonly string[]
+  /** A store of the same legal entity that sells outside LGR: the books hold its rows, LGR never will. */
+  outsideLgr?: boolean
 }
 
 /** Field by field, what differs between a derived row and the filed one. Empty when they are equal. */
@@ -181,8 +183,8 @@ export interface RegisterComparison {
 /**
  * The derived rows of a period against the filed ones: equal, differing (and in what), only
  * derived, or only filed. A filed row whose number is in a branch's series but that LGR does not
- * hold says so, apart from the rows no branch's series explains (a protocol, a till's month, a series
- * nobody has named yet, §12).
+ * hold says so, apart from the rows of a store that sells outside LGR, which LGR never holds, and the
+ * rows no series explains (a protocol, a till's month, a series nobody has named yet, §12).
  */
 export function compareSalesRegister(derived: readonly DerivedSalesRow[], filed: readonly FiledSalesRow[], owners: readonly SeriesOwner[]): RegisterComparison {
   const counts: Record<string, number> = {}
@@ -232,7 +234,7 @@ export function compareSalesRegister(derived: readonly DerivedSalesRow[], filed:
     const n = rows[0].docNumber
     const owner = /^\d{10}$/.test(n) ? owners.find(o => o.docSeries.some(s => n.startsWith(s))) : undefined
     const outcome = owner
-      ? `filed ${rows[0].docTypeCode}, ${owner.branch}'s series: not in LGR`
+      ? `filed ${rows[0].docTypeCode}, ${owner.branch}'s series: ${owner.outsideLgr ? 'a store outside LGR' : 'not in LGR'}`
       : `filed ${rows[0].docTypeCode}, no branch's series${/^\d{10}$/.test(n) ? '' : ` (a ${n.length}-character number)`}`
     bump(outcome)
     details.push({ key: k, outcome })
