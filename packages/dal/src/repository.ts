@@ -1,4 +1,5 @@
 import type { BaseEntity, Filter, SortSpec, PageRequest, PageResult, AggregateStage } from './types.js'
+import type { IAccount, IJournalEntry } from './entities/index.js'
 
 /**
  * Storage-agnostic repository interface.
@@ -68,4 +69,47 @@ export interface IBatchRepository<T extends BaseEntity> extends IRepository<T> {
 
   /** Delete multiple entities matching the filter */
   deleteMany(filter: Filter<T>): Promise<number>
+}
+
+/** Which of an org's posted journal lines to add up. */
+export interface JournalLineTotalsQuery {
+  orgId: string
+  /** Only entries in one of these fiscal periods. An empty list matches nothing, never everything. */
+  fiscalPeriodIds?: string[]
+  /** Only entries dated on or after this. */
+  from?: Date
+  /** Only entries dated on or before this. */
+  to?: Date
+  /** One row per account and contact, rather than one per account. */
+  byContact?: boolean
+}
+
+/** What the lines on one account add up to, in the org's base currency. */
+export interface JournalLineTotals {
+  accountId: string
+  /** Only with `byContact`, and only for lines that name a contact. */
+  contactId?: string
+  debit: number
+  credit: number
+}
+
+export interface IJournalEntryRepository extends IBatchRepository<IJournalEntry> {
+  /**
+   * The org's POSTED lines, summed per account by the store.
+   *
+   * ⚠ Statements read this and never `findMany`: a year of books is ~130k operations, and loading
+   * them into a pod that holds 2 GiB beside the live service is how a report takes the API down.
+   */
+  sumPostedLines(query: JournalLineTotalsQuery): Promise<JournalLineTotals[]>
+}
+
+export interface IAccountRepository extends IBatchRepository<IAccount> {
+  /**
+   * Add a signed amount to each account's cached `balance`, worked out by the store from the row
+   * as it stands. Only that org's accounts are written, whatever ids are named.
+   *
+   * ⚠ Never read a balance and write back a sum: two entries landing on one account would lose one
+   * (the stock level's lost update, #460). This is one write per account, in one round trip.
+   */
+  adjustBalances(orgId: string, amounts: Record<string, number>): Promise<void>
 }

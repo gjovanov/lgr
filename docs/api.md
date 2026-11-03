@@ -166,9 +166,11 @@ Prefix: `/api/org/:orgId/accounting/report`
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `GET` | `/trial-balance` | any | Generate trial balance (query: `fiscalPeriodId`) |
-| `GET` | `/profit-loss` | any | Generate P&L statement (query: `startDate`, `endDate`) |
-| `GET` | `/balance-sheet` | any | Generate balance sheet (query: `asOfDate`) |
+| `GET` | `/trial-balance` | any | Generate trial balance (query: `fiscalYearId`, `fiscalPeriodId`, `asOf`) |
+| `GET` | `/profit-loss` | any | Generate P&L statement, each row with `debit`, `credit` and the net `amount` (query: `startDate`, `endDate`) |
+| `GET` | `/balance-sheet` | any | Generate balance sheet from posted entries (query: `asOf`, default today) |
+
+A date given as `YYYY-MM-DD` names that whole day on the server's clock, so `asOf` and `endDate` include what was booked later on it.
 
 ## Invoicing
 

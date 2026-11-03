@@ -1,9 +1,9 @@
-import type { IRepository, IBatchRepository } from './repository.js'
+import type { IBatchRepository, IAccountRepository, IJournalEntryRepository } from './repository.js'
 import type {
   IOrg, IUser, IInvite, ICode, IEmailLog, IAuditLog, IFile, INotification, IBackgroundTask, IOrgApp, ITag,
   IPermissionSet,
   IJournal, IPaymentTerm, IFiscalPosition,
-  IAccount, IFiscalYear, IFiscalPeriod, IJournalEntry, IFixedAsset, IBankAccount, IBankReconciliation, ITaxReturn, IExchangeRate,
+  IFiscalYear, IFiscalPeriod, IFixedAsset, IBankAccount, IBankReconciliation, ITaxReturn, IExchangeRate,
   IContact, IInvoice, IPaymentOrder, ICashOrder,
   IProduct, IWarehouse, IStockLevel, IStockMovement, IInventoryCount, IPriceList, ICostLayer, IProductCategory,
   IStockLocation, IOperationType, IStockLot,
@@ -34,10 +34,10 @@ export interface RepositoryRegistry {
   journals: IBatchRepository<IJournal>
   paymentTerms: IBatchRepository<IPaymentTerm>
   fiscalPositions: IBatchRepository<IFiscalPosition>
-  accounts: IBatchRepository<IAccount>
+  accounts: IAccountRepository
   fiscalYears: IBatchRepository<IFiscalYear>
   fiscalPeriods: IBatchRepository<IFiscalPeriod>
-  journalEntries: IBatchRepository<IJournalEntry>
+  journalEntries: IJournalEntryRepository
   fixedAssets: IBatchRepository<IFixedAsset>
   bankAccounts: IBatchRepository<IBankAccount>
   bankReconciliations: IBatchRepository<IBankReconciliation>
