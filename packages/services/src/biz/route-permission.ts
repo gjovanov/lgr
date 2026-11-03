@@ -43,6 +43,8 @@ export const EXACT_WRITE_RULES: ReadonlyMap<string, WriteRule> = new Map<string,
   ['POST accounting/import/journal', { need: ['accounting.import'] }],
   ['POST accounting/import/finish', { need: ['accounting.import'] }],
   ['POST payroll/run/:id/approve', { need: ['payroll.approve'] }],
+  // FR-25 §3.12: reading a value out of the sealed record, audit-logged by the route.
+  ['POST payroll/employee/:id/reveal', { need: ['payroll.personal'] }],
 
   // Reads sent as POSTs (`route-class.ts#READ_ONLY_WRITES`) and writes that decide for themselves.
   ['POST reports/:id/run', { self: 'canAccessReport: the report\'s own permission and roles; 404 for a report the caller may not see' }],
@@ -142,6 +144,10 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['accounting/bank-account', { need: [...ACCOUNTING, ...INVOICING] }],
   ['accounting', { need: ACCOUNTING }],
 
+  // FR-25 §3.11: these are about one person each, which `payroll.read` is not: it is a run's totals.
+  ['payroll/employee', { need: ['payroll.personal'] }],
+  ['payroll/payslip', { need: ['payroll.personal'] }],
+  ['payroll/timesheet', { need: ['payroll.personal'] }],
   ['payroll', { need: PAYROLL }],
 
   // The supplier picker in inventory, the contact pickers of the reports, a POS customer.
@@ -250,6 +256,15 @@ export function writeRuleFor(method: string, route: string): WriteRule | undefin
 interface Caller {
   role?: string
   permissions?: readonly string[]
+}
+
+/**
+ * FR-25 §3.11: may this caller see or change anything about one person? `payroll.read` is a run's
+ * totals and answers no. For what a route's rule cannot say: a field of a response, a write that
+ * needs this on top of `payroll.write`.
+ */
+export function holdsPersonal(user: Caller): boolean {
+  return user.role === 'admin' || !!user.permissions?.includes('payroll.personal')
 }
 
 /**

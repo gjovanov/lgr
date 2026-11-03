@@ -89,6 +89,7 @@ export interface DigestStrings {
   failed: string
   created: string
   failedEmails: string
+  personalDataLocked: string
 
   backups: string
   backupsOk: string
@@ -165,6 +166,7 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     edited: 'Edited after issue', action: 'Action', changes: 'Changed fields', user: 'User',
     ops: 'Imports and emails', imports: 'Imports', completed: 'completed', failed: 'failed', created: 'created',
     failedEmails: 'Failed emails',
+    personalDataLocked: 'This server cannot open the personal-data keys: payroll is locked until the right key is set',
     backups: 'Backups', backupsOk: 'Verified — all checks passed.',
     backupsNeverReported: 'NO BACKUP HAS EVER BEEN REPORTED. Nothing is known about the state of the backups.',
     backupsStale: 'The last backup report is {n} h old — verification has stopped running.',
@@ -230,6 +232,7 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     edited: 'Редактирани след издаване', action: 'Действие', changes: 'Променени полета', user: 'Потребител',
     ops: 'Импорти и имейли', imports: 'Импорти', completed: 'успешни', failed: 'неуспешни', created: 'създадени',
     failedEmails: 'Неуспешни имейли',
+    personalDataLocked: 'Сървърът не може да отвори ключовете за лични данни: заплатите са заключени, докато не се зададе правилният ключ',
     backups: 'Резервни копия', backupsOk: 'Проверени — всички проверки са успешни.',
     backupsNeverReported: 'НИКОГА НЕ Е ДОКЛАДВАНО РЕЗЕРВНО КОПИЕ. Нищо не се знае за състоянието на копията.',
     backupsStale: 'Последният отчет е отпреди {n} ч. — проверката е спряла да се изпълнява.',
@@ -295,6 +298,7 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     edited: 'Nach Ausstellung geändert', action: 'Aktion', changes: 'Geänderte Felder', user: 'Benutzer',
     ops: 'Importe und E-Mails', imports: 'Importe', completed: 'erfolgreich', failed: 'fehlgeschlagen', created: 'erstellt',
     failedEmails: 'Fehlgeschlagene E-Mails',
+    personalDataLocked: 'Dieser Server kann die Schlüssel für personenbezogene Daten nicht öffnen: Die Lohnabrechnung bleibt gesperrt, bis der richtige Schlüssel gesetzt ist',
     backups: 'Datensicherung', backupsOk: 'Geprüft — alle Kontrollen bestanden.',
     backupsNeverReported: 'ES WURDE NIE EINE SICHERUNG GEMELDET. Über den Zustand der Sicherungen ist nichts bekannt.',
     backupsStale: 'Der letzte Sicherungsbericht ist {n} h alt — die Prüfung läuft nicht mehr.',
@@ -360,6 +364,7 @@ export const DIGEST_I18N: Record<string, DigestStrings> = {
     edited: 'Изменети по издавање', action: 'Дејство', changes: 'Изменети полиња', user: 'Корисник',
     ops: 'Импорти и е-пошта', imports: 'Импорти', completed: 'успешни', failed: 'неуспешни', created: 'создадени',
     failedEmails: 'Неуспешни е-пораки',
+    personalDataLocked: 'Серверот не може да ги отвори клучевите за лични податоци: платите се заклучени додека не се постави точниот клуч',
     backups: 'Резервни копии', backupsOk: 'Проверени — сите проверки поминаа.',
     backupsNeverReported: 'НИКОГАШ НЕ Е ПРИЈАВЕНО РЕЗЕРВНО КОПИЕ. Не се знае ништо за состојбата на копиите.',
     backupsStale: 'Последниот извештај е стар {n} ч. — проверката престана да се извршува.',
@@ -909,7 +914,8 @@ export function renderDigestHtml(data: DailyDigestData): string {
   }))
 
   out.push(guard(data.ops, L, o => {
-    if (!o.tasks.length && !o.failedEmailCount) return h2(L.ops) + noneLine(L)
+    const locked = o.personalDataLocked ? `<div style="${S.note};${S.bad}">${esc(L.personalDataLocked)}</div>` : ''
+    if (!o.tasks.length && !o.failedEmailCount) return h2(L.ops) + (locked || noneLine(L))
     const tasks = o.tasks.map(t =>
       `<div style="${S.note}">${esc(t.type)}: ${t.completed} ${esc(L.completed)}, ${t.failed} ${esc(L.failed)}` +
       (t.created ? `, ${t.created} ${esc(L.created)}` : '') + '</div>').join('')
@@ -919,7 +925,7 @@ export function renderDigestHtml(data: DailyDigestData): string {
         ...o.failedEmails.map(e => `<div style="${S.muted}">${esc(e.to)} — ${esc(e.error)}</div>`),
       ].join('')
       : ''
-    return h2(L.ops) + tasks + emails
+    return h2(L.ops) + locked + tasks + emails
   }))
 
   out.push(guard(data.server, L, v => renderServer(v, L)))

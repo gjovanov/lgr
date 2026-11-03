@@ -634,6 +634,8 @@
     "benefits": "Benefits",
     "dateOfBirth": "Date of Birth",
     "nationalId": "National ID",
+    "personalSealed": "Personal data is encrypted. Show it to edit it; this is recorded.",
+    "personalShow": "Show",
     "employeeNumber": "Employee Number",
     "department": "Department",
     "position": "Position",

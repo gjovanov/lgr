@@ -23,8 +23,8 @@ const DEFAULT_PERMISSION_SETS: PermissionSetDef[] = [
   },
   {
     name: 'Manager',
-    description: 'Full access to all modules except admin settings',
-    permissions: PERMISSIONS.filter(p => !p.startsWith('admin.')),
+    description: 'Full access to all modules except admin settings and one person\'s pay',
+    permissions: [...DEFAULT_ROLE_PERMISSIONS.manager],
     ownRecordsOnly: {},
     isAdmin: false,
     isDefault: false,

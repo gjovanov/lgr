@@ -222,6 +222,54 @@ test.describe('Payroll CRUD', () => {
     await dialog.getByRole('button', { name: /cancel/i }).click()
   })
 
+  test('should create an employee in the dialog, and change it through either form', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/payroll/employees')
+    await waitForDataTable(page)
+
+    const firstName = uniqueName('Strict')
+    const dialog = await clickCreate(page)
+    await dialog.getByLabel(/first name/i).fill(firstName)
+    await dialog.getByLabel(/last name/i).fill('Example')
+    await dialog.getByRole('tab', { name: /employment/i }).click()
+    await dialog.getByLabel(/employee (number|no)/i).fill(uniqueName('E'))
+    await dialog.getByLabel(/department/i).fill('Sales')
+    await dialog.getByLabel(/position/i).fill('Clerk')
+    await dialog.getByLabel(/contract\s*start\s*date/i).fill('2026-01-15')
+
+    const [created] = await Promise.all([
+      page.waitForResponse(r => r.url().endsWith('/payroll/employee') && r.request().method() === 'POST'),
+      dialog.getByRole('button', { name: /^save$/i }).first().click(),
+    ])
+    expect(created.status()).toBe(200)
+    await expect(dialog).toBeHidden()
+    const { employee } = await created.json()
+
+    // The list's pencil: the same record in the dialog, and what is saved is what was typed.
+    await page.goto('/payroll/employees?search=' + firstName)
+    const row = page.locator('.v-data-table tbody tr', { hasText: employee.employeeNumber })
+    await row.locator('.mdi-pencil').click()
+    const edit = page.locator('.v-dialog')
+    await expect(edit.getByLabel(/first name/i)).toHaveValue(firstName)
+    await edit.getByLabel(/phone/i).fill('111')
+    const [changed] = await Promise.all([
+      page.waitForResponse(r => r.url().includes(`/payroll/employee/${employee._id}`) && r.request().method() === 'PUT'),
+      edit.getByRole('button', { name: /^save$/i }).first().click(),
+    ])
+    expect(changed.status()).toBe(200)
+
+    // The routed form, which opened on nothing until it could load a record.
+    await page.goto(`/payroll/employees/${employee._id}/edit`)
+    await expect(page.getByLabel(/first name/i)).toHaveValue(firstName)
+    await expect(page.getByLabel(/phone/i)).toHaveValue('111')
+    await page.getByLabel(/phone/i).fill('222')
+    const [routed] = await Promise.all([
+      page.waitForResponse(r => r.url().includes(`/payroll/employee/${employee._id}`) && r.request().method() === 'PUT'),
+      page.getByRole('button', { name: /^save$/i }).first().click(),
+    ])
+    expect(routed.status()).toBe(200)
+  })
+
   test('should display server-side pagination on employees table', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/payroll/employees')

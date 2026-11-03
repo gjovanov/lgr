@@ -634,6 +634,8 @@
     "benefits": "Придобивки",
     "dateOfBirth": "Дата на раждане",
     "nationalId": "ЕГН",
+    "personalSealed": "Личните данни са шифровани. Покажете ги, за да ги редактирате; това се записва.",
+    "personalShow": "Покажи",
     "employeeNumber": "Номер на служител",
     "department": "Отдел",
     "position": "Длъжност",

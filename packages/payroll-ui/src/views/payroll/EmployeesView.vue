@@ -35,6 +35,7 @@
       item-value="_id"
       hover
     >
+      <template #item.lastName="{ item }">{{ item.firstName }} {{ item.lastName }}</template>
       <template #item.status="{ item }">
         <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
       </template>
@@ -43,7 +44,6 @@
       </template>
       <template #item.actions="{ item }">
         <v-btn icon="mdi-pencil" size="small" variant="text" @click="openDialog(item)" />
-        <v-btn icon="mdi-eye" size="small" variant="text" :to="`/employees/${item._id}`" />
       </template>
     </v-data-table-server>
 
@@ -66,13 +66,14 @@
                 <v-col cols="4"><v-text-field v-model="form.lastName" :label="$t('common.lastName')" /></v-col>
                 <v-col cols="6"><v-text-field v-model="form.email" :label="$t('common.email')" type="email" /></v-col>
                 <v-col cols="6"><v-text-field v-model="form.phone" :label="$t('common.phone')" /></v-col>
-                <v-col cols="6"><v-text-field v-model="form.dateOfBirth" :label="$t('payroll.dateOfBirth')" type="date" /></v-col>
-                <v-col cols="6"><v-text-field v-model="form.nationalId" :label="$t('payroll.nationalId')" /></v-col>
-                <v-col cols="6"><v-text-field v-model="form.address.street" :label="$t('payroll.street')" /></v-col>
-                <v-col cols="6"><v-text-field v-model="form.address.city" :label="$t('payroll.city')" /></v-col>
-                <v-col cols="4"><v-text-field v-model="form.address.state" :label="$t('payroll.state')" /></v-col>
-                <v-col cols="4"><v-text-field v-model="form.address.postalCode" :label="$t('payroll.postalCode')" /></v-col>
-                <v-col cols="4"><v-text-field v-model="form.address.country" :label="$t('payroll.country')" /></v-col>
+                <EmployeePersonalNotice :personal="personal" :employee-id="form._id" />
+                <v-col cols="6"><v-text-field v-model="personal.values.dateOfBirth" :readonly="!personal.editable.value" :label="$t('payroll.dateOfBirth')" type="date" /></v-col>
+                <v-col cols="6"><v-text-field v-model="personal.values.nationalId" :readonly="!personal.editable.value" :label="$t('payroll.nationalId')" /></v-col>
+                <v-col cols="6"><v-text-field v-model="personal.values.address.street" :readonly="!personal.editable.value" :label="$t('payroll.street')" /></v-col>
+                <v-col cols="6"><v-text-field v-model="personal.values.address.city" :readonly="!personal.editable.value" :label="$t('payroll.city')" /></v-col>
+                <v-col cols="4"><v-text-field v-model="personal.values.address.state" :readonly="!personal.editable.value" :label="$t('payroll.state')" /></v-col>
+                <v-col cols="4"><v-text-field v-model="personal.values.address.postalCode" :readonly="!personal.editable.value" :label="$t('payroll.postalCode')" /></v-col>
+                <v-col cols="4"><v-text-field v-model="personal.values.address.country" :readonly="!personal.editable.value" :label="$t('payroll.country')" /></v-col>
               </v-row>
             </v-tabs-window-item>
 
@@ -80,7 +81,7 @@
               <v-row>
                 <v-col cols="6"><v-text-field v-model="form.employeeNumber" :label="$t('payroll.employeeNumber')" /></v-col>
                 <v-col cols="6">
-                  <v-select v-model="form.department" :label="$t('payroll.department')" :items="departments" item-title="name" item-value="_id" />
+                  <v-text-field v-model="form.department" :label="$t('payroll.department')" />
                 </v-col>
                 <v-col cols="6"><v-text-field v-model="form.position" :label="$t('payroll.position')" /></v-col>
                 <v-col cols="6">
@@ -104,10 +105,11 @@
                 <v-col cols="3">
                   <v-select v-model="form.salary.frequency" :label="$t('payroll.frequency')" :items="salaryFrequencies" />
                 </v-col>
-                <v-col cols="6"><v-text-field v-model="form.salary.bankAccountNumber" :label="$t('payroll.bankAccountNumber')" /></v-col>
-                <v-col cols="6"><v-text-field v-model="form.salary.bankName" :label="$t('payroll.bankName')" /></v-col>
-                <v-col cols="6"><v-text-field v-model="form.salary.iban" :label="$t('payroll.iban')" /></v-col>
-                <v-col cols="6"><v-text-field v-model="form.taxId" :label="$t('payroll.taxId')" /></v-col>
+                <EmployeePersonalNotice :personal="personal" :employee-id="form._id" />
+                <v-col cols="6"><v-text-field v-model="personal.values.bankAccountNumber" :readonly="!personal.editable.value" :label="$t('payroll.bankAccountNumber')" /></v-col>
+                <v-col cols="6"><v-text-field v-model="personal.values.bankName" :readonly="!personal.editable.value" :label="$t('payroll.bankName')" /></v-col>
+                <v-col cols="6"><v-text-field v-model="personal.values.iban" :readonly="!personal.editable.value" :label="$t('payroll.iban')" /></v-col>
+                <v-col cols="6"><v-text-field v-model="personal.values.taxId" :readonly="!personal.editable.value" :label="$t('payroll.taxId')" /></v-col>
               </v-row>
             </v-tabs-window-item>
 
@@ -149,6 +151,8 @@
 </template>
 
 <script setup lang="ts">
+import EmployeePersonalNotice from '../../components/EmployeePersonalNotice.vue'
+import { useEmployeePersonal } from '../../composables/useEmployeePersonal'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePayrollStore } from '../../store/payroll.store'
@@ -194,8 +198,8 @@ const tab = ref('personal')
 
 const headers = [
   { title: t('payroll.employeeNumber'), key: 'employeeNumber' },
-  { title: t('common.name'), key: 'fullName' },
-  { title: t('payroll.department'), key: 'departmentName' },
+  { title: t('common.name'), key: 'lastName' },
+  { title: t('payroll.department'), key: 'department' },
   { title: t('payroll.position'), key: 'position' },
   { title: t('payroll.employmentType'), key: 'employmentType' },
   { title: t('common.status'), key: 'status' },
@@ -206,7 +210,6 @@ const headers = [
 const statuses = ['active', 'on_leave', 'terminated', 'suspended']
 const employmentTypes = ['full_time', 'part_time', 'contract', 'intern']
 const salaryFrequencies = ['monthly', 'biweekly', 'weekly', 'hourly']
-const departments = ref<any[]>([])
 
 const emptyForm = () => ({
   _id: '',
@@ -215,11 +218,7 @@ const emptyForm = () => ({
   lastName: '',
   email: '',
   phone: '',
-  dateOfBirth: '',
   gender: '' as string,
-  nationalId: '',
-  taxId: '',
-  address: { street: '', city: '', state: '', postalCode: '', country: '' },
   employeeNumber: '',
   department: '',
   position: '',
@@ -229,15 +228,15 @@ const emptyForm = () => ({
   contractEndDate: '',
   probationEndDate: '',
   status: 'active',
-  salary: { baseSalary: 0, currency: 'EUR', frequency: 'monthly', bankAccountNumber: '', bankName: '', iban: '' },
+  salary: { baseSalary: 0, currency: 'EUR', frequency: 'monthly' },
   deductions: [] as any[],
   benefits: [] as any[],
-  emergencyContact: { name: '', relationship: '', phone: '' },
   notes: '',
   tags: [] as string[],
 })
 
 const form = reactive(emptyForm())
+const personal = useEmployeePersonal()
 
 function openDialog(item?: any) {
   const empty = emptyForm()
@@ -246,9 +245,7 @@ function openDialog(item?: any) {
     Object.assign(form, {
       ...empty,
       ...item,
-      address: { ...empty.address, ...item.address },
       salary: { ...empty.salary, ...item.salary },
-      emergencyContact: { ...empty.emergencyContact, ...item.emergencyContact },
       deductions: item.deductions?.length ? item.deductions.map((d: any) => ({ ...d })) : [],
       benefits: item.benefits?.length ? item.benefits.map((b: any) => ({ ...b })) : [],
     })
@@ -256,6 +253,7 @@ function openDialog(item?: any) {
     editing.value = false
     Object.assign(form, empty)
   }
+  personal.reset(item)
   tab.value = 'personal'
   dialog.value = true
 }
@@ -263,7 +261,7 @@ function openDialog(item?: any) {
 async function save() {
   saving.value = true
   try {
-    await store.saveEmployee({ ...form })
+    await store.saveEmployee({ ...form, personal: personal.patch() })
     dialog.value = false
     await fetchItems()
     showSuccess(t('common.savedSuccessfully'))

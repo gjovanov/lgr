@@ -33,6 +33,7 @@
  * modes. `applyRestore` will not act on a bundle this process has not inspected.
  */
 
+import { planPersonalDataRestore } from '../personal-data/restore.js'
 import { createHash } from 'node:crypto'
 import { join, resolve, sep } from 'node:path'
 import { stat } from 'node:fs/promises'
@@ -869,6 +870,9 @@ export async function applyRestore(
     }
     const remapTo = crossOrg ? String(orgId) : null
 
+    // FR-25 §3.12: before anything is written. A bundle this server's key cannot open is refused.
+    const personalData = await planPersonalDataRestore(byCollection, remapTo)
+
     const org: any = await Org.findById(orgId, { slug: 1, name: 1 }).lean().exec()
     if (!org) throw new Error('no such organisation')
 
@@ -967,7 +971,20 @@ export async function applyRestore(
         continue
       }
 
-      const docs = rawDocs.map(d => remapDoc(d, remapTo, String(manifest.orgId), idMap))
+      // FR-25 §3.12: an org's key row is merged, never overwritten or remapped like a row of data.
+      if (personalData.handlesKeyRow(name)) {
+        touched.push(name)
+        const applied = await personalData.applyKeyRow(String(orgId))
+        documentsInserted += applied.inserted
+        results.push({
+          name, inBundle: rawDocs.length, inLive: await model.countDocuments({ orgId }).exec(),
+          missing: 0, differing: applied.merged, inserted: applied.inserted, deleted: 0,
+          skipped: rawDocs.length - applied.inserted,
+        })
+        continue
+      }
+
+      const docs = await personalData.prepare(name, rawDocs, rawDocs.map(d => remapDoc(d, remapTo, String(manifest.orgId), idMap)))
       touched.push(name)
 
       if (opts.mode === 'replace') {
@@ -1007,6 +1024,7 @@ export async function applyRestore(
       })
     }
     results.sort((a, b) => a.name.localeCompare(b.name))
+    personalData.finished(String(orgId))
 
     // ── FR-21.22: a bundle taken before R2 brings back till rows without their documents ─────
     //

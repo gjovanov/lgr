@@ -389,7 +389,7 @@ PayrollRun {          // existing, additive; one per period + kind
 
 Covers `Employee`, `EmploymentContract`, `AbsenceEntry`, `LeaveBalance`, `PayrollRun.items`, `Payslip`, and the extracted files. The employer is the controller; LGR and its operator process on its behalf (§12).
 
-- **Permissions.** `payroll.read` means run totals. A new `payroll.personal` means anything about one person. `payroll.import` and `payroll.file` join them. `member` loses `payroll.read`, the approve routes check the permission instead of a role name, and `accounting.read` sees `ЗАП` and its totals, no person. `nra_auditor` gets payroll only by explicit grant. Rollout: deploy → backfill → re-login, as FR-6.2 did.
+- **Permissions.** `payroll.read` means run totals. A new `payroll.personal` means anything about one person. `payroll.import` and `payroll.file` join them. `member` loses `payroll.read`, the approve routes check the permission instead of a role name, and `accounting.read` sees `ЗАП` and its totals, no person. `manager` holds neither `payroll.approve` nor `payroll.personal` by default: until now only the role name on the route kept it off approval. So `manager` is the plain case of reading totals: a run answers without its `items`, whatever the route, and the app opens on the runs and offers no page about a person. The stored `Manager` sets keep the `payroll.approve` they list, so assigning one grants it. `nra_auditor` gets payroll only by explicit grant. Rollout: deploy → backfill → re-login, as FR-6.2 did.
 - **Masked by default.** Lists and gets answer the last digits of an ЕГН and an IBAN, and no ID card. Reading the whole value is a separate call, audit-logged with who and why. An ЕГН is never a login, a URL key or a display identifier (ЗЗЛД чл. 25ж).
 - **Encrypted at field level** (owner, 2026-11-03): §3.12.
 - **Never in:** logs, audit payloads (an employee number, not a name), `BackgroundTask` results, the digest, the Files app, emails other than a person's own payslip, a report export without `payroll.personal`, `docs/`, fixtures. A flow test posts a run and greps what was logged and audited for the fixture's ЕГН.
@@ -412,7 +412,9 @@ PERSONAL_DATA_KEK              32 random bytes in a sealed secret. Never in Mong
 
 One key per org keeps a leak or a restore inside that org, and destroying one row ends that org's data when its retention is over. Two levels make rotating the KEK a rewrap of a few rows that touches no data.
 
-**A value** is a string: `pd1.<keyId>.<nonce>.<ciphertext+tag>`, AES-256-GCM with a random 96-bit nonce, and `orgId|model|docId|fieldPath` as additional data, so a ciphertext copied to another person, field or org does not open. The same `node:crypto` AEAD the sealed backups use. The core is import-pure, `services/biz/personal-data/crypto.ts`.
+**A value** is a string: `pd1.<keyId>.<nonce>.<ciphertext+tag>`, AES-256-GCM with a random 96-bit nonce, and `keyId|model|docId|fieldPath` as additional data. So a ciphertext copied to another person or field does not open: someone with database write access cannot redirect a salary by copying their own sealed IBAN onto a colleague's row. Another org simply has no key to try. A restore into another org gives documents new ids, so it re-seals (`personal-data/restore.ts`). The same `node:crypto` AEAD the sealed backups use. The core is import-pure, `services/biz/personal-data/crypto.ts`.
+
+A document's sensitive fields go in one sealed JSON, so adding a field needs no schema change and no migration.
 
 | Model | Encrypted | In clear beside it |
 |---|---|---|
@@ -425,22 +427,22 @@ One key per org keeps a leak or a restore inside that org, and destroying one ro
 
 Names stay in clear: lists and search need them, and alone they say little. `Employee`'s fields are encrypted in every org, because plain ЕГН is no better for a demo tenant; a run's items only under the Bulgarian engine, so D2 holds. Sums over people are done in memory after opening, which this scale allows; a run's totals are stored in clear, as `ЗАП` carries them anyway.
 
-**Nothing decrypts by itself.** Repositories return ciphertext, so a forgotten projection leaks only ciphertext. There are two paths to a value: `personalData.forOrg(orgId)` in server code (the engine, the generators), and `POST …/employee/:id/reveal { field, reason }` for a person, needing `payroll.personal` and audit-logged with who, which field and why, never the value.
+**Nothing decrypts by itself.** Repositories return ciphertext, so a forgotten projection leaks only ciphertext. There are two paths to a value: `forOrg(orgId)` in server code (the engine, the generators), and `POST …/employee/:id/reveal { fields, reason }` for a person, needing `payroll.personal`, with an audit row of who, which fields and why, never the value. That row is written before the answer, and no row means no value.
 
 **A missing or wrong key fails loudly:**
 
 - No KEK: the app starts and everything else works. Personal writes and reveals answer **503 `personal_data_locked`**, never a blank and never plaintext stored instead.
-- Startup opens each org's canary. A failure is logged as an error and shown in the health detail and the morning digest's ops section.
+- Startup opens each org's canary. A failure is logged as an error and shown in the morning digest's ops section.
 - A restore opens the canary before committing, and refuses a bundle this server's KEK cannot open.
-- A home move (FR-20) refuses when the target has no KEK able to open the org's canary.
+- A home move (FR-20) carries the wrapped keys, so on a target with no KEK the data stays locked, never lost. A books org refuses a home move at all (§3.11).
 
-**Custody.** ⚠ Payroll is kept for 50 years, so losing the KEK loses what the law says to keep. `scripts/personal-data-key.ts` generates it without printing it, stores it in the sealed `lgr-secret`, and writes an escrow copy sealed to the backup's public key (`lgr-sealed-1`), kept beside the private half. The runbook joins FR-13's.
+**Custody.** ⚠ Payroll is kept for 50 years, so losing the KEK loses what the law says to keep. `scripts/personal-data-key.ts` generates it without printing it, stores it in the sealed `lgr-secret`, and writes an escrow copy sealed to the backup's public key (`lgr-sealed-1`), kept beside the private half. Runbook: `docs/guides/personal-data-key.md`.
 
-**Rotation.** New KEK: set `PERSONAL_DATA_KEK_PREVIOUS`, run `rewrap`, remove it. New DEK: add a key id, new writes use it, a `reencrypt` job moves old values, and the old key is retired only when none is left. The index key does not rotate, so lookups survive.
+**Rotation.** New KEK: set `PERSONAL_DATA_KEK_PREVIOUS`, run `rewrap`, remove it. New DEK: add a key id, new writes use it, a `reencrypt` job moves old values, and the old key is retired only when none is left. Values name their key, so both open meanwhile; the job is built when a rotation is first needed. The index key does not rotate, so lookups survive.
 
 **P1's gate includes the drill:** an org backup restored into a throwaway server with the KEK opened from escrow, the canary and a made-up person read back. Plus a raw-collection test: no plain ЕГН in any stored document, log or audit row.
 
-**Existing rows** are demo and e2e data only (§1.9). A migration encrypts them, and refuses to run without a KEK.
+**Rows from before this** are demo and e2e data only (§1.9). A startup sweep seals them once the key is there. Until then they are left alone and counted, and `employeeView` keeps what they hold out of every response.
 
 ## 4. Extraction
 
@@ -623,7 +625,7 @@ Per flow, against a threshold set by the NSI each year. 2026: arrivals EUR 899,8
 - **Deadlines.** Обр. 1, and обр. 6 for contributions: by the 25th of the next month. Обр. 6 for tax under ЗДДФЛ чл. 42: from the 1st to the 25th of the month after withholding, when it is also paid (ЗДДФЛ чл. 65(11)). Tax under чл. 49(5): by 25 February.
 - **Channel.** Above 10 insured persons a month, online only with a qualified e-signature (чл. 8(2)). Whoever holds the signature can be authorised (чл. 10).
 - **Corrections.** Code `К` corrects and `З` deletes. Month, year, ЕГН and вид осигурен cannot be corrected: delete and refile. None after 30 April of the next year without permission. On обр. 6 `К` only reduces; an increase is a new declaration with the positive difference. A correction of обр. 1 that changes contributions goes with a matching обр. 6 (чл. 9).
-- **The check.** Each month's liability on обр. 6 must equal the contributions computed from обр. 1: income × percentage, employer and employee separately, each rounded separately, summed per liability (чл. 2(4), § 2). The filing is refused otherwise (чл. 11(2)). The rounding rule is in чл. 3 of the ordinance adopted by ПМС 175/2018, **unread**, but half up matched all 42 months (§1.8).
+- **The check.** Each month's liability on обр. 6 must equal the contributions computed from обр. 1: income × percentage, employer and employee separately, each rounded separately, summed per liability (чл. 2(4), § 2). The filing is refused otherwise (чл. 11(2)). The rounding rule is in чл. 3 of the ordinance adopted by ПМС 175/2018, still **unread**. Its predecessor's чл. 2а, [as quoted here](https://trudipravo.bg/izbrani-statii/novoto-v-naredba-n-8-i-podavaneto-na-danni-ot-rabotodatelite-za-osigurenite-pri-tyah-litza-kakto-i-ot-samoosiguryavashtite-se-litza/), works per person and on decimal digits: a third decimal of 0–4 leaves the second alone, 5–9 adds one. Half up matched all 42 months (§1.8). ⚠ That is a rule about decimal digits, so the engine does it in integers: rounding a double can land a tie on the wrong side.
 
 | | `EMPL2021.TXT`, обр. 1 | `NRA62007.TXT`, обр. 6 |
 |---|---|---|
@@ -666,7 +668,7 @@ For employees the working floor is at least the minimum wage (КТ чл. 245; NR
 
 **Income tax,** ЗДДФЛ чл. 42: taxable income accrued for the month, less the employee's contributions, less ТЕЛК relief (чл. 18: 660 лв. a month in the statute, about €337.45 by conversion; no official figure found), less voluntary-insurance relief, less child relief where a one-time declaration asks for it in advance (NRA: €255.65 a month for one child, €511.29 for two, €766.94 for three or more, in 2026), × 10%. The main employer at 31 December recalculates the year by 31 January, on documents received between 30 November and 31 December (чл. 49). A служебна бележка within 14 days on request (чл. 45); its current form is **unread**.
 
-**Sick pay and leave.** The employer pays the first two working days at 70% (КСО чл. 40(5)), and they go in day field 25 and inside insurable income. НОИ pays from there, on a certificate (Приложение № 9) due by the 10th of the next month (КСО чл. 40а). Leave pay comes from the last month with at least 10 worked days (КТ чл. 177), and unused leave is paid out at termination (чл. 224). Class supplement: НСОРЗ чл. 12. ⚠ ДВ 69/2026 rewrote the rule for стаж (КТ чл. 355), and РКС № 17/2026 (ДВ 99/30.10.2026) struck parts of it: read it before coding length of service.
+**Sick pay and leave.** The employer pays the first two working days at 70% (КСО чл. 40(5)), and they go in day field 25 and inside insurable income. НОИ pays from there, on a certificate (Приложение № 9) due by the 10th of the next month (КСО чл. 40а). Leave pay comes from the last month with at least 10 worked days (КТ чл. 177), and unused leave is paid out at termination (чл. 224). Class supplement: НСОРЗ чл. 12. ⚠ ДВ 69/2026 rewrote the rule for стаж (КТ чл. 355). [Решение № 17 of 20.10.2026](https://www.constcourt.bg/bg/act-10456), к.д. № 15/2026, declares unconstitutional, in the text § 11 gave it: ал. 1 in the part „часове,“; ал. 2; ал. 3 in the part „всички работни дни за съответния месец“; ал. 4. The operative part says nothing on past periods or on which text applies after it. So стаж is never counted in hours, and the class supplement stays an input amount, proven against the filed months, until the accountant confirms the rule.
 
 **The euro in payroll.** Wages, benefits and pensions round **up** on any non-zero third decimal, per pay element: 1,000 лв. is €511.30, not €511.29 (ЗВЕРБ чл. 45; state FAQ). That includes amounts set in BGN and paid later. Deductions and food vouchers use the general rule, and so do statutory thresholds. A leva period's sheet stays in leva, and back-pay for it is declared in leva and paid converted (чл. 50). What the rule means for a salary set in EUR from the start, and for КТ чл. 224 compensation, is **unverified**.
 
@@ -688,9 +690,9 @@ Filed through the NRA portal with a qualified signature or ПИК. An amendment 
 **Open reading before P2 and P3,** each a short job:
 
 1. Run NRA's client v18.08 over generated files: file names, payment type `8`, field 5's values.
-2. РКС № 17/2026 and the current КТ чл. 355.
-3. ПМС 175/2018 чл. 3, on rounding.
-4. КИД-2025 or КИД 2008 in the files.
+2. What applies to стаж after Решение № 17/2026 (§7.4): with the accountant. The decision itself is read.
+3. ПМС 175/2018 чл. 3, on rounding. The predecessor's text is read and the rule fits all 42 months (§7.4), so this confirms rather than decides.
+4. КИД-2025 or КИД 2008 in the files. For the minimum insurable income, [NRA's 2025 handbook](https://kik-info.com/files/naruchnik-osiguriavane-2025/FISH-I.I.8.1.pdf) uses КИД-2008 to 31.03.2025 and КИД-2025 from 01.04.2025. Nothing read says the same of field 29, so NRA's client decides.
 5. НОИ's Приложение № 9 schemas, if LGR is to produce it (§12).
 6. ЗДБРБ 2026's own text on child relief, and an official euro figure for ТЕЛК relief.
 7. СС 19 on accruing unused leave, and the minimum class percentage: with the accountant.

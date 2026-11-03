@@ -150,7 +150,9 @@ const APP_READS: Record<string, string[]> = {
   ],
   pos: ['trade/pos/catalog', 'trade/pos/catalog/lookup', 'trade/pos/session', 'cash-register/documents', 'warehouse/product-category', 'warehouse/warehouse', 'fiscal/device', 'tags'],
   accounting: ['accounting/account', 'accounting/journal', 'accounting/exchange-rate', 'accounting/fiscal-year', 'accounting/report/trial-balance'],
-  payroll: ['payroll/employee', 'payroll/payslip', 'payroll/run', 'payroll/timesheet'],
+  payroll: ['payroll/run'],
+  // About one person each, which `payroll.read` is not. The menu hides them from who lacks it (FR-25 §3.11).
+  'payroll-people': ['payroll/employee', 'payroll/payslip', 'payroll/timesheet'],
   reports: ['reports/catalog'],
 }
 
@@ -163,6 +165,7 @@ describe('each default role still reaches what its apps read', () => {
         'shell',
         ...Object.entries(APP_REGISTRY).filter(([, a]) => held.includes(a.requiredPermission)).map(([id]) => id),
         ...(held.includes('pos.read') ? ['pos'] : []),
+        ...(held.includes('payroll.personal') ? ['payroll-people'] : []),
       ]
       for (const appId of apps) {
         for (const rest of APP_READS[appId] ?? []) {

@@ -126,6 +126,30 @@ export function publishedExampleSource(value: string): string | undefined {
   return PUBLISHED_EXAMPLE_SECRETS[createHash('sha256').update(value.trim()).digest('hex')]
 }
 
+/** Published in this file on purpose: it protects nothing, and serves `bun run dev` and the tests. */
+export const PERSONAL_DATA_DEV_KEK = 'bGdyLWRldmVsb3BtZW50LW9ubHktZG8tbm90LXVzZSE='
+
+/**
+ * FR-25 §3.12. ⚠ Not fatal when missing, unlike the token secrets: nothing becomes forgeable or
+ * readable without it. Personal data is simply locked (503), and every other route keeps working, so
+ * a misconfigured secret does not take the tills down. A key that is THERE but wrong is fatal in
+ * production: the development key, or something that is not 32 bytes of base64.
+ *
+ * Generate one with `scripts/personal-data-key.ts generate`, which also escrows it.
+ */
+function readPersonalDataKek(name: string, raw: string | undefined, devFallback: boolean): string | undefined {
+  const value = (raw ?? '').trim()
+  const production = process.env.NODE_ENV === 'production'
+  if (!value) return !production && devFallback ? PERSONAL_DATA_DEV_KEK : undefined
+  if (production && value === PERSONAL_DATA_DEV_KEK) {
+    throw new Error(`${name} is the development key published in this repository. Refusing to start in production.`)
+  }
+  if (Buffer.from(value, 'base64').length !== 32) {
+    throw new Error(`${name} must be 32 bytes of base64. Generate one with scripts/personal-data-key.ts generate.`)
+  }
+  return value
+}
+
 /**
  * A secret that MUST NOT fall back to a committed default in production.
  *
@@ -389,6 +413,12 @@ export const config = {
   },
   mongodb: {
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27018/lgr',
+  },
+  /** FR-25 §3.12: the key that wraps every org's personal-data keys. See `readPersonalDataKek`. */
+  personalData: {
+    kek: readPersonalDataKek('PERSONAL_DATA_KEK', process.env.PERSONAL_DATA_KEK, true),
+    /** Set only during a rotation, until `scripts/personal-data-key.ts rewrap` has run. */
+    previousKek: readPersonalDataKek('PERSONAL_DATA_KEK_PREVIOUS', process.env.PERSONAL_DATA_KEK_PREVIOUS, false),
   },
   jwt: {
     secret: requiredSecret('JWT_SECRET', process.env.JWT_SECRET, JWT_DEV_FALLBACK),

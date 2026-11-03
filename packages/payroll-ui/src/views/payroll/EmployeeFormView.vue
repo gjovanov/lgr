@@ -22,13 +22,14 @@
               <v-col cols="4"><v-text-field v-model="form.lastName" :label="$t('common.lastName')" /></v-col>
               <v-col cols="6"><v-text-field v-model="form.email" :label="$t('common.email')" type="email" /></v-col>
               <v-col cols="6"><v-text-field v-model="form.phone" :label="$t('common.phone')" /></v-col>
-              <v-col cols="6"><v-text-field v-model="form.dateOfBirth" :label="$t('payroll.dateOfBirth')" type="date" /></v-col>
-              <v-col cols="6"><v-text-field v-model="form.nationalId" :label="$t('payroll.nationalId')" /></v-col>
-              <v-col cols="6"><v-text-field v-model="form.address.street" :label="$t('payroll.street')" /></v-col>
-              <v-col cols="6"><v-text-field v-model="form.address.city" :label="$t('payroll.city')" /></v-col>
-              <v-col cols="4"><v-text-field v-model="form.address.state" :label="$t('payroll.state')" /></v-col>
-              <v-col cols="4"><v-text-field v-model="form.address.postalCode" :label="$t('payroll.postalCode')" /></v-col>
-              <v-col cols="4"><v-text-field v-model="form.address.country" :label="$t('payroll.country')" /></v-col>
+              <EmployeePersonalNotice :personal="personal" :employee-id="String(route.params.id || '')" />
+              <v-col cols="6"><v-text-field v-model="personal.values.dateOfBirth" :readonly="!personal.editable.value" :label="$t('payroll.dateOfBirth')" type="date" /></v-col>
+              <v-col cols="6"><v-text-field v-model="personal.values.nationalId" :readonly="!personal.editable.value" :label="$t('payroll.nationalId')" /></v-col>
+              <v-col cols="6"><v-text-field v-model="personal.values.address.street" :readonly="!personal.editable.value" :label="$t('payroll.street')" /></v-col>
+              <v-col cols="6"><v-text-field v-model="personal.values.address.city" :readonly="!personal.editable.value" :label="$t('payroll.city')" /></v-col>
+              <v-col cols="4"><v-text-field v-model="personal.values.address.state" :readonly="!personal.editable.value" :label="$t('payroll.state')" /></v-col>
+              <v-col cols="4"><v-text-field v-model="personal.values.address.postalCode" :readonly="!personal.editable.value" :label="$t('payroll.postalCode')" /></v-col>
+              <v-col cols="4"><v-text-field v-model="personal.values.address.country" :readonly="!personal.editable.value" :label="$t('payroll.country')" /></v-col>
             </v-row>
           </v-tabs-window-item>
 
@@ -56,10 +57,11 @@
               <v-col cols="3">
                 <v-select v-model="form.salary.frequency" :label="$t('payroll.frequency')" :items="salaryFrequencies" />
               </v-col>
-              <v-col cols="6"><v-text-field v-model="form.salary.bankAccountNumber" :label="$t('payroll.bankAccountNumber')" /></v-col>
-              <v-col cols="6"><v-text-field v-model="form.salary.bankName" :label="$t('payroll.bankName')" /></v-col>
-              <v-col cols="6"><v-text-field v-model="form.salary.iban" :label="$t('payroll.iban')" /></v-col>
-              <v-col cols="6"><v-text-field v-model="form.taxId" :label="$t('payroll.taxId')" /></v-col>
+              <EmployeePersonalNotice :personal="personal" :employee-id="String(route.params.id || '')" />
+              <v-col cols="6"><v-text-field v-model="personal.values.bankAccountNumber" :readonly="!personal.editable.value" :label="$t('payroll.bankAccountNumber')" /></v-col>
+              <v-col cols="6"><v-text-field v-model="personal.values.bankName" :readonly="!personal.editable.value" :label="$t('payroll.bankName')" /></v-col>
+              <v-col cols="6"><v-text-field v-model="personal.values.iban" :readonly="!personal.editable.value" :label="$t('payroll.iban')" /></v-col>
+              <v-col cols="6"><v-text-field v-model="personal.values.taxId" :readonly="!personal.editable.value" :label="$t('payroll.taxId')" /></v-col>
             </v-row>
           </v-tabs-window-item>
 
@@ -99,6 +101,8 @@
 </template>
 
 <script setup lang="ts">
+import EmployeePersonalNotice from '../../components/EmployeePersonalNotice.vue'
+import { useEmployeePersonal } from '../../composables/useEmployeePersonal'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -123,19 +127,19 @@ const salaryFrequencies = ['monthly', 'biweekly', 'weekly', 'hourly']
 
 const emptyForm = () => ({
   firstName: '', middleName: '', lastName: '', email: '', phone: '',
-  dateOfBirth: '', gender: '' as string, nationalId: '', taxId: '',
-  address: { street: '', city: '', state: '', postalCode: '', country: '' },
+  gender: '' as string,
   employeeNumber: '', department: '', position: '', managerId: '' as string,
   employmentType: 'full_time',
   contractStartDate: '', contractEndDate: '', probationEndDate: '',
   status: 'active',
-  salary: { baseSalary: 0, currency: 'EUR', frequency: 'monthly', bankAccountNumber: '', bankName: '', iban: '' },
+  salary: { baseSalary: 0, currency: 'EUR', frequency: 'monthly' },
   deductions: [] as any[], benefits: [] as any[],
-  emergencyContact: { name: '', relationship: '', phone: '' },
   notes: '',
 })
 
 const form = reactive(emptyForm())
+// FR-25 §3.12: kept apart from `form`, which `usePendingChanges` writes to the browser's storage.
+const personal = useEmployeePersonal()
 
 const isEdit = computed(() => !!route.params.id)
 
@@ -156,7 +160,7 @@ const { markSaved, tryRestore } = usePendingChanges({
 async function save() {
   saving.value = true
   try {
-    await store.saveEmployee({ ...form })
+    await store.saveEmployee({ ...form, personal: personal.patch() })
     markSaved()
     router.push({ name: 'payroll.employees' })
     showSuccess(t('common.savedSuccessfully'))
@@ -176,12 +180,11 @@ onMounted(async () => {
       Object.assign(form, {
         ...empty,
         ...employee,
-        address: { ...empty.address, ...employee.address },
         salary: { ...empty.salary, ...employee.salary },
-        emergencyContact: { ...empty.emergencyContact, ...employee.emergencyContact },
         deductions: employee.deductions?.length ? employee.deductions.map((d: any) => ({ ...d })) : [],
         benefits: employee.benefits?.length ? employee.benefits.map((b: any) => ({ ...b })) : [],
       })
+      personal.reset(employee)
     }
   }
 })

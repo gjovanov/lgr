@@ -368,6 +368,8 @@ export interface DigestOps {
   tasks: { type: string; completed: number; failed: number; created: number; failedRows: number }[]
   failedEmails: { to: string; subject: string; error: string }[]
   failedEmailCount: number
+  /** FR-25 §3.12: this server cannot open this org's personal-data keys. */
+  personalDataLocked?: boolean
 }
 
 // ── The whole thing ─────────────────────────────────────────────────────────

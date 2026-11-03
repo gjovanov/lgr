@@ -634,6 +634,8 @@
     "benefits": "Leistungen",
     "dateOfBirth": "Geburtsdatum",
     "nationalId": "Personalausweisnr.",
+    "personalSealed": "Personenbezogene Daten sind verschlüsselt. Zum Bearbeiten anzeigen; das wird protokolliert.",
+    "personalShow": "Anzeigen",
     "employeeNumber": "Mitarbeiternr.",
     "department": "Abteilung",
     "position": "Position",

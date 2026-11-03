@@ -11,7 +11,7 @@ import { manifest as inventory } from '../../../inventory-ui/src/manifest'
 import { manifest as invoicing } from '../../../invoicing-ui/src/manifest'
 import { journalRoute, pinAtTill, tillLanding, tillRedirect, type TillSession } from '../../../invoicing-ui/src/pos/till-rules'
 import { pinOffered } from '../../../invoicing-ui/src/pos/composables/useTillPin'
-import { manifest as payroll } from '../../../payroll-ui/src/manifest'
+import { manifest as payroll, payrollLanding } from '../../../payroll-ui/src/manifest'
 import { manifest as reports } from '../../../reports-ui/src/manifest'
 import { manifest as files } from '../../../files-ui/src/manifest'
 import { posRedirect } from '../../../portal-api/src/lib/pos-redirect'
@@ -286,6 +286,30 @@ describe('the till\'s guard', () => {
  * decides: the guard, the menu, the landing and the App Hub tile are all held to it here, on real
  * routes, so none of them can come to a different answer.
  */
+describe('payroll: a run\'s totals, and the people (FR-25 §3.11)', () => {
+  const labels = (who: PageViewer) => visibleMenu(payroll.menu!, who).map(item => item.to)
+  const totalsOnly: PageViewer = { role: 'manager', permissions: DEFAULT_ROLE_PERMISSIONS.manager }
+
+  it('a reader of totals is offered the runs, and lands on them', () => {
+    expect(labels(totalsOnly)).toEqual(['/runs'])
+    expect(payrollLanding(totalsOnly)).toEqual({ name: 'payroll.runs' })
+  })
+
+  it('whoever holds payroll.personal keeps the app as it was', () => {
+    for (const who of [{ role: 'hr_manager', permissions: DEFAULT_ROLE_PERMISSIONS.hr_manager }, { role: 'admin', permissions: [] }] as PageViewer[]) {
+      expect(labels(who)).toEqual(['/employees', '/runs', '/payslips', '/timesheets'])
+      expect(payrollLanding(who)).toEqual({ name: 'payroll.employees' })
+    }
+  })
+
+  it('offers no page the server refuses', () => {
+    for (const path of ['/payroll/employees', '/payroll/payslips', '/payroll/timesheets']) {
+      expect(canOpenPage(matchPage(path)!, totalsOnly)).toBe(false)
+    }
+    expect(canOpenPage(matchPage('/payroll/runs')!, totalsOnly)).toBe(true)
+  })
+})
+
 describe('who may open what', () => {
   const role = (r: Role): PageViewer => ({ role: r, permissions: DEFAULT_ROLE_PERMISSIONS[r] })
   const set = (...permissions: string[]): PageViewer => ({ role: 'member', permissions })
@@ -702,7 +726,7 @@ describe('visibleMenu', () => {
   })
 
   it('every other module is untouched: no entry of theirs asks anything', () => {
-    for (const m of MANIFESTS.filter(x => x !== invoicing && x.menu)) {
+    for (const m of MANIFESTS.filter(x => x !== invoicing && x !== payroll && x.menu)) {
       expect({ id: m.id, menu: menuPaths(visibleMenu(m.menu!, nobody)) }).toEqual({ id: m.id, menu: menuPaths(m.menu) })
     }
   })

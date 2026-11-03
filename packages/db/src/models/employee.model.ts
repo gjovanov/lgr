@@ -2,22 +2,11 @@ import { Schema, model, type Document, type Types } from 'mongoose'
 import { tenantPlugin } from '../plugins/tenant.plugin.js'
 import { replicate } from '../replication/declare.js'
 
-export interface IEmployeeAddress {
-  street: string
-  city: string
-  state?: string
-  postalCode: string
-  country: string
-}
-
 export interface IEmployeeSalary {
   baseSalary: number
   currency: string
   frequency: string
   hourlyRate?: number
-  bankAccountNumber?: string
-  bankName?: string
-  iban?: string
 }
 
 export interface IEmployeeDeduction {
@@ -34,12 +23,6 @@ export interface IEmployeeBenefit {
   value: number
 }
 
-export interface IEmergencyContact {
-  name: string
-  relationship: string
-  phone: string
-}
-
 export interface IEmployee extends Document {
   _id: Types.ObjectId
   orgId: Types.ObjectId
@@ -50,11 +33,16 @@ export interface IEmployee extends Document {
   lastName: string
   email?: string
   phone?: string
-  dateOfBirth?: Date
   gender?: string
-  nationalId?: string
-  taxId?: string
-  address?: IEmployeeAddress
+  /**
+   * FR-25 §3.12: one sealed JSON holding everything sensitive about this person (`EMPLOYEE_PERSONAL_KEYS`
+   * in `services/biz/personal-data/employee-personal.ts`). Opens only on this document.
+   */
+  personal?: string
+  /** The last digits of the ЕГН, for lists. */
+  nationalIdMask?: string
+  /** Lookup by ЕГН, without opening anything. */
+  nationalIdHmac?: string
   department: string
   position: string
   managerId?: Types.ObjectId
@@ -69,7 +57,6 @@ export interface IEmployee extends Document {
   deductions: IEmployeeDeduction[]
   benefits: IEmployeeBenefit[]
   documents: Types.ObjectId[]
-  emergencyContact?: IEmergencyContact
   notes?: string
   tags?: string[]
   createdAt: Date
@@ -85,23 +72,10 @@ const employeeSchema = new Schema<IEmployee>(
     lastName: { type: String, required: true },
     email: String,
     phone: String,
-    dateOfBirth: Date,
     gender: { type: String, enum: ['male', 'female', 'other'] },
-    nationalId: String,
-    taxId: String,
-    address: {
-      type: new Schema(
-        {
-          street: { type: String, required: true },
-          city: { type: String, required: true },
-          state: String,
-          postalCode: { type: String, required: true },
-          country: { type: String, required: true },
-        },
-        { _id: false },
-      ),
-      required: false,
-    },
+    personal: String,
+    nationalIdMask: String,
+    nationalIdHmac: String,
     department: { type: String, required: true },
     position: { type: String, required: true },
     managerId: { type: Schema.Types.ObjectId, ref: 'Employee' },
@@ -130,9 +104,6 @@ const employeeSchema = new Schema<IEmployee>(
         enum: ['monthly', 'biweekly', 'weekly', 'hourly'],
       },
       hourlyRate: Number,
-      bankAccountNumber: String,
-      bankName: String,
-      iban: String,
     },
     deductions: [
       {
@@ -151,11 +122,6 @@ const employeeSchema = new Schema<IEmployee>(
       },
     ],
     documents: [{ type: Schema.Types.ObjectId, ref: 'File' }],
-    emergencyContact: {
-      name: String,
-      relationship: String,
-      phone: String,
-    },
     notes: String,
     tags: [String],
   },
@@ -168,6 +134,7 @@ employeeSchema.index({ orgId: 1, department: 1 })
 employeeSchema.index({ orgId: 1, status: 1 })
 employeeSchema.index({ orgId: 1, managerId: 1 })
 employeeSchema.index({ orgId: 1, tags: 1 })
+employeeSchema.index({ orgId: 1, nationalIdHmac: 1 }, { sparse: true })
 employeeSchema.index({ firstName: 'text', middleName: 'text', lastName: 'text', email: 'text' })
 
 replicate(employeeSchema, { class: 'R' })

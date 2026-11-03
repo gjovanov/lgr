@@ -134,6 +134,10 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
     count: 5,
     why: 'applyRestore() calls assertHomeIsHere(orgId) first; 1 of the 5 deletes Identity rows (people, not org data)',
   },
+  'services/src/biz/personal-data/restore.ts': {
+    count: 1,
+    why: 'a lost key row brought back as the bundle has it (FR-25 §3.12): only from applyRestore(), after its assertHomeIsHere(orgId)',
+  },
   'services/src/biz/login-throttle.service.ts': { count: 1, why: 'login throttles: not org data' },
   'services/src/biz/cash-register/payment-receipt.service.ts': {
     count: 1,

@@ -76,6 +76,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   PayrollRun: { collection: 'payrollruns', class: 'R', orgPath: 'orgId' },
   Payslip: { collection: 'payslips', class: 'R', orgPath: 'orgId' },
   PermissionSet: { collection: 'permissionsets', class: 'R', orgPath: 'orgId' },
+  PersonalDataKey: { collection: 'personaldatakeys', class: 'R', orgPath: 'orgId' },
   POSPaymentMethod: { collection: 'pospaymentmethods', class: 'R', orgPath: 'orgId' },
   POSSession: { collection: 'possessions', class: 'R', orgPath: 'orgId' },
   POSTransaction: { collection: 'postransactions', class: 'R', orgPath: 'orgId' },

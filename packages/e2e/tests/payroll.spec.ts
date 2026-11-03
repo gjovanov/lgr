@@ -86,6 +86,34 @@ test.describe('Payroll', () => {
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
   })
 
+  test('should create a run, calculate it, approve it, and show its totals', async ({ page }) => {
+    await loginForApp(page)
+    const name = `Run ${Date.now()}`
+
+    await page.goto('/payroll/runs/new')
+    await page.getByLabel(/^name/i).fill(name)
+    await page.getByLabel(/period start/i).fill('2026-03-01')
+    await page.getByLabel(/period end/i).fill('2026-03-31')
+    const step = async (button: RegExp, method: string, path: RegExp) => {
+      const [response] = await Promise.all([
+        page.waitForResponse(r => r.request().method() === method && path.test(r.url())),
+        page.getByRole('button', { name: button }).filter({ visible: true }).first().click(),
+      ])
+      expect(response.status()).toBe(200)
+    }
+    await step(/save/i, 'POST', /\/payroll\/run$/)
+    await step(/calculate/i, 'POST', /\/calculate$/)
+    await step(/approve/i, 'POST', /\/approve$/)
+
+    await page.goto(`/payroll/runs?search=${encodeURIComponent(name)}`)
+    const row = page.locator('.v-data-table tbody tr', { hasText: name })
+    await expect(row).toContainText('approved')
+    await expect(row).toContainText('2026')
+    await expect(row).toContainText('€')
+    await expect(row).not.toContainText('NaN')
+    await expect(row).not.toContainText('{')
+  })
+
   test('should navigate to payroll runs page and render list', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/payroll/runs')

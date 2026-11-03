@@ -634,6 +634,8 @@
     "benefits": "Бенефиции",
     "dateOfBirth": "Датум на Раѓање",
     "nationalId": "ЕМБГ",
+    "personalSealed": "Личните податоци се шифрирани. Прикажете ги за да ги уредите; ова се евидентира.",
+    "personalShow": "Прикажи",
     "employeeNumber": "Број на Вработен",
     "department": "Одделение",
     "position": "Позиција",

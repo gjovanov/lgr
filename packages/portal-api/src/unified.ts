@@ -292,6 +292,15 @@ setTimeout(async () => {
 
   // FR-24.46: no reset of every device at boot. With two pods it marked offline the devices the
   // sibling held; the `fiscal-presence` scheduler below marks offline only what no live row holds.
+  // FR-25 §3.12: every org's keys open here or an operator hears about it, and what older rows still
+  // hold in clear gets sealed. Safe to run on every start: a row done once no longer matches.
+  await once('personal-data', async () => {
+    const { checkPersonalDataKeys } = await import('services/biz/personal-data/personal-data.service')
+    const { sealPlainEmployees } = await import('services/biz/personal-data/employee-personal')
+    const { homeScope } = await import('db/home/home')
+    await checkPersonalDataKeys()
+    await sealPlainEmployees(await homeScope())
+  })
   // FR-21.28: say at startup when the cash register will answer 503 until `bun run migrate` (0009).
   await once('cash-register-readiness', async () => {
     const { logRegisterReadiness } = await import('services/biz/cash-register/freeze-check')

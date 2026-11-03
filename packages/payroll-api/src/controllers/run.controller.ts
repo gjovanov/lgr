@@ -3,7 +3,15 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { approvePayroll, calculatePayroll, PayrollRunRefusedError } from 'services/biz/payroll.service'
+import { holdsPersonal } from 'services/biz/route-permission'
 import { buildSearchFilter } from 'services/biz/search.utils'
+
+/** FR-25 §3.11: `payroll.read` is a run's totals. Its `items` are one person each. */
+function runView<T extends object>(run: T, user: Parameters<typeof holdsPersonal>[0]) {
+  if (holdsPersonal(user)) return run
+  const { items: _people, ...totals } = run as T & { items?: unknown }
+  return totals
+}
 
 export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/run' })
   .use(AppAuthService)
@@ -24,7 +32,8 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
     const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
 
     const result = await r.payrollRuns.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
-    return { payrollRuns: result.items, ...result }
+    const items = result.items.map(item => runView(item, user))
+    return { ...result, payrollRuns: items, items }
   }, { isSignIn: true })
   .post(
     '/',
@@ -42,7 +51,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'payroll', entityType: 'payroll_run', entityId: run.id, entityName: (run as any).name })
 
-      return { payrollRun: run }
+      return { payrollRun: runView(run, user) }
     },
     {
       isSignIn: true,
@@ -63,7 +72,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
     const run = await r.payrollRuns.findOne({ id, orgId } as any)
     if (!run) return status(404, { message: 'Payroll run not found' })
 
-    return { payrollRun: run }
+    return { payrollRun: runView(run, user) }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -80,7 +89,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: (updated as any).name, changes: diffChanges(existing as any, updated as any) })
 
-      return { payrollRun: updated }
+      return { payrollRun: runView(updated as object, user) }
     },
     {
       isSignIn: true,
@@ -96,8 +105,6 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!['admin', 'hr_manager'].includes(user.role))
-      return status(403, { message: 'Admin or HR manager only' })
     const r = getRepos()
 
     const run = await r.payrollRuns.findOne({ id, orgId } as any)
@@ -129,12 +136,10 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
 
     createAuditEntry({ orgId, userId: user.id, action: 'calculate', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: (run as any).name })
 
-    return { payrollRun: updatedRun }
+    return { payrollRun: runView(updatedRun, user) }
   }, { isSignIn: true })
   .post('/:id/approve', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!['admin', 'hr_manager'].includes(user.role))
-      return status(403, { message: 'Admin or HR manager only' })
     const r = getRepos()
 
     const run = await r.payrollRuns.findOne({ id, orgId } as any)
@@ -152,5 +157,5 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
 
     createAuditEntry({ orgId, userId: user.id, action: 'approve', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: (run as any).name })
 
-    return { payrollRun: updatedRun }
+    return { payrollRun: runView(updatedRun, user) }
   }, { isSignIn: true })
