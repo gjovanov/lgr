@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
 
 test.describe('Payment Orders', () => {
@@ -54,7 +55,7 @@ test.describe('Payment Orders', () => {
     await contactInput.click()
     await page.waitForTimeout(500)
     const contactOption = page.locator('.v-overlay--active .v-list-item').first()
-    if (await contactOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await appears(contactOption, 3000)) {
       await contactOption.click()
       await page.waitForTimeout(300)
     }

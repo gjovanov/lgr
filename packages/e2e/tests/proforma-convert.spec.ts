@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
 import { rowAction } from './helpers/row-actions'
 
@@ -47,7 +48,7 @@ test.describe('Proforma to Invoice Conversion', () => {
         // FR-22.23: the row's actions are in its ⋮ menu, and Convert is offered on a proforma
         // that is not yet converted, voided or cancelled.
         const open = rows.filter({ hasNotText: /converted|voided|cancelled/i }).first()
-        if (await open.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await appears(open, 3000)) {
           await expect(await rowAction(open, 'convert')).toBeVisible()
         }
       }

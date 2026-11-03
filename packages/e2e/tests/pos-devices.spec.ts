@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
 
 test.describe('Devices', () => {
@@ -75,7 +76,7 @@ test.describe('Devices', () => {
       if (!hasNoData) {
         // Click the first device name link to go to detail
         const deviceLink = rows.first().locator('a').first()
-        const hasLink = await deviceLink.isVisible({ timeout: 3000 }).catch(() => false)
+        const hasLink = await appears(deviceLink, 3000)
 
         if (hasLink) {
           await deviceLink.click()
@@ -112,7 +113,7 @@ test.describe('Devices', () => {
       if (!hasNoData) {
         // Click the first device name link to go to detail
         const deviceLink = rows.first().locator('a').first()
-        const hasLink = await deviceLink.isVisible({ timeout: 3000 }).catch(() => false)
+        const hasLink = await appears(deviceLink, 3000)
 
         if (hasLink) {
           await deviceLink.click()

@@ -59,7 +59,7 @@ test.describe('Grid URL state + hover menus', () => {
     // An untouched seeded invoice can still trip the leave guard ("Unsaved changes") — a
     // separate issue; confirming is what a user would do, and it must not cost the filters.
     const confirmLeave = page.getByRole('dialog').getByRole('button', { name: /confirm/i })
-    if (await confirmLeave.isVisible({ timeout: 2000 }).catch(() => false)) await confirmLeave.click()
+    if (await appears(confirmLeave, 2000)) await confirmLeave.click()
     await expect(page).toHaveURL(/\/invoicing\/invoices(\?|$)/)
     await expect(page).toHaveURL(/[?&]q=INV/)
     await expect(page).toHaveURL(NO_VOIDED)

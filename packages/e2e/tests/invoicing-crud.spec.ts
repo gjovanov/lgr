@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
 import { lineUnitPrice } from './helpers/document-form'
 import {
@@ -27,7 +28,7 @@ test.describe('Invoicing CRUD', () => {
     await page.waitForTimeout(300)
 
     const addAddressBtn = page.getByRole('button', { name: /add address/i })
-    if (await addAddressBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+    if (await appears(addAddressBtn, 2000)) {
       await addAddressBtn.click()
       await page.waitForTimeout(300)
 
@@ -54,12 +55,12 @@ test.describe('Invoicing CRUD', () => {
 
     // Type defaults to "sales" -- verify type select is present with correct options
     const typeLabel = page.getByLabel(/type/i)
-    if (await typeLabel.isVisible({ timeout: 2000 }).catch(() => false)) {
+    if (await appears(typeLabel, 2000)) {
       // Type select should have: sales, purchase, proforma, credit_note
       await typeLabel.click({ force: true })
       await page.waitForTimeout(300)
       const salesOption = page.getByRole('option', { name: /sales/i })
-      if (await salesOption.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (await appears(salesOption, 2000)) {
         await salesOption.click()
       } else {
         // Close the dropdown
@@ -73,7 +74,7 @@ test.describe('Invoicing CRUD', () => {
     await contactInput.click({ force: true })
     await page.waitForTimeout(500)
     const contactOption = page.locator('.v-overlay .v-list-item').first()
-    if (await contactOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await appears(contactOption, 3000)) {
       await contactOption.click()
     }
     await page.waitForTimeout(300)
@@ -112,9 +113,7 @@ test.describe('Invoicing CRUD', () => {
 
     // Verify taxTotal at invoice level exists somewhere in the form
     const taxTotalLabel = page.getByText(/tax total/i).or(page.getByText(/tax amount/i))
-    if (await taxTotalLabel.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await expect(taxTotalLabel).toBeVisible()
-    }
+    await expect(taxTotalLabel).toBeVisible()
 
     // Save the invoice. FR-22.16: it stays open, on its own edit route.
     await page.getByRole('button', { name: /^save$/i }).first().click()
@@ -150,11 +149,8 @@ test.describe('Invoicing CRUD', () => {
     // carry an Address section once a contact is chosen.
     await expect(page.getByText(/^address$/i).first()).toBeVisible({ timeout: 5000 })
 
-    // Verify direction select if visible
-    const directionField = page.getByLabel(/direction/i)
-    if (await directionField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await expect(directionField).toBeVisible()
-    }
+    // #408: the form has no direction field: the page decides it (sales documents vs bills). This
+    // checked a field that does not exist, and passed because its guard checked nothing.
   })
 
   test('should display server-side pagination on invoices table', async ({ page }) => {

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
 import { apiLogin, apiGet, apiPost } from './helpers/api'
 import { lineUnitPrice } from './helpers/document-form'
@@ -99,7 +100,7 @@ test.describe('Stock Validation on Invoicing', () => {
     // Look for a sent invoice that can be voided — FR-22.23: Void sits in the row menu of an
     // issued document, and asks first.
     const sentRow = rowsWithStatus(page, 'Sent').first()
-    const hasVoidBtn = await sentRow.isVisible({ timeout: 3000 }).catch(() => false)
+    const hasVoidBtn = await appears(sentRow, 3000)
 
     if (hasVoidBtn) {
       await (await rowAction(sentRow, 'void')).click()
@@ -108,7 +109,7 @@ test.describe('Stock Validation on Invoicing', () => {
 
       // Check for snackbar — may show success or error depending on stock state
       const snackbar = page.locator('.v-snackbar')
-      const hasSnackbar = await snackbar.isVisible({ timeout: 5000 }).catch(() => false)
+      const hasSnackbar = await appears(snackbar, 5000)
       if (hasSnackbar) {
         const text = await snackbar.textContent()
         // If stock validation prevents the void, we should see the error
@@ -139,7 +140,7 @@ test.describe('Stock Validation on Invoicing', () => {
       if (!hasNoData) {
         // A received bill offers Void in its row menu (FR-22.23)
         const receivedRow = rowsWithStatus(page, 'Received').first()
-        const hasVoidBtn = await receivedRow.isVisible({ timeout: 2000 }).catch(() => false)
+        const hasVoidBtn = await appears(receivedRow, 2000)
         if (hasVoidBtn) {
           // Clicking void on a received purchase invoice triggers reverseInvoiceStockMovement
           // which creates a dispatch — if stock was already used, this should show error
@@ -148,7 +149,7 @@ test.describe('Stock Validation on Invoicing', () => {
           await page.waitForTimeout(2000)
 
           const snackbar = page.locator('.v-snackbar')
-          const hasSnackbar = await snackbar.isVisible({ timeout: 5000 }).catch(() => false)
+          const hasSnackbar = await appears(snackbar, 5000)
           if (hasSnackbar) {
             // We just verify the snackbar appeared and page didn't crash
             await expect(page.locator('.v-data-table')).toBeVisible()

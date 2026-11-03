@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test'
+import { appears } from './vuetify'
 import { expect } from '@playwright/test'
 
 /**
@@ -20,7 +21,7 @@ export async function expectPaginatedTable(page: Page, timeout = 10000) {
  */
 export async function getPageInfo(page: Page): Promise<string> {
   const info = page.locator('.v-data-table-footer__info')
-  if (await info.isVisible({ timeout: 3000 }).catch(() => false)) {
+  if (await appears(info, 3000)) {
     return (await info.textContent()) || ''
   }
   return ''
@@ -43,7 +44,7 @@ export async function goToNextPage(page: Page) {
   const nextBtn = page.locator('.v-data-table-footer .v-btn').filter({
     has: page.locator('.mdi-chevron-right'),
   })
-  if (await nextBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+  if (await appears(nextBtn, 3000)) {
     const isDisabled = await nextBtn.isDisabled()
     if (!isDisabled) {
       await nextBtn.click()
@@ -61,7 +62,7 @@ export async function goToPreviousPage(page: Page) {
   const prevBtn = page.locator('.v-data-table-footer .v-btn').filter({
     has: page.locator('.mdi-chevron-left'),
   })
-  if (await prevBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+  if (await appears(prevBtn, 3000)) {
     const isDisabled = await prevBtn.isDisabled()
     if (!isDisabled) {
       await prevBtn.click()
@@ -77,11 +78,11 @@ export async function goToPreviousPage(page: Page) {
  */
 export async function changeItemsPerPage(page: Page, perPage: number) {
   const perPageSelect = page.locator('.v-data-table-footer .v-select, .v-data-table-footer .v-field')
-  if (await perPageSelect.isVisible({ timeout: 3000 }).catch(() => false)) {
+  if (await appears(perPageSelect, 3000)) {
     await perPageSelect.click()
     await page.waitForTimeout(300)
     const option = page.getByRole('option', { name: String(perPage) })
-    if (await option.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await appears(option, 3000)) {
       await option.click()
       await page.waitForTimeout(500)
       return true
@@ -112,7 +113,7 @@ export async function sortByColumn(page: Page, columnText: RegExp) {
   const header = page.locator('.v-data-table thead th').filter({
     hasText: columnText,
   })
-  if (await header.isVisible({ timeout: 3000 }).catch(() => false)) {
+  if (await appears(header, 3000)) {
     await header.click()
     await waitForTableLoaded(page)
     return true

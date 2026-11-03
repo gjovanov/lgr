@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
 
 test.describe('Credit Notes Fixes', () => {
@@ -37,7 +38,7 @@ test.describe('Credit Notes Fixes', () => {
 
     // The form should accept manual line item edits on the default empty line
     const qtyInput = page.locator('.v-table tbody tr input[type="number"]').first()
-    if (await qtyInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await appears(qtyInput, 3000)) {
       await qtyInput.fill('5')
       expect(await qtyInput.inputValue()).toBe('5')
     }

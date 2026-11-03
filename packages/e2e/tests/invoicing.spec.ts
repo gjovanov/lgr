@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
 import { rowAction, rowsWithStatus } from './helpers/row-actions'
 import { lineUnitPrice, expectWarehouseSelector } from './helpers/document-form'
@@ -57,7 +58,7 @@ test.describe('Invoicing', () => {
 
     // Wait for dropdown and select first option if available
     const contactOption = page.locator('.v-overlay .v-list-item').first()
-    if (await contactOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await appears(contactOption, 3000)) {
       await contactOption.click()
     }
 
@@ -111,7 +112,7 @@ test.describe('Invoicing', () => {
 
     // Look for a draft purchase invoice — FR-22.23: its row menu offers „Receive"
     const draftRow = rowsWithStatus(page, 'Draft').first()
-    const hasDraft = await draftRow.isVisible({ timeout: 3000 }).catch(() => false)
+    const hasDraft = await appears(draftRow, 3000)
 
     if (hasDraft) {
       // Click receive
@@ -123,7 +124,7 @@ test.describe('Invoicing', () => {
       // Verify the invoice status changed (no longer shows receive button on that row)
       // The row should now show "received" status chip
       const receivedChip = page.locator('.v-data-table tbody tr .v-chip', { hasText: /received/i }).first()
-      const hasReceived = await receivedChip.isVisible({ timeout: 3000 }).catch(() => false)
+      const hasReceived = await appears(receivedChip, 3000)
       if (hasReceived) {
         await expect(receivedChip).toBeVisible()
       }
@@ -242,7 +243,7 @@ test.describe('Invoicing', () => {
 
     // Select a status option from the dropdown
     const option = page.locator('.v-list-item').first()
-    if (await option.isVisible({ timeout: 2000 }).catch(() => false)) {
+    if (await appears(option, 2000)) {
       await option.click()
     }
 
@@ -260,7 +261,7 @@ test.describe('Invoicing', () => {
     const dataRow = page.locator('.v-data-table tbody tr').filter({
       hasNot: page.getByText('No data available'),
     }).first()
-    const hasRows = await dataRow.isVisible({ timeout: 5000 }).catch(() => false)
+    const hasRows = await appears(dataRow, 5000)
 
     if (!hasRows) {
       // No invoices loaded, verify table renders and skip

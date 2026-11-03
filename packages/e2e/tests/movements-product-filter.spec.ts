@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
 
 test.describe('Movements Product Filtering', () => {
@@ -22,14 +23,14 @@ test.describe('Movements Product Filtering', () => {
 
     // Try to interact with the multi-product autocomplete filter
     const productSearchInput = page.locator('.v-card .v-autocomplete input').last()
-    if (await productSearchInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await appears(productSearchInput, 3000)) {
       // Type to trigger search
       await productSearchInput.fill('Product')
       await page.waitForTimeout(500)
 
       // If there are product options, select one
       const option = page.locator('.v-list-item').first()
-      if (await option.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await appears(option, 3000)) {
         await option.click()
         await page.waitForTimeout(1000)
 
