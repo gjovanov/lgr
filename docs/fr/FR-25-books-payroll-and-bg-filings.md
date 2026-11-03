@@ -625,7 +625,7 @@ Per flow, against a threshold set by the NSI each year. 2026: arrivals EUR 899,8
 - **Deadlines.** Обр. 1, and обр. 6 for contributions: by the 25th of the next month. Обр. 6 for tax under ЗДДФЛ чл. 42: from the 1st to the 25th of the month after withholding, when it is also paid (ЗДДФЛ чл. 65(11)). Tax under чл. 49(5): by 25 February.
 - **Channel.** Above 10 insured persons a month, online only with a qualified e-signature (чл. 8(2)). Whoever holds the signature can be authorised (чл. 10).
 - **Corrections.** Code `К` corrects and `З` deletes. Month, year, ЕГН and вид осигурен cannot be corrected: delete and refile. None after 30 April of the next year without permission. On обр. 6 `К` only reduces; an increase is a new declaration with the positive difference. A correction of обр. 1 that changes contributions goes with a matching обр. 6 (чл. 9).
-- **The check.** Each month's liability on обр. 6 must equal the contributions computed from обр. 1: income × percentage, employer and employee separately, each rounded separately, summed per liability (чл. 2(4), § 2). The filing is refused otherwise (чл. 11(2)). The rounding rule is in чл. 3 of the ordinance adopted by ПМС 175/2018, **unread**, but half up matched all 42 months (§1.8).
+- **The check.** Each month's liability on обр. 6 must equal the contributions computed from обр. 1: income × percentage, employer and employee separately, each rounded separately, summed per liability (чл. 2(4), § 2). The filing is refused otherwise (чл. 11(2)). The rounding rule is in чл. 3 of the ordinance adopted by ПМС 175/2018, still **unread**. Its predecessor's чл. 2а, [as quoted here](https://trudipravo.bg/izbrani-statii/novoto-v-naredba-n-8-i-podavaneto-na-danni-ot-rabotodatelite-za-osigurenite-pri-tyah-litza-kakto-i-ot-samoosiguryavashtite-se-litza/), works per person and on decimal digits: a third decimal of 0–4 leaves the second alone, 5–9 adds one. Half up matched all 42 months (§1.8). ⚠ That is a rule about decimal digits, so the engine does it in integers: rounding a double can land a tie on the wrong side.
 
 | | `EMPL2021.TXT`, обр. 1 | `NRA62007.TXT`, обр. 6 |
 |---|---|---|
@@ -668,7 +668,7 @@ For employees the working floor is at least the minimum wage (КТ чл. 245; NR
 
 **Income tax,** ЗДДФЛ чл. 42: taxable income accrued for the month, less the employee's contributions, less ТЕЛК relief (чл. 18: 660 лв. a month in the statute, about €337.45 by conversion; no official figure found), less voluntary-insurance relief, less child relief where a one-time declaration asks for it in advance (NRA: €255.65 a month for one child, €511.29 for two, €766.94 for three or more, in 2026), × 10%. The main employer at 31 December recalculates the year by 31 January, on documents received between 30 November and 31 December (чл. 49). A служебна бележка within 14 days on request (чл. 45); its current form is **unread**.
 
-**Sick pay and leave.** The employer pays the first two working days at 70% (КСО чл. 40(5)), and they go in day field 25 and inside insurable income. НОИ pays from there, on a certificate (Приложение № 9) due by the 10th of the next month (КСО чл. 40а). Leave pay comes from the last month with at least 10 worked days (КТ чл. 177), and unused leave is paid out at termination (чл. 224). Class supplement: НСОРЗ чл. 12. ⚠ ДВ 69/2026 rewrote the rule for стаж (КТ чл. 355), and РКС № 17/2026 (ДВ 99/30.10.2026) struck parts of it: read it before coding length of service.
+**Sick pay and leave.** The employer pays the first two working days at 70% (КСО чл. 40(5)), and they go in day field 25 and inside insurable income. НОИ pays from there, on a certificate (Приложение № 9) due by the 10th of the next month (КСО чл. 40а). Leave pay comes from the last month with at least 10 worked days (КТ чл. 177), and unused leave is paid out at termination (чл. 224). Class supplement: НСОРЗ чл. 12. ⚠ ДВ 69/2026 rewrote the rule for стаж (КТ чл. 355). [Решение № 17 of 20.10.2026](https://www.constcourt.bg/bg/act-10456), к.д. № 15/2026, declares unconstitutional, in the text § 11 gave it: ал. 1 in the part „часове,“; ал. 2; ал. 3 in the part „всички работни дни за съответния месец“; ал. 4. The operative part says nothing on past periods or on which text applies after it. So стаж is never counted in hours, and the class supplement stays an input amount, proven against the filed months, until the accountant confirms the rule.
 
 **The euro in payroll.** Wages, benefits and pensions round **up** on any non-zero third decimal, per pay element: 1,000 лв. is €511.30, not €511.29 (ЗВЕРБ чл. 45; state FAQ). That includes amounts set in BGN and paid later. Deductions and food vouchers use the general rule, and so do statutory thresholds. A leva period's sheet stays in leva, and back-pay for it is declared in leva and paid converted (чл. 50). What the rule means for a salary set in EUR from the start, and for КТ чл. 224 compensation, is **unverified**.
 
@@ -690,9 +690,9 @@ Filed through the NRA portal with a qualified signature or ПИК. An amendment 
 **Open reading before P2 and P3,** each a short job:
 
 1. Run NRA's client v18.08 over generated files: file names, payment type `8`, field 5's values.
-2. РКС № 17/2026 and the current КТ чл. 355.
-3. ПМС 175/2018 чл. 3, on rounding.
-4. КИД-2025 or КИД 2008 in the files.
+2. What applies to стаж after Решение № 17/2026 (§7.4): with the accountant. The decision itself is read.
+3. ПМС 175/2018 чл. 3, on rounding. The predecessor's text is read and the rule fits all 42 months (§7.4), so this confirms rather than decides.
+4. КИД-2025 or КИД 2008 in the files. For the minimum insurable income, [NRA's 2025 handbook](https://kik-info.com/files/naruchnik-osiguriavane-2025/FISH-I.I.8.1.pdf) uses КИД-2008 to 31.03.2025 and КИД-2025 from 01.04.2025. Nothing read says the same of field 29, so NRA's client decides.
 5. НОИ's Приложение № 9 schemas, if LGR is to produce it (§12).
 6. ЗДБРБ 2026's own text on child relief, and an official euro figure for ТЕЛК relief.
 7. СС 19 on accruing unused leave, and the minimum class percentage: with the accountant.

@@ -17,6 +17,9 @@ import {
 const holdsPersonal = (user: { role?: string; permissions?: string[] }) =>
   user.role === 'admin' || !!user.permissions?.includes('payroll.personal')
 
+/** FR-25 §3.11: a write is about one person whatever it changes. The route rule has already asked for `payroll.write`. */
+const personalRefusal = (status: any) => status(403, { message: 'Permission required: payroll.personal', code: 'permission_required' })
+
 /** FR-25 §3.12: a missing or wrong key is a 503 with a name, never a blank. Anything else is a bug. */
 function lockedAnswer(status: any, e: unknown) {
   if (e instanceof PersonalDataLockedError) return status(e.statusCode, { message: e.message, code: e.code })
@@ -102,12 +105,12 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      if (!holdsPersonal(user)) return personalRefusal(status)
       const r = getRepos()
 
       const { personal, ...plain } = body
       const patch = cleanPersonalPatch(personal)
       const hasPersonal = Object.keys(patch).length > 0
-      if (hasPersonal && !holdsPersonal(user)) return status(403, { message: 'Permission required: payroll.personal', code: 'permission_required' })
 
       let employee: any
       try {
@@ -214,8 +217,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!['admin', 'hr_manager'].includes(user.role))
-        return status(403, { message: 'Admin or HR manager only' })
+      if (!holdsPersonal(user)) return personalRefusal(status)
       const r = getRepos()
 
       const existing: any = await r.employees.findOne({ id, orgId } as any)
@@ -224,7 +226,6 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
       const { personal, ...plain } = body
       const patch = cleanPersonalPatch(personal)
       const personalFields = Object.keys(patch)
-      if (personalFields.length && !holdsPersonal(user)) return status(403, { message: 'Permission required: payroll.personal', code: 'permission_required' })
 
       let sealed = {}
       try {
@@ -283,8 +284,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!['admin', 'hr_manager'].includes(user.role))
-      return status(403, { message: 'Admin or HR manager only' })
+    if (!holdsPersonal(user)) return personalRefusal(status)
     const r = getRepos()
 
     const existing = await r.employees.findOne({ id, orgId } as any)

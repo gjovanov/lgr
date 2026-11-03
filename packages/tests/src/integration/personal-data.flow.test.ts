@@ -195,6 +195,42 @@ describe('changing a value', () => {
   })
 })
 
+describe('who may change a person', () => {
+  const grantedBoth = () => tokenFor({ _id: orgId, email: 'a@e.st', username: 'a' }, 'accountant', ['payroll.read', 'payroll.write', 'payroll.personal'], orgId)
+  const writeOnly = () => tokenFor({ _id: orgId, email: 'b@e.st', username: 'b' }, 'accountant', ['payroll.read', 'payroll.write'], orgId)
+
+  it('is a permission, never a role name: an accountant granted it edits and removes', async () => {
+    const employee = await createSealed()
+    const token = await grantedBoth()
+    const id = employee._id ?? employee.id
+
+    expect((await call('PUT', `/${id}`, token, { notes: 'moved desk', personal: { address: { city: 'Elsewhere' } } })).status).toBe(200)
+    expect((await call('DELETE', `/${id}`, token)).status).toBe(200)
+    expect((await Employee.collection.findOne({ employeeNumber: employee.employeeNumber }) as any).status).toBe('terminated')
+  })
+
+  it('needs both permissions: payroll.write alone touches nobody, sealed fields or not', async () => {
+    const employee = await createSealed()
+    const token = await writeOnly()
+    const id = employee._id ?? employee.id
+
+    expect((await call('POST', '/', token, newEmployee())).status).toBe(403)
+    expect((await call('PUT', `/${id}`, token, { notes: 'x' })).status).toBe(403)
+    expect((await call('DELETE', `/${id}`, token)).status).toBe(403)
+
+    const stored: any = await Employee.collection.findOne({ employeeNumber: employee.employeeNumber })
+    expect(stored.status).not.toBe('terminated')
+    expect(stored.notes).toBeUndefined()
+  })
+
+  it('payroll.personal alone writes nothing: the route rule still asks for payroll.write', async () => {
+    const employee = await createSealed()
+    const token = await tokenFor({ _id: orgId, email: 'c@e.st', username: 'c' }, 'accountant', ['payroll.read', 'payroll.personal'], orgId)
+
+    expect((await call('PUT', `/${employee._id ?? employee.id}`, token, { notes: 'x' })).status).toBe(403)
+  })
+})
+
 describe('a value cannot be moved', () => {
   it('does not open on another person: nobody redirects a salary by copying a ciphertext', async () => {
     const victim = await createSealed()
