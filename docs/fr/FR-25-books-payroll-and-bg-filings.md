@@ -412,7 +412,9 @@ PERSONAL_DATA_KEK              32 random bytes in a sealed secret. Never in Mong
 
 One key per org keeps a leak or a restore inside that org, and destroying one row ends that org's data when its retention is over. Two levels make rotating the KEK a rewrap of a few rows that touches no data.
 
-**A value** is a string: `pd1.<keyId>.<nonce>.<ciphertext+tag>`, AES-256-GCM with a random 96-bit nonce, and `orgId|model|docId|fieldPath` as additional data, so a ciphertext copied to another person, field or org does not open. The same `node:crypto` AEAD the sealed backups use. The core is import-pure, `services/biz/personal-data/crypto.ts`.
+**A value** is a string: `pd1.<keyId>.<nonce>.<ciphertext+tag>`, AES-256-GCM with a random 96-bit nonce, and `keyId|model|docId|fieldPath` as additional data. So a ciphertext copied to another person or field does not open: someone with database write access cannot redirect a salary by copying their own sealed IBAN onto a colleague's row. Another org simply has no key to try. A restore into another org gives documents new ids, so it re-seals (`personal-data/restore.ts`). The same `node:crypto` AEAD the sealed backups use. The core is import-pure, `services/biz/personal-data/crypto.ts`.
+
+A document's sensitive fields go in one sealed JSON, so adding a field needs no schema change and no migration.
 
 | Model | Encrypted | In clear beside it |
 |---|---|---|
@@ -425,22 +427,22 @@ One key per org keeps a leak or a restore inside that org, and destroying one ro
 
 Names stay in clear: lists and search need them, and alone they say little. `Employee`'s fields are encrypted in every org, because plain ЕГН is no better for a demo tenant; a run's items only under the Bulgarian engine, so D2 holds. Sums over people are done in memory after opening, which this scale allows; a run's totals are stored in clear, as `ЗАП` carries them anyway.
 
-**Nothing decrypts by itself.** Repositories return ciphertext, so a forgotten projection leaks only ciphertext. There are two paths to a value: `personalData.forOrg(orgId)` in server code (the engine, the generators), and `POST …/employee/:id/reveal { field, reason }` for a person, needing `payroll.personal` and audit-logged with who, which field and why, never the value.
+**Nothing decrypts by itself.** Repositories return ciphertext, so a forgotten projection leaks only ciphertext. There are two paths to a value: `forOrg(orgId)` in server code (the engine, the generators), and `POST …/employee/:id/reveal { fields, reason }` for a person, needing `payroll.personal`, with an audit row of who, which fields and why, never the value. That row is written before the answer, and no row means no value.
 
 **A missing or wrong key fails loudly:**
 
 - No KEK: the app starts and everything else works. Personal writes and reveals answer **503 `personal_data_locked`**, never a blank and never plaintext stored instead.
-- Startup opens each org's canary. A failure is logged as an error and shown in the health detail and the morning digest's ops section.
+- Startup opens each org's canary. A failure is logged as an error and shown in the morning digest's ops section.
 - A restore opens the canary before committing, and refuses a bundle this server's KEK cannot open.
-- A home move (FR-20) refuses when the target has no KEK able to open the org's canary.
+- A home move (FR-20) carries the wrapped keys, so on a target with no KEK the data stays locked, never lost. A books org refuses a home move at all (§3.11).
 
-**Custody.** ⚠ Payroll is kept for 50 years, so losing the KEK loses what the law says to keep. `scripts/personal-data-key.ts` generates it without printing it, stores it in the sealed `lgr-secret`, and writes an escrow copy sealed to the backup's public key (`lgr-sealed-1`), kept beside the private half. The runbook joins FR-13's.
+**Custody.** ⚠ Payroll is kept for 50 years, so losing the KEK loses what the law says to keep. `scripts/personal-data-key.ts` generates it without printing it, stores it in the sealed `lgr-secret`, and writes an escrow copy sealed to the backup's public key (`lgr-sealed-1`), kept beside the private half. Runbook: `docs/guides/personal-data-key.md`.
 
-**Rotation.** New KEK: set `PERSONAL_DATA_KEK_PREVIOUS`, run `rewrap`, remove it. New DEK: add a key id, new writes use it, a `reencrypt` job moves old values, and the old key is retired only when none is left. The index key does not rotate, so lookups survive.
+**Rotation.** New KEK: set `PERSONAL_DATA_KEK_PREVIOUS`, run `rewrap`, remove it. New DEK: add a key id, new writes use it, a `reencrypt` job moves old values, and the old key is retired only when none is left. Values name their key, so both open meanwhile; the job is built when a rotation is first needed. The index key does not rotate, so lookups survive.
 
 **P1's gate includes the drill:** an org backup restored into a throwaway server with the KEK opened from escrow, the canary and a made-up person read back. Plus a raw-collection test: no plain ЕГН in any stored document, log or audit row.
 
-**Existing rows** are demo and e2e data only (§1.9). A migration encrypts them, and refuses to run without a KEK.
+**Rows from before this** are demo and e2e data only (§1.9). A startup sweep seals them once the key is there. Until then they are left alone and counted, and `employeeView` keeps what they hold out of every response.
 
 ## 4. Extraction
 

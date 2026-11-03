@@ -76,6 +76,7 @@ export { DinCatalog, type IDinCatalog } from './din-catalog.model.js'
 
 // Payroll
 export { Employee, type IEmployee } from './employee.model.js'
+export { PersonalDataKey, type IPersonalDataKey, type IPersonalDataKeyEntry } from './personal-data-key.model.js'
 export { PayrollRun, type IPayrollRun } from './payroll-run.model.js'
 export { Payslip, type IPayslip } from './payslip.model.js'
 export { Timesheet, type ITimesheet } from './timesheet.model.js'

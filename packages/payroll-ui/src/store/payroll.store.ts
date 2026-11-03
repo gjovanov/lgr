@@ -294,6 +294,12 @@ export const usePayrollStore = defineStore('payroll', () => {
   }
 
   // --- Save wrappers (create or update) ---
+  /** FR-25 §3.12: reads sealed values for one person. The server records who, what and why. */
+  async function revealEmployeePersonal(id: string, fields: readonly string[], reason: 'edit' | 'declaration' | 'employee_request' | 'audit') {
+    const { data } = await httpClient.post(`${orgUrl()}/payroll/employee/${id}/reveal`, { fields, reason })
+    return data.personal as Record<string, any>
+  }
+
   async function saveEmployee(payload: any) {
     if (payload._id) return updateEmployee(payload._id, payload)
     return createEmployee(payload)
@@ -326,6 +332,7 @@ export const usePayrollStore = defineStore('payroll', () => {
     updateEmployee,
     deleteEmployee,
     saveEmployee,
+    revealEmployeePersonal,
     // Actions - Payroll Runs
     fetchPayrollRuns,
     createPayrollRun,

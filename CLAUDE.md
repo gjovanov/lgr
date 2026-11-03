@@ -159,6 +159,27 @@ a controller that passes a URL id to an unscoped method.
 - `LGR_NODE_ROLE` = `global` (default) or `master`; anything else refuses to start. Feature code asks
   `nodeRole()` from `config`, never a host name or another variable.
 
+## Personal data is sealed (FR-25 §3.12)
+
+An employee's ЕГН, tax id, birth date, address, bank details and health-related data live in one sealed
+JSON, `Employee.personal` (`pd1.<keyId>.<nonce>.<ciphertext>`). The keys are per org (`PersonalDataKey`),
+wrapped by `PERSONAL_DATA_KEK`, which is in no database and no backup. Runbook:
+`docs/guides/personal-data-key.md`.
+
+- ⚠ **Nothing decrypts by itself.** A repository returns ciphertext. A value comes out through
+  `forOrg(orgId).open(model, docId, path, sealed)` in server code, or `POST …/employee/:id/reveal` for a
+  person, which needs `payroll.personal` and writes its audit row before answering.
+- ⚠ **A value opens only on the document and field it was sealed for.** That is what stops someone with
+  database write access copying their own sealed IBAN onto a colleague's row. It also means a remapped
+  restore must re-seal: a new sealed model joins `SEALED_PATHS` in `personal-data/restore.ts`.
+- ⚠ **Routes send `employeeView`, an allow-list.** A new `Employee` field stays out of every response until
+  someone adds it. Forms keep sealed values apart from their own state, which `usePendingChanges` writes to
+  browser storage (`useEmployeePersonal`).
+- A missing or wrong key is `PersonalDataLockedError`, a 503 named `personal_data_locked`: never a blank,
+  and never a value stored in clear. Everything else keeps working.
+- `payroll.read` is a run's totals. Anything about one person needs `payroll.personal`.
+- Fixtures use an ЕГН that passes the checksum with month 13, so it can be nobody's: `7513020014`.
+
 ## Org homes: only the home writes (FR-20.3/FR-20.4, plan step P0b-2)
 
 Every org has one **home** that writes its data: `global` or an on-prem master. `org_homes` (`OrgHome`,

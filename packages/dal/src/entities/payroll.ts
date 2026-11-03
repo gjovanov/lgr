@@ -15,9 +15,6 @@ export interface IEmployeeSalary {
   currency: string
   frequency: string
   hourlyRate?: number
-  bankAccountNumber?: string
-  bankName?: string
-  iban?: string
 }
 
 export interface IEmployeeDeduction {
@@ -50,11 +47,10 @@ export interface IEmployee extends TenantEntity {
   lastName: string
   email?: string
   phone?: string
-  dateOfBirth?: Date
   gender?: string
-  nationalId?: string
-  taxId?: string
-  address?: IEmployeeAddress
+  personal?: string
+  nationalIdMask?: string
+  nationalIdHmac?: string
   department: string
   position: string
   managerId?: string
@@ -69,7 +65,6 @@ export interface IEmployee extends TenantEntity {
   deductions: IEmployeeDeduction[]
   benefits: IEmployeeBenefit[]
   documents: string[]
-  emergencyContact?: IEmergencyContact
   notes?: string
   tags?: string[]
 }

@@ -36,7 +36,7 @@ const ORG_DATA = [
   'FiscalDevice', 'FiscalPeriod', 'FiscalPosition', 'FiscalYear', 'FixedAsset', 'InternalOrder',
   'InventoryCount', 'Invite', 'Invoice', 'Journal', 'JournalEntry', 'Notification', 'OAuthHandoff',
   'OperationType', 'Order', 'OrgApp', 'OrgLogo', 'POSPaymentMethod', 'POSSession', 'POSTransaction',
-  'PaymentOrder', 'PaymentTerm', 'PayrollRun', 'Payslip', 'PermissionSet', 'PriceList', 'Product',
+  'PaymentOrder', 'PaymentTerm', 'PayrollRun', 'Payslip', 'PermissionSet', 'PersonalDataKey', 'PriceList', 'Product',
   'ProductCategory', 'Reservation', 'Sequence', 'StockLevel', 'StockLocation', 'StockLot',
   'StockMovement', 'SupplierProductAlias', 'Tag', 'TaxReturn', 'Timesheet', 'User', 'VatRegisterEntry', 'Warehouse',
   'Workstation',

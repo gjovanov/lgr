@@ -15,6 +15,7 @@
  * trade-off FR-08 recorded rather than pretending to solve.
  */
 
+import { personalDataStatus } from '../personal-data/personal-data.service.js'
 import { nodeRole } from 'config'
 import {
   Invoice,
@@ -692,6 +693,7 @@ async function buildOps(orgId: string, date: string): Promise<DigestOps> {
       to: e.to, subject: e.subject || '', error: String(e.error || '').slice(0, 200),
     })),
     failedEmailCount,
+    personalDataLocked: personalDataStatus().unopenable.includes(String(orgId)),
   }
 }
 
@@ -800,7 +802,7 @@ function sectionIsEmpty(key: DigestSectionKey, value: any): boolean {
     case 'materials':
       return !value.sold.rowCount && !value.transferred.rowCount && !value.loaded.rowCount
     case 'ops':
-      return !value.tasks.length && !value.failedEmailCount
+      return !value.tasks.length && !value.failedEmailCount && !value.personalDataLocked
     // FR-20.100: a server that crossed no threshold is nothing to report.
     case 'server':
       return !value.alarms.length
