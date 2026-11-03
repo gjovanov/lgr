@@ -56,9 +56,8 @@ test.describe('Warehouse CRUD', () => {
     await page.getByRole('tab', { name: /pricing/i }).click()
     await page.waitForTimeout(300)
     const sellingPrice = page.getByLabel(/selling price/i)
-    if (await sellingPrice.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await sellingPrice.fill('49.99')
-    }
+    await expect(sellingPrice).toBeVisible()
+    await sellingPrice.fill('49.99')
 
     // Save the product
     await page.getByRole('button', { name: /^save$/i }).first().click()
@@ -82,29 +81,24 @@ test.describe('Warehouse CRUD', () => {
 
     // Fill nested address fields: street, city, state, postalCode, country
     const streetField = dialog.getByLabel(/street/i)
-    if (await streetField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await streetField.fill('42 Storage Blvd')
-    }
+    await expect(streetField).toBeVisible()
+    await streetField.fill('42 Storage Blvd')
 
     const cityField = dialog.getByLabel(/^city$/i)
-    if (await cityField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await cityField.fill('Warehouseville')
-    }
+    await expect(cityField).toBeVisible()
+    await cityField.fill('Warehouseville')
 
     const stateField = dialog.getByLabel(/state/i)
-    if (await stateField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await stateField.fill('CA')
-    }
+    await expect(stateField).toBeVisible()
+    await stateField.fill('CA')
 
     const postalCodeField = dialog.getByLabel(/postal code/i)
-    if (await postalCodeField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await postalCodeField.fill('90210')
-    }
+    await expect(postalCodeField).toBeVisible()
+    await postalCodeField.fill('90210')
 
     const countryField = dialog.getByLabel(/country/i)
-    if (await countryField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await countryField.fill('US')
-    }
+    await expect(countryField).toBeVisible()
+    await countryField.fill('US')
 
     await saveDialog(dialog)
     await expectSuccess(page)
@@ -138,34 +132,29 @@ test.describe('Warehouse CRUD', () => {
 
     // Update nested address fields
     const streetField = dialog.getByLabel(/street/i)
-    if (await streetField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await streetField.clear()
-      await streetField.fill('99 Updated Ave')
-    }
+    await expect(streetField).toBeVisible()
+    await streetField.clear()
+    await streetField.fill('99 Updated Ave')
 
     const cityField = dialog.getByLabel(/^city$/i)
-    if (await cityField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await cityField.clear()
-      await cityField.fill('NewCity')
-    }
+    await expect(cityField).toBeVisible()
+    await cityField.clear()
+    await cityField.fill('NewCity')
 
     const stateField = dialog.getByLabel(/state/i)
-    if (await stateField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await stateField.clear()
-      await stateField.fill('NY')
-    }
+    await expect(stateField).toBeVisible()
+    await stateField.clear()
+    await stateField.fill('NY')
 
     const postalCodeField = dialog.getByLabel(/postal code/i)
-    if (await postalCodeField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await postalCodeField.clear()
-      await postalCodeField.fill('10001')
-    }
+    await expect(postalCodeField).toBeVisible()
+    await postalCodeField.clear()
+    await postalCodeField.fill('10001')
 
     const countryField = dialog.getByLabel(/country/i)
-    if (await countryField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await countryField.clear()
-      await countryField.fill('US')
-    }
+    await expect(countryField).toBeVisible()
+    await countryField.clear()
+    await countryField.fill('US')
 
     await saveDialog(dialog)
     await expectSuccess(page)

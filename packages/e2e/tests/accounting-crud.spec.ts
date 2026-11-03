@@ -32,42 +32,36 @@ test.describe('Accounting CRUD', () => {
 
     // Fill name
     const nameField = dialog.getByLabel(/^name$/i)
-    if (await nameField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await nameField.fill(uniqueName('BankAcct'))
-    }
+    await expect(nameField).toBeVisible()
+    await nameField.fill(uniqueName('BankAcct'))
 
     // Fill SWIFT code (label: "SWIFT" from $t('accounting.swift'))
     const swiftField = dialog.getByLabel(/swift/i)
-    if (await swiftField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await swiftField.fill('TESTUS33')
-    }
+    await expect(swiftField).toBeVisible()
+    await swiftField.fill('TESTUS33')
 
     // Fill IBAN (label: "IBAN" from $t('accounting.iban'))
     const ibanField = dialog.getByLabel(/iban/i)
-    if (await ibanField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await ibanField.fill('DE89370400440532013000')
-    }
+    await expect(ibanField).toBeVisible()
+    await ibanField.fill('DE89370400440532013000')
 
     // ⚠ Account Number and Currency are REQUIRED (`:rules="[rules.required]"` in
     // BankAccountFormView) and this test never filled them, so validation silently blocked
     // every save. Nothing was created, and the assertions were weak enough not to notice.
     const accountNumberField = dialog.getByLabel(/account\s*number/i)
-    if (await accountNumberField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      // ⚠ Unique per run: accountNumber is unique per org, so a fixed value saves once and
-      // then silently fails on every later run against the same database.
-      await accountNumberField.fill(uniqueName('ACC').replace(/[^0-9a-z]/gi, '').slice(-12))
-    }
+    await expect(accountNumberField).toBeVisible()
+    // ⚠ Unique per run: accountNumber is unique per org, so a fixed value saves once and
+    // then silently fails on every later run against the same database.
+    await accountNumberField.fill(uniqueName('ACC').replace(/[^0-9a-z]/gi, '').slice(-12))
 
     // Select linked account via autocomplete (label: "Linked Account" from $t('accounting.linkedAccount'))
     const linkedAcctField = dialog.getByLabel(/linked\s*account/i)
-    if (await linkedAcctField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await selectAutocomplete(page, dialog, /linked\s*account/i)
-    }
+    await expect(linkedAcctField).toBeVisible()
+    await selectAutocomplete(page, dialog, /linked\s*account/i)
 
     const currencyField = dialog.getByLabel(/^currency$/i)
-    if (await currencyField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await currencyField.fill('EUR')
-    }
+    await expect(currencyField).toBeVisible()
+    await currencyField.fill('EUR')
 
     await saveDialog(dialog)
     await expectSuccess(page)
@@ -125,41 +119,38 @@ test.describe('Accounting CRUD', () => {
     }
 
     // Verify subType field is present and has a value
-    const subTypeField = dialog.getByLabel(/sub\s*type/i)
-    if (await subTypeField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      const subTypeValue = await subTypeField.inputValue()
+    // #408: the sub type and the description are on the form (AccountFormView.vue). The guard answered
+    // at once, and `getByLabel(/sub type/)` matches two elements of a v-select, so it threw, the catch
+    // read that as "not there", and this whole check was skipped on every run. The select shows its
+    // value as text, so that is what is compared.
+    const subTypeField = dialog.locator('.v-select').filter({ hasText: /sub\s*type/i })
+    await expect(subTypeField).toBeVisible()
+    const subTypeValue = (await subTypeField.locator('.v-select__selection-text').allInnerTexts()).join('|')
 
-      // Verify description field is present
-      const descField = dialog.getByLabel(/description/i)
-      const descValue = await descField.isVisible({ timeout: 2000 }).catch(() => false)
-        ? await descField.inputValue()
-        : ''
+    // Verify description field is present
+    const descField = dialog.getByLabel(/description/i)
+    await expect(descField).toBeVisible()
+    const descValue = await descField.inputValue()
 
-      // Save without changes
-      await saveDialog(dialog)
-      await expectSuccess(page)
+    // Save without changes
+    await saveDialog(dialog)
+    await expectSuccess(page)
 
-      // Re-open the same row and verify values are preserved
-      const reopened = await editFirstRow(page)
-      if (reopened) {
-        const subTypeAfter = reopened.getByLabel(/sub\s*type/i)
-        if (await subTypeAfter.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await expect(subTypeAfter).toHaveValue(subTypeValue)
-        }
+    // Re-open the same row and verify values are preserved
+    const reopened = await editFirstRow(page)
+    if (reopened) {
+      const subTypeAfter = reopened.locator('.v-select').filter({ hasText: /sub\s*type/i })
+      await expect(subTypeAfter).toBeVisible()
+      expect((await subTypeAfter.locator('.v-select__selection-text').allInnerTexts()).join('|')).toBe(subTypeValue)
 
-        if (descValue) {
-          const descAfter = reopened.getByLabel(/description/i)
-          if (await descAfter.isVisible({ timeout: 2000 }).catch(() => false)) {
-            await expect(descAfter).toHaveValue(descValue)
-          }
-        }
-
-        // A routed form has Back, not Cancel — and this only leaves the screen after the
-        // assertions above, so navigating away is shape-independent.
-        await page.goto('/accounting/accounts')
+      if (descValue) {
+        const descAfter = reopened.getByLabel(/description/i)
+        await expect(descAfter).toBeVisible()
+        await expect(descAfter).toHaveValue(descValue)
       }
-    } else {
-      // subType may be a select; just verify the form loaded.
+
+      // A routed form has Back, not Cancel — and this only leaves the screen after the
+      // assertions above, so navigating away is shape-independent.
       await page.goto('/accounting/accounts')
     }
   })
