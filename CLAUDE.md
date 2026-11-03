@@ -1645,7 +1645,9 @@ raw-text fields) · `xlsx` (salesAnalysis / storeOperations parsers + sniffer) �
 
 **API** — `/org/:orgId/doc-import/`: `POST /extract` (multipart, PDF→sidecar or XLSX→parser,
 `forceOcr`, 4-way concurrency, per-file timeouts) · `POST /analyze` → job (**persists
-nothing**) · `GET /task/:taskId` (falls back to the `BackgroundTask` row when the in-memory
+nothing**, ⚠ except contacts until #484: with `createMissingContact`, on by default, an invoice
+analysis CREATES a counterparty it cannot match, and it fills empty ЕИК/address fields on one it
+does; a run that must not write passes `false`) · `GET /task/:taskId` (falls back to the `BackgroundTask` row when the in-memory
 `taskStore` is gone) · `POST /commit` → job · `POST /convert`. Permission-gated
 (`invoicing.write` / `inventory.write`). **`/bills/import/{extract,draft,convert}` stays
 mounted and byte-compatible** — the five migration CLI skills drive it against the deployed API.

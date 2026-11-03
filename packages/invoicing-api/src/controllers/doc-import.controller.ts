@@ -163,7 +163,7 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
     { isSignIn: true },
   )
 
-  // ── Step 2: analyze (background job — nothing is persisted) ──
+  // ── Step 2: analyze (background job — nothing is persisted, ⚠ except contacts: see #484) ──
   .post(
     '/analyze',
     async ({ params: { orgId }, body, user, status }) => {

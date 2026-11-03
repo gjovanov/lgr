@@ -378,8 +378,13 @@ export async function mapMovementExtraction(
   // unknown party is a document to look at, not a reason to add a counterparty.
   const partySide = rule.side === 'to' ? 'supplier' : 'customer'
   const party = partySide === 'supplier' ? ext.supplier : ext.customer
-  const partner = clean(party?.name) ? await matchContact(orgId, party!, partySide, { create: false }) : null
-  if (clean(party?.name) && !partner) {
+  let partnerRefused: string | undefined
+  const partner = clean(party?.name)
+    ? await matchContact(orgId, party!, partySide, { create: false, onRefused: reason => { partnerRefused = reason } })
+    : null
+  if (partnerRefused) {
+    warnings.push(`partner: ${partnerRefused}. Booked without one, so the invoice this note may later be converted into will not be recognised as its conversion.`)
+  } else if (clean(party?.name) && !partner) {
     warnings.push(`the document names „${clean(party?.name)}" as partner and no contact matches — booked without one. That is expected when the partner is another of the org's OWN stores rather than a counterparty (goods handed to a sister store, a second warehouse LGR does not track yet); only add a contact if it really is one.`)
   }
 
