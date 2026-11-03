@@ -261,6 +261,13 @@ export async function convertDraftInvoice(
   const invoice: any = await r.invoices.findOne({ id: invoiceId, orgId } as any)
   if (!invoice) return { ok: false, error: 'not found' }
   if (invoice.status !== 'draft') return { ok: false, error: 'not in draft status' }
+  // The name rung refuses a name several contacts share rather than pick one (`matchContact`), and
+  // marks the draft. Issuing it as it is would issue it to nobody: it stays a draft until a person
+  // chooses the contact.
+  if (!invoice.contactId && (invoice.tags || []).includes('needs-contact')) {
+    const side = invoice.direction === 'incoming' ? 'supplier' : 'customer'
+    return { ok: false, error: `several contacts match the ${side}'s name: choose the ${side}, then issue it` }
+  }
 
   /**
    * ⚠ Refuse BEFORE anything is mutated.

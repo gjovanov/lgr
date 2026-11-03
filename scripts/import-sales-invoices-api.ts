@@ -20,6 +20,11 @@
  *     `resolveRelatedInvoice` already does server-side (logs and proceeds link-less, never fails).
  *   - direction resolved to `outgoing` and not flagged uncertain (`--include-uncertain` overrides)
  *   - not already imported (dedup by reference/invoiceNumber, same as the OCR script)
+ *   - a customer: matched, or (with `--convert`) created. A name several contacts share is refused
+ *     by the matcher rather than guessed, and that invoice waits for a person to choose.
+ *
+ * Without `--convert` the run writes nothing: a customer LGR does not know yet is listed as new,
+ * and only created by the `--convert` run.
  *
  * ⚠ Which invoices move stock is PlusMinus's own record, not an inference (2026-11-02,
  * `plusminusStockSource`). A line on its `БЕЗСКЛАД` store moved nothing: the goods left on the till
@@ -280,6 +285,9 @@ async function main() {
         // issued — found live 2026-10-28 on regal-pz's first real batch (16 invoices issued
         // with no stock movement, fixed by a one-off remediation script; see git history).
         context: { warehouseId: wh._id },
+        // The analysis creates a customer it cannot match. A run that commits needs it; a review run
+        // must not leave customers behind for invoices it never imports.
+        options: { createMissingContact: doConvert },
       })
       result = await pollTask(res.taskId)
     } catch (e: any) { rows.push({ num: f.num, ok: false, problems: [String(e?.message || e)] }); continue }
@@ -293,6 +301,10 @@ async function main() {
     if (doc.duplicate) problems.push(`duplicate: ${doc.duplicate.reason} — ${doc.duplicate.number}`)
     if (uncertain && !includeUncertain) problems.push('uncertain (needs-review)')
     if (String(doc.mapped?.reference) !== f.num) problems.push(`reference ${doc.mapped?.reference} != filename ${f.num}`)
+    // Never issued without its customer. A new one carries a suggestion and is created by --convert;
+    // a refused name (several contacts share it, see the warnings) carries none.
+    const newCustomer = !doc.mapped?.contactId && !!doc.diagnostics?.contactSuggestion
+    if (!doc.mapped?.contactId && (doConvert || !newCustomer)) problems.push('no customer: choose one in LGR')
 
     const source = plusminusStockSource(f.doc, TILL_DOC_TYPE[orgSlug])
     if (source === 'mixed') problems.push('some lines are on БЕЗСКЛАД and some are not: LGR dispatches a document whole, so this one is for a person')
@@ -305,6 +317,7 @@ async function main() {
       warnings.push(`till-overlap: all ${overlap.lines} line(s), ${overlap.quantity} unit(s), already covered by ${where} — VERIFY before forcing with --include-till-overlap`)
     }
 
+    if (newCustomer) warnings.push('new customer, created by --convert')
     rows.push({ num: f.num, ok: problems.length === 0, problems, warnings, mapped: doc.mapped, stockSource })
   }
 

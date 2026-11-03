@@ -119,12 +119,18 @@ export async function mapInvoiceExtraction(
   if (!clean(counterparty?.address) && cpParsed.street) counterparty.address = cpParsed.street
   if (!clean(counterparty?.city) && cpParsed.city) counterparty.city = cpParsed.city
 
-  const contact = await matchContact(orgId, counterparty, contactType, { create: opts.createMissingContact !== false })
+  let contactRefused: string | undefined
+  const contact = await matchContact(orgId, counterparty, contactType, {
+    create: opts.createMissingContact !== false,
+    onRefused: reason => { contactRefused = reason },
+  })
+  if (contactRefused) warnings.push(contactRefused)
   // Billing address = the counterparty's (the invoice recipient), not the warehouse's.
   const billingAddress = toAddress(contact?.address)
 
+  // No suggestion for a refused name: creating it would add one more contact of that name.
   let contactSuggestion: ContactSuggestion | undefined
-  if (!contact && clean(counterparty?.name)) {
+  if (!contact && !contactRefused && clean(counterparty?.name)) {
     contactSuggestion = {
       name: clean(counterparty.name),
       eik: clean(counterparty.company_id) || undefined,
@@ -239,6 +245,8 @@ export async function mapInvoiceExtraction(
   const uncertain = opts.direction ? false : detected.uncertain
   const tags = ['ocr-import', ...(opts.batchId ? [`ocr:${opts.batchId}`] : []), `dir:${direction}`]
   if (uncertain || draft.validation?.status === 'needs_review') tags.push('needs-review')
+  // Several contacts share the counterparty's name: the draft is not issued until one is chosen.
+  if (contactRefused) tags.push('needs-contact')
   if (order && orderGroup) tags.push(`ord:${order.orderNumber}`)
   else if (opts.orderId && direction === 'incoming') tags.push('ord-unmatched')
 

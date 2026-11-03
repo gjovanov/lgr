@@ -49,18 +49,69 @@ export function partyAddressEntry(address: string, city?: string) {
   return { type: 'billing', street: address, ...(city ? { city } : {}), country: 'BG', isDefault: true }
 }
 
+/** The digits of every tax number given: an ЕИК, or a VAT number (BG + the ЕИК). */
+function taxIds(...values: unknown[]): Set<string> {
+  return new Set(values.map(digits).filter(Boolean))
+}
+
+/**
+ * A contact on file under a different ЕИК is another company, whatever its name. A number missing
+ * on either side is no conflict: the name is all there is to go on.
+ */
+function otherCompany(contact: any, documentIds: Set<string>): boolean {
+  if (!documentIds.size) return false
+  const recorded = taxIds(contact.taxId, contact.taxNumber, contact.vatNumber)
+  if (!recorded.size) return false
+  for (const id of recorded) if (documentIds.has(id)) return false
+  return true
+}
+
+/** More contacts than this sharing the words of one name: a short name, not a match. */
+const NAME_CANDIDATES = 20
+
+/**
+ * The name rung, the last and weakest. Every word of the document's name has to appear in the
+ * contact's, which forgives a dropped " - " or a missing legal form, and also finds every company a
+ * short name is part of: „ИСАВ ЕООД" is in „ИСАВ-1 - ЕООД" and in „ИСАВ-2 ЕООД". This used to take
+ * whichever of those the database returned first, and kept it even when its ЕИК said it was
+ * another company, so the document landed on another company's account.
+ *
+ * - An exact name wins; the same name entered twice gives the older contact.
+ * - Otherwise one candidate is a match, and several are refused (`ambiguous`), never picked from.
+ */
+async function matchContactByName(
+  orgId: string,
+  typeIn: Record<string, unknown>,
+  name: string,
+  documentIds: Set<string>,
+): Promise<{ contact?: any; ambiguous?: number }> {
+  const sameCompany = (c: any) => !otherCompany(c, documentIds)
+  const exact = (await Contact.find({ orgId, ...typeIn, companyNameLower: name.toLocaleLowerCase('bg') } as any)
+    .sort({ _id: 1 }).lean()).filter(sameCompany)
+  if (exact.length) return { contact: exact[0] }
+
+  const f = buildSearchFilter(name, ['companyName'], { lowered: { companyName: 'companyNameLower' } })
+  const loose = (await Contact.find({ orgId, ...typeIn, ...f } as any)
+    .sort({ _id: 1 }).limit(NAME_CANDIDATES + 1).lean()).filter(sameCompany)
+  if (loose.length === 1) return { contact: loose[0] }
+  return loose.length ? { ambiguous: loose.length } : {}
+}
+
 /**
  * Find a Contact of the given type from an extracted party. Ladder: ЕИК → VAT → name.
  *
  * `create` controls the miss behaviour: the batch path creates the contact (that is what
  * the migration importer has always done), while the single-document path passes `false`
  * so the UI can offer the user a choice instead of silently adding a counterparty.
+ *
+ * A name several contacts share is neither matched nor created (a new one would be one more of
+ * the same name): the result is null, and `onRefused` says why, for a person to choose.
  */
 export async function matchContact(
   orgId: string,
   party: Party,
   type: 'customer' | 'supplier',
-  opts: { create?: boolean } = {},
+  opts: { create?: boolean; onRefused?: (reason: string) => void } = {},
 ): Promise<ContactMatch | null> {
   const eik = clean(party?.company_id)
   const vat = clean(party?.vat_id)
@@ -70,11 +121,17 @@ export async function matchContact(
   const typeIn = { type: { $in: [type, 'both'] } }
 
   let c: any = null
-  if (eik) c = await Contact.findOne({ orgId, ...typeIn, taxId: eik }).lean()
+  // The form keeps the ЕИК in `taxNumber` ("Tax Number (EIK)"), the importers in both.
+  if (eik) c = await Contact.findOne({ orgId, ...typeIn, $or: [{ taxId: eik }, { taxNumber: eik }] }).lean()
   if (!c && vat) c = await Contact.findOne({ orgId, ...typeIn, vatNumber: vat }).lean()
   if (!c && name) {
-    const f = buildSearchFilter(name, ['companyName'], { lowered: { companyName: 'companyNameLower' } })
-    c = await Contact.findOne({ orgId, ...typeIn, ...f }).lean()
+    const byName = await matchContactByName(orgId, typeIn, name, taxIds(eik, vat))
+    if (byName.ambiguous) {
+      const many = byName.ambiguous > NAME_CANDIDATES ? `more than ${NAME_CANDIDATES}` : String(byName.ambiguous)
+      opts.onRefused?.(`${many} contacts match „${name}" by name and none of them exactly: choose the ${type}`)
+      return null
+    }
+    c = byName.contact ?? null
   }
   if (c) {
     // Enrich matched contacts that predate proper field mapping: the EIK belongs in

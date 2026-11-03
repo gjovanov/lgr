@@ -6,8 +6,9 @@ import { commitDocuments } from 'services/biz/doc-import/commit'
 import { mapInvoiceExtraction } from 'services/biz/doc-import/map-invoice'
 import { findDuplicateInvoice } from 'services/biz/doc-import/dedupe'
 import { detectDocKind } from 'services/biz/doc-import/detect'
-import { matchProductsExact } from 'services/biz/doc-import/matching'
+import { matchContact, matchProductsExact } from 'services/biz/doc-import/matching'
 import { createMissingProducts, applyDeliveredPrices } from 'services/biz/doc-import/persist-movement'
+import { convertDraftInvoice } from 'services/biz/doc-import/persist'
 import { captureRejection } from '../helpers/capture-rejection'
 import type { DraftResult, MappedInvoice, MappedMovement } from 'services/biz/doc-import/types'
 import { setDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
@@ -1493,5 +1494,116 @@ describe('an unmatchable line refuses BEFORE the invoice is issued', () => {
     ])
 
     expect(res.ok).toBe(true)
+  })
+})
+
+describe('matching — a counterparty known by its name', () => {
+  /**
+   * The name rung matches when every word of the document's name appears in the contact's. It used
+   * to take whichever such contact the database returned first, and kept it even when that
+   * contact's ЕИК said it was another company: the invoice then went on another company's account.
+   */
+  const party = (name: string, eik?: string) => ({ name, ...(eik ? { company_id: eik, vat_id: 'BG' + eik } : {}) })
+  const customer = (orgId: unknown, companyName: string, taxId?: string) =>
+    Contact.create({ orgId, type: 'customer', companyName, ...(taxId ? { taxId, taxNumber: taxId } : {}), isActive: true })
+
+  it('never matches a contact whose ЕИК belongs to another company', async () => {
+    const org = await createTestOrg()
+    const other = await customer(org._id, 'ПРИМЕР-1 - ЕООД', '999000317')
+
+    const hit = await matchContact(String(org._id), party('ПРИМЕР ЕООД', '999000412'), 'customer')
+
+    expect(hit!.created).toBe(true)
+    expect(hit!.contactId).not.toBe(String(other._id))
+    const made: any = await Contact.findById(hit!.contactId).lean()
+    expect(made.taxId).toBe('999000412')
+    // The other company's record is left as it was: it is not enriched with this ЕИК.
+    expect(((await Contact.findById(other._id).lean()) as any).taxId).toBe('999000317')
+  })
+
+  it('refuses a name several contacts share, and creates nothing', async () => {
+    const org = await createTestOrg()
+    await customer(org._id, 'ПРИМЕР-1 - ЕООД')
+    await customer(org._id, 'ПРИМЕР-2 ЕООД')
+    const refusals: string[] = []
+
+    const hit = await matchContact(String(org._id), party('ПРИМЕР ЕООД'), 'customer', { onRefused: r => refusals.push(r) })
+
+    expect(hit).toBeNull()
+    expect(refusals).toHaveLength(1)
+    expect(refusals[0]).toContain('2 contacts match „ПРИМЕР ЕООД"')
+    expect(await Contact.countDocuments({ orgId: org._id })).toBe(2)
+  })
+
+  it('takes the exact name over the others, whichever was entered first', async () => {
+    const org = await createTestOrg()
+    await customer(org._id, 'ПРИМЕР-2 ЕООД')
+    const exact = await customer(org._id, 'ПРИМЕР ЕООД')
+
+    const hit = await matchContact(String(org._id), party('ПРИМЕР ЕООД'), 'customer')
+
+    expect(hit!.contactId).toBe(String(exact._id))
+    expect(hit!.created).toBe(false)
+  })
+
+  it('still matches the one contact whose name holds every word, and gives it the ЕИК', async () => {
+    const org = await createTestOrg()
+    const only = await customer(org._id, 'ПРИМЕР - ЕООД')
+
+    const hit = await matchContact(String(org._id), party('ПРИМЕР ЕООД', '999000412'), 'customer')
+
+    expect(hit!.contactId).toBe(String(only._id))
+    expect(((await Contact.findById(only._id).lean()) as any).taxId).toBe('999000412')
+  })
+
+  it('finds a contact whose ЕИК was entered only as its tax number', async () => {
+    const org = await createTestOrg()
+    // The contact form writes the ЕИК to `taxNumber` ("Tax Number (EIK)") and leaves `taxId` empty.
+    const formMade = await Contact.create({ orgId: org._id, type: 'customer', companyName: 'ДРУГО ИМЕ ООД', taxNumber: '999000412', isActive: true })
+
+    const hit = await matchContact(String(org._id), party('ПРИМЕР ЕООД', '999000412'), 'customer')
+
+    expect(hit!.contactId).toBe(String(formMade._id))
+  })
+
+  it('analysis says why, offers no new contact, and the commit does not issue it', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const wh = await createTestWarehouse(org._id)
+    const product = await createTestProduct(org._id, { name: 'Гайка М8' } as any)
+    await createTestStockLevel(org._id, product._id, wh._id, { quantity: 100 } as any)
+    await customer(org._id, 'ПРИМЕР-1 - ЕООД')
+    await customer(org._id, 'ПРИМЕР-2 ЕООД')
+
+    const draft = draftResult(ORG_PARTY, party('ПРИМЕР ЕООД'), [
+      { description: 'Гайка М8', quantity: 10, unit: 'бр', unit_price: 0.1, vat_rate: 20, total: 1 },
+    ])
+    const [doc] = await analyzeDocuments(
+      String(org._id), 'sales_invoice',
+      [{ fileId: 'f1', filename: 'invoicem_2000725757.pdf', text: 'ФАКТУРА Номер: 2000725757', draft }],
+      { warehouseId: String(wh._id) }, { batchId: 'b1' },
+    )
+    expect((doc.mapped as MappedInvoice).contactId).toBeFalsy()
+    expect(doc.diagnostics.contactSuggestion).toBeUndefined()
+    expect(doc.diagnostics.warnings.join(' ')).toContain('none of them exactly')
+    expect(await Contact.countDocuments({ orgId: org._id })).toBe(2)
+
+    const [res] = await commitDocuments(String(org._id), String(user._id), 'sales_invoice', [
+      { fileId: 'f1', mapped: doc.mapped!, options: { convert: true, adjustStock: true } },
+    ])
+
+    expect(res.issuedNumber).toBeUndefined()
+    expect(String(res.error)).toContain("several contacts match the customer's name")
+    const kept: any = await Invoice.findById(res.id).lean()
+    expect(kept.status).toBe('draft')
+    expect(kept.tags).toContain('needs-contact')
+    expect(await StockMovement.countDocuments({ orgId: org._id })).toBe(0)
+
+    // Once a person has chosen the customer, it issues as any other draft.
+    const chosen = await Contact.findOne({ orgId: org._id, companyName: 'ПРИМЕР-1 - ЕООД' }).lean()
+    await Invoice.updateOne({ _id: res.id }, { $set: { contactId: chosen!._id } })
+    const issued = await convertDraftInvoice(String(org._id), String(res.id), String(user._id))
+    expect(issued.ok).toBe(true)
+    expect(issued.invoiceNumber).toBe('INV-2000725757')
   })
 })
