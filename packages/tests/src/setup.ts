@@ -1,3 +1,4 @@
+import { setDefaultTimeout } from 'bun:test'
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import { mongoose } from 'db/connection'
 import { initServiceContext } from 'services/context'
@@ -13,6 +14,15 @@ import { initServiceContext } from 'services/context'
  * `syncIndexes()` only checks them: ~0.2 s a file.
  */
 const SHARED_URI = process.env.LGR_TEST_MONGO_URI || ''
+
+/**
+ * #490: the same per-test limit `bun run test` passes (`--timeout 120000`), for a file run on its own.
+ * Without it Bun's 5 s applies, and a test that waits out a 30 s idempotency window (`WAIT_MS`) is cut
+ * off mid-request: its `afterEach` then hangs on the request still holding the device, the in-memory
+ * mongod is reaped ("killed N dangling processes"), and every later test in the file reads as a broken
+ * database. ⚠ `bunfig.toml`'s `[test] timeout` is not read by Bun, so it is set here.
+ */
+setDefaultTimeout(120_000)
 
 let mongod: MongoMemoryReplSet | null = null
 let refCount = 0
