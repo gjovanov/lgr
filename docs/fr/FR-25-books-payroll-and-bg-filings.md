@@ -880,6 +880,23 @@ What a later release should know:
 - **The screen replaces the old tax return form,** which never saved. It sent fields no model had, and posted to a `/submit` route that did not exist.
 - ⚠ Rollout: deploy → `bun run migrate` (0013 grants `accounting.file` to whoever holds `accounting.post`) → people sign in again → `scripts/import-vat-files.ts`, a dry run first. It needs the org's VAT or tax number to equal the files', and the indexes only the deployed app builds.
 
+### R3 — the sales register first, as built so far
+
+R3's gate is the sales register, and R2 already holds the filed one, so that half needs no E1. Built: the row of a document (`services/biz/vat-files/sales-register.ts`), the read across a books org's branches (`sales-register.service.ts`), and the gate, `scripts/compare-sales-register.ts --org <books org> --period <YYYYMM>`, which prints counts only. Not built: the worker, the shadow ledger, the mapping to accounting groups (all wait on E1), the till's `81` rows (§12), and a page in the app.
+
+On prod, against `regal-acc`'s filed months: every filed row of the first store's series is in LGR for August and September, and LGR holds none the register lacks. September is 258 equal of 386. The rest is one cause in LGR's documents, already fixed for new imports, and one in its contacts:
+
+- **The VAT of an imported invoice.** The register carries the VAT the invoice prints, worked out once on its base. The PDF reader took the base only, so the import stored the sum of the lines' rounded VAT, one or two cents away on about a quarter of the documents (#485). The documents imported before that fix still carry it.
+- **A contact without its VAT number.** The register names the partner by its VAT number, the contact had only its ЕИК.
+
+What a later release should know:
+
+- **A row's VAT is the document's own, never a sum of its lines.** The form rounds once too (`round2` of the unrounded lines' VAT). The import was the one path that did not.
+- **Only 20% is derived.** In 42 filed months this company's invoices and notes carried no other rate. A 0% line can be an intra-EU supply, an export or an exempt one, and the document does not say which, so any other rate is refused with its reason.
+- **A document annulled in a later period keeps its values in its own.** The row of opposite sign in the later period is counted as missing, not derived. ⚠ LGR's date of a void is when LGR was told. For a document annulled in PlusMinus that can be weeks after the annulment, and the gate shows such a row as differing, which it is.
+- **An import is told by the document import's own marks** (`ocr-import`, a first status of `ocr_import`). Only the Files pipeline keeps the PDF. The CLI and API imports keep none, and on August's documents the PDF alone counted 297 imports as issued in LGR.
+- **Typed in LGR as well as in PlusMinus.** While the stores issue in both, a document typed into LGR can carry an import's number. The gate matches the import and counts the other apart.
+
 ## 10. Tests
 
 - **Integration**, fictional data only: every row of §1.4 as a fixture, posted and checked per account and analytic; the moving-average table (purchase, sale, negative on-hand, backdated); a month re-imported with changed values; the branch link refused across different `taxNumber`; `isForeignOrg` still refuses a branch user on the books org; idempotent worker; void and edit after filing.
