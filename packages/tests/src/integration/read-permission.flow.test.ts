@@ -115,7 +115,7 @@ describe('a GET answers 403 to a member without its permissions', () => {
   }, 120_000)
 
   it('the cases that made it a finding', async () => {
-    for (const role of ['accountant', 'warehouse_manager', 'sales', 'nra_auditor'] as const) {
+    for (const role of ['accountant', 'warehouse_manager', 'sales', 'nra_auditor', 'member'] as const) {
       expect((await get(`/api/org/${orgId}/payroll/payslip`, tokens[role])).status).toBe(403)
       expect((await get(`/api/org/${orgId}/payroll/employee`, tokens[role])).status).toBe(403)
     }
@@ -125,7 +125,6 @@ describe('a GET answers 403 to a member without its permissions', () => {
     }
     // The ones that hold the permission still read.
     expect((await get(`/api/org/${orgId}/payroll/payslip`, tokens.hr_manager)).status).toBe(200)
-    expect((await get(`/api/org/${orgId}/payroll/payslip`, tokens.member)).status).toBe(200)
     expect((await get(`/api/org/${orgId}/accounting/journal`, tokens.accountant)).status).toBe(200)
     expect((await get(`/api/org/${orgId}/payroll/payslip`, tokens.admin)).status).toBe(200)
   })

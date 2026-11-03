@@ -99,10 +99,12 @@ describe('Permission & Auth: Role-Based Access Control', () => {
       expect(perm).toMatch(/\.read$/)
     }
 
-    for (const perm of ['accounting.read', 'inventory.read', 'invoicing.read', 'payroll.read']) {
+    for (const perm of ['accounting.read', 'inventory.read', 'invoicing.read']) {
       expect(user.permissions).toContain(perm)
     }
 
+    // What people are paid is no default of being in the org (FR-25 §3.11).
+    expect(user.permissions).not.toContain('payroll.read')
     expect(user.permissions).not.toContain('admin.users')
     expect(user.permissions).not.toContain('accounting.write')
     expect(user.permissions).not.toContain('inventory.write')

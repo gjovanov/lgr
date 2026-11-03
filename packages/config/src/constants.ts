@@ -52,7 +52,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   // Sells and invoices; reads stock rather than moving it.
   sales: ['invoicing.read', 'invoicing.write', 'invoicing.send', 'inventory.read', 'pos.read', 'pos.write', 'reports.read'],
   // A read-only member may open the Reports app but not carry data out of it.
-  member: ['accounting.read', 'inventory.read', 'invoicing.read', 'payroll.read', 'reports.read'],
+  // ⚠ No payroll: what people are paid is no default of being in the org (FR-25 §3.11). Stored sets
+  // and users' own lists still carry it until `scripts/backfill-member-payroll-read.ts --execute`.
+  member: ['accounting.read', 'inventory.read', 'invoicing.read', 'reports.read'],
   // The NRA auditor's whole job is pulling the SUPTO tables out — it needs the export right.
   nra_auditor: ['accounting.read', 'inventory.read', 'invoicing.read', 'pos.read', 'admin.audit', 'reports.read', 'reports.export'],
 }
