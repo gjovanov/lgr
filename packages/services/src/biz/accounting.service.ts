@@ -98,6 +98,8 @@ async function accountsOf(entry: IJournalEntry, r: RepositoryRegistry): Promise<
  */
 function balanceEffects(entry: IJournalEntry, accounts: Map<string, IAccount>): Record<string, number> {
   const effects: Record<string, number> = {}
+  // The cache follows the books, as every statement does: the shadow ledger is in none of them.
+  if (entry.ledger === 'shadow') return effects
   for (const line of entry.lines) {
     const account = accounts.get(line.accountId)
     if (!account) continue
@@ -289,24 +291,29 @@ export interface BalanceSheetData {
  *   has paid in advance; netting them hides a receivable and a liability. So a partner on the far
  *   side of an asset or liability account shows on the other side of the sheet, under the same
  *   account. Lines that name no partner stay on the account's own side, whatever their sign.
+ *   ⚠ Only an account that does run on both sides: `balanceSide` says so where the chart knows. Cash
+ *   paid to a supplier names the supplier on 501, and that is still cash, not a liability.
  * - **Revenue and expenses have to go somewhere.** Until a closing entry moves them to equity, what
  *   they add up to is a row of its own in equity, or the two sides differ by exactly that.
  */
+/** Whether a partner can sit on the far side of this account. Unset: the chart does not say, so it can. */
+const canCross = (a: IAccount) => (a.type === 'asset' || a.type === 'liability') && (a.balanceSide ?? 'both') === 'both'
+
 export async function getBalanceSheet(orgId: string, asOf: Date = new Date(), repos?: RepositoryRegistry): Promise<BalanceSheetData> {
   const r = repos ?? getRepos()
   const [totals, accounts] = await Promise.all([
     r.journalEntries.sumPostedLines({ orgId, to: asOf, byContact: true }),
     r.accounts.findMany({ orgId }, { code: 1 }),
   ])
-  const typeOf = new Map(accounts.map(a => [a.id, a.type]))
+  const accountOf = new Map(accounts.map(a => [a.id, a]))
 
   const ownSide = new Map<string, number>()
   const farSide = new Map<string, number>()
   for (const t of totals) {
-    const type = typeOf.get(t.accountId)
-    if (!type) continue
-    const net = isDebitNormal(type) ? t.debit - t.credit : t.credit - t.debit
-    const crosses = t.contactId && net < 0 && (type === 'asset' || type === 'liability')
+    const account = accountOf.get(t.accountId)
+    if (!account) continue
+    const net = isDebitNormal(account.type) ? t.debit - t.credit : t.credit - t.debit
+    const crosses = t.contactId && net < 0 && canCross(account)
     if (crosses) farSide.set(t.accountId, (farSide.get(t.accountId) ?? 0) - net)
     else ownSide.set(t.accountId, (ownSide.get(t.accountId) ?? 0) + net)
   }
