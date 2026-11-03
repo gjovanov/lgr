@@ -4,7 +4,7 @@ import { connectDB, mongoose } from 'db/connection'
 import {
   Org, User, Invite, Code, EmailLog, AuditLog, File, Notification, BackgroundTask, OrgApp, Tag, PermissionSet,
   Journal, PaymentTerm, FiscalPosition,
-  Account, FiscalYear, FiscalPeriod, JournalEntry, FixedAsset, BankAccount, BankReconciliation, TaxReturn, ExchangeRate,
+  Account, FiscalYear, FiscalPeriod, JournalEntry, FixedAsset, BankAccount, BankReconciliation, TaxReturn, VatRegisterEntry, ExchangeRate,
   Contact, Invoice, PaymentOrder, CashOrder,
   Product, Warehouse, StockLevel, StockMovement, InventoryCount, PriceList, CostLayer, ProductCategory,
   StockLocation, OperationType, StockLot,
@@ -13,8 +13,10 @@ import {
   FiscalDevice, Workstation,
 } from 'db/models'
 import { MongoRepository } from './base.repository.js'
+import { MongoAccountRepository, MongoJournalEntryRepository } from './accounting.repositories.js'
 
 export { MongoRepository } from './base.repository.js'
+export { MongoAccountRepository, MongoJournalEntryRepository } from './accounting.repositories.js'
 export { toEntity, toDocument } from './entity-mapper.js'
 export { translateFilter } from './filter-translator.js'
 
@@ -49,14 +51,15 @@ export async function createMongoRepositories(config: DalConfig): Promise<Reposi
     journals: new MongoRepository(Journal),
     paymentTerms: new MongoRepository(PaymentTerm),
     fiscalPositions: new MongoRepository(FiscalPosition),
-    accounts: new MongoRepository(Account),
+    accounts: new MongoAccountRepository(Account),
     fiscalYears: new MongoRepository(FiscalYear),
     fiscalPeriods: new MongoRepository(FiscalPeriod),
-    journalEntries: new MongoRepository(JournalEntry),
+    journalEntries: new MongoJournalEntryRepository(JournalEntry),
     fixedAssets: new MongoRepository(FixedAsset),
     bankAccounts: new MongoRepository(BankAccount),
     bankReconciliations: new MongoRepository(BankReconciliation),
     taxReturns: new MongoRepository(TaxReturn),
+    vatRegisterEntries: new MongoRepository(VatRegisterEntry),
     exchangeRates: new MongoRepository(ExchangeRate),
 
     // Invoicing

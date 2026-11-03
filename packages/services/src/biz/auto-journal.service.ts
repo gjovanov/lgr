@@ -258,6 +258,47 @@ export async function createPaymentJournalEntry(
 
 // ── Stock Movement Valuation ──
 
+/**
+ * What the goods on these lines are worth, when a line's own price is not their cost: on every
+ * invoice-born line `unitCost` is the document's price, which on a dispatch or a customer's return
+ * is what the goods SOLD for (FR-07). Valued at that, cost of sales equals revenue and the margin
+ * disappears, with nothing marking it.
+ *
+ * Per line: what it consumed → what it resolved to → the level's average → what the article is
+ * bought at. ⚠ Never `unitCost`. Nothing known means nothing posted, not an entry at the sale price.
+ *
+ * Two of those can still say the sale price. A line that consumed nothing (no level to consume from)
+ * resolved to its own price (`confirmMovement`), and has no `costingMethod`. And a level opened by
+ * such a line before FR-25 holds that price as its average; a price it shares with this line is no
+ * evidence of a cost.
+ */
+async function costOfSoldGoods(orgId: string, warehouseId: string | undefined, lines: any[], repos: RepositoryRegistry): Promise<number> {
+  let total = 0
+  const unresolved: any[] = []
+  for (const line of lines) {
+    const consumed = (line.costAllocations ?? []).reduce((sum: number, a: any) => sum + (Number(a.totalCost) || 0), 0)
+    const resolved = Number(line.resolvedUnitCost) || 0
+    if (consumed > 0) total += consumed
+    else if (resolved > 0 && (line.costingMethod || resolved !== Number(line.unitCost))) total += resolved * (line.quantity || 0)
+    else unresolved.push(line)
+  }
+  if (!unresolved.length) return total
+
+  const productIds = [...new Set(unresolved.map(l => String(l.productId)))]
+  const [levels, products] = await Promise.all([
+    warehouseId ? repos.stockLevels.findMany({ orgId, warehouseId, productId: { $in: productIds } } as any) : [],
+    repos.products.findMany({ orgId, id: { $in: productIds } } as any),
+  ])
+  const averageOf = new Map(levels.map(l => [String(l.productId), Number(l.avgCost) || 0]))
+  const boughtAt = new Map(products.map(p => [p.id, Number(p.purchasePrice) || 0]))
+  for (const line of unresolved) {
+    const average = averageOf.get(String(line.productId)) ?? 0
+    const unit = average > 0 && average !== Number(line.unitCost) ? average : boughtAt.get(String(line.productId)) ?? 0
+    total += unit * (line.quantity || 0)
+  }
+  return total
+}
+
 export async function createMovementValuationEntry(
   orgId: string,
   movement: any,
@@ -279,16 +320,25 @@ export async function createMovementValuationEntry(
   const inventoryAccountId = inventorySettings.defaultInventoryAccountId
   const cogsAccountId = inventorySettings.defaultCOGSAccountId
 
-  let totalCost = 0
-  for (const line of lines) {
-    totalCost += (line.resolvedUnitCost || line.unitCost || 0) * (line.quantity || 0)
-  }
-  totalCost = Math.round(totalCost * 100) / 100
-  if (totalCost <= 0) return null
-
   const isDispatch = ['dispatch', 'production_out'].includes(movement.type)
   const isReceipt = ['receipt', 'production_in', 'return'].includes(movement.type)
   if (!isDispatch && !isReceipt) return null
+
+  // A supplier's goods and a return to a supplier carry what we paid: that price IS their cost.
+  const pricedAtSale = isDispatch || (movement.type === 'return' && !movement.fromWarehouseId)
+  let totalCost = 0
+  if (pricedAtSale) {
+    totalCost = await costOfSoldGoods(orgId, movement.fromWarehouseId || movement.toWarehouseId, lines, repos)
+  } else {
+    for (const line of lines) {
+      totalCost += (line.resolvedUnitCost || line.unitCost || 0) * (line.quantity || 0)
+    }
+  }
+  totalCost = Math.round(totalCost * 100) / 100
+  if (totalCost <= 0) {
+    if (pricedAtSale) logger.warn({ orgId, movementId: movement.id }, 'Auto-journal skipped: no cost known for the goods on this movement')
+    return null
+  }
 
   const jeLines: JELine[] = isDispatch
     ? [

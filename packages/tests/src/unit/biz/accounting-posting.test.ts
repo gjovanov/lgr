@@ -421,6 +421,113 @@ describe('voidJournalEntry', () => {
 })
 
 // ---------------------------------------------------------------------------
+// One account, many lines (FR-25 R0 #1)
+// ---------------------------------------------------------------------------
+describe('balances when lines share an account', () => {
+  async function world(slug: string) {
+    const org = await createTestOrg({ slug })
+    const user = await createTestUser(org._id)
+    const fy = await createTestFiscalYear(org._id)
+    const fp = await createTestFiscalPeriod(org._id, fy._id)
+    const stock = await createTestAccount(org._id, { code: '304', name: 'Goods', type: 'asset', subType: 'current_asset', balance: 1000 })
+    const sales = await createTestAccount(org._id, { code: '702', name: 'Sales', type: 'revenue', subType: 'operating_revenue', balance: 0 })
+    const customers = await createTestAccount(org._id, { code: '411', name: 'Customers', type: 'asset', subType: 'current_asset', balance: 0 })
+    return { org, user, fp, stock, sales, customers }
+  }
+
+  const line = (account: any, debit: number, credit: number) => ({
+    accountId: account._id, debit, credit, currency: 'EUR', exchangeRate: 1, baseDebit: debit, baseCredit: credit,
+  })
+
+  /** A sales document's shape: cost lines and a revenue line, several on one account, on both sides of it. */
+  function saleEntry(w: Awaited<ReturnType<typeof world>>) {
+    return createTestJournalEntry(w.org._id, w.fp._id, w.user._id, {
+      lines: [
+        line(w.sales, 60, 0), line(w.stock, 0, 60),
+        line(w.sales, 25, 0), line(w.stock, 0, 25),
+        line(w.sales, 15, 0), line(w.stock, 0, 15),
+        line(w.customers, 300, 0), line(w.sales, 0, 300),
+      ],
+      totalDebit: 400,
+      totalCredit: 400,
+    })
+  }
+
+  it('posting counts every line, not only the last one on each account', async () => {
+    const w = await world('many-lines-post')
+
+    await postJournalEntry(String((await saleEntry(w))._id), String(w.user._id))
+
+    expect((await Account.findById(w.stock._id))!.balance).toBe(900) // 1000 − 60 − 25 − 15
+    expect((await Account.findById(w.sales._id))!.balance).toBe(200) // credit-normal: 300 − 100
+    expect((await Account.findById(w.customers._id))!.balance).toBe(300)
+  })
+
+  it('voiding takes every line back out', async () => {
+    const w = await world('many-lines-void')
+    const entry = await saleEntry(w)
+
+    await postJournalEntry(String(entry._id), String(w.user._id))
+    await voidJournalEntry(String(entry._id))
+
+    expect((await Account.findById(w.stock._id))!.balance).toBe(1000)
+    expect((await Account.findById(w.sales._id))!.balance).toBe(0)
+    expect((await Account.findById(w.customers._id))!.balance).toBe(0)
+  })
+
+  it('entries posted at once onto one account all count', async () => {
+    const w = await world('many-entries-race')
+    const entries = await Promise.all(Array.from({ length: 10 }, () => saleEntry(w)))
+
+    await Promise.all(entries.map(e => postJournalEntry(String(e._id), String(w.user._id))))
+
+    expect((await Account.findById(w.stock._id))!.balance).toBe(0) // 1000 − 10 × 100
+    expect((await Account.findById(w.sales._id))!.balance).toBe(2000)
+  })
+
+  it('one entry posted twice at once moves the balances once', async () => {
+    const w = await world('same-entry-race')
+    const entry = await saleEntry(w)
+
+    const results = await Promise.all([
+      captureRejection(postJournalEntry(String(entry._id), String(w.user._id))),
+      captureRejection(postJournalEntry(String(entry._id), String(w.user._id))),
+    ])
+
+    expect(results.filter(Boolean)).toHaveLength(1)
+    expect(String(results.find(Boolean)?.message)).toContain('Only draft entries can be posted')
+    expect((await Account.findById(w.stock._id))!.balance).toBe(900)
+  })
+
+  it('one entry voided twice at once moves the balances back once', async () => {
+    const w = await world('same-void-race')
+    const entry = await saleEntry(w)
+    await postJournalEntry(String(entry._id), String(w.user._id))
+
+    const results = await Promise.all([captureRejection(voidJournalEntry(String(entry._id))), captureRejection(voidJournalEntry(String(entry._id)))])
+
+    expect(results.filter(Boolean)).toHaveLength(1)
+    expect((await Account.findById(w.stock._id))!.balance).toBe(1000)
+  })
+
+  it('refuses an entry naming another org\'s account, and leaves that account alone', async () => {
+    const w = await world('foreign-account-a')
+    const other = await createTestOrg({ slug: 'foreign-account-b' })
+    const theirs = await createTestAccount(other._id, { code: '501', name: 'Their cash', type: 'asset', subType: 'current_asset', balance: 500 })
+    const entry = await createTestJournalEntry(w.org._id, w.fp._id, w.user._id, {
+      lines: [line(theirs, 100, 0), line(w.sales, 0, 100)],
+      totalDebit: 100,
+      totalCredit: 100,
+    })
+
+    expectRejection(await captureRejection(postJournalEntry(String(entry._id), String(w.user._id))), 'not found')
+
+    expect((await Account.findById(theirs._id))!.balance).toBe(500)
+    expect((await JournalEntry.findById(entry._id))!.status).toBe('draft')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // getTrialBalance
 // ---------------------------------------------------------------------------
 describe('getTrialBalance', () => {
@@ -535,7 +642,7 @@ describe('getTrialBalance', () => {
     await postJournalEntry(String(e2._id), String(user._id))
 
     // Filter by period 1 only
-    const rows = await getTrialBalance(String(org._id), String(fp1._id))
+    const rows = await getTrialBalance(String(org._id), { fiscalPeriodId: String(fp1._id) })
     const cashRow = rows.find((r) => r.code === '1420')
     expect(cashRow).toBeDefined()
     expect(cashRow!.debit).toBe(500) // Only period 1 amount

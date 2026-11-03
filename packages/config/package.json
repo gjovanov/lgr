@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./constants": "./src/constants.ts",
+    "./cp1251": "./src/cp1251.ts",
     "./pos-totals": "./src/pos-totals.ts",
     "./amount-in-words": "./src/amount-in-words.ts",
     "./order-coverage": "./src/order-coverage.ts",

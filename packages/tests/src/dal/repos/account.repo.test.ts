@@ -150,6 +150,54 @@ for (const [name, setup, cleanup] of backends) {
       expect(found!.name).toBe('New Name')
     })
 
+    describe('adjustBalances', () => {
+      const anAccount = (org: string, code: string, balance = 0) => repos.accounts.create({
+        orgId: org, code, name: `Account ${code}`, type: 'asset', subType: 'current_asset', isSystem: false, isActive: true, balance,
+      })
+      const balanceOf = async (id: string) => (await repos.accounts.findById(id))!.balance
+
+      test('adds each signed amount to its account', async () => {
+        const up = await anAccount(orgId, 'A1', 100)
+        const down = await anAccount(orgId, 'A2', 100)
+        const still = await anAccount(orgId, 'A3', 100)
+
+        await repos.accounts.adjustBalances(orgId, { [up.id]: 25, [down.id]: -40, [still.id]: 0 })
+
+        expect(await balanceOf(up.id)).toBe(125)
+        expect(await balanceOf(down.id)).toBe(60)
+        expect(await balanceOf(still.id)).toBe(100)
+      })
+
+      test('adjustments that land at once all count', async () => {
+        const account = await anAccount(orgId, 'A4')
+
+        await Promise.all(Array.from({ length: 25 }, () => repos.accounts.adjustBalances(orgId, { [account.id]: 10 })))
+
+        expect(await balanceOf(account.id)).toBe(250)
+      })
+
+      test('keeps to the cent, however the amounts add up in binary', async () => {
+        const account = await anAccount(orgId, 'A5')
+
+        await repos.accounts.adjustBalances(orgId, { [account.id]: 0.1 })
+        await repos.accounts.adjustBalances(orgId, { [account.id]: 0.2 })
+
+        expect(await balanceOf(account.id)).toBe(0.3)
+      })
+
+      test('never touches another org\'s account, even when it is named', async () => {
+        const theirs = await anAccount(await createTestOrg(repos), 'B1', 100)
+
+        await repos.accounts.adjustBalances(orgId, { [theirs.id]: 50 })
+
+        expect(await balanceOf(theirs.id)).toBe(100)
+      })
+
+      test('nothing to adjust is no write and no error', async () => {
+        await repos.accounts.adjustBalances(orgId, {})
+      })
+    })
+
     test('delete removes the entity', async () => {
       const account = await repos.accounts.create({
         orgId,

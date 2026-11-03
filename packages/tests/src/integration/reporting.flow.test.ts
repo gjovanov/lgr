@@ -261,12 +261,12 @@ describe('Reporting Flow', () => {
     })
 
     // Filter by January only
-    const tbJan = await getTrialBalance(orgId, periodId)
+    const tbJan = await getTrialBalance(orgId, { fiscalPeriodId: periodId })
     const janDebit = tbJan.reduce((sum, r) => sum + r.debit, 0)
     expect(janDebit).toBe(4000)
 
     // Filter by February only
-    const tbFeb = await getTrialBalance(orgId, period2Id)
+    const tbFeb = await getTrialBalance(orgId, { fiscalPeriodId: period2Id })
     const febDebit = tbFeb.reduce((sum, r) => sum + r.debit, 0)
     expect(febDebit).toBe(6000)
 

@@ -49,8 +49,9 @@ const DEFAULT_PERMISSION_SETS: PermissionSetDef[] = [
   },
   {
     name: 'Member (Read Only)',
-    description: 'Read-only access to all modules',
-    permissions: PERMISSIONS.filter(p => p.endsWith('.read')),
+    description: 'Read-only access to every module except payroll',
+    // ⚠ Not `DEFAULT_ROLE_PERMISSIONS.member`, which holds no `pos.read`. Payroll is out of both (FR-25).
+    permissions: PERMISSIONS.filter(p => p.endsWith('.read') && p !== 'payroll.read'),
     ownRecordsOnly: {},
     isAdmin: false,
     isDefault: true,

@@ -1,6 +1,7 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { JournalEntry } from 'db/models'
+import { reportDayEnd, reportDayStart } from 'services/utils/report-day'
 
 /**
  * Journal Analysis endpoint — server-side aggregation for pivot tables.
@@ -8,15 +9,18 @@ import { JournalEntry } from 'db/models'
  */
 export const journalAnalysisController = new Elysia({ prefix: '/org/:orgId/accounting/reports' })
   .use(AppAuthService)
-  .get('/journal-analysis', async ({ params: { orgId }, query }) => {
-    const dateFrom = query.dateFrom ? new Date(query.dateFrom as string) : new Date(new Date().getFullYear(), 0, 1)
-    const dateTo = query.dateTo ? new Date(query.dateTo as string) : new Date()
+  .get('/journal-analysis', async ({ params: { orgId }, query, status }) => {
+    const from = reportDayStart(query.dateFrom)
+    const to = reportDayEnd(query.dateTo)
+    if (from === null || to === null) return status(422, { message: `Invalid date: ${from === null ? query.dateFrom : query.dateTo}` })
 
-    const pipeline = [
+    const data = await JournalEntry.aggregate([
       {
         $match: {
-          orgId: { $exists: true },
-          date: { $gte: dateFrom, $lte: dateTo },
+          // ⚠ Cast by hand: an aggregation is not cast against the schema, so as a string this
+          // matches nothing and the report comes back empty for everyone.
+          orgId: new JournalEntry.base.Types.ObjectId(orgId),
+          date: { $gte: from ?? new Date(new Date().getFullYear(), 0, 1), $lte: to ?? new Date() },
           status: { $in: ['posted', 'draft'] },
         },
       },
@@ -56,27 +60,7 @@ export const journalAnalysisController = new Elysia({ prefix: '/org/:orgId/accou
         },
       },
       { $sort: { accountCode: 1, month: 1 } },
-    ]
-
-    // Use orgId filter via tenant plugin's pre-hook on the model
-    const results = await JournalEntry.aggregate([
-      { $match: { orgId: orgId } },
-      ...pipeline.slice(0), // clone
     ]).exec()
-
-    // Fix: replace the first $match with orgId-aware one
-    const orgAwarePipeline = [
-      {
-        $match: {
-          orgId: orgId,
-          date: { $gte: dateFrom, $lte: dateTo },
-          status: { $in: ['posted', 'draft'] },
-        },
-      },
-      ...pipeline.slice(1),
-    ]
-
-    const data = await JournalEntry.aggregate(orgAwarePipeline).exec()
 
     return { data }
   }, { isSignIn: true })

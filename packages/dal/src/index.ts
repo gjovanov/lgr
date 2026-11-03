@@ -2,7 +2,9 @@
 export type { BaseEntity, TenantEntity, Filter, FilterOperator, FilterValue, SortSpec, PageRequest, PageResult, AggregateStage, AggregateExpression } from './types.js'
 
 // Repository interfaces
-export type { IRepository, IBatchRepository } from './repository.js'
+export type {
+  IRepository, IBatchRepository, IAccountRepository, IJournalEntryRepository, JournalLineTotalsQuery, JournalLineTotals,
+} from './repository.js'
 
 // Registry
 export type { RepositoryRegistry, RepositoryKey } from './registry.js'

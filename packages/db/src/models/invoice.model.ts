@@ -37,6 +37,8 @@ export interface IInvoiceLine {
   taxAmount: number
   lineTotal: number
   accountId?: Types.ObjectId
+  /** The books' analytic for the line (FR-25 §3.9). Filled when purchases post (R4). */
+  analyticId?: Types.ObjectId
   warehouseId?: Types.ObjectId
   priceExplanation?: IPriceStep[]
   /** Back-reference into the source Order (conversion / ORD-linked bill import). */
@@ -229,6 +231,12 @@ export interface IInvoice extends Document {
   exchangeRate: number
   reference?: string
   lines: IInvoiceLine[]
+  /** FR-25 §3.9: `YYYYMM` the document is declared in. A purchase document chooses its period (§7.1). */
+  vatPeriod?: string
+  /** The accountant's `Вид`, which decides the register columns (§1.4). */
+  vatKind?: string
+  /** The register's document type, `01`, `03`, `09` … (§7.1). */
+  vatDocTypeCode?: string
   subtotal: number
   discountTotal: number
   taxTotal: number
@@ -436,6 +444,7 @@ const invoiceSchema = new Schema<IInvoice>(
         taxAmount: { type: Number, required: true },
         lineTotal: { type: Number, required: true },
         accountId: { type: Schema.Types.ObjectId, ref: 'Account' },
+        analyticId: { type: Schema.Types.ObjectId, ref: 'AccountingAnalytic' },
         warehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse' },
         priceExplanation: [
           {
@@ -520,6 +529,9 @@ const invoiceSchema = new Schema<IInvoice>(
     paymentMethod: String,
     preparedBy: String,
     placeOfTransaction: String,
+    vatPeriod: String,
+    vatKind: String,
+    vatDocTypeCode: String,
     notes: String,
     // Capped at the length the printed form will render (HEADER_NOTE_MAX in invoice.pdf.ts);
     // beyond that it would crowd the parties band.

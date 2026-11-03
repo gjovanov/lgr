@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { openSelect } from './helpers/vuetify'
 
 test.describe('Accounting', () => {
   test('should navigate to accounts and verify data table renders', async ({ page }) => {
@@ -164,6 +165,61 @@ test.describe('Accounting', () => {
     await expect(page.getByRole('heading', { name: /financial statements/i })).toBeVisible({ timeout: 10000 })
     // Should show tabs: Trial Balance, Profit & Loss, Balance Sheet
     await expect(page.getByRole('tab').first()).toBeVisible({ timeout: 10000 })
+  })
+
+  // ⚠ Reaching the page proves nothing here: until FR-25 R0 its Generate button called store actions
+  // that did not exist, and its rows read fields the API does not send, and this spec stayed green.
+  test('should generate each statement from the posted entries', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/accounting/financial-statements', { waitUntil: 'networkidle' })
+
+    // Trial balance: the seeded entries are in 2025, and the date defaults to today.
+    await page.getByRole('button', { name: /generate/i }).click()
+    const trialBalance = page.locator('.v-data-table')
+    await expect(trialBalance.locator('tbody tr').first()).toBeVisible({ timeout: 10000 })
+    await expect(trialBalance.locator('tbody tr').first().locator('td').first()).not.toBeEmpty()
+    await expect(trialBalance.locator('tbody tr').first().locator('td').nth(1)).not.toBeEmpty()
+
+    // Its totals agree, and stand under their own columns: a row outside the <table> stacked them at the left.
+    const totals = trialBalance.locator('tfoot td')
+    await expect(totals).toHaveCount(4)
+    expect(await totals.nth(1).innerText()).toBe(await totals.nth(2).innerText())
+    const debitTotal = await totals.nth(1).boundingBox()
+    const debitHeader = await trialBalance.getByRole('columnheader', { name: /debit/i }).boundingBox()
+    expect(Math.abs(debitTotal!.x - debitHeader!.x)).toBeLessThan(2)
+
+    // A year, then a period in it, narrow it: every seeded entry is in January 2025.
+    await openSelect(page, /fiscal year/i)
+    await page.getByRole('option', { name: /2025/ }).click()
+    await openSelect(page, /fiscal period/i)
+    await page.getByRole('option', { name: 'January 2025' }).click()
+    await page.getByRole('button', { name: /generate/i }).click()
+    await expect(trialBalance.locator('tbody tr').first()).toBeVisible({ timeout: 10000 })
+
+    await openSelect(page, /fiscal period/i)
+    await page.getByRole('option', { name: 'February 2025' }).click()
+    await page.getByRole('button', { name: /generate/i }).click()
+    await expect(trialBalance).toHaveCount(0, { timeout: 10000 })
+
+    // Profit and loss: both sides of every account, beside the net.
+    await page.getByRole('tab', { name: /profit/i }).click()
+    await page.getByLabel(/date from/i).fill('2025-01-01')
+    await page.getByLabel(/date to/i).fill('2025-12-31')
+    await page.getByRole('button', { name: /generate/i }).click()
+    await expect(page.getByRole('heading', { name: 'Revenue', exact: true })).toBeVisible({ timeout: 10000 })
+    const revenue = page.locator('table').first()
+    await expect(revenue.getByRole('columnheader', { name: 'Debit' })).toBeVisible()
+    await expect(revenue.getByRole('columnheader', { name: 'Credit' })).toBeVisible()
+    await expect(revenue.getByRole('columnheader', { name: 'Amount' })).toBeVisible()
+    await expect(revenue.locator('tbody tr').first().locator('td').first()).toContainText(/\d+ - /)
+
+    // The balance sheet: rows named by their accounts, and the two sides equal.
+    await page.getByRole('tab', { name: /balance sheet/i }).click()
+    await page.getByRole('button', { name: /generate/i }).click()
+    const totalAssets = page.getByRole('row', { name: /total assets/i }).getByRole('cell').last()
+    await expect(totalAssets).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('table').first().locator('tbody tr').first().locator('td').first()).toContainText(/\d+ - /)
+    await expect(page.getByText(/total liabilities & equity/i).locator('..')).toContainText(await totalAssets.innerText())
   })
 
   test('should filter accounts by type', async ({ page }) => {

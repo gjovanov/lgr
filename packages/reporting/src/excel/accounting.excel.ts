@@ -86,7 +86,14 @@ export async function generateJournalEntriesXLSX(entries: IJournalEntry[]): Prom
   return finalizeWorkbook(workbook, tmpFile)
 }
 
-export async function generateTrialBalanceXLSX(accounts: IAccount[], periodName: string): Promise<Buffer> {
+/**
+ * Takes what `getTrialBalance` answers. ⚠ Not accounts: a statement reads posted entries, never the
+ * cached `Account.balance`, which has no date and whose sign depends on the account's type.
+ */
+export async function generateTrialBalanceXLSX(
+  rows: { code: string; name: string; type: string; debit: number; credit: number }[],
+  periodName: string,
+): Promise<Buffer> {
   const { workbook, tmpFile } = await createWorkbook()
   const worksheet = workbook.addWorksheet('Trial Balance')
 
@@ -112,16 +119,14 @@ export async function generateTrialBalanceXLSX(accounts: IAccount[], periodName:
   let totalDebit = 0
   let totalCredit = 0
 
-  for (const account of accounts) {
-    const debit = account.balance > 0 ? account.balance : 0
-    const credit = account.balance < 0 ? Math.abs(account.balance) : 0
+  for (const { code, name, type, debit, credit } of rows) {
     totalDebit += debit
     totalCredit += credit
 
     worksheet.addRow({
-      code: account.code,
-      name: account.name,
-      type: account.type,
+      code,
+      name,
+      type,
       debit: debit > 0 ? formatCurrency(debit) : '',
       credit: credit > 0 ? formatCurrency(credit) : '',
     }).commit()

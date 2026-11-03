@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
+import { approvePayroll, calculatePayroll, PayrollRunRefusedError } from 'services/biz/payroll.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 
 export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/run' })
@@ -118,52 +119,13 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
     if (!['draft', 'calculated'].includes(run.status))
       return status(400, { message: 'Cannot calculate this payroll run' })
 
-    const empResult = await r.employees.findAll({ orgId, status: 'active' }, { page: 0, size: 10000 })
-    const employees = empResult.items
-
-    const items = employees.map((emp: any) => {
-      const baseSalary = emp.salary.baseSalary
-      const grossPay = baseSalary
-      const deductions = emp.deductions || []
-      const totalDeductions = deductions.reduce((sum: number, d: any) => {
-        return sum + (d.amount || (d.percentage ? baseSalary * d.percentage / 100 : 0))
-      }, 0)
-      const netPay = grossPay - totalDeductions
-      const totalEmployerCost = grossPay
-
-      return {
-        employeeId: emp.id,
-        baseSalary,
-        overtimeHours: 0,
-        overtimePay: 0,
-        bonuses: 0,
-        allowances: 0,
-        grossPay,
-        deductions: deductions.map((d: any) => ({
-          type: d.type,
-          name: d.name,
-          amount: d.amount || (d.percentage ? baseSalary * d.percentage / 100 : 0),
-        })),
-        totalDeductions,
-        netPay,
-        employerContributions: [],
-        totalEmployerCost,
-      }
-    })
-
-    const totals = {
-      grossPay: items.reduce((s: number, i: any) => s + i.grossPay, 0),
-      totalDeductions: items.reduce((s: number, i: any) => s + i.totalDeductions, 0),
-      netPay: items.reduce((s: number, i: any) => s + i.netPay, 0),
-      totalEmployerCost: items.reduce((s: number, i: any) => s + i.totalEmployerCost, 0),
-      employeeCount: items.length,
+    let updatedRun
+    try {
+      updatedRun = await calculatePayroll(id)
+    } catch (err) {
+      if (err instanceof PayrollRunRefusedError) return status(400, { message: err.message })
+      throw err
     }
-
-    const updatedRun = await r.payrollRuns.updateInOrg(id, orgId, {
-      items,
-      totals,
-      status: 'calculated',
-    } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'calculate', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: (run as any).name })
 
@@ -180,11 +142,13 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
     if (run.status !== 'calculated')
       return status(400, { message: 'Payroll run must be calculated first' })
 
-    const updatedRun = await r.payrollRuns.updateInOrg(id, orgId, {
-      status: 'approved',
-      approvedBy: user.id,
-      approvedAt: new Date(),
-    } as any)
+    let updatedRun
+    try {
+      updatedRun = await approvePayroll(id, user.id)
+    } catch (err) {
+      if (err instanceof PayrollRunRefusedError) return status(400, { message: err.message })
+      throw err
+    }
 
     createAuditEntry({ orgId, userId: user.id, action: 'approve', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: (run as any).name })
 

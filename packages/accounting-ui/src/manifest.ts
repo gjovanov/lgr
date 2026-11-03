@@ -61,9 +61,9 @@ export const manifest: ModuleManifest = {
       { path: 'bank-accounts/new', name: 'accounting.bank-account-new', component: () => import('./views/accounting/BankAccountFormView.vue') },
       { path: 'bank-accounts/:id/edit', name: 'accounting.bank-account-edit', component: () => import('./views/accounting/BankAccountFormView.vue') },
       { path: 'reconciliation', name: 'accounting.reconciliation', component: () => import('./views/accounting/ReconciliationView.vue') },
-      { path: 'tax-returns', name: 'accounting.tax-returns', component: () => import('./views/accounting/TaxReturnsView.vue') },
-      { path: 'tax-returns/new', name: 'accounting.tax-return-new', component: () => import('./views/accounting/TaxReturnFormView.vue') },
-      { path: 'tax-returns/:id/edit', name: 'accounting.tax-return-edit', component: () => import('./views/accounting/TaxReturnFormView.vue') },
+      // FR-25 R2: a month's VAT return. The form these replace never saved: it sent fields no model had.
+      { path: 'tax-returns', name: 'accounting.tax-returns', component: () => import('./views/accounting/VatReturnsView.vue') },
+      { path: 'tax-returns/:period(\\d{6})', name: 'accounting.vat-return', component: () => import('./views/accounting/VatReturnView.vue') },
       { path: 'exchange-rates', name: 'accounting.exchange-rates', component: () => import('./views/accounting/ExchangeRatesView.vue') },
       { path: 'exchange-rates/new', name: 'accounting.exchange-rate-new', component: () => import('./views/accounting/ExchangeRateFormView.vue') },
       { path: 'exchange-rates/:id/edit', name: 'accounting.exchange-rate-edit', component: () => import('./views/accounting/ExchangeRateFormView.vue') },

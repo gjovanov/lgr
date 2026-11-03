@@ -33,6 +33,9 @@ export const EXACT_WRITE_RULES: ReadonlyMap<string, WriteRule> = new Map<string,
   // The permission named for the step, where one exists.
   ['POST accounting/journal/:id/post', { need: ['accounting.post'] }],
   ['POST accounting/journal/:id/void', { need: ['accounting.post'] }],
+  // FR-25 R2: LGR produces the files and records who filed them; `accounting.write` opens neither.
+  ['POST accounting/vat/:period/generate', { need: ['accounting.file'] }],
+  ['POST accounting/vat/:period/mark-filed', { need: ['accounting.file'] }],
   ['POST payroll/run/:id/approve', { need: ['payroll.approve'] }],
 
   // Reads sent as POSTs (`route-class.ts#READ_ONLY_WRITES`) and writes that decide for themselves.
@@ -102,7 +105,7 @@ export const PREFIX_WRITE_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['logo', { self: 'admin role' }],
 ]
 
-const ACCOUNTING = ['accounting.read', 'accounting.write', 'accounting.post'] as const
+const ACCOUNTING = ['accounting.read', 'accounting.write', 'accounting.post', 'accounting.file'] as const
 const INVENTORY = ['inventory.read', 'inventory.write', 'inventory.adjust'] as const
 const INVOICING = ['invoicing.read', 'invoicing.write', 'invoicing.send'] as const
 const POS = ['pos.read', 'pos.write'] as const

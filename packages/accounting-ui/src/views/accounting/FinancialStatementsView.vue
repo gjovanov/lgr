@@ -35,25 +35,38 @@
             </v-col>
           </template>
           <template v-else>
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="3">
               <v-text-field
                 v-model="asOfDate"
                 :label="$t('accounting.asOfDate')"
                 type="date"
               />
             </v-col>
-            <v-col v-if="activeTab === 'trial-balance'" cols="12" md="4">
-              <v-select
-                v-model="selectedFiscalYear"
-                :label="$t('accounting.fiscalYear')"
-                :items="store.fiscalYears"
-                item-title="name"
-                item-value="_id"
-                clearable
-              />
-            </v-col>
+            <template v-if="activeTab === 'trial-balance'">
+              <v-col cols="12" md="3">
+                <v-select
+                  v-model="selectedFiscalYear"
+                  :label="$t('accounting.fiscalYear')"
+                  :items="store.fiscalYears"
+                  item-title="name"
+                  item-value="_id"
+                  clearable
+                />
+              </v-col>
+              <v-col cols="12" md="3">
+                <v-select
+                  v-model="selectedFiscalPeriod"
+                  :label="$t('accounting.fiscalPeriod')"
+                  :items="selectedFiscalYear ? store.fiscalPeriods : []"
+                  :disabled="!selectedFiscalYear"
+                  item-title="name"
+                  item-value="_id"
+                  clearable
+                />
+              </v-col>
+            </template>
           </template>
-          <v-col cols="12" md="4" class="d-flex align-center">
+          <v-col cols="12" md="3" class="d-flex align-center">
             <v-btn color="primary" :loading="loading" @click="fetchReport">
               {{ $t('common.generate') }}
             </v-btn>
@@ -69,10 +82,12 @@
           v-if="store.trialBalance.length > 0"
           :headers="trialBalanceHeaders"
           :items="store.trialBalance"
+          :items-per-page="-1"
           item-value="accountId"
+          hide-default-footer
         >
-          <template #item.accountName="{ item }">
-            <entity-link :label="item.accountName" :to="{ name: 'accounting.accounts' }" />
+          <template #item.name="{ item }">
+            <entity-link :label="item.name" :to="{ name: 'accounting.accounts' }" />
           </template>
           <template #item.debit="{ item }">
             {{ item.debit ? formatCurrency(item.debit, currency, localeCode) : '' }}
@@ -81,21 +96,24 @@
             {{ item.credit ? formatCurrency(item.credit, currency, localeCode) : '' }}
           </template>
           <template #item.balance="{ item }">
-            {{ formatCurrency(item.balance, currency, localeCode) }}
+            {{ formatCurrency(item.debit - item.credit, currency, localeCode) }}
           </template>
-          <template #bottom>
-            <tr class="font-weight-bold bg-grey-lighten-4">
-              <td colspan="2" class="pa-3">{{ $t('common.total') }}</td>
-              <td class="text-end pa-3">
-                {{ formatCurrency(store.totalDebits, currency, localeCode) }}
-              </td>
-              <td class="text-end pa-3">
-                {{ formatCurrency(store.totalCredits, currency, localeCode) }}
-              </td>
-              <td class="text-end pa-3">
-                {{ formatCurrency(store.totalDebits - store.totalCredits, currency, localeCode) }}
-              </td>
-            </tr>
+          <!-- ⚠ Not #bottom: that slot sits outside the <table>, so its cells stack up at the left under no column. -->
+          <template #tfoot>
+            <tfoot>
+              <tr class="font-weight-bold bg-grey-lighten-4">
+                <td colspan="2" class="py-3">{{ $t('common.total') }}</td>
+                <td class="text-end py-3">
+                  {{ formatCurrency(store.totalDebits, currency, localeCode) }}
+                </td>
+                <td class="text-end py-3">
+                  {{ formatCurrency(store.totalCredits, currency, localeCode) }}
+                </td>
+                <td class="text-end py-3">
+                  {{ formatCurrency(store.totalDebits - store.totalCredits, currency, localeCode) }}
+                </td>
+              </tr>
+            </tfoot>
           </template>
         </v-data-table>
         <div v-else class="text-center text-medium-emphasis pa-8">
@@ -110,13 +128,25 @@
         <div v-if="pnlData">
           <h3 class="text-h6 mb-2">{{ $t('accounting.revenue') }}</h3>
           <v-table density="compact" class="mb-4">
+            <thead>
+              <tr>
+                <th>{{ $t('accounting.account') }}</th>
+                <th class="text-end">{{ $t('accounting.debit') }}</th>
+                <th class="text-end">{{ $t('accounting.credit') }}</th>
+                <th class="text-end">{{ $t('common.amount') }}</th>
+              </tr>
+            </thead>
             <tbody>
-              <tr v-for="row in pnlData.revenue" :key="row.accountId">
-                <td>{{ row.accountCode }} - <entity-link :label="row.accountName" :to="{ name: 'accounting.accounts' }" /></td>
+              <tr v-for="row in pnlData.revenue" :key="row.account">
+                <td><entity-link :label="row.account" :to="{ name: 'accounting.accounts' }" /></td>
+                <td class="text-end">{{ formatCurrency(row.debit, currency, localeCode) }}</td>
+                <td class="text-end">{{ formatCurrency(row.credit, currency, localeCode) }}</td>
                 <td class="text-end">{{ formatCurrency(row.amount, currency, localeCode) }}</td>
               </tr>
               <tr class="font-weight-bold">
                 <td>{{ $t('accounting.totalRevenue') }}</td>
+                <td class="text-end">{{ formatCurrency(sideTotal(pnlData.revenue, 'debit'), currency, localeCode) }}</td>
+                <td class="text-end">{{ formatCurrency(sideTotal(pnlData.revenue, 'credit'), currency, localeCode) }}</td>
                 <td class="text-end">{{ formatCurrency(pnlData.totalRevenue, currency, localeCode) }}</td>
               </tr>
             </tbody>
@@ -124,13 +154,25 @@
 
           <h3 class="text-h6 mb-2">{{ $t('accounting.expenses') }}</h3>
           <v-table density="compact" class="mb-4">
+            <thead>
+              <tr>
+                <th>{{ $t('accounting.account') }}</th>
+                <th class="text-end">{{ $t('accounting.debit') }}</th>
+                <th class="text-end">{{ $t('accounting.credit') }}</th>
+                <th class="text-end">{{ $t('common.amount') }}</th>
+              </tr>
+            </thead>
             <tbody>
-              <tr v-for="row in pnlData.expenses" :key="row.accountId">
-                <td>{{ row.accountCode }} - <entity-link :label="row.accountName" :to="{ name: 'accounting.accounts' }" /></td>
+              <tr v-for="row in pnlData.expenses" :key="row.account">
+                <td><entity-link :label="row.account" :to="{ name: 'accounting.accounts' }" /></td>
+                <td class="text-end">{{ formatCurrency(row.debit, currency, localeCode) }}</td>
+                <td class="text-end">{{ formatCurrency(row.credit, currency, localeCode) }}</td>
                 <td class="text-end">{{ formatCurrency(row.amount, currency, localeCode) }}</td>
               </tr>
               <tr class="font-weight-bold">
                 <td>{{ $t('accounting.totalExpenses') }}</td>
+                <td class="text-end">{{ formatCurrency(sideTotal(pnlData.expenses, 'debit'), currency, localeCode) }}</td>
+                <td class="text-end">{{ formatCurrency(sideTotal(pnlData.expenses, 'credit'), currency, localeCode) }}</td>
                 <td class="text-end">{{ formatCurrency(pnlData.totalExpenses, currency, localeCode) }}</td>
               </tr>
             </tbody>
@@ -157,8 +199,8 @@
           <h3 class="text-h6 mb-2">{{ $t('accounting.assets') }}</h3>
           <v-table density="compact" class="mb-4">
             <tbody>
-              <tr v-for="row in bsData.assets" :key="row.accountId">
-                <td>{{ row.accountCode }} - <entity-link :label="row.accountName" :to="{ name: 'accounting.accounts' }" /></td>
+              <tr v-for="row in bsData.assets" :key="row.account">
+                <td><entity-link :label="row.account" :to="{ name: 'accounting.accounts' }" /></td>
                 <td class="text-end">{{ formatCurrency(row.balance, currency, localeCode) }}</td>
               </tr>
               <tr class="font-weight-bold">
@@ -171,8 +213,8 @@
           <h3 class="text-h6 mb-2">{{ $t('accounting.liabilities') }}</h3>
           <v-table density="compact" class="mb-4">
             <tbody>
-              <tr v-for="row in bsData.liabilities" :key="row.accountId">
-                <td>{{ row.accountCode }} - <entity-link :label="row.accountName" :to="{ name: 'accounting.accounts' }" /></td>
+              <tr v-for="row in bsData.liabilities" :key="row.account">
+                <td><entity-link :label="row.account" :to="{ name: 'accounting.accounts' }" /></td>
                 <td class="text-end">{{ formatCurrency(row.balance, currency, localeCode) }}</td>
               </tr>
               <tr class="font-weight-bold">
@@ -185,8 +227,9 @@
           <h3 class="text-h6 mb-2">{{ $t('accounting.equity') }}</h3>
           <v-table density="compact" class="mb-4">
             <tbody>
-              <tr v-for="row in bsData.equity" :key="row.accountId">
-                <td>{{ row.accountCode }} - <entity-link :label="row.accountName" :to="{ name: 'accounting.accounts' }" /></td>
+              <tr v-for="row in bsData.equity" :key="row.account">
+                <td v-if="row.unclosedResult">{{ $t('accounting.unclosedResult') }}</td>
+                <td v-else><entity-link :label="row.account" :to="{ name: 'accounting.accounts' }" /></td>
                 <td class="text-end">{{ formatCurrency(row.balance, currency, localeCode) }}</td>
               </tr>
               <tr class="font-weight-bold">
@@ -200,7 +243,7 @@
           <div class="d-flex justify-space-between text-h6">
             <span>{{ $t('accounting.totalLiabilitiesAndEquity') }}</span>
             <span>
-              {{ formatCurrency(bsData.totalLiabilities + bsData.totalEquity, currency, localeCode) }}
+              {{ formatCurrency(bsData.totalLiabilitiesAndEquity, currency, localeCode) }}
             </span>
           </div>
         </div>
@@ -235,24 +278,33 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore } from '../../store/accounting.store'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ChartView from 'ui-shared/components/ChartView.vue'
 
-interface StatementRow {
-  accountId: string
-  accountCode: string
-  accountName: string
-  amount?: number
-  balance?: number
+interface ProfitLossRow {
+  account: string
+  amount: number
+  debit: number
+  credit: number
 }
 
+interface BalanceSheetRow {
+  account: string
+  balance: number
+  unclosedResult?: boolean
+}
+
+const { t } = useI18n()
 const appStore = useAppStore()
 const store = useAccountingStore()
+const { showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -264,52 +316,68 @@ const activeTab = ref('trial-balance')
 const dateFrom = ref('')
 const dateTo = ref('')
 const asOfDate = ref(new Date().toISOString().split('T')[0])
-const selectedFiscalYear = ref('')
+const selectedFiscalYear = ref<string | null>(null)
+const selectedFiscalPeriod = ref<string | null>(null)
 const loading = ref(false)
 
 const pnlData = ref<{
-  revenue: StatementRow[]
-  expenses: StatementRow[]
+  revenue: ProfitLossRow[]
+  expenses: ProfitLossRow[]
   totalRevenue: number
   totalExpenses: number
   netIncome: number
 } | null>(null)
 
 const bsData = ref<{
-  assets: StatementRow[]
-  liabilities: StatementRow[]
-  equity: StatementRow[]
+  assets: BalanceSheetRow[]
+  liabilities: BalanceSheetRow[]
+  equity: BalanceSheetRow[]
   totalAssets: number
   totalLiabilities: number
   totalEquity: number
+  totalLiabilitiesAndEquity: number
 } | null>(null)
 
-const trialBalanceHeaders = [
-  { title: 'Code', key: 'accountCode' },
-  { title: 'Account', key: 'accountName' },
-  { title: 'Debit', key: 'debit', align: 'end' as const },
-  { title: 'Credit', key: 'credit', align: 'end' as const },
-  { title: 'Balance', key: 'balance', align: 'end' as const },
-]
+const trialBalanceHeaders = computed(() => [
+  { title: t('accounting.accountCode'), key: 'code' },
+  { title: t('accounting.account'), key: 'name' },
+  { title: t('accounting.debit'), key: 'debit', align: 'end' as const },
+  { title: t('accounting.credit'), key: 'credit', align: 'end' as const },
+  { title: t('common.balance'), key: 'balance', align: 'end' as const },
+])
+
+/** A side's turnover: the rows carry it, and the totals the API sends are of the net. */
+function sideTotal(rows: ProfitLossRow[], side: 'debit' | 'credit') {
+  return rows.reduce((sum, row) => sum + row[side], 0)
+}
+
+// A period belongs to its year: choosing another year drops the period and loads that year's.
+watch(selectedFiscalYear, (year) => {
+  selectedFiscalPeriod.value = null
+  if (year) store.fetchFiscalPeriods(year)
+})
 
 async function fetchReport() {
   loading.value = true
   try {
     if (activeTab.value === 'trial-balance') {
-      await store.fetchTrialBalance({
-        date: asOfDate.value || undefined,
+      await store.getTrialBalance({
+        asOf: asOfDate.value || undefined,
         fiscalYearId: selectedFiscalYear.value || undefined,
+        fiscalPeriodId: selectedFiscalPeriod.value || undefined,
       })
     } else if (activeTab.value === 'pnl') {
-      pnlData.value = await store.fetchProfitLoss({
-        startDate: dateFrom.value,
-        endDate: dateTo.value,
+      pnlData.value = await store.getProfitLoss({
+        startDate: dateFrom.value || undefined,
+        endDate: dateTo.value || undefined,
       })
     } else {
-      bsData.value = await store.fetchBalanceSheet({
-        date: asOfDate.value,
+      bsData.value = await store.getBalanceSheet({
+        asOf: asOfDate.value || undefined,
       })
     }
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }

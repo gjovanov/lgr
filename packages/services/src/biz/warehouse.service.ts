@@ -89,7 +89,11 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
 
     // Reduce stock from source warehouse
     if (movement.fromWarehouseId) {
-      consumptionResult = await adjustStock(orgId, productId, movement.fromWarehouseId, -line.quantity, line.unitCost, r)
+      // ⚠ A dispatch's `unitCost` is the sale price. What leaves a level never moves its average, so
+      // this only says what a level opened by this movement starts with: no cost known, and not
+      // what the goods sold for, which the next sale out of it would read as their cost (FR-25).
+      const leavingAt = movement.type === 'dispatch' ? 0 : line.unitCost
+      consumptionResult = await adjustStock(orgId, productId, movement.fromWarehouseId, -line.quantity, leavingAt, r)
     }
 
     // What the goods are worth where they arrive. A return of a sale says so apart, because its `unitCost` is the

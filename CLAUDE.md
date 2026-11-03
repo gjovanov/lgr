@@ -2891,6 +2891,18 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   landings, deactivated, service, two roles, the list at 1366 px); walk P1-act: the row menu →
   „Продай", 2 clicks · 0 typed · 1 page load (the invoice is another app).
 
+## VAT files (2026-11-03, FR-25 R2)
+
+LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's files from them byte for byte: `DEKLAR`, `PRODAGBI`, `POKUPKI`, `VIES`. **LGR never files**: it produces the files, a person files them, and it records who, when and the acknowledgement (FR-25 D7). Plan and record: `docs/fr/FR-25-books-payroll-and-bg-filings.md` §7.1, §7.2, §9.
+- `services/biz/vat-files/`: `layouts.ts`, `codec.ts`, `rules.ts`, `month.ts` are import-pure. `vat-return.service.ts` is the only one that touches the database. `generateMonthFiles` (`month.ts`) is the ONE path to the files: the gate, the import, `generate` and the download all run it, so what the gate proves is what the app produces.
+- ⚠ **Integer cents, keyed by official code** (`02-10`, `01-20`). `codec.ts` refuses what does not fit its width or Windows-1251, and never truncates. A `VatFileError` names the field and the record, never the value: these messages reach terminals and transcripts.
+- ⚠ **A VAT file is not stored.** The rows are the record; a download regenerates and must equal the recorded `sha256`, or it answers 409 `vat_return_stale`. A change to a layout must keep the filed months regenerating.
+- ⚠ **A return with a `kind` belongs to its flow**: the generic `PUT`/`DELETE` on `tax-return` refuse it (409), or `accounting.write` could do what `accounting.file` guards.
+- ⚠ **Never `select: false` on a field a filed month needs.** The backup bundle reads every model through Mongoose (`tenantCollections()` → `.find({ orgId })`), so it would lose the field, and the VIES declarant's ЕГН with it. It is an ordinary field, left out of JSON by `withoutPersonalId`.
+- ⚠ **`config/cp1251` is the one codec.** `fiscal/cp1251` re-exports it: `fiscal` depends on `services`, so `services` cannot import `fiscal`.
+- The gate: `bun run scripts/compare-vat-files.ts --dir <nap/vat dir>`. The import: `bun run scripts/import-vat-files.ts --org <slug> --dir <nap/vat dir> [--execute]`, dry run by default. Both print months and counts, never an amount, a partner or a document number.
+- The golden files in `packages/tests/src/fixtures/vat-files/` are made up, and `binary` in `.gitattributes`: CRLF is part of the format. So a diff does not show them, and a public scan has to read them itself.
+
 ## Known Issues
 
 - [MEDIUM] [2026-07-19] Cluster pod external DNS is INTERMITTENT: CoreDNS forwards to 10.10.20.1 (zeus virbr1 dnsmasq — answers fine locally) and periodically times out (CoreDNS logs `read udp 10.244.x→10.10.20.1:53: i/o timeout`; zeus shows no explicit 10.244.0.0/16 return route) → ArgoCD sync intermittently fails with ComparisonError "server misbehaving" on github.com, then succeeds on retry minutes later (observed 2026-07-19: first sync Error, queued retry completed → Synced). Workaround when stuck: `kubectl apply -k k8s/overlays/prod` from the mars `~/lgr-deploy` checkout (live state converges with git). Root-cause hunt belongs in k8s-cluster-multi (zeus WG/libvirt routing). Also: argocd CLI token on mars is expired — trigger syncs via `kubectl -n argocd patch application lgr --type merge --patch '{"operation":{"sync":{}}}'` or re-login. — Status: OPEN
@@ -2900,7 +2912,7 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
 - [HIGH] [2026-03-10] 18 compact DAO controllers missing Elysia body validation schemas (arbitrary field injection risk) — Status: OPEN
 - [HIGH] [2026-03-10] BaseDao read methods missing .lean() (Mongoose document overhead on all DAO reads) — Status: OPEN
 - [RESOLVED] [2026-03-10] "N+1 in findBelowMinStock()" — the entry was stale on two counts, verified 2026-08-26 while implementing FR-11: there is no `findBelowMinStock`, the method is `findLowStock` in `services/src/dao/warehouse/product.dao.ts`, and it has been a single batched `$in` query (not a per-product loop) since before this entry was written. Nothing to fix.
-- [HIGH] [2026-03-10] N+1 in approvePayroll() — payroll.service.ts creates payslips sequentially — Status: OPEN
+- [RESOLVED] [2026-03-10] N+1 in approvePayroll() — payslips go in one `createMany` since FR-25 R0, and a failed write puts the run back as it was
 - [HIGH] [2026-03-10] 4 npm vulnerabilities: minimatch ReDoS (via md-to-pdf/exceljs), immutable prototype pollution (via sass) — Status: OPEN
 - [MEDIUM] [2026-03-10] VerifyVAT integration tests hit live API with 50 req/month quota — tests flaky/failing — Status: OPEN
 - [MEDIUM] [2026-03-10] file.controller.ts TODO: file deletion from storage not implemented — Status: OPEN

@@ -12,7 +12,8 @@ export const ROLES = ['admin', 'manager', 'accountant', 'hr_manager', 'warehouse
 export type Role = (typeof ROLES)[number]
 
 export const PERMISSIONS = [
-  'accounting.read', 'accounting.write', 'accounting.post',
+  // FR-25: `accounting.file` generates a return's files and records that a person filed them.
+  'accounting.read', 'accounting.write', 'accounting.post', 'accounting.file',
   'inventory.read', 'inventory.write', 'inventory.adjust',
   'invoicing.read', 'invoicing.write', 'invoicing.send',
   'pos.read', 'pos.write',
@@ -44,7 +45,7 @@ export const FISCAL_ADMIN_ROLES: readonly string[] = ['admin', 'manager', 'wareh
 export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   admin: ['admin.users', 'admin.settings', ...PERMISSIONS.filter(p => !p.startsWith('admin.'))],
   manager: PERMISSIONS.filter(p => !p.startsWith('admin.')).slice(),
-  accountant: ['accounting.read', 'accounting.write', 'accounting.post', 'invoicing.read', 'invoicing.write', 'invoicing.send', 'inventory.read', 'reports.read', 'reports.export'],
+  accountant: ['accounting.read', 'accounting.write', 'accounting.post', 'accounting.file', 'invoicing.read', 'invoicing.write', 'invoicing.send', 'inventory.read', 'reports.read', 'reports.export'],
   // Payroll is the whole job, approval included — the payroll/HR controllers already gate
   // their approve routes on this role by name.
   hr_manager: ['payroll.read', 'payroll.write', 'payroll.approve', 'reports.read', 'reports.export'],
@@ -52,7 +53,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   // Sells and invoices; reads stock rather than moving it.
   sales: ['invoicing.read', 'invoicing.write', 'invoicing.send', 'inventory.read', 'pos.read', 'pos.write', 'reports.read'],
   // A read-only member may open the Reports app but not carry data out of it.
-  member: ['accounting.read', 'inventory.read', 'invoicing.read', 'payroll.read', 'reports.read'],
+  // ⚠ No payroll: what people are paid is no default of being in the org (FR-25 §3.11). Stored sets
+  // and users' own lists still carry it until `scripts/backfill-member-payroll-read.ts --execute`.
+  member: ['accounting.read', 'inventory.read', 'invoicing.read', 'reports.read'],
   // The NRA auditor's whole job is pulling the SUPTO tables out — it needs the export right.
   nra_auditor: ['accounting.read', 'inventory.read', 'invoicing.read', 'pos.read', 'admin.audit', 'reports.read', 'reports.export'],
 }

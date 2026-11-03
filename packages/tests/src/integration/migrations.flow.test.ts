@@ -65,6 +65,56 @@ describe('bun run migrate --dry-run changes nothing (the second review)', () => 
   }, 60_000)
 })
 
+describe('0013-accounting-file-permission (FR-25 R2)', () => {
+  const migration = MIGRATIONS.find(m => m.id === '0013-accounting-file-permission')!
+  const ctx = (orgFilter: Record<string, unknown> = {}) => ({ db: db(), log: () => {}, orgFilter })
+  const permissionsOf = async (coll: string, name: string) => (await db().collection(coll).findOne({ name }))?.permissions
+
+  async function seed() {
+    const a = await createTestOrg({ slug: 'file-a' } as any)
+    const b = await createTestOrg({ slug: 'file-b' } as any)
+    await db().collection('permissionsets').insertMany([
+      { orgId: a._id, name: 'accountant', permissions: ['accounting.read', 'accounting.post'] },
+      { orgId: a._id, name: 'reader', permissions: ['accounting.read'] },
+      { orgId: a._id, name: 'has it', permissions: ['accounting.post', 'accounting.file'] },
+      { orgId: b._id, name: 'other org', permissions: ['accounting.post'] },
+    ] as any[])
+    await db().collection('users').insertOne({ orgId: a._id, name: 'poster', permissions: ['accounting.post'] } as any)
+    await db().collection('invites').insertOne({ orgId: a._id, name: 'invited', permissions: ['accounting.post'] } as any)
+    return { a, b }
+  }
+
+  it('goes to whoever posts to the ledger, and to no one else', async () => {
+    await seed()
+    await migration.up(ctx())
+    expect(await permissionsOf('permissionsets', 'accountant')).toEqual(['accounting.read', 'accounting.post', 'accounting.file'])
+    expect(await permissionsOf('permissionsets', 'reader')).toEqual(['accounting.read'])
+    expect(await permissionsOf('users', 'poster')).toContain('accounting.file')
+    expect(await permissionsOf('invites', 'invited')).toContain('accounting.file')
+  })
+
+  it('writes it once', async () => {
+    await seed()
+    await migration.up(ctx())
+    await migration.up(ctx())
+    expect(await permissionsOf('permissionsets', 'has it')).toEqual(['accounting.post', 'accounting.file'])
+  })
+
+  it('takes only the orgs homed on this node', async () => {
+    const { a } = await seed()
+    await migration.up(ctx({ orgId: a._id }))
+    expect(await permissionsOf('permissionsets', 'accountant')).toContain('accounting.file')
+    expect(await permissionsOf('permissionsets', 'other org')).toEqual(['accounting.post'])
+  })
+
+  it('says what it would do, and does not', async () => {
+    await seed()
+    const lines = await migration.preview!(ctx() as any)
+    expect(lines).toContain('permissionsets: 2 gain accounting.file')
+    expect(await permissionsOf('permissionsets', 'accountant')).toEqual(['accounting.read', 'accounting.post'])
+  })
+})
+
 describe('0012-printer-gate-off (FR-23)', () => {
   const GATE = 'settings.cashRegister.requireConnectedDevice'
   const gate = async (id: unknown) => ((await db().collection('orgs').findOne({ _id: id as any })) as any)?.settings?.cashRegister?.requireConnectedDevice
@@ -125,7 +175,7 @@ describe('0012-printer-gate-off (FR-23)', () => {
 
   it('previewMigrations leaves the pending ones pending, and takes no lock', async () => {
     const w = await world()
-    await runMigrations({ db: db(), migrations: MIGRATIONS.filter(m => m.id < migration.id), appVersion: 'v-test' })
+    await runMigrations({ db: db(), migrations: MIGRATIONS.filter(m => m.id !== migration.id), appVersion: 'v-test' })
 
     const pending = await previewMigrations({ db: db() })
 

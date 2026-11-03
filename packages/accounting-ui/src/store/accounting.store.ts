@@ -104,11 +104,11 @@ export interface ExchangeRate {
 
 export interface TrialBalanceRow {
   accountId: string
-  accountCode: string
-  accountName: string
+  code: string
+  name: string
+  type: string
   debit: number
   credit: number
-  balance: number
 }
 
 export const useAccountingStore = defineStore('accounting', () => {
@@ -309,7 +309,8 @@ export const useAccountingStore = defineStore('accounting', () => {
   async function fetchFiscalPeriods(fiscalYearId?: string) {
     loading.value = true
     try {
-      const params = fiscalYearId ? { fiscalYearId } : undefined
+      // A year has twelve, and the route's default page is ten.
+      const params = { size: 0, sortBy: 'number', sortOrder: 'asc', ...(fiscalYearId ? { fiscalYearId } : {}) }
       const { data } = await httpClient.get(`${orgUrl()}/accounting/fiscal-period`, { params })
       fiscalPeriods.value = data.fiscalPeriods || []
     } finally {
@@ -571,7 +572,7 @@ export const useAccountingStore = defineStore('accounting', () => {
   }
 
   // --- Reports ---
-  async function getTrialBalance(params?: { date?: string; fiscalYearId?: string }) {
+  async function getTrialBalance(params?: { asOf?: string; fiscalYearId?: string; fiscalPeriodId?: string }) {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/accounting/report/trial-balance`, { params })
@@ -592,7 +593,7 @@ export const useAccountingStore = defineStore('accounting', () => {
     }
   }
 
-  async function getBalanceSheet(params?: { date?: string }) {
+  async function getBalanceSheet(params?: { asOf?: string }) {
     loading.value = true
     try {
       const { data } = await httpClient.get(`${orgUrl()}/accounting/report/balance-sheet`, { params })
