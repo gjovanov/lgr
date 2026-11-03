@@ -173,6 +173,9 @@ export function rowDifferences(derived: Omit<VatRow, 'rowNo'>, filed: FiledSales
 
 const rowKey = (docTypeCode: string, docNumber: string) => `${docTypeCode}:${String(docNumber).replace(/^0+/, '')}`
 
+/** The rows a store's number series can own: its invoices, debit and credit notes. */
+const SERIES_TYPES = new Set(Object.values(REGISTER_DOC_TYPES))
+
 export interface RegisterComparison {
   /** Counts, keyed by what happened. No number, partner or amount. */
   counts: Record<string, number>
@@ -232,7 +235,9 @@ export function compareSalesRegister(derived: readonly DerivedSalesRow[], filed:
   for (const [k, rows] of filedByKey) {
     if (matched.has(k)) continue
     const n = rows[0].docNumber
-    const owner = /^\d{10}$/.test(n) ? owners.find(o => o.docSeries.some(s => n.startsWith(s))) : undefined
+    // A series numbers a store's invoices and notes. A protocol's or a till month's number is zero-padded the
+    // same way and can start like one, so only a document row is ever a store's.
+    const owner = /^\d{10}$/.test(n) && SERIES_TYPES.has(rows[0].docTypeCode) ? owners.find(o => o.docSeries.some(s => n.startsWith(s))) : undefined
     const outcome = owner
       ? `filed ${rows[0].docTypeCode}, ${owner.branch}'s series: ${owner.outsideLgr ? 'a store outside LGR' : 'not in LGR'}`
       : `filed ${rows[0].docTypeCode}, no branch's series${/^\d{10}$/.test(n) ? '' : ` (a ${n.length}-character number)`}`

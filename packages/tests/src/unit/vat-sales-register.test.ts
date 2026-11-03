@@ -155,11 +155,16 @@ describe('the derived register against the filed one', () => {
       filed(),
       filed({ docNumber: '0000012345' }),
       filed({ docNumber: '0000123456' }),
+      // A protocol and a till month, zero-padded like the store's series: neither is a store's document.
+      filed({ docTypeCode: '09', docNumber: '0000001234' }),
+      filed({ docTypeCode: '81', docNumber: '0000000123' }),
     ], withOutside)
     expect(r.counts).toEqual({
       'PZ imported: equal': 1,
       "filed 01, PZW's series: a store outside LGR": 1,
       "filed 01, no branch's series": 1,
+      "filed 09, no branch's series": 1,
+      "filed 81, no branch's series": 1,
     })
   })
 })
