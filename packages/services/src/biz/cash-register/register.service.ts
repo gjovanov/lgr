@@ -37,7 +37,7 @@ import { logger } from '../../logger/logger.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { generateUNP } from '../sequence.service.js'
 import { getNextInvoiceNumber, issuableRefusal } from '../invoice-numbering.service.js'
-import { createInvoiceStockMovement, createNumberedMovement, reverseInvoiceStockMovement } from '../invoicing.service.js'
+import { createInvoiceStockMovement, createNumberedMovement, returnedUnitCost, reverseInvoiceStockMovement } from '../invoicing.service.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { PendingTransferError, confirmTransferMovements } from '../stock-transfer.service.js'
 import { IdempotencyError, LEASE_MS, assertSameRequest, keepLease, takeLease, waitForCompletion } from '../hot-path-key.js'
@@ -1252,14 +1252,21 @@ export async function releaseOrphanClaimsOfSession(orgId: string, sessionId: str
   for (const sale of claimed) await releaseOrphanClaims(sale)
 }
 
+/** A line of a storno's return: what it sold for, as FR-07 and the digest read `unitCost`, and what it cost apart. */
+interface ReturnedLine { productId: unknown; quantity: number; unitCost: number; totalCost: number; resolvedUnitCost: number }
+
 /**
  * The storno's return (D-7): the goods go back where they left from, at the cost they left at.
  *
  * The till restocked at the SALE price, which pulled `avgCost` towards the selling price. The
- * original dispatch recorded what each line cost when it left (`resolvedUnitCost`); the return
- * brings it back at that, through `confirmMovement` like every movement. If the sale moved no stock,
+ * original dispatch recorded what each line cost when it left; the return brings it back at that
+ * (`returnedUnitCost`), through `confirmMovement` like every movement. If the sale moved no stock,
  * neither does its storno. A crash after the return was created finds it again by the storno's id.
  * A part brings back what its own lines name, and nothing else (`partReturned`).
+ *
+ * ⚠ The cost goes in `resolvedUnitCost`, which stock, the layers and the valuation entry read, and
+ * `unitCost` stays the price, as on every invoice-born line (#467). At cost there, FR-07 showed a
+ * returned line's cost as its value, and the period's profit kept what the customer took back.
  */
 export async function returnStornoStock(userId: string, storno: any, original: any): Promise<string | undefined> {
   const r = getRepos()
@@ -1271,14 +1278,18 @@ export async function returnStornoStock(userId: string, storno: any, original: a
   const dispatches: any[] = await StockMovement.find({
     orgId: original.orgId, invoiceId: original._id, type: 'dispatch', status: 'completed',
   }).lean().exec()
+  const orgId = String(storno.orgId)
   let first: string | undefined
   for (const d of dispatches) {
-    const lines = storno.register?.storno?.partial
-      ? partReturned(d, storno)
-      : (d.lines || []).map((l: any) => {
-        const unitCost = Number(l.resolvedUnitCost ?? l.unitCost) || 0
-        return { productId: l.productId, quantity: l.quantity, unitCost, totalCost: round2(unitCost * l.quantity) }
-      })
+    const lines: ReturnedLine[] = storno.register?.storno?.partial
+      ? await partReturned(orgId, d, storno)
+      : await Promise.all((d.lines || []).map(async (l: any) => {
+        const price = Number(l.unitCost) || 0
+        return {
+          productId: l.productId, quantity: l.quantity, unitCost: price, totalCost: price * l.quantity,
+          resolvedUnitCost: await returnedUnitCost(orgId, String(l.productId), String(d.fromWarehouseId), [l], r),
+        }
+      }))
     if (!lines.length) continue
     const movement = await createNumberedMovement(r, String(storno.orgId), {
       type: 'return',
@@ -1302,17 +1313,20 @@ export async function returnStornoStock(userId: string, storno: any, original: a
  * What a part brings back of one dispatch: the lines it names that left from there, at the cost that product left at.
  * A product the sale's dispatch does not carry (no stock kept on it) moved nothing, and comes back as nothing. Several
  * lines of one product are one cost, weighted, because which of them a part returns is not something the shelf knows.
+ * Its price is its own line's, which is the sale's.
  */
-function partReturned(dispatch: any, storno: any): { productId: unknown; quantity: number; unitCost: number; totalCost: number }[] {
-  const out: { productId: unknown; quantity: number; unitCost: number; totalCost: number }[] = []
+async function partReturned(orgId: string, dispatch: any, storno: any): Promise<ReturnedLine[]> {
+  const out: ReturnedLine[] = []
   for (const l of storno.lines || []) {
     if (!l.productId || (l.warehouseId && String(l.warehouseId) !== String(dispatch.fromWarehouseId))) continue
     const left = (dispatch.lines || []).filter((x: any) => String(x.productId) === String(l.productId))
     const quantity = left.reduce((s: number, x: any) => s + (Number(x.quantity) || 0), 0)
     if (!(quantity > 0)) continue
-    const cost = left.reduce((s: number, x: any) => s + (Number(x.resolvedUnitCost ?? x.unitCost) || 0) * (Number(x.quantity) || 0), 0)
-    const unitCost = cost / quantity
-    out.push({ productId: l.productId, quantity: l.quantity, unitCost, totalCost: round2(unitCost * l.quantity) })
+    const price = Number(l.unitPrice) || 0
+    out.push({
+      productId: l.productId, quantity: l.quantity, unitCost: price, totalCost: price * l.quantity,
+      resolvedUnitCost: await returnedUnitCost(orgId, String(l.productId), String(dispatch.fromWarehouseId), left, getRepos()),
+    })
   }
   return out
 }
