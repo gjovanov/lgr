@@ -87,15 +87,16 @@ describe('Payroll Flow', () => {
     }
   })
 
-  it('should reject calculating a non-draft payroll run', async () => {
+  it('should reject calculating an approved payroll run', async () => {
     const org = await createTestOrg()
     const user = await createTestUser(org._id)
     await createTestEmployee(org._id)
 
     const run = await createTestPayrollRun(org._id, user._id)
     await calculatePayroll(String(run._id))
+    await approvePayroll(String(run._id), String(user._id))
 
-    expectRejection(await captureRejection(calculatePayroll(String(run._id))), 'Only draft payroll runs can be calculated')
+    expectRejection(await captureRejection(calculatePayroll(String(run._id))), 'Only draft or calculated payroll runs can be calculated')
   })
 
   it('should reject approving a non-calculated payroll run', async () => {
