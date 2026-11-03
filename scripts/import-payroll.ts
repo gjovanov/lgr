@@ -140,7 +140,10 @@ console.log(execute ? 'WRITING' : 'dry run: nothing is written')
 const employeesReport = await post<{ create: number }>('import/employees', { people: [...people.values()], dryRun })
 console.log('employees', JSON.stringify(employeesReport))
 if (dryRun && employeesReport.create) console.log('  until those people exist, a dry run counts them as unknown below, and refuses their months')
-console.log('contracts', JSON.stringify(await post('import/contracts', { events, snapshots, people: [...people.keys()], dryRun })))
+// ⚠ Only the people this payroll is about. The register and the personnel exports reach further back
+// than the declarations, and a person on neither was sent, and dropped, until 2026-11-03.
+const declared = (p: { personId: string }) => people.has(p.personId)
+console.log('contracts', JSON.stringify(await post('import/contracts', { events: events.filter(declared), snapshots: snapshots.filter(declared), people: [...people.keys()], dryRun })))
 
 const wanted = onlyMonths ?? [...months.keys()].sort()
 const tally = new Map<string, number>()
