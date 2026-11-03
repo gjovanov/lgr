@@ -30,6 +30,8 @@ import { stagedPrint } from './print-stage.js'
 
 // Tremol protocol constants
 const STX = 0x02
+/** How long an ACK alone waits for the status bytes and ETX of its frame, before it is read as it is (#491). */
+const ACK_GRACE_MS = 150
 const ETX = 0x0A  // LF
 const OFFSET = 0x20
 
@@ -181,6 +183,72 @@ export function buildTremolFrame(seq: number, cmd: number, data: string = ''): B
  *   - Full message frame without ACK prefix
  *   - Various combinations with extra bytes
  */
+/**
+ * #491: what the two status bytes of a ZFP ACK frame say, as ErpNet.FP reads them
+ * (`BgZfpFiscalPrinter.Commands.Status.cs`, `ParseCommandStatus`). An ACK answers a command that returns
+ * no data, and its bytes are that command's own result: `<ACK><NBL><STE1><STE2><CS><CS><ETX>`. STE1 is
+ * the device's error (30h–3Fh), STE2 the command's (30h–38h), 30h being none.
+ */
+const TREMOL_DEVICE_ERRORS: readonly string[] = [
+  '', 'Out of paper, printer failure', 'Registers overflow', 'Clock failure or incorrect date & time',
+  'Opened fiscal receipt', 'Payment residue amount', 'Opened non-fiscal receipt',
+  'Registered payment but receipt is not closed', 'Fiscal memory failure', 'Incorrect password',
+  'Missing external display', '24 hours block: missing Z report', 'Overheated printer thermal head',
+  'Interrupted power supply in fiscal receipt', 'Overflow EJ', 'Insufficient conditions',
+]
+const TREMOL_COMMAND_ERRORS: readonly string[] = [
+  '', 'Invalid command', 'Illegal command', 'Z daily report is not zero', 'Syntax error',
+  'Input registers overflow', 'Zero input registers', 'Unavailable transaction for correction',
+  'Insufficient amount on hand',
+]
+/** STE1 codes that say a receipt is open on the device: the command waits for it, as Eltrade's `busy`. */
+const TREMOL_RECEIPT_OPEN = new Set([0x34, 0x36, 0x37])
+
+/**
+ * A command the device answered and did not execute (#491). `kind: 'busy'` is a receipt left open on it
+ * (`receipt_open`), anything else `rejected` (`device_refused`, `fiscal/errors.ts`).
+ */
+export class TremolRefusedError extends Error {
+  readonly kind: 'busy' | 'rejected'
+  readonly status: [number, number]
+  constructor(message: string, kind: 'busy' | 'rejected', status: [number, number]) {
+    super(message)
+    this.name = 'TremolRefusedError'
+    this.kind = kind
+    this.status = status
+  }
+}
+
+/**
+ * The two status bytes of an ACK frame, or null when the answer is no ACK frame that can be read: a lone
+ * ACK, a short one, a bad checksum, or bytes outside the tables. Null keeps today's reading, accepted:
+ * the layout comes from ErpNet.FP's source and no physical Tremol has been read against it yet, so an
+ * answer this cannot read must not stop a till. A well-formed frame with an error is read as refused.
+ */
+export function tremolAckStatus(buffer: Buffer | Uint8Array): [number, number] | null {
+  const buf = Buffer.from(buffer)
+  const ack = buf.indexOf(0x06)
+  if (ack === -1) return null
+  const etx = buf.indexOf(ETX, ack)
+  if (etx - ack !== 6) return null
+  const [ste1, ste2] = [buf[ack + 2], buf[ack + 3]]
+  if (ste1 < 0x30 || ste1 > 0x3F || ste2 < 0x30 || ste2 > 0x38) return null
+  let xor = 0
+  for (let i = ack + 1; i < etx - 2; i++) xor ^= buf[i]
+  if (buf[etx - 2] !== ((xor >> 4) & 0x0F) + 0x30 || buf[etx - 1] !== (xor & 0x0F) + 0x30) return null
+  return [ste1, ste2]
+}
+
+/** Throws when an ACK frame's status says the command was refused (#491). */
+function assertAckAccepted(buffer: Buffer): void {
+  const status = tremolAckStatus(buffer)
+  if (!status) return
+  const [ste1, ste2] = status
+  if (ste1 === 0x30 && ste2 === 0x30) return
+  const said = [TREMOL_DEVICE_ERRORS[ste1 - 0x30], TREMOL_COMMAND_ERRORS[ste2 - 0x30]].filter(Boolean).join('; ')
+  throw new TremolRefusedError(`Tremol refused the command: ${said}`, TREMOL_RECEIPT_OPEN.has(ste1) ? 'busy' : 'rejected', status)
+}
+
 export function parseTremolResponse(buffer: Buffer): { data: string; isAck: boolean } {
   if (buffer.length === 0) {
     return { data: '', isAck: true } // empty response treated as ACK
@@ -194,8 +262,9 @@ export function parseTremolResponse(buffer: Buffer): { data: string; isAck: bool
     throw new Error('Tremol NAK: command rejected')
   }
 
-  // If it's just ACK (with possible trailing bytes), accept it
+  // If it's just ACK (with possible trailing bytes), accept it, unless its status says it was refused.
   if (buffer[0] === 0x06 && (buffer.length === 1 || buffer.indexOf(STX) === -1)) {
+    assertAckAccepted(buffer)
     return { data: '', isAck: true }
   }
 
@@ -205,8 +274,11 @@ export function parseTremolResponse(buffer: Buffer): { data: string; isAck: bool
   const etxIdx = stxIdx !== -1 ? buffer.indexOf(ETX, stxIdx) : -1
 
   if (stxIdx === -1 || etxIdx === -1) {
-    // No full frame found — if we have ACK, treat as success
-    if (hasAck) return { data: '', isAck: true }
+    // No full frame found — if we have ACK, treat as success, unless its status says it was refused.
+    if (hasAck) {
+      assertAckAccepted(buffer)
+      return { data: '', isAck: true }
+    }
     // Otherwise accept whatever we got as a raw response
     return { data: decodeWindows1251(buffer), isAck: false }
   }
@@ -306,20 +378,29 @@ class TremolTransport {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Tremol device timeout')), 10000)
       const chunks: Buffer[] = []
+      let grace: ReturnType<typeof setTimeout> | undefined
 
+      const finish = () => {
+        clearTimeout(timeout)
+        clearTimeout(grace)
+        this.socket.removeListener('data', onData)
+        const buf = Buffer.concat(chunks)
+        try {
+          parseTremolResponse(buf)
+          resolve(buf)
+        } catch (e) {
+          reject(e)
+        }
+      }
       const onData = (chunk: Buffer) => {
         chunks.push(chunk)
         const buf = Buffer.concat(chunks)
-        // Check for ACK (0x06), NAK (0x15), or full frame (ends with ETX=0x0A)
-        if (buf[0] === 0x06 || buf[0] === 0x15 || buf.includes(ETX)) {
-          clearTimeout(timeout)
-          this.socket.removeListener('data', onData)
-          try {
-            parseTremolResponse(buf)
-            resolve(buf)
-          } catch (e) {
-            reject(e)
-          }
+        // NAK, or a full frame (ends with ETX=0x0A). ⚠ An ACK carries its status bytes and ETX after it
+        // (#491), and they can arrive in a later chunk: an ACK alone waits a moment for them.
+        if (buf[0] === 0x15 || buf.includes(ETX)) return finish()
+        if (buf[0] === 0x06) {
+          clearTimeout(grace)
+          grace = setTimeout(finish, ACK_GRACE_MS)
         }
       }
 

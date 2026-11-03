@@ -60,6 +60,10 @@ export function fiscalFailure(e: unknown): FiscalFailure {
     return { ...BY_KIND[err.kind as EltradeErrorKind], message }
   }
   if (err?.name === 'DeviceBusyError') return { status: 409, code: 'device_busy', message }
+  // #491: a Tremol's ACK said the command was refused. A receipt open on it waits, as Eltrade's `busy`.
+  if (err?.name === 'TremolRefusedError') {
+    return err.kind === 'busy' ? { status: 409, code: 'receipt_open', message } : { status: 409, code: 'device_refused', message }
+  }
   if (err?.name === 'FiscalUnsupportedError') return { status: 400, code: 'unsupported', message }
   if (err?.name === 'FiscalNotConnectedError') return { status: 503, code: 'not_connected', message }
   if (/not connected|disconnected|failed to send/i.test(message)) return { status: 503, code: 'not_connected', message }
