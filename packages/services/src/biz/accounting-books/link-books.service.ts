@@ -29,17 +29,28 @@ export interface BranchSpec {
   docSeries?: string[]
 }
 
+/** A store of the same legal entity that sells outside LGR, in its own program: no org, only its series. */
+export interface ExternalBranchSpec {
+  code: string
+  label?: string
+  docSeries: string[]
+}
+
 export interface LinkBooksSpec {
   booksSlug: string
   /** Set to create the books org, with this name. */
   createWithName?: string
   branches: BranchSpec[]
+  /** Replaces the books org's stores outside LGR. Left out, the ones it holds are kept. */
+  externalBranches?: ExternalBranchSpec[]
 }
 
 export interface LinkBooksAnswer {
   dryRun: boolean
   booksOrg: { slug: string; state: 'created' | 'would_create' | 'exists' }
   branches: { slug: string; code: string; state: 'linked' | 'would_link' | 'already' }[]
+  /** What the books org will hold as stores outside LGR. */
+  externalBranches: { code: string; docSeries: string[]; state: 'set' | 'would_set' | 'already' }[]
 }
 
 const eikOf = (org: Pick<IOrg, 'taxNumber'>) => String(org.taxNumber ?? '').replace(/^BG/i, '').trim()
@@ -49,6 +60,21 @@ function assertSpec(spec: LinkBooksSpec): void {
   const codes = spec.branches.map(b => b.code)
   if (new Set(codes).size !== codes.length) throw new BooksLinkError('duplicate_code', 'Two branches share a code.')
   if (spec.branches.some(b => b.slug === spec.booksSlug)) throw new BooksLinkError('books_is_branch', 'An org cannot be a branch of itself.')
+}
+
+/** The series of the stores in LGR and of those outside it, as they will be held. */
+function assertSeries(branches: BranchSpec[], external: ExternalBranchSpec[]): void {
+  // A store outside LGR is known only by its numbers: without a series it would name nothing.
+  if (external.some(b => !b.docSeries?.length || b.docSeries.some(s => !/^\d+$/.test(s)))) {
+    throw new BooksLinkError('no_series', 'A store outside LGR needs the digits its documents\' numbers start with.')
+  }
+  const codes = [...branches.map(b => b.code), ...external.map(b => b.code)]
+  if (new Set(codes).size !== codes.length) throw new BooksLinkError('duplicate_code', 'Two branches share a code.')
+  // One number, one store: a series that starts another would give a document two owners.
+  const series = [...branches.flatMap(b => b.docSeries ?? []), ...external.flatMap(b => b.docSeries)]
+  if (series.some((s, i) => series.some((t, j) => i !== j && t.startsWith(s)))) {
+    throw new BooksLinkError('series_overlap', 'Two series overlap: one starts with the other.')
+  }
 }
 
 export async function linkBooks(spec: LinkBooksSpec, opts: { dryRun: boolean }): Promise<LinkBooksAnswer> {
@@ -83,6 +109,11 @@ export async function linkBooks(spec: LinkBooksSpec, opts: { dryRun: boolean }):
     if (held?.mode === 'branch' && !books) throw new BooksLinkError('linked_elsewhere', `${b.slug} is a branch of another books org.`)
   }
 
+  // The stores outside LGR: the spec's when it names them, else the ones the books org holds.
+  const heldExternal = books?.settings?.accounting?.books?.externalBranches ?? []
+  const external: ExternalBranchSpec[] = (spec.externalBranches ?? heldExternal).map(b => ({ code: b.code, label: b.label || undefined, docSeries: [...(b.docSeries ?? [])] }))
+  assertSeries(spec.branches, external)
+
   const state = (linked: boolean) => (linked ? 'already' : opts.dryRun ? 'would_link' : 'linked') as LinkBooksAnswer['branches'][number]['state']
   const answer: LinkBooksAnswer = {
     dryRun: opts.dryRun,
@@ -91,6 +122,11 @@ export async function linkBooks(spec: LinkBooksSpec, opts: { dryRun: boolean }):
       slug: b.slug,
       code: b.code,
       state: state(org.settings?.accounting?.books?.mode === 'branch' && org.settings.accounting.books.branchCode === b.code),
+    })),
+    externalBranches: external.map(b => ({
+      code: b.code,
+      docSeries: b.docSeries,
+      state: heldExternal.some(h => h.code === b.code && h.docSeries.join() === b.docSeries.join()) ? 'already' : opts.dryRun ? 'would_set' : 'set',
     })),
   }
   if (opts.dryRun) return answer
@@ -122,6 +158,7 @@ export async function linkBooks(spec: LinkBooksSpec, opts: { dryRun: boolean }):
           label: b.label || org.name,
           ...(b.docSeries?.length ? { docSeries: b.docSeries } : {}),
         })),
+        ...(external.length ? { externalBranches: external.map(b => ({ code: b.code, ...(b.label ? { label: b.label } : {}), docSeries: b.docSeries })) } : {}),
       },
     },
   })

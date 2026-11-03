@@ -104,6 +104,7 @@ describe('FR-25 R3 — the sales register, derived from the branches and compare
     expect(gate.filedRows).toBe(10)
     expect(gate.derivedRows).toBe(7)
     expect(gate.branches).toEqual(['PZ', 'SF'])
+    expect(gate.outside).toEqual([])
     expect(gate.counts).toEqual({
       'PZ imported: equal': 5,
       'PZ imported: differs in vat': 1,
@@ -134,5 +135,15 @@ describe('FR-25 R3 — the sales register, derived from the branches and compare
     expect((own as SalesRegisterError).code).toBe('not_a_books_org')
     const bad = await captureRejection(compareSalesRegisterOf(books._id, '202613'))
     expect((bad as SalesRegisterError).code).toBe('bad_period')
+  })
+
+  it('names the rows of a store that sells outside LGR by its series, and derives nothing for it', async () => {
+    await Org.updateOne({ _id: books._id }, { $set: { 'settings.accounting.books.externalBranches': [{ code: 'PZW', docSeries: ['00000'] }] } })
+    const gate = await compareSalesRegisterOf(books._id, PERIOD)
+    expect(gate.branches).toEqual(['PZ', 'SF'])
+    expect(gate.outside).toEqual(['PZW'])
+    expect(gate.derivedRows).toBe(7)
+    expect(gate.counts["filed 01, PZW's series: a store outside LGR"]).toBe(1)
+    expect(gate.counts["filed 01, no branch's series"]).toBeUndefined()
   })
 })

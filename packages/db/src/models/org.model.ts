@@ -32,6 +32,17 @@ export interface IOrgBooksBranch {
   docSeries?: string[]
 }
 
+/**
+ * A store of the same legal entity that sells outside LGR, in its own program. It has no org and posts
+ * nothing: the books carry its documents only as the accountant keys them. Its series is named so the
+ * register's rows of it are told apart from what is missing.
+ */
+export interface IOrgBooksExternalBranch {
+  code: string
+  label?: string
+  docSeries: string[]
+}
+
 export interface IOrgBooks {
   mode: 'own' | 'books' | 'branch'
   /** On a branch. */
@@ -40,6 +51,8 @@ export interface IOrgBooks {
   branchCode?: string
   /** On the books org. */
   branches?: IOrgBooksBranch[]
+  /** On the books org. */
+  externalBranches?: IOrgBooksExternalBranch[]
 }
 
 export interface IOrg extends Document {
@@ -301,6 +314,14 @@ const orgSchema = new Schema<IOrg>(
               code: { type: String, required: true },
               label: { type: String, required: true },
               docSeries: { type: [String], default: undefined },
+            }, { _id: false })],
+            default: undefined,
+          },
+          externalBranches: {
+            type: [new Schema({
+              code: { type: String, required: true },
+              label: String,
+              docSeries: { type: [String], required: true },
             }, { _id: false })],
             default: undefined,
           },

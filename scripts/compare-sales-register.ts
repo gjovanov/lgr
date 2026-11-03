@@ -42,7 +42,7 @@ async function main(): Promise<number> {
     return 2
   }
   const gate = await compareSalesRegisterOf(org._id, PERIOD)
-  console.log(`${SLUG} ${PERIOD}: ${gate.filedRows} rows filed, ${gate.derivedRows} derived from ${gate.branches.join(' + ')}`)
+  console.log(`${SLUG} ${PERIOD}: ${gate.filedRows} rows filed, ${gate.derivedRows} derived from ${gate.branches.join(' + ')}${gate.outside.length ? ` (outside LGR: ${gate.outside.join(', ')})` : ''}`)
   if (!gate.filedRows) console.log('No sales register is filed for this period yet: the rows below are what LGR would declare.')
   for (const [k, n] of Object.entries(gate.counts).sort(([a], [b]) => a.localeCompare(b))) console.log(`${String(n).padStart(6)}  ${k}`)
   if (DETAILS) {

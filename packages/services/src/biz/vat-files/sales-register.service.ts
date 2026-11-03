@@ -21,13 +21,15 @@ export class SalesRegisterError extends Error {
 export interface BooksBranches {
   booksOrgId: unknown
   branches: { orgId: unknown; code: string; docSeries?: string[] }[]
+  /** Stores of the same legal entity that sell outside LGR: named by their series, never read. */
+  externalBranches: { code: string; docSeries: string[] }[]
 }
 
 export async function booksBranches(booksOrgId: unknown): Promise<BooksBranches> {
   const org: any = await Org.findOne({ _id: booksOrgId }).select('settings.accounting.books').lean()
   const books = org?.settings?.accounting?.books
   if (books?.mode !== 'books' || !books.branches?.length) throw new SalesRegisterError('Not a books org with branches: link them first (scripts/link-books.ts)', 'not_a_books_org')
-  return { booksOrgId, branches: books.branches }
+  return { booksOrgId, branches: books.branches, externalBranches: books.externalBranches ?? [] }
 }
 
 const REGISTER_TYPES = Object.keys(REGISTER_DOC_TYPES)
@@ -89,6 +91,8 @@ export interface SalesRegisterGate extends RegisterComparison {
   filedRows: number
   derivedRows: number
   branches: string[]
+  /** The stores outside LGR whose series the books name. */
+  outside: string[]
   /** A row differs, or one side holds a branch's document the other does not. */
   gap: boolean
 }
@@ -96,19 +100,23 @@ export interface SalesRegisterGate extends RegisterComparison {
 /** The sales register `period` derives to from the branches, against the one filed in the books org. */
 export async function compareSalesRegisterOf(booksOrgId: unknown, period: string): Promise<SalesRegisterGate> {
   if (!/^\d{4}(0[1-9]|1[0-2])$/.test(period)) throw new SalesRegisterError(`Not a period: ${period}`, 'bad_period')
-  const { branches } = await booksBranches(booksOrgId)
+  const { branches, externalBranches } = await booksBranches(booksOrgId)
   const refusals: Record<string, number> = {}
   const derived: DerivedSalesRow[] = []
   for (const b of branches) derived.push(...await branchRows(b, period, refusals))
   const filed = await VatRegisterEntry.find({ orgId: booksOrgId, ledger: 'books', side: 'sales', period })
     .select('docTypeCode docNumber docDate partnerVat cells').lean() as unknown as FiledSalesRow[]
-  const owners: SeriesOwner[] = branches.map(b => ({ branch: b.code, docSeries: b.docSeries ?? [] }))
+  const owners: SeriesOwner[] = [
+    ...branches.map(b => ({ branch: b.code, docSeries: b.docSeries ?? [] })),
+    ...externalBranches.map(b => ({ branch: b.code, docSeries: b.docSeries, outsideLgr: true })),
+  ]
   const { counts, details } = compareSalesRegister(derived, filed, owners)
   return {
     period,
     filedRows: filed.length,
     derivedRows: derived.length,
-    branches: owners.map(o => o.branch),
+    branches: branches.map(b => b.code),
+    outside: externalBranches.map(b => b.code),
     counts: { ...counts, ...refusals },
     details,
     gap: filed.length > 0 && Object.keys(counts).some(k => /differs|not filed|series: not in LGR|same number/.test(k)),

@@ -240,9 +240,12 @@ settings.accounting.books?: {
   mode: 'own' | 'books' | 'branch'      // unset = 'own'
   booksOrgId?: ObjectId                 // on a branch
   branchCode?: string                   // 'PZ', 'SF': tags what a branch posts
-  branches?: { orgId: ObjectId; code: string; label: string }[]   // on the books org
+  branches?: { orgId: ObjectId; code: string; label: string; docSeries?: string[] }[]   // on the books org
+  externalBranches?: { code: string; label?: string; docSeries: string[] }[]          // on the books org
 }
 ```
+
+`externalBranches` are the legal entity's stores that sell outside LGR, in a program of their own (§12, question 1): no org, nothing posted, known only by the series their documents' numbers start with. The books carry their documents as the accountant keys them. The register's comparison names those rows by their store instead of counting them missing, and no series may start another, so a number has one owner. `link-books --external <CODE>:<series>` sets them; a re-run that leaves the option out keeps them.
 
 ⚠ This is the one place where an org knows about another. It is set by a sys-admin script (`scripts/link-books.ts`), never through an org admin's API, and refuses when the two orgs' `taxNumber` differ. **No request-scoped read crosses orgs:** the tenant guard (`isForeignOrg`) is untouched. Only the posting worker reads a branch's documents. A drill-down from an entry to its invoice is a link that switches the tab's org (FR-19), and works only for a person who is a member there.
 
@@ -896,6 +899,8 @@ What a later release should know:
 - **A document annulled in a later period keeps its values in its own.** The row of opposite sign in the later period is counted as missing, not derived. ⚠ LGR's date of a void is when LGR was told. For a document annulled in PlusMinus that can be weeks after the annulment, and the gate shows such a row as differing, which it is.
 - **An import is told by the document import's own marks** (`ocr-import`, a first status of `ocr_import`). Only the Files pipeline keeps the PDF. The CLI and API imports keep none, and on August's documents the PDF alone counted 297 imports as issued in LGR.
 - **Typed in LGR as well as in PlusMinus.** While the stores issue in both, a document typed into LGR can carry an import's number. The gate matches the import and counts the other apart.
+- **A store outside LGR.** The third series belongs to a third store that keeps its own program (§12, question 1). Its rows are counted as that store's, by the series `link-books --external` names, and are no gap.
+- **A partner that differs is not always LGR's mistake.** Of the filed rows whose partner differed from LGR's, some were invoices the store re-issued under their number to another customer after the PDF was imported: the register was right, and `scripts/repair-invoice-customer.ts --printed` moves LGR's copy. Others carry a wrong number in the books' own partner card, the same on every row of that customer: the accountant corrects those. Read the store's current document before deciding which side is wrong.
 
 ## 10. Tests
 
@@ -926,13 +931,13 @@ What a later release should know:
 
 **For the accountant** (none blocks R0–R2):
 
-1. **The third invoice series and third till.** 24 invoices a month in a 5-digit series and one `81` row belong to neither store server. Where are they issued, and do they stay? (R3 can't pass without this.)
-2. **How is the monthly till figure built?** pz's follows its till less what was invoiced (§1.5). Is sf's taken from the fiscal device's monthly report? Which report, and what is subtracted?
+1. **The third invoice series and third till.** 24 invoices a month in a 5-digit series and one `81` row belong to neither store server. Where are they issued, and do they stay? (R3 can't pass without this.) **Answered 2026-11-03:** a third store of the same company, with its own warehouse, on a PlusMinus of its own that is not online. Its invoices, 10 to 20 a month, are printed and keyed into the books by hand. It keeps selling outside LGR for now: the two stores go live first, the third later. Its series is named with `link-books --external` (§3.1), and the `81` row that goes with it is its till's.
+2. **How is the monthly till figure built?** pz's follows its till less what was invoiced (§1.5). Is sf's taken from the fiscal device's monthly report? Which report, and what is subtracted? *Open.* For September's sf row the accountant suggested it may include the three stores' invoices. The numbers do not bear that out, and every store invoice already has its own row, so including them would declare them twice. The private report has the figures.
 3. **Does group costing stay?** D3 assumes yes. Would the accountant keep the same groups, and who adds a new one?
 4. **How does a product land in a group?** Is there anything written down, or is it recall? The answer decides how much weight `learned` gets.
-5. **Exports:** E1's list, plus one trial run of the `saft` report. A few minutes each.
+5. **Exports:** E1's list, plus one trial run of the `saft` report. A few minutes each. **Answered 2026-11-03:** we run them ourselves, signed in as `lgr-api`, when the PC is free.
 6. **The tolerance** for cost of sales in §6.3, and the switch-over date.
-7. **Payroll exports:** E8's list. Which version was filed, for the 13 months with more than one?
+7. **Payroll exports:** E8's list. Which version was filed, for the 13 months with more than one? **Answered 2026-11-03:** the newest everywhere but January 2026 (below). E8's exports we run ourselves, as `lgr-api`.
 8. **Where do a month's inputs come from today:** a paper attendance sheet, messages, memory? It decides the shape of the month's sheet in P2.
 9. **Sick leave:** the НОИ forms in the install were not opened in 13 months. Where is Приложение № 9 filed from today? LGR produces it only if that is wanted (§7.4).
 10. **Salaries part-paid in cash** (`D421 K501`): a standing arrangement per person, or case by case?
@@ -944,7 +949,7 @@ What a later release should know:
 **From P1's proof** (§9):
 
 - **Leave pay:** this month's day, as the sheets show, or КТ чл. 177's last month with 10 worked days? They differ when a month has fewer working days.
-- **January 2026:** which of the two versions was filed? Was it filed with 22 working days, and does that need a correction?
+- **January 2026:** which of the two versions was filed? Was it filed with 22 working days, and does that need a correction? **Answered 2026-11-03:** the older one. It is re-imported on prod, and §5.1's gate is equal in every month. The 22 working days are still open, like the rest of this list: the accountant answers them later.
 - **Health on unpaid leave:** who bears it? It is declared and paid, and it is not taken from the person's net.
 - **The class supplement** after РКС № 17/2026 (§7.5, item 2): what rule applies, from when, and to which past periods?
 - **The disability relief:** the tax on 6 person-months shows it, and no file holds the decision. E8 should.
