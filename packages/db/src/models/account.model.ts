@@ -16,6 +16,12 @@ export interface IAccount extends Document {
   isActive: boolean
   balance: number
   tags?: string[]
+  /** FR-25 §3.3: the side its balance normally sits on. 411 and 401 run on both. */
+  balanceSide?: 'debit' | 'credit' | 'both'
+  /** FR-25 §3.3: which trees of `AccountingAnalytic` its lines use. */
+  analyticRoots?: string[]
+  /** FR-25 §3.3: its lines carry quantities (goods, materials, production). */
+  quantitative?: boolean
   createdAt: Date
   updatedAt: Date
 }
@@ -33,6 +39,9 @@ const accountSchema = new Schema<IAccount>(
     isActive: { type: Boolean, default: true },
     balance: { type: Number, default: 0 },
     tags: [String],
+    balanceSide: { type: String, enum: ['debit', 'credit', 'both'] },
+    analyticRoots: { type: [String], default: undefined },
+    quantitative: Boolean,
   },
   { timestamps: true },
 )

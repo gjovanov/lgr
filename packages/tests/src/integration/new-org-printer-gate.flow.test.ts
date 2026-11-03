@@ -61,6 +61,7 @@ describe('every path that creates an org writes the gate off', () => {
 
   /** Each file that creates an org, and what makes it write the gate. */
   const CREATORS: Record<string, string> = {
+    'packages/services/src/biz/accounting-books/link-books.service.ts': '...defaultOrgSettings(',
     'packages/services/src/biz/auth.service.ts': 'settings: defaultOrgSettings(',
     'packages/services/src/biz/identity/account.service.ts': 'settings: defaultOrgSettings(',
     'packages/services/src/biz/oauth.service.ts': 'settings: defaultOrgSettings(',

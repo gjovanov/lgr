@@ -16,6 +16,16 @@ export interface IJournalEntryLine {
   projectId?: Types.ObjectId
   costCenterId?: string
   tags?: string[]
+  opNo?: number
+  side?: string         // 'debit' | 'credit'
+  analyticId?: Types.ObjectId
+  quantity?: number
+  unit?: string
+  settles?: { docType: string; docNumber: string }[]
+  branchOrgId?: Types.ObjectId
+  fx?: { currency: string; rate?: number; amount?: number }
+  journalCode?: string
+  taxCode?: string
 }
 
 export interface IJournalEntry extends Document {
@@ -37,10 +47,26 @@ export interface IJournalEntry extends Document {
   createdBy: Types.ObjectId
   postedBy?: Types.ObjectId
   postedAt?: Date
+  ledger?: string       // 'books' | 'shadow'. Unset is books, and no statement reads shadow
+  docType?: string
+  docNumber?: string
+  docDate?: Date
+  vatKind?: string
+  docTotal?: number
+  docVat?: number
+  docCurrency?: string
+  partnerAnalyticId?: Types.ObjectId
+  branchOrgId?: Types.ObjectId
+  sourceOrgId?: Types.ObjectId
+  importBatchId?: Types.ObjectId
+  importKey?: string
+  importHash?: string
   createdAt: Date
   updatedAt: Date
 }
 ```
+
+The fields after `postedAt`, and on a line those after `tags`, are FR-25 §3.4's: an imported company's books. One operation is two lines with one `opNo`, and a correction is a negative amount on its `side`.
 
 ## Field Reference
 

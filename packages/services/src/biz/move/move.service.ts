@@ -105,6 +105,9 @@ export async function preflightMove(
   const home = await homeOf(org, { fresh: true })
   add('home', home.home === 'global' && home.state === 'active', home.home === 'global' ? `the org is ${home.state} here` : 'the org is already homed on a master')
   add('no_move', !(await OrgMove.exists({ orgId: org, state: { $in: [...LIVE_MOVE_STATES] } })), 'another move of this org is under way')
+  // FR-25 §3.11: a legal entity's books and payroll stay off the stores' servers.
+  const row: any = await Org.findById(org, { 'settings.accounting.books.mode': 1 }).lean()
+  add('not_books', row?.settings?.accounting?.books?.mode !== 'books', 'this organisation holds a company\'s books: they stay on lgrai.app')
 
   const node: any = await ServerNode.findById(nodeId).lean()
   const registered = !!node && node.status === 'active' && (node.orgIds ?? []).some((id: unknown) => String(id) === orgId)

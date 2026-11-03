@@ -227,6 +227,13 @@ describe('preflight (FR-20.79 step 1)', () => {
     expect((await check([])).failed).toEqual(['credentials'])
     expect((await check(s.allow, 1)).failed).toEqual(['no_fiscal_command'])
 
+    // FR-25 §3.11: a company's books and payroll stay on lgrai.app. A branch moves like any org.
+    await Org.collection.updateOne({ _id: s.orgId }, { $set: { 'settings.accounting.books': { mode: 'books' } } })
+    expect((await check()).failed).toEqual(['not_books'])
+    await Org.collection.updateOne({ _id: s.orgId }, { $set: { 'settings.accounting.books': { mode: 'branch' } } })
+    expect((await check()).failed).toEqual([])
+    await Org.collection.updateOne({ _id: s.orgId }, { $unset: { 'settings.accounting.books': 1 } })
+
     await db().collection('possessions').insertOne({ orgId: s.orgId, status: 'open' })
     await db().collection('backgroundtasks').insertOne({ orgId: s.orgId, status: 'processing' })
     await ServerNode.updateOne({ _id: s.nodeId }, { $set: { linkLevel: 'control', 'health.at': new Date(Date.now() - 10 * 60_000) }, $unset: { sealKey: 1 } })

@@ -30,7 +30,7 @@ import { applyRestore, inspectBundle } from 'services/biz/backup/backup-restore.
  * decides which of the three it is.
  */
 const ORG_DATA = [
-  'Account', 'ArchiveUnit', 'AuditLog', 'BankAccount', 'BankReconciliation', 'CashOrder', 'Code',
+  'Account', 'AccountingAnalytic', 'ArchiveUnit', 'AuditLog', 'BankAccount', 'BankReconciliation', 'CashOrder', 'Code',
   'Contact', 'CostLayer', 'Desktop', 'DesktopEnrollmentCode', 'DesktopEnrollmentKey',
   'DesktopEnrollmentKeyUse', 'DocFile', 'EmailLog', 'Employee', 'ExchangeRate', 'File',
   'FiscalDevice', 'FiscalPeriod', 'FiscalPosition', 'FiscalYear', 'FixedAsset', 'InternalOrder',
