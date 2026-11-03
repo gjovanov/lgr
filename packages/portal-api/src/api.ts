@@ -36,6 +36,7 @@ import { fixedAssetController } from 'accounting-api/src/controllers/fixed-asset
 import { bankAccountController } from 'accounting-api/src/controllers/bank-account.controller.js'
 import { reconciliationController } from 'accounting-api/src/controllers/reconciliation.controller.js'
 import { taxReturnController } from 'accounting-api/src/controllers/tax-return.controller.js'
+import { vatController } from 'accounting-api/src/controllers/vat.controller.js'
 import { exchangeRateController } from 'accounting-api/src/controllers/exchange-rate.controller.js'
 import { reportController } from 'accounting-api/src/controllers/report.controller.js'
 import { journalConfigController } from 'accounting-api/src/controllers/journal-config.controller.js'
@@ -229,6 +230,7 @@ export function createApiApp() {
         .use(bankAccountController)
         .use(reconciliationController)
         .use(taxReturnController)
+        .use(vatController)
         .use(exchangeRateController)
         .use(reportController)
         .use(journalConfigController)
