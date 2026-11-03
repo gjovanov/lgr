@@ -3,7 +3,7 @@ import type {
   IOrg, IUser, IInvite, ICode, IEmailLog, IAuditLog, IFile, INotification, IBackgroundTask, IOrgApp, ITag,
   IPermissionSet,
   IJournal, IPaymentTerm, IFiscalPosition,
-  IFiscalYear, IFiscalPeriod, IFixedAsset, IBankAccount, IBankReconciliation, ITaxReturn, IExchangeRate,
+  IFiscalYear, IFiscalPeriod, IFixedAsset, IBankAccount, IBankReconciliation, ITaxReturn, IVatRegisterEntry, IExchangeRate,
   IContact, IInvoice, IPaymentOrder, ICashOrder,
   IProduct, IWarehouse, IStockLevel, IStockMovement, IInventoryCount, IPriceList, ICostLayer, IProductCategory,
   IStockLocation, IOperationType, IStockLot,
@@ -42,6 +42,7 @@ export interface RepositoryRegistry {
   bankAccounts: IBatchRepository<IBankAccount>
   bankReconciliations: IBatchRepository<IBankReconciliation>
   taxReturns: IBatchRepository<ITaxReturn>
+  vatRegisterEntries: IBatchRepository<IVatRegisterEntry>
   exchangeRates: IBatchRepository<IExchangeRate>
 
   // Invoicing

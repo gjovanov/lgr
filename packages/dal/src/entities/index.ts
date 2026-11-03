@@ -28,7 +28,8 @@ export type {
   IFixedAsset, IDepreciationEntry,
   IBankAccount,
   IBankReconciliation, IBankReconciliationItem,
-  ITaxReturn, ITaxReturnLine,
+  ITaxReturn, ITaxReturnLine, ITaxReturnFile, ITaxReturnDeclarant,
+  IVatRegisterEntry,
   IExchangeRate,
 } from './accounting.js'
 
