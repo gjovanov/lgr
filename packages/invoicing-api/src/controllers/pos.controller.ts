@@ -188,12 +188,26 @@ async function printSessionReport(orgId: string, deviceId: string, report: Sessi
  * plain `Error`s with no codes, so this matches on their text — see the error inventory in
  * FR-09 §1 (`not connected`, `timeout`, `NAK`, `bridge disconnected`).
  */
-function fiscalErrorMessage(raw: string): string {
-  const m = raw.toLowerCase()
-  if (m.includes('not connected') || m.includes('disconnected') || m.includes('timeout')) {
-    return `Няма връзка с фискалното устройство. Денят НЕ е приключен. (${raw})`
-  }
-  return `Фискалното устройство върна грешка. Денят НЕ е приключен. (${raw})`
+/**
+ * Why a close's Z-report failed, in the org's language (#454: it was Bulgarian on every org). `away`: no line
+ * to the device, or no answer from it; otherwise the device itself refused.
+ */
+const Z_FAILED: Record<string, { away: string; refused: string }> = {
+  bg: { away: 'Няма връзка с фискалното устройство. Денят НЕ е приключен.', refused: 'Фискалното устройство върна грешка. Денят НЕ е приключен.' },
+  en: { away: 'No connection to the fiscal device. The day is NOT closed.', refused: 'The fiscal device returned an error. The day is NOT closed.' },
+  de: { away: 'Keine Verbindung zum Fiskalgerät. Der Tag ist NICHT abgeschlossen.', refused: 'Das Fiskalgerät hat einen Fehler gemeldet. Der Tag ist NICHT abgeschlossen.' },
+  mk: { away: 'Нема врска со фискалниот уред. Денот НЕ е затворен.', refused: 'Фискалниот уред врати грешка. Денот НЕ е затворен.' },
+}
+
+/** Whether a fiscal failure is the device being away (no line, no answer) rather than the device refusing. */
+function deviceAway(e: unknown): boolean {
+  const code = fiscalFailure(e).code
+  return code === 'not_connected' || code === 'device_timeout'
+}
+
+function fiscalErrorMessage(raw: string, away: boolean, locale: string | undefined): string {
+  const words = Z_FAILED[locale ?? ''] ?? Z_FAILED.en
+  return `${away ? words.away : words.refused} (${raw})`
 }
 
 /**
@@ -854,19 +868,24 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
             return status(409, { code: 'receipt_open', message: 'A sale is printing on this device. Wait for it to finish, then close again.' })
           }
           const message = e?.message || 'Fiscal device error'
+          const away = deviceAway(e)
           await release('failed', message.slice(0, 300))
-          // Mirror the sale path: a device that just failed is marked so the next operation
-          // does not walk into it blind.
-          try {
-            await r.fiscalDevices.update(device.id, { status: 'error' } as any)
-          } catch { /* the close outcome must not depend on this bookkeeping */ }
+          // Mirror the sale path: a device that just refused is marked so the next operation does not walk
+          // into it blind. ⚠ Not one that is only away (#454): `error` outlives the line coming back, and
+          // with the printer gate off the till then answered 503 until somebody reconnected it by hand.
+          if (!away) {
+            try {
+              await r.fiscalDevices.update(device.id, { status: 'error' } as any)
+            } catch { /* the close outcome must not depend on this bookkeeping */ }
+          }
 
           logger.error({ orgId, sessionId: id, deviceId: device.id, err: message }, 'Z-report failed — session left open')
           createAuditEntry({
             orgId, userId: user.id, operatorCode: user.operatorCode, action: 'z_report_failed',
             module: 'pos', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber,
           })
-          return status(503, { code: 'fiscal_error', message: fiscalErrorMessage(message) })
+          const locale = ((await Org.findById(orgId, { 'settings.locale': 1 }).lean().exec()) as any)?.settings?.locale
+          return status(503, { code: 'fiscal_error', ...(away ? { away: true } : {}), message: fiscalErrorMessage(message, away, locale) })
         }
       }
       // device === null → no active device on this warehouse; close proceeds as 'skipped'.

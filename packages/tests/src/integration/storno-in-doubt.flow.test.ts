@@ -375,6 +375,40 @@ describe('a person settles a storno in doubt (finding 1)', () => {
     expect(stornosOnDevice(w)).toHaveLength(1)
   })
 
+  it('#454: printed, with its number off the slip: the storno keeps it, and SUPTO 18.4 lists it by it', async () => {
+    const w = await tillWorld(app)
+    const { storno } = await held(w)
+    // The number the device gave it, as a person reads it off the slip.
+    const slip = String(Number(stornosOnDevice(w)[0].number))
+    expect(slip).toMatch(/^\d+$/)
+
+    const answer = await settle(w, String(storno._id), true, undefined, slip)
+
+    expect({ status: answer.status, code: answer.json?.code }).toEqual({ status: 200, code: undefined })
+    const after = await read(storno._id)
+    expect(after.register.fiscalReceiptNumber).toBe(slip)
+    expect(after.register.settled).toMatchObject({ printed: true, receiptNumber: slip })
+    const reversed = await exportReversedSales({ orgId: w.orgId, dateFrom: new Date(Date.now() - 86_400_000), dateTo: new Date(Date.now() + 86_400_000) } as any)
+    expect(reversed.find((t: any) => t.transactionNumber === after.invoiceNumber)?.fiscalReceiptNumber).toBe(slip)
+  })
+
+  it('#454: a session\'s Transactions count is what its journal lists: the sale and its storno', async () => {
+    const w = await tillWorld(app)
+    const sale = await w.sell(1)
+    expect((await w.storno(String(sale.json.transaction.id))).status).toBe(200)
+    const counted = (await sessionOf(w)).transactionCount
+    const listed = await listJournal({ orgId: w.orgId, sessionId: w.sessionId } as any)
+    expect(counted).toBe(2)
+    expect(listed.total).toBe(counted)
+  })
+
+  it('#454: printed without a number stands as before: the number is the storno\'s to bring, not to require', async () => {
+    const w = await tillWorld(app)
+    const { storno } = await held(w)
+    expect((await settle(w, String(storno._id), true)).status).toBe(200)
+    expect((await read(storno._id)).register.settled.printed).toBe(true)
+  })
+
   /** The line drops after the last sale line: no money on the device, its receipt open, `unknown`. */
   async function heldBeforeItsMoney(w: TillWorld) {
     const sale = await w.sell(1)

@@ -5,7 +5,7 @@ import { forgetDevices, tillApp, tillWorld, type TillWorld } from '../helpers/ti
 import { gate, until } from '../helpers/receipt-world'
 import { CLOSE_LEASE_MS, expectedTotals, buildClosingBreakdown } from 'invoicing-api/src/controllers/pos.controller'
 import { getPrinter } from 'fiscal/fiscal-device.service'
-import { AuditLog, FiscalDevice, POSSession } from 'db/models'
+import { AuditLog, FiscalDevice, Org, POSSession } from 'db/models'
 import type { Elysia } from 'elysia'
 import type { Types } from 'mongoose'
 
@@ -377,6 +377,32 @@ describe('a close while a sale is printing on the device', () => {
     const session: any = await POSSession.findById(w.sessionId).lean().exec()
     expect(session.status).toBe('open')
     expect(session.fiscalStatus).toBe('failed')
+  })
+
+  it('#454: the device away is no device error: 503 in the org\'s language, and the device row left as it was', async () => {
+    const w = await tillWorld(app)
+    await Org.updateOne({ _id: w.oid }, { $set: { 'settings.locale': 'en' } }).exec()
+    w.sim!.disconnected = true
+    const r = await w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 100 } })
+    w.sim!.disconnected = false
+
+    expect(r.status).toBe(503)
+    expect(r.json).toMatchObject({ code: 'fiscal_error', away: true })
+    expect(r.json.message).toStartWith('No connection to the fiscal device. The day is NOT closed.')
+    const device: any = await FiscalDevice.findById(w.deviceId).lean().exec()
+    expect(device.status).not.toBe('error')
+    const session: any = await POSSession.findById(w.sessionId).lean().exec()
+    expect(session.status).toBe('open')
+    expect(session.fiscalStatus).toBe('failed')
+  })
+
+  it('#454: a Bulgarian org is answered in Bulgarian, as before', async () => {
+    const w = await tillWorld(app)
+    await Org.updateOne({ _id: w.oid }, { $set: { 'settings.locale': 'bg' } }).exec()
+    w.sim!.paper = false
+    const r = await w.call('POST', `/trade/pos/session/${w.sessionId}/close`, { counted: { cash: 100 } })
+    expect(r.status).toBe(503)
+    expect(r.json.message).toStartWith('Фискалното устройство върна грешка. Денят НЕ е приключен.')
   })
 })
 
