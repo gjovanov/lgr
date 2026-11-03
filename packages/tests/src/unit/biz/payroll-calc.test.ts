@@ -3,7 +3,7 @@ import { captureRejection, expectRejection } from '../../helpers/capture-rejecti
 import { setupTestDB, teardownTestDB, clearCollections } from '../../setup'
 import { createTestOrg, createTestEmployee, createTestPayrollRun, createTestUser } from '../../helpers/factories'
 import { calculatePayroll, approvePayroll } from 'services/biz/payroll.service'
-import { PayrollRun, Payslip } from 'db/models'
+import { Employee, PayrollRun, Payslip } from 'db/models'
 import type { IOrg, IPayrollRun } from 'db/models'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
@@ -279,12 +279,31 @@ describe('calculatePayroll', () => {
     expectRejection(await captureRejection(calculatePayroll(String(fakeId))), 'Payroll run not found')
   })
 
-  it('should throw when payroll run is not in draft status', async () => {
+  it('should throw when payroll run is past calculating', async () => {
     const org = await createTestOrg({ slug: 'calc-not-draft' })
     const user = await createTestUser(org._id)
-    const run = await createTestPayrollRun(org._id, user._id, { status: 'calculated' })
+    const run = await createTestPayrollRun(org._id, user._id, { status: 'approved' })
 
-    expectRejection(await captureRejection(calculatePayroll(String(run._id))), 'Only draft payroll runs can be calculated')
+    expectRejection(await captureRejection(calculatePayroll(String(run._id))), 'Only draft or calculated payroll runs can be calculated')
+  })
+
+  it('should calculate a calculated run again, from the salaries as they are now', async () => {
+    const org = await createTestOrg({ slug: 'calc-again' })
+    const emp = await createTestEmployee(org._id, {
+      salary: { baseSalary: 5000, currency: 'EUR', frequency: 'monthly' },
+      deductions: [],
+    })
+    const user = await createTestUser(org._id)
+    const run = await createTestPayrollRun(org._id, user._id)
+    await calculatePayroll(String(run._id))
+    await Employee.updateOne({ _id: emp._id }, { $set: { 'salary.baseSalary': 6000 } })
+
+    const again = await calculatePayroll(String(run._id))
+
+    expect(again.status).toBe('calculated')
+    expect(again.items).toHaveLength(1)
+    expect(again.items[0].grossPay).toBe(6000)
+    expect(again.totals.grossPay).toBe(6000)
   })
 
   it('should filter employer contributions with zero rates', async () => {
