@@ -204,6 +204,9 @@ export const EXACT_READ_RULES: ReadonlyMap<string, WriteRule> = new Map<string, 
   ['invoicing/contact/:id/summary', { need: INVOICING }],
   // What the POS Sessions menu offers: the roles of the route it posts to.
   ['trade/pos/session/:id/device-report', { self: 'FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager' }],
+  // A filing's files name a person: DEKLAR its filer, VIES its declarant's ЕГН. They go to who files
+  // them and who audits them; reading a return's rows and cells stays `accounting.read` (FR-25 D10).
+  ['accounting/vat/:period/file/:name', { need: ['accounting.file', 'admin.audit'] }],
 ])
 
 /** The rule for a read route; `undefined` when there is none (refused, and a failing test). */

@@ -255,7 +255,7 @@ describe('generating a period', () => {
     await openRows(OPEN)
     const res = await call('POST', `/vat/${OPEN}/generate`, tokens.accountant, { ...SET_FILER })
     for (const file of res.json.taxReturn.files) {
-      const got = await call('GET', `/vat/${OPEN}/file/${file.name}`, tokens.member)
+      const got = await call('GET', `/vat/${OPEN}/file/${file.name}`, tokens.nra_auditor)
       expect(got.status).toBe(200)
       expect(got.raw.length).toBe(file.bytes)
       expect(sha(got.raw)).toBe(file.sha256)
@@ -294,6 +294,18 @@ describe('generating a period', () => {
     expect(res.json.taxReturn.files.map((f: any) => f.name)).toContain('VIES.txt')
     const file = await call('GET', `/vat/${OPEN}/file/VIES.txt`, tokens.accountant)
     expect(new TextDecoder('windows-1251').decode(file.raw).split('\r\n')[0]).toBe('VHR07/2026    1')
+  })
+
+  it('a filing\'s files go to who files or audits them, and its rows to every reader: the files name a person', async () => {
+    await openRows(OPEN)
+    const res = await call('POST', `/vat/${OPEN}/generate`, tokens.accountant, { ...SET_FILER })
+    for (const file of res.json.taxReturn.files) {
+      expect((await call('GET', `/vat/${OPEN}/file/${file.name}`, tokens.member)).status).toBe(403)
+      expect((await call('GET', `/vat/${OPEN}/file/${file.name}`, tokens.noFile)).status).toBe(403)
+      expect((await call('GET', `/vat/${OPEN}/file/${file.name}`, tokens.accountant)).status).toBe(200)
+    }
+    expect((await call('GET', `/vat/${OPEN}`, tokens.member)).status).toBe(200)
+    expect((await call('GET', `/vat/${OPEN}/rows`, tokens.member)).status).toBe(200)
   })
 
   it('⚠ the VIES declarant\'s ЕГН is written to the file and to nothing a list or a get serialises', async () => {
@@ -484,8 +496,8 @@ describe('reading a period', () => {
 
   it('a file the return does not have is a 404', async () => {
     await importMonth(FILED)
-    expect((await call('GET', `/vat/${FILED}/file/secrets.txt`, tokens.member)).status).toBe(404)
-    expect((await call('GET', `/vat/${OPEN}/file/DEKLAR.txt`, tokens.member)).status).toBe(404)
+    expect((await call('GET', `/vat/${FILED}/file/secrets.txt`, tokens.accountant)).status).toBe(404)
+    expect((await call('GET', `/vat/${OPEN}/file/DEKLAR.txt`, tokens.accountant)).status).toBe(404)
   })
 })
 
