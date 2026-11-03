@@ -1104,7 +1104,10 @@ LGR implements СУПТО (Софтуер за Управление на Про�
 - **`IFiscalPrinter`** interface — abstract over Datecs/Daisy/Tremol/Eltrade/Incotex manufacturers
 - **`DatecsFiscalPrinter`** / **`WebSocketFiscalPrinter`** — Datecs over TCP / browser. ⚠ Never proven on hardware:
   its frame is wrong (LEN one short, CMD sent +20h, UTF-8 text) — the correct ISL framing is `isl-frame.ts`
-- **Tremol** — own ZFP driver (`tremol.ts` / `ws-tremol-printer.ts`), field-tested on a non-fiscalized M20
+- **Tremol** — own ZFP driver (`tremol.ts` / `ws-tremol-printer.ts`), field-tested on a non-fiscalized M20. Since
+  #467 it reports `fiscalized` from the 7 bytes that answer 20h: byte 3 bit 5 „FM fiscalized" (ErpNet.FP's ZFP table),
+  read raw (`tremolPayload`: `parseTremolResponse` decodes text, and most of 80h–BFh come out as '?'). ⚠ `false` only
+  from a status read whole (7 bytes, bit 7 set on each, no FM missing or in error), else unset = fiscal. Seen on no unit
 - **Eltrade** (`eltrade.ts`, 2026-09-24) — A1/A3/A6/B1/B3 KL ECRs + FP printers. ISL framing (`isl-frame.ts`),
   CP1251 (`cp1251.ts`). Opens fiscal receipts with **90h `<name>,<УНП>`**; card = payment code `L`; a storno
   carries the **original** УНП with positive lines. Fails only on per-command bits (syntax / invalid / not
@@ -1234,6 +1237,10 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   never saw. An old tab still sends `nonFiscal`: the route takes it and reads nothing of it. A print failure returns
   `receiptError` (the sale is still saved) instead of a silent success. The text receipt prints amounts in the
   **session's** currency (the org's `baseCurrency` printed BGN on a EUR till)
+- **A text sale's storno prints a slip** (#467, `printStornoSlip`): on the device that printed the sale, its articles and
+  „Сторно на бон № <sale>", no УНП, in its turn. ⚠ Only while that device still says it is not fiscalized: one
+  fiscalized since, one that cannot say, or one away prints nothing and the storno goes through as before (`none`). A slip
+  that fails gives the sale back (503 `fiscal_error`); one interrupted mid-print is held for a person, as R2's text storno.
 - **POS requests are idempotent** (#155, FR-20.37): session open/close, sale and storno take an
   `Idempotency-Key` header (`ui-shared/composables/idempotency` makes one per attempt and keeps it only
   while the outcome is unknown). The key is stored ON the document (`clientKey` + `requestHash`, unique
@@ -1267,7 +1274,8 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   every POS movement, the error was only logged, and sales never left stock. A failure now returns `stockError`
 - **The two-hour rule (Прил. 29 т. 8, FR-20.49, `fiscal/device-reach.ts`):** in SUPTO production mode a NEW fiscal
   sale answers 409 `fiscal_device_unreached` when none of the warehouse's active devices was reached within 2 h
-  AND none answers a status read now. A keyed retry is a sale that already opened and is never refused.
+  AND none answers a status read now. A keyed retry is a sale that already opened and is never refused. The same
+  holds at the counter receipt and, since #467, for a back-office cash sale that joins its author's session and prints.
   - `lastCommunicationAt` is kept by every command a device answers (`getPrinter`'s counted view →
     `noteAnswered`, at most one write a minute per device). ⚠ It used to be written only when a bridge
     registered, so a till printing all day read "not reached since 07:00" by 09:00, and the rule would have
@@ -2819,8 +2827,8 @@ invoice still due until the courier pays).
   dialog draws them up before it issues.
 - ⚠ **A device that is not fiscalized prints text, and the device decides, never a switch** (owner,
   2026-11-01, §6). `receiptMode` (`receipt-mode.ts`, R2 uses it too) reads `fiscalized === false` from the
-  device's own status, fresh, in the turn, with no cache; `undefined` or `true` is fiscal, so a Tremol
-  never gets text and a fiscalized device can never print it. ⚠ A status read that fails is never "not
+  device's own status, fresh, in the turn, with no cache; `undefined` or `true` is fiscal, so a Datecs
+  never gets text (a Tremol does since #467, from its own 20h status) and a fiscalized device can never print it. ⚠ A status read that fails is never "not
   fiscalized": it is the path of a device that went away. No request field, org setting or screen
   selects it. A till sale follows the same rule since #461 (`decideSaleMode`). The УНП is drawn in the turn, by
   `decideMode`, so a text receipt has none. It stays out of what a text sale stays out of: no УНП, nothing fiscal on its
@@ -2896,6 +2904,8 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   dispatch of the invoice it corrects or of that invoice's till sale, then today's average in that warehouse, then the
   purchase price. It is `resolvedUnitCost` on the line, which stock, the layers and the valuation entry read. ⚠ `unitCost`
   stays the document's price, as on every invoice-born line, because FR-07 and the digest read their value columns off it.
+  A till storno's return does the same since #467 (`returnedUnitCost`, shared): it wrote its cost into `unitCost`, so
+  FR-07 showed a returned line's cost as its value, and the valuation entry read the line as saying nothing.
 - ⚠ **A credit note's payment is money OUT:** `createPaymentJournalEntry` posts Dr receivable / Cr cash
   on one, for a bank refund too. Before R2 it posted every outgoing document's as money in. This, the digest's and
   summary's signs and the "Refund" label are the one deliberate change where nothing prints (§2.3).
